@@ -61,4 +61,28 @@ describe("containsOtherAnswerMarker", () => {
       false,
     );
   });
+
+  it("ADR-0045: a general-road context never trips it — the brief row and the marker are not the shape", () => {
+    // The disclosure merges the road marker in BEFORE this guard runs, over the pack-less rows the
+    // general form wrote. Neither `{status, text}` nor `{ownBriefUsable}` is `{kind, text}`, so an
+    // answered brief, a decline and the marker all pass — while the real shape still fails closed.
+    for (const profile_brief of [
+      { status: "answered", text: "Ghar aur dukaan ki wiring karta hoon." },
+      { status: "declined" },
+    ]) {
+      const road = {
+        packId: null,
+        attributes: { profile_brief, has_work_history: true, work_types: ["contract"] },
+        generalRoad: { ownBriefUsable: true },
+      };
+      expect(containsOtherAnswerMarker(road)).toBe(false);
+    }
+    expect(
+      containsOtherAnswerMarker({
+        packId: null,
+        attributes: { profile_brief: { kind: "other_answer", text: "leak" } },
+        generalRoad: { ownBriefUsable: true },
+      }),
+    ).toBe(true);
+  });
 });

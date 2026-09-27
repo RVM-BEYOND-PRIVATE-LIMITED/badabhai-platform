@@ -449,7 +449,12 @@ function workLines(
   return { work: work.join(" · "), ownWords: ownWords.join(" · ") };
 }
 
-const MONTHS = [
+/**
+ * The sheet's month abbreviations. EXPORTED for the general road's "Available from" date (ADR-0045
+ * §3.4), so one page spells a month one way: `Intl`'s en-GB short month is "Sept" on current ICU
+ * builds and "Sep" on older ones, and a résumé must not change its spelling with the base image.
+ */
+export const MONTHS = [
   "Jan",
   "Feb",
   "Mar",

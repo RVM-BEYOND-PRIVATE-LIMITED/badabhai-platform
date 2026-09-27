@@ -16,12 +16,17 @@
   have restyled the 21 form roles too. A résumé row records the id it was rendered with, so
   only NEW generations pick this up; every stored bb_trade row re-renders as bb_trade.
 
-  SAME DATA, NEW LAYOUT. This template reads only slots the renderer already fills for every
-  template — no mapper, row composer or separator changed for it (owner instruction: restyle,
-  do not build the extra details the sample shows). What the sample shows and the data does
-  not carry is simply absent:
-    * no summary paragraph — there is no prose source (the summary slot is the verdict line's
-      facts again, and the model's blurb is not persisted), so the headline stands alone;
+  SAME DATA, NEW LAYOUT — PLUS ONE ADDITIVE LINE. This template reads only slots the renderer
+  already fills for every template — no mapper, row composer or separator changed for it (owner
+  instruction: restyle, do not build the extra details the sample shows) — with one exception
+  added in place, additively, on the bb_trade precedent (templates/README.md): the BRIEF.
+  What the sample shows and the data does not carry is simply absent:
+    * no summary paragraph — the summary slot is the verdict line's facts again, and the
+      model's blurb is not persisted. The one prose line is the brief directly under the
+      headline (ADR-0045 R6): on the general road only, the worker's own words or a fixed
+      deterministic line, on both copies. It is a SCALAR slot (never a region, so a brief
+      carrying braces prints as text), and its element collapses when the slot is empty —
+      which is every sheet off the road, so those render as they always did;
     * no skill categories — the Skills rows are the worker's skills, machines and controllers
       lists, plus any capability rows a mapped pack supplies;
     * separators are the mapper's own: "Employer · City", "Generated … · Ref …", and
@@ -146,6 +151,10 @@
       /* The verdict line's first line: role · tenure · tools. */
       .headline { font-size: 10.5pt; font-weight: 700; margin-top: 2.2mm; }
       .headline:empty { display: none; }
+      /* The general road's brief (ADR-0045 R6): one or two lines under the headline, at body size.
+         Long unbroken words wrap rather than run past the margin. Empty on every other sheet. */
+      .brief { font-size: 10pt; color: var(--text); margin-top: 1.2mm; overflow-wrap: anywhere; }
+      .brief:empty { display: none; }
 
       /* ---- section headings: the grey bar ---------------------------------
          One rule for all five sections. .sec-work puts it on the container (the usual
@@ -281,6 +290,7 @@
     <div class="loc">{{location_line}}</div>
     <div class="wa">{{whatsapp_line}}</div>
     <div class="headline">{{headline_line}}</div>
+    <div class="brief">{{profile_brief}}</div>
 
     <!-- EVERY CONTAINER BELOW IS ONE LINE, flush against its regions. One stray space or
          newline and a section survives its own missing data. Only per-ITEM markup belongs

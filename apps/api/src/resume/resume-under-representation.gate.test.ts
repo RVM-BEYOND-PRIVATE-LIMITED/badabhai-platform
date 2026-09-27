@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { roadContext, roadPersona } from "./__fixtures__/general-road";
 import { buildResumeRenderInput } from "./resume-render-input";
 import { formatSalaryBand } from "./resume-sheet-rows";
 
@@ -37,6 +38,15 @@ import { formatSalaryBand } from "./resume-sheet-rows";
  * could only re-derive the input it was given, which is the circularity R8 §3 removed from the
  * page gate. So this is a property asserted over the mapper's inputs and outputs, at the boundary
  * where both are visible, and it fails the build rather than logging in production.
+ *
+ * ONE RECORDED EXCEPTION: THE GENERAL ROAD (ADR-0045 R5, §4.2). For a worker profiled on the
+ * general road — a role outside the 21, handed over to the offline form — the owner ruled that
+ * total experience comes ONLY from the Work History's dated jobs, and that whatever the chat opener
+ * captured never counts. There the printed total MAY sit below a figure the profile carries, and
+ * that is the ruling, not a defect: the chat's figure is exactly the number R5 says is not his
+ * total. The exception is scoped by construction — only a `bb_general` render with the road
+ * context the résumé's own provenance proves — and the instance-1 cases below, which render
+ * `bb_trade`, are untouched by it. Pinned in its own describe at the end of this file.
  */
 
 /** Parse "8 yrs", "1 yr 6 mo", "duration not stated" back to years, for comparison. */
@@ -256,5 +266,36 @@ describe("R10 R-2 — the gate itself is capable of failing", () => {
     expect(summedFor([null, 20])!).toBeLessThan(5);
     expect(summedFor([null, 12, 29, 23])!).toBeLessThan(8);
     expect(summedFor([20, 34, 65])!).toBeLessThan(12);
+  });
+});
+
+describe("ADR-0045 R5 — the general road is the recorded exception to instance 1", () => {
+  // The road's frozen build-time total is 11 years; his two DATED jobs add up to 7 yrs 4 mo.
+  const persona = roadPersona("road-declined");
+  const render = (templateId: string, roadOn: boolean) =>
+    buildResumeRenderInput(
+      persona.snapshot,
+      persona.displayName,
+      templateId,
+      null,
+      false,
+      "worker",
+      roadContext(persona, roadOn ? {} : { generalRoad: undefined }),
+    );
+
+  it("prints the dated-jobs total even BELOW the figure the profile carries — by ruling", () => {
+    const stated = (persona.snapshot.experience as { total_years: number }).total_years;
+    const input = render("bb_general", true);
+    expect(yearsFromHeadline(input.headlineLine)).toBeLessThan(stated);
+    expect(input.experienceYears).toBe(7.3);
+    expect(input.headlineLine).toContain("7 yrs 4 mo");
+  });
+
+  it("is scoped to the road: the same worker off it, or on bb_trade, keeps this gate's floor", () => {
+    const stated = (persona.snapshot.experience as { total_years: number }).total_years;
+    for (const input of [render("bb_general", false), render("bb_trade", true)]) {
+      expect(input.experienceYears).toBeGreaterThanOrEqual(stated);
+      expect(yearsFromHeadline(input.headlineLine)!).toBeGreaterThanOrEqual(stated);
+    }
   });
 });

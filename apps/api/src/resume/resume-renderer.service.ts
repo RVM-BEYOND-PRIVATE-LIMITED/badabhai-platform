@@ -290,6 +290,30 @@ export interface ResumeRenderInput {
   /** `{{subhead_line}}` — city · availability · salary, composed by the mapper. */
   subheadLine?: string | null;
   /**
+   * `{{profile_brief}}` — the general road's one line of prose under the headline (ADR-0045 R6):
+   * the worker's own words, or the fixed fallback line (`resume-brief.ts`). On BOTH audiences.
+   *
+   * A SCALAR SLOT, NEVER A REGION, and that is a security property rather than a style: the
+   * renderer HTML-escapes but does not brace-escape, and a value a region inserts is scanned again
+   * by the later fill steps — so a brief carrying `{{phone}}` would expand inside a region. A
+   * scalar is filled in the last single pass and is never re-scanned.
+   *
+   * ABSENT (undefined) ON EVERY SHEET OFF THE ROAD — not null — so every other render input is
+   * byte-identical to what it was, down to its JSON. Only `bb_general.v1` carries the slot; on the
+   * road with no line to print it is null and the element collapses.
+   */
+  profileBrief?: string | null;
+  /**
+   * THE GENERAL-ROAD MARKER (ADR-0045 Phase 5). NOT A TEMPLATE SLOT.
+   *
+   * `true` when this input was built on the general road — the résumé's own provenance says its
+   * profile was built from a general-form handover, and it renders as `bb_general`. ABSENT on every
+   * other sheet. It exists for `toResumeDocument`, which is pure and keyed on the pack: a road
+   * worker is pack-less, so without the marker his document would be `generic` and the app would
+   * never draw the sheet his PDF prints.
+   */
+  generalRoad?: boolean;
+  /**
    * The settled facts the two lines above were composed from (#1714). NOT A TEMPLATE SLOT.
    *
    * Returned by `buildVerdictLine` beside the lines themselves, so both mapper branches carry it
@@ -552,6 +576,9 @@ export class ResumeRenderer {
       trust_badge: input.trustBadge ?? "",
       headline_line: input.headlineLine ?? "",
       subhead_line: input.subheadLine ?? "",
+      // ADR-0045 R6 — the general road's brief. A SCALAR, filled in the single last pass, so a
+      // brief carrying braces is printed as text and never expanded (see `profileBrief`).
+      profile_brief: input.profileBrief ?? "",
       cap_section_title: input.capSectionTitle ?? "",
       // Empty for every sheet but a tier that drops documents and certificates. A closed value
       // selecting between two template literals — never a heading string.

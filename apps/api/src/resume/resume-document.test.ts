@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { ROLE_FORM_DESCRIPTORS } from "../profiling/roles/role-registry";
+import { roadContext, roadPersona } from "./__fixtures__/general-road";
+import { buildResumeRenderInput } from "./resume-render-input";
 import { TRADE_RESUME_MAPS } from "./trade-resume-map";
 import {
   packIsPredefinedRole,
@@ -123,6 +125,9 @@ describe("the template gate (Layer A (i) — no map, no cliff)", () => {
       expect(templateIdForPack(pack), String(pack)).not.toBe("classic");
     }
     // The DOCUMENT format is a separate, pack-keyed decision and is unchanged: no pack → generic.
+    // ONE CARVE-OUT (ADR-0045): the general road's pack-less worker is forced to `trade_sheet` by
+    // the marker the mapper sets on his input — see "the general road's document" below. The
+    // pack rule itself is untouched.
     expect(packUsesUniversalSheet(null)).toBe(false);
   });
 
@@ -222,6 +227,126 @@ describe("toResumeDocument", () => {
     expect(doc.header.trustBadge).toBeNull();
     expect(doc.employments).toEqual([]);
     expect(doc.employmentsMore).toBeNull();
+    // #1736's additive keys are the input's own values — the layout it was drawn with and its
+    // three lists, the same arrays, not copies the document could let drift.
+    expect(doc.layout).toBe("bb_trade");
+    expect(doc.skills).toBe(BASE.skills);
+    expect(doc.machines).toBe(BASE.machines);
+    expect(doc.controllers).toBe(BASE.controllers);
+    // And the brief is not invented for a sheet that has no brief slot.
+    expect("brief" in doc).toBe(false);
+  });
+});
+
+/**
+ * #1736's SERVER HALF and ADR-0045 — what a `trade_sheet` document gains, and who it goes to.
+ *
+ * EVERY trade-sheet document gains `layout` and the three lists (the app draws the general
+ * sheet's Skills section from them, and until now they were absent on every server build). The
+ * general road is forced to `trade_sheet` even with no pack, and it alone carries `brief`. A
+ * GENERIC document is untouched, key for key.
+ */
+describe("the general road's document, and #1736's layout and lists", () => {
+  const ROAD_INPUT: ResumeRenderInput = {
+    ...BASE,
+    templateId: "bb_general",
+    generalRoad: true,
+    profileBrief: "Ghar aur dukaan ki wiring karta hoon.",
+    headlineLine: "House Electrician · 7 yrs 4 mo · House wiring",
+    skills: ["House wiring", "Panel fitting"],
+    machines: ["Megger"],
+    controllers: [],
+  };
+
+  it("forces the road to a trade sheet with no pack: trade 'trade', the layout, the brief, the lists", () => {
+    const doc = toResumeDocument(ROAD_INPUT, null);
+    expect(doc.format).toBe("trade_sheet");
+    // "trade" is also the pre-`layout` signal older app builds read as "the general sheet".
+    expect(doc.trade).toBe("trade");
+    if (doc.format !== "trade_sheet") throw new Error("unreachable");
+    expect(doc.layout).toBe("bb_general");
+    expect(doc.brief).toBe("Ghar aur dukaan ki wiring karta hoon.");
+    expect(doc.skills).toEqual(["House wiring", "Panel fitting"]);
+    expect(doc.machines).toEqual(["Megger"]);
+    expect(doc.controllers).toEqual([]);
+    expect(doc.headline.line1).toBe("House Electrician · 7 yrs 4 mo · House wiring");
+    // NEVER a `source`: the app would route a `chat` source to its chat view.
+    expect("source" in doc).toBe(false);
+  });
+
+  it("the road with nothing to say carries the key with null — a real answer, not an absence", () => {
+    const doc = toResumeDocument({ ...ROAD_INPUT, profileBrief: null }, null);
+    if (doc.format !== "trade_sheet") throw new Error("unreachable");
+    expect(doc).toHaveProperty("brief", null);
+  });
+
+  it("a pack-bearing sheet off the road gains the layout and the lists, never the brief", () => {
+    const universal = toResumeDocument({ ...BASE, templateId: "bb_general" }, "qp_universal");
+    if (universal.format !== "trade_sheet") throw new Error("unreachable");
+    expect(universal.layout).toBe("bb_general");
+    expect(universal.skills).toEqual(["Turning"]);
+    expect("brief" in universal).toBe(false);
+    // A stored row still drawn through a legacy layout claims none it does not have.
+    const legacy = toResumeDocument({ ...BASE, templateId: "classic" }, "qp_cnc_turning");
+    if (legacy.format !== "trade_sheet") throw new Error("unreachable");
+    expect(legacy.layout).toBeNull();
+  });
+
+  it("leaves a GENERIC document byte-identical — key for key, and a stray brief does not leak in", () => {
+    // The generic shape as it shipped before Phase 5. A key added here is a client change.
+    const GENERIC_KEYS = [
+      "format",
+      "trade",
+      "header",
+      "footerMeta",
+      "glance",
+      "headline",
+      "summary",
+      "location",
+      "availability",
+      "experienceYears",
+      "expectedSalary",
+      "skills",
+      "machines",
+      "controllers",
+      "education",
+      "certifications",
+      "preferredLocations",
+      "experiences",
+    ];
+    const plain = toResumeDocument({ ...BASE, templateId: "bb_general" }, null);
+    expect(Object.keys(plain)).toEqual(GENERIC_KEYS);
+    // Off the road the marker is absent; a brief on the input without it changes nothing.
+    const stray = toResumeDocument(
+      { ...BASE, templateId: "bb_general", profileBrief: "x", generalRoad: undefined },
+      null,
+    );
+    expect(JSON.stringify(stray)).toBe(JSON.stringify(plain));
+  });
+
+  it("a road Fresher's glance is valid — years null, never 0 — and reads back", () => {
+    const persona = roadPersona("road-fresher");
+    const input = buildResumeRenderInput(
+      persona.snapshot,
+      persona.displayName,
+      "bb_general",
+      null,
+      false,
+      "worker",
+      roadContext(persona),
+    );
+    const doc = toResumeDocument(input, null, 1);
+    expect(doc.format).toBe("trade_sheet");
+    expect(doc.glance.experienceYears).toBeNull();
+    // The zod schema requires a POSITIVE figure: a 0 here would drop the whole glance on read.
+    expect(readResumeGlance(JSON.parse(JSON.stringify(doc)))).toEqual({
+      role: "House Electrician",
+      experienceYears: null,
+      machines: ["House wiring", "Panel fitting", "MCB installation"],
+      axes: [],
+      city: null,
+      pageCount: 1,
+    });
   });
 });
 
