@@ -232,6 +232,52 @@ void main() {
     verify(() => repo.openCompanion()).called(1);
   });
 
+  // ── THE SWITCH LANDED AFTER THE TAB OPENED ──────────────────────────────────
+  // Remote Config is fetched after the first frame, so a tab opened early reads
+  // the compiled-in "off". The wrapper used to exist only when the switch was on
+  // at mount, so such a tab never asked for the recap until the app was killed.
+  // It now reads the switch on every refocus.
+  group('a tab that opened with the switch OFF', () {
+    late TabFocus focus;
+
+    Future<void> pumpWithFocus(WidgetTester tester) async {
+      focus = TabFocus(TabIndex.chat);
+      locator.registerLazySingleton<TabFocus>(() => focus);
+      await pumpTab(tester);
+      verifyNever(() => repo.openCompanion());
+      expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+    }
+
+    Future<void> awayAndBack(WidgetTester tester) async {
+      focus.value = TabIndex.jobs;
+      await tester.pump();
+      focus.value = TabIndex.chat;
+      await tester.pump();
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('moves to the recap on a refocus once the switch is on', (WidgetTester tester) async {
+      await pumpWithFocus(tester);
+
+      companionSwitch(true);
+      await awayAndBack(tester);
+
+      verify(() => repo.openCompanion()).called(1);
+      expect(find.text(_recap), findsOneWidget);
+      expect(find.text(kChatDoneNotReadyLabel), findsNothing);
+      expect(find.text(kChatDoneReadyLabel), findsNothing);
+    });
+
+    testWidgets('asks nothing on a refocus while the switch is still off', (WidgetTester tester) async {
+      await pumpWithFocus(tester);
+
+      await awayAndBack(tester);
+
+      verifyNever(() => repo.openCompanion());
+      expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+    });
+  });
+
   // ── #1755.3 — the recap on the smallest supported screen, at 2.0 text ──────
   testWidgets('the recap and its chips fit at 320x568, text scale 2.0',
       (WidgetTester tester) async {

@@ -69,6 +69,15 @@ abstract interface class ChatRepository {
   /// exactly like an ordinary open.
   Future<ChatSessionOpening?> startNewSession();
 
+  /// Forget the cached interview session id, so the next [ensureSession] asks
+  /// the server for the worker's latest session instead of reusing it.
+  ///
+  /// ADR-0044 — called when the tab leaves the interview for the recap. A tab
+  /// that opened ON the recap holds no id, and a later fallback to the
+  /// interview reads the latest session; this makes a tab that moved there
+  /// from the interview behave the same. Touches nothing server-side.
+  void forgetSession();
+
   /// Sends [text] and returns bada bhai's reply plus any tap-to-answer
   /// [ChatTurn.followups].
   ///

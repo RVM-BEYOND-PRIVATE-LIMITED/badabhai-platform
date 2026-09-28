@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:isolate';
 
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart' show SchedulerBinding;
 import 'package:flutter/services.dart' show MissingPluginException;
+
+import '../firebase/firebase_boot.dart';
 
 /// App-wide crash reporting, wired to **Firebase Crashlytics** (FlutterFire).
 ///
@@ -126,7 +127,9 @@ class CrashReporter {
       // google-services.json; iOS: GoogleService-Info.plist). Time-bounded so a
       // native init that DEADLOCKS instead of erroring can't wedge the first
       // frame — a TimeoutException is caught below exactly like any init error.
-      await Firebase.initializeApp().timeout(const Duration(seconds: 8));
+      // The SHARED attempt: Remote Config waits on this same one (see
+      // [FirebaseBoot] for why it must).
+      await FirebaseBoot.ensureInitialized();
       // Collect in release only by default. In debug, errors go to the console
       // / debugger and must not pollute the live dashboard.
       await FirebaseCrashlytics.instance

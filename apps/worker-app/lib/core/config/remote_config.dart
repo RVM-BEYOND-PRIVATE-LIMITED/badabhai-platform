@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart';
 
+import '../firebase/firebase_boot.dart';
+
 /// B7 — Firebase Remote Config, as a small typed wrapper.
 ///
 /// ## What this is NOT
@@ -174,13 +176,19 @@ class BbRemoteConfig {
   /// Fetch and activate, bounded by [timeout]. NEVER throws, and never delays
   /// startup: call it unawaited from the splash / after the first frame.
   ///
-  /// The timeout is short on purpose. Firebase's own `fetchTimeout` covers the
-  /// network leg, but `Firebase.initializeApp()` on a non-GMS / AOSP ROM can
-  /// hang rather than error (the same failure mode `CrashReporter` is bounded
-  /// for), so the whole call is wrapped too. A miss costs nothing — the defaults
-  /// above ARE today's behaviour.
+  /// FIREBASE FIRST. `FirebaseRemoteConfig.instance` throws until an
+  /// `initializeApp()` has COMPLETED, and this used to start beside the crash
+  /// reporter's still-pending one: it threw on every cold start, the catch below
+  /// swallowed it, and no console value ever reached a device. It now waits for
+  /// the shared [FirebaseBoot], which carries its own timeout for a native init
+  /// that hangs on a non-GMS / AOSP ROM.
+  ///
+  /// The fetch timeout is short on purpose. Firebase's own `fetchTimeout` covers
+  /// the network leg, and the whole fetch is wrapped too. A miss costs nothing —
+  /// the defaults above ARE today's behaviour.
   Future<void> init({Duration timeout = const Duration(seconds: 5)}) async {
     try {
+      await FirebaseBoot.ensureInitialized();
       await _fetchAndActivate(timeout).timeout(timeout);
     } catch (_) {
       // Fail-open to the compiled-in defaults. Never surfaced, never fatal.
