@@ -108,7 +108,11 @@ describe("WorkersController — list/getProfile (read, no-PII) + setName", () =>
   it("setName routes the PII through the service (returns only the id)", async () => {
     const { controller, workersService } = make();
     const res = await controller.setName(ID, { full_name: "Asha" } as never, CTX);
-    expect(workersService.setFullName).toHaveBeenCalledWith(ID, "Asha", CTX);
+    // #1318: the ops route is NOT the worker editing their résumé — it must say so, or the service
+    // would count an ops write as a resume.edited_v2.
+    expect(workersService.setFullName).toHaveBeenCalledWith(ID, "Asha", CTX, {
+      origin: "internal_ops",
+    });
     expect(res).toEqual({ worker_id: ID });
   });
 
@@ -194,7 +198,9 @@ describe("WorkersController — list/getProfile (read, no-PII) + setName", () =>
     const worker = { id: ID, sid: "sess-1" };
     const res = await controller.setMyName(worker, { full_name: "Asha" } as never, CTX);
     // worker id comes from @CurrentWorker — never the body
-    expect(workersService.setFullName).toHaveBeenCalledWith(ID, "Asha", CTX);
+    expect(workersService.setFullName).toHaveBeenCalledWith(ID, "Asha", CTX, {
+      origin: "worker_self",
+    });
     // response NEVER carries the name (or even the id): only { ok: true }
     expect(res).toEqual({ ok: true });
     expect(JSON.stringify(res)).not.toMatch(/Asha/i);
@@ -225,7 +231,9 @@ describe("WorkersController — list/getProfile (read, no-PII) + setName", () =>
     // and nothing else, so the location half is passed through as two undefineds and no-ops.
     const { controller, workersService } = make();
     const res = await controller.setMyName({ id: ID, sid: "s" }, { full_name: "Asha" } as never, CTX);
-    expect(workersService.setFullName).toHaveBeenCalledWith(ID, "Asha", CTX);
+    expect(workersService.setFullName).toHaveBeenCalledWith(ID, "Asha", CTX, {
+      origin: "worker_self",
+    });
     expect(workersService.setLocation).toHaveBeenCalledWith(
       ID,
       { city: undefined, state: undefined },

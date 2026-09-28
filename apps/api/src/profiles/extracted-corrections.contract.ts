@@ -73,8 +73,10 @@
  *
  * One `resume.edited` per applied correction (ids + closed field enum only — the values
  * live in the authored stores). Idempotency key `resume.edited:${correctionId}`.
- * This closes #1311's event acceptance; #1318 (`skin_changed`, `qr_scanned`, and the
- * safe-field-edit emission) stays open and untouched.
+ * This closes #1311's event acceptance. The résumé SAFE-FIELD edits (name, photo, show_photo,
+ * night_shift_ready) emit `resume.edited_v2` from `WorkersService` (#1318) — a separate registry
+ * entry, so this v1 and its emitter are unchanged. `resume.skin_changed` and
+ * `profile.qr_scanned` moved to #1801 and #1800 and are not registered.
  *
  * ═══ CORRECTED-WINS ═══
  *

@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 205 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events)", () => {
-    expect(EVENT_NAMES).toHaveLength(205);
+  it("exposes all 206 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2)", () => {
+    expect(EVENT_NAMES).toHaveLength(206);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -3269,9 +3269,15 @@ describe("registry", () => {
     expect(isEventName("resume.downloaded")).toBe(true);
     expect(isEventName("resume.regenerated")).toBe(true);
     expect(isEventName("resume.shared")).toBe(true);
-    // #1311 backend half — the per-field extracted-correction audit event (NOT #1318:
-    // skin_changed / qr_scanned stay absent).
+    // #1311 backend half — the per-field extracted-correction audit event.
     expect(isEventName("resume.edited")).toBe(true);
+    // #1318 (owner ruling 2026-09-27) — the résumé SAFE-FIELD edit (name, photo, show_photo,
+    // night_shift_ready) as a SECOND registry entry, v1 untouched. `resume.skin_changed` and
+    // `profile.qr_scanned` are still absent: they moved to #1801 and #1800, and nothing may
+    // register them ahead of those issues.
+    expect(isEventName("resume.edited_v2")).toBe(true);
+    expect(isEventName("resume.skin_changed")).toBe(false);
+    expect(isEventName("profile.qr_scanned")).toBe(false);
     expect(isEventName("action.recorded")).toBe(true);
     expect(isEventName("profile.extraction_ready")).toBe(true);
     expect(isEventName("ai.cost_recorded")).toBe(true);
@@ -3310,6 +3316,11 @@ describe("registry", () => {
     // `profile.viewed`. v1's `job_id` is REQUIRED and an unlock found by search carries
     // none, so v2 makes it OPTIONAL rather than relaxing v1 in place.
     "profile.viewed_v2": 2,
+    // #1318 (owner ruling 2026-09-27): the safe-field generation of `resume.edited`. v1's
+    // correction_id / session_id / profile_id are REQUIRED and a safe-field edit has none of
+    // them, so v2 is a new name rather than a relaxed v1. v1 keeps its extracted-correction
+    // emitter unchanged.
+    "resume.edited_v2": 2,
   };
 
   it("every registry entry is version 1 except the ADR-versioned payloads", () => {
@@ -3349,6 +3360,39 @@ describe("registry", () => {
       v1.payload.safeParse({ worker_id: UUID_A, viewer_payer_id: UUID_B, job_id: UUID_C }).success,
     ).toBe(true);
     expect(v1.payload.safeParse({ worker_id: UUID_A, viewer_payer_id: UUID_B }).success).toBe(false);
+  });
+
+  // The behavioural v1 lock (required anchors, v2 shapes refused) lives with the v2 tests in
+  // resume-edited-v2.test.ts. This one pins the SHAPE, which a parse-based lock cannot: an
+  // OPTIONAL key added to v1 (or v2) would still parse every fixed sample and slip through.
+  it("keeps the shipped resume.edited v1 payload SHAPE exactly as it was (invariant #8)", () => {
+    const v1 = EVENT_REGISTRY["resume.edited"];
+    expect(v1.version).toBe(1);
+    expect(Object.keys(v1.payload.shape).sort()).toEqual([
+      "correction_id",
+      "field",
+      "profile_id",
+      "session_id",
+      "worker_id",
+    ]);
+    expect(v1.payload.shape.field.options).toEqual([
+      "skills",
+      "machines",
+      "experience",
+      "education",
+      "certificates",
+    ]);
+  });
+
+  it("pins the resume.edited_v2 payload SHAPE — ids and the four safe fields, nothing else", () => {
+    const v2 = EVENT_REGISTRY["resume.edited_v2"];
+    expect(Object.keys(v2.payload.shape).sort()).toEqual(["field", "resume_id", "worker_id"]);
+    expect(v2.payload.shape.field.options).toEqual([
+      "name",
+      "photo",
+      "show_photo",
+      "night_shift_ready",
+    ]);
   });
 });
 
