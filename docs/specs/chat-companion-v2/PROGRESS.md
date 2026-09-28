@@ -40,3 +40,30 @@ One entry per task, appended after the task's checks pass. Tasks come from
   - employment/languages/qualifications/occupations replace the WHOLE list; preferences patches
     keys. A single edit row needs read → mutate → replace for the four replace writers.
 - **Next:** T1 (types), pending the P1-OQ1 answer — T1–T6 do not depend on the skills decision.
+
+---
+
+## T0 follow-up — P1-OQ1 ruling — 2026-09-28 18:44
+
+- **Done:** Owner ruled on the skills writer. Updated `contracts.md` §3 (skills row + T7 notes)
+  and the phase file's Open questions with the resolution. No code changed.
+  - `docs/specs/chat-companion-v2/contracts.md`
+  - `docs/specs/chat-companion-v2/phase-1-router-and-edit-resume.md`
+  - `docs/specs/chat-companion-v2/PROGRESS.md`
+- **Ruling (verbatim answers):** (1) "Build the missing writer." (2) On scope: "Don't think about
+  skills related to job posting/matching/domains/roles right now only the worker side app and
+  profiling matters. And only focus on worker side of the app for now." (3) On removal effect:
+  "Résumé only."
+  Concretely, T7 builds a deterministic résumé-only skills editor: append/remove labels on the
+  confirmed profile's résumé snapshot (`raw_profile.resume_profile.skills` when the container
+  carries values, else `raw_profile.skills` / `raw_profile.skill_labels`), then regenerate
+  (ADR-0043, trigger `chat_edit`). Matching stores (`worker_skill`, `job_reach`,
+  `worker_profiles.skills`) are NOT written; no ADR-0030 canonicalization and no job-domain
+  lookup. A later re-extraction/confirm may restore an edited-away skill — accepted.
+- **Checks:** docs-only; no code touched. Re-ran nothing beyond T0's green gates.
+- **Notes / decisions / surprises:** `worker_profiles.skills` (the canonical column) feeds
+  matching derivation (`WorkerSkillsRepository.findLatestProfileSignals`), so it must stay
+  untouched to honour "résumé only". The résumé prints from `raw_profile` JSON on both render
+  paths; the container path prefers `resume_profile.skills`, the legacy path merges
+  `skills` + `skill_labels`.
+- **Next:** T1 (types).
