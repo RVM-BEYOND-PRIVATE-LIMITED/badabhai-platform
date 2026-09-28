@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show SocketException;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -367,6 +368,107 @@ void main() {
 
       await expectLater(
         repo.setEmploymentDescriptionSource('emp-1', ownWords: true),
+        throwsA(isA<UnauthorizedFailure>()),
+      );
+      expect(hits, isEmpty);
+    });
+  });
+
+  // RÉSUMÉ SKINS (#1808). Two deliberately DIFFERENT error contracts on one
+  // pair of routes: the read must never break the tab, the write must never be
+  // silently lost.
+  group('loadResumeSkin', () {
+    test('a served state is parsed and carries the bearer', () async {
+      late http.Request captured;
+      final ResumeRepositoryImpl repo = _repo(MockClient((http.Request req) async {
+        captured = req;
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'enabled': true,
+            'skin': 'neela',
+            'skins': <String>['neela'],
+          }),
+          200,
+        );
+      }));
+
+      final ResumeSkinState state = await repo.loadResumeSkin();
+      expect(state.enabled, isTrue);
+      expect(state.skin, 'neela');
+      expect(captured.method, 'GET');
+      expect(captured.url.path, '/resume/skin');
+      expect(captured.headers['authorization'], 'Bearer tok');
+    });
+
+    test('EVERY failure reads as "no picker", never as an exception', () async {
+      // 404 (a server built before the route), 401 (an old server whose
+      // `@Get(":id")` catch-all is guarded), 500, and a transport error.
+      for (final int status in <int>[404, 401, 500]) {
+        final ResumeRepositoryImpl repo = _repo(MockClient(
+            (http.Request req) async => http.Response('{}', status)));
+        expect(await repo.loadResumeSkin(), ResumeSkinState.disabled,
+            reason: 'HTTP $status must not throw');
+      }
+      final ResumeRepositoryImpl offline = _repo(
+          MockClient((http.Request req) async => throw const SocketException('down')));
+      expect(await offline.loadResumeSkin(), ResumeSkinState.disabled);
+    });
+
+    test('no session token: disabled, and NOTHING is sent', () async {
+      final List<String> hits = <String>[];
+      final ResumeRepositoryImpl repo = _repo(
+        MockClient((http.Request req) async {
+          hits.add(req.url.path);
+          return http.Response('{}', 200);
+        }),
+        token: null,
+      );
+
+      expect(await repo.loadResumeSkin(), ResumeSkinState.disabled);
+      expect(hits, isEmpty);
+    });
+  });
+
+  group('chooseResumeSkin', () {
+    test('PUTs the skin and reports what the server did', () async {
+      late http.Request captured;
+      final ResumeRepositoryImpl repo = _repo(MockClient((http.Request req) async {
+        captured = req;
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'skin': 'neela',
+            'previous_skin': null,
+            'change': 'changed',
+          }),
+          200,
+        );
+      }));
+
+      final ResumeSkinChange change = await repo.chooseResumeSkin('neela');
+      expect(change.changed, isTrue);
+      expect(captured.method, 'PUT');
+      expect(captured.url.path, '/resume/skin');
+      expect(jsonDecode(captured.body), <String, dynamic>{'skin': 'neela'});
+    });
+
+    test('a failure PROPAGATES — a lost choice is never shown as taken', () {
+      final ResumeRepositoryImpl repo = _repo(MockClient(
+          (http.Request req) async => http.Response('{}', 409)));
+      expect(repo.chooseResumeSkin('neela'), throwsA(isA<Failure>()));
+    });
+
+    test('no session token fails closed, and NOTHING is sent', () async {
+      final List<String> hits = <String>[];
+      final ResumeRepositoryImpl repo = _repo(
+        MockClient((http.Request req) async {
+          hits.add(req.url.path);
+          return http.Response('{}', 200);
+        }),
+        token: null,
+      );
+
+      await expectLater(
+        repo.chooseResumeSkin('neela'),
         throwsA(isA<UnauthorizedFailure>()),
       );
       expect(hits, isEmpty);

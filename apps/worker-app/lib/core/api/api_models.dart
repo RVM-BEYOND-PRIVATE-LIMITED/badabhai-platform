@@ -4322,3 +4322,86 @@ class EmployerContactWithdrawDto extends Equatable {
   @override
   List<Object?> get props => <Object?>[ok, consentId, withdrawn];
 }
+
+/// RÉSUMÉ SKINS (#1808, server #1801) — the state of `GET /resume/skin`.
+///
+/// THE SERVER SERVES ONLY WHAT IT KNOWS: whether skins are on, the skin the
+/// worker's sheet prints in, and the closed list they may choose from. The
+/// NAMES, the swatches and the preview are the app's (the DTO says so in as
+/// many words), which is why they live in the widget and not on the wire.
+///
+/// FAILS CLOSED TO "NO PICKER". Anything but a well-formed body — an unknown
+/// shape, a missing `enabled`, a skin id this build has never heard of — reads
+/// as [disabled], and the Résumé tab shows exactly what it shows today. That is
+/// what lets this ship before the flag is ever turned on.
+class ResumeSkinState extends Equatable {
+  const ResumeSkinState({
+    this.enabled = false,
+    this.skin,
+    this.skins = const <String>[],
+  });
+
+  /// `RESUME_SKINS_ENABLED`. False ⇒ no picker at all.
+  final bool enabled;
+
+  /// The skin the sheet prints in — their choice, or the house default. Null
+  /// only while [enabled] is false.
+  final String? skin;
+
+  /// Every skin they may choose, in the server's display order.
+  final List<String> skins;
+
+  static const ResumeSkinState disabled = ResumeSkinState();
+
+  /// True when there is a real choice to offer. With ONE skin the picker is
+  /// shown read-only — the worker still learns what their sheet prints in —
+  /// and nothing is tappable, because a single option is not a choice.
+  bool get canChoose => enabled && skins.length > 1;
+
+  factory ResumeSkinState.fromJson(Map<String, dynamic> json) {
+    final Object? enabled = json['enabled'];
+    if (enabled is! bool || !enabled) return disabled;
+    final List<String> skins =
+        (json['skins'] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<String>()
+            .where((String s) => s.trim().isNotEmpty)
+            .toList(growable: false);
+    final Object? skin = json['skin'];
+    return ResumeSkinState(
+      enabled: true,
+      skin: skin is String && skin.trim().isNotEmpty ? skin : null,
+      skins: skins,
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[enabled, skin, skins];
+}
+
+/// The answer to `PUT /resume/skin` (#1808).
+///
+/// [changed] is the server's own verdict, not a comparison this client makes: a
+/// repeated or double-tapped same choice answers 200 `"unchanged"`, and only a
+/// real change re-renders the sheet — so only a real change is worth telling
+/// the worker about.
+class ResumeSkinChange extends Equatable {
+  const ResumeSkinChange({
+    required this.skin,
+    this.previousSkin,
+    this.changed = false,
+  });
+
+  final String skin;
+  final String? previousSkin;
+  final bool changed;
+
+  factory ResumeSkinChange.fromJson(Map<String, dynamic> json) =>
+      ResumeSkinChange(
+        skin: json['skin'] as String? ?? '',
+        previousSkin: json['previous_skin'] as String?,
+        changed: json['change'] == 'changed',
+      );
+
+  @override
+  List<Object?> get props => <Object?>[skin, previousSkin, changed];
+}
