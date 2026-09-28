@@ -89,3 +89,27 @@ One entry per task, appended after the task's checks pass. Tasks come from
   ADR-0044 block and the contracts snippet; freezing can be added when the event-schema enum is
   built if wanted.
 - **Next:** T2 (config flags + knobs).
+
+---
+
+## T2 — 2026-09-28 18:56
+
+- **Done:** Added every v2 flag and knob from contracts §6 to `packages/config/src/server.ts`, a
+  `fractionFromString` helper (empty-string-tolerant 0..1 float, the `positiveIntFromString`
+  rationale) to `shared.ts`, a config test block (defaults, empty-string tolerance, 0..1 bounds),
+  and a "Companion v2 (ADR-0046)" bullet to `docs/environment-variables.md`. All five flags default
+  off; off is v1 byte-for-byte. `.env.example` / compose / `ci.yml` are DevOps scope and not touched.
+  - `packages/config/src/server.ts`
+  - `packages/config/src/shared.ts`
+  - `packages/config/src/config.test.ts`
+  - `docs/environment-variables.md`
+- **Checks:**
+  - `pnpm --filter @badabhai/config test` — 9 files / 186 tests passed (3 new v2 tests).
+  - `pnpm lint` — 0 errors (same 3 pre-existing warnings).
+  - `pnpm typecheck` — 29/29 tasks.
+  - `pnpm --filter @badabhai/api test` — 11,881 passed / 153 skipped.
+  - `apps/ai-service`: `pytest -q` exit 0; `ruff check .` clean.
+- **Notes / decisions / surprises:** `fractionFromString` lives in `shared.ts` beside its integer
+  sibling rather than as an inline preprocess in `server.ts`, so the empty-string rule and its
+  rationale stay in one place for the next fraction knob.
+- **Next:** T3 (event schemas + registry).

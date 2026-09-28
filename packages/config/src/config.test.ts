@@ -661,6 +661,58 @@ describe("loadServerConfig", () => {
   });
 });
 
+describe("companion v2 flags and knobs (ADR-0046 — every switch defaults off)", () => {
+  it("all five phase flags default OFF and treat the empty string as absent", () => {
+    const c = loadServerConfig({});
+    expect(c.CHAT_COMPANION_V2_ENABLED).toBe(false);
+    expect(c.CHAT_COMPANION_V2_EDIT_ENABLED).toBe(false);
+    expect(c.CHAT_COMPANION_V2_NEW_RESUME_ENABLED).toBe(false);
+    expect(c.CHAT_COMPANION_V2_FALTU_ENABLED).toBe(false);
+    expect(c.CHAT_COMPANION_V2_CAREER_ENABLED).toBe(false);
+
+    const empty = loadServerConfig({
+      CHAT_COMPANION_V2_ENABLED: "",
+      CHAT_COMPANION_V2_EDIT_ENABLED: "",
+    });
+    expect(empty.CHAT_COMPANION_V2_ENABLED).toBe(false);
+    expect(empty.CHAT_COMPANION_V2_EDIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ CHAT_COMPANION_V2_ENABLED: "true" }).CHAT_COMPANION_V2_ENABLED).toBe(
+      true,
+    );
+  });
+
+  it("knobs default to the contracts' values and survive an empty env string (the `${VAR:-}` class)", () => {
+    const c = loadServerConfig({});
+    expect(c.CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE).toBe(0.6);
+    expect(c.CHAT_COMPANION_V2_EDIT_MAX_ROWS).toBe(3);
+    expect(c.CHAT_COMPANION_V2_PROPOSAL_TTL_SECONDS).toBe(600);
+    expect(c.CHAT_COMPANION_V2_FALTU_STRIKES).toBe(3);
+    expect(c.CHAT_COMPANION_V2_FALTU_COOLDOWN_MINUTES).toBe(30);
+    expect(c.CHAT_COMPANION_V2_MEMORY_TURNS).toBe(6);
+    expect(c.CHAT_COMPANION_V2_MEMORY_TTL_SECONDS).toBe(1800);
+
+    const empty = loadServerConfig({
+      CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: "",
+      CHAT_COMPANION_V2_EDIT_MAX_ROWS: "",
+    });
+    expect(empty.CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE).toBe(0.6);
+    expect(empty.CHAT_COMPANION_V2_EDIT_MAX_ROWS).toBe(3);
+  });
+
+  it("the confidence knob is a 0..1 fraction; the bounds pass, outside refuses", () => {
+    expect(
+      loadServerConfig({ CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: "0" })
+        .CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE,
+    ).toBe(0);
+    expect(
+      loadServerConfig({ CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: "1" })
+        .CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE,
+    ).toBe(1);
+    expect(() => loadServerConfig({ CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: "1.1" })).toThrow();
+    expect(() => loadServerConfig({ CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: "-0.1" })).toThrow();
+  });
+});
+
 describe("realAiCalls gating (fail closed)", () => {
   it("is blocked by default", () => {
     const config = loadServerConfig({});

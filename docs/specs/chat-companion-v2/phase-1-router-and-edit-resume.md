@@ -68,7 +68,7 @@ A new edit message while a proposal is open replaces it (one active proposal per
       Findings: `contracts.md` §3 + §3.1; `tx` params are deferred to T7; `skills` resolved by
       P1-OQ1 (résumé-only writer, T7).
 - [x] **T1 Types.** `packages/types`: intents, sources, outcomes (contracts §1).
-- [ ] **T2 Config.** `packages/config`: v2 flags + knobs (contracts §6). `docs/environment-variables.md`.
+- [x] **T2 Config.** `packages/config`: v2 flags + knobs (contracts §6). `docs/environment-variables.md`.
 - [ ] **T3 Events.** `packages/event-schema`: `chat.companion_turn_served` v2, `chat.companion_edit_*` v1
       (contracts §4) + registry entries + schema tests.
 - [ ] **T4 AI client.** `apps/api/src/ai/ai.service.ts`: `companionClassify`, `companionEditParse`
