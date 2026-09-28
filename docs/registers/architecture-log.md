@@ -8,6 +8,30 @@ boundary moved).
 
 ---
 
+## 2026-09-28 — #1811: unique violations are read through drizzle's wrapper; the admin invite no longer catches one
+- **The defect.** drizzle-orm 0.45 throws `DrizzleQueryError`, whose own `code` is undefined; the
+  Postgres SQLSTATE is on `cause`. Three services compared `err.code === "23505"` and so never
+  matched a real query failure: a duplicate agency PAN 500'd instead of the neutral 409, an agency
+  invite-code collision 500'd instead of retrying, and the admin invite never reached its
+  duplicate-email branch. Unit tests passed because they mocked a bare `{ code: "23505" }`.
+- **One classifier: `isUniqueViolation` (+ `PG_UNIQUE_VIOLATION`) in `common/db-error.ts`**, built
+  on `sqlStateOf` (#1800). It replaces the three copy-pasted local helpers and the inline check
+  in `ResumeQrLinkService`. No production code compares a SQLSTATE literal directly.
+- **Admin invite: `ON CONFLICT (email_hash) DO NOTHING`, not a caught 23505.** Fixing the
+  classifier alone was not enough there: the insert runs inside the invite transaction, and a
+  raised unique violation aborts it, so the follow-up `refreshInvite` on the same `tx` failed with
+  25P02. Re-inviting a still-pending admin (the case the refresh exists for) therefore also
+  500'd. `AdminRepository.create` is now `createUnlessEmailTaken`, which returns `undefined` on a
+  taken email, and the service goes straight to the pending-only refresh, else 409. The service
+  contract is unchanged: pending → refreshed, active or suspended → value-free 409.
+- **New DB-backed gate `common/unique-violation.db.test.ts`**, registered in ci.yml's DB-gates
+  step (10 files). Through the real driver, it covers the wrapped classification, a CONTROL
+  showing that a caught 23505 poisons its transaction (25P02), both admin re-invite outcomes, and
+  a real duplicate PAN through `AgencyKycService`. Unit tests now throw the real
+  `DrizzleQueryError` from `drizzle-orm`, which IS exported from the package root; the old
+  comment claiming otherwise is corrected.
+- No schema, event or API change.
+
 ## 2026-09-28 — #1800: the résumé QR counts scans and attributes worker signups, behind `RESUME_QR_SCAN_ENABLED`
 - **Owner ruling (2026-09-28), recorded: "Count + attribute worker signups".** The worker's OWN
   résumé QR encodes `https://badabhai.ai/r/<code>` with a PER-WORKER code from a new,

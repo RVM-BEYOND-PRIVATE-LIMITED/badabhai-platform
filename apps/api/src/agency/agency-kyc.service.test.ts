@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { ConflictException } from "@nestjs/common";
+import { DrizzleQueryError } from "drizzle-orm";
 import type { ServerConfig } from "@badabhai/config";
 import type { AgencyKyc } from "@badabhai/db";
 import type { PayersRepository } from "../payers/payers.repository";
@@ -21,6 +22,11 @@ const pii = new PiiCryptoService({
   PII_HASH_PEPPER: "test-pepper",
   PII_ENCRYPTION_KEY: TEST_KEY,
 } as unknown as ServerConfig);
+
+/** A failed query as drizzle 0.45 throws it — the driver's SQLSTATE rides on `cause`. */
+function queryError(sqlstate: string): Error {
+  return new DrizzleQueryError("insert into agency_kyc …", [], Object.assign(new Error("driver"), { code: sqlstate }));
+}
 
 function kycRow(overrides: Partial<AgencyKyc> = {}): AgencyKyc {
   const now = new Date("2026-07-23T00:00:00Z");
@@ -114,9 +120,8 @@ describe("AgencyKycService — financial PII at rest + PII-free spine", () => {
 
   it("a cross-agency duplicate PAN (23505) surfaces a NEUTRAL conflict — no oracle, no PAN echoed", async () => {
     const { svc, repo, emit } = make();
-    (repo.upsertPending as ReturnType<typeof vi.fn>).mockRejectedValue(
-      Object.assign(new Error("duplicate key value violates unique constraint"), { code: "23505" }),
-    );
+    // Wrapped exactly as drizzle 0.45 throws it: the SQLSTATE is on `cause`, not the error (#1811).
+    (repo.upsertPending as ReturnType<typeof vi.fn>).mockRejectedValue(queryError("23505"));
     const err = await svc
       .submit(AGENCY, { pan: PAN, bank_account: BANK, ifsc: IFSC, account_holder_name: HOLDER })
       .then(() => null)
@@ -126,6 +131,16 @@ describe("AgencyKycService — financial PII at rest + PII-free spine", () => {
     // The rejection never echoes the PAN or says "PAN taken" (no oracle), and no event fires.
     expect(err!.message).not.toContain(PAN);
     expect(err!.message.toLowerCase()).not.toContain("pan");
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("any other write failure propagates as itself — it is never dressed up as a conflict", async () => {
+    const { svc, repo, emit } = make();
+    const boom = queryError("23514");
+    (repo.upsertPending as ReturnType<typeof vi.fn>).mockRejectedValue(boom);
+    await expect(
+      svc.submit(AGENCY, { pan: PAN, bank_account: BANK, ifsc: IFSC, account_holder_name: HOLDER }),
+    ).rejects.toBe(boom);
     expect(emit).not.toHaveBeenCalled();
   });
 

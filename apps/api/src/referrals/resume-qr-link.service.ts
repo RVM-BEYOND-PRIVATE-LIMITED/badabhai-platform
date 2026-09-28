@@ -2,7 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { ReferralLink } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
-import { sqlStateOf } from "../common/db-error";
+import { isUniqueViolation } from "../common/db-error";
 import { EventsService } from "../events/events.service";
 import { ReferralLinkRepository } from "./referral-link.repository";
 import { freshReferralCode } from "./referral-resolve";
@@ -111,7 +111,7 @@ export class ResumeQrLinkService {
         // ON CONFLICT target), and the event carries its own idempotency key on a fresh row id,
         // so the one 23505 reachable is `referral_links_code_uq`. Anything else — the pre-0129
         // CHECK (23514), a missing index (42P10), an invalid event, an outage — propagates.
-        if (sqlStateOf(err) === "23505") continue;
+        if (isUniqueViolation(err)) continue;
         throw err;
       }
 
