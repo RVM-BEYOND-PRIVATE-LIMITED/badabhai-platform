@@ -67,3 +67,25 @@ One entry per task, appended after the task's checks pass. Tasks come from
   paths; the container path prefers `resume_profile.skills`, the legacy path merges
   `skills` + `skill_labels`.
 - **Next:** T1 (types).
+
+---
+
+## T1 — 2026-09-28 18:52
+
+- **Done:** Added the v2 vocabularies to `packages/types/src/index.ts`, directly beside the ADR-0044
+  companion block, exactly as contracts §1 names them:
+  `COMPANION_V2_INTENTS` (+ `CompanionV2Intent`), `COMPANION_V2_INTENT_SOURCES`
+  (+ `CompanionV2IntentSource`), `COMPANION_V2_OUTCOMES` (+ `CompanionV2Outcome`).
+  No tests added (the package ships `--passWithNoTests` and has no test files; the sets are pinned
+  by the T3 event-schema enums and the A1 Pydantic mirror).
+  - `packages/types/src/index.ts`
+- **Checks:**
+  - `pnpm --filter @badabhai/types test` — no test files, exit 0; `typecheck` + `build` clean.
+  - `pnpm lint` — 0 errors (same 3 pre-existing warnings).
+  - `pnpm typecheck` — 29/29 tasks.
+  - `pnpm --filter @badabhai/api test` — 516 files / 11,881 tests passed (153 skipped).
+  - `apps/ai-service`: `pytest -q` exit 0; `ruff check .` clean.
+- **Notes / decisions / surprises:** None. Plain `as const` (not frozen) to match the adjacent
+  ADR-0044 block and the contracts snippet; freezing can be added when the event-schema enum is
+  built if wanted.
+- **Next:** T2 (config flags + knobs).
