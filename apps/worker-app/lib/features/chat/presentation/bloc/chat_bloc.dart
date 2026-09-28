@@ -114,10 +114,6 @@ class ChatCompanionStarted extends ChatEvent {
   const ChatCompanionStarted();
 }
 
-/// ADR-0044 — the Bada Bhai tab came back into focus. In companion mode the
-/// recap is re-read, and a NEW bubble is appended only when its facts changed
-/// (the server's `digest_key`) — the worker who just applied on the Jobs tab sees
-/// the new count; a worker who changed nothing sees nothing new.
 /// #1753 — a companion chip was tapped. Routed through the bloc ONLY so it logs
 /// through the same analytics sink every other funnel event uses; the routing
 /// itself stays on the screen, which is the thing that owns navigation.
@@ -150,6 +146,16 @@ class ChatCompanionJobApplied extends ChatEvent {
   List<Object?> get props => <Object?>[jobId];
 }
 
+/// ADR-0044 — the Bada Bhai tab came back into focus.
+///
+/// In companion mode the recap is re-read, and a NEW bubble is appended only
+/// when its facts changed (the server's `digest_key`) — the worker who just
+/// applied on the Jobs tab sees the new count; a worker who changed nothing sees
+/// nothing new.
+///
+/// In interview mode the server is asked again, and the tab moves to the recap
+/// when the answer is now "companion" — unless the tab holds an interview the
+/// worker is taking part in (see [ChatBloc]'s `_holdInterview`).
 class ChatCompanionRefreshRequested extends ChatEvent {
   const ChatCompanionRefreshRequested({this.force = false});
 
@@ -536,6 +542,24 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   DateTime? _companionReadAt;
   static const Duration _companionRefreshMinGap = Duration(seconds: 60);
 
+  /// True once THIS tab holds an interview the worker is taking part in: a LIVE
+  /// interview reply to something they sent here (a question, or the close
+  /// itself), a merged voice note, or a redo they asked for ("Chat se resume
+  /// banayein").
+  ///
+  /// A refocus never moves such a tab to the recap (see [_mayLeaveInterview]).
+  /// The server cannot see this: after a redo closes, a returning worker keeps
+  /// his confirmed profile until he opens the preview, so the server already
+  /// answers "companion" while the redo's "build my profile" button is still
+  /// his to tap.
+  ///
+  /// NOT set by a reply from a session that was already over
+  /// ([ChatTurn.fromClosedSession]) — the résumé menu a completed worker gets
+  /// when he types into the old transcript the tab redrew. That tab holds
+  /// nothing of his to finish, so the server's answer decides it, exactly as it
+  /// does when the app starts.
+  bool _holdInterview = false;
+
   /// PII-free funnel-milestone sink (#B7, #1316). Defaults to
   /// [BbAnalytics.instance]; a test injects its own to observe the per-ask
   /// indices (and the wrap-up count) deterministically.
@@ -595,6 +619,20 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   String? _askedQuestionId;
 
   Future<void> _onStarted(ChatStarted event, Emitter<ChatState> emit) async {
+    _hydrating = true;
+    try {
+      await _open(emit);
+    } finally {
+      _hydrating = false;
+    }
+  }
+
+  /// True while [_onStarted] is opening the interview and redrawing its
+  /// transcript. The spinner drops before the redraw lands (#502), so
+  /// `initializing` alone cannot say the tab has settled.
+  bool _hydrating = false;
+
+  Future<void> _open(Emitter<ChatState> emit) async {
     bool failed = false;
     ChatSessionOpening? opening;
     try {
@@ -634,6 +672,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       resumePending: opening?.resumePending ?? false,
       suggestedOptions: opening?.options,
       followups: openingFollowups,
+      // #1750's retry is over once the interview is open: a later refocus is
+      // decided by the interview-tab rule, never by another companion open.
+      companionUnreachable: false,
     ));
 
     if (failed) return;
@@ -961,6 +1002,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // the per-ask funnel, the wrap-up milestone, the answered-facts store or
       // `asked_question_id`. Everything below is interview bookkeeping.
       if (turn.companion) return;
+      if (!turn.fromClosedSession) _holdInterview = true;
       // #1316 — the ask is now ANSWERED (the reply landed). Emit its per-ask
       // index for the abandonment curve. On a retry this is the FIRST time this
       // ask records (the failed attempt threw below and emitted nothing), so no
@@ -1131,29 +1173,23 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     ));
   }
 
-  /// ADR-0044 — see [ChatCompanionRefreshRequested]. Only ever acts while the
-  /// tab is ALREADY in companion mode: it never switches an interview into the
-  /// companion, because a worker mid-redo needs that interview's own CTA.
+  /// ADR-0044 — see [ChatCompanionRefreshRequested].
   Future<void> _onCompanionRefreshRequested(
     ChatCompanionRefreshRequested event,
     Emitter<ChatState> emit,
   ) async {
-    // #1750 — a tab that fell back on an UNREACHABLE read retries here. It is
-    // the one case where a refresh may ENTER companion mode: nothing is known
-    // yet, so nothing is being overridden.
+    // #1750 — a tab that fell back on an UNREACHABLE read retries here: nothing
+    // is known yet, so nothing is being overridden.
     if (state.companionUnreachable && !state.sending) {
       await _onCompanionStarted(const ChatCompanionStarted(), emit);
       return;
     }
-    if (!state.companion || state.initializing || state.sending) return;
-    final DateTime now = _clock();
-    final DateTime? last = _companionReadAt;
-    if (!event.force &&
-        last != null &&
-        now.difference(last) < _companionRefreshMinGap) {
+    if (state.initializing || state.sending) return;
+    if (!state.companion) {
+      await _companionFromInterview(event, emit);
       return;
     }
-    _companionReadAt = now;
+    if (!_companionReadDue(force: event.force)) return;
     // The transcript as this read began. Handlers run CONCURRENTLY (see
     // [_inFlightSends]), so a send can start AND finish inside the await below;
     // its answer then owns the thread and the chips, and a recap landing after
@@ -1186,6 +1222,92 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       questionKind: fresh.questionKind,
       inputMode: ChatInputMode.text,
     ));
+  }
+
+  /// Whether a refocus read is due, recording it when it is: at most one per
+  /// [_companionRefreshMinGap] unless [force]d.
+  bool _companionReadDue({required bool force}) {
+    final DateTime now = _clock();
+    final DateTime? last = _companionReadAt;
+    if (!force &&
+        last != null &&
+        now.difference(last) < _companionRefreshMinGap) {
+      return false;
+    }
+    _companionReadAt = now;
+    return true;
+  }
+
+  /// The tab is on the INTERVIEW and came back into focus: ask the server
+  /// again, and move to the recap when it now answers "companion".
+  ///
+  /// The tab picks its chat once, when it opens, and it used to never ask again:
+  /// a tab that opened as the interview stayed there until the app was killed.
+  /// A worker who confirmed their profile after the tab opened, or whose phone
+  /// loaded the Remote Config lever after it opened, came back to the old
+  /// transcript instead of the recap. The server applies the same rule it applies
+  /// when the app starts, and that rule already answers "interview" for a live
+  /// redo and for an unfinished form. What it cannot see is an interview the
+  /// worker is taking part in on THIS screen (see [_holdInterview]).
+  ///
+  /// An "interview" or unreachable answer changes nothing: the transcript stays,
+  /// and no retry card replaces it.
+  Future<void> _companionFromInterview(
+    ChatCompanionRefreshRequested event,
+    Emitter<ChatState> emit,
+  ) async {
+    // Not while a redo is opening or the transcript is still loading, and never
+    // over an interview that is the worker's own.
+    if (_restarting || _hydrating || !_mayLeaveInterview) return;
+    if (!_companionReadDue(force: event.force)) return;
+    final List<ChatMessage> before = state.messages;
+    ChatTurn? recap;
+    try {
+      recap = (await _repo.openCompanion()).turn;
+    } catch (_) {
+      recap = null;
+    }
+    // Only when nothing happened while the read was out: a send, a restart or a
+    // new bubble means the worker is using the interview, and it stays.
+    if (recap == null || state.companion || state.initializing) return;
+    if (state.sending || _restarting || _hydrating || !_mayLeaveInterview) {
+      return;
+    }
+    if (!identical(state.messages, before)) return;
+    _analytics(BbAnalytics.companionOpened());
+    _askedQuestionId = null;
+    _wrapUpLogged = false;
+    _holdInterview = false;
+    _companionBubbleOffset = 0;
+    _companionDigestKey = recap.digestKey;
+    // As if the tab had opened on the recap: no cached interview id, so a later
+    // fallback to the interview reads the worker's latest session.
+    _repo.forgetSession();
+    // A FRESH state, not a copy: the interview's latches (the ready CTA, the
+    // progress bar, the trade label) belong to the interview, and the recap
+    // stands alone, as it does when the tab opens on it (ADR-0044 R4).
+    emit(ChatState(
+      messages: <ChatMessage>[
+        ChatMessage(text: recap.reply, fromWorker: false, ttsText: recap.ttsText),
+      ],
+      initializing: false,
+      followups: recap.followups,
+      suggestedOptions: recap.suggestedOptions,
+      questionKind: recap.questionKind,
+      companion: true,
+    ));
+  }
+
+  /// Whether a refocus may move this interview tab to the recap: nothing here is
+  /// the worker's to finish — no live interview of theirs ([_holdInterview])
+  /// and no failed answer waiting for a retry. A settled "Haan" to the résumé
+  /// update always may: the server finishes that update itself.
+  bool get _mayLeaveInterview {
+    if (state.resumeUpdateQueued) return true;
+    if (_holdInterview) return false;
+    return !state.messages.any(
+      (ChatMessage m) => m.fromWorker && m.status == ChatSendStatus.failed,
+    );
   }
 
   /// Returns [messages] with the LAST message replaced by a bot bubble carrying
@@ -1310,6 +1432,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     _restarting = true;
     _askedQuestionId = null;
     _wrapUpLogged = false;
+    // The worker ASKED for this interview; a refocus must not take it away.
+    _holdInterview = true;
     _inFlightSends = 0;
     emit(const ChatState(messages: <ChatMessage>[kChatOpeningMessage]));
     try {
@@ -1335,6 +1459,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// Appends the already-server-merged voice transcript + reply. Local only —
   /// the voice pipeline sent the transcript through ChatRepository.sendMessage.
   void _onVoiceMerged(ChatVoiceMerged event, Emitter<ChatState> emit) {
+    _holdInterview = true;
     // The voice pipeline returns only the reply text (no followups), so clear
     // any stale chips from the previous typed turn.
     emit(state.copyWith(

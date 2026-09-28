@@ -158,6 +158,9 @@ class ChatRepositoryImpl implements ChatRepository {
   /// in `_openSession` must not: it fires when the latest-session read failed,
   /// and the worker may still be answering that session.
   @override
+  void forgetSession() => _session.clearChatSession();
+
+  @override
   Future<ChatSessionOpening?> startNewSession() async {
     final String? token = _session.sessionToken;
     if (token == null) throw const UnauthorizedFailure();
@@ -279,6 +282,7 @@ class ChatRepositoryImpl implements ChatRepository {
         // #1689 — 'queued' on the ONE turn that settled a "Haan" to the resume
         // update offer; null everywhere else, including on an older server.
         resumeUpdate: reply.resumeUpdate,
+        sessionEnded: reply.sessionEnded,
       );
     } catch (error) {
       throw mapError(error);

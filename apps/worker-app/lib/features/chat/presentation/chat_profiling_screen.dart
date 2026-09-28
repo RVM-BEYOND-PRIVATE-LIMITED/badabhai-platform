@@ -222,23 +222,37 @@ class ChatProfilingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Read ONCE, at mount: the lever decides which chat this tab opens, and a
-    // Remote Config fetch landing later must not swap it under the worker.
+    // Read at mount, for the chat this tab OPENS. A Remote Config fetch landing
+    // later never swaps the chat on screen; the lever is read again only when
+    // the tab comes back into focus (see [_CompanionRefocus]).
     final bool companion =
         assistantTab && BbRemoteConfig.instance.chatCompanionEnabled;
+    final Widget view = _ChatView(fromResumeImport: fromResumeImport);
     return BlocProvider<ChatBloc>(
       create: (_) => locator<ChatBloc>()
         ..add(companion ? const ChatCompanionStarted() : const ChatStarted()),
-      child: companion
-          ? _CompanionRefocus(child: _ChatView(fromResumeImport: fromResumeImport))
-          : _ChatView(fromResumeImport: fromResumeImport),
+      // Wrapped whatever the lever said at mount: the tree must not change shape
+      // when the lever does, and a tab that opened as the interview needs the
+      // refocus as much as one that opened on the recap.
+      child: assistantTab ? _CompanionRefocus(child: view) : view,
     );
   }
 }
 
-/// ADR-0044 — re-reads the companion recap each time the Bada Bhai tab comes
-/// back into focus (the shell keeps the tab mounted, so nothing else would).
-/// The bloc throttles it and appends a bubble only when the facts changed.
+/// ADR-0044 — each time the Bada Bhai tab comes back into focus (the shell keeps
+/// the tab mounted, so nothing else would), asks the bloc to re-read the
+/// companion, while the Remote Config lever is on:
+///
+///   - on the recap, the recap is refreshed; the bloc throttles it and appends a
+///     bubble only when the facts changed;
+///   - on the interview, the tab moves to the recap when the server now says so
+///     and the worker has not answered that interview in this tab (the bloc's
+///     rule). That is how a worker who confirmed after the tab opened, or whose
+///     phone loaded the lever after it opened, reaches the recap without
+///     restarting the app.
+///
+/// The lever is read at FOCUS time, not at mount: a tab that opened before the
+/// fetch landed would otherwise never ask.
 ///
 /// No-op when [TabFocus] is not registered (a widget test's bare locator), so a
 /// test that does not care about refocus need not wire it.
@@ -253,8 +267,10 @@ class _CompanionRefocus extends StatelessWidget {
     return TabFocusRefetch(
       tabFocus: locator<TabFocus>(),
       index: TabIndex.chat,
-      onFocused: () =>
-          context.read<ChatBloc>().add(const ChatCompanionRefreshRequested()),
+      onFocused: () {
+        if (!BbRemoteConfig.instance.chatCompanionEnabled) return;
+        context.read<ChatBloc>().add(const ChatCompanionRefreshRequested());
+      },
       child: child,
     );
   }

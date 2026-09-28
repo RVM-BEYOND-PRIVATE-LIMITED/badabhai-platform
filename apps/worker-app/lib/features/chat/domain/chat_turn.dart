@@ -35,6 +35,7 @@ class ChatTurn extends Equatable {
     this.resumeUpdate,
     this.companion = false,
     this.digestKey,
+    this.sessionEnded = false,
   });
 
   final String reply;
@@ -139,6 +140,19 @@ class ChatTurn extends Equatable {
   /// counts moved". Null on every other turn. Never shown.
   final String? digestKey;
 
+  /// The server's `session_ended`: this reply CLOSED the interview session, or
+  /// came from one that was already closed. Only the interview mapping carries
+  /// it; a companion turn belongs to no session and keeps `false`.
+  ///
+  /// Read with [isMock] to tell the two apart: a reply from a session that was
+  /// ALREADY over (the stateless résumé menu, or "Aapki baat poori ho chuki
+  /// hai" for a send that raced the close) is served with `is_mock: true`, and
+  /// a live interview turn never is.
+  final bool sessionEnded;
+
+  /// See [sessionEnded].
+  bool get fromClosedSession => sessionEnded && isMock;
+
   @override
   List<Object?> get props => <Object?>[
         reply,
@@ -159,5 +173,6 @@ class ChatTurn extends Equatable {
         resumeUpdate,
         companion,
         digestKey,
+        sessionEnded,
       ];
 }

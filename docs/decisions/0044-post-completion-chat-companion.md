@@ -168,6 +168,21 @@ recap), and its extraction deduped onto the early-finish job (so the redo never 
   first (`CHAT_COMPANION_ENABLED`, a `production` environment secret, then a deploy): on its own it changes nothing a
   worker sees, because no app asks until the Remote Config switch is on. Then the Remote Config switch, conditioned to
   test devices only, and widened to everyone after the signature below and #1750.
+- **The switch never reached a device before this fix (2026-09-28).** The app's Remote Config read started while
+  the crash reporter's `Firebase.initializeApp()` was still in flight, and `FirebaseRemoteConfig.instance` throws
+  until that completes, so every cold start kept the compiled-in `false`. Production confirmed it: the server
+  answered `companion` for the recent workers, and no `chat.companion_turn_served` was recorded for them. Both
+  now wait on one shared init (`FirebaseBoot`). The same fix makes every other Remote Config lever work for the
+  first time.
+- **Refocus re-decides an interview tab.** The tab picks recap or interview when it opens. A tab that opened as
+  the interview (the switch not loaded yet, or the worker not confirmed yet) now asks the server again each time
+  it comes back into focus, and moves to the recap when the answer is `companion`. It stays on the interview when
+  the tab holds one the worker is taking part in: a live interview reply to something they sent there, a redo they
+  asked for, or a failed answer waiting for a retry. The server cannot see the first: after a redo closes, a
+  returning worker keeps the confirmed profile until he opens the preview, so it already answers `companion` while
+  the redo's "build my profile" button is still his. A reply from a session that was already over (the résumé menu
+  on an old transcript, `session_ended` with `is_mock`) holds nothing, and a settled "Haan" to the résumé update
+  never holds, because the server completes it.
 - **Performance.** About seven indexed reads per open. The jobs read is bounded by the window predicate on
   `job_postings_feed_idx (status, published_at DESC)`; the `reach_skill_ids ?|` overlap is a FILTER, not a GIN probe —
   `job_postings_reach_gin` is `jsonb_path_ops`, which cannot serve `?|` (TD141; migration 0127 adds

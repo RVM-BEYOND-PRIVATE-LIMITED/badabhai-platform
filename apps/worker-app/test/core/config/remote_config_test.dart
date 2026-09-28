@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:badabhai_worker_app/core/config/remote_config.dart';
+import 'package:badabhai_worker_app/core/firebase/firebase_boot.dart';
 
 /// B7 — the Remote Config SAFE-FALLBACK contract.
 ///
@@ -42,6 +45,36 @@ void main() {
       expect(rc.chatMaintenanceNotice, isEmpty, reason: 'no maintenance notice today');
       expect(rc.boostVisible, isFalse, reason: 'the worker app shows no boost affordance');
       expect(rc.freeQuotaCopy, isEmpty, reason: 'no free-quota line today');
+    });
+
+    // THE PRODUCTION BUG. `FirebaseRemoteConfig.instance` throws until an
+    // `initializeApp()` has COMPLETED, and init() used to start while the crash
+    // reporter's was still in flight: it threw on every cold start, and no console
+    // value ever reached a device. The test above cannot see that — it passes
+    // whether or not init() waits — so this one holds Firebase's init open and
+    // checks init() does not finish (i.e. never reached Remote Config) before it.
+    test('init() waits for Firebase to be initialized before it touches Remote Config', () async {
+      final Completer<Object?> boot = Completer<Object?>();
+      int boots = 0;
+      FirebaseBoot.debugInitializer = () {
+        boots++;
+        return boot.future;
+      };
+      addTearDown(FirebaseBoot.debugReset);
+
+      bool finished = false;
+      final Future<void> pending =
+          rc.init(timeout: const Duration(milliseconds: 200)).then((_) => finished = true);
+      await pumpEventQueue();
+      expect(boots, 1);
+      expect(finished, isFalse, reason: 'init() must not reach Remote Config before Firebase is up');
+
+      boot.complete(null);
+      await pending;
+      // Remote Config is still unregistered under `flutter test`, so the fetch
+      // itself fails — swallowed, defaults kept, exactly as before.
+      expect(finished, isTrue);
+      expect(rc.isActivated, isFalse);
     });
 
     test('init() with Firebase unavailable never throws and never activates', () async {
