@@ -17,6 +17,10 @@ import { ProfilingTierRepository } from "../profiling/tiers/profiling-tier.repos
 import { ResumeTierScopeReader } from "./resume-tier-scope.reader";
 import { GeneralRoadRepository } from "./general-road.repository";
 import { GeneralRoadReader } from "./general-road.reader";
+import { ResumeSkinRepository } from "./resume-skin.repository";
+import { ResumeSkinReader } from "./resume-skin.reader";
+import { ResumeSkinService } from "./resume-skin.service";
+import { ResumeRerenderService } from "./resume-rerender.service";
 
 /**
  * Resume generation + async PDF render (TD5).
@@ -57,6 +61,14 @@ import { GeneralRoadReader } from "./general-road.reader";
     // the reader queries only for a `bb_general` render.
     GeneralRoadRepository,
     GeneralRoadReader,
+    // #1801 — résumé skins. The repository depends only on the @Global DATABASE (provided here on
+    // the tier repository's terms); the re-render seam on the @Global WorkersRepository and the
+    // RESUME_RENDER_QUEUE registered above. Nothing queries `worker_resume_skin` while
+    // RESUME_SKINS_ENABLED is off.
+    ResumeSkinRepository,
+    ResumeSkinReader,
+    ResumeSkinService,
+    ResumeRerenderService,
   ],
   // ADR-0044 — the post-completion chat companion tells the worker how their résumé was made and
   // what it says. It reads `history()` — the SAME projection the Resume tab shows (source,

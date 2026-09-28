@@ -165,6 +165,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /CHAT_GENERAL_ROAD_ENABLED:\s*\$\{\{\s*secrets\.CHAT_GENERAL_ROAD_ENABLED\s*\}\}/,
       /envs:[^\n]*\bCHAT_GENERAL_ROAD_ENABLED\b/,
     ],
+    // #1801 — résumé skins. A plain boolean flag, turned on in production ONLY by the
+    // environment secret, after migration 0128 is applied — so the bridge is the switch.
+    [
+      "RESUME_SKINS_ENABLED",
+      /RESUME_SKINS_ENABLED:\s*\$\{\{\s*secrets\.RESUME_SKINS_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bRESUME_SKINS_ENABLED\b/,
+    ],
   ])("%s is bridged from the environment's secrets", (_name, fromSecrets, inEnvs) => {
     expect(DEPLOY).toMatch(fromSecrets);
     // …and reaches the container: drone-ssh only exports what `envs:` lists, so a job-level
@@ -191,6 +198,7 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["WORK_HISTORY_POLISH_ENABLED", "false"],
     ["RESUME_AUTOFILL_ENABLED", "false"],
     ["CHAT_GENERAL_ROAD_ENABLED", "false"],
+    ["RESUME_SKINS_ENABLED", "false"],
   ])(
     "docker-compose.staging.yml defaults %s to %s when the secret is absent or empty",
     (name, fallback) => {

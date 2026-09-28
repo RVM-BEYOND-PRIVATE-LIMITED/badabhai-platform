@@ -665,6 +665,23 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "grant exposes that across the worker base to every PostgREST role while every surface " +
       "keeps working",
   },
+  // 0128: THE API names `worker_resume_skin` only while RESUME_SKINS_ENABLED is on (#1801), so a
+  // deploy ahead of the migration breaks no request and the table is NOT a `table` entry. It is
+  // listed for its lock, exactly as 0126's table is. APPLY BEFORE THE FLAG (migration header).
+  {
+    id: "0128-worker-resume-skin-rls",
+    migration: "0128_worker_resume_skin",
+    kind: "rls",
+    table: "worker_resume_skin",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which workers chose a résumé skin and when, keyed by worker id; " +
+      "an open grant exposes that across the worker base to every PostgREST role while every " +
+      "surface keeps working",
+  },
   {
     id: "0125-resume-history-generation-source",
     migration: "0125_resume_history",

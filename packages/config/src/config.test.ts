@@ -633,6 +633,14 @@ describe("loadServerConfig", () => {
     expect(loadServerConfig({ CHAT_GENERAL_ROAD_ENABLED: "" }).CHAT_GENERAL_ROAD_ENABLED).toBe(false);
     expect(loadServerConfig({ CHAT_GENERAL_ROAD_ENABLED: "true" }).CHAT_GENERAL_ROAD_ENABLED).toBe(true);
   });
+
+  it("RESUME_SKINS_ENABLED (#1801) is OFF by default and for the empty string", () => {
+    // Off means nothing touches `worker_resume_skin` (migration 0128), which is what makes a
+    // deploy ahead of that migration safe — so the default is load-bearing, not cosmetic.
+    expect(loadServerConfig({}).RESUME_SKINS_ENABLED).toBe(false);
+    expect(loadServerConfig({ RESUME_SKINS_ENABLED: "" }).RESUME_SKINS_ENABLED).toBe(false);
+    expect(loadServerConfig({ RESUME_SKINS_ENABLED: "true" }).RESUME_SKINS_ENABLED).toBe(true);
+  });
 });
 
 describe("realAiCalls gating (fail closed)", () => {

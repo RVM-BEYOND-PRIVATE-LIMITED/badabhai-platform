@@ -1236,6 +1236,12 @@ export const EVENT_REGISTRY = {
   // ids cannot describe a safe-field edit. Emitted from `WorkersService` only on a REAL change by
   // the worker themself, only once a résumé exists, one per field. Ids + closed enum, strict. v2.
   "resume.edited_v2": { version: 2, domain: "resume", payload: p.ResumeEditedV2Payload },
+
+  // #1801 (owner ruling 2026-09-28, "Plumbing, Neela only") — a worker CHANGED their résumé skin.
+  // Moved here from #1318 so the payload ships with the vocabulary it names. Per-worker preference,
+  // so subject = worker and no resume_id. Emitted by `ResumeSkinService` only on a persisted real
+  // change, in the same transaction as the `worker_resume_skin` write. Id + closed enums, strict.
+  "resume.skin_changed": { version: 1, domain: "resume", payload: p.ResumeSkinChangedPayload },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */
