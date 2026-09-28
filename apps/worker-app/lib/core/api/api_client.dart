@@ -1186,6 +1186,37 @@ class ApiClient {
     return ResumeHistory.fromJson(json);
   }
 
+  /// RÉSUMÉ SKINS (#1808, server #1801) — `GET /resume/skin`.
+  ///
+  /// Worker-scoped (WorkerAuthGuard + ConsentGuard). The server answers
+  /// `{enabled, skin, skins}`; with `RESUME_SKINS_ENABLED` off it answers
+  /// `enabled: false` and the app shows no picker, which is why this is safe to
+  /// ship before the flag is ever turned on.
+  Future<ResumeSkinState> getResumeSkin({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/resume/skin', authToken: authToken);
+    return ResumeSkinState.fromJson(json);
+  }
+
+  /// `PUT /resume/skin` (#1808) — records the worker's choice.
+  ///
+  /// The server re-renders the latest résumé only when the printed skin really
+  /// changes, and says which happened in `change`. A repeated or double-tapped
+  /// SAME choice is a 200 `"unchanged"`, never an error; a 404 means the flag is
+  /// off and a 409 means a concurrent different first choice won, so the caller
+  /// re-fetches rather than guessing.
+  Future<ResumeSkinChange> putResumeSkin({
+    required String skin,
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _put(
+      '/resume/skin',
+      <String, dynamic>{'skin': skin},
+      authToken: authToken,
+    );
+    return ResumeSkinChange.fromJson(json);
+  }
+
   /// Fetches a short-lived SIGNED url to the worker's own resume PDF
   /// (GET /resume/:id/download — ADR-0009 Stream C / G1c). Worker-scoped:
   /// requires [authToken] (WorkerAuthGuard); the server derives the worker from

@@ -15,7 +15,15 @@ import '../../theme/onboarding_theme.dart';
 /// yellow man, transparent background) is shown to the LEFT of the wordmark.
 /// It is the single source for every screen that shows this lockup.
 class BrandBadge extends StatelessWidget {
-  const BrandBadge({super.key});
+  const BrandBadge({super.key, this.wordmarkColor});
+
+  /// The wordmark's ink. Null keeps the header's white
+  /// ([OnboardingColors.textOnBlue]); a surface that is NOT the navy band — a
+  /// white job card — passes its own so the name is readable there.
+  ///
+  /// The MARK is untouched by this: it is a shipped PNG, not a glyph, so its
+  /// two figures keep their own colours wherever it is drawn.
+  final Color? wordmarkColor;
 
   /// The brand mark asset — also pinned by `brand_badge_test.dart`.
   static const String markAsset = 'assets/fonts/image/badabhai_main.png';
@@ -48,7 +56,7 @@ class BrandBadge extends StatelessWidget {
           style: OnboardingTypography.anek(
             size: 14,
             weight: FontWeight.w800,
-            color: OnboardingColors.textOnBlue,
+            color: wordmarkColor ?? OnboardingColors.textOnBlue,
           ),
         ),
       ],

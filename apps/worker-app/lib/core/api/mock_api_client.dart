@@ -563,6 +563,15 @@ class MockApiClient extends ApiClient {
   /// file already feeds via [_cannedResume]) rather than inventing a second,
   /// parallel canned trade-sheet document that nothing else in mock mode
   /// would keep honest.
+  /// #1808 — MOCK mode has no skin store, and an optional picker must never be
+  /// the thing that makes mock mode reach the network. Disabled is what every
+  /// box answers today, so it is also the honest mock.
+  @override
+  Future<ResumeSkinState> getResumeSkin({required String authToken}) async {
+    await _delay();
+    return ResumeSkinState.disabled;
+  }
+
   @override
   Future<ResumeDocumentResponse> getResumeDocument({
     required String authToken,

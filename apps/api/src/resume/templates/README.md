@@ -137,6 +137,14 @@ in `bb_trade.v1.html` is **Neela** (navy bar, navy section labels, filled chips)
 Adding *Saada* / *Kaagaz* / *Loha* is a replacement token block — no new markup and
 no new template id. Never hard-code a colour outside `:root`.
 
+**How a skin is applied (#1801).** `../resume-skins.ts` holds one token block per skin in
+`RESUME_SKINS` (`@badabhai/types`) and re-values the nine colour properties of the single
+`:root` block on an in-memory copy of the skeleton — the files here are never edited. It
+applies to `bb_trade` only; `--rule-w` / `--hair-w` are floors, not skin tokens. Only
+**Neela** exists (owner ruling 2026-09-28), and its tokens are exactly this file's `:root`,
+so a Neela render is byte-identical to an unskinned one. A new skin needs its reviewed
+block there, a migration widening `wrs_skin_chk`, and a new `resume.skin_changed` version.
+
 ### Verifying a change
 
 WeasyPrint is not installed on a bare Windows/macOS host. To see a real PDF:

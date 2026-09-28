@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 206 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2)", () => {
-    expect(EVENT_NAMES).toHaveLength(206);
+  it("exposes all 207 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed)", () => {
+    expect(EVENT_NAMES).toHaveLength(207);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -3272,11 +3272,12 @@ describe("registry", () => {
     // #1311 backend half — the per-field extracted-correction audit event.
     expect(isEventName("resume.edited")).toBe(true);
     // #1318 (owner ruling 2026-09-27) — the résumé SAFE-FIELD edit (name, photo, show_photo,
-    // night_shift_ready) as a SECOND registry entry, v1 untouched. `resume.skin_changed` and
-    // `profile.qr_scanned` are still absent: they moved to #1801 and #1800, and nothing may
-    // register them ahead of those issues.
+    // night_shift_ready) as a SECOND registry entry, v1 untouched.
     expect(isEventName("resume.edited_v2")).toBe(true);
-    expect(isEventName("resume.skin_changed")).toBe(false);
+    // #1801 (owner ruling 2026-09-28) — the per-worker résumé skin change, registered WITH the
+    // skin vocabulary it names. `profile.qr_scanned` is still absent: it moved to #1800, and
+    // nothing may register it ahead of that issue.
+    expect(isEventName("resume.skin_changed")).toBe(true);
     expect(isEventName("profile.qr_scanned")).toBe(false);
     expect(isEventName("action.recorded")).toBe(true);
     expect(isEventName("profile.extraction_ready")).toBe(true);

@@ -5,6 +5,8 @@ import { PdfRenderer } from "../common/pdf/pdf-renderer.service";
 import type { DegradationStep } from "./resume-degradation";
 import type { TranscriptVeto } from "./resume-transcript-veto";
 import { RESUME_FONT_CONTRACT } from "./resume-fonts";
+import type { ResumeSkin } from "@badabhai/types";
+import { applyResumeSkin, templateTakesSkin } from "./resume-skins";
 import { getResumeTemplate } from "./templates/registry";
 
 /**
@@ -62,6 +64,13 @@ export interface ResumeExperienceLine {
 export interface ResumeRenderInput {
   /** Which layout (templates/registry.ts). Unknown/empty → the generic fallback. */
   templateId: string | null;
+  /**
+   * #1801 — the colour skin to print a `bb_trade` sheet in (`resume-skins.ts`). ABSENT OR NULL IS
+   * THE TEMPLATE EXACTLY AS SHIPPED, which is what every caller but the worker-copy render worker
+   * passes, and what that worker passes while `RESUME_SKINS_ENABLED` is off. Ignored by every
+   * other layout. Never a template id, never a colour: the closed `RESUME_SKINS` vocabulary.
+   */
+  skin?: ResumeSkin | null;
   /** The worker's real full name, or null → render a name-less resume. */
   displayName: string | null;
   /** Role title → `{{headline}}` (e.g. "VMC Operator"). */
@@ -532,7 +541,11 @@ export class ResumeRenderer {
    */
   buildResumeHtml(input: ResumeRenderInput): string {
     const template = getResumeTemplate(input.templateId);
-    const skeleton = this.loadTemplate(template.file);
+    const shipped = this.loadTemplate(template.file);
+    // #1801 — the skin re-values the `:root` colour tokens of an in-memory COPY; the cached
+    // skeleton, and the shipped file behind it, are never touched. Only `bb_trade` takes one.
+    const skeleton =
+      input.skin && templateTakesSkin(template.id) ? applyResumeSkin(shipped, input.skin) : shipped;
     return ResumeRenderer.fillSlots(skeleton, input);
   }
 

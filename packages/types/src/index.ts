@@ -772,6 +772,35 @@ export function tierIncludes(
   return profilingTierRank(itemMinTier ?? DEFAULT_PROFILING_TIER) <= profilingTierRank(workerTier);
 }
 
+// ---- Résumé skins (#1801, migration 0128) ----
+//
+// HERE FOR THE SAME REASON AS THE TIERS ABOVE: `packages/db` spells this set into a CHECK
+// constraint, `packages/event-schema` puts it on the spine (`resume.skin_changed`), and `apps/api`
+// validates the select endpoint and picks the renderer's colour tokens by it. Declared once so the
+// four cannot drift.
+
+/**
+ * The colour skins a worker may choose for the `bb_trade` sheet. A skin is a `:root` token block,
+ * never markup and never a template id (`apps/api/src/resume/templates/README.md`, "Skins").
+ *
+ * ONLY NEELA, BY OWNER RULING (2026-09-28, "Plumbing, Neela only"). Saada, Kaagaz and Loha are
+ * named by the design guideline but have no approved tokens, so they are NOT offered: a skin joins
+ * this list only with its reviewed token block, a migration widening `wrs_skin_chk`, and — because
+ * the event's `skin` enum is frozen once shipped — a new `resume.skin_changed` version.
+ */
+export const RESUME_SKINS = Object.freeze(["neela"] as const);
+export type ResumeSkin = (typeof RESUME_SKINS)[number];
+
+/**
+ * The skin of a worker with NO recorded preference: the house style every `bb_trade` sheet has
+ * printed in since it shipped, so a missing row renders exactly as before skins existed.
+ */
+export const DEFAULT_RESUME_SKIN: ResumeSkin = "neela";
+
+export function isResumeSkin(value: unknown): value is ResumeSkin {
+  return typeof value === "string" && (RESUME_SKINS as readonly string[]).includes(value);
+}
+
 // ---- Résumé import (ADR-0041) ----
 //
 // THESE LIVE HERE RATHER THAN IN THE SCHEMA because two packages that cannot import each other

@@ -305,6 +305,11 @@ services:
       # applied and `db:seed:packs --apply` has run. `:-false` because this bool rejects "".
       PROFILING_TIERS_ENABLED: ${PROFILING_TIERS_ENABLED:-false}
 
+      # RÉSUMÉ SKINS (#1801). Off is every sheet in its template's own colours, and nothing reads
+      # migration 0128's table. Turn on only after 0128 is applied. `:-false` because this bool
+      # rejects "".
+      RESUME_SKINS_ENABLED: ${RESUME_SKINS_ENABLED:-false}
+
       # ---- V8 VOICE STORAGE: PASS-THROUGH, NEVER REQUIRED.
       #
       # WHY THIS DOES NOT CONTRADICT THE PARAGRAPH ABOVE. That one defers SUPABASE_* as

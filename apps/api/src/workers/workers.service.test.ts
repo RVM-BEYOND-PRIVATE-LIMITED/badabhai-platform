@@ -7,10 +7,12 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
+import type { BadaBhaiEvent } from "@badabhai/event-schema";
 import { WorkersService } from "./workers.service";
 import type { WorkersRepository } from "./workers.repository";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
-import type { EventsService } from "../events/events.service";
+import { EventsService } from "../events/events.service";
+import type { EventsRepository } from "../events/events.repository";
 import type { StorageService } from "../storage/storage.service";
 import type { RequestContext } from "../common/request-context";
 import type { Queue } from "bullmq";
@@ -23,6 +25,18 @@ const RESUME_ID = "3c4d5e6f-3333-4333-8333-000000000003";
 const TOKEN = "v1.opaqueciphertext"; // encrypt() output — must NOT contain the name
 /** The worker-self name route (PATCH /workers/me/name) — the only one that counts as a résumé edit. */
 const SELF = { origin: "worker_self" } as const;
+
+/**
+ * #1803 — the transaction token a pass-through `withTransaction` hands to its callback. The
+ * erasure paths must pass THIS to both the write and the sibling emit; the rollback semantics
+ * themselves are proven by the staging-world harness at the end of this file.
+ */
+const FAKE_TX = { __fakeTx: true } as const;
+
+/** A `withTransaction` that just runs the callback on {@link FAKE_TX} (no rollback modelled). */
+function passThroughTx() {
+  return vi.fn(async <T>(cb: (tx: unknown) => Promise<T>): Promise<T> => cb(FAKE_TX));
+}
 
 /** Default storage mock — every method resolves happily; override per test. */
 function mockStorage() {
@@ -460,7 +474,8 @@ function resumeFieldsSetup(
 ) {
   const repo = {
     findById: vi.fn(async (_id: string) => worker),
-    updateResumePrefs: vi.fn(async (_id: string, _patch: unknown) => updatedRow),
+    withTransaction: passThroughTx(),
+    updateResumePrefs: vi.fn(async (_id: string, _patch: unknown, _tx?: unknown) => updatedRow),
     // TD77: a show_photo flip re-renders the worker's LATEST resume.
     latestResume: vi.fn(async (_id: string) => ({ id: RESUME_ID, version: 1 })),
     // ADR-0043 — the erasure fan-out's read. No older rendered entries by default.
@@ -577,10 +592,11 @@ describe("WorkersService.updateResumePrefs", () => {
       CTX,
     );
 
-    expect(repo.updateResumePrefs).toHaveBeenCalledWith("w-1", {
-      resumeShowPhoto: false,
-      resumeNightShiftReady: true,
-    });
+    expect(repo.updateResumePrefs).toHaveBeenCalledWith(
+      "w-1",
+      { resumeShowPhoto: false, resumeNightShiftReady: true },
+      FAKE_TX, // #1803 — on the same transaction as the sibling emit
+    );
     const emitArg = events.emit.mock.calls[0]![0] as Record<string, unknown>;
     expect(emitArg.event_name).toBe("worker.resume_prefs_updated");
     expect(emitArg.payload).toEqual({
@@ -600,10 +616,11 @@ describe("WorkersService.updateResumePrefs", () => {
     await svc.updateResumePrefs("w-1", { show_photo: false }, CTX);
 
     // only the provided flag is written (night-shift stays undefined in the patch)
-    expect(repo.updateResumePrefs).toHaveBeenCalledWith("w-1", {
-      resumeShowPhoto: false,
-      resumeNightShiftReady: undefined,
-    });
+    expect(repo.updateResumePrefs).toHaveBeenCalledWith(
+      "w-1",
+      { resumeShowPhoto: false, resumeNightShiftReady: undefined },
+      FAKE_TX,
+    );
     const emitArg = events.emit.mock.calls[0]![0] as Record<string, unknown>;
     expect(emitArg.payload).toEqual({
       worker_id: "w-1",
@@ -734,7 +751,8 @@ function photoSetup(
   const latestResume = "latestResume" in opts ? opts.latestResume : { id: RESUME_ID, version: 1 };
   const repo = {
     findById: vi.fn(async (_id: string) => worker),
-    updatePhotoStorageKey: vi.fn(async (_id: string, key: string | null) =>
+    withTransaction: passThroughTx(),
+    updatePhotoStorageKey: vi.fn(async (_id: string, key: string | null, _tx?: unknown) =>
       worker ? { ...worker, photoStorageKey: key } : undefined,
     ),
     latestResume: vi.fn(async (_id: string) => latestResume),
@@ -1081,7 +1099,7 @@ describe("WorkersService.deletePhoto (ADR-0032)", () => {
     });
     const res = await svc.deletePhoto(WORKER_ID, CTX);
 
-    expect(repo.updatePhotoStorageKey).toHaveBeenCalledWith(WORKER_ID, null);
+    expect(repo.updatePhotoStorageKey).toHaveBeenCalledWith(WORKER_ID, null, FAKE_TX);
     expect(storage.deletePdf).toHaveBeenCalledWith(MINTED_KEY, "worker-profile-photos");
     const emitArg = events.emit.mock.calls[0]![0] as Record<string, unknown>;
     expect(emitArg.event_name).toBe("worker.photo_removed");
@@ -1096,7 +1114,7 @@ describe("WorkersService.deletePhoto (ADR-0032)", () => {
       bucket: "",
     });
     const res = await svc.deletePhoto(WORKER_ID, CTX);
-    expect(repo.updatePhotoStorageKey).toHaveBeenCalledWith(WORKER_ID, null);
+    expect(repo.updatePhotoStorageKey).toHaveBeenCalledWith(WORKER_ID, null, FAKE_TX);
     expect(storage.deletePdf).not.toHaveBeenCalled();
     expect(events.emit).toHaveBeenCalled(); // the pointer removal is a real state change
     expect(res.has_photo).toBe(false);
@@ -1130,7 +1148,10 @@ describe("WorkersService.setWhatsapp / getWhatsapp (Layer A (a))", () => {
   ) {
     const repo = {
       findById: vi.fn(async (_id: string) => worker ?? undefined),
-      updateWhatsapp: vi.fn(async (_id: string, _token: string | null) => ({ id: "w-1" })),
+      withTransaction: passThroughTx(),
+      updateWhatsapp: vi.fn(async (_id: string, _token: string | null, _tx?: unknown) => ({
+        id: "w-1",
+      })),
       latestResume: vi.fn(async (_id: string) => ({ id: "res-1", version: 1 })),
       listErasureTargetIds: vi.fn(async (_id: string) => ["res-1"]),
     };
@@ -1148,7 +1169,7 @@ describe("WorkersService.setWhatsapp / getWhatsapp (Layer A (a))", () => {
     const { svc, repo, pii } = whatsappSetup();
     const res = await svc.setWhatsapp("w-1", { whatsapp: WHATSAPP }, CTX);
     expect(pii.encrypt).toHaveBeenCalledWith(WHATSAPP);
-    expect(repo.updateWhatsapp).toHaveBeenCalledWith("w-1", "v1.encryptedwhatsapp");
+    expect(repo.updateWhatsapp).toHaveBeenCalledWith("w-1", "v1.encryptedwhatsapp", FAKE_TX);
     expect(JSON.stringify(res)).not.toContain(WHATSAPP);
     expect(res).toEqual({ worker_id: "w-1", has_whatsapp: true });
   });
@@ -1166,7 +1187,7 @@ describe("WorkersService.setWhatsapp / getWhatsapp (Layer A (a))", () => {
   it("clears with null and re-renders fail-closed — the number must come off the PDF", async () => {
     const { svc, repo, events, renderQueue } = whatsappSetup({ id: "w-1", whatsappEnc: "v1.old" });
     const res = await svc.setWhatsapp("w-1", { whatsapp: null }, CTX);
-    expect(repo.updateWhatsapp).toHaveBeenCalledWith("w-1", null);
+    expect(repo.updateWhatsapp).toHaveBeenCalledWith("w-1", null, FAKE_TX);
     expect(res.has_whatsapp).toBe(false);
     const emitted = events.emit.mock.calls[0]?.[0] as { payload: unknown };
     expect(emitted.payload).toEqual({ worker_id: "w-1", has_whatsapp: false });
@@ -1373,12 +1394,13 @@ function editSetup(
   const latestResume = "latestResume" in opts ? opts.latestResume : { id: RESUME_ID, version: 1 };
   const repo = {
     findById: vi.fn(async (_id: string) => worker),
+    withTransaction: passThroughTx(),
     updateFullName: vi.fn(async (_id: string, _token: string) => ({ id: WORKER_ID })),
-    updatePhotoStorageKey: vi.fn(async (_id: string, key: string | null) => ({
+    updatePhotoStorageKey: vi.fn(async (_id: string, key: string | null, _tx?: unknown) => ({
       ...worker,
       photoStorageKey: key,
     })),
-    updateResumePrefs: vi.fn(async (_id: string, _patch: unknown) => ({
+    updateResumePrefs: vi.fn(async (_id: string, _patch: unknown, _tx?: unknown) => ({
       ...worker,
       ...opts.updated,
     })),
@@ -1551,6 +1573,8 @@ describe("resume.edited_v2 — name (#1318)", () => {
     const { svc, events, pii } = editSetup({ worker: { fullName: OLD_TOKEN } });
     await svc.setFullName(WORKER_ID, NAME, CTX, { origin: "internal_ops" });
     expect(emitted(events).map((e) => e.event_name)).toEqual(["worker.name_recorded"]);
+    // #1804 — and the sibling it does emit is attributed to ops, not to the worker.
+    expect(emitted(events)[0]!.actor).toEqual({ actor_type: "ops", actor_id: null });
     expect(pii.decrypt).not.toHaveBeenCalled();
   });
 
@@ -1845,5 +1869,399 @@ describe("resume.edited_v2 — show_photo / night_shift_ready (#1318)", () => {
       "render",
       expect.objectContaining({ resumeId: RESUME_ID, failClosed: true }),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1804 — the ops-only name route is attributed to ops, never to the worker
+// ---------------------------------------------------------------------------
+
+describe("worker.name_recorded actor follows the write's origin (#1804)", () => {
+  /** The real envelope requires a uuid correlation id; the file-wide CTX is a placeholder. */
+  const UUID_CTX = {
+    correlationId: "6f7a8b9c-6666-4666-8666-000000000006",
+    requestId: "req-1804",
+  } as RequestContext;
+
+  /** A REAL EventsService over a capturing repository, so the envelope itself is validated. */
+  function realEventsSetup() {
+    const inserted: BadaBhaiEvent[] = [];
+    const eventsRepo = {
+      insert: vi.fn(async (event: BadaBhaiEvent) => {
+        inserted.push(event);
+        return true;
+      }),
+    };
+    const events = new EventsService(
+      eventsRepo as unknown as EventsRepository,
+      mockConfig({ NODE_ENV: "test" } as Partial<ServerConfig>),
+    );
+    const { repo } = editSetup({ worker: { fullName: OLD_TOKEN } });
+    const pii = { encrypt: vi.fn(() => TOKEN), decrypt: vi.fn(() => OLD_NAME) };
+    const svc = newSvc(repo, pii, events);
+    return { svc, inserted };
+  }
+
+  it("the INTERNAL ops route emits it with the ops actor { actor_type: 'ops', actor_id: null }", async () => {
+    const { svc, events } = editSetup({ worker: { fullName: OLD_TOKEN } });
+    await svc.setFullName(WORKER_ID, NAME, CTX, { origin: "internal_ops" });
+    expect(events.emit).toHaveBeenCalledTimes(1);
+    expect(events.emit.mock.calls[0]![0]).toEqual({
+      event_name: "worker.name_recorded",
+      actor: { actor_type: "ops", actor_id: null },
+      // Subject and payload are UNCHANGED — only the attribution moved.
+      subject: { subject_type: "worker", subject_id: WORKER_ID },
+      payload: { worker_id: WORKER_ID },
+      correlationId: CTX.correlationId,
+      requestId: CTX.requestId,
+    });
+  });
+
+  it("the worker's OWN route keeps the worker actor", async () => {
+    const { svc, events } = editSetup({ worker: { fullName: OLD_TOKEN } });
+    await svc.setFullName(WORKER_ID, NAME, CTX, SELF);
+    expect(emitted(events)[0]).toMatchObject({
+      event_name: "worker.name_recorded",
+      actor: { actor_type: "worker", actor_id: WORKER_ID },
+      payload: { worker_id: WORKER_ID },
+    });
+  });
+
+  it("the ops actor passes the REAL envelope validation, and the stored event carries no PII", async () => {
+    const { svc, inserted } = realEventsSetup();
+    await svc.setFullName(WORKER_ID, NAME, UUID_CTX, { origin: "internal_ops" });
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]!.event_name).toBe("worker.name_recorded");
+    expect(inserted[0]!.actor).toMatchObject({ actor_type: "ops", actor_id: null });
+    expect(inserted[0]!.payload).toEqual({ worker_id: WORKER_ID });
+    for (const secret of [NAME, OLD_NAME, TOKEN, OLD_TOKEN]) {
+      expect(JSON.stringify(inserted)).not.toContain(secret);
+    }
+  });
+
+  it("the worker actor still passes the real envelope validation too", async () => {
+    const { svc, inserted } = realEventsSetup();
+    await svc.setFullName(WORKER_ID, NAME, UUID_CTX, SELF);
+    const recorded = inserted.find((e) => e.event_name === "worker.name_recorded");
+    expect(recorded?.actor).toMatchObject({ actor_type: "worker", actor_id: WORKER_ID });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1803 — write + audit in ONE transaction on every erasure path (owner ruling 2026-09-28)
+// ---------------------------------------------------------------------------
+
+/**
+ * A STAGING-WORLD transaction (the `admin-actions.atomicity.test.ts` technique): inside
+ * `withTransaction` every write and every tx-bound emit mutates a deep copy, which is committed
+ * to the canonical world only if the callback resolves and DISCARDED if it throws. A write or an
+ * emit made WITHOUT the tx lands on the canonical world directly — exactly what a standalone
+ * statement does — so a write that escaped the transaction survives the rollback and the tests
+ * below go red.
+ *
+ * `log` records the observable order: begin/commit/rollback, the write, every emit, the object
+ * delete and every render enqueue.
+ */
+interface ErasureWorld {
+  photoStorageKey: string | null;
+  resumeShowPhoto: boolean;
+  resumeNightShiftReady: boolean | null;
+  whatsappEnc: string | null;
+  events: string[];
+}
+
+function erasureHarness(initial: Partial<ErasureWorld>) {
+  const world: ErasureWorld = {
+    photoStorageKey: null,
+    resumeShowPhoto: true,
+    resumeNightShiftReady: false,
+    whatsappEnc: null,
+    events: [],
+    ...initial,
+  };
+  const log: string[] = [];
+  /** Event names whose NEXT emit throws once (the "sibling audit emit fails" injection). */
+  const failOnce = new Set<string>();
+  const on = (tx: unknown): ErasureWorld => (tx as ErasureWorld | undefined) ?? world;
+  const row = (w: ErasureWorld) => ({
+    id: WORKER_ID,
+    fullName: null,
+    photoStorageKey: w.photoStorageKey,
+    resumeShowPhoto: w.resumeShowPhoto,
+    resumeNightShiftReady: w.resumeNightShiftReady,
+    whatsappEnc: w.whatsappEnc,
+  });
+
+  const repo = {
+    findById: vi.fn(async (_id: string) => row(world)),
+    withTransaction: vi.fn(async <T>(cb: (tx: unknown) => Promise<T>): Promise<T> => {
+      log.push("tx:begin");
+      const staged = structuredClone(world);
+      let result: T;
+      try {
+        result = await cb(staged);
+      } catch (err) {
+        log.push("tx:rollback");
+        throw err;
+      }
+      Object.assign(world, staged);
+      log.push("tx:commit");
+      return result;
+    }),
+    updatePhotoStorageKey: vi.fn(async (_id: string, key: string | null, tx?: unknown) => {
+      log.push("write");
+      on(tx).photoStorageKey = key;
+      return row(on(tx));
+    }),
+    updateResumePrefs: vi.fn(
+      async (
+        _id: string,
+        patch: { resumeShowPhoto?: boolean; resumeNightShiftReady?: boolean },
+        tx?: unknown,
+      ) => {
+        log.push("write");
+        const w = on(tx);
+        if (patch.resumeShowPhoto !== undefined) w.resumeShowPhoto = patch.resumeShowPhoto;
+        if (patch.resumeNightShiftReady !== undefined) {
+          w.resumeNightShiftReady = patch.resumeNightShiftReady;
+        }
+        return row(w);
+      },
+    ),
+    updateWhatsapp: vi.fn(async (_id: string, token: string | null, tx?: unknown) => {
+      log.push("write");
+      on(tx).whatsappEnc = token;
+      return row(on(tx));
+    }),
+    latestResume: vi.fn(async (_id: string) => ({ id: RESUME_ID, version: 1 })),
+    listErasureTargetIds: vi.fn(async (_id: string) => [RESUME_ID]),
+  };
+  const events = {
+    emit: vi.fn(async (p: { event_name: string; tx?: unknown }) => {
+      if (failOnce.delete(p.event_name)) {
+        log.push(`emit-failed:${p.event_name}`);
+        throw new Error("events table unreachable");
+      }
+      log.push(`emit:${p.event_name}`);
+      on(p.tx).events.push(p.event_name);
+      return true;
+    }),
+  };
+  const storage = mockStorage();
+  storage.deletePdf = vi.fn(async (_key: string, _bucket?: string) => {
+    log.push("storage:delete");
+    return undefined;
+  });
+  const renderQueue = mockRenderQueue();
+  renderQueue.add.mockImplementation(async (_name: string, data: ResumeRenderJobData) => {
+    log.push(`render:${data.resumeId}:failClosed=${String(data.failClosed)}`);
+    return { id: "job-1" };
+  });
+  const pii = {
+    encrypt: vi.fn((_plaintext: string) => "v1.encryptedwhatsapp"),
+    decrypt: vi.fn(),
+  };
+  const svc = newSvc(repo, pii, events, storage, mockConfig(), renderQueue);
+  const emittedNames = () =>
+    events.emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
+  return { svc, world, log, failOnce, repo, events, storage, renderQueue, emittedNames };
+}
+
+/** The tx the named event's emit was handed (`undefined` when it was emitted standalone). */
+function txOfEmit(events: { emit: ReturnType<typeof vi.fn> }, name: string): unknown {
+  const call = events.emit.mock.calls.find(
+    (c) => (c[0] as { event_name: string }).event_name === name,
+  );
+  return (call?.[0] as { tx?: unknown } | undefined)?.tx;
+}
+
+describe("#1803 deletePhoto — pointer clear + worker.photo_removed in ONE transaction", () => {
+  const START = { photoStorageKey: MINTED_KEY, resumeShowPhoto: true };
+
+  it("(a) the write and the sibling emit ride the SAME transaction", async () => {
+    const h = erasureHarness(START);
+    await h.svc.deletePhoto(WORKER_ID, CTX);
+    const writeTx = h.repo.updatePhotoStorageKey.mock.calls[0]![2];
+    expect(writeTx).toBeDefined();
+    expect(writeTx).not.toBe(h.world); // a staged transaction, not the pool
+    expect(txOfEmit(h.events, "worker.photo_removed")).toBe(writeTx);
+    expect(h.repo.withTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("(b) a failing sibling emit rejects the request and rolls the clear back — no delete, no edit, no render", async () => {
+    const h = erasureHarness(START);
+    h.failOnce.add("worker.photo_removed");
+    await expect(h.svc.deletePhoto(WORKER_ID, CTX)).rejects.toThrow("events table unreachable");
+
+    expect(h.world.photoStorageKey).toBe(MINTED_KEY); // rolled back
+    expect(h.world.events).toEqual([]);
+    expect(h.storage.deletePdf).not.toHaveBeenCalled(); // the bytes survive with their pointer
+    expect(h.emittedNames()).not.toContain("resume.edited_v2");
+    expect(h.renderQueue.add).not.toHaveBeenCalled();
+    expect(h.log).toEqual(["tx:begin", "write", "emit-failed:worker.photo_removed", "tx:rollback"]);
+  });
+
+  it("(c) the worker's retry after that failure succeeds and queues the fail-closed erasure", async () => {
+    const h = erasureHarness(START);
+    h.failOnce.add("worker.photo_removed");
+    await expect(h.svc.deletePhoto(WORKER_ID, CTX)).rejects.toThrow();
+
+    await expect(h.svc.deletePhoto(WORKER_ID, CTX)).resolves.toEqual({
+      worker_id: WORKER_ID,
+      has_photo: false,
+    });
+    expect(h.world.photoStorageKey).toBeNull();
+    expect(h.world.events).toEqual(["worker.photo_removed", "resume.edited_v2"]);
+    expect(h.storage.deletePdf).toHaveBeenCalledOnce();
+    expect(h.storage.deletePdf).toHaveBeenCalledWith(MINTED_KEY, "worker-profile-photos");
+    expect(h.renderQueue.add).toHaveBeenCalledWith(
+      "render",
+      expect.objectContaining({ resumeId: RESUME_ID, force: true, failClosed: true }),
+    );
+  });
+
+  it("(d) the happy path: commit, THEN the object delete, THEN resume.edited_v2 (no tx), THEN the erasure", async () => {
+    const h = erasureHarness(START);
+    await h.svc.deletePhoto(WORKER_ID, CTX);
+    expect(h.log).toEqual([
+      "tx:begin",
+      "write",
+      "emit:worker.photo_removed",
+      "tx:commit",
+      "storage:delete",
+      "emit:resume.edited_v2",
+      `render:${RESUME_ID}:failClosed=true`,
+    ]);
+    // #1318's measurement signal stays OUTSIDE the transaction — it can never roll back an erasure.
+    expect(txOfEmit(h.events, "resume.edited_v2")).toBeUndefined();
+  });
+
+  it("a failing resume.edited_v2 never touches the committed removal (it is outside the tx)", async () => {
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    try {
+      const h = erasureHarness(START);
+      h.failOnce.add("resume.edited_v2");
+      await expect(h.svc.deletePhoto(WORKER_ID, CTX)).resolves.toMatchObject({ has_photo: false });
+      expect(h.world.photoStorageKey).toBeNull();
+      expect(h.world.events).toEqual(["worker.photo_removed"]);
+      expect(h.log.at(-1)).toBe(`render:${RESUME_ID}:failClosed=true`);
+    } finally {
+      error.mockRestore();
+    }
+  });
+});
+
+describe("#1803 updateResumePrefs — prefs write + worker.resume_prefs_updated in ONE transaction", () => {
+  const START = { photoStorageKey: MINTED_KEY, resumeShowPhoto: true };
+
+  it("(a) the write and the sibling emit ride the SAME transaction", async () => {
+    const h = erasureHarness(START);
+    await h.svc.updateResumePrefs(WORKER_ID, { show_photo: false }, CTX);
+    const writeTx = h.repo.updateResumePrefs.mock.calls[0]![2];
+    expect(writeTx).toBeDefined();
+    expect(writeTx).not.toBe(h.world);
+    expect(txOfEmit(h.events, "worker.resume_prefs_updated")).toBe(writeTx);
+  });
+
+  it("(b) show_photo OFF with a failing sibling emit: rejects, rolls back, no edit, no render", async () => {
+    const h = erasureHarness(START);
+    h.failOnce.add("worker.resume_prefs_updated");
+    await expect(h.svc.updateResumePrefs(WORKER_ID, { show_photo: false }, CTX)).rejects.toThrow(
+      "events table unreachable",
+    );
+    expect(h.world.resumeShowPhoto).toBe(true); // rolled back
+    expect(h.world.events).toEqual([]);
+    expect(h.emittedNames()).not.toContain("resume.edited_v2");
+    expect(h.renderQueue.add).not.toHaveBeenCalled();
+    expect(h.storage.deletePdf).not.toHaveBeenCalled();
+  });
+
+  it("(c) the retry sees the flip again and queues the fail-closed erasure", async () => {
+    const h = erasureHarness(START);
+    h.failOnce.add("worker.resume_prefs_updated");
+    await expect(h.svc.updateResumePrefs(WORKER_ID, { show_photo: false }, CTX)).rejects.toThrow();
+
+    await expect(h.svc.updateResumePrefs(WORKER_ID, { show_photo: false }, CTX)).resolves.toEqual({
+      worker_id: WORKER_ID,
+    });
+    expect(h.world.resumeShowPhoto).toBe(false);
+    expect(h.world.events).toEqual(["worker.resume_prefs_updated", "resume.edited_v2"]);
+    expect(h.renderQueue.add).toHaveBeenCalledWith(
+      "render",
+      expect.objectContaining({ resumeId: RESUME_ID, force: true, failClosed: true }),
+    );
+  });
+
+  it("(d) the happy path: commit, THEN resume.edited_v2 (no tx), THEN the gated re-render", async () => {
+    const h = erasureHarness(START);
+    await h.svc.updateResumePrefs(WORKER_ID, { show_photo: false }, CTX);
+    expect(h.log).toEqual([
+      "tx:begin",
+      "write",
+      "emit:worker.resume_prefs_updated",
+      "tx:commit",
+      "emit:resume.edited_v2",
+      `render:${RESUME_ID}:failClosed=true`,
+    ]);
+    expect(txOfEmit(h.events, "resume.edited_v2")).toBeUndefined();
+  });
+
+  it("the re-render gating is unchanged: a same-value PATCH commits the audit row and renders nothing", async () => {
+    const h = erasureHarness(START);
+    await h.svc.updateResumePrefs(WORKER_ID, { show_photo: true }, CTX);
+    expect(h.log).toEqual(["tx:begin", "write", "emit:worker.resume_prefs_updated", "tx:commit"]);
+  });
+});
+
+describe("#1803 setWhatsapp (clear) — number write + worker.whatsapp_recorded in ONE transaction", () => {
+  const START = { whatsappEnc: "v1.old" };
+
+  it("(a) the write and the sibling emit ride the SAME transaction", async () => {
+    const h = erasureHarness(START);
+    await h.svc.setWhatsapp(WORKER_ID, { whatsapp: null }, CTX);
+    const writeTx = h.repo.updateWhatsapp.mock.calls[0]![2];
+    expect(writeTx).toBeDefined();
+    expect(writeTx).not.toBe(h.world);
+    expect(txOfEmit(h.events, "worker.whatsapp_recorded")).toBe(writeTx);
+  });
+
+  it("(b) a failing sibling emit on a CLEAR rejects and rolls the clear back — no render", async () => {
+    const h = erasureHarness(START);
+    h.failOnce.add("worker.whatsapp_recorded");
+    await expect(h.svc.setWhatsapp(WORKER_ID, { whatsapp: null }, CTX)).rejects.toThrow(
+      "events table unreachable",
+    );
+    expect(h.world.whatsappEnc).toBe("v1.old"); // rolled back
+    expect(h.world.events).toEqual([]);
+    expect(h.renderQueue.add).not.toHaveBeenCalled();
+  });
+
+  it("(c) the retry sees the number again and queues the fail-closed erasure", async () => {
+    const h = erasureHarness(START);
+    h.failOnce.add("worker.whatsapp_recorded");
+    await expect(h.svc.setWhatsapp(WORKER_ID, { whatsapp: null }, CTX)).rejects.toThrow();
+
+    await expect(h.svc.setWhatsapp(WORKER_ID, { whatsapp: null }, CTX)).resolves.toEqual({
+      worker_id: WORKER_ID,
+      has_whatsapp: false,
+    });
+    expect(h.world.whatsappEnc).toBeNull();
+    expect(h.world.events).toEqual(["worker.whatsapp_recorded"]);
+    expect(h.renderQueue.add).toHaveBeenCalledWith(
+      "render",
+      expect.objectContaining({ resumeId: RESUME_ID, force: true, failClosed: true }),
+    );
+  });
+
+  it("(d) the happy path: commit, THEN the fail-closed erasure", async () => {
+    const h = erasureHarness(START);
+    await h.svc.setWhatsapp(WORKER_ID, { whatsapp: null }, CTX);
+    expect(h.log).toEqual([
+      "tx:begin",
+      "write",
+      "emit:worker.whatsapp_recorded",
+      "tx:commit",
+      `render:${RESUME_ID}:failClosed=true`,
+    ]);
   });
 });

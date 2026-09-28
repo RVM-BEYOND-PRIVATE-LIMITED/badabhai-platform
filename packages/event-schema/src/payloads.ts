@@ -8,6 +8,7 @@ import {
   WORKER_APP_SCREEN_TEMPLATES,
   TRADE_FORM_KINDS_ALL,
   PROFILING_TIERS,
+  RESUME_SKINS,
   RESUME_DEGRADED_POSTURES,
   RESUME_EXTRACTION_METHODS,
   RESUME_GENERATION_TRIGGERS,
@@ -991,6 +992,32 @@ export const ResumeEditedV2Payload = z
   })
   .strict();
 export type ResumeEditedV2Payload = z.infer<typeof ResumeEditedV2Payload>;
+
+/**
+ * A worker CHANGED their résumé skin (#1801; owner ruling 2026-09-28, "Plumbing, Neela only").
+ *
+ * PER-WORKER PREFERENCE, so the subject is the worker and there is NO `resume_id`: the skin applies
+ * to every future and re-rendered `bb_trade` sheet of theirs, not to one generated row.
+ *
+ * EMITTED ONLY FOR A PERSISTED REAL CHANGE — never for a preview tap, never for re-selecting the
+ * skin already held — and in the SAME transaction as the `worker_resume_skin` write, so the event
+ * and the preference cannot disagree.
+ *
+ * `previous_skin` is NULL for the worker's first explicit choice (they had no row, and were printing
+ * in the house default). The skin enum is the closed `RESUME_SKINS` vocabulary — `neela` alone
+ * today. BECAUSE A SHIPPED PAYLOAD IS FROZEN, a new skin reaching this enum is a new event
+ * version, not an edit to this one.
+ *
+ * PII-FREE BY CONSTRUCTION: an opaque id and two closed enums, `.strict()`. No template id.
+ */
+export const ResumeSkinChangedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    skin: z.enum(RESUME_SKINS),
+    previous_skin: z.enum(RESUME_SKINS).nullable(),
+  })
+  .strict();
+export type ResumeSkinChangedPayload = z.infer<typeof ResumeSkinChangedPayload>;
 
 // ---------------------------------------------------------------------------
 // interview_kit.* (per-trade preparation kit — deterministic, render-once)
