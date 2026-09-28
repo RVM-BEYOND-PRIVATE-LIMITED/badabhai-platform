@@ -28,6 +28,7 @@ import type {
   UpdateAgencyJobDto,
 } from "./agency.dto";
 import { clearedSet } from "../common/clearable-fields";
+import { isUniqueViolation } from "../common/db-error";
 
 /** Faceless projection of an owned job — ids / status / counts / coarse bands ONLY. */
 export interface AgencyJobView {
@@ -123,17 +124,6 @@ const CODE_COLLISION_RETRIES = 3;
  * invalid payload, which is deterministic) can never spin.
  */
 const EVENT_EMIT_RETRIES = 3;
-
-/**
- * Postgres unique-violation (23505). Used ONLY to classify a failure of the invite ROW
- * INSERT, where the sole unique index in play is `agency_invites_code_uq`. It is deliberately
- * NOT applied to any other statement: the `events` table has its own idempotency-key unique
- * index, and treating ITS 23505 as "the invite code collided" is what previously re-ran the
- * row insert and wrote a duplicate row holding a live bearer code.
- */
-function isUniqueViolation(err: unknown): boolean {
-  return typeof err === "object" && err !== null && (err as { code?: string }).code === "23505";
-}
 
 /** ORDER-SENSITIVE equality for the benefits/requirements chip lists (display order matters). */
 function sameStringList(a: string[], b: string[] | null): boolean {

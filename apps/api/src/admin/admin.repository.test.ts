@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect } from "vitest";
-import type { Database, AdminUser, AdminRole, AdminStatus } from "@badabhai/db";
+import { adminUsers, type Database, type AdminUser, type AdminRole, type AdminStatus } from "@badabhai/db";
 import type { ServerConfig } from "@badabhai/config";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { AdminRepository } from "./admin.repository";
@@ -72,14 +72,21 @@ function assertNoPii(value: unknown): void {
 }
 
 type SelectCall = { table: unknown; where: unknown };
-type WriteCall = { table?: unknown; values?: Record<string, unknown>; set?: Record<string, unknown>; where?: unknown };
+type WriteCall = {
+  table?: unknown;
+  values?: Record<string, unknown>;
+  set?: Record<string, unknown>;
+  where?: unknown;
+  onConflict?: { target?: unknown };
+};
 
 /**
  * Capturing mock of the Drizzle fluent chain. Records the table + WHERE condition of every
  * read, and the values/set of every write, so the tests can prove WHAT was looked up and
- * persisted WITHOUT a real DB. `selectRows` is the row(s) the SELECT chain resolves to.
+ * persisted WITHOUT a real DB. `selectRows` is the row(s) the SELECT chain resolves to;
+ * `insertRows` is what an INSERT … RETURNING yields (empty = ON CONFLICT DO NOTHING fired).
  */
-function makeDb(selectRows: AdminUser[] = []) {
+function makeDb(selectRows: AdminUser[] = [], insertRows: { id: string }[] = [{ id: ADMIN_ID }]) {
   const selects: SelectCall[] = [];
   const inserts: WriteCall[] = [];
   const updates: WriteCall[] = [];
@@ -99,7 +106,13 @@ function makeDb(selectRows: AdminUser[] = []) {
       values: (values: Record<string, unknown>) => {
         const call: WriteCall = { table, values };
         inserts.push(call);
-        return { returning: async () => [{ id: ADMIN_ID }] };
+        return {
+          returning: async () => insertRows,
+          onConflictDoNothing: (cfg: { target?: unknown }) => {
+            call.onConflict = cfg;
+            return { returning: async () => insertRows };
+          },
+        };
       },
     }),
     update: (table: unknown) => ({
@@ -126,8 +139,8 @@ function makeDb(selectRows: AdminUser[] = []) {
   return { db, selects, inserts, updates };
 }
 
-function makeRepo(selectRows: AdminUser[] = []) {
-  const m = makeDb(selectRows);
+function makeRepo(selectRows: AdminUser[] = [], insertRows?: { id: string }[]) {
+  const m = makeDb(selectRows, insertRows);
   return { repo: new AdminRepository(m.db, pii), ...m };
 }
 
@@ -223,7 +236,7 @@ describe("AdminRepository.findById — opaque id lookup", () => {
 });
 
 // ---------------------------------------------------------------------------
-// create — encrypts email at rest + stores keyed hash; role/status within the enum set.
+// createUnlessEmailTaken — encrypts email at rest + stores keyed hash; role/status within the enum set.
 // ---------------------------------------------------------------------------
 
 /**
@@ -237,10 +250,10 @@ const INVITE_FIELDS = {
   inviteExpiresAt: new Date("2026-01-01T00:00:00.000Z"),
 };
 
-describe("AdminRepository.create — encrypted-at-rest invite (PII never plaintext)", () => {
+describe("AdminRepository.createUnlessEmailTaken — encrypted-at-rest invite (PII never plaintext)", () => {
   it("persists email_enc as CIPHERTEXT + email_hash as the keyed HMAC — never plaintext", async () => {
     const { repo, inserts } = makeRepo();
-    const out = await repo.create({ role: "ops_admin", email: EMAIL, ...INVITE_FIELDS });
+    const out = await repo.createUnlessEmailTaken({ role: "ops_admin", email: EMAIL, ...INVITE_FIELDS });
 
     expect(out).toEqual({ id: ADMIN_ID }); // returns the opaque id ONLY — never the email
     expect(inserts).toHaveLength(1);
@@ -259,7 +272,7 @@ describe("AdminRepository.create — encrypted-at-rest invite (PII never plainte
 
   it("omits status so the DB default ('pending') applies — invite-then-activate", async () => {
     const { repo, inserts } = makeRepo();
-    await repo.create({ role: "support", email: EMAIL, ...INVITE_FIELDS });
+    await repo.createUnlessEmailTaken({ role: "support", email: EMAIL, ...INVITE_FIELDS });
     const values = inserts[0]!.values!;
     // No client-supplied status → DB default 'pending' (a created admin authenticates to nothing).
     expect("status" in values).toBe(false);
@@ -268,7 +281,7 @@ describe("AdminRepository.create — encrypted-at-rest invite (PII never plainte
   it("persists ONLY a role within the allowed enum set for every allowed role", async () => {
     for (const role of ALLOWED_ROLES) {
       const { repo, inserts } = makeRepo();
-      await repo.create({ role, email: `${role}@badabhai.in`, ...INVITE_FIELDS });
+      await repo.createUnlessEmailTaken({ role, email: `${role}@badabhai.in`, ...INVITE_FIELDS });
       const values = inserts[0]!.values!;
       expect(ALLOWED_ROLES).toContain(values.role as AdminRole);
       expect(values.role).toBe(role);
@@ -282,10 +295,18 @@ describe("AdminRepository.create — encrypted-at-rest invite (PII never plainte
   it("normalizes the email before encrypt+hash so casing cannot create a duplicate identity", async () => {
     const a = makeRepo();
     const b = makeRepo();
-    await a.repo.create({ role: "analyst", email: "MiXeD.Case@BadaBhai.IN", ...INVITE_FIELDS });
-    await b.repo.create({ role: "analyst", email: "  mixed.case@badabhai.in ", ...INVITE_FIELDS });
+    await a.repo.createUnlessEmailTaken({ role: "analyst", email: "MiXeD.Case@BadaBhai.IN", ...INVITE_FIELDS });
+    await b.repo.createUnlessEmailTaken({ role: "analyst", email: "  mixed.case@badabhai.in ", ...INVITE_FIELDS });
     // Same identity → same dedup hash regardless of input casing/whitespace.
     expect(a.inserts[0]!.values!.emailHash).toBe(b.inserts[0]!.values!.emailHash);
+  });
+
+  it("a taken email yields undefined via ON CONFLICT (email_hash) — never a raised 23505 (#1811)", async () => {
+    // A raised 23505 would abort the caller's transaction; the refresh that follows must still run.
+    const { repo, inserts } = makeRepo([], []);
+    const out = await repo.createUnlessEmailTaken({ role: "analyst", email: EMAIL, ...INVITE_FIELDS });
+    expect(out).toBeUndefined();
+    expect(inserts[0]!.onConflict).toEqual({ target: adminUsers.emailHash });
   });
 });
 

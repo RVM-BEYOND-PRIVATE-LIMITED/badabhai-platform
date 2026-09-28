@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ConflictException, NotFoundException } from "@nestjs/common";
+import { DrizzleQueryError } from "drizzle-orm";
 import { createEvent, type CreateEventInput } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import type { EventsService } from "../events/events.service";
@@ -72,7 +73,7 @@ interface Mocks {
     withTransaction: ReturnType<typeof vi.fn>;
   };
   admins: {
-    create: ReturnType<typeof vi.fn>;
+    createUnlessEmailTaken: ReturnType<typeof vi.fn>;
     refreshInvite: ReturnType<typeof vi.fn>;
     emailHash: ReturnType<typeof vi.fn>;
     updateRole: ReturnType<typeof vi.fn>;
@@ -115,7 +116,7 @@ function make(): Mocks {
     withTransaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(FAKE_TX)),
   };
   const admins = {
-    create: vi.fn(),
+    createUnlessEmailTaken: vi.fn(),
     updateRole: vi.fn(),
     suspend: vi.fn(),
     // ADR-0038 — the lost-TOTP recovery writes.
@@ -700,7 +701,7 @@ describe("unflagWorker", () => {
 
 describe("inviteAdmin", () => {
   it("creates the admin (pending) + emits ONE value-free admin_invited (email/role NOT in the event)", async () => {
-    m.admins.create.mockResolvedValue({ id: TARGET_ADMIN_ID });
+    m.admins.createUnlessEmailTaken.mockResolvedValue({ id: TARGET_ADMIN_ID });
 
     const res = await m.service.inviteAdmin(
       ADMIN_ID,
@@ -711,7 +712,7 @@ describe("inviteAdmin", () => {
     // The email (PII) + role go to admin_users (encrypted) — NOT the event value-set. The row
     // also carries the HASHED accept token: the repository is handed `hashToken(raw)`, never
     // the raw token itself, so the bearer secret has no path into the data layer.
-    expect(m.admins.create).toHaveBeenCalledWith(
+    expect(m.admins.createUnlessEmailTaken).toHaveBeenCalledWith(
       {
         role: "ops_admin",
         email: "ops@badabhai.in",
@@ -743,7 +744,7 @@ describe("inviteAdmin", () => {
   });
 
   it("the RAW accept token never reaches the event spine (it is a bearer secret)", async () => {
-    m.admins.create.mockResolvedValue({ id: TARGET_ADMIN_ID });
+    m.admins.createUnlessEmailTaken.mockResolvedValue({ id: TARGET_ADMIN_ID });
 
     await m.service.inviteAdmin(ADMIN_ID, { email: "ops@badabhai.in", role: "ops_admin" }, CTX);
 
@@ -756,7 +757,7 @@ describe("inviteAdmin", () => {
   });
 
   it("delivery runs AFTER the row + event are committed (a send can never rollback an invite)", async () => {
-    m.admins.create.mockResolvedValue({ id: TARGET_ADMIN_ID });
+    m.admins.createUnlessEmailTaken.mockResolvedValue({ id: TARGET_ADMIN_ID });
 
     await m.service.inviteAdmin(ADMIN_ID, { email: "ops@badabhai.in", role: "ops_admin" }, CTX);
 
@@ -769,7 +770,7 @@ describe("inviteAdmin", () => {
   });
 
   it("re-inviting a PENDING admin refreshes the token instead of conflicting", async () => {
-    m.admins.create.mockRejectedValue(Object.assign(new Error("dup"), { code: "23505" }));
+    m.admins.createUnlessEmailTaken.mockResolvedValue(undefined); // ON CONFLICT DO NOTHING fired
     m.admins.refreshInvite.mockResolvedValue({ id: TARGET_ADMIN_ID });
 
     const res = await m.service.inviteAdmin(
@@ -792,11 +793,21 @@ describe("inviteAdmin", () => {
     });
   });
 
-  it("duplicate email (23505) → conflict, NO event", async () => {
-    m.admins.create.mockRejectedValue(Object.assign(new Error("dup"), { code: "23505" }));
+  it("duplicate email of an active/suspended admin → conflict, NO event", async () => {
+    m.admins.createUnlessEmailTaken.mockResolvedValue(undefined); // ON CONFLICT DO NOTHING fired
     await expect(
       m.service.inviteAdmin(ADMIN_ID, { email: "ops@badabhai.in", role: "analyst" }, CTX),
     ).rejects.toThrow(ConflictException);
+    expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("any other insert failure propagates untouched — it is never read as a duplicate", async () => {
+    const boom = new DrizzleQueryError("insert into admin_users …", [], Object.assign(new Error("chk"), { code: "23514" }));
+    m.admins.createUnlessEmailTaken.mockRejectedValue(boom);
+    await expect(
+      m.service.inviteAdmin(ADMIN_ID, { email: "ops@badabhai.in", role: "analyst" }, CTX),
+    ).rejects.toBe(boom);
+    expect(m.admins.refreshInvite).not.toHaveBeenCalled();
     expect(m.events.emit).not.toHaveBeenCalled();
   });
 });

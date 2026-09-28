@@ -407,8 +407,8 @@ export class AdminActionsService {
   /**
    * Invite a new admin (status defaults 'pending' — invite-then-activate). The email is
    * ADMIN-class PII: encrypted at rest in admin_users, NEVER echoed into the event.
-   * A duplicate email surfaces as a 23505 from the repository — mapped to a value-free
-   * conflict (no enumeration of which email).
+   * A duplicate email is either a re-invite of a still-pending admin (refreshed in place) or a
+   * value-free conflict (no enumeration of which email).
    *
    * WHAT CHANGED, AND WHY IT HAD TO: this flow previously created the `pending` row and
    * stopped. Nothing in the codebase ever moved an admin from `pending` to `active`
@@ -481,23 +481,20 @@ export class AdminActionsService {
     tx: Database,
   ): Promise<{ id: string }> {
     const inviteTokenHash = this.invites.hashToken(rawToken);
-    try {
-      return await this.admins.create(
-        { role: dto.role, email: dto.email, inviteTokenHash, inviteExpiresAt: expiresAt },
-        tx,
-      );
-    } catch (err) {
-      if (!isUniqueViolation(err)) throw err;
-      const refreshed = await this.admins.refreshInvite(
-        this.admins.emailHash(dto.email),
-        { role: dto.role, inviteTokenHash, inviteExpiresAt: expiresAt },
-        tx,
-      );
-      // No pending row matched → the address belongs to an active/suspended admin. Value-free
-      // so the response never confirms WHICH email is taken.
-      if (!refreshed) throw new ConflictException("An admin with that email already exists");
-      return refreshed;
-    }
+    const created = await this.admins.createUnlessEmailTaken(
+      { role: dto.role, email: dto.email, inviteTokenHash, inviteExpiresAt: expiresAt },
+      tx,
+    );
+    if (created) return created;
+    const refreshed = await this.admins.refreshInvite(
+      this.admins.emailHash(dto.email),
+      { role: dto.role, inviteTokenHash, inviteExpiresAt: expiresAt },
+      tx,
+    );
+    // No pending row matched → the address belongs to an active/suspended admin. Value-free
+    // so the response never confirms WHICH email is taken.
+    if (!refreshed) throw new ConflictException("An admin with that email already exists");
+    return refreshed;
   }
 
   /**
@@ -692,9 +689,4 @@ export class AdminActionsService {
       tx,
     });
   }
-}
-
-/** Postgres unique-violation (23505) — a duplicate admin email on invite. */
-function isUniqueViolation(err: unknown): boolean {
-  return typeof err === "object" && err !== null && (err as { code?: string }).code === "23505";
 }

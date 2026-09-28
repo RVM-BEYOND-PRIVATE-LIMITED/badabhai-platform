@@ -20,9 +20,10 @@
  * they must not have. Nothing here changes control flow — the call still fails, with the same
  * shape, at the same place.
  *
- * DUCK-TYPED, NOT `instanceof`. `DrizzleQueryError` is not on drizzle's public export surface, so
- * matching the shape keeps this working across a version bump instead of silently falling through
- * to the un-redacted path — which would fail open, in a redaction helper.
+ * DUCK-TYPED, NOT `instanceof`. Matching the shape rather than the class keeps this working if a
+ * version bump moves the class or a second drizzle copy lands in the tree (either breaks
+ * `instanceof`) instead of silently falling through to the un-redacted path — which would fail
+ * open, in a redaction helper.
  */
 export class RedactedQueryError extends Error {
   /** The driver's SQLSTATE where the underlying error carried one, for the log line. */
@@ -82,6 +83,21 @@ export function sqlStateOf(err: unknown): string | undefined {
     if (typeof code === "string") return code;
   }
   return undefined;
+}
+
+/** Postgres `unique_violation`. */
+export const PG_UNIQUE_VIOLATION = "23505";
+
+/**
+ * Whether `err` is a Postgres unique violation, wrapped by drizzle or not (#1811).
+ *
+ * Put only the ONE statement whose unique index you mean inside the try: a 23505 from any other
+ * statement (the `events` idempotency index, say) reads identically. And inside a transaction a
+ * failed statement aborts the whole transaction, so catching this and issuing another query on
+ * the same `tx` fails with 25P02 — prefer `ON CONFLICT DO NOTHING` there.
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  return sqlStateOf(err) === PG_UNIQUE_VIOLATION;
 }
 
 /**
