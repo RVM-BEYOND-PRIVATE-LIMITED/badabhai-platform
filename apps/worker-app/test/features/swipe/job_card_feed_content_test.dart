@@ -5,6 +5,10 @@ import 'package:mocktail/mocktail.dart';
 import 'package:badabhai_worker_app/core/api/api_models.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
+import 'package:badabhai_worker_app/core/widgets/bb_job_card.dart';
+import 'package:badabhai_worker_app/features/swipe/presentation/widgets/design1_job_card.dart';
+import 'package:badabhai_worker_app/core/widgets/job_card_brand_footer.dart';
+import 'package:badabhai_worker_app/features/swipe/data/job_feed_view_store.dart';
 import 'package:badabhai_worker_app/features/swipe/domain/swipe_repository.dart';
 import 'package:badabhai_worker_app/features/swipe/presentation/bloc/swipe_bloc.dart';
 import 'package:badabhai_worker_app/features/swipe/presentation/swipe_jobs_screen.dart';
@@ -87,6 +91,16 @@ SwipeBloc _bloc() {
   // The card must NOT depend on the detail route for its content.
   when(() => repo.jobDetail(any())).thenThrow(StateError('no detail'));
   return SwipeBloc(repo);
+}
+
+/// Forces LIST mode: the screen defaults to the deck, and the real store is
+/// plugin-backed, so a fake is the only way to reach the scrollable body.
+class _ListViewStore implements JobFeedViewStore {
+  @override
+  Future<JobFeedViewMode> read() async => JobFeedViewMode.list;
+
+  @override
+  Future<void> write(JobFeedViewMode mode) async {}
 }
 
 void main() {
@@ -248,4 +262,43 @@ void main() {
     expect(item.neededBy, isNull);
   });
 
+
+  // ── THE BRAND LOCKUP AT THE FOOT OF THE CARD ──────────────────────────────
+  // Both Jobs-tab views carry it, centred, and no card text may reach it: a
+  // screenshot a worker forwards has to say where it came from.
+  testWidgets('the SWIPE card carries the lockup, centred and below the content',
+      (WidgetTester tester) async {
+    setKitSurface(tester, const Size(390, 844));
+    await tester.pumpWidget(kitTestApp(SwipeJobsScreen(bloc: _bloc())));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.byType(JobCardBrandFooter), findsOneWidget);
+    expect(find.text('BadaBhai'), findsWidgets);
+
+    // CENTRED on the card, and BELOW every chip — the two things the owner
+    // asked for. `Canteen` is the last benefit chip the fixture carries.
+    final Rect pill = tester.getRect(find.byType(JobCardBrandFooter));
+    final Rect lastChip = tester.getRect(find.text('Canteen'));
+    expect(lastChip.bottom, lessThanOrEqualTo(pill.top),
+        reason: 'card content must never overlap the lockup');
+    final double cardCentre = tester.getRect(find.byType(Design1JobCard)).center.dx;
+    expect((pill.center.dx - cardCentre).abs(), lessThan(1.0));
+  });
+
+  testWidgets('the SCROLL card carries the same lockup',
+      (WidgetTester tester) async {
+    locator.registerSingleton<JobFeedViewStore>(_ListViewStore());
+    setKitSurface(tester, const Size(390, 844));
+    await tester.pumpWidget(kitTestApp(SwipeJobsScreen(bloc: _bloc())));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.byType(JobCardBrandFooter), findsWidgets);
+    final Rect pill = tester.getRect(find.byType(JobCardBrandFooter).first);
+    final Rect card = tester.getRect(find.byType(BbJobCard).first);
+    expect((pill.center.dx - card.center.dx).abs(), lessThan(1.0));
+    // Last thing on the card: nothing is drawn under it.
+    expect(pill.bottom, lessThanOrEqualTo(card.bottom + 0.5));
+  });
 }

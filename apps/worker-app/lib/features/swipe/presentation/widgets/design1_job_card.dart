@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/onboarding_theme.dart';
+import '../../../../core/widgets/job_card_brand_footer.dart';
 import '../../../../core/widgets/bb_job_card.dart';
 import '../../../../core/widgets/kit/kit_square_icon_button.dart';
 import 'job_deck.dart' show kSkipSemanticLabel;
@@ -102,11 +103,47 @@ class Design1JobCard extends StatelessWidget {
         // was given, so a card with more chips than fit clips at the bottom
         // edge instead of reporting an overflow. A scroll view here would steal
         // the deck's vertical follow-drag (#374), so the clip IS the contract.
-        child: ConstraintsTransformBox(
-          constraintsTransform: ConstraintsTransformBox.heightUnconstrained,
-          alignment: Alignment.topLeft,
-          clipBehavior: Clip.hardEdge,
-          child: Column(
+        // THE BRAND FOOTER IS RESERVED SPACE, NOT CONTENT.
+        //
+        // Inside the clip box the footer would be the first thing a tall job
+        // clipped away, and the card that travels furthest — a screenshot a
+        // worker forwards — is exactly the one with the most chips. So the
+        // footer sits OUTSIDE the clip and the content takes what is left:
+        // card text can never overlap it, and it never moves.
+        //
+        // `hasBoundedHeight` decides how: the deck hands this card a tight
+        // height, so the content box takes the remainder and the footer pins to
+        // the bottom edge; pumped with no height (a test, an intrinsic pass) it
+        // simply follows the content.
+        child: LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            final Widget content = ConstraintsTransformBox(
+              constraintsTransform: ConstraintsTransformBox.heightUnconstrained,
+              alignment: Alignment.topLeft,
+              clipBehavior: Clip.hardEdge,
+              child: _content(),
+            );
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: constraints.hasBoundedHeight
+                  ? MainAxisSize.max
+                  : MainAxisSize.min,
+              children: <Widget>[
+                if (constraints.hasBoundedHeight)
+                  Expanded(child: content)
+                else
+                  content,
+                const JobCardBrandFooter(),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _content() {
+    return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
@@ -142,9 +179,6 @@ class Design1JobCard extends StatelessWidget {
                 ),
               ],
             ],
-          ),
-        ),
-      ),
     );
   }
 }
