@@ -8,6 +8,41 @@ boundary moved).
 
 ---
 
+## 2026-09-28 — #1803 / #1804 ruled: erasure writes commit with their audit event; ops name writes are attributed to ops
+- **#1803, owner ruling (2026-09-28): "write + audit in one transaction".** On every
+  `WorkersService` path where a fail-loud `worker.*` audit emit sat between the SoR write and a
+  `failClosed: true` erasure re-render, the write and that emit now run in ONE transaction
+  (`WorkersRepository.withTransaction` + `EventsService.emit({ …, tx })`, the H3 seam
+  `AdminActionsRepository` / `AgencyPayoutRepository` / `ChatRepository` already use). A failed
+  emit rolls the write back, so the request fails cleanly and the worker's retry re-drives the
+  erasure. Before this, the write landed, the request 500'd, the erasure was never queued, and the
+  retry could not repair it (no photo / no flip / no number left to see), so the erased data stayed
+  on every PDF. Three paths, all covered:
+  - `deletePhoto` — `tx{ clear pointer; worker.photo_removed }` → commit → best-effort object
+    delete (never before commit: a rolled-back pointer must not point at deleted bytes) →
+    best-effort `resume.edited_v2` → fail-closed erasure.
+  - `updateResumePrefs` — `tx{ write prefs; worker.resume_prefs_updated }` → commit →
+    best-effort `resume.edited_v2` → re-render gated exactly as before (fail-closed on
+    show_photo true→false with a photo).
+  - `setWhatsapp` — `tx{ write number; worker.whatsapp_recorded when the state changes }` →
+    commit → re-render (fail-closed on clear). Both directions share the transaction.
+- **Unchanged on purpose:** `resume.edited_v2` (#1318) stays OUTSIDE the transaction and
+  best-effort, so a measurement signal can never roll back an erasure. `confirmPhoto` and
+  `setFullName` are not erasure paths (their re-renders are `failClosed: false`) and keep their
+  standalone writes. `WorkersRepository.updatePhotoStorageKey` / `updateResumePrefs` /
+  `updateWhatsapp` gain an OPTIONAL trailing `tx`; without it they run on the pool exactly as
+  before (`WorkerPreferencesService` and `confirmPhoto` call them that way). No schema, event or
+  API change.
+- **#1804: the ops-only `PUT /workers/:id/name` (InternalServiceGuard) now emits
+  `worker.name_recorded` with `{ actor_type: "ops", actor_id: null }`**, the shape
+  `resume.erasure_backfill_enqueued` already uses for the shared-secret ops caller, which has no
+  identity. It was attributed to the worker. The worker-self `PATCH /workers/me/name` keeps the
+  worker actor. Payload, subject and version are unchanged; the actor is envelope, not payload,
+  and `ops` is already in `ACTOR_TYPES`. Consumers checked: the Phase-1 e2e counts
+  `worker.name_recorded` by `payload.worker_id` (still 1); the worker notification feed matches
+  on the subject leg as well as the actor leg and does not list this event; the admin event browser
+  filters by `actor_type` generically, so an ops name write now correctly files under `ops`.
+
 ## 2026-09-27 — #1318 ruled: `resume.edited_v2` for résumé safe-field edits; v1 untouched
 - **Owner ruling (2026-09-27), recorded.** The safe-field edit gets its OWN registry entry,
   `resume.edited_v2` (v2, domain `resume`, appended at the registry tail) — not a widened v1.

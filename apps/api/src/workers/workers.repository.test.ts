@@ -402,6 +402,56 @@ describe("WorkersRepository.updatePhotoStorageKey — an OPAQUE object key, neve
   });
 });
 
+/**
+ * #1803 — the erasure writes run on the CALLER's transaction when one is passed, so the service
+ * can commit them with their `worker.*` audit event. Two capturing handles: the pool the
+ * repository was built with, and the `tx`. A write that ignored `tx` would land on the pool and
+ * escape the transaction's rollback.
+ */
+describe("WorkersRepository — the erasure writes honour an optional tx (#1803)", () => {
+  const writes = [
+    [
+      "updatePhotoStorageKey",
+      (r: WorkersRepository, tx?: Database) => r.updatePhotoStorageKey(WORKER_ID, null, tx),
+    ],
+    [
+      "updateResumePrefs",
+      (r: WorkersRepository, tx?: Database) =>
+        r.updateResumePrefs(WORKER_ID, { resumeShowPhoto: false }, tx),
+    ],
+    [
+      "updateWhatsapp",
+      (r: WorkersRepository, tx?: Database) => r.updateWhatsapp(WORKER_ID, null, tx),
+    ],
+  ] as const;
+
+  it.each(writes)("%s runs on the passed tx, never on the pool", async (_name, write) => {
+    const pool = makeDb({ rows: [workerRow(WORKER_ID)] });
+    const tx = makeDb({ rows: [workerRow(WORKER_ID)] });
+    await write(new WorkersRepository(pool.db), tx.db);
+    expect(tx.captured.updateTable).toBe(workers);
+    expect(pool.captured.updateTable).toBeUndefined();
+  });
+
+  it.each(writes)("%s without a tx runs on the pool exactly as before", async (_name, write) => {
+    const pool = makeDb({ rows: [workerRow(WORKER_ID)] });
+    await write(new WorkersRepository(pool.db));
+    expect(pool.captured.updateTable).toBe(workers);
+  });
+
+  it("withTransaction hands its callback the pool's transaction handle and returns the result", async () => {
+    const pool = makeDb({ rows: [] });
+    let handed: unknown;
+    const out = await new WorkersRepository(pool.db).withTransaction(async (tx) => {
+      handed = tx;
+      return 42;
+    });
+    expect(out).toBe(42);
+    expect(handed).toBeDefined();
+    expect(handed).not.toBe(pool.db);
+  });
+});
+
 describe("WorkersRepository.latestProfile — the worker's CURRENT profile row", () => {
   it("scopes by worker_id, takes one row, and orders by the SHARED definition", async () => {
     const { db, captured } = makeDb({ rows: [] });

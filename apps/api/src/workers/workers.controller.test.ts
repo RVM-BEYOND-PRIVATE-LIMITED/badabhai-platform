@@ -4,9 +4,14 @@ import { NotFoundException } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { WorkersController } from "./workers.controller";
 import type { WorkersRepository } from "./workers.repository";
-import type { WorkersService } from "./workers.service";
+import { WorkersService } from "./workers.service";
 import type { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import type { RequestContext } from "../common/request-context";
+import type { PiiCryptoService } from "../common/pii-crypto.service";
+import type { EventsService } from "../events/events.service";
+import type { StorageService } from "../storage/storage.service";
+import type { Queue } from "bullmq";
+import type { ResumeRenderJobData } from "../queue/queue.constants";
 
 const CTX = { correlationId: "c", requestId: "r" } as RequestContext;
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -114,6 +119,54 @@ describe("WorkersController — list/getProfile (read, no-PII) + setName", () =>
       origin: "internal_ops",
     });
     expect(res).toEqual({ worker_id: ID });
+  });
+
+  // #1804 — end to end through the REAL service: the route decides the origin, the origin decides
+  // the actor. The ops route (InternalServiceGuard, no worker session) must never be attributed
+  // to the worker; the worker's own route must still be.
+  it.each([
+    ["PUT /workers/:id/name (ops)", "ops" as const],
+    ["PATCH /workers/me/name (worker)", "worker" as const],
+  ])("%s emits worker.name_recorded with the %s actor", async (_route, actorType) => {
+    const repo = {
+      findById: vi.fn(async () => ({ id: ID, fullName: null })),
+      updateFullName: vi.fn(async () => ({ id: ID })),
+      updateLocation: vi.fn(async () => ({ id: ID })),
+      latestResume: vi.fn(async () => undefined),
+    };
+    const events = { emit: vi.fn(async (_e: unknown) => undefined) };
+    const service = new WorkersService(
+      repo as unknown as WorkersRepository,
+      { encrypt: vi.fn(() => "v1.token"), decrypt: vi.fn() } as unknown as PiiCryptoService,
+      events as unknown as EventsService,
+      {} as unknown as StorageService,
+      {} as ServerConfig,
+      { add: vi.fn(), getJob: vi.fn() } as unknown as Queue<ResumeRenderJobData>,
+    );
+    const controller = new WorkersController(
+      repo as unknown as WorkersRepository,
+      service,
+      { assertWithinHourlyIpCap: vi.fn() } as unknown as IpRateLimit,
+      {} as ServerConfig,
+    );
+
+    if (actorType === "ops") {
+      await controller.setName(ID, { full_name: "Asha" } as never, CTX);
+    } else {
+      await controller.setMyName({ id: ID, sid: "sess-1" }, { full_name: "Asha" } as never, CTX);
+    }
+
+    const nameRecorded = events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; actor: unknown; payload: unknown })
+      .filter((e) => e.event_name === "worker.name_recorded");
+    expect(nameRecorded).toHaveLength(1);
+    expect(nameRecorded[0]!.actor).toEqual(
+      actorType === "ops"
+        ? { actor_type: "ops", actor_id: null }
+        : { actor_type: "worker", actor_id: ID },
+    );
+    expect(nameRecorded[0]!.payload).toEqual({ worker_id: ID }); // payload unchanged
+    expect(JSON.stringify(events.emit.mock.calls)).not.toMatch(/Asha|v1\.token/);
   });
 
   it("getMyProfileSummary takes the worker from the token and returns a PII-free summary (TD54)", async () => {

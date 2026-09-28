@@ -54,8 +54,26 @@ type ResumeSafeField = PayloadInputOf<"resume.edited_v2">["field"];
  * legacy `PUT /workers/:id/name` behind InternalServiceGuard — the ops shared secret, a path id, no
  * worker session — so it is NOT the worker's résumé edit and emits no `resume.edited_v2`. REQUIRED,
  * with no default, so a future caller has to say which it is.
+ *
+ * It also decides WHO `worker.name_recorded` names as the actor (#1804, owner ruling 2026-09-28):
+ * see {@link nameWriteActor}.
  */
 export type NameWriteOrigin = "worker_self" | "internal_ops";
+
+/**
+ * #1804 — the actor on `worker.name_recorded`. A worker-self write is the worker. An `internal_ops`
+ * write is the ops shared-secret caller, which has no identity of its own, so it is
+ * `{ actor_type: "ops", actor_id: null }` — the same shape `resume.erasure_backfill_enqueued`
+ * uses. Attributing an ops write to the worker would put a false entry in the audit trail.
+ */
+function nameWriteActor(
+  workerId: string,
+  origin: NameWriteOrigin,
+): { actor_type: "worker"; actor_id: string } | { actor_type: "ops"; actor_id: null } {
+  return origin === "internal_ops"
+    ? { actor_type: "ops", actor_id: null }
+    : { actor_type: "worker", actor_id: workerId };
+}
 
 /**
  * The latest-résumé lookup once it has been MADE, so the re-render can reuse it instead of asking
@@ -128,7 +146,8 @@ export class WorkersService {
    * worker erased is worse than a 409.)
    *
    * BEST-EFFORT: a queue failure must NEVER fail the photo/prefs write that
-   * triggered it (mirrors ResumeService.enqueueRender). Refs only — no PII is
+   * triggered it (mirrors ResumeService.enqueueRender). Always called AFTER that write
+   * has committed — on the erasure paths, together with its audit event (#1803). Refs only — no PII is
    * enqueued, and the reason is logged without the key/name.
    *
    * CALLERS MUST ONLY CALL THIS WHEN THE PDF WOULD ACTUALLY CHANGE (i.e. the photo
@@ -328,9 +347,11 @@ export class WorkersService {
    * looked up when nothing changed. Returns the lookup it made so the re-render reuses it.
    *
    * SHAPED LIKE ITS SIBLINGS: worker actor; the `resume` subject every other `resume.*` emitter
-   * with a résumé in hand uses; no tx and no idempotency key, because none of the `worker.*`
-   * events beside it has one and a retried request is a new request (whose before-vs-after then
-   * finds no change).
+   * with a résumé in hand uses; no idempotency key, because none of the `worker.*` events beside
+   * it has one and a retried request is a new request (whose before-vs-after then finds no
+   * change). NO TX, deliberately: on the erasure paths the sibling now commits in ONE transaction
+   * with the write (#1803), and this runs after that commit — a measurement signal must never be
+   * able to roll back an erasure write.
    *
    * BEST-EFFORT, UNLIKE THE SIBLING. The sibling `worker.*` event is this write's audit record and
    * stays fail-loud. This one is a measurement signal, and it sits in front of two PII-ERASURE
@@ -435,6 +456,9 @@ export class WorkersService {
    * #1318: a `worker_self` save that REALLY changes the stored name, on a worker who already has a
    * résumé, also emits `resume.edited_v2` (field `name`). An `internal_ops` write never does — see
    * {@link NameWriteOrigin}.
+   *
+   * #1804: `worker.name_recorded` names the worker as actor on a `worker_self` write and the ops
+   * caller (`{ actor_type: "ops", actor_id: null }`) on an `internal_ops` one. Payload unchanged.
    */
   async setFullName(
     workerId: string,
@@ -449,10 +473,11 @@ export class WorkersService {
     const encrypted = this.pii.encrypt(fullName);
     await this.workers.updateFullName(workerId, encrypted);
 
-    // PII-free signal: carries only worker_id (the name stays in workers.full_name).
+    // PII-free signal: carries only worker_id (the name stays in workers.full_name). The actor
+    // follows the origin (#1804): an ops write is never attributed to the worker.
     await this.events.emit({
       event_name: "worker.name_recorded",
-      actor: { actor_type: "worker", actor_id: workerId },
+      actor: nameWriteActor(workerId, opts.origin),
       subject: { subject_type: "worker", subject_id: workerId },
       payload: { worker_id: workerId },
       correlationId: ctx.correlationId,
@@ -500,6 +525,14 @@ export class WorkersService {
    * merely leaves a number off a PDF for one cycle; after a clear it must not keep serving
    * the number the worker just removed. The employer copy never carries either way —
    * `ResumeAudience` gates the line structurally.
+   *
+   * WRITE + AUDIT IN ONE TRANSACTION (#1803, owner ruling 2026-09-28). The number write and its
+   * `worker.whatsapp_recorded` commit together, BEFORE the re-render is queued. Were the fail-loud
+   * audit emit to throw after a standalone write, the request would 500 with the number already
+   * cleared and the fail-closed erasure never queued — and the retry could not repair it, because
+   * it finds no number on file, sees no change, and re-renders nothing. In one transaction the
+   * failed emit rolls the clear back, so the retry sees the number and re-drives the erasure. Both
+   * directions share the transaction; a set that cannot be audited is not kept either.
    */
   async setWhatsapp(
     workerId: string,
@@ -511,10 +544,13 @@ export class WorkersService {
 
     const hadWhatsapp = typeof worker.whatsappEnc === "string" && worker.whatsappEnc.length > 0;
     const encrypted = dto.whatsapp === null ? null : this.pii.encrypt(dto.whatsapp);
-    await this.workers.updateWhatsapp(workerId, encrypted);
-
     const hasWhatsapp = dto.whatsapp !== null;
-    if (hadWhatsapp !== hasWhatsapp) {
+    const changed = hadWhatsapp !== hasWhatsapp;
+
+    // WRITE + AUDIT IN ONE TRANSACTION (#1803). See the method doc.
+    await this.workers.withTransaction(async (tx) => {
+      await this.workers.updateWhatsapp(workerId, encrypted, tx);
+      if (!changed) return;
       // PII-FREE: the RESULTING STATE, never the number or any derivative of it.
       await this.events.emit({
         event_name: "worker.whatsapp_recorded",
@@ -523,7 +559,11 @@ export class WorkersService {
         payload: { worker_id: workerId, has_whatsapp: hasWhatsapp },
         correlationId: ctx.correlationId,
         requestId: ctx.requestId,
+        tx,
       });
+    });
+
+    if (changed) {
       this.logger.log(
         `whatsapp ${hasWhatsapp ? "recorded" : "cleared"} for worker ${workerId}`, // never the number
       );
@@ -833,10 +873,21 @@ export class WorkersService {
   /**
    * ADR-0032 — remove the worker's profile photo (DELETE /workers/me/photo).
    * IDEMPOTENT: no photo → 200 `{ has_photo: false }` with NO event (§1 — nothing
-   * changed; a fabricated `photo_removed` would be a fake event). With a photo:
-   * clears the pointer FIRST (data minimization is never blocked), best-effort
-   * deletes the object only when the bucket is configured (dormancy skips the
-   * object, mirroring the account-deletion gate), then emits `worker.photo_removed`.
+   * changed; a fabricated `photo_removed` would be a fake event).
+   *
+   * With a photo, IN THIS ORDER (#1803, owner ruling 2026-09-28 — "write + audit in one
+   * transaction"):
+   *  1. ONE transaction: clear the pointer AND emit `worker.photo_removed`. If the fail-loud audit
+   *     emit throws, the clear rolls back and the request fails cleanly. The retry then still sees
+   *     the photo and re-drives the whole removal, erasure included. Before this, a failed emit
+   *     left the pointer cleared with no erasure queued, and the retry took the no-photo early
+   *     return above — so the erased face stayed on every PDF for good.
+   *  2. After commit only: best-effort delete of the object when the bucket is configured
+   *     (dormancy skips the object, mirroring the account-deletion gate). Never before commit — a
+   *     rolled-back pointer must not point at deleted bytes.
+   *  3. Best-effort `resume.edited_v2` (#1318), outside the transaction.
+   *  4. The fail-closed erasure re-render.
+   * Dormancy still never blocks the removal: the pointer clears with the bucket unset.
    */
   async deletePhoto(
     workerId: string,
@@ -850,8 +901,19 @@ export class WorkersService {
       return { worker_id: workerId, has_photo: false };
     }
 
-    const updated = await this.workers.updatePhotoStorageKey(workerId, null);
-    if (!updated) throw new NotFoundException(`Worker ${workerId} not found`);
+    await this.workers.withTransaction(async (tx) => {
+      const updated = await this.workers.updatePhotoStorageKey(workerId, null, tx);
+      if (!updated) throw new NotFoundException(`Worker ${workerId} not found`);
+      await this.events.emit({
+        event_name: "worker.photo_removed",
+        actor: { actor_type: "worker", actor_id: workerId },
+        subject: { subject_type: "worker", subject_id: workerId },
+        payload: { worker_id: workerId },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+        tx,
+      });
+    });
 
     const bucket = this.config.WORKER_PHOTOS_BUCKET;
     if (bucket) {
@@ -864,14 +926,6 @@ export class WorkersService {
       }
     }
 
-    await this.events.emit({
-      event_name: "worker.photo_removed",
-      actor: { actor_type: "worker", actor_id: workerId },
-      subject: { subject_type: "worker", subject_id: workerId },
-      payload: { worker_id: workerId },
-      correlationId: ctx.correlationId,
-      requestId: ctx.requestId,
-    });
     // #1318: a photo was really removed (the no-photo case returned above). Résumé-gated inside.
     const lookup = await this.emitResumeEdited(workerId, ["photo"], ctx);
 
@@ -890,6 +944,15 @@ export class WorkersService {
    * Update the worker's resume display prefs (PATCH /workers/me/resume-prefs). Only
    * the provided flags are written; the event carries the RESULTING values of both
    * flags (read back from the updated row) — PII-free booleans only.
+   *
+   * WRITE + AUDIT IN ONE TRANSACTION (#1803, owner ruling 2026-09-28). The prefs write and its
+   * fail-loud `worker.resume_prefs_updated` commit together, before anything else runs. Turning
+   * show_photo OFF with a photo on file queues a fail-closed ERASURE re-render; were the audit
+   * emit to throw after a standalone write, the request would 500 with the pref already off and
+   * the erasure never queued — and the retry could not repair it, because its before-vs-after
+   * finds no flip. In one transaction the failed emit rolls the write back, so the retry sees the
+   * flip and queues the erasure. After commit: the best-effort `resume.edited_v2` (#1318, outside
+   * the transaction), then the re-render gating below, unchanged.
    */
   async updateResumePrefs(
     workerId: string,
@@ -899,28 +962,34 @@ export class WorkersService {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
 
-    const updated = await this.workers.updateResumePrefs(workerId, {
-      resumeShowPhoto: dto.show_photo,
-      resumeNightShiftReady: dto.night_shift_ready,
-    });
-    if (!updated) throw new NotFoundException(`Worker ${workerId} not found`);
+    // WRITE + AUDIT IN ONE TRANSACTION (#1803). See the method doc.
+    const updated = await this.workers.withTransaction(async (tx) => {
+      const row = await this.workers.updateResumePrefs(
+        workerId,
+        { resumeShowPhoto: dto.show_photo, resumeNightShiftReady: dto.night_shift_ready },
+        tx,
+      );
+      if (!row) throw new NotFoundException(`Worker ${workerId} not found`);
 
-    await this.events.emit({
-      event_name: "worker.resume_prefs_updated",
-      actor: { actor_type: "worker", actor_id: workerId },
-      subject: { subject_type: "worker", subject_id: workerId },
-      payload: {
-        worker_id: workerId,
-        show_photo: updated.resumeShowPhoto,
-        // MUST COALESCE, AND THIS ONE IS A 500 IF IT DOES NOT. `WorkerResumePrefsUpdatedPayload`
-        // is `.strict()` with `night_shift_ready: z.boolean()`, and EventsService validates and
-        // throws before any side effect — so a partial PATCH that left the column null would
-        // fail the whole request AFTER the write had already landed. Coalescing also keeps the
-        // event byte-compatible for every existing consumer (§3 forbids mutating a schema).
-        night_shift_ready: updated.resumeNightShiftReady ?? false,
-      },
-      correlationId: ctx.correlationId,
-      requestId: ctx.requestId,
+      await this.events.emit({
+        event_name: "worker.resume_prefs_updated",
+        actor: { actor_type: "worker", actor_id: workerId },
+        subject: { subject_type: "worker", subject_id: workerId },
+        payload: {
+          worker_id: workerId,
+          show_photo: row.resumeShowPhoto,
+          // MUST COALESCE, AND THIS ONE IS A 500 IF IT DOES NOT. `WorkerResumePrefsUpdatedPayload`
+          // is `.strict()` with `night_shift_ready: z.boolean()`, and EventsService validates and
+          // throws before any side effect — so a partial PATCH that left the column null would
+          // fail the whole request (and, since #1803, roll the write back). Coalescing also keeps
+          // the event byte-compatible for every existing consumer (§3 forbids mutating a schema).
+          night_shift_ready: row.resumeNightShiftReady ?? false,
+        },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+        tx,
+      });
+      return row;
     });
     // #1318: one resume.edited_v2 per pref that REALLY changed (before-vs-after, null ≡ false —
     // see changedResumePrefs). Independent of whether a photo exists: the toggle is the worker's
