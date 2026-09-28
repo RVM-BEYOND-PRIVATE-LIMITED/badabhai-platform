@@ -5,6 +5,9 @@ import type { ServerConfig } from "@badabhai/config";
 import { WorkerAuthGuard } from "../auth/worker-auth.guard";
 import { ResumeController } from "./resume.controller";
 import type { ResumeService } from "./resume.service";
+import type { ResumeSkinService } from "./resume-skin.service";
+import { SetResumeSkinSchema } from "./resume-skin.dto";
+import { ConsentGuard } from "../auth/consent.guard";
 import type { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import type { RequestContext } from "../common/request-context";
 
@@ -37,12 +40,17 @@ function make() {
   };
   const ipRateLimit = { assertWithinHourlyIpCap: vi.fn(async () => undefined) };
   const config = { RESUME_RATE_LIMIT_PER_IP_PER_HOUR: 20 } as ServerConfig;
+  const skins = {
+    state: vi.fn(async () => ({ enabled: true, skin: "neela", skins: ["neela"] })),
+    set: vi.fn(async () => ({ skin: "neela", previous_skin: null, change: "changed" })),
+  };
   const controller = new ResumeController(
     resume as unknown as ResumeService,
     ipRateLimit as unknown as IpRateLimit,
     config,
+    skins as unknown as ResumeSkinService,
   );
-  return { controller, resume, ipRateLimit };
+  return { controller, resume, ipRateLimit, skins };
 }
 
 describe("ResumeController (thin) — delegation", () => {
@@ -168,5 +176,62 @@ describe("ResumeController (thin) — delegation", () => {
     );
     await expect(controller.download(RES_ID, OWNER, IP, CTX)).rejects.toBeTruthy();
     expect(resume.download).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #1801 — the two skin routes. Thin: the worker is the SESSION's, the body is the closed skin
+ * enum and nothing else, and both literal paths are declared before `:id`.
+ */
+describe("ResumeController — résumé skin (#1801)", () => {
+  const guardsOf = (method: "mySkin" | "setMySkin") =>
+    (Reflect.getMetadata("__guards__", ResumeController.prototype[method]) ?? []) as unknown[];
+
+  it("mySkin delegates with the SESSION worker id", async () => {
+    const { controller, skins } = make();
+    expect(await controller.mySkin(OWNER)).toEqual({
+      enabled: true,
+      skin: "neela",
+      skins: ["neela"],
+    });
+    expect(skins.state).toHaveBeenCalledWith(OWNER.id);
+  });
+
+  it("setMySkin delegates the validated skin with the SESSION worker id and the request ctx", async () => {
+    const { controller, skins } = make();
+    await controller.setMySkin({ skin: "neela" }, OWNER, CTX);
+    expect(skins.set).toHaveBeenCalledWith(OWNER.id, "neela", CTX);
+  });
+
+  it("both routes are [WorkerAuthGuard, ConsentGuard], in that order", () => {
+    for (const method of ["mySkin", "setMySkin"] as const) {
+      expect(guardsOf(method), method).toEqual([WorkerAuthGuard, ConsentGuard]);
+    }
+  });
+
+  it("mySkin is no-store, and both skin routes are declared BEFORE the :id route", () => {
+    const headers = (Reflect.getMetadata("__headers__", ResumeController.prototype.mySkin) ??
+      []) as { name: string; value: string }[];
+    expect(headers).toContainEqual({ name: "Cache-Control", value: "no-store" });
+    const methods = Object.getOwnPropertyNames(ResumeController.prototype);
+    expect(methods.indexOf("mySkin")).toBeLessThan(methods.indexOf("get"));
+    expect(methods.indexOf("setMySkin")).toBeLessThan(methods.indexOf("get"));
+  });
+
+  it("the PUT body accepts only a skin from RESUME_SKINS — unknown skins and extra keys are a 400", () => {
+    expect(SetResumeSkinSchema.safeParse({ skin: "neela" }).success).toBe(true);
+    for (const body of [
+      { skin: "saada" },
+      { skin: "kaagaz" },
+      { skin: "loha" },
+      { skin: "Neela" },
+      { skin: "" },
+      { skin: null },
+      {},
+      { skin: "neela", worker_id: OTHER_WORKER_ID },
+      { skin: "neela", template_id: "classic" },
+    ]) {
+      expect(SetResumeSkinSchema.safeParse(body).success, JSON.stringify(body)).toBe(false);
+    }
   });
 });

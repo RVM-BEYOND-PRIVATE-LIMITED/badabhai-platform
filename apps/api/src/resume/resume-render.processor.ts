@@ -36,6 +36,9 @@ import { applyTierScope, type ResumeTierScope } from "./resume-tier-scope";
 import { ResumeTierScopeReader } from "./resume-tier-scope.reader";
 import { GeneralRoadReader, type GeneralRoadMarker } from "./general-road.reader";
 import { ownBriefUsable } from "./resume-brief";
+import type { ResumeSkin } from "@badabhai/types";
+import { templateTakesSkin } from "./resume-skins";
+import { ResumeSkinReader } from "./resume-skin.reader";
 
 /**
  * Renders a resume PDF off the request path (NODE-ONLY render, see ADR).
@@ -95,6 +98,12 @@ export class ResumeRenderProcessor extends WorkerHost {
     // ADR-0045 Phase 5 — THE GENERAL ROAD, by the résumé's own provenance. Optional on the same
     // terms as the tier reader: absent is today's sheet. Database-only reads, no event surface.
     @Optional() private readonly generalRoads?: GeneralRoadReader,
+    // #1801 — THE WORKER'S RÉSUMÉ SKIN. Optional on the same terms as the two readers above:
+    // absent is today's sheet, and so is RESUME_SKINS_ENABLED off (the reader then answers null
+    // without a query). Read only for a `bb_trade` render — the one template a skin applies to.
+    // THE READER, NEVER ResumeSkinService: the service emits, and this processor holds no event
+    // surface (the TD5 security test).
+    @Optional() private readonly skins?: ResumeSkinReader,
   ) {
     super();
   }
@@ -463,6 +472,21 @@ export class ResumeRenderProcessor extends WorkerHost {
     // is decrypted above for the masthead and must never ride the context. A name that could not be
     // decrypted fails the check (fail closed); the mapper then prints the fixed fallback line —
     // exactly what the employer copy prints on the same failure, so the two copies agree.
+    // #1801 — THE SKIN, a NINTH independent load on the same degrade as the eight above: a failure
+    // costs the skin (the template's own colours, i.e. Neela) and never the PDF. QUERIED ONLY FOR A
+    // `bb_trade` RENDER, and only while RESUME_SKINS_ENABLED is on (the reader answers null
+    // without a query when off) — every other render makes no extra query at all.
+    let skin: ResumeSkin | null = null;
+    if (templateTakesSkin(templateId)) {
+      try {
+        skin = (await this.skins?.forWorker(workerId)) ?? null;
+      } catch {
+        this.logger.warn(
+          `could not read the résumé skin for worker ${workerId}; rendering the house skin`,
+        );
+      }
+    }
+
     const generalRoad =
       road === null
         ? null
@@ -590,7 +614,9 @@ export class ResumeRenderProcessor extends WorkerHost {
 
     let pdf: Buffer | null = null;
     try {
-      pdf = await this.renderer.renderPdf(input);
+      // #1801 — the skin rides only the PRINT: absent (null) is the template exactly as shipped,
+      // and the document projection below never sees it.
+      pdf = await this.renderer.renderPdf(skin === null ? input : { ...input, skin });
     } catch (err) {
       if (err instanceof FontResolutionError) {
         // NOT a per-resume fault: the image cannot resolve the sheet's fonts, so every

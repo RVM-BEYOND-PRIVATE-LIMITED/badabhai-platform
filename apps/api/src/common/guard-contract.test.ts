@@ -488,6 +488,10 @@ const CONTRACT: ControllerContract[] = [
       // ADR-0043 — the worker's résumé history. [C, W] like every sibling worker read here, and
       // listed on the day it ships rather than the release after (see `myDocument` above).
       history: [C, W],
+      // #1801 — the worker's résumé skin (read + choose). [C, W] like every sibling worker route
+      // here, listed on the day they ship.
+      mySkin: [C, W],
+      setMySkin: [C, W],
       get: [I],
       regenerate: [I],
       download: [W],

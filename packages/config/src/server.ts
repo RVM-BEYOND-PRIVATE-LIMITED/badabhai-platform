@@ -322,6 +322,14 @@ export const serverEnvSchema = z.object({
   // — so migration 0126 is apply-before-FLAG-ON, not apply-before-deploy. Turn it on only after
   // 0126 is applied and `db:seed:packs --apply` has written the pack tags.
   PROFILING_TIERS_ENABLED: booleanFromString,
+  // RÉSUMÉ SKINS (#1801, owner ruling 2026-09-28 "Plumbing, Neela only") — the per-worker colour
+  // skin of the `bb_trade` sheet, chosen through GET/PUT /resume/skin.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S BEHAVIOUR EXACTLY. With it off GET /resume/skin answers
+  // `enabled: false`, PUT /resume/skin is a 404, every sheet renders from its template untouched,
+  // and NOTHING reads or writes `worker_resume_skin` — so migration 0128 is apply-before-FLAG-ON,
+  // not apply-before-deploy. Turn it on only after 0128 is applied.
+  RESUME_SKINS_ENABLED: booleanFromString,
   // Per-worker generations allowed per UTC day (paid-path abuse cap).
   RESUME_DAILY_CAP: z.coerce.number().int().positive().default(5),
   // Global generations allowed per UTC day — interim backstop until TD4 binds a

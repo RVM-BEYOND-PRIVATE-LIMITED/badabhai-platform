@@ -29,6 +29,8 @@ import type {
 import type { ResumeRenderJobData } from "../queue/queue.constants";
 import { ROAD_FALLBACK_FRESHER, roadSnapshot } from "./__fixtures__/general-road";
 import type { TradeSheetContext } from "./resume-render-input";
+import { ResumeSkinReader } from "./resume-skin.reader";
+import type { ResumeSkinRepository } from "./resume-skin.repository";
 
 // ADR-0045 Phase 5 — THE CONTEXT the processor hands the mapper, captured by a PASS-THROUGH
 // wrapper so "the name never rides the context" is asserted on the object itself rather than
@@ -281,6 +283,9 @@ function setup(
     // the reader absent (every construction before Phase 5); `"throws"` is a reader whose read
     // escapes it, for the one-load-one-section degrade.
     generalRoads?: { answer: { road: "general" } | null } | "throws";
+    // #1801 — the résumé skin reader, as the optional 16th dependency. OMITTED is the service
+    // absent (every construction before skins existed), which renders the template as shipped.
+    skins?: unknown;
   } = {},
 ) {
   const resumeRow = opts.resume === undefined ? DEFAULT_ROW : (opts.resume ?? undefined);
@@ -420,6 +425,7 @@ function setup(
     // `tierScopes` — absent, as in every test here: its own suite covers it.
     undefined,
     generalRoads as never,
+    opts.skins as never,
   );
   return {
     proc,
@@ -684,9 +690,15 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
     // dependency is the @Global DATABASE: four primary-key reads, no service, no event surface.
     // The render still emits nothing. Checked before this bump.
     //
+    // `skins` (ResumeSkinReader) joined for #1801 — the colour skin a `bb_trade` sheet prints in.
+    // It reaches ResumeSkinRepository (the @Global DATABASE only, one primary-key read) and
+    // SERVER_CONFIG. DELIBERATELY THE READER AND NOT ResumeSkinService, which emits
+    // `resume.skin_changed` and so would put an event surface within reach. Checked before this
+    // bump.
+    //
     // ARITY ALONE IS A PROXY, so the real property is asserted directly below it: a number can be
     // bumped to make this pass while wiring in exactly the dependency it exists to keep out.
-    expect(ResumeRenderProcessor.length).toBe(15);
+    expect(ResumeRenderProcessor.length).toBe(16);
     const source = readFileSync(join(__dirname, "resume-render.processor.ts"), "utf8");
     expect(source, "an events dependency reached the render processor").not.toMatch(
       /EventsService|events\.emit/,
@@ -1723,5 +1735,92 @@ describe("ResumeRenderProcessor — the general road (ADR-0045 Phase 5)", () => 
     expect(joined).not.toContain(REAL_NAME);
     expect(joined).not.toContain("road boom");
     expect(joined).not.toContain(OWN);
+  });
+});
+
+/**
+ * #1801 — THE SKIN, as the render worker reads it. The flag decides whether the table is touched
+ * at all; the template decides whether a skin is even asked for; and a failed read costs the skin,
+ * never the PDF. The renderer's own suite proves Neela is byte-identical to no skin.
+ */
+describe("résumé skin (#1801)", () => {
+  const TRADE_ROW = { ...DEFAULT_ROW, templateId: "bb_trade" };
+
+  function skinService(opts: { enabled: boolean; stored?: string | null; throws?: boolean }) {
+    const repo = {
+      findSkin: vi.fn(async (_workerId: string) => {
+        if (opts.throws) throw new Error('relation "worker_resume_skin" does not exist');
+        return opts.stored ?? null;
+      }),
+      lockSkin: vi.fn(),
+      insertSkin: vi.fn(),
+      updateSkin: vi.fn(),
+      withTransaction: vi.fn(),
+    };
+    const service = new ResumeSkinReader(repo as unknown as ResumeSkinRepository, {
+      RESUME_SKINS_ENABLED: opts.enabled,
+    });
+    return { service, repo };
+  }
+
+  const printed = (t: ReturnType<typeof setup>) => t.renderer.renderPdf.mock.calls[0]![0];
+
+  it("FLAG OFF: a trade-sheet render never touches worker_resume_skin and prints no skin", async () => {
+    const { service, repo } = skinService({ enabled: false, stored: "neela" });
+    const t = setup({ resume: TRADE_ROW, skins: service });
+    expect(await t.proc.process(makeJob())).toEqual({ rendered: true });
+    expect(repo.findSkin).not.toHaveBeenCalled();
+    expect(repo.lockSkin).not.toHaveBeenCalled();
+    expect(repo.withTransaction).not.toHaveBeenCalled();
+    expect("skin" in printed(t)).toBe(false);
+  });
+
+  it("FLAG ON, no row: the trade sheet prints in Neela (the house default)", async () => {
+    const { service, repo } = skinService({ enabled: true, stored: null });
+    const t = setup({ resume: TRADE_ROW, skins: service });
+    await t.proc.process(makeJob());
+    expect(repo.findSkin).toHaveBeenCalledWith(WORKER_ID);
+    expect(printed(t).skin).toBe("neela");
+  });
+
+  it("FLAG ON, a stored choice: the trade sheet prints in it", async () => {
+    const { service } = skinService({ enabled: true, stored: "neela" });
+    const t = setup({ resume: TRADE_ROW, skins: service });
+    await t.proc.process(makeJob());
+    expect(printed(t).skin).toBe("neela");
+  });
+
+  it("FLAG ON: a non-trade render never asks — skins are bb_trade only", async () => {
+    for (const templateId of ["bb_general", "classic", "modern", "minimal", "fallback", null]) {
+      const { service, repo } = skinService({ enabled: true, stored: "neela" });
+      const t = setup({ resume: { ...DEFAULT_ROW, templateId }, skins: service });
+      await t.proc.process(makeJob());
+      expect(repo.findSkin, String(templateId)).not.toHaveBeenCalled();
+      expect("skin" in printed(t), String(templateId)).toBe(false);
+    }
+  });
+
+  it("a read that THROWS costs the skin, never the PDF — and the document is untouched", async () => {
+    const { service } = skinService({ enabled: true, throws: true });
+    const t = setup({ resume: TRADE_ROW, skins: service });
+    const lines: string[] = [];
+    const logger = (t.proc as unknown as { logger: { warn: (m: string) => void } }).logger;
+    logger.warn = (m: string) => void lines.push(String(m));
+
+    expect(await t.proc.process(makeJob())).toEqual({ rendered: true });
+    expect("skin" in printed(t)).toBe(false);
+    expect(lines.some((l) => l.includes(`résumé skin for worker ${WORKER_ID}`))).toBe(true);
+    expect(lines.join("\n")).not.toContain("worker_resume_skin");
+  });
+
+  it("the skin rides the PRINT only — the stored document projection never carries it", async () => {
+    const { service } = skinService({ enabled: true, stored: "neela" });
+    const t = setup({ resume: TRADE_ROW, skins: service });
+    await t.proc.process(makeJob());
+    const document = (t.resumes.markRendered.mock.calls as unknown[][])[0]![2] as Record<
+      string,
+      unknown
+    >;
+    expect(JSON.stringify(document)).not.toContain("neela");
   });
 });
