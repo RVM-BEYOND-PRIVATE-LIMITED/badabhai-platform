@@ -40,6 +40,7 @@ import 'cubit/resume_cubit.dart';
 import 'widgets/resume_action_row.dart';
 import 'widgets/resume_card_slots.dart';
 import 'widgets/resume_document_view.dart';
+import 'widgets/resume_skin_card.dart';
 import 'widgets/resume_general_sheet_view.dart';
 import '../../trade_form/presentation/widgets/add_more_detail_button.dart';
 import 'widgets/resume_history_section.dart';
@@ -335,6 +336,9 @@ class _ResumeViewState extends State<_ResumeView> {
           ),
         ),
         const SizedBox(height: kResumeCardGap),
+        // #1808 — the skin picker. Draws NOTHING until the server says skins
+        // are on, so the tab is unchanged on every box today.
+        const ResumeSkinCard(),
         // #1688 — an update the worker accepted in chat, while it is on its
         // way or once it has terminally failed. Directly under the profile
         // card: it is the answer to "did my Haan reach the resume?", which is

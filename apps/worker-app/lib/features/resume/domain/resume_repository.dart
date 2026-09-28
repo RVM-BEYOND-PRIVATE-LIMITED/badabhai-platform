@@ -1,5 +1,9 @@
 import '../../../core/api/api_models.dart'
-    show ResumeDocument, ResumeHistory;
+    show
+        ResumeDocument,
+        ResumeHistory,
+        ResumeSkinChange,
+        ResumeSkinState;
 
 /// What ONE `GET /resume/document` call learned: the structured document (or
 /// null) AND the PDF's real render state.
@@ -117,6 +121,24 @@ abstract interface class ResumeRepository {
   /// SAME call (ruling R6) instead of inferring readiness from the presence
   /// of resume text.
   Future<ResumeDocumentSnapshot> loadResumeDocument();
+
+  /// RÉSUMÉ SKINS (#1808) — which skin the worker's sheet prints in, and the
+  /// list they may choose from.
+  ///
+  /// NEVER THROWS, and that is the whole safety property: any failure — the
+  /// flag off, a 404 from a server that predates the route, a timeout — answers
+  /// [ResumeSkinState.disabled], and the Résumé tab renders exactly as it does
+  /// today. An optional picker must never be the reason a worker cannot see
+  /// their résumé.
+  Future<ResumeSkinState> loadResumeSkin();
+
+  /// Records the worker's skin choice (`PUT /resume/skin`).
+  ///
+  /// UNLIKE [loadResumeSkin] this PROPAGATES a [Failure]: the worker tapped a
+  /// deliberate choice, so a failed write must surface honestly rather than
+  /// look like it silently worked (the same rule
+  /// [setEmploymentDescriptionSource] follows).
+  Future<ResumeSkinChange> chooseResumeSkin(String skin);
 
   /// #1353/#1354 — records the worker's choice of which text prints for ONE
   /// work-history entry: [ownWords] `true` keeps what they typed (`source:

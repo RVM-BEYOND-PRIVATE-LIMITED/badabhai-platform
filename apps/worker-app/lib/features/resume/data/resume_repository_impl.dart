@@ -293,6 +293,32 @@ class ResumeRepositoryImpl implements ResumeRepository {
   }
 
   @override
+  Future<ResumeSkinState> loadResumeSkin() async {
+    final String? token = _session.sessionToken;
+    if (token == null) return ResumeSkinState.disabled;
+    try {
+      return await _api.getResumeSkin(authToken: token);
+    } catch (_) {
+      // Swallow EVERY error, exactly as the document read does: the flag off,
+      // a 404 from a server that predates the route, a timeout. All of them
+      // mean "no picker", which is what the tab shows today.
+      return ResumeSkinState.disabled;
+    }
+  }
+
+  @override
+  Future<ResumeSkinChange> chooseResumeSkin(String skin) async {
+    final String? token = _session.sessionToken;
+    if (token == null) throw const UnauthorizedFailure();
+    try {
+      return await _api.putResumeSkin(skin: skin, authToken: token);
+    } catch (error) {
+      // PROPAGATES, unlike the read above — see the interface doc.
+      throw mapError(error);
+    }
+  }
+
+  @override
   Future<void> setEmploymentDescriptionSource(
     String employmentId, {
     required bool ownWords,
