@@ -89,19 +89,42 @@ CompanionCareerOutput =
 `apps/api/src/chat-companion/v2/edit-catalogue.ts` — the ONLY place that maps a section to its
 existing writer. Identity and contact are absent by construction (O3).
 
-| `EditSection` | Ops | Writer (existing) | Notes |
-|---|---|---|---|
-| `employment` | add / edit / delete | `WorkerEmploymentService` (`PUT /workers/me/employment`) | fields: employer, role, city, start/end or years |
-| `skills` | add / delete | `WorkerSkillsService.setWants` after ADR-0030 canonicalization | phrase → `skill_id` with floor 0.75; below floor → row dropped |
-| `languages` | add / delete | `WorkerLanguagesService` | closed language list |
-| `qualifications` | add / edit / delete | `WorkerQualificationsService` | closed options endpoint |
-| `occupations` | add / delete | `WorkerOccupationsService` | canonical ids only |
-| `preferences` | edit | `WorkerPreferencesService` | closed options (shift, city, pay range) |
+| `EditSection` | Ops | Writer (existing) | Notes | Verified (T0, 2026-09-28) |
+|---|---|---|---|---|
+| `employment` | add / edit / delete | `WorkerEmploymentService` (`PUT /workers/me/employment`) | fields: employer, role, city, start/end or years | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (§3.1). Emits `worker.employment_recorded` v1. |
+| `skills` | add / delete | `WorkerSkillsService.setWants` after ADR-0030 canonicalization | phrase → `skill_id` with floor 0.75; below floor → row dropped | **BLOCKED.** `setWants` is an unwired seam that THROWS by design (`worker-skills.service.ts:187`); no add/delete writer exists. The only working skills-edit path is `ExtractedCorrectionsService.correctExtracted` field `skills`. See Open question **P1-OQ1** in the phase file. |
+| `languages` | add / delete | `WorkerLanguagesService` | closed language list | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (whole-list replace, §3.1). Emits `worker.languages_recorded` v1. |
+| `qualifications` | add / edit / delete | `WorkerQualificationsService` | closed options endpoint | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (whole-list replace, 3 lists, §3.1). Emits `worker.qualifications_recorded` v1. |
+| `occupations` | add / delete | `WorkerOccupationsService` | canonical ids only | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (whole-list replace, §3.1). Emits `worker.occupations_recorded` v1; also calls `WorkerSkillsService.rebuildQuietly` after the write. |
+| `preferences` | edit | `WorkerPreferencesService` | closed options (shift, city, pay range) | Method + DTO confirmed. `WorkerAttributesRepository.upsertMany` / `deleteKeys` ALREADY accept `tx?: Database`; the service passes none. Emits `worker.preferences_recorded` v1. |
 
-**Phase 1 task 0** verifies each writer: its input DTO, whether it accepts a transaction handle, and
-whether it emits its own event. A writer that cannot join a transaction gets an additive optional
-`tx` parameter; if that is not possible, the section is left out of the v2 catalogue and noted
-in the phase file.
+### 3.1 T0 writer verification detail (2026-09-28)
+
+| Section | Service + method (file) | Input DTO / Zod schema | Repo write + tx handle | Events |
+|---|---|---|---|---|
+| `employment` | `WorkerEmploymentService.replaceForWorker` (`apps/api/src/profiles/worker-employment.service.ts:64`) | `SetMyEmploymentSchema` (`worker-employment.dto.ts:148`; `.strict()`, ≤4 employments, whole-history replace, `expected_existing_count` stale guard) | `WorkerEmploymentRepository.replaceForWorker` (`worker-employment.repository.ts:128`) opens its own `this.db.transaction`; no `tx` param | `worker.employment_recorded` v1 (counts only) |
+| `skills` | contract names `WorkerSkillsService.setWants` (`apps/api/src/match/worker-skills.service.ts:187`) — **throws**: "unwired seam". Working path: `ExtractedCorrectionsService.correctExtracted` (`profiles/extracted-corrections.service.ts:45`) | no wants DTO; corrections take `SkillsCorrectionSchema` (`extracted-corrections.dto.ts:38`; canonical `skill_*` ids, replace-whole-list) | no add/delete writer. `ProfileSkillsRepository.replaceForProfile` (`profile-skills.repository.ts:36`) opens its own transaction; no `tx` param. Also needs a pinned chat session + profile id (`CorrectExtractedSchema`) | `resume.edited` v1 (from the corrections path) |
+| `languages` | `WorkerLanguagesService.replaceForWorker` (`worker-languages.service.ts:44`) | `SetMyLanguagesSchema` (`worker-languages.dto.ts:59`; `.strict()`, one required whole list, ≤16, ≥1 ability per row) | `WorkerLanguagesRepository.replaceForWorker` (`worker-languages.repository.ts:42`) opens its own transaction; no `tx` param | `worker.languages_recorded` v1 (counts only) |
+| `qualifications` | `WorkerQualificationsService.replaceForWorker` (`worker-qualifications.service.ts:65`) | `SetMyQualificationsSchema` (`worker-qualifications.dto.ts:259`; `.strict()`, three optional lists, ≥1 key) + `CertificateEntrySchema` / `EducationEntrySchema` | `WorkerQualificationsRepository.replaceForWorker` (`worker-qualifications.repository.ts:66`) opens its own transaction; no `tx` param | `worker.qualifications_recorded` v1 (counts only) |
+| `occupations` | `WorkerOccupationsService.replaceForWorker` (`worker-occupations.service.ts:46`) | `SetMyOccupationsSchema` (`worker-occupations.dto.ts:34`; `.strict()`, one required whole list, ≤4, closed `role_*` ids) | `WorkerOccupationsRepository.replaceForWorker` (`worker-occupations.repository.ts:32`) opens its own transaction; no `tx` param; then `WorkerSkillsService.rebuildQuietly` | `worker.occupations_recorded` v1 (+ `worker.match_skills_rebuilt` v1 from the rebuild) |
+| `preferences` | `WorkerPreferencesService.setForWorker` (`worker-preferences.service.ts:67`) | `SetMyPreferencesSchema` (`worker-preferences.dto.ts:113`; `.strict()`, partial patch, three-state per key, closed slugs) | `WorkerAttributesRepository.upsertMany` (`worker-attributes.repository.ts:46`) and `deleteKeys` (`:113`) **already accept** `tx?: Database`; the service passes none | `worker.preferences_recorded` v1 (counts only) |
+
+Notes T7 must carry forward:
+
+1. **Module reachability.** `ProfilesModule` exports only the five REPOSITORIES
+   (`profiles.module.ts:183`), not the five services. `WorkerSkillsService` is @Global through
+   `MatchModule`. `ChatCompanionModule` either imports `ProfilesModule` after it exports the
+   services (additive) or provisions its own instances of them; the repositories are injectable today.
+2. **Replace semantics.** employment / languages / qualifications / occupations replace the WHOLE
+   list; preferences patches individual keys. One edit row must therefore read → mutate → replace
+   for the four replace writers.
+3. **Side effects run outside the transaction today.** Every writer emits its event and enqueues a
+   re-render (or rebuild) AFTER its own repo transaction. For the confirm flow's "one transaction
+   or not at all", the repos need `tx?: Database` and the events/renders must move to an
+   after-commit step (T7 design).
+4. **Events can join a transaction.** `EventsService.emit` already accepts `tx?: Database`
+   (`events.service.ts:36`), so `chat.companion_edit_confirmed` can commit atomically with the writes.
+5. **Skills is blocked** as noted above; see **P1-OQ1** in the phase file.
 
 ## 4. Events (`packages/event-schema`, registry + payloads)
 

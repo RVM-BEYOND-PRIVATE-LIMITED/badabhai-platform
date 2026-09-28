@@ -62,9 +62,10 @@ A new edit message while a proposal is open replaces it (one active proposal per
 
 ### Backend — API (`apps/api/src/chat-companion/`)
 
-- [ ] **T0 Verify writers.** For each catalogue section, record the writer's method, DTO, transaction
+- [x] **T0 Verify writers.** For each catalogue section, record the writer's method, DTO, transaction
       support and own events in `contracts.md` §3. Add an optional `tx` param where needed (additive).
       Remove a section from the catalogue if it cannot be made transactional; note it below.
+      Findings: `contracts.md` §3 + §3.1; `tx` params are deferred to T7; `skills` is blocked (P1-OQ1).
 - [ ] **T1 Types.** `packages/types`: intents, sources, outcomes (contracts §1).
 - [ ] **T2 Config.** `packages/config`: v2 flags + knobs (contracts §6). `docs/environment-variables.md`.
 - [ ] **T3 Events.** `packages/event-schema`: `chat.companion_turn_served` v2, `chat.companion_edit_*` v1
@@ -151,4 +152,16 @@ A new edit message while a proposal is open replaces it (one active proposal per
 
 ## 5. Open questions
 
-_None open. Add questions here rather than guessing (README rule 12)._
+Add questions here rather than guessing (README rule 12).
+
+- **P1-OQ1 — `skills` has no writer (T0 finding, 2026-09-28).** `contracts.md` §3 names
+  `WorkerSkillsService.setWants` as the skills writer, but that method is an unwired seam that
+  throws by design (`apps/api/src/match/worker-skills.service.ts:187`). No existing writer can
+  add/delete a wanted skill. The only working skills-edit path is `ExtractedCorrectionsService`
+  field `skills`, which needs a pinned chat session + profile id and replaces the whole authored
+  list with canonical `skill_*` ids (never a phrase). Options:
+  **(a)** drop `skills` from the Phase 1 catalogue and serve "Profile screen" guidance;
+  **(b)** build an additive skills writer (add/delete wanted rows + `job_reach` reconcile) and
+  canonicalize phrases through `AiService.canonicalizeSkill`, honoring the 0.75 floor;
+  **(c)** route through the corrections path with its pinned-session requirement.
+  Owner/architect ruling needed before T7. Until then, T1–T6 proceed (they do not depend on it).
