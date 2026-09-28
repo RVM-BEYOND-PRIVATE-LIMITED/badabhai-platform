@@ -1242,6 +1242,13 @@ export const EVENT_REGISTRY = {
   // so subject = worker and no resume_id. Emitted by `ResumeSkinService` only on a persisted real
   // change, in the same transaction as the `worker_resume_skin` write. Id + closed enums, strict.
   "resume.skin_changed": { version: 1, domain: "resume", payload: p.ResumeSkinChangedPayload },
+
+  // #1800 (owner ruling 2026-09-28, "Count + attribute worker signups") — the QR on a worker's own
+  // résumé was scanned. Emitted by `GET /r/:code` for a `resume_qr` link INSTEAD OF
+  // `referral.link_clicked` (one tap, one event), behind the resolver's bot filter, per-IP cap and
+  // hashed-visitor dedupe. worker_id = the résumé OWNER, never the scanner; the link row id, never
+  // the bearer code; a closed platform enum. Strict. v1.
+  "profile.qr_scanned": { version: 1, domain: "profile", payload: p.ProfileQrScannedPayload },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

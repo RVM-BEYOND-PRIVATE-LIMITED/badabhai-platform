@@ -5,6 +5,7 @@ import { AuthModule } from "../auth/auth.module";
 import { ProfilesModule } from "../profiles/profiles.module";
 import { ProfilingModule } from "../profiling/profiling.module";
 import { StorageModule } from "../storage/storage.module";
+import { ReferralLinksModule } from "../referrals/referral-links.module";
 import { RESUME_GENERATE_QUEUE, RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { ResumeController } from "./resume.controller";
 import { ResumeService } from "./resume.service";
@@ -38,6 +39,10 @@ import { ResumeRerenderService } from "./resume-rerender.service";
     ProfilesModule, // for ProfilesRepository
     forwardRef(() => ProfilingModule), // for TradeFormRepository (read-only pack answers)
     StorageModule, // for StorageService (signed URLs + PDF upload)
+    // #1800 — ResumeQrLinkService: the render worker's get-or-create of the worker's `resume_qr`
+    // link, whose `/r/<code>` their own résumé QR encodes. A leaf module (no imports), so no
+    // cycle; nothing queries `referral_links` from here while RESUME_QR_SCAN_ENABLED is off.
+    ReferralLinksModule,
     BullModule.registerQueue({ name: RESUME_GENERATE_QUEUE }),
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
   ],

@@ -69,6 +69,22 @@ export function redactQueryParams(err: unknown, operation: string): unknown {
 }
 
 /**
+ * The Postgres SQLSTATE of a failed query (`23505`, `23514`, `42P10` …), or undefined.
+ *
+ * LOOKS THROUGH DRIZZLE'S WRAPPER. drizzle-orm 0.45 throws a `DrizzleQueryError` whose own `code`
+ * is undefined and whose `cause` is the driver error carrying the SQLSTATE, so a bare
+ * `err.code === "23505"` never matches a real query failure. Checks the error itself first, so a
+ * hand-built `{ code }` (and an unwrapped driver error) still classifies.
+ */
+export function sqlStateOf(err: unknown): string | undefined {
+  for (const candidate of [err, (err as { cause?: unknown } | null)?.cause]) {
+    const code = (candidate as { code?: unknown } | null | undefined)?.code;
+    if (typeof code === "string") return code;
+  }
+  return undefined;
+}
+
+/**
  * A log-safe REASON for a failure on a path that writes a worker's own words (#1744 review).
  *
  * `redactQueryParams` strips a query error's bound parameters but hands every OTHER error back

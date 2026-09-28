@@ -1,0 +1,67 @@
+-- ===========================================================================
+-- 0129 - referral_links: the 'resume_qr' kind + one résumé-QR link per worker
+--
+-- #1800 (owner ruling 2026-09-28, "Count + attribute worker signups"). The worker's own
+-- résumé QR stops encoding the bare https://badabhai.ai and encodes
+-- https://badabhai.ai/r/<code> instead, with a PER-WORKER code minted into this table as
+-- the new, NON-COMMISSIONED kind 'resume_qr'. The existing `GET /r/:code` resolver counts
+-- the scan (`profile.qr_scanned`) and 302s to the install page; a worker who installs from
+-- it is attributed through the existing first-touch claim. No bonus and no commission,
+-- ever (`isCommissionedLinkKind` in @badabhai/types).
+--
+-- TWO CHANGES, BOTH ADDITIVE. No column, no row, no backfill:
+--   1. `referral_links_kind_chk` WIDENED to admit 'resume_qr'. Every value 0060 allowed is
+--      still allowed, so no stored row can fail the re-added constraint (the 0059 / 0124
+--      widening precedent).
+--   2. `referral_links_resume_qr_owner_uq` - a PARTIAL UNIQUE index: at most ONE live
+--      résumé-QR link per worker. It is the conflict target of the render's get-or-create
+--      (`INSERT ... ON CONFLICT (owner_worker_id) WHERE <this predicate> DO NOTHING`, then
+--      re-select), which is what keeps the printed code stable across forced re-renders and
+--      makes two concurrent renders agree on one row. Partial on `owner_worker_id IS NOT
+--      NULL` because erasure SETs the owner NULL, and any number of dead rows may coexist.
+--
+-- DELIBERATELY NO "kind = 'resume_qr' => owner_worker_id IS NOT NULL" CHECK. The owner FK is
+-- ON DELETE SET NULL (0060, the DPDP posture: keep the PII-free row, drop the identity
+-- join), and such a CHECK would make that SET NULL fail - aborting the worker's erasure.
+-- An owner-less 'resume_qr' row is instead DEAD in code: the resolver records no click and
+-- emits nothing for it, and it can never be claimed. Link rows are never deleted on
+-- account deletion either (the referral_clicks cascade would wipe other workers'
+-- attribution).
+--
+-- DEPLOY ORDER - APPLY BEFORE THE FLAG, NOT BEFORE THE DEPLOY. No column changes, so no
+-- select anywhere is affected by a build that reaches the database first. The only write
+-- that needs this migration - minting a 'resume_qr' row at render time - sits behind
+-- RESUME_QR_SCAN_ENABLED (default off). If the flag is turned on before this is applied,
+-- the insert fails this CHECK (or the ON CONFLICT finds no matching index) and the render
+-- falls back to today's homepage QR: the PDF is never lost. Order: merge -> apply 0129 ->
+-- the badabhai.ai /r/* redirect -> set the production-environment secret
+-- RESUME_QR_SCAN_ENABLED=true -> redeploy.
+--
+-- LOCKS. DROP CONSTRAINT and a validated ADD CONSTRAINT ... CHECK take ACCESS EXCLUSIVE on
+-- `referral_links` and the ADD scans it; the CREATE UNIQUE INDEX (not CONCURRENTLY -
+-- drizzle applies each file in one transaction) takes SHARE. The table is tiny (nothing has
+-- ever minted into it: `mintLink` had no caller before #1800), so each step is
+-- milliseconds; the real risk is queueing behind a long transaction while every `GET /r/`
+-- resolve reads this table. Applied by hand: wrap ALL THREE statements in ONE explicit
+-- BEGIN/COMMIT (psql -f would otherwise commit the DROP alone and leave a window with no
+-- kind constraint) with `SET LOCAL lock_timeout = '3s';`, and retry on 55P03
+-- (0077/0080/0109/0124 precedent).
+--
+-- SAFE TO RE-RUN: no (plain DROP/ADD CONSTRAINT + CREATE INDEX). Apply once.
+--
+-- ROLLBACK (turn RESUME_QR_SCAN_ENABLED off first). Fully reversible ONLY while no row uses
+-- the new kind - otherwise the narrowed CHECK refuses to validate. Pre-check:
+--   SELECT count(*) FROM "referral_links" WHERE "kind" = 'resume_qr';   -- must be 0
+-- If it is not 0, roll back in CODE (the flag off stops every new mint; printed sheets keep
+-- resolving) rather than here - deleting those rows would cascade away their clicks. Then:
+--   BEGIN;
+--   SET LOCAL lock_timeout = '3s';
+--   DROP INDEX "referral_links_resume_qr_owner_uq";
+--   ALTER TABLE "referral_links" DROP CONSTRAINT "referral_links_kind_chk";
+--   ALTER TABLE "referral_links" ADD CONSTRAINT "referral_links_kind_chk"
+--     CHECK ("referral_links"."kind" IN ('agent', 'worker', 'campaign'));
+--   COMMIT;
+-- ===========================================================================
+ALTER TABLE "referral_links" DROP CONSTRAINT "referral_links_kind_chk";--> statement-breakpoint
+ALTER TABLE "referral_links" ADD CONSTRAINT "referral_links_kind_chk" CHECK ("referral_links"."kind" IN ('agent', 'worker', 'campaign', 'resume_qr'));--> statement-breakpoint
+CREATE UNIQUE INDEX "referral_links_resume_qr_owner_uq" ON "referral_links" USING btree ("owner_worker_id") WHERE "referral_links"."kind" = 'resume_qr' AND "referral_links"."owner_worker_id" IS NOT NULL;

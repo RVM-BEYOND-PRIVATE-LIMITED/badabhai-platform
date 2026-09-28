@@ -310,6 +310,22 @@ services:
       # rejects "".
       RESUME_SKINS_ENABLED: ${RESUME_SKINS_ENABLED:-false}
 
+      # RÉSUMÉ QR SCAN (#1800). Off is the résumé QR encoding the homepage, exactly as before, and
+      # nothing mints a `resume_qr` link. Turn on only after migration 0129 is applied AND the
+      # badabhai.ai `/r/*` 302 rule points at this api. `:-false` because this bool rejects "".
+      RESUME_QR_SCAN_ENABLED: ${RESUME_QR_SCAN_ENABLED:-false}
+
+      # ---- THE REFERRAL RESOLVER'S DESTINATION (#1800).
+      #
+      # `GET /r/<code>` 302s to `<this>/i/<code>`, so this must be the origin that SERVES payer-web's
+      # `/i/` landing page — the worker app's App Link host (AndroidManifest `android:host`,
+      # `kInviteLinkBase`) and payer-web's `shortLinkOrigin()`. Until #1800 it was not declared
+      # here, so the config default `https://app.badabhai.in` won and every `/r/` visitor landed on
+      # a host with no `/i/` route. The interim sslip host moves with the Lightsail IP (#1319).
+      # TOPOLOGY, NOT A CREDENTIAL, so it is NOT bridged from a GitHub secret (the BACKEND_API_URL
+      # rule): a redirect destination changes in a reviewed diff to this file, never by a setting.
+      REFERRAL_SHORT_LINK_BASE: ${REFERRAL_SHORT_LINK_BASE:-https://payer.43-204-36-199.sslip.io}
+
       # ---- V8 VOICE STORAGE: PASS-THROUGH, NEVER REQUIRED.
       #
       # WHY THIS DOES NOT CONTRADICT THE PARAGRAPH ABOVE. That one defers SUPABASE_* as

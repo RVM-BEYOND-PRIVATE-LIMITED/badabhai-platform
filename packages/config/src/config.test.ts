@@ -641,6 +641,24 @@ describe("loadServerConfig", () => {
     expect(loadServerConfig({ RESUME_SKINS_ENABLED: "" }).RESUME_SKINS_ENABLED).toBe(false);
     expect(loadServerConfig({ RESUME_SKINS_ENABLED: "true" }).RESUME_SKINS_ENABLED).toBe(true);
   });
+
+  it("RESUME_QR_SCAN_ENABLED (#1800) is OFF by default and for the empty string", () => {
+    // Off means the render worker mints no `resume_qr` link (migration 0129) and the résumé QR
+    // encodes the homepage exactly as before — which is what makes a deploy ahead of 0129 safe.
+    expect(loadServerConfig({}).RESUME_QR_SCAN_ENABLED).toBe(false);
+    expect(loadServerConfig({ RESUME_QR_SCAN_ENABLED: "" }).RESUME_QR_SCAN_ENABLED).toBe(false);
+    expect(loadServerConfig({ RESUME_QR_SCAN_ENABLED: "true" }).RESUME_QR_SCAN_ENABLED).toBe(true);
+  });
+
+  it("REFERRAL_SHORT_LINK_BASE accepts the interim payer-web origin and refuses a non-https one", () => {
+    // #1800: staging now declares the origin that SERVES `/i/<code>`. The default stays the old
+    // value only so a bare local boot validates; the refinement keeps a redirect off plain http.
+    const base = "https://payer.43-204-36-199.sslip.io";
+    expect(loadServerConfig({ REFERRAL_SHORT_LINK_BASE: base }).REFERRAL_SHORT_LINK_BASE).toBe(base);
+    expect(() =>
+      loadServerConfig({ REFERRAL_SHORT_LINK_BASE: "http://payer.43-204-36-199.sslip.io" }),
+    ).toThrow();
+  });
 });
 
 describe("realAiCalls gating (fail closed)", () => {

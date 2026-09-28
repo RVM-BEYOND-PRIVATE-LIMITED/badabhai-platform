@@ -8,7 +8,7 @@ import { primeSheetQr, SHEET_SHAPES, withSheetQr } from "./__fixtures__/sheet-sh
 import { buildResumeRenderInput } from "./resume-render-input";
 import { RESUME_QR } from "./resume-qr";
 import { ResumeRenderer } from "./resume-renderer.service";
-import { RESUME_PROFILE_ORIGIN } from "./resume-sheet-footer";
+import { RESUME_PROFILE_ORIGIN, resumeQrScanUrl } from "./resume-sheet-footer";
 import { getResumeTemplate } from "./templates/registry";
 
 /**
@@ -244,6 +244,10 @@ describe("the QR contract the layout and the generator have to keep together", (
     for (const url of [
       `${RESUME_PROFILE_ORIGIN}/w/rk8m2q`,
       `${RESUME_PROFILE_ORIGIN}/w/rk8m2q?s=resume`,
+      // #1800 — THE SHIPPED DEEP LINK: `/r/<12 hex>` of the worker's `resume_qr` link. The WORST
+      // case is an all-letter code: a digit-heavy one packs into fewer bits and drops to v3, an
+      // all-a-f one is v4 (33 modules, 0.545 mm). Built by the SAME function the render uses.
+      resumeQrScanUrl("abcdefabcdef"),
     ]) {
       const svg = await QRCode.toString(url, {
         type: "svg",
@@ -257,6 +261,25 @@ describe("the QR contract the layout and the generator have to keep together", (
           `below ${MIN_MODULE_MM} mm inside the ${RESUME_QR.RENDERED_MM} mm box`,
       ).toBeLessThanOrEqual(MAX_MODULES);
     }
+  });
+});
+
+describe("#1800 — the résumé-QR deep link, and why it names badabhai.ai", () => {
+  it("encodes exactly <origin>/r/<code> through the function the render worker calls", () => {
+    expect(resumeQrScanUrl("abcdef012345")).toBe("https://badabhai.ai/r/abcdef012345");
+  });
+
+  it("the worst case is a version-4 symbol: 33 modules, 0.545 mm each — measured, not modelled", async () => {
+    // Lowercase hex forces byte mode, so every live code costs the same 34 bytes; a digit-heavy code
+    // can drop to v3 through a numeric segment, never rise. Pinned EXACTLY so a longer host or path
+    // is a red test in the PR that adds it, with the headroom stated: v5 (37) is past the floor.
+    const svg = await QRCode.toString(resumeQrScanUrl("abcdefabcdef"), {
+      type: "svg",
+      errorCorrectionLevel: RESUME_QR.ERROR_CORRECTION,
+      margin: 0,
+    });
+    expect(moduleCount(svg)).toBe(33);
+    expect(RESUME_QR.RENDERED_MM / 33).toBeGreaterThanOrEqual(MIN_MODULE_MM);
   });
 });
 

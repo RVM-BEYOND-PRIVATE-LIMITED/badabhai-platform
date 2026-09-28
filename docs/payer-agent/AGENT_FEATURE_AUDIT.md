@@ -179,7 +179,7 @@ Every value — `"Pending"`, `"Not added"`, `"Not set"` — is a JSX string lite
 | **9. Accepted → funnel count** | `markAccepted` sets `status='accepted'`, `invited_worker_id`, `attributed_at` (agency-invites.repository.ts:82-93); emits `agency_invite.accepted` + `invite.install`, both keyed. Read back by `GET /payer/agency/referrals/summary` | **LIVE but the count is wrong — AG-04** |
 | **10. Earnings accrual** | `findQualifyingUnlocks` joins `agency_invites` ⋈ `unlocks` on `invited_worker_id`, status `granted`, `granted_at` within `attributed_at + 90d` (agency-payout.repository.ts:56-82) | **FLAG-GATED-OFF** |
 | **11. Payout request** | `requestPayout` gates on `AGENCY_PAYOUTS_ENABLED` + `kyc==='verified'` + `≥ ₹500`; claims accruals in a tx (agency-payout.repository.ts:162-209). MOCK — no disbursement rail | **FLAG-GATED-OFF** |
-| **X. `referral_links` measurement spine** | `mintLink` (referral-link.service.ts:99-140) | **NO CALLER — claim VERIFIED** |
+| **X. `referral_links` measurement spine** | `mintLink` (referral-link.service.ts) | **NO CALLER — claim VERIFIED** (for agent / worker / campaign links; see the #1800 update below for `resume_qr`) |
 
 ### `referral-link.service.ts` "NO HTTP CALLER, BY DECISION" — VERIFIED TRUE
 
@@ -191,6 +191,8 @@ The stated consequence holds and compounds:
 - `claimFirstTouch` can never match a link, so `claimInstall` always returns `{claimed:false, reason:"unknown_code"}` — and therefore `referral.install_claimed` **never fires either**.
 - `GET /r/:code` (route 21) is live, tested, rate-limited, fail-safe code that **nothing points at**: `invite-landing.ts:76-85` documents that `/r/` URLs were 404ing on the payer-web origin and every share surface was moved to `/i/`.
 - The two `REFERRAL_MATCH_WINDOW_*_HOURS` config values (packages/config/src/server.ts:189-190) govern a window that is never evaluated.
+
+> **UPDATE 2026-09-28 (#1800).** One kind now has a live mint: `resume_qr`, the worker's own résumé QR. `ResumeQrLinkService.codeFor` (referrals/resume-qr-link.service.ts), called by the résumé render worker **only while `RESUME_QR_SCAN_ENABLED` is on** (default off; needs migration 0129), get-or-creates ONE row per worker and emits `referral.link_created` (SYSTEM actor). A scan through `GET /r/:code` then writes a `referral_clicks` row and emits `profile.qr_scanned` (instead of `referral.link_clicked`), and an install from it is claimed by `claimInstall` → `referral.install_claimed`. That kind is **never commissioned**: the attribution hook stops a `resume_qr` code before `recordAccept` and `attributeWorkerToInvite`, and money still reads only `invites` / `agency_invites` (pinned by resume-qr-never-commissioned.test.ts). `mintLink` itself still has no caller, and its type now excludes `resume_qr`. Everything below remains true for agent / worker / campaign links, and for every environment where the flag is off.
 
 **Net**: the B4 first-touch/match-window measurement layer is entirely inert. Attribution still works — via the legacy `invites`/`agency_invites` funnels — but *without any window enforcement*, i.e. a code shared two years ago still attributes today. That is the deliberate "non-breaking by construction" split documented at referral-attribution.service.ts:80-90, but the practical result is that the window exists only on paper.
 

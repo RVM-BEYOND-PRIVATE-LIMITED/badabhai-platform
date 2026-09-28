@@ -682,6 +682,27 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "an open grant exposes that across the worker base to every PostgREST role while every " +
       "surface keeps working",
   },
+  // 0129: THE API names the widened kind CHECK and this index only while RESUME_QR_SCAN_ENABLED is
+  // on (#1800), so a deploy ahead of the migration breaks no request. Listed — like the RLS entries
+  // — because its absence is SILENT: the render's mint fails and falls back to the homepage QR,
+  // which is exactly what a sheet looked like before #1800. The CHECK and the index are applied in
+  // one transaction, so the index answers for both. APPLY BEFORE THE FLAG (migration header).
+  {
+    id: "0129-referral-links-resume-qr-owner-index",
+    migration: "0129_referral_links_resume_qr",
+    kind: "index",
+    table: "referral_links",
+    object: "referral_links_resume_qr_owner_uq",
+    requiredBy:
+      "ReferralLinkRepository.insertResumeQrLink — the render worker's get-or-create of a " +
+      "worker's résumé-QR link, whose ON CONFLICT infers this partial unique index — and only " +
+      "while RESUME_QR_SCAN_ENABLED is on. The same migration widens referral_links_kind_chk to " +
+      "admit 'resume_qr', which the insert needs as well",
+    failureMode:
+      "SILENT. With the flag on, every mint fails (CHECK violation or no matching ON CONFLICT " +
+      "index) and every résumé keeps the homepage QR — the PDF still renders, and profile." +
+      "qr_scanned simply never fires, so the scan metric reads zero rather than erroring",
+  },
   {
     id: "0125-resume-history-generation-source",
     migration: "0125_resume_history",

@@ -22,12 +22,13 @@ import { FontResolutionError } from "../common/pdf/font-resolution";
 import { countPdfPages } from "../common/pdf/pdf-page-count";
 import { ResumeRenderer } from "./resume-renderer.service";
 import { buildResumeRenderInput, type TradeSheetContext } from "./resume-render-input";
-import { buildResumeQrDataUri } from "./resume-qr";
+import { buildResumeQrDataUri, templateTakesQr } from "./resume-qr";
 import { verificationBadgeFor } from "./verification-tier";
 import {
   buildSheetFooterMeta,
   RESUME_PROFILE_ORIGIN,
   RESUME_QR_CAPTION,
+  resumeQrScanUrl,
   resumeRefCode,
 } from "./resume-sheet-footer";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
@@ -39,6 +40,8 @@ import { ownBriefUsable } from "./resume-brief";
 import type { ResumeSkin } from "@badabhai/types";
 import { templateTakesSkin } from "./resume-skins";
 import { ResumeSkinReader } from "./resume-skin.reader";
+import { ResumeQrLinkService } from "../referrals/resume-qr-link.service";
+import { logSafeReason } from "../common/db-error";
 
 /**
  * Renders a resume PDF off the request path (NODE-ONLY render, see ADR).
@@ -104,8 +107,45 @@ export class ResumeRenderProcessor extends WorkerHost {
     // THE READER, NEVER ResumeSkinService: the service emits, and this processor holds no event
     // surface (the TD5 security test).
     @Optional() private readonly skins?: ResumeSkinReader,
+    // #1800 — THE RÉSUMÉ QR's OWN LINK. Optional on the same terms as the readers above: absent is
+    // today's sheet (the homepage QR), and so is RESUME_QR_SCAN_ENABLED off (no query at all).
+    // THE NARROW MINT, NEVER ReferralLinkService: this class's one method is the get-or-create of
+    // the worker's `resume_qr` row, and its one emit is `referral.link_created` (ids + closed
+    // enums, strict). It is handed the worker id and nothing else this render decrypted.
+    @Optional() private readonly resumeQrLinks?: ResumeQrLinkService,
   ) {
     super();
+  }
+
+  /**
+   * #1800 — the footer QR's data URI: the worker's `/r/<code>` when their résumé-QR link can be
+   * had, the homepage otherwise. NEVER THROWS; every failure is the homepage QR.
+   *
+   * MINTS ONLY FOR A LIVE WORKER: no row (erased mid-queue) or a scheduled deletion (the grace
+   * window) is the homepage QR with no query — a worker on their way out is not handed a new
+   * bearer code. NEVER LOGS THE CODE: a failure is logged by its SQLSTATE and class only
+   * (`logSafeReason` strips a query error's bound parameters, which carry the code).
+   */
+  private async buildQr(
+    workerId: string,
+    worker: { deletionScheduledAt?: Date | null } | undefined,
+    templatePrintsQr: boolean,
+  ): Promise<string | null> {
+    // A sheet with no QR slot (the legacy classic / modern / minimal / fallback renders) must not
+    // mint a bearer code nobody will ever see — nor emit `referral.link_created` for it.
+    if (templatePrintsQr && worker && !worker.deletionScheduledAt && this.resumeQrLinks?.enabled) {
+      try {
+        const code = await this.resumeQrLinks.codeFor(workerId);
+        const scan = code === null ? null : await buildResumeQrDataUri(resumeQrScanUrl(code));
+        if (scan !== null) return scan;
+      } catch (err) {
+        this.logger.warn(
+          `could not get the résumé QR link for worker ${workerId}; printing the homepage QR ` +
+            `(${logSafeReason(err, "résumé QR link")})`,
+        );
+      }
+    }
+    return buildResumeQrDataUri(RESUME_PROFILE_ORIGIN);
   }
 
   async process(job: Job<ResumeRenderJobData>): Promise<{ rendered: boolean }> {
@@ -251,15 +291,6 @@ export class ResumeRenderProcessor extends WorkerHost {
     // unverified / self-declared / employer-rated print nothing. See `verification-tier.ts` for
     // why a self-declaration may not wear the badge.
     const trustBadge = verificationBadgeFor(worker?.verificationState);
-
-    // POINTS AT THE SITE ROOT FOR NOW — owner ruling 2026-08-28. The per-worker `/w/<code>` page
-    // is Phase 3, and a QR that resolves to a 404 is worse on a printed page than a QR that
-    // resolves to the homepage: the sheet outlives the render, and paper cannot be re-issued once
-    // it is in an employer's stack.
-    //
-    // NOT INSIDE ANY OF THE LOADS BELOW. It depends on a module constant and nothing else, so
-    // there is no failure it can legitimately share.
-    const qrDataUri = await buildResumeQrDataUri(RESUME_PROFILE_ORIGIN);
 
     // THE TRADE CAPABILITY BLOCK — the `bb_trade` sheet's first and most-scanned section.
     //
@@ -449,6 +480,19 @@ export class ResumeRenderProcessor extends WorkerHost {
     // since taken a role form. RESOLVED ONCE and read twice: by the general-road gate below and by
     // the mapper, so the two can never disagree about which sheet this is.
     const templateId = renderTemplateId(resume.templateId, loaded?.packId ?? null);
+
+    // THE QR. The homepage (owner ruling 2026-08-28) unless RESUME_QR_SCAN_ENABLED is on, in which
+    // case it is `/r/<code>` of this worker's own `resume_qr` link (#1800, owner ruling
+    // 2026-09-28): a scan is counted (`profile.qr_scanned`) and lands on the install page, and a
+    // worker who installs from it is attributed — never commissioned. There is still no public
+    // per-worker page, and a QR resolving to a 404 is worse on paper than one resolving to the
+    // homepage: the sheet outlives the render and cannot be re-issued.
+    //
+    // BUILT AFTER THE TEMPLATE IS RESOLVED, so a sheet with no QR slot never mints a code.
+    // ITS OWN DEGRADE, INSIDE NONE OF THE LOADS AROUND IT. Any failure to produce the `/r/` QR —
+    // the flag off, 0129 not applied, a DB error, collisions exhausted, an encoder refusal — is
+    // the homepage QR, byte-identical to before #1800. The QR must never cost the PDF.
+    const qrDataUri = await this.buildQr(workerId, worker, templateTakesQr(templateId));
 
     // ADR-0045 Phase 5 — THE GENERAL ROAD, an EIGHTH independent load on the same degrade as the
     // seven above: a failure costs the road (today's sheet — no brief, the pre-road years rule) and

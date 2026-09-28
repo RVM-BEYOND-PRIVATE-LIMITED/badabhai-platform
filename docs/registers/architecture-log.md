@@ -8,6 +8,88 @@ boundary moved).
 
 ---
 
+## 2026-09-28 — #1800: the résumé QR counts scans and attributes worker signups, behind `RESUME_QR_SCAN_ENABLED`
+- **Owner ruling (2026-09-28), recorded: "Count + attribute worker signups".** The worker's OWN
+  résumé QR encodes `https://badabhai.ai/r/<code>` with a PER-WORKER code from a new,
+  NON-COMMISSIONED `referral_links` kind `resume_qr` — no referral bonus and no agency commission,
+  ever. The existing hardened resolver `GET /r/:code` counts the scan and 302s to the install page;
+  a worker who installs from it is attributed through the existing first-touch chain. No public
+  profile page, no PII shown, nothing new unauthenticated. Employer signups are out of scope. The
+  employer disclosure copy still prints no QR.
+- **Vocabulary: `REFERRAL_LINK_KINDS` (+ `ReferralLinkKind`, `NON_COMMISSIONED_REFERRAL_LINK_KINDS`,
+  `isCommissionedLinkKind`) in `@badabhai/types`** — the one list `referral_links_kind_chk`, the
+  `referral.link_created` enum and the API derive from. `resume_qr` is the one non-commissioned kind.
+- **Migration 0129 (`0129_referral_links_resume_qr`)** — `referral_links_kind_chk` widened (DROP +
+  ADD) to admit `resume_qr`, plus the PARTIAL UNIQUE index `referral_links_resume_qr_owner_uq ON
+  (owner_worker_id) WHERE kind = 'resume_qr' AND owner_worker_id IS NOT NULL`. No column changes, so
+  no select is affected by a deploy ahead of it. Deliberately NO `resume_qr ⇒ owner NOT NULL` CHECK:
+  the owner FK is ON DELETE SET NULL and such a CHECK would abort the erasure. Registered in
+  `schema-contract.ts` as `0129-referral-links-resume-qr-owner-index` (its absence is silent).
+- **Mint: `ResumeQrLinkService.codeFor(workerId)`** (new, `referrals/`; exported with
+  `ReferralLinkRepository` + `ReferralLinkService` by the new leaf `ReferralLinksModule`, imported
+  by `ReferralAttributionModule` and `ResumeModule`). Get-or-create of the worker's one link:
+  re-select, else a fresh 12-hex code checked against all THREE code spaces (`referral_links`,
+  `invites`, `agency_invites`), `INSERT … ON CONFLICT (owner_worker_id) WHERE <index predicate> DO
+  NOTHING`, re-select the winner on a lost race; a `23505` on the code index is retried, bounded at
+  3. The row and its `referral.link_created` (SYSTEM actor, `kind: "resume_qr"`) commit in ONE
+  transaction. `mintLink`'s type now excludes `resume_qr` — one mint path.
+- **Render.** `ResumeRenderProcessor` takes `ResumeQrLinkService` as an `@Optional()` 17th
+  dependency and builds the QR from `resumeQrScanUrl(code)`; flag off, service absent, worker absent
+  or deletion-scheduled, or ANY failure → today's homepage QR (byte-identical). The printed short
+  link stays `badabhai.ai` and the caption `Scan to visit BadaBhai`; the code is never printed and a
+  failure is logged through `logSafeReason` (never the bound parameters). TD5 posture, stated: this
+  is the ONE event-capable dependency the processor holds — a narrow class with one method and one
+  event (`referral.link_created`, ids + closed enums), handed only the worker id; the processor's
+  own source still names no event surface (pinned). QR budget: `https://badabhai.ai/r/<12 hex>` is
+  v4-Q, 33 modules, 0.545 mm at 18 mm — pinned in `sheet-qr.gate.test.ts`.
+- **Resolver (unconditional — not flag-gated, so printed sheets keep counting if the flag goes
+  off).** A `resume_qr` click still writes the `referral_clicks` row (claims read it) and emits the
+  new event `profile.qr_scanned` INSTEAD OF `referral.link_clicked` (one tap, one event), behind the
+  same bot filter, per-IP cap and 10-minute HMAC dedupe. A DEAD link (owner erased → NULL) records
+  no click, emits nothing and can never be claimed; its redirect is unchanged (no oracle). Link rows
+  are never deleted on erasure (the `referral_clicks` cascade would wipe others' attribution).
+- **New event `profile.qr_scanned` v1** (domain `profile`, registry tail): `{ worker_id (the
+  résumé OWNER, never the scanner), referral_link_id (never the code), platform:
+  ReferralClickPlatformEnum }`, `.strict()`; actor system, subject the owner, idempotency
+  `profile.qr_scanned:<click id>`. `referral.link_created.kind` widened at v1 with `resume_qr` (the
+  `JobStatusEnum` / `BoostTierEnum` additive precedent).
+- **Attribution.** `ClaimOutcome` carries `linkKind`; `claimInstall` refuses a SELF-claim (owner =
+  claimer) and a dead link. `ReferralAttributionService` returns right after the claim for ANY
+  `resume_qr` code — before `recordAccept` (invites) and `attributeWorkerToInvite` (agency) — so a
+  cross-space code collision can never pay an unrelated inviter. `resume_qr` DOES take part in
+  first touch (it is the real install source). Money still reads only `invites` / `agency_invites`;
+  `ReferralBonusService.evaluate` answers `no_referral` for a résumé-QR signup (pinned end to end in
+  `resume-qr-never-commissioned.test.ts`, with a structural pin on every payout reader).
+- **Config.** New flag `RESUME_QR_SCAN_ENABLED` (default off) wired exactly as
+  `RESUME_SKINS_ENABLED`; it gates the MINT + ENCODE only. `REFERRAL_SHORT_LINK_BASE` is now
+  declared in `docker-compose.staging.yml` as `${REFERRAL_SHORT_LINK_BASE:-https://payer.43-204-36-199.sslip.io}`
+  (the payer-web origin serving `/i/<code>`, = the App Link host + `kInviteLinkBase` +
+  `shortLinkOrigin()`; interim host per #1319) and deliberately NOT bridged from a secret (a
+  redirect destination is topology — the `BACKEND_API_URL` rule). **Behaviour change on the next
+  deploy:** `GET /r/<code>` on the api stops 302ing to `https://app.badabhai.in/i/<code>` (a host
+  with no `/i/` route — the config default had been winning) and 302s to the live landing page.
+- **OWNER MANUAL STEPS, in order:** (1) merge — safe, the flag is off; (2) apply
+  `0129_referral_links_resume_qr.sql` by hand, all three statements inside ONE `BEGIN; SET LOCAL
+  lock_timeout = '3s'; … COMMIT;`, retrying on 55P03; (3) on the badabhai.ai Netlify site add the
+  redirect rule `/r/*  https://43-204-36-199.sslip.io/r/:splat  302` — a **302, NOT a 200 proxy**:
+  a proxy would make every scan arrive from Netlify's IPs and collapse the per-IP cap and the
+  hashed-visitor dedupe onto a handful of addresses; (4) `gh secret set RESUME_QR_SCAN_ENABLED --env
+  production` = `true` (an ENVIRONMENT secret; a repo secret of the same name is shadowed) and
+  redeploy; (5) verify `curl -sI https://badabhai.ai/r/<a real code>` → 302 to the api's `/r/<code>`
+  → 302 to `https://payer.43-204-36-199.sslip.io/i/<code>`, and that TWO scans from two different
+  networks produce TWO `profile.qr_scanned` events. Sheets already printed keep the homepage QR,
+  and a sheet only gets the `/r/` QR on its next render, so the metric starts at zero.
+- **THE SCAN COUNT IS A LOWER BOUND UNTIL TD25 IS FIXED.** The 302 keeps the scanner's own IP on
+  the connection, but the api sits behind the host nginx with `TRUST_PROXY_HOP_COUNT=0` (TD25), so
+  `req.ip` is nginx's address for EVERY `/r/` visitor. Consequences today: two different scanners
+  of the same sheet on the same platform within the 10-minute dedupe window collapse into ONE
+  click, and all `/r/` traffic shares ONE 600/h `invite_click` bucket with payer-web's `/i/` pings
+  — past it, clicks are shed, losing both the scan event and the first-touch claim. The fix is
+  edge topology, not this code: once the host nginx is confirmed to append `X-Forwarded-For`, set
+  `TRUST_PROXY_HOP_COUNT=1`. Until then read `profile.qr_scanned` as "at least".
+  Rollback: the secret off (new renders print the homepage QR; printed `/r/` sheets keep resolving
+  and counting); the migration's rollback needs zero `resume_qr` rows (header).
+
 ## 2026-09-28 — #1801: résumé skin plumbing, Neela only, behind `RESUME_SKINS_ENABLED`
 - **Owner ruling (2026-09-28), recorded: "Plumbing, Neela only".** The backend skin-selection
   path ships with ONE skin in the vocabulary — `neela`, the house style `bb_trade` has always

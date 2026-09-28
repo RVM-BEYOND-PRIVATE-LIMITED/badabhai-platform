@@ -905,6 +905,13 @@
       "when": 1790573266342,
       "tag": "0128_worker_resume_skin",
       "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1790577162605,
+      "tag": "0129_referral_links_resume_qr",
+      "breakpoints": true
     }
   ]
 }

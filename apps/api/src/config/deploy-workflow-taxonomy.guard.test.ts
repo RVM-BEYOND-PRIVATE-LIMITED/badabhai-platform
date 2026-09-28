@@ -172,11 +172,26 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /RESUME_SKINS_ENABLED:\s*\$\{\{\s*secrets\.RESUME_SKINS_ENABLED\s*\}\}/,
       /envs:[^\n]*\bRESUME_SKINS_ENABLED\b/,
     ],
+    // #1800 — the résumé QR scan. A plain boolean flag, turned on in production ONLY by the
+    // environment secret, after migration 0129 and the badabhai.ai /r/* redirect.
+    [
+      "RESUME_QR_SCAN_ENABLED",
+      /RESUME_QR_SCAN_ENABLED:\s*\$\{\{\s*secrets\.RESUME_QR_SCAN_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bRESUME_QR_SCAN_ENABLED\b/,
+    ],
   ])("%s is bridged from the environment's secrets", (_name, fromSecrets, inEnvs) => {
     expect(DEPLOY).toMatch(fromSecrets);
     // …and reaches the container: drone-ssh only exports what `envs:` lists, so a job-level
     // `env:` entry alone is invisible on the box. This is the exact defect #798 was.
     expect(DEPLOY).toMatch(inEnvs);
+  });
+
+  it("REFERRAL_SHORT_LINK_BASE is NOT bridged — a redirect destination is topology, not a secret", () => {
+    // #1800. The BACKEND_API_URL rule: bridging it would let one repository setting re-point every
+    // `/r/` redirect at an arbitrary host. It changes in a reviewed diff to the compose file.
+    const bridged = uncommented(DEPLOY);
+    expect(bridged).not.toMatch(/REFERRAL_SHORT_LINK_BASE:\s*\$\{\{/);
+    expect(bridged).not.toMatch(/envs:[^\n]*\bREFERRAL_SHORT_LINK_BASE\b/);
   });
 
   it("AI_REAL_CALL_TASKS is NOT bridged — the box always takes the compose default", () => {
@@ -199,6 +214,10 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["RESUME_AUTOFILL_ENABLED", "false"],
     ["CHAT_GENERAL_ROAD_ENABLED", "false"],
     ["RESUME_SKINS_ENABLED", "false"],
+    ["RESUME_QR_SCAN_ENABLED", "false"],
+    // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's
+    // `/i/<code>`. Undeclared, the stale config default (app.badabhai.in, no `/i/`) won.
+    ["REFERRAL_SHORT_LINK_BASE", "https://payer.43-204-36-199.sslip.io"],
   ])(
     "docker-compose.staging.yml defaults %s to %s when the secret is absent or empty",
     (name, fallback) => {
