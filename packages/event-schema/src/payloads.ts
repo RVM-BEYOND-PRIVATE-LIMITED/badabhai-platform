@@ -9,6 +9,7 @@ import {
   TRADE_FORM_KINDS_ALL,
   PROFILING_TIERS,
   RESUME_SKINS,
+  REFERRAL_LINK_KINDS,
   RESUME_DEGRADED_POSTURES,
   RESUME_EXTRACTION_METHODS,
   RESUME_GENERATION_TRIGGERS,
@@ -3242,8 +3243,15 @@ export type ReferralBonusAccruedPayload = z.infer<typeof ReferralBonusAccruedPay
 // storage-side de-duplication key, not something the audit spine needs.
 // ---------------------------------------------------------------------------
 
-/** The link's owner axis — which commission channel a click belongs to. */
-export const ReferralLinkKindEnum = z.enum(["agent", "worker", "campaign"]);
+/**
+ * The link's owner axis — which commission channel (if any) a click belongs to. The closed set is
+ * `REFERRAL_LINK_KINDS` in @badabhai/types (the `referral_links_kind_chk` vocabulary).
+ *
+ * WIDENED AT v1 by #1800 with `resume_qr` — the worker's own résumé QR, never commissioned. An
+ * additive enum widening is the accepted v1 precedent (JobStatusEnum, BoostTierEnum): every payload
+ * that validated before still validates.
+ */
+export const ReferralLinkKindEnum = z.enum(REFERRAL_LINK_KINDS);
 
 // `ReferralLinkMediumEnum` (organic | paid) is declared ABOVE, next to
 // `AgencyInviteCreatedPayload` — the agency funnel needs it earlier in the file and both
@@ -3307,6 +3315,30 @@ export const ReferralInstallClaimedPayload = z
   })
   .strict();
 export type ReferralInstallClaimedPayload = z.infer<typeof ReferralInstallClaimedPayload>;
+
+/**
+ * `profile.qr_scanned` (#1800, owner ruling 2026-09-28 "Count + attribute worker signups") — the
+ * QR printed on a worker's OWN résumé was scanned and resolved through `GET /r/:code`.
+ *
+ * Emitted by the resolver INSTEAD OF `referral.link_clicked` for a `resume_qr` link, so one tap is
+ * one event on the spine. Behind the same bot filter, per-IP cap and 10-minute hashed-visitor
+ * dedupe as every other click, and never for a DEAD link (owner erased).
+ *
+ * `worker_id` IS THE RÉSUMÉ'S OWNER — the worker whose sheet was scanned — never the scanner, who
+ * is anonymous. The payload carries the opaque link row id and never the `code` (a bearer token),
+ * the IP, the User-Agent, the URL, or anything about the scanner. `.strict()` is the backstop.
+ */
+export const ProfileQrScannedPayload = z
+  .object({
+    /** The résumé owner (opaque). Never the scanner. */
+    worker_id: uuidSchema,
+    /** The opaque `referral_links.id` of the owner's `resume_qr` link. NEVER the code. */
+    referral_link_id: uuidSchema,
+    /** Coarse device class of the scan — the same enum `referral.link_clicked` carries. */
+    platform: ReferralClickPlatformEnum,
+  })
+  .strict();
+export type ProfileQrScannedPayload = z.infer<typeof ProfileQrScannedPayload>;
 
 // ---------------------------------------------------------------------------
 // Matching V1 (ADR-0036, spec docs/specs/matching-algorithm-v1.md).

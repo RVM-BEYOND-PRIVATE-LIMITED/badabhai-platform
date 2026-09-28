@@ -801,6 +801,56 @@ export function isResumeSkin(value: unknown): value is ResumeSkin {
   return typeof value === "string" && (RESUME_SKINS as readonly string[]).includes(value);
 }
 
+// ---- Referral link kinds (B4 migration 0060; #1800 migration 0129) ----
+//
+// HERE FOR THE SAME REASON AS THE SKINS ABOVE: `packages/db` spells this set into
+// `referral_links_kind_chk`, `packages/event-schema` puts it on the spine
+// (`referral.link_created.kind`), and `apps/api` decides who may be paid by it. Declared once so
+// the three cannot drift.
+
+/**
+ * Who owns a `referral_links` row — which funnel (if any) a click on it belongs to.
+ *
+ * `resume_qr` (#1800, owner ruling 2026-09-28 "Count + attribute worker signups"): the ONE
+ * per-worker link the worker's own résumé QR encodes. It counts scans (`profile.qr_scanned`) and
+ * takes part in first-touch install attribution, and it is NEVER commissioned — see
+ * {@link isCommissionedLinkKind}.
+ */
+export const REFERRAL_LINK_KINDS = Object.freeze([
+  "agent",
+  "worker",
+  "campaign",
+  "resume_qr",
+] as const);
+export type ReferralLinkKind = (typeof REFERRAL_LINK_KINDS)[number];
+
+/**
+ * The kinds that can NEVER earn anyone money — no referral bonus, no agency commission, ever.
+ *
+ * `resume_qr` is here by owner ruling: a résumé is a free product, and a worker-kind link on it
+ * would silently turn every printed sheet into a paid referral instrument. TODAY money reads only
+ * `invites` (the worker bonus) and `agency_invites` (the agency commission), never
+ * `referral_links`, so this list is the rule any future payout reading `referral_links` must
+ * consult — and the attribution path already stops a `resume_qr` code before either paying seam.
+ */
+export const NON_COMMISSIONED_REFERRAL_LINK_KINDS = Object.freeze([
+  "resume_qr",
+] as const satisfies readonly ReferralLinkKind[]);
+export type NonCommissionedLinkKind = (typeof NON_COMMISSIONED_REFERRAL_LINK_KINDS)[number];
+
+/**
+ * A link of this kind can never pay anyone — a TYPE GUARD, so the attribution path that stops on
+ * it (before either paying seam) keeps the precise kind rather than re-spelling the string.
+ */
+export function isNonCommissionedLinkKind(kind: ReferralLinkKind): kind is NonCommissionedLinkKind {
+  return (NON_COMMISSIONED_REFERRAL_LINK_KINDS as readonly ReferralLinkKind[]).includes(kind);
+}
+
+/** Whether an attribution through a link of this kind may ever pay anyone. */
+export function isCommissionedLinkKind(kind: ReferralLinkKind): boolean {
+  return !isNonCommissionedLinkKind(kind);
+}
+
 // ---- Résumé import (ADR-0041) ----
 //
 // THESE LIVE HERE RATHER THAN IN THE SCHEMA because two packages that cannot import each other

@@ -76,7 +76,8 @@
  * This closes #1311's event acceptance. The résumé SAFE-FIELD edits (name, photo, show_photo,
  * night_shift_ready) emit `resume.edited_v2` from `WorkersService` (#1318) — a separate registry
  * entry, so this v1 and its emitter are unchanged. `resume.skin_changed` is registered by #1801
- * (the skin preference); `profile.qr_scanned` moved to #1800.
+ * (the skin preference); `profile.qr_scanned` is registered by #1800 (the résumé-QR scan, emitted
+ * by the `GET /r/:code` resolver).
  *
  * ═══ CORRECTED-WINS ═══
  *

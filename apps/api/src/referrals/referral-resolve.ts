@@ -1,4 +1,5 @@
-import type { ReferralClickPlatform } from "@badabhai/db";
+import { randomUUID } from "node:crypto";
+import type { ReferralClickPlatform, ReferralLink } from "@badabhai/db";
 
 /**
  * PURE resolution logic for `GET /r/:code` (B4). No DB, no config object, no Nest — so the
@@ -10,6 +11,28 @@ const CODE_RE = /^[a-f0-9]{12}$/;
 
 export function isWellFormedReferralCode(code: string): boolean {
   return CODE_RE.test(code);
+}
+
+/**
+ * A fresh opaque code: 12 lowercase hex (48 bits) from its own `randomUUID` — the shape every code
+ * space shares and {@link isWellFormedReferralCode} accepts. Never derived from anything about a
+ * worker, a batch or a clock, so one leaked code says nothing about any other.
+ */
+export function freshReferralCode(): string {
+  return randomUUID().replace(/-/g, "").slice(0, 12);
+}
+
+/**
+ * #1800 — a `resume_qr` link whose owner was ERASED (`owner_worker_id` SET NULL by the FK) is
+ * DEAD. A printed sheet may still be scanned, but there is no worker left to count the scan for or
+ * to attribute an install to: the resolver records nothing for it and the claim refuses it. The
+ * redirect is unchanged, so a dead code is indistinguishable from a live one from outside.
+ *
+ * The row itself is never deleted on erasure: `referral_clicks` cascades from it, and deleting
+ * it would wipe the click history other workers' claims rest on.
+ */
+export function isDeadResumeQrLink(link: Pick<ReferralLink, "kind" | "ownerWorkerId">): boolean {
+  return link.kind === "resume_qr" && link.ownerWorkerId === null;
 }
 
 /**

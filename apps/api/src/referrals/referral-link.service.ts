@@ -1,5 +1,4 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
 import type { ServerConfig } from "@badabhai/config";
 import type { InviteInstallSource } from "@badabhai/event-schema";
 import type { ReferralClickPlatform, ReferralLinkKind, ReferralLinkMedium } from "@badabhai/db";
@@ -9,6 +8,8 @@ import { EventsService } from "../events/events.service";
 import { ReferralLinkRepository } from "./referral-link.repository";
 import {
   fallbackTarget,
+  freshReferralCode,
+  isDeadResumeQrLink,
   isLikelyBot,
   isWellFormedReferralCode,
   platformFromUserAgent,
@@ -28,9 +29,25 @@ export interface ResolveOutcome {
 
 export interface ClaimOutcome {
   claimed: boolean;
-  /** Internal reason for a no-op. NEVER returned to a client. */
-  reason?: "unknown_code" | "outside_window" | "already_claimed" | "error";
+  /**
+   * Internal reason for a no-op. NEVER returned to a client.
+   *  - `self_claim` (#1800): a worker posting the code of their OWN résumé QR.
+   *  - `dead_link`  (#1800): a `resume_qr` link whose owner was erased.
+   */
+  reason?:
+    | "unknown_code"
+    | "outside_window"
+    | "already_claimed"
+    | "self_claim"
+    | "dead_link"
+    | "error";
   referralLinkId?: string | null;
+  /**
+   * #1800 — the kind of the `referral_links` row the code resolved to, whether or not a claim was
+   * made; null for a legacy `invites`/`agency_invites` code (no row here) or when the lookup
+   * itself failed. The attribution hook stops at a `resume_qr` kind BEFORE either paying seam.
+   */
+  linkKind?: ReferralLinkKind | null;
 }
 
 /**
@@ -52,6 +69,11 @@ export interface ClaimOutcome {
  *    NOWHERE else — not into an event payload, not into a log line.
  *  - FAIL-SAFE: resolve NEVER throws. A DB outage costs the funnel statistic, never the
  *    worker's install page — the visitor still gets redirected.
+ *  - THE RÉSUMÉ QR (#1800): the worker's own résumé QR encodes `/r/<code>` of their single
+ *    `resume_qr` link (`ResumeQrLinkService.codeFor`). A scan is `profile.qr_scanned` for the résumé's
+ *    OWNER (never the scanner); an install from it is claimed like any other first touch, but
+ *    NEVER commissioned (`isCommissionedLinkKind`), never by the owner, and never once the owner
+ *    has been erased.
  */
 @Injectable()
 export class ReferralLinkService {
@@ -75,7 +97,11 @@ export class ReferralLinkService {
   /**
    * Mint a shareable link (agent code, worker share, campaign URL, QR).
    *
-   * ⚠️ NO HTTP CALLER, BY DECISION — not an oversight, and not a wiring TODO.
+   * ⚠️ NO CALLER, BY DECISION — not an oversight, and not a wiring TODO. The ONE mint that does
+   * run in production is the résumé QR's, and it does not come through here: it is
+   * `ResumeQrLinkService.codeFor` (#1800), a get-or-create of the worker's single `resume_qr` row with
+   * its own collision check across all three code spaces. Everything below still holds for
+   * every OTHER kind.
    *
    * `/i/<code>` (`agency_invites`) is the CANONICAL shipping code space: every QR, every
    * copy-link and every share encodes it, the worker app's App Link filter is path-scoped to
@@ -86,10 +112,12 @@ export class ReferralLinkService {
    * deliberately identical column names and CHECKs so the two can be unioned later without a
    * translation layer.
    *
-   * `referral_links` therefore stays MEASUREMENT-ONLY: `resolve()` and `claimInstall()` below
-   * are live and carry every real click, but they run the LEGACY-CODE path
-   * (`referral_link_id IS NULL`), because no row is ever created here. That means
-   * `referral.link_created` and `referral.link_clicked` do not fire in practice today.
+   * `referral_links` therefore stays MEASUREMENT-ONLY for agent, worker and campaign links:
+   * `resolve()` and `claimInstall()` below are live and carry every real click, but for those
+   * they run the LEGACY-CODE path (`referral_link_id IS NULL`), because no such row is ever
+   * created here. `referral.link_clicked` therefore does not fire in practice today; with
+   * RESUME_QR_SCAN_ENABLED on, `referral.link_created` fires for `resume_qr` mints only, and a
+   * `resume_qr` click emits `profile.qr_scanned` instead of `referral.link_clicked`.
    *
    * Kept rather than deleted because the table, the resolver and the first-touch claim are
    * the measurement spine and are all exercised; this is the one seam without a caller. If a
@@ -97,7 +125,9 @@ export class ReferralLinkService {
    * controller, do not quietly repoint the agency mint at it.
    */
   async mintLink(input: {
-    kind: ReferralLinkKind;
+    // A `resume_qr` link is minted ONLY by `ResumeQrLinkService.codeFor`: one per worker, get-or-create,
+    // collision-checked. Excluded by type so a second mint path for it cannot compile.
+    kind: Exclude<ReferralLinkKind, "resume_qr">;
     medium?: ReferralLinkMedium;
     agentPayerId?: string | null;
     ownerWorkerId?: string | null;
@@ -105,7 +135,7 @@ export class ReferralLinkService {
     payload?: Record<string, unknown>;
     expiresAt?: Date | null;
   }): Promise<{ referral_link_id: string; code: string; url: string }> {
-    const code = randomUUID().replace(/-/g, "").slice(0, 12);
+    const code = freshReferralCode();
     const medium = input.medium ?? "organic";
     const row = await this.repo.createLink({
       code,
@@ -185,7 +215,16 @@ export class ReferralLinkService {
     return { redirectTo: target.url, leg: target.leg, clickRecorded };
   }
 
-  /** Insert the click row (+ event when it resolved to one of our links). */
+  /**
+   * Insert the click row (+ ONE event when it resolved to one of our links).
+   *
+   * #1800 — KIND-AWARE. A `resume_qr` click emits `profile.qr_scanned` (for the résumé's owner)
+   * INSTEAD OF `referral.link_clicked`, and still writes the click row, because the first-touch
+   * claim reads it. A DEAD `resume_qr` link (owner erased) records nothing and emits nothing; the
+   * caller's redirect is unchanged. None of this is flag-gated: a `resume_qr` row only exists if
+   * it was minted while RESUME_QR_SCAN_ENABLED was on, and a printed sheet must keep counting if
+   * the flag is later turned off.
+   */
   private async recordClick(input: {
     code: string;
     ip: string | undefined;
@@ -205,6 +244,8 @@ export class ReferralLinkService {
     }
 
     const link = await this.repo.findLinkByCode(input.code);
+    // A dead résumé QR counts for nobody and can attribute nobody — no row, no event.
+    if (link && isDeadResumeQrLink(link)) return false;
     // An EXPIRED link still logs a click (the funnel wants to see it) but is never
     // claimable — `claimInstall` re-checks expiry at claim time.
     const row = await this.repo.recordClick({
@@ -217,8 +258,22 @@ export class ReferralLinkService {
 
     // Only OUR links get a `referral.*` event. A legacy `invites`/`agency_invites` code
     // keeps emitting its own `invite.clicked` via the existing public click path, so the
-    // spine never double-counts one tap.
-    if (link) {
+    // spine never double-counts one tap. For the same reason a `resume_qr` link emits
+    // `profile.qr_scanned` INSTEAD OF `referral.link_clicked`, never both.
+    if (link?.kind === "resume_qr" && link.ownerWorkerId !== null) {
+      await this.events.emit({
+        event_name: "profile.qr_scanned",
+        actor: { actor_type: "system", actor_id: null },
+        // The résumé's OWNER. The scanner is anonymous and appears nowhere.
+        subject: { subject_type: "worker", subject_id: link.ownerWorkerId },
+        payload: {
+          worker_id: link.ownerWorkerId,
+          referral_link_id: link.id,
+          platform: input.platform,
+        },
+        idempotencyKey: `profile.qr_scanned:${row.id}`,
+      });
+    } else if (link) {
       await this.events.emit({
         event_name: "referral.link_clicked",
         actor: { actor_type: "system", actor_id: null },
@@ -242,13 +297,27 @@ export class ReferralLinkService {
     workerId: string;
     source: InviteInstallSource;
   }): Promise<ClaimOutcome> {
+    // Hoisted so the neutralising catch below can still report the kind it already read.
+    let linkKind: ReferralLinkKind | null = null;
     try {
       const now = new Date();
       const link = await this.repo.findLinkByCode(input.code);
+      linkKind = link?.kind ?? null;
+
+      // #1800 — THE RÉSUMÉ QR. It takes part in first-touch (it is the real install source) but:
+      //  - a DEAD one (owner erased) attributes nobody;
+      //  - its OWN worker cannot claim it — scanning your own sheet is not a signup you caused.
+      if (link && isDeadResumeQrLink(link)) {
+        return { claimed: false, reason: "dead_link", linkKind };
+      }
+      if (link?.kind === "resume_qr" && link.ownerWorkerId === input.workerId) {
+        return { claimed: false, reason: "self_claim", linkKind };
+      }
+
       // Expiry is enforced at CLAIM time, not click time: a link that expired between the
       // click and the install must not pay out.
       if (link?.expiresAt && link.expiresAt.getTime() <= now.getTime()) {
-        return { claimed: false, reason: "outside_window" };
+        return { claimed: false, reason: "outside_window", linkKind };
       }
 
       const claimed = await this.repo.claimFirstTouch({
@@ -257,7 +326,7 @@ export class ReferralLinkService {
         windowHoursByMedium: this.windowHours(),
         now,
       });
-      if (!claimed) return { claimed: false, reason: "unknown_code" };
+      if (!claimed) return { claimed: false, reason: "unknown_code", linkKind };
 
       const windowHours = this.windowHours()[claimed.medium];
       const ageHours = Math.max(
@@ -282,7 +351,7 @@ export class ReferralLinkService {
         idempotencyKey: `referral.install_claimed:${claimed.id}`,
       });
 
-      return { claimed: true, referralLinkId: claimed.referralLinkId };
+      return { claimed: true, referralLinkId: claimed.referralLinkId, linkKind };
     } catch (err) {
       // The partial unique index firing (a lost race) lands here and is neutralised — the
       // winner already recorded the claim, so this is a correct no-op, not a failure.
@@ -291,7 +360,7 @@ export class ReferralLinkService {
           (err as Error).name
         })`,
       );
-      return { claimed: false, reason: "already_claimed" };
+      return { claimed: false, reason: "already_claimed", linkKind };
     }
   }
 }

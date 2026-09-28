@@ -14,6 +14,11 @@ import { AuthModule } from "../auth/auth.module";
 import { WorkerAuthGuard } from "../auth/worker-auth.guard";
 import { InviteService } from "../messaging/invite.service";
 import { AgencyService } from "../agency/agency.service";
+import { ReferralLinksModule } from "./referral-links.module";
+import { ReferralLinkRepository } from "./referral-link.repository";
+import { ReferralLinkService } from "./referral-link.service";
+import { ResumeQrLinkService } from "./resume-qr-link.service";
+import { ResumeModule } from "../resume/resume.module";
 
 /**
  * DI WIRING REGRESSION GUARD (ADR-0022 Amendment 1 — referral attribution).
@@ -64,11 +69,27 @@ describe("ReferralAttributionModule wiring (attribution seam DI regression guard
     );
     expect(controllers).toContain("ReferralResolverController");
 
+    // #1800 — the service and repository moved into ReferralLinksModule (so ResumeModule can reach
+    // the résumé-QR mint). Reachable here only through that import, and only if it EXPORTS them.
+    expect(getMeta("imports", ReferralAttributionModule)).toContain(ReferralLinksModule);
+    const exported = getMeta("exports", ReferralLinksModule);
+    expect(exported).toContain(ReferralLinkService);
+    expect(exported).toContain(ReferralLinkRepository);
+    // ONE instance each: declared in ReferralLinksModule, never re-declared here.
     const providers = getMeta("providers", ReferralAttributionModule).map((p) =>
       typeof p === "function" ? p.name : p,
     );
-    expect(providers).toContain("ReferralLinkService");
-    expect(providers).toContain("ReferralLinkRepository");
+    expect(providers).not.toContain("ReferralLinkService");
+    expect(providers).not.toContain("ReferralLinkRepository");
+  });
+
+  it("#1800 — ResumeModule reaches the résumé-QR mint through ReferralLinksModule, acyclically", () => {
+    expect(getMeta("imports", ResumeModule)).toContain(ReferralLinksModule);
+    expect(getMeta("exports", ReferralLinksModule)).toContain(ResumeQrLinkService);
+    // The extracted module is a leaf: importing it can never close a cycle.
+    expect(getMeta("imports", ReferralLinksModule)).toEqual([]);
+    // …and ResumeModule does not take the whole attribution chain with it.
+    expect(getMeta("imports", ResumeModule)).not.toContain(ReferralAttributionModule);
   });
 
   // ---- B4 / §X.6 additions hosted by this module ----

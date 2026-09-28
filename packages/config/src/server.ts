@@ -330,6 +330,17 @@ export const serverEnvSchema = z.object({
   // and NOTHING reads or writes `worker_resume_skin` — so migration 0128 is apply-before-FLAG-ON,
   // not apply-before-deploy. Turn it on only after 0128 is applied.
   RESUME_SKINS_ENABLED: booleanFromString,
+  // RÉSUMÉ QR SCAN (#1800, owner ruling 2026-09-28 "Count + attribute worker signups") — the
+  // worker's own résumé QR encodes `https://badabhai.ai/r/<code>` with a per-worker, never-
+  // commissioned `resume_qr` referral link, instead of the bare homepage.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S SHEET EXACTLY: the render worker mints nothing and the QR
+  // encodes the homepage, byte-identical to before. The flag gates the MINT and the ENCODE only —
+  // the `GET /r/:code` resolver and the attribution path handle an existing `resume_qr` row
+  // unconditionally, so sheets printed while it was on keep counting if it is later turned off.
+  // Needs migration 0129 applied AND the badabhai.ai `/r/*` redirect in place BEFORE it is turned
+  // on; a mint that fails (0129 missing) falls back to the homepage QR and never costs the PDF.
+  RESUME_QR_SCAN_ENABLED: booleanFromString,
   // Per-worker generations allowed per UTC day (paid-path abuse cap).
   RESUME_DAILY_CAP: z.coerce.number().int().positive().default(5),
   // Global generations allowed per UTC day — interim backstop until TD4 binds a
@@ -470,10 +481,18 @@ export const serverEnvSchema = z.object({
   // are independent knobs and must not be collapsed.
   REFERRAL_MATCH_WINDOW_ORGANIC_HOURS: z.coerce.number().int().positive().default(168),
   REFERRAL_MATCH_WINDOW_PAID_HOURS: z.coerce.number().int().positive().default(24),
-  // The branded base the `/r/<code>` resolver builds its App-Link redirect against.
-  // Defaults to the domain the worker app's manifest already claims, so B4 introduces no
-  // new DNS dependency — pointing this at a real short domain is a P0-6 (App Links domain
-  // verification) deploy action, NOT a code change. Must be an absolute https origin.
+  // The origin the `/r/<code>` resolver 302s to — `<base>/i/<code>` (and `/i/<code>/desktop`),
+  // i.e. the origin that SERVES payer-web's `/i/` landing page. It must equal the worker app's
+  // App Link host (`android:host` in AndroidManifest.xml, `kInviteLinkBase`) and payer-web's
+  // `shortLinkOrigin()`, which today are all the interim host `https://payer.43-204-36-199.sslip.io`
+  // (#1138/#1144; the Lightsail IP is in the name, so it WILL move — #1319).
+  //
+  // ⚠ THE DEFAULT IS STALE. `https://app.badabhai.in` is NOT the host the manifest claims (that
+  // moved to the sslip host in #1144) and it serves no `/i/` route, so a deployment that does not
+  // set this variable 302s every `/r/` visitor to a dead page. docker-compose.staging.yml sets it
+  // explicitly (#1800); the default is kept only so a bare local boot still validates. Pointing it
+  // at a real short domain is a deploy action, NOT a code change. Must be an absolute https origin.
+  // `mintLink()` also builds its returned `/r/` URL on this base (a URL no caller uses yet).
   REFERRAL_SHORT_LINK_BASE: z
     .string()
     .url()

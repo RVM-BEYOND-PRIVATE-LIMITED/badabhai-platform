@@ -1,5 +1,20 @@
 import QRCode from "qrcode";
 
+import { getResumeTemplate } from "./templates/registry";
+
+/**
+ * The templates whose skeleton prints a QR (`{{#qr}}`): the `bb_trade` sheet and `bb_general`.
+ * The legacy `classic` / `modern` / `minimal` / `fallback` sheets have no QR slot, so a render
+ * drawing one of them must not mint a `resume_qr` bearer code (#1800) that no sheet will ever
+ * carry. Pinned against the skeletons themselves in `resume-qr.test.ts`.
+ */
+const QR_TEMPLATE_IDS: ReadonlySet<string> = new Set(["bb_trade", "bb_general"]);
+
+/** Whether a render drawing `templateId` prints the QR at all (resolved through the registry). */
+export function templateTakesQr(templateId: string | null | undefined): boolean {
+  return QR_TEMPLATE_IDS.has(getResumeTemplate(templateId).id);
+}
+
 /**
  * The résumé footer's QR, as a self-contained `data:` URI.
  *

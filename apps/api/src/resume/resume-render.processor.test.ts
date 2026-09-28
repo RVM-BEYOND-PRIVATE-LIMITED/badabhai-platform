@@ -7,7 +7,8 @@ import type { ServerConfig } from "@badabhai/config";
 import { FontResolutionError } from "../common/pdf/font-resolution";
 import { ResumeRenderProcessor } from "./resume-render.processor";
 import { ITI_PROJECT_WORK_KEY } from "./resume-fresher-rows";
-import { resumeRefCode } from "./resume-sheet-footer";
+import { RESUME_PROFILE_ORIGIN, RESUME_QR_CAPTION, resumeRefCode } from "./resume-sheet-footer";
+import { buildResumeQrDataUri } from "./resume-qr";
 import type { ResumeRenderInput } from "./resume-renderer.service";
 import type { ResumeRepository } from "./resume.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
@@ -286,6 +287,11 @@ function setup(
     // #1801 — the résumé skin reader, as the optional 16th dependency. OMITTED is the service
     // absent (every construction before skins existed), which renders the template as shipped.
     skins?: unknown;
+    // #1800 — the résumé-QR link service, as the optional 17th dependency. OMITTED is the service
+    // absent (every construction before #1800), which prints the homepage QR.
+    resumeQrLinks?: unknown;
+    // ADR-0031 — the deletion grace marker on the worker row. Omitted is an active worker.
+    deletionScheduledAt?: Date | null;
   } = {},
 ) {
   const resumeRow = opts.resume === undefined ? DEFAULT_ROW : (opts.resume ?? undefined);
@@ -304,6 +310,7 @@ function setup(
       currentCity: opts.currentCity ?? null,
       currentState: opts.currentState ?? null,
       verificationState: opts.verificationState ?? null,
+      deletionScheduledAt: opts.deletionScheduledAt ?? null,
     })),
     latestResume: vi.fn(async () => ({
       id: opts.currentResumeId ?? (resumeRow as { id?: string } | undefined)?.id ?? RESUME_ID,
@@ -426,6 +433,7 @@ function setup(
     undefined,
     generalRoads as never,
     opts.skins as never,
+    opts.resumeQrLinks as never,
   );
   return {
     proc,
@@ -696,13 +704,47 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
     // `resume.skin_changed` and so would put an event surface within reach. Checked before this
     // bump.
     //
+    // `resumeQrLinks` (ResumeQrLinkService) joined for #1800 — and it is the ONE dependency on this
+    // list that CAN emit, so it is bounded by construction rather than by absence. It was made a
+    // class of its own, NOT ReferralLinkService (which resolves and claims), so that what is within
+    // reach is exactly one method, `codeFor(workerId)`, whose only emit is `referral.link_created`
+    // with a strict payload of ids and closed enums, on the same transaction as the row it records.
+    // The processor hands it the worker id and NOTHING it decrypted, and emits nothing itself. The
+    // two assertions after the arity pin both halves of that: the processor's own source still names
+    // no event surface, and the one class it may reach names exactly one event.
+    //
     // ARITY ALONE IS A PROXY, so the real property is asserted directly below it: a number can be
     // bumped to make this pass while wiring in exactly the dependency it exists to keep out.
-    expect(ResumeRenderProcessor.length).toBe(16);
+    expect(ResumeRenderProcessor.length).toBe(17);
     const source = readFileSync(join(__dirname, "resume-render.processor.ts"), "utf8");
     expect(source, "an events dependency reached the render processor").not.toMatch(
       /EventsService|events\.emit/,
     );
+    // Read off the IMPORTS, not the prose: the constructor's comment names the class it must not
+    // take, and a bare-word match would forbid documenting the rule.
+    const imports = [...source.matchAll(/^import [^;]+ from "([^"]+)";/gm)].map((m) => m[1]);
+    expect(
+      imports,
+      "the render may reach the NARROW mint, never the resolver/claim service",
+    ).toContain("../referrals/resume-qr-link.service");
+    for (const forbidden of [
+      "../referrals/referral-link.service",
+      "../referrals/referral-attribution.service",
+      "../events/events.service",
+    ]) {
+      expect(imports).not.toContain(forbidden);
+    }
+    const qrLinks = readFileSync(
+      join(__dirname, "..", "referrals", "resume-qr-link.service.ts"),
+      "utf8",
+    );
+    expect([...qrLinks.matchAll(/event_name:\s*"([a-z_.0-9]+)"/g)].map((m) => m[1])).toEqual([
+      "referral.link_created",
+    ]);
+    // …and it is handed the worker id alone: the only call is `codeFor(workerId)`.
+    expect([...source.matchAll(/resumeQrLinks\.codeFor\(([^)]*)\)/g)].map((m) => m[1])).toEqual([
+      "workerId",
+    ]);
   });
 
   it("degrades to a name-less render WITHOUT throwing when decrypt fails", async () => {
@@ -1822,5 +1864,208 @@ describe("résumé skin (#1801)", () => {
       unknown
     >;
     expect(JSON.stringify(document)).not.toContain("neela");
+  });
+});
+
+/**
+ * #1800 — THE RÉSUMÉ QR's OWN LINK (owner ruling 2026-09-28, "Count + attribute worker signups").
+ *
+ * The rules pinned: flag off (or the service absent) is the homepage QR, byte-identical to before
+ * and with no mint; flag on encodes `https://badabhai.ai/r/<code>` of the worker's own link; ANY
+ * failure falls back to the homepage QR and still renders; the code is never printed and never
+ * logged; and only a live worker is minted for.
+ */
+describe("ResumeRenderProcessor — #1800 the résumé QR encodes the worker's /r/ link", () => {
+  const QR_CODE = "abcdef012345";
+  // A sheet that PRINTS the QR — the default row resolves to the fallback template, which has
+  // no {{#qr}} slot and so (correctly) never mints.
+  const QR_ROW = { ...DEFAULT_ROW, templateId: "bb_trade" };
+  const homepageQr = (): Promise<string | null> => buildResumeQrDataUri(RESUME_PROFILE_ORIGIN);
+  const qrLinks = (over: { enabled?: boolean; codeFor?: ReturnType<typeof vi.fn> } = {}) => ({
+    enabled: over.enabled ?? true,
+    codeFor: over.codeFor ?? vi.fn(async (_workerId: string) => QR_CODE),
+  });
+  const renderedInput = (renderer: { renderPdf: { mock: { calls: unknown[][] } } }) =>
+    renderer.renderPdf.mock.calls[0]![0] as ResumeRenderInput;
+
+  it("service ABSENT (every pre-#1800 construction): the homepage QR, byte-identical", async () => {
+    const { proc, renderer } = setup({ resume: QR_ROW, fullName: NAME_TOKEN });
+    await proc.process(makeJob());
+    expect(renderedInput(renderer).qrDataUri).toBe(await homepageQr());
+  });
+
+  it("flag OFF: the homepage QR, byte-identical — and the mint is never asked", async () => {
+    const links = qrLinks({ enabled: false });
+    const { proc, renderer } = setup({
+      resume: QR_ROW,
+      fullName: NAME_TOKEN,
+      resumeQrLinks: links,
+    });
+    await proc.process(makeJob());
+    expect(renderedInput(renderer).qrDataUri).toBe(await homepageQr());
+    expect(links.codeFor).not.toHaveBeenCalled();
+  });
+
+  it("flag ON: encodes https://badabhai.ai/r/<code>, asked with the worker id alone", async () => {
+    const links = qrLinks();
+    const { proc, renderer } = setup({
+      resume: QR_ROW,
+      fullName: NAME_TOKEN,
+      resumeQrLinks: links,
+    });
+    await proc.process(makeJob());
+
+    expect(links.codeFor).toHaveBeenCalledWith(WORKER_ID);
+    const input = renderedInput(renderer);
+    expect(input.qrDataUri).toBe(await buildResumeQrDataUri(`https://badabhai.ai/r/${QR_CODE}`));
+    expect(input.qrDataUri).not.toBe(await homepageQr());
+  });
+
+  it("STABLE across a forced re-render: the same code, so the same QR", async () => {
+    const links = qrLinks();
+    const first = setup({ resume: QR_ROW, fullName: NAME_TOKEN, resumeQrLinks: links });
+    await first.proc.process(makeJob());
+    const again = setup({
+      fullName: NAME_TOKEN,
+      resumeQrLinks: links,
+      resume: { ...QR_ROW, renderStatus: "rendered" },
+    });
+    await again.proc.process(makeJob({ force: true }));
+    expect(renderedInput(again.renderer).qrDataUri).toBe(renderedInput(first.renderer).qrDataUri);
+  });
+
+  it("the code is NEVER PRINTED: caption, short link and footer are exactly today's", async () => {
+    const { proc, renderer } = setup({
+      resume: QR_ROW,
+      fullName: NAME_TOKEN,
+      resumeQrLinks: qrLinks(),
+    });
+    await proc.process(makeJob());
+    const input = renderedInput(renderer);
+    expect(input.qrCaption).toBe(RESUME_QR_CAPTION);
+    expect(input.qrCaption).toBe("Scan to visit BadaBhai");
+    expect(input.shortLink).toBe("badabhai.ai");
+    // Everything the renderer is handed, minus the QR's own modules, is free of the bearer code.
+    const { qrDataUri: _modules, ...printed } = input;
+    expect(JSON.stringify(printed)).not.toContain(QR_CODE);
+    // The QR is an SVG of modules; the code is not in it as text either.
+    expect(decodeURIComponent(input.qrDataUri ?? "")).not.toContain(QR_CODE);
+  });
+
+  it.each([
+    ["the kind CHECK (0129 not applied)", Object.assign(new Error("check"), { code: "23514" })],
+    [
+      "collisions exhausted",
+      Object.assign(new Error("exhausted"), { name: "ResumeQrMintExhaustedError" }),
+    ],
+    ["a database outage", new Error("connection terminated")],
+  ])(
+    "a mint that throws (%s) falls back to the homepage QR and STILL renders",
+    async (_why, err) => {
+      const links = qrLinks({ codeFor: vi.fn(async () => Promise.reject(err)) });
+      const { proc, renderer, storage } = setup({
+        resume: QR_ROW,
+        fullName: NAME_TOKEN,
+        resumeQrLinks: links,
+      });
+      const res = await proc.process(makeJob());
+      expect(res).toEqual({ rendered: true });
+      expect(storage.uploadPdf).toHaveBeenCalledOnce();
+      expect(renderedInput(renderer).qrDataUri).toBe(await homepageQr());
+    },
+  );
+
+  it("a mint that answers null (flag flipped off mid-render) is the homepage QR", async () => {
+    const links = qrLinks({ codeFor: vi.fn(async () => null) });
+    const { proc, renderer } = setup({
+      resume: QR_ROW,
+      fullName: NAME_TOKEN,
+      resumeQrLinks: links,
+    });
+    await proc.process(makeJob());
+    expect(renderedInput(renderer).qrDataUri).toBe(await homepageQr());
+  });
+
+  it("a failed mint is logged WITHOUT the code or the query's bound parameters", async () => {
+    // What drizzle 0.45 actually throws: the parameters — the code and the worker id — are in the
+    // wrapper's MESSAGE, and the SQLSTATE is on its cause.
+    const wrapped = Object.assign(
+      new Error(`Failed query: insert into "referral_links" …\nparams: ${QR_CODE},w-1`),
+      {
+        query: 'insert into "referral_links" …',
+        params: [QR_CODE, WORKER_ID],
+        cause: Object.assign(new Error("violates check constraint"), { code: "23514" }),
+      },
+    );
+    const links = qrLinks({ codeFor: vi.fn(async () => Promise.reject(wrapped)) });
+    const { proc } = setup({ resume: QR_ROW, fullName: NAME_TOKEN, resumeQrLinks: links });
+    const lines: string[] = [];
+    const instLogger = (proc as unknown as { logger: { warn: (m: string) => void } }).logger;
+    instLogger.warn = (m: string) => void lines.push(String(m));
+
+    await proc.process(makeJob());
+    const joined = lines.join("\n");
+    expect(joined).toContain("printing the homepage QR");
+    expect(joined).toContain("23514");
+    expect(joined).not.toContain(QR_CODE);
+  });
+
+  it("a worker whose deletion is SCHEDULED is not handed a new code — homepage QR, no mint", async () => {
+    const links = qrLinks();
+    const { proc, renderer } = setup({
+      resume: QR_ROW,
+      fullName: NAME_TOKEN,
+      resumeQrLinks: links,
+      deletionScheduledAt: new Date("2026-10-05T00:00:00Z"),
+    });
+    await proc.process(makeJob());
+    expect(links.codeFor).not.toHaveBeenCalled();
+    expect(renderedInput(renderer).qrDataUri).toBe(await homepageQr());
+  });
+
+  it("an ABSENT worker row (erased mid-queue) is never minted for", async () => {
+    const links = qrLinks();
+    const { proc, workers } = setup({ resume: QR_ROW, fullName: NAME_TOKEN, resumeQrLinks: links });
+    workers.findById.mockResolvedValue(undefined as never);
+    await proc.process(makeJob());
+    expect(links.codeFor).not.toHaveBeenCalled();
+  });
+
+  it("a sheet with NO QR slot (legacy classic / fallback) never mints — the flag on or not", async () => {
+    for (const templateId of ["classic", "modern", "minimal", "fallback", null]) {
+      const links = qrLinks();
+      const { proc } = setup({
+        resume: { ...DEFAULT_ROW, templateId },
+        fullName: NAME_TOKEN,
+        resumeQrLinks: links,
+      });
+      await proc.process(makeJob());
+      expect(links.codeFor, String(templateId)).not.toHaveBeenCalled();
+    }
+  });
+
+  it("bb_general prints the QR too, so it DOES mint", async () => {
+    const links = qrLinks();
+    const { proc } = setup({
+      resume: { ...DEFAULT_ROW, templateId: "bb_general" },
+      fullName: NAME_TOKEN,
+      resumeQrLinks: links,
+    });
+    await proc.process(makeJob());
+    expect(links.codeFor).toHaveBeenCalledWith(WORKER_ID);
+  });
+});
+
+describe("#1800 — the employer copy still prints NO QR", () => {
+  it("the disclosure path neither mints a link nor builds a QR", () => {
+    // NEEDS_PRAKASH Q6/R4: only the worker's OWN sheet carries a QR. The disclosure never reached
+    // the builder before #1800 and must not reach the mint now.
+    const disclosure = readFileSync(
+      join(__dirname, "..", "disclosures", "resume-disclosure.service.ts"),
+      "utf8",
+    );
+    expect(disclosure).not.toMatch(
+      /buildResumeQrDataUri|ResumeQrLinkService|resumeQrScanUrl|qrDataUri/,
+    );
   });
 });
