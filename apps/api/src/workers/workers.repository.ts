@@ -34,6 +34,17 @@ export class WorkersRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
   /**
+   * Run `cb` inside one Drizzle transaction (#1803 — the H3 pattern of
+   * `AdminActionsRepository.withTransaction` / `AgencyPayoutRepository.withTransaction`). The `tx`
+   * handed to `cb` is a `Database`-shaped executor that the optional-`tx` write methods below and
+   * `EventsService.emit({ …, tx })` accept, so `WorkersService` can commit an erasure write and its
+   * `worker.*` audit event together: an emit failure rolls the write back, a success commits both.
+   */
+  withTransaction<T>(cb: (tx: Database) => Promise<T>): Promise<T> {
+    return this.db.transaction(cb as (tx: unknown) => Promise<T>);
+  }
+
+  /**
    * List workers (newest first) with their latest profile summary, for the ops
    * console. Two queries (workers, then their profiles) — no PII is returned.
    */
@@ -206,9 +217,16 @@ export class WorkersRepository {
    * SAME CONTRACT AS {@link updateFullName}: the caller passes an ALREADY-ENCRYPTED token, or
    * `null` to clear. This repository never stores a plaintext number, and there is no
    * write path that could — the column's shape CHECK refuses one at the database.
+   *
+   * `tx` (#1803): run the write on the caller's transaction (see {@link withTransaction}).
+   * Omitted, it runs standalone on the pool exactly as before.
    */
-  async updateWhatsapp(id: string, encryptedWhatsapp: string | null): Promise<Worker | undefined> {
-    const rows = await this.db
+  async updateWhatsapp(
+    id: string,
+    encryptedWhatsapp: string | null,
+    tx?: Database,
+  ): Promise<Worker | undefined> {
+    const rows = await (tx ?? this.db)
       .update(workers)
       .set({ whatsappEnc: encryptedWhatsapp, updatedAt: new Date() })
       .where(eq(workers.id, id))
@@ -246,12 +264,16 @@ export class WorkersRepository {
    * flags are written). NON-PII booleans; the service reads back the returned row
    * for the resulting values it emits. Returns the updated row, or undefined if no
    * worker matched.
+   *
+   * `tx` (#1803): run the write on the caller's transaction (see {@link withTransaction}).
+   * Omitted, it runs standalone on the pool exactly as before.
    */
   async updateResumePrefs(
     id: string,
     patch: { resumeShowPhoto?: boolean; resumeNightShiftReady?: boolean },
+    tx?: Database,
   ): Promise<Worker | undefined> {
-    const rows = await this.db
+    const rows = await (tx ?? this.db)
       .update(workers)
       .set({ ...patch, updatedAt: new Date() })
       .where(eq(workers.id, id))
@@ -345,9 +367,16 @@ export class WorkersRepository {
    * never a URL and never bytes — the photo itself is PII at rest in the private
    * WORKER_PHOTOS_BUCKET. Returns the updated row, or undefined if no worker
    * matched.
+   *
+   * `tx` (#1803): run the write on the caller's transaction (see {@link withTransaction}).
+   * Omitted, it runs standalone on the pool exactly as before.
    */
-  async updatePhotoStorageKey(id: string, key: string | null): Promise<Worker | undefined> {
-    const rows = await this.db
+  async updatePhotoStorageKey(
+    id: string,
+    key: string | null,
+    tx?: Database,
+  ): Promise<Worker | undefined> {
+    const rows = await (tx ?? this.db)
       .update(workers)
       .set({ photoStorageKey: key, updatedAt: new Date() })
       .where(eq(workers.id, id))

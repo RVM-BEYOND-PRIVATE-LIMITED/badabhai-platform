@@ -75,7 +75,10 @@ logs (object keys and signed URLs are never logged — voice discipline), the fe
 - **`DELETE /workers/me/photo`**: clears the column, best-effort deletes the object, emits
   `worker.photo_removed`. **Idempotent** (no-photo → 200). Deletion of the pointer is never
   blocked by dormancy (data minimization must always work); only the object delete is skipped
-  if the bucket is unset.
+  if the bucket is unset. *Amended by #1803 (2026-09-28):* the pointer clear and
+  `worker.photo_removed` now commit in ONE transaction, and the object delete runs only after
+  that commit — so a failed audit emit rolls the clear back and the worker's retry re-drives the
+  erasure, instead of leaving a cleared pointer whose re-render was never queued.
 - **`GET /workers/me/resume-fields`** additively gains `has_photo: boolean` (never the key).
   It **defaults false** when absent client-side — the opposite default from `show_photo`
   (a true-default here would make clients try to render a nonexistent photo).
