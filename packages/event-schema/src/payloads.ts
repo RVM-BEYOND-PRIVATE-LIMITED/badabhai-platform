@@ -4936,3 +4936,32 @@ export const ProfileGeneralFormCompletedPayload = z
     message: "employments_dated cannot exceed employments",
   });
 export type ProfileGeneralFormCompletedPayload = z.infer<typeof ProfileGeneralFormCompletedPayload>;
+
+/**
+ * E4 — the worker changed the VISIBILITY of his own supply: he set `wants` on one skill, or
+ * turned every skill off in one call.
+ *
+ * `wants` is half of ADR-0036's visibility rule ("SHOW job TO worker IFF … AND
+ * worker.wants[matched skill]"), so a change to it changes which postings can reach him — a
+ * business action, and this is its audit record. The flip and the `job_reach` reconcile commit
+ * in the same transaction at the write site; this event is emitted after it commits.
+ *
+ * `skill_id: null` IS THE CLEAR-ALL, not a missing value: the worker declined every
+ * `worker_skill` row he held in one call (the E4 exit affordance). A non-null id is the
+ * single-skill toggle, and `wants: true` is a row turned back on.
+ *
+ * PII-FREE BY CONSTRUCTION: an opaque worker uuid, a closed-vocabulary `mskill_*` id (or
+ * null) and a boolean. No name, no phone, no free text — and deliberately NO count of who
+ * could see him (`reached_postings` is absent): the spine needs to know what he chose, not
+ * how wide the audience was. Strict, so nothing else can ride along.
+ */
+export const WorkerMatchSkillWantsSetPayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** The toggled skill, or null when this call cleared EVERY skill the worker held. */
+    skill_id: matchSkillIdSchema.nullable(),
+    /** The resulting state: false = declined/hidden, true = wanted again. */
+    wants: z.boolean(),
+  })
+  .strict();
+export type WorkerMatchSkillWantsSetPayload = z.infer<typeof WorkerMatchSkillWantsSetPayload>;

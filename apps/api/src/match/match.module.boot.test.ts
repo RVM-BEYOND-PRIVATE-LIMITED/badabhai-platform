@@ -2,6 +2,8 @@ import "reflect-metadata";
 import { describe, it, expect } from "vitest";
 import { MatchModule } from "./match.module";
 import { MatchSkillsController } from "./match-skills.controller";
+import { WorkerMatchSkillsController } from "./worker-match-skills.controller";
+import { AuthModule } from "../auth/auth.module";
 import { PayersModule } from "../payers/payers.module";
 import { MatchConfigService } from "./match-config.service";
 import { WorkerSkillsService } from "./worker-skills.service";
@@ -51,8 +53,21 @@ describe("MatchModule — the @Global matching layer's wiring", () => {
     expect(getMeta("imports", MatchModule)).toContain(PayersModule);
   });
 
-  it("declares the posting-form controller", () => {
-    expect(getMeta("controllers", MatchModule)).toEqual([MatchSkillsController]);
+  it("imports AuthModule — the source of WorkerAuthGuard + ConsentGuard for E4's routes", () => {
+    // `WorkerMatchSkillsController` carries the worker-self pair at the class level. Same
+    // boot-time failure shape as the PayersModule import above: the guard resolves in THIS
+    // module's injector, so without AuthModule the app fails to boot with the controller
+    // mounted, while every hand-built unit test stays green.
+    expect(getMeta("imports", MatchModule)).toContain(AuthModule);
+  });
+
+  it("declares both controllers: the payer posting form and the worker's own exit", () => {
+    // Enumerated rather than `toContain` each: a controller silently dropped here is a
+    // surface that stops existing, and only the HTTP layer would notice.
+    expect(getMeta("controllers", MatchModule)).toEqual([
+      MatchSkillsController,
+      WorkerMatchSkillsController,
+    ]);
   });
 
   it("provides every service the six moments need, including both repositories", () => {

@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 214 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer)", () => {
-    expect(EVENT_NAMES).toHaveLength(214);
+  it("exposes all 215 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event)", () => {
+    expect(EVENT_NAMES).toHaveLength(215);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -3166,6 +3166,9 @@ describe("registry", () => {
     expect(isEventName("referral.bonus_accrued")).toBe(true);
     // ADR-0036 — Matching V1. Six new v1 events + the versioned feed.shown_v2.
     expect(isEventName("worker.match_skills_rebuilt")).toBe(true);
+    // E4 — the worker's own visibility toggle / clear-all. The seventh Matching V1 event, and
+    // the only one a WORKER (not the derivation) authors.
+    expect(isEventName("worker.match_skill_wants_set")).toBe(true);
     expect(isEventName("job_posting.reach_materialized")).toBe(true);
     expect(isEventName("job_posting.reach_alert")).toBe(true);
     expect(isEventName("job_posting.reach_widened")).toBe(true);

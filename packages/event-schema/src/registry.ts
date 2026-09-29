@@ -1299,6 +1299,18 @@ export const EVENT_REGISTRY = {
     domain: "chat",
     payload: p.ChatCompanionCareerAnsweredPayload,
   },
+
+  // ── E4 — appended at the tail, per the append-only protocol ──────────────────────────────
+  //
+  // The worker changed the VISIBILITY of his own supply: one skill toggled, or every skill
+  // cleared in one call (`skill_id: null`). `wants` is half of ADR-0036's visibility rule, so
+  // a change to it is a business action. PII-FREE: an opaque worker uuid, a closed-vocabulary
+  // `mskill_*` id (or null) and a boolean — never a name, never a count of who could see him. v1.
+  "worker.match_skill_wants_set": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerMatchSkillWantsSetPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */
