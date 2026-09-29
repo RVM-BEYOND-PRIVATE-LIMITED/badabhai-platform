@@ -611,3 +611,56 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
 - **Next:** the tail PR for this branch; then the Frontend items (#1818) and the staging eval
   run (which now also needs `AI_REAL_CALL_TASKS` widened on the box to name the two companion
   tasks — an env action, noted in compose and the phase file).
+
+---
+
+## Phase 2 — New résumé + Faltu — 2026-09-29 17:05
+
+- **Done:** N1–N6 + A1, on `feat/companion-v2-phase2-new-resume-faltu`, one commit per task.
+  - **N1** (`c95edfde`): `new-resume.handler.ts` — consent-gated (`resume_generation`, fail
+    closed to the v1 FALLBACK + chips), serving the résumé menu's redo turn verbatim through a
+    new `v2MenuTurn` that mirrors v1's private `menuTurn` field-for-field. `resolveResumeMenu`
+    takes TEXT, not a key — the handler calls it with `RESUME_MENU_REDO_LABEL`, the same call
+    the menu makes for its own chip (the phase file's "with RESUME_MENU_REDO_KEY" was loose
+    wording). `ConsentModule` is now imported by the leaf (no chat edge).
+  - **N2** (`bdc88f34`): `faltu.store.ts` — `countStrike` (INCR + 24 h TTL on the first),
+    `startCooldown` (SET EX), `cooldownUntil` (PTTL, positive TTL only). FAILS OPEN on Redis,
+    deliberately and only here: no counter → redirect still served, no flag → no cool-down.
+  - **N4** (`eb8e761d`): `chat.companion_faltu_strike` v1 — `strike_count` (positive) +
+    `cooldown_started`, `.strict()`, registered, tested. The registry count pin moved 212 → 213.
+  - **N3/N5/N6** (`b3585650`): the faltu handler (strikes → redirect; threshold → cool-down +
+    `cooldown_until`; event; Redis-refusal paths), the copy pairs `V2_FALTU_REDIRECT` /
+    `V2_FALTU_COOLDOWN` with twins, `v2CooldownTurn`, the registry gating for `faltu` and
+    `new_resume`, the `companion_task:new_resume` chip, and the ORDER across the two layers
+    that own the branches (phase file "Order in code"): task-chip recognition → cool-down gate
+    (service) → v1 resolver → lexicon → classifier (orchestrator).
+  - **A1** (`7b5b464b`): +46 faltu (abuse beyond the shipped lexicon, flirting, jokes, cricket/
+    film/small talk) and +30 new-résumé lines; set now 234 cases, no duplicates, mixed scripts.
+- **Design calls made, recorded rather than discovered:**
+  1. **Task-chip taps route deterministically, before the cool-down gate and before v1.** v1's
+     weak signals answer "Resume badlo" and "Naya resume" with the digest (both contain
+     "resume"), so without this step no tapped chip could ever reach its handler — in P1 either,
+     where the chip was left to the classifier v1 intercepts. Exact label/key match only; typed
+     sentences stay free text (`companion-task-chips.ts`).
+  2. **The cool-down blocks free text, including text v1 would answer.** That is the spec's
+     order ("chip keys → cool-down → v1 text resolver"); chip taps skip the gate, so the résumé
+     and jobs stay reachable.
+  3. **The lexicon runs BEFORE the gateway**, on the raw text: nothing crosses a boundary on
+     that path (fixed copy + a strike count), so a flagged message costs no gateway hop and no
+     model call, and is never stored (no memory pair). Abusive text appears in no event, log or
+     Redis key.
+  4. **The guard turn records `intent_source: "guard"`, `v2_intent: null`, `outcome: "cooldown"`**
+     — no classifier ran, so naming an intent would be a claim the pipeline cannot make. The
+     cool-down turn still carries the open chips.
+  5. **Redis failure = fail open, and the strike event tells the truth:** a refused counter
+     emits nothing (no fabricated zero); threshold crossed but the flag refused → redirect, and
+     `cooldown_started: false`.
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 12,000+ passed / 153 skipped (719 in the chat-companion
+    subtree; +40 on the phase).
+  - ai-service `pytest` 6,048+ passed · `ruff` clean · `pnpm lint` 0 errors · typecheck 29/29.
+- **Notes / surprises:** `handler.ts`'s "a handler NEVER writes anything" was corrected — the
+  faltu handler owns its Redis counters and emits its strike event; the doc now says what it
+  means (no DOMAIN writes).
+- **Next:** the Frontend items F1/F2 (issue #1821 — raised with this phase); then Phase 3 when
+  the owner calls it.

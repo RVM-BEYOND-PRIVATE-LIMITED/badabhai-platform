@@ -22,7 +22,12 @@ export interface HandlerResult {
 /**
  * One intent's answer. Handlers are deterministic and never call a model themselves: the edit
  * handler delegates to the edit service (whose model call is the SECOND step of an edit turn),
- * and every other handler serves reviewed copy. A handler NEVER writes anything.
+ * and every other handler serves reviewed copy.
+ *
+ * "NO WRITES" MEANS NO DOMAIN WRITES — no profile, no résumé, no chat row. Two handlers own
+ * state of their own: the edit handler's proposal lives in Redis until the worker taps Haan, and
+ * the faltu handler owns its strike/cooldown counters in Redis and emits its strike event. The
+ * worker's Haan is still the only path from a handler to a profile write.
  */
 export interface CompanionV2Handler {
   handle(input: HandlerInput): Promise<HandlerResult>;
