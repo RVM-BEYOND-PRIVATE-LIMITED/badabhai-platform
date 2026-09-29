@@ -90,17 +90,28 @@ const Map<String, String> _kClosedSetLabels = <String, String>{
   'daily_wage': 'Daily wage',
 };
 
-/// Whether [value] is a closed-set token rather than something a worker typed.
+/// Whether [value] is UNAMBIGUOUSLY a closed-set token rather than a word the
+/// worker typed.
 ///
-/// A token is lower-case, carries no whitespace, and is built only of letters,
-/// digits and underscores. That deliberately EXCLUDES a date (`2024-03`, the
-/// hyphen), a year or a salary (digits alone are left as they are by the
-/// prettifier anyway), and every free-text field, which carries spaces or the
-/// worker's own capitals.
+/// THE UNDERSCORE IS THE WHOLE TEST, and that is a deliberate retreat from
+/// something cleverer. A single lower-case word is genuinely ambiguous: `night`
+/// and `hindi` are slugs, but `welding`, `pune` and `iti` are a skill, a city
+/// and a certificate — the worker's own words, in a free-text field, and the
+/// wire gives no field name to tell them apart (`section_label` names the
+/// SECTION, not the column). Title-casing every lower-case word therefore
+/// rewrote worker data — `iti` became "Iti" — while this file's own doc promised
+/// it would not.
+///
+/// So only `snake_case` is reshaped, which no free-text field produces and every
+/// unknown slug does. A lower-case single word this build has no vocabulary for
+/// is shown EXACTLY as it arrived: not a raw `snake_case` id, not mangled, and
+/// honest about the fact that the app does not know it.
+///
+/// Also excluded, as before: anything with whitespace or a capital (free text),
+/// a date (`2024-03`, the hyphen) and digits alone (a year or an amount).
 bool _looksLikeToken(String value) {
+  if (!value.contains('_')) return false;
   if (value.contains(RegExp(r'\s'))) return false;
   if (value != value.toLowerCase()) return false;
-  if (!RegExp(r'^[a-z0-9_]+$').hasMatch(value)) return false;
-  // Digits alone are a year or an amount, not a token.
-  return !RegExp(r'^[0-9]+$').hasMatch(value);
+  return RegExp(r'^[a-z0-9_]+$').hasMatch(value);
 }

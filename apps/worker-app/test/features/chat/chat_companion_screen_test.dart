@@ -434,9 +434,13 @@ void main() {
 
       expect(find.text('Skills'), findsOneWidget);
       expect(find.text('Languages'), findsOneWidget);
-      // `add` shows the new value; `delete` the removed one.
-      expect(find.text('Welding'), findsOneWidget);
-      expect(find.text('Hindi'), findsOneWidget);
+      // EVERY ROW SAYS WHAT IT DOES. `section_label` names the section only, so
+      // "Welding" under "Skills" could equally mean adding or removing it — and
+      // a delete row used to be carried by a strikethrough alone, on a card
+      // where every row arrives pre-ticked. A worker tapping Haan without
+      // decoding that lost a skill off their own résumé.
+      expect(find.textContaining('$kEditOpAdd Welding'), findsOneWidget);
+      expect(find.textContaining('$kEditOpDelete Hindi'), findsOneWidget);
 
       final Iterable<Checkbox> boxes =
           tester.widgetList<Checkbox>(find.byType(Checkbox));
