@@ -1249,6 +1249,42 @@ export const EVENT_REGISTRY = {
   // hashed-visitor dedupe. worker_id = the résumé OWNER, never the scanner; the link row id, never
   // the bearer code; a closed platform enum. Strict. v1.
   "profile.qr_scanned": { version: 1, domain: "profile", payload: p.ProfileQrScannedPayload },
+
+  // ── ADR-0046 (companion v2, Phase 1) — appended at the tail, per the append-only protocol ──
+  //
+  // `chat.companion_turn_served` VERSION 2 — the router's own facts on the v1 recap shape
+  // (intent_source / v2_intent / confidence_bucket / outcome). A NEW NAME, exactly as
+  // `feed.shown_v2`, `profile.viewed_v2` and `resume.edited_v2` do: `validateEvent` allows one
+  // version per name, so the v1 entry above keeps its definition and its emitter (the v1 path,
+  // byte-for-byte when the v2 flag is off) while v2 turns emit this key. Counts and closed sets
+  // only — never the worker's text. v2.
+  "chat.companion_turn_served_v2": {
+    version: 2,
+    domain: "chat",
+    payload: p.ChatCompanionTurnServedV2Payload,
+  },
+  // One edit card was stored and served (O4/O5). The card's shape only: opaque proposal id,
+  // counts, closed section names and closed unsupported reasons. Never a before/after value.
+  // Emitted by the edit service when the proposal is stored, once per proposal. v1.
+  "chat.companion_edit_proposed": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatCompanionEditProposedPayload,
+  },
+  // The worker tapped Haan and the selected rows applied in ONE transaction (O4/O6). Counts and
+  // closed sections plus how the résumé regeneration ended. Never a written value. v1.
+  "chat.companion_edit_confirmed": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatCompanionEditConfirmedPayload,
+  },
+  // The card was dismissed without writing: Nahi (`worker`), TTL (`expired`), or a profile that
+  // moved under the card (`stale`; the confirm route answers 409 and deletes the proposal). v1.
+  "chat.companion_edit_cancelled": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatCompanionEditCancelledPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

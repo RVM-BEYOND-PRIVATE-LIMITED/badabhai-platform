@@ -147,6 +147,11 @@ modified; v2 turns emit **v2** of it.
 
 Dedupe: message turns by `submission_id` (as v1); edit events by `proposal_id`.
 
+Registry key note (T3, 2026-09-28): the v2 turn is minted as **`chat.companion_turn_served_v2`**
+(`version: 2`), the house new-name pattern (`feed.shown_v2`, `profile.viewed_v2`,
+`resume.edited_v2`) — `validateEvent` allows one version per name, so v1 keeps its definition and
+its emitter unchanged.
+
 ## 5. Wire (API ⇄ app)
 
 ### 5.1 `CompanionTurnSchema` — additive optional fields (`chat-companion.dto.ts`)

@@ -130,6 +130,32 @@ export const COMPANION_V2_OUTCOMES = [
 ] as const;
 export type CompanionV2Outcome = (typeof COMPANION_V2_OUTCOMES)[number];
 
+// THE SECTION A PROPOSED EDIT ROW BELONGS TO (contracts §3). Closed, and shared by the edit
+// catalogue (which maps a section to its writer), the AI-service edit-parse contract (which may
+// only name a member) and the event spine (`sections[]`). Identity and contact are ABSENT BY
+// CONSTRUCTION (ADR-0046 O3): those requests can never become a row.
+export const COMPANION_V2_EDIT_SECTIONS = [
+  "employment",
+  "skills",
+  "languages",
+  "qualifications",
+  "occupations",
+  "preferences",
+] as const;
+export type CompanionV2EditSection = (typeof COMPANION_V2_EDIT_SECTIONS)[number];
+
+// WHAT A WORKER ASKED FOR THAT THIS SURFACE CANNOT EDIT. `identity` and `contact` are steered to
+// the settings/Profile screen; `other` is anything else the parser recognised as out of scope.
+// The event carries these instead of the request text.
+export const COMPANION_V2_UNSUPPORTED_EDIT_TARGETS = ["identity", "contact", "other"] as const;
+export type CompanionV2UnsupportedEditTarget = (typeof COMPANION_V2_UNSUPPORTED_EDIT_TARGETS)[number];
+
+// HOW CONFIDENT THE CLASSIFIER WAS, BUCKETED FOR THE SPINE — never the raw score, which would be
+// a per-worker fingerprint of the model's behaviour rather than a metric anyone reads. `lt50` is
+// below the default router threshold (0.6) and therefore the fail-closed `unclear` path.
+export const COMPANION_V2_CONFIDENCE_BUCKETS = ["lt50", "50_70", "70_90", "gte90"] as const;
+export type CompanionV2ConfidenceBucket = (typeof COMPANION_V2_CONFIDENCE_BUCKETS)[number];
+
 // ---- The general road (ADR-0045) ----
 // A chat worker whose role is OUTSIDE the 21 predefined roles runs role → skills and closes with
 // a card to the offline general form. Shared by the API (which decides) and the event spine

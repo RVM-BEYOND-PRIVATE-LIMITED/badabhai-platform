@@ -69,7 +69,7 @@ A new edit message while a proposal is open replaces it (one active proposal per
       P1-OQ1 (résumé-only writer, T7).
 - [x] **T1 Types.** `packages/types`: intents, sources, outcomes (contracts §1).
 - [x] **T2 Config.** `packages/config`: v2 flags + knobs (contracts §6). `docs/environment-variables.md`.
-- [ ] **T3 Events.** `packages/event-schema`: `chat.companion_turn_served` v2, `chat.companion_edit_*` v1
+- [x] **T3 Events.** `packages/event-schema`: `chat.companion_turn_served` v2, `chat.companion_edit_*` v1
       (contracts §4) + registry entries + schema tests.
 - [ ] **T4 AI client.** `apps/api/src/ai/ai.service.ts`: `companionClassify`, `companionEditParse`
       (follow `jobPostingChatRespond`'s pattern: `this.post(path, input, OutputSchema, timeoutMs, ctx)`,

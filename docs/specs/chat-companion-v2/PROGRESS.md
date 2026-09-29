@@ -113,3 +113,38 @@ One entry per task, appended after the task's checks pass. Tasks come from
   sibling rather than as an inline preprocess in `server.ts`, so the empty-string rule and its
   rationale stay in one place for the next fraction knob.
 - **Next:** T3 (event schemas + registry).
+
+---
+
+## T3 — 2026-09-29 10:30
+
+- **Done:** Added the Phase 1 events.
+  - `packages/types/src/index.ts`: `COMPANION_V2_EDIT_SECTIONS`, `COMPANION_V2_UNSUPPORTED_EDIT_TARGETS`,
+    `COMPANION_V2_CONFIDENCE_BUCKETS` (+ types). These are the closed sets the edit catalogue (T7),
+    the AI-service edit-parse contract (A1) and the event spine all pin, so they live in the shared
+    vocabulary package rather than in any one consumer.
+  - `packages/event-schema/src/payloads.ts`: `ChatCompanionTurnServedV2Payload` (v1 fields restated
+    + `intent_source`, nullable `v2_intent`, nullable `confidence_bucket`, `outcome`; v1's
+    jobs refine repeated), `ChatCompanionEditProposedPayload`, `ChatCompanionEditConfirmedPayload`,
+    `ChatCompanionEditCancelledPayload` — all `.strict()`.
+  - `packages/event-schema/src/registry.ts`: four new entries appended at the tail, domain `chat`.
+    The turn's v2 is `chat.companion_turn_served_v2` (`version: 2`) — the house
+    `feed.shown_v2` / `profile.viewed_v2` / `resume.edited_v2` new-name pattern, because
+    `validateEvent` allows one version per name and v1 must keep its definition + emitter.
+  - `packages/event-schema/src/chat-companion-v2.test.ts` (new, 17 tests): registration, closed-set
+    membership, the jobs refine, `.strict()` text-smuggling rejection for all four, version-
+    mismatch rejection, and v1-untouched locks.
+  - `packages/event-schema/src/event-schema.test.ts`: `VERSIONED_PAYLOADS` +=
+    `chat.companion_turn_served_v2: 2`; registry count 208 → 212 + the four `isEventName` checks.
+  - `docs/specs/chat-companion-v2/contracts.md` §4: one-line registry-key note.
+- **Checks:**
+  - `pnpm --filter @badabhai/event-schema test` — 6 files / 375 tests passed.
+  - `pnpm lint` — 0 errors (same 3 pre-existing warnings); fixed one unused-var error in the new test.
+  - `pnpm typecheck` — 29/29 tasks.
+  - `pnpm --filter @badabhai/api test` — 11,881 passed / 153 skipped.
+  - `apps/ai-service`: `pytest -q` exit 0; `ruff check .` clean.
+- **Notes / decisions / surprises:** `@badabhai/types` must be built (`pnpm --filter @badabhai/types
+  build`) before running event-schema tests when its vocabulary changes — the first test run failed
+  with `z.enum(undefined)` because the package resolves through `dist/`. Phase 2/3 events
+  (`chat.companion_faltu_strike`, `chat.companion_career_answered`) are NOT registered in Phase 1.
+- **Next:** T4 (AI client `companionClassify` / `companionEditParse`).

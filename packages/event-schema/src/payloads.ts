@@ -21,6 +21,12 @@ import {
   COMPANION_INTENTS,
   COMPANION_NUDGES,
   COMPANION_JOBS_SCOPES,
+  COMPANION_V2_INTENTS,
+  COMPANION_V2_INTENT_SOURCES,
+  COMPANION_V2_OUTCOMES,
+  COMPANION_V2_EDIT_SECTIONS,
+  COMPANION_V2_UNSUPPORTED_EDIT_TARGETS,
+  COMPANION_V2_CONFIDENCE_BUCKETS,
   PROFILING_LANES,
   PROFILING_LANE_REASONS,
   SKILLS_GATE_REPLIES,
@@ -4618,6 +4624,118 @@ export const ChatCompanionTurnServedPayload = z
       "(read failed) and 'no_skills' (no claim) carry no count",
   });
 export type ChatCompanionTurnServedPayload = z.infer<typeof ChatCompanionTurnServedPayload>;
+
+// ---------------------------------------------------------------------------
+// chat.companion_turn_served_v2 + chat.companion_edit_* (ADR-0046, Phase 1)
+// ---------------------------------------------------------------------------
+/**
+ * A V2 COMPANION TURN (ADR-0046) — the v1 recap shape plus the router's own facts.
+ *
+ * WHY A NEW NAME AND NOT A MUTATION. `validateEvent` allows exactly one version per NAME, so
+ * the alternative to `_v2` would be editing the shipped v1 payload in place, which invariant #8
+ * forbids: an installed consumer reading v1 must keep parsing it. This is the
+ * `feed.shown_v2` / `profile.viewed_v2` / `resume.edited_v2` pattern — same family, new
+ * registry key, `version: 2`.
+ *
+ * WHAT IS ADDED, AND WHY THE SPINE NEEDS IT. `intent_source` says whether the v1 deterministic
+ * resolver answered (zero model calls) or the classifier did; `v2_intent` is the classified
+ * intent, null when no classifier ran or it failed; `confidence_bucket` is the coarse bucket,
+ * null without a classifier; `outcome` says what was actually delivered (served, a proposed
+ * card, the phase-off line, clarify, …). NOTHING HERE NAMES A WORKER'S WORDS: the message text
+ * is classified and dropped, and every added field is an id, a count or a closed enum.
+ *
+ * EVERY V1 FIELD IS RESTATED rather than shared: the v1 schema is a ZodEffects (its refine), so
+ * `.extend` cannot reach it, and restating is what makes "v1 is untouched" a fact about the
+ * source rather than a claim about it. The `new_jobs_count` ↔ `jobs_scope` refine is repeated
+ * verbatim, so a reader cannot mistake "no claim" for "no jobs" on v2 either.
+ */
+export const ChatCompanionTurnServedV2Payload = z
+  .object({
+    worker_id: uuidSchema,
+    trigger: z.enum(COMPANION_TRIGGERS),
+    intent: z.enum(COMPANION_INTENTS),
+    applied_count: z.number().int().nonnegative().nullable(),
+    new_jobs_count: z.number().int().nonnegative().nullable(),
+    jobs_scope: z.enum(COMPANION_JOBS_SCOPES).nullable(),
+    job_chips_count: z.number().int().nonnegative(),
+    resume_source: resumeSource.nullable(),
+    nudge: z.enum(COMPANION_NUDGES).nullable(),
+    day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "day must be a UTC day bucket YYYY-MM-DD"),
+    /** Who chose the intent: the v1 resolver, the abuse lexicon, the classifier, a guard, fallback. */
+    intent_source: z.enum(COMPANION_V2_INTENT_SOURCES),
+    /** The classified intent; null when no classifier ran (v1 hit / guard / failure). */
+    v2_intent: z.enum(COMPANION_V2_INTENTS).nullable(),
+    /** Coarse confidence bucket; null when no classifier ran. Never the raw score. */
+    confidence_bucket: z.enum(COMPANION_V2_CONFIDENCE_BUCKETS).nullable(),
+    /** What was delivered — a proposed card, the phase-off line, clarify, … (contracts §1). */
+    outcome: z.enum(COMPANION_V2_OUTCOMES),
+  })
+  .strict()
+  .refine((v) => (v.jobs_scope === "profile") === (v.new_jobs_count !== null), {
+    message:
+      "new_jobs_count is set iff jobs_scope is 'profile' — null scope (not read), 'unavailable' " +
+      "(read failed) and 'no_skills' (no claim) carry no count",
+  });
+export type ChatCompanionTurnServedV2Payload = z.infer<typeof ChatCompanionTurnServedV2Payload>;
+
+/**
+ * THE COMPANION PROPOSED AN EDIT CARD (ADR-0046 O4/O5). Emitted when the card is stored in Redis
+ * and served; `row_count`/`sections`/`dropped_count`/`unsupported` are the card's own shape,
+ * never its values.
+ *
+ * `proposal_id` is the opaque id the worker's confirm/cancel routes address; it is a uuid the
+ * API minted, never a DB row id and never derivable from the worker's text. `dropped_count` is
+ * how many parsed rows failed deterministic validation (catalogue, op, ref, DTO, placeholder
+ * token, skill floor, no-op); `unsupported` names only the CLOSED reasons (identity / contact /
+ * other) — the asked-for values themselves never leave the request.
+ *
+ * NO VALUE BOUND ON `row_count`/`sections`, deliberately: `CHAT_COMPANION_V2_EDIT_MAX_ROWS` is a
+ * product knob, and a spine refusal on this event must never be the thing that fails a turn whose
+ * worker did nothing wrong. The bounds that matter are the `.min(1)` floors — a card exists only
+ * when at least one row survived.
+ */
+export const ChatCompanionEditProposedPayload = z
+  .object({
+    proposal_id: uuidSchema,
+    row_count: z.number().int().positive(),
+    sections: z.array(z.enum(COMPANION_V2_EDIT_SECTIONS)).min(1),
+    dropped_count: z.number().int().nonnegative(),
+    unsupported: z.array(z.enum(COMPANION_V2_UNSUPPORTED_EDIT_TARGETS)),
+  })
+  .strict();
+export type ChatCompanionEditProposedPayload = z.infer<typeof ChatCompanionEditProposedPayload>;
+
+/**
+ * THE WORKER TAPPED HAAN AND THE SELECTED ROWS APPLIED (ADR-0046 O4/O6).
+ *
+ * `applied_count` is POSITIVE: the route requires 1..3 ticked row ids, the card is applied in
+ * ONE transaction or not at all, and a failure rolls back and serves the fallback line instead
+ * of this event — so an emitted confirmed event always describes at least one written row.
+ * `resume_regen` says how the post-apply regeneration ended: `queued`, refused by the daily cap
+ * (`capped`), or `failed` — the last two still leave the edits written.
+ */
+export const ChatCompanionEditConfirmedPayload = z
+  .object({
+    proposal_id: uuidSchema,
+    applied_count: z.number().int().positive(),
+    sections: z.array(z.enum(COMPANION_V2_EDIT_SECTIONS)).min(1),
+    resume_regen: z.enum(["queued", "capped", "failed"]),
+  })
+  .strict();
+export type ChatCompanionEditConfirmedPayload = z.infer<typeof ChatCompanionEditConfirmedPayload>;
+
+/**
+ * THE CARD WAS DISMISSED WITHOUT WRITING (ADR-0046 O4). `worker` is the Nahi tap, `expired` is
+ * the TTL passing, `stale` is the profile having changed under the card (the confirm route then
+ * deletes the proposal and answers 409 {reason:"stale"}). Nothing was written in any of them.
+ */
+export const ChatCompanionEditCancelledPayload = z
+  .object({
+    proposal_id: uuidSchema,
+    reason: z.enum(["worker", "expired", "stale"]),
+  })
+  .strict();
+export type ChatCompanionEditCancelledPayload = z.infer<typeof ChatCompanionEditCancelledPayload>;
 
 // ── THE GENERAL ROAD (ADR-0045) ──────────────────────────────────────────────────────────────
 //
