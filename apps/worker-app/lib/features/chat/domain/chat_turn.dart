@@ -7,6 +7,7 @@ import '../../../core/api/api_models.dart'
         ChatOption,
         ChatProgress,
         ChatQuestionKind,
+        EditProposal,
         FormOffer,
         PredictedQuestion;
 
@@ -40,6 +41,9 @@ class ChatTurn extends Equatable {
     this.companion = false,
     this.digestKey,
     this.sessionEnded = false,
+    this.editProposal,
+    this.cooldownUntil,
+    this.readAloud,
   });
 
   final String reply;
@@ -144,9 +148,6 @@ class ChatTurn extends Equatable {
   /// ABSENT (never `null`) when unset. Turn-scoped: cleared on the next turn.
   final Map<String, String>? generalFormOffer;
 
-  /// The only value that changes what the app does. Fails closed.
-  bool get resumeUpdateQueued => resumeUpdate == 'queued';
-
   /// ADR-0044 — this turn came from the post-completion COMPANION
   /// (`/chat/companion`), not the interview. Set ONLY by the repository's
   /// companion mapping; every interview turn keeps the default `false`.
@@ -174,6 +175,21 @@ class ChatTurn extends Equatable {
   /// See [sessionEnded].
   bool get fromClosedSession => sessionEnded && isMock;
 
+  /// The only value that changes what the app does. Fails closed.
+  bool get resumeUpdateQueued => resumeUpdate == 'queued';
+
+  /// ADR-0046 **Phase 1** (contracts §5.1) — the edit proposal card.
+  /// When present, the UI shows the checkbox card with Haan/Nahi buttons.
+  final EditProposal? editProposal;
+
+  /// ADR-0046 Phase 2 — the faltu cool-down. Carried, not acted on in P1.
+  /// While the current time is before this, the companion UI shows a wait state.
+  final DateTime? cooldownUntil;
+
+  /// ADR-0046 **Phase 3** — whether the companion's reply should be read aloud
+  /// automatically.
+  final bool? readAloud;
+
   @override
   List<Object?> get props => <Object?>[
         reply,
@@ -198,5 +214,8 @@ class ChatTurn extends Equatable {
         companion,
         digestKey,
         sessionEnded,
+        editProposal,
+        cooldownUntil,
+        readAloud,
       ];
 }

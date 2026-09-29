@@ -110,6 +110,14 @@ const String _kTypeInsteadLabel = 'Type karke bhejein';
 /// and ask "Yeh theek hai?"** → on "Haan", merge into chat → pop back with the
 /// [VoiceNoteOutcome] so both bubbles show immediately.
 ///
+/// [composeOnly] (ADR-0046 F3) swaps ONLY the destination of the approved
+/// transcript: instead of sending it into a chat session, "Haan" pops the
+/// TRANSCRIPT (as a String) so the caller can place it in its own composer.
+/// Everything before that — permission, recording, the upload + transcribe
+/// pipeline, the confirm turn, the `voice_processing` consent — is identical.
+/// Used by the post-completion companion, which has no chat session to merge
+/// into and wants the worker to review and send the words themselves.
+///
 /// THE CONFIRM TURN IS THE POINT (Persona sheet, worked conversation #05). The
 /// transcript used to be sent inside the pipeline, so the worker's answer of
 /// record was whatever the recogniser heard — they saw it for the first time as
@@ -131,19 +139,24 @@ const String _kTypeInsteadLabel = 'Type karke bhejein';
 /// confirm turn: nothing has been sent there, so leaving costs the transcript
 /// and desynchronises nothing.
 class VoiceNoteScreen extends StatelessWidget {
-  const VoiceNoteScreen({super.key});
+  const VoiceNoteScreen({super.key, this.composeOnly = false});
+
+  /// ADR-0046 F3 — pop the approved transcript instead of sending it.
+  final bool composeOnly;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider<VoiceNoteCubit>(
       create: (_) => locator<VoiceNoteCubit>(),
-      child: const _VoiceNoteView(),
+      child: _VoiceNoteView(composeOnly: composeOnly),
     );
   }
 }
 
 class _VoiceNoteView extends StatelessWidget {
-  const _VoiceNoteView();
+  const _VoiceNoteView({required this.composeOnly});
+
+  final bool composeOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -249,8 +262,14 @@ class _VoiceNoteView extends StatelessWidget {
                         _ConfirmView(
                           key: ValueKey<String>(transcript),
                           transcript: transcript,
-                          onConfirm: () =>
-                              context.read<VoiceNoteCubit>().confirm(),
+                          composeOnly: composeOnly,
+                          // ADR-0046 F3 — compose mode pops the APPROVED text
+                          // (post-correction, romanized) for the caller's own
+                          // composer; every other caller sends it into the chat
+                          // session, where the cubit already holds the edit.
+                          onConfirm: composeOnly
+                              ? (String approved) => context.pop(approved)
+                              : (_) => context.read<VoiceNoteCubit>().confirm(),
                           onReRecord: () =>
                               context.read<VoiceNoteCubit>().reRecord(),
                           onEdit: (String text) =>
@@ -557,10 +576,25 @@ class _ConfirmView extends StatefulWidget {
     required this.onConfirm,
     required this.onReRecord,
     required this.onEdit,
+    this.composeOnly = false,
   });
 
   final String transcript;
-  final VoidCallback onConfirm;
+
+  /// ADR-0046 F3 — the approved text is POPPED to the caller rather than sent
+  /// into a chat session. Only [_approveAsHeard] cares: it must not hand back an
+  /// empty string when a fully Devanagari transcript strips to nothing.
+  final bool composeOnly;
+
+  /// The worker approved these WORDS — the text as it stands after any
+  /// correction, already stripped of Devanagari.
+  ///
+  /// It carries the string rather than being a bare [VoidCallback] because
+  /// compose mode (ADR-0046 F3) pops the transcript to its caller, and the only
+  /// value that is correct to pop is the one the worker actually looked at and
+  /// approved. The chat-session path ignores the argument: its cubit already
+  /// holds the edit, applied by [onEdit] a line earlier.
+  final ValueChanged<String> onConfirm;
   final VoidCallback onReRecord;
   final ValueChanged<String> onEdit;
 
@@ -604,7 +638,11 @@ class _ConfirmViewState extends State<_ConfirmView> {
     final String text = _controller.text.trim();
     if (text.isEmpty) return;
     if (text != widget.transcript) widget.onEdit(text);
-    widget.onConfirm();
+    // THE EDITED TEXT, not `widget.transcript`. `onEdit` above hands the
+    // correction to the cubit, which the chat path reads — but compose mode pops
+    // whatever this passes, and passing the captured transcript silently threw
+    // the worker's correction away.
+    widget.onConfirm(text);
   }
 
   @override
@@ -627,6 +665,28 @@ class _ConfirmViewState extends State<_ConfirmView> {
     );
   }
 
+  /// "Haan" with no correction: approve the transcript AS THE WORKER SAW IT,
+  /// romanized.
+  ///
+  /// `stripDevanagari` is applied for the same reason the correction box seeds
+  /// itself with it (#1411): Sarvam returns Devanagari for Hindi audio, and the
+  /// composer this can now pop into blocks Devanagari keystrokes, so handing it
+  /// a Devanagari string would put text in a box the worker cannot then edit.
+  ///
+  /// When NOTHING survives the strip — an entirely Devanagari transcript — there
+  /// is no approved text to hand back, so this opens the correction panel (whose
+  /// Devanagari warning is already showing) instead of approving an empty
+  /// string. Popping "" would have handed the companion an empty composer and
+  /// looked like a mic that heard nothing.
+  void _approveAsHeard() {
+    final String approved = stripDevanagari(widget.transcript).trim();
+    if (widget.composeOnly && approved.isEmpty) {
+      setState(() => _correcting = true);
+      return;
+    }
+    widget.onConfirm(approved);
+  }
+
   Widget _chips() {
     return Row(
       children: <Widget>[
@@ -634,7 +694,7 @@ class _ConfirmViewState extends State<_ConfirmView> {
           child: BbChip(
             label: kVoiceConfirmYesLabel,
             selected: true,
-            onTap: widget.onConfirm,
+            onTap: _approveAsHeard,
           ),
         ),
         const SizedBox(width: 12),

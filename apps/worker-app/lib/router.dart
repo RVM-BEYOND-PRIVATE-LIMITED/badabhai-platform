@@ -525,7 +525,12 @@ GoRouter _buildRouter() {
       ),
       GoRoute(
         path: Routes.voiceNote,
-        builder: (_, __) => const VoiceNoteScreen(),
+        // ADR-0046 F3 — `extra: true` opens the screen in COMPOSE mode: the
+        // approved transcript is popped (as a String) instead of being sent to
+        // a chat session, so the companion can land it in its composer. Every
+        // existing caller passes no extra and keeps the send-and-merge flow.
+        builder: (_, GoRouterState state) =>
+            VoiceNoteScreen(composeOnly: state.extra == true),
       ),
       GoRoute(path: Routes.invite, builder: (_, __) => const InviteScreen()),
       // App-wide feedback page (CEO request) — pushed full-screen from the

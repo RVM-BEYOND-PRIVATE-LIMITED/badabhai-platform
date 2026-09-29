@@ -67,6 +67,15 @@ class BbRemoteConfig {
   /// existed — not even the extra request is made.
   static const String kKeyChatCompanionEnabled = 'worker_chat_companion_enabled';
 
+  /// ADR-0046 — the companion's **Phase 1** v2 surface: the edit proposal card
+  /// (contracts §5.1, P1), the task chips (§5.3) and the composer's voice
+  /// button. Its own lever, separate from ADR-0044's `chatCompanionEnabled`
+  /// recap, so v2 can ship dark while the recap is already live.
+  ///
+  /// This decides only whether the app may RENDER the v2 fields; the server's
+  /// own phase flags decide what it sends. Defaults to HIDDEN.
+  static const String kKeyChatCompanionV2Enabled = 'worker_chat_companion_v2_enabled';
+
   // ---- Compiled-in defaults == today's behaviour ----
 
   /// The mic is VISIBLE today.
@@ -92,6 +101,10 @@ class BbRemoteConfig {
   /// on (with the server flag) staging-first.
   static const bool kDefaultChatCompanionEnabled = false;
 
+  /// The v2 surface ships DARK — no edit card, no task chips, no voice button.
+  /// Flipped on staging-first, with the server's Phase 1 flags.
+  static const bool kDefaultChatCompanionV2Enabled = false;
+
   /// EVERY remote key with the default its getter falls back to — the single
   /// source for `setDefaults` AND for the activated snapshot.
   ///
@@ -108,6 +121,7 @@ class BbRemoteConfig {
     kKeyBoostVisible: kDefaultBoostVisible,
     kKeyFreeQuotaCopy: kDefaultFreeQuotaCopy,
     kKeyChatCompanionEnabled: kDefaultChatCompanionEnabled,
+    kKeyChatCompanionV2Enabled: kDefaultChatCompanionV2Enabled,
   };
 
   /// The activated snapshot, or null until a fetch has succeeded. Read
@@ -162,6 +176,12 @@ class BbRemoteConfig {
   /// gets it, and answers `interview` to everyone while its own flag is off.
   bool get chatCompanionEnabled =>
       _bool(kKeyChatCompanionEnabled, kDefaultChatCompanionEnabled);
+
+  /// ADR-0046 — whether the companion's v2 surface may be drawn (the Phase 1
+  /// edit card, task chips and voice button). Independent of
+  /// [chatCompanionEnabled], which is ADR-0044's recap.
+  bool get chatCompanionV2Enabled =>
+      _bool(kKeyChatCompanionV2Enabled, kDefaultChatCompanionV2Enabled);
 
   bool _bool(String key, bool fallback) {
     final Object? value = _snapshot?[key];

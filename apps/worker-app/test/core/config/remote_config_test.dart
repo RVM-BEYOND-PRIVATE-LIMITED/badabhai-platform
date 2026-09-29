@@ -166,6 +166,7 @@ void main() {
         BbRemoteConfig.kKeyBoostVisible,
         BbRemoteConfig.kKeyFreeQuotaCopy,
         BbRemoteConfig.kKeyChatCompanionEnabled,
+        BbRemoteConfig.kKeyChatCompanionV2Enabled,
       ];
       for (final String key in declared) {
         expect(BbRemoteConfig.kDefaults.containsKey(key), isTrue,
@@ -190,6 +191,28 @@ void main() {
           BbRemoteConfig.kDefaultFreeQuotaCopy);
       expect(BbRemoteConfig.kDefaults[BbRemoteConfig.kKeyChatCompanionEnabled],
           BbRemoteConfig.kDefaultChatCompanionEnabled);
+      expect(BbRemoteConfig.kDefaults[BbRemoteConfig.kKeyChatCompanionV2Enabled],
+          BbRemoteConfig.kDefaultChatCompanionV2Enabled);
+    });
+
+    test('companion v2 ships DARK — no edit card, no task chips, no mic', () {
+      // ADR-0046 F4. The server's own flags decide BEHAVIOUR; this lever decides
+      // only whether a build may render the v2 fields at all, so its default
+      // must be false on a phone that has never fetched.
+      BbRemoteConfig.instance.debugReset();
+      expect(BbRemoteConfig.instance.chatCompanionV2Enabled, isFalse,
+          reason: 'never fetched — v2 must be dark');
+      BbRemoteConfig.instance.debugSetSnapshot(<String, Object>{
+        BbRemoteConfig.kKeyChatCompanionV2Enabled: true,
+      });
+      expect(BbRemoteConfig.instance.chatCompanionV2Enabled, isTrue);
+      // A console value of the wrong type must not read as ON.
+      BbRemoteConfig.instance.debugSetSnapshot(<String, Object>{
+        BbRemoteConfig.kKeyChatCompanionV2Enabled: 'true',
+      });
+      expect(BbRemoteConfig.instance.chatCompanionV2Enabled, isFalse,
+          reason: 'a String must fail closed, not parse as true');
+      BbRemoteConfig.instance.debugReset();
     });
 
     test('the chat companion ships DARK — the tab asks only once flipped', () {
