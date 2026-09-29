@@ -26,6 +26,11 @@ from app.contracts import (
     AnswerRecordHistoryEntry,
     AnswerStatus,
     AnswerType,
+    CompanionCareerAnswer,
+    CompanionCareerInput,
+    CompanionCareerRefusalTopic,
+    CompanionCareerRefuse,
+    CompanionCareerWorkerContext,
     CompanionClassifyInput,
     CompanionClassifyOutput,
     CompanionEditParseInput,
@@ -564,6 +569,12 @@ _COMPANION_MODELS = {
     "CompanionClassifyOutput": CompanionClassifyOutput,
     "CompanionEditParseInput": CompanionEditParseInput,
     "CompanionEditParseOutput": CompanionEditParseOutput,
+    # ADR-0046 P3 — career talk. The two output members are a discriminated union on `status`; the
+    # golden fixture pins each member's keys, and the enum-values test below pins the topic set.
+    "CompanionCareerWorkerContext": CompanionCareerWorkerContext,
+    "CompanionCareerInput": CompanionCareerInput,
+    "CompanionCareerAnswer": CompanionCareerAnswer,
+    "CompanionCareerRefuse": CompanionCareerRefuse,
 }
 
 
@@ -656,6 +667,69 @@ def test_companion_outputs_default_fail_soft():
     assert parsed.unsupported == []
     assert CompanionEditParseInput(text="kuch", max_rows=3).catalogue == []
     assert CompanionEditParseInput(text="kuch", max_rows=3).snapshot == []
+
+
+# --- ADR-0046 P3 — career talk --------------------------------------------------
+
+
+def test_companion_career_refusal_topics_match_the_shared_types_source():
+    """The topics live in `packages/types` beside the other companion vocabularies: the API's
+    `V2_CAREER_REFUSE_<topic>` map, the Zod enum and this Literal read the same list."""
+    assert _string_union_in(_TYPES_TS, "COMPANION_V2_CAREER_REFUSAL_TOPICS") == list(
+        get_args(CompanionCareerRefusalTopic)
+    )
+    # Non-vacuous: the regex found real members, not an empty list on both sides.
+    assert "salary_promise" in _string_union_in(_TYPES_TS, "COMPANION_V2_CAREER_REFUSAL_TOPICS")
+
+
+def test_companion_career_bounds_match_the_zod_source_at_the_boundary():
+    """BEHAVIOUR at the boundary, like the Phase 1 bounds above: the caps the Zod mirror carries
+    are read from companion.ts and asserted on the Pydantic constraints themselves."""
+    line_max = _companion_ts_int("CAREER_LINE_MAX")
+    chip_max = _companion_ts_int("CAREER_CHIP_MAX")
+    label_max = _companion_ts_int("CAREER_TRADE_LABEL_MAX")
+
+    CompanionCareerAnswer(status="answer", lines=["x" * line_max])
+    with pytest.raises(ValidationError):
+        CompanionCareerAnswer(status="answer", lines=["x" * (line_max + 1)])
+    with pytest.raises(ValidationError):
+        CompanionCareerAnswer(status="answer", lines=[])
+    with pytest.raises(ValidationError):
+        CompanionCareerAnswer(status="answer", lines=["a", "b", "c", "d", "e"])
+    CompanionCareerAnswer(status="answer", lines=["ok"], followup_chips=["x" * chip_max] * 3)
+    with pytest.raises(ValidationError):
+        CompanionCareerAnswer(status="answer", lines=["ok"], followup_chips=["x"] * 4)
+
+    CompanionCareerWorkerContext(trade_label="x" * label_max)
+    with pytest.raises(ValidationError):
+        CompanionCareerWorkerContext(trade_label="x" * (label_max + 1))
+    CompanionCareerWorkerContext(experience_bucket="3-7")
+    with pytest.raises(ValidationError):
+        CompanionCareerWorkerContext(experience_bucket="10+")
+
+    turn = {"role": "worker", "text": "kuch"}
+    CompanionCareerInput(text="kuch", recent_turns=[turn] * 6)
+    with pytest.raises(ValidationError):
+        CompanionCareerInput(text="kuch", recent_turns=[turn] * 7)
+
+
+def test_companion_career_output_is_a_status_discriminated_union():
+    """`status` is REQUIRED on both members: a missing or unknown discriminant must fail the
+    contract (the route turns that into `refuse/unsafe_other`), never be defaulted into an
+    answer shape the model did not mean."""
+    answer = CompanionCareerAnswer(status="answer", lines=["line"])
+    assert answer.status == "answer"
+    assert answer.followup_chips == []
+    assert answer.ai_metadata is None
+    refused = CompanionCareerRefuse(status="refuse", topic="salary_promise")
+    assert refused.topic == "salary_promise"
+
+    with pytest.raises(ValidationError):
+        CompanionCareerRefuse(status="refuse", topic="money")
+    with pytest.raises(ValidationError):
+        CompanionCareerAnswer(lines=["line"])  # status is required
+    with pytest.raises(ValidationError):
+        CompanionCareerAnswer(status="answer")  # lines are required
 
 
 def test_the_companion_contracts_carry_no_identity_pii_field():

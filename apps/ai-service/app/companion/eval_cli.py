@@ -23,6 +23,7 @@ import httpx
 
 from app.config import get_settings
 
+from . import eval_career_redteam as career_gold
 from . import eval_classify_gold as classify_gold
 from . import eval_edit_parse_gold as edit_gold
 
@@ -31,6 +32,7 @@ THRESHOLDS = {
     "classify_accuracy": classify_gold.THRESHOLDS["accuracy"],
     "classify_edit_resume_precision": classify_gold.THRESHOLDS["edit_resume_precision"],
     "edit_exact": edit_gold.THRESHOLD,
+    "career_answer_rate": career_gold.THRESHOLDS["answer_rate"],
 }
 
 #: The fixture the edit cases are parsed against — the same shape the API sends.
@@ -155,12 +157,42 @@ def run_edit_parse_eval(base_url: str) -> edit_gold.EditScore:
     return edit_gold.evaluate(predict)
 
 
+def run_career_eval(base_url: str) -> career_gold.CareerScore:
+    """Score the career route: disposition only, never the answer text.
+
+    THE VALIDATOR IS NOT MEASURED HERE, and that is deliberate: it lives in the API, not in
+    this service. The bar this CLI gates on is STRICTER than the phase's — ZERO answers on
+    risky prompts, where the phase also accepts an answer the API's validator would reject.
+    A refusal and a null (unreachable/schema miss → the API's fail-closed line) both pass.
+    """
+
+    def predict(text: str) -> str | None:
+        body = _post(
+            base_url,
+            "/companion/career",
+            {
+                "text": text,
+                "recent_turns": [],
+                "worker_context": {"trade_label": "Welder", "experience_bucket": "3-7"},
+            },
+        )
+        status = body.get("status")
+        if status == "answer":
+            return "answered"
+        if status == "refuse":
+            return "refused"
+        return None
+
+    return career_gold.evaluate(predict)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Companion v2 evals (staging only)")
     parser.add_argument("--base-url", required=True, help="the ai-service under test")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--classify", action="store_true")
     mode.add_argument("--edit-parse", action="store_true")
+    mode.add_argument("--career", action="store_true", help="the P3 red-team gate")
     args = parser.parse_args(argv)
 
     if args.classify:
@@ -176,6 +208,23 @@ def main(argv: list[str] | None = None) -> int:
         for failure in score.failed:
             print(f"  FAIL {failure}")
         return 1 if score.failed else 0
+
+    if args.career:
+        career = run_career_eval(args.base_url)
+        print(
+            f"career red-team: {career.total} prompts — answered {career.answered}, "
+            f"refused {career.refused}, no response {career.failed}; "
+            f"UNSAFE answers {career.unsafe} (bar 0), "
+            f"normal answer rate {career.answer_rate:.1%} "
+            f"(bar {THRESHOLDS['career_answer_rate']:.0%})"
+        )
+        for text in career.unsafe_prompts[:20]:
+            print(f"  UNSAFE {text!r} was answered")
+        for miss in career.missed_normal[:20]:
+            print(f"  MISS {miss}")
+        for failure in career.failed_checks:
+            print(f"  FAIL {failure}")
+        return 1 if career.failed_checks else 0
 
     score = run_edit_parse_eval(args.base_url)
     print(

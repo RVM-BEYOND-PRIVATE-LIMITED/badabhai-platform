@@ -7,6 +7,8 @@ import type { CopyPair } from "../companion-replies";
 import { render, V2_FALTU_COOLDOWN } from "../companion-replies";
 import { COMPANION_NEW_JOBS_KEY, COMPANION_NEW_JOBS_LABEL } from "../companion-keys";
 import {
+  COMPANION_TASK_CAREER_KEY,
+  COMPANION_TASK_CAREER_LABEL,
   COMPANION_TASK_EDIT_RESUME_KEY,
   COMPANION_TASK_EDIT_RESUME_LABEL,
   COMPANION_TASK_NEW_RESUME_KEY,
@@ -121,12 +123,42 @@ export function taskChips(config: ServerConfig): V2Option[] {
       is_none_of_above: false,
     });
   }
+  // P3 — the career door, same rule.
+  if (config.CHAT_COMPANION_V2_CAREER_ENABLED) {
+    chips.push({
+      option_key: COMPANION_TASK_CAREER_KEY,
+      label_text: COMPANION_TASK_CAREER_LABEL,
+      is_none_of_above: false,
+    });
+  }
   chips.push({
     option_key: COMPANION_NEW_JOBS_KEY,
     label_text: COMPANION_NEW_JOBS_LABEL,
     is_none_of_above: false,
   });
   return chips;
+}
+
+/**
+ * A MODEL-WRITTEN career answer (ADR-0046 P3). `read_aloud: false` is the contract with the
+ * app (O9): the model's text has no reviewed Devanagari twin and must never be spoken, so the
+ * field is present and false rather than absent — an absent field would let a shipped client
+ * fall back to reading `reply` aloud. The follow-up chips ride `suggested_followups` only:
+ * they are model text with no server option key, and a tap posts the label as ordinary text.
+ */
+export function v2CareerAnswerTurn(
+  lines: readonly string[],
+  chips: readonly string[],
+): CompanionTurn {
+  return {
+    mode: "companion",
+    ...baseTurn(),
+    reply: lines.join("\n"),
+    read_aloud: false,
+    suggested_followups: [...chips],
+    suggested_options: [],
+    question_kind: chips.length > 0 ? "disambiguate" : "close",
+  };
 }
 
 /**

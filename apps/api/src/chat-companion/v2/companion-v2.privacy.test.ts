@@ -5,6 +5,7 @@ import type { ServerConfig } from "@badabhai/config";
 import { CompanionV2Orchestrator } from "./companion-v2.orchestrator";
 import { EditResumeHandler } from "./handlers/edit-resume.handler";
 import { FaltuHandler } from "./handlers/faltu.handler";
+import { CareerTalkHandler } from "./handlers/career-talk.handler";
 import { NewResumeHandler } from "./handlers/new-resume.handler";
 import { JobsDeferredHandler, PhaseOffHandler, UnclearHandler } from "./handlers/fixed-line.handlers";
 import { CompanionHandlerRegistry } from "./handlers/registry";
@@ -74,6 +75,7 @@ function setup(opts: { classifyThrows?: boolean; emitThrows?: boolean } = {}) {
       findLatestByWorker: vi.fn(async () => ({ revokedAt: null, purposes: ["resume_generation"] })),
     } as never),
     new FaltuHandler(config, faltuStore as never, events as never),
+    new CareerTalkHandler(config, ai as never, cost as never, events as never),
     new JobsDeferredHandler(config),
     new PhaseOffHandler(config),
     new UnclearHandler(config),

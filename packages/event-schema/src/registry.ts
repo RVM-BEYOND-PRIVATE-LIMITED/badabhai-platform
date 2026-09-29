@@ -1292,6 +1292,13 @@ export const EVENT_REGISTRY = {
     domain: "chat",
     payload: p.ChatCompanionFaltuStrikePayload,
   },
+  // ADR-0046 P3 — a career answer was served: answered / refused / fallback, the refusal topic
+  // when there was one, and how many memory turns the answer saw. Never the answer's text. v1.
+  "chat.companion_career_answered": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatCompanionCareerAnsweredPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

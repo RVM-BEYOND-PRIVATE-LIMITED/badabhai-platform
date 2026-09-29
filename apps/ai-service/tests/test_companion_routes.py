@@ -1,24 +1,31 @@
-"""A3 — the companion's model routes and prompt-registry entries (ADR-0046 Phase 1).
+"""A3 — the companion's model routes and prompt-registry entries (ADR-0046 Phase 1; P3 career).
 
-The endpoints themselves are covered in `test_companion.py`; this file pins the two things
-A3 owns:
+The endpoints themselves are covered in `test_companion.py` / `test_companion_career.py`;
+this file pins what the route layer owns:
 
-1. WHICH ROUTE each task resolves to — cheap tier, JSON mode, temperature zero, a small
-   budget. Both calls classify against closed sets, so the same sentence must route the same
-   way on a retry, and a generous budget would invite commentary the contract cannot carry.
-2. That both prompts are REGISTERED, so every generation records a version and "which prompt
-   routed this message" is answerable from one trace.
+1. WHICH ROUTE each task resolves to. The Phase-1 pair is cheap tier, JSON mode, temperature
+   zero, a small budget — both calls classify against closed sets, so the same sentence must
+   route the same way on a retry, and a generous budget would invite commentary the contract
+   cannot carry. The Phase-3 career answer is the deliberate exception (O7): Claude primary
+   from settings, Gemini Flash as its own fallback, low-but-not-zero temperature.
+2. That every prompt is REGISTERED, so each generation records a version and "which prompt
+   routed / wrote this" is answerable from one trace.
 """
 
 from __future__ import annotations
 
 from app.ai import prompt_registry
 from app.ai.model_config import _ROUTE_SHAPES, get_route, resolve_model
-from app.companion.prompts import CLASSIFY_SYSTEM_PROMPT, EDIT_PARSE_SYSTEM_PROMPT
+from app.companion.prompts import (
+    CAREER_SYSTEM_PROMPT,
+    CLASSIFY_SYSTEM_PROMPT,
+    EDIT_PARSE_SYSTEM_PROMPT,
+)
 from app.config import get_settings
 
 CLASSIFY = "companion_classify"
 EDIT_PARSE = "companion_edit_parse"
+CAREER = "companion_career_answer"
 
 
 def test_the_two_companion_tasks_are_routed_cheap_and_json() -> None:
@@ -71,3 +78,40 @@ def test_a_prompt_edit_moves_its_version() -> None:
     # Version = content hash, so an edited prompt is a new version (the registry's promise):
     # two different texts can never share a version.
     assert prompt_registry.local_version("rule A") != prompt_registry.local_version("rule B")
+
+
+# --- ADR-0046 P3 — the career answer's route (O7) ------------------------------
+
+
+def test_the_career_task_resolves_claude_with_a_gemini_fallback() -> None:
+    """O7: career answers on Claude, existing fallbacks apply — and the fallback has to be
+    stated per-task, because the global fallback model is ALSO Claude and the router skips a
+    same-provider candidate. Without `fallback_model` this chain would have no fallback."""
+    settings = get_settings()
+    route = get_route(CAREER, settings)
+    assert resolve_model(CAREER, settings) == settings.default_career_model
+    assert settings.default_career_model.startswith("claude")
+    assert route.fallback_model == settings.default_capable_model
+    assert route.json_mode is True
+    # LOW, NOT ZERO (phase-3 §3's ≤ 0.4 ceiling): the model writes prose, and the validator —
+    # not the sampler — is what keeps the answer safe.
+    assert 0.0 < route.temperature <= 0.4
+    assert route.max_output_tokens == 512
+
+
+def test_the_career_route_is_not_reachable_through_a_tier_default() -> None:
+    """The tier is a placeholder; the model is explicit. A future tier change must not be able
+    to move the career model by accident."""
+    settings = get_settings()
+    assert resolve_model(CAREER, settings) != settings.default_cheap_model
+    assert resolve_model(CAREER, settings) != settings.default_capable_model
+    assert resolve_model(CAREER, settings) != settings.default_pro_model
+
+
+def test_the_career_prompt_is_registered_with_a_local_version() -> None:
+    prompt_registry.install_default_prompts()
+    assert prompt_registry.COMPANION_CAREER in prompt_registry.registered_names()
+    resolved = prompt_registry.resolve(prompt_registry.COMPANION_CAREER)
+    assert resolved is not None
+    assert resolved.text == CAREER_SYSTEM_PROMPT
+    assert resolved.version.startswith("local:")

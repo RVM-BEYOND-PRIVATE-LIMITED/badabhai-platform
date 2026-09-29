@@ -81,6 +81,10 @@ RESUME_OPTION_MAP = "resume-option-map"
 # a prompt edit moves, and the parser's rows are the card the worker reviews.
 COMPANION_CLASSIFY = "companion-classify"
 COMPANION_EDIT_PARSE = "companion-edit-parse"
+# ADR-0046 Phase 3 - the career answer's prompt. Versioned like the rest: the refusal rate and
+# the sampled-answer review are exactly what a prompt edit moves, so "which prompt wrote this
+# answer" has to be answerable from one generation record.
+COMPANION_CAREER = "companion-career"
 
 #: ``prompt_source`` values. Two, and they mean different things to an operator: "local"
 #: says the deploy decides the prompt, "langfuse" says someone outside the deploy can.
@@ -220,7 +224,11 @@ def install_default_prompts() -> None:
     ``app.ai`` import time, and the AI package keeps no import-time dependency on the
     profiling package.
     """
-    from ..companion.prompts import CLASSIFY_SYSTEM_PROMPT, EDIT_PARSE_SYSTEM_PROMPT
+    from ..companion.prompts import (
+        CAREER_SYSTEM_PROMPT,
+        CLASSIFY_SYSTEM_PROMPT,
+        EDIT_PARSE_SYSTEM_PROMPT,
+    )
     from ..profiling.interview_prompts import (
         extract_system_prompt,
         interview_system_prompt,
@@ -245,3 +253,7 @@ def install_default_prompts() -> None:
     # Langfuse-managed copy is the only way they can differ, and that is deliberate.
     register(COMPANION_CLASSIFY, lambda: CLASSIFY_SYSTEM_PROMPT)
     register(COMPANION_EDIT_PARSE, lambda: EDIT_PARSE_SYSTEM_PROMPT)
+    # ADR-0046 Phase 3. Same construction as the pair above: a module constant with no
+    # interpolation, so the registered text and the route's fallback literal are the same
+    # bytes unless a Langfuse-managed copy deliberately differs.
+    register(COMPANION_CAREER, lambda: CAREER_SYSTEM_PROMPT)

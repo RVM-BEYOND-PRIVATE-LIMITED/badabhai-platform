@@ -27,6 +27,7 @@ import {
   COMPANION_V2_EDIT_SECTIONS,
   COMPANION_V2_UNSUPPORTED_EDIT_TARGETS,
   COMPANION_V2_CONFIDENCE_BUCKETS,
+  COMPANION_V2_CAREER_REFUSAL_TOPICS,
   PROFILING_LANES,
   PROFILING_LANE_REASONS,
   SKILLS_GATE_REPLIES,
@@ -1190,6 +1191,10 @@ const aiTaskType = z.enum([
   // them, per the lesson the entries above record twice over.
   "companion_classify",
   "companion_edit_parse",
+  // ADR-0046 PHASE 3 — the career answer. Routed in `model_config._ROUTE_SHAPES`
+  // (`companion_career_answer`, Claude primary) and charged per answer, so it is nameable
+  // here in the SAME change that routes it — the lesson the entries above record.
+  "companion_career_answer",
   // Provider calls with their own fail-closed allowlist keys, outside the LLM router.
   "stt_transcription",
   "tts_synthesis",
@@ -4766,6 +4771,27 @@ export const ChatCompanionFaltuStrikePayload = z
   })
   .strict();
 export type ChatCompanionFaltuStrikePayload = z.infer<typeof ChatCompanionFaltuStrikePayload>;
+
+/**
+ * A CAREER ANSWER WAS SERVED (ADR-0046 P3) — how it ended, and nothing the model wrote.
+ *
+ * `outcome` is the disposition: `answered` (the model's lines passed the API's deterministic
+ * validator and were served), `refused` (the model chose one of the closed O10 topics and the
+ * worker read the REVIEWED copy), `fallback` (unreachable, schema miss, or a validator
+ * rejection — the worker read the fail-closed line). `refusal_topic` is set only for `refused`.
+ * `turns_in_memory` is how much conversation the answer saw (0..6, O13) — a depth, not content.
+ *
+ * NEVER THE ANSWER, THE QUESTION OR THE WORKER'S WORDS. The model's lines reach a worker and a
+ * trace, never this spine; `.strict()` keeps it that way.
+ */
+export const ChatCompanionCareerAnsweredPayload = z
+  .object({
+    outcome: z.enum(["answered", "refused", "fallback"]),
+    refusal_topic: z.enum(COMPANION_V2_CAREER_REFUSAL_TOPICS).nullable(),
+    turns_in_memory: z.number().int().min(0).max(6),
+  })
+  .strict();
+export type ChatCompanionCareerAnsweredPayload = z.infer<typeof ChatCompanionCareerAnsweredPayload>;
 
 // ── THE GENERAL ROAD (ADR-0045) ──────────────────────────────────────────────────────────────
 //

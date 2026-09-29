@@ -12,6 +12,10 @@ import {
   COMPANION_V2_UNSUPPORTED_EDIT_TARGETS,
 } from "@badabhai/types";
 import {
+  CompanionCareerAnswerSchema,
+  CompanionCareerInputSchema,
+  CompanionCareerRefuseSchema,
+  CompanionCareerWorkerContextSchema,
   CompanionClassifyInputSchema,
   CompanionClassifyOutputSchema,
   CompanionEditParseInputSchema,
@@ -1125,6 +1129,11 @@ describe("Companion v2 contract parity (contracts.py mirror)", () => {
     ["CompanionClassifyOutput", CompanionClassifyOutputSchema.shape],
     ["CompanionEditParseInput", CompanionEditParseInputSchema.shape],
     ["CompanionEditParseOutput", CompanionEditParseOutputSchema.shape],
+    // ADR-0046 P3 — career talk (the union's two members; the union itself is not a `.shape`).
+    ["CompanionCareerWorkerContext", CompanionCareerWorkerContextSchema.shape],
+    ["CompanionCareerInput", CompanionCareerInputSchema.shape],
+    ["CompanionCareerAnswer", CompanionCareerAnswerSchema.shape],
+    ["CompanionCareerRefuse", CompanionCareerRefuseSchema.shape],
   ];
 
   it.each(shapes)("%s keys match the golden fixture shared with Pydantic", (name, shape) => {

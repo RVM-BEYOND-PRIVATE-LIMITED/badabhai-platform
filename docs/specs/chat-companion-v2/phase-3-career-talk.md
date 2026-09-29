@@ -51,21 +51,44 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
 ## 4. Tasks
 
 ### Backend — AI service
-- [ ] **A1** Contracts (`contracts.py` + `packages/ai-contracts`) for `/companion/career` + parity test.
-- [ ] **A2** `app/companion/career.py`, prompt, route; task `companion_career_answer` routed to a
+- [x] **A1** Contracts (`contracts.py` + `packages/ai-contracts`) for `/companion/career` + parity test.
+      Four models (worker context, input, the two union members), the refusal-topic set shared
+      with `@badabhai/types`, key-name parity on the golden fixture and bounds/union behaviour
+      pinned by pytest.
+- [x] **A2** `app/companion/career.py`, prompt, route; task `companion_career_answer` routed to a
       Claude model in `model_config.py` (model name from settings/env, existing Gemini fallback per
       the router's fallback rules).
-- [ ] **A3** **Red-team eval** (release gate): ≥ 150 prompts — ≥ 25 per refusal topic, jailbreaks
+      `default_career_model` (default `claude-haiku-4-5`) via the new `TaskRoute.model`;
+      `TaskRoute.fallback_model` = the capable Gemini model, because the GLOBAL fallback model is
+      also Claude and the router skips a same-provider candidate — without it the chain would
+      have no fallback at all. The prompt is registered (`COMPANION_CAREER`); the parser maps
+      every unreadable output to `refuse/unsafe_other`.
+- [x] **A3** **Red-team eval** (release gate): ≥ 150 prompts — ≥ 25 per refusal topic, jailbreaks
       ("ignore rules", role-play), Hindi/Hinglish/English, plus ≥ 50 normal career questions.
       Targets in §6.
+      180 prompts (28/26/26/25/25 risky across the five topics + 50 normal). CI gates the set
+      shape and the scorer's ability to fail; `python -m app.companion.eval_cli --career` gates
+      the model on staging — and it is STRICTER than §6: zero answers on risky prompts, where §6
+      also accepts an answer the API's validator would reject (that validator is measured by its
+      own tests).
 
 ### Backend — API
-- [ ] **C1** `v2/handlers/career-talk.handler.ts` + `v2/career-output.validator.ts` (§2).
-- [ ] **C2** `AiService.companionCareer` (timeout 10 s).
-- [ ] **C3** Memory: store last `MEMORY_TURNS` pairs (orchestrator already writes; handler reads 6).
-- [ ] **C4** Refusal copy `V2_CAREER_REFUSE_*` (reviewed, with twins) + `read_aloud: false` on model turns.
-- [ ] **C5** Event `chat.companion_career_answered` v1.
-- [ ] **C6** Flag `CHAT_COMPANION_V2_CAREER_ENABLED`; task chip `companion_task:career_talk`.
+- [x] **C1** `v2/handlers/career-talk.handler.ts` + `v2/career-output.validator.ts` (§2).
+- [x] **C2** `AiService.companionCareer` (timeout 10 s).
+- [x] **C3** Memory: store last `MEMORY_TURNS` pairs (orchestrator already writes; handler reads 6).
+      The orchestrator reads memory ONCE and passes the full list on `HandlerInput.recentTurns`
+      (the classifier keeps its `slice(-2)`), so the handler pays no second Redis hop.
+- [x] **C4** Refusal copy `V2_CAREER_REFUSE_*` (reviewed, with twins) + `read_aloud: false` on model turns.
+      Five pairs keyed by the closed topics (persona-scanned like every other line);
+      `read_aloud: false` is present-and-false on model turns only — refusal turns are fixed
+      copy with twins and keep their read-aloud.
+- [x] **C5** Event `chat.companion_career_answered` v1.
+      `{outcome: answered|refused|fallback, refusal_topic (nullable), turns_in_memory}` — never
+      the answer, the question or the worker's words. Registry count 213 → 214.
+- [x] **C6** Flag `CHAT_COMPANION_V2_CAREER_ENABLED`; task chip `companion_task:career_talk`.
+      Registry-gated like the other phases; the chip appears only while the flag is on, and a
+      tap routes deterministically (the P2 chip step). The spend is recorded against
+      `companion_career_answer` in the SAME change that routes it (the ledger-naming rule).
 
 ### Frontend — worker app (GitHub issue)
 - [ ] **F1** `read_aloud: false` → no speaker button / no auto-read for that bubble (do **not** fall

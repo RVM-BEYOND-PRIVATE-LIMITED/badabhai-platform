@@ -6,6 +6,7 @@ import type { CompanionEditService } from "./companion-edit.service";
 import { CompanionV2Orchestrator } from "./companion-v2.orchestrator";
 import { NewResumeHandler } from "./handlers/new-resume.handler";
 import { FaltuHandler } from "./handlers/faltu.handler";
+import { CareerTalkHandler } from "./handlers/career-talk.handler";
 import { EditResumeHandler } from "./handlers/edit-resume.handler";
 import { JobsDeferredHandler, PhaseOffHandler, UnclearHandler } from "./handlers/fixed-line.handlers";
 import { CompanionHandlerRegistry } from "./handlers/registry";
@@ -43,6 +44,7 @@ function setup(
     memory?: unknown;
     editEnabled?: boolean;
     newResumeEnabled?: boolean;
+    careerEnabled?: boolean;
     propose?: unknown;
   } = {},
 ) {
@@ -56,6 +58,7 @@ function setup(
         ? { intent: "edit_resume", confidence: 0.9, blocked: false }
         : opts.classify,
     ),
+    companionCareer: vi.fn(async () => null),
   };
   const memory = {
     read: vi.fn(async () => opts.memory ?? []),
@@ -67,6 +70,7 @@ function setup(
   const config = {
     CHAT_COMPANION_V2_EDIT_ENABLED: opts.editEnabled ?? true,
     CHAT_COMPANION_V2_NEW_RESUME_ENABLED: opts.newResumeEnabled ?? false,
+    CHAT_COMPANION_V2_CAREER_ENABLED: opts.careerEnabled ?? false,
     CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: 0.6,
     CHAT_COMPANION_V2_FALTU_STRIKES: 3,
     CHAT_COMPANION_V2_FALTU_COOLDOWN_MINUTES: 30,
@@ -86,6 +90,7 @@ function setup(
     new EditResumeHandler(edits as unknown as CompanionEditService),
     new NewResumeHandler(config, consents as never),
     new FaltuHandler(config, faltuStore as never, events as never),
+    new CareerTalkHandler(config, ai as never, cost as never, events as never),
     new JobsDeferredHandler(config),
     new PhaseOffHandler(config),
     new UnclearHandler(config),
@@ -307,5 +312,26 @@ describe("CompanionV2Orchestrator — the turn pipeline (ADR-0046 §2.1)", () =>
     expect(h.ai.pseudonymize).toHaveBeenCalled();
     expect(h.ai.companionClassify).toHaveBeenCalled();
     expect(h.faltuStore.countStrike).not.toHaveBeenCalled();
+  });
+
+  it("career_talk: the flag gates the ONE model-written answer (P3)", async () => {
+    const career = { intent: "career_talk", confidence: 0.9, blocked: false };
+    const off = setup({ classify: career });
+    expect((await off.orchestrator.handleMessage(WORKER, PROFILE, { text: "x" }, CTX, NOW)).reply).toBe(
+      V2_PHASE_OFF.latin,
+    );
+    expect(off.ai.companionCareer).not.toHaveBeenCalled();
+
+    const on = setup({ classify: career, careerEnabled: true });
+    // The harness's `companionCareer` answers null (unreachable) — the point here is that the
+    // model was reached at all, and the worker still got the fail-closed line.
+    const turn = await on.orchestrator.handleMessage(WORKER, PROFILE, { text: "x" }, CTX, NOW);
+    expect(on.ai.companionCareer).toHaveBeenCalled();
+    expect(turn.reply).not.toBe(V2_PHASE_OFF.latin);
+    // The handler emits `chat.companion_career_answered` FIRST, so find the turn event by name.
+    const turnEvent = on.events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
+      .find((e) => e.event_name === "chat.companion_turn_served_v2")!;
+    expect(turnEvent.payload).toMatchObject({ v2_intent: "career_talk", outcome: "fallback" });
   });
 });

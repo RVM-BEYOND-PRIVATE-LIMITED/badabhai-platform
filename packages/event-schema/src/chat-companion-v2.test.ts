@@ -421,3 +421,53 @@ describe("chat.companion_faltu_strike (ADR-0046 P2)", () => {
     }
   });
 });
+
+describe("chat.companion_career_answered (ADR-0046 P3)", () => {
+  it("is registered v1 and accepts every outcome, with the topic only on a refusal", () => {
+    expect(EVENT_REGISTRY["chat.companion_career_answered"]).toMatchObject({
+      version: 1,
+      domain: "chat",
+    });
+    const valid = [
+      { outcome: "answered", refusal_topic: null, turns_in_memory: 4 },
+      { outcome: "refused", refusal_topic: "salary_promise", turns_in_memory: 0 },
+      { outcome: "refused", refusal_topic: "unsafe_other", turns_in_memory: 6 },
+      { outcome: "fallback", refusal_topic: null, turns_in_memory: 2 },
+    ];
+    for (const payload of valid) {
+      expect(
+        validateEvent(envelope("chat.companion_career_answered", 1, payload)).success,
+        JSON.stringify(payload),
+      ).toBe(true);
+    }
+  });
+
+  it("refuses an unknown outcome or topic, and a memory depth outside 0..6", () => {
+    for (const bad of [
+      { outcome: "ok", refusal_topic: null, turns_in_memory: 1 },
+      { outcome: "refused", refusal_topic: "money", turns_in_memory: 1 },
+      { outcome: "answered", refusal_topic: null, turns_in_memory: 7 },
+      { outcome: "answered", refusal_topic: null, turns_in_memory: -1 },
+      { outcome: "answered", turns_in_memory: 1 },
+    ]) {
+      const result = validateEvent(envelope("chat.companion_career_answered", 1, bad));
+      expect(result.success, JSON.stringify(bad)).toBe(false);
+      if (!result.success) expect(result.error.stage).toBe("payload");
+    }
+  });
+
+  it("is STRICT — the model's answer or the worker's question cannot ride along", () => {
+    for (const smuggled of ["text", "reply", "lines", "answer", "question", "chips"]) {
+      const result = validateEvent(
+        envelope("chat.companion_career_answered", 1, {
+          outcome: "answered",
+          refusal_topic: null,
+          turns_in_memory: 1,
+          [smuggled]: "salary 25000 pakka",
+        }),
+      );
+      expect(result.success, smuggled).toBe(false);
+      if (!result.success) expect(result.error.stage).toBe("payload");
+    }
+  });
+});

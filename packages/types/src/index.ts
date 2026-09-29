@@ -132,6 +132,19 @@ export const COMPANION_V2_OUTCOMES = [
 ] as const;
 export type CompanionV2Outcome = (typeof COMPANION_V2_OUTCOMES)[number];
 
+// WHY THE CAREER MODEL MAY REFUSE (ADR-0046 P3, O10). A closed set so the refusal COPY is reviewed
+// text, never the model's wording: the AI contract carries one topic, the API maps it to the
+// `V2_CAREER_REFUSE_<topic>` pair, and the event records it. The four O10 topics plus
+// `unsafe_other` for anything the prompt wants to decline that they do not cover.
+export const COMPANION_V2_CAREER_REFUSAL_TOPICS = [
+  "salary_promise",
+  "legal_medical_financial",
+  "named_employer",
+  "worker_rating",
+  "unsafe_other",
+] as const;
+export type CompanionV2CareerRefusalTopic = (typeof COMPANION_V2_CAREER_REFUSAL_TOPICS)[number];
+
 // THE SECTION A PROPOSED EDIT ROW BELONGS TO (contracts §3). Closed, and shared by the edit
 // catalogue (which maps a section to its writer), the AI-service edit-parse contract (which may
 // only name a member) and the event spine (`sections[]`). Identity and contact are ABSENT BY

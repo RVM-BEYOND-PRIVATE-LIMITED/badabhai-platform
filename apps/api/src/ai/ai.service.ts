@@ -11,6 +11,7 @@ import {
   JobPostingChatOpeningOutputSchema,
   JobPostingChatTurnOutputSchema,
   CompanionClassifyOutputSchema,
+  CompanionCareerOutputSchema,
   CompanionEditParseOutputSchema,
   PseudonymizationOutputSchema,
   ProfileParseOutputSchema,
@@ -41,6 +42,8 @@ import {
   type JobPostingChatTurnOutput,
   type CompanionClassifyInput,
   type CompanionClassifyOutput,
+  type CompanionCareerInput,
+  type CompanionCareerOutput,
   type CompanionEditParseInput,
   type CompanionEditParseOutput,
   type SkillCanonicalizationInput,
@@ -399,6 +402,27 @@ export class AiService {
     ctx?: AiRequestContext,
   ): Promise<CompanionEditParseOutput | null> {
     return this.post("/companion/edit-parse", input, CompanionEditParseOutputSchema, 6_000, ctx);
+  }
+
+  /**
+   * ADR-0046 Phase 3 — one career question to a short Hinglish answer or a closed refusal.
+   *
+   * TEN SECONDS, the phase spec's number, and it is larger than every sibling companion call
+   * for a measured reason: this is the one route where a provider failure costs the worker an
+   * ANSWER (the others degrade into a fixed line the worker expected anyway), and Claude
+   * Haiku's first token can arrive later than Gemini's. The API's own worker-facing budget is
+   * the turn timeout above it; this is the transport's.
+   *
+   * Null on every failure — unreachable, non-OK, a schema miss, the abort — and the caller
+   * serves the fallback line. The far side pseudonymizes `input.text` and masks every memory
+   * turn fail-closed before any model call; a blocked input comes back as a refusal on
+   * `unsafe_other`, which the caller serves as reviewed copy.
+   */
+  async companionCareer(
+    input: CompanionCareerInput,
+    ctx?: AiRequestContext,
+  ): Promise<CompanionCareerOutput | null> {
+    return this.post("/companion/career", input, CompanionCareerOutputSchema, 10_000, ctx);
   }
 
   async extractProfile(

@@ -21,6 +21,7 @@
 import { z } from "zod";
 
 import {
+  COMPANION_V2_CAREER_REFUSAL_TOPICS,
   COMPANION_V2_EDIT_OPS,
   COMPANION_V2_EDIT_SECTIONS,
   COMPANION_V2_INTENTS,
@@ -38,6 +39,10 @@ const REF_MAX = 16;
 const CATALOGUE_MAX = 64;
 const SNAPSHOT_MAX = 64;
 const MAX_ROWS_MAX = 10;
+const CAREER_TURNS_MAX = 6;
+const CAREER_TRADE_LABEL_MAX = 64;
+const CAREER_LINE_MAX = 300;
+const CAREER_CHIP_MAX = 60;
 
 /** One pseudonymized memory turn (O13) — Redis only, never Postgres. */
 export const CompanionRecentTurnSchema = z.object({
@@ -142,3 +147,61 @@ export const CompanionEditParseOutputSchema = z.object({
   ai_metadata: AICallMetadataSchema.nullable().default(null),
 });
 export type CompanionEditParseOutput = z.infer<typeof CompanionEditParseOutputSchema>;
+
+// ── Career talk (ADR-0046 P3) — the model WRITES what the worker reads ──────────────────────
+
+/**
+ * What the career answer may know about the worker — ONLY the canonical trade label and a
+ * coarse experience bucket. No name, no phone, no employer, no city; the label is
+ * worker-facing copy the confirmed profile already carries.
+ */
+export const CompanionCareerWorkerContextSchema = z.object({
+  trade_label: z.string().min(1).max(CAREER_TRADE_LABEL_MAX).nullable().default(null),
+  experience_bucket: z.enum(["0-1", "1-3", "3-7", "7+"]).nullable().default(null),
+});
+export type CompanionCareerWorkerContext = z.infer<typeof CompanionCareerWorkerContextSchema>;
+
+/** One career question plus the pseudonymized memory turns (≤ 6, O13) and the closed context. */
+export const CompanionCareerInputSchema = z.object({
+  text: z.string().min(1).max(TEXT_MAX_MESSAGE),
+  recent_turns: z.array(CompanionRecentTurnSchema).max(CAREER_TURNS_MAX).default([]),
+  worker_context: CompanionCareerWorkerContextSchema.default({
+    trade_label: null,
+    experience_bucket: null,
+  }),
+});
+export type CompanionCareerInput = z.infer<typeof CompanionCareerInputSchema>;
+
+/**
+ * The model's answer: 1–4 short Hinglish lines plus up to three follow-up chips.
+ *
+ * NOTHING here is trusted — the API re-validates every line deterministically (persona tokens,
+ * the O10 refusal backstop, PII shapes) and serves the fallback line on ANY failure. So the
+ * character caps are deliberately loose: the 20-words-per-line bound belongs to the API's
+ * validator, and a bad answer must reach it to be judged rather than be rejected at the
+ * transport with the same outcome and a worse diagnosis.
+ */
+export const CompanionCareerAnswerSchema = z.object({
+  status: z.literal("answer"),
+  lines: z.array(z.string().min(1).max(CAREER_LINE_MAX)).min(1).max(4),
+  followup_chips: z.array(z.string().min(1).max(CAREER_CHIP_MAX)).max(3).default([]),
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
+});
+export type CompanionCareerAnswer = z.infer<typeof CompanionCareerAnswerSchema>;
+
+/**
+ * The model refused: one closed topic, and the API serves that topic's fixed copy (O9/O10).
+ * `unsafe_other` is the catch-all — including for output that fails the schema.
+ */
+export const CompanionCareerRefuseSchema = z.object({
+  status: z.literal("refuse"),
+  topic: z.enum(COMPANION_V2_CAREER_REFUSAL_TOPICS),
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
+});
+export type CompanionCareerRefuse = z.infer<typeof CompanionCareerRefuseSchema>;
+
+export const CompanionCareerOutputSchema = z.discriminatedUnion("status", [
+  CompanionCareerAnswerSchema,
+  CompanionCareerRefuseSchema,
+]);
+export type CompanionCareerOutput = z.infer<typeof CompanionCareerOutputSchema>;

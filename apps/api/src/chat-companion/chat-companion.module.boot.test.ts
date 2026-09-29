@@ -44,6 +44,7 @@ describe("ChatCompanionModule wiring", () => {
     expect(getMeta("controllers", ChatCompanionModule)).toEqual([ChatCompanionController]);
     const providers = getMeta("providers", ChatCompanionModule).map((p) => (p as { name: string }).name);
     expect(providers.sort()).toEqual([
+      "CareerTalkHandler",
       "ChatCompanionPolicy",
       "ChatCompanionRepository",
       "ChatCompanionService",

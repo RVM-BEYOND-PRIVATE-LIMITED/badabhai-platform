@@ -664,3 +664,55 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
   means (no DOMAIN writes).
 - **Next:** the Frontend items F1/F2 (issue #1821 — raised with this phase); then Phase 3 when
   the owner calls it.
+
+---
+
+## Phase 3 — Career talk — 2026-09-29 18:10
+
+- **Done:** A1–A3 + C1–C6, on `feat/companion-v2-phase3-career-talk`, one commit per task group.
+  - **A1** (`87901240`): the four contracts (worker context, input, answer, refuse) in Pydantic +
+    Zod + the golden fixture, the refusal-topic set in `@badabhai/types`, and parity/bounds/union
+    tests on both sides. `status` is REQUIRED on both members — a missing discriminant must fail,
+    not be defaulted into a shape the model did not mean.
+  - **A2** (`8855d33a`): the route, prompt and model routing. **The fallback needed a new
+    mechanism**: `TaskRoute` gained additive `model` / `fallback_model`, because O7 asks for
+    Claude primary + Gemini fallback while the global `default_fallback_model` is ALSO Claude —
+    and the router skips a same-provider candidate, so the career chain would otherwise have no
+    fallback at all. `default_career_model` (settings/env) drives the primary; temperature 0.4,
+    512-token budget, json_mode. The parser maps every unreadable output to
+    `refuse/unsafe_other` (reviewed copy, never a fabricated answer). `companion_career_answer`
+    was made nameable on the event spine in the SAME change that routes it.
+  - **C1–C6** (`4d491709`): the validator (persona scan, Devanagari bar, money-word+digit,
+    promises, sensitive advice, rating patterns, the platform's org-name and PII heuristics, the
+    ≤1-question budget, chips under the same checks), the handler (context → model → spend →
+    branch → event), the five reviewed refusal pairs with twins, the event
+    `chat.companion_career_answered` v1 (registry 213 → 214), the flag, the chip, and
+    `HandlerInput.recentTurns` so the career answer reads up to six memory turns without a
+    second Redis hop.
+  - **A3** (`30b4d78f`): 180 red-team prompts (28/26/26/25/25 across the five refusal topics +
+    50 normal questions, Hinglish/Devanagari/English, jailbreak wrappers) with a scorer whose
+    bars are §6's; the CLI gains `--career`. THE CLI IS STRICTER THAN §6 ON PURPOSE: it counts
+    only a REFUSAL or no response as safe, so it gates on zero answers to risky prompts; the
+    API validator (the half §6 also credits) is measured by its own deterministic tests.
+- **Design calls recorded:**
+  1. `read_aloud: false` is PRESENT and false on model turns only (O9). Refusal turns are fixed
+     copy with reviewed twins and keep their read-aloud; a shipped client must not be able to
+     fall back to speaking the model's `reply`.
+  2. The validator reuses the platform's existing detectors (`checkPersonaTokens` — which
+     already carries the banned-vocative rule R8 — `looksLikeOrgName`, `looksLikePii`) rather
+     than growing private copies; the money rule is a money WORD next to a DIGIT, so advice
+     about salary without a figure stays legal.
+  3. A schema miss is a REFUSAL, not null: the API's fallback line is for a real answer that
+     failed validation, while a contract miss means there was never an answer to judge — the
+     reviewed refusal is the safer and more honest disposition.
+  4. The handler emits its own outcome event (`chat.companion_career_answered`) before the
+     orchestrator's turn event; both carry closed sets only.
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 12,159 passed / 153 skipped (770 in the chat-companion
+    subtree) · lint 0 errors · typecheck 29/29.
+  - ai-service `pytest` 6,082 passed · `ruff` clean.
+- **Notes / surprises:** the service-auth route pin and the ledger-coverage pin both caught the
+  new surface exactly as designed (a POST route must be TD67-gated; a routed task must be
+  nameable on the spine), so both were updated in the change that added the route.
+- **Next:** the Frontend items F1/F2 (issue #1824); the staging `eval_cli --career` run is the
+  release gate before any flag-ON, alongside owner review of 30 sampled answers (§6).
