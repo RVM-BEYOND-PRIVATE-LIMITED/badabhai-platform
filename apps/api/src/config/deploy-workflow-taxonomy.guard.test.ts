@@ -179,6 +179,34 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /RESUME_QR_SCAN_ENABLED:\s*\$\{\{\s*secrets\.RESUME_QR_SCAN_ENABLED\s*\}\}/,
       /envs:[^\n]*\bRESUME_QR_SCAN_ENABLED\b/,
     ],
+    // ADR-0046 — the companion v2 phase gates. Plain boolean flags; production ON additionally
+    // requires the ADR's signature with companion v1 live, and real calls need the box to widen
+    // the ai-service's AI_REAL_CALL_TASKS allowlist (an env action, not this bridge).
+    [
+      "CHAT_COMPANION_V2_ENABLED",
+      /CHAT_COMPANION_V2_ENABLED:\s*\$\{\{\s*secrets\.CHAT_COMPANION_V2_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_COMPANION_V2_ENABLED\b/,
+    ],
+    [
+      "CHAT_COMPANION_V2_EDIT_ENABLED",
+      /CHAT_COMPANION_V2_EDIT_ENABLED:\s*\$\{\{\s*secrets\.CHAT_COMPANION_V2_EDIT_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_COMPANION_V2_EDIT_ENABLED\b/,
+    ],
+    [
+      "CHAT_COMPANION_V2_NEW_RESUME_ENABLED",
+      /CHAT_COMPANION_V2_NEW_RESUME_ENABLED:\s*\$\{\{\s*secrets\.CHAT_COMPANION_V2_NEW_RESUME_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_COMPANION_V2_NEW_RESUME_ENABLED\b/,
+    ],
+    [
+      "CHAT_COMPANION_V2_FALTU_ENABLED",
+      /CHAT_COMPANION_V2_FALTU_ENABLED:\s*\$\{\{\s*secrets\.CHAT_COMPANION_V2_FALTU_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_COMPANION_V2_FALTU_ENABLED\b/,
+    ],
+    [
+      "CHAT_COMPANION_V2_CAREER_ENABLED",
+      /CHAT_COMPANION_V2_CAREER_ENABLED:\s*\$\{\{\s*secrets\.CHAT_COMPANION_V2_CAREER_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_COMPANION_V2_CAREER_ENABLED\b/,
+    ],
   ])("%s is bridged from the environment's secrets", (_name, fromSecrets, inEnvs) => {
     expect(DEPLOY).toMatch(fromSecrets);
     // …and reaches the container: drone-ssh only exports what `envs:` lists, so a job-level
@@ -215,6 +243,12 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["CHAT_GENERAL_ROAD_ENABLED", "false"],
     ["RESUME_SKINS_ENABLED", "false"],
     ["RESUME_QR_SCAN_ENABLED", "false"],
+    // ADR-0046 — the companion v2 phase gates, all five off by default.
+    ["CHAT_COMPANION_V2_ENABLED", "false"],
+    ["CHAT_COMPANION_V2_EDIT_ENABLED", "false"],
+    ["CHAT_COMPANION_V2_NEW_RESUME_ENABLED", "false"],
+    ["CHAT_COMPANION_V2_FALTU_ENABLED", "false"],
+    ["CHAT_COMPANION_V2_CAREER_ENABLED", "false"],
     // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's
     // `/i/<code>`. Undeclared, the stale config default (app.badabhai.in, no `/i/`) won.
     ["REFERRAL_SHORT_LINK_BASE", "https://payer.43-204-36-199.sslip.io"],
