@@ -36,6 +36,34 @@ describe("CompanionEditService.propose — every drop rule (spec §Edit step 3)"
     expect(emitted).toContain("chat.companion_edit_proposed");
   });
 
+  it("a DELETE is legal on employment and qualifications — edit/delete-only sections", async () => {
+    // The A4 eval caught the opposite: with `delete` allowed on no field, every employment and
+    // qualification delete was silently dropped. The field is only the row's ANCHOR here.
+    const h = setup({
+      parse: parse([
+        row({ op: "delete", section: "employment", ref: "e1", field: "employer_name", value: null }),
+        row({ op: "delete", section: "qualifications", ref: "c1", field: "certificate_name", value: null }),
+      ]),
+      employmentViews: [
+        {
+          employment_id: "66666666-6666-4666-8666-666666666666",
+          employer_name: "Tata Motors",
+          employer_city: "Pune",
+          employer_state: null,
+          start_ym: "2019-01",
+          end_ym: null,
+          roles: [],
+        },
+      ],
+      qualificationLists: {
+        certificates: [{ name: "ITI Machinist", issuer: "NCVT", year: 2018, licence_number: null, licence_expiry: null }],
+      },
+    });
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "purana kaam hata do", CTX);
+    expect(turn.edit_proposal?.rows).toHaveLength(2);
+    expect(turn.edit_proposal?.rows.map((r) => r.op)).toEqual(["delete", "delete"]);
+  });
+
   it("sends the catalogue, the snapshot and max_rows to the AI service", async () => {
     const h = setup({ parse: parse([]), languageEntries: [LANGUAGE_HINDI] });
     await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
