@@ -7,6 +7,8 @@ import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiService } from "../ai/ai.service";
 import { AuthModule } from "../auth/auth.module";
 import { AppConfigModule } from "../config/config.module";
+import { ConsentModule } from "../consent/consent.module";
+import { ConsentRepository } from "../consent/consent.repository";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
 import { JobsModule } from "../jobs/jobs.module";
@@ -55,7 +57,12 @@ describe("ChatCompanionModule wiring", () => {
       "CompanionV2Orchestrator",
       "EditProposalStore",
       "EditResumeHandler",
+      // ADR-0046 P2 — the faltu strike handler and its Redis store.
+      "FaltuHandler",
+      "FaltuStore",
       "JobsDeferredHandler",
+      // ADR-0046 P2/N1 — the consent-gated new-résumé handler.
+      "NewResumeHandler",
       "PhaseOffHandler",
       "ProfilesRepository",
       "ResumeImportRepository",
@@ -81,6 +88,11 @@ describe("ChatCompanionModule wiring", () => {
     expect(getMeta("exports", ResumeModule)).toContain(ResumeService);
     expect(imports).toContain(JobsModule);
     expect(getMeta("exports", JobsModule)).toContain(JobsRepository);
+    // ADR-0046 P2/N1 — the new-résumé handler reads the worker's consent through the same
+    // repository the guard and the off-request gates use. Imported, not re-provisioned: unlike
+    // the section writers, `ConsentModule` has no chat edge.
+    expect(imports).toContain(ConsentModule);
+    expect(getMeta("exports", ConsentModule)).toContain(ConsentRepository);
   });
 
   it("reaches the rest through @Global modules — pinned, so demoting one fails here, not at boot", () => {
@@ -159,6 +171,43 @@ describe("the companion's egress guard", () => {
   it("the V1 files still reach no AI surface at all — the no-LLM promise of ADR-0044", () => {
     for (const [file, source] of sources) {
       expect(source, file).not.toMatch(/from "\.\.\/ai\/|@badabhai\/ai-contracts/);
+    }
+  });
+
+  it("no v2 file imports a DI-injected class TYPE-ONLY — Nest resolves by runtime token", () => {
+    // THE E2E BOOT CAUGHT THIS ONCE AND NOTHING ELSE COULD. `import type { ConsentRepository }`
+    // is erased before `emitDecoratorMetadata` runs, so Nest read the constructor parameter as
+    // null and the API died at startup (`NewResumeHandler: dependencies [SERVER_CONFIG, null]`)
+    // — while every unit suite stayed green, because they construct handlers by hand and vitest
+    // emits no design:paramtypes for the metadata assertions above to inspect.
+    //
+    // Scanned over source, like the egress rules: every name imported with `import type` must
+    // not appear as a constructor parameter type. `@Inject(...)`-decorated parameters are
+    // exempt BY CONSTRUCTION (the decorator carries the token), which is why the scan tests the
+    // parameter's `: Type` annotation rather than the import itself.
+    for (const [file, source] of allSources) {
+      const typeOnly = new Set(
+        [...source.matchAll(/import\s+type\s*\{([^}]*)\}/g)]
+          .flatMap((m) => m[1]!.split(","))
+          .map((s) => s.trim().split(/\s+as\s+/)[0]!.trim())
+          .filter((s) => s.length > 0),
+      );
+      const params = source.match(/constructor\(([\s\S]*?)\{/);
+      if (params === null) continue;
+      // `@Inject(...)`-decorated parameters are exempt: the decorator carries the token, so
+      // their `: Type` annotation is documentation (e.g. `@Inject(SERVER_CONFIG) ... config:
+      // ServerConfig`). Split on commas — no decorator here takes a comma-bearing argument.
+      const undecorated = params[1]!
+        .split(",")
+        .filter((p) => !p.includes("@Inject("))
+        .join(",");
+      for (const name of typeOnly) {
+        expect(
+          undecorated,
+          `${file}: ${name} is imported type-only but used as a constructor parameter type — ` +
+            `import it as a value or Nest will inject null at boot`,
+        ).not.toMatch(new RegExp(`:\\s*${name}\\b`));
+      }
     }
   });
 

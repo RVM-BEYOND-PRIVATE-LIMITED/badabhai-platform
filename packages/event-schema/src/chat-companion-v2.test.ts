@@ -376,3 +376,48 @@ describe("chat.companion_edit_cancelled", () => {
     }
   });
 });
+
+describe("chat.companion_faltu_strike (ADR-0046 P2)", () => {
+  it("is registered v1 and accepts a counted strike, with or without the cool-down", () => {
+    expect(EVENT_REGISTRY["chat.companion_faltu_strike"]).toMatchObject({
+      version: 1,
+      domain: "chat",
+    });
+    for (const cooldown_started of [false, true]) {
+      expect(
+        validateEvent(
+          envelope("chat.companion_faltu_strike", 1, { strike_count: 3, cooldown_started }),
+        ).success,
+        String(cooldown_started),
+      ).toBe(true);
+    }
+  });
+
+  it("refuses a zero or negative count — an emitted strike is a counted one", () => {
+    for (const bad of [
+      { strike_count: 0, cooldown_started: false },
+      { strike_count: -1, cooldown_started: true },
+      { strike_count: 1.5, cooldown_started: false },
+      { cooldown_started: true },
+      { strike_count: 1, cooldown_started: "yes" },
+    ]) {
+      const result = validateEvent(envelope("chat.companion_faltu_strike", 1, bad));
+      expect(result.success, JSON.stringify(bad)).toBe(false);
+      if (!result.success) expect(result.error.stage).toBe("payload");
+    }
+  });
+
+  it("is STRICT — the message that caused the strike cannot ride along", () => {
+    for (const smuggled of ["text", "reply", "message", "reason", "excerpt"]) {
+      const result = validateEvent(
+        envelope("chat.companion_faltu_strike", 1, {
+          strike_count: 1,
+          cooldown_started: false,
+          [smuggled]: "tum faltu ho",
+        }),
+      );
+      expect(result.success, smuggled).toBe(false);
+      if (!result.success) expect(result.error.stage).toBe("payload");
+    }
+  });
+});

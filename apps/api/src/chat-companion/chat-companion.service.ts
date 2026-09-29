@@ -25,7 +25,8 @@ import {
 } from "./chat-companion.dto";
 import { CompanionEditService } from "./v2/companion-edit.service";
 import { CompanionV2Orchestrator } from "./v2/companion-v2.orchestrator";
-import { resolveCompanionText } from "./companion-intents";
+import { isCompanionChipTap, resolveCompanionText } from "./companion-intents";
+import { resolveCompanionTaskChip } from "./v2/companion-task-chips";
 import {
   composeFor,
   replyText,
@@ -138,12 +139,34 @@ export class ChatCompanionService {
     const mode = await this.policy.resolve(workerId);
     if (mode.mode === "interview") return { mode: "interview" };
 
+    const v2On = this.config.CHAT_COMPANION_V2_ENABLED;
+    // P2 (ADR-0046): the phase-2 order is chip keys → cool-down → v1 text resolver → lexicon →
+    // classifier. A task-chip tap is recognised FIRST and routed deterministically — v1's weak
+    // signals would otherwise answer two of these labels with the digest (see
+    // `companion-task-chips.ts`). Only while v2 is on; off is v1 byte-for-byte.
+    const taskChip = v2On ? resolveCompanionTaskChip(dto.text) : null;
+    // The cool-down gate sits BEFORE the v1 resolver and blocks FREE TEXT only: exact chip taps
+    // (v1's own and the task chips') are never gated, so a cooled-down worker can still reach
+    // the résumé and jobs. Read only while the faltu phase is on; a Redis failure reads null
+    // and the worker is served normally (the store fails open, by design).
+    const cooling =
+      v2On &&
+      this.config.CHAT_COMPANION_V2_FALTU_ENABLED &&
+      taskChip === null &&
+      !isCompanionChipTap(dto.text)
+        ? await this.v2.cooldownUntil(workerId, now)
+        : null;
+
     const resolution = resolveCompanionText(dto.text);
     let turn: CompanionTurn;
-    if (resolution.kind === "resume_menu") {
+    if (taskChip !== null) {
+      turn = await this.v2.handleTaskChip(workerId, mode.profile, dto, taskChip, ctx, now);
+    } else if (cooling !== null) {
+      turn = await this.v2.handleCooldown(workerId, dto, ctx, now, cooling);
+    } else if (resolution.kind === "resume_menu") {
       turn = this.menuTurn(resolution.menu);
       await this.record(workerId, ctx, now, "message", "resume_menu", null, null, dto.submission_id ?? null);
-    } else if (this.config.CHAT_COMPANION_V2_ENABLED && resolution.intent === "fallback") {
+    } else if (v2On && resolution.intent === "fallback") {
       // ADR-0046 T6 — THE V1 MISS GOES TO THE ROUTER, and v1's `fallback` intent IS the miss:
       // the resolver understood nothing else about the text. Every NAMED v1 intent (digest,
       // jobs, applied, guarantee) is still served by the branch below, byte-for-byte and with
