@@ -5,11 +5,13 @@ import {
   VACANCY_BANDS,
   WORKER_STATUSES,
   type LanguageCode,
+  type TradeFormKindName,
 } from "@badabhai/types";
 import type {
   ApplicationAction,
   CreditReason,
   JobNeededBy,
+  JobPayType,
   JobShift,
   PayerRole,
   PayerStatus,
@@ -280,6 +282,22 @@ export interface AdminJobPostingDetail extends AdminJobPostingListItem {
   description: string | null;
   shift: JobShift | null;
   needed_by: JobNeededBy | null;
+  /**
+   * The rest of the card content the poster set (#1646/#1648, migration 0116/0121) — the same
+   * coarse, PII-free values the posting's owner already reads back. Nulls are honest absence.
+   */
+  area: string | null;
+  min_experience_years: number | null;
+  max_experience_years: number | null;
+  pay_type: JobPayType | null;
+  requirements: string[] | null;
+  benefits: string[] | null;
+  /**
+   * The display ROLE the payer picked (migration 0131), one of the 21 declared kinds, or NULL.
+   * Returned RAW — the admin UI labels it (`jobRoleLabel`) and shows the raw id if it is not
+   * one it knows. Display / classification only; never a match input.
+   */
+  role_kind: TradeFormKindName | null;
   boosted_until: Date | null;
   /** Non-null only while the owning payer is suspended (ADR-0037 restore marker). */
   previous_status: string | null;

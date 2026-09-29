@@ -1,0 +1,67 @@
+-- ===========================================================================
+-- 0131 - job_postings.role_kind + jobs.role_kind (ADR-0036 addendum 2026-09-29)
+--
+-- PURELY ADDITIVE. Two nullable text columns (no default, no backfill) and two NULL-tolerant
+-- CHECKs closing them on the 21 DECLARED worker-side roles (`TRADE_FORM_KINDS_ALL` in
+-- @badabhai/types). Nothing existing is altered, dropped or rewritten.
+--
+-- WHAT IT IS. The role a payer picks for a posting from the same 21 kinds the worker side
+-- profiles against, so the payer portal can classify a posting and draw its card preview
+-- with a real role line. Owner ruling 2026-09-29: all 21 are selectable on BOTH the company
+-- entity (`job_postings`) and the legacy agency entity (`jobs`).
+--
+-- WHAT IT IS NOT. DISPLAY / CLASSIFICATION ONLY:
+--   * never a match or rank input - `job_postings.match_skill_ids` stays the only thing a
+--     posting is matched on (ADR-0036 §3), and the agency job keeps `jobs.trade_key`;
+--   * nothing derives `job_domain_id` or any skill from it (`job_domain_id` stays unwritten);
+--   * on NO worker read in this phase - GET /feed, /jobs/search and the job-detail read do not
+--     select it (ADR-0024 addendum 2026-09-29, #1823).
+-- A chat-published posting leaves it NULL. NULL = "no role picked", never a guessed role, so
+-- every existing row reads honestly without a backfill.
+--
+-- THE LIST IS SPELLED OUT, NOT REFERENCED: a migration is a frozen record (the 0124
+-- precedent). A 22nd declared kind widens BOTH CHECKs in a new migration - one transaction,
+-- DROP + ADD, `SET LOCAL lock_timeout = '3s'`, retry on 55P03. The model-level tripwire in
+-- `migration-0131-job-role-kind.test.ts` reads the drizzle model and goes red until it does.
+--
+-- PRIVACY: a closed enum of occupation slugs. No employer identity, no worker identity.
+--
+-- APPLY-BEFORE-DEPLOY. Drizzle's bare `select()` / `.returning()` name EVERY model column, and
+-- both tables are read that way on live paths:
+--   * JobPostingsRepository (create / findById / list / update / close / findByIdAndPayer /
+--     listByPayer / updateOwned / closeOwned / transitionOwned) - every ops and payer posting
+--     read and write, including the chat publish's create;
+--   * AgencyJobsRepository (create / findOwnedById / listOwned / updateOwned /
+--     closeOwnedIfLive / pauseOwnedIfOpen / resumeOwnedIfPaused) - every agency job route;
+--   * ApplicationsRepository.findJobById - the existence check on the WORKER's legacy
+--     apply/skip path (`jobs`, when MATCH_V1_ENABLED is off).
+-- A build carrying this change against a database without the columns 500s all of them
+-- ("column role_kind does not exist"). An OLD build on a migrated database is fine (a
+-- superset). Registered as `0131-job-postings-role-kind` and `0131-jobs-role-kind` in
+-- `schema-contract.ts`; run `pnpm --filter @badabhai/db db:audit:schema-contract` first.
+--
+-- LOCKS. Nullable `ADD COLUMN` with no default is catalog-only. Each validated `ADD CONSTRAINT
+-- ... CHECK` takes ACCESS EXCLUSIVE and scans its table under it; over a column that is NULL
+-- on every row the predicate is trivially true and both tables are small, so the scan is
+-- milliseconds. The real risk is QUEUEING: `job_postings` is read by every worker feed and
+-- search request and `jobs` by the agency portal, and an ACCESS EXCLUSIVE request stuck behind
+-- a long transaction blocks every reader behind it. Applied by hand: wrap all four statements
+-- in ONE `BEGIN; SET LOCAL lock_timeout = '3s'; ... COMMIT;` and retry on 55P03 (the
+-- 0077/0080/0109/0116 precedent). `db:migrate` applies every pending file in one transaction,
+-- so set a session `lock_timeout` there too.
+--
+-- ROLLBACK. A CODE rollback needs no schema change: an older build never names these columns,
+-- and the columns are inert without it - prefer leaving them (CLAUDE.md §10). A schema
+-- rollback DESTROYS every stored role pick (the only copy), so only on a database where
+--   SELECT (SELECT count(*) FROM "job_postings" WHERE "role_kind" IS NOT NULL)
+--        + (SELECT count(*) FROM "jobs" WHERE "role_kind" IS NOT NULL);   -- expect 0
+-- and only AFTER the code that names the columns is rolled back (or the reads above 500):
+--   ALTER TABLE "jobs" DROP CONSTRAINT "jobs_role_kind_chk";
+--   ALTER TABLE "job_postings" DROP CONSTRAINT "job_postings_role_kind_chk";
+--   ALTER TABLE "jobs" DROP COLUMN "role_kind";
+--   ALTER TABLE "job_postings" DROP COLUMN "role_kind";
+-- ===========================================================================
+ALTER TABLE "job_postings" ADD COLUMN "role_kind" text;--> statement-breakpoint
+ALTER TABLE "jobs" ADD COLUMN "role_kind" text;--> statement-breakpoint
+ALTER TABLE "job_postings" ADD CONSTRAINT "job_postings_role_kind_chk" CHECK ("job_postings"."role_kind" IS NULL OR "job_postings"."role_kind" IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician'));--> statement-breakpoint
+ALTER TABLE "jobs" ADD CONSTRAINT "jobs_role_kind_chk" CHECK ("jobs"."role_kind" IS NULL OR "jobs"."role_kind" IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician'));

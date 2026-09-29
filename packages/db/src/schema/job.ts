@@ -21,6 +21,7 @@ import type {
   VacancyBand,
   JobPostingStatus,
   JobPostingVerificationStatus,
+  TradeFormKindName,
 } from "@badabhai/types";
 import type { TradeKey, SkipReason, SourceSurface } from "@badabhai/taxonomy";
 import { jsonArray } from "./internal/sql-defaults";
@@ -87,11 +88,13 @@ export const jobPostings = pgTable(
     description: text("description"),
     vacancyBand: text("vacancy_band").$type<VacancyBand>().notNull(),
     status: text("status").$type<JobPostingStatus>().notNull().default("draft"),
-    // Ops trust review → the worker-visible "Verified job" badge. ADDITIVE, safe:
-    // every existing row defaults to 'unverified' (no behaviour change). Only an
-    // ops verify/reject action moves it; the payer/worker read exposes only the
-    // boolean `verified` (status === 'verified'). NOT a RANK input (invariant #4).
-    // Rollback = drop column (nothing reads it fails-closed to unverified).
+    // Ops trust review — an ADMIN/ops record, NOT a worker-facing claim. ADDITIVE, safe:
+    // every existing row defaults to 'unverified' (no behaviour change). Only an ops
+    // verify/reject action moves it; the payer read exposes only the boolean `verified`
+    // (status === 'verified'). It was once meant to light a worker-visible "Verified job"
+    // badge; owner ruling 2026-09-22 (#1651) is that the alpha makes NO trust claim to a
+    // worker, so no worker read projects it (see the note in match-feed.repository.ts).
+    // NOT a RANK input (invariant #4). Rollback = drop column (readers fail closed to unverified).
     verificationStatus: text("verification_status")
       .$type<JobPostingVerificationStatus>()
       .notNull()
@@ -211,6 +214,20 @@ export const jobPostings = pgTable(
     benefits: jsonb("benefits").$type<string[]>(),
     // Short requirement tags (e.g. "Fanuc control"), mirrors `jobs.requirements`.
     requirements: jsonb("requirements").$type<string[]>(),
+    // ── The posting's ROLE (migration 0131, ADR-0036 addendum 2026-09-29) ──
+    // Which of the 21 declared worker-side roles (`TRADE_FORM_KINDS_ALL`) the payer picked
+    // for this posting — the classification the payer portal's picker and card preview read.
+    //
+    // DISPLAY / CLASSIFICATION ONLY. Never a match or rank input: `match_skill_ids` above
+    // stays the only thing a posting is matched on (ADR-0036 §3), and nothing derives a
+    // `job_domain_id` or a skill from this. It is on NO worker read in this phase (ADR-0024
+    // addendum 2026-09-29, #1823) — the feed/search/detail projections do not select it.
+    //
+    // NULLABLE WITH NO BACKFILL and NO DEFAULT: every existing posting, and every chat-
+    // published one, reads NULL = "no role picked", never a guessed role. Closed by the
+    // NULL-tolerant CHECK below, spelled out as a literal list because a migration is a
+    // frozen record. PII-free: a closed enum of occupation slugs.
+    roleKind: text("role_kind").$type<TradeFormKindName>(),
     // When the posting became worker-visible. The feed orders by this, NOT by
     // created_at, so a draft that sat for a week does not surface as a week-old job.
     // NULL = never published. D3 backfills it to created_at for non-draft rows.
@@ -363,6 +380,15 @@ export const jobPostings = pgTable(
     check(
       "job_postings_experience_order_chk",
       sql`${t.minExperienceYears} IS NULL OR ${t.maxExperienceYears} IS NULL OR ${t.maxExperienceYears} >= ${t.minExperienceYears}`,
+    ),
+    // Migration 0131 — the closed 21-kind DECLARED vocabulary (`TRADE_FORM_KINDS_ALL`), spelled
+    // out like `wri_identity_role_kind_chk` rather than referenced: a migration is a frozen
+    // record. NULL-tolerant, because "no role picked" is every legacy and chat-published row.
+    // A 22nd declared kind widens this list (and `jobs_role_kind_chk`) in the same change —
+    // `migration-0131-job-role-kind.test.ts` reads this model and turns red until it does.
+    check(
+      "job_postings_role_kind_chk",
+      sql`${t.roleKind} IS NULL OR ${t.roleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician')`,
     ),
   ],
 ).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
@@ -530,6 +556,11 @@ export const jobs = pgTable(
     benefits: jsonb("benefits").$type<string[]>(),
     // Short requirement tags (e.g. "Fanuc control", "ITI / Diploma"). PII-free.
     requirements: jsonb("requirements").$type<string[]>(),
+    // The job's ROLE (migration 0131) — the twin of `job_postings.role_kind`; see that column
+    // for the full rationale. DISPLAY / CLASSIFICATION ONLY: `trade_key` above stays the agency
+    // job's matching classifier (15 trade keys) and is untouched by this; `role_kind` is the
+    // 21-kind display role. Nullable, no default, no backfill; NULL = "no role picked".
+    roleKind: text("role_kind").$type<TradeFormKindName>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -572,6 +603,11 @@ export const jobs = pgTable(
     check(
       "jobs_pay_type_chk",
       sql`${t.payType} IS NULL OR ${t.payType} IN ('in_hand', 'gross', 'ctc')`,
+    ),
+    // Migration 0131 — mirrors `job_postings_role_kind_chk` (the same 21 literals, same order).
+    check(
+      "jobs_role_kind_chk",
+      sql`${t.roleKind} IS NULL OR ${t.roleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician')`,
     ),
   ],
 ).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)

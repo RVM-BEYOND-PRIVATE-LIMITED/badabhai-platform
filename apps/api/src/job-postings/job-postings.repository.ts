@@ -9,7 +9,11 @@ import {
   type JobShift,
   type NewJobPosting,
 } from "@badabhai/db";
-import type { JobPostingStatus, JobPostingVerificationStatus } from "@badabhai/types";
+import type {
+  JobPostingStatus,
+  JobPostingVerificationStatus,
+  TradeFormKindName,
+} from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
 
 /**
@@ -80,6 +84,14 @@ interface JobPostingApi {
   // and tsc could not tell. The projection now says what the column says.
   shift: JobShift | null;
   needed_by: JobNeededBy | null;
+  /**
+   * The ROLE the payer picked (migration 0131) — one of the 21 declared kinds, or NULL for "no
+   * role picked" (every chat-published and pre-0131 posting). Returned on THIS payer/ops
+   * projection only, so the portal can prefill its picker and draw its card preview. DISPLAY /
+   * CLASSIFICATION ONLY: never a match or rank input, and on NO worker read this phase
+   * (ADR-0024 addendum 2026-09-29, #1823).
+   */
+  role_kind: TradeFormKindName | null;
   published_at: Date | null;
   /** Boost window end. Null = not boosted. A time, so a boost expires with no sweep. */
   boosted_until: Date | null;
@@ -122,6 +134,7 @@ function toJobPostingApi(row: JobPosting): JobPostingApi {
     pay_type: row.payType,
     shift: row.shift,
     needed_by: row.neededBy,
+    role_kind: row.roleKind,
     published_at: row.publishedAt,
     boosted_until: row.boostedUntil,
     created_at: row.createdAt,
@@ -172,6 +185,9 @@ export type JobPostingUpdate = Partial<
     | "benefits"
     | "requirements"
     | "payType"
+    // Migration 0131 — the display role. Patchable like any card field; it never feeds
+    // `PublishReachService`, so it is not a Policy 10 concern.
+    | "roleKind"
   >
 > & { updatedAt: Date };
 
