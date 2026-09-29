@@ -23,6 +23,7 @@ class ChatMessage extends Equatable {
     this.status = ChatSendStatus.sent,
     this.submissionId,
     this.ttsText,
+    this.canReadAloud = true,
   });
 
   final String text;
@@ -46,6 +47,21 @@ class ChatMessage extends Equatable {
   /// displayed; the bubble always shows [text].
   final String? ttsText;
 
+  /// Whether this bubble may be READ ALOUD at all (ADR-0046 O9, Phase 3).
+  ///
+  /// False on a MODEL-WRITTEN turn, which the server marks with
+  /// `read_aloud: false`. Such a turn has no reviewed Devanagari twin, and
+  /// [ttsText] is therefore null — so the shipped `ttsText ?? text` fallback
+  /// would hand the hi-IN voice the model's raw romanized Hinglish and read it
+  /// as gibberish. The contract is explicit that the app must NOT fall back to
+  /// speaking `reply`, so a bubble with this false is offered no speaker button
+  /// and is never auto-read.
+  ///
+  /// Defaults to TRUE, which is every bubble the app has ever shown: fixed copy
+  /// and interview questions carry a reviewed twin and are read aloud exactly as
+  /// before. Only a turn that explicitly says `read_aloud: false` opts out.
+  final bool canReadAloud;
+
   ChatMessage copyWith({ChatSendStatus? status}) => ChatMessage(
         text: text,
         fromWorker: fromWorker,
@@ -55,9 +71,12 @@ class ChatMessage extends Equatable {
         submissionId: submissionId,
         // Preserved: flipping status must not drop the read-aloud script (#896).
         ttsText: ttsText,
+        // Preserved for the same reason: a status flip must not silently make a
+        // model-written bubble speakable again.
+        canReadAloud: canReadAloud,
       );
 
   @override
   List<Object?> get props =>
-      <Object?>[text, fromWorker, status, submissionId, ttsText];
+      <Object?>[text, fromWorker, status, submissionId, ttsText, canReadAloud];
 }

@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart'
-    show ChatOption, ChatQuestionKind;
+    show ChatOption, ChatQuestionKind, EditProposal, EditProposalRow;
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/observability/analytics.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
@@ -874,6 +874,167 @@ void main() {
       expect(spoken, hasLength(1));
       // 1, not 4: the three companion bubbles are not interview asks.
       expect(spoken.single.parameters['question_index'], 1);
+      await bloc.close();
+    });
+  });
+
+  // ── ADR-0046 §5.1/§5.2 — THE EDIT CARD ─────────────────────────────────────
+  //
+  // A card arrives on a companion turn (`edit_proposal`); Haan POSTs the ticked
+  // rows' ids to the confirm route, Nahi POSTs the cancel route. Both answers
+  // are TURNS, and the two failure shapes are DISTINCT: a gone proposal (404 /
+  // stale) keeps the worker in the companion and re-reads the recap; a 409
+  // `{mode:"interview"}` leaves companion mode for the interview.
+  group('ADR-0046 edit card', () {
+    const String proposalId = '22222222-2222-4222-8222-222222222222';
+    const String rowA = '33333333-3333-4333-8333-333333333333';
+    const String rowB = '44444444-4444-4444-8444-444444444444';
+
+    EditProposal proposal() => EditProposal(
+          proposalId: proposalId,
+          expiresAt: DateTime.now().add(const Duration(minutes: 10)),
+          rows: const <EditProposalRow>[
+            EditProposalRow(
+              rowId: rowA,
+              sectionLabel: 'Skills',
+              op: 'add',
+              after: 'Welding',
+            ),
+            EditProposalRow(
+              rowId: rowB,
+              sectionLabel: 'Languages',
+              op: 'delete',
+              before: 'Hindi',
+            ),
+          ],
+        );
+
+    ChatTurn cardTurn() => ChatTurn(
+          reply: 'Yeh badlav karne hain?',
+          suggestedOptions: const <ChatOption>[],
+          questionKind: ChatQuestionKind.disambiguate,
+          companion: true,
+          editProposal: proposal(),
+        );
+
+    /// A bloc already in companion mode whose LAST turn carries the card.
+    Future<ChatBloc> blocWithCard() async {
+      when(() => repo.openCompanion()).thenAnswer(
+        (_) async => CompanionOpening(
+          CompanionOpenOutcome.companion,
+          _companion(_recap, digestKey: 'k1'),
+        ),
+      );
+      when(() => repo.sendCompanionMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => cardTurn());
+      final ChatBloc bloc = ChatBloc(repo)..add(const ChatCompanionStarted());
+      await pumpEventQueue();
+      bloc.add(const ChatMessageSent('Resume badlo'));
+      await pumpEventQueue();
+      expect(bloc.state.editProposal, isNotNull);
+      return bloc;
+    }
+
+    test('Haan sends the TICKED row ids and renders the served turn', () async {
+      final ChatBloc bloc = await blocWithCard();
+      when(() => repo.confirmCompanionEdit(proposalId, <String>[rowA],
+              submissionId: any(named: 'submissionId'))).thenAnswer(
+        (_) async => CompanionEditResult.served(
+          const ChatTurn(
+            reply: 'Badlav ho gaya. Aapka resume update ho raha hai.',
+            companion: true,
+          ),
+        ),
+      );
+
+      bloc.add(const ChatEditProposalConfirmed(<String>[rowA]));
+      await pumpEventQueue();
+
+      expect(bloc.state.editProposal, isNull);
+      expect(bloc.state.messages.last.text, contains('Badlav ho gaya'));
+      verify(() => repo.confirmCompanionEdit(proposalId, <String>[rowA],
+          submissionId: any(named: 'submissionId'))).called(1);
+      await bloc.close();
+    });
+
+    test('Nahi cancels and renders the served turn', () async {
+      final ChatBloc bloc = await blocWithCard();
+      when(() => repo.cancelCompanionEdit(proposalId,
+              submissionId: any(named: 'submissionId'))).thenAnswer(
+        (_) async => CompanionEditResult.served(
+          const ChatTurn(
+            reply: 'Theek hai, kuch nahi badla.',
+            companion: true,
+          ),
+        ),
+      );
+
+      bloc.add(const ChatEditProposalCancelled());
+      await pumpEventQueue();
+
+      expect(bloc.state.editProposal, isNull);
+      expect(bloc.state.messages.last.text, contains('kuch nahi badla'));
+      expect(bloc.state.companion, isTrue);
+      await bloc.close();
+    });
+
+    test('a GONE proposal clears the card and re-reads the recap, staying in companion', () async {
+      final ChatBloc bloc = await blocWithCard();
+      when(() => repo.confirmCompanionEdit(any(), any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const CompanionEditResult.gone());
+
+      bloc.add(const ChatEditProposalConfirmed(<String>[rowA, rowB]));
+      await pumpEventQueue();
+
+      expect(bloc.state.editProposal, isNull);
+      expect(bloc.state.companion, isTrue);
+      // The forced refresh re-read the recap (one read on open + one here).
+      verify(() => repo.openCompanion()).called(2);
+      await bloc.close();
+    });
+
+    test('a 409 mode:interview leaves companion mode and opens the interview', () async {
+      final ChatBloc bloc = await blocWithCard();
+      when(() => repo.confirmCompanionEdit(any(), any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const CompanionEditResult.interview());
+      when(() => repo.ensureSession()).thenAnswer(
+        (_) async => const ChatSessionOpening(text: 'Aap kya karna chahte hain.'),
+      );
+
+      bloc.add(const ChatEditProposalConfirmed(<String>[rowA]));
+      await pumpEventQueue();
+
+      expect(bloc.state.companion, isFalse);
+      expect(bloc.state.editProposal, isNull);
+      verify(() => repo.ensureSession()).called(1);
+      await bloc.close();
+    });
+
+    test('a failed confirm KEEPS the card so the worker can retry', () async {
+      final ChatBloc bloc = await blocWithCard();
+      when(() => repo.confirmCompanionEdit(any(), any(),
+              submissionId: any(named: 'submissionId')))
+          .thenThrow(const NetworkFailure());
+
+      bloc.add(const ChatEditProposalConfirmed(<String>[rowA]));
+      await pumpEventQueue();
+
+      expect(bloc.state.editProposal, isNotNull);
+      expect(bloc.state.companion, isTrue);
+      expect(bloc.state.sending, isFalse);
+      await bloc.close();
+    });
+
+    test('an empty tick set is a no-op — nothing is POSTed', () async {
+      final ChatBloc bloc = await blocWithCard();
+      bloc.add(const ChatEditProposalConfirmed(<String>[]));
+      await pumpEventQueue();
+      expect(bloc.state.editProposal, isNotNull);
+      verifyNever(() => repo.confirmCompanionEdit(any(), any(),
+          submissionId: any(named: 'submissionId')));
       await bloc.close();
     });
   });

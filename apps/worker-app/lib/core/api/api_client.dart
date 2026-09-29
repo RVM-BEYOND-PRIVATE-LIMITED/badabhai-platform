@@ -402,6 +402,48 @@ class ApiClient {
     return ChatReply.fromJson(json);
   }
 
+  /// `POST /chat/companion/edits/:proposalId/confirm` (ADR-0046 §5.2) — the
+  /// worker ticked rows on the edit card and tapped Haan.
+  ///
+  /// [rowIds] are the ticked rows' server-minted `row_id`s (1..3); the VALUES
+  /// never cross the wire. The 200 body is a companion turn. Throws
+  /// [ApiException] on non-2xx like every call; the repository maps 404 /
+  /// 409-stale / 409-interview.
+  Future<ChatReply> confirmCompanionEdit({
+    required String authToken,
+    required String proposalId,
+    required List<String> rowIds,
+    String? submissionId,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/chat/companion/edits/$proposalId/confirm',
+      <String, dynamic>{
+        'row_ids': rowIds,
+        if (submissionId != null) 'submission_id': submissionId,
+      },
+      authToken: authToken,
+    );
+    return ChatReply.fromJson(json);
+  }
+
+  /// `POST /chat/companion/edits/:proposalId/cancel` (ADR-0046 §5.2) — the
+  /// worker tapped Nahi on the edit card. The 200 body is a companion turn;
+  /// a 404 means the proposal is already gone.
+  Future<ChatReply> cancelCompanionEdit({
+    required String authToken,
+    required String proposalId,
+    String? submissionId,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/chat/companion/edits/$proposalId/cancel',
+      <String, dynamic>{
+        if (submissionId != null) 'submission_id': submissionId,
+      },
+      authToken: authToken,
+    );
+    return ChatReply.fromJson(json);
+  }
+
   /// Posts a worker message. Worker-scoped — requires [authToken]; the worker is
   /// taken from the token, never from the body.
   ///

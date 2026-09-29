@@ -1272,6 +1272,31 @@ class MockApiClient extends ApiClient {
     throw ApiException(409, 'not in companion mode');
   }
 
+  /// Unreachable in demo mode for the same reason as [sendCompanionMessage]:
+  /// no card is ever served, so no confirm can be tapped. Answered 409, which
+  /// the repository reads as "this worker is not a companion worker".
+  @override
+  Future<ChatReply> confirmCompanionEdit({
+    required String authToken,
+    required String proposalId,
+    required List<String> rowIds,
+    String? submissionId,
+  }) async {
+    await _delay();
+    throw ApiException(409, 'not in companion mode');
+  }
+
+  /// Unreachable in demo mode; answered like [confirmCompanionEdit].
+  @override
+  Future<ChatReply> cancelCompanionEdit({
+    required String authToken,
+    required String proposalId,
+    String? submissionId,
+  }) async {
+    await _delay();
+    throw ApiException(409, 'not in companion mode');
+  }
+
   @override
   Future<bool> getNotificationPrefs({required String authToken}) async {
     await _delay();

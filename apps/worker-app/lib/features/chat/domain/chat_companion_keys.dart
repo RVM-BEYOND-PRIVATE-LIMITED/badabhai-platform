@@ -25,6 +25,50 @@ const String kCompanionAppliedKey = 'companion_applied';
 /// Server-answered: the existing résumé menu (edit / redo), verbatim.
 const String kCompanionResumeKey = 'companion_resume';
 
+/// ADR-0046 **Phase 1** — the companion's TASK CHIPS, offered when the router
+/// cannot act so a worker is never left without a next step.
+///
+/// SERVER-ANSWERED, NOT CLIENT-ROUTED. Unlike `companion_jobs_tab` and
+/// `companion_applied`, none of these opens a screen: the app posts the chip's
+/// LABEL as ordinary text (the chat's shipped convention) and the server's
+/// classifier decides. They therefore fall through [companionActionFor] to
+/// [CompanionAction.none] deliberately — that is the contract, not an omission.
+///
+/// The server keeps them in their own file (`companion-task-keys.ts`) so that
+/// adding them could not redden this app's four-key v1 parity pin before an app
+/// build that knows them existed; [kCompanionTaskKeys] is this side of that
+/// mirror and `chat_companion_keys_test.dart` pins it to that file.
+const String kCompanionTaskEditResumeKey = 'companion_task:edit_resume';
+const String kCompanionTaskNewResumeKey = 'companion_task:new_resume';
+const String kCompanionTaskCareerTalkKey = 'companion_task:career_talk';
+
+/// What every task key starts with. A NEW namespace, disjoint from v1's
+/// `companion_` + suffix keys, so a shipped client can tell a v2-only chip from
+/// one it has always known — which is what [isCompanionV2OnlyKey] needs.
+const String kCompanionTaskKeyPrefix = 'companion_task:';
+
+/// Every task key this build knows, for the parity test and the analytics map.
+const List<String> kCompanionTaskKeys = <String>[
+  kCompanionTaskEditResumeKey,
+  kCompanionTaskNewResumeKey,
+  kCompanionTaskCareerTalkKey,
+];
+
+/// Whether [optionKey] is a chip only a v2-enabled build may show.
+///
+/// THE LEVER GATES THE DOOR AS WELL AS THE ROOM (ADR-0046 F4: the Remote Config
+/// key gates F1–F3). "Resume badlo" is the one task chip Phase 1 actually
+/// serves, and tapping it asks the server for an edit proposal — whose card the
+/// same lever hides. Offered on a lever-off build it is a door onto a room that
+/// is bricked up: the worker taps, the message posts, the server proposes an
+/// edit, and the reply arrives with no card and no Haan to press. So a lever-off
+/// build does not draw it.
+///
+/// KEYED ON THE PREFIX, not on the three known keys, so a fourth task chip the
+/// server adds tomorrow is hidden by an old build rather than shown bare.
+bool isCompanionV2OnlyKey(String optionKey) =>
+    optionKey.startsWith(kCompanionTaskKeyPrefix);
+
 /// App-routed: ONE job's detail. The key is this prefix plus the posting id.
 const String kCompanionJobKeyPrefix = 'companion_job:';
 
@@ -108,6 +152,12 @@ String companionChipKeyClass(String optionKey) {
       return 'new_jobs';
     case kCompanionResumeKey:
       return 'resume';
+    case kCompanionTaskEditResumeKey:
+      return 'task_edit_resume';
+    case kCompanionTaskNewResumeKey:
+      return 'task_new_resume';
+    case kCompanionTaskCareerTalkKey:
+      return 'task_career_talk';
     default:
       return 'other';
   }
