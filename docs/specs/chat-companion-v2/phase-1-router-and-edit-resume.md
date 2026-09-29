@@ -111,10 +111,13 @@ A new edit message while a proposal is open replaces it (one active proposal per
       (tier `cheap` → Gemini Flash, json_mode on, low temperature). Prompts in the prompt registry.
       The route shapes landed with A2 (the endpoints cannot be green without them); A3 added the
       registry names + registration, the trace names, and `test_companion_routes.py`.
-- [ ] **A4 Evals.** `apps/ai-service/tests/companion/`:
+- [x] **A4 Evals.** `apps/ai-service/tests/companion/`:
       classifier set ≥ 150 labelled Hinglish / Hindi / English lines across all 6 intents
       (incl. typos, voice-transcript style, mixed script); edit-parse set ≥ 60 cases across all
       sections, ops and multi-row messages. Regression test fails below the targets in §4.
+      158 classifier lines + 74 edit cases; the real accuracy bars gate in
+      `python -m app.companion.eval_cli` (staging), and CI gates set shape, scorer capability,
+      catalogue containment and the TS↔gold catalogue parity.
 
 ### Frontend — worker app (GitHub issue for Frontend Platform)
 

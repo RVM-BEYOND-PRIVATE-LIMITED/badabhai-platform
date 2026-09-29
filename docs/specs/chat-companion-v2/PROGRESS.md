@@ -514,3 +514,31 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
   `AiService.pseudonymize` so memory only ever holds pseudonymized text (the classify endpoint
   re-masks idempotently).
 - **Next:** A4 (evals) + the remaining §3 tests (privacy, persona extension already covered).
+
+---
+
+## A4 — 2026-09-29 14:36
+
+- **Done:** The evals (and a real bug they caught).
+  - `app/companion/eval_classify_gold.py`: **158** labelled lines across all six intents (Latin
+    Hinglish, Devanagari, English, typos, voice-transcript shapes), `evaluate()` scoring accuracy
+    + `edit_resume` precision, thresholds 0.90 / 0.95.
+  - `app/companion/eval_edit_parse_gold.py`: **74** cases across all six sections, all three ops,
+    multi-row (incl. a three-row) messages, against a frozen catalogue/snapshot fixture;
+    `evaluate()` scores exact-row accuracy (0.90) and flags any out-of-catalogue row.
+  - `app/companion/eval_cli.py`: the STAGING gate (`--classify` / `--edit-parse --base-url`),
+    exits non-zero below the §4 bars.
+  - `tests/companion/test_companion_evals.py` (9): set size/coverage, scorer capability (a
+    constant predictor fails; an identity row is caught), containment, and a TS↔gold catalogue
+    parity check read from `edit-catalogue.ts` (so the fixture cannot drift).
+  - **Bug caught by the eval:** the catalogue allowed `delete` on NO employment/qualification
+    field, so those deletes were silently dropped. Fixed in its own commit (`a9a2fd64`) with a
+    pinning API test.
+- **Checks:**
+  - ai-service `pytest` exit 0 (9 new) · `ruff check .` clean.
+  - `pnpm --filter @badabhai/api test` — 12,050 passed / 153 skipped.
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29.
+- **Notes / decisions / surprises:** CI cannot score a model (mock-only), so the deterministic
+  half gates the SET and the SCORER while the CLI gates the model on staging; that mirrors the
+  canonicalization eval's split.
+- **Next:** the last §3 test — `companion-v2.privacy.test.ts` — then the phase checklist is done.
