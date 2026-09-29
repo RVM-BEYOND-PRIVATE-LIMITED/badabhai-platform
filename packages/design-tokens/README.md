@@ -137,14 +137,17 @@ Blue) cropped from the kit's `Logotype.png`. The files live in each app's `publi
 - Tests that read this file:
   - `apps/payer-web/src/app/ink-parity.test.tsx` — payer-web's `globals.css` must import
     `@badabhai/design-tokens/tokens.css` (not a local copy), and the first
-    `[data-theme="ink"]` block here must exist and flip `--surface-page` to `var(--ink-950)`
-    and `--text-primary` to `var(--paper-1)`.
+    `[data-theme="ink"]` block here must exist and flip `--surface-page` to `var(--ink-950)`,
+    `--text-primary` and `--text-heading` to `var(--paper-1)` and `--text-accent` to
+    `var(--vermilion-500)`; the paper lockup's logotype must be knocked out on an ink page.
+  - `apps/payer-web/src/app/design-tokens-assets.test.ts` — every `url()` here must resolve to
+    a shipped file, and `package.json` `files` must publish its directory.
   - `apps/payer-web/src/app/agency-b5-layout.css.test.ts` — reads `--border-hairline`,
     `--gutter`, `--space-5`, `--space-6` as bare px lengths (their first declaration) and
     requires `--z-sticky` > `--z-raised`.
 - Run `npx vitest run` in `apps/payer-web` and `apps/admin-web`.
-- A colour change re-measures contrast: update the ratio in the comment here and in
-  `docs/design/payer-web-a11y-checklist.md` §5.
+- A colour change re-measures contrast: update the measured ratio in the comment beside the
+  token in `tokens.css`.
 - CI: `packages/design-tokens/**` is in both the `payer-web` and `admin-web` path filters of
   `.github/workflows/ci.yml`, so a token edit re-runs both image gates. The `node` job has no
   path filter, and turbo hashes this package's files into both apps' `build`/`test` task
