@@ -2,7 +2,11 @@ import { Inject, Injectable } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { RESUME_MENU_REDO_LABEL, resolveResumeMenu } from "../../../chat/resume-menu";
 import { hasActiveConsent } from "../../../consent/consent-active";
-import type { ConsentRepository } from "../../../consent/consent.repository";
+// VALUE import, not `import type`: Nest resolves this constructor parameter by the class token,
+// and a type-only import is erased before `emitDecoratorMetadata` runs — the E2E boot caught
+// exactly that (NewResumeHandler: dependencies [SERVER_CONFIG, null]) while every unit suite,
+// which constructs the handler by hand, stayed green.
+import { ConsentRepository } from "../../../consent/consent.repository";
 import { SERVER_CONFIG } from "../../../config/config.module";
 import { FALLBACK } from "../../companion-replies";
 import { taskChips, v2CopyTurn, v2MenuTurn } from "../companion-v2-compose";

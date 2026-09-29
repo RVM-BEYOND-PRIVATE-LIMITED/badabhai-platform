@@ -174,6 +174,43 @@ describe("the companion's egress guard", () => {
     }
   });
 
+  it("no v2 file imports a DI-injected class TYPE-ONLY — Nest resolves by runtime token", () => {
+    // THE E2E BOOT CAUGHT THIS ONCE AND NOTHING ELSE COULD. `import type { ConsentRepository }`
+    // is erased before `emitDecoratorMetadata` runs, so Nest read the constructor parameter as
+    // null and the API died at startup (`NewResumeHandler: dependencies [SERVER_CONFIG, null]`)
+    // — while every unit suite stayed green, because they construct handlers by hand and vitest
+    // emits no design:paramtypes for the metadata assertions above to inspect.
+    //
+    // Scanned over source, like the egress rules: every name imported with `import type` must
+    // not appear as a constructor parameter type. `@Inject(...)`-decorated parameters are
+    // exempt BY CONSTRUCTION (the decorator carries the token), which is why the scan tests the
+    // parameter's `: Type` annotation rather than the import itself.
+    for (const [file, source] of allSources) {
+      const typeOnly = new Set(
+        [...source.matchAll(/import\s+type\s*\{([^}]*)\}/g)]
+          .flatMap((m) => m[1]!.split(","))
+          .map((s) => s.trim().split(/\s+as\s+/)[0]!.trim())
+          .filter((s) => s.length > 0),
+      );
+      const params = source.match(/constructor\(([\s\S]*?)\{/);
+      if (params === null) continue;
+      // `@Inject(...)`-decorated parameters are exempt: the decorator carries the token, so
+      // their `: Type` annotation is documentation (e.g. `@Inject(SERVER_CONFIG) ... config:
+      // ServerConfig`). Split on commas — no decorator here takes a comma-bearing argument.
+      const undecorated = params[1]!
+        .split(",")
+        .filter((p) => !p.includes("@Inject("))
+        .join(",");
+      for (const name of typeOnly) {
+        expect(
+          undecorated,
+          `${file}: ${name} is imported type-only but used as a constructor parameter type — ` +
+            `import it as a value or Nest will inject null at boot`,
+        ).not.toMatch(new RegExp(`:\\s*${name}\\b`));
+      }
+    }
+  });
+
   it("no v2 file opens its own model/HTTP call — every model call goes through AiService", () => {
     // The one way v2 may reach a model is the injected `AiService` client (API → AiService →
     // ai-service → pseudonymize → AIRouter). A direct fetch/axios/SDK call here would bypass
