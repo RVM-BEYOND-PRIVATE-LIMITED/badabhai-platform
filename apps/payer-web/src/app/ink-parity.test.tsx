@@ -8,7 +8,8 @@ import { dirname, join, relative } from "node:path";
  *
  * The whole payer portal is built token-driven (DS0.2→DS4.1): every screen styles from the
  * SEMANTIC tokens (--surface-* / --text-* / --brand / --success / …) + the `.bb-*` / token
- * classes, and `src/styles/tokens.css` defines a full `[data-theme="ink"]` block that FLIPS
+ * classes, and the shared `packages/design-tokens/tokens.css` (imported by globals.css as
+ * `@badabhai/design-tokens/tokens.css`) defines a full `[data-theme="ink"]` block that FLIPS
  * those semantic tokens. So a single `data-theme="ink"` on the shell re-themes the entire app.
  *
  * The ONLY way that parity silently regresses is if a screen reintroduces a value that does NOT
@@ -169,7 +170,18 @@ describe("DS4.2 · ink parity — no hardcoded light leaks in screen sources", (
 });
 
 describe("DS4.2 · tokens.css still defines the [data-theme=\"ink\"] parity block", () => {
-  const tokens = readFileSync(join(srcRoot, "styles", "tokens.css"), "utf8");
+  // The token layer is the shared package (payer-web no longer carries its own copy);
+  // resolved from the repo root: src/app → payer-web → apps → repo.
+  const tokens = readFileSync(
+    join(here, "..", "..", "..", "..", "packages", "design-tokens", "tokens.css"),
+    "utf8",
+  );
+
+  it("globals.css imports the shared token package, not a local copy", () => {
+    const globals = readFileSync(join(here, "globals.css"), "utf8");
+    expect(globals).toMatch(/@import\s+"@badabhai\/design-tokens\/tokens\.css";/);
+    expect(globals).not.toMatch(/@import\s+"[^"]*styles\/tokens\.css"/);
+  });
 
   it("declares the [data-theme=\"ink\"] selector", () => {
     expect(tokens).toMatch(/\[data-theme="ink"\]\s*\{/);
@@ -180,12 +192,24 @@ describe("DS4.2 · tokens.css still defines the [data-theme=\"ink\"] parity bloc
     const block = tokens.match(/\[data-theme="ink"\]\s*\{([\s\S]*?)\}/);
     expect(block, "the [data-theme=\"ink\"] block must exist").not.toBeNull();
     const body = block![1]!;
-    // These three are what every screen's page/card/heading resolve from — they MUST flip.
+    // What every screen's page/card/body text resolve from — they MUST flip.
     expect(body).toMatch(/--surface-page:/);
     expect(body).toMatch(/--surface-card:/);
     expect(body).toMatch(/--text-primary:/);
     // And the flip is to the dark ramp (ink-950 page, paper text), not the paper defaults.
     expect(body).toMatch(/--surface-page:\s*var\(--ink-950\)/);
     expect(body).toMatch(/--text-primary:\s*var\(--paper-1\)/);
+    // Every heading resolves from --text-heading and every accent label from --text-accent;
+    // both are Shift Blue on light, so without their ink overrides they go navy-on-navy.
+    expect(body).toMatch(/--text-heading:\s*var\(--paper-1\)/);
+    expect(body).toMatch(/--text-accent:\s*var\(--vermilion-500\)/);
+  });
+
+  it("knocks the paper lockup's navy logotype out to white on an ink page", () => {
+    // The sign-in card renders the PAPER lockup and carries a theme toggle; the navy logotype
+    // measured ~1.04:1 on the ink card before this rule existed.
+    expect(tokens).toMatch(
+      /\[data-theme="ink"\]\s+\.bb-lockup:not\(\.bb-lockup--on-ink\)\s+\.bb-lockup__wordmark\s*\{[^}]*filter:\s*brightness\(0\)\s*invert\(1\)/,
+    );
   });
 });

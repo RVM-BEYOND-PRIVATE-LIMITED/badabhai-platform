@@ -40,7 +40,7 @@ export function EarningsPanel({ earnings }: { earnings: AgencyEarnings }) {
 
       {/* Mock-money disclosure — always visible where money is shown. */}
       <div className="alert alert--warning">
-        <i className="ph ph-info alert__icon" aria-hidden="true" />
+        <i className="ph-fill ph-info alert__icon" aria-hidden="true" />
         <div className="alert__text">
           <p className="alert__title">No real money is disbursed</p>
           <p className="alert__body">

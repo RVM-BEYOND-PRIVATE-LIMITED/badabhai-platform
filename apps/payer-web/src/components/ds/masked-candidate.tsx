@@ -87,19 +87,19 @@ export function MaskedCandidate({
         <div className="bb-candidate__meta">
           {trade && (
             <span>
-              <i className="ph ph-wrench" aria-hidden="true" />
+              <i className="ph-fill ph-wrench" aria-hidden="true" />
               {trade}
             </span>
           )}
           {experience && (
             <span>
-              <i className="ph ph-medal" aria-hidden="true" />
+              <i className="ph-fill ph-medal" aria-hidden="true" />
               {experience}
             </span>
           )}
           {location && (
             <span>
-              <i className="ph ph-map-pin" aria-hidden="true" />
+              <i className="ph-fill ph-map-pin" aria-hidden="true" />
               {location}
             </span>
           )}
@@ -110,7 +110,7 @@ export function MaskedCandidate({
         {matchLabel && <span className="bb-badge bb-badge--success">{matchLabel}</span>}
         {masked ? (
           <button className="bb-btn bb-btn--primary" onClick={onUnlock}>
-            <i className="ph ph-lock-key-open" aria-hidden="true" />
+            <i className="ph-fill ph-lock-key-open" aria-hidden="true" />
             <span>{price}</span>
           </button>
         ) : (

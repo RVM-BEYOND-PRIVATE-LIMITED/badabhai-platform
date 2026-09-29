@@ -486,7 +486,7 @@ export function LoginForm() {
           </Button>
 
           <p className="login-trust">
-            <i className="ph ph-lock-key" aria-hidden="true" />
+            <i className="ph-fill ph-lock-key" aria-hidden="true" />
             Secure one-time-code sign-in — no passwords. We’ll never share your details.
           </p>
           {statusRegion}

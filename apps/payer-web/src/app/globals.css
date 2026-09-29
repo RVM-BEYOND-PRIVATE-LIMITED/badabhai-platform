@@ -1,7 +1,8 @@
-/* BadaBhai Design System token layer — the foundation (colors / type / spacing /
- * radii / elevation / motion / base). Imported FIRST so every rule below resolves
- * from tokens. Source of truth: docs/design/BadaBhai Design System/. */
-@import "../styles/tokens.css";
+/* BadaBhai brand token layer — the foundation (colors / type / spacing / radii /
+ * elevation / motion / base). Imported FIRST so every rule below resolves from tokens.
+ * Source of truth: the shared @badabhai/design-tokens package (packages/design-tokens),
+ * which admin-web imports too, so the two portals cannot drift apart again. */
+@import "@badabhai/design-tokens/tokens.css";
 
 /* BadaBhai Design System COMPONENT layer — the `.bb-*` primitive classes consumed by
  * the typed React wrappers in src/components/ds/. Imported AFTER the tokens so every
@@ -74,15 +75,18 @@ body {
   grid-template-columns: var(--shell-nav-w-collapsed) minmax(0, 1fr);
 }
 
-/* ---- the rail ---- */
+/* ---- the rail ----
+   A Shift Blue band in BOTH themes: the frame is always the brand structure colour, so every
+   colour inside it comes from the on-ink chrome tokens, never the page's --text-* set. */
 .pshell__rail {
   grid-column: 1;
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
   padding: var(--space-4) var(--space-3);
-  background: var(--surface-card);
-  border-right: var(--border-hairline) solid var(--border-subtle);
+  background: var(--surface-ink);
+  border-right: var(--border-hairline) solid var(--border-on-ink);
+  color: var(--text-on-ink);
   position: sticky;
   top: 0;
   height: 100dvh;
@@ -91,6 +95,15 @@ body {
   /* The rail width is the grid track; this keeps its own box honest when it becomes a
      fixed drawer below 1024px. */
   width: 100%;
+  /* FOCUS ON NAVY. The global ring is Shift Blue (--focus-ring), which is invisible on this
+     band. --ring-focus is resolved where it is declared (:root), so re-pointing
+     --focus-ring alone would not reach it; the composed ring is re-declared here instead:
+     a rail-coloured separation band, then the accent (legible on navy). */
+  --focus-ring: var(--brand);
+  --ring-focus:
+    0 0 0 var(--border-bold) var(--surface-ink),
+    0 0 0 calc(2 * var(--border-bold)) var(--brand);
+  --ring-focus-tight: var(--ring-focus);
 }
 
 .pshell__brand {
@@ -109,28 +122,18 @@ body {
 }
 .pshell__brandlink:hover {
   text-decoration: none;
-  background: var(--surface-hover);
+  background: var(--surface-ink-hover);
 }
 .pshell__brandlink:focus-visible {
   outline: none;
   box-shadow: var(--ring-focus);
 }
-.pshell__brandtext {
-  display: grid;
-  min-width: 0;
+/* The rail lockup stacks the persona under the logotype; the logotype takes a fixed height
+   so it reads at the same size whatever tile size the rail passes. */
+.pshell__brand {
+  --bb-wordmark-h: var(--space-4);
 }
-.pshell__brandname {
-  font-family: var(--font-display);
-  font-size: var(--ui-h3-size);
-  font-weight: var(--weight-extrabold);
-  letter-spacing: var(--tracking-tight);
-  color: var(--text-primary);
-  line-height: var(--leading-tight);
-}
-.pshell__brandrole {
-  font-size: var(--ui-caption-size);
-  color: var(--text-muted);
-  line-height: var(--leading-snug);
+.pshell__brand .bb-lockup__sub {
   white-space: nowrap;
 }
 
@@ -152,7 +155,7 @@ body {
   font-weight: var(--ui-eyebrow-weight);
   letter-spacing: var(--ui-eyebrow-tracking);
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-on-ink-muted);
   margin: 0 0 var(--space-2) var(--space-3);
 }
 .pnav__list {
@@ -170,7 +173,7 @@ body {
   min-height: var(--control-sm);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
-  color: var(--text-secondary);
+  color: var(--text-on-ink-muted);
   text-decoration: none;
   font-size: var(--ui-nav-size);
   line-height: var(--ui-nav-leading);
@@ -182,19 +185,19 @@ body {
   overflow: hidden;
 }
 .pnav__link:hover {
-  background: var(--surface-hover);
-  color: var(--text-primary);
+  background: var(--surface-ink-hover);
+  color: var(--text-on-ink);
   text-decoration: none;
 }
 .pnav__icon {
   flex: none;
   font-size: var(--text-md);
   line-height: 1;
-  color: var(--text-muted);
+  color: var(--text-on-ink-muted);
   transition: color var(--duration-fast) var(--ease-out);
 }
 .pnav__link:hover .pnav__icon {
-  color: var(--text-primary);
+  color: var(--text-on-ink);
 }
 .pnav__label {
   min-width: 0;
@@ -202,37 +205,44 @@ body {
   text-overflow: ellipsis;
 }
 
-/* ACTIVE — the rail's one strong signal. A tinted plate plus a brand spine on the leading
-   edge: the plate alone reads as "hovered" on a light surface, and colour alone would be
-   the only cue for a user who cannot separate haldi from the card. */
+/* ACTIVE — the rail's one strong signal, identical in both themes because the rail is navy
+   in both. Safety Yellow text + icon on a yellow wash, plus a yellow spine on the leading
+   edge: the wash alone reads as "hovered", and colour alone would be the only cue for a user
+   who cannot separate the accent from the band. */
 .pnav__link--active,
 .pnav__link--active:hover {
-  background: var(--brand-tint);
-  color: var(--text-primary);
+  background: var(--surface-ink-active);
+  color: var(--text-on-ink-active);
   font-weight: var(--ui-nav-weight-active);
-  box-shadow: inset 3px 0 0 var(--brand);
+  box-shadow: inset var(--border-spine) 0 0 var(--brand);
 }
 .pnav__link--active .pnav__icon,
 .pnav__link--active:hover .pnav__icon {
-  color: var(--brand-press);
+  color: var(--text-on-ink-active);
 }
-[data-theme="ink"] .pnav__link--active .pnav__icon,
-[data-theme="ink"] .pnav__link--active:hover .pnav__icon {
-  color: var(--brand);
+/* The spine is itself a box-shadow, so on the active row it would replace the focus ring;
+   keyboard focus composes the two instead. */
+.pnav__link:focus-visible {
+  box-shadow: var(--ring-focus);
+}
+.pnav__link--active:focus-visible {
+  box-shadow:
+    inset var(--border-spine) 0 0 var(--brand),
+    var(--ring-focus);
 }
 
 /* COMING SOON — a <span>, never a link (see sidebar-nav.tsx). Deliberately colourless:
    any tint would read as a status the user should act on. */
 .pnav__link--soon {
-  color: var(--soon-fg);
+  color: var(--text-on-ink-disabled);
   cursor: not-allowed;
 }
 .pnav__link--soon .pnav__icon {
-  color: var(--soon-fg);
+  color: var(--text-on-ink-disabled);
 }
 .pnav__link--soon:hover {
   background: transparent;
-  color: var(--soon-fg);
+  color: var(--text-on-ink-disabled);
 }
 .pnav__soon {
   margin-left: auto;
@@ -241,9 +251,10 @@ body {
   font-weight: var(--ui-eyebrow-weight);
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
-  color: var(--soon-fg);
-  background: var(--soon-bg);
-  border: var(--border-hairline) solid var(--soon-border);
+  /* A LABEL inside a live nav link, so it must read as text (9.97:1), not as disabled. */
+  color: var(--text-on-ink-muted);
+  background: transparent;
+  border: var(--border-hairline) solid var(--border-on-ink);
   border-radius: var(--radius-pill);
   padding: 1px var(--space-2);
   line-height: 1.45;
@@ -255,7 +266,7 @@ body {
   flex-direction: column;
   gap: var(--space-2);
   padding-top: var(--space-3);
-  border-top: var(--border-hairline) solid var(--border-subtle);
+  border-top: var(--border-hairline) solid var(--border-on-ink);
 }
 .pshell__whoami {
   display: flex;
@@ -263,6 +274,13 @@ body {
   gap: var(--space-2);
   padding: 0 var(--space-3);
   flex-wrap: wrap;
+}
+/* The account-kind badge sits on the band, so it takes the raised on-ink plate rather than
+   the page's pale tint (which would be the brightest thing in the rail in light mode). */
+.pshell__whoami .bb-badge {
+  background: var(--surface-ink-raised);
+  color: var(--text-on-ink);
+  border-color: transparent;
 }
 .pshell__collapse {
   display: flex;
@@ -273,7 +291,7 @@ body {
   border: none;
   border-radius: var(--radius-md);
   background: transparent;
-  color: var(--text-muted);
+  color: var(--text-on-ink-muted);
   font-family: inherit;
   font-size: var(--ui-nav-size);
   font-weight: var(--ui-nav-weight);
@@ -283,14 +301,14 @@ body {
   overflow: hidden;
 }
 .pshell__collapse:hover {
-  background: var(--surface-hover);
-  color: var(--text-primary);
+  background: var(--surface-ink-hover);
+  color: var(--text-on-ink);
 }
 .pshell__collapse:focus-visible {
   outline: none;
   box-shadow: var(--ring-focus);
 }
-.pshell__collapse .ph {
+.pshell__collapse .ph-fill {
   flex: none;
   font-size: var(--text-md);
   line-height: 1;
@@ -421,11 +439,11 @@ body {
   flex: none;
 }
 .pcrumb__here {
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: var(--ui-h3-size);
   font-weight: var(--ui-h3-weight);
   letter-spacing: var(--ui-h3-tracking);
-  color: var(--text-primary);
+  color: var(--text-heading);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -476,7 +494,7 @@ body {
 @media (min-width: 1024px) {
   .pshell--collapsed .pnav__label,
   .pshell--collapsed .pnav__soon,
-  .pshell--collapsed .pshell__brandtext,
+  .pshell--collapsed .pshell__brand .bb-lockup__text,
   .pshell--collapsed .pshell__whoami {
     display: none;
   }
@@ -492,13 +510,13 @@ body {
     margin: var(--space-2) var(--space-3);
     overflow: hidden;
     text-indent: -9999px;
-    background: var(--border-subtle);
+    background: var(--border-on-ink);
   }
 }
 @media (max-width: 1279px) and (min-width: 1024px) {
   .pnav__label,
   .pnav__soon,
-  .pshell__brandtext,
+  .pshell__brand .bb-lockup__text,
   .pshell__whoami {
     display: none;
   }
@@ -512,7 +530,7 @@ body {
     margin: var(--space-2) var(--space-3);
     overflow: hidden;
     text-indent: -9999px;
-    background: var(--border-subtle);
+    background: var(--border-on-ink);
   }
   /* The collapse toggle is meaningless when the width already forces the icon rail. */
   .pshell__collapse {
@@ -739,7 +757,7 @@ tr:last-child td {
   border-radius: 10px;
   padding: 28px;
   text-align: center;
-  color: var(--muted);
+  color: var(--text-secondary);
 }
 
 .note {
@@ -893,7 +911,7 @@ textarea.input {
 .login-card__title {
   font-family: var(--font-display);
   font-size: var(--text-2xl);
-  color: var(--text-primary);
+  color: var(--text-heading);
   text-align: center;
   margin: 0 0 var(--space-2);
 }
@@ -1089,7 +1107,7 @@ textarea.input {
 }
 .login-mode--active {
   background: var(--surface-card);
-  color: var(--brand-press);
+  color: var(--text-accent);
   box-shadow: var(--shadow-xs);
 }
 [data-theme="ink"] .login-mode--active {
@@ -1130,7 +1148,7 @@ textarea.input {
   font-size: var(--text-xs);
   line-height: var(--leading-normal);
 }
-.login-trust .ph {
+.login-trust .ph-fill {
   color: var(--success);
   font-size: var(--text-base);
   line-height: var(--leading-normal);
@@ -1197,7 +1215,7 @@ textarea.input {
   gap: var(--space-2);
 }
 .account-menu__org {
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: var(--text-md);
   font-weight: var(--weight-bold);
   color: var(--text-primary);
@@ -1389,7 +1407,7 @@ textarea.input {
 .account-section__title {
   font-family: var(--font-display);
   font-size: var(--text-lg);
-  color: var(--text-primary);
+  color: var(--text-heading);
   margin: 0 0 var(--space-2);
 }
 .account-section__sub {
@@ -1446,7 +1464,7 @@ textarea.input {
 .dash-title {
   font-family: var(--font-display);
   font-size: var(--text-2xl);
-  color: var(--text-primary);
+  color: var(--text-heading);
   margin: 0 0 var(--space-1);
 }
 .dash-sub {
@@ -1495,7 +1513,7 @@ textarea.input {
 }
 .dash-stats .bb-stat__icon {
   background: var(--saffron-200);
-  color: var(--saffron-700);
+  color: var(--text-on-brand);
 }
 .dash-section {
   margin-bottom: var(--section-gap);
@@ -1510,7 +1528,7 @@ textarea.input {
 .dash-section__head h2 {
   font-family: var(--font-display);
   font-size: var(--text-lg);
-  color: var(--text-primary);
+  color: var(--text-heading);
 }
 .dash-link {
   font-size: var(--text-sm);
@@ -1555,7 +1573,7 @@ textarea.input {
   transition: color var(--duration-fast) var(--ease-out);
 }
 .dash-posting:hover .dash-view__arrow {
-  color: var(--brand-press);
+  color: var(--text-accent);
 }
 /* CARDS-1 — wrapper around a Recent-unlock MaskedCandidate that turns the WHOLE row into a
    stretched link. The wrapper Card carries the link + relative context only, so we zero its
@@ -1665,7 +1683,7 @@ textarea.input {
 .credits-section__title {
   font-family: var(--font-display);
   font-size: var(--text-lg);
-  color: var(--text-primary);
+  color: var(--text-heading);
   margin: 0 0 var(--space-2);
 }
 /* COMPACT-1 — wide data tables become an INTENTIONAL, VISIBLE horizontal scroll region inside
@@ -1704,7 +1722,7 @@ textarea.input {
 .applicants-title {
   font-family: var(--font-display);
   font-size: var(--text-2xl);
-  color: var(--text-primary);
+  color: var(--text-heading);
   margin: 0 0 var(--space-4);
 }
 .applicants-meta {
@@ -2056,7 +2074,7 @@ textarea.input {
 .postings-title {
   font-family: var(--font-display);
   font-size: var(--text-2xl);
-  color: var(--text-primary);
+  color: var(--text-heading);
   margin: 0 0 var(--space-1);
 }
 .postings-sub {
@@ -2175,7 +2193,7 @@ textarea.input {
 .agency-title {
   font-family: var(--font-display);
   font-size: var(--text-2xl);
-  color: var(--text-primary);
+  color: var(--text-heading);
   margin: 0 0 var(--space-1);
 }
 .agency-sub {
@@ -2203,7 +2221,7 @@ textarea.input {
 .agency-section__title {
   font-family: var(--font-display);
   font-size: var(--text-lg);
-  color: var(--text-primary);
+  color: var(--text-heading);
   margin: 0 0 var(--space-2);
 }
 .agency-section__sub {
@@ -3286,7 +3304,7 @@ img.agency-qr__code,
 .capacity-section__title {
   font-family: var(--font-display);
   font-size: var(--text-lg);
-  color: var(--text-primary);
+  color: var(--text-heading);
   margin: 0 0 var(--space-2);
 }
 .capacity-tier {
@@ -3387,7 +3405,7 @@ img.agency-qr__code,
 .team-section__title {
   font-family: var(--font-display);
   font-size: var(--text-lg);
-  color: var(--text-primary);
+  color: var(--text-heading);
   margin: 0 0 var(--space-3);
 }
 .team-note {
@@ -3418,46 +3436,16 @@ img.agency-qr__code,
   line-height: var(--leading-normal);
 }
 /* ------------------------------------------------------------------
- * ENTERPRISE POLISH (DS5) — wavy org label, button-ized dashboard links with
+ * ENTERPRISE POLISH (DS5) — button-ized dashboard links with
  * continuous affordance motion, the exciting Post-job CTA shine, and the accessible
  * SelectMenu combobox. Tokens only; every motion collapses under prefers-reduced-motion.
  * ------------------------------------------------------------------ */
 
-/* ---- WavyText: per-letter continuous wave (the badabhai.ai org label) ---- */
-.wavy {
-  display: inline-flex;
-  align-items: baseline;
-}
-.wavy__chars {
-  display: inline-flex;
-  align-items: baseline;
-}
-.wavy__ch {
-  display: inline-block;
-  animation: wavy-bob 1.9s var(--ease-in-out) infinite;
-  will-change: transform;
-}
-@keyframes wavy-bob {
-  0%,
-  55%,
-  100% {
-    transform: translateY(0);
-  }
-  28% {
-    transform: translateY(-0.24em);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .wavy__ch {
-    animation: none;
-  }
-}
-
 /* ---- Dashboard section actions (green = the DS action color) — arrow nudges on hover ---- */
-.dash-action .ph {
+.dash-action .ph-fill {
   transition: transform var(--duration-fast) var(--ease-out);
 }
-.dash-action:hover .ph {
+.dash-action:hover .ph-fill {
   transform: translateX(3px);
 }
 
@@ -3509,10 +3497,10 @@ img.agency-qr__code,
     transform: translateX(130%);
   }
 }
-.posting-cta .ph {
+.posting-cta .ph-fill {
   transition: transform var(--duration-fast) var(--ease-out);
 }
-.posting-cta:hover .ph {
+.posting-cta:hover .ph-fill {
   transform: translateX(2px) translateY(-2px) rotate(-12deg);
 }
 @media (prefers-reduced-motion: reduce) {
@@ -3559,7 +3547,7 @@ img.agency-qr__code,
 }
 .bb-selectmenu__trigger--open .bb-selectmenu__caret {
   transform: rotate(180deg);
-  color: var(--brand);
+  color: var(--text-accent);
 }
 .bb-selectmenu__list {
   position: absolute;
@@ -3607,7 +3595,7 @@ img.agency-qr__code,
   background: var(--surface-sunken);
 }
 .bb-selectmenu__option--selected {
-  color: var(--brand-press);
+  color: var(--text-accent);
   font-weight: var(--weight-semibold);
 }
 .bb-selectmenu__option--selected.bb-selectmenu__option--active {
@@ -3707,7 +3695,7 @@ img.agency-qr__code,
 .theme-toggle__system[aria-pressed="true"] {
   background: var(--brand-tint);
   border-color: var(--brand-border);
-  color: var(--brand-press);
+  color: var(--text-accent);
 }
 .theme-toggle__system-label {
   line-height: 1;
@@ -3728,7 +3716,7 @@ img.agency-qr__code,
 .plans-section__title {
   font-family: var(--font-display);
   font-size: var(--text-lg);
-  color: var(--text-primary);
+  color: var(--text-heading);
   margin: 0 0 var(--space-2);
 }
 .plans-section__sub {
@@ -4080,20 +4068,20 @@ img.agency-qr__code,
   background: var(--surface-card);
   border: var(--border-hairline) solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-xs);
   padding: var(--space-6) var(--space-5);
 }
 .invite-landing__eyebrow {
   margin: 0 0 var(--space-2);
   font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
-  color: var(--brand-press);
+  color: var(--text-accent);
 }
 .invite-landing__title {
   font-family: var(--font-display);
   font-size: var(--text-2xl);
   line-height: var(--leading-tight);
-  color: var(--text-primary);
+  color: var(--text-heading);
   margin: 0 0 var(--space-3);
 }
 .invite-landing__sub {
@@ -4131,7 +4119,7 @@ img.agency-qr__code,
   justify-content: center;
   border-radius: var(--radius-round);
   background: var(--brand-tint-2);
-  color: var(--brand-press);
+  color: var(--text-accent);
   font-weight: var(--weight-semibold);
   font-size: var(--text-sm);
 }
@@ -4198,7 +4186,7 @@ body:has(.invite-landing) .chrome-footer {
   line-height: var(--ui-h1-leading);
   font-weight: var(--ui-h1-weight);
   letter-spacing: var(--ui-h1-tracking);
-  color: var(--text-primary);
+  color: var(--text-heading);
   margin: 0;
 }
 /* PHASE 14 — the one-line description that stops a screen needing to be explained. Capped
@@ -4272,6 +4260,7 @@ body:has(.invite-landing) .chrome-footer {
   background: var(--surface-card);
   border: var(--border-hairline) solid var(--border-subtle);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
   margin-bottom: var(--section-gap);
   overflow: hidden;
 }
@@ -4290,7 +4279,7 @@ body:has(.invite-landing) .chrome-footer {
   line-height: var(--ui-h2-leading);
   font-weight: var(--ui-h2-weight);
   letter-spacing: var(--ui-h2-tracking);
-  color: var(--text-primary);
+  color: var(--text-heading);
   margin: 0;
 }
 .panel__sub {
@@ -4448,7 +4437,7 @@ body:has(.invite-landing) .chrome-footer {
   font-size: var(--ui-h3-size);
   line-height: var(--ui-h3-leading);
   font-weight: var(--ui-h3-weight);
-  color: var(--text-primary);
+  color: var(--text-heading);
   margin: 0;
 }
 .state__body {
@@ -4516,7 +4505,8 @@ body:has(.invite-landing) .chrome-footer {
   font-weight: var(--ui-eyebrow-weight);
   letter-spacing: var(--ui-eyebrow-tracking);
   text-transform: uppercase;
-  color: var(--soon-fg);
+  /* A status LABEL, so it must clear AA; --soon-fg (the disabled step) is for inert rows. */
+  color: var(--text-secondary);
   background: var(--soon-bg);
   border: var(--border-hairline) solid var(--soon-border);
   border-radius: var(--radius-pill);
@@ -4594,7 +4584,7 @@ body:has(.invite-landing) .chrome-footer {
   --attention-tone: var(--danger);
 }
 .attention__item--warning {
-  --attention-tone: var(--vermilion-600);
+  --attention-tone: var(--warning);
 }
 .attention__item--info {
   --attention-tone: var(--info);
@@ -4607,6 +4597,9 @@ body:has(.invite-landing) .chrome-footer {
 }
 [data-theme="ink"] .attention__item--critical {
   --attention-tone: var(--red-300);
+}
+[data-theme="ink"] .attention__item--warning {
+  --attention-tone: var(--amber-300);
 }
 [data-theme="ink"] .attention__item--info {
   --attention-tone: var(--blue-300);
@@ -4678,6 +4671,7 @@ body:has(.invite-landing) .chrome-footer {
   background: var(--surface-card);
   border: var(--border-hairline) solid var(--border-subtle);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
   color: inherit;
   text-decoration: none;
   transition: var(--transition-control);
@@ -4701,7 +4695,7 @@ body:has(.invite-landing) .chrome-footer {
   height: var(--space-8);
   border-radius: var(--radius-md);
   background: var(--brand-tint);
-  color: var(--brand-press);
+  color: var(--text-accent);
   font-size: var(--text-lg);
   flex: none;
   transition: var(--transition-control);
@@ -4738,7 +4732,7 @@ body:has(.invite-landing) .chrome-footer {
   transition: color var(--duration-fast) var(--ease-out);
 }
 .dash-posting:hover .dash-posting__cta {
-  color: var(--brand-press);
+  color: var(--text-accent);
 }
 [data-theme="ink"] .dash-posting:hover .dash-posting__cta {
   color: var(--brand);
@@ -4974,7 +4968,7 @@ body:has(.invite-landing) .chrome-footer {
   line-height: var(--ui-h2-leading);
   font-weight: var(--ui-h2-weight);
   letter-spacing: var(--ui-h2-tracking);
-  color: var(--text-primary);
+  color: var(--text-heading);
   margin: 0;
 }
 .section__sub {

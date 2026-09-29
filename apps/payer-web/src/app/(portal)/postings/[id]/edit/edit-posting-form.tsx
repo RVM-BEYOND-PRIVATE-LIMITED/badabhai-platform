@@ -237,7 +237,7 @@ export function EditPostingForm({
             <div aria-live="polite">
               {error !== null ? (
                 <div className="alert alert--danger">
-                  <i className="ph ph-warning-circle alert__icon" aria-hidden="true" />
+                  <i className="ph-fill ph-warning-circle alert__icon" aria-hidden="true" />
                   <div className="alert__text">
                     <p className="alert__title">Your changes were not saved</p>
                     <p className="alert__body">{error}</p>

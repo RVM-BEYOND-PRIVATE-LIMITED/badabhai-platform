@@ -93,7 +93,7 @@ export function PayoutPanel({
           <div aria-live="polite" className="form-status">
             {outcome?.kind === "created" ? (
               <div className="alert alert--success">
-                <i className="ph ph-check-circle alert__icon" aria-hidden="true" />
+                <i className="ph-fill ph-check-circle alert__icon" aria-hidden="true" />
                 <div className="alert__text">
                   <p className="alert__title">Payout requested</p>
                   <p className="alert__body">
@@ -110,7 +110,7 @@ export function PayoutPanel({
             ) : null}
             {outcome?.kind === "error" ? (
               <div className="alert alert--danger">
-                <i className="ph ph-warning-circle alert__icon" aria-hidden="true" />
+                <i className="ph-fill ph-warning-circle alert__icon" aria-hidden="true" />
                 <div className="alert__text">
                   <p className="alert__title">We couldn&rsquo;t request that payout</p>
                   <p className="alert__body">{outcome.message}</p>
@@ -144,7 +144,7 @@ function payoutHistory(payouts: AgencyPayout[]) {
         {payouts.length === 0 ? (
           <div className="state">
             <span className="state__icon">
-              <i className="ph ph-receipt" aria-hidden="true" />
+              <i className="ph-fill ph-receipt" aria-hidden="true" />
             </span>
             <h3 className="state__title">No payout requests yet</h3>
             <p className="state__body">

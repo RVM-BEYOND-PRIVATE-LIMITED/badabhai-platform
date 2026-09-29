@@ -71,7 +71,7 @@ export default async function CapacityPage() {
         <Card>
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph ph-warning-circle" aria-hidden="true" />
+              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
             </span>
             <h2 className="state__title">Service unavailable</h2>
             <p className="state__body">
@@ -109,7 +109,7 @@ export default async function CapacityPage() {
 
           {atCapacity ? (
             <div className="alert alert--warning">
-              <i className="ph ph-warning alert__icon" aria-hidden="true" />
+              <i className="ph-fill ph-warning alert__icon" aria-hidden="true" />
               <div className="alert__text">
                 <p className="alert__title">At capacity</p>
                 <p className="alert__body">
@@ -132,7 +132,7 @@ export default async function CapacityPage() {
             {!live ? <CachedPricingNote /> : null}
             <CapacityPanel tiers={tiers} />
             <div className="alert alert--info">
-              <i className="ph ph-info alert__icon" aria-hidden="true" />
+              <i className="ph-fill ph-info alert__icon" aria-hidden="true" />
               <div className="alert__text">
                 <p className="alert__title">Recorded only — nothing is blocked yet.</p>
                 <p className="alert__body">
@@ -158,7 +158,7 @@ export default async function CapacityPage() {
               {capacity.postings.length === 0 ? (
                 <div className="state">
                   <span className="state__icon">
-                    <i className="ph ph-briefcase" aria-hidden="true" />
+                    <i className="ph-fill ph-briefcase" aria-hidden="true" />
                   </span>
                   <h3 className="state__title">No {unit} yet</h3>
                   <p className="state__body">

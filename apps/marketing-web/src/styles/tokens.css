@@ -1,8 +1,9 @@
 /* ============================================================
    BadaBhai Design System — TOKEN LAYER (trimmed port for marketing-web)
    ------------------------------------------------------------
-   Source of truth for the VALUES below: apps/payer-web/src/styles/tokens.css
-   (docs/design/ — the design-system doc itself — is not on `main` yet; see #864).
+   Ported from the pre-2026-09 payer-web token file (JUL31 haldi/blue values). The portals
+   now share packages/design-tokens/tokens.css (Shift Blue / Safety Yellow / Ivory); this
+   marketing page has NOT been moved to it yet, so its values below are the old palette.
    This is a faithful port of the values that a single static marketing page
    actually uses: color, typography, spacing, radius, elevation (banned →
    `none`), motion, and the base reset. Every rule here resolves through a
@@ -24,7 +25,7 @@
    ============================================================ */
 
 /* ============================================================
-   COLOR — same values as apps/payer-web/src/styles/tokens.css.
+   COLOR — the pre-2026-09 portal values (see the header note).
    Blue-dominant structure · haldi = the ONE CTA · green = verified/money ·
    cool neutral ink · canvas/white surfaces.
    ============================================================ */
@@ -210,7 +211,7 @@
 }
 
 /* ============================================================
-   BASE — reset + brand-inheriting globals (same as payer-web tokens.css).
+   BASE — reset + brand-inheriting globals (as in the portals' shared token file).
    ============================================================ */
 *,
 *::before,

@@ -22,7 +22,7 @@ export function Chip({ selected = false, icon, onRemove, className = "", childre
 
   return (
     <button type="button" className={cls} aria-pressed={selected} {...rest}>
-      {icon && <i className={`ph ph-${icon}`} aria-hidden="true" />}
+      {icon && <i className={`ph-fill ph-${icon}`} aria-hidden="true" />}
       <span>{children}</span>
       {onRemove && (
         <span
@@ -34,7 +34,7 @@ export function Chip({ selected = false, icon, onRemove, className = "", childre
             onRemove(e);
           }}
         >
-          <i className="ph ph-x" aria-hidden="true" />
+          <i className="ph-fill ph-x" aria-hidden="true" />
         </span>
       )}
     </button>

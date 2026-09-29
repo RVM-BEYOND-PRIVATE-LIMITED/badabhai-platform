@@ -62,14 +62,14 @@ export default async function PostingDetailPage({
             className="bb-btn bb-btn--primary bb-btn--sm"
             href={`/postings/${posting.id}/applicants`}
           >
-            <i className="ph ph-users-three" aria-hidden="true" />
+            <i className="ph-fill ph-users-three" aria-hidden="true" />
             <span>View applicants</span>
           </Link>
           <Link
             className="bb-btn bb-btn--secondary bb-btn--sm"
             href={`/postings/${posting.id}/edit`}
           >
-            <i className="ph ph-pencil-simple" aria-hidden="true" />
+            <i className="ph-fill ph-pencil-simple" aria-hidden="true" />
             <span>Edit posting</span>
           </Link>
         </div>

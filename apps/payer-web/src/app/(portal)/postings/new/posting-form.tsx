@@ -377,7 +377,7 @@ export function PostingForm({
         />
       ) : (
         <div className="alert alert--danger">
-          <i className="ph ph-warning-circle alert__icon" aria-hidden="true" />
+          <i className="ph-fill ph-warning-circle alert__icon" aria-hidden="true" />
           <div className="alert__text">
             <p className="alert__title">Could not load the skill list</p>
             <p className="alert__body">

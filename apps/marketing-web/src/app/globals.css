@@ -1,5 +1,6 @@
 /* BadaBhai Design System token layer — imported FIRST so every rule below
- * resolves from tokens. Source of truth for the values: apps/payer-web/src/styles/tokens.css. */
+ * resolves from tokens. A trimmed port of the pre-2026-09 portal values; the portals now share
+ * packages/design-tokens/tokens.css (see the note at the top of ../styles/tokens.css). */
 @import "../styles/tokens.css";
 
 /* ------------------------------------------------------------------

@@ -55,19 +55,18 @@ export default async function PortalLayout({ children }: { children: ReactNode }
       sections={sections}
       brand={
         /* Brand lockup → Dashboard (the portal home). Authorization is unchanged: the
-           target route is itself behind requirePayer(). */
+           target route is itself behind requirePayer(). The rail is a Shift Blue band, so
+           the lockup takes its on-ink form; the persona is its caption. */
         <Link
           className="pshell__brandlink"
           href="/dashboard"
           aria-label="BadaBhai — go to dashboard"
         >
-          <BadaBhaiLogo variant="mark" size={30} />
-          <span className="pshell__brandtext">
-            <span className="pshell__brandname">BadaBhai</span>
-            <span className="pshell__brandrole">
-              for {isAgency ? "Agencies" : "Employers"}
-            </span>
-          </span>
+          <BadaBhaiLogo
+            theme="ink"
+            size={30}
+            sub={`for ${isAgency ? "Agencies" : "Employers"}`}
+          />
         </Link>
       }
       header={
@@ -81,13 +80,13 @@ export default async function PortalLayout({ children }: { children: ReactNode }
                  stays display-only for them. */
               isOwner ? (
                 <Link className="pshell__balance" href="/credits">
-                  <i className="ph ph-lock-key-open" aria-hidden="true" />
+                  <i className="ph-fill ph-lock-key-open" aria-hidden="true" />
                   <span className="ui-num pshell__balancenum">{balance}</span>
                   <span className="pshell__balancelabel">unlocks</span>
                 </Link>
               ) : (
                 <span className="pshell__balance pshell__balance--static">
-                  <i className="ph ph-lock-key-open" aria-hidden="true" />
+                  <i className="ph-fill ph-lock-key-open" aria-hidden="true" />
                   <span className="ui-num pshell__balancenum">{balance}</span>
                   <span className="pshell__balancelabel">unlocks</span>
                 </span>

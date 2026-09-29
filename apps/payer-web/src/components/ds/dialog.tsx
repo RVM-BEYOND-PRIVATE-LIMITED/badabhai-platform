@@ -133,7 +133,7 @@ export function Dialog({
             )}
             {onClose && (
               <button className="bb-iconbtn" aria-label="Close" onClick={onClose}>
-                <i className="ph ph-x" aria-hidden="true" />
+                <i className="ph-fill ph-x" aria-hidden="true" />
               </button>
             )}
           </div>

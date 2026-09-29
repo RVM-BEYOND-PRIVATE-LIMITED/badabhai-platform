@@ -1,74 +1,68 @@
 /**
- * BadaBhai Design System — BadaBhaiLogo (brand mark + Anek display wordmark).
+ * BadaBhai Design System — BadaBhaiLogo (the two-figure monogram + the BADABHAI logotype).
  *
- * SHARED (no "use client"): pure SVG + text, no hooks/handlers. The mark colors
- * resolve from design-system tokens via inline `style` (no raw hex), so the lockup
- * stays on-brand under both themes. Prop contract mirrors
- * docs/design/.../components/brand/BadaBhaiLogo.d.ts.
+ * SHARED (no "use client"): plain spans, no hooks/handlers. The lockup classes
+ * (`.bb-lockup*`) live in the shared token package (@badabhai/design-tokens), which also
+ * carries the Sept 2026 brand-kit images and draws them as CSS backgrounds — so payer-web and
+ * admin-web show the same brand from one copy. The monogram's ivory figure needs a Shift Blue
+ * tile on a light surface and sits straight on the band when `theme="ink"`; the logotype is
+ * white on the band and Shift Blue on paper (and knocked out to white on an ink page). The
+ * images are decorative — the root carries the accessible name.
  */
-import type { HTMLAttributes } from "react";
+import type { CSSProperties, HTMLAttributes, ReactNode } from "react";
 
 export interface BadaBhaiLogoProps extends HTMLAttributes<HTMLSpanElement> {
   /** @default 'full' */
   variant?: "full" | "mark" | "wordmark";
-  /** Surface it sits on — flips wordmark color. @default 'paper' */
+  /** Surface it sits on — `ink` drops the tile and switches to the white logotype. @default 'paper' */
   theme?: "paper" | "ink";
-  /** Mark size in px; wordmark scales from it. @default 32 */
+  /** Mark (tile) size in px; the logotype height is derived from it. @default 32 */
   size?: number;
-  /** Animate the wordmark with a continuous per-letter wave (`.wavy__ch`). @default false */
-  wavy?: boolean;
-}
-
-/** Split a wordmark segment into per-letter spans that ride the continuous `.wavy__ch`
- *  wave, staggered by absolute position so the whole word undulates. Pure render (no hooks). */
-function wavyChars(segment: string, offset: number) {
-  return Array.from(segment).map((ch, i) => (
-    <span key={i} className="wavy__ch" style={{ animationDelay: `${(offset + i) * 70}ms` }}>
-      {ch}
-    </span>
-  ));
+  /** Optional caption under the logotype (ignored for `variant="mark"`). */
+  sub?: ReactNode;
 }
 
 export function BadaBhaiLogo({
   variant = "full",
   theme = "paper",
   size = 32,
-  wavy = false,
+  sub,
   className = "",
+  style,
   ...rest
 }: BadaBhaiLogoProps) {
+  // The tile size feeds the token-package lockup rules through one custom property; the
+  // logotype's height is derived from it there.
+  const sizeVar = { "--bb-lockup-size": `${size}px` } as CSSProperties;
+
   const mark = (
-    <svg viewBox="0 0 512 512" width={size} height={size} className="bb-logo__mark" aria-hidden="true">
-      <rect width="512" height="512" rx="128" style={{ fill: "var(--brand)" }} />
-      <path
-        d="M150 124h212a40 40 0 0 1 40 40v132a40 40 0 0 1-40 40H252l-78 62a12 12 0 0 1-19.4-9.4V336h-4.6a40 40 0 0 1-40-40V164a40 40 0 0 1 40-40Z"
-        style={{ fill: "var(--paper-0)" }}
-      />
-      <path
-        d="M196 268l60-58 60 58"
-        style={{ stroke: "var(--success)" }}
-        strokeWidth={32}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-    </svg>
+    <span className="bb-lockup__tile" aria-hidden="true">
+      <span className="bb-lockup__mark" />
+    </span>
   );
+
+  const word = <span className="bb-lockup__wordmark" aria-hidden="true" />;
 
   return (
     <span
-      className={["bb-logo", `bb-logo--${theme}`, className].filter(Boolean).join(" ")}
+      className={["bb-lockup", theme === "ink" ? "bb-lockup--on-ink" : "", className]
+        .filter(Boolean)
+        .join(" ")}
       role="img"
       aria-label="BadaBhai"
+      style={{ ...sizeVar, ...style }}
       {...rest}
     >
       {variant !== "wordmark" && mark}
-      {variant !== "mark" && (
-        <span className="bb-logo__word" style={{ fontSize: Math.round(size * 0.92) }}>
-          <span className="bb-logo__a">{wavy ? wavyChars("Bada", 0) : "Bada"}</span>
-          <span className="bb-logo__b">{wavy ? wavyChars("Bhai", 4) : "Bhai"}</span>
-        </span>
-      )}
+      {variant !== "mark" &&
+        (sub != null ? (
+          <span className="bb-lockup__text">
+            {word}
+            <span className="bb-lockup__sub">{sub}</span>
+          </span>
+        ) : (
+          word
+        ))}
     </span>
   );
 }

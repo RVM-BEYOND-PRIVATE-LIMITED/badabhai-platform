@@ -177,7 +177,7 @@ export default async function AgencyReferralsPage() {
         ) : (
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph ph-warning-circle" aria-hidden="true" />
+              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
             </span>
             <h3 className="state__title">Referral funnel unavailable</h3>
             <p className="state__body">
@@ -199,7 +199,7 @@ export default async function AgencyReferralsPage() {
           </div>
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph ph-warning-circle" aria-hidden="true" />
+              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
             </span>
             <h3 className="state__title">Earnings unavailable</h3>
             <p className="state__body">

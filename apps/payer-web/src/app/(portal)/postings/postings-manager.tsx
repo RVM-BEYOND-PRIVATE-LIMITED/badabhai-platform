@@ -101,7 +101,7 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
       <Card>
         <div className="state">
           <span className="state__icon">
-            <i className="ph ph-briefcase" aria-hidden="true" />
+            <i className="ph-fill ph-briefcase" aria-hidden="true" />
           </span>
           <h2 className="state__title">No postings yet</h2>
           <p className="state__body">
@@ -163,7 +163,7 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
               <div aria-live="polite">
                 {rs.error !== null && (
                   <div className="alert alert--danger">
-                    <i className="ph ph-warning-circle alert__icon" aria-hidden="true" />
+                    <i className="ph-fill ph-warning-circle alert__icon" aria-hidden="true" />
                     <div className="alert__text">
                       <p className="alert__title">That didn&rsquo;t go through</p>
                       <p className="alert__body">{rs.error}</p>
@@ -172,7 +172,7 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
                 )}
                 {rs.notice !== null && (
                   <div className="alert alert--success">
-                    <i className="ph ph-check-circle alert__icon" aria-hidden="true" />
+                    <i className="ph-fill ph-check-circle alert__icon" aria-hidden="true" />
                     <div className="alert__text">
                       <p className="alert__title">Done</p>
                       <p className="alert__body">{rs.notice}</p>
