@@ -60,26 +60,26 @@ export function JobCard({
           </div>
         </div>
         <div className="bb-jobcard__logo">
-          {companyLogo ? <img src={companyLogo} alt={company} /> : <i className="ph ph-buildings" aria-hidden="true" />}
+          {companyLogo ? <img src={companyLogo} alt={company} /> : <i className="ph-fill ph-buildings" aria-hidden="true" />}
         </div>
       </div>
 
       <div className="bb-jobcard__facts">
         {location && (
           <span className="bb-jobcard__fact">
-            <i className="ph ph-map-pin" aria-hidden="true" />
+            <i className="ph-fill ph-map-pin" aria-hidden="true" />
             {location}
           </span>
         )}
         {shift && (
           <span className="bb-jobcard__fact">
-            <i className="ph ph-clock" aria-hidden="true" />
+            <i className="ph-fill ph-clock" aria-hidden="true" />
             {shift}
           </span>
         )}
         {salary && (
           <span className="bb-jobcard__fact">
-            <i className="ph ph-currency-inr" aria-hidden="true" />
+            <i className="ph-fill ph-currency-inr" aria-hidden="true" />
             <span className="bb-jobcard__salary">{salary}</span>
           </span>
         )}
@@ -97,17 +97,17 @@ export function JobCard({
 
       {vacanciesLeft != null && (
         <div className="bb-jobcard__quota">
-          <i className="ph ph-users-three" aria-hidden="true" />
+          <i className="ph-fill ph-users-three" aria-hidden="true" />
           <b>{vacanciesLeft} spots</b> left of this opening
         </div>
       )}
 
       <div className="bb-jobcard__foot">
         <button className="bb-jobcard__skipbtn" onClick={onSkip} aria-label="Skip">
-          <i className="ph ph-x" aria-hidden="true" />
+          <i className="ph-fill ph-x" aria-hidden="true" />
         </button>
         <button className="bb-btn bb-btn--primary bb-btn--lg" style={{ flex: 1 }} onClick={onApply}>
-          <i className="ph ph-check" aria-hidden="true" />
+          <i className="ph-fill ph-check" aria-hidden="true" />
           <span>Apply</span>
         </button>
       </div>

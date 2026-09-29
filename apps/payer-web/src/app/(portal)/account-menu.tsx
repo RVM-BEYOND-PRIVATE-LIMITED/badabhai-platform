@@ -130,9 +130,9 @@ export function AccountMenu({ orgName, email, role, status }: AccountMenuProps) 
           </div>
 
           <Link className="account-menu__link" href="/account" role="menuitem" onClick={() => close(false)}>
-            <i className="ph ph-gear" aria-hidden="true" />
+            <i className="ph-fill ph-gear" aria-hidden="true" />
             <span>Account settings</span>
-            <i className="ph ph-arrow-right account-menu__link-arrow" aria-hidden="true" />
+            <i className="ph-fill ph-arrow-right account-menu__link-arrow" aria-hidden="true" />
           </Link>
 
           {/* Sign out — same row affordance, danger-tinted. Closes the menu (no focus return,
@@ -148,7 +148,7 @@ export function AccountMenu({ orgName, email, role, status }: AccountMenuProps) 
               startSignOut(() => logoutAction());
             }}
           >
-            <i className="ph ph-sign-out" aria-hidden="true" />
+            <i className="ph-fill ph-sign-out" aria-hidden="true" />
             <span>{signingOut ? "Signing out…" : "Sign out"}</span>
           </button>
         </div>

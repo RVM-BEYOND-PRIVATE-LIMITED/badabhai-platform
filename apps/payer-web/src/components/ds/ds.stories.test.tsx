@@ -228,13 +228,28 @@ describe("DS0.2 · primitives render with their design-system classes", () => {
     expect(out).toContain("Apply");
   });
 
-  it("BadaBhaiLogo — wordmark, brand mark, colors from tokens (no raw hex)", () => {
+  it("BadaBhaiLogo — the brand-kit monogram on a tile + the navy logotype, sized by token var (no raw hex)", () => {
     const out = html(<BadaBhaiLogo />);
-    expect(out).toContain("bb-logo");
-    expect(out).toContain("Bada");
-    expect(out).toContain("Bhai");
-    expect(out).toContain("var(--brand)");
+    expect(out).toContain("bb-lockup");
+    expect(out).toContain("bb-lockup__tile");
+    expect(out).toContain('src="/brand/badabhai-mark.png"');
+    expect(out).toContain('role="img"');
+    expect(out).toContain('aria-label="BadaBhai"');
+    // The official logotype image (Shift Blue on paper); decorative — the root names it.
+    expect(out).toMatch(/<img class="bb-lockup__wordmark" src="\/brand\/badabhai-wordmark-navy\.png" alt="" aria-hidden="true"/);
+    expect(out).toContain("--bb-lockup-size:32px");
     expect(out).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+  });
+
+  it("BadaBhaiLogo — ink drops the tile fill (on-ink), mark/wordmark variants, caption", () => {
+    const ink = html(<BadaBhaiLogo theme="ink" sub="for Employers" />);
+    expect(ink).toContain("bb-lockup--on-ink");
+    // On the navy band the WHITE logotype, never the navy one (it would vanish).
+    expect(ink).toContain('src="/brand/badabhai-wordmark.png"');
+    expect(ink).not.toContain("badabhai-wordmark-navy");
+    expect(ink).toContain('<span class="bb-lockup__sub">for Employers</span>');
+    expect(html(<BadaBhaiLogo variant="mark" />)).not.toContain("bb-lockup__wordmark");
+    expect(html(<BadaBhaiLogo variant="wordmark" />)).not.toContain("bb-lockup__tile");
   });
 });
 

@@ -154,7 +154,7 @@ export function StatTile({
         <span className="bb-stat__label">{label}</span>
         {icon && (
           <span className="bb-stat__icon">
-            <i className={`ph ph-${icon}`} aria-hidden="true" />
+            <i className={`ph-fill ph-${icon}`} aria-hidden="true" />
           </span>
         )}
       </div>
@@ -162,7 +162,7 @@ export function StatTile({
       {caption != null && <div className="bb-stat__caption">{caption}</div>}
       {delta != null && (
         <div className={`bb-stat__delta bb-stat__delta--${deltaDir}`}>
-          <i className={`ph-bold ph-${arrow}`} aria-hidden="true" />
+          <i className={`ph-fill ph-${arrow}`} aria-hidden="true" />
           {delta}
         </div>
       )}

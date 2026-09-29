@@ -85,7 +85,7 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
             {message ? (
               <div className={`alert ${message.ok ? "alert--success" : "alert--danger"}`}>
                 <i
-                  className={`ph ${message.ok ? "ph-check-circle" : "ph-warning-circle"} alert__icon`}
+                  className={`ph-fill ${message.ok ? "ph-check-circle" : "ph-warning-circle"} alert__icon`}
                   aria-hidden="true"
                 />
                 <div className="alert__text">
@@ -108,7 +108,7 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
           {members.length === 0 ? (
             <div className="state">
               <span className="state__icon">
-                <i className="ph ph-users-three" aria-hidden="true" />
+                <i className="ph-fill ph-users-three" aria-hidden="true" />
               </span>
               <h3 className="state__title">No members yet</h3>
               <p className="state__body">

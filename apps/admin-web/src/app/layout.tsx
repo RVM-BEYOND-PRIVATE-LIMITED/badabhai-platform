@@ -18,7 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* UI-1 — Inter is the Latin UI face (--font-sans); Roboto stays as the Devanagari
             half of that chain, and Anek carries the brand voice on headings and buttons. */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Anek+Latin:wght@500;600;700&family=Inter:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Anek+Latin:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap"
           rel="stylesheet"
         />
       </head>

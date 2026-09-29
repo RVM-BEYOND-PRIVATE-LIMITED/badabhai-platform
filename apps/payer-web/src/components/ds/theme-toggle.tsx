@@ -147,7 +147,7 @@ export function ThemeToggle() {
         title="Follow system theme"
         onClick={onSystem}
       >
-        <i className="ph ph-monitor" aria-hidden="true" />
+        <i className="ph-fill ph-monitor" aria-hidden="true" />
         <span className="theme-toggle__system-label">System</span>
       </button>
 

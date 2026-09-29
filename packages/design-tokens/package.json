@@ -1,0 +1,17 @@
+{
+  "name": "@badabhai/design-tokens",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BadaBhai brand token layer (CSS custom properties) — the ONE token file payer-web and admin-web import. Shift Blue / Safety Yellow / Ivory. CSS only: no build, no runtime.",
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "tokens.css",
+    "fonts"
+  ],
+  "sideEffects": [
+    "*.css"
+  ]
+}

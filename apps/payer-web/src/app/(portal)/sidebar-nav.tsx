@@ -39,7 +39,7 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
                          collapsed rail loses no meaning. */
                       title={item.description ? `${item.label} — ${item.description}` : item.label}
                     >
-                      <i className={`ph ph-${item.icon} pnav__icon`} aria-hidden="true" />
+                      <i className={`ph-fill ph-${item.icon} pnav__icon`} aria-hidden="true" />
                       <span className="pnav__label">{item.label}</span>
                       <span className="pnav__soon">Soon</span>
                     </span>
@@ -56,7 +56,7 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
                     aria-current={active ? "page" : undefined}
                     title={item.description ? `${item.label} — ${item.description}` : item.label}
                   >
-                    <i className={`ph ph-${item.icon} pnav__icon`} aria-hidden="true" />
+                    <i className={`ph-fill ph-${item.icon} pnav__icon`} aria-hidden="true" />
                     <span className="pnav__label">{item.label}</span>
                     {/* PARKED — reachable, but the page it opens explains rather than does.
                         Badged so the rail sets the right expectation before the click. */}

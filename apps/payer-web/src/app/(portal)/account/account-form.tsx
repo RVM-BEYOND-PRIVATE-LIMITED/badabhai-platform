@@ -224,7 +224,7 @@ export function AccountForm({ orgName, email, phoneLast4, role, status }: Accoun
       <div aria-live="polite" className="form-status">
         {saved ? (
           <div className="alert alert--success">
-            <i className="ph ph-check-circle alert__icon" aria-hidden="true" />
+            <i className="ph-fill ph-check-circle alert__icon" aria-hidden="true" />
             <div className="alert__text">
               <p className="alert__body">{SAVED_CONFIRMATION}</p>
             </div>

@@ -65,7 +65,7 @@ export function AgencyParkedModules({ flags }: { flags: AgencyFlags }) {
     <details className="agency-parked-disclosure" open>
       <summary className="agency-parked-disclosure__summary">
         <span className="section__title">Not in this release</span>
-        <i className="ph ph-caret-down agency-parked-disclosure__caret" aria-hidden="true" />
+        <i className="ph-fill ph-caret-down agency-parked-disclosure__caret" aria-hidden="true" />
       </summary>
       <p className="section__sub">
         These modules are deliberately not built. They are gated on legal, money, consent, or

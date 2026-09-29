@@ -205,7 +205,7 @@ export function ApplicantActions({
     <>
       {balance === 0 ? (
         <div className="alert alert--warning">
-          <i className="ph ph-coins alert__icon" aria-hidden="true" />
+          <i className="ph-fill ph-coins alert__icon" aria-hidden="true" />
           <div className="alert__text">
             <p className="alert__title">0 credits</p>
             <p className="alert__body">
@@ -242,7 +242,7 @@ export function ApplicantActions({
           <div className="state">
             <span className="state__icon">
               <i
-                className={activeStage === "new" ? "ph ph-tray" : "ph ph-bookmark-simple"}
+                className={activeStage === "new" ? "ph-fill ph-tray" : "ph-fill ph-bookmark-simple"}
                 aria-hidden="true"
               />
             </span>

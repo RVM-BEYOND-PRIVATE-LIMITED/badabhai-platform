@@ -79,7 +79,7 @@ export function PortalBreadcrumb({
       {matchedTitle ? (
         <>
           <span className="pcrumb__group">{matchedTitle}</span>
-          <i className="ph ph-caret-right pcrumb__sep" aria-hidden="true" />
+          <i className="ph-fill ph-caret-right pcrumb__sep" aria-hidden="true" />
         </>
       ) : null}
 
@@ -94,7 +94,7 @@ export function PortalBreadcrumb({
           </Link>
           {trailing.map((crumb, i) => (
             <span className="pcrumb__step" key={`${crumb}-${i}`}>
-              <i className="ph ph-caret-right pcrumb__sep" aria-hidden="true" />
+              <i className="ph-fill ph-caret-right pcrumb__sep" aria-hidden="true" />
               {i === trailing.length - 1 ? (
                 <span className="pcrumb__here" aria-current="page">
                   {crumb}

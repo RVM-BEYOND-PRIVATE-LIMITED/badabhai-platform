@@ -8,7 +8,8 @@ import { dirname, join, relative } from "node:path";
  *
  * The whole payer portal is built token-driven (DS0.2→DS4.1): every screen styles from the
  * SEMANTIC tokens (--surface-* / --text-* / --brand / --success / …) + the `.bb-*` / token
- * classes, and `src/styles/tokens.css` defines a full `[data-theme="ink"]` block that FLIPS
+ * classes, and the shared `packages/design-tokens/tokens.css` (imported by globals.css as
+ * `@badabhai/design-tokens/tokens.css`) defines a full `[data-theme="ink"]` block that FLIPS
  * those semantic tokens. So a single `data-theme="ink"` on the shell re-themes the entire app.
  *
  * The ONLY way that parity silently regresses is if a screen reintroduces a value that does NOT
@@ -169,7 +170,18 @@ describe("DS4.2 · ink parity — no hardcoded light leaks in screen sources", (
 });
 
 describe("DS4.2 · tokens.css still defines the [data-theme=\"ink\"] parity block", () => {
-  const tokens = readFileSync(join(srcRoot, "styles", "tokens.css"), "utf8");
+  // The token layer is the shared package (payer-web no longer carries its own copy);
+  // resolved from the repo root: src/app → payer-web → apps → repo.
+  const tokens = readFileSync(
+    join(here, "..", "..", "..", "..", "packages", "design-tokens", "tokens.css"),
+    "utf8",
+  );
+
+  it("globals.css imports the shared token package, not a local copy", () => {
+    const globals = readFileSync(join(here, "globals.css"), "utf8");
+    expect(globals).toMatch(/@import\s+"@badabhai\/design-tokens\/tokens\.css";/);
+    expect(globals).not.toMatch(/@import\s+"[^"]*styles\/tokens\.css"/);
+  });
 
   it("declares the [data-theme=\"ink\"] selector", () => {
     expect(tokens).toMatch(/\[data-theme="ink"\]\s*\{/);

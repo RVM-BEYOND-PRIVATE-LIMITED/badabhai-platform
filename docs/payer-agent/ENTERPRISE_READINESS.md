@@ -237,6 +237,9 @@ Any change to the message template in `payer-http.ts:64` silently converts 21 ha
 | Design tokens | `globals.css` 467 L, no tokens file | `styles/tokens.css` 545 L | `styles/tokens.css` 545 L | **none** |
 | DS components | — | — | `components/ds/*` 15 files | **none** |
 
+> 2026-09-29: resolved — both portals now import one shared file, `packages/design-tokens/tokens.css`,
+> and the two per-app copies below were deleted.
+
 **The token copies have already diverged.** `diff apps/payer-web/src/styles/tokens.css apps/admin-web/src/styles/tokens.css` differs at lines 386-389:
 
 ```
