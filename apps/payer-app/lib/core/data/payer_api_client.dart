@@ -102,6 +102,12 @@ abstract class PayerApiClient {
   /// LIST SEMANTICS (deliberate asymmetry with the create): a null
   /// [benefits]/[requirements] is OMITTED (the stored chips survive); an
   /// EXPLICITLY EMPTY list IS sent and CLEARS them server-side.
+  ///
+  /// UNSET (#1652): [clear] names the fields to remove (store NULL) — sent as
+  /// `clear: [wire names]` only when non-empty. A field named in [clear] must
+  /// not ALSO be passed as a value: that contradiction is a 400 on the server,
+  /// and the client refuses it before sending with a [PayerApiException] whose
+  /// [PayerApiException.isSetAndCleared] is true.
   Future<JobPosting> updateJob(
     String id, {
     String? orgLabel,
@@ -124,6 +130,7 @@ abstract class PayerApiClient {
     String? neededBy,
     List<String>? benefits,
     List<String>? requirements,
+    List<JobPostingClearField>? clear,
   });
 
   /// Close an owned posting (`POST /payer/job-postings/:id/close`). 409 when it
@@ -340,6 +347,10 @@ abstract class PayerApiClient {
   /// READ-BACK (#1647): `AgencyService.toJobView` now returns
   /// description/shift/benefits/requirements/payType, so an edit form PREFILLS
   /// them from the row — the old "we cannot show what is saved" caveat is gone.
+  ///
+  /// UNSET (#1652): [clear] names the fields to remove — the same rules as
+  /// [updateJob]'s, over the agency route's own shorter set (no trade, title or
+  /// city: those columns are NOT NULL).
   Future<AgencyJobView> updateAgencyJob(
     String id, {
     String? tradeKey,
@@ -356,6 +367,7 @@ abstract class PayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    List<AgencyJobClearField>? clear,
   });
 
   /// Close an owned agency job (`POST /payer/agency/jobs/:id/close`). 404

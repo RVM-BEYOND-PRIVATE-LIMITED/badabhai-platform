@@ -78,8 +78,10 @@ class JobsCubit extends Cubit<JobsState> {
   /// and it sends nothing it could not prefill (a null leaves the stored value
   /// alone rather than clobbering it with a blank). A chip list is the one
   /// exception: an explicitly EMPTY list IS sent, because `[]` is how the
-  /// contract clears one. Refetches on success so the card reflects the new
-  /// content.
+  /// contract clears one. [clear] (#1652) names the fields the payer EMPTIED
+  /// that had a saved value — never one that is also passed as a value (the
+  /// server 400s that; it comes back as [kJobEditSetAndClearedMessage]).
+  /// Refetches on success so the card reflects the new content.
   Future<JobActionResult> editJob(
     String id, {
     String? roleTitle,
@@ -97,6 +99,7 @@ class JobsCubit extends Cubit<JobsState> {
     String? description,
     List<String>? benefits,
     List<String>? requirements,
+    List<JobPostingClearField>? clear,
   }) =>
       _lifecycle(
         () => _api.updateJob(
@@ -116,6 +119,7 @@ class JobsCubit extends Cubit<JobsState> {
           description: description,
           benefits: benefits,
           requirements: requirements,
+          clear: clear,
         ),
         okMessage: 'Job updated.',
         conflictMessage: "This job can't be edited now.",
@@ -131,6 +135,11 @@ class JobsCubit extends Cubit<JobsState> {
       await load();
       return JobActionResult.ok(okMessage);
     } on PayerApiException catch (e) {
+      // #1652 — a set-and-cleared edit is named for what it is: retrying the
+      // same save cannot succeed.
+      if (e.isSetAndCleared) {
+        return const JobActionResult.fail(kJobEditSetAndClearedMessage);
+      }
       return JobActionResult.fail(
         e.isConflict ? conflictMessage : 'Could not update. Please try again.',
       );

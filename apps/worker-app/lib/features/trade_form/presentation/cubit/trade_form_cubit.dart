@@ -67,7 +67,15 @@ class TradeFormState extends Equatable {
     this.sessionId,
     this.doneMarkers = const <TradeFormMarkerType>{},
     this.knownFacts = const <WorkerFact>{},
+    this.employmentSuggestions = const <TradeFormEmploymentSuggestion>[],
   });
+
+  /// Jobs from a résumé or the chat interview the worker never confirmed
+  /// (#1516), read by the SAME `loadSavedEmployment` as [savedEmployment] and
+  /// drawn by the employment page as separate "Kya ye aapka kaam tha?" cards —
+  /// never as rows, never sent. Raw from the server; the page hides the ones
+  /// that already match a card, since the server does not.
+  final List<TradeFormEmploymentSuggestion> employmentSuggestions;
 
   /// Marker pages the server already accepted a save for
   /// ([TradeFormMarkerStore]). A forward move skips them, so [isLastStep] and
@@ -185,10 +193,13 @@ class TradeFormState extends Equatable {
     Object? sessionId = _sentinel,
     Set<TradeFormMarkerType>? doneMarkers,
     Set<WorkerFact>? knownFacts,
+    List<TradeFormEmploymentSuggestion>? employmentSuggestions,
   }) {
     return TradeFormState(
       doneMarkers: doneMarkers ?? this.doneMarkers,
       knownFacts: knownFacts ?? this.knownFacts,
+      employmentSuggestions:
+          employmentSuggestions ?? this.employmentSuggestions,
       sessionId: sessionId == _sentinel ? this.sessionId : sessionId as String?,
       status: status ?? this.status,
       flatSteps: flatSteps ?? this.flatSteps,
@@ -225,6 +236,7 @@ class TradeFormState extends Equatable {
         savedQualifications,
         doneMarkers,
         knownFacts,
+        employmentSuggestions,
       ];
 }
 
@@ -448,6 +460,10 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         knownFacts: known,
         savedPreferences: _savedPreferences,
         savedEmployment: _storedEmployment?.entries,
+        // #1516 — from the same read, so the page's hide-if-already-a-card
+        // check compares against exactly the rows it is drawing.
+        employmentSuggestions: _storedEmployment?.suggestions ??
+            const <TradeFormEmploymentSuggestion>[],
         savedQualifications: _savedQualifications,
         // #1472 — carried from THIS response, every time. Never cached: the
         // form is resumable across a cold start, and a stale id would file a
@@ -605,11 +621,18 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         questionKey: step.question.id,
         answer: answer,
       );
+      // #1519 — typed words on a CHIP question are banked the way the server
+      // replays them (`other_text`, never `text`), so going back to it shows
+      // the typed answer rather than a blank question.
+      final bool typedOnChips = answer.kind == TradeFormAnswerKind.text &&
+          step.question.isChoice &&
+          !step.question.isBoolean;
       final TradeFormSavedAnswer saved = TradeFormSavedAnswer(
         status: result.status,
         optionKeys: answer.optionKeys,
-        text: answer.text,
+        text: typedOnChips ? null : answer.text,
         boolValue: answer.boolValue,
+        otherText: typedOnChips ? answer.text : null,
       );
       final List<TradeFormFlatStep> banked =
           _bankAnswer(state.flatSteps, step, saved);

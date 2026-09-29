@@ -8,10 +8,13 @@ import 'package:badabhai_worker_app/core/api/api_client.dart'
         MyWhatsappDto,
         PortfolioItemDto,
         PortfolioUploadTicket,
-        WorkPrefOptionsDto;
+        WorkAvailabilityDto,
+        WorkPrefOptionsDto,
+        WorkPreferencesDto;
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
+import 'package:badabhai_worker_app/core/widgets/kit/kit_select_chip.dart';
 import 'package:badabhai_worker_app/features/profile_edit/domain/profile_edit_models.dart';
 import 'package:badabhai_worker_app/features/profile_edit/domain/profile_edit_repository.dart';
 import 'package:badabhai_worker_app/features/profile_edit/presentation/cubit/profile_edit_cubit.dart';
@@ -28,6 +31,13 @@ class _FakeRepo implements ProfileEditRepository {
   Failure? mintError;
   Failure? failPutWith;
   List<PortfolioItemDto> portfolioItems = const <PortfolioItemDto>[];
+
+  /// The served `availability_status` (#1541); empty = an older server.
+  Map<String, String> availabilityStatus = const <String, String>{};
+
+  /// GET /workers/me/work-preferences (#1541 prefill).
+  WorkPreferencesDto stored = const WorkPreferencesDto();
+  Map<String, dynamic>? savedPrefs;
 
   @override
   Future<MyWhatsappDto> loadWhatsapp() async =>
@@ -90,16 +100,33 @@ class _FakeRepo implements ProfileEditRepository {
 
   @override
   Future<WorkPrefOptionsDto> loadWorkPreferenceOptions() async =>
-      const WorkPrefOptionsDto(
-        languages: <String, String>{'hindi': 'Hindi'},
-        documentsReady: <String, String>{},
-        jobType: <String, String>{'permanent': 'Permanent'},
-        shift: <String, String>{},
+      WorkPrefOptionsDto(
+        languages: const <String, String>{'hindi': 'Hindi'},
+        documentsReady: const <String, String>{},
+        jobType: const <String, String>{
+          'permanent': 'Permanent',
+          'contract': 'Contract',
+        },
+        shift: const <String, String>{},
+        availabilityStatus: availabilityStatus,
       );
 
   @override
-  Future<void> saveWorkPreferences(Map<String, dynamic> fields) async {}
+  Future<WorkPreferencesDto> loadWorkPreferences() async => stored;
+
+  @override
+  Future<void> saveWorkPreferences(Map<String, dynamic> fields) async {
+    savedPrefs = fields;
+  }
 }
+
+/// The server's `AVAILABILITY_STATUSES`, verbatim (`worker-preferences.vocabulary.ts`).
+const Map<String, String> _servedStatuses = <String, String>{
+  'immediate': 'Immediately',
+  'within_week': 'Within a week',
+  'within_month': 'Within a month',
+  'serving_notice': 'Serving notice',
+};
 
 Future<void> _pump(WidgetTester tester, _FakeRepo repo) async {
   GoogleFonts.config.allowRuntimeFetching = false;
@@ -240,6 +267,97 @@ void main() {
       expect(find.text('Zyaada se zyaada 12 items.'), findsOneWidget);
       expect(find.widgetWithText(TextButton, 'Link'), findsNothing);
       expect(find.text('Pehla sample jodein'), findsNothing);
+    });
+  });
+
+  /// #1541 — the "Kaam ki jaankari" card: prefilled, server-slug chips, and a
+  /// save that keeps the saved parts the worker did not touch.
+  group('Kaam ki jaankari (#1541)', () {
+    const WorkPreferencesDto saved = WorkPreferencesDto(
+      workTypes: <String>['contract'],
+      salaryPeriod: 'day',
+      commuteKm: 25,
+      willingToTravel: true,
+      availability: WorkAvailabilityDto(
+        status: 'serving_notice',
+        availableFrom: '2026-10-01',
+        noticeDays: 30,
+      ),
+    );
+
+    bool chipSelected(WidgetTester tester, String label) => tester
+        .widget<KitSelectChip>(find.widgetWithText(KitSelectChip, label))
+        .selected;
+
+    testWidgets('opens on the saved answers, not blank', (tester) async {
+      final _FakeRepo repo = _FakeRepo()
+        ..availabilityStatus = _servedStatuses
+        ..stored = saved;
+      await _pump(tester, repo);
+
+      expect(chipSelected(tester, 'Contract'), isTrue);
+      expect(chipSelected(tester, 'Permanent'), isFalse);
+      expect(chipSelected(tester, 'Din'), isTrue);
+      expect(find.widgetWithText(TextField, '25'), findsOneWidget);
+      expect(
+        tester
+            .widget<SwitchListTile>(find.byType(SwitchListTile))
+            .value,
+        isTrue,
+      );
+      expect(chipSelected(tester, 'Serving notice'), isTrue);
+      expect(find.widgetWithText(TextField, '2026-10-01'), findsOneWidget);
+      expect(find.widgetWithText(TextField, '30'), findsOneWidget);
+    });
+
+    testWidgets(
+        'a served status chip saves its server slug and keeps the saved '
+        'date + notice days', (tester) async {
+      final _FakeRepo repo = _FakeRepo()
+        ..availabilityStatus = _servedStatuses
+        ..stored = saved;
+      await _pump(tester, repo);
+
+      await tester.ensureVisible(find.text('Immediately'));
+      await tester.tap(find.text('Immediately'));
+      await tester.pump();
+      await tester.ensureVisible(find.text('Save kaam ki jaankari'));
+      await tester.tap(find.text('Save kaam ki jaankari'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(repo.savedPrefs, <String, dynamic>{
+        'touched_only': true,
+        'availability': <String, dynamic>{
+          'status': 'immediate',
+          'available_from': '2026-10-01',
+          'notice_period_days': 30,
+        },
+      });
+    });
+
+    testWidgets(
+        'an older server gets the Hinglish fallback chips, which still send '
+        'serving_notice — never a raw slug on screen', (tester) async {
+      final _FakeRepo repo = _FakeRepo();
+      await _pump(tester, repo);
+
+      expect(find.text('Notice period ke baad'), findsOneWidget);
+      expect(find.text('serving_notice'), findsNothing);
+      expect(find.text('notice_period'), findsNothing);
+
+      await tester.ensureVisible(find.text('Notice period ke baad'));
+      await tester.tap(find.text('Notice period ke baad'));
+      await tester.pump();
+      await tester.ensureVisible(find.text('Save kaam ki jaankari'));
+      await tester.tap(find.text('Save kaam ki jaankari'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        (repo.savedPrefs!['availability'] as Map<String, dynamic>)['status'],
+        'serving_notice',
+      );
     });
   });
 }

@@ -31,7 +31,18 @@ class ExperienceEditorScreen extends StatefulWidget {
     required this.initialEntries,
     required this.loadOptions,
     required this.onSave,
+    this.loadSuggestions,
   });
+
+  /// Jobs from a résumé or the chat interview the worker never confirmed
+  /// (#1516), offered on the page as "Kya ye aapka kaam tha?" cards. Null
+  /// offers none — exactly the editor before #1516.
+  ///
+  /// A CONVENIENCE, NEVER A GATE: fetched after the editor is up, and a failed
+  /// fetch simply offers nothing — the worker can still type every job — the
+  /// same posture the page takes on a failed [loadOptions].
+  final Future<List<TradeFormEmploymentSuggestion>> Function()?
+      loadSuggestions;
 
   /// The work history already banked for this session — the editor opens with
   /// it, so a second edit REPLACES rather than wipes (the endpoint is a PUT of
@@ -52,6 +63,31 @@ class _ExperienceEditorScreenState extends State<ExperienceEditorScreen> {
   final GlobalKey<TradeFormEmploymentPageState> _pageKey =
       GlobalKey<TradeFormEmploymentPageState>();
   bool _saving = false;
+
+  /// What [ExperienceEditorScreen.loadSuggestions] returned, once it has.
+  List<TradeFormEmploymentSuggestion> _suggestions =
+      const <TradeFormEmploymentSuggestion>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSuggestions();
+  }
+
+  Future<void> _loadSuggestions() async {
+    final Future<List<TradeFormEmploymentSuggestion>> Function()? load =
+        widget.loadSuggestions;
+    if (load == null) return;
+    try {
+      final List<TradeFormEmploymentSuggestion> loaded = await load();
+      if (!mounted) return;
+      setState(() => _suggestions = loaded);
+    } catch (_) {
+      // Deliberately silent (see [ExperienceEditorScreen.loadSuggestions]):
+      // the editor is complete without them, so a failed read costs the
+      // worker a shortcut, not the page.
+    }
+  }
 
   Future<void> _save() async {
     final TradeFormEmploymentPageState? page = _pageKey.currentState;
@@ -112,6 +148,7 @@ class _ExperienceEditorScreenState extends State<ExperienceEditorScreen> {
                   loadOptions: widget.loadOptions,
                   onSave: (_) {}, // persisted by _save; the page stays a form
                   initialEntries: widget.initialEntries,
+                  suggestions: _suggestions,
                 ),
               ),
             ),

@@ -68,4 +68,55 @@ void main() {
       expect(hub.hubKey, isEmpty);
     });
   });
+
+  /// #1541 / ADR-0045 R4 — `availability_status`, the closed set the PUT's
+  /// strict `z.enum` validates `availability.status` against.
+  group('WorkPrefOptionsDto.availabilityStatus (#1541)', () {
+    test('parses the served dictionary, preserving server order', () {
+      final WorkPrefOptionsDto dto = WorkPrefOptionsDto.fromJson(<String, dynamic>{
+        'languages': <String, dynamic>{},
+        'availability_status': <String, dynamic>{
+          'immediate': 'Immediately',
+          'within_week': 'Within a week',
+          'within_month': 'Within a month',
+          'serving_notice': 'Serving notice',
+        },
+      });
+      expect(dto.availabilityStatus.keys.toList(), <String>[
+        'immediate',
+        'within_week',
+        'within_month',
+        'serving_notice',
+      ]);
+      expect(dto.availabilityStatus['serving_notice'], 'Serving notice');
+    });
+
+    test('absent or null parses as empty — an older server', () {
+      for (final Map<String, dynamic> json in <Map<String, dynamic>>[
+        <String, dynamic>{'languages': <String, dynamic>{}},
+        <String, dynamic>{'availability_status': null},
+      ]) {
+        expect(WorkPrefOptionsDto.fromJson(json).availabilityStatus, isEmpty);
+      }
+    });
+
+    test('a malformed value parses as empty; a non-string label is skipped',
+        () {
+      expect(
+        WorkPrefOptionsDto.fromJson(<String, dynamic>{
+          'availability_status': <dynamic>['immediate'],
+        }).availabilityStatus,
+        isEmpty,
+      );
+      expect(
+        WorkPrefOptionsDto.fromJson(<String, dynamic>{
+          'availability_status': <String, dynamic>{
+            'immediate': 'Immediately',
+            'within_week': 7,
+          },
+        }).availabilityStatus,
+        <String, String>{'immediate': 'Immediately'},
+      );
+    });
+  });
 }

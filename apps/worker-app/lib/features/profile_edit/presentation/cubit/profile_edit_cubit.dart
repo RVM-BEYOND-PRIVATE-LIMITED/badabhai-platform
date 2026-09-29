@@ -13,7 +13,9 @@ import '../../../../core/api/api_client.dart'
         MyWhatsappDto,
         PortfolioItemDto,
         TrainingEntryDto,
-        WorkPrefOptionsDto;
+        WorkAvailabilityDto,
+        WorkPrefOptionsDto,
+        WorkPreferencesDto;
 import '../../../../core/error/failure.dart';
 import '../../domain/profile_edit_models.dart';
 import '../../domain/profile_edit_repository.dart';
@@ -108,6 +110,14 @@ class ProfileEditState extends Equatable {
 
   bool get isReady => status == ProfileEditStatus.ready;
 
+  /// The "Kab se available" chips (#1541): the server's own
+  /// `availability_status` dictionary when it serves one — the set the PUT
+  /// validates against — else the static copy that uses the same slugs.
+  Map<String, String> get availabilityStatusOptions {
+    final Map<String, String>? served = options?.availabilityStatus;
+    return (served == null || served.isEmpty) ? kAvailabilityStatuses : served;
+  }
+
   ProfileEditState copyWith({
     ProfileEditStatus? status,
     Failure? failure,
@@ -199,9 +209,15 @@ class ProfileEditCubit extends Cubit<ProfileEditState> {
 
   bool _loading = false;
 
+  /// The stored legacy single `job_type` while the card shows its chip ticked
+  /// (#1541) — as the fallback prefill, or inside the saved multi — else null.
+  /// Kept so un-ticking down to none can actually withdraw it on save.
+  String? _shownJobType;
+
   Future<void> load() async {
     if (_loading) return;
     _loading = true;
+    _shownJobType = null;
     emit(const ProfileEditState(status: ProfileEditStatus.loading));
     try {
       // One round of parallel reads; every surface is independent but the
@@ -214,6 +230,10 @@ class ProfileEditCubit extends Cubit<ProfileEditState> {
         _repo.loadQualifications(),
         _repo.loadPortfolio(),
         _repo.loadWorkPreferenceOptions(),
+        // #1541 — the extended fields' PREFILL. It fails the load closed like
+        // every other read: a card that opened blank is exactly what let a
+        // save overwrite a saved part with an empty default.
+        _repo.loadWorkPreferences(),
       ]);
       if (isClosed) return;
       final MyWhatsappDto whatsapp = results[0]! as MyWhatsappDto;
@@ -222,6 +242,11 @@ class ProfileEditCubit extends Cubit<ProfileEditState> {
       final MyQualificationsDto qualifications = results[3]! as MyQualificationsDto;
       final MyPortfolioDto portfolio = results[4]! as MyPortfolioDto;
       final WorkPrefOptionsDto options = results[5]! as WorkPrefOptionsDto;
+      final WorkPreferencesDto prefs = results[6]! as WorkPreferencesDto;
+      final Set<String> workTypes = _storedWorkTypes(prefs);
+      final String? jobType = prefs.jobType;
+      _shownJobType =
+          (jobType != null && workTypes.contains(jobType)) ? jobType : null;
       emit(
         ProfileEditState(
           status: ProfileEditStatus.ready,
@@ -239,6 +264,11 @@ class ProfileEditCubit extends Cubit<ProfileEditState> {
           trainings: qualifications.trainings,
           portfolio: portfolio.items,
           options: options,
+          workTypes: workTypes,
+          salaryPeriod: prefs.salaryPeriod,
+          commuteMaxKm: prefs.commuteKm,
+          willingToTravel: prefs.willingToTravel ?? false,
+          availability: _storedAvailability(prefs.availability),
         ),
       );
       // The dormancy probe runs AFTER the ready emit on purpose: the page must
@@ -521,7 +551,9 @@ class ProfileEditCubit extends Cubit<ProfileEditState> {
   /// Builds the tri-state preferences body for the extended attributes only,
   /// with `touched_only: true` so the server keeps the #1504 strict contract.
   /// Absent keys are left alone; a touched empty list / false is a real
-  /// withdrawal.
+  /// withdrawal. A touched key carries its FULL current value, which [load]
+  /// prefilled from the stored answers (#1541) — so a one-chip edit re-sends
+  /// the rest of that saved list or availability object rather than wiping it.
   Future<void> saveExtendedAttributes({
     required bool workTypesTouched,
     required bool salaryPeriodTouched,
@@ -530,7 +562,18 @@ class ProfileEditCubit extends Cubit<ProfileEditState> {
     required bool availabilityTouched,
   }) async {
     final Map<String, dynamic> body = <String, dynamic>{'touched_only': true};
-    if (workTypesTouched) body['work_types'] = state.workTypes.toList();
+    final Set<String> sentWorkTypes = state.workTypes;
+    if (workTypesTouched) {
+      body['work_types'] = sentWorkTypes.toList();
+      // #1541 — the card showed the legacy `job_type` chip ticked and the
+      // worker un-ticked down to none. `work_types: []` alone cannot withdraw
+      // it: the server clears only the multi and its precedence then falls
+      // back to `job_type`, so the chip would come straight back. Clearing it
+      // here removes only the value this card SHOWED — never a hidden one.
+      if (_shownJobType != null && sentWorkTypes.isEmpty) {
+        body['job_type'] = null;
+      }
+    }
     if (salaryPeriodTouched) body['salary_period'] = state.salaryPeriod;
     if (commuteTouched) body['commute_max_km'] = state.commuteMaxKm;
     if (travelTouched) body['willing_to_travel'] = state.willingToTravel;
@@ -542,7 +585,14 @@ class ProfileEditCubit extends Cubit<ProfileEditState> {
     await _save(
       ProfileEditSection.attributes,
       () => _repo.saveWorkPreferences(body),
-      onSuccess: () => state.copyWith(notice: 'Kaam ki jaankari save ho gayi.'),
+      onSuccess: () {
+        // Once a work-types save lands, the legacy value is still "shown" only
+        // if its chip is in the set just saved — what a fresh [load] would see.
+        if (workTypesTouched && !sentWorkTypes.contains(_shownJobType)) {
+          _shownJobType = null;
+        }
+        return state.copyWith(notice: 'Kaam ki jaankari save ho gayi.');
+      },
     );
   }
 
@@ -586,6 +636,35 @@ class ProfileEditCubit extends Cubit<ProfileEditState> {
     } else {
       emit(state.copyWith(saving: next));
     }
+  }
+
+  /// The stored work types the chips start from (#1541), by the server's own
+  /// precedence (`worker-field-precedence.ts`): a non-empty `work_types` wins,
+  /// else the legacy single `job_type` — the same rule the Profile tab prints
+  /// by, so the card shows what the worker already sees as saved. A touched
+  /// save then sends that set plus the change, never the change alone.
+  static Set<String> _storedWorkTypes(WorkPreferencesDto prefs) {
+    final List<String> multi = prefs.workTypes ?? const <String>[];
+    if (multi.isNotEmpty) return multi.toSet();
+    // A multi withheld in `partial` is still stored and still wins
+    // server-side, so falling back to `job_type` there would offer a set the
+    // server does not resolve to — the chips start blank instead.
+    if (prefs.partial.contains('work_types')) return <String>{};
+    final String? single = prefs.jobType;
+    return (single == null || single.isEmpty) ? <String>{} : <String>{single};
+  }
+
+  /// The stored availability object as the editable draft (#1541). The PUT
+  /// REPLACES the whole object, so the draft must carry every stored part: a
+  /// status-only edit then re-sends the saved date and notice days instead of
+  /// nulling them.
+  static AvailabilityDraft _storedAvailability(WorkAvailabilityDto? stored) {
+    if (stored == null) return const AvailabilityDraft();
+    return AvailabilityDraft(
+      status: stored.status,
+      availableFrom: stored.availableFrom,
+      noticePeriodDays: stored.noticeDays,
+    );
   }
 
   String _reason(Failure f) {

@@ -118,6 +118,7 @@ class _ProfileEditView extends StatelessWidget {
           willingToTravel: state.willingToTravel,
           availability: state.availability,
           jobTypeLabels: state.options?.jobType ?? const <String, String>{},
+          availabilityLabels: state.availabilityStatusOptions,
           saving: state.saving.contains(ProfileEditSection.attributes),
           cubit: cubit,
         ),
@@ -504,6 +505,7 @@ class _WorkInfoCard extends StatefulWidget {
     required this.willingToTravel,
     required this.availability,
     required this.jobTypeLabels,
+    required this.availabilityLabels,
     required this.saving,
     required this.cubit,
   });
@@ -514,6 +516,10 @@ class _WorkInfoCard extends StatefulWidget {
   final bool willingToTravel;
   final AvailabilityDraft availability;
   final Map<String, String> jobTypeLabels;
+
+  /// `availability.status` slug → label, from the server when it serves the
+  /// dictionary (#1541) — never a slug the PUT would reject.
+  final Map<String, String> availabilityLabels;
   final bool saving;
   final ProfileEditCubit cubit;
 
@@ -635,7 +641,8 @@ class _WorkInfoCardState extends State<_WorkInfoCard> {
             spacing: 8,
             runSpacing: 8,
             children: <Widget>[
-              for (final MapEntry<String, String> e in kAvailabilityStatuses.entries)
+              for (final MapEntry<String, String> e
+                  in widget.availabilityLabels.entries)
                 KitSelectChip(
                   label: e.value,
                   selected: widget.cubit.state.availability.status == e.key,

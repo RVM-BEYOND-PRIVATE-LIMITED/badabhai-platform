@@ -316,30 +316,57 @@ class MockPayerApiClient implements PayerApiClient {
     String? neededBy,
     List<String>? benefits,
     List<String>? requirements,
+    List<JobPostingClearField>? clear,
   }) async {
     // The real PATCH accepts every key above and returns the UPDATED row, so the
     // mock echoes the patch back over the canned row (a null field is left at
     // its stored value, exactly like the server's per-field compare — and an
     // explicitly EMPTY chip list overwrites with `[]`, which is how a clear
-    // reads on the wire).
+    // reads on the wire). A field named in [clear] (#1652) comes back NULL.
+    final Set<JobPostingClearField> cleared =
+        Set<JobPostingClearField>.of(clear ?? const <JobPostingClearField>[]);
+    T? patched<T>(JobPostingClearField field, T? supplied, T? stored) =>
+        _patchedField(cleared.contains(field), supplied, stored);
     final JobPosting current = _cannedJob(id, wireStatus: status ?? 'draft');
     return JobPosting(
       id: current.id,
       title: roleTitle ?? current.title,
       band: vacancyBand ?? current.band,
-      locationLabel: locationLabel ?? current.locationLabel,
-      description: description ?? current.description,
-      city: city ?? current.city,
-      area: area ?? current.area,
-      payMin: payMin ?? current.payMin,
-      payMax: payMax ?? current.payMax,
-      payType: payType ?? current.payType,
-      minExperienceYears: minExperienceYears ?? current.minExperienceYears,
-      maxExperienceYears: maxExperienceYears ?? current.maxExperienceYears,
-      benefits: benefits ?? current.benefits,
-      requirements: requirements ?? current.requirements,
-      shift: shift ?? current.shift,
-      neededBy: neededBy ?? current.neededBy,
+      locationLabel: patched(
+        JobPostingClearField.locationLabel,
+        locationLabel,
+        current.locationLabel,
+      ),
+      description: patched(
+        JobPostingClearField.description,
+        description,
+        current.description,
+      ),
+      city: patched(JobPostingClearField.city, city, current.city),
+      area: patched(JobPostingClearField.area, area, current.area),
+      payMin: patched(JobPostingClearField.payMin, payMin, current.payMin),
+      payMax: patched(JobPostingClearField.payMax, payMax, current.payMax),
+      payType: patched(JobPostingClearField.payType, payType, current.payType),
+      minExperienceYears: patched(
+        JobPostingClearField.minExperienceYears,
+        minExperienceYears,
+        current.minExperienceYears,
+      ),
+      maxExperienceYears: patched(
+        JobPostingClearField.maxExperienceYears,
+        maxExperienceYears,
+        current.maxExperienceYears,
+      ),
+      benefits:
+          patched(JobPostingClearField.benefits, benefits, current.benefits),
+      requirements: patched(
+        JobPostingClearField.requirements,
+        requirements,
+        current.requirements,
+      ),
+      shift: patched(JobPostingClearField.shift, shift, current.shift),
+      neededBy:
+          patched(JobPostingClearField.neededBy, neededBy, current.neededBy),
       matchSkillIds: matchSkillIds ?? current.matchSkillIds,
       createdAt: current.createdAt,
       status: current.status,
@@ -791,7 +818,10 @@ class MockPayerApiClient implements PayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    List<AgencyJobClearField>? clear,
   }) async {
+    final Set<AgencyJobClearField> cleared =
+        Set<AgencyJobClearField>.of(clear ?? const <AgencyJobClearField>[]);
     if (tradeKey == null &&
         title == null &&
         city == null &&
@@ -805,11 +835,15 @@ class MockPayerApiClient implements PayerApiClient {
         description == null &&
         shift == null &&
         benefits == null &&
-        requirements == null) {
+        requirements == null &&
+        cleared.isEmpty) {
       throw ArgumentError('updateAgencyJob needs at least one field');
     }
+    T? patched<T>(AgencyJobClearField field, T? supplied, T? stored) =>
+        _patchedField(cleared.contains(field), supplied, stored);
     // Same replace-semantics as the server: a passed value overwrites, a null
-    // leaves the stored one alone, and an explicitly EMPTY list clears.
+    // leaves the stored one alone, and an explicitly EMPTY list clears. A field
+    // named in [clear] (#1652) is stored as NULL.
     return _mutate(
       id,
       (AgencyJobView j) => AgencyJobView(
@@ -818,17 +852,33 @@ class MockPayerApiClient implements PayerApiClient {
         tradeKey: tradeKey ?? j.tradeKey,
         title: title ?? j.title,
         city: city ?? j.city,
-        area: area ?? j.area,
-        payMin: payMin ?? j.payMin,
-        payMax: payMax ?? j.payMax,
-        payType: payType ?? j.payType,
-        minExperienceYears: minExperienceYears ?? j.minExperienceYears,
-        maxExperienceYears: maxExperienceYears ?? j.maxExperienceYears,
-        neededBy: neededBy ?? j.neededBy,
-        description: description ?? j.description,
-        shift: shift ?? j.shift,
-        benefits: benefits ?? j.benefits,
-        requirements: requirements ?? j.requirements,
+        area: patched(AgencyJobClearField.area, area, j.area),
+        payMin: patched(AgencyJobClearField.payMin, payMin, j.payMin),
+        payMax: patched(AgencyJobClearField.payMax, payMax, j.payMax),
+        payType: patched(AgencyJobClearField.payType, payType, j.payType),
+        minExperienceYears: patched(
+          AgencyJobClearField.minExperienceYears,
+          minExperienceYears,
+          j.minExperienceYears,
+        ),
+        maxExperienceYears: patched(
+          AgencyJobClearField.maxExperienceYears,
+          maxExperienceYears,
+          j.maxExperienceYears,
+        ),
+        neededBy: patched(AgencyJobClearField.neededBy, neededBy, j.neededBy),
+        description: patched(
+          AgencyJobClearField.description,
+          description,
+          j.description,
+        ),
+        shift: patched(AgencyJobClearField.shift, shift, j.shift),
+        benefits: patched(AgencyJobClearField.benefits, benefits, j.benefits),
+        requirements: patched(
+          AgencyJobClearField.requirements,
+          requirements,
+          j.requirements,
+        ),
         applicantsReceived: j.applicantsReceived,
         createdAt: j.createdAt,
         updatedAt: '2026-07-08T00:00:00Z',
@@ -869,6 +919,18 @@ class MockPayerApiClient implements PayerApiClient {
 
   /// Applies [update] to the row with [id] in-place; a neutral unknown id is a
   /// no-op-safe [PayerApiException(404)] (mirrors the real not-owned/unknown).
+  /// #1652 — one clearable field of a mock job-edit PATCH, resolved the way the
+  /// server does: cleared → null, supplied → the value, neither → [stored]. A
+  /// field both supplied AND cleared is the contradiction the real routes 400
+  /// (and the HTTP client refuses before sending) — refused here alike.
+  static T? _patchedField<T>(bool cleared, T? supplied, T? stored) {
+    if (!cleared) return supplied ?? stored;
+    if (supplied != null) {
+      throw const PayerApiException(400, code: kJobEditSetAndClearedCode);
+    }
+    return null;
+  }
+
   Future<AgencyJobView> _mutate(
     String id,
     AgencyJobView Function(AgencyJobView) update,

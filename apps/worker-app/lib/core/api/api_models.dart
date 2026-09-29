@@ -546,6 +546,45 @@ enum ChatInputMode {
       raw == 'options_only' ? ChatInputMode.optionsOnly : ChatInputMode.text;
 }
 
+/// HOW the question on screen is answered (`answer_type`, #1559 / #1583) —
+/// the one thing the chips cannot tell the client: every boolean pack item
+/// carries ZERO options, and a multi-select's chips look exactly like a
+/// single-select's (where one tap is the whole answer).
+///
+/// The server's closed set is the five `ANSWER_TYPES` of `@badabhai/ai-contracts`
+/// (the database-only `city` / `salary` / `duration` are aliased to `text` /
+/// `number` / `number` before they reach the wire).
+///
+/// ADVISORY, like [ChatInputMode]: the server still accepts typed text on
+/// every value. Absent / null / unknown -> null, which the server uses for
+/// "nothing pack-shaped on screen" (a close, a degraded or LLM-led turn) and
+/// which the client renders exactly as it did before this field existed — a
+/// parse miss can never invent a widget.
+enum ChatAnswerType {
+  text,
+  number,
+  boolean,
+  singleSelect,
+  multiSelect;
+
+  static ChatAnswerType? parse(Object? raw) {
+    switch (raw) {
+      case 'text':
+        return ChatAnswerType.text;
+      case 'number':
+        return ChatAnswerType.number;
+      case 'boolean':
+        return ChatAnswerType.boolean;
+      case 'single_select':
+        return ChatAnswerType.singleSelect;
+      case 'multi_select':
+        return ChatAnswerType.multiSelect;
+      default:
+        return null;
+    }
+  }
+}
+
 /// The server's ADVISORY prediction of the NEXT chat turn for one option tap
 /// (`lookahead` entry, #761). Rendered OPTIMISTICALLY the instant a chip is
 /// tapped so a 2G worker sees the next prompt + chips + progress without waiting
@@ -581,7 +620,9 @@ class PredictedQuestion extends Equatable {
   /// Predicted "why are we asking" copy. No chat sink today — parsed, unused.
   final String? whyText;
 
-  /// The predicted answer_type. No chat sink today — parsed, unused.
+  /// The predicted answer_type, raw. The chat reads it through
+  /// [ChatAnswerType.parse] for the optimistic render (#1559 / #1583), so an
+  /// unknown value stays today's behaviour.
   final String? answerType;
 
   /// Predicted tap-to-answer chips as LABEL strings (chat chips submit the
@@ -753,14 +794,17 @@ class ChatReply extends Equatable {
     this.progress,
     this.questionKind = ChatQuestionKind.ask,
     this.inputMode = ChatInputMode.text,
+    this.answerType,
     this.occupationLabel,
     this.ttsText,
     this.lookahead = const <String, PredictedQuestion?>{},
     this.formOffer,
     this.resumeUpdate,
+    this.gateKind,
+    this.generalFormOffer,
   });
 
-  final String reply;
+final String reply;
   final bool blocked;
   final bool isMock;
   final List<String> suggestedFollowups;
@@ -786,6 +830,17 @@ class ChatReply extends Equatable {
   /// (see [ChatProfilingScreen]), so a false negative costs the worker one
   /// extra confirmation tap and can never trap them in the chat.
   final bool extractionReady;
+
+  /// The kind of chat gate this turn carries. `skills` means the skills gate
+  /// ("Kya aur koi skill jodni hai?") is open. When absent or unknown the
+  /// keyboard stays unlocked. Additive: a new gate kind is a new enum member.
+  final String? gateKind;
+
+  /// An optional offer to open the general form after the skills gate closes.
+  /// When present the card below the composer shows the headline and CTA from
+  /// the server. Both `headline` and `cta_label` are required. The key is
+  /// ABSENT (never `null`) when unset.
+  final Map<String, String?>? generalFormOffer;
 
   /// The Resume Field Set id this turn is asking about (`asked_question_id`, e.g.
   /// 'trade', 'skills', 'salary_expected') — `null` on the wrap-up turn. The
@@ -839,6 +894,12 @@ class ChatReply extends Equatable {
   /// chips as the only answer path (#770).
   final ChatInputMode inputMode;
 
+  /// HOW this turn's question is answered (`answer_type`, #1559 / #1583) — see
+  /// [ChatAnswerType]. Null when absent, null or unknown (an older API build, a
+  /// close, a degraded or LLM-led turn): the client then renders exactly
+  /// today's chips and composer.
+  final ChatAnswerType? answerType;
+
   /// The worker's trade in THEIR OWN vernacular once retrieval pins it
   /// (`occupation_label`, e.g. "darzi", never the English catalogue title), or
   /// null before it pins. The trust moment of the interview (#649).
@@ -862,7 +923,7 @@ class ChatReply extends Equatable {
   ///
   /// ABSENT / EMPTY is the normal case and NOT an error: the server omits it on
   /// close, disambiguation, clarify, free-text and multi_select turns, and any
-  /// build that predates the field. A missing key means "no prediction for that
+  /// build that predates the field. A missing key means "no predictions for that
   /// tap — wait for the round trip", which is exactly today's behaviour.
   final Map<String, PredictedQuestion?> lookahead;
 
@@ -959,6 +1020,9 @@ class ChatReply extends Equatable {
         questionKind: ChatQuestionKind.parse(json['question_kind']),
         // Absent / unknown -> text (composer stays; never trap the worker).
         inputMode: ChatInputMode.parse(json['input_mode']),
+        // #1559 / #1583 — absent / null / unknown -> null (today's behaviour).
+        // Never thrown (#371): an unknown value just draws no new widget.
+        answerType: ChatAnswerType.parse(json['answer_type']),
         // Absent / null / non-string -> null (not yet pinned). ALSO null for the
         // universal-fallback family label ("सामान्य" / "General"): it is not a
         // real trade, so the trust pill must not show it (see occupation_label.dart).
@@ -987,6 +1051,16 @@ class ChatReply extends Equatable {
         resumeUpdate: json['resume_update'] is String
             ? json['resume_update'] as String
             : null,
+        // ADR-0045 — optional fields from the general-road API.
+        // `gate_kind` is a closed enum with one member today (`skills`).
+        // `general_form_offer` is an optional object with `headline` and `cta_label`.
+        gateKind: json['gate_kind'] is String ? json['gate_kind'] as String : null,
+        generalFormOffer: json['general_form_offer'] is Map
+            ? {
+                'headline': (json['general_form_offer'] as Map)['headline'] as String?,
+                'cta_label': (json['general_form_offer'] as Map)['cta_label'] as String?,
+              }
+            : null,
       );
 
   @override
@@ -1003,11 +1077,14 @@ class ChatReply extends Equatable {
         progress,
         questionKind,
         inputMode,
+        answerType,
         occupationLabel,
         ttsText,
         lookahead,
         formOffer,
         resumeUpdate,
+        gateKind,
+        generalFormOffer,
       ];
 }
 
@@ -1977,6 +2054,7 @@ class TradeSheetResumeDocument extends ResumeDocument {
     super.source,
     required this.trade,
     this.layout,
+    this.brief,
     this.headline = const ResumeSheetHeadlineDto(),
     this.sections = const <ResumeDocumentSectionDto>[],
     this.employments = const <ResumeEmploymentDto>[],
@@ -1988,6 +2066,14 @@ class TradeSheetResumeDocument extends ResumeDocument {
   });
 
   final String trade;
+
+  /// #1796 — ADR-0045 R6: the worker's own brief line, printed under the
+  /// headline on both the worker and employer copies. Absent on every document
+  /// not on the road: every `bb_trade`, every `bb_general` off the road, every
+  /// `generic`. String on the road: the line the PDF prints. Null on the road
+  /// when no line applies. The app treats absent and null the same way: draw
+  /// nothing.
+  final String? brief;
 
   /// #1736 — WHICH PRINTED SHEET this document was rendered as: `"bb_trade"`
   /// (the 21 predefined roles) or `"bb_general"` (the BadaBhai general sheet,
@@ -2046,12 +2132,14 @@ class TradeSheetResumeDocument extends ResumeDocument {
         json['sections'] as List<dynamic>? ?? const <dynamic>[];
     final List<dynamic> rawEmployments =
         json['employments'] as List<dynamic>? ?? const <dynamic>[];
+    final String? briefRaw = json['brief'] as String?;
     return TradeSheetResumeDocument(
       header: ResumeDocument._headerFrom(json),
       footerMeta: json['footerMeta'] as String?,
       source: ResumeDocument.sourceFrom(json),
       trade: json['trade'] as String? ?? '',
       layout: _sheetLayoutFrom(json['layout']),
+      brief: briefRaw != null && briefRaw.isNotEmpty ? briefRaw.trim() : null,
       headline: rawHeadline == null
           ? const ResumeSheetHeadlineDto()
           : ResumeSheetHeadlineDto.fromJson(rawHeadline),
@@ -2096,6 +2184,7 @@ class TradeSheetResumeDocument extends ResumeDocument {
         ...super.props,
         trade,
         layout,
+        brief,
         headline,
         sections,
         employments,
@@ -2534,6 +2623,7 @@ class WorkPrefOptionsDto extends Equatable {
     this.cities = const <CityOptionDto>[],
     this.states = const <String>[],
     this.cityHubs = const <CityHubDto>[],
+    this.availabilityStatus = const <String, String>{},
   });
 
   final Map<String, String> languages;
@@ -2551,6 +2641,12 @@ class WorkPrefOptionsDto extends Equatable {
   /// `city_hubs`. ADDITIVE: a client that ignores it renders the state→city
   /// cascade exactly as before.
   final List<CityHubDto> cityHubs;
+
+  /// `availability.status`'s closed set (ADR-0045 R4), `slug → label` in the
+  /// server's chip order — the SAME dictionary the PUT's strict `z.enum`
+  /// validates against, so a chip drawn from it can never 400. Empty when the
+  /// server predates the key; callers then fall back to a static copy.
+  final Map<String, String> availabilityStatus;
 
   static Map<String, String> _labelMap(dynamic raw) {
     if (raw is! Map) return const <String, String>{};
@@ -2595,6 +2691,7 @@ class WorkPrefOptionsDto extends Equatable {
                 .toList() ??
             const <String>[],
         cityHubs: _hubList(json['city_hubs']),
+        availabilityStatus: _labelMap(json['availability_status']),
       );
 
   @override
@@ -2606,6 +2703,7 @@ class WorkPrefOptionsDto extends Equatable {
         cities,
         states,
         cityHubs,
+        availabilityStatus,
       ];
 }
 
@@ -3786,6 +3884,72 @@ class EmploymentViewDto extends Equatable {
       ];
 }
 
+/// One job the worker never confirmed, offered beside the stored history —
+/// `GET /workers/me/employment` → `employment_suggestions[]` (#1516).
+///
+/// NOT A ROW AND NOT A PUT FIELD. The server stages these from an uploaded
+/// résumé (`source: "resume"`) or the chat interview (`source: "chat"`) and
+/// never writes them: one becomes a real job only when the worker adds it on
+/// the Work History page and that page's own PUT saves it.
+///
+/// EVERY VALUE MAY BE NULL (`EmploymentSuggestionValues` in
+/// `employment-suggestions.ts`) — a suggestion is allowed to be partial, and a
+/// chat one never carries an employer name. Parsed tolerantly (a wrong-typed
+/// value reads as null) because this list rides on the SAME read the page's
+/// stored history does, and a bad hint must never fail that read.
+///
+/// PRIVACY: [employerName] and [workDone] are free text — never logged here.
+class EmploymentSuggestionDto extends Equatable {
+  const EmploymentSuggestionDto({
+    required this.source,
+    this.employerName,
+    this.employerCity,
+    this.roleLabel,
+    this.startYm,
+    this.endYm,
+    this.workDone,
+  });
+
+  /// `resume` | `chat` — a WIRE TOKEN, never drawn as-is. Empty when absent.
+  final String source;
+
+  final String? employerName;
+  final String? employerCity;
+  final String? roleLabel;
+
+  /// "YYYY-MM" or null — the server never invents a month.
+  final String? startYm;
+  final String? endYm;
+  final String? workDone;
+
+  factory EmploymentSuggestionDto.fromJson(Map<String, dynamic> json) {
+    final Object? raw = json['values'];
+    final Map<String, dynamic> values =
+        raw is Map<String, dynamic> ? raw : const <String, dynamic>{};
+    String? str(Object? v) => v is String ? v : null;
+    return EmploymentSuggestionDto(
+      source: str(json['source']) ?? '',
+      employerName: str(values['employer_name']),
+      employerCity: str(values['employer_city']),
+      roleLabel: str(values['role_label']),
+      startYm: str(values['start_ym']),
+      endYm: str(values['end_ym']),
+      workDone: str(values['work_done']),
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[
+        source,
+        employerName,
+        employerCity,
+        roleLabel,
+        startYm,
+        endYm,
+        workDone,
+      ];
+}
+
 /// `GET /workers/me/employment` (#1504) — the stored work history the
 /// `employment` marker page prefills from (#1710).
 ///
@@ -3798,9 +3962,16 @@ class MyEmploymentDto extends Equatable {
   const MyEmploymentDto({
     this.employments = const <EmploymentViewDto>[],
     this.unreadableCount = 0,
+    this.employmentSuggestions = const <EmploymentSuggestionDto>[],
   });
 
   final List<EmploymentViewDto> employments;
+
+  /// Unconfirmed jobs from a résumé and/or the chat interview (#1516),
+  /// résumé first, NEITHER deduped against the other nor against
+  /// [employments] — the page does that. Always present on the wire (`[]`
+  /// when none); an older server that omits it reads as `[]` too.
+  final List<EmploymentSuggestionDto> employmentSuggestions;
 
   /// Stored rows whose employer name would not decrypt, withheld from
   /// [employments]. They are NOT erased by a replace — the repository carries
@@ -3820,10 +3991,17 @@ class MyEmploymentDto extends Equatable {
                 .toList() ??
             const <EmploymentViewDto>[],
         unreadableCount: (json['unreadable_count'] as num?)?.toInt() ?? 0,
+        employmentSuggestions: (json['employment_suggestions'] is List<dynamic>
+                ? json['employment_suggestions'] as List<dynamic>
+                : const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(EmploymentSuggestionDto.fromJson)
+            .toList(),
       );
 
   @override
-  List<Object?> get props => <Object?>[employments, unreadableCount];
+  List<Object?> get props =>
+      <Object?>[employments, unreadableCount, employmentSuggestions];
 }
 
 /// POST /profile/corrections (#1595 — the client half of #1593): correct the
@@ -3841,11 +4019,10 @@ class MyEmploymentDto extends Equatable {
 /// request (unique fields), skill lists ≤ 50, machine lists ≤ 32,
 /// `total_years` 0–60, lifetime cap 20. The cubit validates before sending.
 ///
-/// NOTE (skills/machines UI): the two id-list arms have no affordance yet —
-/// the extracted labels carry no canonical ids and there is no
-/// worker-facing catalogue read to select from (backend #1596 tracks the
-/// additive catalogue endpoint). Until it ships, the review surface shows
-/// those sections read-only rather than invent ids client-side.
+/// The two id-list arms take ids ONLY from the worker-facing catalogues
+/// (`GET /workers/me/skills/options` / `machines/options`, #1596 — see
+/// [CatalogueOptionDto]): the extracted labels carry no ids, so the picker
+/// shows catalogue labels and sends catalogue ids, never a guessed one.
 sealed class ExtractedCorrection extends Equatable {
   const ExtractedCorrection();
 
@@ -3892,6 +4069,49 @@ class MachinesCorrection extends ExtractedCorrection {
 
   @override
   List<Object?> get props => <Object?>[machineIds];
+}
+
+/// One option of a correction catalogue (#1596): `GET /workers/me/skills/options`
+/// → `{skills: [{skill_id, label}]}` and `GET /workers/me/machines/options` →
+/// `{machines: [{machine_id, label}]}`, both in taxonomy order. [id] is the
+/// canonical `skill_*` / `mach_*` id a [SkillsCorrection] / [MachinesCorrection]
+/// sends; [label] is the display name — the SAME string
+/// `GET /workers/me/profile-summary` resolves a stored id to, so an extracted
+/// label pre-ticks its option by exact match.
+///
+/// Static vocabulary, no worker data. [id] is never rendered.
+class CatalogueOptionDto extends Equatable {
+  const CatalogueOptionDto({required this.id, required this.label});
+
+  final String id;
+  final String label;
+
+  /// Parses the catalogue list under [raw] (the `skills` / `machines` value),
+  /// reading each entry's id from [idKey]. Defensive: an absent/malformed list
+  /// is `[]`; an entry without a non-blank string id AND label is skipped (a
+  /// label-less option would have to show its raw id); a repeated id keeps
+  /// its first occurrence. Server order is preserved.
+  static List<CatalogueOptionDto> listFromJson(
+    dynamic raw, {
+    required String idKey,
+  }) {
+    if (raw is! List) return const <CatalogueOptionDto>[];
+    final Set<String> seen = <String>{};
+    final List<CatalogueOptionDto> out = <CatalogueOptionDto>[];
+    for (final dynamic entry in raw) {
+      if (entry is! Map) continue;
+      final dynamic id = entry[idKey];
+      final dynamic label = entry['label'];
+      if (id is! String || id.trim().isEmpty) continue;
+      if (label is! String || label.trim().isEmpty) continue;
+      if (!seen.add(id)) continue;
+      out.add(CatalogueOptionDto(id: id, label: label));
+    }
+    return List<CatalogueOptionDto>.unmodifiable(out);
+  }
+
+  @override
+  List<Object?> get props => <Object?>[id, label];
 }
 
 /// `{field: "experience", total_years: <int 0–60>}` — worker-stated total.
@@ -3983,6 +4203,11 @@ class CorrectionsApplied extends Equatable {
 
 /// Lifetime correction budget, mirroring `MAX_CORRECTIONS_PER_PROFILE`.
 const int kMaxCorrectionsPerProfile = 20;
+
+/// Id-list ceilings, mirroring `MAX_CORRECTION_SKILLS` / `MAX_CORRECTION_MACHINES`
+/// (the DTO also requires at least one id per list).
+const int kMaxCorrectionSkills = 50;
+const int kMaxCorrectionMachines = 32;
 
 /// Stable 409 reason codes — the server embeds these verbatim in the
 /// ConflictException message (see `extracted-corrections.service.ts`).

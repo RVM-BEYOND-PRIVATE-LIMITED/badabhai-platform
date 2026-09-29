@@ -202,6 +202,7 @@ class _SpyApi extends MockPayerApiClient {
     List<String>? requirements,
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
+    List<JobPostingClearField>? clear,
   }) {
     patched.add((
       id: id,

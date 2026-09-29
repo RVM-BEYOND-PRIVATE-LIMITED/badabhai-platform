@@ -2,9 +2,43 @@ import 'package:equatable/equatable.dart';
 
 import '../../../core/api/api_models.dart'
     show
+        CatalogueOptionDto,
         CertificateEntryDto,
         EducationEntryDto,
         kMaxCorrectionsPerProfile;
+
+/// Pre-ticks an id-list correction (#1596) from the extracted LABELS: a
+/// label pre-ticks the ONE catalogue option whose label equals it exactly
+/// (profile-summary and the catalogue both print the taxonomy name, so a
+/// stored id round-trips). A label with no match — free text the extraction
+/// kept, or a name two options share — lands in `unmatched`: shown to the
+/// worker, never guessed into an id. A skills/machines correction REPLACES
+/// the whole list, so `unmatched` is exactly what saving would drop.
+///
+/// `ids` follow catalogue order; `unmatched` keeps label order. Both deduped.
+({List<String> ids, List<String> unmatched}) matchCatalogueLabels(
+  List<String> labels,
+  List<CatalogueOptionDto> options,
+) {
+  final Set<String> matched = <String>{};
+  final List<String> unmatched = <String>[];
+  for (final String label in labels.toSet()) {
+    final List<CatalogueOptionDto> hits =
+        options.where((CatalogueOptionDto o) => o.label == label).toList();
+    if (hits.length == 1) {
+      matched.add(hits.single.id);
+    } else {
+      unmatched.add(label);
+    }
+  }
+  return (
+    ids: List<String>.unmodifiable(<String>[
+      for (final CatalogueOptionDto o in options)
+        if (matched.contains(o.id)) o.id,
+    ]),
+    unmatched: List<String>.unmodifiable(unmatched),
+  );
+}
 
 /// The extracted profile under review (#1595): what the interview extraction
 /// made of the worker's answers, read back from the stores that own each
@@ -22,13 +56,12 @@ class ExtractedReview extends Equatable {
     this.correctionCount = 0,
   });
 
-  /// Extracted skill labels, as printed. Labels only: the canonical ids a
-  /// skills correction needs have no worker-facing read yet (see the
-  /// catalogue note on `ExtractedCorrection`), so this section is
-  /// review-only — shown, never an id-inventing affordance.
+  /// Extracted skill labels, as printed. Labels only — the ids a skills
+  /// correction sends come from the skill catalogue, matched to these by
+  /// exact label ([matchCatalogueLabels]); never derived from the label.
   final List<String> skills;
 
-  /// Extracted machine labels — same review-only rule as [skills].
+  /// Extracted machine labels — same label-only rule as [skills].
   final List<String> machines;
 
   /// Worker-stated total years, or null when extraction recorded none.

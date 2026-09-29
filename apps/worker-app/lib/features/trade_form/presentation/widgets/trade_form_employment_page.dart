@@ -87,6 +87,14 @@ const String _kDateInvalidError = 'Sahi mahina aur saal chunein.';
 const String _kNameRequiredError = 'Company ka naam likhein.';
 const String _kRoleRequiredError = 'Aapka kaam / role likhein.';
 const String _kWorkRequiredError = 'Aap kya kaam karte the — likhein.';
+// #1516 — an unconfirmed job from a résumé or the chat. It ASKS, and it names
+// where it came from in plain words; the wire tokens `resume`/`chat` are never
+// drawn.
+const String _kSuggestionQuestion = 'Kya ye aapka kaam tha?';
+const String _kSuggestionFromResume = 'Aapke resume se';
+const String _kSuggestionFromChat = 'Aapki chat se';
+const String _kSuggestionAdd = 'Jodein';
+const String _kSuggestionDismiss = 'Ye sujhav hataayein';
 
 const List<String> _kMonths = <String>[
   'Jan',
@@ -130,7 +138,24 @@ class TradeFormEmploymentPage extends StatefulWidget {
     this.tierScope = TradeFormTierScope.unscoped,
     this.onPageChanged,
     this.onSkip,
+    this.suggestions = const <TradeFormEmploymentSuggestion>[],
   });
+
+  /// Jobs from a résumé or the chat interview the worker never confirmed
+  /// (#1516), drawn as SEPARATE "Kya ye aapka kaam tha?" cards beside the
+  /// "add" action — never as saved cards, and never sent.
+  ///
+  /// "Jodein" opens a NEW card prefilled with what the suggestion states; the
+  /// worker still completes it (the company name a chat suggestion never has,
+  /// the dates neither source has today) and it reaches the server only
+  /// through this page's ordinary save. Dismissing is LOCAL to this visit —
+  /// there is no server route for it. A suggestion that already matches a card
+  /// on the page is hidden ([TradeFormEmploymentSuggestion.matches]), since
+  /// the server re-offers every suggestion on every read.
+  ///
+  /// Read at build time, so a host that fetches them after the page is up
+  /// (the chat road's experience editor) can simply pass the new list.
+  final List<TradeFormEmploymentSuggestion> suggestions;
 
   final bool enabled;
   final ValueChanged<List<TradeFormEmploymentEntry>> onSave;
@@ -198,6 +223,12 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
 
   /// #1474 — a double-tap used to add two identical employer cards.
   final TapGuard _addGuard = TapGuard();
+
+  /// Suggestions the worker dismissed OR already added on this visit (#1516).
+  /// An added one is set aside too, so editing the new card's role or company
+  /// can never make the same suggestion reappear beside it.
+  final Set<TradeFormEmploymentSuggestion> _setAside =
+      <TradeFormEmploymentSuggestion>{};
 
   int _page = 0;
 
@@ -382,6 +413,48 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
     widget.onPageChanged?.call(_page, pageCount);
   }
 
+  /// The suggestions still worth offering (#1516), in the server's order:
+  /// not dismissed or added on this visit, not an exact repeat of one already
+  /// listed, and not a job already on a card here — the server dedupes none of
+  /// this.
+  List<TradeFormEmploymentSuggestion> get _openSuggestions {
+    final List<TradeFormEmploymentSuggestion> open =
+        <TradeFormEmploymentSuggestion>[];
+    for (final TradeFormEmploymentSuggestion s in widget.suggestions) {
+      if (_setAside.contains(s) || open.contains(s)) continue;
+      if (_entries.any(s.matches)) continue;
+      open.add(s);
+    }
+    return open;
+  }
+
+  /// "Jodein" (#1516) — a NEW card holding what the suggestion states, landed
+  /// on exactly like "Aur ek jagah jodein". ALWAYS APPENDED, never written over
+  /// a blank card: cards are keyed by index, and a card reused in place keeps
+  /// its old text controllers, so the prefill would never show. Nothing is
+  /// sent here — the page's own save does that, after its usual checks.
+  void _acceptSuggestion(TradeFormEmploymentSuggestion suggestion) {
+    if (_setAside.contains(suggestion)) return; // already added or dismissed
+    if (_entries.length >= kTradeFormMaxEmployers) return;
+    setState(() {
+      _touched = true;
+      _setAside.add(suggestion);
+      _entries = <TradeFormEmploymentEntry>[
+        ..._entries,
+        suggestion.toEntry(),
+      ];
+      _page = _entries.length - 1; // land on the newly-added card
+    });
+    widget.onPageChanged?.call(_page, pageCount);
+  }
+
+  /// Dismissed for this visit only — there is no server route to remember it,
+  /// and dismissing adds, edits and removes nothing, so it does not count as a
+  /// touch (see [TradeFormEmploymentPage.onSkip]).
+  void _dismissSuggestion(TradeFormEmploymentSuggestion suggestion) {
+    setState(() => _setAside.add(suggestion));
+  }
+
   void _update(int index, TradeFormEmploymentEntry entry) {
     final List<TradeFormEmploymentEntry> next =
         List<TradeFormEmploymentEntry>.of(_entries);
@@ -430,7 +503,22 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
     if (isLastPage &&
         _entries.length < kTradeFormMaxEmployers &&
         !widget.tierScope.hides(kTierFieldAdditionalEntries)) {
-      if (_entries.isNotEmpty) {
+      // #1516 — offered exactly where "add" is offered, because accepting one
+      // IS adding a job: never past the cap, and never on a tier that does not
+      // ask for more jobs.
+      bool afterContent = _entries.isNotEmpty;
+      for (final TradeFormEmploymentSuggestion s in _openSuggestions) {
+        if (afterContent) children.add(const SizedBox(height: 12));
+        children.add(
+          _EmploymentSuggestionCard(
+            suggestion: s,
+            onAdd: _addGuard.wrap(() => _acceptSuggestion(s)),
+            onDismiss: () => _dismissSuggestion(s),
+          ),
+        );
+        afterContent = true;
+      }
+      if (afterContent) {
         children.add(const SizedBox(height: 12));
       }
       children.add(
@@ -449,6 +537,153 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: children,
         ),
+      ),
+    );
+  }
+}
+
+/// "Kya ye aapka kaam tha?" — ONE unconfirmed job (#1516), drawn apart from
+/// the saved cards so it can never be read as one.
+///
+/// Painted like the question screen's résumé hint (#1499): the kit's
+/// informational fill with a hairline of the same blue, never a shadow and
+/// never the white of a saved card. The source is named in plain words, with
+/// a document glyph for a résumé and a chat glyph for the interview.
+///
+/// Shows only what the suggestion states — a role, a company, dates, a
+/// description — and invents nothing for what it leaves out.
+class _EmploymentSuggestionCard extends StatelessWidget {
+  const _EmploymentSuggestionCard({
+    required this.suggestion,
+    required this.onAdd,
+    required this.onDismiss,
+  });
+
+  final TradeFormEmploymentSuggestion suggestion;
+  final VoidCallback? onAdd;
+  final VoidCallback onDismiss;
+
+  bool get _fromResume =>
+      suggestion.source == TradeFormEmploymentSuggestionSource.resume;
+
+  /// "Mar 2019 – Feb 2022", "Mar 2019 se", "Feb 2022 tak", or null when the
+  /// suggestion states no month at all (neither source does today).
+  String? _when() {
+    final String? start = _monthYear(suggestion.startYm);
+    final String? end = _monthYear(suggestion.endYm);
+    if (start != null && end != null) return '$start – $end';
+    if (start != null) return '$start se';
+    if (end != null) return '$end tak';
+    return null;
+  }
+
+  /// "2019-03" → "Mar 2019"; anything unparsable → null, so a malformed month
+  /// is dropped rather than printed raw.
+  static String? _monthYear(String? ym) {
+    if (ym == null) return null;
+    final List<String> parts = ym.split('-');
+    if (parts.length != 2) return null;
+    final int? m = int.tryParse(parts[1]);
+    if (m == null || m < 1 || m > 12) return null;
+    return '${_kMonths[m - 1]} ${parts[0]}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final String? role = suggestion.roleLabel;
+    final String? employer = suggestion.employerName;
+    final String? headline = role ?? employer;
+    final String? when = _when();
+    final String? work = suggestion.workDone;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 4, 4, 16),
+      decoration: BoxDecoration(
+        color: OnboardingColors.infoBg,
+        borderRadius: BorderRadius.circular(OnboardingRadii.card),
+        border: Border.all(
+          color: OnboardingColors.shiftBlueLight.withValues(alpha: 0.35),
+          width: 1.2,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(
+                _fromResume
+                    ? Icons.description_outlined
+                    : Icons.chat_bubble_outline,
+                size: 14,
+                color: OnboardingColors.shiftBlue,
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  _fromResume ? _kSuggestionFromResume : _kSuggestionFromChat,
+                  style: OnboardingTypography.inter(
+                    size: 11,
+                    weight: FontWeight.w700,
+                    letterSpacing: 0.3,
+                    color: OnboardingColors.shiftBlue,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: onDismiss,
+                tooltip: _kSuggestionDismiss,
+                icon: const Icon(
+                  Icons.close,
+                  size: 20,
+                  color: OnboardingColors.ink500,
+                ),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Text(
+                  _kSuggestionQuestion,
+                  style: OnboardingTypography.inter(
+                    size: 13,
+                    weight: FontWeight.w700,
+                  ),
+                ),
+                if (headline != null) ...<Widget>[
+                  const SizedBox(height: 6),
+                  Text(headline, style: OnboardingTypography.anek(size: 16)),
+                ],
+                if (role != null && employer != null) ...<Widget>[
+                  const SizedBox(height: 2),
+                  Text(employer, style: OnboardingTypography.body()),
+                ],
+                if (when != null) ...<Widget>[
+                  const SizedBox(height: 2),
+                  Text(when, style: OnboardingTypography.bodyMuted()),
+                ],
+                if (work != null) ...<Widget>[
+                  const SizedBox(height: 4),
+                  Text(
+                    work,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: OnboardingTypography.bodyMuted(),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                TradeFormSecondaryButton(
+                  label: _kSuggestionAdd,
+                  icon: Icons.add,
+                  onPressed: onAdd,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

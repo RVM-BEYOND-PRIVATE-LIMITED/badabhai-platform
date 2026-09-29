@@ -255,7 +255,43 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
     return TradeFormStoredEmployment(
       entries: dto.employments.map(_entryFromView).toList(growable: false),
       expectedExistingCount: dto.expectedExistingCount,
+      suggestions: <TradeFormEmploymentSuggestion>[
+        for (final EmploymentSuggestionDto s in dto.employmentSuggestions)
+          if (_suggestionFrom(s) case final TradeFormEmploymentSuggestion kept)
+            kept,
+      ],
     );
+  }
+
+  /// One wire suggestion → the page's own shape (#1516), or null when it is
+  /// not worth offering: a source this build cannot NAME (the page must say
+  /// where a suggestion came from, and never shows the raw token), or nothing
+  /// a worker could recognise as a job. Values are trimmed and a blank one is
+  /// null — the server already does this; it is restated so the page's
+  /// "is anything stated?" checks never see whitespace. The server's order is
+  /// kept (résumé first, then chat) so the list does not reshuffle.
+  static TradeFormEmploymentSuggestion? _suggestionFrom(
+    EmploymentSuggestionDto dto,
+  ) {
+    final TradeFormEmploymentSuggestionSource? source =
+        TradeFormEmploymentSuggestionSource.fromWire(dto.source);
+    if (source == null) return null;
+    String? clean(String? v) {
+      final String? t = v?.trim();
+      return (t == null || t.isEmpty) ? null : t;
+    }
+
+    final TradeFormEmploymentSuggestion suggestion =
+        TradeFormEmploymentSuggestion(
+      source: source,
+      employerName: clean(dto.employerName),
+      employerCity: clean(dto.employerCity),
+      roleLabel: clean(dto.roleLabel),
+      startYm: clean(dto.startYm),
+      endYm: clean(dto.endYm),
+      workDone: clean(dto.workDone),
+    );
+    return suggestion.isEmpty ? null : suggestion;
   }
 
   /// One stored employment → the flat card the page draws (#1710).
@@ -359,6 +395,11 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
                 name: c.name,
                 issuer: c.issuer,
                 year: c.year,
+                // #1542 — carried so a save from this page sends them back
+                // unchanged; dropping them here erased every licence number
+                // the worker saved on Profile edit.
+                licenceNumber: c.licenceNumber,
+                licenceExpiry: c.licenceExpiry,
               ))
           .toList(growable: false),
       educations: dto.educations
@@ -540,6 +581,9 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
       text: a['text'] as String?,
       number: (a['number'] as num?)?.toDouble(),
       boolValue: a['bool'] as bool?,
+      // #1519 — a typed answer on a chip question comes back ONLY here
+      // (`option_keys: []`, `text: null`). Absent on an older server → null.
+      otherText: a['other_text'] as String?,
     );
   }
 
