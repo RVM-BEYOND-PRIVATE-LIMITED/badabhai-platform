@@ -757,6 +757,129 @@ describe("AiService", () => {
   });
 
   // ---------------------------------------------------------------
+  //  companion v2 (ADR-0046 Phase 1)
+  // ---------------------------------------------------------------
+  describe("companionClassify / companionEditParse", () => {
+    beforeEach(() => {
+      config = mockConfig();
+      ai = new AiService(config);
+    });
+
+    it("posts the classifier to /companion/classify and parses the closed intent", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        fakeResponse({
+          json: async () => ({ intent: "edit_resume", confidence: 0.9, blocked: false }),
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const out = await ai.companionClassify({
+        text: "Tata ki jagah Mahindra likho",
+        recent_turns: [],
+      });
+      expect(out).toEqual({ intent: "edit_resume", confidence: 0.9, blocked: false });
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("http://ai-service:8000/companion/classify");
+      expect(JSON.parse(init.body as string)).toEqual({
+        text: "Tata ki jagah Mahindra likho",
+        recent_turns: [],
+      });
+    });
+
+    it("posts the edit parser to /companion/edit-parse and parses rows", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        fakeResponse({
+          json: async () => ({
+            rows: [{ op: "add", section: "skills", ref: null, field: "skill", value: "welding" }],
+            unsupported: ["identity"],
+          }),
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const out = await ai.companionEditParse({
+        text: "welding add karo",
+        catalogue: [{ section: "skills", field: "skill", ops: ["add"] }],
+        snapshot: [],
+        max_rows: 3,
+      });
+      expect(out?.rows).toHaveLength(1);
+      expect(out?.rows[0]).toMatchObject({ op: "add", section: "skills", value: "welding" });
+      expect(out?.unsupported).toEqual(["identity"]);
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("http://ai-service:8000/companion/edit-parse");
+      // The catalogue and the cap ride the request — the model may only name offered fields.
+      expect(JSON.parse(init.body as string)).toMatchObject({
+        max_rows: 3,
+        catalogue: [{ section: "skills", field: "skill", ops: ["add"] }],
+      });
+    });
+
+    it("returns NULL — never a fabricated intent — when the AI service is unreachable", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
+      expect(await ai.companionClassify({ text: "kuch", recent_turns: [] })).toBeNull();
+      expect(
+        await ai.companionEditParse({ text: "kuch", catalogue: [], snapshot: [], max_rows: 3 }),
+      ).toBeNull();
+    });
+
+    it("returns NULL on a schema miss — an out-of-range confidence is not a classification", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          fakeResponse({ json: async () => ({ intent: "edit_resume", confidence: 1.4 }) }),
+        ),
+      );
+      expect(await ai.companionClassify({ text: "kuch", recent_turns: [] })).toBeNull();
+    });
+
+    it("bounds the classifier at 3 s and the parser at 6 s (the phase spec's budgets)", async () => {
+      vi.useFakeTimers();
+      try {
+        const signals: AbortSignal[] = [];
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            (_url: string, init: { signal: AbortSignal }) =>
+              new Promise((_resolve, reject) => {
+                signals.push(init.signal);
+                init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+              }),
+          ),
+        );
+
+        const classify = ai.companionClassify({ text: "kuch", recent_turns: [] });
+        const parse = ai.companionEditParse({
+          text: "kuch",
+          catalogue: [],
+          snapshot: [],
+          max_rows: 3,
+        });
+
+        // Both still in flight just under their budgets: a dropped `timeoutMs` would take
+        // post()'s 8 s default and abort here, which is exactly what this catches.
+        await vi.advanceTimersByTimeAsync(2_900);
+        expect(signals[0]?.aborted).toBe(false);
+        expect(signals[1]?.aborted).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(200); // past 3 s
+        expect(signals[0]?.aborted).toBe(true);
+        expect(signals[1]?.aborted).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(3_000); // past 6 s
+        expect(signals[1]?.aborted).toBe(true);
+
+        expect(await classify).toBeNull();
+        expect(await parse).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------
   //  BL-19 — every ctx-taking method actually FORWARDS it
   // ---------------------------------------------------------------
   /**
@@ -830,6 +953,16 @@ describe("AiService", () => {
       expectForwarded();
     });
 
+    it("companionClassify forwards it", async () => {
+      await ai.companionClassify({ text: "kuch", recent_turns: [] }, CTX);
+      expectForwarded();
+    });
+
+    it("companionEditParse forwards it", async () => {
+      await ai.companionEditParse({ text: "kuch", catalogue: [], snapshot: [], max_rows: 3 }, CTX);
+      expectForwarded();
+    });
+
     it("jobPostingChatOpening forwards it", async () => {
       await ai.jobPostingChatOpening(null, CTX);
       expectForwarded();
@@ -844,7 +977,9 @@ describe("AiService", () => {
       await ai.canonicalizeSkill({ phrase: "p", domain_id: "d", lang: "en" });
       await ai.jobPostingChatRespond({ session_id: "s-1", message_text: "hi" });
       await ai.jobPostingChatOpening();
-      expect(fetchMock).toHaveBeenCalledTimes(5);
+      await ai.companionClassify({ text: "kuch", recent_turns: [] });
+      await ai.companionEditParse({ text: "kuch", catalogue: [], snapshot: [], max_rows: 3 });
+      expect(fetchMock).toHaveBeenCalledTimes(7);
       for (const call of fetchMock.mock.calls) {
         const headers = (call[1] as { headers: Record<string, string> }).headers;
         expect(headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);

@@ -243,3 +243,35 @@ One entry per task, appended after the task's checks pass. Tasks come from
   construction (no interpolation), so a Langfuse-managed prompt is the ONLY way they can differ —
   which is what makes the version record meaningful.
 - **Next:** T4 (`AiService.companionClassify` / `companionEditParse`, 3 s / 6 s timeouts).
+
+---
+
+## Merge note — 2026-09-29 12:0x
+
+- `feat/companion-v2-phase1` was retargeted to `main` and squash-merged as **#1816**
+  (`15bc654d`), carrying T0–T3 + A1–A3 and the ADR-0046/spec docs. #1814 was closed as
+  superseded by #1816.
+- Per CLAUDE.md §14, the merged branch is DEAD. All remaining Phase 1 work continues on
+  **`feat/companion-v2-phase1-cont`**, cut from fresh `main` (`15bc654d`).
+
+---
+
+## T4 — 2026-09-29 12:17
+
+- **Done:** `apps/api/src/ai/ai.service.ts`: `companionClassify` (3 s) and
+  `companionEditParse` (6 s), following `jobPostingChatRespond`'s `this.post(path, input,
+  OutputSchema, timeoutMs, ctx)` pattern — null on every failure, caller treats it as
+  `unclear` / no card. Both schemas and types imported from `@badabhai/ai-contracts`.
+  Tests in `ai.service.test.ts` (+7): URL/body per route, schema-miss → null, unreachable →
+  null, the two abort budgets pinned on the AbortSignal with fake timers, and both methods
+  added to the BL-19 ctx-forwarding block (5 → 7 calls in the optional-ctx test).
+  - `apps/api/src/ai/ai.service.ts`
+  - `apps/api/src/ai/ai.service.test.ts`
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 11,888 passed / 153 skipped (7 new).
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29.
+  - ai-service `pytest` exit 0 · `ruff check .` clean.
+- **Notes / decisions / surprises:** The `KNOWN_UNLEDGERED` entries for the two tasks stay
+  until T6/T7 wire the emitter; the removal is part of that change (the coverage test enforces
+  the pairing).
+- **Next:** T5 (Redis stores: `companion-memory.store.ts`, `edit-proposal.store.ts`).
