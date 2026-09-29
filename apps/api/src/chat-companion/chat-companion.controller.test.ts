@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { ConflictException } from "@nestjs/common";
+import { ConflictException, NotFoundException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { AllExceptionsFilter } from "../common/filters/all-exceptions.filter";
 import { ChatCompanionController } from "./chat-companion.controller";
@@ -56,11 +56,86 @@ describe("ChatCompanionController — HTTP only", () => {
     expect(sent.body).not.toHaveProperty("mode");
   });
 
-  it("marks both responses no-store — the recap is per worker and changes as they apply", () => {
-    for (const handler of ["open", "message"] as const) {
+  it("marks every response no-store — the recap and the card are per worker and change as they apply", () => {
+    for (const handler of ["open", "message", "confirmEdit", "cancelEdit"] as const) {
       const target = (ChatCompanionController.prototype as unknown as Record<string, object>)[handler]!;
       const headers = Reflect.getMetadata("__headers__", target) as { name: string; value: string }[];
       expect(headers).toContainEqual({ name: "Cache-Control", value: "no-store" });
     }
+  });
+
+  // ── the edit-card routes (ADR-0046 T8, contracts §5.2) ─────────────────────────────────────
+
+  const PROPOSAL = "99999999-9999-4999-8999-999999999999";
+
+  it("confirm returns the turn on 200", async () => {
+    const turn = { mode: "companion", reply: "Badlav ho gaya." };
+    const service = {
+      open: vi.fn(),
+      message: vi.fn(),
+      confirmEdit: vi.fn(async () => ({ mode: "companion", turn })),
+      cancelEdit: vi.fn(),
+    };
+    const ctrl = new ChatCompanionController(service as never);
+    expect(await ctrl.confirmEdit(WORKER as never, PROPOSAL, { row_ids: [PROPOSAL] }, CTX as never)).toBe(turn);
+    expect(service.confirmEdit).toHaveBeenCalledWith(WORKER.id, PROPOSAL, { row_ids: [PROPOSAL] }, CTX);
+  });
+
+  it("confirm outside companion mode is a 409 {mode:'interview'}", async () => {
+    const service = {
+      open: vi.fn(),
+      message: vi.fn(),
+      confirmEdit: vi.fn(async () => ({ mode: "interview" })),
+      cancelEdit: vi.fn(),
+    };
+    const ctrl = new ChatCompanionController(service as never);
+    const err = await ctrl
+      .confirmEdit(WORKER as never, PROPOSAL, { row_ids: [PROPOSAL] }, CTX as never)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toEqual({ mode: "interview" });
+  });
+
+  it("a STALE card is a 409 {reason:'stale'} — the app drops the card and re-asks", async () => {
+    const service = {
+      open: vi.fn(),
+      message: vi.fn(),
+      confirmEdit: vi.fn(async () => ({ mode: "stale" })),
+      cancelEdit: vi.fn(),
+    };
+    const ctrl = new ChatCompanionController(service as never);
+    const err = await ctrl
+      .confirmEdit(WORKER as never, PROPOSAL, { row_ids: [PROPOSAL] }, CTX as never)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toEqual({ reason: "stale" });
+  });
+
+  it("an unknown/expired/other worker's proposal is a 404 — no cross-worker oracle", async () => {
+    const service = {
+      open: vi.fn(),
+      message: vi.fn(),
+      confirmEdit: vi.fn(async () => ({ mode: "not_found" })),
+      cancelEdit: vi.fn(async () => ({ mode: "not_found" })),
+    };
+    const ctrl = new ChatCompanionController(service as never);
+    await expect(
+      ctrl.confirmEdit(WORKER as never, PROPOSAL, { row_ids: [PROPOSAL] }, CTX as never),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(ctrl.cancelEdit(WORKER as never, PROPOSAL, {}, CTX as never)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it("cancel returns the turn on 200", async () => {
+    const turn = { mode: "companion", reply: "Theek hai, kuch nahi badla." };
+    const service = {
+      open: vi.fn(),
+      message: vi.fn(),
+      confirmEdit: vi.fn(),
+      cancelEdit: vi.fn(async () => ({ mode: "companion", turn })),
+    };
+    const ctrl = new ChatCompanionController(service as never);
+    expect(await ctrl.cancelEdit(WORKER as never, PROPOSAL, {}, CTX as never)).toBe(turn);
   });
 });

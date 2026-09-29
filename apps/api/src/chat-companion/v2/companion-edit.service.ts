@@ -4,7 +4,7 @@ import type { ServerConfig } from "@badabhai/config";
 import type { Database, WorkerProfile } from "@badabhai/db";
 import { DraftProfileSchema, resumeProfileCarriesValues } from "@badabhai/ai-contracts";
 import { labelForTaxonomyId } from "@badabhai/taxonomy";
-import type { CompanionV2EditSection } from "@badabhai/types";
+import type { CompanionV2EditSection, CompanionV2Outcome } from "@badabhai/types";
 import { SERVER_CONFIG } from "../../config/config.module";
 import { DATABASE } from "../../database/database.module";
 import { AiService } from "../../ai/ai.service";
@@ -71,6 +71,12 @@ export type CancelResult =
   | { readonly kind: "cancelled"; readonly turn: CompanionTurn; readonly proposalId: string }
   | { readonly kind: "not_found" };
 
+/** What `propose` delivered — the turn plus the closed outcome the v2 event records. */
+export interface ProposeResult {
+  readonly turn: CompanionTurn;
+  readonly outcome: CompanionV2Outcome;
+}
+
 /**
  * THE EDIT PATH (ADR-0046 O4/O5/O6): propose → the worker taps Haan → apply in ONE transaction.
  *
@@ -118,7 +124,7 @@ export class CompanionEditService {
     text: string,
     ctx: RequestContext,
     now: Date = new Date(),
-  ): Promise<CompanionTurn> {
+  ): Promise<ProposeResult> {
     const snapshot = await this.snapshot(workerId, profile);
     const parsed = await this.ai.companionEditParse(
       {
@@ -169,7 +175,7 @@ export class CompanionEditService {
     };
     if (!(await this.proposals.save(workerId, proposal))) {
       // Contracts §7: no card is offered, and nothing is claimed to have happened.
-      return v2CopyTurn(V2_EDIT_UNAVAILABLE);
+      return { turn: v2CopyTurn(V2_EDIT_UNAVAILABLE), outcome: "fallback" };
     }
 
     await this.emit(workerId, ctx, "chat.companion_edit_proposed", {
@@ -180,15 +186,19 @@ export class CompanionEditService {
       unsupported: [...effectiveUnsupported],
     });
 
-    return v2EditCardTurn(V2_EDIT_CARD_INTRO, this.toWireProposal(proposal));
+    return {
+      turn: v2EditCardTurn(V2_EDIT_CARD_INTRO, this.toWireProposal(proposal)),
+      outcome: "proposed",
+    };
   }
 
   /** No card: identity/contact steered to the Profile screen, else the clarify line. */
-  private noCard(unsupported: readonly string[], _dropped = 0): CompanionTurn {
-    const pair = unsupported.includes("identity") || unsupported.includes("contact")
-      ? V2_EDIT_IDENTITY
-      : V2_EDIT_NONE;
-    return v2CopyTurn(pair, taskChips(this.config));
+  private noCard(unsupported: readonly string[], _dropped = 0): ProposeResult {
+    const identity = unsupported.includes("identity") || unsupported.includes("contact");
+    return {
+      turn: v2CopyTurn(identity ? V2_EDIT_IDENTITY : V2_EDIT_NONE, taskChips(this.config)),
+      outcome: identity ? "served" : "clarify",
+    };
   }
 
   /**

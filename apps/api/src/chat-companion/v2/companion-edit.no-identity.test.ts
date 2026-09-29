@@ -20,7 +20,7 @@ describe("CompanionEditService — identity and contact can never become a row",
     ["a smuggled row with no unsupported hint", { op: "add", section: "identity", ref: null, field: "name", value: "Ramesh" }],
   ])("drops %s and serves the identity line", async (_what, modelRow) => {
     const h = setup({ parse: { rows: [modelRow], unsupported: [] }, languageEntries: [LANGUAGE_HINDI] });
-    const turn = await h.service.propose(WORKER_ID, profileRow(), "mera naam badlo", CTX);
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "mera naam badlo", CTX);
 
     // The model said "identity" (or said nothing): either way, no row exists and the worker is
     // steered to the Profile screen.
@@ -31,7 +31,7 @@ describe("CompanionEditService — identity and contact can never become a row",
 
   it("the explicit `unsupported` hint alone is enough — even with no rows at all", async () => {
     const h = setup({ parse: { rows: [], unsupported: ["identity"] } });
-    const turn = await h.service.propose(WORKER_ID, profileRow(), "phone badlo", CTX);
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "phone badlo", CTX);
     expect(turn.reply).toBe(V2_EDIT_IDENTITY.latin);
   });
 
@@ -42,14 +42,14 @@ describe("CompanionEditService — identity and contact can never become a row",
         unsupported: [],
       },
     });
-    const turn = await h.service.propose(WORKER_ID, profileRow(), "yeh skill jodo", CTX);
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "yeh skill jodo", CTX);
     expect(turn.reply).toBe(V2_EDIT_NONE.latin);
     expect(turn.edit_proposal).toBeUndefined();
   });
 
   it("a request that is merely unclear still gets the clarify line, not the identity one", async () => {
     const h = setup({ parse: { rows: [], unsupported: ["other"] } });
-    const turn = await h.service.propose(WORKER_ID, profileRow(), "kuch samajh nahi aaya", CTX);
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "kuch samajh nahi aaya", CTX);
     expect(turn.reply).toBe(V2_EDIT_NONE.latin);
   });
 });

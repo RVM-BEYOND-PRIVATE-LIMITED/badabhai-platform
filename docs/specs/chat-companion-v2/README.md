@@ -16,7 +16,7 @@ conversation.
 | Phase | Scope | State |
 |---|---|---|
 | 0 | ADR-0046 written | Proposed — awaiting owner signature before any flag-ON |
-| 1 | Router + Edit résumé | Not started |
+| 1 | Router + Edit résumé | **Built, flags off** — every checklist item ticked; worker-app F1–F5 (#1818) and the DevOps items are other owners; staging gate = `python -m app.companion.eval_cli` |
 | 2 | New résumé + Faltu | Not started |
 | 3 | Career talk | Not started |
 

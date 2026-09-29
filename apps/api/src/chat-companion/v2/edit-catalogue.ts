@@ -54,6 +54,12 @@ export interface CatalogueField {
 
 const EDIT: readonly CompanionV2EditOp[] = ["edit"];
 const ADD_DELETE: readonly CompanionV2EditOp[] = ["add", "delete"];
+/**
+ * Employment and qualifications are EDIT/DELETE-ONLY (no `add`), and `delete` is legal on every
+ * one of their fields: a delete names its ROW, and the field is only the anchor the model points
+ * at (the apply ignores it for deletes and uses the row's resolved target).
+ */
+const EDIT_DELETE: readonly CompanionV2EditOp[] = ["edit", "delete"];
 
 /**
  * The closed catalogue, in the order the AI service receives it. Grouped by section so the
@@ -61,29 +67,29 @@ const ADD_DELETE: readonly CompanionV2EditOp[] = ["add", "delete"];
  */
 export const EDIT_CATALOGUE: readonly CatalogueField[] = [
   // employment — edit/delete only (a new employment is multi-field; O5 caps a card at 3 rows).
-  { section: "employment", field: "employer_name", ops: EDIT },
-  { section: "employment", field: "employer_city", ops: EDIT },
-  { section: "employment", field: "employer_state", ops: EDIT },
-  { section: "employment", field: "start_ym", ops: EDIT },
-  { section: "employment", field: "end_ym", ops: EDIT },
-  { section: "employment", field: "role_label", ops: EDIT },
-  { section: "employment", field: "work_done", ops: EDIT },
+  { section: "employment", field: "employer_name", ops: EDIT_DELETE },
+  { section: "employment", field: "employer_city", ops: EDIT_DELETE },
+  { section: "employment", field: "employer_state", ops: EDIT_DELETE },
+  { section: "employment", field: "start_ym", ops: EDIT_DELETE },
+  { section: "employment", field: "end_ym", ops: EDIT_DELETE },
+  { section: "employment", field: "role_label", ops: EDIT_DELETE },
+  { section: "employment", field: "work_done", ops: EDIT_DELETE },
   // skills — a free-text label on the RÉSUMÉ only (owner ruling; never the matching store).
   { section: "skills", field: "skill", ops: ADD_DELETE },
   // languages — closed dictionary, member add/delete.
   { section: "languages", field: "language", ops: ADD_DELETE },
   // qualifications — edit one field of an existing row, or delete the row.
-  { section: "qualifications", field: "certificate_name", ops: EDIT },
-  { section: "qualifications", field: "certificate_issuer", ops: EDIT },
-  { section: "qualifications", field: "certificate_year", ops: EDIT },
-  { section: "qualifications", field: "education_credential", ops: EDIT },
-  { section: "qualifications", field: "education_field", ops: EDIT },
-  { section: "qualifications", field: "education_council", ops: EDIT },
-  { section: "qualifications", field: "education_year", ops: EDIT },
-  { section: "qualifications", field: "education_institute", ops: EDIT },
-  { section: "qualifications", field: "training_name", ops: EDIT },
-  { section: "qualifications", field: "training_provider", ops: EDIT },
-  { section: "qualifications", field: "training_year", ops: EDIT },
+  { section: "qualifications", field: "certificate_name", ops: EDIT_DELETE },
+  { section: "qualifications", field: "certificate_issuer", ops: EDIT_DELETE },
+  { section: "qualifications", field: "certificate_year", ops: EDIT_DELETE },
+  { section: "qualifications", field: "education_credential", ops: EDIT_DELETE },
+  { section: "qualifications", field: "education_field", ops: EDIT_DELETE },
+  { section: "qualifications", field: "education_council", ops: EDIT_DELETE },
+  { section: "qualifications", field: "education_year", ops: EDIT_DELETE },
+  { section: "qualifications", field: "education_institute", ops: EDIT_DELETE },
+  { section: "qualifications", field: "training_name", ops: EDIT_DELETE },
+  { section: "qualifications", field: "training_provider", ops: EDIT_DELETE },
+  { section: "qualifications", field: "training_year", ops: EDIT_DELETE },
   // occupations — closed role ids, member add/delete.
   { section: "occupations", field: "role_id", ops: ADD_DELETE },
   // preferences — scalars edit; the three lists are member add/delete; availability is three

@@ -76,13 +76,16 @@ A new edit message while a proposal is open replaces it (one active proposal per
       null on failure). Timeouts: classify 3 s, edit-parse 6 s.
 - [x] **T5 Redis stores.** `v2/companion-memory.store.ts`, `v2/edit-proposal.store.ts` (contracts §7),
       BullMQ connection reuse, fail-soft reads.
-- [ ] **T6 Orchestrator.** `v2/companion-v2.orchestrator.ts` + `v2/handlers/*.ts`
+- [x] **T6 Orchestrator.** `v2/companion-v2.orchestrator.ts` + `v2/handlers/*.ts`
       (`EditResumeHandler`, `JobsDeferredHandler`, `PhaseOffHandler`, `UnclearHandler`), a
       `HandlerRegistry` keyed by intent. `ChatCompanionService.message` delegates to the
       orchestrator only when the v2 flag is on AND v1 resolution missed.
+      "Missed" is v1's own `fallback` intent — every NAMED v1 intent (digest, jobs, applied,
+      guarantee) and every menu alias still takes the v1 branch, proved by
+      `companion-v2.v1-first.test.ts`.
 - [x] **T7 Edit catalogue + service.** `v2/edit-catalogue.ts`, `v2/companion-edit.service.ts`
       (snapshot, validate, propose, confirm-in-transaction, cancel, regenerate).
-- [ ] **T8 Controller routes.** `confirm` / `cancel` in `chat-companion.controller.ts` (HTTP only),
+- [x] **T8 Controller routes.** `confirm` / `cancel` in `chat-companion.controller.ts` (HTTP only),
       DTOs in `chat-companion.dto.ts`, additive `edit_proposal` on `CompanionTurnSchema`.
 - [x] **T9 Résumé trigger.** `packages/types` `RESUME_GENERATION_TRIGGERS` += `chat_edit`;
       migration **`0130`** widens `generated_resumes_generation_trigger_chk` (drop + re-add the CHECK
@@ -108,10 +111,13 @@ A new edit message while a proposal is open replaces it (one active proposal per
       (tier `cheap` → Gemini Flash, json_mode on, low temperature). Prompts in the prompt registry.
       The route shapes landed with A2 (the endpoints cannot be green without them); A3 added the
       registry names + registration, the trace names, and `test_companion_routes.py`.
-- [ ] **A4 Evals.** `apps/ai-service/tests/companion/`:
+- [x] **A4 Evals.** `apps/ai-service/tests/companion/`:
       classifier set ≥ 150 labelled Hinglish / Hindi / English lines across all 6 intents
       (incl. typos, voice-transcript style, mixed script); edit-parse set ≥ 60 cases across all
       sections, ops and multi-row messages. Regression test fails below the targets in §4.
+      158 classifier lines + 74 edit cases; the real accuracy bars gate in
+      `python -m app.companion.eval_cli` (staging), and CI gates set shape, scorer capability,
+      catalogue containment and the TS↔gold catalogue parity.
 
 ### Frontend — worker app (GitHub issue for Frontend Platform)
 

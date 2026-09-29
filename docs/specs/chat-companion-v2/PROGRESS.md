@@ -447,3 +447,131 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
   List preferences are member-level add/delete; `availability` is three scalar sub-fields merged
   into the stored object (owner ruling 2026-09-29).
 - **Next:** T8 (controller routes for confirm/cancel; DTOs landed with T7).
+
+---
+
+## Merge note — 2026-09-29 14:1x
+
+- `feat/companion-v2-phase1-cont` was squash-merged as **#1817** (`66091f66`), carrying
+  T4, T5, T7, T9 and T10. CI was fully green before the merge (Node, migration drift/sequence,
+  SAST, E2E, image gates), and the artifacts were verified on `origin/main` itself.
+- Per CLAUDE.md §14 the merged branch is DEAD. The REMAINING work — T8 (confirm/cancel routes),
+  T6 (orchestrator + handlers) and A4 + the phase §3 tests — continues on
+  **`feat/companion-v2-phase1-tail`**, cut from fresh `main` (`66091f66`).
+
+---
+
+## T8 — 2026-09-29 14:15
+
+- **Done:** The two edit-card routes (contracts §5.2).
+  - `chat-companion.controller.ts`: `POST /chat/companion/edits/:proposalId/confirm` (200 turn ·
+    404 unknown/expired/other worker's · 409 `{mode:"interview"}` · 409 `{reason:"stale"}`) and
+    `POST /chat/companion/edits/:proposalId/cancel` (200 turn · 404). HTTP only; the proposal id
+    is param-validated as a uuid; both are `no-store`.
+  - `chat-companion.service.ts`: `confirmEdit` / `cancelEdit` — the flags gate FIRST (off ⇒ 404,
+    so a card left in Redis from a disabled flag is never applied), then the policy (interview ⇒
+    409), then the edit service; the resulting turn passes the strict outbound schema with the
+    v1 fallback on a shape miss (`checkedTurn`).
+  - DTOs (`ConfirmEditSchema` / `CancelEditSchema`, `edit_proposal` on `CompanionTurnSchema`)
+    landed with T7 as recorded there.
+  - Tests: controller (+6: turn, interview, stale, 404, cancel, no-store loop extended) and
+    service (+5: flags-off, interview, applied, stale, cancel/unknown). The "companion's reach"
+    arity test updated to 8 with the reason the eighth collaborator is inert.
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 12,021 passed / 153 skipped.
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29 · ai-service `pytest` exit 0 + `ruff` clean.
+- **Notes / decisions / surprises:** The flags-off 404 is the fail-closed half of O4: turning
+  the v2 flags off must never leave a confirmable card behind.
+- **Next:** T6 (orchestrator + handlers; v1-first, model only on a miss).
+
+---
+
+## T6 — 2026-09-29 14:25
+
+- **Done:** The v2 turn pipeline and its delegation.
+  - `v2/companion-v2.orchestrator.ts`: pseudonymize FIRST (blocked/unreachable ⇒ clarify, no
+    classifier call, no memory), read memory (last 2 turns), classify, route through the
+    registry, append the pseudonymized pair, emit `chat.companion_turn_served_v2` (deduped by
+    `submission_id`). `intent` stays the v1 vocabulary (`fallback`); the truth is in
+    `v2_intent`/`outcome`. Confidence buckets: lt50 < 0.5, 50_70 < 0.7, 70_90 < 0.9, else gte90.
+  - `v2/handlers/*`: `handler.ts` (interface), `edit-resume.handler.ts`, `fixed-line.handlers.ts`
+    (jobs-deferred / phase-off / unclear) and `registry.ts` (the ONE place the phase flags are
+    read). `CompanionEditService.propose` now returns `{ turn, outcome }` so the event records
+    the real outcome instead of inferring it from copy.
+  - `ChatCompanionService.message`: delegates on a v1 miss **and only on v1's `fallback`
+    intent** — every named v1 intent and every menu alias keeps the v1 branch, zero model calls.
+  - Module + boot test updated (six new providers); the service's reach arity is now 9.
+  - Tests: `companion-v2.orchestrator.test.ts` (8: every intent, all four clarify paths, memory
+    pair, masked text, event payload validated against the merged schema),
+    `companion-v2.v1-first.test.ts` (11: every v1 fixture, no v2/model call),
+    `companion-v2.flag-off.test.ts` (9: v2 off ⇒ v1 event/turn byte-for-byte, edit routes 404).
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 12,049 passed / 153 skipped.
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29 · ai-service `pytest` exit 0 + `ruff` clean.
+- **Notes / decisions / surprises:** the v1-miss definition is v1's `fallback` intent; treating
+  every non-menu resolution as a miss (the first cut) sent digest/jobs/applied/guarantee to the
+  classifier — caught by `companion-v2.v1-first.test.ts`. The API pre-masks via
+  `AiService.pseudonymize` so memory only ever holds pseudonymized text (the classify endpoint
+  re-masks idempotently).
+- **Next:** A4 (evals) + the remaining §3 tests (privacy, persona extension already covered).
+
+---
+
+## A4 — 2026-09-29 14:36
+
+- **Done:** The evals (and a real bug they caught).
+  - `app/companion/eval_classify_gold.py`: **158** labelled lines across all six intents (Latin
+    Hinglish, Devanagari, English, typos, voice-transcript shapes), `evaluate()` scoring accuracy
+    + `edit_resume` precision, thresholds 0.90 / 0.95.
+  - `app/companion/eval_edit_parse_gold.py`: **74** cases across all six sections, all three ops,
+    multi-row (incl. a three-row) messages, against a frozen catalogue/snapshot fixture;
+    `evaluate()` scores exact-row accuracy (0.90) and flags any out-of-catalogue row.
+  - `app/companion/eval_cli.py`: the STAGING gate (`--classify` / `--edit-parse --base-url`),
+    exits non-zero below the §4 bars.
+  - `tests/companion/test_companion_evals.py` (9): set size/coverage, scorer capability (a
+    constant predictor fails; an identity row is caught), containment, and a TS↔gold catalogue
+    parity check read from `edit-catalogue.ts` (so the fixture cannot drift).
+  - **Bug caught by the eval:** the catalogue allowed `delete` on NO employment/qualification
+    field, so those deletes were silently dropped. Fixed in its own commit (`a9a2fd64`) with a
+    pinning API test.
+- **Checks:**
+  - ai-service `pytest` exit 0 (9 new) · `ruff check .` clean.
+  - `pnpm --filter @badabhai/api test` — 12,050 passed / 153 skipped.
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29.
+- **Notes / decisions / surprises:** CI cannot score a model (mock-only), so the deterministic
+  half gates the SET and the SCORER while the CLI gates the model on staging; that mirrors the
+  canonicalization eval's split.
+- **Next:** the last §3 test — `companion-v2.privacy.test.ts` — then the phase checklist is done.
+
+---
+
+## Tests (spec §3) — 2026-09-29 14:40
+
+- **Done:** The last named test and the phase status.
+  - `v2/companion-v2.privacy.test.ts` (5): the raw worker text appears in no event payload, no
+    log line (real Logger spies on the classifier-failure and spine-failure paths) and never
+    reaches the classifier or Redis memory — only the gateway's masked output does; a blocked
+    message is never classified or stored.
+  - README phase table: Phase 1 marked **Built, flags off**.
+  - The full §3 test list is now present: flag-off, v1-first, orchestrator, edit validate /
+    confirm / no-identity, module boot (extended), privacy, replies (extended), event-schema
+    tests, and the ai-service parity/endpoint/eval tests.
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 12,055 passed / 153 skipped.
+  - ai-service `pytest` exit 0 · `ruff check .` clean · `pnpm lint` 0 errors · typecheck 29/29.
+- **Next:** owner review / merge of the tail branch; then the Frontend (#1818) and DevOps items,
+  and the staging eval run before any flag-ON.
+
+---
+
+## Tail PR #1819 — 2026-09-29 14:55
+
+- **Done:** Two CI follow-ups from the first run of #1819.
+  - SAST (semgrep, blocking): the eval CLI's `urllib.request.urlopen` tripped
+    `dynamic-urllib-use-detected`. Replaced with `httpx` (already the sanctioned transport per
+    `requirements.txt`) exactly like the canonicalization eval — no suppression comment.
+  - Same edit fixed a real bug the SAST review surfaced: the CLI sent
+    `authorization: Bearer $AI_INTERNAL_TOKEN`, but the service enforces the TD67
+    `x-ai-internal-token` header from settings — an armed staging service would have 401'd into
+    all-miss noise. Now mirrors `get_settings().ai_internal_token`.
+- **Checks:** PR #1819 fully green — Node, AI service, Image gate, E2E, SAST, ci-required.
