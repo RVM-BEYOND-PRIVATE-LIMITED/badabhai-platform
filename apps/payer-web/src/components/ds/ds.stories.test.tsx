@@ -232,11 +232,13 @@ describe("DS0.2 · primitives render with their design-system classes", () => {
     const out = html(<BadaBhaiLogo />);
     expect(out).toContain("bb-lockup");
     expect(out).toContain("bb-lockup__tile");
-    expect(out).toContain('src="/brand/badabhai-mark.png"');
+    // The images are CSS backgrounds from the token package — no <img>, nothing to announce.
+    expect(out).toContain('<span class="bb-lockup__tile" aria-hidden="true"><span class="bb-lockup__mark"></span></span>');
+    expect(out).not.toContain("<img");
     expect(out).toContain('role="img"');
     expect(out).toContain('aria-label="BadaBhai"');
     // The official logotype image (Shift Blue on paper); decorative — the root names it.
-    expect(out).toMatch(/<img class="bb-lockup__wordmark" src="\/brand\/badabhai-wordmark-navy\.png" alt="" aria-hidden="true"/);
+    expect(out).toContain('<span class="bb-lockup__wordmark" aria-hidden="true"></span>');
     expect(out).toContain("--bb-lockup-size:32px");
     expect(out).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
@@ -245,8 +247,8 @@ describe("DS0.2 · primitives render with their design-system classes", () => {
     const ink = html(<BadaBhaiLogo theme="ink" sub="for Employers" />);
     expect(ink).toContain("bb-lockup--on-ink");
     // On the navy band the WHITE logotype, never the navy one (it would vanish).
-    expect(ink).toContain('src="/brand/badabhai-wordmark.png"');
-    expect(ink).not.toContain("badabhai-wordmark-navy");
+    // The on-ink class is what swaps in the WHITE logotype (tokens.css); the markup is shared.
+    expect(ink).toContain('class="bb-lockup bb-lockup--on-ink"');
     expect(ink).toContain('<span class="bb-lockup__sub">for Employers</span>');
     expect(html(<BadaBhaiLogo variant="mark" />)).not.toContain("bb-lockup__wordmark");
     expect(html(<BadaBhaiLogo variant="wordmark" />)).not.toContain("bb-lockup__tile");

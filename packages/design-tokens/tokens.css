@@ -33,7 +33,7 @@
    surface the link is Shift-Blue-family text (11.65:1) and yellow is the ACCENT (underline,
    active spine, focus on dark); on a navy surface yellow IS the link colour (9.39:1).
 
-   SOURCE FILE: "BB - Brand Guidelines.pdf" (Sept 2026 brand kit) — palette with 80/60/40
+   SOURCE FILE: docs/design/BB - Brand Kit/BB - Brand Guidelines.pdf (Sept 2026 brand kit) — palette with 80/60/40
    tints, Kilimanjaro Sans headings, Inter body/UI, the two-figure monogram and logotype.
 
    FONTS. Kilimanjaro Sans is bundled here (fonts/, converted from the brand kit's OTF) and
@@ -239,6 +239,7 @@
      text there; the ink theme flips it to Safety Yellow, which reads at 9.77:1 on navy. */
   --text-accent: var(--navy-900);
   --text-link: var(--navy-700);
+  --link-underline: currentColor; /* the accent is 1.6:1 on light — the underline follows the text */
   --text-disabled: var(--color-brand-primary-40);
   --icon-secondary: var(--color-brand-primary-60);
 
@@ -318,6 +319,7 @@
   --text-on-brand: var(--navy-900);
   --text-link: var(--vermilion-500);
   --text-accent: var(--vermilion-500);
+  --link-underline: var(--vermilion-500);
   --icon-secondary: rgb(255 255 255 / 0.6);
 
   --surface-page: var(--ink-950);
@@ -643,7 +645,13 @@ a {
 }
 a:hover {
   text-decoration: underline;
-  text-decoration-color: var(--border-accent);
+  text-decoration-color: var(--link-underline);
+}
+/* A link inside running text must not rely on colour alone (SC 1.4.1): Shift Blue link text
+   is too close to ink-900 body text to tell apart, so prose links are underlined at rest. */
+:where(p, li, dd, blockquote) a:not([class]) {
+  text-decoration: underline;
+  text-decoration-color: var(--link-underline);
 }
 
 ::selection {
@@ -909,8 +917,12 @@ button {
 
 /* The brand logo lockup — shared by both portals. The monogram (two figures) sits on a Shift
    Blue tile on light surfaces and straight on the band on navy; the wordmark is the official
-   "BADABHAI" logotype image from the brand kit (white on navy, Shift Blue on light). The
-   importing app sets --bb-lockup-size (the tile) and may set --bb-wordmark-h. */
+   "BADABHAI" logotype from the brand kit (white on navy, Shift Blue on light). Both images
+   live in this package (brand/) and are drawn as CSS backgrounds with RELATIVE urls, so each
+   app's bundler emits them content-hashed under /_next/static — cacheable even behind
+   admin-web's `no-store` catch-all, and one copy instead of one per app. The images are
+   decorative: the component carries the accessible name. The importing app sets
+   --bb-lockup-size (the tile) and may set --bb-wordmark-h. */
 .bb-lockup {
   display: inline-flex;
   align-items: center;
@@ -934,10 +946,17 @@ button {
 .bb-lockup__mark {
   display: block;
   width: 72%;
-  height: auto;
+  aspect-ratio: 1;
+  background: url("./brand/badabhai-mark.png") center / contain no-repeat;
 }
 .bb-lockup--on-ink .bb-lockup__mark {
   width: 100%;
+}
+/* A PAPER lockup on a page switched to the ink theme (the sign-in card has a theme toggle):
+   the Shift Blue logotype would sit navy-on-navy (~1.04:1), so it is knocked out to white.
+   `brightness(0) invert(1)` maps every opaque pixel to white and keeps the alpha. */
+[data-theme="ink"] .bb-lockup:not(.bb-lockup--on-ink) .bb-lockup__wordmark {
+  filter: brightness(0) invert(1);
 }
 /* Stacks a caption (persona / portal name) under the wordmark. */
 .bb-lockup__text {
@@ -947,9 +966,16 @@ button {
   min-width: 0;
 }
 .bb-lockup__wordmark {
+  /* The logotype file is 716×96; the width follows the height so the art never distorts. */
+  --bb-wordmark-h-resolved: var(--bb-wordmark-h, calc(var(--bb-lockup-size, var(--logo-mark-md)) * 0.42));
   display: block;
-  width: auto;
-  height: var(--bb-wordmark-h, calc(var(--bb-lockup-size, var(--logo-mark-md)) * 0.42));
+  flex: none;
+  height: var(--bb-wordmark-h-resolved);
+  width: calc(var(--bb-wordmark-h-resolved) * 716 / 96);
+  background: url("./brand/badabhai-wordmark-navy.png") left center / contain no-repeat;
+}
+.bb-lockup--on-ink .bb-lockup__wordmark {
+  background-image: url("./brand/badabhai-wordmark.png");
 }
 .bb-lockup__sub {
   display: block;

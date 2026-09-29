@@ -9,7 +9,8 @@
   },
   "files": [
     "tokens.css",
-    "fonts"
+    "fonts",
+    "brand"
   ],
   "sideEffects": [
     "*.css"

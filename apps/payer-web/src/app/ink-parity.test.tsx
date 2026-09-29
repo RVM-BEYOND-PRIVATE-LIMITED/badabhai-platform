@@ -192,12 +192,24 @@ describe("DS4.2 · tokens.css still defines the [data-theme=\"ink\"] parity bloc
     const block = tokens.match(/\[data-theme="ink"\]\s*\{([\s\S]*?)\}/);
     expect(block, "the [data-theme=\"ink\"] block must exist").not.toBeNull();
     const body = block![1]!;
-    // These three are what every screen's page/card/heading resolve from — they MUST flip.
+    // What every screen's page/card/body text resolve from — they MUST flip.
     expect(body).toMatch(/--surface-page:/);
     expect(body).toMatch(/--surface-card:/);
     expect(body).toMatch(/--text-primary:/);
     // And the flip is to the dark ramp (ink-950 page, paper text), not the paper defaults.
     expect(body).toMatch(/--surface-page:\s*var\(--ink-950\)/);
     expect(body).toMatch(/--text-primary:\s*var\(--paper-1\)/);
+    // Every heading resolves from --text-heading and every accent label from --text-accent;
+    // both are Shift Blue on light, so without their ink overrides they go navy-on-navy.
+    expect(body).toMatch(/--text-heading:\s*var\(--paper-1\)/);
+    expect(body).toMatch(/--text-accent:\s*var\(--vermilion-500\)/);
+  });
+
+  it("knocks the paper lockup's navy logotype out to white on an ink page", () => {
+    // The sign-in card renders the PAPER lockup and carries a theme toggle; the navy logotype
+    // measured ~1.04:1 on the ink card before this rule existed.
+    expect(tokens).toMatch(
+      /\[data-theme="ink"\]\s+\.bb-lockup:not\(\.bb-lockup--on-ink\)\s+\.bb-lockup__wordmark\s*\{[^}]*filter:\s*brightness\(0\)\s*invert\(1\)/,
+    );
   });
 });

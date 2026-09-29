@@ -27,12 +27,13 @@ function accessibleText(markup: string): string {
 }
 
 describe("BrandLockup rendering", () => {
-  it("renders the brand mark from public/brand, decorative", () => {
+  it("draws the brand-kit images as decorative CSS backgrounds, never as <img>", () => {
     const out = html(<BrandLockup />);
-    expect(out).toMatch(/<img[^>]*src="\/brand\/badabhai-mark\.png"/);
-    // Empty alt AND aria-hidden on the MONOGRAM: the name comes from the logotype's alt.
-    expect(out).toMatch(/<img[^>]*alt=""/);
-    expect(out).toMatch(/<img[^>]*aria-hidden="true"/);
+    // The images come from the token package's `.bb-lockup__mark` / `__wordmark` backgrounds,
+    // so they ship content-hashed under /_next/static and cache despite the no-store catch-all.
+    expect(out).not.toContain("<img");
+    expect(out).toContain('<span class="bb-lockup__tile" aria-hidden="true"><span class="bb-lockup__mark"></span></span>');
+    expect(out).toContain('<span class="bb-lockup__wordmark" aria-hidden="true"></span>');
   });
 
   it('has the accessible name "BadaBhai Admin" exactly once, word-separated', () => {
@@ -47,15 +48,10 @@ describe("BrandLockup rendering", () => {
   it("uses the shared token-package classes, with the on-ink variant only on navy", () => {
     const light = html(<BrandLockup />);
     expect(light).toContain('class="bb-lockup"');
-    expect(light).toContain('class="bb-lockup__tile"');
-    expect(light).toContain('class="bb-lockup__mark"');
-    expect(light).toMatch(/class="bb-lockup__wordmark" src="\/brand\/badabhai-wordmark-navy\.png" alt="BadaBhai"/);
+    expect(light).toContain('class="bb-lockup__text"');
     expect(light).toContain('class="bb-lockup__sub"');
     expect(light).not.toContain("bb-lockup--on-ink");
-
-    const ink = html(<BrandLockup surface="ink" />);
-    expect(ink).toContain('class="bb-lockup bb-lockup--on-ink"');
-    // The white logotype on the navy band — the navy one would vanish there.
-    expect(ink).toContain('src="/brand/badabhai-wordmark.png"');
+    // On the navy band the on-ink class is what swaps in the WHITE logotype (tokens.css).
+    expect(html(<BrandLockup surface="ink" />)).toContain('class="bb-lockup bb-lockup--on-ink"');
   });
 });

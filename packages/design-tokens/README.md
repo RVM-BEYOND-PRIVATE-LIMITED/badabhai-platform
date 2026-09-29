@@ -17,13 +17,13 @@ classes and the `.bb-lockup` logo classes (`package.json` declares `sideEffects:
 
 ## Brand source
 
-The Sept 2026 brand kit — `BB - Brand Guidelines.pdf` (colour palette with 80/60/40 tints,
+The Sept 2026 brand kit — `docs/design/BB - Brand Kit/BB - Brand Guidelines.pdf` (colour palette with 80/60/40 tints,
 Kilimanjaro Sans headings, Inter body/UI, the two-figure monogram, the BADABHAI logotype) —
 restated in the UI/UX block of `CLAUDE.md`. It fixes three colours and two families.
 Everything else here (ramps, neutrals, status hues, radii, elevation, motion) is derived from
 those values and from the worker app, which already ships the palette in
-`apps/worker-app/lib/core/theme/onboarding_theme.dart`. `docs/design/` is an older proposal
-("Desi Vernacular Pop") and is NOT the brand.
+`apps/worker-app/lib/core/theme/onboarding_theme.dart`. The kit itself (PDF, logo files,
+fonts) is in `docs/design/BB - Brand Kit/`.
 
 | CLAUDE.md name          | Value                   | Ramp token        | Role                                         |
 | ----------------------- | ----------------------- | ----------------- | -------------------------------------------- |

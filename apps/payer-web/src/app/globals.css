@@ -251,7 +251,8 @@ body {
   font-weight: var(--ui-eyebrow-weight);
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
-  color: var(--text-on-ink-disabled);
+  /* A LABEL inside a live nav link, so it must read as text (9.97:1), not as disabled. */
+  color: var(--text-on-ink-muted);
   background: transparent;
   border: var(--border-hairline) solid var(--border-on-ink);
   border-radius: var(--radius-pill);
@@ -756,7 +757,7 @@ tr:last-child td {
   border-radius: 10px;
   padding: 28px;
   text-align: center;
-  color: var(--muted);
+  color: var(--text-secondary);
 }
 
 .note {
@@ -3435,40 +3436,10 @@ img.agency-qr__code,
   line-height: var(--leading-normal);
 }
 /* ------------------------------------------------------------------
- * ENTERPRISE POLISH (DS5) — wavy org label, button-ized dashboard links with
+ * ENTERPRISE POLISH (DS5) — button-ized dashboard links with
  * continuous affordance motion, the exciting Post-job CTA shine, and the accessible
  * SelectMenu combobox. Tokens only; every motion collapses under prefers-reduced-motion.
  * ------------------------------------------------------------------ */
-
-/* ---- WavyText: per-letter continuous wave (the badabhai.ai org label) ---- */
-.wavy {
-  display: inline-flex;
-  align-items: baseline;
-}
-.wavy__chars {
-  display: inline-flex;
-  align-items: baseline;
-}
-.wavy__ch {
-  display: inline-block;
-  animation: wavy-bob 1.9s var(--ease-in-out) infinite;
-  will-change: transform;
-}
-@keyframes wavy-bob {
-  0%,
-  55%,
-  100% {
-    transform: translateY(0);
-  }
-  28% {
-    transform: translateY(-0.24em);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .wavy__ch {
-    animation: none;
-  }
-}
 
 /* ---- Dashboard section actions (green = the DS action color) — arrow nudges on hover ---- */
 .dash-action .ph-fill {
@@ -4534,7 +4505,8 @@ body:has(.invite-landing) .chrome-footer {
   font-weight: var(--ui-eyebrow-weight);
   letter-spacing: var(--ui-eyebrow-tracking);
   text-transform: uppercase;
-  color: var(--soon-fg);
+  /* A status LABEL, so it must clear AA; --soon-fg (the disabled step) is for inert rows. */
+  color: var(--text-secondary);
   background: var(--soon-bg);
   border: var(--border-hairline) solid var(--soon-border);
   border-radius: var(--radius-pill);
@@ -4612,7 +4584,7 @@ body:has(.invite-landing) .chrome-footer {
   --attention-tone: var(--danger);
 }
 .attention__item--warning {
-  --attention-tone: var(--vermilion-600);
+  --attention-tone: var(--warning);
 }
 .attention__item--info {
   --attention-tone: var(--info);
@@ -4625,6 +4597,9 @@ body:has(.invite-landing) .chrome-footer {
 }
 [data-theme="ink"] .attention__item--critical {
   --attention-tone: var(--red-300);
+}
+[data-theme="ink"] .attention__item--warning {
+  --attention-tone: var(--amber-300);
 }
 [data-theme="ink"] .attention__item--info {
   --attention-tone: var(--blue-300);
