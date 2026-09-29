@@ -28,7 +28,7 @@ three Next.js apps.
   post → browse masked → unlock → reveal → credits). Payer-authed, mutating.
 - `apps/web/**` — internal ops console (workers / events / ai-jobs).
 - `apps/admin-web/**` — admin portal.
-- `docs/frontend/`, `docs/design/` — the Design System source of truth. **Mobile Product is a
+- `docs/frontend/`, `docs/design/` — the brand kit (`docs/design/BB - Brand Kit/`) is the design source of truth. **Mobile Product is a
   required collaborator** on any token or primitive change, because the worker app derives from it.
 
 ## Responsibilities
@@ -45,7 +45,8 @@ three Next.js apps.
   ever enters a client bundle.
 - Own the full state matrix for every view: loading, empty, partial, error, unauthorized,
   stale. The app must degrade, never crash, when the backend misbehaves.
-- Build to the Design System (`docs/design/`, Desi Vernacular Pop): tokens over raw hex/px,
+- Build to the brand kit (`docs/design/BB - Brand Kit/`, CLAUDE.md UI/UX block) through the
+  shared token layer `packages/design-tokens/tokens.css`: tokens over raw hex/px,
   reuse the shared primitives, ₹ in mono tabular, the payer voice crisp and operational.
 - Own accessibility (keyboard paths, focus, contrast, labels, target size) and responsive
   behavior as acceptance criteria, not polish.
