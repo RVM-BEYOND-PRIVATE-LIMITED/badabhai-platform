@@ -52,11 +52,17 @@ const int kMaxEducations = 4;
 
 /// The closed availability statuses (Layer A (c)), mirroring
 /// `AVAILABILITY_STATUSES` in `worker-preferences.vocabulary.ts`.
+///
+/// FALLBACK ONLY (#1541): the chips render from the options endpoint's
+/// `availability_status` whenever the server serves it. This copy is used
+/// only against a server that predates that key, so its slugs must be the
+/// server's EXACTLY — the PUT validates `availability.status` with a strict
+/// `z.enum`, and any other slug fails the whole save with a 400.
 const Map<String, String> kAvailabilityStatuses = <String, String>{
   'immediate': 'Turant',
   'within_week': '1 hafte mein',
   'within_month': '1 mahine mein',
-  'notice_period': 'Notice period ke baad',
+  'serving_notice': 'Notice period ke baad',
 };
 
 /// The closed salary periods (Layer A (c)). `month` is the implicit default for

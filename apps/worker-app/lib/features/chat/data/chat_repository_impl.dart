@@ -266,6 +266,8 @@ class ChatRepositoryImpl implements ChatRepository {
         progress: reply.progress,
         questionKind: reply.questionKind,
         inputMode: reply.inputMode,
+        // #1559 / #1583 — how this turn is answered; null = today's affordances.
+        answerType: reply.answerType,
         occupationLabel: reply.occupationLabel,
         // #896 — the Devanagari read-aloud script for THIS reply; null on an
         // older API build, and read-aloud then speaks the romanized reply.
@@ -368,6 +370,7 @@ class ChatRepositoryImpl implements ChatRepository {
         progress: reply.progress,
         questionKind: reply.questionKind,
         inputMode: reply.inputMode,
+        answerType: reply.answerType,
         occupationLabel: reply.occupationLabel,
         ttsText: reply.ttsText,
         askedQuestionId: reply.askedQuestionId,

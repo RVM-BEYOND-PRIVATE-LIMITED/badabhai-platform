@@ -25,12 +25,15 @@ import 'widgets/job_content_input.dart';
 /// here yet"; the payer row does return them — the app simply did not parse
 /// them.)
 ///
-/// WHAT IT CANNOT DO: the PATCH schema has no way to CLEAR a scalar (every key
-/// is an optional value, never a null), so an emptied box is NOT sent and the
-/// saved value survives. The two chip LISTS are the exception — `[]` is a legal
-/// value there and does clear them — and the copy says exactly that. Only the
-/// fields the payer actually CHANGED are sent, so a save can never clobber a
-/// value with a stale prefill.
+/// EMPTYING A BOX (#1652): the PATCH takes a `clear` list, so a saved value can
+/// now be REMOVED, not only overwritten. Only the two OPTIONAL boxes can be
+/// emptied at all — Area and the Location note; every other field is on the
+/// worker's card and [workerCardGap] refuses a save that blanks it. So when
+/// Area or Location HAD a saved value and is now empty, that field rides
+/// `clear` and is left OUT of the edit body (a field in both is a 400). A box
+/// that was never set and is still empty sends nothing. Only the fields the
+/// payer actually CHANGED are sent, so a save can never clobber a value with a
+/// stale prefill.
 ///
 /// Pushed as a full page with its own back; drives the SHARED [JobsCubit] (so the
 /// My-jobs list refetches) and pops on success.
@@ -133,13 +136,20 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
   }
 
   /// [now] when the payer changed it, else null (→ omitted from the PATCH, so
-  /// the stored value survives). An EMPTIED box is a null too: this contract
-  /// cannot clear a field, and sending a blank would either 400 or lie.
+  /// the stored value survives). An EMPTIED box is a null too — a blank is
+  /// never a value (it would 400); removing the saved one is [_emptied]'s job,
+  /// through `clear`, so the two can never put one field in both lists.
   static String? _changedText(String now, String? before) {
     final String text = now.trim();
     if (text.isEmpty) return null;
     return text == (before ?? '') ? null : text;
   }
+
+  /// True when the payer EMPTIED a box that had a saved value (#1652) — the
+  /// field then rides `clear`. A box that was never set and is still empty is
+  /// not a change, and sends nothing.
+  static bool _emptied(String now, String? before) =>
+      now.trim().isEmpty && (before ?? '').trim().isNotEmpty;
 
   /// [now] when the payer changed the number, else null (same reasoning).
   static int? _changedInt(int? now, int? before) =>
@@ -265,6 +275,14 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
         _changedList(_benefits, widget.job.benefits);
     final List<String>? requirements =
         _changedList(_requirements, widget.job.requirements);
+    // #1652 — the OPTIONAL boxes the payer emptied: removed via `clear`. Every
+    // other field is required above, so it can never reach here empty. Each is
+    // null in the body ([_changedText] of an empty box), never in both lists.
+    final List<JobPostingClearField> clear = <JobPostingClearField>[
+      if (_emptied(_area.text, widget.job.area)) JobPostingClearField.area,
+      if (_emptied(_location.text, widget.job.locationLabel))
+        JobPostingClearField.locationLabel,
+    ];
 
     final bool nothingChanged = roleTitle == null &&
         location == null &&
@@ -280,7 +298,8 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
         patchExpMin == null &&
         patchExpMax == null &&
         benefits == null &&
-        requirements == null;
+        requirements == null &&
+        clear.isEmpty;
     if (nothingChanged) {
       // Name the real reason: the server would answer "no effective changes" and
       // the screen would show a misleading "could not update".
@@ -297,8 +316,8 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
     final JobActionResult result = await widget.cubit.editJob(
       widget.job.id!,
       roleTitle: roleTitle,
-      // Empty → don't send (keeps the current value) rather than clear it to a
-      // blank the route would 400.
+      // Empty → never sent as a blank the route would 400; an emptied saved
+      // value is removed through [clear] below instead.
       locationLabel: location,
       vacancyBand: band,
       city: city,
@@ -315,6 +334,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
       // how this contract clears the chips.
       benefits: benefits,
       requirements: requirements,
+      clear: clear.isEmpty ? null : clear,
     );
     if (!mounted) return;
     showBbToast(
@@ -549,8 +569,9 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                 ],
               ),
               const SizedBox(height: AppSpacing.s4),
-              // What the band MEANS (#1648). 'Not stated' only while the row
-              // states nothing — the PATCH enum cannot clear one.
+              // What the band MEANS (#1648). No 'Not stated' chip: the card
+              // prints it, so the form never offers to remove one (the PATCH's
+              // `clear` could since #1652; the card rule is what forbids it).
               _chipField<String>(
                 label: 'Pay type',
                 value: _payType,
@@ -626,10 +647,9 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
             ]),
             const SizedBox(height: AppSpacing.s4),
             Text(
-              'Emptying a text box keeps the saved value — this form can change '
-              'those details, not remove them. Removing every benefit or '
-              'requirement chip DOES clear that list. The trade and any key '
-              'skills stay part of the description.',
+              'Emptying Area or Location removes it from the job. The other '
+              'details can be changed but not left blank. The trade and any '
+              'key skills stay part of the description.',
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
                 color: AppColors.textMuted,

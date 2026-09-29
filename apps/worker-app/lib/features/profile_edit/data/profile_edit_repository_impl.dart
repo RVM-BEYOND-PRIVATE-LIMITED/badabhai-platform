@@ -12,7 +12,8 @@ import '../../../core/api/api_client.dart'
         MyWhatsappDto,
         PortfolioItemDto,
         PortfolioUploadTicket,
-        WorkPrefOptionsDto;
+        WorkPrefOptionsDto,
+        WorkPreferencesDto;
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
 import '../../../core/session/session_repository.dart';
@@ -194,6 +195,15 @@ class ProfileEditRepositoryImpl implements ProfileEditRepository {
   Future<WorkPrefOptionsDto> loadWorkPreferenceOptions() async {
     try {
       return await _api.getWorkPreferenceOptions(authToken: _requireToken());
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
+  @override
+  Future<WorkPreferencesDto> loadWorkPreferences() async {
+    try {
+      return await _api.getWorkPreferences(authToken: _requireToken());
     } catch (error) {
       throw mapError(error);
     }

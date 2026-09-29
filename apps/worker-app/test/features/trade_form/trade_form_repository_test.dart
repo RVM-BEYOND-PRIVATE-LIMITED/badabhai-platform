@@ -500,6 +500,9 @@ void main() {
           'name': 'Fanuc Oi-TF Programming',
           'issuer': null,
           'year': null,
+          // #1542 — always sent; a new certificate has no licence to keep.
+          'licence_number': null,
+          'licence_expiry': null,
         },
       ]);
     });

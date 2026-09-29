@@ -12,7 +12,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_models.dart'
-    show ChatInputMode, ChatOption, ChatQuestionKind, FormOffer;
+    show ChatAnswerType, ChatInputMode, ChatOption, ChatQuestionKind, FormOffer;
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/nav/tab_focus.dart';
@@ -22,6 +22,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_animated_switcher.dart';
 import '../../../core/widgets/bb_bottom_sheet.dart';
+import '../../../core/widgets/bb_button.dart';
 // Only for [kChatSendFailedLabel]: the bubble itself is drawn locally in the
 // Master UI Kit style (see [_ChatBubble]), the copy stays the shared constant.
 import '../../../core/widgets/bb_chat_bubble.dart' show kChatSendFailedLabel;
@@ -36,7 +37,13 @@ import '../../voice/domain/speech_reader.dart';
 import '../../voice/domain/voice_models.dart';
 import '../../voice/presentation/dictation_controller.dart';
 import '../../voice/presentation/widgets/dictation_bar.dart';
+// #1559 / #1583 — the SAME Haan / Nahi copy and none-of-above tick rule the
+// voice form and the trade form already use for these answer types.
+import '../../voice_form/domain/voice_form_models.dart' show VoiceChoice;
+import '../../voice_form/presentation/widgets/voice_choice_chips.dart'
+    show applyNoneOfAboveRule, kVoiceBooleanNo, kVoiceBooleanYes;
 import '../domain/chat_message.dart';
+import '../domain/chat_multi_select.dart';
 import '../domain/chat_companion_keys.dart';
 import '../domain/chat_resume_menu.dart';
 import '../../swipe/domain/job_detail.dart';
@@ -105,7 +112,9 @@ const String _kExperienceGatePrompt = 'Aur koi experience jodna hai?';
 /// allows no digits).
 const String _kLlmOptionKeyPrefix = 'llm_';
 
-/// The server's "none of these" escape `option_key` (mirrors
+// ADR-0045 — the server's word on whether the skills gate is open this turn.
+// `gateKind == "skills"` means the skills gate ("Kya aur koi skill jodni hai?")
+// is open and the composer must be locked. The chips above are the only answer path.
 /// `DISAMBIGUATION_ESCAPE_KEY` in `packages/config` occupation tuning).
 /// Whatever turn it rides on (a disambiguation list today, a model chip row
 /// once the backend appends it there) it opens custom-answer mode and is never
@@ -168,6 +177,11 @@ const String kChatOptionsOnlyHint = 'Upar diye gaye vikalp mein se chunein';
 /// PII-free constant copy; distinct from [kChatOptionsOnlyHint] because there
 /// are no chips above to point at on this turn.
 const String kChatFormOfferLockedHint = 'Neeche diya button dabakar aage badhein';
+
+/// The button under a `multi_select` turn's chips (#1559 / #1583): the chips
+/// only TICK there, and this sends every ticked choice as ONE answer. Disabled
+/// until at least one chip is ticked. Aap-form-neutral, PII-free constant copy.
+const String kChatMultiSelectDoneLabel = 'Ho gaya';
 
 /// Nudge-sheet heading.
 ///
@@ -328,6 +342,13 @@ class _ChatViewState extends State<_ChatView> {
   /// The composer hint while [_customAnswerMode] is on: the profile hint for a
   /// disambiguation list, the question-neutral one for a chip row.
   String _customAnswerHint = kChatCustomAnswerHint;
+
+  /// #1559 / #1583 — the chips TICKED on a `multi_select` turn, as
+  /// [ChatOption.optionKey]s in the order the worker ticked them. Nothing is
+  /// sent until [kChatMultiSelectDoneLabel]. TURN-SCOPED like
+  /// [_customAnswerMode]: cleared by the bloc listener the moment the turn
+  /// moves on (a send, a reply), never carried to the next question.
+  List<String> _ticked = const <String>[];
 
   /// Focus for the composer [TextField], so entering [_customAnswerMode] can
   /// raise the keyboard straight onto the field.
@@ -622,6 +643,65 @@ class _ChatViewState extends State<_ChatView> {
             servedOption: true,
           ),
         );
+  }
+
+  /// #1559 / #1583 — a chip on a `multi_select` turn TICKS (or unticks)
+  /// instead of sending. [options] is the whole row, so the none-of-above rule
+  /// the voice and trade forms apply holds here too: ticking "none of these"
+  /// clears the rest, ticking anything else clears "none of these".
+  ///
+  /// Blocked while a send is pending (see [_optionTapPending]): the turn is
+  /// about to move on, and the listener would clear the tick anyway.
+  void _toggleTick(ChatOption option, List<ChatOption> options) {
+    if (_optionTapPending) return;
+    setState(() {
+      _ticked = applyNoneOfAboveRule(
+        current: _ticked,
+        key: option.optionKey,
+        options: <VoiceChoice>[
+          for (final ChatOption o in options)
+            VoiceChoice(
+              key: o.optionKey,
+              label: o.labelText,
+              isNoneOfAbove: o.isNoneOfAbove,
+            ),
+        ],
+      );
+    });
+  }
+
+  /// #1559 / #1583 — "Ho gaya" on a `multi_select` turn: every ticked choice
+  /// goes as ONE message, the labels joined ([chatMultiSelectAnswer]) — the
+  /// form the server's option matcher reads several choices from. One send
+  /// per turn, like any chip (see [_optionTapPending]).
+  ///
+  /// No `optionKey`: the server serves no lookahead on a multi-select turn,
+  /// and a joined answer has no single key to predict from. Flagged
+  /// [ChatMessageSent.servedOption] because every part of it is a served label.
+  void _sendTicked(List<ChatOption> options) {
+    if (_optionTapPending) return;
+    final String answer =
+        chatMultiSelectAnswer(options: options, tickedKeys: _ticked);
+    if (answer.isEmpty) return;
+    setState(() {
+      _optionTapPending = true;
+      _ticked = const <String>[];
+    });
+    context
+        .read<ChatBloc>()
+        .add(ChatMessageSent(answer, servedOption: true));
+  }
+
+  /// #1583 — a Haan / Nahi quick reply on a `boolean` turn the server served
+  /// no chips for. Sent as the plain word, exactly as if typed: the server
+  /// reads it with the same yes/no parser it runs on typed text
+  /// (`parseAffirmation`). Client-authored, so not a served option; no
+  /// lookahead key (the question has no options to key one by). One send per
+  /// turn (see [_optionTapPending]).
+  void _sendBooleanReply(String word) {
+    if (_optionTapPending) return;
+    setState(() => _optionTapPending = true);
+    context.read<ChatBloc>().add(ChatMessageSent(word));
   }
 
   /// Re-send the failed bubble at [index] (#343) — in place, no duplicate.
@@ -1381,6 +1461,9 @@ class _ChatViewState extends State<_ChatView> {
           // listener only fires when a message lands or `sending` flips —
           // i.e. the turn has moved on — so drop it here.
           if (_customAnswerMode) setState(() => _customAnswerMode = false);
+          // #1559 / #1583 — ticks belong to the question they were made on,
+          // for the same reason.
+          if (_ticked.isNotEmpty) setState(() => _ticked = const <String>[]);
           _wasSending = state.sending;
           _onMessagesChanged(state.messages);
         },
@@ -1575,10 +1658,17 @@ class _ChatViewState extends State<_ChatView> {
             !_customAnswerMode &&
             _isYesNoGate(state))
           _optionsOnlyHint()
+        else if (state.gateKind == 'skills')
+          _skillsGateLockedHint()
         else if (state.formOffer != null)
           _formOfferLockedHint()
         else
-          _inputBar(showVoice),
+          _inputBar(
+            showVoice,
+            // #1583 — a `number` question opens the number keypad for this
+            // turn only; the turn-scoped answerType reverts it on the next.
+            numeric: state.answerType == ChatAnswerType.number,
+          ),
         // #1339/#1340 — the handover card REPLACES the "build my
         // profile" CTA on the one turn that hands the worker to a
         // trade form, never alongside it. `extraction_ready` is
@@ -1603,7 +1693,10 @@ class _ChatViewState extends State<_ChatView> {
   /// While the worker dictates, the input area IS the recorder — a FULL-WIDTH
   /// static waveform ([_listeningBar]) fills the field slot with Stop + Send, and
   /// NOTHING is typed until Stop lands the recognised text in the field.
-  Widget _inputBar(bool showVoice) {
+  ///
+  /// [numeric] (#1583) swaps the field's keyboard to a number keypad; the mic
+  /// and dictation are untouched (dictated text lands in the field as before).
+  Widget _inputBar(bool showVoice, {bool numeric = false}) {
     return Container(
       decoration: const BoxDecoration(
         color: OnboardingColors.paperWhite,
@@ -1623,14 +1716,14 @@ class _ChatViewState extends State<_ChatView> {
                 onStop: _stopDictation,
                 onSend: _sendFromDictation,
               )
-            : _idleBar(showVoice),
+            : _idleBar(showVoice, numeric: numeric),
       ),
     );
   }
 
   /// The normal composer row: (hidden) voice-note mic + text field + the trailing
-  /// mic/send action.
-  Widget _idleBar(bool showVoice) {
+  /// mic/send action. [numeric]: see [_inputBar].
+  Widget _idleBar(bool showVoice, {bool numeric = false}) {
     return Row(
       children: <Widget>[
         // Owner request: HIDE the bottom-left voice-note mic — hidden with
@@ -1652,6 +1745,9 @@ class _ChatViewState extends State<_ChatView> {
             focusNode: _composerFocus,
             minLines: 1,
             maxLines: 4,
+            // #1583 — null keeps the field's own default (today's keyboard);
+            // a live change re-configures the open keyboard in place.
+            keyboardType: numeric ? TextInputType.number : null,
             textInputAction: TextInputAction.send,
             onSubmitted: (_) => _send(),
             inputFormatters: <TextInputFormatter>[
@@ -1770,7 +1866,8 @@ class _ChatViewState extends State<_ChatView> {
   /// Whether this turn is the one legitimate keyboard lock (#770): the yes/no
   /// gate — its chips ([_isYesNoPair]) AND its prompt, the latest bot bubble
   /// ([_kExperienceGatePrompt], trimmed and case-folded). A model's own
-  /// Haan / Nahi question keeps the composer.
+  /// Haan / Nahi question keeps the composer. Additionally, the skills gate
+  /// (ADR-0045) locks the keyboard when [gateKind] is `"skills"`.
   static bool _isYesNoGate(ChatState state) {
     if (state.messages.isEmpty) return false;
     final ChatMessage last = state.messages.last;
@@ -1811,6 +1908,15 @@ class _ChatViewState extends State<_ChatView> {
   Widget _formOfferLockedHint() => _lockedComposerBar(
         text: kChatFormOfferLockedHint,
         icon: Icons.arrow_downward_rounded,
+      );
+
+  /// Replaces the composer on a skills gate turn (ADR-0045): the same
+  /// locked-look frame as [_optionsOnlyHint], but pointing at the Haan/Nahi
+  /// chips above rather than a hint — the skills gate locks the keyboard
+  /// and only the two gate chips are the answer path.
+  Widget _skillsGateLockedHint() => _lockedComposerBar(
+        text: kChatOptionsOnlyHint,
+        icon: Icons.touch_app_outlined,
       );
 
   /// Shared locked-look composer replacement: same paper-bar frame as
@@ -1953,6 +2059,13 @@ class _ChatViewState extends State<_ChatView> {
     // and the optimistic prediction finally fires. Served ALONGSIDE
     // `suggested_followups`, so a deterministic/older turn with no options falls
     // through to the label-keyed path below, unchanged (label == key there).
+    //
+    // #1559 / #1583 — a `multi_select` pack question: its chips TICK and one
+    // "Ho gaya" sends them together. Never in companion mode (those chips
+    // navigate) and never on a disambiguation (one trade is the answer).
+    final bool multiSelect = !state.companion &&
+        state.answerType == ChatAnswerType.multiSelect &&
+        state.questionKind != ChatQuestionKind.disambiguate;
     if (state.suggestedOptions.isNotEmpty) {
       return KeyedSubtree(
         key: const ValueKey<String>('chips'),
@@ -1968,7 +2081,9 @@ class _ChatViewState extends State<_ChatView> {
             ? _companionActionChips(state.suggestedOptions)
             : state.questionKind == ChatQuestionKind.disambiguate
                 ? _disambiguateOptions(state.suggestedOptions)
-                : _followupOptions(state.suggestedOptions),
+                : multiSelect
+                    ? _multiSelectOptions(state.suggestedOptions)
+                    : _followupOptions(state.suggestedOptions),
       );
     }
     if (state.followups.isNotEmpty) {
@@ -1979,7 +2094,24 @@ class _ChatViewState extends State<_ChatView> {
         key: const ValueKey<String>('chips'),
         child: state.questionKind == ChatQuestionKind.disambiguate
             ? _disambiguate(state.followups)
-            : _followups(state.followups),
+            : multiSelect
+                // Label-only chips (an older build, or the optimistic
+                // prediction's labels): the label is the key, as on
+                // [_followups].
+                ? _multiSelectOptions(<ChatOption>[
+                    for (final String f in state.followups)
+                      ChatOption(optionKey: f, labelText: f),
+                  ])
+                : _followups(state.followups),
+      );
+    }
+    // #1583 — a `boolean` pack question arrives with NO chips (every boolean
+    // pack item carries zero options), so offer Haan / Nahi. Only when the
+    // server served none: served chips above always win.
+    if (!state.companion && state.answerType == ChatAnswerType.boolean) {
+      return KeyedSubtree(
+        key: const ValueKey<String>('chips'),
+        child: _booleanReplies(),
       );
     }
     return const SizedBox.shrink(key: ValueKey<String>('none'));
@@ -2085,6 +2217,79 @@ class _ChatViewState extends State<_ChatView> {
       child: _AnswerChip(label: kChatCustomAnswerLabel, onTap: open),
     );
   }
+
+  /// #1559 / #1583 — a `multi_select` turn's chips. A tap TICKS (the kit's
+  /// selected paint) instead of sending ([_toggleTick]), and
+  /// [kChatMultiSelectDoneLabel] — enabled once anything is ticked — sends
+  /// every ticked choice as one answer ([_sendTicked]).
+  ///
+  /// A WRAP, not the horizontal scroller: a worker choosing several has to be
+  /// able to see them all (sixteen languages), and the stack under the
+  /// transcript already scrolls within its cap on a short phone.
+  ///
+  /// The server's own escape ([_kServerEscapeOptionKey]) is never a tick: it
+  /// opens the composer, exactly as on [_followupOptions].
+  Widget _multiSelectOptions(List<ChatOption> options) {
+    final List<ChatOption> answers =
+        options.where((ChatOption o) => !_isServerEscape(o)).toList();
+    final bool escape = answers.length != options.length;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s4,
+        AppSpacing.s1,
+        AppSpacing.s4,
+        AppSpacing.s2,
+      ),
+      child: _capped(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Wrap(
+              spacing: AppSpacing.s2,
+              runSpacing: AppSpacing.s2,
+              children: <Widget>[
+                for (final ChatOption o in answers)
+                  _AnswerChip(
+                    label: o.labelText,
+                    selected: _ticked.contains(o.optionKey),
+                    onTap: () => _toggleTick(o, answers),
+                  ),
+                if (escape) _customAnswerChip(),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.s2),
+            // Navy, not the yellow primary: yellow is the SELECTED chip paint
+            // right above it, and the "build my profile" CTA below is the
+            // screen's one primary (the voice form's multi-select submit
+            // makes the same call).
+            BbButton(
+              label: kChatMultiSelectDoneLabel,
+              variant: BbButtonVariant.navy,
+              size: BbButtonSize.md,
+              block: true,
+              onPressed: _ticked.isEmpty ? null : () => _sendTicked(answers),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// #1583 — Haan / Nahi for a `boolean` question the server served with no
+  /// chips. Same row and look as served chips; the composer stays, since the
+  /// server reads a typed "haan ji" the same way.
+  Widget _booleanReplies() => _chipScroller(<Widget>[
+        _AnswerChip(
+          label: kVoiceBooleanYes,
+          onTap: () => _sendBooleanReply(kVoiceBooleanYes),
+        ),
+        const SizedBox(width: AppSpacing.s2),
+        _AnswerChip(
+          label: kVoiceBooleanNo,
+          onTap: () => _sendBooleanReply(kVoiceBooleanNo),
+        ),
+      ]);
 
   /// The horizontal, scrollable wrapper shared by the label-keyed fallback
   /// ([_followups]) and the `suggested_options` path ([_followupOptions]) — just
@@ -2587,23 +2792,36 @@ class _ChatBubble extends StatelessWidget {
 /// no persistent "selected" state — the tap sends the answer and the row is
 /// replaced on the next turn. Keeps `BbChip`'s 48px tap floor and its
 /// single-line label inside the horizontally-scrolling row.
+///
+/// The one exception is a `multi_select` turn (#1559 / #1583), where the chip
+/// is a TOGGLE — see [selected].
 class _AnswerChip extends StatelessWidget {
-  const _AnswerChip({required this.label, required this.onTap});
+  const _AnswerChip({required this.label, required this.onTap, this.selected});
 
   final String label;
   final VoidCallback onTap;
+
+  /// Null on every chip but a multi-select's: today's chip, unchanged.
+  /// Non-null makes the chip a toggle announced as selected / not selected;
+  /// `true` wears the kit's SELECTED paint (the [OnboardingColors.selectedCardBg]
+  /// wash behind a 1.8 safety-yellow border, navy label) plus a check, so the
+  /// tick never rests on colour alone.
+  final bool? selected;
 
   static const BorderRadius _radius = BorderRadius.all(Radius.circular(12));
 
   @override
   Widget build(BuildContext context) {
-    return Material(
+    final bool ticked = selected ?? false;
+    final Widget chip = Material(
       color: Colors.transparent,
       child: Ink(
         decoration: BoxDecoration(
-          color: OnboardingColors.chipBg,
+          color: ticked ? OnboardingColors.selectedCardBg : OnboardingColors.chipBg,
           borderRadius: _radius,
-          border: Border.all(color: OnboardingColors.borderDefault, width: 1.2),
+          border: ticked
+              ? Border.all(color: OnboardingColors.safetyYellow, width: 1.8)
+              : Border.all(color: OnboardingColors.borderDefault, width: 1.2),
         ),
         child: InkWell(
           onTap: onTap,
@@ -2619,14 +2837,35 @@ class _AnswerChip extends StatelessWidget {
               horizontal: 14,
               vertical: AppSpacing.s2,
             ),
-            child: Text(
-              label,
-              style: OnboardingTypography.inter(size: 14),
-            ),
+            child: ticked
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      const Icon(
+                        Icons.check_rounded,
+                        size: 16,
+                        color: OnboardingColors.shiftBlue,
+                      ),
+                      const SizedBox(width: AppSpacing.s1),
+                      Text(
+                        label,
+                        style: OnboardingTypography.inter(
+                          size: 14,
+                          color: OnboardingColors.shiftBlue,
+                        ),
+                      ),
+                    ],
+                  )
+                : Text(
+                    label,
+                    style: OnboardingTypography.inter(size: 14),
+                  ),
           ),
         ),
       ),
     );
+    if (selected == null) return chip;
+    return Semantics(button: true, selected: ticked, child: chip);
   }
 }
 

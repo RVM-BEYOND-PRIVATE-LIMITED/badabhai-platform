@@ -21,6 +21,7 @@ class _ScriptedAgencyApi extends MockPayerApiClient {
   final List<String> closed = <String>[];
   final List<String> updated = <String>[];
   String? lastUpdatedTitle;
+  List<AgencyJobClearField>? lastClear;
 
   @override
   Future<List<AgencyJobView>> fetchAgencyJobs() async {
@@ -53,9 +54,11 @@ class _ScriptedAgencyApi extends MockPayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    List<AgencyJobClearField>? clear,
   }) async {
     updated.add(id);
     lastUpdatedTitle = title;
+    lastClear = clear;
     if (throwOnUpdate != null) throw throwOnUpdate!;
     final AgencyJobView row = jobs.firstWhere((AgencyJobView j) => j.id == id);
     final AgencyJobView next =
@@ -230,6 +233,30 @@ void main() {
 
       expect(result.success, isFalse);
       expect(result.message, 'Network error. Check your connection.');
+    });
+
+    // #1652 — the fields to UNSET ride through to the API untouched.
+    test('passes the clear list through to the PATCH', () async {
+      final JobActionResult result = await cubit.editJob(
+        'j1',
+        title: 'Old title',
+        clear: const <AgencyJobClearField>[AgencyJobClearField.area],
+      );
+
+      expect(result.success, isTrue);
+      expect(api.lastClear, <AgencyJobClearField>[AgencyJobClearField.area]);
+    });
+
+    test('a set-and-cleared 400 is NOT reported as "already closed"',
+        () async {
+      api.throwOnUpdate =
+          const PayerApiException(400, code: kJobEditSetAndClearedCode);
+
+      final JobActionResult result = await cubit.editJob('j1', area: 'x');
+
+      expect(result.success, isFalse);
+      expect(result.message, kJobEditSetAndClearedMessage);
+      expect(api.fetches, 0);
     });
   });
 }

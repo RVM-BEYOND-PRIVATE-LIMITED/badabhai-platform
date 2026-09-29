@@ -28,9 +28,13 @@ import 'widgets/job_content_input.dart';
 ///
 /// WHAT A SAVE SENDS: only what the payer actually changed. The two chip lists
 /// keep a TOUCHED flag — untouched sends nothing (the stored chips survive),
-/// while a list the payer emptied on purpose is sent as `[]`, which is how the
-/// contract clears one. `description` and the two enums cannot be cleared at all
-/// (the schema has no null), so an emptied description is simply not sent.
+/// while a list the payer emptied on purpose is sent as `[]`.
+///
+/// EMPTYING A BOX (#1652): the PATCH takes a `clear` list, so a saved value can
+/// now be REMOVED. Area is the only OPTIONAL box — every other field is on the
+/// worker's card and [workerCardGap] refuses a save that blanks it — so when
+/// Area HAD a saved value and is now empty it rides `clear: [area]` and is left
+/// OUT of the edit body (a field in both is a 400).
 ///
 /// Pushed as a full page with its own back; on save it drives the SHARED
 /// [AgencyJobsCubit] (so the My-jobs list refetches) and pops on success.
@@ -89,10 +93,10 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
   bool _benefitsTouched = false;
   bool _requirementsTouched = false;
 
-  /// The stored shift / pay type, or null when the row states neither. The
-  /// PATCH enums have no "clear" value, so a field is sent only when it CHANGED
-  /// and the "Not set"/"Not stated" chip is offered only while nothing is
-  /// stored — the form never shows a choice it could not honour.
+  /// The stored shift / pay type, or null when the row states neither. Both
+  /// are printed on the worker's card, so neither is ever cleared (even though
+  /// the PATCH's `clear` could since #1652): a field is sent only when it
+  /// CHANGED, and an unpicked one blocks the save until the payer picks.
   late String? _shift =
       _shifts.contains(widget.job.shift) ? widget.job.shift : null;
   late String? _payType =
@@ -202,6 +206,11 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
 
     setState(() => _saving = true);
     final String area = _area.text.trim();
+    // #1652 — the payer EMPTIED a saved Area: remove it via `clear`. The body
+    // carries no `area` then (a field in both lists is a 400), and a box that
+    // was never set and is still empty sends neither.
+    final bool areaEmptied =
+        area.isEmpty && (widget.job.area ?? '').trim().isNotEmpty;
     final JobActionResult result = await widget.cubit.editJob(
       widget.job.id,
       tradeKey: tradeKey,
@@ -211,8 +220,8 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
       payMin: payMin,
       payMax: payMax,
       // Enums are sent only when CHANGED: re-sending a prefill is noise at
-      // best, and neither enum can be cleared, so an unpicked one means "leave
-      // the stored value alone".
+      // best. The card rule above keeps both picked, so null here only ever
+      // means "leave the stored value alone".
       payType: _payType == widget.job.payType ? null : _payType,
       minExperienceYears: expMin,
       maxExperienceYears: expMax,
@@ -228,6 +237,9 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
       benefits: _benefitsTouched ? List<String>.of(_benefits) : null,
       requirements:
           _requirementsTouched ? List<String>.of(_requirements) : null,
+      clear: areaEmptied
+          ? const <AgencyJobClearField>[AgencyJobClearField.area]
+          : null,
     );
     if (!mounted) return;
     showBbToast(
@@ -440,8 +452,9 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
                 ],
               ),
               const SizedBox(height: AppSpacing.s4),
-              // What the band MEANS (#1648). 'Not stated' only while the row
-              // states nothing — the PATCH enum cannot clear one.
+              // What the band MEANS (#1648). No 'Not stated' chip: the card
+              // prints it, so the form never offers to remove one (the PATCH's
+              // `clear` could since #1652; the card rule is what forbids it).
               _chipField<String>(
                 label: 'Pay type',
                 value: _payType,
@@ -540,9 +553,8 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
     );
   }
 
-  /// "day/night/rotational" → display labels; null = the honest "Not set", which
-  /// is offered ONLY while nothing is stored (see [_shiftOptions]) because the
-  /// PATCH enum cannot clear a shift.
+  /// "day/night/rotational" → display labels; null = the honest "Not set". The
+  /// shift is on the worker's card, so the form never offers to clear it.
   static String _shiftLabel(String? v) {
     switch (v) {
       case 'day':

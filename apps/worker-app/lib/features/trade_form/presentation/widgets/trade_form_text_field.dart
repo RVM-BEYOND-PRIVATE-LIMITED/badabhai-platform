@@ -37,6 +37,7 @@ class TradeFormTextField extends StatefulWidget {
     this.maxLength,
     this.maxLines = 1,
     this.errorText,
+    this.autofocus = false,
   });
 
   final TextEditingController controller;
@@ -56,6 +57,11 @@ class TradeFormTextField extends StatefulWidget {
   /// validation message is more specific to what the worker is doing right
   /// now.
   final String? errorText;
+
+  /// Focus the field when it first appears — for a box the worker has just
+  /// asked to open (#1519's "Koi aur — khud likhein"). Default false keeps
+  /// every existing call site exactly as it was.
+  final bool autofocus;
 
   @override
   State<TradeFormTextField> createState() => _TradeFormTextFieldState();
@@ -83,6 +89,7 @@ class _TradeFormTextFieldState extends State<TradeFormTextField> {
         keyboardType: widget.keyboardType,
         maxLength: widget.maxLength,
         maxLines: widget.maxLines,
+        autofocus: widget.autofocus,
         inputFormatters: <TextInputFormatter>[
           DevanagariBlockFormatter(
             onBlocked: () => setState(() => _devanagariBlocked = true),
