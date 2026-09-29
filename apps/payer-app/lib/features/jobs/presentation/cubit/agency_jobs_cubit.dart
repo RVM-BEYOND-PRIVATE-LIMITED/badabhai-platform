@@ -43,7 +43,9 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
   /// content the route also accepts, and the job view RETURNS them since #1647,
   /// so the screen prefills them and passes null for anything the payer did not
   /// touch; an explicitly EMPTY list is passed through (it clears the chips
-  /// server-side). [payType] says what the ₹ band means (#1648).
+  /// server-side). [payType] says what the ₹ band means (#1648). [clear]
+  /// (#1652) names the fields the payer EMPTIED that had a saved value — never
+  /// one that is also passed as a value (the server 400s that).
   Future<JobActionResult> editJob(
     String id, {
     String? tradeKey,
@@ -60,6 +62,7 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    List<AgencyJobClearField>? clear,
   }) =>
       _lifecycle(
         () => _api.updateAgencyJob(
@@ -78,6 +81,7 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
           shift: shift,
           benefits: benefits,
           requirements: requirements,
+          clear: clear,
         ),
         okMessage: 'Job updated.',
       );
@@ -91,6 +95,11 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
       await load();
       return JobActionResult.ok(okMessage);
     } on PayerApiException catch (e) {
+      // #1652 — checked BEFORE the blanket 400 below: a set-and-cleared edit
+      // is a 400 too, and "already closed" would name the wrong reason.
+      if (e.isSetAndCleared) {
+        return const JobActionResult.fail(kJobEditSetAndClearedMessage);
+      }
       return JobActionResult.fail(
         e.isNotFound
             ? "This job isn't available."

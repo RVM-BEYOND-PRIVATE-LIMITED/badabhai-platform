@@ -15,7 +15,8 @@ import 'package:payer_app/features/jobs/presentation/edit_company_job_screen.dar
 ///
 /// These pin the repair: the stored values are PREFILLED (never an invented
 /// placeholder), only CHANGED fields ride the PATCH (a resent prefill could
-/// clobber), an emptied box is not sent as a blank, and the two client-side
+/// clobber), an emptied box is never sent as a blank — an emptied OPTIONAL box
+/// that had a value rides `clear` instead (#1652) — and the two client-side
 /// guards (pay ordering + the PII screen on the worker-visible description) fail
 /// closed before the call.
 class _ScriptedApi extends MockPayerApiClient {
@@ -24,11 +25,17 @@ class _ScriptedApi extends MockPayerApiClient {
   String? lastLocation;
   String? lastBand;
   String? lastCity;
+  String? lastArea;
   int? lastPayMin;
   int? lastPayMax;
   String? lastShift;
   String? lastNeededBy;
   String? lastDescription;
+  List<JobPostingClearField>? lastClear;
+
+  /// Every clearable field the last PATCH carried a VALUE for — so a test can
+  /// assert no field ever rode both the body and `clear` (a server 400).
+  Set<JobPostingClearField> lastValued = <JobPostingClearField>{};
 
   @override
   Future<List<JobPosting>> fetchJobs({String? status}) async =>
@@ -57,17 +64,38 @@ class _ScriptedApi extends MockPayerApiClient {
     String? neededBy,
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
+    List<JobPostingClearField>? clear,
   }) async {
     updated.add(id);
     lastRoleTitle = roleTitle;
     lastLocation = locationLabel;
     lastBand = vacancyBand;
     lastCity = city;
+    lastArea = area;
     lastPayMin = payMin;
     lastPayMax = payMax;
     lastShift = shift;
     lastNeededBy = neededBy;
     lastDescription = description;
+    lastClear = clear;
+    lastValued = <JobPostingClearField, Object?>{
+      JobPostingClearField.locationLabel: locationLabel,
+      JobPostingClearField.description: description,
+      JobPostingClearField.city: city,
+      JobPostingClearField.area: area,
+      JobPostingClearField.payMin: payMin,
+      JobPostingClearField.payMax: payMax,
+      JobPostingClearField.payType: payType,
+      JobPostingClearField.minExperienceYears: minExperienceYears,
+      JobPostingClearField.maxExperienceYears: maxExperienceYears,
+      JobPostingClearField.shift: shift,
+      JobPostingClearField.neededBy: neededBy,
+      JobPostingClearField.benefits: benefits,
+      JobPostingClearField.requirements: requirements,
+    }.entries
+        .where((MapEntry<JobPostingClearField, Object?> e) => e.value != null)
+        .map((MapEntry<JobPostingClearField, Object?> e) => e.key)
+        .toSet();
     return _job;
   }
 }
@@ -80,11 +108,40 @@ const JobPosting _job = JobPosting(
   band: '2-5',
   locationLabel: 'Pimpri, Pune',
   city: 'Pune',
+  // The optional half of the place line — present so emptying it is a real
+  // removal (#1652), not a no-op on a box that was never set.
+  area: 'Chakan',
   payMin: 22000,
   payMax: 28000,
   // The rest of what the worker's card renders. The form REFUSES a save that
   // would leave any of them blank, so a fixture missing one is a row that could
   // not legally be saved in the first place.
+  payType: 'in_hand',
+  minExperienceYears: 1,
+  maxExperienceYears: 4,
+  neededBy: 'soon',
+  benefits: <String>['PF + ESI'],
+  requirements: <String>['Fanuc control'],
+  shift: 'day',
+  description: 'Turning job work on Fanuc controls.',
+  filled: 0,
+  quota: 0,
+  applicants: 0,
+  unlocks: 0,
+  status: JobStatus.live,
+  verified: false,
+  boosted: false,
+  wireStatus: 'open',
+);
+
+/// The same card-complete row, but with neither optional box ever stored.
+const JobPosting _jobNoOptional = JobPosting(
+  id: 'j1',
+  title: 'CNC Setter',
+  band: '2-5',
+  city: 'Pune',
+  payMin: 22000,
+  payMax: 28000,
   payType: 'in_hand',
   minExperienceYears: 1,
   maxExperienceYears: 4,
@@ -109,7 +166,7 @@ void main() {
 
   /// Mount the screen on a tall viewport: the form is taller than the default
   /// 600px test surface, and a built field keeps every tap a real hit.
-  Future<void> open(WidgetTester tester) async {
+  Future<void> open(WidgetTester tester, {JobPosting job = _job}) async {
     api = _ScriptedApi();
     cubit = JobsCubit(api);
     addTearDown(cubit.close);
@@ -127,7 +184,7 @@ void main() {
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) =>
-                        EditCompanyJobScreen(job: _job, cubit: cubit),
+                        EditCompanyJobScreen(job: job, cubit: cubit),
                   ),
                 ),
                 child: const Text('open'),
@@ -231,15 +288,15 @@ void main() {
     expect(api.lastBand, isNull);
   });
 
-  testWidgets('an emptied OPTIONAL box is not sent (cannot clear)', (
+  testWidgets('an emptied Location rides clear, never as a blank value', (
     WidgetTester tester,
   ) async {
     await open(tester);
 
     // Location is the payer's own note — not a card field — so emptying it is
-    // allowed, and must still not ride as a blank the route would 400.
+    // allowed. Since #1652 that REMOVES the saved note via `clear`; it must
+    // still never ride as a blank the route would 400.
     await typeInto(tester, 'Location', '');
-    // One real change so there IS something to save.
     await typeInto(tester, 'Job title', 'CNC Setter — Night');
 
     await save(tester);
@@ -247,6 +304,85 @@ void main() {
     expect(api.updated, <String>['j1']);
     expect(api.lastRoleTitle, 'CNC Setter — Night');
     expect(api.lastLocation, isNull);
+    expect(api.lastClear, <JobPostingClearField>[
+      JobPostingClearField.locationLabel,
+    ]);
+  });
+
+  testWidgets('emptying a saved Area alone is a save — it rides clear', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+
+    // The ONLY change: without `clear` this would be "Nothing to save".
+    await typeInto(tester, 'Area (optional)', '');
+    await save(tester);
+
+    expect(api.updated, <String>['j1']);
+    expect(api.lastArea, isNull);
+    expect(api.lastClear, <JobPostingClearField>[JobPostingClearField.area]);
+    expect(find.text('Nothing to save'), findsNothing);
+  });
+
+  testWidgets('no clear when the optional boxes are left as they were', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+
+    await typeInto(tester, 'Job title', 'CNC Setter — Night');
+    await save(tester);
+
+    expect(api.updated, <String>['j1']);
+    expect(api.lastClear, isNull);
+  });
+
+  testWidgets('no clear for an optional box that was never set', (
+    WidgetTester tester,
+  ) async {
+    // Neither Location nor Area was ever stored: an empty box is no change.
+    await open(tester, job: _jobNoOptional);
+
+    await typeInto(tester, 'Job title', 'CNC Setter — Night');
+    await save(tester);
+
+    expect(api.updated, <String>['j1']);
+    expect(api.lastClear, isNull);
+    expect(api.lastLocation, isNull);
+    expect(api.lastArea, isNull);
+  });
+
+  testWidgets('a field is never in both the body and clear', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+
+    // Empty one optional box, REWRITE the other, and change card fields too.
+    await typeInto(tester, 'Area (optional)', '   ');
+    await typeInto(tester, 'Location', 'Bhosari MIDC');
+    await typeInto(tester, 'City', 'Nashik');
+    await save(tester);
+
+    expect(api.updated, <String>['j1']);
+    expect(api.lastClear, <JobPostingClearField>[JobPostingClearField.area]);
+    expect(api.lastLocation, 'Bhosari MIDC');
+    expect(api.lastCity, 'Nashik');
+    expect(
+      api.lastValued.intersection(api.lastClear!.toSet()),
+      isEmpty,
+      reason: 'a field both set and cleared is a server 400',
+    );
+  });
+
+  testWidgets('the stale "cannot remove" copy is gone', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+
+    expect(find.textContaining('not remove them'), findsNothing);
+    expect(
+      find.textContaining('Emptying Area or Location removes it'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('emptying the city is REFUSED — the card needs a place', (

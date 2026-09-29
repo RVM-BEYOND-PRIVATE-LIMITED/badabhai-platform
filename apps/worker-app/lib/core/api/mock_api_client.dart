@@ -127,6 +127,7 @@ class MockApiClient extends ApiClient {
       isMock: true,
       suggestedFollowups: turn.followups,
       extractionReady: turn.extractionReady,
+      answerType: turn.answerType,
     );
   }
 
@@ -199,6 +200,60 @@ class MockApiClient extends ApiClient {
       correctionsApplied: corrections.length,
       correctionCount: corrections.length,
     );
+  }
+
+  /// #1596 — the skill catalogue, canned from `@badabhai/taxonomy`'s `SKILLS`
+  /// (ids + names verbatim, taxonomy order) so the review picker renders and
+  /// sends ids the real correction contract would accept. Static vocabulary.
+  @override
+  Future<List<CatalogueOptionDto>> getSkillOptions({
+    required String authToken,
+  }) async {
+    await _delay();
+    return const <CatalogueOptionDto>[
+      CatalogueOptionDto(id: 'skill_gdt_reading', label: 'GD&T / drawing reading'),
+      CatalogueOptionDto(
+          id: 'skill_tool_offset_setting', label: 'Tool offset setting'),
+      CatalogueOptionDto(
+          id: 'skill_program_editing', label: 'Program editing (G & M codes)'),
+      CatalogueOptionDto(id: 'skill_fanuc', label: 'Fanuc control operation'),
+      CatalogueOptionDto(
+          id: 'skill_siemens', label: 'Siemens control operation'),
+      CatalogueOptionDto(
+          id: 'skill_mitsubishi', label: 'Mitsubishi control operation'),
+      CatalogueOptionDto(
+          id: 'skill_measuring_instruments',
+          label: 'Micrometer / Vernier / gauge usage'),
+      CatalogueOptionDto(id: 'skill_fixture_setup', label: 'Fixture / job setup'),
+      CatalogueOptionDto(
+          id: 'skill_cam_software', label: 'CAM software (Mastercam/Fusion/etc.)'),
+    ];
+  }
+
+  /// #1596 — the machine catalogue, canned from `MACHINES` the same way.
+  @override
+  Future<List<CatalogueOptionDto>> getMachineOptions({
+    required String authToken,
+  }) async {
+    await _delay();
+    return const <CatalogueOptionDto>[
+      CatalogueOptionDto(
+          id: 'mach_cnc_lathe', label: 'CNC Lathe / Turning Center'),
+      CatalogueOptionDto(
+          id: 'mach_vmc', label: 'Vertical Machining Center (VMC)'),
+      CatalogueOptionDto(
+          id: 'mach_hmc', label: 'Horizontal Machining Center (HMC)'),
+      CatalogueOptionDto(id: 'mach_cnc_grinder', label: 'CNC Grinder'),
+      CatalogueOptionDto(
+          id: 'mach_cylindrical_grinder', label: 'Cylindrical Grinder'),
+      CatalogueOptionDto(
+          id: 'mach_pipe_threading', label: 'Pipe Threading Machine'),
+      CatalogueOptionDto(id: 'mach_pipe_bending', label: 'Pipe Bending Machine'),
+      CatalogueOptionDto(id: 'mach_circular_saw', label: 'Circular Saw'),
+      CatalogueOptionDto(id: 'mach_planer', label: 'Planer'),
+      CatalogueOptionDto(id: 'mach_router', label: 'Router'),
+      CatalogueOptionDto(id: 'mach_sander', label: 'Sander'),
+    ];
   }
 
   @override
@@ -323,6 +378,14 @@ class MockApiClient extends ApiClient {
         CityOptionDto(value: 'Noida', aliases: <String>[]),
         CityOptionDto(value: 'Pune', aliases: <String>['poona']),
       ],
+      // The server's `AVAILABILITY_STATUSES`, verbatim and in its order, so
+      // the profile-edit chips send only slugs the real PUT accepts (#1541).
+      availabilityStatus: <String, String>{
+        'immediate': 'Immediately',
+        'within_week': 'Within a week',
+        'within_month': 'Within a month',
+        'serving_notice': 'Serving notice',
+      },
     );
   }
 
@@ -346,8 +409,41 @@ class MockApiClient extends ApiClient {
           _storedEmploymentAsView(_employments[i], i),
       ],
       'unreadable_count': 0,
+      'employment_suggestions': _kMockEmploymentSuggestions,
     });
   }
+
+  /// #1516 — the server's unconfirmed jobs, in its shape and order (résumé
+  /// first, then chat). STATIC, and NOT removed once saved, exactly like the
+  /// real route: it re-offers every suggestion on every read, so mock mode
+  /// exercises the page's own "already a card" filter. A résumé one carries a
+  /// company and no dates; a chat one never carries a company.
+  static const List<Map<String, dynamic>> _kMockEmploymentSuggestions =
+      <Map<String, dynamic>>[
+    <String, dynamic>{
+      'source': 'resume',
+      'values': <String, dynamic>{
+        'employer_name': 'Sandhar Technologies',
+        'employer_city': null,
+        'role_label': 'CNC Operator',
+        'start_ym': null,
+        'end_ym': null,
+        'work_done': null,
+      },
+    },
+    <String, dynamic>{
+      'source': 'chat',
+      'values': <String, dynamic>{
+        'employer_name': null,
+        'employer_city': null,
+        'role_label': 'VMC Setter',
+        'start_ym': null,
+        'end_ym': null,
+        'work_done':
+            'Program load karke job setting karte the aur pehla piece check karte the',
+      },
+    },
+  ];
 
   /// One saved PUT entry rendered back in the GET's own shape, so mock mode
   /// round-trips through the SAME projection rule the real client implements
@@ -1263,6 +1359,10 @@ class MockApiClient extends ApiClient {
   final Map<String, Map<String, dynamic>> _mockTradeFormAnswers =
       <String, Map<String, dynamic>>{};
 
+  /// #1519 — `answer_type` per served question key, so a typed answer on a
+  /// chip question is stored the server's way (`other_text`, not `text`).
+  final Map<String, String> _mockTradeFormAnswerTypes = <String, String>{};
+
   static const int _kMockTradeFormTotalQuestions = 4;
 
   /// #1356 — DEFAULT FALSE, matching production reality: `TRADE_FORM_KINDS` covers
@@ -1284,6 +1384,7 @@ class MockApiClient extends ApiClient {
     List<List<String>> options = const <List<String>>[],
     bool searchable = false,
   }) {
+    _mockTradeFormAnswerTypes[key] = answerType;
     return <String, dynamic>{
       'type': 'question',
       'question': <String, dynamic>{
@@ -1516,12 +1617,21 @@ class MockApiClient extends ApiClient {
     final bool declined =
         answer['kind'] == 'declined' || (answer['kind'] == 'chips' && keys.isEmpty);
     final String status = declined ? 'declined' : 'answered';
+    // #1519 — the server trims a typed answer and, on a single/multi-select
+    // question, keeps it ONLY in `other_text` (never `text`, no chips).
+    final String? typed = answer['kind'] == 'text'
+        ? (answer['text'] as String? ?? '').trim()
+        : null;
+    final String? type = _mockTradeFormAnswerTypes[key];
+    final bool typedOnChips =
+        typed != null && (type == 'single_select' || type == 'multi_select');
     _mockTradeFormAnswers[key] = <String, dynamic>{
       'status': status,
       'option_keys': answer['kind'] == 'chips' ? keys : const <dynamic>[],
-      'text': answer['kind'] == 'text' ? answer['text'] : null,
+      'text': typedOnChips ? null : typed,
       'number': null,
       'bool': answer['kind'] == 'boolean' ? answer['value'] : null,
+      'other_text': typedOnChips ? typed : null,
     };
     return <String, dynamic>{
       'question_key': key,
@@ -1625,9 +1735,19 @@ class MockApiClient extends ApiClient {
 /// One canned assistant turn (reply + suggested follow-up chips + the engine's
 /// `extraction_ready` for that turn).
 class _CannedTurn {
-  const _CannedTurn(this.reply, this.followups, {this.extractionReady = false});
+  const _CannedTurn(
+    this.reply,
+    this.followups, {
+    this.extractionReady = false,
+    this.answerType,
+  });
   final String reply;
   final List<String> followups;
+
+  /// `answer_type` (#1559 / #1583), so mock mode draws the multi-select tick
+  /// row, the boolean Haan / Nahi and the number keypad the real engine asks
+  /// for. Null = no pack item on screen, today's chips.
+  final ChatAnswerType? answerType;
 
   /// Mirrors the real engine (#421): readiness only arrives once enough topics
   /// have been covered, so mock mode exercises the SAME gate as production
@@ -1653,6 +1773,26 @@ const List<_CannedTurn> _cannedTurns = <_CannedTurn>[
     'Thanks — that is enough to build your profile. Tap continue when ready.',
     <String>['Continue'],
     extractionReady: true,
+  ),
+  // #1559 / #1583 — qp_universal@4's tail asks, verbatim, one per answer
+  // type. AFTER the ready turn, so readiness still lands on the fourth send.
+  _CannedTurn(
+    'Aap kaun kaun si bhasha bolte hain?',
+    <String>['Hindi', 'English', 'Marathi', 'Bhojpuri'],
+    extractionReady: true,
+    answerType: ChatAnswerType.multiSelect,
+  ),
+  _CannedTurn(
+    'Kya aap ghar se door kaam ke liye ja sakte hain?',
+    <String>[],
+    extractionReady: true,
+    answerType: ChatAnswerType.boolean,
+  ),
+  _CannedTurn(
+    'Kaam ke liye aap kitne km tak ja sakte hain?',
+    <String>[],
+    extractionReady: true,
+    answerType: ChatAnswerType.number,
   ),
 ];
 

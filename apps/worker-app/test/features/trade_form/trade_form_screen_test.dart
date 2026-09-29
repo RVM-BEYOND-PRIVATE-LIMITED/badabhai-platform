@@ -2814,12 +2814,13 @@ void main() {
       stubAnswers();
 
       await pump(tester);
-      expect(find.byType(MultiSelectQuestionCard), findsOneWidget);
+      // The option + #1519's "Koi aur — khud likhein" card.
+      expect(find.byType(MultiSelectQuestionCard), findsNWidgets(2));
       expectEveryCardHasAnIcon(tester);
       await decline(tester);
 
       expect(find.text('Turning ka kitna experience hai?'), findsOneWidget);
-      expect(find.byType(SingleSelectQuestionCard), findsNWidgets(2));
+      expect(find.byType(SingleSelectQuestionCard), findsNWidgets(3));
       expectEveryCardHasAnIcon(tester);
       await decline(tester);
 

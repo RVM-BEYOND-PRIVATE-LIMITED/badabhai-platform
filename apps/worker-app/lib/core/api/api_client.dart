@@ -906,6 +906,37 @@ class ApiClient {
     return QualificationOptionsDto.fromJson(json);
   }
 
+  /// GET /workers/me/skills/options (#1596) — the canonical skill catalogue
+  /// (`{skills: [{skill_id, label}]}`, taxonomy order) a [SkillsCorrection]
+  /// picks its ids from. Static vocabulary, no worker data; worker + consent
+  /// guarded like its write route. Worker from [authToken].
+  Future<List<CatalogueOptionDto>> getSkillOptions({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _get(
+      '/workers/me/skills/options',
+      authToken: authToken,
+    );
+    return CatalogueOptionDto.listFromJson(json['skills'], idKey: 'skill_id');
+  }
+
+  /// GET /workers/me/machines/options (#1596) — the canonical machine
+  /// catalogue (`{machines: [{machine_id, label}]}`, taxonomy order) a
+  /// [MachinesCorrection] picks its ids from. Same posture as
+  /// [getSkillOptions].
+  Future<List<CatalogueOptionDto>> getMachineOptions({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _get(
+      '/workers/me/machines/options',
+      authToken: authToken,
+    );
+    return CatalogueOptionDto.listFromJson(
+      json['machines'],
+      idKey: 'machine_id',
+    );
+  }
+
   /// PUT /workers/me/qualifications (#1384/#1385, migration 0098) — the
   /// worker's own certificates + education rows. [fields] is the already
   /// TRI-STATE-shaped body the repository builds

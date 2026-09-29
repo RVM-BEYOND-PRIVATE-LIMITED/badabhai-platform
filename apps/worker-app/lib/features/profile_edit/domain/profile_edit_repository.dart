@@ -8,7 +8,8 @@ import '../../../core/api/api_client.dart'
         MyWhatsappDto,
         PortfolioItemDto,
         PortfolioUploadTicket,
-        WorkPrefOptionsDto;
+        WorkPrefOptionsDto,
+        WorkPreferencesDto;
 import 'profile_edit_models.dart';
 
 /// Data boundary for the Layer A profile surfaces (ADR-0042 D9, issue #1545):
@@ -56,6 +57,11 @@ abstract interface class ProfileEditRepository {
   /// The chip vocabulary the extended work-preferences fields share with the
   /// finishing form (`work_types`, `salary_period`, `availability`, shift).
   Future<WorkPrefOptionsDto> loadWorkPreferenceOptions();
+
+  /// The worker's STORED work preferences (#1541) — the prefill for the
+  /// extended fields, so the card opens on what is saved rather than blank
+  /// and a save cannot overwrite a saved part with an empty default.
+  Future<WorkPreferencesDto> loadWorkPreferences();
 
   /// PUT the already-shaped work-preferences body (absent = leave alone).
   Future<void> saveWorkPreferences(Map<String, dynamic> fields);

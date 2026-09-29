@@ -56,14 +56,16 @@ void main() {
 
     test('a touched availability sends the object, every key present', () {
       final WorkPreferences prefs = const WorkPreferences().copyWith(
+        // A real server slug (`AVAILABILITY_STATUSES`) — #1541: the old
+        // `notice_period` was never in the strict `z.enum` and 400'd.
         availability: const AvailabilityDraft(
-          status: 'notice_period',
+          status: 'serving_notice',
           availableFrom: '2026-10-01',
           noticePeriodDays: 30,
         ),
       );
       expect(prefs.toUpdateBody()['availability'], <String, dynamic>{
-        'status': 'notice_period',
+        'status': 'serving_notice',
         'available_from': '2026-10-01',
         'notice_period_days': 30,
       });
