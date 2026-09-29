@@ -156,6 +156,11 @@ const ALL_TASK_TYPES = AiCostRecordedPayload.shape.task_type.options as readonly
 const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = [
   "domain_match",
   "tts_synthesis",
+  // ADR-0046 Phase 3 — TEMPORARY, and removed in the C-phase commit of the same PR that
+  // routes the task: the AI-service route exists and can spend, while the API's
+  // `companionCareer` emitter lands with the career handler. The "disjoint" test below
+  // fails if this entry outlives the emitter.
+  "companion_career_answer",
 ];
 
 describe("every task type that can spend is either emitted or named as unledgered (#738)", () => {

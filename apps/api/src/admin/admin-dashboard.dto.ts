@@ -195,6 +195,10 @@ const PROFILING_TASK_TYPE_KEYS: Record<AiCostTaskType, boolean> = {
   // figure with spend on a worker the platform had already profiled.
   companion_classify: false,
   companion_edit_parse: false,
+  // THE CAREER ANSWER (ADR-0046 Phase 3) — `false`, same side as the router pair above and
+  // for the same reason: it runs on the Bada Bhai tab after the profile is confirmed and
+  // builds nothing. Charging it to cost-per-profile would bill a finished worker.
+  companion_career_answer: false,
   // ₹0.000000 today — the open classification in the header above.
   domain_match: false,
   stt_transcription: false,

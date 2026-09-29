@@ -1190,6 +1190,10 @@ const aiTaskType = z.enum([
   // them, per the lesson the entries above record twice over.
   "companion_classify",
   "companion_edit_parse",
+  // ADR-0046 PHASE 3 — the career answer. Routed in `model_config._ROUTE_SHAPES`
+  // (`companion_career_answer`, Claude primary) and charged per answer, so it is nameable
+  // here in the SAME change that routes it — the lesson the entries above record.
+  "companion_career_answer",
   // Provider calls with their own fail-closed allowlist keys, outside the LLM router.
   "stt_transcription",
   "tts_synthesis",
