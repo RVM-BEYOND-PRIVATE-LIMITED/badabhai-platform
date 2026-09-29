@@ -234,4 +234,39 @@ void main() {
       expect(rc.voiceFormHidden, isTrue);
     });
   });
+
+  group('FORCE_REMOTE_FLAGS — the debug-build override', () {
+    tearDown(() => BbRemoteConfig.instance.debugReset());
+
+    test('is EMPTY by default, so an ordinary build is untouched', () {
+      // No --dart-define in `flutter test`, so nothing may be forced. If this
+      // ever fails, some build is shipping with levers pinned on.
+      expect(BbRemoteConfig.kDebugForcedRemoteFlags, isEmpty);
+      BbRemoteConfig.instance.debugReset();
+      // Every lever still reads its compiled default.
+      expect(BbRemoteConfig.instance.chatCompanionEnabled, isFalse);
+      expect(BbRemoteConfig.instance.chatCompanionV2Enabled, isFalse);
+      expect(BbRemoteConfig.instance.voiceEntryHidden, isFalse);
+      expect(BbRemoteConfig.instance.voiceFormHidden, isTrue);
+    });
+
+    test('forces ON only — it can never force a lever OFF', () {
+      // The parse is a set of keys to force TRUE; there is no "false" syntax, so
+      // a kill switch can never be *disabled* through this door. Asserted on the
+      // shape of the constant, since the set itself is private.
+      expect(BbRemoteConfig.kDebugForcedRemoteFlags.contains('='), isFalse,
+          reason: 'a key=value form would imply forcing something false');
+    });
+
+    test('an activated snapshot still wins for every key NOT forced', () {
+      // Sanity that the override sits beside the snapshot rather than replacing
+      // it: a console value must still be read.
+      BbRemoteConfig.instance.debugSetSnapshot(<String, Object>{
+        BbRemoteConfig.kKeyChatCompanionEnabled: true,
+      });
+      expect(BbRemoteConfig.instance.chatCompanionEnabled, isTrue);
+      expect(BbRemoteConfig.instance.chatCompanionV2Enabled, isFalse,
+          reason: 'absent from the snapshot → its compiled default');
+    });
+  });
 }
