@@ -17,10 +17,11 @@ pseudonymizes at its endpoints exactly as in production.
 from __future__ import annotations
 
 import argparse
-import json
-import os
 import sys
-import urllib.request
+
+import httpx
+
+from app.config import get_settings
 
 from . import eval_classify_gold as classify_gold
 from . import eval_edit_parse_gold as edit_gold
@@ -102,20 +103,21 @@ _EDIT_SNAPSHOT = [
 
 
 def _post(base_url: str, path: str, body: dict) -> dict:
-    request = urllib.request.Request(
+    """httpx, exactly like the canonicalization eval — never urllib (SAST: file:// schemes)."""
+    response = httpx.post(
         f"{base_url.rstrip('/')}{path}",
-        data=json.dumps(body).encode("utf-8"),
-        headers={"content-type": "application/json", **_service_auth_headers()},
-        method="POST",
+        json=body,
+        headers=_service_auth_headers(),
+        timeout=30,
     )
-    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 - operator-supplied URL
-        return json.loads(response.read().decode("utf-8"))
+    response.raise_for_status()
+    return response.json()
 
 
 def _service_auth_headers() -> dict[str, str]:
-    """The TD67 bearer, mirrored from this runner's env so an armed service accepts the call."""
-    token = os.environ.get("AI_INTERNAL_TOKEN")
-    return {} if not token else {"authorization": f"Bearer {token}"}
+    """The TD67 bearer, mirrored from this runner's own env so an armed service accepts the call."""
+    token = get_settings().ai_internal_token
+    return {"x-ai-internal-token": token} if token else {}
 
 
 def run_classify_eval(base_url: str) -> classify_gold.ClassifyScore:
