@@ -309,3 +309,37 @@ One entry per task, appended after the task's checks pass. Tasks come from
   `Record<string, string | number> | null` so T7 can resolve section-specific identities
   (employment id, language slug, list position) without this store knowing any writer's DTO.
 - **Next:** T6 (orchestrator + handlers; v1-first, model only on a miss).
+
+---
+
+## Order note — dependency inversion (2026-09-29 12:35)
+
+The checklist order T6→T7→T8→T9→T10 is dependency-INVERTED: T6's handlers serve T10's copy and
+call T7's edit service; T7 needs T8's wire field, T9's `chat_edit` trigger and T10's copy; T8's
+routes call T7's service. Executing in checklist order would force either red intermediate
+commits or one giant commit. Continuing in dependency order — **T10 → T9 → T7 → T8 → T6 →
+A4/tests** — with each task still its own commit. PROGRESS records the actual order.
+
+---
+
+## T10 — 2026-09-29 12:35
+
+- **Done:** The v2 copy and task-chip keys.
+  - `companion-replies.ts`: the ten P1 `CopyPair`s (V2_PHASE_OFF, V2_JOBS_DEFERRED, V2_CLARIFY,
+    V2_EDIT_CARD_INTRO, V2_EDIT_NONE, V2_EDIT_IDENTITY, V2_EDIT_DONE, V2_EDIT_DONE_CAPPED,
+    V2_EDIT_CANCELLED, V2_EDIT_STALE), all in `ALL_COPY_PAIRS`.
+  - `companion-task-keys.ts` (new): `companion_task:edit_resume` / `:new_resume` / `:career_talk`
+    + labels. **Deviation from the spec's file:** NOT in `companion-keys.ts` — the worker app's
+    `chat_companion_keys_test.dart` reads that file and pins the key set to exactly the four v1
+    keys, so adding these there reddens the Flutter suite before F5 ships. A separate backend file
+    keeps every existing suite green; F5 points its parity test here when it mirrors them.
+  - Tests: replies test scans the ten new pairs + three chip labels (persona/twin rules); new
+    `companion-task-keys.test.ts` (prefix, collision-freedom, reserved prefixes).
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 11,975 passed / 153 skipped.
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29.
+  - ai-service `pytest` exit 0 · `ruff check .` clean.
+- **Notes / decisions / surprises:** Faltu/career refusal copy is P2/P3 and deliberately NOT
+  authored yet (one phase per PR). The `companion_task:jobs` row in contracts §5.3 is served by
+  v1's existing `companion_new_jobs` chip, so no second jobs key exists.
+- **Next:** T9 (`chat_edit` trigger + migration 0130).

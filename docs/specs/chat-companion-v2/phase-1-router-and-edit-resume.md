@@ -88,8 +88,11 @@ A new edit message while a proposal is open replaces it (one active proposal per
       migration **`0130`** widens `generated_resumes_generation_trigger_chk` (drop + re-add the CHECK
       with the extra value; down migration restores the old list). Claim `0130` in `MIGRATIONS.md`.
       `ResumeService` accepts the trigger; the daily cap applies.
-- [ ] **T10 Copy.** `companion-replies.ts` keys (contracts §8) with Devanagari twins; task chip keys in
+- [x] **T10 Copy.** `companion-replies.ts` keys (contracts §8) with Devanagari twins; task chip keys in
       `companion-keys.ts`.
+      Deviation: the task keys live in `companion-task-keys.ts`, because `companion-keys.ts` is
+      pinned verbatim by the worker app's parity test (adding keys there reddens the Flutter suite
+      before F5 ships). Frontend issue raised.
 
 ### Backend — AI service (`apps/ai-service/app/`)
 
