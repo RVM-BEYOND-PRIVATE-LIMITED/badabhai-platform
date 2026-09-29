@@ -137,7 +137,7 @@ const ALL_TASK_TYPES = AiCostRecordedPayload.shape.task_type.options as readonly
  *                       deliberately — the person who arms that seam edits Python, not this
  *                       app, which is exactly how `stt_transcription` shipped unledgered.
  *
- * WHAT REMAINS, and why none of the three is a gap of the same shape — all spend OUTSIDE
+ * WHAT REMAINS, and why neither is a gap of the same shape — both spend OUTSIDE
  * apps/api, so there is no request path here that could emit for them:
  *
  *   tts_synthesis       no apps/api caller at all; spend originates in the render CLI (#701)
@@ -156,13 +156,6 @@ const ALL_TASK_TYPES = AiCostRecordedPayload.shape.task_type.options as readonly
 const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = [
   "domain_match",
   "tts_synthesis",
-  // ADR-0046 Phase 1 — the companion router's two calls. They are routed and spendable in
-  // the ai-service, but apps/api does not call them yet: T4/T6 wire the `AiService` client
-  // and its cost emitter. REMOVE BOTH in the same change that wires it — the "disjoint"
-  // test below is what enforces that, and a stale entry is a claim about today that has to
-  // be re-derived, not inherited.
-  "companion_classify",
-  "companion_edit_parse",
 ];
 
 describe("every task type that can spend is either emitted or named as unledgered (#738)", () => {
@@ -173,6 +166,12 @@ describe("every task type that can spend is either emitted or named as unledgere
     // `profiling_chat_turn` was always the seventh and the matcher simply could not see it).
     const emitted = emittedTaskTypes();
     expect([...emitted].sort()).toEqual([
+      // ADR-0046 Phase 1 — the companion router's two calls, wired in
+      // `CompanionV2Orchestrator.handleMessage` (classify) and `CompanionEditService.propose`
+      // (edit-parse). Route and ledger landed in the SAME change — the lesson the
+      // `work_history_polish` comment below records, applied in advance.
+      "companion_classify",
+      "companion_edit_parse",
       "job_posting_chat_turn",
       "profile_extraction",
       "profile_parse",

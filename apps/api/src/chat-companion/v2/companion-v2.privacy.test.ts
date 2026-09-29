@@ -70,14 +70,16 @@ function setup(opts: { classifyThrows?: boolean; emitThrows?: boolean } = {}) {
       return params;
     }),
   };
+  const cost = { record: vi.fn(async () => undefined) };
   const orchestrator = new CompanionV2Orchestrator(
     config,
     ai as never,
     memory as never,
     registry,
     events as never,
+    cost as never,
   );
-  return { orchestrator, ai, memory, edits, events };
+  return { orchestrator, ai, memory, edits, events, cost };
 }
 
 /** Every line every Nest Logger wrote during `run`. */

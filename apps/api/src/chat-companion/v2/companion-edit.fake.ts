@@ -1,6 +1,7 @@
 import { vi } from "vitest";
 import type { ServerConfig } from "@badabhai/config";
 import type { Database, WorkerProfile } from "@badabhai/db";
+import type { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
 import type { AiService } from "../../ai/ai.service";
 import type { EventsService } from "../../events/events.service";
 import type { ProfilesRepository } from "../../profiles/profiles.repository";
@@ -55,6 +56,7 @@ export interface Harness {
   readonly workerSkills: { rebuildQuietly: ReturnType<typeof vi.fn> };
   readonly resumes: { generate: ReturnType<typeof vi.fn> };
   readonly events: { emit: ReturnType<typeof vi.fn> };
+  readonly cost: { record: ReturnType<typeof vi.fn> };
   readonly db: { transaction: ReturnType<typeof vi.fn> };
   readonly tx: object;
 }
@@ -184,6 +186,7 @@ export function setup(
     }),
   };
   const events = { emit: vi.fn(async (params: unknown) => params) };
+  const cost = { record: vi.fn(async () => undefined) };
   const db = {
     transaction: vi.fn(async (cb: (executor: object) => Promise<unknown>) => cb(tx)),
   };
@@ -207,6 +210,7 @@ export function setup(
     workerSkills as unknown as WorkerSkillsService,
     resumes as unknown as ResumeService,
     events as unknown as EventsService,
+    cost as unknown as AiCostRecorder,
   );
   return {
     service,
@@ -221,6 +225,7 @@ export function setup(
     workerSkills,
     resumes,
     events,
+    cost,
     db,
     tx,
   };

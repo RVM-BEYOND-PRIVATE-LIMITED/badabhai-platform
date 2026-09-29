@@ -112,10 +112,13 @@ NestJS boot assertion).
   0..1; below → `unclear`), `CHAT_COMPANION_V2_EDIT_MAX_ROWS` (3),
   `CHAT_COMPANION_V2_PROPOSAL_TTL_SECONDS` (600), `CHAT_COMPANION_V2_FALTU_STRIKES` (3),
   `CHAT_COMPANION_V2_FALTU_COOLDOWN_MINUTES` (30), `CHAT_COMPANION_V2_MEMORY_TURNS` (6),
-  `CHAT_COMPANION_V2_MEMORY_TTL_SECONDS` (1800). The compose pass-through entries and the `ci.yml`
-  deploy env list are the DevOps owner's task; nothing v2 is reachable until both the parent
-  `CHAT_COMPANION_ENABLED` and `CHAT_COMPANION_V2_ENABLED` are on, and production ON additionally
-  requires ADR-0046's signature with companion v1 live.
+  `CHAT_COMPANION_V2_MEMORY_TTL_SECONDS` (1800). The five phase flags are bridged to staging
+  through the GitHub environment secrets of the same names (compose `${VAR:-false}`, `ci.yml`
+  `env:` + `envs:`); the knobs run on their reviewed defaults and are deliberately NOT bridged.
+  Nothing v2 is reachable until both the parent `CHAT_COMPANION_ENABLED` and
+  `CHAT_COMPANION_V2_ENABLED` are on, production ON additionally requires ADR-0046's signature
+  with companion v1 live, and real model calls need the box to widen the ai-service's
+  `AI_REAL_CALL_TASKS` allowlist to name `companion_classify` and `companion_edit_parse`.
 - **The general road (ADR-0045)** — `CHAT_GENERAL_ROAD_ENABLED` (default off; off is the interview
   as it was for every worker). On, a chat worker whose role is outside the 21 predefined roles gets
   role → skills and then the offline general form. Needs `CHAT_LLM_INTERVIEW_ENABLED`. Stamped per

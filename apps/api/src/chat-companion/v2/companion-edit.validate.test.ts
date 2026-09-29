@@ -36,6 +36,22 @@ describe("CompanionEditService.propose — every drop rule (spec §Edit step 3)"
     expect(emitted).toContain("chat.companion_edit_proposed");
   });
 
+  it("records the edit-parse spend against companion_edit_parse (ADR-0046 O12)", async () => {
+    // The spend is recorded before any branch can return, and `record` no-ops on a null meta —
+    // the fake returns no metadata, so the call itself is what this pins (same rule as the
+    // orchestrator's classify emitter).
+    const h = setup({ parse: parse([]), languageEntries: [LANGUAGE_HINDI] });
+    await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+    expect(h.cost.record).toHaveBeenCalledWith(
+      null,
+      "companion_edit_parse",
+      null,
+      "c-1",
+      "r-1",
+      { workerId: WORKER_ID },
+    );
+  });
+
   it("a DELETE is legal on employment and qualifications — edit/delete-only sections", async () => {
     // The A4 eval caught the opposite: with `delete` allowed on no field, every employment and
     // qualification delete was silently dropped. The field is only the row's ANCHOR here.

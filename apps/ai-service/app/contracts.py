@@ -1992,6 +1992,10 @@ class CompanionClassifyOutput(BaseModel):
     intent: CompanionV2Intent
     confidence: float = Field(ge=0.0, le=1.0)
     blocked: bool = False
+    # The per-call cost/token metadata (ADR-0046 O12: watched, never capped). `None` on the
+    # blocked path and on any path that reached no provider — the API's cost recorder no-ops
+    # on null rather than recording a call that never happened (#745's rule).
+    ai_metadata: AICallMetadata | None = None
 
 
 class CompanionEditParseInput(BaseModel):
@@ -2017,3 +2021,6 @@ class CompanionEditParseOutput(BaseModel):
 
     rows: list[CompanionEditRow] = Field(default_factory=list)
     unsupported: list[UnsupportedEditTarget] = Field(default_factory=list)
+    # The per-call cost/token metadata (ADR-0046 O12). `None` on the blocked path; the API's
+    # cost recorder no-ops on null (see CompanionClassifyOutput.ai_metadata).
+    ai_metadata: AICallMetadata | None = None
