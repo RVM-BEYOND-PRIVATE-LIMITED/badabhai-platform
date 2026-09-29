@@ -4,6 +4,7 @@ import type { ServerConfig } from "@badabhai/config";
 import { EVENT_REGISTRY } from "@badabhai/event-schema";
 import type { CompanionEditService } from "./companion-edit.service";
 import { CompanionV2Orchestrator } from "./companion-v2.orchestrator";
+import { NewResumeHandler } from "./handlers/new-resume.handler";
 import { EditResumeHandler } from "./handlers/edit-resume.handler";
 import { JobsDeferredHandler, PhaseOffHandler, UnclearHandler } from "./handlers/fixed-line.handlers";
 import { CompanionHandlerRegistry } from "./handlers/registry";
@@ -64,9 +65,13 @@ function setup(
     CHAT_COMPANION_V2_EDIT_ENABLED: opts.editEnabled ?? true,
     CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: 0.6,
   } as unknown as ServerConfig;
+  const consents = {
+    findLatestByWorker: vi.fn(async () => ({ revokedAt: null, purposes: ["resume_generation"] })),
+  };
   const registry = new CompanionHandlerRegistry(
     config,
     new EditResumeHandler(edits as unknown as CompanionEditService),
+    new NewResumeHandler(config, consents as never),
     new JobsDeferredHandler(config),
     new PhaseOffHandler(config),
     new UnclearHandler(config),

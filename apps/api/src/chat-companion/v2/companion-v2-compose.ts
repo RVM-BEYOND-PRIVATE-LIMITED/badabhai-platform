@@ -1,5 +1,7 @@
 import type { ServerConfig } from "@badabhai/config";
 import type { CompanionV2EditSection } from "@badabhai/types";
+import type { ResumeMenuChoice } from "../../chat/resume-menu";
+import { ttsField } from "../../profiling/question-tts-text";
 import type { CompanionTurn, EditProposal } from "../chat-companion.dto";
 import type { CopyPair } from "../companion-replies";
 import { render } from "../companion-replies";
@@ -7,6 +9,8 @@ import { COMPANION_NEW_JOBS_KEY, COMPANION_NEW_JOBS_LABEL } from "../companion-k
 import {
   COMPANION_TASK_EDIT_RESUME_KEY,
   COMPANION_TASK_EDIT_RESUME_LABEL,
+  COMPANION_TASK_NEW_RESUME_KEY,
+  COMPANION_TASK_NEW_RESUME_LABEL,
 } from "../companion-task-keys";
 
 /** One suggested option on a v2 turn — the wire shape the v1 composer already emits. */
@@ -77,6 +81,25 @@ export function v2EditCardTurn(pair: CopyPair, proposal: EditProposal): Companio
 }
 
 /**
+ * A résumé-menu turn, served VERBATIM (ADR-0046 P2/N1) — the same fields the v1 `menuTurn`
+ * builds from a `ResumeMenuChoice`, restated here for the same reason `baseTurn` is: the v1
+ * method is private to another service, and the redo flow must be byte-identical to what the
+ * résumé menu already serves. `resolveResumeMenu` remains the single source of the copy and the
+ * options; this only shapes them onto the wire.
+ */
+export function v2MenuTurn(menu: ResumeMenuChoice): CompanionTurn {
+  return {
+    mode: "companion",
+    ...baseTurn(),
+    reply: menu.reply,
+    ...ttsField(menu.reply),
+    suggested_followups: [...menu.followups],
+    suggested_options: menu.options.map((o) => ({ ...o })),
+    question_kind: menu.followups.length > 0 ? "disambiguate" : "close",
+  };
+}
+
+/**
  * The task chips a v2 turn may offer (contracts §5.3): a chip exists only while its phase's flag
  * is on, so a worker is never offered a door that opens onto "abhi aana baaki hai". The jobs chip
  * is v1's existing server-answered chip and is always available.
@@ -87,6 +110,14 @@ export function taskChips(config: ServerConfig): V2Option[] {
     chips.push({
       option_key: COMPANION_TASK_EDIT_RESUME_KEY,
       label_text: COMPANION_TASK_EDIT_RESUME_LABEL,
+      is_none_of_above: false,
+    });
+  }
+  // P2 — the new-résumé door, open only while its phase flag is on (contracts §5.3).
+  if (config.CHAT_COMPANION_V2_NEW_RESUME_ENABLED) {
+    chips.push({
+      option_key: COMPANION_TASK_NEW_RESUME_KEY,
+      label_text: COMPANION_TASK_NEW_RESUME_LABEL,
       is_none_of_above: false,
     });
   }

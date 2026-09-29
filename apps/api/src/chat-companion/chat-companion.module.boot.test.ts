@@ -7,6 +7,8 @@ import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiService } from "../ai/ai.service";
 import { AuthModule } from "../auth/auth.module";
 import { AppConfigModule } from "../config/config.module";
+import { ConsentModule } from "../consent/consent.module";
+import { ConsentRepository } from "../consent/consent.repository";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
 import { JobsModule } from "../jobs/jobs.module";
@@ -56,6 +58,8 @@ describe("ChatCompanionModule wiring", () => {
       "EditProposalStore",
       "EditResumeHandler",
       "JobsDeferredHandler",
+      // ADR-0046 P2/N1 — the consent-gated new-résumé handler.
+      "NewResumeHandler",
       "PhaseOffHandler",
       "ProfilesRepository",
       "ResumeImportRepository",
@@ -81,6 +85,11 @@ describe("ChatCompanionModule wiring", () => {
     expect(getMeta("exports", ResumeModule)).toContain(ResumeService);
     expect(imports).toContain(JobsModule);
     expect(getMeta("exports", JobsModule)).toContain(JobsRepository);
+    // ADR-0046 P2/N1 — the new-résumé handler reads the worker's consent through the same
+    // repository the guard and the off-request gates use. Imported, not re-provisioned: unlike
+    // the section writers, `ConsentModule` has no chat edge.
+    expect(imports).toContain(ConsentModule);
+    expect(getMeta("exports", ConsentModule)).toContain(ConsentRepository);
   });
 
   it("reaches the rest through @Global modules — pinned, so demoting one fails here, not at boot", () => {

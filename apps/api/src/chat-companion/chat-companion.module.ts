@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { AuthModule } from "../auth/auth.module";
+import { ConsentModule } from "../consent/consent.module";
 import { JobsModule } from "../jobs/jobs.module";
 import { ResumeModule } from "../resume/resume.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
@@ -27,6 +28,7 @@ import { CompanionEditService } from "./v2/companion-edit.service";
 import { CompanionV2Orchestrator } from "./v2/companion-v2.orchestrator";
 import { CompanionHandlerRegistry } from "./v2/handlers/registry";
 import { EditResumeHandler } from "./v2/handlers/edit-resume.handler";
+import { NewResumeHandler } from "./v2/handlers/new-resume.handler";
 import {
   JobsDeferredHandler,
   PhaseOffHandler,
@@ -41,6 +43,8 @@ import {
  * cycle; and it imports neither `ChatModule` nor `ProfilesModule`, so it has no route to the
  * chat's writers. What it reaches:
  *   - AuthModule — WorkerAuthGuard + ConsentGuard and their dependencies;
+ *   - ConsentModule — `ConsentRepository`, read (never written) by the P2 new-résumé handler's
+ *     fail-closed `resume_generation` gate;
  *   - ResumeModule — `ResumeService.history()` and the ADR-0043 regeneration seam;
  *   - JobsModule — `JobsRepository`, the Jobs tab's own membership rule;
  *   - @Global: AppConfigModule, DatabaseModule, EventsModule, WorkersModule (WorkersRepository),
@@ -58,6 +62,7 @@ import {
 @Module({
   imports: [
     AuthModule,
+    ConsentModule,
     ResumeModule,
     JobsModule,
     // ADR-0046 T5 — the v2 stores need Redis and deliberately reuse BullMQ's existing
@@ -76,10 +81,13 @@ import {
     CompanionMemoryStore,
     EditProposalStore,
     // ADR-0046 T6 — the v2 turn pipeline: the orchestrator, its intent→handler registry and the
-    // four Phase 1 handlers. Inert while CHAT_COMPANION_V2_ENABLED is off.
+    // Phase 1 handlers. Inert while CHAT_COMPANION_V2_ENABLED is off.
     CompanionV2Orchestrator,
     CompanionHandlerRegistry,
     EditResumeHandler,
+    // ADR-0046 P2 — the new-résumé handler (consent-gated redo flow). The faltu handler joins
+    // it in N3 with the strikes store.
+    NewResumeHandler,
     JobsDeferredHandler,
     PhaseOffHandler,
     UnclearHandler,

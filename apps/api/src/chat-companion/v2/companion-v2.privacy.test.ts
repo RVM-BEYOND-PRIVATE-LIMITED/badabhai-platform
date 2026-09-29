@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ServerConfig } from "@badabhai/config";
 import { CompanionV2Orchestrator } from "./companion-v2.orchestrator";
 import { EditResumeHandler } from "./handlers/edit-resume.handler";
+import { NewResumeHandler } from "./handlers/new-resume.handler";
 import { JobsDeferredHandler, PhaseOffHandler, UnclearHandler } from "./handlers/fixed-line.handlers";
 import { CompanionHandlerRegistry } from "./handlers/registry";
 import type { CompanionEditService } from "./companion-edit.service";
@@ -60,6 +61,9 @@ function setup(opts: { classifyThrows?: boolean; emitThrows?: boolean } = {}) {
   const registry = new CompanionHandlerRegistry(
     config,
     new EditResumeHandler(edits as unknown as CompanionEditService),
+    new NewResumeHandler(config, {
+      findLatestByWorker: vi.fn(async () => ({ revokedAt: null, purposes: ["resume_generation"] })),
+    } as never),
     new JobsDeferredHandler(config),
     new PhaseOffHandler(config),
     new UnclearHandler(config),
