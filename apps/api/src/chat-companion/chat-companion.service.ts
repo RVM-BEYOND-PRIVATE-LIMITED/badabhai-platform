@@ -21,7 +21,9 @@ import {
   type CompanionMessageDto,
   type CompanionOpenResponse,
   type CompanionTurn,
+  type ConfirmEditDto,
 } from "./chat-companion.dto";
+import { CompanionEditService } from "./v2/companion-edit.service";
 import { resolveCompanionText } from "./companion-intents";
 import {
   composeFor,
@@ -37,6 +39,19 @@ import { COMPANION_RESUME_KEY, COMPANION_RESUME_LABEL } from "./companion-keys";
 /** The result of a message: a turn, or "this worker is not in companion mode" (the route's 409). */
 export type CompanionMessageResult =
   | { readonly mode: "interview" }
+  | { readonly mode: "companion"; readonly turn: CompanionTurn };
+
+/** `POST /chat/companion/edits/:id/confirm` — mapped to HTTP by the controller. */
+export type CompanionEditConfirmResult =
+  | { readonly mode: "interview" }
+  | { readonly mode: "not_found" }
+  | { readonly mode: "stale" }
+  | { readonly mode: "companion"; readonly turn: CompanionTurn };
+
+/** `POST /chat/companion/edits/:id/cancel` — mapped to HTTP by the controller. */
+export type CompanionEditCancelResult =
+  | { readonly mode: "interview" }
+  | { readonly mode: "not_found" }
   | { readonly mode: "companion"; readonly turn: CompanionTurn };
 
 const DAY_MS = 86_400_000;
@@ -91,6 +106,8 @@ export class ChatCompanionService {
     private readonly skills: WorkerSkillsRepository,
     private readonly jobs: JobsRepository,
     private readonly events: EventsService,
+    // ADR-0046 T7/T8 — the edit path's propose/confirm/cancel. Inert while the v2 flags are off.
+    private readonly edits: CompanionEditService,
   ) {}
 
   /** `GET /chat/companion` — the mode, and in companion mode the recap. */
@@ -134,6 +151,55 @@ export class ChatCompanionService {
       mode: "companion",
       turn: checked.success ? checked.data : this.fallbackTurn(checked.error.issues, workerId),
     };
+  }
+
+  /**
+   * `POST /chat/companion/edits/:proposalId/confirm` (ADR-0046 O4/O6) — Haan.
+   *
+   * THE FLAGS GATE FIRST, and they answer 404 rather than applying: with v2 (or its edit handler)
+   * off, no card can be issued, and a proposal left in Redis from a flag that was since turned
+   * off must NOT be applied. The proposal id is looked up under THIS worker's key only, so
+   * another worker's id is indistinguishable from an expired one (the controller's 404).
+   */
+  async confirmEdit(
+    workerId: string,
+    proposalId: string,
+    dto: ConfirmEditDto,
+    ctx: RequestContext,
+  ): Promise<CompanionEditConfirmResult> {
+    if (!this.config.CHAT_COMPANION_V2_ENABLED || !this.config.CHAT_COMPANION_V2_EDIT_ENABLED) {
+      return { mode: "not_found" };
+    }
+    const mode = await this.policy.resolve(workerId);
+    if (mode.mode === "interview") return { mode: "interview" };
+
+    const result = await this.edits.confirm(workerId, mode.profile, proposalId, dto.row_ids, ctx);
+    if (result.kind === "not_found") return { mode: "not_found" };
+    if (result.kind === "stale") return { mode: "stale" };
+    return { mode: "companion", turn: this.checkedTurn(result.turn, workerId) };
+  }
+
+  /** `POST /chat/companion/edits/:proposalId/cancel` (ADR-0046 O4) — Nahi. Nothing is written. */
+  async cancelEdit(
+    workerId: string,
+    proposalId: string,
+    ctx: RequestContext,
+  ): Promise<CompanionEditCancelResult> {
+    if (!this.config.CHAT_COMPANION_V2_ENABLED || !this.config.CHAT_COMPANION_V2_EDIT_ENABLED) {
+      return { mode: "not_found" };
+    }
+    const mode = await this.policy.resolve(workerId);
+    if (mode.mode === "interview") return { mode: "interview" };
+
+    const result = await this.edits.cancel(workerId, proposalId, ctx);
+    if (result.kind === "not_found") return { mode: "not_found" };
+    return { mode: "companion", turn: this.checkedTurn(result.turn, workerId) };
+  }
+
+  /** FAIL CLOSED ON SHAPE for the v2 edit turns, exactly as `message` does for v1's. */
+  private checkedTurn(turn: CompanionTurn, workerId: string): CompanionTurn {
+    const checked = CompanionTurnSchema.safeParse(turn);
+    return checked.success ? checked.data : this.fallbackTurn(checked.error.issues, workerId);
   }
 
   // ── facts ────────────────────────────────────────────────────────────────────────────────

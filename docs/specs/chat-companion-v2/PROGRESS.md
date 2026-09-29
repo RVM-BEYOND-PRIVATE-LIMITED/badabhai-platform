@@ -458,3 +458,28 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
 - Per CLAUDE.md §14 the merged branch is DEAD. The REMAINING work — T8 (confirm/cancel routes),
   T6 (orchestrator + handlers) and A4 + the phase §3 tests — continues on
   **`feat/companion-v2-phase1-tail`**, cut from fresh `main` (`66091f66`).
+
+---
+
+## T8 — 2026-09-29 14:15
+
+- **Done:** The two edit-card routes (contracts §5.2).
+  - `chat-companion.controller.ts`: `POST /chat/companion/edits/:proposalId/confirm` (200 turn ·
+    404 unknown/expired/other worker's · 409 `{mode:"interview"}` · 409 `{reason:"stale"}`) and
+    `POST /chat/companion/edits/:proposalId/cancel` (200 turn · 404). HTTP only; the proposal id
+    is param-validated as a uuid; both are `no-store`.
+  - `chat-companion.service.ts`: `confirmEdit` / `cancelEdit` — the flags gate FIRST (off ⇒ 404,
+    so a card left in Redis from a disabled flag is never applied), then the policy (interview ⇒
+    409), then the edit service; the resulting turn passes the strict outbound schema with the
+    v1 fallback on a shape miss (`checkedTurn`).
+  - DTOs (`ConfirmEditSchema` / `CancelEditSchema`, `edit_proposal` on `CompanionTurnSchema`)
+    landed with T7 as recorded there.
+  - Tests: controller (+6: turn, interview, stale, 404, cancel, no-store loop extended) and
+    service (+5: flags-off, interview, applied, stale, cancel/unknown). The "companion's reach"
+    arity test updated to 8 with the reason the eighth collaborator is inert.
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 12,021 passed / 153 skipped.
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29 · ai-service `pytest` exit 0 + `ruff` clean.
+- **Notes / decisions / surprises:** The flags-off 404 is the fail-closed half of O4: turning
+  the v2 flags off must never leave a confirmable card behind.
+- **Next:** T6 (orchestrator + handlers; v1-first, model only on a miss).
