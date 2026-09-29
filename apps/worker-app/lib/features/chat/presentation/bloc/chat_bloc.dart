@@ -1100,9 +1100,14 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       } else {
         // The prediction was wrong — overwrite the optimistic bubble in place
         // with the real reply AND its Devanagari read-aloud script (#896).
-        nextMessages = _replaceLastBot(healed, turn.reply, turn.ttsText);
+        nextMessages = _replaceLastBot(
+          healed,
+          turn.reply,
+          turn.ttsText,
+          canReadAloud: turn.readAloud != false,
+        );
       }
-      emit(state.copyWith(
+      emit(_withCompanionTurn(state.copyWith(
         messages: nextMessages,
         sending: _inFlightSends > 0,
         followups: turn.followups,
@@ -1152,16 +1157,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // ADR-0044 — TURN-SCOPED: a companion answer keeps the tab in companion
         // mode; an interview reply (a 409 fallback) takes it out.
         companion: turn.companion,
-        // ADR-0046 — the v2 turn fields: P1 edit card, P2 cool-down, P3 read-aloud.
-        editProposal: turn.editProposal,
-        clearEditProposal: turn.editProposal == null,
-        // A NEW TURN ends the one-shot notice: it explained the turn that is
-        // now gone.
-        clearEditNotice: true,
-        cooldownUntil: turn.cooldownUntil,
-        clearCooldownUntil: turn.cooldownUntil == null,
-        readAloud: turn.readAloud ?? false,
-      ));
+      ), turn));
       // ADR-0044 — a companion answer is not an interview ask: it must not feed
       // the per-ask funnel, the wrap-up milestone, the answered-facts store or
       // `asked_question_id`. Everything below is interview bookkeeping.
@@ -1322,7 +1318,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // The recap REPLACES the canned interview question in bubble 0: a finished
     // worker is not asked "aap kaun sa kaam karte hain?". Rebuilt from `state`
     // at emit time (#344), though the composer is not shown while initializing.
-    emit(state.copyWith(
+    emit(_withCompanionTurn(state.copyWith(
       initializing: false,
       sessionFailed: false,
       companion: true,
@@ -1341,19 +1337,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       questionKind: opening.questionKind,
       inputMode: ChatInputMode.text,
       clearAnswerType: true, // #1559 / #1583 — the recap serves no pack item
-      // ADR-0046 — THE RECAP CARRIES THE v2 FIELDS TOO. `GET /chat/companion`
-      // and `POST /chat/companion/message` share one `CompanionTurnSchema`, in
-      // which `edit_proposal` is declared — and a proposal lives in Redis on its
-      // own TTL, so a worker who backgrounds the app mid-edit and reopens the
-      // tab is exactly the case that returns one on the OPEN. Emitting the
-      // recap without these three dropped them a second time, one layer above
-      // the repository: the card reached `ChatTurn` and died here instead.
-      editProposal: opening.editProposal,
-      clearEditProposal: opening.editProposal == null,
-      cooldownUntil: opening.cooldownUntil,
-      clearCooldownUntil: opening.cooldownUntil == null,
-      readAloud: opening.readAloud ?? false,
-    ));
+    ), opening));
   }
 
   /// ADR-0044 — see [ChatCompanionRefreshRequested].
@@ -1395,21 +1379,24 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     final String? key = fresh.digestKey;
     if (key == null || key == _companionDigestKey) return;
     _companionDigestKey = key;
-    emit(state.copyWith(
-      messages: <ChatMessage>[
-        ...state.messages,
-        ChatMessage(
-          text: fresh.reply,
-          fromWorker: false,
-          ttsText: fresh.ttsText,
-          canReadAloud: fresh.readAloud != false,
-        ),
-      ],
-      followups: fresh.followups,
-      suggestedOptions: fresh.suggestedOptions,
-      questionKind: fresh.questionKind,
-      inputMode: ChatInputMode.text,
-      clearAnswerType: true, // #1559 / #1583 — the recap serves no pack item
+    emit(_withCompanionTurn(
+      state.copyWith(
+        messages: <ChatMessage>[
+          ...state.messages,
+          ChatMessage(
+            text: fresh.reply,
+            fromWorker: false,
+            ttsText: fresh.ttsText,
+            canReadAloud: fresh.readAloud != false,
+          ),
+        ],
+        followups: fresh.followups,
+        suggestedOptions: fresh.suggestedOptions,
+        questionKind: fresh.questionKind,
+        inputMode: ChatInputMode.text,
+        clearAnswerType: true, // #1559 / #1583 — the recap serves no pack item
+      ),
+      fresh,
     ));
   }
 
@@ -1475,20 +1462,23 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // A FRESH state, not a copy: the interview's latches (the ready CTA, the
     // progress bar, the trade label) belong to the interview, and the recap
     // stands alone, as it does when the tab opens on it (ADR-0044 R4).
-    emit(ChatState(
-      messages: <ChatMessage>[
-        ChatMessage(
-          text: recap.reply,
-          fromWorker: false,
-          ttsText: recap.ttsText,
-          canReadAloud: recap.readAloud != false,
-        ),
-      ],
-      initializing: false,
-      followups: recap.followups,
-      suggestedOptions: recap.suggestedOptions,
-      questionKind: recap.questionKind,
-      companion: true,
+    emit(_withCompanionTurn(
+      ChatState(
+        messages: <ChatMessage>[
+          ChatMessage(
+            text: recap.reply,
+            fromWorker: false,
+            ttsText: recap.ttsText,
+            canReadAloud: recap.readAloud != false,
+          ),
+        ],
+        initializing: false,
+        followups: recap.followups,
+        suggestedOptions: recap.suggestedOptions,
+        questionKind: recap.questionKind,
+        companion: true,
+      ),
+      recap,
     ));
   }
 
@@ -1508,15 +1498,25 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// [reply] and its Devanagari read-aloud script [ttsText] (#761 optimistic-
   /// bubble overwrite; #896 read-aloud). Defensive, mirroring [_withStatus]: an
   /// empty list or a worker-bubble tail is returned unchanged.
+  ///
+  /// [canReadAloud] rides along for the same reason every other bot-bubble site
+  /// carries it (ADR-0046 O9): this one overwrites an optimistic bubble with the
+  /// REAL reply, and if that reply is model-written it must not gain a speaker
+  /// button just because it arrived down the prediction path.
   List<ChatMessage> _replaceLastBot(
     List<ChatMessage> messages,
     String reply,
-    String? ttsText,
-  ) {
+    String? ttsText, {
+    bool canReadAloud = true,
+  }) {
     if (messages.isEmpty || messages.last.fromWorker) return messages;
     final List<ChatMessage> next = List<ChatMessage>.of(messages);
-    next[next.length - 1] =
-        ChatMessage(text: reply, fromWorker: false, ttsText: ttsText);
+    next[next.length - 1] = ChatMessage(
+      text: reply,
+      fromWorker: false,
+      ttsText: ttsText,
+      canReadAloud: canReadAloud,
+    );
     return next;
   }
 
@@ -1802,27 +1802,69 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// Append a companion turn's reply bubble and refresh every turn-scoped
   /// field — the confirm/cancel path's answer. A companion MESSAGE answer goes
   /// through [_deliver] instead, which also owns the worker's own bubble.
-  void _applyCompanionTurn(ChatTurn turn, Emitter<ChatState> emit) {
-    emit(state.copyWith(
-      messages: <ChatMessage>[
-        ...state.messages,
-        ChatMessage(text: turn.reply, fromWorker: false, ttsText: turn.ttsText),
-      ],
-      sending: _inFlightSends > 0,
-      companion: true,
-      followups: turn.followups,
-      suggestedOptions: turn.suggestedOptions,
-      questionKind: turn.questionKind,
-      inputMode: turn.inputMode,
-      answerType: turn.answerType,
-      clearAnswerType: turn.answerType == null,
-      // The confirm/cancel turn never carries a new card; a `served` turn that
-      // somehow did would replace the one just applied — handled either way.
+  /// THE ONE PLACE a companion turn's v2 fields become state (ADR-0046 §5.1).
+  ///
+  /// WHY THIS IS A FUNCTION AND NOT FOUR MORE LINES AT EACH EMIT. A companion
+  /// turn reaches state from FIVE places — the open, an ordinary reply, a
+  /// refocus refresh, the interview→recap move, and a confirm/cancel — and each
+  /// used to spell the projection out by hand. Two of them never learned about
+  /// `edit_proposal` at all, so a card served on a refresh or on the recap was
+  /// silently dropped, and a card already on screen OUTLIVED the turn that
+  /// replaced it. That is the same defect the wire→ChatTurn hop had, one layer
+  /// up, and hand-copying the projection a sixth time would only schedule it
+  /// again. Every site now goes through here, so a field added to [ChatTurn] is
+  /// wired everywhere or nowhere.
+  ///
+  /// THE COOL-DOWN IS STICKY, and it is the one field that is not turn-scoped.
+  /// The server sends `cooldown_until` ONLY on the turn that starts the wait, so
+  /// clearing it whenever a later turn omits it handed the composer straight
+  /// back — a worker tapped any chip and was typing again while the server's own
+  /// cool-down still had minutes to run, and their next message would be
+  /// refused. The deadline therefore survives until the INSTANT passes; a fresh
+  /// one always replaces it.
+  ChatState _withCompanionTurn(ChatState next, ChatTurn turn) {
+    final DateTime? carried = next.cooldownUntil;
+    final bool keepCarried =
+        carried != null && carried.isAfter(_clock());
+    final DateTime? cooldown = turn.cooldownUntil ?? (keepCarried ? carried : null);
+    return next.copyWith(
       editProposal: turn.editProposal,
       clearEditProposal: turn.editProposal == null,
-      cooldownUntil: turn.cooldownUntil,
-      clearCooldownUntil: turn.cooldownUntil == null,
+      cooldownUntil: cooldown,
+      clearCooldownUntil: cooldown == null,
       readAloud: turn.readAloud ?? false,
+      // A NEW TURN ends the one-shot notice: it explained the turn now gone.
+      clearEditNotice: true,
+    );
+  }
+
+  void _applyCompanionTurn(ChatTurn turn, Emitter<ChatState> emit) {
+    emit(_withCompanionTurn(
+      state.copyWith(
+        messages: <ChatMessage>[
+          ...state.messages,
+          ChatMessage(
+            text: turn.reply,
+            fromWorker: false,
+            ttsText: turn.ttsText,
+            // ADR-0046 O9 — this was the one bot-bubble site in the feature
+            // without the guard, so a model-written confirm/cancel reply gained
+            // a speaker button the other four paths correctly withhold.
+            canReadAloud: turn.readAloud != false,
+          ),
+        ],
+        sending: _inFlightSends > 0,
+        companion: true,
+        followups: turn.followups,
+        suggestedOptions: turn.suggestedOptions,
+        questionKind: turn.questionKind,
+        inputMode: turn.inputMode,
+        answerType: turn.answerType,
+        clearAnswerType: turn.answerType == null,
+      ),
+      // The confirm/cancel turn never carries a new card; a `served` turn that
+      // somehow did replaces the one just applied — handled either way.
+      turn,
     ));
   }
 }

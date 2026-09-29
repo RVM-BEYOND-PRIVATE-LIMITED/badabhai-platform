@@ -1738,9 +1738,14 @@ class _ChatViewState extends State<_ChatView> {
         // same `voiceEntryHidden` the interview composer above obeys — a second
         // mic that ignored it would quietly defeat the switch during exactly the
         // incident it was built for.
+        // ...AND NOT WHILE COOLING DOWN. The mic resolves to typed text in the
+        // very composer the cool-down just removed, so leaving it up let a
+        // worker record, transcribe and land a transcript in a box that is not
+        // on screen — the wait, defeated by the control beside it.
         else if (state.companion &&
             BbRemoteConfig.instance.chatCompanionV2Enabled &&
-            !BbRemoteConfig.instance.voiceEntryHidden)
+            !BbRemoteConfig.instance.voiceEntryHidden &&
+            !_cooldownActive(state))
           _companionVoiceButton(),
       ],
       ),
@@ -2213,7 +2218,22 @@ class _ChatViewState extends State<_ChatView> {
       // single-select, not the horizontal scroller a worker can skim past (#649).
       return KeyedSubtree(
         key: const ValueKey<String>('chips'),
-        child: state.questionKind == ChatQuestionKind.disambiguate
+        // COMPANION FIRST, exactly as the `suggested_options` branch above.
+        // #1754 fixed companion chips rendering as unchecked radio buttons, but
+        // only on the options branch — and ADR-0046's career answer (P3) arrives
+        // with `suggested_followups` and NO options, on a turn the server marks
+        // `question_kind: disambiguate`. It therefore fell straight back into
+        // `_disambiguate`, reinstating the exact bug #1754 closed: TalkBack
+        // announcing "unchecked radio button" for a chip that just sends text,
+        // and circles that tell a low-literacy worker to "pick one, then
+        // confirm". In companion mode these are chips, whichever field carried
+        // them.
+        child: state.companion
+            ? _companionActionChips(<ChatOption>[
+                for (final String f in state.followups)
+                  ChatOption(optionKey: f, labelText: f),
+              ])
+            : state.questionKind == ChatQuestionKind.disambiguate
             ? _disambiguate(state.followups)
             : multiSelect
                 // Label-only chips (an older build, or the optimistic
@@ -3262,6 +3282,12 @@ String kCooldownComposerText(DateTime until) {
 /// three mics and only this one is gated by the v2 lever.
 const Key kCompanionVoiceButtonKey = ValueKey<String>('companion-voice-button');
 
+/// What an edit row's operation DOES, in the worker's words. `section_label`
+/// names the section only, so without these a row is ambiguous between adding
+/// and removing the very same value.
+const String kEditOpAdd = 'Jodenge:';
+const String kEditOpDelete = 'Hatayenge:';
+
 const int kEditProposalMaxRows = 3;
 
 /// Shown when more rows are ticked than one confirm can carry.
@@ -3501,9 +3527,21 @@ class _EditProposalCardState extends State<_EditProposalCard> {
         row.after == null ? null : companionEditValue(row.after!);
     switch (row.op) {
       case 'add':
-        return _valueText(after ?? '');
+        // Say it is being ADDED. A bare value under a section label reads as a
+        // statement of fact, not as a change the worker is about to authorise.
+        return _opLine(kEditOpAdd, after ?? '');
       case 'delete':
-        return _valueText(before ?? '', struckThrough: true);
+        // THE ONE ROW THAT DESTROYS SOMETHING. A strikethrough alone carries
+        // that meaning only to a reader who already knows the convention, and
+        // every row arrives pre-ticked — so a worker who taps Haan without
+        // decoding it loses a skill, a language or a qualification off their own
+        // résumé. The word says so, in the same red the app uses for removal.
+        return _opLine(
+          kEditOpDelete,
+          before ?? '',
+          struckThrough: true,
+          tone: OnboardingColors.errorRed,
+        );
       default:
         if ((before ?? '').isEmpty) return _valueText(after ?? '');
         if ((after ?? '').isEmpty) return _valueText(before!);
@@ -3516,6 +3554,40 @@ class _EditProposalCardState extends State<_EditProposalCard> {
         );
     }
   }
+
+  /// One row's change, prefixed by what the change DOES.
+  ///
+  /// The prefix is the fix for the card's worst ambiguity: `section_label` names
+  /// the SECTION ("Skills"), never the operation, so "Welding" under "Skills"
+  /// could equally mean adding it or removing it. Screen readers get the same
+  /// sentence, which a strikethrough cannot give them at all.
+  Widget _opLine(
+    String op,
+    String value, {
+    bool struckThrough = false,
+    Color? tone,
+  }) =>
+      Text.rich(
+        TextSpan(children: <InlineSpan>[
+          TextSpan(
+            text: '$op ',
+            style: OnboardingTypography.inter(
+              size: 13,
+              weight: FontWeight.w700,
+              color: tone ?? OnboardingColors.ink600,
+            ),
+          ),
+          TextSpan(
+            text: value,
+            style: OnboardingTypography.inter(
+              size: 13,
+              color: OnboardingColors.ink600,
+              decoration:
+                  struckThrough ? TextDecoration.lineThrough : null,
+            ),
+          ),
+        ]),
+      );
 
   Widget _valueText(String value, {bool struckThrough = false}) => Text(
         value,
