@@ -2212,6 +2212,19 @@ class TradeSheetResumeDocument extends ResumeDocument {
 
   final String trade;
 
+  /// `brief` as the tab should treat it: absent, null, whitespace-only and the
+  /// WRONG TYPE all read as "draw nothing" (#1796).
+  ///
+  /// Takes `Object?` rather than `String?` deliberately. The old `as String?`
+  /// cast THREW on a non-string, and this parse runs on the résumé tab — a
+  /// worker-facing screen, where one bad field must never cost the whole
+  /// document. Fail closed, like every other optional field here.
+  static String? _briefFrom(Object? raw) {
+    if (raw is! String) return null;
+    final String brief = raw.trim();
+    return brief.isEmpty ? null : brief;
+  }
+
   /// #1796 — ADR-0045 R6: the worker's own brief line, printed under the
   /// headline on both the worker and employer copies. Absent on every document
   /// not on the road: every `bb_trade`, every `bb_general` off the road, every
@@ -2277,14 +2290,18 @@ class TradeSheetResumeDocument extends ResumeDocument {
         json['sections'] as List<dynamic>? ?? const <dynamic>[];
     final List<dynamic> rawEmployments =
         json['employments'] as List<dynamic>? ?? const <dynamic>[];
-    final String? briefRaw = json['brief'] as String?;
+    final Object? briefRaw = json['brief'];
     return TradeSheetResumeDocument(
       header: ResumeDocument._headerFrom(json),
       footerMeta: json['footerMeta'] as String?,
       source: ResumeDocument.sourceFrom(json),
       trade: json['trade'] as String? ?? '',
       layout: _sheetLayoutFrom(json['layout']),
-      brief: briefRaw != null && briefRaw.isNotEmpty ? briefRaw.trim() : null,
+      // TRIM FIRST, THEN TEST. Testing `isNotEmpty` before trimming let a
+      // whitespace-only brief ("  ") through as the empty string, which is a
+      // third state the drawing code would have had to know about — #1796's
+      // acceptance says whitespace-only reads as null, exactly like absent.
+      brief: _briefFrom(briefRaw),
       headline: rawHeadline == null
           ? const ResumeSheetHeadlineDto()
           : ResumeSheetHeadlineDto.fromJson(rawHeadline),
