@@ -86,6 +86,82 @@ export type CompanionNudge = (typeof COMPANION_NUDGES)[number];
 export const COMPANION_JOBS_SCOPES = ["profile", "no_skills", "unavailable"] as const;
 export type CompanionJobsScope = (typeof COMPANION_JOBS_SCOPES)[number];
 
+// ---- Companion v2 — the LLM task router (ADR-0046) ----
+// The closed sets the v2 turn pipeline classifies into, attributes its answers to, and reports as
+// outcomes. Shared by the API (which decides), the AI-service contract mirror (which returns an
+// intent) and the event spine (which records), so no layer can name a value another does not know.
+// IDS, NEVER TEXT: none of these carries a word the worker typed.
+//
+// THE FIVE WORKER TASKS plus `unclear`. An intent whose phase flag is off is still CLASSIFIED —
+// so the metrics show demand — and answered with the phase-off line (ADR-0046 §1).
+export const COMPANION_V2_INTENTS = [
+  "edit_resume", // P1
+  "career_talk", // P3
+  "jobs_talk", // deferred — always the fixed "abhi aana baaki hai" line (O2)
+  "new_resume", // P2
+  "faltu", // P2
+  "unclear", // P1 — low confidence, invalid output, model failure
+] as const;
+export type CompanionV2Intent = (typeof COMPANION_V2_INTENTS)[number];
+
+// WHAT CHOSE THE INTENT. `v1_deterministic` is the ADR-0044 resolver answering first at zero model
+// cost; `lexicon` is the Phase 2 abuse lexicon; `llm` is the classifier; `guard` is a deterministic
+// pre-emption (the Phase 2 cool-down); `fallback` is the fail-closed path.
+export const COMPANION_V2_INTENT_SOURCES = [
+  "v1_deterministic",
+  "lexicon",
+  "llm",
+  "guard",
+  "fallback",
+] as const;
+export type CompanionV2IntentSource = (typeof COMPANION_V2_INTENT_SOURCES)[number];
+
+// WHAT THE TURN DELIVERED. `served` a normal answer; `proposed` an edit card awaiting Haan/Nahi;
+// `phase_off` the intent's phase flag is off; `clarify` unclear; `cooldown` the Phase 2 strike
+// cool-down; `refused` a Phase 3 career refusal; `fallback` the fail-closed line.
+export const COMPANION_V2_OUTCOMES = [
+  "served",
+  "proposed",
+  "phase_off",
+  "clarify",
+  "cooldown",
+  "refused",
+  "fallback",
+] as const;
+export type CompanionV2Outcome = (typeof COMPANION_V2_OUTCOMES)[number];
+
+// THE SECTION A PROPOSED EDIT ROW BELONGS TO (contracts §3). Closed, and shared by the edit
+// catalogue (which maps a section to its writer), the AI-service edit-parse contract (which may
+// only name a member) and the event spine (`sections[]`). Identity and contact are ABSENT BY
+// CONSTRUCTION (ADR-0046 O3): those requests can never become a row.
+export const COMPANION_V2_EDIT_SECTIONS = [
+  "employment",
+  "skills",
+  "languages",
+  "qualifications",
+  "occupations",
+  "preferences",
+] as const;
+export type CompanionV2EditSection = (typeof COMPANION_V2_EDIT_SECTIONS)[number];
+
+// WHAT A PROPOSED ROW MAY DO. `add` is offered only where ONE field defines the entry (skills,
+// languages, occupations) — owner ruling 2026-09-29 — so an employment or a qualification is
+// edit/delete-only in chat; `edit`/`delete` address an existing snapshot row by `ref`.
+export const COMPANION_V2_EDIT_OPS = ["add", "edit", "delete"] as const;
+export type CompanionV2EditOp = (typeof COMPANION_V2_EDIT_OPS)[number];
+
+// WHAT A WORKER ASKED FOR THAT THIS SURFACE CANNOT EDIT. `identity` and `contact` are steered to
+// the settings/Profile screen; `other` is anything else the parser recognised as out of scope.
+// The event carries these instead of the request text.
+export const COMPANION_V2_UNSUPPORTED_EDIT_TARGETS = ["identity", "contact", "other"] as const;
+export type CompanionV2UnsupportedEditTarget = (typeof COMPANION_V2_UNSUPPORTED_EDIT_TARGETS)[number];
+
+// HOW CONFIDENT THE CLASSIFIER WAS, BUCKETED FOR THE SPINE — never the raw score, which would be
+// a per-worker fingerprint of the model's behaviour rather than a metric anyone reads. `lt50` is
+// below the default router threshold (0.6) and therefore the fail-closed `unclear` path.
+export const COMPANION_V2_CONFIDENCE_BUCKETS = ["lt50", "50_70", "70_90", "gte90"] as const;
+export type CompanionV2ConfidenceBucket = (typeof COMPANION_V2_CONFIDENCE_BUCKETS)[number];
+
 // ---- The general road (ADR-0045) ----
 // A chat worker whose role is OUTSIDE the 21 predefined roles runs role → skills and closes with
 // a card to the offline general form. Shared by the API (which decides) and the event spine

@@ -51,6 +51,21 @@ export const positiveIntFromString = (defaultValue: number) =>
   );
 
 /**
+ * A 0..1 knob read from the environment, where an EMPTY VALUE MEANS ABSENT.
+ *
+ * The rule {@link positiveIntFromString} states, for the one bounded float this schema carries
+ * (`CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE`). Compose's `${VAR:-}` pass-through sets the empty
+ * string, `Number("")` is `0`, and a bare `.default(0.6)` would never fire — so a variable nobody
+ * set would silently become the LOWEST threshold instead of the intended one.
+ */
+export const fractionFromString = (defaultValue: number) =>
+  z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    // `.default()` on the INNER schema, for the reason written out on `positiveIntFromString`.
+    z.coerce.number().min(0).max(1).default(defaultValue),
+  );
+
+/**
  * A comma-separated ALLOWLIST OF UUIDs read from the environment, empty when unset (#1264).
  *
  * EMPTY MEANS EMPTY, and never means "everyone". The consumer decides what an empty list

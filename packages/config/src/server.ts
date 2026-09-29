@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   booleanFromString,
+  fractionFromString,
   portSchema,
   positiveIntFromString,
   uuidListFromString,
@@ -313,6 +314,36 @@ export const serverEnvSchema = z.object({
   // How many new jobs ride a turn as tappable chips (the opening serves at most 2 of them, so the
   // whole chip row stays inside the persona's four-chip limit).
   CHAT_COMPANION_JOB_CHIPS: positiveIntFromString(3),
+
+  // ── COMPANION V2 (ADR-0046) — the LLM task router on the same chat tab ─────────────────────
+  //
+  // EVERYTHING HERE DEFAULTS OFF, AND OFF IS v1 EXACTLY: `POST /chat/companion/message` answers
+  // from the deterministic resolver with zero model calls and the v1 event, and neither new route
+  // nor new wire field is reachable. The parent `CHAT_COMPANION_ENABLED` still decides whether the
+  // companion surface exists at all. Turning any of these on in production additionally requires
+  // ADR-0046's signature AND companion v1 live first (spec README "Prerequisites").
+  CHAT_COMPANION_V2_ENABLED: booleanFromString,
+  // P1 — the edit handler: propose card → Haan → deterministic writers → regenerate.
+  CHAT_COMPANION_V2_EDIT_ENABLED: booleanFromString,
+  // P2 — the new-résumé offer (form / chat / upload choices) and the faltu strike path.
+  CHAT_COMPANION_V2_NEW_RESUME_ENABLED: booleanFromString,
+  CHAT_COMPANION_V2_FALTU_ENABLED: booleanFromString,
+  // P3 — career answers (Claude, Hinglish only, inside the fixed refusals O10).
+  CHAT_COMPANION_V2_CAREER_ENABLED: booleanFromString,
+  // Below this classifier confidence the turn is `unclear` — model failure, invalid output and a
+  // blocked input land there too (fail closed, spec §2.1). A 0..1 fraction.
+  CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: fractionFromString(0.6),
+  // The most edit rows one message may carry (O5: up to 3 changes, one card).
+  CHAT_COMPANION_V2_EDIT_MAX_ROWS: positiveIntFromString(3),
+  // How long an edit proposal stays confirmable in Redis (the card's lifetime, contracts §7).
+  CHAT_COMPANION_V2_PROPOSAL_TTL_SECONDS: positiveIntFromString(600),
+  // Faltu: strikes inside one UTC day before the 30-minute cool-down (O11).
+  CHAT_COMPANION_V2_FALTU_STRIKES: positiveIntFromString(3),
+  CHAT_COMPANION_V2_FALTU_COOLDOWN_MINUTES: positiveIntFromString(30),
+  // Conversation memory: the last N pseudonymized turn pairs kept in Redis for this many seconds
+  // (O13). Never Postgres.
+  CHAT_COMPANION_V2_MEMORY_TURNS: positiveIntFromString(6),
+  CHAT_COMPANION_V2_MEMORY_TTL_SECONDS: positiveIntFromString(1800),
   // TIERED PROFILING (docs/profiling-tiers/tier-tagging.md) — the Easy / Medium / Hard choice on
   // the Chat path, the form's tier filter, the upgrade flow and the tier-aware résumé.
   //

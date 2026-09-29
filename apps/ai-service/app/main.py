@@ -34,6 +34,7 @@ from .config import get_settings
 from .job_posting_chat import interview_engine as job_posting_engine
 from .logging_config import configure_logging, correlation_id_var, get_logger, request_id_var
 from .routers import (
+    companion,
     embeddings,
     growth,
     health,
@@ -242,6 +243,11 @@ app.include_router(resume.api_router)
 # set answers 404, and a 404 is indistinguishable from a typo in the path.
 app.include_router(resume_import.api_router)
 app.include_router(voice.api_router)
+# ADR-0046 Phase 1 — the chat companion's classifier and edit parser. Registered
+# unconditionally: the API is the gate (both v2 flags default off there), and a route
+# that only exists when a flag is set answers 404, which is indistinguishable from a
+# path typo. Neither route writes anything.
+app.include_router(companion.api_router)
 
 # R7 §1 — the SYNTHETIC-PERSONA harness, and the second of its three barriers.
 #

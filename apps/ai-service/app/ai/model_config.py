@@ -109,6 +109,14 @@ _ROUTE_SHAPES: dict[str, tuple[ModelTier, bool]] = {
     # scraped for a sentence, which is how a refusal ("I cannot rewrite this") gets printed on
     # a resume as if it were the worker's description.
     "work_history_polish": ("cheap", True),
+    # ADR-0046 Phase 1 — the companion router's two calls. CHEAP on purpose, and it is a
+    # judgement about the task rather than a cost compromise: classification is a six-way
+    # choice over one short message, and edit extraction points at a catalogue the API has
+    # already narrowed to the fields the worker can change. `json_mode` because both answers
+    # are parsed as objects — a prose preamble would be scraped, which is how a hallucinated
+    # intent or field gets past a parser.
+    "companion_classify": ("cheap", True),
+    "companion_edit_parse": ("cheap", True),
 }
 
 
@@ -284,6 +292,27 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
             temperature=0.0,
             json_mode=json_mode,
             max_retries=settings.ai_extraction_max_retries,
+        )
+    if task_type in ("companion_classify", "companion_edit_parse"):
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # TEMPERATURE ZERO. Both calls are classifications against closed sets — a
+            # six-intent choice and a field catalogue — and the same sentence must route
+            # the same way on a retry. Sampling here would make "edit" vs "jobs" a coin
+            # toss for the same worker message.
+            #
+            # SMALL BUDGETS ON PURPOSE. The classifier's whole answer is
+            # `{"intent": ..., "confidence": ...}`; the parser's is at most `max_rows`
+            # rows of five short fields. A generous budget invites commentary the
+            # contract does not carry, and a truncated candidate loses the closing
+            # brace and fails the contract exactly like a rejected one.
+            max_output_tokens=64 if task_type == "companion_classify" else 512,
+            temperature=0.0,
+            json_mode=json_mode,
+            # One retry, the chat surface's own number: these calls sit on a worker's
+            # message, where a second attempt is worth it and a third is a stall.
+            max_retries=settings.ai_chat_max_retries,
         )
     if task_type == "work_history_polish":
         return TaskRoute(

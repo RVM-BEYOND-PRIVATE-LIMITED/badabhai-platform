@@ -153,7 +153,17 @@ const ALL_TASK_TYPES = AiCostRecordedPayload.shape.task_type.options as readonly
  * narrated here: a source-text matcher must not be coupled to a variable name, and an entry on
  * this list is a claim about TODAY that has to be re-derived, not inherited.
  */
-const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = ["domain_match", "tts_synthesis"];
+const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = [
+  "domain_match",
+  "tts_synthesis",
+  // ADR-0046 Phase 1 — the companion router's two calls. They are routed and spendable in
+  // the ai-service, but apps/api does not call them yet: T4/T6 wire the `AiService` client
+  // and its cost emitter. REMOVE BOTH in the same change that wires it — the "disjoint"
+  // test below is what enforces that, and a stale entry is a claim about today that has to
+  // be re-derived, not inherited.
+  "companion_classify",
+  "companion_edit_parse",
+];
 
 describe("every task type that can spend is either emitted or named as unledgered (#738)", () => {
   it("finds the real emitter call sites — without this the coverage check is vacuous", () => {
