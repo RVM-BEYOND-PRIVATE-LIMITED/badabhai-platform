@@ -24,6 +24,14 @@ import { ChatCompanionService } from "./chat-companion.service";
 import { CompanionMemoryStore } from "./v2/companion-memory.store";
 import { EditProposalStore } from "./v2/edit-proposal.store";
 import { CompanionEditService } from "./v2/companion-edit.service";
+import { CompanionV2Orchestrator } from "./v2/companion-v2.orchestrator";
+import { CompanionHandlerRegistry } from "./v2/handlers/registry";
+import { EditResumeHandler } from "./v2/handlers/edit-resume.handler";
+import {
+  JobsDeferredHandler,
+  PhaseOffHandler,
+  UnclearHandler,
+} from "./v2/handlers/fixed-line.handlers";
 
 /**
  * The post-completion Bada Bhai companion (ADR-0044). Ships INERT: `CHAT_COMPANION_ENABLED`
@@ -67,6 +75,14 @@ import { CompanionEditService } from "./v2/companion-edit.service";
     // the v2 flags are on and the orchestrator (T6) calls them.
     CompanionMemoryStore,
     EditProposalStore,
+    // ADR-0046 T6 — the v2 turn pipeline: the orchestrator, its intent→handler registry and the
+    // four Phase 1 handlers. Inert while CHAT_COMPANION_V2_ENABLED is off.
+    CompanionV2Orchestrator,
+    CompanionHandlerRegistry,
+    EditResumeHandler,
+    JobsDeferredHandler,
+    PhaseOffHandler,
+    UnclearHandler,
     // ADR-0046 T7 — the edit path and the section writers it applies through (see the module
     // docblock for why they are provisioned here rather than imported).
     CompanionEditService,

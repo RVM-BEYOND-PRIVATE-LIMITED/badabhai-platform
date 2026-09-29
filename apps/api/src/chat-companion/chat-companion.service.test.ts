@@ -3,7 +3,7 @@ import { validateEvent } from "@badabhai/event-schema";
 import { resolveResumeMenu, RESUME_MENU_EDIT_LABEL } from "../chat/resume-menu";
 import { ChatCompanionService, digestKey } from "./chat-companion.service";
 import { COMPANION_JOB_KEY_PREFIX, COMPANION_RESUME_KEY } from "./companion-keys";
-import { V2_EDIT_CANCELLED, V2_EDIT_DONE, V2_EDIT_STALE } from "./companion-replies";
+import { V2_CLARIFY, V2_EDIT_CANCELLED, V2_EDIT_DONE, V2_EDIT_STALE } from "./companion-replies";
 import { v2CopyTurn } from "./v2/companion-v2-compose";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
@@ -119,6 +119,9 @@ function make(over: {
     confirm: vi.fn(async () => over.confirm ?? { kind: "not_found" }),
     cancel: vi.fn(async () => over.cancel ?? { kind: "not_found" }),
   };
+  const v2 = {
+    handleMessage: vi.fn(async () => v2CopyTurn(V2_CLARIFY)),
+  };
   const config = {
     CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS: 7,
     CHAT_COMPANION_NEW_JOBS_COUNT_CAP: 20,
@@ -136,8 +139,9 @@ function make(over: {
     jobs as never,
     events as never,
     edits as never,
+    v2 as never,
   );
-  return { svc, policy, repo, resumes, skills, jobs, events, edits };
+  return { svc, policy, repo, resumes, skills, jobs, events, edits, v2 };
 }
 
 type Emitted = { event_name: string; payload: Record<string, unknown>; idempotencyKey?: string };
@@ -429,13 +433,14 @@ describe("digest_key — what the app compares on a tab refocus", () => {
 });
 
 describe("the companion's reach", () => {
-  it("is constructed from repositories, the history projection and the INERT v2 edit path", () => {
-    // Eight collaborators: seven read-only or the event spine, plus (ADR-0046 T7/T8) the edit
-    // service. The eighth reaches a model only through AiService, only from the two edit routes,
-    // and only while BOTH v2 flags are on — every v1 path still makes zero model calls, which
-    // the flag-off suite proves. A refactor that routes a V1 read through MatchFeedService.getFeed
-    // / ApplicationsService.getFeed / JobsService.searchJobs / ChatService still fails here first.
-    expect(ChatCompanionService.length).toBe(8);
+  it("is constructed from repositories, the history projection and the INERT v2 layer", () => {
+    // Nine collaborators: seven read-only or the event spine, plus (ADR-0046 T6) the v2
+    // orchestrator and (T7/T8) the edit service. The two v2 collaborators reach a model only
+    // through AiService, only from the v2 branches, and only while their flags are on — every v1
+    // path still makes zero model calls, which the flag-off suite proves. A refactor that routes
+    // a V1 read through MatchFeedService.getFeed / ApplicationsService.getFeed /
+    // JobsService.searchJobs / ChatService still fails here first.
+    expect(ChatCompanionService.length).toBe(9);
   });
 });
 

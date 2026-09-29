@@ -483,3 +483,34 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
 - **Notes / decisions / surprises:** The flags-off 404 is the fail-closed half of O4: turning
   the v2 flags off must never leave a confirmable card behind.
 - **Next:** T6 (orchestrator + handlers; v1-first, model only on a miss).
+
+---
+
+## T6 — 2026-09-29 14:25
+
+- **Done:** The v2 turn pipeline and its delegation.
+  - `v2/companion-v2.orchestrator.ts`: pseudonymize FIRST (blocked/unreachable ⇒ clarify, no
+    classifier call, no memory), read memory (last 2 turns), classify, route through the
+    registry, append the pseudonymized pair, emit `chat.companion_turn_served_v2` (deduped by
+    `submission_id`). `intent` stays the v1 vocabulary (`fallback`); the truth is in
+    `v2_intent`/`outcome`. Confidence buckets: lt50 < 0.5, 50_70 < 0.7, 70_90 < 0.9, else gte90.
+  - `v2/handlers/*`: `handler.ts` (interface), `edit-resume.handler.ts`, `fixed-line.handlers.ts`
+    (jobs-deferred / phase-off / unclear) and `registry.ts` (the ONE place the phase flags are
+    read). `CompanionEditService.propose` now returns `{ turn, outcome }` so the event records
+    the real outcome instead of inferring it from copy.
+  - `ChatCompanionService.message`: delegates on a v1 miss **and only on v1's `fallback`
+    intent** — every named v1 intent and every menu alias keeps the v1 branch, zero model calls.
+  - Module + boot test updated (six new providers); the service's reach arity is now 9.
+  - Tests: `companion-v2.orchestrator.test.ts` (8: every intent, all four clarify paths, memory
+    pair, masked text, event payload validated against the merged schema),
+    `companion-v2.v1-first.test.ts` (11: every v1 fixture, no v2/model call),
+    `companion-v2.flag-off.test.ts` (9: v2 off ⇒ v1 event/turn byte-for-byte, edit routes 404).
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 12,049 passed / 153 skipped.
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29 · ai-service `pytest` exit 0 + `ruff` clean.
+- **Notes / decisions / surprises:** the v1-miss definition is v1's `fallback` intent; treating
+  every non-menu resolution as a miss (the first cut) sent digest/jobs/applied/guarantee to the
+  classifier — caught by `companion-v2.v1-first.test.ts`. The API pre-masks via
+  `AiService.pseudonymize` so memory only ever holds pseudonymized text (the classify endpoint
+  re-masks idempotently).
+- **Next:** A4 (evals) + the remaining §3 tests (privacy, persona extension already covered).

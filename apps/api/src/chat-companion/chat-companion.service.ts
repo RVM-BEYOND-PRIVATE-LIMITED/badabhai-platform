@@ -24,6 +24,7 @@ import {
   type ConfirmEditDto,
 } from "./chat-companion.dto";
 import { CompanionEditService } from "./v2/companion-edit.service";
+import { CompanionV2Orchestrator } from "./v2/companion-v2.orchestrator";
 import { resolveCompanionText } from "./companion-intents";
 import {
   composeFor,
@@ -108,6 +109,9 @@ export class ChatCompanionService {
     private readonly events: EventsService,
     // ADR-0046 T7/T8 — the edit path's propose/confirm/cancel. Inert while the v2 flags are off.
     private readonly edits: CompanionEditService,
+    // ADR-0046 T6 — the v2 turn pipeline. Reached ONLY from `message`'s v1-miss branch while
+    // `CHAT_COMPANION_V2_ENABLED` is on; a v1 resolver hit never touches it.
+    private readonly v2: CompanionV2Orchestrator,
   ) {}
 
   /** `GET /chat/companion` — the mode, and in companion mode the recap. */
@@ -139,6 +143,12 @@ export class ChatCompanionService {
     if (resolution.kind === "resume_menu") {
       turn = this.menuTurn(resolution.menu);
       await this.record(workerId, ctx, now, "message", "resume_menu", null, null, dto.submission_id ?? null);
+    } else if (this.config.CHAT_COMPANION_V2_ENABLED && resolution.intent === "fallback") {
+      // ADR-0046 T6 — THE V1 MISS GOES TO THE ROUTER, and v1's `fallback` intent IS the miss:
+      // the resolver understood nothing else about the text. Every NAMED v1 intent (digest,
+      // jobs, applied, guarantee) is still served by the branch below, byte-for-byte and with
+      // zero model calls. The orchestrator owns the v2 event.
+      turn = await this.v2.handleMessage(workerId, mode.profile, dto, ctx, now);
     } else {
       const facts = await this.readFacts(workerId, mode.profile, now);
       const composed = composeFor(resolution.intent, facts);

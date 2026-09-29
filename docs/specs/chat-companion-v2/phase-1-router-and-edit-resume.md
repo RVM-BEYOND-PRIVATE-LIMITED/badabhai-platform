@@ -76,10 +76,13 @@ A new edit message while a proposal is open replaces it (one active proposal per
       null on failure). Timeouts: classify 3 s, edit-parse 6 s.
 - [x] **T5 Redis stores.** `v2/companion-memory.store.ts`, `v2/edit-proposal.store.ts` (contracts §7),
       BullMQ connection reuse, fail-soft reads.
-- [ ] **T6 Orchestrator.** `v2/companion-v2.orchestrator.ts` + `v2/handlers/*.ts`
+- [x] **T6 Orchestrator.** `v2/companion-v2.orchestrator.ts` + `v2/handlers/*.ts`
       (`EditResumeHandler`, `JobsDeferredHandler`, `PhaseOffHandler`, `UnclearHandler`), a
       `HandlerRegistry` keyed by intent. `ChatCompanionService.message` delegates to the
       orchestrator only when the v2 flag is on AND v1 resolution missed.
+      "Missed" is v1's own `fallback` intent — every NAMED v1 intent (digest, jobs, applied,
+      guarantee) and every menu alias still takes the v1 branch, proved by
+      `companion-v2.v1-first.test.ts`.
 - [x] **T7 Edit catalogue + service.** `v2/edit-catalogue.ts`, `v2/companion-edit.service.ts`
       (snapshot, validate, propose, confirm-in-transaction, cancel, regenerate).
 - [x] **T8 Controller routes.** `confirm` / `cancel` in `chat-companion.controller.ts` (HTTP only),

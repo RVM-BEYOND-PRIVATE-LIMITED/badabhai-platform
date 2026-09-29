@@ -47,12 +47,19 @@ describe("ChatCompanionModule wiring", () => {
       // ADR-0046 T7 — the edit path plus ITS OWN instances of the five section writers and the
       // repositories they need (provisioned here, not imported — see the module docblock).
       "CompanionEditService",
+      // ADR-0046 T6 — the v2 turn pipeline and its handlers.
+      "CompanionHandlerRegistry",
       // ADR-0046 T5 — the v2 Redis stores (memory + the pending edit card).
       "CompanionMemoryStore",
+      "CompanionV2Orchestrator",
       "EditProposalStore",
+      "EditResumeHandler",
+      "JobsDeferredHandler",
+      "PhaseOffHandler",
       "ProfilesRepository",
       "ResumeImportRepository",
       "ResumeSuggestionReader",
+      "UnclearHandler",
       "WorkerAttributesRepository",
       "WorkerEmploymentRepository",
       "WorkerEmploymentService",

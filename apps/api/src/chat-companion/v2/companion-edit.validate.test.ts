@@ -19,7 +19,7 @@ const LANGUAGE_HINDI = { language: "hindi", can_speak: true, can_read: true, can
 describe("CompanionEditService.propose — every drop rule (spec §Edit step 3)", () => {
   it("keeps a legal delete: card, stored proposal, edit_proposed event", async () => {
     const h = setup({ parse: parse([row()]), languageEntries: [LANGUAGE_HINDI] });
-    const turn = await h.service.propose(WORKER_ID, profileRow(), "Hindi hata do", CTX);
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "Hindi hata do", CTX);
 
     expect(turn.reply).toBe(V2_EDIT_CARD_INTRO.latin);
     expect(turn.edit_proposal?.rows).toHaveLength(1);
@@ -63,7 +63,7 @@ describe("CompanionEditService.propose — every drop rule (spec §Edit step 3)"
     ["a placeholder-token value (O17)", row({ op: "add", section: "skills", ref: null, field: "skill", value: "[EMPLOYER_1] ki welding" })],
   ])("drops %s", async (_what, modelRow) => {
     const h = setup({ parse: parse([modelRow]), languageEntries: [LANGUAGE_HINDI] });
-    const turn = await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
     expect(turn.reply).toBe(V2_EDIT_NONE.latin);
     expect(turn.edit_proposal).toBeUndefined();
     expect(h.proposals.save).not.toHaveBeenCalled();
@@ -76,7 +76,7 @@ describe("CompanionEditService.propose — every drop rule (spec §Edit step 3)"
       ]),
       preferenceValues: { shift: "day" },
     });
-    const turn = await h.service.propose(WORKER_ID, profileRow(), "shift day hi rakho", CTX);
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "shift day hi rakho", CTX);
     expect(turn.reply).toBe(V2_EDIT_NONE.latin);
     expect(h.proposals.save).not.toHaveBeenCalled();
   });
@@ -90,7 +90,7 @@ describe("CompanionEditService.propose — every drop rule (spec §Edit step 3)"
       ]),
       languageEntries: [LANGUAGE_HINDI],
     });
-    const turn = await h.service.propose(WORKER_ID, profileRow(), "welding jodo aur Hindi hatao", CTX);
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "welding jodo aur Hindi hatao", CTX);
     expect(turn.edit_proposal?.rows).toHaveLength(2);
     const saved = h.proposals.save.mock.calls[0]![1] as { rows: unknown[] };
     expect(saved.rows).toHaveLength(2);
@@ -103,20 +103,20 @@ describe("CompanionEditService.propose — every drop rule (spec §Edit step 3)"
 
   it("an identity/contact ask is steered to the Profile screen, with no card", async () => {
     const h = setup({ parse: parse([], ["identity"]) });
-    const turn = await h.service.propose(WORKER_ID, profileRow(), "mera naam badlo", CTX);
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "mera naam badlo", CTX);
     expect(turn.reply).toBe(V2_EDIT_IDENTITY.latin);
     expect(turn.edit_proposal).toBeUndefined();
   });
 
   it("a model failure (null) is the clarify line — never an error", async () => {
     const h = setup({ parse: null });
-    const turn = await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
     expect(turn.reply).toBe(V2_EDIT_NONE.latin);
   });
 
   it("a proposal-store refusal offers NO card and claims nothing (contracts §7)", async () => {
     const h = setup({ parse: parse([row()]), languageEntries: [LANGUAGE_HINDI], storeSave: false });
-    const turn = await h.service.propose(WORKER_ID, profileRow(), "Hindi hata do", CTX);
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "Hindi hata do", CTX);
     expect(turn.reply).toBe(V2_EDIT_UNAVAILABLE.latin);
     expect(turn.edit_proposal).toBeUndefined();
     expect(h.events.emit).not.toHaveBeenCalled();
