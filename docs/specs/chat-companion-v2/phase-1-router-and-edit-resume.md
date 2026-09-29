@@ -80,7 +80,7 @@ A new edit message while a proposal is open replaces it (one active proposal per
       (`EditResumeHandler`, `JobsDeferredHandler`, `PhaseOffHandler`, `UnclearHandler`), a
       `HandlerRegistry` keyed by intent. `ChatCompanionService.message` delegates to the
       orchestrator only when the v2 flag is on AND v1 resolution missed.
-- [ ] **T7 Edit catalogue + service.** `v2/edit-catalogue.ts`, `v2/companion-edit.service.ts`
+- [x] **T7 Edit catalogue + service.** `v2/edit-catalogue.ts`, `v2/companion-edit.service.ts`
       (snapshot, validate, propose, confirm-in-transaction, cancel, regenerate).
 - [ ] **T8 Controller routes.** `confirm` / `cancel` in `chat-companion.controller.ts` (HTTP only),
       DTOs in `chat-companion.dto.ts`, additive `edit_proposal` on `CompanionTurnSchema`.

@@ -37,16 +37,32 @@ describe("ChatCompanionModule wiring", () => {
     expect(getMeta("imports", AppModule)).toContain(ChatCompanionModule);
   });
 
-  it("registers its controller and its five providers", () => {
+  it("registers its controller and its providers", () => {
     expect(getMeta("controllers", ChatCompanionModule)).toEqual([ChatCompanionController]);
     const providers = getMeta("providers", ChatCompanionModule).map((p) => (p as { name: string }).name);
     expect(providers.sort()).toEqual([
       "ChatCompanionPolicy",
       "ChatCompanionRepository",
       "ChatCompanionService",
+      // ADR-0046 T7 — the edit path plus ITS OWN instances of the five section writers and the
+      // repositories they need (provisioned here, not imported — see the module docblock).
+      "CompanionEditService",
       // ADR-0046 T5 — the v2 Redis stores (memory + the pending edit card).
       "CompanionMemoryStore",
       "EditProposalStore",
+      "ProfilesRepository",
+      "ResumeImportRepository",
+      "ResumeSuggestionReader",
+      "WorkerAttributesRepository",
+      "WorkerEmploymentRepository",
+      "WorkerEmploymentService",
+      "WorkerLanguagesRepository",
+      "WorkerLanguagesService",
+      "WorkerOccupationsRepository",
+      "WorkerOccupationsService",
+      "WorkerPreferencesService",
+      "WorkerQualificationsRepository",
+      "WorkerQualificationsService",
     ]);
   });
 

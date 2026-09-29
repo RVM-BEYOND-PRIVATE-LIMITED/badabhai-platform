@@ -411,3 +411,39 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
   suites (239 tests) all pass unchanged.
 - **Next:** T7 part 2 — `v2/edit-catalogue.ts` + `v2/companion-edit.service.ts` (+ the
   `edit_proposal` wire field).
+
+---
+
+## T7 (part 2) — edit catalogue + service — 2026-09-29 14:00
+
+- **Done:** The edit path, end to end.
+  - `chat-companion.dto.ts`: `edit_proposal` / `read_aloud` / `cooldown_until` on
+    `CompanionTurnSchema` (the T8 wire field, landed here because the strict turn schema needs
+    it) + `ConfirmEditSchema` / `CancelEditSchema` (used by T8's routes).
+  - `v2/edit-catalogue.ts`: the closed catalogue (fields/ops per the owner rulings), section
+    labels, per-field normalisation against the same vocabularies/bounds the writers' DTOs
+    enforce, the O17 placeholder-token screen, and a PII screen on skill labels.
+  - `v2/companion-edit.service.ts`: snapshot (per-section fail-soft, refs minted server-side,
+    targets never on the wire), deterministic row validation (catalogue/op/ref/value/token/
+    no-op), proposal store + card turn, stale check, confirm applying every selected row through
+    the section writers on ONE transaction, cancel, `chat_edit` regeneration with the daily cap,
+    and the three edit events (deduped by proposal id).
+  - `v2/companion-v2-compose.ts`: v2 turn builders + task chips (enabled phases only).
+  - `profiles.repository.ts`: `setResumeSkillLabels` — the résumé-ONLY skills writer (raw-profile
+    snapshot only; never the matching column/`worker_skill`/`job_reach`).
+  - `companion-replies.ts`: `V2_EDIT_UNAVAILABLE` (contracts §7's store-failure line).
+  - `chat-companion.module.ts`: the edit service + its own instances of the five writers and the
+    repos they need (leaf preserved; see the module docblock).
+  - Tests: `companion-edit.fake.ts` harness + `companion-edit.validate.test.ts` (14),
+    `companion-edit.confirm.test.ts` (9), `companion-edit.no-identity.test.ts` (4).
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 12,011 passed / 153 skipped.
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29 · ai-service `pytest` exit 0 + `ruff` clean.
+- **Notes / decisions / surprises:** identity/contact rows are ALSO inferred into `unsupported`
+  (a model row aimed at them serves `V2_EDIT_IDENTITY` even if the model forgot the hint). A
+  newly added language gets `can_speak: true` (the writer requires ≥1 ability; speaking is the
+  honest default). An occupations edit rebuilds matching AFTER commit; every writer skips its own
+  re-render on a joined transaction and the companion regenerates once (trigger `chat_edit`).
+  List preferences are member-level add/delete; `availability` is three scalar sub-fields merged
+  into the stored object (owner ruling 2026-09-29).
+- **Next:** T8 (controller routes for confirm/cancel; DTOs landed with T7).

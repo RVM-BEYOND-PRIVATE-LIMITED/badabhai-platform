@@ -289,6 +289,12 @@ export const V2_EDIT_STALE: CopyPair = {
   dev: "प्रोफ़ाइल बीच में बदल गया। दोबारा बताइए क्या बदलना है।",
 };
 
+/** The proposal store refused the card (contracts §7): no card is offered, nothing is claimed. */
+export const V2_EDIT_UNAVAILABLE: CopyPair = {
+  latin: "Abhi badlav nahi ho paaya, thodi der mein try karein.",
+  dev: "अभी बदलाव नहीं हो पाया, थोड़ी देर में ट्राई करें।",
+};
+
 /** Every pair above, for the persona and twin tests. */
 export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPair]> = [
   ["LEAD", LEAD],
@@ -324,4 +330,5 @@ export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPai
   ["V2_EDIT_DONE_CAPPED", V2_EDIT_DONE_CAPPED],
   ["V2_EDIT_CANCELLED", V2_EDIT_CANCELLED],
   ["V2_EDIT_STALE", V2_EDIT_STALE],
+  ["V2_EDIT_UNAVAILABLE", V2_EDIT_UNAVAILABLE],
 ];
