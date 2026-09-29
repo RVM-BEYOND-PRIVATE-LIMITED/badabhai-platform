@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ServerConfig } from "@badabhai/config";
 import { CompanionV2Orchestrator } from "./companion-v2.orchestrator";
 import { EditResumeHandler } from "./handlers/edit-resume.handler";
+import { FaltuHandler } from "./handlers/faltu.handler";
 import { NewResumeHandler } from "./handlers/new-resume.handler";
 import { JobsDeferredHandler, PhaseOffHandler, UnclearHandler } from "./handlers/fixed-line.handlers";
 import { CompanionHandlerRegistry } from "./handlers/registry";
@@ -58,16 +59,6 @@ function setup(opts: { classifyThrows?: boolean; emitThrows?: boolean } = {}) {
     CHAT_COMPANION_V2_EDIT_ENABLED: true,
     CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: 0.6,
   } as unknown as ServerConfig;
-  const registry = new CompanionHandlerRegistry(
-    config,
-    new EditResumeHandler(edits as unknown as CompanionEditService),
-    new NewResumeHandler(config, {
-      findLatestByWorker: vi.fn(async () => ({ revokedAt: null, purposes: ["resume_generation"] })),
-    } as never),
-    new JobsDeferredHandler(config),
-    new PhaseOffHandler(config),
-    new UnclearHandler(config),
-  );
   const events = {
     emit: vi.fn(async (params: unknown) => {
       if (opts.emitThrows) throw new Error("spine down");
@@ -75,6 +66,18 @@ function setup(opts: { classifyThrows?: boolean; emitThrows?: boolean } = {}) {
     }),
   };
   const cost = { record: vi.fn(async () => undefined) };
+  const faltuStore = { cooldownUntil: vi.fn(async () => null) };
+  const registry = new CompanionHandlerRegistry(
+    config,
+    new EditResumeHandler(edits as unknown as CompanionEditService),
+    new NewResumeHandler(config, {
+      findLatestByWorker: vi.fn(async () => ({ revokedAt: null, purposes: ["resume_generation"] })),
+    } as never),
+    new FaltuHandler(config, faltuStore as never, events as never),
+    new JobsDeferredHandler(config),
+    new PhaseOffHandler(config),
+    new UnclearHandler(config),
+  );
   const orchestrator = new CompanionV2Orchestrator(
     config,
     ai as never,
@@ -82,8 +85,9 @@ function setup(opts: { classifyThrows?: boolean; emitThrows?: boolean } = {}) {
     registry,
     events as never,
     cost as never,
+    faltuStore as never,
   );
-  return { orchestrator, ai, memory, edits, events, cost };
+  return { orchestrator, ai, memory, edits, events, cost, faltuStore };
 }
 
 /** Every line every Nest Logger wrote during `run`. */

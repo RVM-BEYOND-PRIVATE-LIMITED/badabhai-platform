@@ -57,6 +57,9 @@ describe("ChatCompanionModule wiring", () => {
       "CompanionV2Orchestrator",
       "EditProposalStore",
       "EditResumeHandler",
+      // ADR-0046 P2 — the faltu strike handler and its Redis store.
+      "FaltuHandler",
+      "FaltuStore",
       "JobsDeferredHandler",
       // ADR-0046 P2/N1 — the consent-gated new-résumé handler.
       "NewResumeHandler",

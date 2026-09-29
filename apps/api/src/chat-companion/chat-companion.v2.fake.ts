@@ -1,13 +1,17 @@
 import { vi } from "vitest";
 import { ChatCompanionService } from "./chat-companion.service";
-import { V2_CLARIFY } from "./companion-replies";
+import { V2_CLARIFY, V2_FALTU_COOLDOWN } from "./companion-replies";
 import { v2CopyTurn } from "./v2/companion-v2-compose";
 
 /**
- * A COMPACT ChatCompanionService harness for the two v2 cross-cutting suites
- * (`companion-v2.v1-first.test.ts`, `companion-v2.flag-off.test.ts`). The rich harness lives in
- * `chat-companion.service.test.ts`; this one carries exactly the collaborators `message` needs
- * plus the two v2 spies, so those suites can assert "the v2 layer was never reached".
+ * A COMPACT ChatCompanionService harness for the v2 cross-cutting suites
+ * (`companion-v2.v1-first.test.ts`, `companion-v2.flag-off.test.ts`, `v2/faltu.order.test.ts`).
+ * The rich harness lives in `chat-companion.service.test.ts`; this one carries exactly the
+ * collaborators `message` needs plus the v2 spies, so those suites can assert "the v2 layer was
+ * never reached" — or, for P2, exactly WHICH v2 step ran and in what order.
+ *
+ * `faltu` DEFAULTS FALSE, deliberately: the P1 suites must see the phase-1 pipeline unless they
+ * opt in, so adding the P2 gate cannot silently change what they are asserting.
  */
 
 export const WORKER = "11111111-1111-4111-8111-111111111111";
@@ -54,7 +58,15 @@ const HISTORY = {
   pending_update: null,
 };
 
-export function makeCompanionServiceForV2(opts: { v2: boolean }) {
+export function makeCompanionServiceForV2(opts: {
+  v2: boolean;
+  /** P2 — the faltu phase gate. Off by default so the P1 suites see the P1 pipeline. */
+  faltu?: boolean;
+  /** P2 — the new-résumé phase flag (defaults to the master's value, as in production). */
+  newResume?: boolean;
+  /** P2 — what the cool-down store answers; `null` (the default) means "not cooling". */
+  cooling?: string | null;
+}) {
   const policy = {
     resolve: vi.fn(async () => ({ mode: "companion", profile: PROFILE })),
   };
@@ -69,7 +81,16 @@ export function makeCompanionServiceForV2(opts: { v2: boolean }) {
   };
   const events = { emit: vi.fn(async (params: unknown) => params) };
   const edits = { confirm: vi.fn(), cancel: vi.fn(), propose: vi.fn() };
-  const v2 = { handleMessage: vi.fn(async () => v2CopyTurn(V2_CLARIFY)) };
+  const v2 = {
+    handleMessage: vi.fn(async () => v2CopyTurn(V2_CLARIFY)),
+    // P2 spies: the cool-down gate, its turn, and the deterministic task-chip route.
+    cooldownUntil: vi.fn(async () => opts.cooling ?? null),
+    handleCooldown: vi.fn(async (_w: string, _d: unknown, _c: unknown, _n: Date, until: string) => ({
+      ...v2CopyTurn(V2_FALTU_COOLDOWN),
+      cooldown_until: until,
+    })),
+    handleTaskChip: vi.fn(async () => v2CopyTurn(V2_CLARIFY)),
+  };
   const config = {
     CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS: 7,
     CHAT_COMPANION_NEW_JOBS_COUNT_CAP: 20,
@@ -77,6 +98,8 @@ export function makeCompanionServiceForV2(opts: { v2: boolean }) {
     RESUME_UPDATE_PENDING_TIMEOUT_SECONDS: 1_200,
     CHAT_COMPANION_V2_ENABLED: opts.v2,
     CHAT_COMPANION_V2_EDIT_ENABLED: opts.v2,
+    CHAT_COMPANION_V2_NEW_RESUME_ENABLED: opts.newResume ?? opts.v2,
+    CHAT_COMPANION_V2_FALTU_ENABLED: opts.faltu ?? false,
   };
   const svc = new ChatCompanionService(
     config as never,

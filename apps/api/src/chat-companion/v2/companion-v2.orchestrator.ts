@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { WorkerProfile } from "@badabhai/db";
+import { isAbusive } from "@badabhai/profiling-lexicon";
 import type {
   CompanionV2ConfidenceBucket,
   CompanionV2Intent,
@@ -15,7 +16,8 @@ import { EventsService } from "../../events/events.service";
 import type { CompanionMessageDto, CompanionTurn } from "../chat-companion.dto";
 import { V2_CLARIFY } from "../companion-replies";
 import { CompanionMemoryStore } from "./companion-memory.store";
-import { taskChips, v2CopyTurn } from "./companion-v2-compose";
+import { taskChips, v2CooldownTurn, v2CopyTurn } from "./companion-v2-compose";
+import { FaltuStore } from "./faltu.store";
 import { CompanionHandlerRegistry } from "./handlers/registry";
 
 /** The reply stored as the companion's side of a memory turn — a context line, not a record. */
@@ -23,17 +25,20 @@ const MEMORY_REPLY_MAX = 1_000;
 
 /**
  * THE V2 TURN PIPELINE (ADR-0046 §2.1) — reached ONLY when `CHAT_COMPANION_V2_ENABLED` is on AND
- * the v1 deterministic resolver missed. v1 hits never arrive here and still cost zero model calls.
+ * the v1 deterministic resolver missed (or, for a task-chip tap, before the resolver: see
+ * `handleTaskChip`). v1 hits never arrive here and still cost zero model calls.
  *
  * THE ORDER IS THE PRIVACY ORDER, and it fails closed at every step:
- *   1. pseudonymize the message through the gateway — a blocked or unreachable gateway serves the
+ *   1. the ABUSE LEXICON (P2, only while the faltu flag is on) — deterministic, local, and
+ *      BEFORE the gateway: a message it flags reaches no provider, no model, no memory;
+ *   2. pseudonymize the message through the gateway — a blocked or unreachable gateway serves the
  *      clarify line WITHOUT a classifier call and stores nothing;
- *   2. read the (already pseudonymized) memory, last two turns;
- *   3. classify — null, blocked or a schema miss is `unclear`; a confidence below the configured
+ *   3. read the (already pseudonymized) memory, last two turns;
+ *   4. classify — null, blocked or a schema miss is `unclear`; a confidence below the configured
  *      floor is `unclear` too;
- *   4. the registry picks the handler from the closed intent set;
- *   5. append the pseudonymized pair to memory;
- *   6. emit `chat.companion_turn_served_v2` — ids, counts and closed enums only.
+ *   5. the registry picks the handler from the closed intent set;
+ *   6. append the pseudonymized pair to memory;
+ *   7. emit `chat.companion_turn_served_v2` — ids, counts and closed enums only.
  *
  * The model NEVER decides anything but the intent: handlers are deterministic, and the only
  * handler that can cause a write is the edit one, which still requires the worker's Haan.
@@ -49,7 +54,71 @@ export class CompanionV2Orchestrator {
     private readonly registry: CompanionHandlerRegistry,
     private readonly events: EventsService,
     private readonly cost: AiCostRecorder,
+    private readonly faltu: FaltuStore,
   ) {}
+
+  /**
+   * When the worker's faltu cool-down ends, or null. The SERVICE's gate asks this before the
+   * v1 resolver (phase-2 order: chip keys → cool-down → v1 → lexicon → classifier); the
+   * orchestrator only lends the store, because the gate must run where the v1 branch is.
+   */
+  async cooldownUntil(workerId: string, now: Date): Promise<string | null> {
+    return this.faltu.cooldownUntil(workerId, now);
+  }
+
+  /**
+   * A free-text message the cool-down gate refused (P2, O11): the fixed line, the open chips,
+   * `cooldown_until`, and a v2 event with `intent_source: "guard"`. No gateway, no model, no
+   * memory — nothing about the message is read, stored or echoed.
+   */
+  async handleCooldown(
+    workerId: string,
+    dto: CompanionMessageDto,
+    ctx: RequestContext,
+    now: Date,
+    until: string,
+  ): Promise<CompanionTurn> {
+    return this.finish(workerId, ctx, dto, now, {
+      turn: v2CooldownTurn(until, taskChips(this.config)),
+      intentSource: "guard",
+      v2Intent: null,
+      confidenceBucket: null,
+      outcome: "cooldown",
+      memoryPair: null,
+    });
+  }
+
+  /**
+   * A TASK-CHIP TAP (P2) — deterministic routing for the `companion_task:*` labels, before the
+   * cool-down gate and before v1 (see `companion-task-chips.ts` for why v1 cannot be trusted
+   * with these two labels). No classifier runs; `intent_source` records the deterministic
+   * choice. The text handed to the handler is the chip's own server-authored label — never
+   * worker text — and no memory pair is stored: a tap adds no context.
+   */
+  async handleTaskChip(
+    workerId: string,
+    profile: WorkerProfile,
+    dto: CompanionMessageDto,
+    intent: CompanionV2Intent,
+    ctx: RequestContext,
+    now: Date,
+  ): Promise<CompanionTurn> {
+    const handled = await this.registry.resolve(intent).handle({
+      workerId,
+      profile,
+      text: dto.text,
+      ctx,
+      now,
+    });
+    return this.finish(workerId, ctx, dto, now, {
+      turn: handled.turn,
+      intentSource: "v1_deterministic",
+      v2Intent: intent,
+      confidenceBucket: null,
+      outcome: handled.outcome,
+      memoryPair: null,
+    });
+  }
 
   async handleMessage(
     workerId: string,
@@ -58,6 +127,28 @@ export class CompanionV2Orchestrator {
     ctx: RequestContext,
     now: Date = new Date(),
   ): Promise<CompanionTurn> {
+    // 0. THE ABUSE LEXICON (P2, O11), only while the faltu phase is on. It runs BEFORE the
+    //    gateway because nothing crosses a boundary on this path: the answer is fixed copy and
+    //    a strike count. A flagged message therefore costs no gateway hop and no model call,
+    //    and — because the finish below passes no memory pair — it is never stored anywhere.
+    if (this.config.CHAT_COMPANION_V2_FALTU_ENABLED && isAbusive(dto.text)) {
+      const handled = await this.registry.resolve("faltu").handle({
+        workerId,
+        profile,
+        text: "",
+        ctx,
+        now,
+      });
+      return this.finish(workerId, ctx, dto, now, {
+        turn: handled.turn,
+        intentSource: "lexicon",
+        v2Intent: "faltu",
+        confidenceBucket: null,
+        outcome: handled.outcome,
+        memoryPair: null,
+      });
+    }
+
     // 1. THE GATEWAY FIRST. `null` is the AI service being unreachable; `blocked` is the gateway
     //    refusing. Both serve the clarify line and neither reaches a model or Redis.
     const pseudo = await this.ai.pseudonymize(dto.text, ctx);

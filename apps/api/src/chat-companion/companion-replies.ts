@@ -295,6 +295,28 @@ export const V2_EDIT_UNAVAILABLE: CopyPair = {
   dev: "अभी बदलाव नहीं हो पाया, थोड़ी देर में ट्राई करें।",
 };
 
+// ── Companion v2 — faltu (ADR-0046 P2, O11) ──────────────────────────────────────────────────
+
+/**
+ * Strikes 1–2: the message was trash talk or noise. No lecture, no echo of what was said — the
+ * line redirects to what the tab is for and the task chips stay open (a worker must always be
+ * able to reach the résumé and jobs).
+ */
+export const V2_FALTU_REDIRECT: CopyPair = {
+  latin: "Main resume aur kaam mein madad karta hoon. Inme se kuch chuniye.",
+  dev: "मैं रिज़्यूमे और काम में मदद करता हूँ। इनमें से कुछ चुनिए।",
+};
+
+/**
+ * The cool-down line (strike 3, then every free-text message until the window passes). Fixed
+ * copy only — a model must never answer an abusive message — and the chips stay open so the
+ * cool-down blocks free text, not the worker.
+ */
+export const V2_FALTU_COOLDOWN: CopyPair = {
+  latin: "Thodi der baad baat karte hain.",
+  dev: "थोड़ी देर बाद बात करते हैं।",
+};
+
 /** Every pair above, for the persona and twin tests. */
 export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPair]> = [
   ["LEAD", LEAD],
@@ -331,4 +353,7 @@ export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPai
   ["V2_EDIT_CANCELLED", V2_EDIT_CANCELLED],
   ["V2_EDIT_STALE", V2_EDIT_STALE],
   ["V2_EDIT_UNAVAILABLE", V2_EDIT_UNAVAILABLE],
+  // ADR-0046 P2 — faltu.
+  ["V2_FALTU_REDIRECT", V2_FALTU_REDIRECT],
+  ["V2_FALTU_COOLDOWN", V2_FALTU_COOLDOWN],
 ];

@@ -24,10 +24,12 @@ import { ChatCompanionRepository } from "./chat-companion.repository";
 import { ChatCompanionService } from "./chat-companion.service";
 import { CompanionMemoryStore } from "./v2/companion-memory.store";
 import { EditProposalStore } from "./v2/edit-proposal.store";
+import { FaltuStore } from "./v2/faltu.store";
 import { CompanionEditService } from "./v2/companion-edit.service";
 import { CompanionV2Orchestrator } from "./v2/companion-v2.orchestrator";
 import { CompanionHandlerRegistry } from "./v2/handlers/registry";
 import { EditResumeHandler } from "./v2/handlers/edit-resume.handler";
+import { FaltuHandler } from "./v2/handlers/faltu.handler";
 import { NewResumeHandler } from "./v2/handlers/new-resume.handler";
 import {
   JobsDeferredHandler,
@@ -76,18 +78,20 @@ import {
     ChatCompanionService,
     ChatCompanionPolicy,
     ChatCompanionRepository,
-    // ADR-0046 v2 — Redis-only stores (memory + the pending edit card). Both are inert until
-    // the v2 flags are on and the orchestrator (T6) calls them.
+    // ADR-0046 v2 — Redis-only stores (memory + the pending edit card + the P2 strikes and
+    // cool-down). All are inert until the v2 flags are on and the pipeline calls them.
     CompanionMemoryStore,
     EditProposalStore,
+    FaltuStore,
     // ADR-0046 T6 — the v2 turn pipeline: the orchestrator, its intent→handler registry and the
     // Phase 1 handlers. Inert while CHAT_COMPANION_V2_ENABLED is off.
     CompanionV2Orchestrator,
     CompanionHandlerRegistry,
     EditResumeHandler,
-    // ADR-0046 P2 — the new-résumé handler (consent-gated redo flow). The faltu handler joins
-    // it in N3 with the strikes store.
+    // ADR-0046 P2 — the new-résumé handler (consent-gated redo flow) and the faltu handler
+    // (strikes, cool-down, the strike event).
     NewResumeHandler,
+    FaltuHandler,
     JobsDeferredHandler,
     PhaseOffHandler,
     UnclearHandler,

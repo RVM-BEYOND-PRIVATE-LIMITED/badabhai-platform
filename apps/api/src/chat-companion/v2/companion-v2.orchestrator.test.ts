@@ -5,12 +5,14 @@ import { EVENT_REGISTRY } from "@badabhai/event-schema";
 import type { CompanionEditService } from "./companion-edit.service";
 import { CompanionV2Orchestrator } from "./companion-v2.orchestrator";
 import { NewResumeHandler } from "./handlers/new-resume.handler";
+import { FaltuHandler } from "./handlers/faltu.handler";
 import { EditResumeHandler } from "./handlers/edit-resume.handler";
 import { JobsDeferredHandler, PhaseOffHandler, UnclearHandler } from "./handlers/fixed-line.handlers";
 import { CompanionHandlerRegistry } from "./handlers/registry";
 import {
   V2_CLARIFY,
   V2_EDIT_CARD_INTRO,
+  V2_FALTU_COOLDOWN,
   V2_JOBS_DEFERRED,
   V2_PHASE_OFF,
 } from "../companion-replies";
@@ -40,6 +42,7 @@ function setup(
     classify?: unknown;
     memory?: unknown;
     editEnabled?: boolean;
+    newResumeEnabled?: boolean;
     propose?: unknown;
   } = {},
 ) {
@@ -63,21 +66,30 @@ function setup(
   };
   const config = {
     CHAT_COMPANION_V2_EDIT_ENABLED: opts.editEnabled ?? true,
+    CHAT_COMPANION_V2_NEW_RESUME_ENABLED: opts.newResumeEnabled ?? false,
     CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: 0.6,
+    CHAT_COMPANION_V2_FALTU_STRIKES: 3,
+    CHAT_COMPANION_V2_FALTU_COOLDOWN_MINUTES: 30,
   } as unknown as ServerConfig;
   const consents = {
     findLatestByWorker: vi.fn(async () => ({ revokedAt: null, purposes: ["resume_generation"] })),
+  };
+  const events = { emit: vi.fn(async (params: unknown) => params) };
+  const cost = { record: vi.fn(async () => undefined) };
+  const faltuStore = {
+    cooldownUntil: vi.fn(async () => null),
+    countStrike: vi.fn(async () => 1),
+    startCooldown: vi.fn(async () => null),
   };
   const registry = new CompanionHandlerRegistry(
     config,
     new EditResumeHandler(edits as unknown as CompanionEditService),
     new NewResumeHandler(config, consents as never),
+    new FaltuHandler(config, faltuStore as never, events as never),
     new JobsDeferredHandler(config),
     new PhaseOffHandler(config),
     new UnclearHandler(config),
   );
-  const events = { emit: vi.fn(async (params: unknown) => params) };
-  const cost = { record: vi.fn(async () => undefined) };
   const orchestrator = new CompanionV2Orchestrator(
     config,
     ai as never,
@@ -85,8 +97,9 @@ function setup(
     registry,
     events as never,
     cost as never,
+    faltuStore as never,
   );
-  return { orchestrator, ai, memory, edits, events, cost, config };
+  return { orchestrator, ai, memory, edits, events, cost, faltuStore, config };
 }
 
 const emitted = (events: { emit: { mock: { calls: unknown[][] } } }) =>
@@ -231,5 +244,68 @@ describe("CompanionV2Orchestrator — the turn pipeline (ADR-0046 §2.1)", () =>
     expect(emitted(h.events).idempotencyKey).toBe(
       `chat.companion_turn_served_v2:message:${WORKER}:44444444-4444-4444-8444-444444444444`,
     );
+  });
+
+  it("handleCooldown (P2): the guard's turn — line, chips, cooldown_until, and a guard event", async () => {
+    const h = setup();
+    const turn = await h.orchestrator.handleCooldown(
+      WORKER,
+      { text: "phir se jobs dikhao" },
+      CTX,
+      NOW,
+      "2026-09-29T10:30:00.000Z",
+    );
+    expect(turn.reply).toBe(V2_FALTU_COOLDOWN.latin);
+    expect(turn.cooldown_until).toBe("2026-09-29T10:30:00.000Z");
+    // The cool-down blocks free text, not the worker: the open chips ride along.
+    expect(turn.suggested_options.length).toBeGreaterThan(0);
+    // Nothing about the message was read, sent or stored.
+    expect(h.ai.pseudonymize).not.toHaveBeenCalled();
+    expect(h.ai.companionClassify).not.toHaveBeenCalled();
+    expect(h.memory.append).not.toHaveBeenCalled();
+    expect(emitted(h.events).payload).toMatchObject({
+      intent_source: "guard",
+      v2_intent: null,
+      outcome: "cooldown",
+    });
+  });
+
+  it("handleTaskChip (P2): deterministic routing, no classifier, no memory, v1_deterministic", async () => {
+    const h = setup({ newResumeEnabled: true });
+    const turn = await h.orchestrator.handleTaskChip(
+      WORKER,
+      PROFILE,
+      { text: "Naya resume" },
+      "new_resume",
+      CTX,
+      NOW,
+    );
+    // The real NewResumeHandler served the redo menu turn — no model was involved anywhere.
+    expect(turn.reply).toContain("Naya resume kaise banana chahte hain");
+    expect(h.ai.pseudonymize).not.toHaveBeenCalled();
+    expect(h.ai.companionClassify).not.toHaveBeenCalled();
+    expect(h.memory.append).not.toHaveBeenCalled();
+    expect(emitted(h.events).payload).toMatchObject({
+      intent_source: "v1_deterministic",
+      v2_intent: "new_resume",
+      confidence_bucket: null,
+      outcome: "served",
+    });
+  });
+
+  it("with the FALTU flag off the lexicon is not consulted — abusive text takes the normal path", async () => {
+    // Flag off ⇒ P1: the abuse lexicon is a P2 step, and a message it would flag must still go
+    // through the gateway and the classifier exactly as it did in Phase 1.
+    const h = setup();
+    await h.orchestrator.handleMessage(
+      WORKER,
+      PROFILE,
+      { text: "chutiya bhai kya kar raha hai" },
+      CTX,
+      NOW,
+    );
+    expect(h.ai.pseudonymize).toHaveBeenCalled();
+    expect(h.ai.companionClassify).toHaveBeenCalled();
+    expect(h.faltuStore.countStrike).not.toHaveBeenCalled();
   });
 });

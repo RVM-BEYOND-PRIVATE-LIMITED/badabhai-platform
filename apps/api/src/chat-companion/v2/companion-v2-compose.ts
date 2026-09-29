@@ -4,7 +4,7 @@ import type { ResumeMenuChoice } from "../../chat/resume-menu";
 import { ttsField } from "../../profiling/question-tts-text";
 import type { CompanionTurn, EditProposal } from "../chat-companion.dto";
 import type { CopyPair } from "../companion-replies";
-import { render } from "../companion-replies";
+import { render, V2_FALTU_COOLDOWN } from "../companion-replies";
 import { COMPANION_NEW_JOBS_KEY, COMPANION_NEW_JOBS_LABEL } from "../companion-keys";
 import {
   COMPANION_TASK_EDIT_RESUME_KEY,
@@ -127,6 +127,15 @@ export function taskChips(config: ServerConfig): V2Option[] {
     is_none_of_above: false,
   });
   return chips;
+}
+
+/**
+ * The cool-down turn (ADR-0046 P2, O11): the fixed line, the still-open chips — the cool-down
+ * blocks free text, never the worker — and the ISO instant the composer may reopen. The app
+ * reads `cooldown_until` to disable the composer with a countdown (F1).
+ */
+export function v2CooldownTurn(until: string, options: readonly V2Option[]): CompanionTurn {
+  return { ...v2CopyTurn(V2_FALTU_COOLDOWN, options), cooldown_until: until };
 }
 
 /** The sections a proposal touched, deduped and in catalogue order, for the edit events. */
