@@ -561,3 +561,17 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
   - ai-service `pytest` exit 0 · `ruff check .` clean · `pnpm lint` 0 errors · typecheck 29/29.
 - **Next:** owner review / merge of the tail branch; then the Frontend (#1818) and DevOps items,
   and the staging eval run before any flag-ON.
+
+---
+
+## Tail PR #1819 — 2026-09-29 14:55
+
+- **Done:** Two CI follow-ups from the first run of #1819.
+  - SAST (semgrep, blocking): the eval CLI's `urllib.request.urlopen` tripped
+    `dynamic-urllib-use-detected`. Replaced with `httpx` (already the sanctioned transport per
+    `requirements.txt`) exactly like the canonicalization eval — no suppression comment.
+  - Same edit fixed a real bug the SAST review surfaced: the CLI sent
+    `authorization: Bearer $AI_INTERNAL_TOKEN`, but the service enforces the TD67
+    `x-ai-internal-token` header from settings — an armed staging service would have 401'd into
+    all-miss noise. Now mirrors `get_settings().ai_internal_token`.
+- **Checks:** PR #1819 fully green — Node, AI service, Image gate, E2E, SAST, ci-required.
