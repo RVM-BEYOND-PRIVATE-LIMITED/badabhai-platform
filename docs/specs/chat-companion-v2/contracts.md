@@ -71,6 +71,16 @@ CompanionEditParseOutput = {
 }
 ```
 
+**`EditableField`** (owner ruling 2026-09-29, A1) is
+`{ section: EditSection, field: string, ops: ("add" | "edit" | "delete")[] }`.
+`field` is the LOGICAL name the model should use (e.g. `expected_salary`); the API maps it to its
+writer's DTO key itself. `ops` is the legal subset for that field, and the only place the code and
+the model both learn that **`add` exists only where ONE field defines the entry** — skills,
+languages, occupations. Employment and qualifications are **edit/delete-only in chat** (an "add"
+request gets the profile-screen line), because a new employment or credential is inherently
+multi-field and the card carries one `value` per row (O5 caps a message at 3 rows). The catalogue
+is API-authored constants; it never carries worker text.
+
 ### 2.3 `POST /companion/career` (P3) — task `companion_career_answer`, Claude, json_mode
 
 ```ts
@@ -91,12 +101,12 @@ existing writer. Identity and contact are absent by construction (O3).
 
 | `EditSection` | Ops | Writer (existing) | Notes | Verified (T0, 2026-09-28) |
 |---|---|---|---|---|
-| `employment` | add / edit / delete | `WorkerEmploymentService` (`PUT /workers/me/employment`) | fields: employer, role, city, start/end or years | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (§3.1). Emits `worker.employment_recorded` v1. |
+| `employment` | edit / delete *(chat; `add` deferred by the 2026-09-29 single-field-adds ruling)* | `WorkerEmploymentService` (`PUT /workers/me/employment`) | fields: employer, role, city, start/end or years | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (§3.1). Emits `worker.employment_recorded` v1. |
 | `skills` | add / delete | **RÉSUMÉ-ONLY writer (new, T7)** — owner ruling 2026-09-28 | worker-side/profile only: append/remove labels on the confirmed profile's résumé snapshot; NO `worker_skill` / `job_reach` writes, NO ADR-0030/job-domain canonicalization; matching untouched | **RULED (owner, 2026-09-28), resolving P1-OQ1.** The named `setWants` writer is an unwired seam that THROWS (`worker-skills.service.ts:187`). T7 builds a deterministic résumé-only skills writer that edits the profile snapshot the renderer prints (`raw_profile.resume_profile.skills` when the container carries values, else `raw_profile.skills` / `raw_profile.skill_labels`). The canonical column `worker_profiles.skills` and everything downstream of matching are deliberately NOT touched. |
 | `languages` | add / delete | `WorkerLanguagesService` | closed language list | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (whole-list replace, §3.1). Emits `worker.languages_recorded` v1. |
-| `qualifications` | add / edit / delete | `WorkerQualificationsService` | closed options endpoint | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (whole-list replace, 3 lists, §3.1). Emits `worker.qualifications_recorded` v1. |
+| `qualifications` | edit / delete *(chat; `add` deferred by the 2026-09-29 single-field-adds ruling)* | `WorkerQualificationsService` | closed options endpoint | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (whole-list replace, 3 lists, §3.1). Emits `worker.qualifications_recorded` v1. |
 | `occupations` | add / delete | `WorkerOccupationsService` | canonical ids only | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (whole-list replace, §3.1). Emits `worker.occupations_recorded` v1; also calls `WorkerSkillsService.rebuildQuietly` after the write. |
-| `preferences` | edit | `WorkerPreferencesService` | closed options (shift, city, pay range) | Method + DTO confirmed. `WorkerAttributesRepository.upsertMany` / `deleteKeys` ALREADY accept `tx?: Database`; the service passes none. Emits `worker.preferences_recorded` v1. |
+| `preferences` | edit | `WorkerPreferencesService` | RULED 2026-09-29: `shift`, `preferred_cities`, `job_type`, `work_types`, `documents_ready`, `willing_to_travel`, `willing_to_relocate`, `accommodation_needed`, `availability`, `expected_salary`. `expected_salary` is the LOGICAL field and is written to `salary_expected_max` with `salary_expected_min` cleared (the only end that prints today). REMOVED from the catalogue: `salary_period`, `commute_max_km`, the four `education_*` keys. | Method + DTO confirmed. `WorkerAttributesRepository.upsertMany` / `deleteKeys` ALREADY accept `tx?: Database`; the service passes none. Emits `worker.preferences_recorded` v1. |
 
 ### 3.1 T0 writer verification detail (2026-09-28)
 

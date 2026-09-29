@@ -144,6 +144,12 @@ export const COMPANION_V2_EDIT_SECTIONS = [
 ] as const;
 export type CompanionV2EditSection = (typeof COMPANION_V2_EDIT_SECTIONS)[number];
 
+// WHAT A PROPOSED ROW MAY DO. `add` is offered only where ONE field defines the entry (skills,
+// languages, occupations) — owner ruling 2026-09-29 — so an employment or a qualification is
+// edit/delete-only in chat; `edit`/`delete` address an existing snapshot row by `ref`.
+export const COMPANION_V2_EDIT_OPS = ["add", "edit", "delete"] as const;
+export type CompanionV2EditOp = (typeof COMPANION_V2_EDIT_OPS)[number];
+
 // WHAT A WORKER ASKED FOR THAT THIS SURFACE CANNOT EDIT. `identity` and `contact` are steered to
 // the settings/Profile screen; `other` is anything else the parser recognised as out of scope.
 // The event carries these instead of the request text.

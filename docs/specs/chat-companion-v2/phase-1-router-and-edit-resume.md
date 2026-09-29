@@ -93,7 +93,7 @@ A new edit message while a proposal is open replaces it (one active proposal per
 
 ### Backend — AI service (`apps/ai-service/app/`)
 
-- [ ] **A1 Contracts.** `contracts.py` models for classify and edit-parse + `packages/ai-contracts`
+- [x] **A1 Contracts.** `contracts.py` models for classify and edit-parse + `packages/ai-contracts`
       Zod mirror + parity test.
 - [ ] **A2 Module.** `app/companion/{__init__,classify,edit_parse,prompts}.py`,
       `app/routers/companion.py`, registered in `main.py`. Each endpoint: validate input →
@@ -166,3 +166,18 @@ Add questions here rather than guessing (README rule 12).
   ADR-0030 canonicalization, no job-domain or role involvement — matching is deliberately
   untouched. A later re-extraction or confirm may restore an edited-away skill; accepted under
   the ruling. T1–T6 are unaffected.
+- **P1-OQ2 — `EditableField` shape and catalogue scope — RESOLVED (owner rulings, 2026-09-29).**
+  The spec referenced `EditableField` without defining it, and a card row carries one `value`.
+  Rulings, now encoded in contracts §2.2/§3 and in `packages/ai-contracts/src/companion.ts` +
+  `contracts.py`:
+  **(a)** `EditableField = { section, field, ops }` — `field` is the LOGICAL name the model uses
+  (e.g. `expected_salary`), mapped to the writer's DTO key by the catalogue; `ops` is the legal
+  subset per field; the catalogue carries no worker text.
+  **(b)** **Single-field adds only in Phase 1**: `add` is offered for skills, languages and
+  occupations; employment and qualifications are edit/delete-only in chat (an add request gets the
+  profile-screen line). Rationale: an employment/credential is inherently multi-field and O5 caps
+  a message at 3 rows.
+  **(c)** `preferences` catalogue reduced: `salary_period`, `commute_max_km` and the four
+  `education_*` keys are removed; `expected_salary` is a single logical field written to
+  `salary_expected_max` with `salary_expected_min` cleared.
+  Recorded in contracts §2.2/§3; affects T7/T10 only.

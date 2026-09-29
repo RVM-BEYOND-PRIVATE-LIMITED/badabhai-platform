@@ -26,8 +26,20 @@ from app.contracts import (
     AnswerRecordHistoryEntry,
     AnswerStatus,
     AnswerType,
+    CompanionClassifyInput,
+    CompanionClassifyOutput,
+    CompanionEditParseInput,
+    CompanionEditParseOutput,
+    CompanionEditRow,
+    CompanionEditSnapshotRow,
+    CompanionMemoryRole,
+    CompanionRecentTurn,
+    CompanionV2Intent,
     ConversationMessage,
     ConversationState,
+    EditableField,
+    EditOp,
+    EditSection,
     EvidenceSpan,
     ExperienceEntry,
     InterviewExtractInput,
@@ -64,6 +76,7 @@ from app.contracts import (
     QuestionPackStatus,
     TargetField,
     TranscriptLine,
+    UnsupportedEditTarget,
     WorkHistoryPolishInput,
     WorkHistoryPolishOutput,
 )
@@ -391,20 +404,25 @@ def test_the_oie_contracts_carry_no_identity_pii_field():
 _REPO = Path(__file__).resolve().parents[3]
 
 
-def _zod_string_union(const_name: str) -> list[str]:
-    """Read a `export const X = [...] as const;` literal out of oie.ts.
+def _string_union_in(source_path: Path, const_name: str) -> list[str]:
+    """Read a `export const X = [...] as const;` literal out of a TypeScript source file.
 
     Reading the SOURCE keeps this a plain pytest with no Node runtime, the same way
     test_lexicon_parity reads the shared JSON rather than importing TypeScript.
     """
-    source = (_REPO / "packages" / "ai-contracts" / "src" / "oie.ts").read_text(encoding="utf-8")
+    source = source_path.read_text(encoding="utf-8")
     match = re.search(rf"export const {const_name} = \[(.*?)\] as const;", source, re.S)
-    assert match, f"{const_name} not found in oie.ts — the mirror has moved"
+    assert match, f"{const_name} not found in {source_path.name} — the mirror has moved"
     # COMMENTS FIRST. These arrays carry per-member doc comments that quote worker phrases
     # ("nahi pata"), and a bare string scan happily returns those as members.
     body = re.sub(r"/\*.*?\*/", "", match.group(1), flags=re.S)
     body = re.sub(r"//[^\n]*", "", body)
     return re.findall(r'"([^"]+)"', body)
+
+
+def _zod_string_union(const_name: str) -> list[str]:
+    """Read a `export const X = [...] as const;` literal out of oie.ts."""
+    return _string_union_in(_REPO / "packages" / "ai-contracts" / "src" / "oie.ts", const_name)
 
 
 def test_oie_enum_values_match_not_just_their_key_names():
@@ -525,3 +543,124 @@ def test_job_posting_draft_bounds_match_the_zod_source():
             JobPostingDraft(**{field: years_max + 1})
         with pytest.raises(ValidationError):
             JobPostingDraft(**{field: -1})
+
+
+# --- Chat companion v2 (ADR-0046 Phase 1) -------------------------------------
+#
+# Mirrors `packages/ai-contracts/src/companion.ts`. The classifier's output set and the edit
+# catalogue's vocabularies live in `packages/types` (read from source below — the frontier the
+# API's catalogue and the event spine share), and every model is pinned to the same golden
+# fixture the TypeScript suite reads.
+_COMPANION_FIXTURE = _FIXTURE_DIR / "companion.keys.json"
+_COMPANION_TS = _REPO / "packages" / "ai-contracts" / "src" / "companion.ts"
+_TYPES_TS = _REPO / "packages" / "types" / "src" / "index.ts"
+
+_COMPANION_MODELS = {
+    "CompanionRecentTurn": CompanionRecentTurn,
+    "EditableField": EditableField,
+    "CompanionEditSnapshotRow": CompanionEditSnapshotRow,
+    "CompanionEditRow": CompanionEditRow,
+    "CompanionClassifyInput": CompanionClassifyInput,
+    "CompanionClassifyOutput": CompanionClassifyOutput,
+    "CompanionEditParseInput": CompanionEditParseInput,
+    "CompanionEditParseOutput": CompanionEditParseOutput,
+}
+
+
+@pytest.mark.parametrize("name", sorted(_COMPANION_MODELS))
+def test_companion_models_match_the_zod_shape(name: str):
+    golden = _read_golden(_COMPANION_FIXTURE)
+    assert name in golden, f"fixture is missing {name}"
+    assert sorted(_COMPANION_MODELS[name].model_fields) == sorted(golden[name])
+
+
+def test_the_companion_fixture_declares_no_model_the_python_side_lacks():
+    golden = _read_golden(_COMPANION_FIXTURE)
+    declared = {k for k in golden if not k.startswith("_")}
+    assert declared == set(_COMPANION_MODELS)
+
+
+def test_companion_enum_values_match_the_shared_types_source():
+    """The sets live in `packages/types/src/index.ts`; the API's catalogue and the event spine
+    read them too. A member added on one side only would otherwise be invisible — the key-name
+    parity above cannot see values."""
+    assert _string_union_in(_TYPES_TS, "COMPANION_V2_INTENTS") == list(get_args(CompanionV2Intent))
+    assert _string_union_in(_TYPES_TS, "COMPANION_V2_EDIT_SECTIONS") == list(get_args(EditSection))
+    assert _string_union_in(_TYPES_TS, "COMPANION_V2_EDIT_OPS") == list(get_args(EditOp))
+    assert _string_union_in(_TYPES_TS, "COMPANION_V2_UNSUPPORTED_EDIT_TARGETS") == list(
+        get_args(UnsupportedEditTarget)
+    )
+    assert list(get_args(CompanionMemoryRole)) == ["worker", "bada_bhai"]
+    # Non-vacuous: the regex found real members, not an empty list on both sides.
+    assert "edit_resume" in _string_union_in(_TYPES_TS, "COMPANION_V2_INTENTS")
+
+
+def _companion_ts_int(const_name: str) -> int:
+    source = _COMPANION_TS.read_text(encoding="utf-8")
+    match = re.search(rf"const {const_name} = (\d+);", source)
+    assert match, f"{const_name} not found in companion.ts — the mirror has moved"
+    return int(match.group(1))
+
+
+def test_companion_bounds_match_the_zod_source_at_the_boundary():
+    """BEHAVIOUR at the boundary, like the job-posting bounds above: the Pydantic constraint is
+    what is compared, not a Python constant that could drift from the Field it names."""
+    text_max = _companion_ts_int("TEXT_MAX_CLASSIFY")
+    message_max = _companion_ts_int("TEXT_MAX_MESSAGE")
+    field_max = _companion_ts_int("FIELD_MAX")
+    ref_max = _companion_ts_int("REF_MAX")
+    max_rows_max = _companion_ts_int("MAX_ROWS_MAX")
+
+    CompanionClassifyInput(text="x" * text_max)
+    with pytest.raises(ValidationError):
+        CompanionClassifyInput(text="x" * (text_max + 1))
+    CompanionEditParseInput(text="x" * message_max, max_rows=1)
+    with pytest.raises(ValidationError):
+        CompanionEditParseInput(text="x" * (message_max + 1), max_rows=1)
+
+    EditableField(section="skills", field="x" * field_max, ops=["add"])
+    with pytest.raises(ValidationError):
+        EditableField(section="skills", field="x" * (field_max + 1), ops=["add"])
+    CompanionEditSnapshotRow(ref="x" * ref_max, section="skills", fields={})
+    with pytest.raises(ValidationError):
+        CompanionEditSnapshotRow(ref="x" * (ref_max + 1), section="skills", fields={})
+    with pytest.raises(ValidationError):
+        EditableField(section="skills", field="skill", ops=[])
+
+    for bad_rows in (0, max_rows_max + 1):
+        with pytest.raises(ValidationError):
+            CompanionEditParseInput(text="kuch", max_rows=bad_rows)
+
+
+def test_companion_confidences_and_memory_turns_are_bounded():
+    CompanionClassifyOutput(intent="unclear", confidence=0.0)
+    CompanionClassifyOutput(intent="unclear", confidence=1.0)
+    for bad in (-0.1, 1.1):
+        with pytest.raises(ValidationError):
+            CompanionClassifyOutput(intent="unclear", confidence=bad)
+
+    turn = {"role": "worker", "text": "kuch"}
+    assert len(CompanionClassifyInput(text="hi", recent_turns=[turn, turn]).recent_turns) == 2
+    with pytest.raises(ValidationError):
+        CompanionClassifyInput(text="hi", recent_turns=[turn, turn, turn])
+
+
+def test_companion_outputs_default_fail_soft():
+    """`blocked` defaults False and the row/unsupported/catalogue/snapshot lists default empty,
+    so a far side that omits them still parses; the API treats a missing row as no card."""
+    out = CompanionClassifyOutput(intent="faltu", confidence=0.9)
+    assert out.blocked is False
+    assert CompanionClassifyInput(text="hi").recent_turns == []
+    parsed = CompanionEditParseOutput()
+    assert parsed.rows == []
+    assert parsed.unsupported == []
+    assert CompanionEditParseInput(text="kuch", max_rows=3).catalogue == []
+    assert CompanionEditParseInput(text="kuch", max_rows=3).snapshot == []
+
+
+def test_the_companion_contracts_carry_no_identity_pii_field():
+    """Mechanical, same as every other family here: there is nowhere in these contracts to put
+    a name, a phone or an address (§2 #2)."""
+    banned = {"worker_id", "worker_ref", "worker_name", "name", "phone", "address"}
+    for model_name, model in _COMPANION_MODELS.items():
+        assert banned.isdisjoint(set(model.model_fields)), model_name

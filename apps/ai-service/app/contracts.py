@@ -1886,3 +1886,134 @@ class ResumeSummaryOutput(BaseModel):
     failure_reason: str | None = None
     notes: list[str] = Field(default_factory=list)
     ai_metadata: AICallMetadata | None = None
+
+
+# --- Chat companion v2 — the LLM task router (ADR-0046 Phase 1) ---------------
+#
+# Mirrors `packages/ai-contracts/src/companion.ts`. Two endpoints:
+# `POST /companion/classify` (one free-text message -> one closed intent) and
+# `POST /companion/edit-parse` (one message + the API's closed catalogue and a
+# snapshot of the worker's current values -> typed edit rows).
+#
+# PRIVACY: `text` is worker free text and is pseudonymized FAIL-CLOSED at the
+# endpoint before AIRouter (the same gateway every other endpoint uses); the
+# service never sees a name, a phone or an ID — and this contract carries no
+# field for one. The model output is UNTRUSTED: the API re-validates every row
+# deterministically before anything is stored or written (ADR-0046 §3).
+#
+# The vocabularies below are the SAME closed sets `packages/types` declares
+# (`COMPANION_V2_INTENTS`, `COMPANION_V2_EDIT_SECTIONS`, `COMPANION_V2_EDIT_OPS`,
+# `COMPANION_V2_UNSUPPORTED_EDIT_TARGETS`); the parity suite reads that source and
+# turns red if one side moves alone.
+
+CompanionV2Intent = Literal[
+    "edit_resume",
+    "career_talk",
+    "jobs_talk",
+    "new_resume",
+    "faltu",
+    "unclear",
+]
+EditSection = Literal[
+    "employment",
+    "skills",
+    "languages",
+    "qualifications",
+    "occupations",
+    "preferences",
+]
+EditOp = Literal["add", "edit", "delete"]
+UnsupportedEditTarget = Literal["identity", "contact", "other"]
+CompanionMemoryRole = Literal["worker", "bada_bhai"]
+
+
+class CompanionRecentTurn(BaseModel):
+    """One pseudonymized memory turn (O13) — Redis only, never Postgres."""
+
+    role: CompanionMemoryRole
+    text: str = Field(min_length=1, max_length=1000)
+
+
+class EditableField(BaseModel):
+    """One field the API allows the model to name (owner ruling 2026-09-29).
+
+    ``field`` is a LOGICAL name (e.g. ``expected_salary``); the API maps it to its
+    writer's DTO key itself. ``ops`` is the legal subset for this field — `add` is
+    offered only where one field defines the entry (skills, languages,
+    occupations), so employment and qualifications are edit/delete-only in chat.
+    The catalogue is API-authored constants; no worker text is ever in it.
+    """
+
+    section: EditSection
+    field: str = Field(min_length=1, max_length=64)
+    ops: list[EditOp] = Field(min_length=1, max_length=3)
+
+
+class CompanionEditSnapshotRow(BaseModel):
+    """One current row the model may edit or delete, by opaque short ref.
+
+    ``ref`` is minted by the API per request ("e1", "q2"); it is never a DB id and
+    never derivable from the worker's text. ``fields`` carries the current value
+    per catalogue field, None where the worker has nothing stored.
+    """
+
+    ref: str = Field(min_length=1, max_length=16)
+    section: EditSection
+    fields: dict[str, str | None] = Field(default_factory=dict)
+
+
+class CompanionEditRow(BaseModel):
+    """One proposed change. Validated deterministically by the API before use."""
+
+    op: EditOp
+    section: EditSection
+    #: Required for edit/delete; None for add (there is no row yet).
+    ref: str | None = Field(default=None, min_length=1, max_length=16)
+    #: Required for edit; must be one of the catalogue's fields for the section.
+    field: str | None = Field(default=None, min_length=1, max_length=64)
+    #: Required for add/edit. A value carrying a placeholder token is dropped (O17).
+    value: str | None = Field(default=None, max_length=4000)
+
+
+class CompanionClassifyInput(BaseModel):
+    """One free-text companion message to classify, with at most two memory turns."""
+
+    text: str = Field(min_length=1, max_length=1000)
+    recent_turns: list[CompanionRecentTurn] = Field(default_factory=list, max_length=2)
+
+
+class CompanionClassifyOutput(BaseModel):
+    """The classifier's closed intent plus its confidence and the block flag.
+
+    ``blocked`` is the pseudonymizer's fail-closed refusal (the API treats it, a
+    schema miss, a timeout or a null exactly alike: `unclear`).
+    """
+
+    intent: CompanionV2Intent
+    confidence: float = Field(ge=0.0, le=1.0)
+    blocked: bool = False
+
+
+class CompanionEditParseInput(BaseModel):
+    """One message plus the API's closed catalogue and current-value snapshot.
+
+    ``text`` is capped at the companion message DTO's own bound (4000), so this
+    contract can never reject a message the API accepted.
+    """
+
+    text: str = Field(min_length=1, max_length=4000)
+    catalogue: list[EditableField] = Field(default_factory=list, max_length=64)
+    snapshot: list[CompanionEditSnapshotRow] = Field(default_factory=list, max_length=64)
+    max_rows: int = Field(ge=1, le=10)
+
+
+class CompanionEditParseOutput(BaseModel):
+    """Typed edit rows (0..max_rows) plus the closed unsupported reasons.
+
+    NOTHING here is applied by the model: every row is re-validated by the API
+    (catalogue, op, ref, DTO shape, placeholder token, no-op) and a card is only
+    written after the worker taps Haan (ADR-0046 O4).
+    """
+
+    rows: list[CompanionEditRow] = Field(default_factory=list)
+    unsupported: list[UnsupportedEditTarget] = Field(default_factory=list)

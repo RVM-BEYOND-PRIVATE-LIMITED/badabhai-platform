@@ -148,3 +148,36 @@ One entry per task, appended after the task's checks pass. Tasks come from
   with `z.enum(undefined)` because the package resolves through `dist/`. Phase 2/3 events
   (`chat.companion_faltu_strike`, `chat.companion_career_answered`) are NOT registered in Phase 1.
 - **Next:** T4 (AI client `companionClassify` / `companionEditParse`).
+
+---
+
+## A1 — 2026-09-29 11:13
+
+- **Done:** The classify/edit-parse contracts, mirrored and pinned:
+  - `packages/types/src/index.ts`: `COMPANION_V2_EDIT_OPS` (+ type) beside the v2 vocabularies,
+    because the AI contract and T7's catalogue must name the same three ops.
+  - `apps/ai-service/app/contracts.py`: `CompanionV2Intent` / `EditSection` / `EditOp` /
+    `UnsupportedEditTarget` / `CompanionMemoryRole` + `CompanionRecentTurn`, `EditableField`,
+    `CompanionEditSnapshotRow`, `CompanionEditRow`, `CompanionClassifyInput`,
+    `CompanionClassifyOutput`, `CompanionEditParseInput`, `CompanionEditParseOutput`.
+  - `packages/ai-contracts/src/companion.ts` (new) + barrel exports in `index.ts`.
+  - `packages/ai-contracts/src/__fixtures__/companion.keys.json` (new, 8 models).
+  - `ai-contracts.test.ts`: 8-key parity block + closure + enum-source check + no-PII + caps.
+  - `tests/test_contract_parity.py`: model_fields vs the same fixture, enum values read from
+    `packages/types/src/index.ts`, boundary behaviour (text/field/ref/max_rows), defaults,
+    no-PII. The old `_zod_string_union` now delegates to a generic `_string_union_in`.
+  - Docs: contracts §2.2 defines `EditableField`; §3 rows updated (edit/delete-only for
+    employment & qualifications, reduced preferences, `expected_salary` → `salary_expected_max`);
+    phase file P1-OQ2 records all three 2026-09-29 rulings.
+- **Checks:**
+  - `pnpm --filter @badabhai/ai-contracts test` — 136 passed (8 new parity tests).
+  - `pnpm --filter @badabhai/types test` — no test files, exit 0.
+  - `pnpm lint` 0 errors (same 3 pre-existing warnings) · `pnpm typecheck` 29/29.
+  - `pnpm --filter @badabhai/api test` — 11,881 passed / 153 skipped.
+  - ai-service `pytest` exit 0 · `ruff check .` clean.
+- **Notes / decisions / surprises:** Zod `.default(null)` on the edit row's `ref`/`field`/`value`
+  mirrors the Pydantic `= None` defaults: omission is legal at the contract, and the API drops a
+  malformed row instead of failing the transport; `op`/`section` stay required. `EditableField.ops`
+  is the only place `add` legality per section is expressible, so the catalogue is what enforces
+  "single-field adds only" at prompt time (the DTO schema is the second wall in T7).
+- **Next:** A2 (companion module + endpoints in the AI service).
