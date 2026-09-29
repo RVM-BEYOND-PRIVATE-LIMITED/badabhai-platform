@@ -261,6 +261,11 @@ export {
   CompanionClassifyOutputSchema,
   CompanionEditParseInputSchema,
   CompanionEditParseOutputSchema,
+  CompanionCareerWorkerContextSchema,
+  CompanionCareerInputSchema,
+  CompanionCareerAnswerSchema,
+  CompanionCareerRefuseSchema,
+  CompanionCareerOutputSchema,
 } from "./companion";
 export type {
   CompanionRecentTurn,
@@ -271,4 +276,9 @@ export type {
   CompanionClassifyOutput,
   CompanionEditParseInput,
   CompanionEditParseOutput,
+  CompanionCareerWorkerContext,
+  CompanionCareerInput,
+  CompanionCareerAnswer,
+  CompanionCareerRefuse,
+  CompanionCareerOutput,
 } from "./companion";

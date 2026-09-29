@@ -7,5 +7,9 @@
   "CompanionClassifyInput": ["text", "recent_turns"],
   "CompanionClassifyOutput": ["intent", "confidence", "blocked", "ai_metadata"],
   "CompanionEditParseInput": ["text", "catalogue", "snapshot", "max_rows"],
-  "CompanionEditParseOutput": ["rows", "unsupported", "ai_metadata"]
+  "CompanionEditParseOutput": ["rows", "unsupported", "ai_metadata"],
+  "CompanionCareerWorkerContext": ["trade_label", "experience_bucket"],
+  "CompanionCareerInput": ["text", "recent_turns", "worker_context"],
+  "CompanionCareerAnswer": ["status", "lines", "followup_chips", "ai_metadata"],
+  "CompanionCareerRefuse": ["status", "topic", "ai_metadata"]
 }

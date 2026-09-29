@@ -2024,3 +2024,79 @@ class CompanionEditParseOutput(BaseModel):
     # The per-call cost/token metadata (ADR-0046 O12). `None` on the blocked path; the API's
     # cost recorder no-ops on null (see CompanionClassifyOutput.ai_metadata).
     ai_metadata: AICallMetadata | None = None
+
+
+# --- ADR-0046 Phase 3 - career talk (the model WRITES what the worker reads) -----------------
+
+CompanionCareerRefusalTopic = Literal[
+    "salary_promise",
+    "legal_medical_financial",
+    "named_employer",
+    "worker_rating",
+    "unsafe_other",
+]
+CompanionExperienceBucket = Literal["0-1", "1-3", "3-7", "7+"]
+#: The character caps the Zod mirror carries per line/chip. They are NOT the semantic gate — the
+#: API's validator owns the 20-words-per-line rule — they only stop a pathological payload.
+CompanionCareerLine = Annotated[str, Field(min_length=1, max_length=300)]
+CompanionCareerChip = Annotated[str, Field(min_length=1, max_length=60)]
+
+
+class CompanionCareerWorkerContext(BaseModel):
+    """What the career answer may know about the worker (O13/privacy).
+
+    ONLY the canonical trade label and a coarse experience bucket - no name, no
+    phone, no employer, no city. The API builds this from the confirmed profile;
+    the label is worker-facing copy the profile already carries, never free text
+    typed in the chat.
+    """
+
+    trade_label: str | None = Field(default=None, max_length=64)
+    experience_bucket: CompanionExperienceBucket | None = None
+
+
+class CompanionCareerInput(BaseModel):
+    """One message plus the memory turns and the closed worker context.
+
+    ``text`` is capped at the companion message DTO's own bound (4000), like
+    edit-parse. ``recent_turns`` carries up to six pseudonymized turns (O13);
+    the endpoint pseudonymizes ``text`` and masks the turns before the model.
+    """
+
+    text: str = Field(min_length=1, max_length=4000)
+    recent_turns: list[CompanionRecentTurn] = Field(default_factory=list, max_length=6)
+    worker_context: CompanionCareerWorkerContext = Field(
+        default_factory=CompanionCareerWorkerContext
+    )
+
+
+class CompanionCareerAnswer(BaseModel):
+    """The model's answer: 1-4 short Hinglish lines plus up to three follow-up chips.
+
+    NOTHING here is trusted. The API re-validates every line deterministically
+    (schema, persona tokens, the O10 refusal backstop, PII shapes) and serves the
+    fallback line on ANY failure - so the contract stays deliberately permissive:
+    a bad answer must reach the validator to be judged, not be rejected at the
+    transport with the same result and a worse diagnosis. The 20-words-per-line
+    bound is the VALIDATOR's; the character caps here only stop a pathological
+    payload.
+    """
+
+    status: Literal["answer"]
+    lines: list[CompanionCareerLine] = Field(min_length=1, max_length=4)
+    followup_chips: list[CompanionCareerChip] = Field(default_factory=list, max_length=3)
+    # The per-call cost/token metadata (ADR-0046 O12) - see CompanionClassifyOutput.
+    ai_metadata: AICallMetadata | None = None
+
+
+class CompanionCareerRefuse(BaseModel):
+    """The model refused: one closed topic, and the API serves that topic's fixed copy.
+
+    ``topic`` is a closed set so the refusal copy is reviewed text, never the
+    model's wording (O9/O10). ``unsafe_other`` is the catch-all the prompt names
+    for anything the four O10 topics do not cover.
+    """
+
+    status: Literal["refuse"]
+    topic: CompanionCareerRefusalTopic
+    ai_metadata: AICallMetadata | None = None
