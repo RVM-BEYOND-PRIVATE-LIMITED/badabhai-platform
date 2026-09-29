@@ -4744,6 +4744,29 @@ export const ChatCompanionEditCancelledPayload = z
   .strict();
 export type ChatCompanionEditCancelledPayload = z.infer<typeof ChatCompanionEditCancelledPayload>;
 
+/**
+ * A FALTU STRIKE WAS COUNTED (ADR-0046 P2, O11) — a count and whether THIS strike started the
+ * cool-down. Emitted by the faltu handler once per counted strike, whether the intent came from
+ * the abuse lexicon or the classifier.
+ *
+ * `strike_count` IS POSITIVE, AND THE FLOOR IS THE POINT: a Redis refusal counts NO strike (the
+ * store fails open so a worker is never silenced by an outage), and that path emits nothing
+ * rather than a fabricated zero — the same rule the cost recorder applies to absent metadata.
+ *
+ * THE MESSAGE IS NEVER NAMED, ECHOED OR SUMMARISED. The payload is one integer and one boolean;
+ * the worker is the envelope's subject; `.strict()` keeps it that way. `cooldown_started` is
+ * `false` when the counter crossed the threshold but the cool-down flag itself could not be
+ * written — the two facts are independent, and reporting them as one would be a lie about the
+ * other.
+ */
+export const ChatCompanionFaltuStrikePayload = z
+  .object({
+    strike_count: z.number().int().positive(),
+    cooldown_started: z.boolean(),
+  })
+  .strict();
+export type ChatCompanionFaltuStrikePayload = z.infer<typeof ChatCompanionFaltuStrikePayload>;
+
 // ── THE GENERAL ROAD (ADR-0045) ──────────────────────────────────────────────────────────────
 //
 // A chat worker whose role is OUTSIDE the 21 predefined roles runs role → skills and closes with a

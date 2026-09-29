@@ -1285,6 +1285,13 @@ export const EVENT_REGISTRY = {
     domain: "chat",
     payload: p.ChatCompanionEditCancelledPayload,
   },
+  // ADR-0046 P2 (O11) — one faltu strike was counted, and whether it started the cool-down.
+  // A count and a boolean; never the message that caused it. v1.
+  "chat.companion_faltu_strike": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatCompanionFaltuStrikePayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */
