@@ -7,6 +7,7 @@ import { labelForTaxonomyId } from "@badabhai/taxonomy";
 import type { CompanionV2EditSection, CompanionV2Outcome } from "@badabhai/types";
 import { SERVER_CONFIG } from "../../config/config.module";
 import { DATABASE } from "../../database/database.module";
+import { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
 import { AiService } from "../../ai/ai.service";
 import type { RequestContext } from "../../common/request-context";
 import { EventsService } from "../../events/events.service";
@@ -113,6 +114,7 @@ export class CompanionEditService {
     private readonly workerSkills: WorkerSkillsService,
     private readonly resumes: ResumeService,
     private readonly events: EventsService,
+    private readonly cost: AiCostRecorder,
   ) {}
 
   // ── propose ───────────────────────────────────────────────────────────────────────────────
@@ -134,6 +136,18 @@ export class CompanionEditService {
         max_rows: this.config.CHAT_COMPANION_V2_EDIT_MAX_ROWS,
       },
       ctx,
+    );
+
+    // THE SPEND IS RECORDED BEFORE ANY BRANCH BELOW CAN RETURN — a call that happened was
+    // billed whatever its content turned out to be, and `record` no-ops on a null meta (the
+    // blocked path, an unreachable service). ADR-0046 O12: watched, never capped.
+    await this.cost.record(
+      parsed?.ai_metadata ?? null,
+      "companion_edit_parse",
+      null,
+      ctx.correlationId,
+      ctx.requestId,
+      { workerId },
     );
 
     const unsupported = parsed?.unsupported ?? [];

@@ -5,7 +5,7 @@
   "CompanionEditSnapshotRow": ["ref", "section", "fields"],
   "CompanionEditRow": ["op", "section", "ref", "field", "value"],
   "CompanionClassifyInput": ["text", "recent_turns"],
-  "CompanionClassifyOutput": ["intent", "confidence", "blocked"],
+  "CompanionClassifyOutput": ["intent", "confidence", "blocked", "ai_metadata"],
   "CompanionEditParseInput": ["text", "catalogue", "snapshot", "max_rows"],
-  "CompanionEditParseOutput": ["rows", "unsupported"]
+  "CompanionEditParseOutput": ["rows", "unsupported", "ai_metadata"]
 }

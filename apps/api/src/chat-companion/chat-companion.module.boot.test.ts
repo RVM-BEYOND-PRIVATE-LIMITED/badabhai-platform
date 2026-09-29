@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AiModule } from "../ai/ai.module";
+import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiService } from "../ai/ai.service";
 import { AuthModule } from "../auth/auth.module";
 import { AppConfigModule } from "../config/config.module";
@@ -99,6 +100,9 @@ describe("ChatCompanionModule wiring", () => {
     expect(getMeta("exports", WorkersModule)).toContain(WorkersRepository);
     expect(getMeta("exports", MatchModule)).toContain(WorkerSkillsRepository);
     expect(getMeta("exports", AiModule)).toContain(AiService);
+    // ADR-0046 O12 — the v2 emitters inject `AiCostRecorder` (classify in the orchestrator,
+    // edit-parse in the edit service). @Global + exported, so no import edge is added.
+    expect(getMeta("exports", AiModule)).toContain(AiCostRecorder);
   });
 
   it("does NOT import the chat, profiles or profiling modules — a leaf with no route to a chat writer", () => {

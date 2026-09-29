@@ -34,11 +34,11 @@ client = TestClient(app)
 BLOCKING_TEXT = "reference number 12345678"
 
 
-def _fake_run(payload: str, captured: list[dict] | None = None):
+def _fake_run(payload: str, captured: list[dict] | None = None, meta: object = None):
     async def _run(*_args, **kwargs):
         if captured is not None:
             captured.append(kwargs)
-        return payload, None
+        return payload, meta
 
     return _run
 
@@ -62,7 +62,7 @@ def test_classify_blocks_before_the_router(monkeypatch: pytest.MonkeyPatch) -> N
     resp = client.post("/companion/classify", json={"text": BLOCKING_TEXT})
     assert resp.status_code == 200
     body = resp.json()
-    assert body == {"intent": "unclear", "confidence": 0.0, "blocked": True}
+    assert body == {"intent": "unclear", "confidence": 0.0, "blocked": True, "ai_metadata": None}
 
 
 def test_classify_masks_the_message_before_the_model(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -109,7 +109,7 @@ def test_classify_fails_closed_on_untrusted_output(
 ) -> None:
     monkeypatch.setattr(companion_router.router, "run", _fake_run(payload))
     body = client.post("/companion/classify", json={"text": "kuch bhi"}).json()
-    assert body == {"intent": "unclear", "confidence": 0.0, "blocked": False}
+    assert body == {"intent": "unclear", "confidence": 0.0, "blocked": False, "ai_metadata": None}
 
 
 def test_classify_tolerates_a_markdown_fence(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -155,7 +155,7 @@ def test_edit_parse_blocks_before_the_router(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(companion_router.router, "run", _boom)
     resp = client.post("/companion/edit-parse", json={"text": BLOCKING_TEXT, "max_rows": 3})
     assert resp.status_code == 200
-    assert resp.json() == {"rows": [], "unsupported": []}
+    assert resp.json() == {"rows": [], "unsupported": [], "ai_metadata": None}
 
 
 def test_edit_parse_masks_snapshot_values(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -217,7 +217,38 @@ def test_edit_parse_fails_closed_on_untrusted_output(monkeypatch: pytest.MonkeyP
     for payload in ["not json", "[]", '{"rows": "nope", "unsupported": "nope"}']:
         monkeypatch.setattr(companion_router.router, "run", _fake_run(payload))
         body = client.post("/companion/edit-parse", json={"text": "kuch", "max_rows": 3}).json()
-        assert body == {"rows": [], "unsupported": []}
+        assert body == {"rows": [], "unsupported": [], "ai_metadata": None}
+
+
+def test_the_cost_metadata_rides_back_for_the_api_to_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ADR-0046 O12: the API records companion spend against `ai.cost_recorded`.
+
+    `router.run` builds this metadata and it used to be DISCARDED here (`_meta`), the exact
+    #745/#738 shape that left `resume_generation` and `job_posting_chat_turn` unledgered — so
+    the dashboard's task-type buckets could never show companion spend. It now rides back on
+    the response; the API's recorder no-ops when it is null (the blocked path).
+    """
+    from app.contracts import AICallMetadata
+
+    meta = AICallMetadata(
+        ai_call_id="call-1",
+        task_type="companion_classify",
+        model_name="gemini-flash",
+        provider="google",
+        real_call=False,
+        created_at="2026-09-29T09:00:00+00:00",
+    )
+    monkeypatch.setattr(
+        companion_router.router,
+        "run",
+        _fake_run('{"intent": "edit_resume", "confidence": 0.9}', meta=meta),
+    )
+    body = client.post("/companion/classify", json={"text": "welding add karo"}).json()
+    assert body["ai_metadata"]["ai_call_id"] == "call-1"
+    assert body["ai_metadata"]["task_type"] == "companion_classify"
+    assert body["ai_metadata"]["real_call"] is False
 
 
 # ---------------------------------------------------------------------------

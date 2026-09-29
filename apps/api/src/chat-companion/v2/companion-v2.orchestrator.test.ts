@@ -72,14 +72,16 @@ function setup(
     new UnclearHandler(config),
   );
   const events = { emit: vi.fn(async (params: unknown) => params) };
+  const cost = { record: vi.fn(async () => undefined) };
   const orchestrator = new CompanionV2Orchestrator(
     config,
     ai as never,
     memory as never,
     registry,
     events as never,
+    cost as never,
   );
-  return { orchestrator, ai, memory, edits, events, config };
+  return { orchestrator, ai, memory, edits, events, cost, config };
 }
 
 const emitted = (events: { emit: { mock: { calls: unknown[][] } } }) =>
@@ -113,6 +115,18 @@ describe("CompanionV2Orchestrator — the turn pipeline (ADR-0046 §2.1)", () =>
     // The payload is exactly what the merged contract accepts.
     const parsed = EVENT_REGISTRY["chat.companion_turn_served_v2"].payload.safeParse(event.payload);
     expect(parsed.success).toBe(true);
+
+    // ADR-0046 O12 — the classify spend is recorded against `companion_classify` before any
+    // branch. The fake returns no metadata, so the recorded meta is null; `record` no-ops on
+    // null in production, and the call itself is what this pins.
+    expect(h.cost.record).toHaveBeenCalledWith(
+      null,
+      "companion_classify",
+      null,
+      "corr-1",
+      "req-1",
+      { workerId: WORKER },
+    );
   });
 
   it("edit_resume with the edit flag OFF: the phase-off line, no edit call at all", async () => {

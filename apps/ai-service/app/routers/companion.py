@@ -57,7 +57,10 @@ async def companion_classify(body: CompanionClassifyInput) -> CompanionClassifyO
         )
         # Fail closed: `unclear` is what a schema miss, a timeout and a low confidence
         # all become at the API, so a blocked message takes the ordinary clarify path.
-        return CompanionClassifyOutput(intent="unclear", confidence=0.0, blocked=True)
+        # `ai_metadata=None`: no provider was called, so there is no cost to record.
+        return CompanionClassifyOutput(
+            intent="unclear", confidence=0.0, blocked=True, ai_metadata=None
+        )
 
     # RESOLVED, not called, so the generation records which prompt version produced this
     # answer. `None` only while the name is unregistered (A3 registers it), in which case
@@ -67,14 +70,20 @@ async def companion_classify(body: CompanionClassifyInput) -> CompanionClassifyO
     messages = build_classify_messages(
         result.text, classify_logic.mask_recent_turns(body.recent_turns), system_prompt
     )
-    content, _meta = await router.run(
+    content, meta = await router.run(
         CLASSIFY_TASK_TYPE,
         messages=messages,
         mock_response=classify_logic.MOCK_RESPONSE,
         real_call_allowed=True,
         prompt=resolved,
     )
-    return classify_logic.parse_classify_output(content)
+    # THE SPEND IS RETURNED, NOT DISCARDED (ADR-0046 O12). `router.run` built this metadata and
+    # `_meta` used to be dropped here — the exact #745/#738 shape that left `resume_generation`
+    # and `job_posting_chat_turn` unledgered. The API records it against `companion_classify`
+    # before any branch; `real_call=False` zeroes the rupees on a mocked run rather than
+    # inventing them.
+    parsed = classify_logic.parse_classify_output(content)
+    return parsed.model_copy(update={"ai_metadata": meta})
 
 
 @api_router.post("/companion/edit-parse", response_model=CompanionEditParseOutput)
@@ -96,11 +105,14 @@ async def companion_edit_parse(body: CompanionEditParseInput) -> CompanionEditPa
         body.max_rows,
         system_prompt,
     )
-    content, _meta = await router.run(
+    content, meta = await router.run(
         EDIT_PARSE_TASK_TYPE,
         messages=messages,
         mock_response=edit_parse_logic.MOCK_RESPONSE,
         real_call_allowed=True,
         prompt=resolved,
     )
-    return edit_parse_logic.parse_edit_rows(content, body.max_rows)
+    # Same rule as the classifier above: the metadata rides back on the response so the API can
+    # record the spend against `companion_edit_parse` (ADR-0046 O12).
+    parsed = edit_parse_logic.parse_edit_rows(content, body.max_rows)
+    return parsed.model_copy(update={"ai_metadata": meta})

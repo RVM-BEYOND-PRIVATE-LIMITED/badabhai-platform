@@ -8,6 +8,7 @@ import type {
   CompanionV2Outcome,
 } from "@badabhai/types";
 import { SERVER_CONFIG } from "../../config/config.module";
+import { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
 import { AiService } from "../../ai/ai.service";
 import type { RequestContext } from "../../common/request-context";
 import { EventsService } from "../../events/events.service";
@@ -47,6 +48,7 @@ export class CompanionV2Orchestrator {
     private readonly memory: CompanionMemoryStore,
     private readonly registry: CompanionHandlerRegistry,
     private readonly events: EventsService,
+    private readonly cost: AiCostRecorder,
   ) {}
 
   async handleMessage(
@@ -77,6 +79,18 @@ export class CompanionV2Orchestrator {
     const classified = await this.ai.companionClassify(
       { text: pseudo.pseudonymized_text, recent_turns: recent },
       ctx,
+    );
+    // THE SPEND IS RECORDED BEFORE ANY BRANCH BELOW CAN RETURN — the `ResumeParseService.parse`
+    // rule: a call that happened was billed whatever its content turned out to be. `record`
+    // no-ops on a null meta, which is what the blocked path and an unreachable service both
+    // send (ADR-0046 O12: cost is watched, never capped).
+    await this.cost.record(
+      classified?.ai_metadata ?? null,
+      "companion_classify",
+      null,
+      ctx.correlationId,
+      ctx.requestId,
+      { workerId },
     );
     let intent: CompanionV2Intent;
     let intentSource: CompanionV2IntentSource;

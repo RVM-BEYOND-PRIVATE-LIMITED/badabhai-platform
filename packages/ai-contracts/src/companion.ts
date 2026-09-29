@@ -27,6 +27,8 @@ import {
   COMPANION_V2_UNSUPPORTED_EDIT_TARGETS,
 } from "@badabhai/types";
 
+import { AICallMetadataSchema } from "./common";
+
 // Bounds that are NOT vocabularies. Kept beside the schemas so the Pydantic mirror and the
 // parity suite have one place to compare; the parity test pins the caps by behaviour.
 const TEXT_MAX_CLASSIFY = 1000;
@@ -104,6 +106,12 @@ export const CompanionClassifyOutputSchema = z.object({
   intent: z.enum(COMPANION_V2_INTENTS),
   confidence: z.number().min(0).max(1),
   blocked: z.boolean().default(false),
+  /**
+   * The per-call cost/token metadata (ADR-0046 O12: watched, never capped). `null` on the
+   * blocked path and on any path that reached no provider; the API's cost recorder no-ops on
+   * null. Additive and defaulted, so an older far side that omits it still parses.
+   */
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
 });
 export type CompanionClassifyOutput = z.infer<typeof CompanionClassifyOutputSchema>;
 
@@ -130,5 +138,7 @@ export type CompanionEditParseInput = z.infer<typeof CompanionEditParseInputSche
 export const CompanionEditParseOutputSchema = z.object({
   rows: z.array(CompanionEditRowSchema).default([]),
   unsupported: z.array(z.enum(COMPANION_V2_UNSUPPORTED_EDIT_TARGETS)).default([]),
+  /** The per-call cost/token metadata (ADR-0046 O12) — see CompanionClassifyOutputSchema. */
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
 });
 export type CompanionEditParseOutput = z.infer<typeof CompanionEditParseOutputSchema>;

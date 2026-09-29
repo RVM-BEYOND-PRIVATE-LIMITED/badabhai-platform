@@ -575,3 +575,39 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
     `x-ai-internal-token` header from settings — an armed staging service would have 401'd into
     all-miss noise. Now mirrors `get_settings().ai_internal_token`.
 - **Checks:** PR #1819 fully green — Node, AI service, Image gate, E2E, SAST, ci-required.
+
+---
+
+## DevOps — 2026-09-29 15:30
+
+- **Done:** The two phase-1 DevOps items, on `feat/companion-v2-deploy-and-cost`.
+  - **Deploy chain** (`5c5886fd`): all five v2 phase flags bridged — `docker-compose.staging.yml`
+    `${VAR:-false}` pass-throughs, `ci.yml` `env:` + `envs:`, `.env.example`, and the
+    `deploy-workflow-taxonomy.guard.test.ts` cases pinning each hop and every default. The
+    KNOBS are deliberately NOT bridged (reviewed defaults; changing one is a compose diff).
+    `docs/environment-variables.md` no longer says this is pending.
+  - **Cost ledger (this commit):** the A2/A4-era gap is closed. Both ai-service endpoints now
+    return `ai_metadata` (`router.run`'s `_meta` was discarded — the #745/#738 shape) on
+    `CompanionClassifyOutput` / `CompanionEditParseOutput` (Python + Zod + golden fixture,
+    parity green), and the API records it through `AiCostRecorder` in
+    `CompanionV2Orchestrator.handleMessage` (`companion_classify`) and
+    `CompanionEditService.propose` (`companion_edit_parse`) — before any branch can return,
+    null meta no-op'ing as everywhere else. Both left `KNOWN_UNLEDGERED` in the SAME change,
+    and the coverage test's pinned emitted set now carries them.
+  - **Dashboard:** nothing to build — `platform_ai_cost_totals` accrues per (provider,
+    task_type) and the admin dashboard's `by_task_type` buckets are raw, so companion spend
+    renders automatically (its panel de-snakes unknown labels). `PROFILING_TASK_TYPE_KEYS`
+    already classified both as non-profiling.
+  - **Alert:** the per-call `cost_alert` flag now rides companion `ai.cost_recorded` events;
+    threshold `ai_cost_alert_profile_inr` is owner config, and no push alerting exists in the
+    repo (`docs/observability-runbook.md`). O12's "not capped" holds — nothing was added.
+- **Checks:**
+  - ai-service `pytest` 6,048 passed / 4 skipped · `ruff` clean.
+  - `pnpm --filter @badabhai/api test` 12,066 passed / 153 skipped · lint 0 errors ·
+    typecheck 29/29 · `@badabhai/ai-contracts` 136 passed.
+- **Notes / decisions / surprises:** the checklist's "alert on `ai_jobs`" is the ledger
+  (event + totals), not an `ai_jobs` row — inline calls have none by #745's design; recorded
+  in the phase file so the wording cannot be re-read as a gap.
+- **Next:** the tail PR for this branch; then the Frontend items (#1818) and the staging eval
+  run (which now also needs `AI_REAL_CALL_TASKS` widened on the box to name the two companion
+  tasks — an env action, noted in compose and the phase file).

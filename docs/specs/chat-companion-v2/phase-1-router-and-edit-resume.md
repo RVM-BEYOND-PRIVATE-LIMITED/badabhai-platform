@@ -132,8 +132,21 @@ A new edit message while a proposal is open replaces it (one active proposal per
 
 ### DevOps
 
-- [ ] Add the v2 flags to the `ci.yml` deploy env list (as `CHAT_COMPANION_ENABLED` is).
-- [ ] Cost dashboard + alert on `ai_jobs` for tasks `companion_*` (O12: watch, don't cap).
+- [x] Add the v2 flags to the `ci.yml` deploy env list (as `CHAT_COMPANION_ENABLED` is).
+      All five phase flags are bridged end-to-end (`ci.yml` `env:` + `envs:`,
+      `docker-compose.staging.yml` `${VAR:-false}`), the knobs deliberately are not; the
+      guard test pins each hop and the defaults.
+- [x] Cost dashboard + alert on `ai_jobs` for tasks `companion_*` (O12: watch, don't cap).
+      THE LEDGER IS NOW REAL: both endpoints return `ai_metadata` (A2 discarded it) and the
+      API records the spend through `AiCostRecorder` against `companion_classify` /
+      `companion_edit_parse` — so `ai.cost_recorded` and `platform_ai_cost_totals` accrue
+      and the admin dashboard's raw `by_task_type` buckets (and its panel) render the
+      companion spend with no further change. Note the checklist's wording: the record is
+      the ledger (event + totals), NOT an `ai_jobs` row — inline calls have no `ai_jobs`
+      row by #745's design. The "alert" is the existing per-call `cost_alert` flag that now
+      rides companion `ai.cost_recorded` events (threshold `ai_cost_alert_profile_inr`, an
+      owner config); there is no push alerting anywhere in the repo
+      (`docs/observability-runbook.md`), and per O12 nothing is capped.
 
 ## 3. Tests that must exist
 

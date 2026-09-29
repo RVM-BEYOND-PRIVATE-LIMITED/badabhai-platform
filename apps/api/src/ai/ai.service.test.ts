@@ -768,7 +768,22 @@ describe("AiService", () => {
     it("posts the classifier to /companion/classify and parses the closed intent", async () => {
       const fetchMock = vi.fn().mockResolvedValue(
         fakeResponse({
-          json: async () => ({ intent: "edit_resume", confidence: 0.9, blocked: false }),
+          json: async () => ({
+            intent: "edit_resume",
+            confidence: 0.9,
+            blocked: false,
+            // ADR-0046 O12 — the far side returns the per-call cost metadata and the Zod parse
+            // must NOT strip it (a stripped field would reach the recorder as null and the
+            // spend would vanish from the dashboard's task-type buckets, silently).
+            ai_metadata: {
+              ai_call_id: "call-1",
+              task_type: "companion_classify",
+              model_name: "gemini-flash",
+              provider: "google",
+              real_call: false,
+              created_at: "2026-09-29T09:00:00+00:00",
+            },
+          }),
         }),
       );
       vi.stubGlobal("fetch", fetchMock);
@@ -777,7 +792,15 @@ describe("AiService", () => {
         text: "Tata ki jagah Mahindra likho",
         recent_turns: [],
       });
-      expect(out).toEqual({ intent: "edit_resume", confidence: 0.9, blocked: false });
+      expect(out).toEqual({
+        intent: "edit_resume",
+        confidence: 0.9,
+        blocked: false,
+        ai_metadata: expect.objectContaining({
+          ai_call_id: "call-1",
+          task_type: "companion_classify",
+        }),
+      });
 
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
       expect(url).toBe("http://ai-service:8000/companion/classify");
