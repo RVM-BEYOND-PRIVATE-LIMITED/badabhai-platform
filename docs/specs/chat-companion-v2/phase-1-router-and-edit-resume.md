@@ -71,25 +71,28 @@ A new edit message while a proposal is open replaces it (one active proposal per
 - [x] **T2 Config.** `packages/config`: v2 flags + knobs (contracts §6). `docs/environment-variables.md`.
 - [x] **T3 Events.** `packages/event-schema`: `chat.companion_turn_served` v2, `chat.companion_edit_*` v1
       (contracts §4) + registry entries + schema tests.
-- [ ] **T4 AI client.** `apps/api/src/ai/ai.service.ts`: `companionClassify`, `companionEditParse`
+- [x] **T4 AI client.** `apps/api/src/ai/ai.service.ts`: `companionClassify`, `companionEditParse`
       (follow `jobPostingChatRespond`'s pattern: `this.post(path, input, OutputSchema, timeoutMs, ctx)`,
       null on failure). Timeouts: classify 3 s, edit-parse 6 s.
-- [ ] **T5 Redis stores.** `v2/companion-memory.store.ts`, `v2/edit-proposal.store.ts` (contracts §7),
+- [x] **T5 Redis stores.** `v2/companion-memory.store.ts`, `v2/edit-proposal.store.ts` (contracts §7),
       BullMQ connection reuse, fail-soft reads.
 - [ ] **T6 Orchestrator.** `v2/companion-v2.orchestrator.ts` + `v2/handlers/*.ts`
       (`EditResumeHandler`, `JobsDeferredHandler`, `PhaseOffHandler`, `UnclearHandler`), a
       `HandlerRegistry` keyed by intent. `ChatCompanionService.message` delegates to the
       orchestrator only when the v2 flag is on AND v1 resolution missed.
-- [ ] **T7 Edit catalogue + service.** `v2/edit-catalogue.ts`, `v2/companion-edit.service.ts`
+- [x] **T7 Edit catalogue + service.** `v2/edit-catalogue.ts`, `v2/companion-edit.service.ts`
       (snapshot, validate, propose, confirm-in-transaction, cancel, regenerate).
 - [ ] **T8 Controller routes.** `confirm` / `cancel` in `chat-companion.controller.ts` (HTTP only),
       DTOs in `chat-companion.dto.ts`, additive `edit_proposal` on `CompanionTurnSchema`.
-- [ ] **T9 Résumé trigger.** `packages/types` `RESUME_GENERATION_TRIGGERS` += `chat_edit`;
+- [x] **T9 Résumé trigger.** `packages/types` `RESUME_GENERATION_TRIGGERS` += `chat_edit`;
       migration **`0130`** widens `generated_resumes_generation_trigger_chk` (drop + re-add the CHECK
       with the extra value; down migration restores the old list). Claim `0130` in `MIGRATIONS.md`.
       `ResumeService` accepts the trigger; the daily cap applies.
-- [ ] **T10 Copy.** `companion-replies.ts` keys (contracts §8) with Devanagari twins; task chip keys in
+- [x] **T10 Copy.** `companion-replies.ts` keys (contracts §8) with Devanagari twins; task chip keys in
       `companion-keys.ts`.
+      Deviation: the task keys live in `companion-task-keys.ts`, because `companion-keys.ts` is
+      pinned verbatim by the worker app's parity test (adding keys there reddens the Flutter suite
+      before F5 ships). Frontend issue raised.
 
 ### Backend — AI service (`apps/ai-service/app/`)
 

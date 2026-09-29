@@ -1,7 +1,7 @@
 import { InjectQueue } from "@nestjs/bullmq";
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Queue } from "bullmq";
-import type { NewWorkerAttribute } from "@badabhai/db";
+import type { Database, NewWorkerAttribute } from "@badabhai/db";
 import type { ZodTypeAny } from "zod";
 
 import type { RequestContext } from "../common/request-context";
@@ -68,13 +68,17 @@ export class WorkerPreferencesService {
     workerId: string,
     body: SetMyPreferencesDto,
     ctx: RequestContext,
+    // ADR-0046 — join the caller's transaction when the companion's edit card applies several
+    // sections at once. The derived night-shift seed and the re-render are then skipped: both
+    // are best-effort side effects the caller owns once the transaction has committed.
+    opts: { tx?: Database } = {},
   ): Promise<{ worker_id: string; keys_written: number; keys_cleared: number }> {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
 
     // BEFORE ANY WRITE. An inverted band in one body is refused whole, never half-stored; one end
     // sent alone that crosses the stored other end clears that end (see `settleSalaryBand`).
-    const dto = await this.settleSalaryBand(workerId, body);
+    const dto = await this.settleSalaryBand(workerId, body, opts.tx);
 
     const rows: NewWorkerAttribute[] = [];
     const cleared: PreferenceKey[] = [];
@@ -155,10 +159,18 @@ export class WorkerPreferencesService {
       }
     }
 
-    await this.attributes.upsertMany(rows);
-    await this.attributes.deleteKeys(workerId, cleared);
+    // Arity-preserving: an existing caller's two-argument call shape stays byte-identical.
+    if (opts.tx === undefined) {
+      await this.attributes.upsertMany(rows);
+      await this.attributes.deleteKeys(workerId, cleared);
+    } else {
+      await this.attributes.upsertMany(rows, opts.tx);
+      await this.attributes.deleteKeys(workerId, cleared, opts.tx);
+    }
 
-    await this.seedNightShiftReadyFromShift(workerId, dto.shift);
+    // Skipped on a joined transaction: the seed writes the `workers` row on a SEPARATE
+    // connection, which cannot see uncommitted attributes and would derive from stale state.
+    if (opts.tx === undefined) await this.seedNightShiftReadyFromShift(workerId, dto.shift);
 
     await this.events.emit({
       event_name: "worker.preferences_recorded",
@@ -176,6 +188,7 @@ export class WorkerPreferencesService {
       },
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
+      ...(opts.tx === undefined ? {} : { tx: opts.tx }),
     });
 
     // Counts only — never a language, a city or a document name.
@@ -184,7 +197,8 @@ export class WorkerPreferencesService {
         (untouched.size > 0 ? `, ${untouched.size} old-build default(s) left untouched` : ""),
     );
 
-    await this.enqueueRerender(workerId, ctx);
+    // Skipped on a joined transaction: the companion regenerates once after commit (O6).
+    if (opts.tx === undefined) await this.enqueueRerender(workerId, ctx);
 
     return { worker_id: workerId, keys_written: rows.length, keys_cleared: cleared.length };
   }
@@ -302,6 +316,7 @@ export class WorkerPreferencesService {
   private async settleSalaryBand(
     workerId: string,
     dto: SetMyPreferencesDto,
+    tx?: Database,
   ): Promise<SetMyPreferencesDto> {
     const sentMin = dto.salary_expected_min;
     const sentMax = dto.salary_expected_max;
@@ -309,13 +324,13 @@ export class WorkerPreferencesService {
     if (sentMin === null || sentMax === null) return dto;
 
     if (sentMax === undefined) {
-      const storedMax = await this.storedNumber(workerId, "salary_expected_max");
+      const storedMax = await this.storedNumber(workerId, "salary_expected_max", tx);
       return sentMin !== undefined && storedMax !== null && sentMin > storedMax
         ? { ...dto, salary_expected_max: null }
         : dto;
     }
     if (sentMin === undefined) {
-      const storedMin = await this.storedNumber(workerId, "salary_expected_min");
+      const storedMin = await this.storedNumber(workerId, "salary_expected_min", tx);
       return storedMin !== null && sentMax < storedMin
         ? { ...dto, salary_expected_min: null }
         : dto;
@@ -334,10 +349,16 @@ export class WorkerPreferencesService {
   }
 
   /** One stored `number` attribute as a JS number, or null when there is no usable row. */
-  private async storedNumber(workerId: string, key: PreferenceKey): Promise<number | null> {
-    const row = (await this.attributes.loadKeys(workerId, [key])).find(
-      (r) => r.attributeKey === key,
-    );
+  private async storedNumber(
+    workerId: string,
+    key: PreferenceKey,
+    tx?: Database,
+  ): Promise<number | null> {
+    const row = (
+      tx === undefined
+        ? await this.attributes.loadKeys(workerId, [key])
+        : await this.attributes.loadKeys(workerId, [key], tx)
+    ).find((r) => r.attributeKey === key);
     // `numeric` arrives from pg as text; a row of another kind has nothing in this column.
     if (row === undefined || row.valueNumber === null) return null;
     const value = Number(row.valueNumber);

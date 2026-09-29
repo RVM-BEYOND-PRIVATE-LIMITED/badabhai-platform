@@ -303,7 +303,7 @@ export const generatedResumes = pgTable(
     ),
     check(
       "generated_resumes_generation_trigger_chk",
-      sql`${t.generationTrigger} IS NULL OR ${t.generationTrigger} IN ('profile_confirmed', 'manual', 'chat_update_accepted', 'ops_regenerate')`,
+      sql`${t.generationTrigger} IS NULL OR ${t.generationTrigger} IN ('profile_confirmed', 'manual', 'chat_update_accepted', 'ops_regenerate', 'chat_edit')`,
     ),
     // At most ONE initial (version 1) resume per profile. Makes initial generation
     // idempotent/race-safe (ON CONFLICT): the auto-generate on profile.confirmed and

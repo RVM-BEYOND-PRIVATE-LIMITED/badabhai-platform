@@ -2,6 +2,7 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import { DraftProfileSchema } from "@badabhai/ai-contracts";
+import type { Database } from "@badabhai/db";
 
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import type { RequestContext } from "../common/request-context";
@@ -65,6 +66,11 @@ export class WorkerEmploymentService {
     workerId: string,
     dto: SetMyEmploymentDto,
     ctx: RequestContext,
+    // ADR-0046 — the companion's edit card applies several sections in ONE transaction, so this
+    // writer can join the caller's transaction. When it does, its own re-render is SKIPPED: the
+    // caller regenerates the résumé once, after commit (O6), and a render enqueued inside a
+    // transaction that later rolls back would describe a history that never existed.
+    opts: { tx?: Database } = {},
   ): Promise<{ worker_id: string; employer_count: number }> {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
@@ -87,7 +93,11 @@ export class WorkerEmploymentService {
           : [],
     );
     if (claimedNoteIds.length > 0) {
-      const owned = await this.employment.findOwnedVoiceNoteIds(workerId, claimedNoteIds);
+      // Arity-preserving: the existing caller's two-argument call shape stays byte-identical.
+      const owned =
+        opts.tx === undefined
+          ? await this.employment.findOwnedVoiceNoteIds(workerId, claimedNoteIds)
+          : await this.employment.findOwnedVoiceNoteIds(workerId, claimedNoteIds, opts.tx);
       if (claimedNoteIds.some((id) => !owned.has(id))) {
         throw new NotFoundException("voice note not found");
       }
@@ -139,6 +149,9 @@ export class WorkerEmploymentService {
       outcome = await this.employment.replaceForWorker(workerId, rows, {
         expectedExistingCount: dto.expected_existing_count,
         preserveWhenEmpty: dto.expected_existing_count === undefined,
+        // Spread, not `tx: undefined` — the options object an existing caller produces must stay
+        // byte-identical (the writer tests assert its exact shape).
+        ...(opts.tx === undefined ? {} : { tx: opts.tx }),
       });
     } catch (err) {
       // 409, NOTHING WRITTEN, NO EVENT. The mismatch was detected inside the transaction before its
@@ -176,6 +189,7 @@ export class WorkerEmploymentService {
       },
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
+      ...(opts.tx === undefined ? {} : { tx: opts.tx }),
     });
 
     // Counts only — never an employer name, a city or a date.
@@ -188,7 +202,9 @@ export class WorkerEmploymentService {
     // worker keeps downloading a sheet with his old history on it — the same reason a name
     // change re-renders. failClosed:false: adding history is not a REMOVAL, so a failed render
     // leaves the previous PDF in service rather than 409-ing a résumé he had a second ago.
-    await this.enqueueRerender(workerId, ctx);
+    //
+    // SKIPPED ON A JOINED TRANSACTION: the companion's confirm regenerates once after commit.
+    if (opts.tx === undefined) await this.enqueueRerender(workerId, ctx);
 
     return { worker_id: workerId, employer_count: rows.length };
   }

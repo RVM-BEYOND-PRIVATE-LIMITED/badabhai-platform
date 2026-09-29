@@ -14,7 +14,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { RESUME_GENERATION_TRIGGERS, RESUME_SOURCES } from "@badabhai/types";
+import { RESUME_SOURCES } from "@badabhai/types";
 import { describe, expect, it } from "vitest";
 
 const TAG = "0125_resume_history";
@@ -116,12 +116,18 @@ describe("the vocabulary CHECKs", () => {
     expect(triggerChk).toContain("IS NULL");
   });
 
-  it("close EXACTLY the shared constants", () => {
+  it("close EXACTLY the vocabulary this migration shipped with — a FROZEN record", () => {
     // The same values are a `z.enum` on `resume.generated` / `resume.regenerated` and the union
     // the API writes. Copies that can drift is how an event the registry refuses gets emitted for
-    // a row the database happily stored, so this pins the SQL to the constants.
+    // a row the database happily stored, so the SQL is pinned — to a LITERAL, not to the live
+    // constant: 0130 widened `RESUME_GENERATION_TRIGGERS` with `chat_edit` and a migration file
+    // never changes. The LIVE agreement with the shared constant is asserted by
+    // `migration-0130-*.test.ts` (and its own tripwire), so a future widening still fails there
+    // until its own migration follows.
     expect(new Set(quotedIn(sourceChk))).toEqual(new Set(RESUME_SOURCES));
-    expect(new Set(quotedIn(triggerChk))).toEqual(new Set(RESUME_GENERATION_TRIGGERS));
+    expect(new Set(quotedIn(triggerChk))).toEqual(
+      new Set(["profile_confirmed", "manual", "chat_update_accepted", "ops_regenerate"]),
+    );
   });
 });
 

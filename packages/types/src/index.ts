@@ -41,11 +41,13 @@ export type ResumeSource = (typeof RESUME_SOURCES)[number];
 //   manual                the worker asked (POST /resume/generate)
 //   chat_update_accepted  the worker said "Haan" to "Resume update kar doon?" in chat
 //   ops_regenerate        an operator re-ran generation (internal route)
+//   chat_edit             ADR-0046 O6 — the worker tapped Haan on a companion edit card
 export const RESUME_GENERATION_TRIGGERS = [
   "profile_confirmed",
   "manual",
   "chat_update_accepted",
   "ops_regenerate",
+  "chat_edit",
 ] as const;
 export type ResumeGenerationTrigger = (typeof RESUME_GENERATION_TRIGGERS)[number];
 

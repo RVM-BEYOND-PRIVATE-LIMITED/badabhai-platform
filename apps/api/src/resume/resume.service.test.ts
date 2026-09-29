@@ -1013,6 +1013,25 @@ describe("ResumeService — résumé history: which entry a generation becomes (
     expect(auto.rateLimit.assertWithinDailyCap).toHaveBeenCalledWith("w-1", { perWorker: false });
   });
 
+  it("a confirmed companion edit is METERED too, labelled `chat_edit`, and a retry is not (ADR-0046 O6)", async () => {
+    const edit = setup(null);
+    await edit.svc.generate(DTO, CTX, { systemInitiated: true, trigger: "chat_edit" });
+    expect(edit.rateLimit.assertWithinDailyCap).toHaveBeenCalledWith("w-1", { perWorker: true });
+    // The history card and the funnel read this label off the SAVED row.
+    expect(
+      (edit.resumes.createInitial.mock.calls[0]![0] as Record<string, unknown>).generationTrigger,
+    ).toBe("chat_edit");
+
+    // A queue retry of the SAME edit must not spend a second generation on one Haan.
+    const retry = setup(null);
+    await retry.svc.generate(DTO, CTX, {
+      systemInitiated: true,
+      trigger: "chat_edit",
+      retry: true,
+    });
+    expect(retry.rateLimit.assertWithinDailyCap).toHaveBeenCalledWith("w-1", { perWorker: false });
+  });
+
   it("labels the entry `resume_upload` when the profile accepted a CV import, else the road", async () => {
     const fromCv = setup(null);
     fromCv.profiles.findById.mockResolvedValue({

@@ -243,3 +243,207 @@ One entry per task, appended after the task's checks pass. Tasks come from
   construction (no interpolation), so a Langfuse-managed prompt is the ONLY way they can differ —
   which is what makes the version record meaningful.
 - **Next:** T4 (`AiService.companionClassify` / `companionEditParse`, 3 s / 6 s timeouts).
+
+---
+
+## Merge note — 2026-09-29 12:0x
+
+- `feat/companion-v2-phase1` was retargeted to `main` and squash-merged as **#1816**
+  (`15bc654d`), carrying T0–T3 + A1–A3 and the ADR-0046/spec docs. #1814 was closed as
+  superseded by #1816.
+- Per CLAUDE.md §14, the merged branch is DEAD. All remaining Phase 1 work continues on
+  **`feat/companion-v2-phase1-cont`**, cut from fresh `main` (`15bc654d`).
+
+---
+
+## T4 — 2026-09-29 12:17
+
+- **Done:** `apps/api/src/ai/ai.service.ts`: `companionClassify` (3 s) and
+  `companionEditParse` (6 s), following `jobPostingChatRespond`'s `this.post(path, input,
+  OutputSchema, timeoutMs, ctx)` pattern — null on every failure, caller treats it as
+  `unclear` / no card. Both schemas and types imported from `@badabhai/ai-contracts`.
+  Tests in `ai.service.test.ts` (+7): URL/body per route, schema-miss → null, unreachable →
+  null, the two abort budgets pinned on the AbortSignal with fake timers, and both methods
+  added to the BL-19 ctx-forwarding block (5 → 7 calls in the optional-ctx test).
+  - `apps/api/src/ai/ai.service.ts`
+  - `apps/api/src/ai/ai.service.test.ts`
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 11,888 passed / 153 skipped (7 new).
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29.
+  - ai-service `pytest` exit 0 · `ruff check .` clean.
+- **Notes / decisions / surprises:** The `KNOWN_UNLEDGERED` entries for the two tasks stay
+  until T6/T7 wire the emitter; the removal is part of that change (the coverage test enforces
+  the pairing).
+- **Next:** T5 (Redis stores: `companion-memory.store.ts`, `edit-proposal.store.ts`).
+
+---
+
+## T5 — 2026-09-29 12:27
+
+- **Done:** The two Redis-only stores (contracts §7), reusing BullMQ's connection via
+  `RESUME_RENDER_QUEUE` (`ResumeRateLimit` / `AdminMfaSecretStore` precedent; the module now
+  registers the queue for its connection only — nothing enqueues to it).
+  - `v2/companion-memory.store.ts`: `companion:v2:mem:{workerId}` list, `read` (tail, oldest
+    first, per-entry schema validation, fail-soft `[]`), `append` (RPUSH + LTRIM to
+    `MEMORY_TURNS` + EXPIRE `MEMORY_TTL_SECONDS`, best-effort). Never logs text.
+  - `v2/edit-proposal.store.ts`: `companion:v2:proposal:{workerId}` JSON, one active card per
+    worker (SET replaces), `save` returns boolean (false → no card offered, contracts §7),
+    `load` (Zod-validated; unreadable/off-contract = absent), `delete` best-effort. The stored
+    row shape (`StoredEditProposal{Row}Schema`) is what T7 applies: `row_id`, section/op/field/
+    value, captured `before` for the stale check, section label, and the server-resolved
+    `target` (never a DB id on the wire).
+  - `chat-companion.module.ts`: queue registration + both providers.
+  - `chat-companion.module.boot.test.ts` EXTENDED (README rule 3): five providers, `AiModule`
+    pinned @Global with `AiService` exported (T6's only model path), and the egress guard now
+    scans `v2/` — the five original bans hold for both generations, v1 keeps its no-AI rule,
+    and a new v2 ban forbids any direct fetch/SDK call (model calls only via `AiService`).
+  - Tests: `companion-memory.store.test.ts` (8), `edit-proposal.store.test.ts` (12) — caps,
+    TTLs, key namespace, replace-not-append, schema-miss = absent, every fail-soft branch, and
+    "no proposed value in a log line".
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 11,909 passed / 153 skipped (20 new).
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29.
+  - ai-service `pytest` exit 0 · `ruff check .` clean.
+- **Notes / decisions / surprises:** `save` is the one non-fail-soft operation on purpose — the
+  caller must know not to show a card it cannot later apply. `StoredEditProposal.target` is a
+  `Record<string, string | number> | null` so T7 can resolve section-specific identities
+  (employment id, language slug, list position) without this store knowing any writer's DTO.
+- **Next:** T6 (orchestrator + handlers; v1-first, model only on a miss).
+
+---
+
+## Order note — dependency inversion (2026-09-29 12:35)
+
+The checklist order T6→T7→T8→T9→T10 is dependency-INVERTED: T6's handlers serve T10's copy and
+call T7's edit service; T7 needs T8's wire field, T9's `chat_edit` trigger and T10's copy; T8's
+routes call T7's service. Executing in checklist order would force either red intermediate
+commits or one giant commit. Continuing in dependency order — **T10 → T9 → T7 → T8 → T6 →
+A4/tests** — with each task still its own commit. PROGRESS records the actual order.
+
+---
+
+## T10 — 2026-09-29 12:35
+
+- **Done:** The v2 copy and task-chip keys.
+  - `companion-replies.ts`: the ten P1 `CopyPair`s (V2_PHASE_OFF, V2_JOBS_DEFERRED, V2_CLARIFY,
+    V2_EDIT_CARD_INTRO, V2_EDIT_NONE, V2_EDIT_IDENTITY, V2_EDIT_DONE, V2_EDIT_DONE_CAPPED,
+    V2_EDIT_CANCELLED, V2_EDIT_STALE), all in `ALL_COPY_PAIRS`.
+  - `companion-task-keys.ts` (new): `companion_task:edit_resume` / `:new_resume` / `:career_talk`
+    + labels. **Deviation from the spec's file:** NOT in `companion-keys.ts` — the worker app's
+    `chat_companion_keys_test.dart` reads that file and pins the key set to exactly the four v1
+    keys, so adding these there reddens the Flutter suite before F5 ships. A separate backend file
+    keeps every existing suite green; F5 points its parity test here when it mirrors them.
+  - Tests: replies test scans the ten new pairs + three chip labels (persona/twin rules); new
+    `companion-task-keys.test.ts` (prefix, collision-freedom, reserved prefixes).
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 11,975 passed / 153 skipped.
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29.
+  - ai-service `pytest` exit 0 · `ruff check .` clean.
+- **Notes / decisions / surprises:** Faltu/career refusal copy is P2/P3 and deliberately NOT
+  authored yet (one phase per PR). The `companion_task:jobs` row in contracts §5.3 is served by
+  v1's existing `companion_new_jobs` chip, so no second jobs key exists.
+- **Next:** T9 (`chat_edit` trigger + migration 0130).
+
+---
+
+## T9 — 2026-09-29 12:47
+
+- **Done:** The `chat_edit` generation trigger end to end.
+  - `packages/types`: `RESUME_GENERATION_TRIGGERS` += `chat_edit` (ADR-0046 O6).
+  - `apps/api/src/resume/resume.dto.ts`: `SystemResumeTrigger` += `chat_edit`.
+  - `apps/api/src/resume/resume.service.ts`: metered like `chat_update_accepted` — the
+    per-worker daily cap applies, and a queue retry does not re-charge (the `retry` comment
+    updated).
+  - `packages/db/src/schema/profile.ts`: CHECK widened; `pnpm db:generate` produced migration
+    **0130**, renamed `0130_resume_generation_trigger_chat_edit` (journal tag updated) and given
+    the house header (deploy order = before the FLAG; lock_timeout; rollback restores the
+    0125 list). Snapshot `0130_snapshot.json` written by drizzle.
+  - `packages/db/src/migration-0130-resume-generation-trigger-chat-edit.test.ts` (new, 11
+    tests): additive-only, frozen vocabulary, NULL tolerance, the LIVE-model tripwire against
+    `RESUME_GENERATION_TRIGGERS`, snapshot lineage, header, journal.
+  - `packages/db/src/migration-0125-resume-history.test.ts`: its trigger assertion now pins the
+    FROZEN 0125 literal (it compared the migration to the live constant, which made the
+    migration un-widenable; 0130's test owns live agreement).
+  - `packages/db/src/schema-contract.ts`: `0130-generated-resumes-generation-trigger-chat-edit`
+    (`kind: "constraint"`).
+  - `MIGRATIONS.md`: the reserved `0130` row rewritten as shipped (apply-before-flag, locks,
+    rollback, verify-by-`pg_get_constraintdef`).
+  - `resume.service.test.ts`: +1 test (chat_edit metered, labelled on the saved row, retry free).
+- **Checks:**
+  - `pnpm --filter @badabhai/db test` — 130 files / 2,684 passed.
+  - `pnpm --filter @badabhai/event-schema test` — 375 passed.
+  - `pnpm --filter @badabhai/api test` — 11,976 passed / 153 skipped.
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29 · ai-service `pytest` exit 0 + `ruff` clean.
+- **Notes / decisions / surprises:** `@badabhai/types` must be REBUILT before db/api tests when
+  its vocabularies change (packages resolve through `dist/`; the same footgun recorded at T3).
+  Migration mechanics: `db:generate` → rename tag → update `_journal.json` → header → test.
+- **Next:** T7 (edit catalogue + service; needs T8's `edit_proposal` wire field, which lands
+  with it as the strict turn schema requires it).
+
+---
+
+## T7 (part 1) — additive tx support — 2026-09-29 13:05
+
+- **Done:** Every section writer the catalogue reaches can now JOIN the caller's transaction
+  (owner-approved strategy: additive `tx?: Database`, keeping each writer's logic in its own
+  service):
+  - `WorkerEmploymentRepository.replaceForWorker` (+ `findOwnedVoiceNoteIds`) and
+    `WorkerEmploymentService.replaceForWorker`;
+  - `WorkerLanguagesRepository.replaceForWorker` / `WorkerLanguagesService.replaceForWorker`;
+  - `WorkerQualificationsRepository.replaceForWorker` / `WorkerQualificationsService.replaceForWorker`;
+  - `WorkerOccupationsRepository.replaceForWorker` / `WorkerOccupationsService.replaceForWorker`;
+  - `WorkerAttributesRepository.loadKeys` (+ the already-tx `upsertMany`/`deleteKeys`) /
+    `WorkerPreferencesService.setForWorker`.
+  On a joined transaction each service: runs its repo call on the caller's tx, emits its event
+  WITH the tx (atomic with the write), and SKIPS its own re-render (or, for occupations, the
+  matching rebuild) — the companion regenerates once after commit (O6), and a render enqueued
+  inside a transaction that later rolls back would describe a history that never existed.
+  Arities are preserved (`tx: undefined` is never passed), so every existing caller's call
+  shape and every writer test stay byte-identical.
+  - `packages/db/src/client.ts`: the `Database` docblock records the tx convention (a drizzle
+    transaction handle is typed `Database` here; the cast is contained at the one place the
+    callback meets the client — the `AdminActionsRepository.withTransaction` precedent).
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 11,976 passed / 153 skipped (all writer suites green).
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29.
+- **Notes / decisions / surprises:** `this.db.transaction((inner) => run(inner as unknown as
+  Database))` is the localized cast; `run` only ever touches the query API. The five writer
+  suites (239 tests) all pass unchanged.
+- **Next:** T7 part 2 — `v2/edit-catalogue.ts` + `v2/companion-edit.service.ts` (+ the
+  `edit_proposal` wire field).
+
+---
+
+## T7 (part 2) — edit catalogue + service — 2026-09-29 14:00
+
+- **Done:** The edit path, end to end.
+  - `chat-companion.dto.ts`: `edit_proposal` / `read_aloud` / `cooldown_until` on
+    `CompanionTurnSchema` (the T8 wire field, landed here because the strict turn schema needs
+    it) + `ConfirmEditSchema` / `CancelEditSchema` (used by T8's routes).
+  - `v2/edit-catalogue.ts`: the closed catalogue (fields/ops per the owner rulings), section
+    labels, per-field normalisation against the same vocabularies/bounds the writers' DTOs
+    enforce, the O17 placeholder-token screen, and a PII screen on skill labels.
+  - `v2/companion-edit.service.ts`: snapshot (per-section fail-soft, refs minted server-side,
+    targets never on the wire), deterministic row validation (catalogue/op/ref/value/token/
+    no-op), proposal store + card turn, stale check, confirm applying every selected row through
+    the section writers on ONE transaction, cancel, `chat_edit` regeneration with the daily cap,
+    and the three edit events (deduped by proposal id).
+  - `v2/companion-v2-compose.ts`: v2 turn builders + task chips (enabled phases only).
+  - `profiles.repository.ts`: `setResumeSkillLabels` — the résumé-ONLY skills writer (raw-profile
+    snapshot only; never the matching column/`worker_skill`/`job_reach`).
+  - `companion-replies.ts`: `V2_EDIT_UNAVAILABLE` (contracts §7's store-failure line).
+  - `chat-companion.module.ts`: the edit service + its own instances of the five writers and the
+    repos they need (leaf preserved; see the module docblock).
+  - Tests: `companion-edit.fake.ts` harness + `companion-edit.validate.test.ts` (14),
+    `companion-edit.confirm.test.ts` (9), `companion-edit.no-identity.test.ts` (4).
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 12,011 passed / 153 skipped.
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29 · ai-service `pytest` exit 0 + `ruff` clean.
+- **Notes / decisions / surprises:** identity/contact rows are ALSO inferred into `unsupported`
+  (a model row aimed at them serves `V2_EDIT_IDENTITY` even if the model forgot the hint). A
+  newly added language gets `can_speak: true` (the writer requires ≥1 ability; speaking is the
+  honest default). An occupations edit rebuilds matching AFTER commit; every writer skips its own
+  re-render on a joined transaction and the companion regenerates once (trigger `chat_edit`).
+  List preferences are member-level add/delete; `availability` is three scalar sub-fields merged
+  into the stored object (owner ruling 2026-09-29).
+- **Next:** T8 (controller routes for confirm/cancel; DTOs landed with T7).

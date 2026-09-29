@@ -1,6 +1,7 @@
 import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Queue } from "bullmq";
+import type { Database } from "@badabhai/db";
 
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
@@ -45,19 +46,23 @@ export class WorkerLanguagesService {
     workerId: string,
     dto: SetMyLanguagesDto,
     ctx: RequestContext,
+    // ADR-0046 — join the caller's transaction when the companion's edit card applies several
+    // sections at once; the re-render is then the caller's (one regeneration after commit).
+    opts: { tx?: Database } = {},
   ): Promise<{ worker_id: string; language_count: number }> {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
 
-    const { languagesWritten, replacedExisting } = await this.languages.replaceForWorker(
-      workerId,
-      dto.languages.map((l) => ({
-        language: l.language,
-        canSpeak: l.can_speak,
-        canRead: l.can_read,
-        canWrite: l.can_write,
-      })),
-    );
+    const rows = dto.languages.map((l) => ({
+      language: l.language,
+      canSpeak: l.can_speak,
+      canRead: l.can_read,
+      canWrite: l.can_write,
+    }));
+    const { languagesWritten, replacedExisting } =
+      opts.tx === undefined
+        ? await this.languages.replaceForWorker(workerId, rows)
+        : await this.languages.replaceForWorker(workerId, rows, opts.tx);
 
     await this.events.emit({
       event_name: "worker.languages_recorded",
@@ -74,6 +79,7 @@ export class WorkerLanguagesService {
       },
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
+      ...(opts.tx === undefined ? {} : { tx: opts.tx }),
     });
 
     // Counts only — never a language slug.
@@ -82,7 +88,8 @@ export class WorkerLanguagesService {
         (replacedExisting ? ", replaced existing rows" : ""),
     );
 
-    await this.enqueueRerender(workerId, ctx);
+    // Skipped on a joined transaction: the companion regenerates once after commit (O6).
+    if (opts.tx === undefined) await this.enqueueRerender(workerId, ctx);
 
     return { worker_id: workerId, language_count: languagesWritten };
   }

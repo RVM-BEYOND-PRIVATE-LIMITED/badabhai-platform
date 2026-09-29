@@ -222,6 +222,79 @@ export function guaranteeLine(): string {
   return personaCorpus().guaranteeLine;
 }
 
+// ── Companion v2 — the router's fixed lines (ADR-0046 Phase 1) ───────────────────────────────
+//
+// The v2 pipeline answers a classified intent with one of these. They are constants for the same
+// reason every line above is: the model CLASSIFIES, it never phrases (ADR-0046 §2). A line whose
+// phase is not built yet says so — the owner's wording, O2 — and never pretends the capability
+// exists. Every one carries its Devanagari twin and is scanned by `companion-replies.test.ts`.
+
+/** An intent whose phase is not built yet. The owner's wording (ADR-0046 O2). */
+export const V2_PHASE_OFF: CopyPair = {
+  latin: "Yeh feature abhi aana baaki hai. Aap kisi aur baare mein baat kar sakte hain.",
+  dev: "यह फ़ीचर अभी आना बाकी है। आप किसी और बारे में बात कर सकते हैं।",
+};
+
+/** A jobs question in chat: deferred by O2, and distinct from the phase-off line by name. */
+export const V2_JOBS_DEFERRED: CopyPair = {
+  latin: "Chat se jobs dhoondhna abhi aana baaki hai. Aap kisi aur baare mein baat kar sakte hain.",
+  dev: "चैट से जॉब्स ढूँढना अभी आना बाकी है। आप किसी और बारे में बात कर सकते हैं।",
+};
+
+/** The classifier could not place the message (or the model failed): ask, with task chips. */
+export const V2_CLARIFY: CopyPair = {
+  latin: "Samajh nahi aaya. Aap inme se kya karna chahte hain?",
+  dev: "समझ नहीं आया। आप इनमें से क्या करना चाहते हैं?",
+};
+
+/** An edit card was stored: the worker reviews the rows and taps Haan or Nahi. */
+export const V2_EDIT_CARD_INTRO: CopyPair = {
+  latin: "Yeh badlav karne hain? Dekh kar Haan dabaiye.",
+  dev: "ये बदलाव करने हैं? देख कर हाँ दबाइए।",
+};
+
+/** No row survived validation: nothing was proposed, and nothing is claimed to have changed. */
+export const V2_EDIT_NONE: CopyPair = {
+  latin: "Kya badalna hai, samajh nahi aaya. Thoda aur batayiye.",
+  dev: "क्या बदलना है, समझ नहीं आया। थोड़ा और बताइए।",
+};
+
+/** Identity/contact is out of scope (O3): the settings/Profile screen owns it. */
+export const V2_EDIT_IDENTITY: CopyPair = {
+  latin: "Naam aur phone Profile mein jaa kar badliye.",
+  dev: "नाम और फ़ोन प्रोफ़ाइल में जा कर बदलिए।",
+};
+
+/** Haan: the rows were applied in one transaction and the résumé regeneration is queued. */
+export const V2_EDIT_DONE: CopyPair = {
+  latin: "Badlav ho gaya. Aapka resume update ho raha hai.",
+  dev: "बदलाव हो गया। आपका रिज़्यूमे अपडेट हो रहा है।",
+};
+
+/** Applied, but the daily cap refused the regeneration (or it failed): the edits are written. */
+export const V2_EDIT_DONE_CAPPED: CopyPair = {
+  latin: "Badlav ho gaya. Resume aaj update nahi ho sakta, kal ho jayega.",
+  dev: "बदलाव हो गया। रिज़्यूमे आज अपडेट नहीं हो सकता, कल हो जाएगा।",
+};
+
+/** Nahi: the card was dismissed and NOTHING was written. */
+export const V2_EDIT_CANCELLED: CopyPair = {
+  latin: "Theek hai, kuch nahi badla.",
+  dev: "ठीक है, कुछ नहीं बदला।",
+};
+
+/** The profile moved under the card: nothing was written, and the worker is asked again. */
+export const V2_EDIT_STALE: CopyPair = {
+  latin: "Profile beech mein badal gaya. Dobara bataiye kya badalna hai.",
+  dev: "प्रोफ़ाइल बीच में बदल गया। दोबारा बताइए क्या बदलना है।",
+};
+
+/** The proposal store refused the card (contracts §7): no card is offered, nothing is claimed. */
+export const V2_EDIT_UNAVAILABLE: CopyPair = {
+  latin: "Abhi badlav nahi ho paaya, thodi der mein try karein.",
+  dev: "अभी बदलाव नहीं हो पाया, थोड़ी देर में ट्राई करें।",
+};
+
 /** Every pair above, for the persona and twin tests. */
 export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPair]> = [
   ["LEAD", LEAD],
@@ -246,4 +319,16 @@ export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPai
   ["JOBS_NONE_TAIL", JOBS_NONE_TAIL],
   ["APPLIED_LIST_TAIL", APPLIED_LIST_TAIL],
   ["FALLBACK", FALLBACK],
+  // ADR-0046 Phase 1 — the router's fixed lines.
+  ["V2_PHASE_OFF", V2_PHASE_OFF],
+  ["V2_JOBS_DEFERRED", V2_JOBS_DEFERRED],
+  ["V2_CLARIFY", V2_CLARIFY],
+  ["V2_EDIT_CARD_INTRO", V2_EDIT_CARD_INTRO],
+  ["V2_EDIT_NONE", V2_EDIT_NONE],
+  ["V2_EDIT_IDENTITY", V2_EDIT_IDENTITY],
+  ["V2_EDIT_DONE", V2_EDIT_DONE],
+  ["V2_EDIT_DONE_CAPPED", V2_EDIT_DONE_CAPPED],
+  ["V2_EDIT_CANCELLED", V2_EDIT_CANCELLED],
+  ["V2_EDIT_STALE", V2_EDIT_STALE],
+  ["V2_EDIT_UNAVAILABLE", V2_EDIT_UNAVAILABLE],
 ];

@@ -1,6 +1,7 @@
 import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Queue } from "bullmq";
+import type { Database } from "@badabhai/db";
 
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
@@ -66,6 +67,9 @@ export class WorkerQualificationsService {
     workerId: string,
     dto: SetMyQualificationsDto,
     ctx: RequestContext,
+    // ADR-0046 — join the caller's transaction when the companion's edit card applies several
+    // sections at once; the re-render is then the caller's (one regeneration after commit).
+    opts: { tx?: Database } = {},
   ): Promise<{ worker_id: string; certificate_count: number; education_count: number }> {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
@@ -73,29 +77,32 @@ export class WorkerQualificationsService {
     // `undefined` IS FORWARDED AS `undefined`, deliberately. Normalising to `[]` here would be
     // the one-line bug that wipes a worker's certificates the first time a client saves only
     // their education — see the repository's three-state contract.
+    const input = {
+      certificates: dto.certificates?.map((c) => ({
+        name: c.name,
+        issuer: c.issuer,
+        year: c.year,
+        // ENCRYPTED BEFORE THE REPOSITORY. `null` stays `null` (no number given).
+        licenceNumberEnc: c.licence_number === null ? null : this.pii.encrypt(c.licence_number),
+        licenceExpiry: c.licence_expiry,
+      })),
+      educations: dto.educations?.map((e) => ({
+        credential: e.credential,
+        field: e.field,
+        council: e.council,
+        year: e.year,
+        institute: e.institute,
+      })),
+      trainings: dto.trainings?.map((t) => ({
+        name: t.name,
+        provider: t.provider,
+        year: t.year,
+      })),
+    };
     const { certificatesWritten, educationsWritten, trainingsWritten, replacedExisting } =
-      await this.qualifications.replaceForWorker(workerId, {
-        certificates: dto.certificates?.map((c) => ({
-          name: c.name,
-          issuer: c.issuer,
-          year: c.year,
-          // ENCRYPTED BEFORE THE REPOSITORY. `null` stays `null` (no number given).
-          licenceNumberEnc: c.licence_number === null ? null : this.pii.encrypt(c.licence_number),
-          licenceExpiry: c.licence_expiry,
-        })),
-        educations: dto.educations?.map((e) => ({
-          credential: e.credential,
-          field: e.field,
-          council: e.council,
-          year: e.year,
-          institute: e.institute,
-        })),
-        trainings: dto.trainings?.map((t) => ({
-          name: t.name,
-          provider: t.provider,
-          year: t.year,
-        })),
-      });
+      opts.tx === undefined
+        ? await this.qualifications.replaceForWorker(workerId, input)
+        : await this.qualifications.replaceForWorker(workerId, input, opts.tx);
 
     await this.events.emit({
       event_name: "worker.qualifications_recorded",
@@ -115,6 +122,7 @@ export class WorkerQualificationsService {
       },
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
+      ...(opts.tx === undefined ? {} : { tx: opts.tx }),
     });
 
     // Counts only — never a certificate name, an issuer or an institute.
@@ -123,7 +131,8 @@ export class WorkerQualificationsService {
         `${educationsWritten} education(s), ${trainingsWritten} training(s)`,
     );
 
-    await this.enqueueRerender(workerId, ctx);
+    // Skipped on a joined transaction: the companion regenerates once after commit (O6).
+    if (opts.tx === undefined) await this.enqueueRerender(workerId, ctx);
 
     return {
       worker_id: workerId,
