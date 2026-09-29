@@ -542,3 +542,22 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
   half gates the SET and the SCORER while the CLI gates the model on staging; that mirrors the
   canonicalization eval's split.
 - **Next:** the last §3 test — `companion-v2.privacy.test.ts` — then the phase checklist is done.
+
+---
+
+## Tests (spec §3) — 2026-09-29 14:40
+
+- **Done:** The last named test and the phase status.
+  - `v2/companion-v2.privacy.test.ts` (5): the raw worker text appears in no event payload, no
+    log line (real Logger spies on the classifier-failure and spine-failure paths) and never
+    reaches the classifier or Redis memory — only the gateway's masked output does; a blocked
+    message is never classified or stored.
+  - README phase table: Phase 1 marked **Built, flags off**.
+  - The full §3 test list is now present: flag-off, v1-first, orchestrator, edit validate /
+    confirm / no-identity, module boot (extended), privacy, replies (extended), event-schema
+    tests, and the ai-service parity/endpoint/eval tests.
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 12,055 passed / 153 skipped.
+  - ai-service `pytest` exit 0 · `ruff check .` clean · `pnpm lint` 0 errors · typecheck 29/29.
+- **Next:** owner review / merge of the tail branch; then the Frontend (#1818) and DevOps items,
+  and the staging eval run before any flag-ON.
