@@ -275,3 +275,37 @@ One entry per task, appended after the task's checks pass. Tasks come from
   until T6/T7 wire the emitter; the removal is part of that change (the coverage test enforces
   the pairing).
 - **Next:** T5 (Redis stores: `companion-memory.store.ts`, `edit-proposal.store.ts`).
+
+---
+
+## T5 — 2026-09-29 12:27
+
+- **Done:** The two Redis-only stores (contracts §7), reusing BullMQ's connection via
+  `RESUME_RENDER_QUEUE` (`ResumeRateLimit` / `AdminMfaSecretStore` precedent; the module now
+  registers the queue for its connection only — nothing enqueues to it).
+  - `v2/companion-memory.store.ts`: `companion:v2:mem:{workerId}` list, `read` (tail, oldest
+    first, per-entry schema validation, fail-soft `[]`), `append` (RPUSH + LTRIM to
+    `MEMORY_TURNS` + EXPIRE `MEMORY_TTL_SECONDS`, best-effort). Never logs text.
+  - `v2/edit-proposal.store.ts`: `companion:v2:proposal:{workerId}` JSON, one active card per
+    worker (SET replaces), `save` returns boolean (false → no card offered, contracts §7),
+    `load` (Zod-validated; unreadable/off-contract = absent), `delete` best-effort. The stored
+    row shape (`StoredEditProposal{Row}Schema`) is what T7 applies: `row_id`, section/op/field/
+    value, captured `before` for the stale check, section label, and the server-resolved
+    `target` (never a DB id on the wire).
+  - `chat-companion.module.ts`: queue registration + both providers.
+  - `chat-companion.module.boot.test.ts` EXTENDED (README rule 3): five providers, `AiModule`
+    pinned @Global with `AiService` exported (T6's only model path), and the egress guard now
+    scans `v2/` — the five original bans hold for both generations, v1 keeps its no-AI rule,
+    and a new v2 ban forbids any direct fetch/SDK call (model calls only via `AiService`).
+  - Tests: `companion-memory.store.test.ts` (8), `edit-proposal.store.test.ts` (12) — caps,
+    TTLs, key namespace, replace-not-append, schema-miss = absent, every fail-soft branch, and
+    "no proposed value in a log line".
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 11,909 passed / 153 skipped (20 new).
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29.
+  - ai-service `pytest` exit 0 · `ruff check .` clean.
+- **Notes / decisions / surprises:** `save` is the one non-fail-soft operation on purpose — the
+  caller must know not to show a card it cannot later apply. `StoredEditProposal.target` is a
+  `Record<string, string | number> | null` so T7 can resolve section-specific identities
+  (employment id, language slug, list position) without this store knowing any writer's DTO.
+- **Next:** T6 (orchestrator + handlers; v1-first, model only on a miss).

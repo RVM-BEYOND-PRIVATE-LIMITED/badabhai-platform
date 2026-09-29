@@ -74,7 +74,7 @@ A new edit message while a proposal is open replaces it (one active proposal per
 - [x] **T4 AI client.** `apps/api/src/ai/ai.service.ts`: `companionClassify`, `companionEditParse`
       (follow `jobPostingChatRespond`'s pattern: `this.post(path, input, OutputSchema, timeoutMs, ctx)`,
       null on failure). Timeouts: classify 3 s, edit-parse 6 s.
-- [ ] **T5 Redis stores.** `v2/companion-memory.store.ts`, `v2/edit-proposal.store.ts` (contracts §7),
+- [x] **T5 Redis stores.** `v2/companion-memory.store.ts`, `v2/edit-proposal.store.ts` (contracts §7),
       BullMQ connection reuse, fail-soft reads.
 - [ ] **T6 Orchestrator.** `v2/companion-v2.orchestrator.ts` + `v2/handlers/*.ts`
       (`EditResumeHandler`, `JobsDeferredHandler`, `PhaseOffHandler`, `UnclearHandler`), a
