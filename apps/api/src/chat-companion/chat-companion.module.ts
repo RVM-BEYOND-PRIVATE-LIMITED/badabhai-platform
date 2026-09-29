@@ -28,6 +28,7 @@ import { FaltuStore } from "./v2/faltu.store";
 import { CompanionEditService } from "./v2/companion-edit.service";
 import { CompanionV2Orchestrator } from "./v2/companion-v2.orchestrator";
 import { CompanionHandlerRegistry } from "./v2/handlers/registry";
+import { CareerTalkHandler } from "./v2/handlers/career-talk.handler";
 import { EditResumeHandler } from "./v2/handlers/edit-resume.handler";
 import { FaltuHandler } from "./v2/handlers/faltu.handler";
 import { NewResumeHandler } from "./v2/handlers/new-resume.handler";
@@ -88,10 +89,12 @@ import {
     CompanionV2Orchestrator,
     CompanionHandlerRegistry,
     EditResumeHandler,
-    // ADR-0046 P2 — the new-résumé handler (consent-gated redo flow) and the faltu handler
-    // (strikes, cool-down, the strike event).
+    // ADR-0046 P2/P3 — the new-résumé handler (consent-gated redo flow), the faltu handler
+    // (strikes, cool-down, the strike event) and the career handler (the one model-written
+    // answer, behind its own flag).
     NewResumeHandler,
     FaltuHandler,
+    CareerTalkHandler,
     JobsDeferredHandler,
     PhaseOffHandler,
     UnclearHandler,

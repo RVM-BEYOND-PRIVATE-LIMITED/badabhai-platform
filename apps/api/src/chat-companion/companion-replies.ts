@@ -18,7 +18,7 @@
  * never pre-rendered. `companion-replies.test.ts` holds them to the persona rules instead.
  */
 import { personaCorpus } from "@badabhai/profiling-lexicon";
-import type { CompanionNudge, ResumeSource } from "@badabhai/types";
+import type { CompanionNudge, CompanionV2CareerRefusalTopic, ResumeSource } from "@badabhai/types";
 
 export interface CopyPair {
   readonly latin: string;
@@ -317,6 +317,37 @@ export const V2_FALTU_COOLDOWN: CopyPair = {
   dev: "थोड़ी देर बाद बात करते हैं।",
 };
 
+// ── Companion v2 — career refusals (ADR-0046 P3, O9/O10) ─────────────────────────────────────
+
+/**
+ * One reviewed pair per refusal topic, keyed by the CLOSED set in `@badabhai/types`. When the
+ * model refuses, the worker reads THIS copy, never the model's wording (O9) — so each line is
+ * persona-checked fixed text with its Devanagari twin, and the model's only contribution is
+ * choosing the topic.
+ */
+export const V2_CAREER_REFUSE: Readonly<Record<CompanionV2CareerRefusalTopic, CopyPair>> = {
+  salary_promise: {
+    latin: "Salary ke aankde main nahi bata sakta. Yeh baat aap khud tay kariye.",
+    dev: "सैलरी के आँकड़े मैं नहीं बता सकता। यह बात आप खुद तय कीजिए।",
+  },
+  legal_medical_financial: {
+    latin: "Yeh kanoon ya paise ka mamla hai. Iske liye vakil ya bank se salah lijiye.",
+    dev: "यह कानून या पैसे का मामला है। इसके लिए वकील या बैंक से सलाह लीजिए।",
+  },
+  named_employer: {
+    latin: "Main kisi ka naam nahi bata sakta. Naye jobs aap Jobs tab me dekh lijiye.",
+    dev: "मैं किसी का नाम नहीं बता सकता। नए जॉब्स आप जॉब्स टैब में देख लीजिए।",
+  },
+  worker_rating: {
+    latin: "Main aapko judge nahi karta. Aap apne kaam aur skill par dhyan dijiye.",
+    dev: "मैं आपको जज नहीं करता। आप अपने काम और स्किल पर ध्यान दीजिए।",
+  },
+  unsafe_other: {
+    latin: "Is sawaal ka jawab main nahi de sakta. Kisi aur baat me madad karun?",
+    dev: "इस सवाल का जवाब मैं नहीं दे सकता। किसी और बात में मदद करूँ?",
+  },
+};
+
 /** Every pair above, for the persona and twin tests. */
 export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPair]> = [
   ["LEAD", LEAD],
@@ -356,4 +387,8 @@ export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPai
   // ADR-0046 P2 — faltu.
   ["V2_FALTU_REDIRECT", V2_FALTU_REDIRECT],
   ["V2_FALTU_COOLDOWN", V2_FALTU_COOLDOWN],
+  // ADR-0046 P3 — one refusal pair per closed topic.
+  ...Object.entries(V2_CAREER_REFUSE).map(
+    ([topic, pair]) => [`V2_CAREER_REFUSE.${topic}`, pair] as const,
+  ),
 ];

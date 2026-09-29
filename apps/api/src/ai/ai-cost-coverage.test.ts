@@ -156,11 +156,6 @@ const ALL_TASK_TYPES = AiCostRecordedPayload.shape.task_type.options as readonly
 const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = [
   "domain_match",
   "tts_synthesis",
-  // ADR-0046 Phase 3 — TEMPORARY, and removed in the C-phase commit of the same PR that
-  // routes the task: the AI-service route exists and can spend, while the API's
-  // `companionCareer` emitter lands with the career handler. The "disjoint" test below
-  // fails if this entry outlives the emitter.
-  "companion_career_answer",
 ];
 
 describe("every task type that can spend is either emitted or named as unledgered (#738)", () => {
@@ -171,6 +166,11 @@ describe("every task type that can spend is either emitted or named as unledgere
     // `profiling_chat_turn` was always the seventh and the matcher simply could not see it).
     const emitted = emittedTaskTypes();
     expect([...emitted].sort()).toEqual([
+      // ADR-0046 Phase 3 — the career answer, wired in `CareerTalkHandler.handle` in the SAME
+      // change that routed the task (A2/A3 of that phase). It is the one companion call whose
+      // spend is the model writing the worker's answer, which is exactly the spend O12 exists
+      // to watch.
+      "companion_career_answer",
       // ADR-0046 Phase 1 — the companion router's two calls, wired in
       // `CompanionV2Orchestrator.handleMessage` (classify) and `CompanionEditService.propose`
       // (edit-parse). Route and ledger landed in the SAME change — the lesson the

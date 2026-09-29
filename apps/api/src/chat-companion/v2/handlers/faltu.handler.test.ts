@@ -13,6 +13,7 @@ function input(now: Date = NOW): HandlerInput {
     workerId: WORKER,
     profile: {} as never,
     text: "",
+    recentTurns: [],
     ctx: { correlationId: "c-1", requestId: "r-1" } as never,
     now,
   };

@@ -33,6 +33,13 @@ describe("taskChips (P2 gating)", () => {
       "companion_new_jobs",
     ]);
   });
+
+  it("the career chip appears only while ITS flag is on (P3)", () => {
+    const career = taskChips(config({ CHAT_COMPANION_V2_CAREER_ENABLED: true })).map(
+      (c) => c.option_key,
+    );
+    expect(career).toEqual(["companion_task:career_talk", "companion_new_jobs"]);
+  });
 });
 
 describe("v2CooldownTurn (P2)", () => {

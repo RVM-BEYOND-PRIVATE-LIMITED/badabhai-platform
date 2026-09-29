@@ -107,6 +107,9 @@ export class CompanionV2Orchestrator {
       workerId,
       profile,
       text: dto.text,
+      // A chip tap carries no new context, but a career tap may want the recent turns the
+      // conversation already has — one Redis read, the same as the classify path.
+      recentTurns: await this.memory.read(workerId),
       ctx,
       now,
     });
@@ -136,6 +139,7 @@ export class CompanionV2Orchestrator {
         workerId,
         profile,
         text: "",
+        recentTurns: [],
         ctx,
         now,
       });
@@ -163,12 +167,14 @@ export class CompanionV2Orchestrator {
       });
     }
 
-    // 2. MEMORY — already pseudonymized at rest; the classifier sees at most the last two turns.
-    const recent = (await this.memory.read(workerId)).slice(-2);
+    // 2. MEMORY — already pseudonymized at rest. The classifier sees at most the last two
+    //    turns; the FULL read (up to MEMORY_TURNS) rides the handler input, because the Phase 3
+    //    career answer reads up to six and a second Redis hop would buy nothing.
+    const recent = await this.memory.read(workerId);
 
     // 3. CLASSIFY. Every failure mode lands on the SAME closed answer: `unclear`.
     const classified = await this.ai.companionClassify(
-      { text: pseudo.pseudonymized_text, recent_turns: recent },
+      { text: pseudo.pseudonymized_text, recent_turns: recent.slice(-2) },
       ctx,
     );
     // THE SPEND IS RECORDED BEFORE ANY BRANCH BELOW CAN RETURN — the `ResumeParseService.parse`
@@ -207,6 +213,7 @@ export class CompanionV2Orchestrator {
       workerId,
       profile,
       text: pseudo.pseudonymized_text,
+      recentTurns: recent,
       ctx,
       now,
     });
