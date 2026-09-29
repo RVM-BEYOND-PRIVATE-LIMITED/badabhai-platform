@@ -12,10 +12,11 @@ TWO RULES SHAPE EVERY STRING HERE.
    worker's current values — so the model can only point at something the API offered.
    A field the catalogue does not name cannot be proposed.
 
-The system prompts are module constants (registered with the prompt registry in A3);
-they carry NO interpolation, so a Langfuse-managed copy can never disagree with the
-code about the rules. The one request-shaped number, ``max_rows``, rides the user
-message with the catalogue.
+The system prompts are module constants (registered by
+``ai/prompt_registry.install_default_prompts`` under ``COMPANION_CLASSIFY`` and
+``COMPANION_EDIT_PARSE``); they carry NO interpolation, so the registered text and the
+route's fallback literal are the same bytes, and the one request-shaped number,
+``max_rows``, rides the user message with the catalogue instead.
 
 PRIVACY: every message below is built from ALREADY-PSEUDONYMIZED text. The endpoint
 masks the worker's message and every current value before calling the builders; a
@@ -28,11 +29,6 @@ import json
 
 from ..ai.router import Message
 from ..contracts import CompanionEditSnapshotRow, CompanionRecentTurn, EditableField
-
-#: Prompt-registry names. Stable: renaming one unhooks every dashboard/comparison that
-#: referenced it (the same rule `ai/prompt_registry.py` states for its own names).
-COMPANION_CLASSIFY_PROMPT = "companion-classify"
-COMPANION_EDIT_PARSE_PROMPT = "companion-edit-parse"
 
 #: The classifier's system prompt. The six intents are restated here because the model
 #: must CHOOSE from them; the enum itself is enforced by `CompanionClassifyOutput` on the

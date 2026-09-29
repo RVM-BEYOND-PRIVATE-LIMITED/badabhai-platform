@@ -101,8 +101,10 @@ A new edit message while a proposal is open replaces it (one active proposal per
       return. Deterministic `mock_response` for mock mode.
       Note: the two `model_config` task routes landed here too — the endpoints cannot be green
       without them (the router RAISES on an unknown task, and two guard tests say so).
-- [ ] **A3 Model routes.** `model_config.py`: tasks `companion_classify`, `companion_edit_parse`
+- [x] **A3 Model routes.** `model_config.py`: tasks `companion_classify`, `companion_edit_parse`
       (tier `cheap` → Gemini Flash, json_mode on, low temperature). Prompts in the prompt registry.
+      The route shapes landed with A2 (the endpoints cannot be green without them); A3 added the
+      registry names + registration, the trace names, and `test_companion_routes.py`.
 - [ ] **A4 Evals.** `apps/ai-service/tests/companion/`:
       classifier set ≥ 150 labelled Hinglish / Hindi / English lines across all 6 intents
       (incl. typos, voice-transcript style, mixed script); edit-parse set ≥ 60 cases across all

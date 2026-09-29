@@ -20,12 +20,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from ..ai import prompt_registry
 from ..companion import classify as classify_logic
 from ..companion import edit_parse as edit_parse_logic
 from ..companion.prompts import (
     CLASSIFY_SYSTEM_PROMPT,
-    COMPANION_CLASSIFY_PROMPT,
-    COMPANION_EDIT_PARSE_PROMPT,
     EDIT_PARSE_SYSTEM_PROMPT,
     build_classify_messages,
     build_edit_parse_messages,
@@ -63,7 +62,7 @@ async def companion_classify(body: CompanionClassifyInput) -> CompanionClassifyO
     # RESOLVED, not called, so the generation records which prompt version produced this
     # answer. `None` only while the name is unregistered (A3 registers it), in which case
     # the local constant is the fallback — the bytes the provider sees are the same.
-    resolved = resolve_prompt(COMPANION_CLASSIFY_PROMPT)
+    resolved = resolve_prompt(prompt_registry.COMPANION_CLASSIFY)
     system_prompt = resolved.text if resolved is not None else CLASSIFY_SYSTEM_PROMPT
     messages = build_classify_messages(
         result.text, classify_logic.mask_recent_turns(body.recent_turns), system_prompt
@@ -88,7 +87,7 @@ async def companion_edit_parse(body: CompanionEditParseInput) -> CompanionEditPa
         )
         return CompanionEditParseOutput()
 
-    resolved = resolve_prompt(COMPANION_EDIT_PARSE_PROMPT)
+    resolved = resolve_prompt(prompt_registry.COMPANION_EDIT_PARSE)
     system_prompt = resolved.text if resolved is not None else EDIT_PARSE_SYSTEM_PROMPT
     messages = build_edit_parse_messages(
         result.text,

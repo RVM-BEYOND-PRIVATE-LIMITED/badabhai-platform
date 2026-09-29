@@ -218,3 +218,28 @@ One entry per task, appended after the task's checks pass. Tasks come from
   classify output is forced False after parsing: it is the pseudonymizer's fact, never the
   model's. The `KNOWN_UNLEDGERED` entries are a debt marker for T4.
 - **Next:** A3 (prompt registry + route tests for the two new tasks).
+
+---
+
+## A3 — 2026-09-29 11:40
+
+- **Done:** Prompts in the registry + route/trace naming + tests (the route shapes themselves
+  landed with A2, see its entry).
+  - `app/ai/prompt_registry.py`: `COMPANION_CLASSIFY` / `COMPANION_EDIT_PARSE` names beside the
+    others; both registered in `install_default_prompts` (docstring corrected — it still said
+    "exactly three").
+  - `app/ai/langfuse_tracing.py`: `_TASK_TRACE` entries
+    (`classify-companion-message` / `parse-companion-edit`, workflow `companion`) so the traces
+    are named and grouped, not the `other` fallback.
+  - `app/companion/prompts.py`: local name constants removed (single source is now the registry);
+    `routers/companion.py` resolves through `prompt_registry`.
+  - `tests/test_companion_routes.py` (new, 5 tests): route shapes cheap/JSON/temp-0, budgets,
+    cheap-model resolution, registration + local version, version-moves-with-text.
+- **Checks:**
+  - ai-service `pytest` exit 0 (5 new) · `ruff check .` clean.
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29 · `pnpm --filter @badabhai/api test` 11,881
+    passed / 153 skipped.
+- **Notes / decisions / surprises:** The registered text equals the route's fallback constant by
+  construction (no interpolation), so a Langfuse-managed prompt is the ONLY way they can differ —
+  which is what makes the version record meaningful.
+- **Next:** T4 (`AiService.companionClassify` / `companionEditParse`, 3 s / 6 s timeouts).
