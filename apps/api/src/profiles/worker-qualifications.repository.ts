@@ -89,6 +89,11 @@ export class WorkerQualificationsRepository {
         year: number | null;
       }[];
     },
+    /**
+     * ADR-0046 — run on the CALLER's transaction instead of opening one, so the companion's
+     * edit card can apply several sections atomically. Same body either way.
+     */
+    tx?: Database,
   ): Promise<{
     certificatesWritten: number;
     educationsWritten: number;
@@ -108,7 +113,12 @@ export class WorkerQualificationsRepository {
       };
     }
 
-    return this.db.transaction(async (tx) => {
+    const run = async (tx: Database): Promise<{
+      certificatesWritten: number;
+      educationsWritten: number;
+      trainingsWritten: number;
+      replacedExisting: boolean;
+    }> => {
       let replacedExisting = false;
 
       if (certificates !== undefined) {
@@ -189,7 +199,10 @@ export class WorkerQualificationsRepository {
         trainingsWritten: trainings?.length ?? 0,
         replacedExisting,
       };
-    });
+    };
+    return tx !== undefined
+      ? run(tx)
+      : this.db.transaction((inner) => run(inner as unknown as Database));
   }
 
   /**

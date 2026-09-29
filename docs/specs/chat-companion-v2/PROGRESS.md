@@ -379,3 +379,35 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
   Migration mechanics: `db:generate` → rename tag → update `_journal.json` → header → test.
 - **Next:** T7 (edit catalogue + service; needs T8's `edit_proposal` wire field, which lands
   with it as the strict turn schema requires it).
+
+---
+
+## T7 (part 1) — additive tx support — 2026-09-29 13:05
+
+- **Done:** Every section writer the catalogue reaches can now JOIN the caller's transaction
+  (owner-approved strategy: additive `tx?: Database`, keeping each writer's logic in its own
+  service):
+  - `WorkerEmploymentRepository.replaceForWorker` (+ `findOwnedVoiceNoteIds`) and
+    `WorkerEmploymentService.replaceForWorker`;
+  - `WorkerLanguagesRepository.replaceForWorker` / `WorkerLanguagesService.replaceForWorker`;
+  - `WorkerQualificationsRepository.replaceForWorker` / `WorkerQualificationsService.replaceForWorker`;
+  - `WorkerOccupationsRepository.replaceForWorker` / `WorkerOccupationsService.replaceForWorker`;
+  - `WorkerAttributesRepository.loadKeys` (+ the already-tx `upsertMany`/`deleteKeys`) /
+    `WorkerPreferencesService.setForWorker`.
+  On a joined transaction each service: runs its repo call on the caller's tx, emits its event
+  WITH the tx (atomic with the write), and SKIPS its own re-render (or, for occupations, the
+  matching rebuild) — the companion regenerates once after commit (O6), and a render enqueued
+  inside a transaction that later rolls back would describe a history that never existed.
+  Arities are preserved (`tx: undefined` is never passed), so every existing caller's call
+  shape and every writer test stay byte-identical.
+  - `packages/db/src/client.ts`: the `Database` docblock records the tx convention (a drizzle
+    transaction handle is typed `Database` here; the cast is contained at the one place the
+    callback meets the client — the `AdminActionsRepository.withTransaction` precedent).
+- **Checks:**
+  - `pnpm --filter @badabhai/api test` — 11,976 passed / 153 skipped (all writer suites green).
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29.
+- **Notes / decisions / surprises:** `this.db.transaction((inner) => run(inner as unknown as
+  Database))` is the localized cast; `run` only ever touches the query API. The five writer
+  suites (239 tests) all pass unchanged.
+- **Next:** T7 part 2 — `v2/edit-catalogue.ts` + `v2/companion-edit.service.ts` (+ the
+  `edit_proposal` wire field).

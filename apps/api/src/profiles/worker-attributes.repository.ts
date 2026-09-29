@@ -144,6 +144,8 @@ export class WorkerAttributesRepository {
   async loadKeys(
     workerId: string,
     keys: readonly string[],
+    /** ADR-0046 — read on the caller's transaction so a same-transaction write is visible. */
+    tx?: Database,
   ): Promise<
     {
       attributeKey: string;
@@ -156,7 +158,7 @@ export class WorkerAttributesRepository {
     }[]
   > {
     if (keys.length === 0) return [];
-    return this.db
+    return (tx ?? this.db)
       .select({
         attributeKey: workerAttributes.attributeKey,
         valueKind: workerAttributes.valueKind,

@@ -31,7 +31,14 @@ export function createDbClient(connectionString: string, options: DbClientOption
 
 /** Full client handle: `{ db, sql }`. */
 export type DbClient = ReturnType<typeof createDbClient>;
-/** The Drizzle database instance type (use for DI / repository params). */
+/**
+ * The Drizzle database instance type (use for DI / repository params).
+ *
+ * ALSO the type a writer accepts for an optional `tx` (a caller's transaction): a drizzle
+ * transaction handle exposes the same query API, and this codebase's convention is to type
+ * both as `Database` with the one cast contained where the transaction callback meets the
+ * client (`AdminActionsRepository.withTransaction`, ADR-0046's section writers).
+ */
 export type Database = DbClient["db"];
 
 let _singleton: DbClient | undefined;

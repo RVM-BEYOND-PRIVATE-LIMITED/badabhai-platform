@@ -47,8 +47,13 @@ export class WorkerLanguagesRepository {
       canRead: boolean;
       canWrite: boolean;
     }[],
+    /**
+     * ADR-0046 — run on the CALLER's transaction instead of opening one, so the companion's
+     * edit card can apply several sections atomically. Same body either way.
+     */
+    tx?: Database,
   ): Promise<{ languagesWritten: number; replacedExisting: boolean }> {
-    return this.db.transaction(async (tx) => {
+    const run = async (tx: Database): Promise<{ languagesWritten: number; replacedExisting: boolean }> => {
       const existing = await tx
         .select({ id: workerLanguages.id })
         .from(workerLanguages)
@@ -70,7 +75,10 @@ export class WorkerLanguagesRepository {
       }
 
       return { languagesWritten: languages.length, replacedExisting };
-    });
+    };
+    return tx !== undefined
+      ? run(tx)
+      : this.db.transaction((inner) => run(inner as unknown as Database));
   }
 
   /**

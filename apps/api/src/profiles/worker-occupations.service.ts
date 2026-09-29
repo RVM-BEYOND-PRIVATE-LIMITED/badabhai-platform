@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 
+import type { Database } from "@badabhai/db";
 import { labelForTaxonomyId } from "@badabhai/taxonomy";
 
 import type { RequestContext } from "../common/request-context";
@@ -47,14 +48,20 @@ export class WorkerOccupationsService {
     workerId: string,
     dto: SetMyOccupationsDto,
     ctx: RequestContext,
+    // ADR-0046 — join the caller's transaction when the companion's edit card applies several
+    // sections at once. The matching rebuild below is then the caller's (after commit), because
+    // a rebuild inside a transaction that rolls back would leave reach describing rows that
+    // never existed.
+    opts: { tx?: Database } = {},
   ): Promise<{ worker_id: string; occupation_count: number }> {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
 
-    const { occupationsWritten, replacedExisting } = await this.occupations.replaceForWorker(
-      workerId,
-      dto.occupations.map((entry) => entry.role_id),
-    );
+    const roleIds = dto.occupations.map((entry) => entry.role_id);
+    const { occupationsWritten, replacedExisting } =
+      opts.tx === undefined
+        ? await this.occupations.replaceForWorker(workerId, roleIds)
+        : await this.occupations.replaceForWorker(workerId, roleIds, opts.tx);
 
     await this.events.emit({
       event_name: "worker.occupations_recorded",
@@ -70,6 +77,7 @@ export class WorkerOccupationsService {
       },
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
+      ...(opts.tx === undefined ? {} : { tx: opts.tx }),
     });
 
     // Counts only — never a role id.
@@ -78,7 +86,9 @@ export class WorkerOccupationsService {
         (replacedExisting ? ", replaced existing rows" : ""),
     );
 
-    await this.workerSkills.rebuildQuietly(workerId, ctx);
+    // Skipped on a joined transaction: the caller rebuilds the matching projection once the
+    // transaction has COMMITTED, so reach never describes an uncommitted edit.
+    if (opts.tx === undefined) await this.workerSkills.rebuildQuietly(workerId, ctx);
 
     return { worker_id: workerId, occupation_count: occupationsWritten };
   }

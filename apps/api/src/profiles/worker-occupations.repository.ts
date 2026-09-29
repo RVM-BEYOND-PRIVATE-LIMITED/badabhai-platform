@@ -32,8 +32,13 @@ export class WorkerOccupationsRepository {
   async replaceForWorker(
     workerId: string,
     roleIds: readonly string[],
+    /**
+     * ADR-0046 — run on the CALLER's transaction instead of opening one, so the companion's
+     * edit card can apply several sections atomically. Same body either way.
+     */
+    tx?: Database,
   ): Promise<{ occupationsWritten: number; replacedExisting: boolean }> {
-    return this.db.transaction(async (tx) => {
+    const run = async (tx: Database): Promise<{ occupationsWritten: number; replacedExisting: boolean }> => {
       const existing = await tx
         .select({ id: workerOccupations.id })
         .from(workerOccupations)
@@ -52,7 +57,10 @@ export class WorkerOccupationsRepository {
       }
 
       return { occupationsWritten: roleIds.length, replacedExisting };
-    });
+    };
+    return tx !== undefined
+      ? run(tx)
+      : this.db.transaction((inner) => run(inner as unknown as Database));
   }
 
   /**

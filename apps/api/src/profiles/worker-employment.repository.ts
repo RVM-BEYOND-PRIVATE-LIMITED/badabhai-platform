@@ -147,14 +147,29 @@ export class WorkerEmploymentRepository {
         workDoneVoiceNoteId: string | null;
       }[];
     }[],
-    options: { expectedExistingCount?: number; preserveWhenEmpty?: boolean } = {},
+    options: {
+      expectedExistingCount?: number;
+      preserveWhenEmpty?: boolean;
+      /**
+       * ADR-0046 — run on the CALLER's transaction instead of opening one. The companion's edit
+       * card applies several sections in ONE transaction, so every writer it reaches must be
+       * able to join it; the body below is identical either way (drizzle's transaction handle
+       * exposes the same query API as the database).
+       */
+      tx?: Database;
+    } = {},
   ): Promise<{
     replacedExisting: boolean;
     existingCount: number;
     skipped: boolean;
     carriedUnreadable: number;
   }> {
-    return this.db.transaction(async (tx) => {
+    const run = async (tx: Database): Promise<{
+      replacedExisting: boolean;
+      existingCount: number;
+      skipped: boolean;
+      carriedUnreadable: number;
+    }> => {
       const existing = await tx
         .select({
           id: workerEmployment.id,
@@ -311,7 +326,10 @@ export class WorkerEmploymentRepository {
       );
 
       return done;
-    });
+    };
+    return options.tx !== undefined
+      ? run(options.tx)
+      : this.db.transaction((inner) => run(inner as unknown as Database));
   }
 
   /**
@@ -399,9 +417,13 @@ export class WorkerEmploymentRepository {
    * importing `VoiceModule` would close a cycle (`VoiceModule` -> `ChatModule` -> `ProfilesModule`),
    * and this is one scoped SELECT of two columns, not a reach into the voice layer's writes.
    */
-  async findOwnedVoiceNoteIds(workerId: string, ids: readonly string[]): Promise<Set<string>> {
+  async findOwnedVoiceNoteIds(
+    workerId: string,
+    ids: readonly string[],
+    tx?: Database,
+  ): Promise<Set<string>> {
     if (ids.length === 0) return new Set();
-    const rows = await this.db
+    const rows = await (tx ?? this.db)
       .select({ id: voiceNotes.id })
       .from(voiceNotes)
       .where(and(eq(voiceNotes.workerId, workerId), inArray(voiceNotes.id, [...new Set(ids)])));
