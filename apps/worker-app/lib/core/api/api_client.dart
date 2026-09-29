@@ -1749,6 +1749,43 @@ class ApiClient {
     authToken: authToken,
   );
 
+  /// GET /profiling/general-form — THE GENERAL ROAD'S FORM (ADR-0045 §3.3).
+  ///
+  /// The offline form a worker outside the 21 predefined roles fills after the
+  /// chat's skills gate. Same envelope as [getTradeForm] — `sections[].screens[]`
+  /// walked in order, each screen drawn by its `type` — so it parses through the
+  /// very same code; what differs is the instructions the marker screens carry
+  /// (`fields`, `require_start_ym`, `lists`, `education_options`) and the two
+  /// questions the form owns itself.
+  ///
+  /// `session_id` IS RE-READ FROM EVERY RESPONSE and never cached: it is the
+  /// handover chat session, the mic needs it, the finish extracts against it,
+  /// and a chat redo that hands over again changes it.
+  ///
+  /// A 404 means this worker was never handed the general form, which with the
+  /// road's flag off is every worker. It surfaces as an [ApiException] for the
+  /// repository to read as "nothing to fill" — an honest empty state, not an
+  /// error screen.
+  Future<Map<String, dynamic>> getGeneralForm({required String authToken}) =>
+      _get('/profiling/general-form', authToken: authToken);
+
+  /// POST /profiling/general-form/answer — the general form's OWN two questions
+  /// (`has_work_history`, `profile_brief`), ADR-0045 §3.4.
+  ///
+  /// [body] is `{question_key, answer}` in the same shape
+  /// `TradeFormAnswer.toJson()` already produces — except that this route does
+  /// not accept `chips`. The reply is
+  /// `{question_key, status, complete, schema_stale}` with NO `answered`/`total`
+  /// counters, so progress is the client's step index.
+  ///
+  /// Two flags drive the walk: `schema_stale` (a `has_work_history` write just
+  /// showed or hid the employment screen — re-GET and rebuild) and `complete`
+  /// (the brief was saved — run the finish).
+  Future<Map<String, dynamic>> submitGeneralFormAnswer({
+    required String authToken,
+    required Map<String, dynamic> body,
+  }) => _post('/profiling/general-form/answer', body, authToken: authToken);
+
   /// GET /profiling/form/tiers — may this worker choose how long profiling
   /// takes, and what do the three tiers cost them (#1698, ADR tiered
   /// profiling)? Worker auth + consent.

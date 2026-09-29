@@ -260,25 +260,55 @@ class TradeFormTierScope extends Equatable {
 /// page (`PUT /workers/me/work-preferences`) sits in the journey. Not a copy
 /// of that contract; the endpoint owns its own vocabulary and validation.
 class TradeFormPreferencesStep extends TradeFormStep {
-  const TradeFormPreferencesStep({this.tierScope = TradeFormTierScope.unscoped});
+  const TradeFormPreferencesStep({
+    this.tierScope = TradeFormTierScope.unscoped,
+    this.fields = const <String>[],
+  });
 
   /// Which of this page's fields the chosen tier asks for (#1698). Defaults to
   /// [TradeFormTierScope.unscoped] — what a tier-less server serves.
   final TradeFormTierScope tierScope;
 
+  /// THE GENERAL ROAD'S ASK LIST (`fields`, ADR-0045 §3.3) — the exact
+  /// preference fields this screen must show, named by the server.
+  ///
+  /// Empty on the trade form, which has no `fields` key and is scoped by
+  /// [tierScope] instead; empty therefore means "this page decides for itself",
+  /// exactly as it always has. A general-form screen names its own set —
+  /// `salary_expected_min`, `salary_expected_max`, `preferred_cities`, `shift`,
+  /// `work_types`, `languages`, `availability` — because the general road asks
+  /// for a salary BAND and for work types, neither of which the trade form has.
+  final List<String> fields;
+
+  /// Whether the server explicitly asked for [field] on this screen.
+  ///
+  /// An EMPTY ask list answers true for everything: a trade-form screen carries
+  /// none, and hiding a field a worker still owes an answer to is the harm — the
+  /// same fail-open direction [tierScope] takes.
+  bool asks(String field) => fields.isEmpty || fields.contains(field);
+
   @override
-  List<Object?> get props => <Object?>[tierScope];
+  List<Object?> get props => <Object?>[tierScope, fields];
 }
 
 /// `type: "employment"` — a MARKER for the work-history page
 /// (`PUT /workers/me/employment`). Same argument as [TradeFormPreferencesStep].
 class TradeFormEmploymentStep extends TradeFormStep {
-  const TradeFormEmploymentStep({this.tierScope = TradeFormTierScope.unscoped});
+  const TradeFormEmploymentStep({
+    this.tierScope = TradeFormTierScope.unscoped,
+    this.requireStartYm = false,
+  });
 
   final TradeFormTierScope tierScope;
 
+  /// THE GENERAL ROAD MAKES THE START MONTH COMPULSORY (`require_start_ym`,
+  /// ADR-0045 §3.3). False on the trade form, where the month is optional and
+  /// the key is absent — so the default is today's behaviour, and only a server
+  /// that asks for it changes the page.
+  final bool requireStartYm;
+
   @override
-  List<Object?> get props => <Object?>[tierScope];
+  List<Object?> get props => <Object?>[tierScope, requireStartYm];
 }
 
 /// `type: "qualifications"` — a MARKER for the credentials page
@@ -297,14 +327,123 @@ class TradeFormQualificationsStep extends TradeFormStep {
   const TradeFormQualificationsStep({
     this.suggestedCertificates = const <String>[],
     this.tierScope = TradeFormTierScope.unscoped,
+    this.lists = const <String>[],
+    this.educationOptions = const <TradeFormLabelledOption>[],
   });
 
   final List<String> suggestedCertificates;
 
   final TradeFormTierScope tierScope;
 
+  /// WHICH LISTS THIS SCREEN OWNS (`lists`, ADR-0045 §3.3).
+  ///
+  /// The general road splits credentials across TWO screens — Education carries
+  /// `["educations"]` and Certificates & training carries
+  /// `["certificates","trainings"]` — so a page that always sent everything it
+  /// held would have each screen overwrite the other's work.
+  ///
+  /// Empty on the trade form, whose single screen owns them all; empty therefore
+  /// means "every list", which is exactly today's behaviour.
+  final List<String> lists;
+
+  /// THE EIGHT EDUCATION LEVELS, server-named (`education_options`, ADR-0045).
+  ///
+  /// Empty on the trade form, which offers its own trade-shaped credential
+  /// chips. When the server sends them the page must use THESE — they are the
+  /// closed set the write endpoint validates against, and their labels are the
+  /// only thing that can render a stored `postgraduate` as "Postgraduate"
+  /// rather than as a raw token.
+  final List<TradeFormLabelledOption> educationOptions;
+
+  /// Whether this screen owns [list]. An empty [lists] owns all of them.
+  bool owns(String list) => lists.isEmpty || lists.contains(list);
+
   @override
-  List<Object?> get props => <Object?>[suggestedCertificates, tierScope];
+  List<Object?> get props =>
+      <Object?>[suggestedCertificates, tierScope, lists, educationOptions];
+}
+
+/// A server-named `{key, label}` pair — the general form's education levels
+/// today (ADR-0045).
+///
+/// The KEY is what the write endpoint takes and the LABEL is what the worker
+/// reads; the app invents neither. Without the pair a stored level can only be
+/// shown as its raw token, which the repo forbids on a worker-facing screen.
+class TradeFormLabelledOption extends Equatable {
+  const TradeFormLabelledOption({required this.key, required this.label});
+
+  /// Null unless BOTH halves are present and non-empty — a half-formed option
+  /// would put an empty chip on screen or send an empty key to the server.
+  static TradeFormLabelledOption? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final Object? key = raw['key'];
+    final Object? label = raw['label'];
+    if (key is! String || key.trim().isEmpty) return null;
+    if (label is! String || label.trim().isEmpty) return null;
+    return TradeFormLabelledOption(key: key.trim(), label: label.trim());
+  }
+
+  final String key;
+  final String label;
+
+  @override
+  List<Object?> get props => <Object?>[key, label];
+}
+
+/// THE GENERAL ROAD'S FORM (`GET /profiling/general-form`, ADR-0045 §3.3).
+///
+/// The offline form a worker OUTSIDE the 21 predefined roles fills after the
+/// chat's skills gate. It is built exactly like the trade form —
+/// `sections[].screens[]`, walked in order, each screen drawn by its `type`,
+/// with no model anywhere — so it reuses [TradeFormSection] and every
+/// [TradeFormStep] verbatim rather than cloning them.
+///
+/// WHAT IT DOES NOT SHARE, and why this is its own type:
+///   * [sessionId] is REQUIRED and re-read from every response. It is the
+///     handover chat session: the mic posts against it and the finish extracts
+///     against it, and a chat redo that hands over again changes it. The trade
+///     form's is optional.
+///   * there is no pack — no `kind`, no `pack_id`, no `pack_version`.
+///   * [complete] is the server's own answer about whether the brief has been
+///     saved for THIS handover, and it resets on a new one. The general route
+///     sends no answered/total counters, so there is nothing to count.
+class GeneralForm extends Equatable {
+  const GeneralForm({
+    required this.sessionId,
+    required this.sections,
+    this.roleLabel,
+    this.complete = false,
+  });
+
+  /// The handover chat session. Never cached by a caller — read it again from
+  /// every response (see the class doc).
+  final String sessionId;
+
+  /// The role the chat confirmed, for the heading. Null when the chat never
+  /// settled one, and the screen then shows a generic heading rather than a
+  /// blank space.
+  final String? roleLabel;
+
+  /// True once the brief has been saved for this handover.
+  final bool complete;
+
+  /// In server order, with the section titles used verbatim.
+  final List<TradeFormSection> sections;
+
+  /// Every screen, flattened into the order the worker walks them.
+  List<TradeFormStep> get steps =>
+      <TradeFormStep>[for (final TradeFormSection s in sections) ...s.screens];
+
+  /// The section a step belongs to, for the heading above it.
+  TradeFormSection? sectionOf(TradeFormStep step) {
+    for (final TradeFormSection s in sections) {
+      if (s.screens.contains(step)) return s;
+    }
+    return null;
+  }
+
+  @override
+  List<Object?> get props => <Object?>[sessionId, roleLabel, complete, sections];
 }
 
 /// One zone of the form (`sections[]`) — a heading the sheet itself prints,
@@ -437,6 +576,7 @@ class TradeFormAnswerResult extends Equatable {
     required this.answered,
     required this.total,
     this.schemaStale = false,
+    this.complete = false,
   });
 
   final String questionKey;
@@ -455,9 +595,18 @@ class TradeFormAnswerResult extends Equatable {
   /// A client that never sees `true` behaves exactly as it does now.
   final bool schemaStale;
 
+  /// `complete` — THE GENERAL FORM IS FINISHED (ADR-0045 §3.4).
+  ///
+  /// It arrives true on the brief write, and it is the app's only signal to run
+  /// the finish: the general route sends no `answered`/`total` counters, so
+  /// there is no "all questions answered" for the client to compute. Absent on
+  /// the trade form, so this defaults to false and that form's flow is
+  /// unchanged.
+  final bool complete;
+
   @override
   List<Object?> get props =>
-      <Object?>[questionKey, status, answered, total, schemaStale];
+      <Object?>[questionKey, status, answered, total, schemaStale, complete];
 }
 
 /// ---- The two marker-screen writes (#1296's endpoints, reused verbatim) ----
