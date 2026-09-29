@@ -1183,6 +1183,13 @@ const aiTaskType = z.enum([
   // form-routed document — a third read of the same file, this time against the
   // pack's closed options. Added in the SAME change that routes it.
   "resume_option_map",
+  // THE COMPANION ROUTER (ADR-0046 Phase 1). Both routed in
+  // `model_config._ROUTE_SHAPES` and charged per call: `companion_classify` once per
+  // free-text message the v1 resolver missed, `companion_edit_parse` once more only
+  // when that message classified as an edit. Added in the SAME change that routes
+  // them, per the lesson the entries above record twice over.
+  "companion_classify",
+  "companion_edit_parse",
   // Provider calls with their own fail-closed allowlist keys, outside the LLM router.
   "stt_transcription",
   "tts_synthesis",

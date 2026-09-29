@@ -181,3 +181,40 @@ One entry per task, appended after the task's checks pass. Tasks come from
   is the only place `add` legality per section is expressible, so the catalogue is what enforces
   "single-field adds only" at prompt time (the DTO schema is the second wall in T7).
 - **Next:** A2 (companion module + endpoints in the AI service).
+
+---
+
+## A2 — 2026-09-29 11:32
+
+- **Done:** The companion module and its two routes.
+  - `app/companion/__init__.py`, `prompts.py` (system prompts + message builders; catalogue and
+    current values rendered as compact JSON, worker text labelled data),
+    `classify.py` (fail-closed output parser + memory-turn masking), `edit_parse.py` (per-row
+    validation, row cap, unsupported filtering, snapshot masking).
+  - `app/routers/companion.py`: `POST /companion/classify`, `POST /companion/edit-parse`.
+    Pseudonymize FIRST; blocked → `{intent:unclear, confidence:0, blocked:true}` / empty proposal.
+    Deterministic mock responses. Registered in `main.py`.
+  - `app/ai/model_config.py`: `companion_classify` / `companion_edit_parse` routes (cheap, JSON
+    mode, temperature 0.0, 64/512-token budgets). REQUIRED for A2 to be green — `router.run`
+    raises on an unregistered task, and two guard tests (`test_ai_instruments`,
+    `test_task_type_ledger_parity`) pin that. A3's remaining scope is the prompt registry +
+    route tests.
+  - `packages/event-schema/src/payloads.ts`: `aiTaskType` gained both members (additive).
+  - `apps/api/src/admin/admin-dashboard.dto.ts`: both classified `false` (post-confirmation
+    spend, same side as `work_history_polish`).
+  - `apps/api/src/ai/ai-cost-coverage.test.ts`: both added to `KNOWN_UNLEDGERED` — apps/api has
+    no emitter yet; **remove them in the change that wires it (T4/T6)**.
+  - `tests/test_service_auth.py`: POST surface 17 → 19.
+  - `tests/test_companion.py` (new, 18 tests): blocked-before-router, masking of message/memory/
+    snapshot, fence tolerance, fail-closed output, row cap and per-row drops, mock validity,
+    prompt content, route registration.
+- **Checks:**
+  - ai-service `pytest` exit 0 (18 new) · `ruff check .` clean.
+  - `pnpm --filter @badabhai/event-schema test` — 375 passed.
+  - `pnpm --filter @badabhai/api test` — 11,881 passed / 153 skipped.
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29.
+- **Notes / decisions / surprises:** Every model input is masked, not just the message — memory
+  turns (blocked ones dropped) and snapshot values (blocked ones nulled). `blocked` on the
+  classify output is forced False after parsing: it is the pseudonymizer's fact, never the
+  model's. The `KNOWN_UNLEDGERED` entries are a debt marker for T4.
+- **Next:** A3 (prompt registry + route tests for the two new tasks).

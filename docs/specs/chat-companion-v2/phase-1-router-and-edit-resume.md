@@ -95,10 +95,12 @@ A new edit message while a proposal is open replaces it (one active proposal per
 
 - [x] **A1 Contracts.** `contracts.py` models for classify and edit-parse + `packages/ai-contracts`
       Zod mirror + parity test.
-- [ ] **A2 Module.** `app/companion/{__init__,classify,edit_parse,prompts}.py`,
+- [x] **A2 Module.** `app/companion/{__init__,classify,edit_parse,prompts}.py`,
       `app/routers/companion.py`, registered in `main.py`. Each endpoint: validate input →
       `pseudonymize` (blocked → return `blocked:true` / empty rows) → `AIRouter` → parse → validate →
       return. Deterministic `mock_response` for mock mode.
+      Note: the two `model_config` task routes landed here too — the endpoints cannot be green
+      without them (the router RAISES on an unknown task, and two guard tests say so).
 - [ ] **A3 Model routes.** `model_config.py`: tasks `companion_classify`, `companion_edit_parse`
       (tier `cheap` → Gemini Flash, json_mode on, low temperature). Prompts in the prompt registry.
 - [ ] **A4 Evals.** `apps/ai-service/tests/companion/`:
