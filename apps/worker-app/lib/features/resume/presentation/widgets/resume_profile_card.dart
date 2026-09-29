@@ -166,6 +166,25 @@ class _ResumeProfileCardState extends State<ResumeProfileCard> {
               ),
             ),
           ],
+          // #1796 — THE BRIEF, DIRECTLY UNDER THE HEADLINE, which is exactly
+          // where `bb_general.v1.html` puts its own `<div class="brief">` (and
+          // hides it when empty). Body size, plain text, wrapping normally: it
+          // is a sentence about the worker's work, not a fact row.
+          //
+          // General sheets only — see [ResumeProfileFacts.brief]. A general
+          // sheet has no `secondLine`, so on the road this sits alone under the
+          // headline exactly as the PDF does.
+          if (facts.brief != null) ...<Widget>[
+            const SizedBox(height: 6),
+            Text(
+              facts.brief!,
+              style: OnboardingTypography.inter(
+                size: 13,
+                height: 1.45,
+                color: OnboardingColors.ink600,
+              ),
+            ),
+          ],
           if (facts.secondLine != null) ...<Widget>[
             const SizedBox(height: 4),
             Text(
