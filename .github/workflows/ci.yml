@@ -210,6 +210,11 @@ jobs:
               - 'apps/api/src/chat/resume-menu.ts'
               - 'apps/api/src/profiling/question-tts-text.ts'
               - 'apps/api/src/chat-companion/companion-keys.ts'
+              # ADR-0046 — the companion v2 TASK chip keys. A second file because
+              # the v1 parity test pins `companion-keys.ts` to exactly its four
+              # keys; the app mirrors both, so a rename here must re-run the
+              # worker-app job or the mirror drifts unnoticed.
+              - 'apps/api/src/chat-companion/companion-task-keys.ts'
             payer-app:
               - 'apps/payer-app/**'
               - '.github/workflows/payer-app.yml'

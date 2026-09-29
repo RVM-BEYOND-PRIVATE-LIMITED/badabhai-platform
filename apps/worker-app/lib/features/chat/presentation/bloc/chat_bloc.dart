@@ -11,9 +11,11 @@ import '../../../../core/api/api_models.dart'
         ChatOption,
         ChatProgress,
         ChatQuestionKind,
+        EditProposal,
         FormOffer,
         PredictedQuestion;
 import '../../../../core/error/failure.dart';
+import '../../../../core/error/failure_reason.dart';
 import '../../../../core/observability/analytics.dart';
 import '../../../../core/session/known_worker_facts_store.dart';
 import '../../domain/chat_answered_facts.dart';
@@ -122,7 +124,14 @@ class ChatCompanionChipTapped extends ChatEvent {
   const ChatCompanionChipTapped(this.keyClass, {this.openedJob = false});
 
   /// A CLASS, never the key: `job` | `jobs_tab` | `applied` | `new_jobs` |
-  /// `resume` | `other`.
+  /// `resume` | `task_edit_resume` | `task_new_resume` | `task_career_talk` |
+  /// `other`.
+  ///
+  /// The three `task_*` classes are ADR-0046's task chips. Enumerated here in
+  /// full because this doc is what a reader checks the analytics against, and a
+  /// class that exists in [companionChipKeyClass] but not in this list reads as
+  /// `other` to anyone auditing the funnel. A job key's id never reaches this —
+  /// that is the whole point of a class.
   final String keyClass;
 
   /// True when the tap opened job detail, which logs its own event too.
@@ -174,6 +183,23 @@ class ChatCompanionRefreshRequested extends ChatEvent {
   List<Object?> get props => <Object?>[force];
 }
 
+/// ADR-0046 §5.2 — the worker tapped Haan on the edit card. [rowIds] are the
+/// TICKED rows' server-minted `row_id`s (1..3); the card's VALUES never ride
+/// the wire.
+class ChatEditProposalConfirmed extends ChatEvent {
+  const ChatEditProposalConfirmed(this.rowIds);
+
+  final List<String> rowIds;
+
+  @override
+  List<Object?> get props => <Object?>[rowIds];
+}
+
+/// ADR-0046 §5.2 — the worker tapped Nahi on the edit card: nothing is applied.
+class ChatEditProposalCancelled extends ChatEvent {
+  const ChatEditProposalCancelled();
+}
+
 // ---------------- State ----------------
 
 class ChatState extends Equatable {
@@ -202,6 +228,10 @@ class ChatState extends Equatable {
     this.companionUnreachable = false,
     this.gateKind,
     this.generalFormOffer,
+    this.editProposal,
+    this.cooldownUntil,
+    this.readAloud = false,
+    this.editNotice,
   });
 
   /// Ordered, append-only transcript.
@@ -344,6 +374,44 @@ class ChatState extends Equatable {
   final String? gateKind;
   final Map<String, String>? generalFormOffer;
 
+  /// ADR-0046 — the edit proposal card from the companion (**Phase 1**). When
+  /// present, the screen renders the checkbox card with Haan/Nahi buttons.
+  /// TURN-SCOPED: set from the reply, cleared on the next turn.
+  final EditProposal? editProposal;
+
+  /// ADR-0046 §5.2 — ONE LINE explaining why the edit card just went away, or
+  /// why Haan did nothing. Null when there is nothing to say.
+  ///
+  /// A card that vanishes with no word is the worst of the three outcomes: the
+  /// worker tapped Haan on their own profile and the screen simply changed. The
+  /// issue's wording is that a dead card must be dropped AND THE WORKER
+  /// RE-ASKED, so the drop is always accompanied by a reason, and a transport
+  /// failure says what actually went wrong rather than leaving Haan looking like
+  /// a broken button (the repo's error-copy rule: state the real cause).
+  ///
+  /// ONE-SHOT: the screen shows it once on the change edge and the next turn
+  /// clears it. It is a UI string only — never a server body, so no PII and no
+  /// server detail can ride it.
+  final String? editNotice;
+
+  /// ADR-0046 — cooldown timestamp from the companion. While the current time
+  /// is before this, the companion UI shows a wait state. TURN-SCOPED.
+  final DateTime? cooldownUntil;
+
+  /// ADR-0046 §5.1 — `read_aloud`, carried but NOT ACTED ON in Phase 1.
+  ///
+  /// The contract marks this **P3**, and marks it `read_aloud?: false` — it is
+  /// only ever sent as FALSE, on model-written replies, and its meaning is a
+  /// prohibition: "the app must NOT fall back to speaking `reply`". So there is
+  /// no Phase 1 behaviour to implement and, in particular, nothing here should
+  /// read it as "true means speak" — that inverts a field that never arrives
+  /// true. It is parsed and carried so the wire stays whole and the day P3 lands
+  /// the value is already here; nothing consumes it yet, deliberately.
+  ///
+  /// TURN-SCOPED, and unlike the old code this is now honoured by [copyWith]:
+  /// an emit that does not mention it KEEPS it, as every other field does.
+  final bool readAloud;
+
   /// ADR-0044 — the tab is in the post-completion COMPANION: sends go to
   /// `/chat/companion/message`, the "build my profile" CTA is hidden (the profile
   /// is done), and a turn is never counted as an answered interview ask.
@@ -400,6 +468,14 @@ class ChatState extends Equatable {
     // ADR-0045 — turn-scoped gate kind and general form offer.
     String? gateKind,
     Map<String, String>? generalFormOffer,
+    // ADR-0046 — the v2 turn fields: the P1 edit card, P2 cool-down, P3 read-aloud.
+    EditProposal? editProposal,
+    bool clearEditProposal = false,
+    DateTime? cooldownUntil,
+    bool clearCooldownUntil = false,
+    bool? readAloud,
+    String? editNotice,
+    bool clearEditNotice = false,
   }) {
     return ChatState(
       messages: messages ?? this.messages,
@@ -434,6 +510,14 @@ class ChatState extends Equatable {
       companionUnreachable: companionUnreachable ?? this.companionUnreachable,
       gateKind: gateKind ?? this.gateKind,
       generalFormOffer: generalFormOffer ?? this.generalFormOffer,
+      // ADR-0046 — TURN-SCOPED: cleared on next turn unless explicitly set.
+      editProposal: clearEditProposal ? null : (editProposal ?? this.editProposal),
+      cooldownUntil: clearCooldownUntil ? null : (cooldownUntil ?? this.cooldownUntil),
+      // `?? this`, NOT `?? false`: the old form silently RESET the flag on every
+      // emit that did not mention it — a spinner flip, a message append — which
+      // is the one thing no other field on this state does.
+      readAloud: readAloud ?? this.readAloud,
+      editNotice: clearEditNotice ? null : (editNotice ?? this.editNotice),
     );
   }
 
@@ -463,6 +547,10 @@ class ChatState extends Equatable {
         companionUnreachable,
         gateKind,
         generalFormOffer,
+        editProposal,
+        cooldownUntil,
+        readAloud,
+        editNotice,
       ];
 }
 
@@ -525,6 +613,16 @@ typedef ChatAnalyticsSink = void Function(BbAnalyticsEvent event);
 void _defaultChatAnalyticsSink(BbAnalyticsEvent event) =>
     unawaited(BbAnalytics.instance.log(event));
 
+/// What the worker is told when the edit card could not be applied and has been
+/// taken away (404 expired / 409 stale, ADR-0046 §5.2).
+///
+/// Names the real cause — the card went out of date, usually because the profile
+/// moved under it — and says what happens next, because the tab re-reads the
+/// recap straight after. Hinglish, aap-form, like the rest of this tab.
+const String kCompanionEditGoneNotice =
+    'Ye badlav ab purana ho gaya. Aapka profile dobara padh rahe hain — '
+    'zaroorat ho to phir se kahein.';
+
 class ChatBloc extends Bloc<ChatEvent, ChatState> {
   ChatBloc(
     this._repo, {
@@ -544,6 +642,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     on<ChatCompanionRefreshRequested>(_onCompanionRefreshRequested);
     on<ChatCompanionChipTapped>(_onCompanionChipTapped);
     on<ChatCompanionJobApplied>(_onCompanionJobApplied);
+    // ADR-0046 Phase 1 — the edit card's Haan / Nahi.
+    on<ChatEditProposalConfirmed>(_onEditProposalConfirmed);
+    on<ChatEditProposalCancelled>(_onEditProposalCancelled);
   }
 
   final ChatRepository _repo;
@@ -984,6 +1085,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
             text: turn.reply,
             fromWorker: false,
             ttsText: turn.ttsText,
+            // ADR-0046 O9 — a model-written turn says `read_aloud: false` and
+            // carries no reviewed Devanagari twin, so this bubble is never
+            // spoken. Absent (every other turn) keeps read-aloud as it was.
+            canReadAloud: turn.readAloud != false,
           ),
         ];
       } else if (predictionWasRight) {
@@ -1047,11 +1152,22 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // ADR-0044 — TURN-SCOPED: a companion answer keeps the tab in companion
         // mode; an interview reply (a 409 fallback) takes it out.
         companion: turn.companion,
+        // ADR-0046 — the v2 turn fields: P1 edit card, P2 cool-down, P3 read-aloud.
+        editProposal: turn.editProposal,
+        clearEditProposal: turn.editProposal == null,
+        // A NEW TURN ends the one-shot notice: it explained the turn that is
+        // now gone.
+        clearEditNotice: true,
+        cooldownUntil: turn.cooldownUntil,
+        clearCooldownUntil: turn.cooldownUntil == null,
+        readAloud: turn.readAloud ?? false,
       ));
       // ADR-0044 — a companion answer is not an interview ask: it must not feed
       // the per-ask funnel, the wrap-up milestone, the answered-facts store or
       // `asked_question_id`. Everything below is interview bookkeeping.
-      if (turn.companion) return;
+      if (turn.companion) {
+        return;
+      }
       if (!turn.fromClosedSession) _holdInterview = true;
       // #1316 — the ask is now ANSWERED (the reply landed). Emit its per-ask
       // index for the abandonment curve. On a retry this is the FIRST time this
@@ -1216,6 +1332,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           text: opening.reply,
           fromWorker: false,
           ttsText: opening.ttsText,
+          canReadAloud: opening.readAloud != false,
         ),
         ...state.messages.skip(1),
       ],
@@ -1224,6 +1341,18 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       questionKind: opening.questionKind,
       inputMode: ChatInputMode.text,
       clearAnswerType: true, // #1559 / #1583 — the recap serves no pack item
+      // ADR-0046 — THE RECAP CARRIES THE v2 FIELDS TOO. `GET /chat/companion`
+      // and `POST /chat/companion/message` share one `CompanionTurnSchema`, in
+      // which `edit_proposal` is declared — and a proposal lives in Redis on its
+      // own TTL, so a worker who backgrounds the app mid-edit and reopens the
+      // tab is exactly the case that returns one on the OPEN. Emitting the
+      // recap without these three dropped them a second time, one layer above
+      // the repository: the card reached `ChatTurn` and died here instead.
+      editProposal: opening.editProposal,
+      clearEditProposal: opening.editProposal == null,
+      cooldownUntil: opening.cooldownUntil,
+      clearCooldownUntil: opening.cooldownUntil == null,
+      readAloud: opening.readAloud ?? false,
     ));
   }
 
@@ -1269,7 +1398,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     emit(state.copyWith(
       messages: <ChatMessage>[
         ...state.messages,
-        ChatMessage(text: fresh.reply, fromWorker: false, ttsText: fresh.ttsText),
+        ChatMessage(
+          text: fresh.reply,
+          fromWorker: false,
+          ttsText: fresh.ttsText,
+          canReadAloud: fresh.readAloud != false,
+        ),
       ],
       followups: fresh.followups,
       suggestedOptions: fresh.suggestedOptions,
@@ -1343,7 +1477,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // stands alone, as it does when the tab opens on it (ADR-0044 R4).
     emit(ChatState(
       messages: <ChatMessage>[
-        ChatMessage(text: recap.reply, fromWorker: false, ttsText: recap.ttsText),
+        ChatMessage(
+          text: recap.reply,
+          fromWorker: false,
+          ttsText: recap.ttsText,
+          canReadAloud: recap.readAloud != false,
+        ),
       ],
       initializing: false,
       followups: recap.followups,
@@ -1553,5 +1692,137 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       state.messages.where((ChatMessage m) => m.fromWorker).length,
     );
     _logWrapUpOnce(ready: event.extractionReady);
+  }
+
+  
+
+/// ADR-0046 §5.2 — the worker tapped Haan: apply the ticked rows.
+  ///
+  /// The card's rows are the ONLY source of the row ids, so a card that has
+  /// already been replaced/cleared (or a turn that left companion mode) is a
+  /// no-op — never a POST with stale ids. A failed call KEEPS the card: the
+  /// server is transactional (nothing was applied), and the proposal lives
+  /// until its TTL, so re-tapping Haan is safe and is the retry.
+  Future<void> _onEditProposalConfirmed(
+    ChatEditProposalConfirmed event,
+    Emitter<ChatState> emit,
+  ) async {
+    final EditProposal? proposal = state.editProposal;
+    if (!state.companion || proposal == null || state.sending) return;
+    if (event.rowIds.isEmpty) return;
+    _inFlightSends++;
+    emit(state.copyWith(sending: true));
+    try {
+      final CompanionEditResult result = await _repo.confirmCompanionEdit(
+        proposal.proposalId,
+        event.rowIds,
+      );
+      _inFlightSends--;
+      await _applyEditResult(result, emit);
+    } on Failure catch (failure) {
+      // Keep the card (see the doc above) — drop the spinner and say what went
+      // wrong, with its REAL reason. Silence here reads as a dead button, and
+      // re-tapping Haan is the safe retry, so the worker needs to know to.
+      _inFlightSends--;
+      emit(state.copyWith(
+        sending: _inFlightSends > 0,
+        editNotice: failureReason(failure).reason,
+      ));
+    }
+  }
+
+  /// ADR-0046 §5.2 — the worker tapped Nahi: nothing is applied.
+  Future<void> _onEditProposalCancelled(
+    ChatEditProposalCancelled event,
+    Emitter<ChatState> emit,
+  ) async {
+    final EditProposal? proposal = state.editProposal;
+    if (!state.companion || proposal == null || state.sending) return;
+    _inFlightSends++;
+    emit(state.copyWith(sending: true));
+    try {
+      final CompanionEditResult result = await _repo.cancelCompanionEdit(
+        proposal.proposalId,
+      );
+      _inFlightSends--;
+      await _applyEditResult(result, emit);
+    } on Failure catch (failure) {
+      // Nahi failed: the proposal is untouched and still live, so the card stays
+      // and the worker is told why nothing happened.
+      _inFlightSends--;
+      emit(state.copyWith(
+        sending: _inFlightSends > 0,
+        editNotice: failureReason(failure).reason,
+      ));
+    }
+  }
+
+  /// Apply the three-answer result of a confirm/cancel call (ADR-0046 §5.2).
+  Future<void> _applyEditResult(
+    CompanionEditResult result,
+    Emitter<ChatState> emit,
+  ) async {
+    switch (result.outcome) {
+      case CompanionEditOutcome.served:
+        _applyCompanionTurn(result.turn!, emit);
+        return;
+      case CompanionEditOutcome.gone:
+        // The card is dead (404 expired / 409 stale): clear it and re-read the
+        // recap, so the worker sees the server's current facts rather than a
+        // card that can never be applied — AND say so. Dropping it in silence
+        // would leave a worker who just tapped Haan on their own profile
+        // watching the card disappear with no idea whether it worked.
+        emit(state.copyWith(
+          sending: _inFlightSends > 0,
+          clearEditProposal: true,
+          clearCooldownUntil: true,
+          editNotice: kCompanionEditGoneNotice,
+        ));
+        await _onCompanionRefreshRequested(
+          const ChatCompanionRefreshRequested(force: true),
+          emit,
+        );
+        return;
+      case CompanionEditOutcome.interview:
+        // 409 `{mode:"interview"}`: this worker is no longer a companion
+        // worker — leave companion mode and open the interview, exactly as a
+        // 409 on a message send does.
+        _leaveCompanionMode();
+        emit(state.copyWith(
+          sending: _inFlightSends > 0,
+          companion: false,
+          clearEditProposal: true,
+          clearCooldownUntil: true,
+        ));
+        await _onStarted(const ChatStarted(), emit);
+        return;
+    }
+  }
+
+  /// Append a companion turn's reply bubble and refresh every turn-scoped
+  /// field — the confirm/cancel path's answer. A companion MESSAGE answer goes
+  /// through [_deliver] instead, which also owns the worker's own bubble.
+  void _applyCompanionTurn(ChatTurn turn, Emitter<ChatState> emit) {
+    emit(state.copyWith(
+      messages: <ChatMessage>[
+        ...state.messages,
+        ChatMessage(text: turn.reply, fromWorker: false, ttsText: turn.ttsText),
+      ],
+      sending: _inFlightSends > 0,
+      companion: true,
+      followups: turn.followups,
+      suggestedOptions: turn.suggestedOptions,
+      questionKind: turn.questionKind,
+      inputMode: turn.inputMode,
+      answerType: turn.answerType,
+      clearAnswerType: turn.answerType == null,
+      // The confirm/cancel turn never carries a new card; a `served` turn that
+      // somehow did would replace the one just applied — handled either way.
+      editProposal: turn.editProposal,
+      clearEditProposal: turn.editProposal == null,
+      cooldownUntil: turn.cooldownUntil,
+      clearCooldownUntil: turn.cooldownUntil == null,
+      readAloud: turn.readAloud ?? false,
+    ));
   }
 }

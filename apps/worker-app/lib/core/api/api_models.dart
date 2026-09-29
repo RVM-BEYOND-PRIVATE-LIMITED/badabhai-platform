@@ -731,6 +731,119 @@ class ChatOption extends Equatable {
   List<Object?> get props => <Object?>[optionKey, labelText, isNoneOfAbove];
 }
 
+/// ADR-0046 §5.1 — ONE ROW of an edit card: what the card SHOWS and the
+/// [rowId] the app sends back on confirm.
+///
+/// [before] / [after] are the worker's own values (the card is `no-store` and
+/// the values never ride an event). The app ticks rows and sends their
+/// [rowId]s to the confirm route — never the values. [op] is the RAW wire enum
+/// ('add' | 'edit' | 'delete'), kept as a string like [FormOffer.kind]: a
+/// future op this build does not know must still render the row, never be
+/// silently dropped.
+class EditProposalRow extends Equatable {
+  const EditProposalRow({
+    required this.rowId,
+    required this.sectionLabel,
+    required this.op,
+    this.before,
+    this.after,
+  });
+
+  /// Server-minted uuid; the ONLY thing the confirm route accepts for this row.
+  final String rowId;
+
+  /// Worker-facing section name ("Skills", "Experience", …), server-supplied.
+  final String sectionLabel;
+
+  /// The raw `COMPANION_V2_EDIT_OPS` value: 'add' | 'edit' | 'delete'.
+  final String op;
+
+  /// The current value, or null (an `add` has no before).
+  final String? before;
+
+  /// The proposed value, or null (a `delete` has no after).
+  final String? after;
+
+  /// Parses one `{row_id, section_label, op, before, after}` object. Returns
+  /// null on a non-map or a missing/blank required field — a malformed row is
+  /// dropped (the caller keeps the usable ones), never thrown (#371).
+  static EditProposalRow? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final Object? rowId = raw['row_id'];
+    final Object? sectionLabel = raw['section_label'];
+    final Object? op = raw['op'];
+    if (rowId is! String || rowId.isEmpty) return null;
+    if (sectionLabel is! String || sectionLabel.isEmpty) return null;
+    if (op is! String || op.isEmpty) return null;
+    return EditProposalRow(
+      rowId: rowId,
+      sectionLabel: sectionLabel,
+      op: op,
+      // `is String` not a cast (#371): a garbled value reads as "none".
+      before: raw['before'] is String ? raw['before'] as String : null,
+      after: raw['after'] is String ? raw['after'] as String : null,
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[rowId, sectionLabel, op, before, after];
+}
+
+/// ADR-0046 §5.1 — the pending EDIT CARD (`edit_proposal`).
+///
+/// Served on exactly one companion turn per proposal; the app renders its rows
+/// with checkboxes (all ticked), Haan / Nahi, and disables them after
+/// [expiresAt]. Haan → `POST /chat/companion/edits/:id/confirm` with the ticked
+/// `row_ids`; Nahi → `.../cancel`. The server re-checks everything on confirm.
+///
+/// FAILS CLOSED TO "NO CARD": a non-map, a missing `proposal_id`, an
+/// unparseable `expires_at`, or zero usable rows all read as null — the turn
+/// then renders as its reply bubble alone, degraded but coherent, exactly like
+/// a client that predates this field.
+class EditProposal extends Equatable {
+  const EditProposal({
+    required this.proposalId,
+    required this.expiresAt,
+    required this.rows,
+  });
+
+  /// The uuid the confirm/cancel routes are keyed by.
+  final String proposalId;
+
+  /// The proposal's Redis TTL, mirrored so the app can disable Haan/Nahi
+  /// without a round trip. Local time (the wire value is ISO-8601).
+  final DateTime expiresAt;
+
+  /// The card's rows, oldest-first, at least one. Never empty on a parsed card.
+  final List<EditProposalRow> rows;
+
+  static EditProposal? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final Object? proposalId = raw['proposal_id'];
+    final Object? expiresAt = raw['expires_at'];
+    final Object? rows = raw['rows'];
+    if (proposalId is! String || proposalId.isEmpty) return null;
+    if (expiresAt is! String) return null;
+    final DateTime? parsed = DateTime.tryParse(expiresAt);
+    if (parsed == null) return null;
+    if (rows is! List) return null;
+    final List<EditProposalRow> parsedRows = rows
+        .map<EditProposalRow?>(EditProposalRow.fromJson)
+        .whereType<EditProposalRow>()
+        .toList(growable: false);
+    // A card with no usable row has nothing to tick — no card at all.
+    if (parsedRows.isEmpty) return null;
+    return EditProposal(
+      proposalId: proposalId,
+      expiresAt: parsed.toLocal(),
+      rows: parsedRows,
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[proposalId, expiresAt, rows];
+}
+
 /// THE INTERVIEW HANDED OVER TO A FORM (`form_offer`, #1339/#1340) — the card
 /// the client draws instead of a composer, in place of the next question.
 ///
@@ -802,12 +915,33 @@ class ChatReply extends Equatable {
     this.resumeUpdate,
     this.gateKind,
     this.generalFormOffer,
+    this.editProposal,
+    this.cooldownUntil,
+    this.readAloud,
   });
 
 final String reply;
   final bool blocked;
   final bool isMock;
   final List<String> suggestedFollowups;
+
+  /// ADR-0046 — the edit proposal card for the companion (**Phase 1**). When
+  /// present, the card shows checkboxes for each section, the [message] prompt,
+  /// and Haan/Nahi buttons. Null on every ordinary turn. The server decides
+  /// when to offer it; the client only renders.
+  final EditProposal? editProposal;
+
+  /// ADR-0046 — ISO-8601 timestamp when the companion enters a cooldown
+  /// (e.g. after a "Nahi" on the edit proposal). While the current time is
+  /// before this, the companion UI shows a "wait" state instead of the recap.
+  /// Null means no cooldown. Client only renders; the server enforces it.
+  final DateTime? cooldownUntil;
+
+  /// ADR-0046 — whether the companion's reply should be read aloud
+  /// automatically. When true, the client triggers TTS for this turn's
+  /// [ttsText] (or [reply] fallback) without the worker tapping the speaker.
+  /// Client-side behaviour only; the server never speaks.
+  final bool? readAloud;
 
   /// The tap-to-answer options for THIS turn (`suggested_options`, #761), served
   /// ALONGSIDE [suggestedFollowups]. Each carries the stable `option_key` the
@@ -1061,6 +1195,14 @@ final String reply;
                 'cta_label': (json['general_form_offer'] as Map)['cta_label'] as String?,
               }
             : null,
+        // ADR-0046 — Phase 1 companion: the edit proposal card (§5.1).
+        editProposal: EditProposal.fromJson(json['edit_proposal']),
+        // ADR-0046 — cooldown timestamp (ISO-8601).
+        cooldownUntil: json['cooldown_until'] is String
+            ? DateTime.tryParse(json['cooldown_until'] as String)?.toLocal()
+            : null,
+        // ADR-0046 — whether to auto-read this turn aloud.
+        readAloud: json['read_aloud'] is bool ? json['read_aloud'] as bool : null,
       );
 
   @override
@@ -1085,6 +1227,9 @@ final String reply;
         resumeUpdate,
         gateKind,
         generalFormOffer,
+        editProposal,
+        cooldownUntil,
+        readAloud,
       ];
 }
 
