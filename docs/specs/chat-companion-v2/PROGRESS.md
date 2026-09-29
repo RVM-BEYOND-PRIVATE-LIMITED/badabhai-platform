@@ -447,3 +447,14 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
   List preferences are member-level add/delete; `availability` is three scalar sub-fields merged
   into the stored object (owner ruling 2026-09-29).
 - **Next:** T8 (controller routes for confirm/cancel; DTOs landed with T7).
+
+---
+
+## Merge note — 2026-09-29 14:1x
+
+- `feat/companion-v2-phase1-cont` was squash-merged as **#1817** (`66091f66`), carrying
+  T4, T5, T7, T9 and T10. CI was fully green before the merge (Node, migration drift/sequence,
+  SAST, E2E, image gates), and the artifacts were verified on `origin/main` itself.
+- Per CLAUDE.md §14 the merged branch is DEAD. The REMAINING work — T8 (confirm/cancel routes),
+  T6 (orchestrator + handlers) and A4 + the phase §3 tests — continues on
+  **`feat/companion-v2-phase1-tail`**, cut from fresh `main` (`66091f66`).
