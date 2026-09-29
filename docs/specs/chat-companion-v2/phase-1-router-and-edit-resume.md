@@ -84,7 +84,7 @@ A new edit message while a proposal is open replaces it (one active proposal per
       (snapshot, validate, propose, confirm-in-transaction, cancel, regenerate).
 - [ ] **T8 Controller routes.** `confirm` / `cancel` in `chat-companion.controller.ts` (HTTP only),
       DTOs in `chat-companion.dto.ts`, additive `edit_proposal` on `CompanionTurnSchema`.
-- [ ] **T9 Résumé trigger.** `packages/types` `RESUME_GENERATION_TRIGGERS` += `chat_edit`;
+- [x] **T9 Résumé trigger.** `packages/types` `RESUME_GENERATION_TRIGGERS` += `chat_edit`;
       migration **`0130`** widens `generated_resumes_generation_trigger_chk` (drop + re-add the CHECK
       with the extra value; down migration restores the old list). Claim `0130` in `MIGRATIONS.md`.
       `ResumeService` accepts the trigger; the daily cap applies.

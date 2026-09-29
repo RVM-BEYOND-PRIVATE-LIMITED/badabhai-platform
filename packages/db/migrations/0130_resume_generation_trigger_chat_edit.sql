@@ -1,0 +1,42 @@
+-- ===========================================================================
+-- 0130 - generated_resumes.generation_trigger: the 'chat_edit' trigger
+--
+-- ADR-0046 Phase 1 (companion v2, owner rulings O6/O14). The companion's confirmed
+-- edit card regenerates the resume through the SAME ADR-0043 path every other
+-- generation uses, with its own trigger 'chat_edit' so the history card and the
+-- funnel can tell an edit-driven regeneration from an accepted chat update.
+--
+-- ONE CHANGE, ADDITIVE. `generated_resumes_generation_trigger_chk` is WIDENED to
+-- admit 'chat_edit' (DROP + ADD). Every value 0125 allowed is still allowed and
+-- NULL is still allowed, so no stored row can fail the re-added constraint.
+--
+-- DEPLOY ORDER - APPLY BEFORE THE FLAG, NOT BEFORE THE DEPLOY. No column changes,
+-- so no select anywhere is affected by a build that reaches the database first.
+-- The only write that needs this migration - the confirm route enqueuing a
+-- generation with trigger 'chat_edit' - sits behind CHAT_COMPANION_V2_ENABLED +
+-- CHAT_COMPANION_V2_EDIT_ENABLED (both default off). With the flag on before 0130
+-- the insert fails this CHECK and the confirm transaction rolls back; the worker
+-- sees the fallback line and nothing is written.
+--
+-- LOCKS. DROP CONSTRAINT and a validated ADD CONSTRAINT ... CHECK take ACCESS
+-- EXCLUSIVE on `generated_resumes` and the ADD scans it. The table holds one row
+-- per generation (ADR-0043 keeps all), so the scan is small; the real risk is
+-- queueing behind a long transaction while every resume read waits. Applied by
+-- hand: wrap BOTH statements in ONE explicit BEGIN/COMMIT (psql -f would otherwise
+-- commit the DROP alone and leave a window with no trigger constraint) with
+-- `SET LOCAL lock_timeout = '3s';`, and retry on 55P03 (0077/0080/0109/0124
+-- precedent).
+--
+-- ROLLBACK (flag off first, so no 'chat_edit' row can exist):
+--   ALTER TABLE "generated_resumes" DROP CONSTRAINT "generated_resumes_generation_trigger_chk";
+--   ALTER TABLE "generated_resumes" ADD CONSTRAINT "generated_resumes_generation_trigger_chk"
+--     CHECK ("generated_resumes"."generation_trigger" IS NULL OR
+--            "generated_resumes"."generation_trigger" IN ('profile_confirmed', 'manual', 'chat_update_accepted', 'ops_regenerate'));
+-- and delete this migration's row from drizzle.__drizzle_migrations (the one whose
+-- created_at is this entry's journal `when`), or drizzle's watermark skips
+-- re-applying 0130 forever.
+--
+-- SAFE TO RE-RUN: no (plain DROP/ADD CONSTRAINT). Apply once.
+-- ===========================================================================
+ALTER TABLE "generated_resumes" DROP CONSTRAINT "generated_resumes_generation_trigger_chk";--> statement-breakpoint
+ALTER TABLE "generated_resumes" ADD CONSTRAINT "generated_resumes_generation_trigger_chk" CHECK ("generated_resumes"."generation_trigger" IS NULL OR "generated_resumes"."generation_trigger" IN ('profile_confirmed', 'manual', 'chat_update_accepted', 'ops_regenerate', 'chat_edit'));

@@ -703,6 +703,29 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "index) and every résumé keeps the homepage QR — the PDF still renders, and profile." +
       "qr_scanned simply never fires, so the scan metric reads zero rather than erroring",
   },
+  // 0130: THE API writes trigger 'chat_edit' only while CHAT_COMPANION_V2_EDIT_ENABLED is on
+  // (ADR-0046 Phase 1), so a deploy ahead of the migration breaks no request. Registered because
+  // the CHECK's absence is LOUD on one surface and silent on the funnel: with the flag on, the
+  // confirm transaction rolls back (the worker gets the fallback line and nothing is written),
+  // and no history entry or resume.generated event is ever recorded for an edit. APPLY BEFORE
+  // THE FLAG (migration header).
+  {
+    id: "0130-generated-resumes-generation-trigger-chat-edit",
+    migration: "0130_resume_generation_trigger_chat_edit",
+    kind: "constraint",
+    table: "generated_resumes",
+    object: "generated_resumes_generation_trigger_chk",
+    requiredBy:
+      "ChatCompanionEditService's confirm path enqueues the regeneration through " +
+      "ResumeService.generate({ trigger: 'chat_edit' }) — the ADR-0043 path (O6) — and only while " +
+      "CHAT_COMPANION_V2_EDIT_ENABLED is on. The constraint is also named by every INSERT into " +
+      "generated_resumes, whatever the trigger",
+    failureMode:
+      "LOUD on the confirm route (the insert fails the CHECK, the transaction rolls back and the " +
+      "worker sees the fallback line; nothing is written) and SILENT in the funnel — no history " +
+      "entry, no resume.generated event, so edit-driven regenerations read as zero rather than " +
+      "erroring",
+  },
   {
     id: "0125-resume-history-generation-source",
     migration: "0125_resume_history",

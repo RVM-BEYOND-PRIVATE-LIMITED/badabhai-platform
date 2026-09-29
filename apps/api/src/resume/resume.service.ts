@@ -183,8 +183,9 @@ export class ResumeService {
       trigger?: SystemResumeTrigger;
       /**
        * A QUEUE RETRY of a system generation that already charged the worker's daily cap on its
-       * first attempt. Only meaningful for `chat_update_accepted`, the one metered system trigger:
-       * a model outage must not spend three of the worker's five daily generations on one "Haan".
+       * first attempt. Only meaningful for the METERED system triggers — `chat_update_accepted`
+       * and (ADR-0046 O6) `chat_edit`: a model outage must not spend three of the worker's five
+       * daily generations on one "Haan".
        */
       retry?: boolean;
     } = {},
@@ -200,7 +201,9 @@ export class ResumeService {
     // a generation a worker can repeat.
     await this.rateLimit.assertWithinDailyCap(dto.worker_id, {
       perWorker:
-        !opts.systemInitiated || (opts.trigger === "chat_update_accepted" && opts.retry !== true),
+        !opts.systemInitiated ||
+        ((opts.trigger === "chat_update_accepted" || opts.trigger === "chat_edit") &&
+          opts.retry !== true),
     });
 
     const profile = await this.profiles.findById(dto.profile_id);

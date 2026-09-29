@@ -343,3 +343,39 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
   authored yet (one phase per PR). The `companion_task:jobs` row in contracts §5.3 is served by
   v1's existing `companion_new_jobs` chip, so no second jobs key exists.
 - **Next:** T9 (`chat_edit` trigger + migration 0130).
+
+---
+
+## T9 — 2026-09-29 12:47
+
+- **Done:** The `chat_edit` generation trigger end to end.
+  - `packages/types`: `RESUME_GENERATION_TRIGGERS` += `chat_edit` (ADR-0046 O6).
+  - `apps/api/src/resume/resume.dto.ts`: `SystemResumeTrigger` += `chat_edit`.
+  - `apps/api/src/resume/resume.service.ts`: metered like `chat_update_accepted` — the
+    per-worker daily cap applies, and a queue retry does not re-charge (the `retry` comment
+    updated).
+  - `packages/db/src/schema/profile.ts`: CHECK widened; `pnpm db:generate` produced migration
+    **0130**, renamed `0130_resume_generation_trigger_chat_edit` (journal tag updated) and given
+    the house header (deploy order = before the FLAG; lock_timeout; rollback restores the
+    0125 list). Snapshot `0130_snapshot.json` written by drizzle.
+  - `packages/db/src/migration-0130-resume-generation-trigger-chat-edit.test.ts` (new, 11
+    tests): additive-only, frozen vocabulary, NULL tolerance, the LIVE-model tripwire against
+    `RESUME_GENERATION_TRIGGERS`, snapshot lineage, header, journal.
+  - `packages/db/src/migration-0125-resume-history.test.ts`: its trigger assertion now pins the
+    FROZEN 0125 literal (it compared the migration to the live constant, which made the
+    migration un-widenable; 0130's test owns live agreement).
+  - `packages/db/src/schema-contract.ts`: `0130-generated-resumes-generation-trigger-chat-edit`
+    (`kind: "constraint"`).
+  - `MIGRATIONS.md`: the reserved `0130` row rewritten as shipped (apply-before-flag, locks,
+    rollback, verify-by-`pg_get_constraintdef`).
+  - `resume.service.test.ts`: +1 test (chat_edit metered, labelled on the saved row, retry free).
+- **Checks:**
+  - `pnpm --filter @badabhai/db test` — 130 files / 2,684 passed.
+  - `pnpm --filter @badabhai/event-schema test` — 375 passed.
+  - `pnpm --filter @badabhai/api test` — 11,976 passed / 153 skipped.
+  - `pnpm lint` 0 errors · `pnpm typecheck` 29/29 · ai-service `pytest` exit 0 + `ruff` clean.
+- **Notes / decisions / surprises:** `@badabhai/types` must be REBUILT before db/api tests when
+  its vocabularies change (packages resolve through `dist/`; the same footgun recorded at T3).
+  Migration mechanics: `db:generate` → rename tag → update `_journal.json` → header → test.
+- **Next:** T7 (edit catalogue + service; needs T8's `edit_proposal` wire field, which lands
+  with it as the strict turn schema requires it).
