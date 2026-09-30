@@ -266,6 +266,16 @@ export const V2_EDIT_IDENTITY: CopyPair = {
 };
 
 /**
+ * The only change asked for carried a masked value (ADR-0046 O17): a company or a person's name
+ * the privacy gateway replaced with a token, which chat can never write back. Rephrasing cannot
+ * help, so the worker is pointed at the screen that can. DRAFT pending owner review (contracts §8).
+ */
+export const V2_EDIT_PLACEHOLDER: CopyPair = {
+  latin: "Yeh badlav chat se nahi ho sakta. Profile mein jaa kar badliye.",
+  dev: "यह बदलाव चैट से नहीं हो सकता। प्रोफ़ाइल में जा कर बदलिए।",
+};
+
+/**
  * Haan: the rows were applied in one transaction and the résumé regeneration is QUEUED — its cap
  * slot charged and its job in RESUME_GENERATE_QUEUE, so "update ho raha hai" is literally true.
  */
@@ -389,6 +399,7 @@ export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPai
   ["V2_EDIT_CARD_INTRO", V2_EDIT_CARD_INTRO],
   ["V2_EDIT_NONE", V2_EDIT_NONE],
   ["V2_EDIT_IDENTITY", V2_EDIT_IDENTITY],
+  ["V2_EDIT_PLACEHOLDER", V2_EDIT_PLACEHOLDER],
   ["V2_EDIT_DONE", V2_EDIT_DONE],
   ["V2_EDIT_DONE_CAPPED", V2_EDIT_DONE_CAPPED],
   ["V2_EDIT_CANCELLED", V2_EDIT_CANCELLED],

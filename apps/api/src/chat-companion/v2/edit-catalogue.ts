@@ -7,9 +7,11 @@
  * the AI service, so the model is choosing from a closed list rather than guessing field names.
  *
  * `field` is a LOGICAL name (e.g. `expected_salary`, `preferred_cities`); the writer mapping in
- * `CompanionEditService` translates it to its store. Values are validated here — against the same
- * closed vocabularies and bounds the section writers' own DTOs enforce — so a row that reaches a
- * card is already one the writer can accept.
+ * `CompanionEditService` translates it to its store. Values are NORMALISED here — against the same
+ * closed vocabularies and bounds the section writers' own DTOs enforce — and then `propose` parses
+ * every row through the writer's REAL schema (`edit-plan.ts`), so the refinements that span
+ * fields or screen free text (an end month before the start, a phone number in an issuer) drop a
+ * row before a card can show it, rather than failing every Haan.
  *
  * OWNER RULINGS ENCODED HERE (2026-09-29):
  *   - single-field adds only: `add` exists for skills, languages, occupations and the three list
@@ -35,6 +37,7 @@ import {
   LANGUAGES,
   SHIFTS,
 } from "../../profiles/worker-preferences.vocabulary";
+import { CREDENTIAL_YEAR_FLOOR, currentYear } from "../../profiles/credential-year";
 
 /** The card's display label per section (reviewed copy, shown on every row of the card). */
 export const SECTION_LABELS: Readonly<Record<CompanionV2EditSection, string>> = {
@@ -141,7 +144,6 @@ export function opAllowed(entry: CatalogueField, op: CompanionV2EditOp): boolean
 const YEAR_MONTH = /^[0-9]{4}-(0[1-9]|1[0-2])$/;
 /** `YYYY-MM-DD` — the availability DTO's own shape. */
 const YEAR_MONTH_DAY = /^\d{4}-\d{2}-\d{2}$/;
-const CURRENT_YEAR = new Date().getUTCFullYear();
 
 const ROLE_IDS = new Set<string>(ROLES.map((role) => role.id));
 const LANGUAGE_SLUGS = new Set(Object.keys(LANGUAGES));
@@ -171,8 +173,13 @@ function intIn(raw: string, min: number, max: number): string | null {
   return n >= min && n <= max ? String(n) : null;
 }
 
+/**
+ * The credential DTO's own bound, read AT CALL TIME (`credential-year.ts`, #1407): a module-level
+ * "this year" would refuse the current year's certificates from 1 January until the next deploy.
+ * The writer's schema still has the last word — `propose` parses every row through it.
+ */
 function credentialYear(raw: string): string | null {
-  return intIn(raw, 1950, CURRENT_YEAR);
+  return intIn(raw, CREDENTIAL_YEAR_FLOOR, currentYear());
 }
 
 /**
@@ -288,9 +295,9 @@ export function normaliseValue(
 /**
  * Whether a value still carries a pseudonymization placeholder (`[EMPLOYER_1]`, …).
  *
- * ADR-0046 O17: v2 builds NO token rehydration, so such a row is DROPPED and the worker is
- * pointed at the Profile screen. When masking is removed platform-wide, no tokens appear and
- * these edits simply work.
+ * ADR-0046 O17: v2 builds NO token rehydration, so such a row is DROPPED — and when no row
+ * survives, the worker is pointed at the Profile screen (`V2_EDIT_PLACEHOLDER`). When masking is
+ * removed platform-wide, no tokens appear and these edits simply work.
  */
 export function hasPlaceholderToken(value: string): boolean {
   return /\[[A-Z]+_\d+\]/.test(value);

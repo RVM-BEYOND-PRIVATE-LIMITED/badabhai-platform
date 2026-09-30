@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
+import { CompanionTurnSchema } from "../chat-companion.dto";
 import { FALLBACK, V2_EDIT_DONE, V2_EDIT_DONE_CAPPED, V2_EDIT_STALE } from "../companion-replies";
 import { profileRow, PROFILE_ID, setup, storedProposal, WORKER_ID } from "./companion-edit.fake";
 import type { StoredEditProposalRow } from "./edit-proposal.store";
@@ -150,6 +151,37 @@ describe("CompanionEditService.confirm", () => {
     expect(h.resumes.queueChatEditRegeneration).not.toHaveBeenCalled();
     expect(h.committed).toEqual([]);
     expect(confirmedPayload(h)).toBeUndefined();
+  });
+
+  it("the rolled-back answer CARRIES the same card, so Haan can be tapped again (BUG-F1)", async () => {
+    const h = setup({ proposal: storedProposal(), languageEntries: [LANGUAGE_HINDI], writerThrows: true });
+    const result = await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID], CTX);
+    if (result.kind !== "failed") throw new Error("expected failed");
+    // The same proposal id and row ids the app already holds — its one turn-to-state path shows
+    // the card again, with no app change.
+    expect(result.turn.edit_proposal).toEqual({
+      proposal_id: PROPOSAL_ID,
+      expires_at: storedProposal().expires_at,
+      rows: [{ row_id: ROW_ID, section_label: "Bhasha", op: "delete", before: "hindi", after: null }],
+    });
+    expect(CompanionTurnSchema.safeParse(result.turn).success).toBe(true);
+  });
+
+  it("…and that second Haan applies: the rollback handed the claim back", async () => {
+    const h = setup({
+      proposal: storedProposal(),
+      languageEntries: [LANGUAGE_HINDI],
+      failingWriters: ["languages"],
+    });
+    expect((await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID], CTX)).kind).toBe("failed");
+    expect(h.proposals.release).toHaveBeenCalledWith(WORKER_ID, PROPOSAL_ID);
+
+    h.languages.replaceForWorker.mockImplementation(async (...args: unknown[]) => {
+      h.tx.staged.push({ writer: "languages", args });
+      return { worker_id: WORKER_ID, language_count: 0 };
+    });
+    expect((await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID], CTX)).kind).toBe("applied");
+    expect(h.committed.map((w) => w.writer)).toEqual(["languages"]);
   });
 
   it("row 2's writer failing UNDOES row 1: nothing committed, fallback, card kept (spec §4)", async () => {
@@ -304,5 +336,121 @@ describe("CompanionEditService.confirm", () => {
   it("cancel on an unknown proposal is not_found", async () => {
     const h = setup({ proposal: null });
     expect((await h.service.cancel(WORKER_ID, PROPOSAL_ID, CTX)).kind).toBe("not_found");
+  });
+});
+
+describe("CompanionEditService.confirm — a card applies AT MOST ONCE (BUG-DOUBLE-CONFIRM)", () => {
+  it("two concurrent Haans: one applies, the other is the already-confirmed 404", async () => {
+    const h = setup({
+      proposal: storedProposal({ rows: [DELETE_HINDI, ADD_WELDING] }),
+      languageEntries: [LANGUAGE_HINDI],
+    });
+    const results = await Promise.all([
+      h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID, SKILL_ROW_ID], CTX),
+      h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID, SKILL_ROW_ID], CTX),
+    ]);
+    expect(results.map((r) => r.kind).sort()).toEqual(["applied", "not_found"]);
+    // One apply, one regeneration (one cap slot), one skill label appended.
+    expect(h.db.transaction).toHaveBeenCalledTimes(1);
+    expect(h.profiles.setResumeSkillLabels).toHaveBeenCalledTimes(1);
+    expect(h.resumes.queueChatEditRegeneration).toHaveBeenCalledTimes(1);
+  });
+
+  it("a retry after the proposal's delete failed finds the claim held — nothing is applied twice", async () => {
+    const h = setup({
+      proposal: storedProposal({ rows: [ADD_WELDING] }),
+      deleteFails: true,
+    });
+    expect((await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [SKILL_ROW_ID], CTX)).kind).toBe(
+      "applied",
+    );
+    // The card is still in Redis (the DEL was lost) — the claim is what refuses it.
+    expect(await h.proposals.load(WORKER_ID)).not.toBeNull();
+    expect((await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [SKILL_ROW_ID], CTX)).kind).toBe(
+      "not_found",
+    );
+    expect(h.profiles.setResumeSkillLabels).toHaveBeenCalledTimes(1);
+    expect(h.resumes.queueChatEditRegeneration).toHaveBeenCalledTimes(1);
+  });
+
+  it("Redis refusing the claim applies NOTHING and serves the card again", async () => {
+    const h = setup({ proposal: storedProposal(), languageEntries: [LANGUAGE_HINDI], claimUnavailable: true });
+    const result = await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID], CTX);
+    expect(result.kind).toBe("failed");
+    if (result.kind === "failed") expect(result.turn.edit_proposal?.proposal_id).toBe(PROPOSAL_ID);
+    expect(h.db.transaction).not.toHaveBeenCalled();
+    expect(h.proposals.delete).not.toHaveBeenCalled();
+  });
+
+  it("a Nahi racing a Haan: whichever claimed first is the answer", async () => {
+    const h = setup({ proposal: storedProposal(), languageEntries: [LANGUAGE_HINDI] });
+    await h.proposals.claim(WORKER_ID, PROPOSAL_ID); // a confirm is in flight
+    expect((await h.service.cancel(WORKER_ID, PROPOSAL_ID, CTX)).kind).toBe("not_found");
+    expect(h.proposals.delete).not.toHaveBeenCalled();
+    expect(h.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("a section that cannot be re-read is not 'stale': nothing written, card kept and served, claim released", async () => {
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const h = setup({ proposal: storedProposal(), languageEntries: [LANGUAGE_HINDI] });
+    h.languages.getForWorker.mockRejectedValueOnce(new Error("db hiccup"));
+    const result = await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID], CTX);
+    expect(result.kind).toBe("failed");
+    if (result.kind === "failed") expect(result.turn.edit_proposal?.proposal_id).toBe(PROPOSAL_ID);
+    expect(h.proposals.delete).not.toHaveBeenCalled();
+    expect(h.db.transaction).not.toHaveBeenCalled();
+    expect(h.events.emit).not.toHaveBeenCalled();
+    // The retry, once the read recovers, applies.
+    expect((await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID], CTX)).kind).toBe("applied");
+  });
+});
+
+describe("CompanionEditService — a tap on an EXPIRED card is recorded as expired (CON-4d)", () => {
+  const EXPIRES = "2026-09-30T12:00:00.000Z";
+  const LATE = new Date("2026-09-30T12:00:01.000Z");
+  const EARLY = new Date("2026-09-30T11:59:59.000Z");
+
+  function cancelledReasons(h: ReturnType<typeof setup>): string[] {
+    return h.events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; payload: { reason?: string } })
+      .filter((e) => e.event_name === "chat.companion_edit_cancelled")
+      .map((e) => e.payload.reason ?? "");
+  }
+
+  it("a Haan past expires_at: the same 404, cancelled{expired}, nothing claimed or written", async () => {
+    const h = setup({ proposal: storedProposal({ expires_at: EXPIRES }), languageEntries: [LANGUAGE_HINDI] });
+    const result = await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID], CTX, LATE);
+    expect(result.kind).toBe("not_found");
+    expect(cancelledReasons(h)).toEqual(["expired"]);
+    const event = h.events.emit.mock.calls[0]![0] as { payload: unknown; idempotencyKey: string };
+    // The spine's own schema (ids + a closed reason) — deduped on the proposal, so a second late
+    // tap adds nothing.
+    expect(event.payload).toEqual({ proposal_id: PROPOSAL_ID, reason: "expired" });
+    expect(event.idempotencyKey).toBe(`chat.companion_edit_cancelled:${PROPOSAL_ID}`);
+    expect(h.proposals.claim).not.toHaveBeenCalled();
+    expect(h.db.transaction).not.toHaveBeenCalled();
+    // Left to lapse, never deleted: a delete could race a newer card saved meanwhile.
+    expect(h.proposals.delete).not.toHaveBeenCalled();
+  });
+
+  it("a Nahi past expires_at is recorded the same way", async () => {
+    const h = setup({ proposal: storedProposal({ expires_at: EXPIRES }) });
+    expect((await h.service.cancel(WORKER_ID, PROPOSAL_ID, CTX, LATE)).kind).toBe("not_found");
+    expect(cancelledReasons(h)).toEqual(["expired"]);
+  });
+
+  it("a Haan a second before expires_at still applies", async () => {
+    const h = setup({ proposal: storedProposal({ expires_at: EXPIRES }), languageEntries: [LANGUAGE_HINDI] });
+    const result = await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID], CTX, EARLY);
+    expect(result.kind).toBe("applied");
+    expect(cancelledReasons(h)).toEqual([]);
+  });
+
+  it("an id that is NOT the worker's card records nothing — a URL id never reaches the spine", async () => {
+    const h = setup({ proposal: storedProposal({ expires_at: EXPIRES }) });
+    const other = "66666666-6666-4666-8666-666666666666";
+    expect((await h.service.confirm(WORKER_ID, profileRow(), other, [ROW_ID], CTX, LATE)).kind).toBe("not_found");
+    expect((await h.service.cancel(WORKER_ID, other, CTX, LATE)).kind).toBe("not_found");
+    expect(h.events.emit).not.toHaveBeenCalled();
   });
 });

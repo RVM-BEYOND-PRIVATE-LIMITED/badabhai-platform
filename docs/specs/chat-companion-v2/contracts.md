@@ -97,6 +97,21 @@ different employers never share `[EMPLOYER_1]`. The token grammar is unchanged (
 caught by the API's O17 `hasPlaceholderToken` screen), no mapping is returned, and every other
 gateway caller keeps its per-call numbering. No wire field changes.
 
+**API-side bounds (2026-09-30, lane a2).** The model's output is untrusted, so the API enforces
+both caps itself rather than relying on the AI service:
+
+- `max_rows` sent = `min(CHAT_COMPANION_V2_EDIT_MAX_ROWS, 3, 10)` — never more than one confirm may
+  tick (`EDIT_CARD_ROWS_MAX`, §5.2) nor than this contract accepts — and the API cuts the card to
+  the same number whatever comes back. Rows past it count in `dropped_count`.
+- `snapshot` is cut to the contract's 64 rows before sending (a 65-row body is a 422, which reads
+  as "no rows" and would serve the clarify line forever). The cut is deterministic: rows are grouped
+  by ref family (`e`, `s`, `l`, `c`, `q`, `t`, `o`, `pref`, `pc`, `wt`, `dr`) and the cap is
+  water-filled smallest family first, so only the largest families (in practice skills) lose rows;
+  within a family, rows whose current value appears verbatim in the message go first. A cut is
+  logged with counts and `reason=snapshot_cap`, never a value. A ref the model was not shown
+  cannot be addressed.
+- `companion-edit.contract.test.ts` pins the API's restated `64` / `10` against this schema.
+
 ### 2.3 `POST /companion/career` (P3) — task `companion_career_answer`, Claude, json_mode
 
 ```ts
@@ -157,6 +172,39 @@ Notes T7 must carry forward:
    through the fields the renderer actually prints (see the §3 row). A later re-extraction or
    confirm may restore an edited-away skill; accepted under the ruling.
 
+### 3.2 How a card row is validated and applied (2026-09-30, lane a2)
+
+One pure module (`v2/edit-plan.ts`) turns a section's rows plus its current state into that
+writer's input, parsed by the writer's REAL schema (`SetMy*Schema`). It runs twice:
+
+- **At propose**, per row, after the per-row gates (catalogue, op, ref, value, token, edit no-op)
+  and the row-set gates — a second delete of one entry (the field is only a delete's anchor), an
+  edit of an entry the same card deletes, a second edit of one field, a second add of one value
+  (case-insensitive), and an ADD OF SOMETHING ALREADY STORED (case-insensitive; skills included)
+  are all dropped. Each surviving row is tried together with the rows already accepted for its
+  section; a row the writer's schema refuses (a phone number in an issuer, an end month before the
+  start, a fifth occupation, a seventeenth language) never reaches a card.
+- **At confirm**, against the state the stale check just read, and the parsed DTO goes to the
+  writer on the transaction.
+
+Per section:
+
+| Section | Apply rule |
+|---|---|
+| `preferences` | Only the touched keys, with **`touched_only: true`** — without it the writer reads a `false` or a `[]` as an old build's default wherever a value is stored (#1504) and keeps the old answer. List rows FOLD: two rows on one list both land. |
+| `qualifications` | A row's target is `{list, index, fp}` — `fp` a hash of the entry's carded fields (never the licence). Rows resolve to entry OBJECTS before anything moves (the entry at `index` if it still matches `fp`, else the first unclaimed match), so deletes never shift an edit onto another entry. **Only the lists named by the rows are sent**: an absent list survives, so rows the GET withheld (`partial`) in the other lists are never erased. |
+| `skills` | An add already printed (case-insensitive, ids by label) is not appended — a label is never printed twice, even on a second Haan. |
+| others | Unchanged: employment by `employment_id` (with `expected_existing_count`), languages by slug, occupations by role id. |
+
+The stale check matches a qualification row by `list` + `fp`, never by index, so a reordered list
+still finds the entry and an entry edited elsewhere does not; a stored row without `fp` (none exist
+in production: the model paths are dark) is stale. A section the confirm cannot re-read is NOT
+stale — nothing is known about it — so the confirm writes nothing and serves the card again.
+
+After commit, a `preferences.shift` row runs the form path's own
+`WorkerPreferencesService.seedNightShiftReadyFromShift` (now public; the writer skips it on a
+joined transaction), before occupations' rebuild and the résumé regeneration.
+
 ## 4. Events (`packages/event-schema`, registry + payloads)
 
 All `.strict()`, ids/counts/enums only, never text. v1 `chat.companion_turn_served` v1 is **not**
@@ -172,6 +220,14 @@ modified; v2 turns emit **v2** of it.
 | `chat.companion_career_answered` | v1 | `outcome` (`answered`/`refused`/`fallback`), `refusal_topic` (nullable), `turns_in_memory` | P3 |
 
 Dedupe: message turns by `submission_id` (as v1); edit events by `proposal_id`.
+
+**`chat.companion_edit_cancelled{reason:"expired"}` (2026-09-30, lane a2).** Emitted when a Haan
+or a Nahi names the worker's OWN stored card (the id under the bearer's key, never merely the
+URL's) after its `expires_at`; the route still answers 404. The proposal record is kept
+`PROPOSAL_EXPIRY_GRACE_SECONDS` (300 s) past `expires_at` so a late tap is recognisable, and is
+left to lapse rather than deleted (a delete could race a newer card). Not emitted, and not
+representable without a new reason (an Architect decision): a card replaced by a newer proposal,
+and a card nobody taps again — so `proposed − confirmed − cancelled` still has a remainder.
 
 **`resume_regen` (2026-09-30, lane a1).** Decided on the Haan request by
 `ResumeService.queueChatEditRegeneration`, before anything is spent: `queued` = the worker's
@@ -214,11 +270,28 @@ fields are declared, so the schema still rejects undeclared ones.
 
 | Route | Body | Responses |
 |---|---|---|
-| `POST /chat/companion/edits/:proposalId/confirm` | `{ row_ids: uuid[] (1..3), submission_id?: uuid }` | 200 turn · 404 unknown/expired/other worker's · 409 `{mode:"interview"}` · 409 `{reason:"stale"}` |
+| `POST /chat/companion/edits/:proposalId/confirm` | `{ row_ids: uuid[] (1..3), submission_id?: uuid }` | 200 turn · 404 unknown/expired/other worker's/already confirmed · 409 `{mode:"interview"}` · 409 `{reason:"stale", turn}` |
 | `POST /chat/companion/edits/:proposalId/cancel` | `{ submission_id?: uuid }` | 200 turn · 404 |
 
 Auth: worker bearer token (same guard as v1). The worker id always comes from the token, never
 the body. `proposalId` is looked up under that worker's key only (no cross-worker oracle: 404).
+
+Confirm behaviour (2026-09-30, lane a2 — all additive on the wire):
+
+- **At most once.** The confirm CLAIMS the card (`SET NX`, §7) before applying anything. A double
+  tap, a retry while the first request is still working, or a re-confirm after a lost delete finds
+  it claimed and gets the already-confirmed **404**. A Nahi claims too, so a Nahi racing a Haan is
+  404 for whichever came second.
+- **Nothing written → 200 with the card.** A writer failure (rolled back whole), a section the
+  confirm could not re-read, or a claim Redis refused answers 200 with the `V2_FALLBACK` turn
+  CARRYING THE SAME `edit_proposal` (same `proposal_id`, same `row_id`s), so the app's normal
+  turn path keeps the card and Haan can be tapped again until `expires_at`. A rolled-back apply
+  hands its claim back.
+- **Stale → 409 `{reason:"stale", turn}`.** `reason` is unchanged; `turn` is the reviewed
+  `V2_EDIT_STALE` turn (`reply` + `tts_text`), for the app to show in place of a line of its own.
+  Like every error it sits under `error` in the `AllExceptionsFilter` envelope.
+- A card carries at most `EDIT_CARD_ROWS_MAX` (3) rows — the confirm DTO's own bound — and the
+  outbound schema says so.
 
 ### 5.3 Chip keys (fixed, in `companion-keys.ts`, mirrored in the app's `chat_companion_keys.dart`
 and covered by the existing parity test)
@@ -263,7 +336,8 @@ client. All keys are prefixed `companion:v2:`.
 | Key | Type | TTL | Written by | If Redis fails |
 |---|---|---|---|---|
 | `mem:{workerId}` | list, pseudonymized turns, capped at `MEMORY_TURNS` | `MEMORY_TTL_SECONDS` | orchestrator | classify/answer without memory |
-| `proposal:{workerId}` | JSON (one active proposal per worker; a new one replaces it) | `PROPOSAL_TTL_SECONDS` | edit service | no card is offered: "abhi badlav nahi ho paaya, thodi der mein try karein" |
+| `proposal:{workerId}` | JSON (one active proposal per worker; a new one replaces it) | `PROPOSAL_TTL_SECONDS` + 300 s grace (the card itself still ends at `expires_at`; the grace only lets a late tap be recorded `expired`, §4) | edit service | no card is offered: "abhi badlav nahi ho paaya, thodi der mein try karein" |
+| `proposal-claim:{workerId}:{proposalId}` | flag, `SET NX` — one Haan/Nahi per card | same as the proposal record | edit service (confirm / cancel; released on a rollback) | confirm applies nothing and serves the card again; cancel proceeds (it writes nothing) |
 | `strikes:{workerId}:{utcDay}` | counter | 24 h | faltu handler | no strike counted |
 | `cooldown:{workerId}` | flag | `FALTU_COOLDOWN_MINUTES` | faltu handler | no cool-down |
 
@@ -281,7 +355,8 @@ All fixed lines live in `companion-replies.ts` (v1 file, extended) with a Devana
 | `V2_CLARIFY` | Samajh nahi aaya. Aap inme se kya karna chahte hain? |
 | `V2_EDIT_CARD_INTRO` | Yeh badlav karne hain? Dekh kar Haan dabaiye. |
 | `V2_EDIT_NONE` | Kya badalna hai, samajh nahi aaya. Thoda aur batayiye. |
-| `V2_EDIT_IDENTITY` | Naam aur phone Profile mein jaa kar badliye. |
+| `V2_EDIT_IDENTITY` | Naam aur phone Profile mein jaa kar badliye. — Served when no row survives and the model's `unsupported` names identity/contact OR the message itself names the worker's own name / phone / ID number (`v2/edit-identity.ts`, deterministic, 2026-09-30). |
+| `V2_EDIT_PLACEHOLDER` | Yeh badlav chat se nahi ho sakta. Profile mein jaa kar badliye. — **DRAFT (2026-09-30), pending owner review.** Served when no row survives and at least one was dropped for a placeholder token (O17: a masked company or person name chat can never write back). |
 | `V2_EDIT_DONE` | Badlav ho gaya. Aapka resume update ho raha hai. |
 | `V2_EDIT_DONE_CAPPED` | Badlav ho gaya. Resume abhi update nahi hua, baad mein Resume tab se update karein. — **DRAFT (2026-09-30), pending owner review.** Served for `capped` and `failed` (incl. no `resume_generation` consent). Replaces "Resume aaj update nahi ho sakta, kal ho jayega": nothing regenerates later on its own, so the line promises no time. |
 | `V2_EDIT_CANCELLED` | Theek hai, kuch nahi badla. |

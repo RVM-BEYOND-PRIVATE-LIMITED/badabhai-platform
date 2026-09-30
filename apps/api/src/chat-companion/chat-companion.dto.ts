@@ -42,6 +42,15 @@ export const EditProposalRowSchema = z
 export type EditProposalRow = z.infer<typeof EditProposalRowSchema>;
 
 /**
+ * The most rows one edit card carries (ADR-0046 O5) — and so the most one confirm may tick.
+ *
+ * ONE NUMBER FOR BOTH ENDS. A card with more rows than the confirm route accepts would show
+ * rows the worker cannot all apply, so the service caps every card at
+ * `min(CHAT_COMPANION_V2_EDIT_MAX_ROWS, this)` and asks the model for no more than that.
+ */
+export const EDIT_CARD_ROWS_MAX = 3;
+
+/**
  * The pending edit card. `expires_at` is the proposal's Redis TTL, mirrored so the app can
  * disable Haan/Nahi without a round-trip; the server re-checks everything on confirm.
  */
@@ -49,7 +58,7 @@ export const EditProposalSchema = z
   .object({
     proposal_id: uuidSchema,
     expires_at: z.string(),
-    rows: z.array(EditProposalRowSchema).min(1),
+    rows: z.array(EditProposalRowSchema).min(1).max(EDIT_CARD_ROWS_MAX),
   })
   .strict();
 export type EditProposal = z.infer<typeof EditProposalSchema>;
@@ -71,7 +80,7 @@ export type CompanionTurn = z.infer<typeof CompanionTurnSchema>;
 /** `POST /chat/companion/edits/:proposalId/confirm` body (ADR-0046 §5.2). */
 export const ConfirmEditSchema = z
   .object({
-    row_ids: z.array(uuidSchema).min(1).max(3),
+    row_ids: z.array(uuidSchema).min(1).max(EDIT_CARD_ROWS_MAX),
     submission_id: uuidSchema.optional(),
   })
   .strict();

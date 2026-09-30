@@ -169,7 +169,8 @@ export class WorkerPreferencesService {
     }
 
     // Skipped on a joined transaction: the seed writes the `workers` row on a SEPARATE
-    // connection, which cannot see uncommitted attributes and would derive from stale state.
+    // connection, so it would land even if the caller's transaction then rolled back. The caller
+    // runs it after its commit instead (the chat companion does, for a shift row — BUG-NIGHT-SEED).
     if (opts.tx === undefined) await this.seedNightShiftReadyFromShift(workerId, dto.shift);
 
     await this.events.emit({
@@ -391,8 +392,14 @@ export class WorkerPreferencesService {
    *
    * BEST-EFFORT. The preferences the worker just submitted are already committed; a failure to
    * seed a derived default must not fail that write or lose it.
+   *
+   * PUBLIC FOR ONE CALLER: a caller that wrote `shift` on its own transaction (`opts.tx`) runs
+   * THIS after committing, so a shift picked in chat seeds the toggle exactly as the form does
+   * (ADR-0046, `CompanionEditService.confirm`). That shift is a closed-list slug the WORKER
+   * confirmed by tapping Haan on the card showing it — his answer, not an unreviewed inference,
+   * which is what the paragraph above forbids.
    */
-  private async seedNightShiftReadyFromShift(
+  async seedNightShiftReadyFromShift(
     workerId: string,
     shift: string | null | undefined,
   ): Promise<void> {

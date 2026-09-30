@@ -49,6 +49,8 @@ export interface Harness {
     save: ReturnType<typeof vi.fn>;
     load: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
+    claim: ReturnType<typeof vi.fn>;
+    release: ReturnType<typeof vi.fn>;
   };
   readonly ai: { companionEditParse: ReturnType<typeof vi.fn> };
   readonly profiles: { setResumeSkillLabels: ReturnType<typeof vi.fn> };
@@ -71,6 +73,7 @@ export interface Harness {
   readonly preferences: {
     getForWorker: ReturnType<typeof vi.fn>;
     setForWorker: ReturnType<typeof vi.fn>;
+    seedNightShiftReadyFromShift: ReturnType<typeof vi.fn>;
   };
   readonly workerSkills: { rebuildQuietly: ReturnType<typeof vi.fn> };
   readonly resumes: { queueChatEditRegeneration: ReturnType<typeof vi.fn> };
@@ -127,6 +130,14 @@ export function setup(
     writerThrows?: boolean;
     /** Only these section writers throw — the others write (row 1 lands, row 2 fails). */
     failingWriters?: readonly WriteRecord["writer"][];
+    /** The store's DEL fails silently (best-effort), so the card outlives a successful Haan. */
+    deleteFails?: boolean;
+    /** Redis refuses the SET NX claim. */
+    claimUnavailable?: boolean;
+    /** The qualifications GET's `partial` list (rows it withheld). */
+    qualificationsPartial?: readonly ("certificates" | "educations" | "trainings")[];
+    /** `CHAT_COMPANION_V2_EDIT_MAX_ROWS` (default 3). */
+    maxRows?: number;
   } = {},
 ): Harness {
   const tx = { sentinel: "tx" as const, staged: [] as WriteRecord[] };
@@ -138,10 +149,29 @@ export function setup(
     (handle === tx ? tx.staged : committed).push({ writer, args });
   };
   const txOf = (options: unknown): unknown => (options as { tx?: unknown } | undefined)?.tx;
+  // THE STORE HAS REAL SEMANTICS TOO: one card per worker that a save replaces and a delete
+  // removes, and a SET NX claim per proposal that only a release hands back.
+  let stored: StoredEditProposal | null = opts.proposal ?? null;
+  const claims = new Set<string>();
   const proposals = {
-    save: vi.fn(async () => opts.storeSave ?? true),
-    load: vi.fn(async () => opts.proposal ?? null),
-    delete: vi.fn(async () => undefined),
+    save: vi.fn(async (_workerId: string, proposal: StoredEditProposal) => {
+      if (opts.storeSave === false) return false;
+      stored = proposal;
+      return true;
+    }),
+    load: vi.fn(async () => stored),
+    delete: vi.fn(async () => {
+      if (!opts.deleteFails) stored = null;
+    }),
+    claim: vi.fn(async (_workerId: string, proposalId: string) => {
+      if (opts.claimUnavailable) return "unavailable";
+      if (claims.has(proposalId)) return "held";
+      claims.add(proposalId);
+      return "claimed";
+    }),
+    release: vi.fn(async (_workerId: string, proposalId: string) => {
+      claims.delete(proposalId);
+    }),
   };
   const ai = { companionEditParse: vi.fn(async () => opts.parse ?? null) };
   const profiles = {
@@ -176,8 +206,8 @@ export function setup(
       certificates: opts.qualificationLists?.certificates ?? [],
       educations: opts.qualificationLists?.educations ?? [],
       trainings: opts.qualificationLists?.trainings ?? [],
-      partial: [],
-      dropped_count: 0,
+      partial: opts.qualificationsPartial ?? [],
+      dropped_count: opts.qualificationsPartial?.length ?? 0,
     })),
     replaceForWorker: vi.fn(async (...args: unknown[]) => {
       write("qualifications", txOf(args[3]), args);
@@ -219,6 +249,7 @@ export function setup(
       write("preferences", txOf(args[3]), args);
       return { worker_id: WORKER_ID, keys_written: 1, keys_cleared: 0 };
     }),
+    seedNightShiftReadyFromShift: vi.fn(async () => undefined),
   };
   const workerSkills = { rebuildQuietly: vi.fn(async () => undefined) };
   const resumes = {
@@ -250,7 +281,7 @@ export function setup(
     }),
   };
   const config = {
-    CHAT_COMPANION_V2_EDIT_MAX_ROWS: 3,
+    CHAT_COMPANION_V2_EDIT_MAX_ROWS: opts.maxRows ?? 3,
     CHAT_COMPANION_V2_PROPOSAL_TTL_SECONDS: 600,
     CHAT_COMPANION_V2_EDIT_ENABLED: true,
   } as unknown as ServerConfig;
@@ -293,11 +324,14 @@ export function setup(
   };
 }
 
-/** A stored proposal with one row, for the confirm/cancel suites. */
+/**
+ * A stored proposal with one row, for the confirm/cancel suites. It expires far in the future, so
+ * a suite that is not about expiry is not a time bomb; the expiry suite sets its own instant.
+ */
 export function storedProposal(over: Partial<StoredEditProposal> = {}): StoredEditProposal {
   return {
     proposal_id: "33333333-3333-4333-8333-333333333333",
-    expires_at: "2026-09-29T14:00:00.000Z",
+    expires_at: "2999-01-01T00:00:00.000Z",
     rows: [
       {
         row_id: "44444444-4444-4444-8444-444444444444",
