@@ -10,11 +10,15 @@ import type { Rule } from "../../test/css-rules";
  *
  * Node env, no layout engine (the repo's `*.css.test.ts` approach): each fix below depends on
  * DECLARED geometry or cascade, so this suite pins it. The layouts were measured in Chromium at
- * 1280/375px (and under emulated forced-colors) when built.
- *   1 · SUBTITLE   — `.panel__sub` / `.section__sub` always take their own line under the title;
+ * 1280/375px (and under emulated forced-colors) when built; the W3-A follow-ups at
+ * 320/375/768/1280px, in both themes and under forced colors.
+ *   1 · SUBTITLE   — a head's sub sits under its title, grouped with it in `.panel__text` /
+ *                    `.section__text` (W3-A: 4px apart, the actions kept on the title row);
  *   2 · TAP        — the small phone controls (sm button, chip, theme toggle, hamburger, balance)
- *                    clear a 44px hit area on phones without their hit areas meeting;
- *   3 · FORCED     — every box-shadow focus ring carries a transparent-outline fallback;
+ *                    clear a 44px hit area on phones without their hit areas meeting; 2b adds
+ *                    the shared back link, on phones and coarse pointers (W3-A);
+ *   3 · FORCED     — every box-shadow focus ring carries a transparent-outline fallback, spent
+ *                    as the `--focus-outline` / `--focus-outline-offset` pair (W3-A);
  *   4 · KEYBOARD   — a linked card/tile rings on keyboard focus only, not on a mouse click;
  *   5 · LISTBOX    — the select menu's active option stays visible in forced colors.
  */
@@ -34,6 +38,10 @@ const G = parseRules(GLOBALS);
 const D = parseRules(DS);
 
 const PHONE = "max-width: 600px";
+/** The forced-colors focus fallback, as the two payer-web custom properties every ring spends. */
+const FOCUS_OUTLINE = "var(--focus-outline)";
+const FOCUS_OFFSET = "var(--focus-outline-offset)";
+/** What `--focus-outline` must stay in normal mode: the pre-token literal, so nothing re-renders. */
 const TRANSPARENT_OUTLINE = "var(--border-bold) solid transparent";
 
 /** Every rule whose selector list is EXACTLY `selector` in the given context ("" = top level). */
@@ -159,22 +167,150 @@ function hostIsFocused(sel: string): boolean {
 }
 
 /* ================================================================== *
- * 1 · SUBTITLE — its own line under the title, at every width.
+ * 1 · SUBTITLE — under its title, grouped with it (W3-A), 4px apart, actions on the title row.
  * ================================================================== */
-describe("W2-A · 1 — a panel/section subtitle always sits on its own line", () => {
+
+/**
+ * The end offset of the JSX `<div …>` element opening at `at`: nested `<div` / `</div>` are
+ * counted (a self-closing `<div … />` opens nothing). The opening tag's end is found outside any
+ * `{…}` expression, so an arrow function in an attribute cannot end it early.
+ */
+function divEnd(src: string, at: number): number {
+  let depth = 0;
+  let i = at;
+  while (i < src.length) {
+    if (src.startsWith("<div", i) && /[\s>]/.test(src[i + 4] ?? "")) {
+      let braces = 0;
+      let j = i + 4;
+      for (; j < src.length; j += 1) {
+        if (src[j] === "{") braces += 1;
+        else if (src[j] === "}") braces -= 1;
+        else if (src[j] === ">" && braces === 0) break;
+      }
+      if (src[j - 1] !== "/") depth += 1;
+      i = j + 1;
+      continue;
+    }
+    if (src.startsWith("</div>", i)) {
+      depth -= 1;
+      i += "</div>".length;
+      if (depth === 0) return i;
+      continue;
+    }
+    i += 1;
+  }
+  return src.length;
+}
+
+/** Every `needle` offset in `src` within [from, to). */
+function offsets(src: string, needle: string, from = 0, to = src.length): number[] {
+  const out: number[] = [];
+  for (let at = src.indexOf(needle, from); at >= 0 && at < to; at = src.indexOf(needle, at + 1)) {
+    out.push(at);
+  }
+  return out;
+}
+
+/**
+ * The files whose heads are NOT migrated onto the wrapper yet: another in-flight branch owns
+ * those screens (W3-B). Their bare subs keep the pre-W3-A geometry through the unchanged base
+ * rules. An entry must still hold an unwrapped head — migrate a file, then delete its line.
+ */
+const PENDING_WRAP = new Set([
+  "(portal)/account/page.tsx",
+  "(portal)/capacity/page.tsx",
+  "(portal)/plans/page.tsx",
+  "(portal)/team/team-manager.tsx",
+]);
+
+interface HeadScan {
+  file: string;
+  wrapped: boolean;
+  problems: string[];
+  hasActions: boolean;
+}
+
+/** Every panel/section head in one TSX source that carries a subtitle, checked for the wrapper. */
+function checkHeads(file: string, src: string): HeadScan[] {
+  const out: HeadScan[] = [];
+  for (const kind of ["panel", "section"]) {
+    for (const hit of offsets(src, `className="${kind}__head`)) {
+      const start = src.lastIndexOf("<div", hit);
+      const end = divEnd(src, start);
+      const subs = offsets(src, `className="${kind}__sub"`, start, end);
+      if (subs.length === 0) continue;
+      const problems: string[] = [];
+      const wraps = offsets(src, `className="${kind}__text"`, start, end);
+      const actions = offsets(src, `className="${kind}__actions"`, start, end);
+      if (wraps.length !== 1) {
+        problems.push(`${file} @${hit}: ${wraps.length} ${kind}__text wrappers`);
+      } else {
+        const wStart = src.lastIndexOf("<div", wraps[0]!);
+        const wEnd = divEnd(src, wStart);
+        for (const s of [...subs, ...offsets(src, `className="${kind}__title"`, start, end)]) {
+          if (s < wStart || s >= wEnd)
+            problems.push(`${file} @${s}: title/sub outside the wrapper`);
+        }
+        for (const a of actions) {
+          if (a < wEnd) problems.push(`${file} @${a}: actions inside/before the wrapper`);
+        }
+      }
+      out.push({ file, wrapped: wraps.length === 1, problems, hasActions: actions.length > 0 });
+    }
+  }
+  return out;
+}
+
+/** {@link checkHeads} over every TSX file under src/app (paths `/`-separated, app-relative). */
+const scanHeads = (): HeadScan[] =>
+  tsxUnder(here).flatMap(([path, src]) => checkHeads(path.split("\\").join("/"), src));
+
+describe("W2-A/W3-A · 1 — a head's subtitle sits under its title, grouped in a text wrapper", () => {
+  const WRAP = ".panel__text, .section__text";
+  const IN_WRAP = ".panel__text > .panel__sub, .section__text > .section__sub";
+
   it.each([".panel__head", ".section__head"])("%s is a WRAPPING flex row", (head) => {
     const r = one(G, head);
     expect(decl(r, "display")).toBe("flex");
     expect(decl(r, "flex-wrap")).toBe("wrap");
   });
 
+  it("the wrapper is ONE item with the page-head rhythm: a --space-1 (4px) grid gap", () => {
+    // Title → sub was the head's 16px row gap + the sub's 4px margin: 20px, 5× the page head.
+    const w = one(G, WRAP);
+    expect(decl(w, "display")).toBe("grid");
+    expect(decl(w, "gap")).toBe("var(--space-1)");
+    expect(decl(w, "gap")).toBe(decl(one(G, ".page-head__text"), "gap"));
+    expect(tokenPx("--space-1")).toBe(4);
+    expect(decl(w, "min-width")).toBe("0");
+  });
+
+  it("the wrapper grows from a ZERO basis, so the actions keep the title row at every width", () => {
+    // An `auto` basis is the text's max-content (up to the 68ch sub): wherever that plus the
+    // actions overran the row (every phone, the 768px Payouts head) the actions wrapped onto a
+    // row of their own under the prose. From 0 the text only ever takes what the actions leave.
+    expect(decl(one(G, WRAP), "flex")).toBe("1 1 0");
+    for (const a of [".panel__actions", ".section__actions"]) {
+      expect(decl(one(G, a), "flex"), a).toBe("none");
+    }
+  });
+
+  it("inside the wrapper the sub is a plain grid row with a REAL max-width measure", () => {
+    const r = one(G, IN_WRAP);
+    expect(decl(r, "margin")).toBe("0");
+    expect(decl(r, "padding-inline-end")).toBe("0");
+    expect(decl(r, "max-width")).toBe("var(--reading-max)");
+    // Two classes against the base rule's one: it wins wherever either sits in the file.
+    for (const s of splitSelectors(r.selector)) expect(s.split(".").length - 1, s).toBe(2);
+  });
+
   it.each([".panel__sub", ".section__sub"])(
-    "%s: an UNCLAMPED 100%% basis (no line can hold anything beside it)",
+    "a BARE %s (not yet wrapped, or a block `p`): an UNCLAMPED 100%% basis",
     (sub) => {
       const r = one(G, sub);
       expect(decl(r, "flex-basis")).toBe("100%");
       // A max width clamps the 100% basis back to the measure; wherever title + measure fit one
-      // row (every desktop) the sub then rode up BESIDE the title. None may come back.
+      // row (every desktop) a bare sub then rode up BESIDE the title. None may come back.
       for (const prop of ["max-width", "max-inline-size", "width", "inline-size", "flex"]) {
         expect(decl(r, prop), `${sub} must not declare ${prop}`).toBeNull();
       }
@@ -182,7 +318,7 @@ describe("W2-A · 1 — a panel/section subtitle always sits on its own line", (
   );
 
   it.each([".panel__sub", ".section__sub"])(
-    "%s keeps the reading measure with an END PADDING (row − measure, clamps to 0)",
+    "a BARE %s keeps the reading measure with an END PADDING (row − measure, clamps to 0)",
     (sub) => {
       expect(decl(one(G, sub), "padding-inline-end")).toBe("calc(100% - var(--reading-max))");
       // border-box, so the 100% basis INCLUDES that padding: the text box is the measure.
@@ -191,44 +327,58 @@ describe("W2-A · 1 — a panel/section subtitle always sits on its own line", (
     },
   );
 
-  it("MARKUP: in every head, the actions come BEFORE the sub (so they stay on the title row)", () => {
-    // The sub takes a whole row, so an actions group AFTER it drops onto a row of its own under
-    // the prose. Heuristic over the TSX: a sub is a <p>, so the first `</div>` after it closes
-    // its head — a HEAD actions group (`panel__actions` / `section__actions`, not e.g. a body
-    // `state__actions`) opening before that means the actions follow the sub.
-    const late: string[] = [];
-    for (const [file, src] of tsxUnder(here)) {
-      for (const kind of ["panel", "section"]) {
-        const sub = `className="${kind}__sub"`;
-        for (let at = src.indexOf(sub); at >= 0; at = src.indexOf(sub, at + 1)) {
-          const close = src.indexOf("</div>", at);
-          const between = src.slice(at, close < 0 ? src.length : close);
-          const heads = ['className="panel__actions"', 'className="section__actions"'];
-          if (heads.some((h) => between.includes(h))) late.push(`${file} @${at}`);
-        }
-      }
+  it("MARKUP: every head with a sub groups title + sub in its wrapper; actions follow it", () => {
+    const problems = scanHeads()
+      .filter((h) => !PENDING_WRAP.has(h.file))
+      .flatMap((h) => h.problems);
+    expect(problems).toEqual([]);
+  });
+
+  it("MARKUP: each PENDING file still holds an unwrapped head (delete its entry once migrated)", () => {
+    const heads = scanHeads();
+    for (const pending of PENDING_WRAP) {
+      const mine = heads.filter((h) => h.file === pending);
+      expect(mine.length, `${pending} must be scanned`).toBeGreaterThan(0);
+      expect(
+        mine.some((h) => !h.wrapped),
+        `${pending} is fully migrated — remove it from PENDING_WRAP`,
+      ).toBe(true);
     }
-    expect(late).toEqual([]);
   });
 
-  it("the markup scan is not vacuous (it reads the consumers, incl. the Payouts head)", () => {
-    const files = tsxUnder(here);
-    const subs = files.filter(([, s]) => s.includes('className="panel__sub"'));
-    expect(subs.length).toBeGreaterThanOrEqual(8);
-    const payout = files.find(([f]) => f.endsWith("payout-panel.tsx"));
-    expect(payout, "payout-panel.tsx must be scanned").toBeDefined();
-    expect(payout![1]).toContain('className="panel__actions"');
+  it("the markup scan is not vacuous (wrapped heads found, incl. both heads WITH actions)", () => {
+    const wrapped = scanHeads().filter((h) => h.wrapped && h.problems.length === 0);
+    expect(wrapped.length).toBeGreaterThanOrEqual(13);
+    const withActions = wrapped.filter((h) => h.hasActions).map((h) => h.file);
+    expect(withActions.some((f) => f.endsWith("payout-panel.tsx"))).toBe(true);
+    expect(withActions.some((f) => f.endsWith("applicants/page.tsx"))).toBe(true);
+    // …and the checker can FAIL: each violation it exists for is reported on a known snippet.
+    const H = (inner: string) => `<div className="panel__head">${inner}</div>`;
+    const T = `<h2 className="panel__title">T</h2>`;
+    const S = `<p className="panel__sub">S</p>`;
+    const A = `<div className="panel__actions"><button onClick={() => go()} /></div>`;
+    const W = (inner: string) => `<div className="panel__text">${inner}</div>`;
+    expect(checkHeads("ok", H(W(T + S) + A))[0]!.problems).toEqual([]);
+    expect(checkHeads("bare", H(T + A + S))[0]!.problems).toHaveLength(1);
+    expect(checkHeads("inside", H(W(T + S + A)))[0]!.problems).toHaveLength(1);
+    expect(checkHeads("before", H(A + W(T + S)))[0]!.problems).toHaveLength(1);
+    expect(checkHeads("sub-out", H(W(T) + S + A))[0]!.problems).toHaveLength(1);
+    expect(checkHeads("no-sub", H(T + A))).toEqual([]);
   });
 
-  it("no other rule, in any context, re-clamps or re-sizes a subtitle", () => {
+  it("no rule but the base and the wrapper rule re-clamps or re-sizes a subtitle", () => {
+    const allowed = new Set([".panel__sub", ".section__sub", IN_WRAP]);
     const touches = (r: Rule) =>
       splitSelectors(r.selector).some((s) => /\.(panel|section)__sub$/.test(s)) &&
-      r.selector !== ".panel__sub" &&
-      r.selector !== ".section__sub";
+      !allowed.has(r.selector.replace(/,\s*/g, ", "));
     for (const r of G.filter(touches)) {
       for (const prop of ["max-width", "max-inline-size", "width", "flex-basis", "flex"]) {
         expect(decl(r, prop), `\`${r.selector}\` (${r.at || "top"}) sets ${prop}`).toBeNull();
       }
+    }
+    // The wrapper rule sizes the sub by its measure ONLY.
+    for (const prop of ["width", "inline-size", "flex-basis", "flex", "min-width"]) {
+      expect(decl(one(G, IN_WRAP), prop), prop).toBeNull();
     }
   });
 });
@@ -416,6 +566,93 @@ describe("W2-A · 2 — small controls clear a 44px hit area on phones (≤600px
 });
 
 /* ================================================================== *
+ * 2b · TAP (W3-A) — the shared back link ("← Dashboard").
+ * ================================================================== */
+describe("W3-A · 2b — the back link clears a 44px hit area on phones AND coarse pointers", () => {
+  const CTX = "@media (max-width: 600px), (pointer: coarse)";
+  const LINK = ".page-back > a";
+  const dsStrip = () =>
+    D.find(
+      (r) => r.at.includes(PHONE) && splitSelectors(r.selector).includes(".bb-btn--sm::before"),
+    )!;
+
+  it("the link host is positioned + isolated, and nothing else, in exactly that context", () => {
+    const host = one(G, LINK, CTX);
+    expect(host.at).toBe(CTX);
+    expect(props(host)).toEqual(["isolation", "position"]);
+    expect(decl(host, "position")).toBe("relative");
+    expect(decl(host, "isolation")).toBe("isolate");
+  });
+
+  it("its strip is the DS strip, declaration for declaration (full width, centred, behind)", () => {
+    const strip = one(G, `${LINK}::before`, CTX);
+    expect(strip.at).toBe(CTX);
+    expect(props(strip)).toEqual(props(dsStrip()));
+    for (const p of props(dsStrip())) expect(decl(strip, p), p).toBe(decl(dsStrip(), p));
+  });
+
+  it('MARKUP: every page\'s back link is `<p className="page-back">` → a direct <Link> (so `> a` matches)', () => {
+    // Measured on all 15 portal pages that render it (320/375/600 + a 1280 coarse pointer): hit
+    // 44–45px tall, drawn box unchanged. The selector is a CHILD combinator, so a wrapper span
+    // or a second link inside the paragraph would silently lose the hit area — pin the shape.
+    const bad: string[] = [];
+    let seen = 0;
+    for (const [file, src] of tsxUnder(here)) {
+      for (const at of offsets(src, 'className="page-back"')) {
+        seen += 1;
+        const open = src.lastIndexOf("<", at);
+        const tagEnd = src.indexOf(">", at);
+        const close = src.indexOf("</p>", tagEnd);
+        const inner = src.slice(tagEnd + 1, close).trim();
+        const ok =
+          src.startsWith("<p ", open) &&
+          inner.startsWith("<Link ") &&
+          inner.endsWith("</Link>") &&
+          offsets(inner, "<Link ").length === 1;
+        if (!ok) bad.push(`${file} @${at}`);
+      }
+    }
+    expect(bad).toEqual([]);
+    expect(seen, "the scan reads every page that renders the back link").toBeGreaterThanOrEqual(15);
+  });
+
+  it("the LOOK is untouched: only the two hit-area rules reach past `.page-back` itself", () => {
+    const beyond = G.filter((r) =>
+      splitSelectors(r.selector).some(
+        (s) => s.startsWith(".page-back") && s !== ".page-back" && s !== ".page-back:hover",
+      ),
+    );
+    expect(beyond.map((r) => `${r.selector} (${r.at})`)).toEqual([
+      `${LINK} (${CTX})`,
+      `${LINK}::before (${CTX})`,
+    ]);
+    // …and `.page-back` itself is never re-declared for a phone / touch context.
+    expect(G.filter((r) => r.selector === ".page-back").map((r) => r.at)).toEqual(["", ""]);
+  });
+
+  it("ARITHMETIC: the strip stays in the content column's top padding and ends at the title", () => {
+    // The link is one line of the back link's text: its size × the body leading it inherits.
+    const backs = G.filter((r) => r.selector === ".page-back" && r.at === "");
+    const last = backs[backs.length - 1]!;
+    const size = sumPx(decl(last, "font-size")!);
+    const leading = Number(tokenValue(TOKENS, "--leading-normal"));
+    expect(size * leading).toBeGreaterThan(0);
+    const ext = (tokenPx("--control-md") - size * leading) / 2;
+    expect(ext).toBeGreaterThan(0);
+    // Above: the link is the content column's first child; its top padding (every context).
+    const pads = G.filter(
+      (r) => r.selector === ".pshell__content" && decl(r, "padding") !== null,
+    ).map((r) => sumPx(firstTerm(decl(r, "padding")!)));
+    expect(pads.length).toBeGreaterThanOrEqual(2);
+    for (const pad of pads) expect(ext, "strip vs the content top padding").toBeLessThan(pad);
+    // Below: the back link's --space-3 margin to the page title (the LATER rule wins the
+    // cascade). The strip ends within a sub-pixel of it, on the heading — not a target.
+    expect(decl(last, "margin-bottom")).toBe("var(--space-3)");
+    expect(ext - tokenPx("--space-3")).toBeLessThan(1);
+  });
+});
+
+/* ================================================================== *
  * 3 · FORCED COLORS — no focus ring vanishes with the box-shadows.
  * ================================================================== */
 describe("W2-A · 3 — every focus ring has a forced-colors outline fallback", () => {
@@ -447,8 +684,8 @@ describe("W2-A · 3 — every focus ring has a forced-colors outline fallback", 
 
   it("the global :focus-visible (payer-web's override of the tokens.css base) adds the outline", () => {
     const g = one(G, ":focus-visible");
-    expect(decl(g, "outline")).toBe(TRANSPARENT_OUTLINE);
-    expect(decl(g, "outline-offset")).toBe("var(--border-bold)");
+    expect(decl(g, "outline")).toBe(FOCUS_OUTLINE);
+    expect(decl(g, "outline-offset")).toBe(FOCUS_OFFSET);
     // It changes ONLY the outline — the normal-mode ring is still the tokens.css box-shadow.
     expect(decl(g, "box-shadow")).toBeNull();
     const base = parseRules(TOKENS).find((r) => r.selector === ":focus-visible" && r.at === "");
@@ -460,13 +697,55 @@ describe("W2-A · 3 — every focus ring has a forced-colors outline fallback", 
     expect(bad.map(({ r, file }) => `${file}: ${r.selector}`)).toEqual([]);
   });
 
-  it("every outline a ring declares is TRANSPARENT (invisible in normal mode) and offset", () => {
+  it("every outline a ring declares is the TOKEN pair (invisible in normal mode) and offset", () => {
     for (const { r, file } of RINGS) {
       const o = decl(r, "outline");
       if (o === null) continue;
-      expect(o, `${file}: ${r.selector}`).toBe(TRANSPARENT_OUTLINE);
-      expect(decl(r, "outline-offset"), `${file}: ${r.selector}`).toBe("var(--border-bold)");
+      expect(o, `${file}: ${r.selector}`).toBe(FOCUS_OUTLINE);
+      expect(decl(r, "outline-offset"), `${file}: ${r.selector}`).toBe(FOCUS_OFFSET);
     }
+  });
+
+  /* ---- W3-A: the pair is two custom properties, declared once ---- */
+  const FORCED = "forced-colors: active";
+  const rootDecls = (rules: Rule[], at: string) =>
+    rules.filter((r) => r.selector === ":root" && (at === "" ? r.at === "" : r.at.includes(at)));
+
+  it("W3-A: `--focus-outline` / `--focus-outline-offset` are the pre-token literals (normal mode unchanged)", () => {
+    const decls = rootDecls(D, "").filter((r) => decl(r, "--focus-outline") !== null);
+    expect(decls, "one top-level :root in ds-components.css declares the pair").toHaveLength(1);
+    expect(decl(decls[0]!, "--focus-outline")).toBe(TRANSPARENT_OUTLINE);
+    expect(decl(decls[0]!, "--focus-outline-offset")).toBe("var(--border-bold)");
+  });
+
+  it("W3-A: under forced colors ONLY the colour changes — to the system Highlight", () => {
+    const forced = rootDecls(D, FORCED);
+    expect(forced).toHaveLength(1);
+    expect(forced[0]!.at).toBe(`@media (${FORCED})`);
+    expect(props(forced[0]!)).toEqual(["--focus-outline"]);
+    const normal = TRANSPARENT_OUTLINE.split(" ");
+    const hc = decl(forced[0]!, "--focus-outline")!.split(" ");
+    // Same width, same style; the colour is a SYSTEM colour, which forced colors never override.
+    expect(hc.slice(0, 2)).toEqual(normal.slice(0, 2));
+    expect(hc[2]).toBe("Highlight");
+  });
+
+  it("W3-A: nothing else declares the pair — globals.css spends it, never redefines it", () => {
+    const declares = (r: Rule) =>
+      decl(r, "--focus-outline") !== null || decl(r, "--focus-outline-offset") !== null;
+    expect(G.filter(declares).map((r) => r.selector)).toEqual([]);
+    expect(D.filter(declares)).toHaveLength(2);
+  });
+
+  it("W3-A: no rule spells the transparent outline out any more (every ring spends the token)", () => {
+    const literal = [
+      ...D.map((r) => ({ r, file: "ds-components.css" })),
+      ...G.map((r) => ({ r, file: "globals.css" })),
+    ].filter(({ r }) => (decl(r, "outline") ?? "").includes("transparent"));
+    expect(literal.map(({ r, file }) => `${file}: ${r.selector}`)).toEqual([]);
+    // Non-vacuous: the ~two dozen rings that carried the literal now carry the token.
+    const spenders = [...D, ...G].filter((r) => decl(r, "outline") === FOCUS_OUTLINE);
+    expect(spenders.length).toBeGreaterThanOrEqual(24);
   });
 
   it("a ring on a NON-focused host (:has / :focus-within / sibling box) declares it itself", () => {
@@ -474,7 +753,7 @@ describe("W2-A · 3 — every focus ring has a forced-colors outline fallback", 
       ({ r }) =>
         !COVERED_BY_DESCENDANT.has(r.selector) &&
         splitSelectors(r.selector).some((s) => !hostIsFocused(s)) &&
-        decl(r, "outline") !== TRANSPARENT_OUTLINE,
+        decl(r, "outline") !== FOCUS_OUTLINE,
     );
     expect(missing.map(({ r, file }) => `${file}: ${r.selector}`)).toEqual([]);
   });
@@ -512,7 +791,8 @@ describe("W2-A · 4 — linked cards/tiles ring on the overlay's :focus-visible 
       const r = one(D, `.${b}--link:has(> .bb-stretched-link:focus-visible)`);
       expect(decl(r, "box-shadow")).toBe("var(--ring-focus)");
       expect(decl(r, "border-color")).toBe("var(--brand)");
-      expect(decl(r, "outline")).toBe(TRANSPARENT_OUTLINE);
+      expect(decl(r, "outline")).toBe(FOCUS_OUTLINE);
+      expect(decl(r, "outline-offset")).toBe(FOCUS_OFFSET);
     },
   );
 
@@ -547,7 +827,7 @@ describe("W2-A · 5 — the select menu's active option is visible in forced col
   it("the active option pairs its background with an INSET transparent outline", () => {
     const r = one(G, ".bb-selectmenu__option--active");
     expect(decl(r, "background")).toBe("var(--surface-sunken)");
-    expect(decl(r, "outline")).toBe(TRANSPARENT_OUTLINE);
+    expect(decl(r, "outline")).toBe(FOCUS_OUTLINE);
     // Negative: the list is a scroller (overflow-y: auto) that would clip an outside outline.
     expect(decl(one(G, ".bb-selectmenu__list"), "overflow-y")).toBe("auto");
     expect(decl(r, "outline-offset")).toBe("calc(-1 * var(--border-bold))");
@@ -564,6 +844,45 @@ describe("W2-A · 5 — the select menu's active option is visible in forced col
         expect(decl(r, prop), `\`${r.selector}\` (${r.at || "top"}) sets ${prop}`).toBeNull();
       }
     }
+  });
+});
+
+describe("W3-A · the ink field error clears AA on the ink card", () => {
+  const INK = parseRules(TOKENS).filter((r) => r.selector === '[data-theme="ink"]' && r.at === "");
+  /** A token's ink-theme value: its last ink declaration, else the light `:root` one; resolved. */
+  function inkValue(name: string): string {
+    let v: string | null = null;
+    for (const r of INK) v = decl(r, name) ?? v;
+    v = v ?? tokenValue(TOKENS, name);
+    expect(v, `token ${name} must be declared`).not.toBeNull();
+    const chained = v!.match(/^var\((--[\w-]+)\)$/);
+    return chained ? inkValue(chained[1]!) : v!;
+  }
+  /** WCAG 2.x contrast ratio of two #rrggbb colours. */
+  function contrast(a: string, b: string): number {
+    const lum = (hex: string) => {
+      expect(hex, "expected a #rrggbb literal").toMatch(/^#[0-9a-fA-F]{6}$/);
+      const [r, g, bl] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+      const f = (x: number) => (x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4);
+      return 0.2126 * f(r!) + 0.7152 * f(g!) + 0.0722 * f(bl!);
+    };
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi! + 0.05) / (lo! + 0.05);
+  }
+
+  it("the ink rule re-points ONLY the colour, to the light red; paper keeps --danger", () => {
+    const r = D.find((x) => x.selector === '[data-theme="ink"] .bb-field__error' && x.at === "");
+    expect(r, "an ink override for the field error").toBeDefined();
+    expect(props(r!)).toEqual(["color"]);
+    expect(decl(r!, "color")).toBe("var(--red-300)");
+    expect(decl(one(D, ".bb-field__error"), "color")).toBe("var(--danger)");
+  });
+
+  it("ARITHMETIC: --danger fails AA on the ink card (the reason); --red-300 clears it", () => {
+    const card = inkValue("--surface-card");
+    // Measured 3.11:1 in Chromium under data-theme="ink" before the override.
+    expect(contrast(inkValue("--danger"), card)).toBeLessThan(4.5);
+    expect(contrast(inkValue("--red-300"), card)).toBeGreaterThanOrEqual(4.5);
   });
 });
 

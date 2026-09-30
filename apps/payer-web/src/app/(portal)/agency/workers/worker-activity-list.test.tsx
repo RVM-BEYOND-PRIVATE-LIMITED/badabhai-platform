@@ -213,4 +213,9 @@ describe("WorkerActivityList — W2-B: the table scrolls in its own labelled reg
     const els = all(WorkerActivityList({ workers: [] }));
     expect(els.some((e) => e.props.role === "region")).toBe(false);
   });
+
+  it("W3-A: the empty state's two paragraphs read start-aligned (`state--prose`)", () => {
+    const root = WorkerActivityList({ workers: [] }) as ReactElement<{ className?: string }>;
+    expect(String(root.props.className).split(/\s+/)).toEqual(["state", "state--prose"]);
+  });
 });

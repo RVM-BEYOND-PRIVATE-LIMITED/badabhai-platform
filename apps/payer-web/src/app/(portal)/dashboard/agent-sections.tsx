@@ -163,10 +163,10 @@ export async function AgentSections() {
           AGENT's authoritative vacancy count (NOT the shared top's job-postings tile). */}
       <section>
         <div className="section__head">
-          <h2 className="section__title">Demand summary</h2>
-          <p className="section__sub">
-            Counts across the vacancies your agency has posted.
-          </p>
+          <div className="section__text">
+            <h2 className="section__title">Demand summary</h2>
+            <p className="section__sub">Counts across the vacancies your agency has posted.</p>
+          </div>
         </div>
         <div className="stat-row">
           {/* Whole-card link to the vacancy manager section below (same page now, #-fragment). */}
@@ -253,10 +253,12 @@ export async function AgentSections() {
           `id` is the in-page anchor target for the "Total vacancies" demand tile (#-fragment). */}
       <section id="agency-vacancies" className="panel">
         <div className="panel__head">
-          <h2 className="panel__title">Your vacancies</h2>
-          <p className="panel__sub">
-            The roles your agency has posted — create, edit, pause or close them here.
-          </p>
+          <div className="panel__text">
+            <h2 className="panel__title">Your vacancies</h2>
+            <p className="panel__sub">
+              The roles your agency has posted — create, edit, pause or close them here.
+            </p>
+          </div>
         </div>
         <div className="panel__body">
           {jobs ? (
@@ -293,8 +295,10 @@ export async function AgentSections() {
           route stays so the tile never 404s). */}
       <section>
         <div className="section__head">
-          <h2 className="section__title">Invite tools</h2>
-          <p className="section__sub">More ways to hand out invite links.</p>
+          <div className="section__text">
+            <h2 className="section__title">Invite tools</h2>
+            <p className="section__sub">More ways to hand out invite links.</p>
+          </div>
         </div>
         <div className="stat-row">
           <Card

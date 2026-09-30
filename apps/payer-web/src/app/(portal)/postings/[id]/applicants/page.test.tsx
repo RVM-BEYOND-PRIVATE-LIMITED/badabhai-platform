@@ -37,8 +37,16 @@ vi.mock("./actions", () => ({
 vi.mock("next/link", async () => {
   const React = await vi.importActual<typeof ReactModule>("react");
   return {
-    default: ({ children, href }: { children: ReactNode; href: string }) =>
-      React.createElement("a", { href }, children),
+    // `className` is forwarded so a link styled as a DS button (the W3-A Top up) is assertable.
+    default: ({
+      children,
+      href,
+      className,
+    }: {
+      children: ReactNode;
+      href: string;
+      className?: string;
+    }) => React.createElement("a", { href, className }, children),
   };
 });
 vi.mock("../../../../../components/retry-button", async () => {
@@ -145,6 +153,35 @@ describe("applicants page — the balance is an AFFORDANCE, never a gate", () =>
   it("a loaded balance renders the chip beside the role title", async () => {
     const out = await html();
     expect(textOf(out)).toMatch(/Balance:\s+5/);
+  });
+
+  it("W3-A: only a REAL zero adds a Top up button beside each disabled Unlock", async () => {
+    getDashboard.mockResolvedValueOnce({ credits: { balance: 0 } });
+    const zero = await html();
+    const rows = zero.split('class="applicant__unlock-actions"').slice(1);
+    expect(rows).toHaveLength(FEED.applicants.length);
+    for (const row of rows) {
+      const actions = row.slice(0, row.indexOf("</div>"));
+      expect(actions).toMatch(/<button[^>]*\bdisabled\b[^>]*>[\s\S]*Unlock contact \(1 credit\)/);
+      expect(actions).toContain('<a href="/credits" class="bb-btn bb-btn--secondary">');
+      expect(textOf(actions)).toMatch(/\bTop up\b/);
+    }
+  });
+
+  it("W3-A: a failed balance read (Unlock enabled) and a positive one show NO Top up button", async () => {
+    getDashboard.mockRejectedValueOnce(new Error("dashboard 503"));
+    expect(await html()).not.toContain('class="bb-btn bb-btn--secondary">');
+    expect(await html()).not.toContain('<a href="/credits" class="bb-btn');
+  });
+});
+
+describe("applicants page — W3-A section head", () => {
+  it("groups the role title + count in `.section__text`; the balance chip follows on the title row", async () => {
+    const out = await html();
+    const head = out.slice(out.indexOf('<div class="section__head">'));
+    expect(head).toMatch(
+      /^<div class="section__head"><div class="section__text"><h2 class="section__title">CNC Turner<\/h2><p class="section__sub">[^<]*<\/p><\/div><div class="section__actions">/,
+    );
   });
 });
 

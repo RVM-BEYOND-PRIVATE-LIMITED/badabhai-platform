@@ -35,8 +35,9 @@ export const REFERRED_WORKERS_HEADING_ID = "agency-referred-workers-title";
  */
 export function WorkerActivityList({ workers }: { workers: AgencyWorker[] }) {
   if (workers.length === 0) {
+    // `state--prose`: two full paragraphs read start-aligned, not centred (no copy change).
     return (
-      <div className="state">
+      <div className="state state--prose">
         <span className="state__icon">
           <i className="ph-fill ph-users-three" aria-hidden="true" />
         </span>

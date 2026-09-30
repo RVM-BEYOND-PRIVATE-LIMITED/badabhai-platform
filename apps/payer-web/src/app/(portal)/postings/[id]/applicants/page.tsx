@@ -117,7 +117,13 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
               affordance chip beside it, never a statement about any candidate. */}
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">{feed.roleTitle}</h2>
+              <div className="section__text">
+                <h2 className="section__title">{feed.roleTitle}</h2>
+                <p className="section__sub">
+                  {feed.applicants.length} faceless applicant
+                  {feed.applicants.length === 1 ? "" : "s"}
+                </p>
+              </div>
               {balance !== null ? (
                 <div className="section__actions">
                   <Badge tone="neutral" icon="coins">
@@ -125,10 +131,6 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
                   </Badge>
                 </div>
               ) : null}
-              <p className="section__sub">
-                {feed.applicants.length} faceless applicant
-                {feed.applicants.length === 1 ? "" : "s"}
-              </p>
             </div>
 
             {feed.applicants.length === 0 ? (

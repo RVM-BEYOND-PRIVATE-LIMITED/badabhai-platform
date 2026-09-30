@@ -147,11 +147,13 @@ export default async function CreditsPage() {
           </div>
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">Top up</h2>
-              <p className="section__sub">
-                Pick a pack — the credits land in the balance above and can be spent on any contact
-                unlock.
-              </p>
+              <div className="section__text">
+                <h2 className="section__title">Top up</h2>
+                <p className="section__sub">
+                  Pick a pack — the credits land in the balance above and can be spent on any
+                  contact unlock.
+                </p>
+              </div>
             </div>
             <CreditsPanel packs={packs} real={realPayments} />
           </section>
@@ -160,11 +162,13 @@ export default async function CreditsPage() {
 
       <section className="panel panel--table">
         <div className="panel__head">
-          <h2 className="panel__title">History</h2>
-          <p className="panel__sub">
-            Your own credit movements — top-ups and unlock spends. Ids and amounts only; no
-            candidate identity is ever shown.
-          </p>
+          <div className="panel__text">
+            <h2 className="panel__title">History</h2>
+            <p className="panel__sub">
+              Your own credit movements — top-ups and unlock spends. Ids and amounts only; no
+              candidate identity is ever shown.
+            </p>
+          </div>
         </div>
         <div className="panel__body">
           {history.length > 0 ? (
@@ -238,10 +242,12 @@ export default async function CreditsPage() {
 
       <section className="panel panel--table">
         <div className="panel__head">
-          <h2 className="panel__title">Credit expiry</h2>
-          <p className="panel__sub">
-            Purchased credits expire {validityMonths} months after the top-up. Soonest first.
-          </p>
+          <div className="panel__text">
+            <h2 className="panel__title">Credit expiry</h2>
+            <p className="panel__sub">
+              Purchased credits expire {validityMonths} months after the top-up. Soonest first.
+            </p>
+          </div>
         </div>
         <div className="panel__body">
           {expiry.length > 0 ? (

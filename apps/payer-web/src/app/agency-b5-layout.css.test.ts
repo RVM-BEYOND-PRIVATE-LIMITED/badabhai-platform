@@ -368,8 +368,11 @@ describe("B5 · /agency/workers — the empty state matches the portal's other e
     // point was that the CARD — not a bespoke frame — owned the surface. It is now the shared
     // `.state` primitive, which owns it for the same reason. The intent is unchanged: this
     // component must not grow a surface of its own. (The `.agency-workers__empty*` rules above
-    // are now unreferenced by this component — see the migration report.)
-    expect(WORKER_LIST_TSX).toMatch(/className="state"/);
+    // are now unreferenced by this component — see the migration report.) W3-A: the empty
+    // state carries the shared `state--prose` modifier (start-aligned long copy) — still the
+    // shared primitive, and only shared `state--*` modifiers may join it, never a bespoke frame.
+    expect(WORKER_LIST_TSX).toMatch(/className="state(?: state--[\w-]+)*"/);
+    expect(WORKER_LIST_TSX).toMatch(/className="state state--prose"/);
     expect(WORKER_LIST_TSX).toMatch(/className="state__title"/);
     expect(WORKER_LIST_TSX).not.toMatch(/agency-workers__empty/);
   });

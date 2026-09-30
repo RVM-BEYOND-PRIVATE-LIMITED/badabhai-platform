@@ -196,6 +196,29 @@ describe("PR-D2 · /dashboard — KPI band is opt-in and becomes ledger rows on 
     expect(decl(rule(".stat-row--kpi > *", NARROW), "flex-basis")).toBe("100%");
   });
 
+  it("W3-A ≤600px: the label/caption pair is CENTRED on the tile, with or without a caption", () => {
+    // Two content rows alone left a caption-less label (referral funnel, earnings) at the bottom
+    // of row 1 — 9.6px above the centre line the icon and figure sit on (measured at 375px).
+    // Between two equal 1fr spacer rows the pair is centred, and an absent caption's row is 0.
+    const tile = rule(".stat-row--kpi .bb-stat", NARROW);
+    expect(decl(tile, "grid-template-rows")).toBe("1fr auto auto 1fr");
+    const rows = decl(tile, "grid-template-areas")!.match(/"[^"]*"/g);
+    expect(rows).toEqual([
+      '"icon . value"',
+      '"icon label value"',
+      '"icon caption value"',
+      '"icon . value"',
+    ]);
+    // No row gap: three gaps between four rows would push a lone label off-centre by half one.
+    expect(decl(tile, "gap")).toBeNull();
+    expect(decl(tile, "row-gap")).toBeNull();
+    expect(decl(tile, "align-items")).toBe("center");
+    // The rows place the pair now; a self-alignment on either would fight the spacers.
+    for (const sel of [".stat-row--kpi .bb-stat__label", ".stat-row--kpi .bb-stat__caption"]) {
+      expect(decl(rule(sel, NARROW), "align-self"), sel).toBeNull();
+    }
+  });
+
   it("ORDER: the KPI figure rule comes after the shared `.stat-row .bb-stat__value` role", () => {
     // Both are two classes deep; only source order decides which font-size/margin wins.
     expect(ruleIndex(".stat-row--kpi .bb-stat__value", NARROW)).toBeGreaterThan(

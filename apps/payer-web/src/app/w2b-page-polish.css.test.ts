@@ -97,8 +97,16 @@ describe("W2-B · applicants — the card can never widen the page", () => {
     expect(decl(rule(".applicant__head", PHONE), "grid-template-columns")).toBe(
       "auto minmax(0, 1fr)",
     );
-    expect(decl(rule(".applicant__relevance", PHONE), "grid-column")).toBe("2");
     expect(decl(rule(".applicant__relevance"), "flex-wrap")).toBe("wrap");
+  });
+
+  it("W3-A ≤600px: the relevance cluster takes the WHOLE card width, not the text column", () => {
+    // In column 2 beside the 44px avatar it stacked rank / tier / tenure onto three lines at
+    // 320px (measured: 3 → 2 lines at 320, 2 → 1 at 360–375). The full row is the left edge the
+    // tag list below already starts on; its start alignment stays.
+    const rel = rule(".applicant__relevance", PHONE);
+    expect(decl(rel, "grid-column")).toBe("1 / -1");
+    expect(decl(rel, "justify-content")).toBe("flex-start");
   });
 
   it("E18: a long related-skill badge (or skill tag) wraps in full — never clipped or widening", () => {
@@ -154,6 +162,17 @@ describe("W2-B · applicants — ONE focal spend band per card", () => {
     expect(decl(rule(".applicant__unlock, .applicant__reveal", PHONE), "justify-items")).toBe(
       "stretch",
     );
+  });
+
+  it("W3-A: the spend actions are one wrapping row (Unlock, + Top up on a zero balance)", () => {
+    const row = rule(".applicant__unlock-actions");
+    expect(decl(row, "display")).toBe("flex");
+    expect(decl(row, "flex-wrap")).toBe("wrap");
+    expect(decl(row, "gap")).toBe("var(--space-2)");
+    // Phones: each action GROWS — a lone Unlock stays the full-width thumb target it was (the
+    // row is stretched by the parent's `justify-items: stretch`); a pair that cannot share the
+    // row stacks, each full width.
+    expect(decl(rule(".applicant__unlock-actions > *", PHONE), "flex")).toBe("1 1 auto");
   });
 });
 
@@ -234,21 +253,38 @@ describe("W2-B · agency referrals — forms in panels, one heading size", () =>
   });
 });
 
-describe("W2-B · agency referrals — the Payouts head keeps its action on the title row", () => {
-  it("is a two-track grid (the title shrinks, the action keeps its width); the sub spans both", () => {
-    const head = rule(".panel__head.agency-referrals-payout__head");
+describe("W2-B/W3-A · agency referrals — the Payouts head keeps its action on the title row", () => {
+  const HEAD = ".panel__head.agency-referrals-payout__head";
+
+  it("above 600px it is the SHARED head: the modifier has no rule outside the phone step", () => {
+    // W3-A: the shared `.panel__text` pattern keeps the button on the title row at every width,
+    // so the modifier's old all-widths grid is gone; only its phone re-lay remains.
+    const own = RULES.filter((r) => r.selector.includes("agency-referrals-payout__head"));
+    expect(own.length).toBeGreaterThan(0);
+    for (const r of own) expect(r.at, r.selector).toBe(`@media (${PHONE})`);
+  });
+
+  it("≤600px: title + button share row 1, the description spans row 2 (not a 110px column)", () => {
+    const head = rule(HEAD, PHONE);
     expect(decl(head, "display")).toBe("grid");
     expect(decl(head, "grid-template-columns")).toBe("minmax(0, 1fr) auto");
-    expect(decl(rule(".agency-referrals-payout__head > .panel__sub"), "grid-column")).toBe(
-      "1 / -1",
-    );
+    expect(decl(head, "grid-template-areas")).toMatch(/^"title actions"\s+"sub sub"$/);
+    // The row gap is the wrapper's own rhythm; the shared head's 16px gap stays the column gap.
+    expect(decl(head, "row-gap")).toBe("var(--space-1)");
+    // The wrapper steps aside so its two children become the head's grid items.
+    const scoped = (sel: string) => rule(`.agency-referrals-payout__head ${sel}`, PHONE);
+    expect(decl(scoped("> .panel__text"), "display")).toBe("contents");
+    expect(decl(scoped(".panel__title"), "grid-area")).toBe("title");
+    expect(decl(scoped(".panel__sub"), "grid-area")).toBe("sub");
+    expect(decl(scoped("> .panel__actions"), "grid-area")).toBe("actions");
   });
 
   it("ORDER: the modifier out-ranks the later shared `.panel__head` by specificity, not position", () => {
     // Two classes (0,2,0) vs one (0,1,0): it wins wherever it sits. A single-class selector here
     // would silently lose to the shared flex rule, which comes later in the file.
-    const at = (sel: string) => RULES.findIndex((r) => r.selector === sel && r.at === "");
-    expect(at(".panel__head")).toBeGreaterThan(at(".panel__head.agency-referrals-payout__head"));
+    const at = (sel: string, ctx: string) =>
+      RULES.findIndex((r) => r.selector === sel && inContext(r, ctx));
+    expect(at(".panel__head", "")).toBeGreaterThan(at(HEAD, PHONE));
     expect(RULES.some((r) => r.selector === ".agency-referrals-payout__head")).toBe(false);
   });
 });
@@ -279,5 +315,18 @@ describe("W2-B · scoping — no shared primitive was restyled globally", () => 
   it("the workers empty state widens only on its own page", () => {
     expect(decl(rule(".agency-workers-page .state"), "max-width")).toBe("var(--reading-max)");
     expect(decl(rule(".state"), "max-width")).toBe("46ch");
+  });
+
+  it("W3-A: a PROSE state reads start-aligned; the base state stays centred", () => {
+    const prose = rule(".state--prose");
+    expect(decl(prose, "text-align")).toBe("start");
+    expect(decl(prose, "justify-items")).toBe("start");
+    expect(decl(rule(".state--prose .state__actions"), "justify-content")).toBe("flex-start");
+    // Alignment only: the block keeps its place and measure.
+    for (const p of ["max-width", "margin", "margin-inline", "padding", "width"]) {
+      expect(decl(prose, p), p).toBeNull();
+    }
+    expect(decl(rule(".state"), "text-align")).toBe("center");
+    expect(decl(rule(".state"), "justify-items")).toBe("center");
   });
 });

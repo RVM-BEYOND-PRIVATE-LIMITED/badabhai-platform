@@ -133,11 +133,13 @@ export function MatchSkillPicker({
     // column that spaces the chip rows, the reach strip and the zero-reach alert.
     <section className="panel">
       <div className="panel__head">
-        <h2 className="panel__title">Which skill are you hiring for?</h2>
-        <p className="panel__sub">
-          Pick up to {maxSkills}. Only workers who have one of these — or a closely
-          related skill you keep ticked — will see this job.
-        </p>
+        <div className="panel__text">
+          <h2 className="panel__title">Which skill are you hiring for?</h2>
+          <p className="panel__sub">
+            Pick up to {maxSkills}. Only workers who have one of these — or a closely related skill
+            you keep ticked — will see this job.
+          </p>
+        </div>
       </div>
 
       <div className="panel__body">
