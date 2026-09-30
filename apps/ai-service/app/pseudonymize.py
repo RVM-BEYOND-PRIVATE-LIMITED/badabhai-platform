@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .profiling import lexicon as _lexicon
@@ -485,6 +486,126 @@ def _is_devanagari(ch: str) -> bool:
     return "\u0900" <= ch <= "\u097f"
 
 
+class _View:
+    """One normalisation of the input plus, per emitted character, the SOURCE index (offset in
+    the original ``text``) it came from. ``src[i]`` is the source offset of ``text[i]``."""
+
+    __slots__ = ("text", "src")
+
+    def __init__(self, text: str, src: list[int]) -> None:
+        self.text = text
+        self.src = src
+
+
+def _build_views(text: str) -> tuple[_View, _View]:
+    """``(reader, spaced)`` computed in ONE pass over the characters (#1738 F1).
+
+    Each view carries a SOURCE-index map (``_View.src``): for every character it emits, the
+    offset of the original-``text`` character it came from. ``pseudonymize`` reconciles the two
+    passes by SOURCE offset, never by string content (a global content compare is unsound - a
+    concealed name whose text is a substring of a DIFFERENT co-masked token would look covered).
+
+    ``reader`` is the view every rule runs on and the gateway returns - exactly the
+    normalisation ``_normalised_view`` documents: a Unicode FORMAT character (category Cf) or a
+    Latin-block combining mark is DELETED, fullwidth letters and digits are folded to ASCII, and
+    a ZWJ / ZWNJ right after a Devanagari character (a conjunct shaper, part of the word) is kept.
+
+    ``spaced`` is identical EXCEPT that each character ``reader`` DELETES becomes a single SPACE
+    that maps to the REMOVED character's source offset. Folding and the Devanagari-joiner
+    exception are the same in both.
+
+    Why two views. Deleting an invisible character also deletes the WORD BOUNDARY it stood for:
+    when an invisible is the ONLY separator between two tokens ("Mera<ZWSP>naam Ramesh"), the
+    reader view merges them ("Meranaam Ramesh") and a ``\\b``-anchored rule stops firing, so PII
+    the reader view no longer masks would egress. The spaced view keeps that boundary, so
+    ``pseudonymize`` can mask both and fail closed when the spaced view masks identity over source
+    offsets the reader view did not.
+    """
+    if text.isascii():
+        idx = list(range(len(text)))
+        return _View(text, idx), _View(text, list(idx))
+    reader: list[str] = []
+    reader_src: list[int] = []
+    spaced: list[str] = []
+    spaced_src: list[int] = []
+    for i, ch in enumerate(text):
+        code = ord(ch)
+        if 0xFF10 <= code <= 0xFF19 or 0xFF21 <= code <= 0xFF3A or 0xFF41 <= code <= 0xFF5A:
+            folded = chr(code - 0xFEE0)
+            reader.append(folded)
+            reader_src.append(i)
+            spaced.append(folded)
+            spaced_src.append(i)
+            continue
+        category = unicodedata.category(ch)
+        if category == "Cf":
+            if ch in _JOINERS and reader and _is_devanagari(reader[-1]):
+                reader.append(ch)
+                reader_src.append(i)
+                spaced.append(ch)
+                spaced_src.append(i)
+            else:
+                spaced.append(" ")  # DELETED in the reader view, a SPACE (same source) in spaced
+                spaced_src.append(i)
+            continue
+        if category in ("Mn", "Me") and any(lo <= code <= hi for lo, hi in _LATIN_COMBINING_BLOCKS):
+            spaced.append(" ")
+            spaced_src.append(i)
+            continue
+        reader.append(ch)
+        reader_src.append(i)
+        spaced.append(ch)
+        spaced_src.append(i)
+    return _View("".join(reader), reader_src), _View("".join(spaced), spaced_src)
+
+
+#: Fail-closed reason for the #1738 F1 path. PII-FREE by construction - it names the
+#: CLASS of bypass, never the input that tripped it.
+_INVISIBLE_BYPASS_REASON = "invisible or combining characters concealed an identity token"
+
+
+def _apply(
+    regex: re.Pattern[str],
+    replace: Callable[[re.Match[str]], str],
+    masked_group: int,
+    text: str,
+    src: list[int | None],
+    regions: list[set[int]],
+) -> tuple[str, list[int | None]]:
+    """Run one masking rule, byte-for-byte like ``regex.sub(replace, text)``, while recording which
+    SOURCE offsets each mask covered.
+
+    Rebuilds ``text`` and a parallel source-index list (a masked token's characters map to
+    ``None``). When a match actually masks (its replacement differs from the matched text), the
+    set of source offsets under group ``masked_group`` - group 1 for the cue/leading/credential
+    rules that keep a cue and tokenise only the value, group 0 for the whole-match rules - is
+    appended to ``regions`` as ONE region. Keeping regions per-match (not one flat set) is what
+    lets the caller compare by OVERLAP: a phone split by an invisible masks the same digits in
+    both views, but its spaced span also covers the separator's source offset, so the two spans
+    are not equal - yet they OVERLAP, which is coverage. Matches are non-overlapping and
+    left-to-right, exactly as ``re.sub`` scans.
+    """
+    out: list[str] = []
+    out_src: list[int | None] = []
+    pos = 0
+    for match in regex.finditer(text):
+        start, end = match.span(0)
+        out.append(text[pos:start])
+        out_src.extend(src[pos:start])
+        replacement = replace(match)
+        out.append(replacement)
+        out_src.extend([None] * len(replacement))
+        if replacement != match.group(0):
+            group_start, group_end = match.span(masked_group)
+            region = {src[i] for i in range(group_start, group_end) if src[i] is not None}
+            if region:
+                regions.append(region)
+        pos = end
+    out.append(text[pos:])
+    out_src.extend(src[pos:])
+    return "".join(out), out_src
+
+
 def _normalised_view(text: str) -> str:
     """``text`` as a READER sees it — the one view every rule below runs on (#1738).
 
@@ -510,24 +631,162 @@ def _normalised_view(text: str) -> str:
     FAIL-CLOSED BY CONSTRUCTION FOR THE CERTIFIERS. A label containing any of these comes back
     ALTERED, and `is_certified_clean` / `certify_value` / `certified_clean_skill_labels` withhold
     any label the gateway altered. A label is never certified on a view it does not match.
+
+    This is the READER view of ``_build_views`` (the spaced view lives there too); the char
+    logic is kept in one place so the two views can never drift.
     """
-    if text.isascii():
-        return text
-    out: list[str] = []
-    for ch in text:
-        code = ord(ch)
-        if 0xFF10 <= code <= 0xFF19 or 0xFF21 <= code <= 0xFF3A or 0xFF41 <= code <= 0xFF5A:
-            out.append(chr(code - 0xFEE0))
-            continue
-        category = unicodedata.category(ch)
-        if category == "Cf":
-            if ch in _JOINERS and out and _is_devanagari(out[-1]):
-                out.append(ch)
-            continue
-        if category in ("Mn", "Me") and any(lo <= code <= hi for lo, hi in _LATIN_COMBINING_BLOCKS):
-            continue
-        out.append(ch)
-    return "".join(out)
+    return _build_views(text)[0]
+
+
+def _mask(view: _View, track: bool = False) -> tuple[PseudonymizationResult, list[set[int]]]:
+    """Run every identity rule over ``view`` with a PRIVATE registry and token counter.
+
+    Pure over ``view``: it owns its registry, counters and token list, so nothing it does
+    is visible to another call. That is what lets ``pseudonymize`` run it TWICE (#1738 F1) -
+    once on the reader view it returns, once on a view where each removed invisible became a
+    space - without the two passes sharing tokens.
+
+    When ``track`` is True, returns a list of masked REGIONS - one per masking match, each the set
+    of SOURCE offsets (indices into the original ``text``) that match covered - so ``pseudonymize``
+    can reconcile the two views by position, never by string content: a concealed name is judged
+    covered only when a reader-pass region OVERLAPS its source offsets. When ``track`` is False the
+    output text is byte-identical but no regions are recorded (the fast ``regex.sub`` path, taken
+    for the common case where the two views coincide). The original<->token mapping never leaves.
+    """
+    registry: dict[tuple[str, str], str] = {}
+    counters: dict[str, int] = {}
+    tokens_used: list[str] = []
+    regions: list[set[int]] = []
+
+    def token_for(original: str, prefix: str) -> str:
+        key = (prefix, original.strip().lower())
+        existing = registry.get(key)
+        if existing is not None:
+            return existing
+        counters[prefix] = counters.get(prefix, 0) + 1
+        tok = f"[{prefix}_{counters[prefix]}]"
+        registry[key] = tok
+        tokens_used.append(tok)
+        return tok
+
+    def replace_group1(match: re.Match[str], prefix: str) -> str:
+        """Replace only capture group 1 inside the full match (keeps the cue)."""
+        name = match.group(1)
+        if name.strip().lower() in _NAME_STOPLIST:
+            return match.group(0)
+        return match.group(0).replace(name, token_for(name, prefix))
+
+    def replace_leading_name(match: re.Match[str]) -> str:
+        """The leading-name heuristic, with two carve-outs: a city, and a trade word.
+
+        A CITY IS NOT A NAME, and this rule was masking three of them. ``[A-Z][a-z]+``
+        followed by a comma is a good guess at "Ramesh, main welder hoon" and an equally
+        good match for "Faridabad, Haryana mein kaam karta hoon" — which came out as
+        ``[PERSON_1], Haryana ...``. Measured: 35 of the 38 canonical cities were masked
+        this way, the three survivors only because the pattern cannot span a space.
+
+        That directly contradicts the owner ruling recorded at step 5 below — cities are a
+        matching input and are never redacted — and it is not a harmless over-mask:
+        ``city_current`` and ``cities_preferred`` are Required fields and distance is one of
+        the four filters that actually reject a candidate, so the worker silently loses the
+        signal that decides whether he is reachable at all.
+
+        A TRADE WORD IS NOT A NAME EITHER (issue #1728, owner ruling 2026-09-25). The same
+        guess masked ordinary vocabulary that opens a list. Measured before this carve-out:
+
+            pseudonymize("Welding, grinding").text   -> "[PERSON_1], grinding"
+            pseudonymize("Fanuc, tool offset").text  -> "[PERSON_1], tool offset"
+
+        On the payer side the job-posting chat then stored the masked text, so the skills
+        answer on the draft lost the trade; on the worker side the model saw [PERSON_1]
+        instead of the trade the worker named. So a leading word that the ONE curated
+        trade/education vocabulary positively recognises (``_is_known_trade_vocabulary``,
+        the set pinned by checksum in tests/test_lexicon_parity.py) is kept — but only at
+        ``_LEADING_VOCABULARY_MIN_LEN``+ characters, because the 3-letter vocabulary tokens
+        ("Max", "Arc", "Gas") are exactly the shape this guess exists for. The vocabulary
+        check FAILS CLOSED: any error consulting it returns False and the word is masked.
+
+        THE RELEASE IS THE LEADING WORD, NOT THE STRING. A consumer that passes a string raw
+        when this function masked nothing ("clean or withhold") would otherwise release
+        whatever follows the kept word — "Welding, Anil Kumar" used to mint an incidental
+        [PERSON_1] and be withheld whole. `is_certified_clean` closes that: it reads the SAME
+        regex and the SAME predicate (`_is_leading_trade_word`) to tell that the vocabulary
+        carve-out released the word, and then requires the WHOLE label to be vocabulary.
+
+        What neither carve-out does: the cue-based rule keeps its own replacer untouched.
+        "Mera naam X" is explicit evidence of a name and stays masked whatever X is — a
+        city, a trade word, anything; only the no-cue guess defers. Employers, phones,
+        emails, ID tokens and the residual-digit net are not consulted and do not move. It
+        is also not a route, flag or principal exemption (ADR-0035 §2/§3): the rule is the
+        same for a worker's turn and a payer's.
+        """
+        candidate = _leading_candidate(match)
+        if _is_leading_city(candidate) or _is_leading_trade_word(candidate):
+            return match.group(0)
+        return replace_group1(match, "PERSON")
+
+    def replace_credential(match: re.Match[str]) -> str:
+        """Keep the roll/registration cue, tokenise only the id (group 1). Its own replacer, not
+        `replace_group1`: the NAME stoplist has no business vetoing an ID mask."""
+        return match.group(0).replace(match.group(1), token_for(match.group(1), "ID"))
+
+    # Each rule as (regex, replacement callback, group whose SPAN is the masked value): group 0
+    # for the whole-match rules, group 1 for the cue/leading/credential rules that keep a cue
+    # and tokenise only the value. `_apply` runs them exactly like `regex.sub`, in this order,
+    # while recording the SOURCE offsets each mask actually covered. The ORDER is load-bearing
+    # and unchanged (email first; ids before phone; phone before money — see the module notes).
+    rules: list[tuple[re.Pattern[str], Callable[[re.Match[str]], str], int]] = [
+        # 0. EMAIL FIRST — the only COMPOSITE pattern (name in the local part, employer in the
+        #    domain, sometimes a phone). A rule ahead of it fragments the address. See `_EMAIL_RE`.
+        (_EMAIL_RE, lambda m: token_for(m.group(0), "EMAIL"), 0),
+        # 1. ID-like tokens (PAN, Aadhaar, cued credential IDs) so phone matching doesn't eat them.
+        (_PAN_RE, lambda m: token_for(m.group(0), "ID"), 0),
+        (_AADHAAR_RE, lambda m: token_for(m.group(0), "ID"), 0),
+        #    The credential replacer keeps the cue and tokenises group 1.
+        (_CREDENTIAL_ID_RE, replace_credential, 1),
+        # 2. Phone numbers.
+        (_PHONE_RE, lambda m: token_for(m.group(0), "PHONE"), 0),
+        # 3. Employers / companies.
+        (_EMPLOYER_RE, lambda m: token_for(m.group(0), "EMPLOYER"), 0),
+        # 4. Person names (cue-based, then the leading-name heuristic); both keep the cue / prefix
+        #    and tokenise group 1.
+        (_NAME_CUE_RE, lambda m: replace_group1(m, "PERSON"), 1),
+        (_LEADING_NAME_RE, replace_leading_name, 1),
+        # 5. (removed) CITY / STATE masking — owner ruling 2026-07-31, Master Context DEAD LIST:
+        #    "✗ cities as PII (→ a 20-point matching input; never redact)". Every IDENTITY class
+        #    above and every fail-closed path below is untouched; this narrowed the DEFINITION of
+        #    PII by two non-identity classes, it did not relax the gate.
+        # 6. D-1 money-amount carve-out: a 7-8 digit run that reads as an in-range salary is MASKED
+        #    to [AMOUNT_n] (digits never reach the LLM) but the turn is not blocked; out-of-range /
+        #    zero-led runs are left for the residual net below (fail closed).
+        (_MONEY_RUN_RE, _mask_money_amount(token_for), 0),
+    ]
+
+    result = view.text
+    if track:
+        # SPAN-TRACKING path (only when the two views differ): record masked source regions so
+        # `pseudonymize` can reconcile by position. `_apply` reproduces `regex.sub` exactly.
+        result_src: list[int | None] = list(view.src)
+        for regex, replace, masked_group in rules:
+            result, result_src = _apply(regex, replace, masked_group, result, result_src, regions)
+    else:
+        # FAST path: plain `regex.sub`, byte-identical output, no region bookkeeping. ASCII input
+        # (the overwhelming majority) takes this path, so its cost is exactly as before the fix.
+        for regex, replace, _masked_group in rules:
+            result = regex.sub(replace, result)
+
+    replaced = sum(counters.values())
+
+    # Fail-closed safety net: any remaining long digit run is potential un-masked numeric PII.
+    if _RESIDUAL_DIGITS_RE.search(result):
+        return (
+            PseudonymizationResult(
+                result, True, "residual numeric sequence detected", replaced, tokens_used
+            ),
+            regions,
+        )
+
+    return PseudonymizationResult(result, False, None, replaced, tokens_used), regions
 
 
 def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> PseudonymizationResult:
@@ -535,6 +794,25 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
 
     Returns a :class:`PseudonymizationResult`. When ``blocked`` is True the caller
     MUST NOT send the text to an LLM.
+
+    TWO VIEWS, ONE OUTPUT (#1738 F1). Every rule reads the text as a READER sees it -
+    invisible format characters and Latin combining marks removed (`_normalised_view`). But
+    DELETING an invisible also deletes the word boundary it created, so an invisible used as
+    the SOLE separator between two tokens ("Mera<ZWSP>naam Ramesh") merges them and a
+    ``\\b``-anchored rule stops firing - PII the reader view no longer masks would egress. So
+    the gateway ALSO masks a SPACED view (each removed character becomes a space) and FAILS
+    CLOSED when that view either trips its own residual guard OR masks identity over SOURCE
+    offsets the reader view left unmasked - i.e. an invisible was hiding PII.
+
+    RECONCILED BY SOURCE POSITION, never by string content. Each pass reports the set of
+    original-``text`` offsets it masked; a spaced-masked offset is "covered" only when the
+    reader pass masked that SAME offset. A content compare is unsound: a concealed name whose
+    text is a substring of a DIFFERENT co-masked token ("Ramesh" inside a masked
+    "Ramesh Steel Industries", an email local part, or an earlier masked occurrence) would look
+    covered while the reader view actually left it raw. Position keeps a merely RE-SEGMENTED
+    token safe (spaced "Ra" sits on the same offsets the reader masked as "Ramesh") while
+    blocking the laundering case (the concealed name occupies offsets no reader mask covers).
+    The reader view is what is returned; the spaced view is a detector only, never egressed.
     """
     try:
         if not isinstance(text, str):
@@ -542,133 +820,33 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
         if len(text) > max_length:
             return PseudonymizationResult("", True, f"input exceeds {max_length} characters", 0, [])
 
-        registry: dict[tuple[str, str], str] = {}
-        counters: dict[str, int] = {}
-        tokens_used: list[str] = []
+        reader_view, spaced_view = _build_views(text)
 
-        def token_for(original: str, prefix: str) -> str:
-            key = (prefix, original.strip().lower())
-            existing = registry.get(key)
-            if existing is not None:
-                return existing
-            counters[prefix] = counters.get(prefix, 0) + 1
-            tok = f"[{prefix}_{counters[prefix]}]"
-            registry[key] = tok
-            tokens_used.append(tok)
-            return tok
+        # No character was removed => the spaced view is identical => nothing new can show up, so
+        # the reader pass needs no region bookkeeping. ASCII input (the overwhelming majority) and
+        # fold-only / visible-separator input take this fast path at exactly the pre-fix cost.
+        if spaced_view.text == reader_view.text:
+            return _mask(reader_view)[0]
 
-        def replace_group1(match: re.Match[str], prefix: str) -> str:
-            """Replace only capture group 1 inside the full match (keeps the cue)."""
-            name = match.group(1)
-            if name.strip().lower() in _NAME_STOPLIST:
-                return match.group(0)
-            return match.group(0).replace(name, token_for(name, prefix))
+        reader_result, reader_regions = _mask(reader_view, track=True)
 
-        def replace_leading_name(match: re.Match[str]) -> str:
-            """The leading-name heuristic, with two carve-outs: a city, and a trade word.
+        # The reader view is the OUTPUT; its own fail-closed paths win unchanged (a residual
+        # digit run keeps the exact block shape it had before this fix).
+        if reader_result.blocked:
+            return reader_result
 
-            A CITY IS NOT A NAME, and this rule was masking three of them. ``[A-Z][a-z]+``
-            followed by a comma is a good guess at "Ramesh, main welder hoon" and an equally
-            good match for "Faridabad, Haryana mein kaam karta hoon" — which came out as
-            ``[PERSON_1], Haryana ...``. Measured: 35 of the 38 canonical cities were masked
-            this way, the three survivors only because the pattern cannot span a space.
+        spaced_result, spaced_regions = _mask(spaced_view, track=True)
 
-            That directly contradicts the owner ruling recorded at step 5 below — cities are a
-            matching input and are never redacted — and it is not a harmless over-mask:
-            ``city_current`` and ``cities_preferred`` are Required fields and distance is one of
-            the four filters that actually reject a candidate, so the worker silently loses the
-            signal that decides whether he is reachable at all.
+        # FAIL CLOSED if separating the invisibles trips the spaced view's own residual guard, or
+        # if any masked region the spaced view found OVERLAPS no region the reader view masked -
+        # that region is identity the reader view left raw once the boundary was restored. Overlap
+        # (not equality) is deliberate: a phone split by an invisible masks the same digits in both
+        # views but its spaced span also covers the separator, so the spans differ yet overlap.
+        reader_masked = set().union(*reader_regions) if reader_regions else set()
+        if spaced_result.blocked or any(not (region & reader_masked) for region in spaced_regions):
+            return PseudonymizationResult("", True, _INVISIBLE_BYPASS_REASON, 0, [])
 
-            A TRADE WORD IS NOT A NAME EITHER (issue #1728, owner ruling 2026-09-25). The same
-            guess masked ordinary vocabulary that opens a list. Measured before this carve-out:
-
-                pseudonymize("Welding, grinding").text   -> "[PERSON_1], grinding"
-                pseudonymize("Fanuc, tool offset").text  -> "[PERSON_1], tool offset"
-
-            On the payer side the job-posting chat then stored the masked text, so the skills
-            answer on the draft lost the trade; on the worker side the model saw [PERSON_1]
-            instead of the trade the worker named. So a leading word that the ONE curated
-            trade/education vocabulary positively recognises (``_is_known_trade_vocabulary``,
-            the set pinned by checksum in tests/test_lexicon_parity.py) is kept — but only at
-            ``_LEADING_VOCABULARY_MIN_LEN``+ characters, because the 3-letter vocabulary tokens
-            ("Max", "Arc", "Gas") are exactly the shape this guess exists for. The vocabulary
-            check FAILS CLOSED: any error consulting it returns False and the word is masked.
-
-            THE RELEASE IS THE LEADING WORD, NOT THE STRING. A consumer that passes a string raw
-            when this function masked nothing ("clean or withhold") would otherwise release
-            whatever follows the kept word — "Welding, Anil Kumar" used to mint an incidental
-            [PERSON_1] and be withheld whole. `is_certified_clean` closes that: it reads the SAME
-            regex and the SAME predicate (`_is_leading_trade_word`) to tell that the vocabulary
-            carve-out released the word, and then requires the WHOLE label to be vocabulary.
-
-            What neither carve-out does: the cue-based rule keeps its own replacer untouched.
-            "Mera naam X" is explicit evidence of a name and stays masked whatever X is — a
-            city, a trade word, anything; only the no-cue guess defers. Employers, phones,
-            emails, ID tokens and the residual-digit net are not consulted and do not move. It
-            is also not a route, flag or principal exemption (ADR-0035 §2/§3): the rule is the
-            same for a worker's turn and a payer's.
-            """
-            candidate = _leading_candidate(match)
-            if _is_leading_city(candidate) or _is_leading_trade_word(candidate):
-                return match.group(0)
-            return replace_group1(match, "PERSON")
-
-        # #1738 — every rule reads the text as a reader sees it. See `_normalised_view`.
-        result = _normalised_view(text)
-
-        # 0. EMAIL FIRST — before every other rule, because it is the only pattern
-        #    here that is a COMPOSITE of other identity classes (a name in the local
-        #    part, an employer in the domain, sometimes a phone in either). Any rule
-        #    that runs ahead of it fragments the address instead of removing it, and a
-        #    fragment still publishes the half it did not touch. See `_EMAIL_RE`.
-        result = _EMAIL_RE.sub(lambda m: token_for(m.group(0), "EMAIL"), result)
-        # 1. ID-like tokens (PAN, Aadhaar, cued credential IDs) so phone
-        #    matching doesn't eat them.
-        result = _PAN_RE.sub(lambda m: token_for(m.group(0), "ID"), result)
-        result = _AADHAAR_RE.sub(lambda m: token_for(m.group(0), "ID"), result)
-        #    Its own replacer, not `replace_group1`: that one consults the NAME
-        #    stoplist, which has no business vetoing an ID mask.
-        result = _CREDENTIAL_ID_RE.sub(
-            lambda m: m.group(0).replace(m.group(1), token_for(m.group(1), "ID")), result
-        )
-        # 2. Phone numbers.
-        result = _PHONE_RE.sub(lambda m: token_for(m.group(0), "PHONE"), result)
-        # 3. Employers / companies.
-        result = _EMPLOYER_RE.sub(lambda m: token_for(m.group(0), "EMPLOYER"), result)
-        # 4. Person names (cue-based, then leading-name heuristic).
-        result = _NAME_CUE_RE.sub(lambda m: replace_group1(m, "PERSON"), result)
-        result = _LEADING_NAME_RE.sub(replace_leading_name, result)
-        # 5. (removed) CITY / STATE masking — owner ruling 2026-07-31, Master Context
-        #    DEAD LIST: "✗ cities as PII (→ a 20-point matching input; never redact)".
-        #    "Pune" identifies nobody, and masking it to [CITY_1] cost the product its
-        #    strongest matching signal on every model-authored surface (the résumé's
-        #    location line, the extraction transcript, the translate leg) while
-        #    protecting nothing. States went with them: coarser geography cannot be
-        #    more identifying than the city inside it.
-        #
-        #    WHAT DID NOT MOVE, and this is the whole point of stating it here: every
-        #    IDENTITY class above and every fail-closed path below is untouched. PAN /
-        #    Aadhaar / cued credential ids, phones, employers and person names still
-        #    mask; the residual-digit net still blocks; oversize, non-string, parse
-        #    error and the bare-except still block. This ruling narrows the definition
-        #    of PII by exactly two non-identity classes — it does not relax the gate.
-        # 6. D-1 money-amount carve-out (see the decision boundary above): a 7-8
-        #    digit run that reads as an in-range salary is MASKED to [AMOUNT_n]
-        #    so the digits never reach the LLM but the turn is not blocked.
-        #    Out-of-range / zero-led runs are deliberately left in place — the
-        #    residual net below blocks them (fail closed).
-        result = _MONEY_RUN_RE.sub(_mask_money_amount(token_for), result)
-
-        replaced = sum(counters.values())
-
-        # Fail-closed safety net: any remaining long digit run is potential
-        # un-masked numeric PII -> block.
-        if _RESIDUAL_DIGITS_RE.search(result):
-            return PseudonymizationResult(
-                result, True, "residual numeric sequence detected", replaced, tokens_used
-            )
-
-        return PseudonymizationResult(result, False, None, replaced, tokens_used)
+        return reader_result
 
     except Exception as exc:  # pragma: no cover - defensive, fail closed
         return PseudonymizationResult("", True, f"pseudonymization error: {exc}", 0, [])
