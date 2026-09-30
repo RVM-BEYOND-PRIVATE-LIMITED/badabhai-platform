@@ -40,36 +40,9 @@ class ResumeGeneralSheetView extends StatelessWidget {
     final bool hasWork =
         document.employments.isNotEmpty || document.experiences.isNotEmpty;
 
-    final String? brief = document.brief;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        // #1796 — THE BRIEF, UNDER THE HEADLINE, exactly where the printed sheet
-        // puts it (ADR-0045 R6 §4.3). It is the worker's own line, or a fixed
-        // fallback the server composed from their role and years — never a
-        // model's words — and it prints on BOTH the worker and employer copies.
-        // The tab has to show it for the same reason it shows everything else
-        // here: this screen is the worker's only way to check what an employer
-        // reads about them.
-        //
-        // ABSENT, NULL AND WHITESPACE-ONLY ALL DRAW NOTHING, which is every
-        // document off the general road — every `bb_trade`, every `generic`, and
-        // a general sheet with no line to print. So this is inert until a worker
-        // is actually on the road.
-        if (brief != null)
-          Padding(
-            // 10, the same gap this file gives its section bars.
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Text(
-              brief,
-              style: OnboardingTypography.inter(
-                size: 14,
-                height: 1.45,
-                color: OnboardingColors.ink600,
-              ),
-            ),
-          ),
         // EVERY SECTION IS CONDITIONAL. An empty one draws nothing at all —
         // not a bare grey bar (#1736 acceptance), the same rule the printed
         // sheet gets from its `:empty` selectors.
