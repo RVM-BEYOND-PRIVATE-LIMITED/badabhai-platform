@@ -52,6 +52,8 @@ import '../../voice_form/presentation/widgets/voice_choice_chips.dart'
 import '../domain/chat_message.dart';
 import '../domain/chat_multi_select.dart';
 import '../domain/chat_companion_keys.dart';
+import '../../name/domain/indian_locations.dart';
+import '../domain/chat_identity_questions.dart';
 import '../domain/companion_edit_value.dart';
 import '../domain/chat_resume_menu.dart';
 import '../../swipe/domain/job_detail.dart';
@@ -362,6 +364,11 @@ class _ChatViewState extends State<_ChatView> {
   /// typed-send path with no `optionKey`. TURN-SCOPED: cleared by the bloc
   /// listener on the next send / reply, never latched across questions.
   bool _customAnswerMode = false;
+
+  /// ADR-0048 — the state the worker chose on the `worker_state` turn, so the
+  /// `worker_city` turn can offer that state's cities. Screen-local and
+  /// deliberately not persisted: it is only needed for the very next turn.
+  String? _identityState;
 
   /// The composer hint while [_customAnswerMode] is on: the profile hint for a
   /// disambiguation list, the question-neutral one for a chip row.
@@ -825,6 +832,16 @@ class _ChatViewState extends State<_ChatView> {
     if (state.initializing || state.messages.isEmpty) return;
     _emptyImportSaid = true;
     if (state.resumePending) return; // the identity turn speaks for itself
+    // ADR-0048 (#1864) — NOR ON AN IDENTITY-INTAKE OPEN. This line infers a
+    // failed import from `resume_pending` being ABSENT, which stopped being a
+    // safe inference once the chat could open on "aapka naam?": there the
+    // absence means the server is asking for the worker's name, not that their
+    // résumé yielded nothing. Telling them their résumé failed while asking
+    // their name is two wrong things at once.
+    if (state.askedQuestionKey != null &&
+        kChatIdentityQuestionKeys.contains(state.askedQuestionKey)) {
+      return;
+    }
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(
@@ -2168,6 +2185,42 @@ class _ChatViewState extends State<_ChatView> {
   /// [BbAnimatedSwitcher] can cross-fade the swap (#1059). Every branch carries a
   /// ValueKey; the two chip paths share `'chips'` so a question→question chip
   /// change stays instant while typing→chips animates.
+  /// ADR-0048 — the State / City list for an identity-intake turn.
+  ///
+  /// CITY IS FILTERED BY THE STATE THE WORKER JUST ANSWERED, which is why
+  /// [_identityState] is remembered: the intake asks state first, and offering
+  /// all of India's cities after that would be worse than useless. A worker who
+  /// reopened the app mid-intake has no remembered state (the thread redraw
+  /// carries no question key), so the city list falls back to the whole set and
+  /// the composer still accepts anything typed.
+  ///
+  /// A TAP SUBMITS THE LABEL as ordinary chat text — the same path a typed
+  /// answer takes, so nothing here is a special kind of message.
+  Widget _identityLocationPicker(String questionKey) {
+    final bool isState = questionKey == kChatStateQuestionKey;
+    final List<String> options = isState
+        ? kIndianStates
+        : (_identityState == null
+            ? const <String>[]
+            : citiesForIndianState(_identityState!));
+    // No suggestions to offer (an unknown state, or a reopen mid-intake): the
+    // composer alone is the honest affordance rather than an empty list.
+    if (options.isEmpty) return const SizedBox.shrink();
+    return _chipScroller(<Widget>[
+      for (final String option in options) ...<Widget>[
+        _AnswerChip(
+          label: option,
+          onTap: () {
+            // Remember the state so the CITY list can be filtered by it.
+            if (isState) _identityState = option;
+            _sendText(option);
+          },
+        ),
+        const SizedBox(width: AppSpacing.s2),
+      ],
+    ]);
+  }
+
   Widget _answerAffordance(ChatState state) {
     // #761 — while an optimistic predicted turn is on screen
     // (predictedQuestionKey != null), show its chips instead of the typing
@@ -2177,6 +2230,21 @@ class _ChatViewState extends State<_ChatView> {
       return KeyedSubtree(
         key: const ValueKey<String>('typing'),
         child: _typingIndicator(),
+      );
+    }
+    // ADR-0048 (#1864) — THE TWO LOCATION QUESTIONS GET PICKERS, not a bare
+    // text box. `/name` never asked a worker to spell their state, and moving
+    // the question into the chat must not cost them that: the lists are closed
+    // and long, and typing "Maharashtra" correctly is not a test a worker should
+    // have to pass to finish signing up.
+    //
+    // The composer stays live underneath, exactly as `/name` kept free text —
+    // the city lists are suggestions, never a gate, and the server canonicalises
+    // whatever is sent.
+    if (isChatLocationQuestion(state.askedQuestionKey)) {
+      return KeyedSubtree(
+        key: const ValueKey<String>('identity-location'),
+        child: _identityLocationPicker(state.askedQuestionKey!),
       );
     }
     // #761 — when the turn serves `suggested_options` (the LLM chat), render

@@ -67,6 +67,14 @@ void main() {
           path: '/consent',
           builder: (_, GoRouterState s) => ConsentScreen.fromExtra(s.extra),
         ),
+        // ADR-0048 (#1864) — consent now hands to `/resume-upload`; the chat's
+        // identity intake asks for the name. `/name` stays declared here so this
+        // test can still assert nothing goes there.
+        GoRoute(
+          path: '/resume-upload',
+          builder: (_, __) =>
+              const Scaffold(body: Center(child: Text('UPLOAD STEP'))),
+        ),
         GoRoute(
           path: '/name',
           builder: (_, __) =>
@@ -105,13 +113,16 @@ void main() {
       expect(find.byTooltip('Wapas'), findsNothing);
     });
 
-    testWidgets('accepting continues into the name step', (
+    testWidgets('accepting continues into the résumé-upload step', (
       WidgetTester tester,
     ) async {
       await pump(tester, recovery: false);
       await agreeAndContinue(tester);
 
-      expect(find.text('NAME STEP'), findsOneWidget);
+      // ADR-0048 (#1864) — `/name` was here; the chat asks for the name now.
+      expect(find.text('UPLOAD STEP'), findsOneWidget);
+      expect(find.text('NAME STEP'), findsNothing,
+          reason: 'the name form is retired — the chat asks instead');
       verify(
         () => repo.acceptConsent(
           purposes: <String>[

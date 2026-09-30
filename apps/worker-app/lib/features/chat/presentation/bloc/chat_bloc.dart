@@ -221,6 +221,7 @@ class ChatState extends Equatable {
     this.occupationLabel,
     this.lookahead = const <String, PredictedQuestion?>{},
     this.predictedQuestionKey,
+    this.askedQuestionKey,
     this.formOffer,
     this.resumePending = false,
     this.resumeUpdateQueued = false,
@@ -332,6 +333,15 @@ class ChatState extends Equatable {
   /// the next real turn replaces it, and its `asked_question_id` is compared
   /// against this to tell whether the prediction was right.
   final String? predictedQuestionKey;
+
+  /// ADR-0048 — the question key the CURRENT bubble is asking, when the server
+  /// named one (`asked_question_id`, or `opening_question_key` on bubble 0).
+  ///
+  /// The screen keys its location pickers on this: `worker_state` shows the
+  /// State list and `worker_city` the cities of the state just answered. Null on
+  /// every turn the server does not name, which is most of them — the pickers
+  /// then never appear and the composer behaves exactly as it always has.
+  final String? askedQuestionKey;
 
   /// THE INTERVIEW HANDED OVER TO A FORM (`form_offer`, #1339/#1340), from the
   /// LATEST turn — null on every turn except the one that hands over.
@@ -451,6 +461,10 @@ class ChatState extends Equatable {
     // reconcile — which `?? this` cannot express — so clearing it takes an
     // explicit flag (the standard copyWith idiom for a clearable nullable).
     bool clearPredictedQuestionKey = false,
+    // ADR-0048 — the same clearable-nullable idiom: turn-scoped, so a turn that
+    // names no question must be able to clear the last key.
+    String? askedQuestionKey,
+    bool clearAskedQuestionKey = false,
     FormOffer? formOffer,
     // Same idiom as [clearPredictedQuestionKey]: formOffer is TURN-SCOPED
     // (field doc), so a new turn without one must be able to CLEAR the
@@ -498,6 +512,11 @@ class ChatState extends Equatable {
       predictedQuestionKey: clearPredictedQuestionKey
           ? null
           : (predictedQuestionKey ?? this.predictedQuestionKey),
+      // TURN-SCOPED: every turn passes its own value, so a turn that names no
+      // question clears the last one rather than leaving a stale picker up.
+      askedQuestionKey: clearAskedQuestionKey
+          ? null
+          : (askedQuestionKey ?? this.askedQuestionKey),
       formOffer: clearFormOffer ? null : (formOffer ?? this.formOffer),
       answerType: clearAnswerType ? null : (answerType ?? this.answerType),
       // Sticky: once a résumé-confirm session, always (the opening is applied
@@ -540,6 +559,7 @@ class ChatState extends Equatable {
         occupationLabel,
         lookahead,
         predictedQuestionKey,
+        askedQuestionKey,
         formOffer,
         resumePending,
         resumeUpdateQueued,
@@ -808,6 +828,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       resumePending: opening?.resumePending ?? false,
       suggestedOptions: opening?.options,
       followups: openingFollowups,
+      // ADR-0048 — when the chat opens ON an identity question, bubble 0 IS the
+      // question. The screen needs its key to offer the State/City pickers, and
+      // `_maybeSayEmptyImport` needs it to know this open is an intake rather
+      // than a résumé import that yielded nothing.
+      askedQuestionKey: opening?.questionKey,
+      clearAskedQuestionKey: opening?.questionKey == null,
       // #1750's retry is over once the interview is open: a later refocus is
       // decided by the interview-tab rule, never by another companion open.
       companionUnreachable: false,
@@ -1141,6 +1167,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // later turn without it clears the previous one.
         answerType: turn.answerType,
         clearAnswerType: turn.answerType == null,
+        // ADR-0048 — the key this turn is asking, so the screen can offer the
+        // right picker. Passed on EVERY turn, so one that names none clears it.
+        askedQuestionKey: turn.askedQuestionId,
+        clearAskedQuestionKey: turn.askedQuestionId == null,
         occupationLabel: turn.occupationLabel,
         // #761 — the fresh predictions for the NEXT tap; the current one is done.
         lookahead: turn.lookahead,

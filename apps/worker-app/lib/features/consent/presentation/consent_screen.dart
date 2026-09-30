@@ -71,7 +71,13 @@ class _ConsentView extends StatelessWidget {
           // consent they had already given — and re-accepting fires a second
           // `consent.accepted` onto the event-first audit spine (§1). Consent is
           // a gate you pass through once, not a page you browse.
-          context.go(Routes.name);
+          // ADR-0048 — THE CHAT ASKS FOR THE NAME NOW (#1864). `/name` used to
+          // sit here; the intake asks first name, surname, state and city as
+          // the chat's opening turns instead, and only for what the worker's
+          // record is actually missing. The route itself stays registered — a
+          // worker mid-onboarding on an older build can have `/name` saved as
+          // their durable step (#1470), and it must still resolve for them.
+          context.go(Routes.resumeUpload);
         }
       },
       builder: (BuildContext context, ConsentState state) {
