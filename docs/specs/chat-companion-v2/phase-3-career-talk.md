@@ -63,6 +63,8 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
       also Claude and the router skips a same-provider candidate — without it the chain would
       have no fallback at all. The prompt is registered (`COMPANION_CAREER`); the parser maps
       every unreadable output to `refuse/unsafe_other`.
+      Audit fix (2026-09-30): the Langfuse trace is named `answer-companion-career` and tagged
+      `feature:companion` like the Phase-1 pair (it had fallen back to `feature:other`).
 - [x] **A3** **Red-team eval** (release gate): ≥ 150 prompts — ≥ 25 per refusal topic, jailbreaks
       ("ignore rules", role-play), Hindi/Hinglish/English, plus ≥ 50 normal career questions.
       Targets in §6.
