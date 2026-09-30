@@ -22,6 +22,8 @@ class ChatSessionOpening extends Equatable {
     this.ttsText,
     this.resumePending = false,
     this.options = const <ChatOption>[],
+    this.questionKey,
+    this.answerType,
   });
 
   /// The server-composed bubble 0 text.
@@ -40,6 +42,27 @@ class ChatSessionOpening extends Equatable {
   /// `option_key` for lookahead while the label is the submitted answer.
   final List<ChatOption> options;
 
+  /// ADR-0048 — `opening_question_key`: the identity question bubble 0 IS, when
+  /// the chat opens on the identity intake (`worker_first_name`,
+  /// `worker_last_name`, `worker_state`, `worker_city`).
+  ///
+  /// Null on every other open, which is what makes it safe to read: the intake
+  /// asks only what the worker's record is missing, so a worker who already has
+  /// a name, state and city never sees one.
+  ///
+  /// IT IS ALSO THE SIGNAL THAT THIS OPEN IS NOT AN EMPTY IMPORT. The #1660
+  /// "Resume dekh liya, lekin poori jaankari nahi ban paayi" line infers a
+  /// failed import from `resume_pending` being absent — which is now wrong on
+  /// every intake open, where the absence means "we are asking your name", not
+  /// "your résumé gave us nothing".
+  final String? questionKey;
+
+  /// ADR-0048 — `opening_answer_type` (`text` for every intake question today).
+  /// Null when the server sent none, and the composer then behaves as it always
+  /// has.
+  final String? answerType;
+
   @override
-  List<Object?> get props => <Object?>[text, ttsText, resumePending, options];
+  List<Object?> get props =>
+      <Object?>[text, ttsText, resumePending, options, questionKey, answerType];
 }

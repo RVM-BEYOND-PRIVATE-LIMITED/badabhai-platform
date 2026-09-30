@@ -148,6 +148,9 @@ class ChatRepositoryImpl implements ChatRepository {
       ttsText: start.openingTtsText,
       resumePending: start.resumePending,
       options: start.openingOptions,
+      // ADR-0048 — the identity intake's first question, when there is one.
+      questionKey: start.openingQuestionKey,
+      answerType: start.openingAnswerType,
     );
   }
 

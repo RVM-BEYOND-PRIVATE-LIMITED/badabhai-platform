@@ -16,10 +16,25 @@ import '../domain/indian_locations.dart';
 import '../domain/location_lookup.dart';
 import 'cubit/name_cubit.dart';
 
-/// "Your name" onboarding step — placed AFTER consent, before chat profiling.
-/// Captures the worker's real name ONCE, explicitly, with a clear purpose ("for
-/// your resume"). The name goes straight to the API (encrypted at rest) and is
-/// never asked for again in the chat flow, which stays identity-free.
+/// "Your name" onboarding step — RETIRED (ADR-0048, #1864).
+///
+/// NOTHING ROUTES HERE ANY MORE. Consent hands straight to `/resume-upload`,
+/// and the chat's identity intake asks first name, surname, state and city as
+/// its opening turns, writing them down the same `PATCH /workers/me/name` path
+/// this screen used. The chat is no longer identity-free, which is what the
+/// paragraph below used to promise; the server asks deterministically, outside
+/// the model path, so no name reaches an LLM prompt.
+///
+/// THE ROUTE STAYS DECLARED, and deliberately: a worker who updated mid-
+/// onboarding can have `/name` saved as their durable step (#1470), and that
+/// value must still resolve rather than strand them on a dead route. It is
+/// simply never entered again. Delete the screen, the route and its
+/// `WORKER_APP_SCREEN_TEMPLATES` row together, once no shipped build can hold
+/// that saved step.
+///
+/// What it did while it was live: captured the worker's real name ONCE,
+/// explicitly, with a clear purpose ("for your resume"). The name went straight
+/// to the API (encrypted at rest).
 ///
 /// Also captures a coarse location (state + city) — via GPS/network (device
 /// geocoder, no backend round-trip) or by hand. See [LocationLookup] for the
