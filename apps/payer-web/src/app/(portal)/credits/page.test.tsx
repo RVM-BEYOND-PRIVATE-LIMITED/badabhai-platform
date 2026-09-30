@@ -124,7 +124,11 @@ function collect(
   if (el.props && "children" in el.props) collect(el.props.children as ReactNode, acc);
   return acc;
 }
-async function render(opts: { balance: number; unlocks?: UnlockHistoryItem[]; topUps?: CreditTopUp[] }) {
+async function render(opts: {
+  balance: number;
+  unlocks?: UnlockHistoryItem[];
+  topUps?: CreditTopUp[];
+}) {
   setData(opts);
   const tree = (await CreditsPage()) as ReactElement;
   const c = collect(tree);
@@ -421,5 +425,63 @@ describe("credits page — ledger degrade (C2 decoupling)", () => {
     // The page still renders (balance section present), with an empty history — no crash.
     expect(joined.length).toBeGreaterThan(0);
     expect(joined).not.toMatch(/ledger unavailable/);
+  });
+});
+
+/**
+ * PR-D2 — presentation contracts that a markup change could silently drop:
+ *  · the balance hero is the DS StatTile restyled by ONE class (not a forked tile), still inside
+ *    the shared `stat-row` spine;
+ *  · both ledgers are keyboard-reachable, labelled scroll regions over a no-wrap table — on a
+ *    375px phone the history is wider than the screen and scrolls INSIDE its region, so without
+ *    tabindex a keyboard user could never reach its right-hand columns.
+ */
+describe("credits page — (h) PR-D2 wallet hero + scrollable ledgers", () => {
+  function byClass(node: ReactNode, cls: string, acc: ReactElement[] = []): ReactElement[] {
+    if (node === null || node === undefined || typeof node !== "object") return acc;
+    if (Array.isArray(node)) {
+      node.forEach((n) => byClass(n, cls, acc));
+      return acc;
+    }
+    const el = node as ReactElement<{ className?: unknown; children?: ReactNode }>;
+    const cn = el.props?.className;
+    if (typeof cn === "string" && cn.split(/\s+/).includes(cls)) acc.push(el);
+    if (el.props && "children" in el.props) byClass(el.props.children, cls, acc);
+    return acc;
+  }
+
+  it("the balance renders through the DS StatTile with the hero class, inside the stat-row", async () => {
+    const { classes } = await render({ balance: 50 });
+    // The page passes the class to the primitive…
+    expect(classes).toContain("credits-balance");
+    // …and the primitive (expanded by the walker) renders it on its own root — not a fork.
+    expect(classes).toContain("bb-stat credits-balance");
+    // The spine around it is unchanged.
+    expect(classes).toContain("stat-row");
+  });
+
+  it("each ledger is a focusable, labelled region wrapping a no-wrap table", async () => {
+    setData({ balance: 50, unlocks: [unlock()], topUps: [topUp()] });
+    const tree = (await CreditsPage()) as ReactElement;
+    const wraps = byClass(tree, "tablewrap");
+    expect(wraps).toHaveLength(2);
+    const labels = wraps.map((w) => (w.props as Record<string, unknown>)["aria-label"]);
+    expect(labels).toEqual(["Credit history", "Credit expiry"]);
+    for (const w of wraps) {
+      const props = w.props as Record<string, unknown>;
+      expect(props.tabIndex).toBe(0);
+      expect(props.role).toBe("region");
+      const tables = byClass(w, "table");
+      expect(tables).toHaveLength(1);
+      expect(String((tables[0]!.props as { className?: string }).className)).toContain(
+        "table--nowrap",
+      );
+    }
+  });
+
+  it("an EMPTY ledger renders no scroll region at all (nothing focusable with nothing in it)", async () => {
+    setData({ balance: 50 });
+    const tree = (await CreditsPage()) as ReactElement;
+    expect(byClass(tree, "tablewrap")).toHaveLength(0);
   });
 });
