@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
-import { Button, Dialog } from "../../../components/ds";
+import { Button, Card, Dialog } from "../../../components/ds";
 import type { CreditPack } from "../../../lib/contracts";
 
 /**
@@ -199,5 +199,49 @@ describe("credits panel — a 409 PENDING is honest + KEEPS the key (#1185)", ()
     // …and NEITHER the success message NOR the error toast is ever set (only the reset-to-null).
     expect(argsOf(stateSetters[MESSAGE_IDX]!)).toEqual([null]);
     expect(argsOf(stateSetters[ERROR_IDX]!)).toEqual([null]);
+  });
+});
+
+/**
+ * PR-D2 — the best-value pack is the purchase decision's focal point, so its CONTAINER carries
+ * the accent edge (`credit-pack--best`), not only the badge inside it. The flag must land on the
+ * SAME pack as the badge — the config-derived lowest ₹/credit — and on exactly one pack, or the
+ * ring would point at a different pack from the one the copy names.
+ */
+describe("credits panel — PR-D2 best-value container flag", () => {
+  const packCards = (tree: ReactElement) =>
+    findAll(tree, Card).filter((c) =>
+      String((c.props as { className?: string }).className ?? "")
+        .split(/\s+/)
+        .includes("credit-pack"),
+    );
+  const isBest = (c: ReactElement) =>
+    String((c.props as { className?: string }).className ?? "")
+      .split(/\s+/)
+      .includes("credit-pack--best");
+
+  it("flags exactly ONE pack — the lowest ₹/credit — and it is the pack carrying the badge", () => {
+    // PACK_A = ₹40/credit, PACK_B = ₹35/credit → B is the best value.
+    const tree = render(PACK_A);
+    const cards = packCards(tree);
+    expect(cards).toHaveLength(2);
+    const best = cards.filter(isBest);
+    expect(best).toHaveLength(1);
+    expect(best[0]!.key).toBe(PACK_B.code);
+    expect(textOf(best[0]!)).toContain("Best value");
+    // …and the unflagged pack carries no badge either (flag and copy agree).
+    const other = cards.find((c) => !isBest(c))!;
+    expect(other.key).toBe(PACK_A.code);
+    expect(textOf(other)).not.toContain("Best value");
+  });
+
+  it("follows the catalog, not a position: re-price A below B and the flag moves with it", () => {
+    stateQueue = [null, null, null, null, null];
+    stateCursor = 0;
+    const cheapA: CreditPack = { ...PACK_A, priceInr: 1000 }; // ₹20/credit now beats B's ₹35
+    const tree = CreditsPanel({ packs: [cheapA, PACK_B], real: false }) as ReactElement;
+    const best = packCards(tree).filter(isBest);
+    expect(best).toHaveLength(1);
+    expect(best[0]!.key).toBe(PACK_A.code);
   });
 });
