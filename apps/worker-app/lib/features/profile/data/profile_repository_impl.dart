@@ -11,7 +11,7 @@ class ProfileRepositoryImpl implements ProfileRepository {
   final SessionRepository _session;
 
   @override
-  Future<String> extractProfile() async {
+  Future<String> extractProfile({String? sessionId}) async {
     final String? token = _session.sessionToken;
     if (token == null) throw const UnauthorizedFailure();
     try {
@@ -19,7 +19,9 @@ class ProfileRepositoryImpl implements ProfileRepository {
       // profile id (or throws ProfileExtractionTimeout / ApiException).
       final String profileId = await _api.extractProfile(
         authToken: token,
-        sessionId: _session.sessionId,
+        // The caller's session wins; the cached one is the fallback every
+        // existing caller relies on (see the interface doc).
+        sessionId: sessionId ?? _session.sessionId,
       );
       _session.setProfile(profileId);
       return profileId;
