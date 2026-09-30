@@ -102,13 +102,17 @@ const { default: PortalLayout } = await import("./layout");
 interface Collected {
   hrefs: string[];
   text: string;
+  /** Every `aria-label` in the tree — the logo lockup is images named by its root label. */
+  labels: string[];
 }
 
 /** Walk the rendered tree, expanding function components (all hookless here: BadaBhaiLogo,
- *  Badge, the mocked next/link → {type:"a"}), collecting every href and all visible text. */
+ *  Badge, the mocked next/link → {type:"a"}), collecting every href, aria-label and all
+ *  visible text. */
 function collect(tree: ReactNode): Collected {
   const hrefs: string[] = [];
   const parts: string[] = [];
+  const labels: string[] = [];
   (function w(node: ReactNode): void {
     if (node === null || node === undefined || typeof node === "boolean") return;
     if (typeof node === "string" || typeof node === "number") {
@@ -121,13 +125,14 @@ function collect(tree: ReactNode): Collected {
     }
     const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
     if (el.type === "a" && typeof el.props.href === "string") hrefs.push(el.props.href);
+    if (typeof el.props?.["aria-label"] === "string") labels.push(el.props["aria-label"]);
     if (typeof el.type === "function") {
       w((el.type as (p: unknown) => ReactNode)(el.props));
       return;
     }
     if (el.props && "children" in el.props) w(el.props.children as ReactNode);
   })(tree);
-  return { hrefs, text: parts.join(" ") };
+  return { hrefs, text: parts.join(" "), labels };
 }
 
 async function render(opts: {
@@ -202,12 +207,13 @@ describe("portal labeling — driven by session.role (server-side, not a client 
     expect(hrefs).toContain("/dashboard");
   });
 
-  it("renders the BadaBhai wordmark lockup in both roles", async () => {
+  it("renders the BadaBhai lockup, captioned with the persona, in both roles", async () => {
     for (const role of ["employer", "agent"] as const) {
-      const { text } = await render({ role });
-      // The shell logo waves per-letter (separate spans), so collapse inter-letter
-      // whitespace before asserting the wordmark survives.
-      expect(text.replace(/\s+/g, "")).toContain("BadaBhai");
+      const { text, labels } = await render({ role });
+      // The wordmark is the brand kit's logotype IMAGE, so the lockup is named by its root
+      // aria-label rather than by text; the persona caption stays text.
+      expect(labels).toContain("BadaBhai");
+      expect(text).toContain(role === "agent" ? "for Agencies" : "for Employers");
     }
   });
 });

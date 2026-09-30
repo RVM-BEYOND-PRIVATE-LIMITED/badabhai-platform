@@ -167,3 +167,91 @@ describe("query contracts — bounded and closed", () => {
     expect(AdminWorkersQuerySchema.safeParse({ cursor: cursorOk }).success).toBe(true);
   });
 });
+
+describe("job-posting detail — the card content and the display role (0131)", () => {
+  const POSTING = "33333333-3333-4333-8333-333333333333";
+  const ROW = {
+    id: POSTING,
+    payerId: null,
+    orgLabel: "Hiring Employer",
+    roleTitle: "Welder",
+    locationLabel: null,
+    city: "Pune",
+    description: null,
+    status: "open",
+    verificationStatus: "unverified",
+    vacancyBand: "1",
+    payMin: 18000,
+    payMax: 25000,
+    shift: "day",
+    neededBy: null,
+    area: "Chakan",
+    minExperienceYears: 2,
+    maxExperienceYears: 5,
+    payType: "in_hand",
+    requirements: ["ITI"],
+    benefits: ["PF + ESI"],
+    roleKind: "welder",
+    publishedAt: null,
+    boostedUntil: null,
+    closedAt: null,
+    previousStatus: null,
+    createdAt: new Date("2026-09-29T00:00:00.000Z"),
+    updatedAt: new Date("2026-09-29T00:00:00.000Z"),
+  };
+
+  it("names each of the seven columns explicitly — never a bare select()", async () => {
+    const c = captureQueries([ROW]);
+    await new AdminEntitiesRepository(c.db).findJobPosting(POSTING);
+    for (const column of [
+      "area",
+      "min_experience_years",
+      "max_experience_years",
+      "pay_type",
+      "requirements",
+      "benefits",
+      "role_kind",
+    ]) {
+      expect(c.sql(), column).toContain(`"${column}"`);
+    }
+  });
+
+  it("maps them onto the snake_case detail, raw — the admin UI does the labelling", async () => {
+    const c = captureQueries([ROW]);
+    const out = await new AdminEntitiesRepository(c.db).findJobPosting(POSTING);
+    expect(out).toMatchObject({
+      area: "Chakan",
+      min_experience_years: 2,
+      max_experience_years: 5,
+      pay_type: "in_hand",
+      requirements: ["ITI"],
+      benefits: ["PF + ESI"],
+      role_kind: "welder",
+    });
+  });
+
+  it("passes NULLs through honestly for a posting that never set them", async () => {
+    const c = captureQueries([
+      {
+        ...ROW,
+        area: null,
+        minExperienceYears: null,
+        maxExperienceYears: null,
+        payType: null,
+        requirements: null,
+        benefits: null,
+        roleKind: null,
+      },
+    ]);
+    const out = await new AdminEntitiesRepository(c.db).findJobPosting(POSTING);
+    expect(out).toMatchObject({
+      area: null,
+      min_experience_years: null,
+      max_experience_years: null,
+      pay_type: null,
+      requirements: null,
+      benefits: null,
+      role_kind: null,
+    });
+  });
+});

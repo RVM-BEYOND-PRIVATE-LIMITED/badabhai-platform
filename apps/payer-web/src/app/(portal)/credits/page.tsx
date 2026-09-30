@@ -99,7 +99,7 @@ export default async function CreditsPage() {
 
       {lowBalance ? (
         <div className="alert alert--warning">
-          <i className="ph ph-warning alert__icon" aria-hidden="true" />
+          <i className="ph-fill ph-warning alert__icon" aria-hidden="true" />
           <div className="alert__text">
             <p className="alert__title">Running low</p>
             <p className="alert__body">
@@ -116,7 +116,7 @@ export default async function CreditsPage() {
         <Card>
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph ph-warning-circle" aria-hidden="true" />
+              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
             </span>
             <h2 className="state__title">Service unavailable</h2>
             <p className="state__body">
@@ -205,7 +205,7 @@ export default async function CreditsPage() {
             // say that rather than claiming there were never any movements.
             <div className="state state--error">
               <span className="state__icon">
-                <i className="ph ph-warning-circle" aria-hidden="true" />
+                <i className="ph-fill ph-warning-circle" aria-hidden="true" />
               </span>
               <h3 className="state__title">History unavailable</h3>
               <p className="state__body">
@@ -219,7 +219,7 @@ export default async function CreditsPage() {
           ) : (
             <div className="state">
               <span className="state__icon">
-                <i className="ph ph-receipt" aria-hidden="true" />
+                <i className="ph-fill ph-receipt" aria-hidden="true" />
               </span>
               <h3 className="state__title">No credit movements yet</h3>
               <p className="state__body">
@@ -263,7 +263,7 @@ export default async function CreditsPage() {
           ) : (
             <div className="state">
               <span className="state__icon">
-                <i className="ph ph-hourglass" aria-hidden="true" />
+                <i className="ph-fill ph-hourglass" aria-hidden="true" />
               </span>
               <h3 className="state__title">Nothing expiring yet</h3>
               <p className="state__body">
@@ -276,7 +276,7 @@ export default async function CreditsPage() {
 
       {realPayments ? (
         <div className="alert alert--info">
-          <i className="ph ph-shield-check alert__icon" aria-hidden="true" />
+          <i className="ph-fill ph-shield-check alert__icon" aria-hidden="true" />
           <div className="alert__text">
             <p className="alert__title">Payments by Razorpay.</p>
             <p className="alert__body">
@@ -287,7 +287,7 @@ export default async function CreditsPage() {
         </div>
       ) : (
         <div className="alert alert--info">
-          <i className="ph ph-info alert__icon" aria-hidden="true" />
+          <i className="ph-fill ph-info alert__icon" aria-hidden="true" />
           <div className="alert__text">
             <p className="alert__title">Mock payments only.</p>
             <p className="alert__body">

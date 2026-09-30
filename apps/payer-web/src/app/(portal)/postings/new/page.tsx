@@ -74,7 +74,7 @@ export default async function NewPostingPage() {
           create path — the manual form below is unchanged and remains the default. Both
           options are stated in one band so neither reads as the "real" way in. */}
       <div className="alert alert--info">
-        <i className="ph ph-sparkle alert__icon" aria-hidden="true" />
+        <i className="ph-fill ph-sparkle alert__icon" aria-hidden="true" />
         <div className="alert__text">
           <p className="alert__title">Answer a few questions instead of filling this form</p>
           <p className="alert__body">
@@ -86,14 +86,14 @@ export default async function NewPostingPage() {
         <div className="alert__actions">
           <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/postings/ai/new">
             <span>Post with AI</span>
-            <i className="ph ph-arrow-right" aria-hidden="true" />
+            <i className="ph-fill ph-arrow-right" aria-hidden="true" />
           </Link>
         </div>
       </div>
 
       {atCapacity ? (
         <div className="alert alert--warning">
-          <i className="ph ph-gauge alert__icon" aria-hidden="true" />
+          <i className="ph-fill ph-gauge alert__icon" aria-hidden="true" />
           <div className="alert__text">
             <p className="alert__title">At capacity</p>
             <p className="alert__body">
@@ -106,7 +106,7 @@ export default async function NewPostingPage() {
 
       {free ? (
         <div className="alert alert--success">
-          <i className="ph ph-gift alert__icon" aria-hidden="true" />
+          <i className="ph-fill ph-gift alert__icon" aria-hidden="true" />
           <div className="alert__text">
             <p className="alert__title">Free through launch</p>
             <p className="alert__body">
@@ -118,7 +118,7 @@ export default async function NewPostingPage() {
         </div>
       ) : (
         <div className="alert alert--warning">
-          <i className="ph ph-tag alert__icon" aria-hidden="true" />
+          <i className="ph-fill ph-tag alert__icon" aria-hidden="true" />
           <div className="alert__text">
             <p className="alert__title">Paid plans</p>
             <p className="alert__body">

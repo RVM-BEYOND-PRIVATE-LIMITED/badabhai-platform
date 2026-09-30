@@ -1,3 +1,4 @@
+import { BrandLockup } from "../../../components/brand-lockup";
 import { AcceptForm } from "./accept-form";
 import { MISSING_TOKEN_ERROR } from "./messages";
 
@@ -35,13 +36,7 @@ export default async function AcceptInvitePage({
     <main className="auth-wrap">
       <div className="auth-shell">
         <header className="auth-brand">
-          <span className="auth-brand__mark" aria-hidden="true">
-            BB
-          </span>
-          <span className="auth-brand__text">
-            <span className="auth-brand__name">BadaBhai</span>
-            <span className="auth-brand__role">Admin</span>
-          </span>
+          <BrandLockup />
         </header>
 
         <h1 className="auth-title">Accept your invite</h1>

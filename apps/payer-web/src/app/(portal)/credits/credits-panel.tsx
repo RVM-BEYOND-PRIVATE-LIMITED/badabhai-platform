@@ -184,7 +184,7 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
       {packs.length === 0 ? (
         <div className="state">
           <span className="state__icon">
-            <i className="ph ph-wallet" aria-hidden="true" />
+            <i className="ph-fill ph-wallet" aria-hidden="true" />
           </span>
           <h3 className="state__title">No credit packs on offer</h3>
           <p className="state__body">

@@ -63,7 +63,7 @@ export default async function PlansPage() {
           <Card>
             <div className="state state--error">
               <span className="state__icon">
-                <i className="ph ph-warning-circle" aria-hidden="true" />
+                <i className="ph-fill ph-warning-circle" aria-hidden="true" />
               </span>
               <h3 className="state__title">Service unavailable</h3>
               <p className="state__body">
@@ -102,7 +102,7 @@ export default async function PlansPage() {
 
             {atCapacity ? (
               <div className="alert alert--warning">
-                <i className="ph ph-warning alert__icon" aria-hidden="true" />
+                <i className="ph-fill ph-warning alert__icon" aria-hidden="true" />
                 <div className="alert__text">
                   <p className="alert__title">At capacity</p>
                   <p className="alert__body">
@@ -128,7 +128,7 @@ export default async function PlansPage() {
         {tiers.length === 0 ? (
           <div className="state">
             <span className="state__icon">
-              <i className="ph ph-stack" aria-hidden="true" />
+              <i className="ph-fill ph-stack" aria-hidden="true" />
             </span>
             <h3 className="state__title">No capacity tiers on offer</h3>
             <p className="state__body">
@@ -140,7 +140,7 @@ export default async function PlansPage() {
           <CapacityPanel tiers={tiers} />
         )}
         <div className="alert alert--info">
-          <i className="ph ph-info alert__icon" aria-hidden="true" />
+          <i className="ph-fill ph-info alert__icon" aria-hidden="true" />
           <div className="alert__text">
             <p className="alert__title">Recorded only — nothing is blocked yet.</p>
             <p className="alert__body">
@@ -212,7 +212,7 @@ export default async function PlansPage() {
             ) : (
               <div className="state">
                 <span className="state__icon">
-                  <i className="ph ph-briefcase" aria-hidden="true" />
+                  <i className="ph-fill ph-briefcase" aria-hidden="true" />
                 </span>
                 <h3 className="state__title">No {unit} yet</h3>
                 <p className="state__body">
@@ -241,7 +241,7 @@ export default async function PlansPage() {
         {packs.length === 0 ? (
           <div className="state">
             <span className="state__icon">
-              <i className="ph ph-wallet" aria-hidden="true" />
+              <i className="ph-fill ph-wallet" aria-hidden="true" />
             </span>
             <h3 className="state__title">No credit packs on offer</h3>
             <p className="state__body">
@@ -282,7 +282,7 @@ export default async function PlansPage() {
         {postingTiers.length === 0 ? (
           <div className="state">
             <span className="state__icon">
-              <i className="ph ph-briefcase" aria-hidden="true" />
+              <i className="ph-fill ph-briefcase" aria-hidden="true" />
             </span>
             <h3 className="state__title">No posting plans on offer</h3>
             <p className="state__body">
@@ -310,7 +310,7 @@ export default async function PlansPage() {
 
       {/* ── Mock payments disclaimer ── */}
       <div className="alert alert--info">
-        <i className="ph ph-info alert__icon" aria-hidden="true" />
+        <i className="ph-fill ph-info alert__icon" aria-hidden="true" />
         <div className="alert__text">
           <p className="alert__title">Mock payments</p>
           <p className="alert__body">

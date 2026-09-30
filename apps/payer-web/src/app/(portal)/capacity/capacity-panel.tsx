@@ -106,7 +106,7 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
       {tiers.length === 0 ? (
         <div className="state">
           <span className="state__icon">
-            <i className="ph ph-stack" aria-hidden="true" />
+            <i className="ph-fill ph-stack" aria-hidden="true" />
           </span>
           <h3 className="state__title">No capacity tiers on offer</h3>
           <p className="state__body">

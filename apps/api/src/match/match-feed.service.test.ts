@@ -339,6 +339,18 @@ describe("MatchFeedService — the card stays faceless (ADR-0036 open org_label 
     );
   });
 
+  it("a row that somehow carried role_kind still yields a card WITHOUT it (0131, #1823)", async () => {
+    // The mapper is field-by-field, so an extra column on the row cannot ride onto the card.
+    // The exact-keys test above pins the shape; this pins the specific key the ruling names.
+    const { svc } = setup([
+      { ...row("a1", PAYER_A), roleKind: "welder" } as unknown as MatchFeedRow,
+    ]);
+    const out = await svc.getFeed(WORKER, 5, {}, CTX);
+    expect(out.jobs[0]).not.toHaveProperty("role_kind");
+    expect(out.jobs[0]).not.toHaveProperty("roleKind");
+    expect(JSON.stringify(out)).not.toContain("welder");
+  });
+
   it("renders a missing city as the empty string and passes card content through honestly", async () => {
     const { svc } = setup([
       row("a1", PAYER_A, {

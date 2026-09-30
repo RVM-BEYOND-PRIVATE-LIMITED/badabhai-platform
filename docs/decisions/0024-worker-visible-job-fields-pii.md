@@ -235,3 +235,29 @@ mock-only freeze for the fields ruled visible below.
 | Who     | Role | Decision                                                                                                      | Date       |
 | ------- | ---- | -------------------------------------------------------------------------------------------------------------- | ---------- |
 | Prakash | TL   | Approved (ruling relayed + recorded by Divyanshu; explicit confirmation requested at this PR's review — bb-security-review gate condition) | 2026-07-16 |
+
+## Addendum (2026-09-29) — `role_kind` exists on postings and is on NO worker read
+
+The field ruling above **still stands unchanged**. This records a new column and where it may
+not go.
+
+Migration `0131` adds `role_kind` to `job_postings` and `jobs`: the role a payer picks for a
+posting, one of the 21 declared worker-side kinds (`TRADE_FORM_KINDS_ALL`). Owner ruling
+2026-09-29; the matching side of the ruling is the [ADR-0036 addendum](0036-matching-algorithm-v1.md)
+of the same date (display / classification only, never a match or rank input).
+
+- **PII classification: none.** A closed enum of 21 occupation slugs, enforced by a DB CHECK, a
+  Zod enum at every write boundary and a `z.enum` on the event spine. It carries no employer
+  identity, no worker identity and no free text, so it may appear in `job.created` /
+  `job_posting.created` (by value) and in `changed_fields` (by key) on the same footing as
+  `vacancy_band` and `trade_key`.
+- **On NO worker read in this phase.** `GET /feed` (both `FeedItem` and `MatchFeedItem`),
+  `GET /jobs/search` and the worker job-detail read do not select it and do not return it. The
+  exact-keys pin on `/feed` in `tests/e2e/swipe-to-apply.e2e.test.ts` is unchanged and is the
+  guard; `match-feed.repository.test.ts` and `jobs.repository.test.ts` additionally assert the
+  column is never selected. It is returned only on payer/ops/admin projections (the owning
+  payer's posting and agency-job views, and the admin posting detail).
+- **Honest copy.** The payer portal's card preview may draw the role label, but it must not claim
+  that workers see it: the worker card has no role line today. Whether it should gain one is
+  **#1823**, and adding `role_kind` to any worker projection is that decision — not a mapper edit.
+- **No worker-facing trust or urgency signal** follows from it (the #1651 ruling is untouched).

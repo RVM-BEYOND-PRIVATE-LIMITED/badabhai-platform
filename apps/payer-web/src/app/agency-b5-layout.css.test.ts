@@ -23,7 +23,11 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CSS_RAW = readFileSync(join(here, "globals.css"), "utf8");
-const TOKENS_RAW = readFileSync(join(here, "..", "styles", "tokens.css"), "utf8");
+// The shared token package (packages/design-tokens) — payer-web imports it from globals.css.
+const TOKENS_RAW = readFileSync(
+  join(here, "..", "..", "..", "..", "packages", "design-tokens", "tokens.css"),
+  "utf8",
+);
 const WORKER_LIST_TSX = readFileSync(
   join(here, "(portal)", "agency", "workers", "worker-activity-list.tsx"),
   "utf8",

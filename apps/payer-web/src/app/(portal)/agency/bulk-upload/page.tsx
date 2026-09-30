@@ -43,7 +43,7 @@ export default async function BulkUploadPage() {
         a release date — is the first thing read.
       */}
       <div className="alert alert--warning">
-        <i className="ph ph-prohibit alert__icon" aria-hidden="true" />
+        <i className="ph-fill ph-prohibit alert__icon" aria-hidden="true" />
         <div className="alert__text">
           <p className="alert__title">Bulk invite upload</p>
           <p className="alert__body">
@@ -55,7 +55,7 @@ export default async function BulkUploadPage() {
       </div>
 
       <div className="alert alert--success">
-        <i className="ph ph-link alert__icon" aria-hidden="true" />
+        <i className="ph-fill ph-link alert__icon" aria-hidden="true" />
         <div className="alert__text">
           <p className="alert__title">Inviting many workers at once</p>
           <p className="alert__body">

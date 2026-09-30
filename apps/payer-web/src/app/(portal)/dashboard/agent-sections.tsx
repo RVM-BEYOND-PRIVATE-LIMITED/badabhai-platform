@@ -116,7 +116,7 @@ export async function AgentSections() {
           alert's own action slot so a degraded read always offers the way out. */}
       {readError ? (
         <div className="alert alert--warning">
-          <i className="ph ph-warning alert__icon" aria-hidden="true" />
+          <i className="ph-fill ph-warning alert__icon" aria-hidden="true" />
           <div className="alert__text">
             <p className="alert__title">Some signals unavailable</p>
             <p className="alert__body">
@@ -227,7 +227,7 @@ export async function AgentSections() {
             <div className="agency-stat__foot">
               <span className="agency-stat__hint">
                 Referred workers who opted in{" "}
-                <i className="ph ph-arrow-right" aria-hidden="true" />
+                <i className="ph-fill ph-arrow-right" aria-hidden="true" />
               </span>
             </div>
           </Card>
@@ -242,7 +242,7 @@ export async function AgentSections() {
             <div className="agency-stat__value bb-mono">—</div>
             <div className="agency-stat__foot">
               <span className="agency-stat__hint">
-                View earnings <i className="ph ph-arrow-right" aria-hidden="true" />
+                View earnings <i className="ph-fill ph-arrow-right" aria-hidden="true" />
               </span>
             </div>
           </Card>
@@ -264,7 +264,7 @@ export async function AgentSections() {
           ) : (
             <div className="state state--error">
               <span className="state__icon">
-                <i className="ph ph-warning-circle" aria-hidden="true" />
+                <i className="ph-fill ph-warning-circle" aria-hidden="true" />
               </span>
               <h3 className="state__title">Vacancies are unavailable right now</h3>
               <p className="state__body">

@@ -87,7 +87,7 @@ export function AppShell({
             tabIndex={-1}
           >
             <i
-              className={`ph ph-caret-${collapsed ? "right" : "left"}`}
+              className={`ph-fill ph-caret-${collapsed ? "right" : "left"}`}
               aria-hidden="true"
             />
             <span className="pnav__label">Collapse</span>
@@ -115,7 +115,7 @@ export function AppShell({
             aria-expanded={drawerOpen}
             aria-controls={railId}
           >
-            <i className="ph ph-list" aria-hidden="true" />
+            <i className="ph-fill ph-list" aria-hidden="true" />
             <span className="sr-only">Navigation</span>
           </button>
           {header}

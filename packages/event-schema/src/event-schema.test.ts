@@ -3,6 +3,7 @@ import {
   WORKER_FEEDBACK_CATEGORIES,
   WORKER_FEEDBACK_APP_BUILD_MAX,
   WORKER_APP_SCREEN_TEMPLATES,
+  TRADE_FORM_KINDS_ALL,
 } from "@badabhai/types";
 import {
   validateEvent,
@@ -706,6 +707,41 @@ describe("job_posting events (ops-created, vacancy-banded, PII-free)", () => {
     if (result.success && result.event.event_name === "job_posting.created") {
       expect(result.event.payload.vacancy_band).toBe("2-5");
       expect(result.event.payload.status).toBe("draft");
+      // Migration 0131 — an emitter that predates `role_kind` still validates, and the
+      // parsed payload reads as "no role picked", never a guessed role.
+      expect(result.event.payload.role_kind).toBeNull();
+    }
+  });
+
+  it("carries job_posting.created role_kind as one of the 21 declared kinds, or null (0131)", () => {
+    const base = {
+      ...workerCreatedEvent(),
+      event_name: "job_posting.created",
+      actor: { actor_type: "payer", actor_id: UUID_C },
+      subject: { subject_type: "job_posting", subject_id: UUID_A },
+    };
+    const payload = {
+      job_posting_id: UUID_A,
+      vacancy_band: "1",
+      status: "draft",
+      created_by: UUID_C,
+      has_location: false,
+      has_description: false,
+    };
+    for (const kind of TRADE_FORM_KINDS_ALL) {
+      const ok = validateEvent({ ...base, payload: { ...payload, role_kind: kind } });
+      expect(ok.success, kind).toBe(true);
+      if (ok.success && ok.event.event_name === "job_posting.created") {
+        expect(ok.event.payload.role_kind).toBe(kind);
+      }
+    }
+    expect(validateEvent({ ...base, payload: { ...payload, role_kind: null } }).success).toBe(true);
+    // A closed enum, never free text: a trade key, a display label and a PII-shaped string
+    // are all refused at the payload stage.
+    for (const bad of ["cnc_operator", "Welder", "Ramesh 9876543210", ""]) {
+      const r = validateEvent({ ...base, payload: { ...payload, role_kind: bad } });
+      expect(r.success, bad).toBe(false);
+      if (!r.success) expect(r.error.stage).toBe("payload");
     }
   });
 
@@ -754,6 +790,18 @@ describe("job_posting events (ops-created, vacancy-banded, PII-free)", () => {
       },
     };
     expect(validateEvent(noBandChange).success).toBe(true);
+
+    // Migration 0131 — `role_kind` is an ADDITIVE key-enum member (no version bump).
+    const roleChanged = {
+      ...evt,
+      payload: {
+        job_posting_id: UUID_A,
+        changed_fields: ["role_kind"],
+        status: "open",
+        vacancy_band: null,
+      },
+    };
+    expect(validateEvent(roleChanged).success).toBe(true);
   });
 
   it("validates job_posting.closed and pins status to the literal 'closed'", () => {
@@ -1437,8 +1485,12 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
     if (result.success && result.event.event_name === "job.created") {
       expect(result.event.payload.pay_min).toBeNull();
       expect(result.event.payload.max_experience_years).toBeNull();
+      // Migration 0131 — defaulted like the bands: an emitter that predates it reads as
+      // "no role picked", never a guessed role.
+      expect(result.event.payload.role_kind).toBeNull();
       // No field could carry an employer name / address / worker id — opaque ids +
-      // coarse bands only (the city label is the only non-id string, capped + coarse).
+      // coarse bands + closed enums only (the city label is the only non-id string,
+      // capped + coarse; `role_kind` is a closed 21-slug enum).
       expect(Object.keys(result.event.payload).sort()).toEqual(
         [
           "city",
@@ -1448,10 +1500,33 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
           "pay_max",
           "pay_min",
           "payer_id",
+          "role_kind",
           "status",
           "trade_key",
         ].sort(),
       );
+    }
+  });
+
+  it("carries job.created role_kind as one of the 21 declared kinds, or null (0131)", () => {
+    const payload = {
+      job_id: UUID_A,
+      payer_id: UUID_B,
+      status: "open",
+      trade_key: "cnc_operator",
+      city: "Pune",
+    };
+    for (const kind of TRADE_FORM_KINDS_ALL) {
+      const ok = validateEvent(jobEvent("job.created", { ...payload, role_kind: kind }));
+      expect(ok.success, kind).toBe(true);
+      if (ok.success && ok.event.event_name === "job.created") {
+        expect(ok.event.payload.role_kind).toBe(kind);
+      }
+    }
+    // `trade_key` and `role_kind` are DIFFERENT vocabularies: a trade key is not a role kind.
+    for (const bad of ["cnc_operator", "Welder", "Ramesh 9876543210"]) {
+      expect(validateEvent(jobEvent("job.created", { ...payload, role_kind: bad })).success, bad)
+        .toBe(false);
     }
   });
 
@@ -1490,6 +1565,17 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
       }),
     );
     expect(okNew.success).toBe(true);
+
+    // Migration 0131 — `role_kind` is another ADDITIVE key-enum member (no version bump).
+    const okRole = validateEvent(
+      jobEvent("job.updated", {
+        job_id: UUID_A,
+        payer_id: UUID_B,
+        status: "open",
+        changed_fields: ["role_kind"],
+      }),
+    );
+    expect(okRole.success).toBe(true);
 
     const bad = validateEvent(
       jobEvent("job.updated", {

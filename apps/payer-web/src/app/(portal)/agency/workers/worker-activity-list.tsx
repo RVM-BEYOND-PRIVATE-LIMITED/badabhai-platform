@@ -31,7 +31,7 @@ export function WorkerActivityList({ workers }: { workers: AgencyWorker[] }) {
     return (
       <div className="state">
         <span className="state__icon">
-          <i className="ph ph-users-three" aria-hidden="true" />
+          <i className="ph-fill ph-users-three" aria-hidden="true" />
         </span>
         <h3 className="state__title">No workers to show yet</h3>
         <p className="state__body">

@@ -29,7 +29,7 @@ vi.mock("react", async () => {
  *
  * UI-1 adds a SECOND fence below: all three boundaries must render the shared DS `.state
  * state--error` block (they used to each carry a private chrome-title/chrome-sub/chrome-actions
- * copy of the pattern), and `global-error.tsx` must render NO `ph ph-*` glyph — it replaces the
+ * copy of the pattern), and `global-error.tsx` must render NO `ph-fill ph-*` glyph — it replaces the
  * root layout, which is the only thing that loads the Phosphor sheet, so an icon there would
  * paint as tofu.
  */
@@ -134,7 +134,7 @@ describe.each(BOUNDARIES)("%s — CAUSE-FREE neutral boundary (B5)", (_name, Bou
 });
 
 describe("global-error.tsx — no icon font is loaded on that surface", () => {
-  it("renders NO `ph ph-*` glyph (the root layout that loads Phosphor is exactly what failed)", () => {
+  it("renders NO `ph-fill ph-*` glyph (the root layout that loads Phosphor is exactly what failed)", () => {
     const { classNames } = collect(
       GlobalError({ error: secretError(), reset: vi.fn() }),
     );
@@ -146,7 +146,8 @@ describe("global-error.tsx — no icon font is loaded on that surface", () => {
     for (const Boundary of [RootError, PortalError]) {
       const { classNames } = collect(Boundary({ error: secretError(), reset: vi.fn() }));
       const tokens = classNames.flatMap((c) => c.split(/\s+/)).filter(Boolean);
-      expect(tokens).toContain("ph");
+      // Every glyph is the solid (fill) weight — the only Phosphor sheet the layout loads.
+      expect(tokens).toContain("ph-fill");
     }
   });
 });

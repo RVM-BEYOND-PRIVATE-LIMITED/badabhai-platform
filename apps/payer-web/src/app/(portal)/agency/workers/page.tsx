@@ -107,7 +107,7 @@ export default async function AgencyWorkersPage() {
           {workers === null ? (
             <div className="state state--error">
               <span className="state__icon">
-                <i className="ph ph-warning-circle" aria-hidden="true" />
+                <i className="ph-fill ph-warning-circle" aria-hidden="true" />
               </span>
               <h3 className="state__title">Worker activity is unavailable</h3>
               <p className="state__body">

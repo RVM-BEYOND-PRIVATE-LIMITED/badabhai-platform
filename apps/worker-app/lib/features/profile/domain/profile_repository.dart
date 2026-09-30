@@ -4,7 +4,15 @@
 abstract interface class ProfileRepository {
   /// Runs the async extraction job and returns the ready profile id (also
   /// stored in the session).
-  Future<String> extractProfile();
+  /// Extract the worker's profile and return its id.
+  ///
+  /// [sessionId] NAMES THE SESSION EXPLICITLY (ADR-0045 §3.4). The general road
+  /// must extract against the handover session the form itself reported, not
+  /// against whatever `SessionRepository` happens to hold: that cached id is
+  /// cleared on `session_ended`, so a general-form finish after a completed chat
+  /// would extract against nothing. Omitted (every existing caller) keeps
+  /// today's behaviour exactly — the cached id.
+  Future<String> extractProfile({String? sessionId});
 
   /// Confirms the extracted profile so the resume can be generated.
   ///

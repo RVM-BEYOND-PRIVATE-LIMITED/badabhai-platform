@@ -115,3 +115,41 @@ Nine values live in a `match_config` table (the proven `pricing_catalog` pattern
 **Hybrid — V1 for the feed, weighted for the payer list.** Rejected: two definitions of "best", a permanent reconciliation burden, and V1's application snapshot columns would be written but half-unread.
 
 **Rewrite `packages/reach-engine` in place.** Rejected in favour of a new `packages/match-engine`. In-place means deleting the locked tests, migrating every consumer, and cutting over both surfaces in one atomic change against a production database with no staging. A new package lets V1 land, be release-gate-tested, and take consumers one at a time behind `MATCH_V1_ENABLED`, with the old engine deleted in a separate retirement change once the cutover is verified.
+
+## Addendum (2026-09-29) — `role_kind`: a posting's display role, never a match input
+
+**Owner ruling 2026-09-29** (web-redesign Phase 2). The 21 declared worker-side roles
+(`TRADE_FORM_KINDS_ALL` in `@badabhai/types`) become selectable on job postings, as an additive,
+nullable `role_kind` column on BOTH `job_postings` and the legacy `jobs` table (migration `0131`),
+closed by a NULL-tolerant CHECK over the 21. This reverses the recommendation in
+[E_CHAIN_DESIGN_2026-09 §7 Q1](E_CHAIN_DESIGN_2026-09.md) *only* in the narrow sense below — it
+does not add a second match vocabulary.
+
+What this addendum pins, so §3 above stays true:
+
+- **Display / classification only.** `role_kind` is the payer's picker value: it labels the
+  posting in the payer portal and draws the role line on the card preview. It is **never a match
+  or rank input** — not a visibility input, not a rank-tuple key, not a tie-break. `match_skill_ids`
+  (and the server-resolved `reach_skill_ids`) remain the **only** things a posting is matched on,
+  and the posted match skill is still "the role" for matching purposes. Nothing derives a
+  `mskill_*` id, a reach set or a relation from `role_kind`, and `job.updated` / `job_posting.updated`
+  report it under its own `role_kind` key, never folded into `match_skills`.
+- **`job_domain_id` stays unwritten.** `role_kind` is not mapped to a `jd_*` domain and does not
+  populate `job_postings.job_domain_id`; that column keeps its 0076 meaning and its NULL.
+- **The agency job keeps `trade_key`.** On `jobs`, `trade_key` (15 trade keys) stays the
+  classifier the conversion bridge and the agency flow use; `role_kind` (21 roles) sits beside it
+  as the display role and is never inferred from it.
+- **No worker read carries it this phase** — see the ADR-0024 addendum of the same date (#1823).
+- **A chat-published posting leaves it NULL** — the interview does not ask for a role.
+- **Skills are the owner's follow-up, not this change.** Not every one of the 21 roles has a
+  counterpart in the V1 match vocabulary, so a posting for such a role can be classified but
+  reaches workers only through whichever match skill the payer picks (or nobody, if none fits).
+  Measured 2026-09-29 against `packages/taxonomy/src/match-skills.ts` (18 `mskill_*` ids): 8 roles
+  have a same-named or directly equivalent match skill (`cnc_turner`, `vmc_milling`,
+  `cnc_grinding`, `cam_programmer`, `cad_draughtsman`→`mskill_designer`,
+  `welder`→arc/MIG/TIG, `fitter`, `quality_inspector`); the other 13 — all five polymer roles
+  among them — have none. No `mskill_*` id is minted here: the owner will handle the skills
+  separately, later.
+
+Labels live in `JOB_ROLE_LABELS` (`@badabhai/types`), copied from each role descriptor's
+`displayName`/`cluster` and pinned by `apps/api/src/profiling/roles/job-role-labels.parity.test.ts`.

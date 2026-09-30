@@ -18,7 +18,7 @@
   gap: var(--space-2);
   height: var(--control-md); min-height: var(--control-md);
   padding: 0 var(--space-5);
-  font-family: var(--font-display); /* Anek — the kit's button voice (Roboto never on a button) */
+  font-family: var(--font-sans); /* Inter — the brand kit's UI face; Kilimanjaro Sans is for headings only */
   font-size: var(--text-base); font-weight: var(--weight-bold);
   line-height: 1; letter-spacing: 0;
   border: var(--border-medium) solid transparent;
@@ -29,7 +29,7 @@
 }
 .bb-btn:focus-visible { outline: none; box-shadow: var(--ring-focus); }
 .bb-btn:disabled, .bb-btn[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
-.bb-btn .ph, .bb-btn .ph-fill, .bb-btn .ph-bold { font-size: 1.25em; }
+.bb-btn .ph-fill { font-size: 1.25em; }
 
 .bb-btn--sm { height: var(--control-sm); min-height: var(--control-sm); padding: 0 var(--space-3); font-size: var(--text-sm); border-radius: var(--radius-sm); }
 .bb-btn--lg { height: var(--control-lg); min-height: var(--control-lg); padding: 0 var(--space-6); font-size: var(--text-md); }
@@ -46,7 +46,7 @@
 .bb-btn--secondary:active { transform: scale(0.97); background: var(--surface-inset); }
 
 /* tonal — soft marigold */
-.bb-btn--tonal { background: var(--brand-tint-2); color: var(--brand-press); }
+.bb-btn--tonal { background: var(--brand-tint-2); color: var(--text-accent); }
 .bb-btn--tonal:hover { background: var(--marigold-200); }
 .bb-btn--tonal:active { transform: scale(0.97); }
 
@@ -133,11 +133,10 @@
 }
 .bb-choice--checkbox .bb-choice__box { border-radius: var(--radius-xs); }
 .bb-choice--radio .bb-choice__box { border-radius: var(--radius-round); }
-.bb-choice__box .ph, .bb-choice__box .ph-bold { opacity: 0; transform: scale(0.5); transition: var(--transition-control); }
+.bb-choice__box .ph-fill { opacity: 0; transform: scale(0.5); transition: var(--transition-control); }
 .bb-choice__dot { width: 10px; height: 10px; border-radius: var(--radius-round); background: var(--surface-card); opacity: 0; transform: scale(0.4); transition: var(--transition-control); }
 .bb-choice input:checked + .bb-choice__box { background: var(--brand); border-color: var(--brand); }
-.bb-choice input:checked + .bb-choice__box .ph,
-.bb-choice input:checked + .bb-choice__box .ph-bold { opacity: 1; transform: scale(1); }
+.bb-choice input:checked + .bb-choice__box .ph-fill { opacity: 1; transform: scale(1); }
 .bb-choice input:checked + .bb-choice__box .bb-choice__dot { opacity: 1; transform: scale(1); }
 .bb-choice input:focus-visible + .bb-choice__box { box-shadow: var(--ring-focus); }
 .bb-choice:hover .bb-choice__box { border-color: var(--ink-400); }
@@ -182,7 +181,7 @@
   background: var(--surface-card);
   border: var(--border-hairline) solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-xs);
   padding: var(--space-5);
 }
 .bb-card--raised { box-shadow: var(--shadow-md); }
@@ -192,7 +191,7 @@
 .bb-card--ink .bb-card__muted { color: var(--ink-300); }
 .bb-card--interactive { cursor: pointer; transition: var(--transition-control); }
 .bb-card--interactive:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); border-color: var(--border-default); }
-.bb-card--interactive:active { transform: translateY(0); box-shadow: var(--shadow-sm); }
+.bb-card--interactive:active { transform: translateY(0); box-shadow: var(--shadow-xs); }
 .bb-card--pad-sm { padding: var(--space-3); }
 .bb-card--pad-lg { padding: var(--space-7); }
 .bb-card--pad-none { padding: 0; }
@@ -218,11 +217,11 @@
      is bounded by its container width rather than pushing the row wider than the screen. */
   letter-spacing: 0.01em; white-space: nowrap; max-width: 100%;
 }
-.bb-badge .ph, .bb-badge .ph-fill { font-size: 1.15em; }
+.bb-badge .ph-fill { font-size: 1.15em; }
 .bb-badge--upper { text-transform: uppercase; letter-spacing: 0.08em; }
 /* soft (default) */
 .bb-badge--neutral { background: var(--ink-100); color: var(--ink-700); }
-.bb-badge--brand   { background: var(--brand-tint-2); color: var(--brand-press); }
+.bb-badge--brand   { background: var(--brand-tint-2); color: var(--text-accent); }
 .bb-badge--success { background: var(--success-tint); color: var(--green-700); }
 .bb-badge--danger  { background: var(--danger-tint); color: var(--red-700); }
 .bb-badge--warning { background: var(--warning-tint); color: var(--amber-800); } /* #1103: amber, ~6.4:1 on the amber tint (was saffron/haldi) */
@@ -272,18 +271,18 @@
 .bb-chip:hover { border-color: var(--ink-400); background: var(--surface-sunken); }
 .bb-chip:active { transform: scale(0.97); }
 .bb-chip:focus-visible { outline: none; box-shadow: var(--ring-focus); }
-.bb-chip--selected { background: var(--brand-tint); border-color: var(--brand); color: var(--brand-press); }
+.bb-chip--selected { background: var(--brand-tint); border-color: var(--text-accent); color: var(--text-accent); font-weight: var(--weight-bold); }
 .bb-chip--selected:hover { background: var(--brand-tint-2); border-color: var(--brand); }
 .bb-chip__remove { display: inline-flex; margin-right: -4px; opacity: 0.55; font-size: var(--text-sm); }
 .bb-chip__remove:hover { opacity: 1; }
-.bb-chip .ph { font-size: 1.05em; }
+.bb-chip .ph-fill { font-size: 1.05em; }
 
 /* ---------- Avatar ---------- */
 .bb-avatar {
   position: relative; display: inline-flex; align-items: center; justify-content: center;
   border-radius: var(--radius-round); flex: none;
   background: var(--ink-200);
-  color: var(--ink-600); font-family: var(--font-display); font-weight: var(--weight-bold);
+  color: var(--ink-600); font-family: var(--font-sans); font-weight: var(--weight-bold);
 }
 .bb-avatar__img { width: 100%; height: 100%; border-radius: var(--radius-round); object-fit: cover; display: block; }
 .bb-avatar__initials { width: 100%; height: 100%; border-radius: var(--radius-round); display: flex; align-items: center; justify-content: center; }
@@ -300,7 +299,7 @@
 }
 .bb-stat__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .bb-stat__label { font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text-muted); }
-.bb-stat__icon { width: 36px; height: 36px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: var(--text-lg); background: var(--brand-tint); color: var(--brand-press); flex: none; }
+.bb-stat__icon { width: 36px; height: 36px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: var(--text-lg); background: var(--brand-tint); color: var(--text-accent); flex: none; }
 .bb-stat__value { font-family: var(--font-mono); font-weight: var(--weight-bold); font-size: var(--text-3xl); color: var(--text-primary); letter-spacing: -0.02em; margin-top: var(--space-3); font-variant-numeric: tabular-nums; line-height: 1; }
 /* Neutral supporting caption under the value — NOT a trend (no arrow, no up/down colour). */
 .bb-stat__caption { color: var(--text-muted); font-size: var(--text-sm); margin-top: var(--space-2); }
@@ -355,7 +354,7 @@
   animation: bb-slideup var(--duration-base) var(--ease-out);
 }
 .bb-dialog__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding: var(--space-6) var(--space-6) 0; }
-.bb-dialog__title { font-family: var(--font-display); font-weight: var(--weight-bold); font-size: var(--text-xl); color: var(--text-primary); }
+.bb-dialog__title { font-family: var(--font-display); font-weight: var(--weight-bold); font-size: var(--text-xl); color: var(--text-heading); }
 .bb-dialog__body { padding: var(--space-3) var(--space-6) 0; color: var(--text-secondary); font-size: var(--text-base); line-height: var(--leading-normal); }
 .bb-dialog__foot { display: flex; gap: var(--space-3); justify-content: flex-end; padding: var(--space-6); }
 .bb-dialog__foot--stack { flex-direction: column-reverse; }
@@ -425,7 +424,7 @@
   padding: 12px 14px; border-radius: var(--radius-md);
   transition: var(--transition-control); white-space: nowrap;
 }
-.bb-tab .ph, .bb-tab .ph-fill { font-size: 1.15em; }
+.bb-tab .ph-fill { font-size: 1.15em; }
 .bb-tab:hover { color: var(--text-primary); background: var(--surface-sunken); }
 .bb-tab:focus-visible { outline: none; box-shadow: var(--ring-focus); }
 
@@ -433,7 +432,7 @@
 .bb-tabs--underline { gap: var(--space-2); border-bottom: var(--border-hairline) solid var(--border-default); }
 .bb-tabs--underline .bb-tab { border-radius: 0; padding: 12px 6px; margin-bottom: -1px; border-bottom: 2.5px solid transparent; }
 .bb-tabs--underline .bb-tab:hover { background: none; }
-.bb-tabs--underline .bb-tab--active { color: var(--text-primary); border-bottom-color: var(--brand); }
+.bb-tabs--underline .bb-tab--active { color: var(--text-primary); font-weight: var(--weight-bold); border-bottom-color: var(--text-accent); }
 
 /* segmented variant */
 .bb-tabs--segmented { display: inline-flex; background: var(--surface-sunken); padding: 4px; border-radius: var(--radius-md); gap: 2px; }
@@ -455,9 +454,9 @@
   min-height: var(--tap); transition: color var(--duration-fast) var(--ease-out);
   position: relative;
 }
-.bb-bottomnav__item .ph, .bb-bottomnav__item .ph-fill { font-size: var(--text-xl); }
+.bb-bottomnav__item .ph-fill { font-size: var(--text-xl); }
 .bb-bottomnav__item:active { transform: scale(0.94); }
-.bb-bottomnav__item--active { color: var(--brand-press); }
+.bb-bottomnav__item--active { color: var(--text-accent); }
 .bb-bottomnav__badge {
   position: absolute; top: 2px; left: 50%; margin-left: 6px;
   background: var(--danger); color: var(--text-on-brand); font-size: var(--text-2xs); font-weight: var(--weight-bold);
@@ -469,20 +468,8 @@
    BRAND — BadaBhaiLogo, ChatBubble, JobCard, MaskedCandidate.
    ============================================================ */
 
-/* ---------- Logo ---------- */
-.bb-logo { display: inline-flex; align-items: center; gap: 0.34em; }
-.bb-logo__mark { display: block; border-radius: 22%; box-shadow: var(--shadow-sm); }
-.bb-logo__word { font-family: var(--font-display); font-weight: var(--weight-extrabold); letter-spacing: -0.02em; line-height: 1; }
-.bb-logo__a { color: var(--ink-900); }
-.bb-logo__b { color: var(--marigold-600); }
-.bb-logo--ink .bb-logo__a { color: var(--paper-0); }
-.bb-logo--ink .bb-logo__b { color: var(--marigold-400); }
-/* Page dark-theme parity (THEME-1): when the whole portal flips to ink, the wordmark must
-   flip too — `.bb-logo__a`'s default ink-900 would vanish on the dark surface. Mirrors the
-   `.bb-logo--ink` prop variant, but keyed on the PAGE theme so the runtime toggle re-themes
-   the lockup. */
-[data-theme="ink"] .bb-logo__a { color: var(--paper-0); }
-[data-theme="ink"] .bb-logo__b { color: var(--marigold-400); }
+/* The lockup (.bb-lockup / __tile / __mark / __text / __wordmark / __sub, and the --on-ink
+   variant) lives entirely in the shared token package; the rail and login only size it. */
 
 /* ---------- ChatBubble (chat-first product) ---------- */
 .bb-chat { display: flex; gap: 8px; align-items: flex-end; max-width: 88%; }
@@ -524,11 +511,11 @@
 .bb-jobcard__logo img { width: 100%; height: 100%; object-fit: cover; }
 .bb-jobcard__facts { display: flex; flex-wrap: wrap; gap: 9px 18px; }
 .bb-jobcard__fact { display: flex; align-items: center; gap: 6px; font-size: var(--text-base); color: var(--text-secondary); }
-.bb-jobcard__fact .ph { color: var(--text-faint); font-size: var(--text-md); }
+.bb-jobcard__fact .ph-fill { color: var(--text-faint); font-size: var(--text-md); }
 .bb-jobcard__salary { font-family: var(--font-mono); font-weight: var(--weight-bold); color: var(--text-primary); }
 .bb-jobcard__tags { display: flex; flex-wrap: wrap; gap: 7px; }
 .bb-jobcard__quota { display: flex; align-items: center; gap: 6px; font-size: var(--text-sm); color: var(--text-muted); }
-.bb-jobcard__quota b { color: var(--brand-press); }
+.bb-jobcard__quota b { color: var(--text-accent); }
 .bb-jobcard__foot { display: flex; gap: 12px; align-items: center; margin-top: 2px; }
 .bb-jobcard__skipbtn {
   width: 56px; height: 56px; border-radius: var(--radius-round); flex: none;
@@ -543,14 +530,14 @@
 .bb-candidate {
   display: flex; gap: 14px; align-items: center;
   background: var(--surface-card); border: var(--border-hairline) solid var(--border-subtle);
-  border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: 16px;
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-xs); padding: 16px;
 }
 .bb-candidate__body { flex: 1; min-width: 0; }
 .bb-candidate__name { font-family: var(--font-sans); font-weight: var(--weight-bold); font-size: var(--text-md); color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
 .bb-candidate--masked .bb-candidate__name-text { filter: blur(5px); user-select: none; }
 .bb-candidate__meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--text-sm); color: var(--text-muted); margin-top: 5px; }
 .bb-candidate__meta span { display: inline-flex; align-items: center; gap: 4px; }
-.bb-candidate__meta .ph { font-size: var(--text-sm); color: var(--text-faint); }
+.bb-candidate__meta .ph-fill { font-size: var(--text-sm); color: var(--text-faint); }
 .bb-candidate__action { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
 .bb-candidate__unlocked { display: inline-flex; align-items: center; gap: 5px; font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--success); }
 

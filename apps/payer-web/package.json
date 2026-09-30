@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@badabhai/config": "workspace:*",
+    "@badabhai/design-tokens": "workspace:*",
     "@badabhai/pricing": "workspace:*",
     "@badabhai/validators": "workspace:*",
     "next": "^15.5.25",

@@ -819,6 +819,108 @@ export const TRADE_FORM_KINDS_ALL = Object.freeze([
 
 export type TradeFormKindName = (typeof TRADE_FORM_KINDS_ALL)[number];
 
+const TRADE_FORM_KIND_SET: ReadonlySet<string> = new Set(TRADE_FORM_KINDS_ALL);
+
+/** Whether a value is one of the 21 DECLARED role kinds. A type guard, like the others here. */
+export function isTradeFormKindName(value: unknown): value is TradeFormKindName {
+  return typeof value === "string" && TRADE_FORM_KIND_SET.has(value);
+}
+
+// ---- Job-posting role (migration 0131) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS BELOW: `packages/db` spells the 21 kinds into
+// `job_postings_role_kind_chk` / `jobs_role_kind_chk`, `packages/event-schema` puts `role_kind` on
+// `job.created` / `job_posting.created`, `apps/api` validates the posting routes by it, and the web
+// clients render the picker and the preview from the labels below. Declared once so none can drift.
+//
+// DISPLAY / CLASSIFICATION ONLY (ADR-0036 addendum 2026-09-29). A posting's `role_kind` is what the
+// payer picked from this list; it is NEVER a match or rank input — `match_skill_ids` stays the only
+// thing a posting is matched on — and it appears on NO worker read in this phase (ADR-0024 addendum
+// 2026-09-29, #1823).
+
+/**
+ * The six role FAMILIES the picker groups the 21 kinds under — the same six the API's
+ * `ROLE_CLUSTERS` (`apps/api/src/profiling/roles/role-form-descriptor.ts`) veto within, in the same
+ * order. The API's parity test asserts the two agree, so a seventh cluster turns it red until this
+ * list learns it.
+ */
+export const JOB_ROLE_FAMILIES = Object.freeze([
+  "machining",
+  "design",
+  "fabrication",
+  "maintenance",
+  "production",
+  "polymer",
+] as const);
+export type JobRoleFamily = (typeof JOB_ROLE_FAMILIES)[number];
+
+/** A family's heading in a grouped role picker. Plain English, PII-free, closed. */
+export const JOB_ROLE_FAMILY_LABELS: Readonly<Record<JobRoleFamily, string>> = Object.freeze({
+  machining: "Machining",
+  design: "Design & Programming",
+  fabrication: "Fabrication",
+  maintenance: "Maintenance",
+  production: "Production & Quality",
+  polymer: "Plastics & Rubber",
+} satisfies Record<JobRoleFamily, string>);
+
+/** How one role kind reads on a job posting, and which family it is grouped under. */
+export interface JobRoleLabel {
+  readonly label: string;
+  readonly family: JobRoleFamily;
+}
+
+/**
+ * THE ROLE A POSTING NAMES, as a person reads it — one entry per declared kind.
+ *
+ * `label` IS the role descriptor's `displayName` (the name the résumé sheet and the handover card
+ * print), and `family` IS its `cluster`. They are COPIED here, not imported, because the
+ * descriptors live in `apps/api` and a package cannot import from an app; the API's
+ * `job-role-labels.parity.test.ts` asserts label === displayName and family === cluster for every
+ * kind, so an edit to either side alone turns it red.
+ *
+ * EXHAUSTIVE AT COMPILE TIME: a `Record` over {@link TradeFormKindName}, so a 22nd declared kind
+ * does not type-check until it has a label here. Deliberately carries no `formEnabled`: whether a
+ * worker-side FORM exists says nothing about whether an employer may post the role, and all 21 are
+ * postable by owner ruling.
+ */
+export const JOB_ROLE_LABELS: Readonly<Record<TradeFormKindName, JobRoleLabel>> = Object.freeze({
+  cnc_turner: { label: "CNC Turner", family: "machining" },
+  vmc_milling: { label: "CNC Machining Centre Operator", family: "machining" },
+  cnc_grinding: { label: "CNC Grinding Operator", family: "machining" },
+  conventional_machinist: { label: "Conventional Machinist", family: "machining" },
+  tool_die_maker: { label: "Tool & Die Maker", family: "machining" },
+  cam_programmer: { label: "CAM Programmer", family: "design" },
+  cad_draughtsman: { label: "CAD Designer / Draughtsman", family: "design" },
+  welder: { label: "Welder", family: "fabrication" },
+  sheet_metal_worker: { label: "Sheet Metal Worker", family: "fabrication" },
+  press_operator: { label: "Press / Machine Operator", family: "fabrication" },
+  painter_coating: { label: "Painter / Powder Coating", family: "fabrication" },
+  fitter: { label: "Fitter", family: "maintenance" },
+  maintenance_technician: { label: "Maintenance Technician", family: "maintenance" },
+  industrial_electrician: { label: "Industrial Electrician", family: "maintenance" },
+  assembly_line_worker: { label: "Assembly Line Worker", family: "production" },
+  quality_inspector: { label: "Quality Inspector / QC", family: "production" },
+  injection_moulding_operator: { label: "Injection Moulding Operator", family: "polymer" },
+  mould_die_maker: { label: "Mould / Die Maker (Plastics)", family: "polymer" },
+  blow_moulding_operator: { label: "Blow Moulding / Extrusion Operator", family: "polymer" },
+  rubber_moulding_operator: { label: "Rubber Moulding / Compression Operator", family: "polymer" },
+  plastic_process_technician: { label: "Plastic Process / Quality Technician", family: "polymer" },
+} satisfies Record<TradeFormKindName, JobRoleLabel>);
+
+/**
+ * The display label for a stored `role_kind`, or `null` when it is not one of the 21.
+ *
+ * TAKES `unknown` ON PURPOSE: the value comes off a wire or a row, and a reader must not have to
+ * narrow before asking. NEVER ECHOES ITS INPUT — an unknown or malformed value is `null`, so a
+ * caller that renders the result can never put a raw, unvalidated string on a screen; showing the
+ * raw id (admin only) is a separate, explicit decision at the call site. Membership is an own-key
+ * test on the closed set, so `"toString"` / `"__proto__"` are unknown rather than inherited.
+ */
+export function jobRoleLabel(kind: unknown): string | null {
+  return isTradeFormKindName(kind) ? JOB_ROLE_LABELS[kind].label : null;
+}
+
 // ---- Tiered profiling (migration 0126) ----
 //
 // HERE FOR THE SAME REASON AS THE SETS BELOW: `packages/db` writes these into CHECK constraints,
@@ -983,9 +1085,10 @@ export type ResumeExtractionMethodName = (typeof RESUME_EXTRACTION_METHODS)[numb
 /**
  * Which surface the worker was sent to afterwards — the output of `routeToTradeForm()`.
  *
- * Only 9 of 21 declared roles have a form at all, so "how often did an import actually reach one"
- * is a real question about whether this feature earns its keep, and it is unanswerable unless the
- * decision is recorded at the time it is made.
+ * Not every declared role has a form (`formEnabled` in the API's role registry decides which;
+ * 16 of the 21 on 2026-09-29, the five polymer roles still declared only), so "how often did an
+ * import actually reach one" is a real question about whether this feature earns its keep, and it
+ * is unanswerable unless the decision is recorded at the time it is made.
  */
 export const RESUME_IMPORT_ROUTES = Object.freeze(["form", "chat"] as const);
 export type ResumeImportRouteName = (typeof RESUME_IMPORT_ROUTES)[number];

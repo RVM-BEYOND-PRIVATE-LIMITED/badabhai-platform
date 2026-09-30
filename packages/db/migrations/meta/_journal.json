@@ -919,6 +919,13 @@
       "when": 1790665773492,
       "tag": "0130_resume_generation_trigger_chat_edit",
       "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "7",
+      "when": 1790687181089,
+      "tag": "0131_job_role_kind",
+      "breakpoints": true
     }
   ]
 }

@@ -7,7 +7,8 @@
  *
  * FOR EACH `jobs` ROW WITH status='open':
  *   1. INSERT a `job_postings` row — role_title=title, city, area, pay_min/pay_max,
- *      shift, needed_by, description, experience window, benefits, requirements copied
+ *      pay_type, shift, needed_by, description, experience window, benefits,
+ *      requirements and role_kind (0131; display only, never a match input) copied
  *      verbatim; match_skill_ids from TRADE_TO_MATCH_SKILL[trade_key]; reach_skill_ids
  *      = match ∪ skill_related; industry_id from the match skill; status='open';
  *      published_at = jobs.created_at (the honest visibility time, not now());
@@ -120,6 +121,7 @@ async function main(): Promise<void> {
         area: jobs.area,
         payMin: jobs.payMin,
         payMax: jobs.payMax,
+        payType: jobs.payType,
         shift: jobs.shift,
         neededBy: jobs.neededBy,
         description: jobs.description,
@@ -127,6 +129,7 @@ async function main(): Promise<void> {
         maxExperienceYears: jobs.maxExperienceYears,
         benefits: jobs.benefits,
         requirements: jobs.requirements,
+        roleKind: jobs.roleKind,
         payerId: jobs.payerId,
         createdAt: jobs.createdAt,
       })
@@ -198,6 +201,8 @@ async function main(): Promise<void> {
             area: j.area,
             payMin: j.payMin,
             payMax: j.payMax,
+            // #1648 — what the band MEANS. NULL stays NULL: the converter never invents one.
+            payType: j.payType,
             shift: j.shift,
             neededBy: j.neededBy,
             description: j.description,
@@ -205,6 +210,9 @@ async function main(): Promise<void> {
             maxExperienceYears: j.maxExperienceYears,
             benefits: j.benefits,
             requirements: j.requirements,
+            // 0131 — the payer's role pick, carried verbatim (NULL stays NULL). DISPLAY ONLY:
+            // the match ids below still come from the trade bridge, never from this.
+            roleKind: j.roleKind,
             vacancyBand: bandArg,
             status: "open",
             industryId,

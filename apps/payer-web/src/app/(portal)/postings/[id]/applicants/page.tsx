@@ -62,7 +62,7 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
         <Card>
           <div className="state">
             <span className="state__icon">
-              <i className="ph ph-file-dashed" aria-hidden="true" />
+              <i className="ph-fill ph-file-dashed" aria-hidden="true" />
             </span>
             <h2 className="state__title">No posting found here</h2>
             <p className="state__body">
@@ -70,7 +70,7 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
             </p>
             <div className="state__actions">
               <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/postings">
-                <i className="ph ph-list-bullets" aria-hidden="true" />
+                <i className="ph-fill ph-list-bullets" aria-hidden="true" />
                 <span>Manage postings</span>
               </Link>
             </div>
@@ -80,7 +80,7 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
         <Card>
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph ph-warning-circle" aria-hidden="true" />
+              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
             </span>
             <h2 className="state__title">We couldn&rsquo;t load applicants</h2>
             <p className="state__body">
@@ -94,7 +94,7 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
       ) : feed ? (
         <>
           <div className="alert alert--info">
-            <i className="ph ph-mask-happy alert__icon" aria-hidden="true" />
+            <i className="ph-fill ph-mask-happy alert__icon" aria-hidden="true" />
             <div className="alert__text">
               <p className="alert__title">Applicants are faceless</p>
               <p className="alert__body">
@@ -133,7 +133,7 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
               <Card>
                 <div className="state">
                   <span className="state__icon">
-                    <i className="ph ph-users-three" aria-hidden="true" />
+                    <i className="ph-fill ph-users-three" aria-hidden="true" />
                   </span>
                   <h3 className="state__title">No applicants on this posting yet</h3>
                   <p className="state__body">
@@ -142,7 +142,7 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
                   </p>
                   <div className="state__actions">
                     <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/postings">
-                      <i className="ph ph-list-bullets" aria-hidden="true" />
+                      <i className="ph-fill ph-list-bullets" aria-hidden="true" />
                       <span>Manage postings</span>
                     </Link>
                   </div>

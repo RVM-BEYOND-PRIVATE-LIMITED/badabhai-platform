@@ -8,7 +8,7 @@
  * the `.bb-*` design-system classes + tokens (src/styles/ds-components.css). No
  * business logic. Prop contracts mirror docs/design/.../components/forms/*.d.ts.
  *
- * Phosphor glyphs (`ph ph-*`) are aria-hidden and degrade to empty inline marks if
+ * Phosphor glyphs (`ph-fill ph-*`) are aria-hidden and degrade to empty inline marks if
  * the icon font is not loaded — text labels always carry the meaning.
  */
 import type {
@@ -38,7 +38,7 @@ function FieldFeedback({ error, hint }: { error?: string; hint?: string }) {
   if (error) {
     return (
       <span className="bb-field__error">
-        <i className="ph ph-warning-circle" aria-hidden="true" />
+        <i className="ph-fill ph-warning-circle" aria-hidden="true" />
         {error}
       </span>
     );
@@ -105,9 +105,9 @@ export function Button({
   return (
     <button type={type} className={cls} disabled={disabled || loading} {...rest}>
       {loading && <span className="bb-btn__spinner" aria-hidden="true" />}
-      {!loading && iconLeft && <i className={`ph ph-${iconLeft}`} aria-hidden="true" />}
+      {!loading && iconLeft && <i className={`ph-fill ph-${iconLeft}`} aria-hidden="true" />}
       {children != null && <span>{children}</span>}
-      {!loading && iconRight && <i className={`ph ph-${iconRight}`} aria-hidden="true" />}
+      {!loading && iconRight && <i className={`ph-fill ph-${iconRight}`} aria-hidden="true" />}
     </button>
   );
 }
@@ -143,7 +143,7 @@ export function IconButton({
 
   return (
     <button type="button" className={cls} aria-label={label} title={label} {...rest}>
-      <i className={`ph ph-${icon}`} aria-hidden="true" />
+      <i className={`ph-fill ph-${icon}`} aria-hidden="true" />
     </button>
   );
 }
@@ -186,13 +186,13 @@ export function Input({
       <div className="bb-input-wrap">
         {iconLeft && (
           <span className="bb-input__icon bb-input__icon--left">
-            <i className={`ph ph-${iconLeft}`} aria-hidden="true" />
+            <i className={`ph-fill ph-${iconLeft}`} aria-hidden="true" />
           </span>
         )}
         <input id={inputId} className={cls} {...rest} />
         {iconRight && (
           <span className="bb-input__icon bb-input__icon--right">
-            <i className={`ph ph-${iconRight}`} aria-hidden="true" />
+            <i className={`ph-fill ph-${iconRight}`} aria-hidden="true" />
           </span>
         )}
       </div>
@@ -233,7 +233,7 @@ export function Select({
           {children}
         </select>
         <span className="bb-select__chevron">
-          <i className="ph ph-caret-down" aria-hidden="true" />
+          <i className="ph-fill ph-caret-down" aria-hidden="true" />
         </span>
       </div>
       <FieldFeedback error={error} hint={hint} />
@@ -285,7 +285,7 @@ export function Checkbox({ label, className = "", ...rest }: CheckboxProps) {
     <label className={["bb-choice", "bb-choice--checkbox", className].filter(Boolean).join(" ")}>
       <input type="checkbox" {...rest} />
       <span className="bb-choice__box">
-        <i className="ph-bold ph-check" aria-hidden="true" />
+        <i className="ph-fill ph-check" aria-hidden="true" />
       </span>
       {label != null && <span className="bb-choice__label">{label}</span>}
     </label>

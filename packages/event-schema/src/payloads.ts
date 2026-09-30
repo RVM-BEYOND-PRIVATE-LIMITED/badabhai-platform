@@ -1459,6 +1459,13 @@ const JOB_POSTING_CHANGED_FIELDS = [
   "pay_type",
   "benefits",
   "requirements",
+  // Migration 0131 (ADDITIVE enum member, same precedent as "skills", the ADR-0036 block and
+  // #1646/#1648 above). The payer set, changed or cleared the posting's ROLE — one of the 21
+  // declared kinds. The KEY only: which role moved to is not on this event, exactly as the
+  // other card fields report their key and never their value. Display / classification only
+  // (ADR-0036 addendum 2026-09-29), so a reader must not treat it as a match change —
+  // `match_skills` above is the only key that says the reach inputs moved.
+  "role_kind",
 ] as const;
 
 /**
@@ -1474,6 +1481,18 @@ export const JobPostingCreatedPayload = z.object({
   created_by: uuidSchema,
   has_location: z.boolean(),
   has_description: z.boolean(),
+  /**
+   * The role the poster picked (migration 0131) — one of the 21 DECLARED kinds in
+   * {@link TRADE_FORM_KINDS_ALL}, or null for "no role picked" (every chat-published posting,
+   * every posting created before the column existed).
+   *
+   * ADDITIVE AND DEFAULTED, so `job_posting.created` stays v1: an emitter that predates the
+   * field still validates and reads as null, and no consumer is told a key it has seen before
+   * now means something new. A closed enum of occupation slugs — PII-free on the same footing
+   * as `vacancy_band` — and DISPLAY / CLASSIFICATION ONLY (ADR-0036 addendum 2026-09-29): never
+   * a match or rank input.
+   */
+  role_kind: z.enum(TRADE_FORM_KINDS_ALL).nullable().default(null),
 });
 export type JobPostingCreatedPayload = z.infer<typeof JobPostingCreatedPayload>;
 
@@ -2376,6 +2395,13 @@ export const JobCreatedPayload = z.object({
   pay_max: z.number().int().nonnegative().nullable().default(null),
   min_experience_years: z.number().int().nonnegative().nullable().default(null),
   max_experience_years: z.number().int().nonnegative().nullable().default(null),
+  /**
+   * The role the poster picked (migration 0131), or null. The twin of
+   * `job_posting.created.role_kind` — see there. ADDITIVE and defaulted exactly like the bands
+   * above, so `job.created` stays v1. Distinct from `trade_key`, which stays the agency job's
+   * matching classifier; this is the 21-kind display role and never a match input.
+   */
+  role_kind: z.enum(TRADE_FORM_KINDS_ALL).nullable().default(null),
 });
 export type JobCreatedPayload = z.infer<typeof JobCreatedPayload>;
 
@@ -2403,6 +2429,10 @@ export const JOB_CHANGED_FIELDS = [
   // #1648 — ADDITIVE, same precedent. The agency job gained a pay-type claim; the KEY says
   // the poster changed what the band MEANS, never what it says.
   "pay_type",
+  // Migration 0131 — ADDITIVE, same precedent. The agency job's display ROLE (one of the 21
+  // declared kinds) was set, changed or cleared. KEY only. Not `trade_key`: that key above is
+  // still the one that says the job's matching classifier moved.
+  "role_kind",
 ] as const;
 
 /**

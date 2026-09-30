@@ -20,7 +20,7 @@ export default function NotFound() {
       <Card>
         <div className="state">
           <span className="state__icon">
-            <i className="ph ph-compass" aria-hidden="true" />
+            <i className="ph-fill ph-compass" aria-hidden="true" />
           </span>
           <h1 className="state__title">Not found</h1>
           <p className="state__body">

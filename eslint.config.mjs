@@ -89,8 +89,8 @@ export default tseslint.config(
     // selectors would false-positive on. Color/size token *values* live in CSS, so the
     // token files + the `.bb-*` component CSS (the design-system source of truth) are out
     // of scope here (ESLint lints TS/TSX only).
-    // admin-web ships on the SAME token layer (its tokens.css is a port of the design
-    // system), so it is gated identically — a portal built with raw hex would not flip
+    // admin-web ships on the SAME token layer (both portals import the one shared file,
+    // packages/design-tokens/tokens.css), so it is gated identically — a portal built with raw hex would not flip
     // under [data-theme="ink"] and would drift from payer-web on the first restyle.
     // marketing-web (the public badabhai.ai site) ships on a trimmed port of the SAME
     // token values (apps/marketing-web/src/styles/tokens.css) for the same reason.
