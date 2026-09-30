@@ -1,7 +1,10 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { DEFAULT_MATCH_CONFIG, type MatchConfig } from "@badabhai/match-engine";
-import { WorkerMatchSkillsRebuiltPayload } from "@badabhai/event-schema";
+import {
+  WorkerMatchSkillWantsSetPayload,
+  WorkerMatchSkillsRebuiltPayload,
+} from "@badabhai/event-schema";
 import type { EventsService } from "../events/events.service";
 import type { MatchConfigService } from "./match-config.service";
 import type {
@@ -46,6 +49,9 @@ interface Harness {
     listWantedSkillIds: ReturnType<typeof vi.fn>;
     reconcileReachForWorker: ReturnType<typeof vi.fn>;
     listPostingIdsReaching: ReturnType<typeof vi.fn>;
+    setWantsAndReconcile: ReturnType<typeof vi.fn>;
+    clearAllWantsAndReconcile: ReturnType<typeof vi.fn>;
+    listSkillRows: ReturnType<typeof vi.fn>;
   };
   events: { emit: ReturnType<typeof vi.fn> };
   /** Every repository/event call, in the order it happened. */
@@ -64,6 +70,17 @@ function setup(opts: {
   wanted?: string[];
   postings?: string[];
   config?: MatchConfig;
+  /** Whether the repo found a `worker_skill` row to flip (false → the service 404s). */
+  setWantsUpdated?: boolean;
+  /** Rows the clear-all UPDATE matched. */
+  cleared?: number;
+  /** The worker's own `worker_skill` rows, for the page prefill. */
+  skillRows?: {
+    skillId: string;
+    industryId: string;
+    monthsBucketed: number;
+    wants: boolean;
+  }[];
 }): Harness {
   const order: string[] = [];
   let derivedIds: string[] = [];
@@ -93,6 +110,18 @@ function setup(opts: {
     listPostingIdsReaching: vi.fn(async () => {
       order.push("postings");
       return opts.postings ?? [];
+    }),
+    setWantsAndReconcile: vi.fn(async () => {
+      order.push("wants");
+      return opts.setWantsUpdated ?? true;
+    }),
+    clearAllWantsAndReconcile: vi.fn(async () => {
+      order.push("clear");
+      return opts.cleared ?? 0;
+    }),
+    listSkillRows: vi.fn(async () => {
+      order.push("listSkills");
+      return opts.skillRows ?? [];
     }),
   };
   const events = {
@@ -517,13 +546,136 @@ describe("WorkerSkillsService.rebuildQuietly — a projection failure never fail
   });
 });
 
-describe("WorkerSkillsService.setWants — an unwired seam must FAIL, never no-op", () => {
-  it("throws rather than silently accepting a wants change", async () => {
-    // A silent no-op is the dangerous shape: the worker's toggle would appear to work
-    // while `job_reach` kept showing him the job he just declined.
-    const h = setup({ signals: signals() });
-    await expect(h.svc.setWants(WORKER, "mskill_vmc_operator", false)).rejects.toThrow(
-      /unwired seam/i,
+/**
+ * E4 — this block REPLACES the test that asserted `setWants` "is an unwired seam". The
+ * property that test protected is preserved and sharpened here: a wants change must FLIP THE
+ * ROW OR FAIL, because a silent no-op is the dangerous shape — the worker's toggle would
+ * appear to work while `job_reach` kept showing him the job he just declined. What changed is
+ * that the method is now wired, so the failure is a typed 404/400 rather than a bare throw.
+ */
+describe("WorkerSkillsService.setWants — the seam is WIRED: it flips the row or fails, never no-ops", () => {
+  const SKILL = "mskill_vmc_operator";
+
+  it("flips the row through the repository and reports the resulting state", async () => {
+    const h = setup({ signals: signals(), setWantsUpdated: true });
+    await expect(h.svc.setWants(WORKER, SKILL, false)).resolves.toEqual({
+      skill_id: SKILL,
+      wants: false,
+    });
+    // The clock is the service's (`new Date()`); the repository owns the transaction.
+    expect(h.repo.setWantsAndReconcile).toHaveBeenCalledWith(
+      WORKER,
+      SKILL,
+      false,
+      expect.any(Date),
     );
+  });
+
+  it("emits worker.match_skill_wants_set — opaque id, closed-set skill, boolean", async () => {
+    const h = setup({ signals: signals(), setWantsUpdated: true });
+    await h.svc.setWants(WORKER, "mskill_cnc_turner", true, {
+      requestId: "req-1",
+      correlationId: "corr-1",
+    });
+    const params = h.events.emit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(params.event_name).toBe("worker.match_skill_wants_set");
+    expect(params.actor).toEqual({ actor_type: "worker", actor_id: WORKER });
+    expect(params.subject).toEqual({ subject_type: "worker", subject_id: WORKER });
+    expect(params.correlationId).toBe("corr-1");
+    expect(params.requestId).toBe("req-1");
+    expect(h.emittedPayload()).toEqual({
+      worker_id: WORKER,
+      skill_id: "mskill_cnc_turner",
+      wants: true,
+    });
+    // The registry schema is `.strict()`, so parsing is itself the assertion: an extra field
+    // (a name, a count of who can see him) throws rather than being stripped.
+    expect(WorkerMatchSkillWantsSetPayload.parse(h.emittedPayload())).toEqual(h.emittedPayload());
+  });
+
+  it("a skill id OUTSIDE the closed vocabulary is a 400 and reaches no writer", async () => {
+    // Both spellings: not even shape-valid (`skill_turning`), and shape-valid but outside
+    // the 18-id closed set (`mskill_invented`). Neither can name a `worker_skill` row.
+    for (const id of ["skill_turning", "mskill_invented"]) {
+      const h = setup({ signals: signals() });
+      await expect(h.svc.setWants(WORKER, id, false)).rejects.toThrow(/unknown match skill id/);
+      expect(h.repo.setWantsAndReconcile).not.toHaveBeenCalled();
+      expect(h.events.emit).not.toHaveBeenCalled();
+    }
+  });
+
+  it("a closed-set skill the worker does NOT hold is a 404 — and emits nothing", async () => {
+    // The repository found no row to flip. A 404 (not a 403) is the neutral shape: it cannot
+    // become a read of whether another worker holds the skill.
+    const h = setup({ signals: signals(), setWantsUpdated: false });
+    await expect(h.svc.setWants(WORKER, SKILL, false)).rejects.toThrow(
+      /not one of this worker's skills/,
+    );
+    expect(h.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("writes BEFORE it emits (never announces a change that did not commit)", async () => {
+    const h = setup({ signals: signals(), setWantsUpdated: true });
+    await h.svc.setWants(WORKER, SKILL, false);
+    expect(h.order).toEqual(["wants", "emit"]);
+  });
+
+  it("a repository failure propagates — no event, no swallowed error", async () => {
+    const h = setup({ signals: signals(), setWantsUpdated: true });
+    h.repo.setWantsAndReconcile.mockRejectedValueOnce(new Error("deadlock detected"));
+    await expect(h.svc.setWants(WORKER, SKILL, false)).rejects.toThrow("deadlock detected");
+    expect(h.events.emit).not.toHaveBeenCalled();
+  });
+});
+
+describe("WorkerSkillsService.clearAllWants — one call turns everything off", () => {
+  it("clears through the repository and reports the row count", async () => {
+    const h = setup({ signals: signals(), cleared: 8 });
+    await expect(h.svc.clearAllWants(WORKER)).resolves.toEqual({ cleared: 8 });
+    expect(h.repo.clearAllWantsAndReconcile).toHaveBeenCalledWith(WORKER, expect.any(Date));
+  });
+
+  it("emits with skill_id null — the clear-all, not a skill-scoped change", async () => {
+    const h = setup({ signals: signals(), cleared: 3 });
+    await h.svc.clearAllWants(WORKER);
+    expect(h.emittedPayload()).toEqual({ worker_id: WORKER, skill_id: null, wants: false });
+    expect(WorkerMatchSkillWantsSetPayload.parse(h.emittedPayload())).toEqual(h.emittedPayload());
+  });
+
+  it("a 0-row clear still reports honestly and emits (a repeat call is not an error)", async () => {
+    const h = setup({ signals: signals(), cleared: 0 });
+    await expect(h.svc.clearAllWants(WORKER)).resolves.toEqual({ cleared: 0 });
+    expect(h.events.emit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("WorkerSkillsService.listMatchSkillsForWorker — the page's prefill", () => {
+  it("returns closed-set rows with labels and states, sorted deterministically", async () => {
+    const h = setup({
+      signals: signals(),
+      skillRows: [
+        { skillId: "mskill_vmc_operator", industryId: MFG, monthsBucketed: 36, wants: false },
+        { skillId: "mskill_cnc_turner", industryId: MFG, monthsBucketed: 12, wants: true },
+      ],
+    });
+    // A `wants: false` row is IN the list on purpose: the worker must be able to find a
+    // skill he turned off and turn it back on.
+    expect(await h.svc.listMatchSkillsForWorker(WORKER)).toEqual([
+      { skill_id: "mskill_cnc_turner", label: "CNC Turner", wants: true },
+      { skill_id: "mskill_vmc_operator", label: "VMC Operator", wants: false },
+    ]);
+  });
+
+  it("DROPS a row outside the closed vocabulary — it must not render a switch the API rejects", async () => {
+    const h = setup({
+      signals: signals(),
+      skillRows: [
+        { skillId: "skill_turning", industryId: MFG, monthsBucketed: 1, wants: true },
+        { skillId: "mskill_plumber", industryId: MFG, monthsBucketed: 1, wants: true },
+      ],
+    });
+    expect((await h.svc.listMatchSkillsForWorker(WORKER)).map((r) => r.skill_id)).toEqual([
+      "mskill_plumber",
+    ]);
   });
 });
