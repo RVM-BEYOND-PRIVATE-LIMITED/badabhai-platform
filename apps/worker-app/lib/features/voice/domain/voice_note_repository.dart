@@ -37,7 +37,23 @@ abstract interface class VoiceNoteRepository {
   /// The on-device temp clip is deleted whether this succeeds or fails.
   ///
   /// Throws a [Failure].
-  Future<String> stopAndTranscribe();
+  /// [composeOnly] is the COMPANION's mic (ADR-0046 F3), and it changes two
+  /// things — both of which exist to stop the mic harming the tab it sits on.
+  ///
+  /// IT NEVER MINTS A CHAT SESSION (#1862). The chat path calls `ensureSession`,
+  /// which POSTs a new session when none is cached — and after a cold start the
+  /// companion has cached none, because opening the companion touches no session
+  /// state at all. A worker who finished by form or résumé upload has no session
+  /// either. So the first mic tap minted one, and `ChatCompanionPolicy` rule 3
+  /// then reads a live session started after confirmation as "this worker is
+  /// interviewing" — dropping them out of the companion until a redo or the
+  /// abandonment sweep. That is the #1750 failure again, through the voice door.
+  /// Here the session id is REUSED if one already exists and the recording is
+  /// refused honestly if not; nothing is ever created.
+  ///
+  /// IT PREFERS THE ENGLISH TRANSCRIPT for a Devanagari note, because the
+  /// composer it fills strips Devanagari (see [VoiceTranscriptResolver.resolve]).
+  Future<String> stopAndTranscribe({bool composeOnly = false});
 
   /// Sends a CONFIRMED transcript into the profiling chat, exactly like a typed
   /// message, and returns the transcript + bada bhai's reply.

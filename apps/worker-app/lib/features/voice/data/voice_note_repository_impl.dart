@@ -32,6 +32,12 @@ import 'voice_pipeline_impl.dart';
 /// (to the signed url) and the server-side `storage_path` + opaque ids cross
 /// the wire. The transcript is held transiently for display and merged into chat
 /// exactly like a typed message once confirmed — never logged.
+/// What the companion's mic says when there is no chat session to attach a clip
+/// to (#1862). Honest and actionable: typing still works, and it does not blame
+/// the worker's connection.
+const String kComposeVoiceNeedsSession =
+    'Abhi mic nahi chal raha. Aap type kar dijiye.';
+
 class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
   VoiceNoteRepositoryImpl({
     required VoiceRecorder recorder,
@@ -81,8 +87,26 @@ class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
     }
   }
 
+  /// COMPOSE MODE'S session lookup: reuse, never create (#1862).
+  ///
+  /// `GET /chat/session/latest` only. A worker who has one gets it; a worker who
+  /// has none is told plainly to type instead, which is the honest answer — the
+  /// alternative was minting a session that silently ended their companion.
+  ///
+  /// A session-free voice upload for the companion would remove this limit
+  /// entirely; the issue records it as a possible backend follow-up, and this
+  /// fix does not wait on it.
+  Future<void> _reuseSessionForCompose() async {
+    if (_session.sessionId != null) return;
+    final String? existing = await _chat.latestSessionId();
+    if (existing == null) {
+      throw const VoiceUnavailableFailure(kComposeVoiceNeedsSession);
+    }
+    _session.setSession(existing);
+  }
+
   @override
-  Future<String> stopAndTranscribe() async {
+  Future<String> stopAndTranscribe({bool composeOnly = false}) async {
     RecordedClip? clip;
     bool uploadStarted = false;
     try {
@@ -94,7 +118,16 @@ class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
 
       // A chat session must exist to both register the clip and merge the
       // transcript back in.
-      await _chat.ensureSession();
+      //
+      // COMPOSE MODE NEVER CREATES ONE (#1862). See the interface doc: minting
+      // a session here drops a companion worker out of the companion, because
+      // the policy reads a live session started after confirmation as an
+      // interview. So the companion's mic reuses an existing id or refuses.
+      if (composeOnly) {
+        await _reuseSessionForCompose();
+      } else {
+        await _chat.ensureSession();
+      }
       final String? token = _session.sessionToken;
       final String? sessionId = _session.sessionId;
       if (token == null || sessionId == null) {
@@ -149,7 +182,13 @@ class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
       // `_chat.sendMessage(...)` on this path would silently restore the bug the
       // split exists to fix — the answer of record being text the worker never
       // saw.
-      return await _resolver.resolve(job, authToken: token);
+      // #1862 — the composer strips Devanagari, so a Hindi note must come back
+      // in roman script or it lands as an empty box.
+      return await _resolver.resolve(
+        job,
+        authToken: token,
+        preferEnglish: composeOnly,
+      );
     } catch (error) {
       // A clip that never reached the uploader is raw audio on disk with no
       // owner (the uploader's own `finally` only covers its leg) — delete it,

@@ -193,12 +193,16 @@ class VoiceNoteCubit extends Cubit<VoiceNoteState> {
   /// A blank transcript is treated as a failure rather than shown: there is
   /// nothing for the worker to confirm, and an empty chat message would read to
   /// the engine as a non-answer.
-  Future<void> stopAndTranscribe() async {
+  /// [composeOnly] rides from the screen (ADR-0046 F3): the companion's mic
+  /// must never mint a chat session, and wants the roman transcript. See
+  /// [VoiceNoteRepository.stopAndTranscribe].
+  Future<void> stopAndTranscribe({bool composeOnly = false}) async {
     if (state is! VoiceNoteRecording) return;
     _stopTicker();
     emit(const VoiceNoteProcessing());
     try {
-      final String transcript = await _repo.stopAndTranscribe();
+      final String transcript =
+          await _repo.stopAndTranscribe(composeOnly: composeOnly);
       if (isClosed) return;
       if (transcript.trim().isEmpty) {
         emit(const VoiceNoteError(VoiceUnavailableFailure(kVoiceEmptyTranscript)));

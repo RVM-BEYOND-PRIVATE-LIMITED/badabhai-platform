@@ -1712,7 +1712,14 @@ class _ChatViewState extends State<_ChatView> {
           _formOfferLockedHint()
         else
           _inputBar(
-            showVoice,
+            // ONE MIC PER SCREEN (#1862). In companion mode the v2 voice button
+            // sits just below this composer, and BOTH were labelled "Bolkar
+            // likhein" — two identical controls, doing different things (this
+            // one dictates locally; that one uploads and transcribes). The v2
+            // button is the surface ADR-0046 F3 specifies, so the composer's own
+            // dictation mic stands down there. The interview keeps it, exactly
+            // as before.
+            showVoice && !state.companion,
             // #1583 — a `number` question opens the number keypad for this
             // turn only; the turn-scoped answerType reverts it on the next.
             numeric: state.answerType == ChatAnswerType.number,
@@ -3271,11 +3278,15 @@ class _CooldownComposerLockState extends State<_CooldownComposerLock> {
 /// box repeatedly.
 String kCooldownComposerText(DateTime until) {
   final Duration left = until.difference(DateTime.now());
-  if (left.inSeconds <= 0) return 'Bada Bhai abhi vyast hain.';
+  // #1862 — DO NOT BLAME BADA BHAI'S BUSYNESS. The wait is the faltu
+  // cool-down, not the assistant being occupied; saying "vyast hain" invents a
+  // cause and tells the worker nothing they can act on. Say what they can do
+  // and when.
+  if (left.inSeconds <= 0) return 'Ab aap likh sakte hain.';
   if (left.inMinutes >= 1) {
-    return 'Bada Bhai abhi vyast hain. ${left.inMinutes} minute baad likh sakte hain.';
+    return '${left.inMinutes} minute baad aap dobara likh sakte hain.';
   }
-  return 'Bada Bhai abhi vyast hain. ${left.inSeconds} second baad likh sakte hain.';
+  return '${left.inSeconds} second baad aap dobara likh sakte hain.';
 }
 
 /// The companion composer's mic (ADR-0046 F3) — keyed because this screen draws
@@ -3287,6 +3298,10 @@ const Key kCompanionVoiceButtonKey = ValueKey<String>('companion-voice-button');
 /// and removing the very same value.
 const String kEditOpAdd = 'Jodenge:';
 const String kEditOpDelete = 'Hatayenge:';
+
+/// Shown on the edit card once its proposal has expired (#1862 — plain words,
+/// not "samay-seema").
+const String kEditCardExpired = 'Is card ka time khatam ho gaya.';
 
 const int kEditProposalMaxRows = 3;
 
@@ -3395,8 +3410,10 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                 const SizedBox(height: AppSpacing.s2),
                 Text(
                   expired
-                      ? 'Ye prastav ki samay-seema khatam ho gayi.'
-                      : 'Ye prastav ${_formatExpiry(widget.proposal.expiresAt)} tak maany hai.',
+                      // #1862 — everyday Hinglish. "samay-seema" and "maany"
+                      // are bookish Hindi a low-literacy worker does not use.
+                      ? kEditCardExpired
+                      : '${_formatExpiry(widget.proposal.expiresAt)} tak Haan daba sakte hain.',
                   style: OnboardingTypography.bodyMuted(
                     color: OnboardingColors.ink600,
                   ),
@@ -3419,12 +3436,18 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                 Row(
                   children: <Widget>[
                     Expanded(
+                      // NEUTRAL, NOT DESTRUCTIVE (#1862). Nahi only declines the
+                      // proposal — nothing of the worker's is lost by tapping
+                      // it, and red is this app's colour for removal (it is what
+                      // marks the card's own delete rows). Every other Haan/Nahi
+                      // pair in the app is neutral; this was the odd one out,
+                      // and it made the safe answer look like the dangerous one.
                       child: OutlinedButton(
                         onPressed: expired ? null : widget.onCancel,
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: OnboardingColors.errorRed,
+                          foregroundColor: OnboardingColors.ink900,
                           side: const BorderSide(
-                            color: OnboardingColors.errorRed,
+                            color: OnboardingColors.borderCard,
                           ),
                           minimumSize: const Size(double.infinity, 48),
                           shape: RoundedRectangleBorder(
@@ -3435,7 +3458,7 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                         child: Text(
                           kVoiceBooleanNo,
                           style: OnboardingTypography.buttonLabel(
-                            color: OnboardingColors.errorRed,
+                            color: OnboardingColors.ink900,
                           ),
                         ),
                       ),
