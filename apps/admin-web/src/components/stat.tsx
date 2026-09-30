@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 /**
- * One headline figure in a `.stats` grid.
+ * One headline figure in a `.stats` row.
  *
  * Extracted from the dashboard page when the AI-spend and volume sections needed the same
  * tile: three copies of a five-line component is how two of them quietly stop matching. The

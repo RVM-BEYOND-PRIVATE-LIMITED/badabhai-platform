@@ -101,8 +101,19 @@ function rule(css: string, selector: string): string | null {
   return rules(css).find((r) => r.selector === selector)?.body ?? null;
 }
 
-/** Does a selector target a stat TILE (`.stat`, `.stat--wide`) — not `.stats` or `.stat__x`? */
-const targetsTile = (selector: string) => /\.stat(--[\w-]+)?(?![\w-])/.test(selector);
+/**
+ * Does a selector target a stat TILE — `.stat`, `.stat--wide`, or any child of a stat row
+ * (`.stats > *`, `.stats--compact > div`) — rather than the row itself or a `.stat__x` part?
+ */
+const targetsTile = (selector: string) =>
+  /\.stat(--[\w-]+)?(?![\w-])/.test(selector) || /\.stats(--[\w-]+)?\s*>/.test(selector);
+
+/** Does any selector in the list target a stat ROW itself (`.stats`, `.stats--compact`)? */
+const targetsRow = (selector: string) =>
+  selector.split(",").some((part) => /\.stats(--[\w-]+)?$/.test(part.trim()));
+
+/** Does a selector target a stat VALUE (`.stat__value`, with or without modifiers)? */
+const targetsValue = (selector: string) => selector.includes(".stat__value");
 
 describe("stat tiles", () => {
   it("a warn tile's label takes the secondary text step, not muted", () => {
@@ -141,13 +152,46 @@ describe("stat tiles", () => {
   it("nothing lets a tile shrink below its unbroken figure", () => {
     // A flex item's automatic minimum is its min-content — the whole nowrap ₹ figure, or a
     // count with no break opportunity in it. That minimum IS the no-split / no-overflow
-    // guarantee; `min-width` or a non-visible `overflow` on a tile would silently zero it.
+    // guarantee. Each of these zeroes, caps or clamps it: an explicit minimum; any non-visible
+    // overflow (a scroll container's automatic minimum is 0); a set or maximum width (caps it);
+    // size containment or an inline-size container (content no longer sizes the tile).
     const loosening = rules(CSS, true).filter(
       (r) =>
         targetsTile(r.selector) &&
-        /(^|[\s;])(min-width|min-inline-size|overflow(-x)?)\s*:/.test(r.body),
+        /(^|[\s;])(min-width|min-inline-size|width|inline-size|max-width|max-inline-size|overflow(-x|-y|-inline|-block)?|container(-type)?|contain)\s*:/.test(
+          r.body,
+        ),
     );
     expect(loosening.map((r) => r.selector)).toEqual([]);
+  });
+
+  it("no value or tile may break anywhere — a count or a ₹ figure never splits", () => {
+    // `overflow-wrap: anywhere` / `word-break: break-all` lower a value's min-content to one
+    // character, so the tile shrinks and "1,23,456" splits. (A long identifier — the stuck
+    // panel's question key — gets break points in MARKUP, `<wbr>` after each `_`, instead:
+    // `anywhere` there wrapped even `salary_expected` mid-word at 375px, measured.)
+    const breaking = rules(CSS, true)
+      .filter(
+        (r) =>
+          (targetsValue(r.selector) || targetsTile(r.selector)) &&
+          /(overflow-wrap|word-wrap):\s*anywhere|word-break:\s*break-(all|word)/.test(r.body),
+      )
+      .map((r) => [...r.atRules, r.selector].join(" > "));
+    expect(breaking).toEqual([]);
+  });
+
+  it("a stat row stays a flex row in every at-rule — never a grid again", () => {
+    // The grid-placement ban below only has teeth while `.stats` is flex, and the phone
+    // flex-basis still "passes" under a grid while doing nothing. So pin the row itself.
+    const regressions = rules(CSS, true)
+      .filter(
+        (r) =>
+          targetsRow(r.selector) &&
+          (/(^|[\s;])display\s*:(?!\s*flex\b)/.test(r.body) ||
+            /(^|[\s;])grid-template(-[\w-]+)?\s*:/.test(r.body)),
+      )
+      .map((r) => [...r.atRules, r.selector].join(" > "));
+    expect(regressions).toEqual([]);
   });
 
   it("no rule, in ANY at-rule, places a stat tile on grid tracks", () => {

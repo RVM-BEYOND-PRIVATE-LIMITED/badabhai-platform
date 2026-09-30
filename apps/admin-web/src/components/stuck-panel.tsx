@@ -28,6 +28,29 @@ function noticeClass(tone: "warn" | "info" | "muted"): string {
   return tone === "warn" ? "notice notice--warn" : "notice";
 }
 
+/**
+ * A question key with a line-break opportunity after each `_`.
+ *
+ * The key sits in a stat tile, and a tile never shrinks below its unbroken value (that is what
+ * keeps a count from splitting). Underscores are not break points, so `maintenance_documentation`
+ * was one 25-character word: a 350px tile at the 22px phone step, wider than a 309px row at
+ * 375px, and the page scrolled sideways. `<wbr>` makes the longest SEGMENT the tile's minimum
+ * (15 characters across every pack key, ~224px — inside a 320px phone's 254px row), and the key
+ * wraps only at an underscore, never mid-word. `<wbr>` adds no text, so a copied key is intact.
+ */
+function breakableKey(key: string) {
+  const parts = key.split("_");
+  return parts.map((part, i) =>
+    i < parts.length - 1 ? (
+      <span key={i}>
+        {part}_<wbr />
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
+
 /** How servable the engine judged a candidate — leg 2 of the server's ranking, three-valued. */
 function servabilityPill(candidate: StuckCandidate) {
   if (candidate.unservable === false) {
@@ -60,7 +83,9 @@ export function StuckPanel({ stuck }: { stuck: SessionStuck }) {
       {view.question ? (
         <div className="stats stats--compact">
           <div className="stat">
-            <span className="stat__value mono">{view.question.question_key}</span>
+            <span className="stat__value mono">
+              {breakableKey(view.question.question_key)}
+            </span>
             <span className="stat__label">The question on screen when it ended</span>
           </div>
           <div className="stat">

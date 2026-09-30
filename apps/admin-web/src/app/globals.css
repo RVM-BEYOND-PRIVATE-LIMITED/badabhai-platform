@@ -794,18 +794,17 @@ h3 {
   font-size: var(--text-xl);
   font-weight: var(--weight-bold);
   line-height: 1.1;
-  /* A LAST RESORT, and not for money. `.stats` rows are flex, and a tile never shrinks below
-     its unbroken figure, so a count widens its tile instead of wrapping; this only acts when
-     the figure is wider than the whole row. A ₹ value (`Stat wide`) never reaches it: it is
-     `nowrap` (see `.stat--wide .stat__value`), because a money figure split between digits
-     reads as two numbers. The trade-off is there: AI spend is `numeric(16,6)` and prints every
-     place (`formatExactRupees`), so a ₹ figure wider than its entire row — a ₹12-crore
-     six-place total at 320px, measured — spills past the tile into the panel padding rather
-     than breaking. Realistic amounts (to ₹9,99,999.999999, and ₹99,99,999 for credits) fit at
-     every width from 320px. */
+  /* INERT inside a `.stats` row, and kept only for a tile placed outside one. `break-word` does
+     not lower a flex item's min-content, so in a row a tile widens to its unbroken figure rather
+     than wrapping it — a count or a ₹ value never splits. The trade-off: a figure wider than
+     the whole row widens the TILE (fill and border) past the row and scrolls the page sideways.
+     AI spend is `numeric(16,6)` and prints every place (`formatExactRupees`), so a ₹12-crore
+     six-place total does that at 320px (measured); realistic amounts (to ₹9,99,999.999999, and
+     ₹99,99,999 for credits) fit at every width from 320px. A ₹ value (`Stat wide`) is also
+     `nowrap` (see `.stat--wide .stat__value`): a money figure split between digits reads as
+     two numbers. */
   overflow-wrap: break-word;
-}
-.stat__label {
+}.stat__label {
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }

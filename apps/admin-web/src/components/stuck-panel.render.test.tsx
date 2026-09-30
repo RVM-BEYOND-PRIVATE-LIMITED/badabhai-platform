@@ -96,6 +96,27 @@ describe("stuck panel — a real stall", () => {
     expect(out).toContain("notice--warn");
   });
 
+  it("breaks the key tile only at underscores, and the key text stays intact", () => {
+    // A tile never shrinks below its unbroken value; without break points a 25-character key
+    // made a 350px tile and scrolled a 375px page sideways. `<wbr>` adds no text.
+    const key = "maintenance_fault_finding";
+    const out = html(
+      <StuckPanel
+        stuck={stuck({
+          stuck_question: { ...CANDIDATE, question_key: key },
+          candidates: [{ ...CANDIDATE, question_key: key }],
+        })}
+      />,
+    );
+    const open = '<span class="stat__value mono">';
+    const start = out.indexOf(open) + open.length;
+    const value = out.slice(start, out.indexOf('<span class="stat__label">', start));
+    expect(value.match(/<wbr\/>/g)).toHaveLength(2);
+    expect(value).toContain("maintenance_<wbr/>");
+    expect(value).toContain("fault_<wbr/>");
+    expect(value.replace(/<[^>]+>/g, "")).toBe(key);
+  });
+
   it("shows the ranked candidates SUBORDINATE to the headline", () => {
     const out = html(
       <StuckPanel stuck={stuck({ candidates: [CANDIDATE, ADVANCED_PAST] })} />,
