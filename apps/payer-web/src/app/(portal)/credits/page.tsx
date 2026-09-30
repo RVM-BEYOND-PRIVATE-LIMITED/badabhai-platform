@@ -130,7 +130,9 @@ export default async function CreditsPage() {
       ) : dashboard ? (
         <>
           <div className="stat-row">
+            {/* The wallet hero — the DS StatTile on the Shift Blue container (one class). */}
             <StatTile
+              className="credits-balance"
               label="Credit balance"
               value={dashboard.credits.balance}
               icon="wallet"
@@ -147,8 +149,8 @@ export default async function CreditsPage() {
             <div className="section__head">
               <h2 className="section__title">Top up</h2>
               <p className="section__sub">
-                Pick a pack — the credits land in the balance above and can be spent on any
-                contact unlock.
+                Pick a pack — the credits land in the balance above and can be spent on any contact
+                unlock.
               </p>
             </div>
             <CreditsPanel packs={packs} real={realPayments} />
@@ -166,8 +168,11 @@ export default async function CreditsPage() {
         </div>
         <div className="panel__body">
           {history.length > 0 ? (
-            <div className="tablewrap">
-              <table className="table">
+            // A labelled, keyboard-reachable scroll region: on a phone this ledger is wider
+            // than the screen and scrolls inside itself, so it must be focusable to be
+            // scrollable without a pointer.
+            <div className="tablewrap" tabIndex={0} role="region" aria-label="Credit history">
+              <table className="table table--nowrap">
                 <thead>
                   <tr>
                     <th>Date</th>
@@ -209,8 +214,8 @@ export default async function CreditsPage() {
               </span>
               <h3 className="state__title">History unavailable</h3>
               <p className="state__body">
-                We couldn&rsquo;t load your credit movements right now. Nothing has changed —
-                please retry.
+                We couldn&rsquo;t load your credit movements right now. Nothing has changed — please
+                retry.
               </p>
               <div className="state__actions">
                 <RetryButton />
@@ -223,8 +228,8 @@ export default async function CreditsPage() {
               </span>
               <h3 className="state__title">No credit movements yet</h3>
               <p className="state__body">
-                Top-ups and unlock spends land here the moment they happen. Buy a pack above to
-                get started.
+                Top-ups and unlock spends land here the moment they happen. Buy a pack above to get
+                started.
               </p>
             </div>
           )}
@@ -240,8 +245,8 @@ export default async function CreditsPage() {
         </div>
         <div className="panel__body">
           {expiry.length > 0 ? (
-            <div className="tablewrap">
-              <table className="table">
+            <div className="tablewrap" tabIndex={0} role="region" aria-label="Credit expiry">
+              <table className="table table--nowrap">
                 <thead>
                   <tr>
                     <th className="num">Credits</th>
@@ -280,8 +285,8 @@ export default async function CreditsPage() {
           <div className="alert__text">
             <p className="alert__title">Payments by Razorpay.</p>
             <p className="alert__body">
-              Card and UPI details are entered on Razorpay&rsquo;s secure form — BadaBhai never
-              sees or stores them. Credits are added once the payment is confirmed.
+              Card and UPI details are entered on Razorpay&rsquo;s secure form — BadaBhai never sees
+              or stores them. Credits are added once the payment is confirmed.
             </p>
           </div>
         </div>

@@ -140,8 +140,9 @@ export default async function DashboardPage() {
         </section>
       ) : null}
 
-      {/* 2 · POSITION */}
-      <div className="stat-row">
+      {/* 2 · POSITION — the KPI variant: no hole beside a lone third tile, and a compact
+          ledger row per tile on a phone so the counters stay secondary to bands 1 and 3. */}
+      <div className="stat-row stat-row--kpi">
         <StatTile
           label="Credit balance"
           value={data.credits.balance}
@@ -260,8 +261,8 @@ export default async function DashboardPage() {
                 </span>
                 <h3 className="state__title">No postings yet</h3>
                 <p className="state__body">
-                  Matched workers can only find you once a role is live. Posting is free
-                  through launch.
+                  Matched workers can only find you once a role is live. Posting is free through
+                  launch.
                 </p>
                 <div className="state__actions">
                   <Link className="bb-btn bb-btn--primary bb-btn--sm" href="/postings/new">
@@ -325,8 +326,8 @@ export default async function DashboardPage() {
               </span>
               <h3 className="state__title">No contacts unlocked yet</h3>
               <p className="state__body">
-                Open a {isAgency ? "vacancy" : "posting"}&rsquo;s applicants and unlock a
-                candidate to see their routed contact here.
+                Open a {isAgency ? "vacancy" : "posting"}&rsquo;s applicants and unlock a candidate
+                to see their routed contact here.
               </p>
               <div className="state__actions">
                 <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/postings">
