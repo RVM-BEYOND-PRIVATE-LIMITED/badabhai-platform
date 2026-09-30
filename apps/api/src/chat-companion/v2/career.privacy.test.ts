@@ -81,6 +81,7 @@ function setup(opts: { career?: unknown; classifyThrows?: boolean } = {}) {
     events as never,
     cost as never,
     faltuStore as never,
+    { read: vi.fn(async () => null), remember: vi.fn(async () => undefined) } as never,
   );
   return { orchestrator, ai, memory, events, cost };
 }

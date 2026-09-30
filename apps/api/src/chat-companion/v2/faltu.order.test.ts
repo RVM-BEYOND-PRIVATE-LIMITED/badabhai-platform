@@ -100,3 +100,45 @@ describe("faltu ordering (ADR-0046 P2)", () => {
     expect(h.v2.handleMessage).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * THE COOL-DOWN SURVIVES AN APP RESTART (P2, F1). The app keeps `cooldown_until` in memory only,
+ * so the open turn carries it while a cool-down runs: a cold start re-locks the composer from the
+ * recap instead of from the next refused message.
+ */
+describe("GET /chat/companion carries a running cool-down", () => {
+  const openTurn = async (h: ReturnType<typeof makeCompanionServiceForV2>) => {
+    const res = await h.svc.open(WORKER, CTX as never, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    return res;
+  };
+
+  it("v2 + FALTU on and cooling: the recap is unchanged and carries cooldown_until", async () => {
+    const h = makeCompanionServiceForV2({ v2: true, faltu: true, cooling: COOLING_UNTIL });
+    const turn = await openTurn(h);
+    expect(h.v2.cooldownUntil).toHaveBeenCalledWith(WORKER, NOW);
+    expect(turn.cooldown_until).toBe(COOLING_UNTIL);
+
+    // Everything else is the recap a non-cooling worker gets — the field is the only addition.
+    const idle = await openTurn(makeCompanionServiceForV2({ v2: true, faltu: true, cooling: null }));
+    const { cooldown_until: _until, ...rest } = turn;
+    expect(rest).toEqual(idle);
+  });
+
+  it("not cooling: no field at all", async () => {
+    const turn = await openTurn(makeCompanionServiceForV2({ v2: true, faltu: true, cooling: null }));
+    expect("cooldown_until" in turn).toBe(false);
+  });
+
+  it("FALTU off, or v2 off: the store is never read and the open is byte-for-byte as before", async () => {
+    for (const opts of [
+      { v2: true, faltu: false, cooling: COOLING_UNTIL },
+      { v2: false, faltu: true, cooling: COOLING_UNTIL },
+    ]) {
+      const h = makeCompanionServiceForV2(opts);
+      const turn = await openTurn(h);
+      expect(h.v2.cooldownUntil).not.toHaveBeenCalled();
+      expect("cooldown_until" in turn).toBe(false);
+    }
+  });
+});

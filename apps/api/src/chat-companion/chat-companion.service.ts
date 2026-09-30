@@ -111,23 +111,42 @@ export class ChatCompanionService {
     private readonly events: EventsService,
     // ADR-0046 T7/T8 — the edit path's propose/confirm/cancel. Inert while the v2 flags are off.
     private readonly edits: CompanionEditService,
-    // ADR-0046 T6 — the v2 turn pipeline. Reached ONLY from `message`'s v1-miss branch while
-    // `CHAT_COMPANION_V2_ENABLED` is on; a v1 resolver hit never touches it.
+    // ADR-0046 T6 — the v2 turn pipeline, touched ONLY while `CHAT_COMPANION_V2_ENABLED` is on:
+    // from `message` for an open task-chip tap, a cooled-down free-text message and a v1 miss,
+    // and from `open` for the cool-down read. A v1 resolver hit never touches it.
     private readonly v2: CompanionV2Orchestrator,
   ) {}
 
-  /** `GET /chat/companion` — the mode, and in companion mode the recap. */
+  /**
+   * `GET /chat/companion` — the mode, and in companion mode the recap.
+   *
+   * A RUNNING FALTU COOL-DOWN RIDES THE RECAP (P2) as `cooldown_until`, so an app that restarted
+   * mid-cool-down locks its composer again on open instead of learning it from the next refused
+   * message. Read only while v2 and its faltu phase are on — otherwise the open is byte-for-byte
+   * what it was — and the read fails open (no field) like every cool-down read.
+   */
   async open(workerId: string, ctx: RequestContext, now: Date = new Date()): Promise<CompanionOpenResponse> {
     const mode = await this.policy.resolve(workerId);
     if (mode.mode === "interview") return { mode: "interview" };
 
-    const facts = await this.readFacts(workerId, mode.profile, now);
+    const [facts, cooling] = await Promise.all([
+      this.readFacts(workerId, mode.profile, now),
+      this.faltuOn() ? this.v2.cooldownUntil(workerId, now) : Promise.resolve(null),
+    ]);
     const composed = composeFor("digest", facts);
-    const turn = this.toTurn(composed);
+    const turn: CompanionTurn = {
+      ...this.toTurn(composed),
+      ...(cooling === null ? {} : { cooldown_until: cooling }),
+    };
     await this.record(workerId, ctx, now, "open", "digest", composed, facts, null);
 
     const checked = CompanionOpenResponseSchema.safeParse(turn);
     return checked.success ? checked.data : this.fallbackTurn(checked.error.issues, workerId);
+  }
+
+  /** The faltu phase is live: v2 AND its own flag (the cool-down exists only then). */
+  private faltuOn(): boolean {
+    return this.config.CHAT_COMPANION_V2_ENABLED && this.config.CHAT_COMPANION_V2_FALTU_ENABLED;
   }
 
   /** `POST /chat/companion/message` — one answer, or `interview` when this worker is not a companion worker. */
@@ -142,19 +161,17 @@ export class ChatCompanionService {
 
     const v2On = this.config.CHAT_COMPANION_V2_ENABLED;
     // P2 (ADR-0046): the phase-2 order is chip keys → cool-down → v1 text resolver → lexicon →
-    // classifier. A task-chip tap is recognised FIRST and routed deterministically — v1's weak
-    // signals would otherwise answer two of these labels with the digest (see
-    // `companion-task-chips.ts`). Only while v2 is on; off is v1 byte-for-byte.
-    const taskChip = v2On ? resolveCompanionTaskChip(dto.text) : null;
+    // classifier. A task-chip tap is recognised FIRST and routed deterministically — v1 would
+    // otherwise answer these labels itself (see `companion-task-chips.ts`). Only while v2 is on
+    // AND that chip's own phase flag is on: a chip that cannot be shown is typed text, and
+    // typed text goes to v1 first exactly as it did before the chip existed.
+    const taskChip = v2On ? resolveCompanionTaskChip(dto.text, this.config) : null;
     // The cool-down gate sits BEFORE the v1 resolver and blocks FREE TEXT only: exact chip taps
-    // (v1's own and the task chips') are never gated, so a cooled-down worker can still reach
-    // the résumé and jobs. Read only while the faltu phase is on; a Redis failure reads null
-    // and the worker is served normally (the store fails open, by design).
+    // (v1's own and the open task chips') are never gated, so a cooled-down worker can still
+    // reach the résumé and jobs. Read only while the faltu phase is on; a Redis failure reads
+    // null and the worker is served normally (the store fails open, by design).
     const cooling =
-      v2On &&
-      this.config.CHAT_COMPANION_V2_FALTU_ENABLED &&
-      taskChip === null &&
-      !isCompanionChipTap(dto.text)
+      this.faltuOn() && taskChip === null && !isCompanionChipTap(dto.text)
         ? await this.v2.cooldownUntil(workerId, now)
         : null;
 

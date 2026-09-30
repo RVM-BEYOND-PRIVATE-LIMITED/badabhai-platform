@@ -60,10 +60,14 @@ const HISTORY = {
 
 export function makeCompanionServiceForV2(opts: {
   v2: boolean;
+  /** P1 — the edit phase flag (defaults to the master's value). */
+  edit?: boolean;
   /** P2 — the faltu phase gate. Off by default so the P1 suites see the P1 pipeline. */
   faltu?: boolean;
   /** P2 — the new-résumé phase flag (defaults to the master's value, as in production). */
   newResume?: boolean;
+  /** P3 — the career phase flag. Off by default, like faltu. */
+  career?: boolean;
   /** P2 — what the cool-down store answers; `null` (the default) means "not cooling". */
   cooling?: string | null;
 }) {
@@ -97,9 +101,10 @@ export function makeCompanionServiceForV2(opts: {
     CHAT_COMPANION_JOB_CHIPS: 3,
     RESUME_UPDATE_PENDING_TIMEOUT_SECONDS: 1_200,
     CHAT_COMPANION_V2_ENABLED: opts.v2,
-    CHAT_COMPANION_V2_EDIT_ENABLED: opts.v2,
+    CHAT_COMPANION_V2_EDIT_ENABLED: opts.edit ?? opts.v2,
     CHAT_COMPANION_V2_NEW_RESUME_ENABLED: opts.newResume ?? opts.v2,
     CHAT_COMPANION_V2_FALTU_ENABLED: opts.faltu ?? false,
+    CHAT_COMPANION_V2_CAREER_ENABLED: opts.career ?? false,
   };
   const svc = new ChatCompanionService(
     config as never,
