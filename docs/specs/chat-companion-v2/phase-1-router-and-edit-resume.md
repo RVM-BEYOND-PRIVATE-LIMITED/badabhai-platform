@@ -50,6 +50,10 @@ POST /chat/companion/edits/:id/confirm {row_ids}
   4. apply selected rows in ONE transaction through the catalogue writers
      any failure → rollback, V2_FALLBACK, proposal kept (worker may retry until TTL)
   5. delete proposal; enqueue résumé regenerate (trigger chat_edit, daily cap applies)
+       consent must name resume_generation, else failed (no cap slot, no model call)
+       ResumeService.queueChatEditRegeneration: cap charged ON THIS REQUEST, then a
+       resume-generate job {trigger:"chat_edit"}; the job writes a NEW history entry
+       (never the profile's initial row) and queues its render — contracts §4
        queued → V2_EDIT_DONE · capped → V2_EDIT_DONE_CAPPED · failed → V2_EDIT_DONE_CAPPED copy
   6. emit chat.companion_edit_confirmed
 
@@ -91,6 +95,10 @@ A new edit message while a proposal is open replaces it (one active proposal per
       migration **`0130`** widens `generated_resumes_generation_trigger_chk` (drop + re-add the CHECK
       with the extra value; down migration restores the old list). Claim `0130` in `MIGRATIONS.md`.
       `ResumeService` accepts the trigger; the daily cap applies.
+      Fix 2026-09-30 (lane a1): the first cut sent `chat_edit` down the system path's
+      insert-if-absent INITIAL row, which on an already-confirmed profile returned the old
+      résumé (no new row, a paid model call and a cap slot spent). `chat_edit` now takes a
+      new-entry path and runs queued; `resume-chat-edit.db.test.ts` pins it on a real Postgres.
 - [x] **T10 Copy.** `companion-replies.ts` keys (contracts §8) with Devanagari twins; task chip keys in
       `companion-keys.ts`.
       Deviation: the task keys live in `companion-task-keys.ts`, because `companion-keys.ts` is
@@ -171,7 +179,8 @@ A new edit message while a proposal is open replaces it (one active proposal per
 | `companion-v2.v1-first.test.ts` | every v1 chip / alias / intent resolves without a model call |
 | `companion-v2.orchestrator.test.ts` | each intent → correct handler; null / low-confidence / blocked → clarify |
 | `companion-edit.validate.test.ts` | each drop rule (catalogue, op, ref, DTO, token, skill floor, no-op) |
-| `companion-edit.confirm.test.ts` | ownership 404; stale 409; transaction rollback on a writer failure; regenerate queued / capped |
+| `companion-edit.confirm.test.ts` | ownership 404; stale 409; transaction rollback on a writer failure (row 2 fails → row 1 undone); regenerate queued / capped / failed; consent off → no regeneration |
+| `resume-chat-edit.db.test.ts` (`RUN_DB_TESTS=1`) | a Haan on a profile that already has its v1 writes a NEW `chat_edit` row from the edited profile; a second edit is another; a queue retry does not duplicate |
 | `companion-edit.no-identity.test.ts` | name / phone / ID requests never produce a row; `V2_EDIT_IDENTITY` served |
 | `chat-companion.module.boot.test.ts` (extended) | still no chat-table writers reachable from the module |
 | `companion-v2.privacy.test.ts` | no worker text in events, logs (spy on Logger) or Redis memory beyond pseudonymized text |

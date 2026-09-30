@@ -10,6 +10,9 @@ import { DATABASE } from "../../database/database.module";
 import { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
 import { AiService } from "../../ai/ai.service";
 import type { RequestContext } from "../../common/request-context";
+import { hasActiveConsent } from "../../consent/consent-active";
+// VALUE import: Nest resolves the constructor parameter by this class token (see NewResumeHandler).
+import { ConsentRepository } from "../../consent/consent.repository";
 import { EventsService } from "../../events/events.service";
 import { ProfilesRepository } from "../../profiles/profiles.repository";
 import { WorkerEmploymentService } from "../../profiles/worker-employment.service";
@@ -24,6 +27,7 @@ import { WorkerPreferencesService } from "../../profiles/worker-preferences.serv
 import { SetMyPreferencesSchema } from "../../profiles/worker-preferences.dto";
 import { WorkerSkillsService } from "../../match/worker-skills.service";
 import { ResumeService } from "../../resume/resume.service";
+import type { ChatEditRegeneration } from "../../resume/resume.dto";
 import type { CompanionTurn, EditProposal, EditProposalRow } from "../chat-companion.dto";
 import {
   V2_EDIT_CANCELLED,
@@ -62,7 +66,7 @@ export type ConfirmResult =
       readonly proposalId: string;
       readonly appliedCount: number;
       readonly sections: CompanionV2EditSection[];
-      readonly resumeRegen: "queued" | "capped" | "failed";
+      readonly resumeRegen: ChatEditRegeneration;
     }
   | { readonly kind: "not_found" }
   | { readonly kind: "stale"; readonly turn: CompanionTurn }
@@ -85,8 +89,9 @@ export interface ProposeResult {
  * worker's current values to `AiService.companionEditParse`, validates every returned row
  * deterministically (catalogue, op, ref, value, placeholder token, no-op) and stores a card.
  * `confirm` re-reads the proposal under the WORKER'S key, refuses a stale card, applies every
- * selected row through the section writers on ONE transaction, and only then regenerates the
- * résumé (trigger `chat_edit`, the daily cap applies).
+ * selected row through the section writers on ONE transaction, and only then QUEUES the résumé
+ * regeneration (a new history entry, trigger `chat_edit`, the daily cap charged up front) — when
+ * the worker's consent names `resume_generation`.
  *
  * FAIL CLOSED, EVERYWHERE. No parse, no rows or a store failure means no card and no claim; a
  * writer failure rolls the whole transaction back and keeps the proposal so the worker may
@@ -115,6 +120,8 @@ export class CompanionEditService {
     private readonly resumes: ResumeService,
     private readonly events: EventsService,
     private readonly cost: AiCostRecorder,
+    // Read (never written) for the regeneration's fail-closed `resume_generation` gate.
+    private readonly consents: ConsentRepository,
   ) {}
 
   // ── propose ───────────────────────────────────────────────────────────────────────────────
@@ -393,27 +400,38 @@ export class CompanionEditService {
     return false;
   }
 
-  /** Queue the ADR-0043 regeneration with the `chat_edit` trigger; the daily cap applies. */
+  /**
+   * Ask for the ADR-0043 regeneration with the `chat_edit` trigger (O6) — QUEUED, never run on
+   * this request. `ResumeService.queueChatEditRegeneration` charges the daily cap before anything
+   * is spent, so `queued` / `capped` is known here and the reply can say which.
+   *
+   * CONSENT FIRST, FAIL CLOSED. The generation sends the edited profile to a model, so the
+   * worker's latest consent must be active AND name `resume_generation` (the P2 new-résumé
+   * handler's gate). Anything else asks for nothing — no cap slot, no model call — and records
+   * `failed`: the edits ARE written, the résumé is not regenerated, and the reply says exactly
+   * that. The event's closed set has no value of its own for this (contracts §4).
+   */
   private async regenerate(
     workerId: string,
     profile: WorkerProfile,
     ctx: RequestContext,
-  ): Promise<"queued" | "capped" | "failed"> {
-    try {
-      await this.resumes.generate(
-        { worker_id: workerId, profile_id: profile.id },
-        ctx,
-        { systemInitiated: true, trigger: "chat_edit" },
-      );
-      return "queued";
-    } catch (err) {
-      const capped = (err as { status?: number }).status === 429;
+  ): Promise<ChatEditRegeneration> {
+    if (!(await hasActiveConsent(this.consents, workerId, "resume_generation"))) {
       this.logger.warn(
-        `companion edit regeneration ${capped ? "capped" : "failed"} for worker ${workerId} (${
+        `companion edit regeneration not requested for worker ${workerId}: consent is not active`,
+      );
+      return "failed";
+    }
+    try {
+      return await this.resumes.queueChatEditRegeneration(workerId, profile.id, ctx);
+    } catch (err) {
+      // It never throws by contract; a defect in it must still not cost the worker their answer.
+      this.logger.warn(
+        `companion edit regeneration failed for worker ${workerId} (${
           err instanceof Error ? err.name : "UnknownError"
         })`,
       );
-      return capped ? "capped" : "failed";
+      return "failed";
     }
   }
 

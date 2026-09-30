@@ -265,16 +265,26 @@ export const V2_EDIT_IDENTITY: CopyPair = {
   dev: "नाम और फ़ोन प्रोफ़ाइल में जा कर बदलिए।",
 };
 
-/** Haan: the rows were applied in one transaction and the résumé regeneration is queued. */
+/**
+ * Haan: the rows were applied in one transaction and the résumé regeneration is QUEUED — its cap
+ * slot charged and its job in RESUME_GENERATE_QUEUE, so "update ho raha hai" is literally true.
+ */
 export const V2_EDIT_DONE: CopyPair = {
   latin: "Badlav ho gaya. Aapka resume update ho raha hai.",
   dev: "बदलाव हो गया। आपका रिज़्यूमे अपडेट हो रहा है।",
 };
 
-/** Applied, but the daily cap refused the regeneration (or it failed): the edits are written. */
+/**
+ * Applied, but no regeneration was queued — the daily cap refused it, it could not be queued, or
+ * consent does not cover résumé generation. The edits ARE written.
+ *
+ * NO "KAL HO JAYEGA". Nothing regenerates later on its own, so the line promises no time; it says
+ * what is true now and where the worker can update it themselves. DRAFT pending owner review
+ * (contracts §8).
+ */
 export const V2_EDIT_DONE_CAPPED: CopyPair = {
-  latin: "Badlav ho gaya. Resume aaj update nahi ho sakta, kal ho jayega.",
-  dev: "बदलाव हो गया। रिज़्यूमे आज अपडेट नहीं हो सकता, कल हो जाएगा।",
+  latin: "Badlav ho gaya. Resume abhi update nahi hua, baad mein Resume tab se update karein.",
+  dev: "बदलाव हो गया। रिज़्यूमे अभी अपडेट नहीं हुआ, बाद में रिज़्यूमे टैब से अपडेट करें।",
 };
 
 /** Nahi: the card was dismissed and NOTHING was written. */

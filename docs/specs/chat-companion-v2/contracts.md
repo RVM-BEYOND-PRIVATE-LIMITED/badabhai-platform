@@ -173,6 +173,19 @@ modified; v2 turns emit **v2** of it.
 
 Dedupe: message turns by `submission_id` (as v1); edit events by `proposal_id`.
 
+**`resume_regen` (2026-09-30, lane a1).** Decided on the Haan request by
+`ResumeService.queueChatEditRegeneration`, before anything is spent: `queued` = the worker's
+daily-cap slot is charged and a `resume-generate` job (`trigger: "chat_edit"`) exists; `capped` =
+the cap (or its fail-closed Redis check) refused; `failed` = nothing will be generated — no
+`resume_generation` consent (checked first, so no slot and no model call), no readable draft, or
+the job could not be queued (its slot handed back). The closed set has no separate value for the
+consent case; recording it apart needs a v2 of the event (Architect), so it is `failed` today.
+
+**The generation itself (ADR-0046 O6).** The job writes a NEW `generated_resumes` row labelled
+`chat_edit` on the edited profile (never the profile's initial row), emits `resume.regenerated`
+and queues its render; a queue retry converges onto the `chat_edit` row it already wrote. The
+processor re-checks consent, and a CHECK violation (0130 not applied) is terminal.
+
 Registry key note (T3, 2026-09-28): the v2 turn is minted as **`chat.companion_turn_served_v2`**
 (`version: 2`), the house new-name pattern (`feed.shown_v2`, `profile.viewed_v2`,
 `resume.edited_v2`) — `validateEvent` allows one version per name, so v1 keeps its definition and
@@ -270,7 +283,7 @@ All fixed lines live in `companion-replies.ts` (v1 file, extended) with a Devana
 | `V2_EDIT_NONE` | Kya badalna hai, samajh nahi aaya. Thoda aur batayiye. |
 | `V2_EDIT_IDENTITY` | Naam aur phone Profile mein jaa kar badliye. |
 | `V2_EDIT_DONE` | Badlav ho gaya. Aapka resume update ho raha hai. |
-| `V2_EDIT_DONE_CAPPED` | Badlav ho gaya. Resume aaj update nahi ho sakta, kal ho jayega. |
+| `V2_EDIT_DONE_CAPPED` | Badlav ho gaya. Resume abhi update nahi hua, baad mein Resume tab se update karein. — **DRAFT (2026-09-30), pending owner review.** Served for `capped` and `failed` (incl. no `resume_generation` consent). Replaces "Resume aaj update nahi ho sakta, kal ho jayega": nothing regenerates later on its own, so the line promises no time. |
 | `V2_EDIT_CANCELLED` | Theek hai, kuch nahi badla. |
 | `V2_EDIT_STALE` | Profile beech mein badal gaya. Dobara bataiye kya badalna hai. |
 | `V2_FALTU_REDIRECT` | Main resume aur kaam mein madad karta hoon. Inme se kuch chuniye. |
