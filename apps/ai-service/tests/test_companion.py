@@ -24,6 +24,7 @@ import app.routers.companion as companion_router
 from app.companion import classify as classify_logic
 from app.companion import edit_parse as edit_parse_logic
 from app.companion.prompts import CLASSIFY_SYSTEM_PROMPT, EDIT_PARSE_SYSTEM_PROMPT
+from app.contracts import CompanionEditSnapshotRow
 from app.main import app
 
 client = TestClient(app)
@@ -178,6 +179,50 @@ def test_edit_parse_masks_snapshot_values(monkeypatch: pytest.MonkeyPatch) -> No
     # The catalogue and the cap ride the same message, so the model can only name offered fields.
     assert "employer_name" in seen
     assert '"max_rows":3' in seen
+
+
+def test_edit_parse_masks_message_and_snapshot_with_one_token_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The model must tell employers apart. Masked one value at a time with a fresh numbering,
+    all three employers below came out `[EMPLOYER_1]` and the message's `[EMPLOYER_1]` matched
+    every row (audit probe, 2026-09-30). One scope per request: the message's token is e2's
+    alone, and three employers carry three tokens."""
+    captured: list[dict] = []
+    monkeypatch.setattr(
+        companion_router.router, "run", _fake_run(edit_parse_logic.MOCK_RESPONSE, captured)
+    )
+    body = {
+        "text": "Bajaj Auto Ltd ko hatao",
+        "catalogue": [{"section": "employment", "field": "employer_name", "ops": ["delete"]}],
+        "snapshot": [
+            {"ref": "e1", "section": "employment", "fields": {"employer_name": "Tata Motors Ltd"}},
+            {"ref": "e2", "section": "employment", "fields": {"employer_name": "Bajaj Auto Ltd"}},
+            {"ref": "e3", "section": "employment", "fields": {"employer_name": "Tata Motors"}},
+        ],
+        "max_rows": 3,
+    }
+    assert client.post("/companion/edit-parse", json=body).status_code == 200
+    user = captured[0]["messages"][1]["content"]
+    context = json.loads(user.split("\n", 1)[1].split("\n\nWORKER MESSAGE", 1)[0])
+    message = user.rsplit("\n", 1)[1]
+
+    tokens = {row["ref"]: row["fields"]["employer_name"] for row in context["current_values"]}
+    assert len(set(tokens.values())) == 3, tokens
+    assert message == f"{tokens['e2']} ko hatao"
+    assert [ref for ref, token in tokens.items() if token in message] == ["e2"]
+    # Still masked: no employer name reaches the model.
+    for name in ("Tata Motors", "Bajaj Auto"):
+        assert name not in user
+
+
+def test_mask_snapshot_alone_still_numbers_values_apart() -> None:
+    rows = [
+        CompanionEditSnapshotRow(ref=ref, section="employment", fields={"employer_name": name})
+        for ref, name in (("e1", "Tata Motors"), ("e2", "Bajaj Auto"))
+    ]
+    masked = edit_parse_logic.mask_snapshot(rows)
+    assert [row.fields["employer_name"] for row in masked] == ["[EMPLOYER_1]", "[EMPLOYER_2]"]
 
 
 def test_edit_parse_drops_bad_rows_individually(monkeypatch: pytest.MonkeyPatch) -> None:

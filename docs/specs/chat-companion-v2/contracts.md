@@ -90,6 +90,13 @@ delete, `field` is the row's anchor: its only field (skill, language, role, one 
 member), else `employer_name` / `certificate_name` / `education_field` / `training_name`. The API
 ignores it for the apply and shows that field's current value as the card's `before`.
 
+**One token scope per edit-parse request (audit fix, 2026-09-30).** The endpoint pseudonymizes the
+message and every snapshot value with ONE request-scoped numbering (`pseudonymize(..., scope=)`),
+so the same entity carries the same placeholder in the message and in `current_values`, and two
+different employers never share `[EMPLOYER_1]`. The token grammar is unchanged (`[PREFIX_n]`, still
+caught by the API's O17 `hasPlaceholderToken` screen), no mapping is returned, and every other
+gateway caller keeps its per-call numbering. No wire field changes.
+
 ### 2.3 `POST /companion/career` (P3) — task `companion_career_answer`, Claude, json_mode
 
 ```ts

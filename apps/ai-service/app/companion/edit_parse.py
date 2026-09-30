@@ -29,7 +29,7 @@ from ..contracts import (
     UnsupportedEditTarget,
 )
 from ..profiling.canonical_roles import coerce_json_text
-from ..pseudonymize import pseudonymize
+from ..pseudonymize import TokenScope, pseudonymize
 
 #: The deterministic mock-posture answer: nothing proposed, nothing refused. An empty
 #: card is the honest mock — no fabricated edit ever reaches a development worker.
@@ -38,7 +38,10 @@ MOCK_RESPONSE = '{"rows": [], "unsupported": []}'
 _UNSUPPORTED_VALUES = frozenset(get_args(UnsupportedEditTarget))
 
 
-def mask_snapshot(rows: list[CompanionEditSnapshotRow]) -> list[CompanionEditSnapshotRow]:
+def mask_snapshot(
+    rows: list[CompanionEditSnapshotRow],
+    scope: TokenScope | None = None,
+) -> list[CompanionEditSnapshotRow]:
     """Pseudonymize every current value the model is shown.
 
     THE INVARIANT: every model input passes the gateway. The snapshot is the worker's
@@ -46,7 +49,15 @@ def mask_snapshot(rows: list[CompanionEditSnapshotRow]) -> list[CompanionEditSna
     the kind of data the gateway exists for even though it never left our database before.
     A value the gateway refuses is NULLED, not sent and not dropped: the row keeps its ref
     and its other fields, so the model can still address it.
+
+    ONE TOKEN SCOPE FOR THE WHOLE REQUEST. Each value is masked on its own, and with a fresh
+    numbering per value every employer became ``[EMPLOYER_1]`` — three different jobs, one
+    token, and a message saying "[EMPLOYER_1] ko hatao" matched all of them. The values share
+    ``scope`` (the endpoint passes the one it masked the MESSAGE with), so the same employer
+    carries the same token in the message and in the snapshot, and two employers never share
+    one. Without a caller's scope the values still share one among themselves.
     """
+    tokens = scope if scope is not None else TokenScope()
     masked: list[CompanionEditSnapshotRow] = []
     for row in rows:
         fields: dict[str, str | None] = {}
@@ -54,7 +65,7 @@ def mask_snapshot(rows: list[CompanionEditSnapshotRow]) -> list[CompanionEditSna
             if value is None:
                 fields[key] = None
                 continue
-            result = pseudonymize(value)
+            result = pseudonymize(value, scope=tokens)
             fields[key] = None if result.blocked else result.text
         masked.append(row.model_copy(update={"fields": fields}))
     return masked
