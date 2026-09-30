@@ -747,10 +747,26 @@ h3 {
   align-items: start;
 }
 
+/* PR-D1 — stat tiles sit in wrapping FLEX rows, not a grid. Each tile starts at an 11rem basis,
+   grows to share its row, and never shrinks below its own content minimum — which, for a ₹
+   value (`nowrap`, see `.stat--wide .stat__value`) or a count (no break opportunity inside
+   "1,23,456"), is the whole unbroken figure. Two things follow, both measured over every stat
+   grid at 320–1440px:
+     - a figure never splits and never overflows its tile: the tile widens to fit it instead;
+     - a row always fills: a lone last tile takes the row rather than stranding half-width
+       beside empty tracks.
+   A grid could do neither. Its fixed track minimum let a ₹ figure overflow or wrap between
+   digits, and every way of widening a ₹ tile (a full-row span, `span 2` behind a container
+   query) occupied the tracks `auto-fit` would otherwise collapse, stranding a sibling tile or
+   narrowing the counts until "1,23,456" split. The price: tiles in different rows no longer
+   line up in columns. */
 .stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-4);
+}
+.stats > .stat {
+  flex: 1 1 11rem;
 }
 .stat {
   background: var(--surface-card);
@@ -778,10 +794,15 @@ h3 {
   font-size: var(--text-xl);
   font-weight: var(--weight-bold);
   line-height: 1.1;
-  /* `.stats` tracks have a FIXED 11rem minimum, so an over-long value does not widen its
-     track — it spills out of the card. AI spend is `numeric(16,6)` and renders every place
-     it has rather than rounding (see `formatExactRupees`), so "₹1,23,456.789012" is a
-     reachable value, not a hypothetical. Wrap it instead. */
+  /* A LAST RESORT, and not for money. `.stats` rows are flex, and a tile never shrinks below
+     its unbroken figure, so a count widens its tile instead of wrapping; this only acts when
+     the figure is wider than the whole row. A ₹ value (`Stat wide`) never reaches it: it is
+     `nowrap` (see `.stat--wide .stat__value`), because a money figure split between digits
+     reads as two numbers. The trade-off is there: AI spend is `numeric(16,6)` and prints every
+     place (`formatExactRupees`), so a ₹ figure wider than its entire row — a ₹12-crore
+     six-place total at 320px, measured — spills past the tile into the panel padding rather
+     than breaking. Realistic amounts (to ₹9,99,999.999999, and ₹99,99,999 for credits) fit at
+     every width from 320px. */
   overflow-wrap: break-word;
 }
 .stat__label {
@@ -1081,9 +1102,9 @@ h3 {
   flex: 0 0 auto;
 }
 
-/* `.stats` used to collapse to one column here as well; the phone tier at the end of this
-   file owns the stat grid now (2-up at 375px, content-driven below that). The single column
-   is `minmax(0, 1fr)`, not `1fr`: a bare `1fr` keeps an `auto` minimum, so one long unbroken
+/* `.stats` used to collapse to one column here as well; the flex stat rows and the phone tier
+   at the end of this file own that now (two tiles per row at 375px, one at 320px). The single
+   column is `minmax(0, 1fr)`, not `1fr`: a bare `1fr` keeps an `auto` minimum, so one long unbroken
    value (a select's widest option, an id) could still widen the track past the viewport. */
 @media (max-width: 560px) {
   .filters {
@@ -1115,21 +1136,18 @@ h3 {
   flex-wrap: wrap;
 }
 
-/* Denser stat grid for detail sidebars, where four tiles share a narrow column. */
+/* Denser stat rows for detail sidebars, where four tiles share a narrow column. The smaller
+   basis only changes how many tiles START on a row; a ₹ tile still widens to its figure (the
+   session-spend tile holds ₹0.472316 in a 3-up row at 1280px, where a 7.5rem grid track ran it
+   through the tile's padding). */
 .stats--compact {
-  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
   gap: var(--space-3);
+}
+.stats--compact > .stat {
+  flex-basis: 7.5rem;
 }
 .stats--compact .stat {
   padding: var(--space-4);
-}
-/* A wide (₹) tile in a COMPACT grid takes the whole row at every width: a compact track is
-   7.5rem, too narrow for an exact rupee figure even at the 22px step (session spend ₹0.472316
-   ran through the tile's padding at 1280px, measured). Scoped to .stats--compact so page-level
-   grids keep their tracks — spanning there stops auto-fit collapsing empty tracks and the
-   sibling count tiles split ("1,23,456" at 1280px, measured). */
-.stats--compact .stat--wide {
-  grid-column: 1 / -1;
 }
 
 /*
@@ -1435,9 +1453,10 @@ h3 {
 /* PR-D1 — a WIDE value is a ₹ figure (`Stat wide`), and a money figure never breaks between
    digits at any width: "₹1,23,45,678" split over two lines reads as two numbers. So it stays on
    one line (`nowrap`), at the 22px KPI step everywhere — the 30px step is what made it too long
-   for an 11rem desktop tile in the first place. On a phone the tile also takes the whole row
-   (`.stat--wide` in the phone tier). An ABSENT value is a sentence, not a figure, and keeps the
-   wrapping sans rule above — hence the `:not()`. (0,3,0) beats the KPI role and the phone
+   for an 11rem desktop tile in the first place. The unbroken figure is then the tile's minimum
+   width in the flex `.stats` row, so the tile widens to hold it (on a phone, to a row of its
+   own) instead of the figure spilling. An ABSENT value is a sentence, not a figure, and keeps
+   the wrapping sans rule above — hence the `:not()`. (0,3,0) beats the KPI role and the phone
    tier's (0,2,0) step wherever it sits.
 
    The value is a wrapping flex row so `nowrap` binds the FIGURE only: a `simulated` tag
@@ -1977,8 +1996,8 @@ textarea.field__input {
  * horizontal scroll belongs on this console — and everything outside a tablewrap must fit.
  *
  * 600px is the phone line this file already uses for `.alert` and `.attention`, not a new
- * one. Nothing narrower is needed: the stat grid reflows by its own content minimum, so a
- * 320px phone drops to a single column without a query of its own.
+ * one. Nothing narrower is needed: the stat rows reflow by their own flex basis, so a 320px
+ * phone drops to one tile per row without a query of its own.
  *
  * Declared LAST on purpose. The UI-1 type roles and density rules above are single-class
  * selectors, so a phone override declared before them would silently lose on source order —
@@ -2037,26 +2056,19 @@ textarea.field__input {
     overflow-wrap: anywhere;
   }
 
-  /* Stat grids — 2-up at 375px, 3-up near 600px, one column on a 320px phone where two 9rem
-     tracks no longer fit. The `min(100%, 9rem)` only stops the track minimum exceeding a
-     container narrower than 9rem; it does NOT keep tiles full-width. `auto-fit` is what widens
-     a grid holding a single tile, and an odd tile count still leaves its last tile half-width
-     on the final row. Both grids take the same floor: at phone width the compact variant has
-     no narrower column to fit into. */
-  .stats,
-  .stats--compact {
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  /* Stat rows — two tiles start per row at 375px, three near 600px, one on a 320px phone where
+     two 9rem bases no longer fit. Both variants take the same basis: at phone width the compact
+     one has no narrower column to fit into. A ₹ tile needs more than half a phone row for
+     "₹2,145.382716" or "₹1,23,45,678", so its unbroken figure (the tile's minimum width)
+     already gives it a row of its own — no placement rule is needed for that. */
+  .stats {
     gap: var(--space-3);
+  }
+  .stats > .stat {
+    flex-basis: 9rem;
   }
   .stat {
     padding: var(--space-4);
-  }
-  /* A ₹ figure never splits between digits. A half-width tile at 375px holds nine or ten mono
-     characters at the 22px step, and "₹2,145.382716" or "₹1,23,45,678" is longer, so it would
-     wrap mid-number and read as two figures. `Stat wide` puts those tiles on a row of their
-     own. Counts stay half-width: they are short. */
-  .stat--wide {
-    grid-column: 1 / -1;
   }
   /* The KPI face steps 30px → 22px (the token that exists for exactly this). An ABSENT value
      is a sentence, not a figure, and keeps its own smaller sans rule — hence the `:not()`. */

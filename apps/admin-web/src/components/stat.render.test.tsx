@@ -16,10 +16,10 @@ import { MockMoneyTag } from "./payments-posture";
  * span, beside the figure, because a tile screenshotted on its own must still carry the caveat
  * — a tag rendered anywhere else would not travel with it.
  *
- * `wide` exists for the ₹ tiles: on a phone the grid is 2-up and a half-width tile would break
- * "₹1,23,45,678" between digits. The class is the whole mechanism (the phone tier spans a
- * `.stat--wide` tile across the row), so it must appear exactly when asked for — and never on
- * a tile that did not ask, or every count tile would go full-row on a phone.
+ * `wide` exists for the ₹ tiles: a ₹ figure must never break between digits. The class is the
+ * whole mechanism (`.stat--wide .stat__value` keeps the figure on one line at the 22px step, and
+ * the flex stat row widens the tile to hold it), so it must appear exactly when asked for — and
+ * never on a tile that did not ask, or every count tile would take the ₹ treatment.
  */
 
 const MOCK = { mode: "mock", blocked_reason: null } as const;
