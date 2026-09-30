@@ -26,11 +26,25 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
 `fallback`.
 
 1. Schema: 1–4 lines; each ≤ 20 words; Latin script only (no Devanagari, O9).
+   "Latin only" bars a character any OTHER script owns — Devanagari, Gurmukhi, Urdu (Arabic),
+   Bengali, Tamil, Cyrillic, Han…, letters, vowel signs and native digits alike — plus the
+   `Common`-script mathematical alphabets (𝐒𝐚𝐥𝐚𝐫𝐲) and the danda pair. Digits, punctuation, `₹`,
+   typographic quotes and accented Latin letters stay legal. Failure reason `non_latin`
+   (was `devanagari`; the reason reaches a log line only, never an event).
 2. Persona: `checkPersonaTokens` (packages/profiling-lexicon) returns nothing; no "!"; no emoji;
    ≤ 1 "?" in the whole answer; no vocative (ADR-0044 R8).
+   "No emoji" is `\p{Extended_Pictographic}` + regional indicators (flags) + the emoji-building
+   components on their own (skin-tone modifiers, variation selectors, ZWJ, the keycap mark, tag
+   characters) + the Misc Symbols / Dingbats blocks (★ ☆ ✓ ✗ are not pictographic to Unicode).
 3. Refusal backstop (O10), deterministic:
    - money: digits next to `₹`, `rs`, `rupaye`, `salary`, `tankhwah`, `per month`, `mahina`, `lakh`,
-     `hazaar` → fail;
+     `hazaar` → fail. Precisely: a whole money word (no letter touching either end, so "years",
+     "hours", "course", "workers", "workplace", "hazard" never match — but `Rs500`, `500rs` do)
+     with a figure touching it or at most two words away inside one sentence ("salary lagbhag
+     20000"). Currency words (`₹`, rs, rupaye/rupaya/rupay/rupee(s), salary/salaries,
+     tankhwah/tankha, lakh(s)/lac(s), hazaar/hazar) fail with any figure; month words (per month,
+     mahina, mahine) fail only with a wage-sized figure of ≥ 4 digits, so "6 mahine ka course"
+     passes and "mahine ka 18,000" fails;
    - promise words: `pakka`, `guarantee`, `zaroor milegi`, `100%` → fail;
    - legal / medical / financial terms list (court, case, vakil, dawai, ilaaj, loan, EMI, insurance,
      bima, …) → fail;
@@ -39,6 +53,10 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
      jobs (read once, cached) → fail.
 4. `looksLikePii` (packages/validators) false for every line.
 5. Follow-up chips: ≤ 3, each ≤ 4 words, same checks.
+
+The word checks (persona, "!", "?", money, promise, sensitive, rating, employer, PII) read an
+NFKD-folded form with combining marks dropped, so a fullwidth `Ｓａｌａｒｙ ２５０００` or an accented
+`sálary 25000` is scanned as the plain word. The script and emoji checks read the raw text.
 
 ## 3. Prompt rules (ai-service, prompt registry)
 
@@ -100,6 +118,13 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
 
 ### Backend — API
 - [x] **C1** `v2/handlers/career-talk.handler.ts` + `v2/career-output.validator.ts` (§2).
+      2026-09-30: the validator enforces §2 as written — Latin only for EVERY script (it barred
+      Devanagari alone, so Gurmukhi/Urdu/Bengali lines also skipped every O10 check); the money
+      rule anchors whole words and requires the figure next to the word (the substring match
+      failed "2-3 years", "8 hours", "course", "workers", "hazard" against the ≥ 85 % bar); the
+      emoji rule is Unicode's pictographic set plus flags and emoji components (flags, ⭐, ⌛, ⌚
+      and keycaps passed before). Table-driven pass/fail fixtures, plus 16 clean Hinglish answers
+      to normal eval questions that must be served.
 - [x] **C2** `AiService.companionCareer` (timeout 10 s).
 - [x] **C3** Memory: store last `MEMORY_TURNS` pairs (orchestrator already writes; handler reads 6).
       The orchestrator reads memory ONCE and passes the full list on `HandlerInput.recentTurns`
@@ -131,7 +156,7 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
 
 | Test | Proves |
 |---|---|
-| `career-output.validator.test.ts` | each check rejects its fixture; a clean answer passes |
+| `career-output.validator.test.ts` | each check rejects its fixture; a clean answer passes; per-rule pass/fail tables (script, money, emoji); 16 clean answers to normal eval questions are served |
 | `career-talk.handler.test.ts` | refuse → fixed copy; invalid → fallback; memory passed (≤ 6, sliced to the newest 6 when the store holds more) |
 | `career.privacy.test.ts` | worker_context has only trade label + bucket; no text in events/logs |
 | ai-service `test_companion_career*` | contracts; mock mode; red-team gate thresholds |

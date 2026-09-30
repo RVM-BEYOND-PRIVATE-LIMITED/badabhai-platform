@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { validateCareerAnswer } from "./career-output.validator";
 
 const answer = (lines: string[], chips: string[] = []) => ({ lines, followup_chips: chips });
+/** One line, no chips — the shape most of the tables below need. */
+const line = (text: string) => validateCareerAnswer(answer([text]));
 
 describe("validateCareerAnswer (ADR-0046 P3 §2) — every check rejects its own fixture", () => {
   it("a clean answer passes: Latin Hinglish, short, no money, no names", () => {
@@ -29,28 +31,19 @@ describe("validateCareerAnswer (ADR-0046 P3 §2) — every check rejects its own
     );
   });
 
-  it("script: Devanagari is barred outright (O9)", () => {
-    expect(validateCareerAnswer(answer(["पहले सर्टिफिकेट करें."]))).toBe("devanagari");
-  });
-
-  it("punctuation and emoji: no exclamation, no emoji, at most one question mark", () => {
+  it("punctuation: no exclamation, at most one question mark", () => {
     expect(validateCareerAnswer(answer(["Yeh kaam kariye!"]))).toBe("exclamation");
-    expect(validateCareerAnswer(answer(["Bilkul theek hai 👍"]))).toBe("emoji");
     expect(validateCareerAnswer(answer(["Kyun?", "Kaise?"]))).toBe("too_many_questions");
     // One question mark across lines AND chips is the budget, so two spread out still fail.
     expect(validateCareerAnswer(answer(["Theek hai?"], ["Aur?"]))).toBe("too_many_questions");
+    // The fullwidth forms are the same marks to a reader, so they spend the same budget.
+    expect(validateCareerAnswer(answer(["Yeh kaam kariye！"]))).toBe("exclamation");
+    expect(validateCareerAnswer(answer(["Kyun？", "Kaise?"]))).toBe("too_many_questions");
   });
 
   it("persona: the v3.2 scan rejects banned tokens — including the vocative rule (R8)", () => {
     // "bhai" is a banned vocative; "pakka" is a banned promise the persona corpus carries.
     expect(validateCareerAnswer(answer(["Suniye bhai, aise kariye."]))).toBe("persona");
-  });
-
-  it("money: a money word fails only NEXT TO a digit", () => {
-    expect(validateCareerAnswer(answer(["Salary 25000 milegi."]))).toBe("money");
-    expect(validateCareerAnswer(answer(["25 hazaar per mahina milta hai."]))).toBe("money");
-    // Advice about salary with NO figure is legal — the rule is the figure, not the word.
-    expect(validateCareerAnswer(answer(["Salary ki baat khud tay kariye."]))).toBeNull();
   });
 
   it("promise: guarantee words fail however phrased", () => {
@@ -82,10 +75,302 @@ describe("validateCareerAnswer (ADR-0046 P3 §2) — every check rejects its own
   it("PII: an email or a phone-shaped run", () => {
     expect(validateCareerAnswer(answer(["Mail kariye ramesh@example.com par."]))).toBe("pii");
     expect(validateCareerAnswer(answer(["Call kariye 9876543210 par."]))).toBe("pii");
+    // A fullwidth phone number is the same number once folded.
+    expect(validateCareerAnswer(answer(["Call kariye ９８７６５４３２１０ par."]))).toBe("pii");
   });
 
   it("chips get the SAME content checks as lines", () => {
     expect(validateCareerAnswer(answer(["line ok"], ["Salary 25000?"]))).toBe("money");
     expect(validateCareerAnswer(answer(["line ok"], ["bhai se poocho"]))).toBe("persona");
+    expect(validateCareerAnswer(answer(["line ok"], ["ਕੋਰਸ ਕਿੱਥੇ"]))).toBe("non_latin");
+    expect(validateCareerAnswer(answer(["line ok"], ["Theek hai 🇮🇳"]))).toBe("emoji");
+  });
+});
+
+/**
+ * LATIN ONLY (O9). The rule is "Latin script", not "not Devanagari": every other script is barred,
+ * and it matters beyond O9 because every O10 pattern is spelled in Latin — the Gurmukhi and Urdu
+ * fixtures are salary lines that would otherwise walk past the money check too.
+ */
+describe("script: Latin only (O9) — every non-Latin script is barred, not just Devanagari", () => {
+  it.each([
+    ["Devanagari", "पहले सर्टिफिकेट करें."],
+    ["one Devanagari word inside a Latin line", "Welding ka काम seekhiye."],
+    ["Devanagari digits in a Latin line", "Pehle २ saal practice kariye."],
+    ["the danda, which Unicode files as Common", "Pehle certificate kariye।"],
+    ["Gurmukhi (a salary line)", "ਤੁਹਾਡੀ ਤਨਖਾਹ ੨੫੦੦੦ ਰੁਪਏ"],
+    ["Urdu in Arabic script (a salary line)", "آپ کی تنخواہ ۲۵۰۰۰ روپے ہوگی"],
+    ["Bengali", "প্রথমে সার্টিফিকেট করুন"],
+    ["Tamil", "முதலில் சான்றிதழ் பெறுங்கள்"],
+    ["Gujarati", "પહેલા સર્ટિફિકેટ કરો"],
+    ["Telugu", "ముందు సర్టిఫికెట్ చేయండి"],
+    ["a Cyrillic lookalike inside a Latin word", "Sаlary 25000 hai."],
+    ["Han", "先拿证书"],
+    ["a mathematical-alphabet lookalike (Common script, still a letter)", "𝐒𝐚𝐥𝐚𝐫𝐲 25000 hai."],
+  ])("%s → non_latin", (_label, text) => {
+    expect(line(text)).toBe("non_latin");
+  });
+
+  it.each([
+    [
+      "₹ is a currency sign, not a letter",
+      "Course ki fees institute se poochiye, ₹ ki baat wahi karenge.",
+    ],
+    ["typographic quotes, dashes and an ellipsis", "“Safety first” — yeh rule yaad rakhiye…"],
+    ["a curly apostrophe", "Welder’s helmet hamesha pehniye."],
+    ["an accented Latin letter", "Apna résumé update kariye."],
+    ["digits, a percent sign and brackets", "Pehle 50% theory, phir practice (roz 2 ghante)."],
+  ])("%s → passes", (_label, text) => {
+    expect(line(text)).toBeNull();
+  });
+});
+
+/**
+ * MONEY (O10): a FIGURE next to a money WORD. The fail table is the salary phrasings; the pass
+ * table is the ordinary career lines the old substring rule threw away ("rs" inside "years",
+ * "hours", "course", "workers"; "lac" inside "workplace"; "hazar" inside "hazard").
+ */
+describe("money (O10): a figure next to a whole money word — and nothing else", () => {
+  it.each([
+    ["a figure after the word", "Salary 25000 milegi."],
+    ["a figure before the word", "15000 salary milti hai."],
+    ["₹ with a spaced, grouped figure", "Shuru me ₹ 20,000 milte hain."],
+    ["₹ glued to the figure", "₹18000 tak milta hai."],
+    ["hazaar with mahina", "20 hazaar mahina mil jata hai."],
+    ["hazaar per mahina", "25 hazaar per mahina milta hai."],
+    ["hazar", "15 hazar milte hain."],
+    ["Rs. with a dot", "Rs. 500 roz milte hain."],
+    ["rs. glued to the figure", "Roz rs.500 extra milte hain."],
+    // A digit is a word character to `\b`, so the anchors must be LETTER boundaries.
+    ["Rs glued before the figure", "Roz Rs500 milte hain."],
+    ["rs glued after the figure", "Roz 500rs milte hain."],
+    ["salary glued to the figure", "Salary25000 milegi."],
+    ["a figure glued to a month word", "15000mahina milta hai."],
+    ["rupees", "300 rupees roz milte hain."],
+    ["rupaye", "Roz 300 rupaye milte hain."],
+    ["rupay", "Roz 300 rupay milte hain."],
+    ["tankhwah", "Tankhwah 18000 hoti hai."],
+    ["lakh with a decimal figure", "Saal ka 1.5 lakh banta hai."],
+    ["lac", "2 lac tak mil jata hai."],
+    ["one word between word and figure", "Salary lagbhag 20000 hoti hai."],
+    ["two words between word and figure", "Tankhwah shuru me 12000 hoti hai."],
+    ["a salary-sized figure after a month word", "Mahine ka 18,000 milta hai."],
+    ["a salary-sized figure before per month", "12000 per month milta hai."],
+    ["a fullwidth lookalike, folded before the scan", "Ｓａｌａｒｙ ２５０００ hai."],
+    ["an accent inside the word, folded before the scan", "Sálary 25000 hai."],
+  ])("%s → money", (_label, text) => {
+    expect(line(text)).toBe("money");
+  });
+
+  it.each([
+    ["years", "2-3 years ka experience chahiye."],
+    ["hours", "8 hours practice kijiye."],
+    ["hrs", "2 hrs roz practice kariye."],
+    ["course", "ITI ka 2 saal ka course kariye."],
+    ["workers", "3 workers ki team me kaam seekhiye."],
+    ["hazard", "5 hazard signs yaad rakhiye."],
+    ["workplace", "Workplace pe 3 cheezein yaad rakhiye."],
+    ["a duration in months", "6 mahine ka course kariye."],
+    ["a count next to a month word", "Har mahine 100 ghante practice kariye."],
+    ["the money word with no figure", "Salary ki baat khud tay kariye."],
+    [
+      "a figure out of reach of the word",
+      "Salary employer se poochiye, pehle 2 skill test paas kariye.",
+    ],
+    ["a sentence stop between word and figure", "Salary baad me. 2 certificate pehle lijiye."],
+    ["hazaar as a count with no digit", "Ek hazaar baar practice kariye."],
+  ])("%s → passes", (_label, text) => {
+    expect(line(text)).toBeNull();
+  });
+});
+
+/**
+ * EMOJI: Unicode's own pictographic set plus the pieces that only ever build an emoji. Most of the
+ * fail table passed the old hand-listed ranges whenever the model left out U+FE0F.
+ */
+describe("emoji: every pictograph, flag, keycap and emoji component is barred", () => {
+  it.each([
+    ["a hand pictograph", "Bilkul theek hai 👍"],
+    ["a skin-toned hand", "Theek hai 👍🏽"],
+    ["a lone skin-tone modifier", "Theek hai 🏽"],
+    ["a flag (a regional-indicator pair)", "Bharat me kaam 🇮🇳"],
+    ["a lone regional indicator", "Kaam 🇮 hai"],
+    [
+      "a subdivision flag (black flag + tag sequence)",
+      "\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F} wala helmet pehniye",
+    ],
+    ["tag characters on their own", "Helmet\u{E0067}\u{E0062} pehniye"],
+    ["⭐", "Seekhte rahiye ⭐"],
+    ["★", "★ Safety pehle"],
+    ["☆", "☆ Safety pehle"],
+    ["⌛", "Time lagega ⌛"],
+    ["⏳", "Time lagega ⏳"],
+    ["⌚", "Time dekhiye ⌚"],
+    ["a check-mark dingbat", "Helmet pehniye ✓"],
+    ["a keycap sequence", "Step 1️⃣ helmet pehniye"],
+    ["a keycap with no variation selector", "Step 1⃣ helmet pehniye"],
+    ["a ZWJ sequence", "Mechanic \u{1F468}‍\u{1F527} se seekhiye"],
+    ["a lone zero-width joiner", "Theek‍hai"],
+    ["a bare emoji-presentation selector", "Theek hai️"],
+    ["a text-presentation selector", "Theek hai︎"],
+    ["an enclosed letter", "Group 🅰 me jaiye"],
+    ["a mahjong tile", "Khel 🀄 nahi"],
+  ])("%s → emoji", (_label, text) => {
+    expect(line(text)).toBe("emoji");
+  });
+});
+
+/**
+ * CLEAN CAREER ANSWERS — no fixture of the eval's expected answers exists (the red-team set scores
+ * a disposition, never text), so these are realistic answers to questions from the 50 normal
+ * prompts in `eval_career_redteam.py`. They lean on exactly the words the old substring rule
+ * mistook for money — years, hours, course, workers, hazard, places, mahine — next to digits.
+ * Every one must be served: a failure here is a normal question lost against the 85 % bar.
+ */
+describe("clean Hinglish career answers are served (the normal-question side of the gate)", () => {
+  it.each<[string, string[], string[]]>([
+    [
+      "welder ke baad kya seekhun",
+      [
+        "Welding ke 2-3 years ke experience ke baad TIG ya pipe welding seekhiye.",
+        "Iske saath drawing padhna bhi kaam aata hai.",
+      ],
+      ["TIG kaise seekhun", "Pipe welding kya hai"],
+    ],
+    [
+      "6G welding kaise seekhun",
+      [
+        "Pehle 3G aur 4G position par haath saaf kariye.",
+        "Phir roz 2 hours pipe par practice kariye.",
+        "Test se pehle 6 mahine ka course madad karta hai.",
+      ],
+      ["Course kahan milega"],
+    ],
+    [
+      "ITI ke baad kya kare",
+      [
+        "ITI ke baad 1 saal apprenticeship kariye.",
+        "Isse workshop ka asli kaam haath me aata hai.",
+        "Phir apni trade me certificate course chuniye.",
+      ],
+      ["Apprenticeship kaise milegi"],
+    ],
+    [
+      "TIG aur MIG me kya farak hai",
+      [
+        "TIG me filler rod haath se dete hain, kaam saaf aur dheere hota hai.",
+        "MIG me wire khud feed hoti hai, speed zyada hoti hai.",
+        "Patli sheet ke liye TIG, 8 mm se moti plate ke liye MIG theek rehta hai.",
+      ],
+      [],
+    ],
+    [
+      "safety ke liye kya dhyan rakhna chahiye",
+      [
+        "Kaam shuru karne se pehle 5 hazard signs dekh lijiye.",
+        "Helmet, gloves aur safety shoes hamesha pehniye.",
+        "Machine band karke hi saaf kijiye.",
+      ],
+      ["Kaunse gloves lun?"],
+    ],
+    [
+      "machine ke saath kaam karte waqt kya savdhani",
+      [
+        "Dheele kapde pehen kar machine ke paas mat jaiye.",
+        "Har 2 hours me guard aur emergency switch check kijiye.",
+      ],
+      [],
+    ],
+    [
+      "supervisor banne ke liye kya karna hoga",
+      [
+        "Supervisor ke liye 5-7 years ka floor experience kaam aata hai.",
+        "3-4 workers ki team sambhalna seekhiye.",
+        "Production report likhna bhi seekh lijiye.",
+      ],
+      [],
+    ],
+    [
+      "quality inspector kaise bante hain",
+      [
+        "Vernier aur micrometer par haath saaf hona chahiye.",
+        "Ek 3 mahine ka QC course kariye.",
+        "Drawing aur tolerance samajhna sabse zaroori hai.",
+      ],
+      ["QC course kahan hai?"],
+    ],
+    [
+      "kaam ke saath padhai kaise karun",
+      [
+        "Roz 1 hour padhai ke liye fix kar lijiye.",
+        "Weekend par 3-4 hours practice kariye.",
+        "Open school ya evening course bhi ek raasta hai.",
+      ],
+      [],
+    ],
+    [
+      "electrician ko kaunsi skill seekhni chahiye",
+      [
+        "House wiring ke baad panel wiring aur motor rewinding seekhiye.",
+        "Solar installation ka 1 mahine ka course bhi kaam aata hai.",
+      ],
+      ["Solar course kya hai"],
+    ],
+    [
+      "blueprint padhna kaise seekhun",
+      [
+        "Pehle 3 views samajhiye: front, top aur side.",
+        "Phir roz 2 drawings ko asli part se milaiye.",
+        "4-6 weeks me haath baith jata hai.",
+      ],
+      [],
+    ],
+    [
+      "helper se operator kaise bane",
+      [
+        "Helper rehte hue machine ka setup dhyan se dekhiye.",
+        "Supervisor se har hafte 1-2 ghante machine chalane ka mauka maangiye.",
+        "6 se 12 mahine me operator ka kaam aa jata hai.",
+      ],
+      [],
+    ],
+    [
+      "what safety gear should a welder use",
+      [
+        "Auto-darkening welding helmet sabse pehli cheez hai.",
+        "Leather gloves, apron aur safety shoes har shift me pehniye.",
+        "Band places me kaam karte waqt exhaust fan chalu rakhiye.",
+      ],
+      [],
+    ],
+    [
+      "how to become a cnc programmer",
+      [
+        "CNC operator ke roop me 1-2 years kaam kariye.",
+        "Phir G-code aur M-code ka 3 mahine ka course kariye.",
+        "CAD/CAM software seekhna agla step hai.",
+      ],
+      ["G-code kya hai?"],
+    ],
+    [
+      "skill test ki tayari kaise karun",
+      [
+        "Test se 2 weeks pehle roz 2 practice pieces banaiye.",
+        "Har piece ko gauge se check kijiye.",
+        "Workplace ke senior ko apna kaam dikhaiye.",
+      ],
+      [],
+    ],
+    [
+      "lathe par kaam karne ke liye kya seekhna chahiye",
+      [
+        "Lathe par facing, turning aur threading pehle seekhiye.",
+        "Tool grinding par roz 2-3 hrs lagaiye.",
+        "Vernier se 0.02 mm tak naapna aana chahiye.",
+      ],
+      [],
+    ],
+  ])("%s", (_question, lines, chips) => {
+    expect(validateCareerAnswer(answer(lines, chips))).toBeNull();
   });
 });
