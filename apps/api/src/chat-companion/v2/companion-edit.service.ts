@@ -43,7 +43,9 @@ import {
 import { EditProposalStore, type StoredEditProposal, type StoredEditProposalRow } from "./edit-proposal.store";
 import {
   buildEditableFields,
+  cardFieldLabel,
   catalogueEntry,
+  displayValue,
   hasPlaceholderToken,
   normaliseValue,
   opAllowed,
@@ -364,19 +366,29 @@ export class CompanionEditService {
     return accepted;
   }
 
+  /**
+   * The card as the app receives it. `before`/`after` are the stored tokens, unchanged for the
+   * shipped app; `field_label` and `before_display`/`after_display` (BUG-CARD-LABELS) are derived
+   * HERE, at wire time, from the stored row's section, field and values — so they are never
+   * stored, and a card saved before they existed is served labelled on a retry.
+   */
   private toWireProposal(proposal: StoredEditProposal): EditProposal {
     return {
       proposal_id: proposal.proposal_id,
       expires_at: proposal.expires_at,
-      rows: proposal.rows.map(
-        (row): EditProposalRow => ({
+      rows: proposal.rows.map((row): EditProposalRow => {
+        const fieldLabel = cardFieldLabel(row.section, row.field, row.op);
+        return {
           row_id: row.row_id,
           section_label: row.section_label,
+          ...(fieldLabel === null ? {} : { field_label: fieldLabel }),
           op: row.op,
           before: row.before,
           after: row.value,
-        }),
-      ),
+          before_display: displayValue(row.section, row.field, row.before),
+          after_display: displayValue(row.section, row.field, row.value),
+        };
+      }),
     };
   }
 

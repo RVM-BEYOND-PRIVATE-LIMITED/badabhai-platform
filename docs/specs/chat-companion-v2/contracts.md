@@ -256,7 +256,10 @@ edit_proposal?: {
   proposal_id: string,                 // uuid
   expires_at: string,                  // ISO
   rows: { row_id: string, section_label: string, op: "add" | "edit" | "delete",
-          before: string | null, after: string | null }[],
+          before: string | null, after: string | null,
+          field_label?: string,              // 2026-09-30 (lane a3), additive — see below
+          before_display?: string | null,    //   "
+          after_display?: string | null }[], //   "
 },
 read_aloud?: false,                    // P3: present and false on model-written replies (O9);
                                        // the app must NOT fall back to speaking `reply`
@@ -265,6 +268,33 @@ cooldown_until?: string,               // P2: ISO; app may disable the composer 
 
 Old apps ignore unknown keys (`ChatReply.fromJson` reads named keys only). `.strict()` stays: the
 fields are declared, so the schema still rejects undeclared ones.
+
+**Row labels (2026-09-30, lane a3 — BUG-CARD-LABELS, POLISH-language-slugs).** `section_label`
+names only the section, so two rows of one section could not be told apart ("Pasand: Nahi → Haan"
+— travel, relocation or a room?), and single-word slugs (`hindi`, `pan`, `cbse`, `immediate`)
+reached the card as typed tokens. Each row now also carries, ADDITIVELY:
+
+- `field_label` — the field the row changes, as reviewed copy (`EDIT_FIELD_LABELS` in
+  `companion-replies.ts`, §8). Present on every row the server builds. A **delete in employment
+  or qualifications** removes the whole entry (the field is only the model's anchor), so its
+  label names the entry instead (`EDIT_ENTRY_LABELS`: "Yeh poora kaam", "Yeh poora certificate",
+  "Yeh poori padhai", "Yeh poori training").
+- `before_display` / `after_display` — the worker-facing label of a CLOSED-SET value, read from
+  the dictionaries that already label it elsewhere: `LANGUAGES`, `EDUCATION_QUALIFICATIONS`,
+  `EDUCATION_COUNCILS`, `SHIFTS`, `JOB_TYPES` / `WORK_TYPES`, `AVAILABILITY_STATUSES`,
+  `DOCUMENTS_READY` (`profiles/worker-preferences.vocabulary.ts` — the labels the options
+  endpoints serve as form chips and the résumé prints), `labelForTaxonomyId` for a role id (as
+  `GET /workers/me/occupations` labels it), and `EDIT_YES_NO_LABELS` ("Haan" / "Nahi") for the
+  three yes/no preferences. Always present (possibly null). **Null** when the value is null, when
+  the field is free text, a date or a number (a name, a city, `2019-01`, a salary — shown as
+  typed, never re-cased), or when a closed-set field holds a value its dictionary does not know
+  (a legacy model-written availability, a retired slug) — never a guessed prettification.
+
+`before` / `after` are unchanged (the stored tokens). The labels are derived at WIRE time from
+the stored row's section, field and values — never stored in Redis — so a card saved before this
+change is served labelled on a retry. The app should show `field_label` beside `section_label`
+and prefer `*_display` over its own humaniser when non-null (Frontend issue needed;
+`companion_edit_value.dart` then shrinks to a fallback for old servers).
 
 ### 5.2 New routes (P1)
 
@@ -367,3 +397,54 @@ All fixed lines live in `companion-replies.ts` (v1 file, extended) with a Devana
 | `V2_FALLBACK` | v1 `FALLBACK` reused |
 
 "Aana baaki hai" copy is the owner's wording (O2); the rest are drafts for review before flag-ON.
+
+**Edit-card row labels (§5.1) — DRAFT (2026-09-30, lane a3), pending owner review.** Worded after
+the form label the worker filled the value in on where one exists (`finishing_screen.dart`,
+`trade_form_*_page.dart`, the profile tab), as plain labels (no "?"); never "company" (the
+persona scan's counterparty rule), hence "Kahan kaam kiya" for the employer. Each carries a
+Devanagari twin in `companion-replies.ts` and is in `ALL_COPY_PAIRS`, so the persona and twin
+tests scan it.
+
+| Key | Latin |
+|---|---|
+| `EDIT_FIELD_LABELS["employment:employer_name"]` | Kahan kaam kiya |
+| `EDIT_FIELD_LABELS["employment:employer_city"]` | Kaam ka sheher |
+| `EDIT_FIELD_LABELS["employment:employer_state"]` | Kaam ka state |
+| `EDIT_FIELD_LABELS["employment:start_ym"]` | Kab shuru kiya |
+| `EDIT_FIELD_LABELS["employment:end_ym"]` | Kab tak kiya |
+| `EDIT_FIELD_LABELS["employment:role_label"]` | Aapka role |
+| `EDIT_FIELD_LABELS["employment:work_done"]` | Kya kaam karte the |
+| `EDIT_FIELD_LABELS["skills:skill"]` | Skill |
+| `EDIT_FIELD_LABELS["languages:language"]` | Bhasha |
+| `EDIT_FIELD_LABELS["qualifications:certificate_name"]` | Certificate ka naam |
+| `EDIT_FIELD_LABELS["qualifications:certificate_issuer"]` | Certificate kisne diya |
+| `EDIT_FIELD_LABELS["qualifications:certificate_year"]` | Certificate ka saal |
+| `EDIT_FIELD_LABELS["qualifications:education_credential"]` | Padhai |
+| `EDIT_FIELD_LABELS["qualifications:education_field"]` | Trade ya subject |
+| `EDIT_FIELD_LABELS["qualifications:education_council"]` | Council / board |
+| `EDIT_FIELD_LABELS["qualifications:education_year"]` | Padhai ka saal |
+| `EDIT_FIELD_LABELS["qualifications:education_institute"]` | Institute ka naam |
+| `EDIT_FIELD_LABELS["qualifications:training_name"]` | Training ka naam |
+| `EDIT_FIELD_LABELS["qualifications:training_provider"]` | Training kisne di |
+| `EDIT_FIELD_LABELS["qualifications:training_year"]` | Training ka saal |
+| `EDIT_FIELD_LABELS["occupations:role_id"]` | Role |
+| `EDIT_FIELD_LABELS["preferences:shift"]` | Shift |
+| `EDIT_FIELD_LABELS["preferences:job_type"]` | Naukri ka type |
+| `EDIT_FIELD_LABELS["preferences:willing_to_travel"]` | Travel kar sakte hain |
+| `EDIT_FIELD_LABELS["preferences:willing_to_relocate"]` | Doosre sheher ja sakte hain |
+| `EDIT_FIELD_LABELS["preferences:accommodation_needed"]` | Rehne ki jagah chahiye |
+| `EDIT_FIELD_LABELS["preferences:expected_salary"]` | Salary ki ummeed *(no period: a stored `salary_period` may be `day`)* |
+| `EDIT_FIELD_LABELS["preferences:availability_status"]` | Kab join kar sakte hain |
+| `EDIT_FIELD_LABELS["preferences:availability_available_from"]` | Join karne ki tareekh |
+| `EDIT_FIELD_LABELS["preferences:availability_notice_period_days"]` | Notice period ke din |
+| `EDIT_FIELD_LABELS["preferences:preferred_cities"]` | Kahan kaam karna chahte hain |
+| `EDIT_FIELD_LABELS["preferences:work_types"]` | Kaun si naukri chalegi |
+| `EDIT_FIELD_LABELS["preferences:documents_ready"]` | Taiyaar document |
+| `EDIT_ENTRY_LABELS.employment` | Yeh poora kaam *(a whole-entry delete)* |
+| `EDIT_ENTRY_LABELS.certificate` | Yeh poora certificate |
+| `EDIT_ENTRY_LABELS.education` | Yeh poori padhai |
+| `EDIT_ENTRY_LABELS.training` | Yeh poori training |
+| `EDIT_YES_NO_LABELS.true` / `.false` | Haan / Nahi *(the app's own yes/no words)* |
+
+The closed-set VALUE labels (`before_display` / `after_display`) are not new copy: they are the
+existing English dictionary labels the form chips and the résumé already show.

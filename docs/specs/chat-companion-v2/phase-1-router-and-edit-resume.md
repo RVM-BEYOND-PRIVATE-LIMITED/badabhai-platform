@@ -49,6 +49,7 @@ EditResumeHandler
                  else V2_EDIT_NONE
      rows ≥ 1  → store proposal in Redis (ref → real row id resolved server-side, before-values
                  captured for the stale check), reply V2_EDIT_CARD_INTRO + edit_proposal
+                 (each row: field_label + before/after_display, derived at wire time — §5.1)
   5. emit chat.companion_edit_proposed
 
 POST /chat/companion/edits/:id/confirm {row_ids}
@@ -171,6 +172,10 @@ A new edit message while a proposal is open replaces it (one active proposal per
       `voice_processing` as today).
 - [ ] **F4** Remote Config `worker_chat_companion_v2_enabled` gates F1–F3.
 - [ ] **F5** Keys parity: `chat_companion_keys.dart` += task chip keys (parity test).
+- [ ] **F6** (2026-09-30, lane a3 — BUG-CARD-LABELS) Show each row's `field_label` beside
+      `section_label`, and prefer `before_display` / `after_display` over `companionEditValue`
+      when non-null (contracts §5.1). The API sends them on every card; the humaniser stays as
+      the fallback for an older server. Frontend issue needed.
 
 ### DevOps
 
@@ -200,6 +205,7 @@ A new edit message while a proposal is open replaces it (one active proposal per
 | `companion-edit.validate.test.ts` | each drop rule (catalogue, op, ref, DTO, token, skill floor, no-op) — incl. no-op ADDS, duplicates, the writer's real schema, the row cap, the snapshot cap, the O17 Profile-screen line |
 | `companion-edit.confirm.test.ts` | ownership 404; stale 409; transaction rollback on a writer failure (row 2 fails → row 1 undone); regenerate queued / capped / failed; consent off → no regeneration; at most one apply per card (concurrent / retried Haan); a rollback serves the card again; expired → cancelled(expired) |
 | `companion-edit.apply.test.ts` | the body each writer receives: preferences `touched_only` + folded lists, qualifications by identity and only the touched lists, skills never duplicated, the night-shift seed after commit |
+| `edit-catalogue.test.ts` | every catalogue field has a `field_label` (distinct within its section, no orphan); a whole-entry delete names the entry; every closed-set value maps to its dictionary's display label; free text, unknown slugs and nulls → null |
 | `resume-chat-edit.db.test.ts` (`RUN_DB_TESTS=1`) | a Haan on a profile that already has its v1 writes a NEW `chat_edit` row from the edited profile; a second edit is another; a queue retry does not duplicate |
 | `companion-edit.no-identity.test.ts` | name / phone / ID requests never produce a row; `V2_EDIT_IDENTITY` served — also when the model gives no hint (the deterministic check, `edit-identity.test.ts`) |
 | `chat-companion.module.boot.test.ts` (extended) | still no chat-table writers reachable from the module |

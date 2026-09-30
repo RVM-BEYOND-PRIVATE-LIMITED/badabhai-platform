@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 import { CompanionEditParseInputSchema } from "@badabhai/ai-contracts";
+import { CompanionTurnSchema } from "../chat-companion.dto";
 import {
   V2_EDIT_CARD_INTRO,
   V2_EDIT_IDENTITY,
@@ -33,9 +34,12 @@ describe("CompanionEditService.propose — every drop rule (spec §Edit step 3)"
     expect(turn.edit_proposal?.rows).toHaveLength(1);
     expect(turn.edit_proposal?.rows[0]).toMatchObject({
       section_label: "Bhasha",
+      field_label: "Bhasha",
       op: "delete",
       before: "hindi",
       after: null,
+      before_display: "Hindi",
+      after_display: null,
     });
     expect(h.proposals.save).toHaveBeenCalledTimes(1);
     const saved = h.proposals.save.mock.calls[0]![1] as { rows: unknown[] };
@@ -386,6 +390,112 @@ describe("the section writer's REAL schema drops a row before the card (P1-EDIT-
     });
     await h.service.propose(WORKER_ID, profileRow(), "is saal mila", CTX);
     expect(savedRows(h).map((r) => r.value)).toEqual(["2031"]);
+  });
+});
+
+describe("every card row explains itself (BUG-CARD-LABELS, POLISH-language-slugs)", () => {
+  it("three preference rows on one card are told apart by their field labels", async () => {
+    // The audit's case: "Pasand: Nahi → Haan" could have been travel, relocation or a room.
+    const h = setup({
+      parse: parse([
+        row({ op: "edit", section: "preferences", ref: "pref", field: "willing_to_travel", value: "haan" }),
+        row({ op: "edit", section: "preferences", ref: "pref", field: "accommodation_needed", value: "nahi" }),
+        row({ op: "edit", section: "preferences", ref: "pref", field: "availability_status", value: "immediate" }),
+      ]),
+      preferenceValues: {
+        willing_to_travel: false,
+        accommodation_needed: true,
+        availability: { status: "within_month", available_from: null, notice_period_days: null },
+      },
+    });
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+
+    expect(CompanionTurnSchema.safeParse(turn).success).toBe(true);
+    expect(turn.edit_proposal?.rows.map(({ row_id: _id, ...rest }) => rest)).toEqual([
+      {
+        section_label: "Pasand",
+        field_label: "Travel kar sakte hain",
+        op: "edit",
+        before: "false",
+        after: "true",
+        before_display: "Nahi",
+        after_display: "Haan",
+      },
+      {
+        section_label: "Pasand",
+        field_label: "Rehne ki jagah chahiye",
+        op: "edit",
+        before: "true",
+        after: "false",
+        before_display: "Haan",
+        after_display: "Nahi",
+      },
+      {
+        section_label: "Pasand",
+        field_label: "Kab join kar sakte hain",
+        op: "edit",
+        before: "within_month",
+        after: "immediate",
+        before_display: "Within a month",
+        after_display: "Immediately",
+      },
+    ]);
+  });
+
+  it("a free-text edit keeps before/after as typed and sends no display label", async () => {
+    const h = setup({
+      parse: parse([row({ op: "edit", section: "employment", ref: "e1", field: "end_ym", value: "2021-05" })]),
+      employmentViews: [{ ...EMPLOYMENT, end_ym: "2021-03" }],
+    });
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "2021 may tak kiya", CTX);
+    expect(turn.edit_proposal?.rows[0]).toMatchObject({
+      section_label: "Kaam",
+      field_label: "Kab tak kiya",
+      before: "2021-03",
+      after: "2021-05",
+      before_display: null,
+      after_display: null,
+    });
+  });
+
+  it("a whole-entry delete is labelled as the entry, whatever field the model anchored on", async () => {
+    const h = setup({
+      parse: parse([row({ op: "delete", section: "employment", ref: "e1", field: "start_ym", value: null })]),
+      employmentViews: [EMPLOYMENT],
+    });
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "Tata wala kaam hatao", CTX);
+    expect(turn.edit_proposal?.rows[0]).toMatchObject({
+      section_label: "Kaam",
+      field_label: "Yeh poora kaam",
+      op: "delete",
+      before: "2019-01",
+      before_display: null,
+    });
+  });
+
+  it("an occupation add shows the role's taxonomy label beside its id", async () => {
+    const h = setup({
+      parse: parse([row({ op: "add", section: "occupations", ref: null, field: "role_id", value: "role_vmc_operator" })]),
+    });
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "VMC bhi jodo", CTX);
+    expect(turn.edit_proposal?.rows[0]).toMatchObject({
+      section_label: "Aur kaam",
+      field_label: "Role",
+      op: "add",
+      before: null,
+      after: "role_vmc_operator",
+      before_display: null,
+      after_display: "VMC Operator",
+    });
+  });
+
+  it("the labels ride the WIRE only — the stored card is unchanged", async () => {
+    const h = setup({ parse: parse([row()]), languageEntries: [LANGUAGE_HINDI] });
+    await h.service.propose(WORKER_ID, profileRow(), "Hindi hata do", CTX);
+    const saved = h.proposals.save.mock.calls[0]![1] as { rows: Record<string, unknown>[] };
+    expect(Object.keys(saved.rows[0]!).sort()).toEqual(
+      ["before", "field", "op", "row_id", "section", "section_label", "target", "value"].sort(),
+    );
   });
 });
 

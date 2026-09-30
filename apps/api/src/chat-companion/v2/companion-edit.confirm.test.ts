@@ -158,11 +158,23 @@ describe("CompanionEditService.confirm", () => {
     const result = await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID], CTX);
     if (result.kind !== "failed") throw new Error("expected failed");
     // The same proposal id and row ids the app already holds — its one turn-to-state path shows
-    // the card again, with no app change.
+    // the card again, with no app change. The labels are computed at wire time from the stored
+    // row, so a card stored before they existed is served labelled too.
     expect(result.turn.edit_proposal).toEqual({
       proposal_id: PROPOSAL_ID,
       expires_at: storedProposal().expires_at,
-      rows: [{ row_id: ROW_ID, section_label: "Bhasha", op: "delete", before: "hindi", after: null }],
+      rows: [
+        {
+          row_id: ROW_ID,
+          section_label: "Bhasha",
+          field_label: "Bhasha",
+          op: "delete",
+          before: "hindi",
+          after: null,
+          before_display: "Hindi",
+          after_display: null,
+        },
+      ],
     });
     expect(CompanionTurnSchema.safeParse(result.turn).success).toBe(true);
   });

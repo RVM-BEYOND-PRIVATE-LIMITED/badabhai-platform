@@ -26,17 +26,28 @@ export type CompanionMessageDto = z.infer<typeof CompanionMessageSchema>;
  * that is not declared here is a leak, and the service fails closed on it rather than sending it.
  */
 /**
- * One row of an edit card (ADR-0046 §5.1). `before`/`after` are what the card SHOWS; they are
- * the worker's own values, so the card is `no-store` and the values never ride an event. The app
- * ticks rows and sends their `row_id`s back to the confirm route — never the values.
+ * One row of an edit card (ADR-0046 §5.1). `before`/`after` are the stored values — the worker's
+ * own, so the card is `no-store` and the values never ride an event. The app ticks rows and sends
+ * their `row_id`s back to the confirm route — never the values.
+ *
+ * THE LABELS ARE ADDITIVE (BUG-CARD-LABELS, 2026-09-30) and optional, so the shipped app, which
+ * reads `section_label`/`before`/`after` only, is unchanged:
+ *   - `field_label` — which field the row changes ("Travel kar sakte hain"); on a whole-entry
+ *     delete (employment, qualifications) the entry ("Yeh poora kaam");
+ *   - `before_display`/`after_display` — the worker-facing label of a CLOSED-SET value ("hindi" →
+ *     "Hindi", "true" → "Haan", a role id → its taxonomy label); null when the value is free
+ *     text, a date or a number (shown as typed), absent, or not in its dictionary.
  */
 export const EditProposalRowSchema = z
   .object({
     row_id: uuidSchema,
     section_label: z.string().min(1).max(80),
+    field_label: z.string().min(1).max(80).optional(),
     op: z.enum(COMPANION_V2_EDIT_OPS),
     before: z.string().max(4000).nullable(),
     after: z.string().max(4000).nullable(),
+    before_display: z.string().min(1).max(120).nullable().optional(),
+    after_display: z.string().min(1).max(120).nullable().optional(),
   })
   .strict();
 export type EditProposalRow = z.infer<typeof EditProposalRowSchema>;
