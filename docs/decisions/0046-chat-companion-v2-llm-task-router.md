@@ -89,7 +89,7 @@ POST /chat/companion/message
 | **O14** | **Build now, flags off.** v2 may be built on top of v1 code before v1 is live. |
 | **O15** | Design lives in the repo (`docs/specs/chat-companion-v2/`). |
 | **O16** | Persona v3.2 Law 2 and the ≤1 "?"/≤20 words/no "!"/no emoji rules bind model-written lines exactly as they bind reviewed copy (enforced by output validation, not trust). |
-| **O17** | **Masked values.** The owner intends to remove PII masking platform-wide (a separate decision, outside this ADR: it needs its own ADR, a security review and a CLAUDE.md §3 update). v2 builds **no** token rehydration. v2 calls the existing pseudonymization gateway like every other endpoint; an edit row whose proposed value still carries a placeholder token (`[EMPLOYER_1]`, …) is **dropped** and the worker is pointed to the Profile screen. When masking is removed, no tokens appear and such edits simply work. |
+| **O17** | **Masked values.** The owner intends to remove PII masking platform-wide (a separate decision, outside this ADR: it needs its own ADR, a security review and a CLAUDE.md §3 update). v2 builds **no** token rehydration. v2 calls the existing pseudonymization gateway like every other endpoint; an edit row whose proposed value still carries a placeholder token (`[EMPLOYER_1]`, …) is **dropped** and the worker is pointed to the Profile screen. When masking is removed, no tokens appear and such edits simply work. **→ [ADR-0047](0047-lift-pii-restriction.md)** (2026-09-30): the separate decision, taken. With `AI_RAW_PII_ENABLED` armed, v2 skips the gateway, so no tokens appear; with it off, this ruling holds as written. |
 
 ## 3. Invariants (each pinned by a test named in the spec)
 
@@ -97,7 +97,9 @@ POST /chat/companion/message
   handler, validates every value, and applies writes only after the worker's tap. No ranking.
 - **Privacy.** Every model input passes `pseudonymize` in the AI service; the router masks nothing
   itself. No name, phone or ID ever enters a prompt, log, event or trace. Worker text is never logged
-  and never put in an event. Redis memory holds pseudonymized text only.
+  and never put in an event. Redis memory holds pseudonymized text only. _Amended by
+  [ADR-0047](0047-lift-pii-restriction.md):_ with `AI_RAW_PII_ENABLED` armed, prompts, the Redis
+  memory (O13, still TTL-bound) and traces carry raw text; worker text in logs and events is unchanged.
 - **Fail closed.** Any model failure, timeout, schema miss or validation miss → a deterministic
   fallback turn. An edit card is applied in one transaction or not at all.
 - **Event first.** Every turn and every edit outcome emits a versioned, `.strict()` event with ids,

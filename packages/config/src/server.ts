@@ -341,7 +341,7 @@ export const serverEnvSchema = z.object({
   CHAT_COMPANION_V2_FALTU_STRIKES: positiveIntFromString(3),
   CHAT_COMPANION_V2_FALTU_COOLDOWN_MINUTES: positiveIntFromString(30),
   // Conversation memory: the last N pseudonymized turn pairs kept in Redis for this many seconds
-  // (O13). Never Postgres.
+  // (O13) — the worker's raw words instead while AI_RAW_PII_ENABLED is on. Never Postgres.
   CHAT_COMPANION_V2_MEMORY_TURNS: positiveIntFromString(6),
   CHAT_COMPANION_V2_MEMORY_TTL_SECONDS: positiveIntFromString(1800),
   // TIERED PROFILING (docs/profiling-tiers/tier-tagging.md) — the Easy / Medium / Hard choice on
@@ -1316,6 +1316,31 @@ export const serverEnvSchema = z.object({
   // a back-compat ALIAS for GEMINI_FLASH_API_KEY for one release — prefer the new name.
   LITELLM_API_KEY: z.string().min(1).optional(),
   AI_ENABLE_REAL_CALLS: booleanFromString,
+  // RAW TEXT TO THE MODEL (owner decision 2026-09-30, ADR-0047) — the ONE switch that lifts
+  // PROMPT-side PII masking. The SAME name is read by the ai-service (`ai_raw_pii_enabled`), where
+  // most of the effect lives. Here it governs one api-side masker in front of a model: companion
+  // v2 skips its `/pseudonymize` hop, so the classifier, the handlers and the Redis memory get the
+  // worker's own words (memory stays TTL-bound by CHAT_COMPANION_V2_MEMORY_TTL_SECONDS, and is
+  // never Postgres). Profile extraction's `redactKnownName` does NOT read it (ADR-0047 ruling G2):
+  // the extraction model never needs the worker's own name, and one it reads it can echo onto the
+  // employer copy, where the name shows as initials until an unlock.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S BEHAVIOUR EXACTLY. `booleanFromString` so a falsey string stays
+  // off. Armed only by the production-environment secret of the same name plus a redeploy; unset it
+  // and redeploy to revert — no code change in either direction. The revert is exact for every
+  // PROMPT from then on, but not for the Redis memory: raw turns stored while it was on stay until
+  // they trim out or expire (CompanionMemoryStore says how, and how to purge them).
+  //
+  // WHAT HOLDS RAW TEXT WHILE IT IS ON: the companion memory above, and `ai_call_traces`
+  // prompt/response when AI_CALL_TRACE_TEXT_ENABLED is also on (still encrypted, super-admin only,
+  // and — traces being kept indefinitely by owner ruling — past any revert, until erasure).
+  // WHAT IT NEVER TOUCHES: the output and storage walls (the certifiers, gate 6, and the
+  // hard-identifier floor on model output, ADR-0047 ruling G1 — in the ai-service, and here on
+  // companion v2's edit rows, whose confirmed values print on both résumé PDFs), the extraction
+  // known-name redaction above, the at-rest masked copies (the occupation growth queue), PII
+  // encryption at rest, the payer disclosure masking, and event payloads and log lines, which
+  // carry ids, counts and closed enums exactly as before.
+  AI_RAW_PII_ENABLED: booleanFromString,
 
   // Contact Unlock + Reveal payments (ADR-0010 §D5 / Phase-0 F-6). MOCK CREDITS in
   // alpha — there is NO real money movement. PAYMENTS_ENABLE_REAL is the master gate

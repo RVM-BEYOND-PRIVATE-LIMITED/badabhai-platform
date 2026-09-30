@@ -24,6 +24,7 @@ from ..contracts import (
     ResumeSummaryInput,
     ResumeSummaryOutput,
 )
+from ..llm_input_policy import resume_input_raw
 from ..resume_import.resume_option_map import map_resume_options
 from ..resume_import.resume_parse import parse_resume
 from ..resume_import.resume_summary import summarize_resume
@@ -59,7 +60,7 @@ async def resume_parse(body: ResumeParseInput) -> ResumeParseOutput:
         metadata={
             "target_fields": len(body.target_fields),
             "language": body.language,
-            "raw_text": settings_now.resume_parse_raw_text_enabled,
+            "raw_text": resume_input_raw(settings_now),
         },
     ):
         # THE PROMPT IS RESOLVED rather than read off the module constant, so the
@@ -104,7 +105,7 @@ async def resume_summary(body: ResumeSummaryInput) -> ResumeSummaryOutput:
         metadata={
             "role_kinds": len(body.role_kinds),
             "language": body.language,
-            "raw_text": settings_now.resume_parse_raw_text_enabled,
+            "raw_text": resume_input_raw(settings_now),
         },
     ):
         # THE PROMPT IS RESOLVED rather than read off the module constant, so the
@@ -150,7 +151,7 @@ async def resume_map_options(body: ResumeOptionMapInput) -> ResumeOptionMapOutpu
         metadata={
             "questions": len(body.questions),
             "language": body.language,
-            "raw_text": settings_now.resume_parse_raw_text_enabled,
+            "raw_text": resume_input_raw(settings_now),
         },
     ):
         # THE PROMPT IS RESOLVED rather than read off the module constant, so the

@@ -8,8 +8,9 @@
 - **Supersedes:** the rule in the worker app's `name_screen.dart` docstring — the name "is never asked for again in
   the chat flow, which stays identity-free". The chat now asks it.
 - **Relates:** [ADR-0041](0041-resume-import-and-prefill.md) (the résumé "is this you?" turn now follows the
-  intake) · [ADR-0045](0045-general-road.md) (general-road arming is preserved exactly) · ADR-0047 (the owner's
-  PII-in-prompts policy lift — this design is correct under both settings, §4.5)
+  intake) · [ADR-0045](0045-general-road.md) (general-road arming is preserved exactly) ·
+  [ADR-0047](0047-lift-pii-restriction.md) (the owner's PII-in-prompts policy lift — this design is correct under both
+  settings, §4.5)
 - **Flag:** `CHAT_IDENTITY_INTAKE_ENABLED` (default off; production-environment secret)
 
 ---
@@ -196,9 +197,10 @@ operator's console and review file as alias candidates.
    - Two different answers racing one step: the loser's write can land before its CAS is lost; the winner's
      decision stands in the conversation, and the record holds whichever UPDATE landed last.
 
-5. **Under ADR-0047 (the PII-in-prompts lift).** With masking on, this design keeps the name out of every prompt,
-   event and log by construction; with it lifted, nothing changes — the exclusions are kept for correctness, since
-   neither the model nor the résumé quote block has any use for a name or a town typed into a form question.
+5. **Under [ADR-0047](0047-lift-pii-restriction.md) (the PII-in-prompts lift).** With masking on, this design keeps
+   the name out of every prompt, event and log by construction; with it lifted, nothing changes — the exclusions are
+   kept for correctness, since neither the model nor the résumé quote block has any use for a name or a town typed
+   into a form question.
 6. **Payer-side masking is untouched.** The disclosure masker reads the same encrypted `workers.full_name`,
    whichever surface wrote it.
 

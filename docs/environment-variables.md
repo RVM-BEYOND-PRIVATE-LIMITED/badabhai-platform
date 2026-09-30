@@ -79,6 +79,28 @@ NestJS boot assertion).
   of this same template), `ANTHROPIC_API_KEY` (optional fallback), `SARVAM_*` (STT/TTS),
   `AI_INTERNAL_TOKEN` (TD67 service bearer — unset keeps the historical internal-only open
   posture; see `docs/audit/24_RISK_REGISTER.md` R40).
+- **Model-prompt masking (ADR-0047)** — `AI_RAW_PII_ENABLED`, ONE name read by **both** services:
+  the ai-service as `ai_raw_pii_enabled` (`apps/ai-service/app/config.py`) and the api through
+  `packages/config/src/server.ts` (`booleanFromString`). **Default `false`, and off masks every
+  prompt as before.** On, text reaches model prompts unmasked: every prompt-side ai-service
+  call site passes it through `app/llm_input_policy.py` (size caps and the non-string refusal
+  kept), the Langfuse `mask=` hook and the `ai_call_traces` text pass it through too, companion v2
+  skips its `/pseudonymize` hop (its Redis memory then holds raw text, TTL-bound). The résumé
+  import routes read it OR'd with `RESUME_PARSE_RAW_TEXT_ENABLED`, which stays its own flag.
+  **It never touches** `pseudonymize()` itself, any output wall (the certifiers, gate 6,
+  `contains_hard_identifier`, the placeholder refusals, the hard-identifier floor of ADR-0047 §6
+  G1), `redactKnownName` in profile extraction and both interview turns (§6 G2), the at-rest
+  masked copies (job-posting draft, growth queue, training corpus), PII encryption at rest,
+  employer-side disclosure masking, STT, event schemas or log lines. A GitHub **`production`-environment secret**, bridged by
+  `ci.yml`'s deploy job (`env:` + the appleboy `envs:` list) into compose's
+  `${AI_RAW_PII_ENABLED:-false}` on the `api` and `ai-service` services. Arming is the secret plus
+  a redeploy: `gh secret set AI_RAW_PII_ENABLED --env production --body true` and re-run the
+  deploy; roll back by setting it `false` and re-running (companion Redis memory and
+  `ai_call_traces` rows written while armed stay behind — ADR-0047 §5). Values:
+  `true`/`false`/`1`/`0`/empty, lowercase and exact — both services refuse `True`, `yes` or `on`,
+  and the deploy script fails the job on them before a container moves. The owner has set the `production` secret to `true` and
+  instructed a direct merge, so the first deploy after the implementing change merges arms it:
+  **merging is arming** (ADR-0047 §5, runbook P0 #13).
 - **Offline corpus embed throughput** (ADR-0030 / TAX-3, ai-service) — `AI_EMBED_REQUEST_BATCH`
   (texts per provider request, default 100), `AI_EMBED_TEXTS_PER_MINUTE` (pacing; **0 = unpaced,
   the default**), `AI_EMBED_MAX_RETRIES` (default 2), `AI_EMBED_BACKOFF_BASE_SECONDS`,
@@ -178,5 +200,5 @@ NestJS boot assertion).
 The exact current default/placeholder text for any one variable (read `.env.example` — it is
 authoritative and this document is not); the ai-service's own Python-side settings
 (`apps/ai-service/app/config.py`) beyond the handful cross-referenced above; per-environment
-actual values (never documented anywhere, by design — CLAUDE.md §3 "Privacy First" / secrets
-never in git).
+actual values (never documented anywhere, by design — secrets never in git, and never logged:
+CLAUDE.md §3).

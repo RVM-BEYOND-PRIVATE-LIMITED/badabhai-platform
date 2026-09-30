@@ -659,6 +659,30 @@ describe("loadServerConfig", () => {
     expect(loadServerConfig({ RESUME_QR_SCAN_ENABLED: "true" }).RESUME_QR_SCAN_ENABLED).toBe(true);
   });
 
+  it("AI_RAW_PII_ENABLED (ADR-0047) is OFF by default, for the empty string and for 'false'", () => {
+    // Off is the masked prompt path exactly as before. The deploy bridge exports an unset secret
+    // as "", so the empty string must read as OFF rather than throw — and only an explicit
+    // truthy value may arm the one switch that sends a model the worker's own words.
+    expect(loadServerConfig({}).AI_RAW_PII_ENABLED).toBe(false);
+    expect(loadServerConfig({ AI_RAW_PII_ENABLED: "" }).AI_RAW_PII_ENABLED).toBe(false);
+    expect(loadServerConfig({ AI_RAW_PII_ENABLED: "false" }).AI_RAW_PII_ENABLED).toBe(false);
+    expect(loadServerConfig({ AI_RAW_PII_ENABLED: "0" }).AI_RAW_PII_ENABLED).toBe(false);
+    expect(loadServerConfig({ AI_RAW_PII_ENABLED: "true" }).AI_RAW_PII_ENABLED).toBe(true);
+    expect(loadServerConfig({ AI_RAW_PII_ENABLED: "1" }).AI_RAW_PII_ENABLED).toBe(true);
+    expect(() => loadServerConfig({ AI_RAW_PII_ENABLED: "yes" })).toThrow();
+  });
+
+  it.each(["True", "TRUE", "yes", "on", "t", "y", "False", "no", " true"])(
+    "AI_RAW_PII_ENABLED=%j does not boot the api — the ai-service refuses the same values",
+    (value) => {
+      // ONE VARIABLE, TWO PARSERS, ONE GRAMMAR (ADR-0047 §5). pydantic's own bool reads every one
+      // of these; the ai-service narrows its field to this grammar
+      // (`_raw_pii_flag_in_the_apis_grammar`, pinned in tests/test_llm_input_policy.py), and the
+      // deploy script refuses them before either container is recreated.
+      expect(() => loadServerConfig({ AI_RAW_PII_ENABLED: value })).toThrow();
+    },
+  );
+
   it("REFERRAL_SHORT_LINK_BASE accepts the interim payer-web origin and refuses a non-https one", () => {
     // #1800: staging now declares the origin that SERVES `/i/<code>`. The default stays the old
     // value only so a bare local boot validates; the refinement keeps a redirect off plain http.

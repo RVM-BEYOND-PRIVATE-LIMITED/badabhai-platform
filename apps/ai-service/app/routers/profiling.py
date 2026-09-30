@@ -42,6 +42,8 @@ from ..contracts import (
     WorkHistoryPolishInput,
     WorkHistoryPolishOutput,
 )
+from ..llm_input_policy import llm_input_gate, llm_input_masker
+from ..output_floor import carries_hard_identifier, floored_items, floored_scalar
 from ..profiling.canonical_roles import coerce_json_text
 from ..profiling.interview_prompts import (
     extract_system_prompt,
@@ -49,7 +51,7 @@ from ..profiling.interview_prompts import (
     skills_interview_system_prompt,
     work_history_polish_prompt,
 )
-from ..profiling.parse_masking import Masker, default_masker, mask_transcript_lines
+from ..profiling.parse_masking import Masker, mask_transcript_lines
 from ..pseudonymize import certified_clean_skill_labels, is_certified_clean, pseudonymize
 from ._shared import logger, resolve_prompt, router, workflow_scope
 
@@ -231,6 +233,67 @@ def _certified_skills_draft(draft: LlmInterviewDraft) -> LlmInterviewDraft:
     )
 
 
+def _floored_turn(out: LlmTurnOutput) -> LlmTurnOutput | None:
+    """One turn's output through the hard-identifier floor (`app/output_floor.py`, ADR-0047 G1),
+    BOTH modes. `None` = serve `_SILENT`.
+
+    THE CLASSIC TURN HAD NO OUTPUT WALL IN THIS SERVICE. `_parse_turn` checks the contract only,
+    and apps/api settles what comes back: `role_label` into the answer map as `trade`, the
+    experience entry into the draft, the reply and the chips onto the worker's screen and into the
+    stored transcript. Harmless while the model read placeholders; with `AI_RAW_PII_ENABLED` on it
+    reads what the worker typed and can echo a phone or a PAN into any of them.
+
+    - A `reply_text` that carries one refuses the turn whole, as the skills stage refuses a reply
+      that echoes a placeholder: a sentence with a hole in it is not a reply, and the API's
+      deterministic question costs less.
+    - Every other string the model wrote is floored on its own: a label (or `blocked_reason`)
+      becomes None, skills and chips drop per item, and the experience entry goes through
+      `_floored_experience`, as Phase C's do — blanked per field, dropped only for its role.
+
+    `_skills_only_output` runs after this on the skills stage and keeps even less; the reply
+    refusal is the part it lacked. Reads no flag.
+    """
+    if carries_hard_identifier(out.reply_text):
+        logger.warning("llm turn reply carried a hard identifier; served the fallback")
+        return None
+    entry = out.experience_entry
+    if entry is not None:
+        entry = _floored_experience(entry)
+    floored = out.model_copy(
+        update={
+            "suggested_answers": floored_items(out.suggested_answers),
+            "domain_label": floored_scalar(out.domain_label),
+            "role_label": floored_scalar(out.role_label),
+            "skills": floored_items(out.skills),
+            "experience_entry": entry,
+            "blocked_reason": floored_scalar(out.blocked_reason),
+        }
+    )
+    withheld = (
+        len(out.suggested_answers)
+        - len(floored.suggested_answers)
+        + len(out.skills)
+        - len(floored.skills)
+        # A floored value only ever becomes None or loses a field, so "changed" is "withheld".
+        + sum(
+            before != after
+            for before, after in (
+                (out.domain_label, floored.domain_label),
+                (out.role_label, floored.role_label),
+                (out.experience_entry, floored.experience_entry),
+                (out.blocked_reason, floored.blocked_reason),
+            )
+        )
+    )
+    if withheld:
+        # COUNTS ONLY — what was withheld is exactly what must not be logged.
+        logger.info(
+            "llm turn withheld values carrying a hard identifier",
+            extra={"extra": {"withheld": withheld}},
+        )
+    return floored
+
+
 def _skills_only_output(out: LlmTurnOutput) -> LlmTurnOutput | None:
     """Pin the skills stage's output to what the stage may return. `None` = serve `_SILENT`.
 
@@ -288,9 +351,12 @@ async def profiling_turn(body: LlmTurnInput) -> LlmTurnOutput:
 
     Privacy order is the same as every other worker-text route and it fails CLOSED:
     pseudonymize BEFORE the model, and a blocked message never reaches a provider and never
-    advances anything.
+    advances anything. With `AI_RAW_PII_ENABLED` on, the message and the history go through
+    unmasked (`app/llm_input_policy.py`) but keep their size caps, so "blocked" still exists and
+    still means the same silent fallback.
     """
     settings = get_settings()
+    raw_pii = settings.ai_raw_pii_enabled
     skills_only = body.interview_mode == SKILLS_ONLY_MODE
 
     # ONE ROOT TRACE per turn, so the generation the router opens nests under a BUSINESS
@@ -314,7 +380,7 @@ async def profiling_turn(body: LlmTurnInput) -> LlmTurnOutput:
     ):
         masked_message = ""
         if body.message_text:
-            result = pseudonymize(body.message_text)
+            result = llm_input_gate(body.message_text, raw=raw_pii)
             if result.blocked:
                 logger.warning(
                     "llm turn blocked by the privacy gate",
@@ -328,7 +394,14 @@ async def profiling_turn(body: LlmTurnInput) -> LlmTurnOutput:
         # History is masked PER MESSAGE, not as one blob. A 20k whole-transcript gate is what
         # once blocked long interviews outright and handed the worker an empty profile —
         # punished, precisely, for answering at length.
-        body = body.model_copy(update={"history": mask_transcript_lines(body.history)})
+        history = mask_transcript_lines(body.history, llm_input_masker(raw=raw_pii))
+        body = body.model_copy(update={"history": history})
+        # THE ONE PROMPT INPUT THE FLAG DOES NOT REACH, on purpose. The echoed draft is prompt
+        # context only — `_parse_turn` and `_skills_only_output` never read it back, so nothing
+        # withheld here is ever stored — and it stays CERTIFIED under either posture. It is the
+        # API's settled role and skills rather than the worker's words, so a label that is not
+        # clean costs the skills prompt one label and the worker nothing. Over-masking, recorded
+        # as such in `app/llm_input_policy.py`; lifting it would be `_polish_role`'s change.
         if skills_only:
             body = body.model_copy(update={"draft": _certified_skills_draft(body.draft)})
 
@@ -377,6 +450,13 @@ async def profiling_turn(body: LlmTurnInput) -> LlmTurnOutput:
         out = _parse_turn(content, body)
         if out is None or not out.reply_text.strip():
             return _SILENT
+        # THE FLOOR, BOTH MODES, AND IT READS NO FLAG (ADR-0047 G1). `_parse_turn` checks the
+        # contract only, and apps/api settles the classic turn's `role_label` into the answer map,
+        # so this is the classic turn's one output wall here; on the skills stage it adds the
+        # hard-identifier reply refusal `_skills_only_output` does not make.
+        out = _floored_turn(out)
+        if out is None:
+            return _SILENT
         if skills_only:
             out = _skills_only_output(out)
             if out is None:
@@ -396,13 +476,14 @@ async def profiling_extract(body: InterviewExtractInput) -> InterviewExtractOutp
     SYNTHESISE across turns — `experiences[]` in particular has no answer-map equivalent,
     because the packs can only ask a fixed question once.
 
-    THE MASKER IS NAMED HERE AND NOWHERE ELSE ON THIS ROUTE. Real worker traffic always gets
-    `default_masker`; the synthetic-persona harness reaches `_extract` directly through its own
-    route, which exists only on an armed process (R7 §1). Passing it as an argument rather than
-    reading a flag inside the body is what keeps "which masker ran" a property of the ROUTE the
-    caller reached rather than of a setting the body has to re-check.
+    THE MASKER IS NAMED HERE AND NOWHERE ELSE ON THIS ROUTE. Real worker traffic gets
+    `default_masker`, or the capped raw masker while `AI_RAW_PII_ENABLED` is on; the
+    synthetic-persona harness reaches `_extract` directly through its own route, which exists
+    only on an armed process (R7 §1). Passing it as an argument rather than reading a flag inside
+    the body is what keeps "which masker ran" a property of the ROUTE the caller reached rather
+    than of a setting the body has to re-check.
     """
-    return await _extract(body, default_masker)
+    return await _extract(body, llm_input_masker(raw=get_settings().ai_raw_pii_enabled))
 
 
 async def _extract(body: InterviewExtractInput, masker: Masker) -> InterviewExtractOutput:
@@ -510,7 +591,12 @@ async def _extract(body: InterviewExtractInput, masker: Masker) -> InterviewExtr
 
         # Re-certify every surviving string. The model read a masked transcript, but it composes
         # new text (`work_done`, skill phrases) and composed text is not covered by the input
-        # gate.
+        # gate. With `AI_RAW_PII_ENABLED` on it read the RAW transcript, and "would the gateway
+        # block this" let an echoed phone or PAN through, because the gateway masks those rather
+        # than blocking them; so every wall below also drops what carries a hard identifier
+        # (`_refused`, ADR-0047 G1), whichever way the flag is set — per field inside an
+        # experience (`_floored_experience`), so an honest dashed year range costs its
+        # `duration_text` and not the job.
         #
         # EVERY STRING FIELD, not just these two (#831). `experiences` and `skills` were
         # certified here and the other six were not, which read as a complete gate and was not
@@ -524,7 +610,11 @@ async def _extract(body: InterviewExtractInput, masker: Masker) -> InterviewExtr
         # source is what makes the guarantee inheritable: the text résumé, the worker PDF and the
         # employer PDF each read this container, and one gate here beats three read-sites
         # re-implementing it and drifting.
-        out.experiences = [e for e in out.experiences if _certified(e)]
+        out.experiences = [
+            floored
+            for entry in out.experiences
+            if _certified(entry) and (floored := _floored_experience(entry)) is not None
+        ]
         out.skills = _certified_list(out.skills)
         # #1739: THE LOCATION IS CLEAN-OR-WITHHOLD, not blocked-only. This is the route where the
         # MODEL writes it, and apps/api stores it on the profile and prints `current_city` on the
@@ -619,9 +709,23 @@ def _certifiable_item_count(out: InterviewExtractOutput) -> int:
     )
 
 
+def _refused(text: str) -> bool:
+    """Phase C's wall for one model-written string: what the gateway would BLOCK, or what carries
+    a hard identifier.
+
+    BLOCKED ALONE STOPPED BEING ENOUGH THE DAY THE MODEL COULD READ RAW TEXT. The gateway MASKS a
+    phone, a PAN or an email rather than blocking it, so a value the model copied out of an
+    unmasked transcript passed. The second half is the floor (`app/output_floor.py`, ADR-0047
+    G1), and like the first it reads no flag: with `AI_RAW_PII_ENABLED` off the model read
+    placeholders, and it fires on almost nothing.
+    """
+    return pseudonymize(text).blocked or carries_hard_identifier(text)
+
+
 def _certified(entry: ExperienceEntry) -> bool:
     """Drop an experience whose composed prose carries something the gateway will not mask.
-    Dropping one entry costs coverage; keeping it costs the worker their credibility."""
+    Dropping one entry costs coverage; keeping it costs the worker their credibility. A hard
+    identifier is not refused here but floored per field, by `_floored_experience`."""
     return not any(
         pseudonymize(text).blocked
         for text in (entry.role_label, entry.duration_text, entry.work_done)
@@ -629,14 +733,36 @@ def _certified(entry: ExperienceEntry) -> bool:
     )
 
 
+def _floored_experience(entry: ExperienceEntry) -> ExperienceEntry | None:
+    """`entry` through the hard-identifier floor PER FIELD (ADR-0047 G1). `None` = drop it.
+
+    PER FIELD, NOT PER ENTRY, because the floor's phone class reads an honest year range as a
+    phone. Measured: "2018-2021 (3 years)" and "2010-2012, 2013-2016" are both "phone" to
+    `contains_hard_identifier` (the dashed-range shape #1731 names). Armed, the prompt has the
+    model copy `duration_text` in the worker's own words, so dropping the entry cost a worker the
+    whole job — role, duration and work — for writing its years with a dash. A `duration_text` or
+    `work_done` that carries one is blanked to "" instead, which is this schema's own "nothing
+    recorded" (`duration_months` stands). Only a `role_label` that carries one drops the entry:
+    without its role there is no entry left. Reads no flag.
+    """
+    if carries_hard_identifier(entry.role_label):
+        return None
+    return entry.model_copy(
+        update={
+            "duration_text": floored_scalar(entry.duration_text) or "",
+            "work_done": floored_scalar(entry.work_done) or "",
+        }
+    )
+
+
 def _certified_list(values: list[str]) -> list[str]:
-    """Keep only the entries the gateway will vouch for. Drops per ITEM rather than emptying the
-    list, so one bad skill never costs a worker the other four."""
-    return [v for v in values if not pseudonymize(v).blocked]
+    """Keep only the entries `_refused` passes. Drops per ITEM rather than emptying the list, so
+    one bad skill never costs a worker the other four."""
+    return [v for v in values if not _refused(v)]
 
 
 def _certified_scalar(value: str | None) -> str | None:
-    """`None` for a value the gateway will not vouch for — fail closed (CLAUDE.md §3).
+    """`None` for a value `_refused` refuses — fail closed (CLAUDE.md §3).
 
     NULL RATHER THAN A MASKED STRING, deliberately. `pseudonymize` returns a masked rendering,
     and writing that back would put "[PHONE]" on a worker's résumé under `Shift` — visible,
@@ -646,7 +772,7 @@ def _certified_scalar(value: str | None) -> str | None:
     """
     if value is None:
         return None
-    return None if pseudonymize(value).blocked else value
+    return None if _refused(value) else value
 
 
 POLISH_TASK_TYPE = "work_history_polish"
@@ -705,6 +831,21 @@ def _digits_are_grounded(polished: str, source: str) -> bool:
     return all(run in grounded for run in _DIGIT_RUN.findall(polished))
 
 
+def _polish_role(role_label: str | None, *, raw: bool) -> str:
+    """The job title as polish PROMPT CONTEXT: the title itself, or the literal "worker".
+
+    `is_certified_clean` is an INPUT gate on this one value — it decides what the model reads,
+    not what is stored — which is the only reason `raw` may bypass it. With `AI_RAW_PII_ENABLED`
+    on, the title goes through as typed, the same posture as `work_done` beside it, still bounded
+    by the gateway's size cap.
+    """
+    if not role_label:
+        return "worker"
+    if raw:
+        return "worker" if llm_input_gate(role_label, raw=raw).blocked else role_label
+    return role_label if is_certified_clean(role_label) else "worker"
+
+
 @api_router.post("/profiling/work-history/polish", response_model=WorkHistoryPolishOutput)
 async def work_history_polish(body: WorkHistoryPolishInput) -> WorkHistoryPolishOutput:
     """Rephrase ONE work-history description into professional English (#1350).
@@ -719,6 +860,9 @@ async def work_history_polish(body: WorkHistoryPolishInput) -> WorkHistoryPolish
     what the sheet did before this route existed. A degrade costs polish, never a description.
     """
     settings = get_settings()
+    # NOT `raw`: that name is the model's parsed JSON further down, and a privacy switch must not
+    # share a name with a truthy dict.
+    raw_pii = settings.ai_raw_pii_enabled
 
     with workflow_scope(
         name=WORKFLOW_PROFILE_BUILD,
@@ -729,8 +873,11 @@ async def work_history_polish(body: WorkHistoryPolishInput) -> WorkHistoryPolish
         # THE INPUT GATE. The worker typed this into a form and it routinely carries an employer,
         # a city or a supervisor's name — `parse_masking` exists for exactly this text. A blocked
         # input is not rewritten at all: masking it and rewriting the mask would put "[EMPLOYER]"
-        # into a sentence printed on a resume.
-        masked = pseudonymize(body.work_done)
+        # into a sentence printed on a resume. With `AI_RAW_PII_ENABLED` on the sentence goes
+        # through unmasked, and every OUTPUT wall below runs exactly as it does with it off. The
+        # last of them, the hard-identifier floor (ADR-0047 G1), is the one that refuses a phone
+        # the worker typed: the gateway wall only masks it, and the digit wall finds it grounded.
+        masked = llm_input_gate(body.work_done, raw=raw_pii)
         if masked.blocked:
             logger.warning("work-history polish skipped: the input did not clear the gateway")
             return WorkHistoryPolishOutput(is_mock=True)
@@ -760,8 +907,7 @@ async def work_history_polish(body: WorkHistoryPolishInput) -> WorkHistoryPolish
         # CONTEXT, not printed output: "[PERSON_1] ke under" tells the model nothing "worker" does
         # not, so there is no reason to spend a mask token on it. The `or "worker"` fallback
         # already stood here for the empty case and now covers this one too.
-        role_label = body.role_label
-        role = role_label if role_label and is_certified_clean(role_label) else "worker"
+        role = _polish_role(body.role_label, raw=raw_pii)
         messages = [
             {"role": "system", "content": system_prompt},
             {
@@ -818,12 +964,13 @@ async def work_history_polish(body: WorkHistoryPolishInput) -> WorkHistoryPolish
             # The model declined, which the prompt explicitly licenses. Not a failure.
             return WorkHistoryPolishOutput(work_done=None, ai_metadata=meta)
 
-        # THREE WALLS, EACH REPLACING SOMETHING THE FABRICATION GATE USED TO PROVE.
+        # THREE WALLS, EACH REPLACING SOMETHING THE FABRICATION GATE USED TO PROVE, AND A FLOOR.
         #
         # 1. Length — the column and the sheet's one-line budget both cap at 300.
         # 2. Digits — see `_digits_are_grounded`.
         # 3. The gateway — this is COMPOSED text, so the input gate above does not cover it; the
         #    model can put a name into a sentence that had none.
+        # 4. The floor — no hard identifier on the sheet, whatever the model read (ADR-0047 G1).
         if len(polished) > 300:
             logger.warning("work-history polish rejected: over length")
             return WorkHistoryPolishOutput(work_done=None, ai_metadata=meta)
@@ -836,7 +983,8 @@ async def work_history_polish(body: WorkHistoryPolishInput) -> WorkHistoryPolish
         if _PLACEHOLDER.search(polished):
             logger.warning("work-history polish rejected: it echoed a gateway placeholder")
             return WorkHistoryPolishOutput(work_done=None, ai_metadata=meta)
-        # GROUNDED AGAINST WHAT THE MODEL SAW, not against the raw description it never saw.
+        # GROUNDED AGAINST WHAT THE MODEL SAW, not against the raw description it never saw (with
+        # `AI_RAW_PII_ENABLED` on, what it saw IS the raw description — see wall 4 below).
         # See `_digits_are_grounded` — the placeholders are stripped first so the gateway's own
         # index digits are neither grounds for a number nor a reason to throw a rewrite away.
         if not _digits_are_grounded(polished, _PLACEHOLDER.sub(" ", masked.text)):
@@ -844,6 +992,14 @@ async def work_history_polish(body: WorkHistoryPolishInput) -> WorkHistoryPolish
             return WorkHistoryPolishOutput(work_done=None, ai_metadata=meta)
         if pseudonymize(polished).blocked:
             logger.warning("work-history polish rejected: the rewrite did not clear the gateway")
+            return WorkHistoryPolishOutput(work_done=None, ai_metadata=meta)
+        # THE FLOOR, AND WHY WALLS 2 AND 3 DO NOT COVER IT. The gateway MASKS a phone rather than
+        # blocking it, so wall 3 passes one; and with `AI_RAW_PII_ENABLED` on, `masked.text` IS the
+        # raw sentence, so wall 2 finds the worker's own number grounded. Off it fires on almost
+        # nothing — but not nothing: a phone split by a word ("98765 aur 43210", R30) passes the
+        # gateway whole, and a rewrite that rejoins it is grounded. Reads no flag either way.
+        if carries_hard_identifier(polished):
+            logger.warning("work-history polish rejected: the rewrite carried a hard identifier")
             return WorkHistoryPolishOutput(work_done=None, ai_metadata=meta)
 
         return WorkHistoryPolishOutput(work_done=polished, ai_metadata=meta)

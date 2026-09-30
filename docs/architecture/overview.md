@@ -85,12 +85,17 @@ exactly one value column is non-null — so a declined row persists carrying no 
 valued answers would make "the worker told us they do not know" indistinguishable from "we never
 asked".
 
-### 3.5 Raw PII never crosses an AI boundary
+### 3.5 What crosses an AI boundary follows one switch
 
-Every string leaving for the model is pseudonymized first, per message (≤4,000 chars each), and a
-blocked line is dropped and counted rather than being fatal. Events carry ids, enums and counts —
-never utterances. Where an utterance genuinely must be recorded (the growth queue), it is stored
-pseudonymized and emitted only as a `sha256`.
+With `AI_RAW_PII_ENABLED` off (the default), every string leaving for the model is pseudonymized
+first, per message (≤4,000 chars each), and a blocked line is dropped and counted rather than being
+fatal. Armed, the same strings go unmasked under the same size caps
+([ADR-0047](../decisions/0047-lift-pii-restriction.md), which lifted the ban on raw PII in prompts).
+The model's output passes the same walls either way, plus a hard-identifier floor that reads no
+flag, so an echoed phone or ID is dropped rather than stored or printed; profile extraction and the
+interview turns keep the worker's own name out of their prompts whatever the flag says (ADR-0047
+§6, G1 and G2). Events carry ids, enums and counts — never utterances. Where an utterance genuinely
+must be recorded (the growth queue), it is stored pseudonymized and emitted only as a `sha256`.
 
 ---
 

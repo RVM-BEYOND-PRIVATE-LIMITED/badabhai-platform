@@ -17,7 +17,13 @@ tokens BEFORE any LLM call, and the service **fails closed**.
 ## Privacy & safety invariants
 
 - **Pseudonymize first.** Every endpoint that could reach an LLM runs
-  `pseudonymize()` before anything else.
+  `pseudonymize()` before anything else. Exception: with `AI_RAW_PII_ENABLED` on
+  (off by default; `app/llm_input_policy.py`,
+  [ADR-0047](../../docs/decisions/0047-lift-pii-restriction.md)) prompts go
+  through unmasked but size-capped, and the storage walls still run — with a
+  hard-identifier floor under them that reads no flag (`app/output_floor.py`,
+  G1), so a phone, PAN, Aadhaar, email or credential ID a model echoes is dropped
+  rather than stored or printed. See `app/config.py`.
 - **Fail closed.** On oversize input, parsing errors, or a residual numeric
   sequence that looks like un-masked PII, the gateway returns `blocked=true` and
   the LLM is never called.
@@ -187,7 +193,10 @@ and `app/ai/langfuse_tracing.py` masks *again* on export, failing closed: a payl
 the gate refuses is replaced wholesale rather than shipped. The voice route is
 stricter still — raw worker speech (`transcript_text`, `english_text`) is **never**
 traced, only counts; the one text it does record is the already-masked payload
-actually sent to Sarvam.
+actually sent to Sarvam. Exception: with `AI_RAW_PII_ENABLED` on, both trace sinks
+(the Langfuse `mask=` hook and the `ai_call_traces` text) pass values through
+unmasked, so a trace records what the provider was sent. Each routed call's task
+span carries `ai_raw_pii_enabled` in its metadata, and boot logs a WARNING.
 
 **Cost.** Model id + token counts go on the generation, so Langfuse prices calls from
 its own table. Our `estimated_cost_inr` goes in metadata and never in `cost_details`,

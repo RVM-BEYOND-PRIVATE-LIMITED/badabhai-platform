@@ -318,6 +318,24 @@ services:
       # P3 — career answers (Claude, Hinglish only, inside the fixed refusals).
       CHAT_COMPANION_V2_CAREER_ENABLED: ${CHAT_COMPANION_V2_CAREER_ENABLED:-false}
 
+      # ---- AI_RAW_PII_ENABLED — RAW TEXT TO THE MODEL (owner decision 2026-09-30, ADR-0047).
+      #
+      # ONE name, declared on BOTH services (the ai-service copy is below, where most of the
+      # effect lives). On the api it moves ONE prompt masker: companion v2 skips its /pseudonymize
+      # hop (so its Redis memory holds raw text, TTL-bound). The known-name redaction in profile
+      # extraction and both /profiling/turn callers (the classic interview turn, the skills stage)
+      # does not read it and runs either way (ADR-0047 G2), and neither does the
+      # hard-identifier drop on companion edit rows (G1). Raw text at rest is that memory plus the
+      # ai_call_traces text when AI_CALL_TRACE_TEXT_ENABLED is on; the storage walls, the at-rest
+      # masked copies, events and logs do not change. OFF is today's masked path for every prompt.
+      #
+      # ARMED ONLY BY THE PRODUCTION-ENVIRONMENT SECRET of the same name (ci.yml bridges it) plus a
+      # redeploy. The bridge exports an unset secret as "", which `:-false` turns back into off —
+      # so a value left in the box's `.env` is overridden on every deploy, and the secret is the
+      # one arming path. Revert: set the secret to false (or delete it) and redeploy; raw memory
+      # turns then linger until trimmed or expired unless the companion:v2:mem:* keys are deleted.
+      AI_RAW_PII_ENABLED: ${AI_RAW_PII_ENABLED:-false}
+
       # ---- THE GENERAL ROAD (ADR-0045) — roles outside the 21 predefined roles.
       #
       # On, such a worker's chat runs role → skills and closes with a card to the offline general
@@ -880,6 +898,16 @@ services:
       # config-file shape (`_is_config_file` / this repo's tracked source) — they cannot see
       # box-side state, and that boundary is unchanged from before this note.
       RESUME_PARSE_RAW_TEXT_ENABLED: ${RESUME_PARSE_RAW_TEXT_ENABLED:-false}
+
+      # ---- AI_RAW_PII_ENABLED — the SAME switch as on the api above (owner decision 2026-09-30,
+      # ADR-0047). On, every PROMPT-side masker passes the text through unchanged (the size
+      # caps stay: they bound cost, not PII), the résumé routes take their raw path as if the D5
+      # flag above were armed, and Langfuse / ai_call_traces receive the text unmasked. Every
+      # OUTPUT wall (the certifiers, gate 6, the placeholder refusals, the G1 hard-identifier
+      # floor) and every at-rest masked copy are untouched. Default off; armed only by the
+      # production-environment secret plus a redeploy, exactly like the api copy. `:-false`
+      # because pydantic rejects "" for a bool.
+      AI_RAW_PII_ENABLED: ${AI_RAW_PII_ENABLED:-false}
 
       # ---- V8 SARVAM. The key is the arming credential and is empty until the owner sets it;
       # the per-task allowlist below still gates it (`tts_synthesis` / `stt_transcription` are

@@ -9,7 +9,7 @@ O7, O9, O10, O13, O16.
 
 ```
 classifier → career_talk & CAREER flag on → CareerTalkHandler
-  context  ← memory (last 6 pseudonymized turns) + worker_context (trade label, experience bucket)
+  context  ← memory (last 6 turns; pseudonymized unless AI_RAW_PII_ENABLED, §3) + worker_context (trade label, experience bucket)
   call     ← ai-service POST /companion/career (Claude route)
   status refuse → fixed V2_CAREER_REFUSE_<topic> (reviewed copy, with Devanagari twin + read-aloud)
   status answer → validate (§2) → pass: turn {reply: lines joined, read_aloud: false}
@@ -77,7 +77,9 @@ NFKD-folded form with combining marks dropped, so a fullwidth `Ｓａｌａｒ�
   normal answer using "perfect", "interview" or a question-chip became a fallback that the
   ai-service eval (scored before the validator) could not see.
 - Temperature low (≤ 0.4). `max_output_tokens` small (answer ≤ 4 lines).
-- Input text pseudonymized at the endpoint; memory turns are already pseudonymized.
+- Input text pseudonymized at the endpoint; memory turns are already pseudonymized. Both hold
+  while `AI_RAW_PII_ENABLED` is off; armed ([ADR-0047](../../decisions/0047-lift-pii-restriction.md)),
+  the input and the memory turns are the worker's own words.
 
 ## 4. Tasks
 

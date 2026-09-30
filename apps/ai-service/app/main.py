@@ -5,7 +5,10 @@ Endpoints: /health, /pseudonymize, /profile/parse, /profile/extract,
 
 INVARIANT: pseudonymization runs BEFORE any external LLM path on every endpoint
 that could reach an LLM. If pseudonymization is blocked, the LLM is never called
-and a safe fallback is returned (fail closed). Model routing and cost tracking live
+and a safe fallback is returned (fail closed). Two flags lift the masking, both
+off by default: ``RESUME_PARSE_RAW_TEXT_ENABLED`` on the résumé routes and
+``AI_RAW_PII_ENABLED`` on every route (``app/llm_input_policy.py``); prompts then go
+through unmasked but still size-capped. Model routing and cost tracking live
 behind ``app.ai.router.AIRouter``; Langfuse tracing lives behind
 ``app.ai.langfuse_tracing.get_tracer()``, which the router uses and which the two
 non-router AI boundaries (skill embeds, voice STT/translate) use directly.
@@ -32,6 +35,7 @@ from .ai import cost_tracker, prompt_registry
 from .ai.langfuse_tracing import get_tracer
 from .config import get_settings
 from .job_posting_chat import interview_engine as job_posting_engine
+from .llm_input_policy import log_input_posture
 from .logging_config import configure_logging, correlation_id_var, get_logger, request_id_var
 from .routers import (
     companion,
@@ -110,6 +114,10 @@ async def _lifespan(_app: FastAPI):
     # (or the reason it is not) is logged at STARTUP rather than on the first AI
     # call. Constructing it does no network I/O, and it never raises.
     tracer = get_tracer()
+    # Same argument again: whether this process sends prompts UNMASKED is decided by a secret
+    # and a redeploy, so it is announced here, once, rather than left to the secret's history.
+    # Silent on the default posture.
+    log_input_posture(get_settings())
     # Bind each production prompt name to the builder that produces its LOCAL text, so
     # every generation can record WHICH prompt version ran. Done from the lifespan and not
     # at import time for the reason `install_default_prompts` states: it imports the

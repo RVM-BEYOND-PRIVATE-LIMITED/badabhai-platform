@@ -152,6 +152,7 @@ export function turnInput(text: string, now: Date = T0): {
   now: Date;
   submissionId: string | null;
   voiceNoteId: string | null;
+  knownName: () => Promise<string | null>;
   ctx: { requestId: string; correlationId: string };
 } {
   return {
@@ -161,6 +162,7 @@ export function turnInput(text: string, now: Date = T0): {
     now,
     submissionId: null,
     voiceNoteId: null,
+    knownName: async () => null,
     ctx: { requestId: "req_1", correlationId: "corr_1" },
   };
 }

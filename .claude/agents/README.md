@@ -6,7 +6,7 @@ Charter: [docs/engineering-org/organization.md](../../docs/engineering-org/organ
 Path ownership: [docs/engineering-org/ownership-map.md](../../docs/engineering-org/ownership-map.md).
 
 These roles are permanent and describe **engineering ownership, not the current human team**.
-Every agent inherits the [CLAUDE.md §2 invariants](../../CLAUDE.md) and the
+Every agent inherits the [CLAUDE.md §3 invariants](../../CLAUDE.md) and the
 [quality gates](../../docs/engineering-org/quality-gates.md). Model tier is inherited from the
 session unless a task clearly needs otherwise.
 
@@ -46,7 +46,7 @@ the Architect) invokes them into their own work.
 
 | Agent | Gates on |
 | ----- | -------- |
-| [`security-engineer`](./security-engineer.md) | PII boundary, pseudonymization, consent/DPDP. **Mandatory** for any PII/AI/auth change. A Critical privacy finding is never downgraded. |
+| [`security-engineer`](./security-engineer.md) | The prompt-masking switch and output walls ([ADR-0047](../../docs/decisions/0047-lift-pii-restriction.md)), PII at rest, pseudonymization, consent/DPDP. **Mandatory** for any PII/AI/auth change. A Critical privacy finding is never downgraded. |
 | [`security-reviewer`](./security-reviewer.md) | Authz/IDOR, never-trust-body-ids, input validation, secrets, RLS exposure |
 | [`code-reviewer`](./code-reviewer.md) | Pre-merge correctness, invariants, readability, reuse |
 | [`migration-reviewer`](./migration-reviewer.md) | Migration/RLS safety, backward compatibility, drift, rollback |
@@ -71,10 +71,11 @@ the Architect) invokes them into their own work.
 ## Why security is a gate and not one of the seven
 
 The seven-role brief distributes security across the roles. This repository cannot do that
-alone: [CLAUDE.md §2](../../CLAUDE.md) invariants #2/#3/#6 and the §6 merge gates require an
-**independent** privacy review for any PII/AI/auth change. So security is **both** — every
-owner is responsible for security inside their domain, *and* `security-engineer` remains a
-non-owning blocking gate. Owning no files, it preserves "one primary owner per path".
+alone: [CLAUDE.md §3](../../CLAUDE.md) privacy (as amended by
+[ADR-0047](../../docs/decisions/0047-lift-pii-restriction.md)), the consent gate and the §14
+quality gates require an **independent** privacy review for any PII/AI/auth change. So security
+is **both** — every owner is responsible for security inside their domain, *and*
+`security-engineer` remains a non-owning blocking gate. Owning no files, it preserves "one primary owner per path".
 
 ---
 
@@ -97,8 +98,8 @@ The Architect synthesizes them into one strategy; the owners then build in paral
 - Request changes through the owner; do not work around them.
 - A backend defect is fixed **at its source** — never compensated for in a client (invariant #9).
 - Escalate architectural disagreements to the Chief Software Architect; their call is final.
-- Escalate past the Architect to the **human owner** for: a §2 invariant change, a §3 stack
-  change, a destructive migration, real provider keys or spend, production data, or a launch-gate flip.
+- Escalate past the Architect to the **human owner** for: a CLAUDE.md §3 invariant change, a
+  stack change, a destructive migration, real provider keys or spend, production data, or a launch-gate flip.
 - Optimize for long-term maintainability over short-term speed.
 
 > **Skills.** The `.claude/skills/` directory was **retired on 2026-08-05** (owner decision; 24

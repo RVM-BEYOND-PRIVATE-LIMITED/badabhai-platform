@@ -54,6 +54,7 @@ from ..contracts import (
     TradeAssociation,
     TranscriptLine,
 )
+from ..llm_input_policy import resume_input_raw
 from ..logging_config import get_logger
 from ..profiling import parse_gates
 from ..profiling.canonical_roles import coerce_json_text
@@ -186,8 +187,9 @@ async def parse_resume(
 
     # ---- 3. MASK ------------------------------------------------------------
     # ADR-0041 D5 lives in exactly this line. See `parse_policy` for the argument, and
-    # note that the certifier used at step 6 is NOT derived from this policy.
-    raw_text_enabled = settings.resume_parse_raw_text_enabled
+    # note that the certifier used at step 6 is NOT derived from this policy. D5's flag or
+    # the platform's `AI_RAW_PII_ENABLED` selects it (`llm_input_policy.resume_input_raw`).
+    raw_text_enabled = resume_input_raw(settings)
     masked = mask_resume_lines(extraction.lines, input_masker(raw_text_enabled=raw_text_enabled))
     if raw_text_enabled:
         # A NOTE, NOT A LOG LINE WITH THE TEXT IN IT. Which posture produced a given import

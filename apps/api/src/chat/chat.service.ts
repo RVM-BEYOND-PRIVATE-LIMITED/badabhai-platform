@@ -6,6 +6,7 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { type KnownNameSource, knownNameOnce } from "../common/redact-known-name";
 import { ProfilesService } from "../profiles/profiles.service";
 import { ProfilingOrchestrator, type TurnResult } from "../profiling/orchestrator.service";
 import { CLOSING_REPLY_TEXT } from "../profiling/next-question";
@@ -492,34 +493,34 @@ export class ChatService {
    *     the id exists and turns this route into an existence oracle);
    *   - the ownership check reads the `chat_sessions` ROW, never the buffer — an
    *     absent cache key must never be able to answer an authorization question;
-   *   - (WITHDRAWN — see below) this line claimed `redactKnownName` strips the worker's
-   *     own name from everything crossing the ai-service boundary. It no longer does, and
-   *     this file no longer imports it;
+   *   - the worker's own known name is redacted (`redactKnownName`) out of everything the
+   *     interview model reads — the message and every history line — at the one egress
+   *     both model-led turns share (`redactedTurnText`, called by `LlmTurnService.take` and
+   *     `SkillsTurnService.take`), whatever `AI_RAW_PII_ENABLED` says (ADR-0047 G2). This
+   *     method makes no ai-service call itself; it builds the name lookup once
+   *     (`knownNameOnce`) and hands it to the turn, so the redaction and the vocative below
+   *     share one read and one decrypt;
    *   - `renderWorkerName` runs LAST, on the client-returned string only.
    *
-   * WHY THAT LINE WAS WITHDRAWN RATHER THAN DELETED (R6, found by the ai-engineer review of
-   * the pseudonymisation change). It was true when the turn made a `profilingRespond` round
-   * trip from here. That round trip is gone — this method makes ZERO ai-service calls, and
-   * `grep redactKnownName apps/api/src` finds it only in `profile-extraction.processor.ts`.
-   *
-   * BUT THE PROTECTION DID NOT MOVE WITH THE CALL. `LlmTurnService.take` sends `message_text`
-   * and the whole `history` to `/profiling/turn` unredacted, and `profiling_chat_turn` is the
-   * ONE task `docker-compose.staging.yml` arms by default. So on the live LLM-led interview the
-   * worker's own name is defended by the ai-service gateway alone — which is precisely the
-   * surface R32 measures as leaking 3 of 4 un-cued forms, and which the owner accepted in
-   * writing on 2026-08-01.
-   *
-   * That is not a new leak and it is not this file's to close: R32 is an accepted risk with a
-   * named abort lever (`AI_REAL_CALLS_KILL_SWITCH`). What it IS, is a comment that told every
-   * later reader a mitigation was in place on the armed path. Recorded against R32 in
-   * `docs/registers/risks-register.md` rather than quietly deleted, because the gap between
-   * "extraction is redacted" and "the chat turn is not" is the useful half.
+   * THAT REDACTION WAS ONCE LOST, AND THIS IS WHERE IT WENT (R6, then #1858). The line used
+   * to be true because the turn made a `profilingRespond` round trip from here. When that call
+   * moved behind the orchestrator the redaction did not move with it: for a while
+   * `LlmTurnService.take` sent `message_text` and the whole `history` to `/profiling/turn`
+   * with the name defended by the ai-service gateway alone — the surface R32 measures as
+   * leaking 3 of 4 un-cued forms. With `AI_RAW_PII_ENABLED` armed that gateway passes text
+   * through, and a name the model read could settle into `role_label` → `trade` →
+   * `profile.primary_role` → the employer copy, which shows initials until an unlock. So the
+   * redaction now sits at the model's egress rather than here, where no later refactor of the
+   * call path can leave it behind again.
    */
   async postMessage(
     workerId: string,
     dto: PostMessageDto,
     ctx: RequestContext,
   ): Promise<PostMessageResponse> {
+    // ONE name lookup for the whole request: the model's egress (if this turn calls one) and the
+    // reply's vocative read the same memoised value.
+    const knownName = knownNameOnce(() => this.workerFullName(workerId));
     // `?? null` AND NOT `?? undefined`: absent on the wire is the supported legacy case — an app
     // build that predates the field — and it has to arrive at the replay gate as the explicit
     // "this submission carries no id" that makes it take the hash + window path (#931).
@@ -534,7 +535,7 @@ export class ChatService {
       // ordinary text. If that route ever grows a clip id, this is the line that must change.
       null,
       // ADR-0045: the chat is the ONE surface that may arm a new session for the general road.
-      { armGeneralRoad: true },
+      { armGeneralRoad: true, knownName },
     );
     switch (outcome.kind) {
       case "session_over":
@@ -642,7 +643,7 @@ export class ChatService {
           dto.session_id,
         );
       case "turn":
-        return this.projectTurn(dto.session_id, workerId, outcome);
+        return this.projectTurn(dto.session_id, outcome, knownName);
     }
   }
 
@@ -696,8 +697,12 @@ export class ChatService {
      * ADR-0045 — `armGeneralRoad` is set by `postMessage` alone, so only a CHAT session can be
      * armed for the general road. Optional because absence is today's interview: the voice form
      * never passes it, and that is how its sessions stay unarmed.
+     *
+     * `knownName` is a caller's own lookup of the worker's name, passed so the turn shares it
+     * (`postMessage` reuses it for the vocative). ABSENT IS STILL REDACTED: this method then builds
+     * its own, so a caller that omits it — the voice form — costs a read, never the redaction.
      */
-    opts?: { readonly armGeneralRoad?: boolean },
+    opts?: { readonly armGeneralRoad?: boolean; readonly knownName?: KnownNameSource },
   ): Promise<ChatTurnOutcome> {
     const dto = { session_id: sessionId, text };
     const session = await this.chat.findSession(dto.session_id);
@@ -796,6 +801,8 @@ export class ChatService {
       submissionId,
       voiceNoteId,
       ...(opts?.armGeneralRoad === true ? { armGeneralRoad: true } : {}),
+      // Read only if this turn calls a model — see `TurnInput.knownName`.
+      knownName: opts?.knownName ?? knownNameOnce(() => this.workerFullName(workerId)),
       ctx,
     });
 
@@ -925,8 +932,8 @@ export class ChatService {
    */
   private async projectTurn(
     sessionId: string,
-    workerId: string,
     outcome: Extract<ChatTurnOutcome, { kind: "turn" }>,
+    knownName: KnownNameSource,
   ): Promise<PostMessageResponse> {
     const { turn, buffered, terminal, updateQueued, generalFormOffer } = outcome;
     const dto = { session_id: sessionId };
@@ -938,7 +945,10 @@ export class ChatService {
     //    affordance of the pack corpus, the validator permits it, and removing the
     //    interpolation would turn the first pack that uses it into a literal
     //    `{{worker_name}}` on a worker's screen.
-    const workerFullName = await this.workerFullName(workerId);
+    //
+    //    The SAME lookup the turn's model egress used for its redaction, if it made a call —
+    //    memoised, so this is no second read.
+    const workerFullName = await knownName();
     const occupation = buffered.profiling?.occupation ?? null;
     // ADR-0043 — A HAAN THAT DID NOT BECOME THE RECORD IS NOT ANNOUNCED. When another request closed
     // the session first (the abandonment sweep settling an idle offer), nothing was queued for this
@@ -2137,14 +2147,15 @@ export class ChatService {
 
   /**
    * The worker's DECRYPTED `full_name`, or `null` when there is none / it cannot be
-   * decrypted. ONE read per chat turn; both consumers (R32 outbound redaction and
-   * the AI-PERSONA-2 vocative) take the same value.
+   * decrypted. ONE read per chat turn, through `knownNameOnce`; both consumers (the R32
+   * redaction at the interview model's egress, `redactedTurnText`, and the AI-PERSONA-2
+   * vocative) take the same value.
    *
-   * The plaintext never leaves this class: it is used to REMOVE text on the way out
+   * The plaintext never leaves the request: it is used to REMOVE text on the way out
    * (`redactKnownName`) and to interpolate the vocative in the client-facing reply
    * only. It is never logged, evented, stored, or sent to the ai-service/LLM.
    *
-   * Never throws. A malformed / rotated-key / tampered token degrades to `null` —
+   * A decrypt never throws. A malformed / rotated-key / tampered token degrades to `null` —
    * a key rotation must not break every worker's chat at once — and the warning
    * carries the opaque worker id ONLY, never the token or the decrypted value.
    */
