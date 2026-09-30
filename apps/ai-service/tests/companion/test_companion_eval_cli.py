@@ -46,6 +46,7 @@ def _meta(real_call: bool = True, success: bool = True, latency_ms: int = 100) -
         "real_call": real_call,
         "success": success,
         "latency_ms": latency_ms,
+        "estimated_cost_inr": 0.25 if real_call else 0.0,
         "error_code": None if real_call and success else "llm_call_failed",
     }
 
@@ -193,6 +194,8 @@ def test_a_failed_call_is_scored_as_no_answer_and_the_run_continues(
     assert "FAILED CALL 'b': ConnectTimeout" in out
     assert "FAILED CALL 'd': JSONDecodeError" in out
     assert "calls: 4 sent, 1 answered by the model, 3 failed" in out
+    # Only the one answered real call is spend: the router's own estimate, summed.
+    assert "spend INR 0.25 (router estimate)" in out
     assert "INCOMPLETE: 3 calls failed" in out
     assert "RESULT: FAIL" in out
 

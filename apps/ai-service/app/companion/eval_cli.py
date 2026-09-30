@@ -178,7 +178,9 @@ class CallLog:
 
     ``latencies_ms`` holds the wall-clock round trip of each call the MODEL answered (a
     gateway-blocked input, a failure and a mock answer made no model call worth timing);
-    ``model_latencies_ms`` the router's own ``ai_metadata.latency_ms`` for the same calls.
+    ``model_latencies_ms`` the router's own ``ai_metadata.latency_ms`` for the same calls, and
+    ``cost_inr`` the sum of their ``ai_metadata.estimated_cost_inr`` — the run's spend as the
+    router's cost tracker measured it, so the evidence records a number, not a guess.
     """
 
     sent: int = 0
@@ -187,6 +189,7 @@ class CallLog:
     failures: list[str] = field(default_factory=list)
     mocked: list[str] = field(default_factory=list)
     over_api_timeout: list[str] = field(default_factory=list)
+    cost_inr: float = 0.0
 
     @property
     def p50_ms(self) -> float | None:
@@ -262,6 +265,9 @@ def _call(base_url: str, path: str, body: dict, log: CallLog, label: str) -> dic
     model_ms = meta.get("latency_ms")
     if isinstance(model_ms, int | float):
         log.model_latencies_ms.append(float(model_ms))
+    cost = meta.get("estimated_cost_inr")
+    if isinstance(cost, int | float):
+        log.cost_inr += float(cost)
     if wall_ms > API_TIMEOUT_MS[path]:
         log.over_api_timeout.append(f"{label}: {wall_ms:.0f} ms")
         return None
@@ -467,7 +473,8 @@ def _print_calls(log: CallLog, p95_bar_ms: float | None) -> None:
     answered = len(log.latencies_ms)
     print(
         f"calls: {log.sent} sent, {answered} answered by the model, {len(log.failures)} failed, "
-        f"{len(log.mocked)} mock answers, {len(log.over_api_timeout)} slower than the API timeout"
+        f"{len(log.mocked)} mock answers, {len(log.over_api_timeout)} slower than the API timeout; "
+        f"spend INR {log.cost_inr:.2f} (router estimate)"
     )
     bar = "" if p95_bar_ms is None else f" (bar < {p95_bar_ms:.0f} ms)"
     print(
