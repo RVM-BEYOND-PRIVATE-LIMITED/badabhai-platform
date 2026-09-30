@@ -1038,4 +1038,160 @@ void main() {
       await bloc.close();
     });
   });
+
+  // ── ADR-0046 — THE v2 FIELDS REACH STATE FROM *EVERY* COMPANION PATH ───────
+  //
+  // A companion turn becomes state in five places. Two of them (the refocus
+  // refresh and the interview→recap move) never learned about `edit_proposal`,
+  // so a card served there was dropped — and, worse, a card already on screen
+  // OUTLIVED the turn that should have replaced it, because a copyWith that
+  // names nothing keeps the old value. All five now go through one projection;
+  // these tests are what keeps a sixth from being written by hand.
+  group('every companion path carries the v2 fields', () {
+    EditProposal card(String id) => EditProposal(
+          proposalId: id,
+          expiresAt: DateTime.now().add(const Duration(minutes: 5)),
+          rows: const <EditProposalRow>[
+            EditProposalRow(
+              rowId: 'r1',
+              sectionLabel: 'Skills',
+              op: 'add',
+              after: 'Welding',
+            ),
+          ],
+        );
+
+    ChatTurn withCard(String reply, String id, {String? digestKey}) => ChatTurn(
+          reply: reply,
+          companion: true,
+          digestKey: digestKey,
+          editProposal: card(id),
+        );
+
+    test('the OPEN carries a card', () async {
+      when(() => repo.openCompanion()).thenAnswer((_) async =>
+          CompanionOpening(CompanionOpenOutcome.companion,
+              withCard(_recap, 'p-open', digestKey: 'k1')));
+      final ChatBloc bloc = ChatBloc(repo)..add(const ChatCompanionStarted());
+      await pumpEventQueue();
+      expect(bloc.state.editProposal?.proposalId, 'p-open');
+      await bloc.close();
+    });
+
+    test('a REFOCUS REFRESH carries a card, and clears a stale one', () async {
+      when(() => repo.openCompanion()).thenAnswer((_) async =>
+          CompanionOpening(CompanionOpenOutcome.companion,
+              withCard(_recap, 'p-first', digestKey: 'k1')));
+      final ChatBloc bloc = ChatBloc(repo)..add(const ChatCompanionStarted());
+      await pumpEventQueue();
+      expect(bloc.state.editProposal?.proposalId, 'p-first');
+
+      // A refresh whose turn carries a DIFFERENT card replaces it...
+      when(() => repo.openCompanion()).thenAnswer((_) async =>
+          CompanionOpening(CompanionOpenOutcome.companion,
+              withCard('Naya recap.', 'p-second', digestKey: 'k2')));
+      bloc.add(const ChatCompanionRefreshRequested(force: true));
+      await pumpEventQueue();
+      expect(bloc.state.editProposal?.proposalId, 'p-second',
+          reason: 'the refresh dropped the card');
+
+      // ...and a refresh whose turn carries NONE clears it, rather than leaving
+      // a dead card the worker can still tap Haan on.
+      when(() => repo.openCompanion()).thenAnswer((_) async => CompanionOpening(
+          CompanionOpenOutcome.companion,
+          _companion('Aur kuch?', digestKey: 'k3')));
+      bloc.add(const ChatCompanionRefreshRequested(force: true));
+      await pumpEventQueue();
+      expect(bloc.state.editProposal, isNull,
+          reason: 'a card outlived the turn that replaced it');
+      await bloc.close();
+    });
+  });
+
+  // ── #1821 F1 — THE COOL-DOWN IS STICKY ─────────────────────────────────────
+  group('the cool-down survives the turns that follow it', () {
+    test('a later turn without cooldown_until does NOT hand the composer back',
+        () async {
+      final DateTime until = DateTime.now().add(const Duration(minutes: 20));
+      when(() => repo.openCompanion()).thenAnswer((_) async => CompanionOpening(
+            CompanionOpenOutcome.companion,
+            ChatTurn(
+              reply: 'Thodi der ruk jaayein.',
+              companion: true,
+              digestKey: 'k1',
+              cooldownUntil: until,
+            ),
+          ));
+      // The server sends `cooldown_until` ONLY on the turn that starts the wait.
+      when(() => repo.sendCompanionMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => _companion('Theek hai.'));
+
+      final ChatBloc bloc = ChatBloc(repo)..add(const ChatCompanionStarted());
+      await pumpEventQueue();
+      expect(bloc.state.cooldownUntil, until);
+
+      // Tapping any chip posts a message; its reply omits the field.
+      bloc.add(const ChatMessageSent('Naya resume'));
+      await pumpEventQueue();
+
+      expect(bloc.state.cooldownUntil, until,
+          reason: 'a chip tap unlocked the composer while the server cool-down '
+              'still had minutes to run — the next message would be refused');
+      await bloc.close();
+    });
+
+    test('a cool-down whose instant has PASSED is dropped', () async {
+      final DateTime past = DateTime.now().subtract(const Duration(minutes: 1));
+      when(() => repo.openCompanion()).thenAnswer((_) async => CompanionOpening(
+            CompanionOpenOutcome.companion,
+            ChatTurn(
+              reply: 'Thodi der ruk jaayein.',
+              companion: true,
+              digestKey: 'k1',
+              cooldownUntil: past,
+            ),
+          ));
+      when(() => repo.sendCompanionMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => _companion('Theek hai.'));
+      final ChatBloc bloc = ChatBloc(repo)..add(const ChatCompanionStarted());
+      await pumpEventQueue();
+
+      bloc.add(const ChatMessageSent('Naya resume'));
+      await pumpEventQueue();
+      expect(bloc.state.cooldownUntil, isNull,
+          reason: 'an elapsed wait must not stay pinned forever');
+      await bloc.close();
+    });
+  });
+
+  // ── ADR-0046 O9 — the read-aloud guard on EVERY bot bubble ─────────────────
+  test('a model-written turn never yields a speakable bubble, on any path',
+      () async {
+    when(() => repo.openCompanion()).thenAnswer((_) async => CompanionOpening(
+          CompanionOpenOutcome.companion,
+          const ChatTurn(
+            reply: 'Welding mein NDT seekhein.',
+            companion: true,
+            digestKey: 'k1',
+            readAloud: false,
+          ),
+        ));
+    when(() => repo.sendCompanionMessage(any(),
+            submissionId: any(named: 'submissionId')))
+        .thenAnswer((_) async => const ChatTurn(
+              reply: 'Uske baad supervisor.',
+              companion: true,
+              readAloud: false,
+            ));
+    final ChatBloc bloc = ChatBloc(repo)..add(const ChatCompanionStarted());
+    await pumpEventQueue();
+    expect(bloc.state.messages.last.canReadAloud, isFalse, reason: 'open');
+
+    bloc.add(const ChatMessageSent('Career ki baat'));
+    await pumpEventQueue();
+    expect(bloc.state.messages.last.canReadAloud, isFalse, reason: 'reply');
+    await bloc.close();
+  });
 }

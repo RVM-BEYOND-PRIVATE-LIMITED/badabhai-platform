@@ -30,21 +30,36 @@ void main() {
       expect(companionEditValue('TRUE'), 'Haan');
     });
 
-    test('a slug this build does not know is still never shown raw', () {
-      // languages:language, qualifications:education_credential and
-      // availability_status are closed sets the card can carry whose members
-      // this build has no table for.
-      expect(companionEditValue('hindi'), 'Hindi');
+    test('an unknown snake_case slug is never shown raw', () {
+      // qualifications:education_credential and availability_status are closed
+      // sets the card can carry whose members this build has no table for.
       expect(companionEditValue('serving_notice'), 'Serving Notice');
       expect(companionEditValue('within_week'), 'Within Week');
       // Nothing that came back may still look like a token.
       for (final String out in <String>[
-        companionEditValue('hindi'),
         companionEditValue('serving_notice'),
         companionEditValue('some_future_slug'),
       ]) {
         expect(out.contains('_'), isFalse, reason: 'raw token leaked: $out');
       }
+    });
+
+    test('a one-word value is left ALONE — it may be the worker\'s own', () {
+      // THE AMBIGUITY THIS FILE CANNOT RESOLVE. `night` and `hindi` are slugs,
+      // but `welding`, `pune` and `iti` are a skill, a city and a certificate —
+      // free text the worker typed — and the wire carries no field name to tell
+      // them apart. Title-casing every lower-case word rewrote worker data
+      // (`iti` → "Iti"), so only snake_case is reshaped now.
+      for (final String own in <String>['welding', 'pune', 'iti', 'fitter']) {
+        expect(companionEditValue(own), own, reason: own);
+      }
+      // A one-word value this build DOES know is still named properly, because
+      // the vocabulary is consulted before the shape test.
+      expect(companionEditValue('night'), 'Night shift');
+      expect(companionEditValue('permanent'), 'Permanent');
+      // And one it does not know is shown as it arrived — not mangled, not a
+      // raw snake_case id.
+      expect(companionEditValue('hindi'), 'hindi');
     });
   });
 

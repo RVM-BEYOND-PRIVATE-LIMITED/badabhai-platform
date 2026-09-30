@@ -184,6 +184,10 @@ class BbRemoteConfig {
       _bool(kKeyChatCompanionV2Enabled, kDefaultChatCompanionV2Enabled);
 
   bool _bool(String key, bool fallback) {
+    // A DEBUG-BUILD override, so a lever can be exercised on a cabled phone
+    // without a console round-trip. Empty and inert in every release build —
+    // see [kDebugForcedRemoteFlags].
+    if (_debugForced.contains(key)) return true;
     final Object? value = _snapshot?[key];
     return value is bool ? value : fallback;
   }
@@ -192,6 +196,48 @@ class BbRemoteConfig {
     final Object? value = _snapshot?[key];
     return value is String ? value : fallback;
   }
+
+  /// The boolean levers a DEBUG build forces on, comma-separated.
+  ///
+  /// WHY THIS EXISTS. Every lever here ships at today's behaviour, and the v2
+  /// levers ship OFF, so a developer with the app on a cable sees exactly
+  /// nothing of a dark feature — the only switch is the Firebase console, which
+  /// means waiting on whoever owns the project and flipping a parameter that
+  /// reaches real devices within five minutes. That is the wrong tool for
+  /// "does my screen render". This is the right one:
+  ///
+  ///   flutter run --dart-define=FORCE_REMOTE_FLAGS=worker_chat_companion_enabled,worker_chat_companion_v2_enabled
+  ///
+  /// RELEASE BUILDS IGNORE IT COMPLETELY, and that is the whole safety argument.
+  /// These levers include KILL SWITCHES (`worker_voice_entry_hidden`), so an
+  /// override that survived into a release could pin a mic visible during the
+  /// very incident ops were trying to stop. [_debugForced] is therefore empty
+  /// in any release build, regardless of what was defined at build time.
+  ///
+  /// PROFILE BUILDS DO HONOUR IT, and deliberately. The guard is `!kReleaseMode`
+  /// rather than `kDebugMode` because a profile build is a developer build — it
+  /// never reaches a worker — while DEBUG is the one mode where the IDE halts on
+  /// every exception this codebase catches on purpose (telemetry, Remote Config,
+  /// Firebase before its init completes). Forcing a developer into debug just to
+  /// see a dark feature hands them a debugger that stops on caught exceptions
+  /// and looks exactly like a crash. Release is the boundary that matters;
+  /// profile is not on the other side of it.
+  ///
+  /// FORCES ON ONLY. A lever is either left alone or forced true; nothing here
+  /// can force one false, because "off" is already every default and is
+  /// reachable by simply not passing the flag. One direction is one thing to
+  /// reason about.
+  static const String kDebugForcedRemoteFlags =
+      String.fromEnvironment('FORCE_REMOTE_FLAGS');
+
+  /// [kDebugForcedRemoteFlags], parsed — and empty in release.
+  static final Set<String> _debugForced = !kReleaseMode
+      ? kDebugForcedRemoteFlags
+          .split(',')
+          .map((String k) => k.trim())
+          .where((String k) => k.isNotEmpty)
+          .toSet()
+      : const <String>{};
 
   /// Fetch and activate, bounded by [timeout]. NEVER throws, and never delays
   /// startup: call it unawaited from the splash / after the first frame.
