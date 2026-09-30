@@ -576,3 +576,30 @@ describe("searchOpenPostings — the PII-free projection", () => {
     }
   });
 });
+
+// =============================================================================================
+// Migration 0131 — the posting's display ROLE is on NO worker read (ADR-0024 addendum
+// 2026-09-29, #1823). Both worker job reads name their columns explicitly, so the new
+// `role_kind` column cannot arrive by accident — these pin that it has not been ADDED.
+// =============================================================================================
+describe("migration 0131 — role_kind is never selected by a worker job read", () => {
+  it("the legacy detail read and the V1 fallback leave it out", async () => {
+    const { repo, queries } = makeDb([], [{ id: JOB_ID }]);
+    await repo.findWorkerVisibleJobById(JOB_ID);
+    expect(queries).toHaveLength(2);
+    for (const q of queries) {
+      const projection = projectionOf(q);
+      // Vacuity guard: the projection really renders column names.
+      expect(projection).toMatch(/"(title|role_title)"/);
+      expect(projection).not.toContain("role_kind");
+    }
+  });
+
+  it("the search read leaves it out", async () => {
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings(SEARCH_ARGS);
+    const projection = Object.values(queries[0]!.selection!).map(render).join(" | ");
+    expect(projection).toContain('"role_title"');
+    expect(projection).not.toContain("role_kind");
+  });
+});

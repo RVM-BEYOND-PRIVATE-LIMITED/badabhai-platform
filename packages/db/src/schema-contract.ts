@@ -726,6 +726,41 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "entry, no resume.generated event, so edit-driven regenerations read as zero rather than " +
       "erroring",
   },
+  // 0131: the payer's role pick (ADR-0036 addendum 2026-09-29). Unconditional — no flag — because
+  // both tables are read through bare `select()` / `.returning()`, which name every model column.
+  // The two CHECKs are applied in the same transaction as the columns, so the columns answer for
+  // them. APPLY-BEFORE-DEPLOY (migration header).
+  {
+    id: "0131-job-postings-role-kind",
+    migration: "0131_job_role_kind",
+    kind: "column",
+    table: "job_postings",
+    object: "role_kind",
+    requiredBy:
+      "JobPostingsRepository's bare `select()` / `.returning()` (create, findById, list, update, " +
+      "close, findByIdAndPayer, listByPayer, updateOwned, closeOwned, transitionOwned) — every ops " +
+      "and payer posting read and write, including the chat publish's create",
+    failureMode:
+      "every payer/ops job-posting route 500s (column does not exist): create, list, detail, " +
+      "edit, publish, pause/resume, close. Old builds on a migrated database are fine (a " +
+      "superset); new builds on an unmigrated one are not, which is why this is " +
+      "APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0131-jobs-role-kind",
+    migration: "0131_job_role_kind",
+    kind: "column",
+    table: "jobs",
+    object: "role_kind",
+    requiredBy:
+      "AgencyJobsRepository's bare `select()` / `.returning()` (every agency job route) and " +
+      "ApplicationsRepository.findJobById — the existence check on the worker's legacy " +
+      "apply/skip path (`jobs`, MATCH_V1_ENABLED off)",
+    failureMode:
+      "every agency job route 500s, and so does a worker's apply/skip on the legacy path " +
+      "(column does not exist). Old builds on a migrated database are fine (a superset); new " +
+      "builds on an unmigrated one are not, which is why this is APPLY-BEFORE-DEPLOY",
+  },
   {
     id: "0125-resume-history-generation-source",
     migration: "0125_resume_history",

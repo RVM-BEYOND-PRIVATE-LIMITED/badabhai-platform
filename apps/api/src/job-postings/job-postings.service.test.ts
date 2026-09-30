@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import { fakeAiTraceRecorder } from "../ai/ai-trace-recorder.fake";
 import { JobPostingsService } from "./job-postings.service";
+import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
 import {
   CreateJobPostingSchema,
   PayerCreateJobPostingSchema,
@@ -42,6 +43,8 @@ type Row = {
    */
   jobDomainId: string | null;
   untickedRelatedIds: string[];
+  /** Migration 0131 — the display role. NULL for every posting nobody picked one for. */
+  roleKind: string | null;
   createdAt: Date;
   updatedAt: Date;
   closedAt: Date | null;
@@ -62,6 +65,7 @@ function row(overrides: Partial<Row> = {}): Row {
     skillIds: [],
     jobDomainId: null,
     untickedRelatedIds: [],
+    roleKind: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     closedAt: null,
@@ -108,6 +112,9 @@ function toApi(r: Row) {
     pay_type: null,
     shift: null,
     needed_by: null,
+    // Migration 0131 — mapped off the row like the real `toJobPostingApi`, so a create that
+    // stores a role echoes it back and the created event can be asserted on it.
+    role_kind: r.roleKind,
     published_at: null,
     boosted_until: null,
     created_at: r.createdAt,
@@ -352,6 +359,8 @@ describe("JobPostingsService.create", () => {
       created_by: CREATED_BY,
       has_location: true,
       has_description: true,
+      // Migration 0131 — no role picked on this create, so the event says so explicitly.
+      role_kind: null,
     });
     assertNoFreeText(arg.payload);
   });
@@ -1476,5 +1485,170 @@ describe("#1652 — the clear CONTRACT", () => {
 
   it("accepts `clear` as the ONLY key — clearing IS an edit", () => {
     expect(UpdateJobPostingSchema.safeParse({ clear: ["shift"] }).success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Migration 0131 — the posting's ROLE (ADR-0036 addendum 2026-09-29). One of the 21 declared
+// kinds, picked by the payer. DISPLAY / CLASSIFICATION ONLY: it is stored, echoed, evented by
+// KEY on update and by VALUE on create (a closed, PII-free enum), and it never reaches a match
+// input.
+// ---------------------------------------------------------------------------
+describe("migration 0131 — role_kind on the posting routes", () => {
+  it("create stores the role and puts it on job_posting.created", async () => {
+    const d = make();
+    await d.svc.createForPayer(
+      PAYER_ID,
+      { org_label: ORG, role_title: ROLE, vacancy_band: "1", role_kind: "welder" } as never,
+      CTX as never,
+    );
+    expect(d.create.mock.calls[0]![0]).toMatchObject({ roleKind: "welder" });
+    const payload = d.emit.mock.calls[0]![0].payload as Record<string, unknown>;
+    expect(payload.role_kind).toBe("welder");
+    assertNoFreeText(payload);
+  });
+
+  it("the ops create takes it too — one entity, not two create paths", async () => {
+    const d = make();
+    await d.svc.create(
+      {
+        created_by: CREATED_BY,
+        org_label: ORG,
+        role_title: ROLE,
+        vacancy_band: "1",
+        role_kind: "fitter",
+      } as never,
+      CTX as never,
+    );
+    expect(d.create.mock.calls[0]![0]).toMatchObject({ roleKind: "fitter" });
+    expect(d.emit.mock.calls[0]![0].payload.role_kind).toBe("fitter");
+  });
+
+  it("an omitted role stores NULL and events null — never a guessed role", async () => {
+    const d = make();
+    await d.svc.createForPayer(
+      PAYER_ID,
+      { org_label: ORG, role_title: ROLE, vacancy_band: "1" } as never,
+      CTX as never,
+    );
+    expect(d.create.mock.calls[0]![0]).toMatchObject({ roleKind: null });
+    expect(d.emit.mock.calls[0]![0].payload.role_kind).toBeNull();
+  });
+
+  it("is NEVER a match input — a role alone resolves no skills and stores none", async () => {
+    // ADR-0036 addendum: `match_skill_ids` stays the ONLY thing a posting is matched on. A
+    // role with no skills must not trigger the skill resolver or seed the match set.
+    const d = make();
+    await d.svc.createForPayer(
+      PAYER_ID,
+      { org_label: ORG, role_title: ROLE, vacancy_band: "1", role_kind: "welder" } as never,
+      CTX as never,
+    );
+    expect(d.resolveForPublish).not.toHaveBeenCalled();
+    const stored = d.create.mock.calls[0]![0] as Record<string, unknown>;
+    expect(stored.matchSkillIds).toEqual([]);
+    expect(stored.jobDomainId).toBeUndefined();
+    expect("reachSkillIds" in stored).toBe(false);
+  });
+
+  it('an update reports changed_fields ["role_kind"] — the KEY, never the value', async () => {
+    const d = make(row({ status: "open" }));
+    await d.svc.update(POSTING_ID, { role_kind: "welder" } as never, CTX as never);
+
+    expect(d.update.mock.calls[0]![1]).toMatchObject({ roleKind: "welder" });
+    const arg = d.emit.mock.calls[0]![0];
+    expect(arg.event_name).toBe("job_posting.updated");
+    expect(arg.payload.changed_fields).toEqual(["role_kind"]);
+    expect(JSON.stringify(arg.payload)).not.toContain("welder");
+  });
+
+  it("a role change is its OWN key — never reported as a match_skills change", async () => {
+    // A reader of the spine must be able to tell "the reach inputs moved" from "the display
+    // role moved". Folding them would make every role edit look like a reach edit.
+    const d = make(row({ status: "open" }));
+    await d.svc.update(POSTING_ID, { role_kind: "welder" } as never, CTX as never);
+    expect(d.emit.mock.calls[0]![0].payload.changed_fields).not.toContain("match_skills");
+    expect(d.materializeReach).not.toHaveBeenCalled();
+  });
+
+  it("the payer update path carries it the same way", async () => {
+    const d = make(row({ status: "draft" }));
+    await d.svc.updateForPayer(
+      POSTING_ID,
+      PAYER_ID,
+      { role_kind: "cam_programmer" } as never,
+      CTX as never,
+    );
+    expect(d.updateOwned.mock.calls[0]![2]).toMatchObject({ roleKind: "cam_programmer" });
+    expect(d.emit.mock.calls[0]![0].payload.changed_fields).toEqual(["role_kind"]);
+  });
+
+  it('clear: ["role_kind"] stores NULL and reports the key', async () => {
+    const d = make(row({ status: "open", roleKind: "welder" }));
+    await d.svc.update(POSTING_ID, { clear: ["role_kind"] } as never, CTX as never);
+    expect(d.update.mock.calls[0]![1]).toMatchObject({ roleKind: null });
+    expect(d.emit.mock.calls[0]![0].payload.changed_fields).toEqual(["role_kind"]);
+  });
+
+  it("VACUITY GUARD: the clear case above started from a real role", () => {
+    expect(toApi(row({ roleKind: "welder" })).role_kind).toBe("welder");
+  });
+
+  it("re-sending the SAME role is no change — 400, no write, no event", async () => {
+    const d = make(row({ status: "open", roleKind: "welder" }));
+    await expect(
+      d.svc.update(POSTING_ID, { role_kind: "welder" } as never, CTX as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(d.update).not.toHaveBeenCalled();
+    expect(d.emit).not.toHaveBeenCalled();
+  });
+
+  it("clearing a role that is ALREADY null is no change either", async () => {
+    const d = make(row({ status: "open" }));
+    await expect(
+      d.svc.update(POSTING_ID, { clear: ["role_kind"] } as never, CTX as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(d.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("migration 0131 — the role_kind CONTRACT on the posting DTOs", () => {
+  const BASE = { org_label: ORG, role_title: ROLE, vacancy_band: "1" };
+
+  it.each(TRADE_FORM_KINDS_ALL)("accepts %s on create and update — all 21 are postable", (kind) => {
+    expect(PayerCreateJobPostingSchema.safeParse({ ...BASE, role_kind: kind }).success).toBe(true);
+    expect(UpdateJobPostingSchema.safeParse({ role_kind: kind }).success).toBe(true);
+  });
+
+  it("a parsed create keeps the role — the schema does not strip it", () => {
+    const parsed = PayerCreateJobPostingSchema.parse({ ...BASE, role_kind: "welder" });
+    expect(parsed.role_kind).toBe("welder");
+    const ops = CreateJobPostingSchema.parse({
+      ...BASE,
+      created_by: CREATED_BY,
+      role_kind: "welder",
+    });
+    expect(ops.role_kind).toBe("welder");
+  });
+
+  it("rejects anything outside the 21 — a trade key, a label, free text", () => {
+    for (const bad of ["cnc_operator", "Welder", "welder ", "Ramesh 9876543210", ""]) {
+      expect(PayerCreateJobPostingSchema.safeParse({ ...BASE, role_kind: bad }).success, bad).toBe(
+        false,
+      );
+      expect(UpdateJobPostingSchema.safeParse({ role_kind: bad }).success, bad).toBe(false);
+    }
+  });
+
+  it("rejects an explicit null — unsetting is `clear`, never a stray null (#1652)", () => {
+    expect(PayerCreateJobPostingSchema.safeParse({ ...BASE, role_kind: null }).success).toBe(false);
+    expect(UpdateJobPostingSchema.safeParse({ role_kind: null }).success).toBe(false);
+  });
+
+  it("role_kind is a clearable name, and SET + CLEAR of it is a 400", () => {
+    expect(UpdateJobPostingSchema.safeParse({ clear: ["role_kind"] }).success).toBe(true);
+    const both = UpdateJobPostingSchema.safeParse({ role_kind: "welder", clear: ["role_kind"] });
+    expect(both.success).toBe(false);
+    expect(JSON.stringify(both.error?.issues)).toContain("both set and cleared");
   });
 });

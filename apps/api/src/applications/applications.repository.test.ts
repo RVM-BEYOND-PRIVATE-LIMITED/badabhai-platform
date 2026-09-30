@@ -350,3 +350,23 @@ describe("#1649 — findOpenJobs orders NEWEST FIRST and projects the posting da
     }
   });
 });
+
+// =============================================================================================
+// Migration 0131 — the posting's display ROLE is on NO worker read (ADR-0024 addendum
+// 2026-09-29, #1823). findOpenJobs is the MATCH_V1-OFF worker feed — the FeedItem source in
+// prod — and names its columns explicitly, so `role_kind` cannot arrive by accident. The V1
+// match-feed, /jobs/search and the job-detail reads have their own pins in
+// jobs.repository.test.ts / match-feed.*.test.ts; this closes the last FeedItem-producing read.
+// =============================================================================================
+describe("migration 0131 — findOpenJobs (the legacy worker feed) never selects role_kind", () => {
+  it("omits role_kind from the projection", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findOpenJobs(WORKER, 20);
+    const keys = Object.keys(captured.selection ?? {});
+    // Vacuity guard: the projection really renders columns.
+    expect(keys).toContain("title");
+    expect(keys).not.toContain("roleKind");
+    const projection = Object.values(captured.selection!).map(render).join(" | ");
+    expect(projection).not.toContain("role_kind");
+  });
+});

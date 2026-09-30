@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
 import { looksLikePii, looksLikeOrgName, looksLikeUrl } from "@badabhai/validators";
 
 /**
@@ -65,6 +66,20 @@ export const neededBySchema = z.enum(["immediate", "soon", "flexible"]);
  * a guessed answer is worse than none.
  */
 export const payTypeSchema = z.enum(["in_hand", "gross", "ctc"]);
+
+/**
+ * THE POSTING'S ROLE (migration 0131) — one of the 21 DECLARED worker-side kinds
+ * (`TRADE_FORM_KINDS_ALL`). Closed and PII-free, so it needs no heuristic screen.
+ *
+ * DISPLAY / CLASSIFICATION ONLY (ADR-0036 addendum 2026-09-29): never a match or rank input,
+ * never mapped to a skill or a `job_domain_id`, and on no worker read this phase. No default
+ * and no inference — omitted stores NULL ("no role picked"). A `null` in a body is a 400 like
+ * every other field here; unsetting goes through `clear: ["role_kind"]` (#1652).
+ *
+ * ALL 21, NOT THE 16 WITH A WORKER FORM: whether a worker-side form exists is a profiling
+ * concern, and the owner ruled every declared role postable.
+ */
+export const roleKindSchema = z.enum(TRADE_FORM_KINDS_ALL);
 
 /** One short worker-visible benefit chip (e.g. "PF + ESI") — all three heuristics apply. */
 const benefitItem = z

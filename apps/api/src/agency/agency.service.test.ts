@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import type { JobPayType, JobStatus } from "@badabhai/db";
+import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
 import { AgencyService } from "./agency.service";
 import { CreateAgencyJobSchema, UpdateAgencyJobSchema } from "./agency.dto";
 
@@ -35,6 +36,8 @@ type JobRow = {
   // #1648 — what the ₹ band MEANS. Same reasoning as `status` below: the real union, not
   // a local narrowing, so the fixture can express every state production can hold.
   payType: JobPayType | null;
+  // Migration 0131 — the display role. NULL for every job nobody picked one for.
+  roleKind: string | null;
   // #1202 — mirrors the real `JobStatus` union rather than a narrowed copy of it. A local
   // narrowing is how a test file stops being able to express the states production can hold.
   status: JobStatus;
@@ -62,6 +65,7 @@ function jobRow(overrides: Partial<JobRow> = {}): JobRow {
     requirements: null,
     // #1648 — what the ₹ band MEANS. NULL is the default state for every existing row.
     payType: null,
+    roleKind: null,
     status: "open",
     applicantsReceived: 0,
     createdAt: new Date(),
@@ -211,8 +215,9 @@ describe("AgencyService.createJob", () => {
       "open",
     );
 
-    // The job.created payload keeps its EXACT shipped key set — none of the new
-    // content fields (nor their values) leak into the event spine.
+    // The job.created payload keeps its EXACT key set — none of the content fields (nor
+    // their values) leak into the event spine. `role_kind` (migration 0131) is the one
+    // ADDITIVE key since it shipped: a closed 21-slug enum, defaulted null in the registry.
     const evt = firstEmit(emit);
     expect(Object.keys(evt.payload).sort()).toEqual(
       [
@@ -225,6 +230,7 @@ describe("AgencyService.createJob", () => {
         "pay_max",
         "min_experience_years",
         "max_experience_years",
+        "role_kind",
       ].sort(),
     );
     expect(JSON.stringify(evt.payload)).not.toContain(DESCRIPTION);
@@ -830,5 +836,117 @@ describe("#1652 — clearing an agency job field", () => {
     const r = UpdateAgencyJobSchema.safeParse({ shift: "day", clear: ["shift"] });
     expect(r.success).toBe(false);
     expect(JSON.stringify(r.error?.issues)).toContain("both set and cleared");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Migration 0131 — the agency job's display ROLE (ADR-0036 addendum 2026-09-29). A SECOND
+// classifier beside `trade_key`, never a replacement: `trade_key` stays the job's matching
+// classifier and is untouched by everything below.
+// ---------------------------------------------------------------------------
+describe("migration 0131 — role_kind on the agency job routes", () => {
+  it("create stores the role, returns it on the view, and puts it on job.created", async () => {
+    const { svc, emit, jobsRepo } = make();
+    const dto = CreateAgencyJobSchema.parse({
+      trade_key: "cnc_operator",
+      title: TITLE,
+      city: CITY,
+      role_kind: "vmc_milling",
+    });
+    const view = await svc.createJob(PAYER_A, dto, CTX);
+
+    expect(jobsRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ tradeKey: "cnc_operator", roleKind: "vmc_milling" }),
+      "open",
+    );
+    expect(view.roleKind).toBe("vmc_milling");
+    // The trade key is still the job's classifier — the role did not replace it.
+    expect(view.tradeKey).toBe("cnc_operator");
+    const payload = firstEmit(emit).payload;
+    expect(payload.role_kind).toBe("vmc_milling");
+    expect(payload.trade_key).toBe("cnc_operator");
+    assertNoPiiStrings(payload);
+  });
+
+  it("an omitted role stores NULL, returns null and events null — never inferred from trade_key", async () => {
+    const { svc, emit, jobsRepo } = make();
+    const dto = CreateAgencyJobSchema.parse({ trade_key: "fitter", title: TITLE, city: CITY });
+    const view = await svc.createJob(PAYER_A, dto, CTX);
+    expect(jobsRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ roleKind: null }),
+      "open",
+    );
+    // `fitter` IS a role kind too; a trade key that happens to spell one is still not a pick.
+    expect(view.roleKind).toBeNull();
+    expect(firstEmit(emit).payload.role_kind).toBeNull();
+  });
+
+  it('an update reports changed_fields ["role_kind"] — the KEY, never the value, never trade_key', async () => {
+    const { svc, emit, jobsRepo } = make({ ownedJob: jobRow() });
+    const view = await svc.updateJob(PAYER_A, JOB_ID, { role_kind: "welder" } as never, CTX);
+
+    expect(jobsRepo.updateOwned.mock.calls[0]![2]).toMatchObject({ roleKind: "welder" });
+    expect(jobsRepo.updateOwned.mock.calls[0]![2]).not.toHaveProperty("tradeKey");
+    const evt = firstEmit(emit);
+    expect(evt.event_name).toBe("job.updated");
+    expect(evt.payload.changed_fields).toEqual(["role_kind"]);
+    expect(JSON.stringify(evt.payload)).not.toContain("welder");
+    expect(view.roleKind).toBe("welder");
+  });
+
+  it('clear: ["role_kind"] stores NULL and reports the key', async () => {
+    const { svc, emit, jobsRepo } = make({ ownedJob: jobRow({ roleKind: "welder" }) });
+    await svc.updateJob(PAYER_A, JOB_ID, { clear: ["role_kind"] } as never, CTX);
+    expect(jobsRepo.updateOwned.mock.calls[0]![2]).toMatchObject({ roleKind: null });
+    expect(firstEmit(emit).payload.changed_fields).toEqual(["role_kind"]);
+  });
+
+  it("re-sending the SAME role is no change — 400, no write, no event", async () => {
+    const { svc, emit, jobsRepo } = make({ ownedJob: jobRow({ roleKind: "welder" }) });
+    await expect(
+      svc.updateJob(PAYER_A, JOB_ID, { role_kind: "welder" } as never, CTX),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(jobsRepo.updateOwned).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("the view returns a stored role on the single read and the list", async () => {
+    const { svc } = make({ ownedJob: jobRow({ roleKind: "fitter" }) });
+    expect((await svc.getOwnJob(PAYER_A, JOB_ID)).roleKind).toBe("fitter");
+    const [listed] = await svc.listOwnJobs(PAYER_A);
+    expect(listed!.roleKind).toBe("fitter");
+  });
+});
+
+describe("migration 0131 — the role_kind CONTRACT on the agency DTOs", () => {
+  const BASE = { trade_key: "cnc_operator", title: TITLE, city: CITY };
+
+  it.each(TRADE_FORM_KINDS_ALL)("accepts %s on create and update — all 21 are postable", (kind) => {
+    expect(CreateAgencyJobSchema.safeParse({ ...BASE, role_kind: kind }).success).toBe(true);
+    expect(UpdateAgencyJobSchema.safeParse({ role_kind: kind }).success).toBe(true);
+  });
+
+  it("rejects anything outside the 21 — a trade key that is not a role, a label, free text", () => {
+    for (const bad of ["cnc_operator", "Welder", "Ramesh 9876543210", ""]) {
+      expect(CreateAgencyJobSchema.safeParse({ ...BASE, role_kind: bad }).success, bad).toBe(false);
+      expect(UpdateAgencyJobSchema.safeParse({ role_kind: bad }).success, bad).toBe(false);
+    }
+  });
+
+  it("rejects an explicit null — unsetting is `clear` (#1652)", () => {
+    expect(CreateAgencyJobSchema.safeParse({ ...BASE, role_kind: null }).success).toBe(false);
+    expect(UpdateAgencyJobSchema.safeParse({ role_kind: null }).success).toBe(false);
+  });
+
+  it("role_kind is clearable (nullable column) while trade_key still is not", () => {
+    expect(UpdateAgencyJobSchema.safeParse({ clear: ["role_kind"] }).success).toBe(true);
+    expect(UpdateAgencyJobSchema.safeParse({ clear: ["trade_key"] }).success).toBe(false);
+    const both = UpdateAgencyJobSchema.safeParse({ role_kind: "welder", clear: ["role_kind"] });
+    expect(both.success).toBe(false);
+  });
+
+  it("does not make trade_key optional — the matching classifier is still required on create", () => {
+    const { trade_key: _omit, ...noTrade } = BASE;
+    expect(CreateAgencyJobSchema.safeParse({ ...noTrade, role_kind: "welder" }).success).toBe(false);
   });
 });

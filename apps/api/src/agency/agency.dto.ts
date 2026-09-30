@@ -17,6 +17,7 @@ import {
   payBandOrdered,
   payTypeSchema,
   requirementsSchema,
+  roleKindSchema,
   shiftSchema,
 } from "../common/job-content.schemas";
 import { REQUIRED_TRADE_KEYS } from "../resume/trade-content";
@@ -129,6 +130,11 @@ export const CreateAgencyJobSchema = z
     shift: shift.optional(),
     benefits: benefits.optional(),
     requirements: requirements.optional(),
+    // Migration 0131 — the display ROLE, one of the 21 declared kinds. A SECOND classifier
+    // beside `trade_key`, and deliberately not a replacement for it: `trade_key` (15 trades)
+    // stays this job's matching classifier; `role_kind` (21 roles) is display / classification
+    // only (ADR-0036 addendum 2026-09-29). Optional with no default — omitted stores NULL.
+    role_kind: roleKindSchema.optional(),
   })
   .refine(payBandOrdered, { message: "pay_max must be >= pay_min", path: ["pay_max"] })
   .refine(experienceWindowOrdered, {
@@ -158,6 +164,8 @@ const CLEARABLE_AGENCY_JOB_FIELDS = [
   "shift",
   "benefits",
   "requirements",
+  // Migration 0131 — `jobs.role_kind` is nullable, so it is clearable (unlike `trade_key`).
+  "role_kind",
 ] as const;
 export type ClearableAgencyJobField = (typeof CLEARABLE_AGENCY_JOB_FIELDS)[number];
 export { CLEARABLE_AGENCY_JOB_FIELDS };
@@ -185,6 +193,8 @@ export const UpdateAgencyJobSchema = z
     shift: shift.optional(),
     benefits: benefits.optional(),
     requirements: requirements.optional(),
+    /** Migration 0131 — the display role; editable and clearable like any card field. */
+    role_kind: roleKindSchema.optional(),
     // #1652 — the fields a payer may UNSET. See `clearFieldSchema`.
     clear: clearFieldSchema(CLEARABLE_AGENCY_JOB_FIELDS),
   })

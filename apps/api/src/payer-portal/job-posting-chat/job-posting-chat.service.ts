@@ -577,9 +577,16 @@ export class JobPostingChatService {
 
     // A THIN DRAFT STILL PUBLISHES (#1726): `unset_card_fields` REPORTS the card holes, it
     // does not refuse them. The posting is created as a `draft` that reaches no worker until
-    // the publish step's skill pick (#1659), where the hand-filled edit form can complete any
-    // field — and once the interview has wrapped up the payer cannot answer a missed topic in
-    // chat, so a refusal here would strand the session.
+    // the publish step's skill pick (#1659). Any hole is fillable afterwards through the
+    // posting's own PATCH, which accepts every card field — whether a given client's edit form
+    // exposes all of them is that client's contract, not something this route can promise. And
+    // once the interview has wrapped up the payer cannot answer a missed topic in chat, so a
+    // refusal here would strand the session.
+    //
+    // `role_kind` (migration 0131) is ALWAYS NULL on a chat-published posting: the interview
+    // never asks for a role, so `candidate` above never carries one. It is deliberately NOT in
+    // `WORKER_CARD_FIELDS` either — it is display / classification only and never on the worker
+    // card — so it is the client's gap rule, not this report, that asks the payer to pick one.
     return this.checked(
       PublishJobPostingChatResponseSchema,
       {
