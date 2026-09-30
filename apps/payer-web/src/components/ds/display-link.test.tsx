@@ -6,9 +6,9 @@ import type { ReactElement, ReactNode } from "react";
  * CARDS-1 — the optional whole-card link affordance on the DS `Card` + `StatTile`.
  *
  * When `href` is set, the primitive becomes ONE accessible interactive card via the
- * stretched-link pattern: a single overlay `<a>` (.bb-stretched-link) whose ::after
- * (in CSS) covers the card, the root gets `--link` (→ position:relative + the
- * hover/active/focus-within states), and the link carries the supplied accessible name.
+ * stretched-link pattern: a single overlay `<a>` (.bb-stretched-link) that itself (in CSS,
+ * `position:absolute; inset:0`) covers the card, the root gets `--link` (→ position:relative +
+ * the hover/active/focus-within states), and the link carries the supplied accessible name.
  * When `href` is absent, the primitive renders EXACTLY as before — no `<a>` is added.
  *
  * Env is node; `next/link` is stubbed to a plain `<a>` (the repo pattern) so the SSR

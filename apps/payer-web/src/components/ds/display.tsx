@@ -21,7 +21,7 @@ export interface CardProps extends HTMLAttributes<HTMLElement> {
   as?: ElementType;
   /**
    * When set, the WHOLE card becomes ONE accessible interactive link to `href` via the
-   * stretched-link pattern (a single `<a>` whose `::after` overlays the card; the card root
+   * stretched-link pattern (a single `<a>` that itself overlays the card; the card root
    * becomes `position:relative`). Backward-compatible: omit `href` and the card renders
    * EXACTLY as before. Any OTHER interactive child must sit above the overlay
    * (`position:relative; z-index:1`) so it stays clickable and there is never an `<a>` in `<a>`.
@@ -57,9 +57,7 @@ export function Card({
 
   return (
     <Tag className={cls} {...rest}>
-      {isLink && (
-        <Link className="bb-stretched-link" href={href} aria-label={ariaLabel} />
-      )}
+      {isLink && <Link className="bb-stretched-link" href={href} aria-label={ariaLabel} />}
       {children}
     </Tag>
   );

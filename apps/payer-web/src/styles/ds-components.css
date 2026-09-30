@@ -315,18 +315,29 @@
 .bb-stat--link:focus-within { box-shadow: var(--ring-focus); border-color: var(--brand); }
 
 /* CARDS-1 — the single stretched-link overlay anchor. It is the ONE semantic link for the
-   whole card/tile: zero-size in flow, its ::after spans the whole positioned parent so the
-   entire surface is the hit target (still ONE <a>, not a div-with-onclick). The :focus ring
-   is rendered by the PARENT via :focus-within (above), so the overlay itself shows none. Any
-   other interactive child must carry position:relative; z-index:1 to stay clickable above it. */
+   whole card/tile and itself spans the positioned parent, so the entire surface is the hit
+   target (still ONE <a>, not a div-with-onclick). Out of flow, so it never becomes a grid or
+   flex item of the card. The focus ring is rendered by the PARENT via :focus-within (above);
+   `box-shadow: none` stops the global :focus-visible ring painting a second ring over the card.
+
+   It sits one step above the card's own layer (z-index: base + 1) so a positioned or
+   transformed descendant (the posting row's animated arrow, MaskedCandidate's avatar + seal)
+   cannot catch the click. A GENUINE interactive child must still carry position:relative and a
+   HIGHER z-index (2+) to stay clickable above it.
+
+   It was a 1px absolute box whose ::after carried `inset: 0` — but an absolutely positioned
+   anchor is its OWN ::after's containing block, so the "overlay" was 1x1px and a click on the
+   card body hit the text, not the link (mouse/touch dead; only keyboard worked). */
 .bb-stretched-link {
-  position: absolute; width: 1px; height: 1px;
-  font-size: 0; line-height: 0; color: transparent;
-  outline: none;
-}
-.bb-stretched-link::after {
-  content: ""; position: absolute; inset: 0; z-index: var(--z-base);
+  position: absolute;
+  inset: 0;
+  z-index: calc(var(--z-base) + 1);
   border-radius: inherit;
+  font-size: 0;
+  line-height: 0;
+  color: transparent;
+  outline: none;
+  box-shadow: none;
 }
 
 /* ============================================================
