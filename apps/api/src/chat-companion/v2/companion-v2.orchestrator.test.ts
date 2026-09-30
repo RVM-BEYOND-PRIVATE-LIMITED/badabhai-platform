@@ -528,6 +528,50 @@ describe("a RETRIED submission (same submission_id) is answered once", () => {
     expect(h.ai.companionClassify).toHaveBeenCalledTimes(2);
   });
 
+  it("a FAIL-CLOSED turn is not kept: the gateway was down, the retry reaches the classifier", async () => {
+    // The first attempt fails closed because the AI path was unreachable; by the retry it is back.
+    const h = setup({ pseudo: null });
+    const dto = { text: "Hindi hata do", submission_id: SID };
+    const first = await h.orchestrator.handleMessage(WORKER, PROFILE, dto, CTX, NOW);
+    expect(first.reply).toBe(V2_CLARIFY.latin);
+    expect(h.replays.remember).not.toHaveBeenCalled();
+
+    h.ai.pseudonymize.mockResolvedValue({ pseudonymized_text: "masked text", blocked: false });
+    const retry = await h.orchestrator.handleMessage(WORKER, PROFILE, dto, CTX, NOW);
+    expect(h.ai.companionClassify).toHaveBeenCalledTimes(1);
+    expect(retry).toBe(CARD);
+    // The recovered turn IS kept for any further retry.
+    expect(h.replays.remember).toHaveBeenCalledWith(WORKER, SID, CARD);
+  });
+
+  it("a FAIL-CLOSED turn is not kept: the classifier failed, the retry classifies again", async () => {
+    for (const failed of [null, { blocked: true, ai_metadata: null }]) {
+      const h = setup({ classify: failed });
+      const dto = { text: "Hindi hata do", submission_id: SID };
+      const first = await h.orchestrator.handleMessage(WORKER, PROFILE, dto, CTX, NOW);
+      expect(first.reply).toBe(V2_CLARIFY.latin);
+      expect(h.replays.remember).not.toHaveBeenCalled();
+
+      h.ai.companionClassify.mockResolvedValue({
+        intent: "edit_resume",
+        confidence: 0.9,
+        blocked: false,
+      });
+      const retry = await h.orchestrator.handleMessage(WORKER, PROFILE, dto, CTX, NOW);
+      expect(h.ai.companionClassify).toHaveBeenCalledTimes(2);
+      expect(retry).toBe(CARD);
+    }
+  });
+
+  it("a below-floor `unclear` is NOT fail-closed: the classifier answered, so the turn is kept", async () => {
+    const h = setup({ classify: { intent: "edit_resume", confidence: 0.3, blocked: false } });
+    const dto = { text: "Hindi hata do", submission_id: SID };
+    const first = await h.orchestrator.handleMessage(WORKER, PROFILE, dto, CTX, NOW);
+    expect(h.replays.remember).toHaveBeenCalledWith(WORKER, SID, first);
+    await h.orchestrator.handleMessage(WORKER, PROFILE, dto, CTX, NOW);
+    expect(h.ai.companionClassify).toHaveBeenCalledTimes(1);
+  });
+
   it("without a submission_id (an older client) there is nothing to key on — no replay read or write", async () => {
     const h = setup();
     await h.orchestrator.handleMessage(WORKER, PROFILE, { text: "x" }, CTX, NOW);

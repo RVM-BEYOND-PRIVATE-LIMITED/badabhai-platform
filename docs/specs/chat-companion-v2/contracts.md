@@ -286,6 +286,11 @@ carries one is answered, on a retry, with the v2 turn already served for it (Red
 `turn:{workerId}:{submissionId}`, §7) — no second classify/edit-parse/career call, no second faltu
 strike, no second memory pair, no second outcome event. Fail-open: an unreadable cache processes the
 message as before. A retry that arrives while the first request is STILL running is not covered.
+A **fail-closed** turn (`intent_source: fallback` — gateway or classifier unreachable, blocked or
+off-contract) is never kept: a retry usually follows a slow AI path, so it is processed afresh rather
+than answered with the pinned clarify line. Its v2 event is still deduped on the submission id (the
+spine keeps the first attempt's `fallback` row), and a classifier failure's masked memory pair may be
+stored twice.
 
 **`chat.companion_turn_served_v2` field meanings.** `intent` is always v1's `fallback` ("no named v1
 intent answered"; nominal for chip and guard turns, which run before v1). `v2_intent` is the intent

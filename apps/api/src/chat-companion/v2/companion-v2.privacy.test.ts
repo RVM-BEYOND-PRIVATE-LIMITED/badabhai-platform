@@ -9,9 +9,11 @@ import { CareerTalkHandler } from "./handlers/career-talk.handler";
 import { NewResumeHandler } from "./handlers/new-resume.handler";
 import { JobsDeferredHandler, PhaseOffHandler, UnclearHandler } from "./handlers/fixed-line.handlers";
 import { CompanionHandlerRegistry } from "./handlers/registry";
+import type { Queue } from "bullmq";
 import type { CompanionEditService } from "./companion-edit.service";
-import { V2_CLARIFY, V2_EDIT_CARD_INTRO } from "../companion-replies";
+import { V2_CLARIFY, V2_EDIT_CARD_INTRO, V2_JOBS_DEFERRED } from "../companion-replies";
 import { v2CopyTurn, v2EditCardTurn } from "./companion-v2-compose";
+import { CompanionTurnReplayStore } from "./turn-replay.store";
 
 /**
  * ADR-0046 §3 (privacy) — the RAW worker text never leaves the request:
@@ -46,12 +48,19 @@ const CARD = v2EditCardTurn(V2_EDIT_CARD_INTRO, {
   ],
 });
 
-function setup(opts: { classifyThrows?: boolean; emitThrows?: boolean } = {}) {
+function setup(
+  opts: {
+    classifyThrows?: boolean;
+    emitThrows?: boolean;
+    classify?: { intent: string; confidence: number; blocked: false };
+    replaySetThrows?: boolean;
+  } = {},
+) {
   const ai = {
     pseudonymize: vi.fn(async () => ({ pseudonymized_text: MASKED, blocked: false })),
     companionClassify: vi.fn(async () => {
       if (opts.classifyThrows) throw new Error("classifier boom");
-      return { intent: "edit_resume", confidence: 0.9, blocked: false };
+      return opts.classify ?? { intent: "edit_resume", confidence: 0.9, blocked: false };
     }),
   };
   const memory = { read: vi.fn(async () => []), append: vi.fn(async () => undefined) };
@@ -80,6 +89,17 @@ function setup(opts: { classifyThrows?: boolean; emitThrows?: boolean } = {}) {
     new PhaseOffHandler(config),
     new UnclearHandler(config),
   );
+  // The REAL replay store over a fake Redis, so what it would write is what the tests read.
+  const replayRedis = {
+    get: vi.fn(async (_key: string) => null as string | null),
+    set: vi.fn(async (_key: string, _value: string, _mode: "EX", _seconds: number) => {
+      if (opts.replaySetThrows) throw new Error("redis down");
+      return "OK";
+    }),
+  };
+  const replays = new CompanionTurnReplayStore({
+    client: Promise.resolve(replayRedis),
+  } as unknown as Queue);
   const orchestrator = new CompanionV2Orchestrator(
     config,
     ai as never,
@@ -88,9 +108,9 @@ function setup(opts: { classifyThrows?: boolean; emitThrows?: boolean } = {}) {
     events as never,
     cost as never,
     faltuStore as never,
-    { read: vi.fn(async () => null), remember: vi.fn(async () => undefined) } as never,
+    replays,
   );
-  return { orchestrator, ai, memory, edits, events, cost, faltuStore };
+  return { orchestrator, ai, memory, edits, events, cost, faltuStore, replayRedis };
 }
 
 /** Every line every Nest Logger wrote during `run`. */
@@ -179,5 +199,76 @@ describe("CompanionV2Orchestrator — the raw worker text never leaves the reque
     }
     // Sanity: the fixed clarify turn used elsewhere in this file is a valid turn.
     expect(v2CopyTurn(V2_CLARIFY).reply).toBe(V2_CLARIFY.latin);
+  });
+});
+
+/**
+ * THE REPLAY CACHE (contracts §7) is a per-worker Redis write on the message path, so it gets the
+ * same proof as memory: the REAL store over a fake Redis, a message carrying a name, an employer
+ * and a phone number, and every path that writes. The stored value is the turn the worker was
+ * sent — never the message, raw or masked — and no log line carries either, even when the write
+ * fails.
+ */
+describe("the replay cache never holds the message or its PII", () => {
+  const SID = "44444444-4444-4444-8444-444444444444";
+  const KEY = `companion:v2:turn:${WORKER}:${SID}`;
+  const RAW_WITH_NAME = "Main Ramesh Kumar hoon, Tata Motors mein welder tha, mera number 9876543210 hai";
+  const SECRETS = [RAW_WITH_NAME, RAW, MASKED, "Ramesh", "Kumar", "Tata Motors", "9876543210"];
+
+  const storedTurn = (h: ReturnType<typeof setup>): string => {
+    expect(h.replayRedis.set).toHaveBeenCalledTimes(1);
+    const [key, value] = h.replayRedis.set.mock.calls[0]!;
+    expect(key).toBe(KEY);
+    return value;
+  };
+
+  it.each([
+    ["the classifier path (a fixed line)", { intent: "jobs_talk", confidence: 0.9, blocked: false as const }],
+    ["the classifier path (below the floor)", { intent: "edit_resume", confidence: 0.3, blocked: false as const }],
+    ["the edit-card path", { intent: "edit_resume", confidence: 0.9, blocked: false as const }],
+  ])("%s: the SET value is the served turn and nothing of the message", async (_label, classify) => {
+    const h = setup({ classify });
+    const turn = await h.orchestrator.handleMessage(
+      WORKER,
+      PROFILE,
+      { text: RAW_WITH_NAME, submission_id: SID },
+      CTX,
+      NOW,
+    );
+    const value = storedTurn(h);
+    for (const secret of SECRETS) expect(value).not.toContain(secret);
+    expect(JSON.parse(value)).toEqual(turn);
+  });
+
+  it("the paths really differ: a fixed line, the clarify line and the card", async () => {
+    const replies = [];
+    for (const classify of [
+      { intent: "jobs_talk", confidence: 0.9, blocked: false as const },
+      { intent: "edit_resume", confidence: 0.3, blocked: false as const },
+      { intent: "edit_resume", confidence: 0.9, blocked: false as const },
+    ]) {
+      const h = setup({ classify });
+      replies.push(
+        (await h.orchestrator.handleMessage(WORKER, PROFILE, { text: RAW_WITH_NAME, submission_id: SID }, CTX, NOW))
+          .reply,
+      );
+    }
+    expect(replies).toEqual([V2_JOBS_DEFERRED.latin, V2_CLARIFY.latin, CARD.reply]);
+  });
+
+  it("no log line carries the message when the replay write fails", async () => {
+    const logs = await withCapturedLogs(async () => {
+      const h = setup({ replaySetThrows: true });
+      await h.orchestrator.handleMessage(
+        WORKER,
+        PROFILE,
+        { text: RAW_WITH_NAME, submission_id: SID },
+        CTX,
+        NOW,
+      );
+      expect(h.replayRedis.set).toHaveBeenCalledTimes(1);
+    });
+    expect(logs).toContain("companion turn replay not stored");
+    for (const secret of SECRETS) expect(logs).not.toContain(secret);
   });
 });

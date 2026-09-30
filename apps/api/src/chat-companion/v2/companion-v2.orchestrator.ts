@@ -46,6 +46,22 @@ const TASK_CHIP_ASK: Readonly<Partial<Record<CompanionTaskChipIntent, CopyPair>>
   career_talk: V2_CAREER_ASK,
 };
 
+/** A turn about to be served, with the facts its memory append and its v2 event need. */
+interface ServedTurn {
+  turn: CompanionTurn;
+  intentSource: CompanionV2IntentSource;
+  v2Intent: CompanionV2Intent | null;
+  confidenceBucket: CompanionV2ConfidenceBucket | null;
+  outcome: CompanionV2Outcome;
+  memoryPair: { workerText: string; reply: string } | null;
+}
+
+/** A served v1-miss turn, and whether a retry of the same submission may be answered with it. */
+interface RoutedTurn {
+  readonly turn: CompanionTurn;
+  readonly replayable: boolean;
+}
+
 /**
  * `text` cut to at most `max` UTF-16 units without splitting a surrogate pair — so the result
  * is within the bound whether the far side counts code units (Zod) or code points (Pydantic).
@@ -65,7 +81,8 @@ function clipText(text: string, max: number): string {
  *
  * THE ORDER IS THE PRIVACY ORDER, and it fails closed at every step:
  *   0. a RETRIED submission (same `submission_id`) is answered with the turn already served —
- *      nothing below runs again (no model call, no strike, no memory append, no second event);
+ *      nothing below runs again (no model call, no strike, no memory append, no second event) —
+ *      unless that turn failed closed, which is never kept, so the retry is processed afresh;
  *   1. the ABUSE LEXICON (P2, only while the faltu flag is on) — deterministic, local, and
  *      BEFORE the gateway: a message it flags reaches no provider, no model, no memory;
  *   2. pseudonymize the message through the gateway — a blocked or unreachable gateway serves the
@@ -171,9 +188,17 @@ export class CompanionV2Orchestrator {
 
   /**
    * A v1 MISS. A retried submission is answered from the replay cache FIRST — before the lexicon,
-   * so a retried abusive message is not a second strike — and every freshly served turn is kept
-   * there for its own retry. Without a `submission_id` (an older client) there is nothing to key
-   * on and the message is simply processed.
+   * so a retried abusive message is not a second strike — and a freshly served turn is kept there
+   * for its own retry. Without a `submission_id` (an older client) there is nothing to key on and
+   * the message is simply processed.
+   *
+   * A FAIL-CLOSED TURN IS NEVER KEPT (`intent_source: fallback` — the gateway or the classifier
+   * was unreachable, blocked or off-contract). A retry is most often BECAUSE the AI path was slow,
+   * so pinning its clarify line for the replay TTL would answer every retry with the failure after
+   * the AI recovered. That path has little to dedupe: no strike, no handler model call, and the
+   * event is deduped on the submission id (so the spine keeps the FIRST attempt's `fallback`
+   * row). The one repeat is memory: a classifier failure still stores the masked pair, so a
+   * processed retry stores the worker's line twice — context only, capped at `MEMORY_TURNS`.
    */
   async handleMessage(
     workerId: string,
@@ -183,13 +208,13 @@ export class CompanionV2Orchestrator {
     now: Date = new Date(),
   ): Promise<CompanionTurn> {
     const submissionId = dto.submission_id;
-    if (submissionId === undefined) return this.route(workerId, profile, dto, ctx, now);
+    if (submissionId === undefined) return (await this.route(workerId, profile, dto, ctx, now)).turn;
 
     const replayed = await this.replays.read(workerId, submissionId);
     if (replayed !== null) return replayed;
-    const turn = await this.route(workerId, profile, dto, ctx, now);
-    await this.replays.remember(workerId, submissionId, turn);
-    return turn;
+    const routed = await this.route(workerId, profile, dto, ctx, now);
+    if (routed.replayable) await this.replays.remember(workerId, submissionId, routed.turn);
+    return routed.turn;
   }
 
   private async route(
@@ -198,7 +223,7 @@ export class CompanionV2Orchestrator {
     dto: CompanionMessageDto,
     ctx: RequestContext,
     now: Date,
-  ): Promise<CompanionTurn> {
+  ): Promise<RoutedTurn> {
     // 0. THE ABUSE LEXICON (P2, O11), only while the faltu phase is on. It runs BEFORE the
     //    gateway because nothing crosses a boundary on this path: the answer is fixed copy and
     //    a strike count. A flagged message therefore costs no gateway hop and no model call,
@@ -212,7 +237,7 @@ export class CompanionV2Orchestrator {
         ctx,
         now,
       });
-      return this.finish(workerId, ctx, dto, now, {
+      return this.routed(workerId, ctx, dto, now, {
         turn: handled.turn,
         intentSource: "lexicon",
         v2Intent: "faltu",
@@ -226,7 +251,7 @@ export class CompanionV2Orchestrator {
     //    refusing. Both serve the clarify line and neither reaches a model or Redis.
     const pseudo = await this.ai.pseudonymize(dto.text, ctx);
     if (pseudo === null || pseudo.blocked) {
-      return this.finish(workerId, ctx, dto, now, {
+      return this.routed(workerId, ctx, dto, now, {
         turn: v2CopyTurn(V2_CLARIFY, taskChips(this.config)),
         intentSource: "fallback",
         v2Intent: null,
@@ -293,7 +318,7 @@ export class CompanionV2Orchestrator {
     // 5 + 6. MEMORY, THEN THE SPINE. A message the CLASSIFIER called faltu — at any confidence,
     //    with the faltu phase on or off — is never stored, exactly like one the lexicon caught:
     //    pseudonymizing masks PII, not abuse, and memory is replayed to later model calls.
-    return this.finish(workerId, ctx, dto, now, {
+    return this.routed(workerId, ctx, dto, now, {
       turn: handled.turn,
       intentSource,
       v2Intent,
@@ -304,20 +329,30 @@ export class CompanionV2Orchestrator {
     });
   }
 
+  /**
+   * `finish` for the v1-miss route: the served turn, and whether a retry of the same submission
+   * may be answered with it — every turn except a fail-closed one (see `handleMessage`).
+   */
+  private async routed(
+    workerId: string,
+    ctx: RequestContext,
+    dto: CompanionMessageDto,
+    now: Date,
+    out: ServedTurn,
+  ): Promise<RoutedTurn> {
+    return {
+      turn: await this.finish(workerId, ctx, dto, now, out),
+      replayable: out.intentSource !== "fallback",
+    };
+  }
+
   /** Memory append + the v2 event, both best-effort; the turn is served either way. */
   private async finish(
     workerId: string,
     ctx: RequestContext,
     dto: CompanionMessageDto,
     now: Date,
-    out: {
-      turn: CompanionTurn;
-      intentSource: CompanionV2IntentSource;
-      v2Intent: CompanionV2Intent | null;
-      confidenceBucket: CompanionV2ConfidenceBucket | null;
-      outcome: CompanionV2Outcome;
-      memoryPair: { workerText: string; reply: string } | null;
-    },
+    out: ServedTurn,
   ): Promise<CompanionTurn> {
     if (out.memoryPair !== null) {
       await this.memory.append(workerId, { role: "worker", text: out.memoryPair.workerText });

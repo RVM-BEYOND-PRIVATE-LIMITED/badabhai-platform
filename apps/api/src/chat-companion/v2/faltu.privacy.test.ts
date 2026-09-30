@@ -10,7 +10,9 @@ import { CareerTalkHandler } from "./handlers/career-talk.handler";
 import { NewResumeHandler } from "./handlers/new-resume.handler";
 import { JobsDeferredHandler, PhaseOffHandler, UnclearHandler } from "./handlers/fixed-line.handlers";
 import { CompanionHandlerRegistry } from "./handlers/registry";
+import type { Queue } from "bullmq";
 import type { CompanionEditService } from "./companion-edit.service";
+import { CompanionTurnReplayStore } from "./turn-replay.store";
 
 /**
  * ADR-0046 P2 (O11) — the abusive message never leaves the request:
@@ -76,6 +78,14 @@ function setup(
     new PhaseOffHandler(config),
     new UnclearHandler(config),
   );
+  // The REAL replay store over a fake Redis, so what it would write is what the tests read.
+  const replayRedis = {
+    get: vi.fn(async (_key: string) => null as string | null),
+    set: vi.fn(async (_key: string, _value: string, _mode: "EX", _seconds: number) => "OK"),
+  };
+  const replays = new CompanionTurnReplayStore({
+    client: Promise.resolve(replayRedis),
+  } as unknown as Queue);
   const orchestrator = new CompanionV2Orchestrator(
     config,
     ai as never,
@@ -84,9 +94,9 @@ function setup(
     events as never,
     { record: vi.fn(async () => undefined) } as never,
     faltuStore as never,
-    { read: vi.fn(async () => null), remember: vi.fn(async () => undefined) } as never,
+    replays,
   );
-  return { orchestrator, ai, memory, events, faltuStore };
+  return { orchestrator, ai, memory, events, faltuStore, replayRedis };
 }
 
 /** Every emitted event, serialized — the haystack a message must never appear in. */
@@ -200,5 +210,62 @@ describe("faltu privacy (ADR-0046 P2) — the abusive message never leaves the r
       expect(h.faltuStore.countStrike).not.toHaveBeenCalled();
       expect(h.memory.append).not.toHaveBeenCalled();
     });
+  });
+});
+
+/**
+ * THE REPLAY CACHE on the faltu paths (contracts §7): the one write an abusive message causes
+ * besides the strike counter. The REAL store over a fake Redis; the message carries a name and a
+ * phone number as well as the abuse. What is stored is the redirect the worker was sent.
+ */
+describe("faltu privacy — the replay cache holds the redirect, never the message", () => {
+  const SID = "44444444-4444-4444-8444-444444444444";
+  const KEY = `companion:v2:turn:${WORKER}:${SID}`;
+
+  it.each([
+    ["the LEXICON path", "chutiya bhai, main Ramesh Kumar, mera number 9876543210 hai", "chutiya"],
+    ["the CLASSIFIER path", "tumhari shakal gadhe jaisi hai, main Ramesh Kumar, 9876543210", "gadhe"],
+  ])("%s: the SET value is the served redirect and nothing of the message", async (_label, text, insult) => {
+    const h = setup();
+    const logs = await withCapturedLogs(async () => {
+      const turn = await h.orchestrator.handleMessage(
+        WORKER,
+        PROFILE,
+        { text, submission_id: SID },
+        CTX,
+        NOW,
+      );
+      expect(turn.reply).toBe(V2_FALTU_REDIRECT.latin);
+      expect(h.replayRedis.set).toHaveBeenCalledTimes(1);
+      const [key, value] = h.replayRedis.set.mock.calls[0]!;
+      expect(key).toBe(KEY);
+      expect(JSON.parse(value)).toEqual(turn);
+      for (const secret of [text, insult, "Ramesh", "Kumar", "9876543210"]) {
+        expect(value).not.toContain(secret);
+      }
+    });
+    for (const secret of [text, insult, "Ramesh", "9876543210"]) expect(logs).not.toContain(secret);
+  });
+
+  it("the fixtures take the paths they are named for", async () => {
+    const lexicon = setup();
+    await lexicon.orchestrator.handleMessage(
+      WORKER,
+      PROFILE,
+      { text: "chutiya bhai, main Ramesh Kumar, mera number 9876543210 hai", submission_id: SID },
+      CTX,
+      NOW,
+    );
+    expect(lexicon.ai.pseudonymize).not.toHaveBeenCalled();
+
+    const classifier = setup();
+    await classifier.orchestrator.handleMessage(
+      WORKER,
+      PROFILE,
+      { text: "tumhari shakal gadhe jaisi hai, main Ramesh Kumar, 9876543210", submission_id: SID },
+      CTX,
+      NOW,
+    );
+    expect(classifier.ai.companionClassify).toHaveBeenCalled();
   });
 });
