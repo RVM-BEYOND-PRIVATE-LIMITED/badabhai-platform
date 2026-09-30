@@ -794,17 +794,21 @@ h3 {
   font-size: var(--text-xl);
   font-weight: var(--weight-bold);
   line-height: 1.1;
-  /* INERT inside a `.stats` row, and kept only for a tile placed outside one. `break-word` does
-     not lower a flex item's min-content, so in a row a tile widens to its unbroken figure rather
-     than wrapping it — a count or a ₹ value never splits. The trade-off: a figure wider than
-     the whole row widens the TILE (fill and border) past the row and scrolls the page sideways.
-     AI spend is `numeric(16,6)` and prints every place (`formatExactRupees`), so a ₹12-crore
-     six-place total does that at 320px (measured); realistic amounts (to ₹9,99,999.999999, and
-     ₹99,99,999 for credits) fit at every width from 320px. A ₹ value (`Stat wide`) is also
-     `nowrap` (see `.stat--wide .stat__value`): a money figure split between digits reads as
-     two numbers. */
+  /* Inert for LAYOUT inside a `.stats` row (every tile today): `break-word` does not lower a
+     flex item's min-content, so in a row a tile widens to its unbroken figure rather than
+     wrapping it — a count or a ₹ value never splits. Kept, with `word-break: normal`, because
+     both override an inherited `overflow-wrap: anywhere` / `word-break: break-all` from any
+     ancestor (either would split "1,23,456"), and for a tile placed outside a row.
+     The trade-off: a figure wider than the whole row widens the TILE (fill and border) past the
+     row and scrolls the page sideways. AI spend is `numeric(16,6)` and prints every place
+     (`formatExactRupees`), so a ₹12-crore six-place total does that at 320px (measured);
+     realistic amounts (to ₹9,99,999.999999, and ₹99,99,999 for credits) fit at every width from
+     320px. A ₹ value (`Stat wide`) is also `nowrap` (see `.stat--wide .stat__value`): a money
+     figure split between digits reads as two numbers. */
   overflow-wrap: break-word;
-}.stat__label {
+  word-break: normal;
+}
+.stat__label {
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }

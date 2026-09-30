@@ -108,9 +108,12 @@ function rule(css: string, selector: string): string | null {
 const targetsTile = (selector: string) =>
   /\.stat(--[\w-]+)?(?![\w-])/.test(selector) || /\.stats(--[\w-]+)?\s*>/.test(selector);
 
-/** Does any selector in the list target a stat ROW itself (`.stats`, `.stats--compact`)? */
+/**
+ * Does any selector in the list target a stat ROW itself — `.stats`, `.stats--compact`, with any
+ * pseudo-class or attribute on that last compound (`.stats:not(.x)`, `.stats[data-x]`)?
+ */
 const targetsRow = (selector: string) =>
-  selector.split(",").some((part) => /\.stats(--[\w-]+)?$/.test(part.trim()));
+  selector.split(",").some((part) => /\.stats(--[\w-]+)?(?![\w-])[^\s>+~]*$/.test(part.trim()));
 
 /** Does a selector target a stat VALUE (`.stat__value`, with or without modifiers)? */
 const targetsValue = (selector: string) => selector.includes(".stat__value");
@@ -155,9 +158,10 @@ describe("stat tiles", () => {
     // guarantee. Each of these zeroes, caps or clamps it: an explicit minimum; any non-visible
     // overflow (a scroll container's automatic minimum is 0); a set or maximum width (caps it);
     // size containment or an inline-size container (content no longer sizes the tile).
+    // A value rule counts too: a capped or contained value lets its tile shrink the same way.
     const loosening = rules(CSS, true).filter(
       (r) =>
-        targetsTile(r.selector) &&
+        (targetsTile(r.selector) || targetsValue(r.selector)) &&
         /(^|[\s;])(min-width|min-inline-size|width|inline-size|max-width|max-inline-size|overflow(-x|-y|-inline|-block)?|container(-type)?|contain)\s*:/.test(
           r.body,
         ),
@@ -173,8 +177,11 @@ describe("stat tiles", () => {
     const breaking = rules(CSS, true)
       .filter(
         (r) =>
-          (targetsValue(r.selector) || targetsTile(r.selector)) &&
-          /(overflow-wrap|word-wrap):\s*anywhere|word-break:\s*break-(all|word)/.test(r.body),
+          // The row too: `word-break` and `line-break` inherit into every value below it.
+          (targetsValue(r.selector) || targetsTile(r.selector) || targetsRow(r.selector)) &&
+          /(overflow-wrap|word-wrap)\s*:\s*anywhere|word-break\s*:\s*break-(all|word)|line-break\s*:\s*anywhere/.test(
+            r.body,
+          ),
       )
       .map((r) => [...r.atRules, r.selector].join(" > "));
     expect(breaking).toEqual([]);
@@ -182,13 +189,18 @@ describe("stat tiles", () => {
 
   it("a stat row stays a flex row in every at-rule — never a grid again", () => {
     // The grid-placement ban below only has teeth while `.stats` is flex, and the phone
-    // flex-basis still "passes" under a grid while doing nothing. So pin the row itself.
+    // flex-basis still "passes" under a grid while doing nothing. So pin the row itself — and
+    // pin it WRAPPING and horizontal: a `nowrap` row of tiles that cannot shrink below their
+    // figures (five voice-attempt tiles) scrolls a phone page sideways, and a column row stops
+    // being a row.
     const regressions = rules(CSS, true)
       .filter(
         (r) =>
           targetsRow(r.selector) &&
           (/(^|[\s;])display\s*:(?!\s*flex\b)/.test(r.body) ||
-            /(^|[\s;])grid-template(-[\w-]+)?\s*:/.test(r.body)),
+            /(^|[\s;])grid-template(-[\w-]+)?\s*:/.test(r.body) ||
+            /(^|[\s;])flex-(wrap|flow)\s*:[^;]*\bnowrap\b/.test(r.body) ||
+            /(^|[\s;])flex-(direction|flow)\s*:[^;]*\bcolumn\b/.test(r.body)),
       )
       .map((r) => [...r.atRules, r.selector].join(" > "));
     expect(regressions).toEqual([]);
