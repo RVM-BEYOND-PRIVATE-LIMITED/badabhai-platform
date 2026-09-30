@@ -21,6 +21,7 @@ import {
   type ProfilingEnvelope,
 } from "../profiling/conversation-state";
 import { generalFormOfferFor, type GeneralFormOffer } from "../profiling/skills-gate";
+import { identityGapsOf } from "../profiling/identity-intake/identity-intake";
 import { packAnswerRowFor } from "../profiling/pack-answer-row";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
@@ -32,6 +33,7 @@ import { resolveResumeMenu } from "./resume-menu";
 import { ChatRepository } from "./chat.repository";
 import {
   ChatTranscriptBuffer,
+  IDENTITY_INTAKE_METADATA,
   type BufferedMessage,
   type TranscriptBuffer,
 } from "./chat-transcript.buffer";
@@ -278,6 +280,21 @@ export class ChatService {
       started_at: session.startedAt,
     };
 
+    // ADR-0048 (#1858) — THE IDENTITY INTAKE OPENS THE SESSION, for a worker whose record is
+    // missing a name, state or city, when the flag is on and the client renders a served opening.
+    // BEFORE the résumé confirm, deliberately (D6): the résumé's "is this you?" turn is served as
+    // the reply to the intake's last answer, and a form-routed "Haan" hands the worker straight to
+    // the form — so a name asked after it would never be asked at all. A NEW session only: the
+    // reattach path above serves no opening, and the thread redraw shows a pending question.
+    const intake = await this.tryOpenIdentityIntake(
+      opts.confirmFirst === true,
+      worker,
+      session.id,
+      workerId,
+      ctx,
+    );
+    if (intake !== null) return this.checkedStartResponse({ ...base, ...intake });
+
     // Task 1 B3 (ADR-0042 D8) — THE RÉSUMÉ CONFIRM OPENS THE SESSION, when the client can
     // render a server-served opening and one is pending. BEFORE the one-shot opener below,
     // deliberately: a confirm is strictly more specific than the generic greeting, and a
@@ -324,21 +341,85 @@ export class ChatService {
     // an un-answerable greeting and once as a real turn.
     // #896 — the opener's Devanagari twin ships WITH it, so turn one reads aloud correctly and
     // the client can stop carrying its own hard-coded copy of this sentence.
-    const response: StartSessionResponse = {
+    return this.checkedStartResponse({
       ...base,
       opening_text: CHAT_OPENING_TEXT,
       ...(ttsTextFor(CHAT_OPENING_TEXT) === undefined
         ? {}
         : { opening_tts_text: ttsTextFor(CHAT_OPENING_TEXT) }),
-    };
+    });
+  }
+
+  /**
+   * A served opening, outbound-validated. WARN-ONLY, as it has always been on this route: the
+   * body is ours, and a drifted field must cost a log line rather than the worker's session.
+   */
+  private checkedStartResponse(response: StartSessionResponse): StartSessionResponse {
     const checked = StartSessionResponseSchema.safeParse(response);
     if (!checked.success) {
       this.logger.warn(
-        `startSession outbound validation failed session=${session.id} ` +
+        `startSession outbound validation failed session=${response.session_id} ` +
           `paths=[${checked.error.issues.map((i) => i.path.join(".")).join(",")}]`,
       );
     }
     return response;
+  }
+
+  /**
+   * ADR-0048 — open a NEW session on the identity intake, or `null`.
+   *
+   * THE GATES, each deliberate:
+   *   - `confirmFirst` — the client's signal that it renders a server-served first bubble. A
+   *     build that does not send it keeps today's opening byte for byte (and still has `/name`).
+   *   - `CHAT_IDENTITY_INTAKE_ENABLED` — OFF is today's `startSession` exactly: no read, no write,
+   *     no extra key. It flips with the app release that unroutes `/name`.
+   *   - a GAP on the worker row already loaded above — presence only (D9). A worker with a name, a
+   *     state and a city is never asked; one missing any of them is asked for exactly those.
+   *
+   * DEGRADES, NEVER FAILS — the posture `tryOpenResumeConfirm` takes: a throw or a `null` here
+   * falls through to today's opening, the gap stays, and the next new session asks again.
+   */
+  private async tryOpenIdentityIntake(
+    confirmFirst: boolean,
+    worker: {
+      readonly fullName: string | null;
+      readonly currentState: string | null;
+      readonly currentCity: string | null;
+    },
+    sessionId: string,
+    workerId: string,
+    ctx: RequestContext,
+  ): Promise<Pick<
+    StartSessionResponse,
+    "opening_text" | "opening_tts_text" | "opening_question_key" | "opening_answer_type"
+  > | null> {
+    if (!confirmFirst || !this.config.CHAT_IDENTITY_INTAKE_ENABLED) return null;
+    const gaps = identityGapsOf(worker);
+    if (gaps.hasName && gaps.hasState && gaps.hasCity) return null;
+    let opened: TurnResult | null;
+    try {
+      opened = await this.orchestrator.openIdentityIntake({
+        sessionId,
+        workerId,
+        now: new Date(),
+        ctx,
+        gaps,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `identity-intake open failed session=${sessionId} (non-fatal, the session opens as it ` +
+          `does without one): ${logSafeReason(error, "identity intake open")}`,
+      );
+      return null;
+    }
+    if (opened === null) return null;
+    const tts = ttsTextFor(opened.reply);
+    return {
+      opening_text: opened.reply,
+      ...(tts === undefined ? {} : { opening_tts_text: tts }),
+      ...(opened.questionKey === null ? {} : { opening_question_key: opened.questionKey }),
+      ...(opened.answerType === null ? {} : { opening_answer_type: opened.answerType }),
+    };
   }
 
   /**
@@ -1751,6 +1832,10 @@ export class ChatService {
       // Verbatim. An assistant line still carries the literal `{{worker_name}}`
       // placeholder here — the real name is interpolated ONLY into the live reply.
       bodyText: m.text,
+      // ADR-0048 (D10) — an identity-intake line is stored verbatim for the worker's own redraw
+      // and flagged, so the extraction and the résumé's quote/veto reader leave it out. SPREAD,
+      // so every other row is inserted exactly as before and takes the column's `{}` default.
+      ...(m.intake === true ? { metadata: IDENTITY_INTAKE_METADATA } : {}),
       // `created_at` is EXPLICIT: these rows are written at flush but happened over the
       // preceding minutes, and defaulting would stamp a thirty-turn interview as thirty
       // simultaneous messages, destroying the order `listMessages` and the extraction

@@ -1311,6 +1311,18 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerMatchSkillWantsSetPayload,
   },
+
+  // ── ADR-0048 (#1858) — appended at the tail, per the append-only protocol ────────────────
+  //
+  // One identity-intake step (first name, surname, state, city) settled in the onboarding chat:
+  // answered, or skipped after two asks. The state changes themselves stay on the shipped
+  // `worker.name_recorded` / `worker.location_recorded`; this carries the chat's provenance, which
+  // those v1 payloads cannot. Ids + closed enums + one gazetteer boolean — never a value. v1.
+  "profile.identity_intake_answered": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileIdentityIntakeAnsweredPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

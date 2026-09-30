@@ -16,6 +16,7 @@ import { ProfilesModule } from "../profiles/profiles.module";
 import { StorageModule } from "../storage/storage.module";
 import { VoiceModule } from "../voice/voice.module";
 import { IdentifyService } from "./identify.service";
+import { IdentityIntakeService } from "./identity-intake/identity-intake.service";
 import { LlmTurnService } from "./llm-turn.service";
 import { SkillsTurnService } from "./skills-turn.service";
 import { ProfilingOrchestrator } from "./orchestrator.service";
@@ -160,6 +161,12 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
     // ADR-0045 — the general road's skills stage. A trailing optional CONSTRUCTOR dependency of the
     // orchestrator: omitting it would not fail boot, it would leave every session unarmed.
     SkillsTurnService,
+    // ADR-0048 — the identity intake's seal, record writes and funnel event. Trailing and optional
+    // on the orchestrator like the one above, so omitting it would not fail boot — it would open
+    // no intake, and a worker whose app no longer shows `/name` would never be asked his name.
+    // `WorkersService` comes from the @Global WorkersModule's export, `PiiCryptoService` and
+    // `EventsService` are @Global: a provider, and no module edge.
+    IdentityIntakeService,
     ProfilingOrchestrator,
     ProfilingSessionService,
     ProfilingVoiceRepository,

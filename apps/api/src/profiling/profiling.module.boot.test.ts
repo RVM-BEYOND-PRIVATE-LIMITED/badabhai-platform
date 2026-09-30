@@ -22,6 +22,9 @@ import "reflect-metadata";
 import { describe, expect, it } from "vitest";
 
 import { IdentifyService } from "./identify.service";
+import { IdentityIntakeService } from "./identity-intake/identity-intake.service";
+import { WorkersModule } from "../workers/workers.module";
+import { WorkersService } from "../workers/workers.service";
 import { LlmTurnService } from "./llm-turn.service";
 import { SkillsTurnService } from "./skills-turn.service";
 import { ProfilingOrchestrator } from "./orchestrator.service";
@@ -104,6 +107,9 @@ describe("ProfilingModule wiring", () => {
       // ADR-0045. Trailing and optional on the orchestrator, so omitting it would not fail boot —
       // it would silently leave every session unarmed. Pinned here for that reason.
       SkillsTurnService,
+      // ADR-0048. Trailing and optional on the orchestrator for the same reason: omitting it would
+      // not fail boot, it would silently open no identity intake. Pinned here for that reason.
+      IdentityIntakeService,
       ProfilingOrchestrator,
       ProfilingSessionService,
       ProfilingVoiceRepository,
@@ -204,5 +210,13 @@ describe("ProfilingModule wiring", () => {
 
   it("exports the orchestrator, which is what ChatService now runs the turn through", () => {
     expect(getMeta("exports", ProfilingModule)).toContain(ProfilingOrchestrator);
+  });
+
+  it("reaches WorkersService for the identity intake through the @Global WorkersModule (ADR-0048)", () => {
+    // `IdentityIntakeService` writes the name and location through `WorkersService` — the one write
+    // path each has. It is resolved from WorkersModule's export, with NO import edge added here, so
+    // both halves are load-bearing: drop the export or the @Global and the API fails at boot.
+    expect(Reflect.getMetadata("__module:global__", WorkersModule)).toBe(true);
+    expect(getMeta("exports", WorkersModule)).toContain(WorkersService);
   });
 });

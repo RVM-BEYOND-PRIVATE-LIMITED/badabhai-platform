@@ -196,6 +196,17 @@ const FULL: ProfilingEnvelope = {
     outcome: "capped",
     handedOver: false,
   },
+  // NON-DEFAULT in every sub-field (ADR-0048): null is what a narrower that dropped the field
+  // would rebuild, and a PENDING intake on the surname — holding a sealed first name and a state —
+  // is the one shape in which a lossy narrower would lose a worker's answer.
+  identityIntake: {
+    state: "pending",
+    step: "last_name",
+    remaining: ["state", "city"],
+    asks: { first_name: 2, last_name: 1 },
+    firstNameEnc: "v1:sealed-first-name",
+    heldState: "Maharashtra",
+  },
 };
 
 describe("⚠ THE FIELD-DROP TRAP — narrow() round-trips every v2 field", () => {

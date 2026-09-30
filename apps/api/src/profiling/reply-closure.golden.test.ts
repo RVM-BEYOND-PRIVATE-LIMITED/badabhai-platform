@@ -21,6 +21,12 @@ import {
   HARDSHIP_REPLIES,
   UNAVAILABLE_REPLY,
 } from "./orchestrator.service";
+import { IDENTITY_INTAKE_STEPS } from "@badabhai/event-schema";
+import {
+  INTAKE_COPY,
+  INTAKE_HANDOFF_TEXT,
+  intakeLineText,
+} from "./identity-intake/identity-intake";
 
 /**
  * THE CLOSURE, OVER THE REAL 466-ITEM CORPUS — committed as a golden artifact.
@@ -286,6 +292,18 @@ describe("the reply closure, over the REAL question-pack corpus", () => {
       ["DISAMBIGUATION_PROMPT", DISAMBIGUATION_PROMPT],
       ["CHAT_OPENING_TEXT", CHAT_OPENING_TEXT],
       ...HARDSHIP_REPLIES.map((text, i) => [`HARDSHIP_REPLIES[${i}]`, text] as const),
+      // ADR-0048 — every line the identity intake can serve, read through its OWN serve function
+      // (`intakeLineText`, the one the orchestrator calls) for every step and every line kind, plus
+      // the ⓘ why-text it carries and the handoff onto the opener.
+      ...IDENTITY_INTAKE_STEPS.flatMap((step) =>
+        (["prompt", "retry", "clarify", "de_escalate"] as const).map(
+          (line) => [`intakeLineText(${step}, ${line})`, intakeLineText(step, line)] as const,
+        ),
+      ),
+      ...IDENTITY_INTAKE_STEPS.map(
+        (step) => [`INTAKE_COPY.${step}.why`, INTAKE_COPY[step].why] as const,
+      ),
+      ["INTAKE_HANDOFF_TEXT", INTAKE_HANDOFF_TEXT],
     ];
     for (const [name, text] of served) {
       expect(ids.has(clipId(normalizeReplyText(text))), `${name} has no clip in the manifest`).toBe(
