@@ -20,38 +20,25 @@ the same file the gate reads, or the two drift the first time someone edits one 
 
 from __future__ import annotations
 
-import json
-from functools import lru_cache
-from pathlib import Path
-
-# The mirror synced from packages/profiling-lexicon/data. Anchored to this package, never
-# resolved against the CWD — the same lesson AI-ENV-1 records for the .env file.
-_PERSONA_PATH = Path(__file__).resolve().parent / "lexicon_data" / "persona.json"
+from . import lexicon
 
 
-@lru_cache(maxsize=1)
 def _persona() -> dict:
-    return json.loads(_PERSONA_PATH.read_text(encoding="utf-8"))
+    """The persona file, read through the lexicon reader — the mirror synced from
+    packages/profiling-lexicon/data, anchored to the package and loaded once."""
+    return lexicon.load("persona")
 
 
-def _banned_words() -> list[str]:
-    """Every closed banned list, flattened. `bannedPromise` is the one that matters most:
-    "guarantee", "pakka job", "job pakki" and "interview" are promises this platform cannot
-    keep, and a worker who is told one has been misled by us, not by a model."""
-    p = _persona()
-    return [
-        *p["bannedVocatives"],
-        *p["bannedInformal"],
-        *p["bannedGush"],
-        *p["bannedPromise"],
-        *p["bannedDeictics"],
-    ]
+def _banned_list() -> str:
+    """The banned tokens as the prompts quote them. Read from the ONE flattened list the career
+    prompt also renders (`lexicon.persona_banned_tokens`), never re-flattened here."""
+    return ", ".join(f'"{w}"' for w in lexicon.persona_banned_tokens())
 
 
 def interview_system_prompt() -> str:
     """The Phase A system prompt: what we are doing, for whom, and how to speak."""
     p = _persona()
-    banned = ", ".join(f'"{w}"' for w in _banned_words())
+    banned = _banned_list()
     acks = ", ".join(f'"{a}"' for a in p["acknowledgements"])
 
     return f"""You are Bada Bhai, conducting a short job-profiling conversation with an Indian
@@ -153,7 +140,7 @@ def skills_interview_system_prompt() -> str:
     gate; the model only reports `phase_a_done`.
     """
     p = _persona()
-    banned = ", ".join(f'"{w}"' for w in _banned_words())
+    banned = _banned_list()
     acks = ", ".join(f'"{a}"' for a in p["acknowledgements"])
 
     return f"""You are Bada Bhai, in the SKILLS part of a short job-profiling conversation with an

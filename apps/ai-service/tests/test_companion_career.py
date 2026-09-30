@@ -16,7 +16,6 @@ service's own boundary, not the transport.
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import pytest
@@ -24,12 +23,9 @@ from fastapi.testclient import TestClient
 
 import app.routers.companion as companion_router
 from app.companion import career as career_logic
-from app.companion.prompts import (
-    CAREER_SYSTEM_PROMPT,
-    PERSONA_BANNED_GROUPS,
-    persona_banned_tokens,
-)
+from app.companion.prompts import CAREER_SYSTEM_PROMPT
 from app.main import app
+from app.profiling import lexicon
 
 client = TestClient(app)
 
@@ -225,27 +221,16 @@ _REPO = Path(__file__).resolve().parents[3]
 _LEXICON = _REPO / "packages" / "profiling-lexicon"
 
 
-def test_the_banned_groups_are_the_ones_the_api_scan_reads() -> None:
-    """`checkPersonaTokens` scans the groups `bannedTokenGroups()` names, in its order. A sixth
-    group added on the TS side without the prompt following it would let the model use words the
-    validator then rejects — so the Python list is compared with the TS source, not retyped."""
-    source = (_LEXICON / "src" / "persona" / "index.ts").read_text(encoding="utf-8")
-    body = source.split("export function bannedTokenGroups", 1)[1].split("\n}\n", 1)[0]
-    ts_groups = tuple(re.findall(r"\bc\.(banned[A-Za-z]+)\b", body))
-    assert ts_groups, "bannedTokenGroups() moved — the parity read found nothing"
-    assert ts_groups == PERSONA_BANNED_GROUPS
-
-
 def test_every_banned_token_the_api_enforces_is_named_in_the_prompt() -> None:
     """Read from the CANONICAL file the API reads (not the mirror the prompt is built from), so
-    this is a parity test across the two, not a tautology."""
+    this is a parity test across the two, not a tautology. The group list itself is pinned to the
+    API's scan once, for every prompt, in tests/test_lexicon_parity.py."""
     canonical = json.loads((_LEXICON / "data" / "persona.json").read_text(encoding="utf-8"))
-    tokens = [token for group in PERSONA_BANNED_GROUPS for token in canonical[group]]
+    tokens = [token for group in lexicon.PERSONA_BANNED_GROUPS for token in canonical[group]]
     assert len(tokens) >= 30
     for token in tokens:
         # Quoted and whole: a phrase is never split across a wrapped line.
         assert f'"{token}"' in CAREER_SYSTEM_PROMPT, token
-    assert persona_banned_tokens() == tuple(tokens)
 
 
 def test_the_prompt_keeps_chips_free_of_question_marks() -> None:

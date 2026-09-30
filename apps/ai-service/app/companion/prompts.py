@@ -150,37 +150,24 @@ def build_edit_parse_messages(
 
 # ── Career talk (ADR-0046 P3) ────────────────────────────────────────────────────────────────
 
-#: The persona v3.2 banned-token groups, in the order the API's scan reads them
-#: (`bannedTokenGroups()` in packages/profiling-lexicon/src/persona/index.ts). The API runs
-#: `checkPersonaTokens` over every career line AND chip and serves the fallback line on any hit,
-#: so a word the prompt never forbade ("perfect", "interview", "tum") turns an otherwise good
-#: answer into a fallback — and the ai-service eval, which scores before that validator, cannot
-#: see it. The tokens are READ from the lexicon mirror (byte-identical to the canonical file the
-#: API reads, pinned by tests/test_lexicon_parity.py), never retyped here.
-PERSONA_BANNED_GROUPS: tuple[str, ...] = (
-    "bannedVocatives",
-    "bannedInformal",
-    "bannedGush",
-    "bannedPromise",
-    "bannedDeictics",
-)
-
-
-def persona_banned_tokens() -> tuple[str, ...]:
-    """Every persona v3.2 banned token, group by group, in the lexicon's own order."""
-    corpus = lexicon.load("persona")
-    return tuple(token for group in PERSONA_BANNED_GROUPS for token in corpus[group])
-
 
 def _render_banned_tokens(width: int = 96) -> str:
-    """The banned tokens as one quoted, wrapped list — deterministic bytes for one lexicon.
+    """The persona v3.2 banned tokens as one quoted, wrapped list — deterministic bytes for one
+    lexicon.
+
+    WHY THE CAREER PROMPT NAMES THEM. The API runs `checkPersonaTokens` over every career line
+    AND chip and serves the fallback line on any hit, so a word the prompt never forbade
+    ("perfect", "interview", "tum") turns an otherwise good answer into a fallback — and the
+    ai-service eval, which scores before that validator, cannot see it. The tokens come from
+    `lexicon.persona_banned_tokens`, the one list the interview prompts render too (its group
+    order is pinned to the API's scan by tests/test_lexicon_parity.py), never retyped here.
 
     Wrapped BETWEEN tokens, never inside one: a phrase split over two lines ("pakka" / "job")
     reads to a model as two different words.
     """
     lines: list[str] = []
     line = " "
-    for token in persona_banned_tokens():
+    for token in lexicon.persona_banned_tokens():
         item = f' "{token}",'
         if len(line) + len(item) > width and line.strip():
             lines.append(line)
