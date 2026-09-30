@@ -149,6 +149,7 @@ describe("the screen table is the worker app's route table", () => {
         "edit", // → Routes.profileEdit   '/profile/edit'  (Layer A, #1545)
         "review", // → Routes.extractedReview '/resume/review'  (extracted-profile review, #1595)
         "kit", // → Routes.kit           '/profile/kit'
+        "match-skills", // → Routes.matchSkills '/profile/match-skills'  (E4, #1828)
         "search", // → Routes.jobSearch     '/jobs/search'
         "settings", // → Routes.settings      '/profile/settings'
       ].sort(),
