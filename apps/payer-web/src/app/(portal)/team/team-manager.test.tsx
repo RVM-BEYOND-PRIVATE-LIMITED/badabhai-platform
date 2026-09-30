@@ -142,14 +142,21 @@ describe("TeamManager — invite affordance + masked members list, PII-free", ()
 });
 
 describe("TeamManager — W3-B: the directory is a labelled, keyboard-scrollable region", () => {
-  it("the table scroller is focusable, a region, and named by its panel's heading text", () => {
+  it("the table scroller is focusable, a region, and NAMED BY the Members heading (referenced)", () => {
     const tree = TeamManager({ members: [recruiter, self] }) as ReactElement;
     const wrap = findByClass(tree, "tablewrap");
     expect(wrap).toHaveLength(1);
     const props = wrap[0]!.props as Record<string, unknown>;
-    expect(props).toMatchObject({ tabIndex: 0, role: "region", "aria-label": "Members" });
-    const heading = findByClass(tree, "panel__title").map((h) => gatherText(h).trim());
-    expect(heading).toContain(props["aria-label"]);
+    expect(props).toMatchObject({ tabIndex: 0, role: "region" });
+    // The name is the heading's own text, referenced — not a second hand-kept copy of it.
+    expect(props["aria-label"]).toBeUndefined();
+    const heading = findByClass(tree, "panel__title").find(
+      (h) => gatherText(h).trim() === "Members",
+    );
+    expect(heading).toBeDefined();
+    const id = (heading!.props as { id?: unknown }).id;
+    expect(typeof id === "string" && id.length > 0).toBe(true);
+    expect(props["aria-labelledby"]).toBe(id);
   });
 
   it("the table keeps wrapping (not `table--nowrap`): a long masked email must not push role/status off a phone", () => {

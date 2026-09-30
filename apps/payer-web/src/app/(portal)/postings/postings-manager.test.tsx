@@ -332,6 +332,28 @@ describe("PostingsManager — W3-B card anatomy (facts row / links row / action 
     ]);
   });
 
+  it("the idle result region renders EMPTY (globals.css takes it out of flow via :empty), and fills in place", () => {
+    const liveOf = (tree: ReactElement) => {
+      const main = byClass(tree, "posting-card__main")[0]!;
+      const kids = (main.props as { children: ReactNode[] }).children;
+      const live = kids.find(
+        (c): c is ReactElement =>
+          typeof c === "object" &&
+          c !== null &&
+          (c as ReactElement<Record<string, unknown>>).props["aria-live"] === "polite",
+      );
+      expect(live).toBeDefined();
+      return live!.props as { children: ReactNode[] };
+    };
+    // Idle: every child is a falsy guard, so the DOM node has no children and `:empty` matches.
+    expect(liveOf(render([OPEN])).children.every((c) => c === false || c == null)).toBe(true);
+    // With a result, the SAME region (still in the a11y tree all along) holds the band.
+    const errored = liveOf(
+      render([OPEN], { [OPEN.id]: { busy: false, error: "That failed.", notice: null } }),
+    );
+    expect(errored.children.some((c) => typeof c === "object" && c !== null)).toBe(true);
+  });
+
   it("the title still links to the posting's faceless applicant feed", () => {
     const title = byClass(render([OPEN]), "posting-card__title")[0]!;
     expect((title.props as { href: string }).href).toBe(`/postings/${OPEN.id}/applicants`);

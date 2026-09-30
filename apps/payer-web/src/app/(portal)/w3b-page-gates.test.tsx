@@ -12,8 +12,8 @@ import type { Capacity } from "../../lib/contracts";
  *     /team is gated by `requireOwner` (Owner-only), not merely a signed-in payer;
  *   · every return branch is wrapped in its page's namespacing class and nothing else (the
  *     W3-B CSS block is scoped to these wrappers — see w3b-page-polish.css.test.ts);
- *   · the per-posting tables on /plans + /capacity are focusable, labelled scroll regions whose
- *     name is the panel heading's own text;
+ *   · the per-posting tables on /plans + /capacity are focusable scroll regions NAMED BY their
+ *     panel heading (aria-labelledby → the heading's id, not a copied aria-label string);
  *   · /plans: every credit pack's action is a LINK to /credits (the purchase happens there),
  *     never an in-card button.
  * Env is node: each async Server Component is awaited to an element tree and walked. The
@@ -68,7 +68,7 @@ const account = await import("./account/page");
 const team = await import("./team/page");
 const accept = await import("./team/accept/page");
 
-const noParams = () => ({ searchParams: Promise.resolve({ token: "tok" }) });
+const withToken = () => ({ searchParams: Promise.resolve({ token: "tok" }) });
 
 /** Every element whose className carries `cls`, depth-first (the tree is NOT expanded). */
 function byClass(node: ReactNode, cls: string, acc: ReactElement[] = []): ReactElement[] {
@@ -151,7 +151,7 @@ const PAGES = [
     name: "/team/accept",
     mod: accept,
     wrapper: "team-accept-page",
-    run: () => accept.default(noParams()),
+    run: () => accept.default(withToken()),
   },
 ] as const;
 
@@ -216,9 +216,9 @@ describe("W3-B · the role gate runs before any read", () => {
 
   it("/team/accept is NOT owner-gated (any signed-in payer), but it IS payer-gated", async () => {
     requireOwner.mockRejectedValue(new Error("NEXT_NOT_FOUND"));
-    await expect(accept.default(noParams())).resolves.toBeTruthy();
+    await expect(accept.default(withToken())).resolves.toBeTruthy();
     requirePayer.mockRejectedValue(redirect());
-    await expect(accept.default(noParams())).rejects.toThrow("NEXT_REDIRECT");
+    await expect(accept.default(withToken())).rejects.toThrow("NEXT_REDIRECT");
   });
 });
 
@@ -229,17 +229,23 @@ describe("W3-B · per-posting tables are labelled, keyboard-scrollable regions",
   ];
   for (const c of cases) {
     for (const session of [EMPLOYER, AGENCY]) {
-      it(`${c.name} (${session.role}): tabIndex 0 + region, named by its panel heading's text`, async () => {
+      it(`${c.name} (${session.role}): tabIndex 0 + region, NAMED BY its panel heading (referenced)`, async () => {
         requirePayer.mockResolvedValue(session);
         const tree = (await c.run()) as ReactElement;
         const wraps = byClass(tree, "tablewrap");
         expect(wraps).toHaveLength(1);
-        expect(props(wraps[0]!)).toMatchObject({ tabIndex: 0, role: "region" });
+        const wrap = props(wraps[0]!);
+        expect(wrap).toMatchObject({ tabIndex: 0, role: "region" });
+        // The name is the heading's own text, referenced — not a second hand-kept copy of it.
+        expect(wrap["aria-label"]).toBeUndefined();
         const panel = byClass(tree, "panel--table");
         expect(panel).toHaveLength(1);
-        const heading = textOf(byClass(panel[0]!, "panel__title")[0]!);
-        expect(props(wraps[0]!)["aria-label"]).toBe(heading);
-        expect(heading).toContain(session.role === "agent" ? "vacancy" : "posting");
+        const heading = byClass(panel[0]!, "panel__title");
+        expect(heading).toHaveLength(1);
+        const id = props(heading[0]!).id;
+        expect(typeof id === "string" && id.length > 0).toBe(true);
+        expect(wrap["aria-labelledby"]).toBe(id);
+        expect(textOf(heading[0]!)).toContain(session.role === "agent" ? "vacancy" : "posting");
       });
     }
   }

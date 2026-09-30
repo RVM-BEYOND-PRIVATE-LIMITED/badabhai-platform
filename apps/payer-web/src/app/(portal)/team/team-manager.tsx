@@ -24,6 +24,8 @@ import { inviteMemberAction, removeMemberAction } from "./actions";
  * never echoes an email), so tone conveys outcome without becoming an enumeration oracle.
  */
 const ROLE_TONE: Record<OrgRole, "brand" | "neutral"> = { owner: "brand", recruiter: "neutral" };
+/** The directory's heading — also the NAME of its scroll region (aria-labelledby). */
+const MEMBERS_HEADING_ID = "team-members-title";
 const STATUS_TONE: Record<OrgMemberStatus, "success" | "warning" | "neutral"> = {
   active: "success",
   invited: "warning",
@@ -99,7 +101,9 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
 
       <section className="panel panel--table">
         <div className="panel__head">
-          <h2 className="panel__title">Members</h2>
+          <h2 className="panel__title" id={MEMBERS_HEADING_ID}>
+            Members
+          </h2>
           <p className="panel__sub">
             Everyone who can sign in to this hiring desk. Emails stay masked.
           </p>
@@ -122,7 +126,12 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
               </div>
             </div>
           ) : (
-            <div className="tablewrap" tabIndex={0} role="region" aria-label="Members">
+            <div
+              className="tablewrap"
+              tabIndex={0}
+              role="region"
+              aria-labelledby={MEMBERS_HEADING_ID}
+            >
               <table className="table">
                 <thead>
                   <tr>

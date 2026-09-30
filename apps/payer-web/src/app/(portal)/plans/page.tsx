@@ -16,6 +16,9 @@ import { CapacityPanel } from "../capacity/capacity-panel";
 
 export const dynamic = "force-dynamic";
 
+/** The per-posting table's heading — also the NAME of its scroll region (aria-labelledby). */
+const QUOTA_TABLE_HEADING_ID = "plans-quota-table-title";
+
 export default async function PlansPage() {
   const session = await requirePayer();
   const isAgency = session.role === "agent";
@@ -158,7 +161,9 @@ export default async function PlansPage() {
       {capacity ? (
         <section className="panel panel--table">
           <div className="panel__head">
-            <h2 className="panel__title">Per {unitOne} applicant quota</h2>
+            <h2 className="panel__title" id={QUOTA_TABLE_HEADING_ID}>
+              Per {unitOne} applicant quota
+            </h2>
             <p className="panel__sub">
               Your concurrent allowance and active count above are <strong>live</strong> from the
               backend enforcement engine. The per-{unitOne} rows reflect backend-seeded plans
@@ -171,7 +176,7 @@ export default async function PlansPage() {
                 className="tablewrap"
                 tabIndex={0}
                 role="region"
-                aria-label={`Per ${unitOne} applicant quota`}
+                aria-labelledby={QUOTA_TABLE_HEADING_ID}
               >
                 <table className="table">
                   <thead>

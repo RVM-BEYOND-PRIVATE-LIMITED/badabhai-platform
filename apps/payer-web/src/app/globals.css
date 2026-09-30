@@ -3060,6 +3060,14 @@ textarea.input {
   row-gap: var(--space-1);
   font-size: var(--text-sm);
 }
+/* The row's result region (aria-live) is EMPTY until an action reports. Empty, it was still an
+   item of the text column's grid, so the column gap hung under the page links and pushed them
+   away from the divider (~2x the divider-to-buttons space). Out of flow while empty it takes no
+   track and no gap, yet it is still rendered — so it stays in the accessibility tree and still
+   announces; its first message puts it back in flow. (display:none would silence it.) */
+.postings-page .posting-card__main > [aria-live]:empty {
+  position: absolute;
+}
 @media (max-width: 600px) {
   .postings-page .posting-card {
     padding: var(--space-4);
@@ -3162,19 +3170,8 @@ textarea.input {
     min-inline-size: calc(2 * var(--control-md));
   }
 }
-@media (max-width: 600px), (pointer: coarse) {
-  /* A role link in the table: its hit box reaches into the cell's block padding without making
-     the row any taller. One 13.5px x 1.45 line + the padding is 43.6px, so the box also takes
-     the 44px control floor (border-box, so the floor includes the padding). */
-  .plans-page .capacity-link,
-  .capacity-page .capacity-link {
-    display: inline-block;
-    box-sizing: border-box;
-    min-block-size: var(--control-md);
-    padding-block: var(--space-3);
-    margin-block: calc(-1 * var(--space-3));
-  }
-}
+/* (The table's role link and the tiles' caption link take their 44px touch target in the
+   touch section at the end of this block.) */
 
 /* ---- /account — on a phone a KYC / bank action drops UNDER its text (aligned with it by the
    shared ≤600px alert rule) instead of squeezing the status and reason into a ~150px column
@@ -3208,10 +3205,12 @@ textarea.input {
   }
 }
 
-/* ---- Touch, on all six screens: every control is at least 44px. The DS small button already
-   has a 44px hit strip at ≤600px (ds-components.css); a coarse pointer ABOVE 600px (a tablet)
-   gets a drawn 44px minimum here, as on /postings/[id]/applicants. The posting title and the
-   Details / Edit links are text links outside a sentence, so they get the same floor. */
+/* ---- Touch, on all six screens: on a phone and under a coarse pointer, every control these
+   screens own is at least 44px. (The "← Dashboard" back link is shared page furniture, not
+   theirs: it is sized with the other shared targets, not by this block.) The DS small button
+   already has a 44px hit strip at ≤600px (ds-components.css); a coarse pointer ABOVE 600px (a
+   tablet) gets a drawn 44px minimum here, as on /postings/[id]/applicants. Text links outside a
+   sentence get the same 44px below. */
 @media (pointer: coarse) and (min-width: 601px) {
   .postings-page .bb-btn--sm,
   .plans-page .bb-btn--sm,
@@ -3223,15 +3222,38 @@ textarea.input {
   }
 }
 @media (max-width: 600px), (pointer: coarse) {
-  .postings-page .posting-card__title,
-  .postings-page .postings-link {
+  /* The posting title heads its card, so it takes a drawn 44px line. */
+  .postings-page .posting-card__title {
     display: inline-flex;
     align-items: center;
     min-height: var(--control-md);
   }
-  /* "Edit" is four letters (26px): its box widens to 44px, the text stays left-aligned. */
-  .postings-page .postings-link {
-    min-inline-size: var(--control-md);
+  /* A text link in a dense row — a card's Details / Edit, the table's role link, the quota
+     tile's "Top up applicant quota →" caption — gets a 44px HIT STRIP instead: an out-of-flow
+     pseudo centred on the link (the DS small-button recipe in ds-components.css). No row grows,
+     and the focus ring still hugs the text: a padded 44px box put the role link's ring on its
+     cell's edges, under the sticky header on the first row and past the scroller on the last.
+     The inline inset is negative only on a link narrower than 44px ("Edit"). inline-block makes
+     a link that wraps (a long role, the caption at 320px) ONE box for the strip to centre on. */
+  .postings-page .postings-link,
+  .plans-page .capacity-link,
+  .capacity-page .capacity-link,
+  .plans-page .bb-stat__caption a,
+  .capacity-page .bb-stat__caption a {
+    display: inline-block;
+    position: relative;
+    isolation: isolate;
+  }
+  .postings-page .postings-link::before,
+  .plans-page .capacity-link::before,
+  .capacity-page .capacity-link::before,
+  .plans-page .bb-stat__caption a::before,
+  .capacity-page .bb-stat__caption a::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0%, calc((100% - var(--control-md)) / 2));
   }
 }
 
@@ -4934,7 +4956,7 @@ body:has(.invite-landing) .chrome-footer {
      · on a phone the three tiles stacked to 474px — the whole first screen was counters,
        above the actions the band exists to support. Below 600px each tile becomes a compact
        ledger row (icon · label/caption · figure), ~65px tall.
-   Opt-in so the other `.stat-row` consumers (capacity / plans / agency) are unchanged. */
+   Opt-in: a row takes it by adding `stat-row--kpi`; a plain `.stat-row` keeps the base grid. */
 .stat-row--kpi {
   display: flex;
   flex-wrap: wrap;
@@ -5072,8 +5094,13 @@ body:has(.invite-landing) .chrome-footer {
 .panel:has(.tablewrap:focus-visible) {
   box-shadow: var(--ring-focus);
 }
+/* …and the scroller draws nothing else: the tokens.css base `:focus-visible` still gave it the
+   box-shadow ring (a second navy stroke along the table's top edge, under the panel head) and a
+   radius that clipped the sticky header's top corners the moment it took focus. */
 .panel:has(.tablewrap:focus-visible) .tablewrap:focus-visible {
   outline-color: transparent;
+  box-shadow: none;
+  border-radius: 0;
 }
 .table {
   width: 100%;

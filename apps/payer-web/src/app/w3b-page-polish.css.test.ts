@@ -11,11 +11,13 @@ import type { Rule } from "../../test/css-rules";
  * Node env, no layout engine (the approach of w2b-page-polish.css.test.ts): what each fix
  * depends on is DECLARED geometry plus token arithmetic, so this suite pins it —
  *   · /postings: the card's action bar sits under the text; the facts row's separator slot is
- *     clipped at a line start but a wrapped segment's text never is; the page links are ≥44px
- *     on touch;
+ *     clipped at a line start but a wrapped segment's text never is; the idle result region
+ *     adds no gap;
  *   · /plans + /capacity: one catalogue track + price size on /plans, the phone price rows,
- *     block spacing around the tier row, the table's role-column floor and link hit box;
+ *     block spacing around the tier row, the table's role-column floor;
  *   · /account, /team, /team/accept: the phone KYC alert, the result-band spacing/measure;
+ *   · touch: every control the six screens own is ≥44px; text links take a hit strip that
+ *     leaves their focus ring on the text;
  *   · every rule of the block is SCOPED to one of the six page wrappers and is tokens-only.
  * The layouts were measured in Chromium at 320/375/768/1280px (paper + ink) when built.
  */
@@ -30,6 +32,51 @@ const TOKENS = stripComments(
   ),
 );
 const RULES = parseRules(CSS);
+const DS_RULES = parseRules(
+  stripComments(readFileSync(join(here, "..", "styles", "ds-components.css"), "utf8")),
+);
+
+/** Every `prop: value` of a block, in order (a string scan, like `decl`). */
+function declarations(r: Rule): Array<[string, string]> {
+  return r.body.split(";").flatMap((part): Array<[string, string]> => {
+    const colon = part.indexOf(":");
+    return colon < 0 ? [] : [[part.slice(0, colon).trim(), part.slice(colon + 1).trim()]];
+  });
+}
+
+/** A raw CSS length — signed or not, in any absolute, font- or viewport-relative unit. */
+const RAW_LENGTH =
+  /(^|[^\w-])-?\d*\.?\d+(px|rem|em|ex|ch|lh|rlh|vw|vh|vi|vb|vmin|vmax|[sld]v[whib]|[sld]vmin|[sld]vmax|cq[whib]|cqmin|cqmax|pt|pc|cm|mm|in|q)\b/i;
+
+/** Properties whose value can carry a colour. */
+const COLOUR_PROP =
+  /^(color|background(-color)?|border(-(top|right|bottom|left|block|inline)(-(start|end))?)?(-color)?|outline(-color)?|box-shadow|text-shadow|fill|stroke|caret-color|accent-color|text-decoration(-color)?|column-rule(-color)?)$/;
+/** The only bare words a colour-bearing value may keep once its `var(--token)`s are removed. */
+const NON_COLOUR_WORDS = new Set([
+  "solid",
+  "dashed",
+  "dotted",
+  "double",
+  "none",
+  "inset",
+  "transparent",
+  "currentcolor",
+  "inherit",
+  "initial",
+  "unset",
+  "revert",
+  "calc",
+  "min",
+  "max",
+  "clamp",
+]);
+/** The words left in a colour-bearing value that are NOT allowed (an allowlist, not a colour list). */
+function nonTokenWords(value: string): string[] {
+  const bare = value.replace(/var\(--[\w-]+\)/g, " ").replace(/-?\d*\.?\d+[a-z%]*/gi, " ");
+  return (bare.match(/[a-z][\w-]*/gi) ?? [])
+    .map((w) => w.toLowerCase())
+    .filter((w) => !NON_COLOUR_WORDS.has(w));
+}
 
 /** The W3-B block alone: from its banner to the next section's banner. */
 const BLOCK_TITLE = "POSTINGS · PLANS · CAPACITY · ACCOUNT · TEAM (W3-B polish)";
@@ -110,6 +157,24 @@ describe("W3-B · /postings — info first, one action bar under a divider", () 
 
   it("the row's result band adds no margin inside the card", () => {
     expect(decl(rule(".postings-page .posting-card .alert"), "margin-bottom")).toBe("0");
+  });
+
+  it("the IDLE result region takes no grid track or gap, yet is never hidden from AT", () => {
+    // Measured bug this pins: the empty aria-live box was a grid item, so the text column's gap
+    // hung under Details / Edit (~2x the divider-to-buttons space). The column IS a gapped grid:
+    const main = rule(".posting-card__main");
+    expect(decl(main, "display")).toBe("grid");
+    expect(decl(main, "gap")).not.toBeNull();
+    const live = rule(".postings-page .posting-card__main > [aria-live]:empty");
+    // Out of flow = no track and no gap. (A negative margin would not do it: a grid track
+    // cannot shrink below 0, so the gap before it stays.)
+    expect(decl(live, "position")).toBe("absolute");
+    // Only while EMPTY — a region holding a message is back in flow.
+    expect(live.selector.endsWith(":empty")).toBe(true);
+    // Never hidden: a live region must stay in the accessibility tree to announce its message.
+    for (const hide of ["display", "visibility", "content-visibility", "clip-path", "opacity"]) {
+      expect(decl(live, hide), hide).toBeNull();
+    }
   });
 });
 
@@ -240,26 +305,14 @@ describe("W3-B · /plans + /capacity — block rhythm", () => {
 });
 
 describe("W3-B · /plans + /capacity — the per-posting table", () => {
-  it("the role column keeps a floor of 3/4 of a tile (≥ 150px, and the table fits 768px)", () => {
+  // (That the whole table also fits a 768px tablet is a Chromium measurement, not a declaration.)
+  it("the role column keeps a floor of 3/4 of a tile (≥ 150px)", () => {
     const floor = decl(
       rule(".plans-page .table td:first-child, .capacity-page .table td:first-child"),
       "min-inline-size",
     );
     expect(floor).toBe("calc(var(--stat-min) * 3 / 4)");
     expect((px("--stat-min") * 3) / 4).toBeGreaterThanOrEqual(150);
-  });
-
-  it("on touch the role link's hit box is ≥44px and adds nothing to the row height", () => {
-    const link = rule(".plans-page .capacity-link, .capacity-page .capacity-link", TOUCH);
-    expect(decl(link, "display")).toBe("inline-block");
-    expect(decl(link, "padding-block")).toBe("var(--space-3)");
-    expect(decl(link, "margin-block")).toBe("calc(-1 * var(--space-3))");
-    expect(decl(link, "box-sizing")).toBe("border-box");
-    expect(decl(link, "min-block-size")).toBe("var(--control-md)");
-    expect(px("--control-md")).toBeGreaterThanOrEqual(44);
-    // The floor is load-bearing: one table line + the padding alone falls short of 44px.
-    const line = px("--ui-td-size") * Number(resolve("--ui-td-leading"));
-    expect(line + 2 * px("--space-3")).toBeLessThan(44);
   });
 });
 
@@ -322,13 +375,100 @@ describe("W3-B · touch — every control ≥44px on phones and coarse pointers"
     expect(decl(lift, "min-height")).toBe("var(--control-md)");
   });
 
-  it("the posting title and the Details / Edit links are ≥44px targets on touch", () => {
-    const both = rule(".postings-page .posting-card__title, .postings-page .postings-link", TOUCH);
-    expect(decl(both, "min-height")).toBe("var(--control-md)");
-    expect(decl(both, "display")).toBe("inline-flex");
-    // "Edit" is 26px of text: the link also takes the 44px width floor.
-    expect(decl(rule(".postings-page .postings-link", TOUCH), "min-inline-size")).toBe(
-      "var(--control-md)",
+  it("the posting title heads its card with a drawn 44px line on touch", () => {
+    const title = rule(".postings-page .posting-card__title", TOUCH);
+    expect(decl(title, "min-height")).toBe("var(--control-md)");
+    expect(decl(title, "display")).toBe("inline-flex");
+    expect(px("--control-md")).toBeGreaterThanOrEqual(44);
+  });
+
+  /* Text links in a dense row: a card's Details / Edit, the per-posting table's role link, and
+     the quota tile's "Top up applicant quota →" caption link (the one control the first pass
+     missed — 15–18px tall on touch, and made SMALLER by the compact phone tile row). */
+  const TEXT_LINKS = [
+    ".postings-page .postings-link",
+    ".plans-page .capacity-link",
+    ".capacity-page .capacity-link",
+    ".plans-page .bb-stat__caption a",
+    ".capacity-page .bb-stat__caption a",
+  ];
+  const host = () => rule(TEXT_LINKS.join(", "), TOUCH);
+  const strip = () => rule(TEXT_LINKS.map((s) => `${s}::before`).join(", "), TOUCH);
+
+  it("every text link gets a 44px hit strip centred on it — the DS small-button recipe", () => {
+    expect(decl(host(), "display")).toBe("inline-block");
+    expect(decl(host(), "position")).toBe("relative");
+    expect(decl(host(), "isolation")).toBe("isolate");
+    const s = strip();
+    expect(decl(s, "content")).toBe('""');
+    expect(decl(s, "position")).toBe("absolute");
+    expect(decl(s, "inset-block")).toBe("calc((100% - var(--control-md)) / 2)");
+    // Negative only on a link narrower than 44px ("Edit"); never shrinks a wider one.
+    expect(decl(s, "inset-inline")).toBe("min(0%, calc((100% - var(--control-md)) / 2))");
+    // One idea, not two: the same block reach and layer as the DS small button's strip.
+    const ds = DS_RULES.find(
+      (r) =>
+        r.selector
+          .split(",")
+          .map((part) => part.trim())
+          .includes(".bb-btn--sm::before") && r.at.includes(PHONE),
+    );
+    expect(ds, "the DS small-button strip must exist").toBeDefined();
+    expect(decl(s, "inset-block")).toBe(decl(ds!, "inset-block"));
+    expect(decl(s, "z-index")).toBe(decl(ds!, "z-index"));
+  });
+
+  it("the link box itself is untouched, so no row grows and the focus ring stays on the text", () => {
+    // Measured bug this pins: padding-block + a negative margin-block put the table role link's
+    // box — and so its 4px focus ring — on the cell's edges: under the sticky header on the first
+    // row, clipped by the scroller on the last. NO rule anywhere may pad or size these links (their
+    // pseudo-element strips excepted).
+    const BOX = /^(padding|margin|min-height|min-block-size|height|block-size|box-sizing)/;
+    const LINK = [".postings-link", ".capacity-link", ".bb-stat__caption a"];
+    const linkRules = RULES.filter((r) =>
+      r.selector.split(",").some((part) => {
+        const p = part.trim();
+        return !p.includes("::") && LINK.some((l) => p.endsWith(l) || p.includes(`${l}:`));
+      }),
+    );
+    // Not vacuous: the base .postings-link / .capacity-link rules and this block's host rule.
+    expect(linkRules.length).toBeGreaterThanOrEqual(3);
+    const sizing = linkRules.flatMap((r) =>
+      declarations(r)
+        .filter(([prop]) => BOX.test(prop))
+        .map(([prop]) => `${r.selector} { ${prop} }`),
+    );
+    expect(sizing).toEqual([]);
+  });
+
+  it("the role link's focus ring fits inside its cell's block padding (row 1 and the last row)", () => {
+    const cellPad = px(varName(decl(rule(".table th, .table td"), "padding")!.split(/\s+/)[0]!));
+    // --ring-focus is `0 0 0 2px <surface>, 0 0 0 4px <ring>`: its outer band is the reach.
+    const spreads = [...resolve("--ring-focus").matchAll(/0 0 0 ([\d.]+)px/g)].map((m) =>
+      Number(m[1]),
+    );
+    expect(spreads.length).toBeGreaterThan(0);
+    // With the link box = its text, the ring ends inside the cell: below a sticky header cell on
+    // the first row, and above the scroller's clip edge on the last.
+    expect(Math.max(...spreads)).toBeLessThan(cellPad);
+  });
+});
+
+describe("W3-B · the three newly focusable scrollers (/plans, /capacity, /team) draw ONE ring", () => {
+  it("inside a panel the scroller cancels the base ring + radius; the panel draws the ring", () => {
+    // The tokens.css base gives EVERY focused element the ring and a radius…
+    const base = parseRules(TOKENS).find((r) => r.selector === ":focus-visible" && r.at === "");
+    expect(base).toBeDefined();
+    expect(decl(base!, "box-shadow")).toBe("var(--ring-focus)");
+    expect(decl(base!, "border-radius")).not.toBeNull();
+    // …so a scroller inside a panel drew a second navy stroke under the panel head and clipped
+    // the sticky header's top corners. It now draws neither; the panel's ring is the one ring.
+    const inPanel = rule(".panel:has(.tablewrap:focus-visible) .tablewrap:focus-visible");
+    expect(decl(inPanel, "box-shadow")).toBe("none");
+    expect(decl(inPanel, "border-radius")).toBe("0");
+    expect(decl(inPanel, "outline-color")).toBe("transparent");
+    expect(decl(rule(".panel:has(.tablewrap:focus-visible)"), "box-shadow")).toBe(
+      "var(--ring-focus)",
     );
   });
 });
@@ -349,11 +489,60 @@ describe("W3-B · scoping + tokens — the block restyles nothing outside its si
     expect(offenders).toEqual([]);
   });
 
-  it("the block is tokens-only: no hex, rgb()/hsl(), or raw px/rem/em lengths", () => {
+  it("the block is tokens-only: no hex, colour function, or raw length (signed or not)", () => {
     const bodies = BLOCK_RULES.map((r) => r.body).join("\n");
     expect(bodies).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
-    expect(bodies).not.toMatch(/\b(rgb|rgba|hsl|hsla)\(/);
-    expect(bodies).not.toMatch(/(^|[^\w-])\d*\.?\d+(px|rem|em)\b/);
+    expect(bodies).not.toMatch(/\b(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/);
+    expect(bodies).not.toMatch(RAW_LENGTH);
+  });
+
+  it("the raw-length pattern catches signed and non-px units, and permits token arithmetic", () => {
+    // This block's geometry is built on negative offsets: `-4px` is as raw as `4px`.
+    for (const bad of [
+      "margin-top: -4px;",
+      "margin-top: 4px;",
+      "max-width: 40ch;",
+      "width: 50vw;",
+      "max-block-size: 10dvh;",
+      "gap: 0.5rem;",
+      "top: -.5em;",
+      "inset: calc(100% - 2px);",
+    ]) {
+      expect(bad, bad).toMatch(RAW_LENGTH);
+    }
+    for (const ok of [
+      "margin-block: calc(-1 * var(--space-3));",
+      "font-size: var(--text-2xl);",
+      "grid-template-columns: minmax(0, 1fr) auto;",
+      "grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--plans-card-min)), 1fr));",
+      "inset-inline: min(0%, calc((100% - var(--control-md)) / 2));",
+      "min-inline-size: calc(var(--stat-min) * 3 / 4);",
+      "flex: 1 1 auto;",
+    ]) {
+      expect(ok, ok).not.toMatch(RAW_LENGTH);
+    }
+  });
+
+  it("every colour-bearing value in the block is a token (a named colour cannot slip through)", () => {
+    const coloured = BLOCK_RULES.flatMap((r) =>
+      declarations(r)
+        .filter(([prop]) => COLOUR_PROP.test(prop))
+        .map(([prop, value]) => ({ where: `${r.selector} { ${prop} }`, value })),
+    );
+    // Not vacuous: the action bar's hairline divider is a colour-bearing declaration.
+    expect(coloured.length).toBeGreaterThan(0);
+    const offenders = coloured.filter((c) => nonTokenWords(c.value).length > 0);
+    expect(offenders).toEqual([]);
+  });
+
+  it("the colour check permits the token forms and rejects a named colour or a var() fallback", () => {
+    expect(nonTokenWords("var(--border-hairline) solid var(--border-subtle)")).toEqual([]);
+    expect(nonTokenWords("none")).toEqual([]);
+    expect(nonTokenWords("red")).toEqual(["red"]);
+    expect(nonTokenWords("var(--border-hairline) solid white")).toEqual(["white"]);
+    expect(nonTokenWords("0 0 0 2px Navy")).toEqual(["navy"]);
+    // A fallback literal hides a raw colour behind a token — it is not a token.
+    expect(nonTokenWords("var(--brand, gold)")).toContain("gold");
   });
 
   it("the shared primitives these screens compose are untouched at the top level", () => {
