@@ -459,12 +459,16 @@ export class WorkersService {
    *
    * #1804: `worker.name_recorded` names the worker as actor on a `worker_self` write and the ops
    * caller (`{ actor_type: "ops", actor_id: null }`) on an `internal_ops` one. Payload unchanged.
+   *
+   * ADR-0048: `idempotencyKey` is passed by the chat's identity intake ONLY, whose write runs
+   * before a CAS that can be lost and re-run — the key keeps a re-issued write at one event. The
+   * two HTTP routes pass none, so each of their saves still records exactly as it always has.
    */
   async setFullName(
     workerId: string,
     fullName: string,
     ctx: RequestContext,
-    opts: { origin: NameWriteOrigin },
+    opts: { origin: NameWriteOrigin; idempotencyKey?: string },
   ): Promise<{ worker_id: string }> {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
@@ -480,6 +484,7 @@ export class WorkersService {
       actor: nameWriteActor(workerId, opts.origin),
       subject: { subject_type: "worker", subject_id: workerId },
       payload: { worker_id: workerId },
+      ...(opts.idempotencyKey === undefined ? {} : { idempotencyKey: opts.idempotencyKey }),
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
@@ -616,11 +621,15 @@ export class WorkersService {
    *
    * A NO-OP WRITE IS NOT AN EVENT. If the request carried neither half, nothing is written and
    * nothing is emitted — `setFullName` is the caller and a name-only PATCH is the common case.
+   *
+   * ADR-0048: the chat's identity intake is the second caller, and the only one that passes an
+   * `idempotencyKey` — see {@link setFullName} for why.
    */
   async setLocation(
     workerId: string,
     location: { city?: string; state?: string },
     ctx: RequestContext,
+    opts: { idempotencyKey?: string } = {},
   ): Promise<void> {
     const patch: { currentCity?: string; currentState?: string } = {};
     if (location.city !== undefined)
@@ -645,6 +654,7 @@ export class WorkersService {
         city_recorded: patch.currentCity !== undefined,
         state_recorded: patch.currentState !== undefined,
       },
+      ...(opts.idempotencyKey === undefined ? {} : { idempotencyKey: opts.idempotencyKey }),
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });

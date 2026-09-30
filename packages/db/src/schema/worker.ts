@@ -69,6 +69,10 @@ export const workers = pgTable(
     // PiiCryptoService.encrypt and hands the token to WorkersRepository.updateFullName;
     // the plaintext never reaches the DB and never enters `worker.name_recorded`, which
     // carries only `worker_id`. The seeds encrypt too (`seed-reach-pool.ts`).
+    // ITS CALLERS: `PATCH /workers/me/name` (the app's `/name` screen and the résumé edit),
+    // the ops `PUT /workers/:id/name`, and the onboarding chat's identity intake (ADR-0048,
+    // `IdentityIntakeService`), which holds a first name SEALED in Redis between two chat
+    // turns and writes the whole name here once.
     //
     // READ SITES all decrypt at a boundary and DEGRADE to a null name on failure —
     // resume render/fields, the disclosure masker (initials only), the chat greeting,
@@ -140,6 +144,11 @@ export const workers = pgTable(
     // WHICH ONE WINS: THIS ONE (owner ruling 2026-09-05, #1428). A chat-extracted city is a
     // derived guess; this is the worker's own assertion, and "AI never owns business
     // decisions" applies to overwriting it too. Nothing in the extraction path writes here.
+    //
+    // WRITERS: `WorkersService.setLocation` only — from `PATCH /workers/me/name` and from the
+    // onboarding chat's identity intake (ADR-0048), which asks the state and the city as two
+    // deterministic turns and writes them once. Still the worker's own typed or picked answer,
+    // never an extraction.
     currentCity: text("current_city"),
     currentState: text("current_state"),
     status: text("status").$type<WorkerStatus>().notNull().default("pending"),

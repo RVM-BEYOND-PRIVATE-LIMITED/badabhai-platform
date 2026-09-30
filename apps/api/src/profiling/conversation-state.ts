@@ -59,6 +59,7 @@ import {
   QuestionPackOptionSchema,
 } from "@badabhai/ai-contracts";
 
+import { IDENTITY_INTAKE_STEPS, type IdentityIntakeStep } from "@badabhai/event-schema";
 import {
   CHAT_GATE_KINDS,
   PROFILING_LANE_REASONS,
@@ -827,6 +828,38 @@ export interface ProfilingEnvelope {
    * default and one narrower — and so "is this session on the general road at all" is one read.
    */
   readonly generalRoad: GeneralRoadState;
+
+  /**
+   * The identity intake (ADR-0048, #1858) — first name, surname, state and city, asked as chat
+   * turns before the interview for a worker whose record lacks them. `null` for every session the
+   * intake did not open, which is every session while `CHAT_IDENTITY_INTAKE_ENABLED` is off.
+   *
+   * REDIS ONLY — DELIBERATELY ABSENT FROM `toConversationStatePatch`. While the surname is being
+   * asked this holds the first name as a `PiiCryptoService` ciphertext, and nothing that reaches
+   * `chat_sessions.conversation_state` (the checkpoint, the flush, the abandon sweep) may carry
+   * even that: the only durable home of a name is `workers.full_name`, written through
+   * `WorkersService.setFullName` once the name steps finish. See {@link IdentityIntakeState}.
+   */
+  readonly identityIntake: IdentityIntakeState | null;
+}
+
+/**
+ * The identity intake's per-session state (ADR-0048). Driven by `identity-intake.ts`, which is the
+ * only writer; narrowed here like every other envelope field.
+ *
+ * `step` is the question on screen (null once settled); `remaining` the steps still to ask after
+ * it, in order; `asks` how many times each step has been served — two and it settles as skipped
+ * (D1). `firstNameEnc` is the first name, sealed, held between the two name steps and cleared the
+ * moment they finish (D2). `heldState` is a state answer held until the city step so the location
+ * is written once — plaintext, because a state is not PII (owner ruling 2026-07-31).
+ */
+export interface IdentityIntakeState {
+  readonly state: "pending" | "settled";
+  readonly step: IdentityIntakeStep | null;
+  readonly remaining: readonly IdentityIntakeStep[];
+  readonly asks: Readonly<Partial<Record<IdentityIntakeStep, number>>>;
+  readonly firstNameEnc: string | null;
+  readonly heldState: string | null;
 }
 
 /**
@@ -1015,6 +1048,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   resumeUpdateOffer: true,
   importAppliedId: true,
   generalRoad: true,
+  identityIntake: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -1063,6 +1097,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     resumeUpdateOffer: null,
     importAppliedId: null,
     generalRoad: emptyGeneralRoad(),
+    identityIntake: null,
   };
 }
 
@@ -1434,7 +1469,61 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     // this field, all of which began before the general road existed and must finish on the road
     // they started on. See `narrowGeneralRoad`.
     generalRoad: narrowGeneralRoad(v.generalRoad),
+    // ABSENT READS AS null — "the intake never opened here", which is true of every envelope in
+    // flight across the deploy that adds this field. See `narrowIdentityIntake` for why an
+    // unreadable value also reads as null rather than being repaired.
+    identityIntake: narrowIdentityIntake(v.identityIntake),
   };
+}
+
+/**
+ * The identity intake's state, or `null` (ADR-0048).
+ *
+ * FAILS TOWARD "NEVER OPENED", and that is the safe direction here in a way it is not for the
+ * résumé offers: a null intake hands the worker's next message to the interview, and the gaps it
+ * would have filled are asked again on his next new session (D9). Repairing a malformed value
+ * instead could keep a session parked on a step it no longer knows how to ask, or — worse — read
+ * a garbled `firstNameEnc` into a name write. So a pending intake must name a real step; a
+ * settled one carries nothing forward; counts are clamped; unknown steps are dropped.
+ */
+function narrowIdentityIntake(value: unknown): IdentityIntakeState | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  const isStep = (x: unknown): x is IdentityIntakeStep =>
+    IDENTITY_INTAKE_STEPS.some((step) => step === x);
+  if (v.state === "settled") {
+    return {
+      state: "settled",
+      step: null,
+      remaining: [],
+      asks: narrowIntakeAsks(v.asks, isStep),
+      firstNameEnc: null,
+      heldState: null,
+    };
+  }
+  if (v.state !== "pending" || !isStep(v.step)) return null;
+  const text = (x: unknown): string | null => (typeof x === "string" && x.length > 0 ? x : null);
+  return {
+    state: "pending",
+    step: v.step,
+    remaining: Array.isArray(v.remaining) ? v.remaining.filter(isStep) : [],
+    asks: narrowIntakeAsks(v.asks, isStep),
+    firstNameEnc: text(v.firstNameEnc),
+    heldState: text(v.heldState),
+  };
+}
+
+/** Per-step ask counts, clamped like every other counter here; unknown keys dropped. */
+function narrowIntakeAsks(
+  value: unknown,
+  isStep: (x: unknown) => x is IdentityIntakeStep,
+): Partial<Record<IdentityIntakeStep, number>> {
+  const asks: Partial<Record<IdentityIntakeStep, number>> = {};
+  if (typeof value !== "object" || value === null) return asks;
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (isStep(key)) asks[key] = nonNegativeInt(raw);
+  }
+  return asks;
 }
 
 /**

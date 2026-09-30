@@ -85,6 +85,32 @@ describe("ChatTranscriptBuffer — round trip", () => {
     await buffer.drop(SESSION);
     expect(await buffer.load(SESSION)).toBeNull();
   });
+
+  it("carries the identity-intake flag (ADR-0048) — a literal true only, absent otherwise", async () => {
+    // Dropped on load, an intake line would reach the model's history and the extraction on the
+    // very next turn. And a non-intake line must come back WITHOUT the key, so every buffer the
+    // intake never touched round-trips exactly as it did before the field existed.
+    const { buffer, store } = make();
+    const at = "2026-09-30T00:00:00.000Z";
+    await buffer.save(
+      SESSION,
+      sample({
+        messages: [
+          { role: "assistant", text: "Aapka pehla naam kya hai?", at, voiceNoteId: null, intake: true },
+          { role: "worker", text: "welder hoon", at, voiceNoteId: null },
+        ],
+      }),
+    );
+    const loaded = await buffer.load(SESSION);
+    expect(loaded?.messages[0]?.intake).toBe(true);
+    expect("intake" in loaded!.messages[1]!).toBe(false);
+
+    // A drifted value (anything but `true`) is dropped rather than trusted.
+    const raw = JSON.parse(store.get(KEY)!) as { messages: Record<string, unknown>[] };
+    raw.messages[1]!.intake = "yes";
+    store.set(KEY, JSON.stringify(raw));
+    expect("intake" in (await buffer.load(SESSION))!.messages[1]!).toBe(false);
+  });
 });
 
 describe("ChatTranscriptBuffer — fails closed", () => {

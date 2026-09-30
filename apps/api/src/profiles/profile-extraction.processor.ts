@@ -44,7 +44,7 @@ import { toAiJobUsage } from "../ai/ai-job-usage";
 import { AiService } from "../ai/ai.service";
 import { SERVER_CONFIG } from "../config/config.module";
 import { ChatRepository } from "../chat/chat.repository";
-import { ChatTranscriptBuffer } from "../chat/chat-transcript.buffer";
+import { ChatTranscriptBuffer, isIdentityIntakeMetadata } from "../chat/chat-transcript.buffer";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { redactKnownName } from "../common/redact-known-name";
@@ -2008,12 +2008,18 @@ export class ProfileExtractionProcessor extends WorkerHost {
     if (!sessionId) return [];
     const rows = await this.chat.listMessages(sessionId);
     if (rows.length > 0) {
-      return rows
-        .filter((m) => m.bodyText)
-        .map((m) => ({
-          role: m.direction === "inbound" ? ("worker" as const) : ("assistant" as const),
-          text: m.bodyText as string,
-        }));
+      return (
+        rows
+          // ADR-0048 (D10) — the identity intake's lines (name, state, city and their questions)
+          // are kept for the worker's thread and left out of the extraction input: none of them is
+          // about his work, and a surname or a town read as part of his account of it is noise the
+          // model would try to use. Filtered in BOTH branches, on the one marker each branch has.
+          .filter((m) => m.bodyText && !isIdentityIntakeMetadata(m.metadata))
+          .map((m) => ({
+            role: m.direction === "inbound" ? ("worker" as const) : ("assistant" as const),
+            text: m.bodyText as string,
+          }))
+      );
     }
 
     // Mid-interview. Never throws: `buffer.load` fails CLOSED with a 503 because a chat
@@ -2022,7 +2028,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // the empty one (exactly today's behaviour) beats failing the job.
     try {
       const buffered = await this.buffer.load(sessionId);
-      const lines = buffered?.messages ?? [];
+      const lines = (buffered?.messages ?? []).filter((m) => m.intake !== true);
       if (lines.length > 0) {
         this.logger.log(
           `session ${sessionId} not yet flushed; extracting from the ` +

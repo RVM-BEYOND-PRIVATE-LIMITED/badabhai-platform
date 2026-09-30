@@ -177,6 +177,33 @@ describe("WorkersService.setFullName (TD21)", () => {
   });
 });
 
+describe("the idempotency key (ADR-0048) — the chat intake's, and ONLY the chat intake's", () => {
+  // The identity intake writes before a CAS that can be lost and re-run, so it passes a key per
+  // session; the two HTTP routes pass none and must record every save exactly as before — an
+  // emit carrying an `idempotencyKey: undefined` field would be a changed call for them.
+  it("setFullName: carries the key when given, and no key field at all when not", async () => {
+    const keyed = setup();
+    await keyed.svc.setFullName("w-1", NAME, CTX, { ...SELF, idempotencyKey: "k-name" });
+    expect((keyed.events.emit.mock.calls[0]![0] as Record<string, unknown>).idempotencyKey).toBe(
+      "k-name",
+    );
+    const plain = setup();
+    await plain.svc.setFullName("w-1", NAME, CTX, SELF);
+    expect("idempotencyKey" in (plain.events.emit.mock.calls[0]![0] as object)).toBe(false);
+  });
+
+  it("setLocation: carries the key when given, and no key field at all when not", async () => {
+    const keyed = setup();
+    await keyed.svc.setLocation("w-1", { city: "Patna" }, CTX, { idempotencyKey: "k-loc" });
+    expect((keyed.events.emit.mock.calls[0]![0] as Record<string, unknown>).idempotencyKey).toBe(
+      "k-loc",
+    );
+    const plain = setup();
+    await plain.svc.setLocation("w-1", { city: "Patna" }, CTX);
+    expect("idempotencyKey" in (plain.events.emit.mock.calls[0]![0] as object)).toBe(false);
+  });
+});
+
 describe("WorkersService.setLocation (#1428)", () => {
   it("stores city and state as PLAINTEXT — the PII crypto is not involved", async () => {
     // The inverse of the assertion on setFullName above, and deliberately so. Owner ruling

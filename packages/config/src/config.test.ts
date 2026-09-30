@@ -634,6 +634,15 @@ describe("loadServerConfig", () => {
     expect(loadServerConfig({ CHAT_GENERAL_ROAD_ENABLED: "true" }).CHAT_GENERAL_ROAD_ENABLED).toBe(true);
   });
 
+  it("CHAT_IDENTITY_INTAKE_ENABLED (ADR-0048) is OFF by default, for the empty string and for 'false'", () => {
+    // Off is today's chat opening byte for byte; it flips only with the app release that
+    // unroutes `/name`, so an unset or blank secret must never read as on.
+    expect(loadServerConfig({}).CHAT_IDENTITY_INTAKE_ENABLED).toBe(false);
+    expect(loadServerConfig({ CHAT_IDENTITY_INTAKE_ENABLED: "" }).CHAT_IDENTITY_INTAKE_ENABLED).toBe(false);
+    expect(loadServerConfig({ CHAT_IDENTITY_INTAKE_ENABLED: "false" }).CHAT_IDENTITY_INTAKE_ENABLED).toBe(false);
+    expect(loadServerConfig({ CHAT_IDENTITY_INTAKE_ENABLED: "true" }).CHAT_IDENTITY_INTAKE_ENABLED).toBe(true);
+  });
+
   it("RESUME_SKINS_ENABLED (#1801) is OFF by default and for the empty string", () => {
     // Off means nothing touches `worker_resume_skin` (migration 0128), which is what makes a
     // deploy ahead of that migration safe — so the default is load-bearing, not cosmetic.

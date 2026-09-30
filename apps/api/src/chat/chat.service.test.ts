@@ -102,6 +102,7 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     resumeUpdateOffer: null,
     importAppliedId: null,
     generalRoad: emptyGeneralRoad(),
+    identityIntake: null,
     ...over,
   };
 }
