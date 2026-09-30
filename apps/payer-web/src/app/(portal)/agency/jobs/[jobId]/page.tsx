@@ -6,13 +6,21 @@ import { requireAgent } from "../../../../../lib/auth/roles";
 import {
   day,
   experienceBandLabel,
-  isActiveJob,
   neededByLabel,
   payBandLabel,
   tradeLabel,
 } from "../../../../../lib/agency-view";
 import { bandLabel } from "../../../../../lib/masking";
+import { cardFieldsFromAgencyJob } from "../../../../../lib/job-card-view";
 import { Badge } from "../../../../../components/ds";
+import { JobCardPreview } from "../../../../../components/job-card-preview";
+
+/** The DS Badge tone for a vacancy's REAL 4-state status (open|paused|suspended|closed). */
+function statusTone(status: string): "success" | "warning" | "neutral" {
+  if (status === "open") return "success";
+  if (status === "paused" || status === "suspended") return "warning";
+  return "neutral";
+}
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +44,6 @@ export default async function AgencyJobDetailPage({
   const job = await getAgencyJob(jobId);
   if (!job) notFound();
 
-  const active = isActiveJob(job);
   return (
     <>
       <p className="page-back">
@@ -51,39 +58,45 @@ export default async function AgencyJobDetailPage({
           </p>
         </div>
         <div className="page-head__actions">
-          <Badge tone={active ? "success" : "neutral"} upper>
-            {active ? "open" : "closed"}
+          <Badge tone={statusTone(job.status)} upper>
+            {job.status}
           </Badge>
         </div>
       </div>
 
-      <section className="panel">
-        <div className="panel__head">
-          <h2 className="panel__title">Vacancy details</h2>
-        </div>
-        <div className="panel__body">
-          {/* FACELESS: bands, counts and dates only — every value below is derived from the
-              vacancy itself, never from an applicant. */}
-          <dl className="kv">
-            <dt className="kv__k">Trade</dt>
-            <dd className="kv__v">{tradeLabel(job.tradeKey)}</dd>
-            <dt className="kv__k">Location</dt>
-            <dd className="kv__v">{bandLabel([job.city, job.area]) || "—"}</dd>
-            <dt className="kv__k">Pay band</dt>
-            <dd className="kv__v bb-mono">{payBandLabel(job.payMin, job.payMax)}</dd>
-            <dt className="kv__k">Experience</dt>
-            <dd className="kv__v">
-              {experienceBandLabel(job.minExperienceYears, job.maxExperienceYears)}
-            </dd>
-            <dt className="kv__k">Needed by</dt>
-            <dd className="kv__v">{neededByLabel(job.neededBy)}</dd>
-            <dt className="kv__k">Applicants</dt>
-            <dd className="kv__v ui-num">{job.applicantsReceived}</dd>
-            <dt className="kv__k">Posted</dt>
-            <dd className="kv__v bb-mono">{day(job.createdAt)}</dd>
-          </dl>
-        </div>
-      </section>
+      <div className="posting-layout">
+        <section className="panel">
+          <div className="panel__head">
+            <h2 className="panel__title">Vacancy details</h2>
+          </div>
+          <div className="panel__body">
+            {/* FACELESS: bands, counts and dates only — every value below is derived from the
+                vacancy itself, never from an applicant. */}
+            <dl className="kv">
+              <dt className="kv__k">Trade</dt>
+              <dd className="kv__v">{tradeLabel(job.tradeKey)}</dd>
+              <dt className="kv__k">Location</dt>
+              <dd className="kv__v">{bandLabel([job.city, job.area]) || "—"}</dd>
+              <dt className="kv__k">Pay band</dt>
+              <dd className="kv__v bb-mono">{payBandLabel(job.payMin, job.payMax)}</dd>
+              <dt className="kv__k">Experience</dt>
+              <dd className="kv__v">
+                {experienceBandLabel(job.minExperienceYears, job.maxExperienceYears)}
+              </dd>
+              <dt className="kv__k">Needed by</dt>
+              <dd className="kv__v">{neededByLabel(job.neededBy)}</dd>
+              <dt className="kv__k">Applicants</dt>
+              <dd className="kv__v ui-num">{job.applicantsReceived}</dd>
+              <dt className="kv__k">Posted</dt>
+              <dd className="kv__v bb-mono">{day(job.createdAt)}</dd>
+            </dl>
+          </div>
+        </section>
+
+        <aside className="posting-preview" aria-label="Job card">
+          <JobCardPreview fields={cardFieldsFromAgencyJob(job)} />
+        </aside>
+      </div>
     </>
   );
 }

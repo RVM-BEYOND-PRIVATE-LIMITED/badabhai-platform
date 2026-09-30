@@ -50,7 +50,24 @@ const JOB: AgencyJob = {
   createdAt: "2026-06-22T00:00:00.000Z",
   updatedAt: "2026-06-22T00:00:00.000Z",
 };
-const VALID_INPUT = { tradeKey: "cnc_operator", title: "CNC Operator", city: "Pune" };
+// A COMPLETE worker card — an agency create is create==publish, so the gap rule (server-side,
+// mirrored from the company create path) insists on every card field before the vacancy goes live.
+const VALID_INPUT = {
+  tradeKey: "cnc_operator",
+  roleKind: "cnc_turner",
+  title: "CNC Operator",
+  city: "Pune",
+  payMin: 20000,
+  payMax: 30000,
+  payType: "in_hand",
+  minExperienceYears: 1,
+  maxExperienceYears: 3,
+  shift: "day",
+  neededBy: "immediate",
+  description: "Operate CNC lathes on the shop floor and log output each shift.",
+  requirements: ["ITI fitter"],
+  benefits: ["PF and ESI"],
+};
 
 beforeEach(() => {
   requireAgent.mockReset().mockResolvedValue({ payerId: "p", role: "agent", displayLabel: "A" });
@@ -90,6 +107,18 @@ describe("create — validation + happy path", () => {
   });
   it("rejects an out-of-set trade key (cannot smuggle an arbitrary string)", async () => {
     const res = await createAgencyJobAction({ ...VALID_INPUT, tradeKey: "rocket_scientist" });
+    expect(res.ok).toBe(false);
+    expect(createAgencyJob).not.toHaveBeenCalled();
+  });
+  it("rejects an incomplete card via the worker-card gap rule, before the seam", async () => {
+    // Parses fine (all REQUIRED fields present) but leaves the card thin — the gap rule fires
+    // server-side because an agency create publishes immediately (parity with company create).
+    const res = await createAgencyJobAction({
+      tradeKey: "cnc_operator",
+      roleKind: "cnc_turner",
+      title: "CNC Operator",
+      city: "Pune",
+    });
     expect(res.ok).toBe(false);
     expect(createAgencyJob).not.toHaveBeenCalled();
   });

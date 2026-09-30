@@ -1,25 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { toPayerJobPostingBody, toPayerJobPostingPatchBody } from "./payer-api";
+import {
+  toPayerJobPostingBody,
+  toPayerJobPostingPatchBody,
+  type PostingEditInitial,
+} from "./payer-api";
+import { TRADE_FORM_KINDS_ALL, JOB_ROLE_LABELS } from "./job-roles";
 import type { CreatePostingInput, UpdatePostingInput } from "./contracts";
 
 /**
- * EMPLOYER posting LIVE-body contract tests. `createPosting` is now LIVE (it POSTs
- * `toPayerJobPostingBody(input, <session org>)` to `/payer/job-postings`) and `updatePosting`
- * PATCHes `toPayerJobPostingPatchBody(input)` — these tests pin the PURE body mappers against
- * the backend `PayerCreateJobPostingSchema` / `UpdateJobPostingSchema` shapes
- * (apps/api/src/job-postings/job-postings.dto.ts); the live fetch wiring (URL/method/Bearer)
- * is covered separately in payer-api.test.ts.
+ * EMPLOYER posting LIVE-body contract tests (PR-B — INVERTED from the pre-lineage version).
  *
- * The CREATE schema is NARROWER than UPDATE. Create accepts EXACTLY org_label/role_title
- * (required) + location_label/description? + EXACTLY ONE of vacancy_band|vacancies, and has NO
- * payer_id/created_by (XB-A). The UPDATE schema is WIDER: it ALSO accepts the worker-visible
- * display fields city/pay_min/pay_max/shift/needed_by (migration 0054). These tests fail loudly
- * if a body drifts from its OWN schema — a create body must never smuggle pay (create rejects
- * it), and NEITHER body may carry trade/exp/state (no schema accepts them) or a client tenancy
- * id. The PATCH body additionally drops org_label (the session identity is not edited).
+ * The posting form is now the traceable SOURCE of every Job Card field, and the backend
+ * `PayerCreateJobPostingSchema` / `UpdateJobPostingSchema` both spread `postingContentFields`
+ * (#1645/#1646/#1648 + migration 0131). So — the exact opposite of what this file used to pin — the
+ * CREATE body MUST carry every card key + `role_kind`, and it must STILL never carry `trade_key`
+ * (the company form dropped it), `payer_id` or `created_by` (XB-A). The PATCH body carries the same
+ * card keys, the `clear` diff (#1652), and — on publish — the match half + `status:"open"`.
  */
 
-// The full set of keys PayerCreateJobPostingSchema accepts (mirrored from the backend DTO).
+// The FULL set PayerCreateJobPostingSchema accepts (mirrored from the backend DTO): base +
+// postingContentFields + matchSkillFields.
 const ALLOWED_KEYS = new Set([
   "org_label",
   "role_title",
@@ -27,176 +27,208 @@ const ALLOWED_KEYS = new Set([
   "description",
   "vacancy_band",
   "vacancies",
+  "skills",
+  "city",
+  "area",
+  "pay_min",
+  "pay_max",
+  "pay_type",
+  "min_experience_years",
+  "max_experience_years",
+  "shift",
+  "needed_by",
+  "benefits",
+  "requirements",
+  "role_kind",
+  "match_skill_ids",
+  "unticked_related_ids",
 ]);
 
 const ORG = "Acme Manufacturing";
 
 const FULL_INPUT: CreatePostingInput = {
-  tradeKey: "cnc_operator",
+  roleKind: "cnc_turner",
   roleTitle: "CNC Machinist",
   locationLabel: "Pune, MH",
   description: "Two-shift CNC role, PPE provided.",
   vacancies: 7,
+  city: "Pune",
+  area: "Chakan",
   payMin: 20000,
   payMax: 35000,
+  payType: "in_hand",
   minExperienceYears: 1,
   maxExperienceYears: 5,
+  shift: "rotational",
+  neededBy: "immediate",
+  requirements: ["Fanuc control"],
+  benefits: ["PF + ESI"],
 };
 
 const MINIMAL_INPUT: CreatePostingInput = {
-  tradeKey: "fitter",
   roleTitle: "Fitter",
   vacancies: 1,
 };
 
-// A full EDIT input exercising the fields the UPDATE schema accepts that create does NOT
-// (city/shift/needed_by, on top of pay). Typed as UpdatePostingInput — CreatePostingInput has
-// no city/shift/neededBy, so this is the shape that pins the wider PATCH mapping.
-const FULL_UPDATE_INPUT: UpdatePostingInput = {
-  roleTitle: "CNC Machinist",
-  vacancies: 7,
-  locationLabel: "Pune, MH",
-  description: "Two-shift CNC role, PPE provided.",
-  city: "Pune",
-  payMin: 20000,
-  payMax: 35000,
-  shift: "rotational",
-  neededBy: "immediate",
-};
-
-describe("toPayerJobPostingBody — matches PayerCreateJobPostingSchema", () => {
-  it("emits EXACTLY ONE of vacancy_band|vacancies (the RAW vacancies count, never a band)", () => {
+describe("toPayerJobPostingBody — carries every card key + role_kind (PR-B lineage)", () => {
+  it("carries EVERY card key + role_kind on a full input (the form is the card's source)", () => {
     const body = toPayerJobPostingBody(FULL_INPUT, ORG);
-    // The backend refine is (vacancy_band !== undefined) !== (vacancies !== undefined).
+    expect(body.role_kind).toBe("cnc_turner");
+    expect(body.city).toBe("Pune");
+    expect(body.area).toBe("Chakan");
+    expect(body.pay_min).toBe(20000);
+    expect(body.pay_max).toBe(35000);
+    expect(body.pay_type).toBe("in_hand");
+    expect(body.min_experience_years).toBe(1);
+    expect(body.max_experience_years).toBe(5);
+    expect(body.shift).toBe("rotational");
+    expect(body.needed_by).toBe("immediate");
+    expect(body.requirements).toEqual(["Fanuc control"]);
+    expect(body.benefits).toEqual(["PF + ESI"]);
+  });
+
+  it("emits EXACTLY ONE of vacancy_band|vacancies (the RAW count, never a band)", () => {
+    const body = toPayerJobPostingBody(FULL_INPUT, ORG);
     expect(("vacancy_band" in body) !== ("vacancies" in body)).toBe(true);
-    expect(body.vacancies).toBe(7); // the raw count
+    expect(body.vacancies).toBe(7);
     expect(body).not.toHaveProperty("vacancy_band");
   });
 
-  it("NEVER carries payer_id / created_by (XB-A — the session is owner+creator)", () => {
+  it("NEVER carries trade_key / payer_id / created_by (dropped trade + XB-A)", () => {
     for (const body of [toPayerJobPostingBody(FULL_INPUT, ORG), toPayerJobPostingBody(MINIMAL_INPUT, ORG)]) {
-      expect(body).not.toHaveProperty("payer_id");
-      expect(body).not.toHaveProperty("payerId");
-      expect(body).not.toHaveProperty("created_by");
-      expect(body).not.toHaveProperty("createdBy");
+      for (const k of ["trade_key", "tradeKey", "payer_id", "payerId", "created_by", "createdBy"]) {
+        expect(body).not.toHaveProperty(k);
+      }
     }
   });
 
-  it("stamps org_label from the session arg (NOT from the input — there is no form field)", () => {
+  it("stamps org_label from the session arg (there is no form field for it)", () => {
     const body = toPayerJobPostingBody(FULL_INPUT, ORG);
     expect(body.org_label).toBe(ORG);
     expect(body.role_title).toBe("CNC Machinist");
-    expect(body.location_label).toBe("Pune, MH");
-    expect(body.description).toBe("Two-shift CNC role, PPE provided.");
-  });
-
-  it("does NOT leak the not-yet-accepted demand fields (trade/pay/exp)", () => {
-    const body = toPayerJobPostingBody(FULL_INPUT, ORG);
-    for (const k of ["trade_key", "tradeKey", "pay_min", "pay_max", "min_experience_years", "max_experience_years"]) {
-      expect(body).not.toHaveProperty(k);
-    }
   });
 
   it("every emitted key is in the PayerCreateJobPostingSchema accepted set", () => {
     for (const body of [toPayerJobPostingBody(FULL_INPUT, ORG), toPayerJobPostingBody(MINIMAL_INPUT, ORG)]) {
-      for (const key of Object.keys(body)) {
-        expect(ALLOWED_KEYS.has(key)).toBe(true);
-      }
-      // Required keys are always present.
+      for (const key of Object.keys(body)) expect(ALLOWED_KEYS.has(key)).toBe(true);
       expect(body).toHaveProperty("org_label");
       expect(body).toHaveProperty("role_title");
     }
   });
 
-  it("omits optional labels when absent (minimal body carries only meaningful keys)", () => {
+  it("omits every optional key on a minimal body (carries only meaningful keys)", () => {
     const body = toPayerJobPostingBody(MINIMAL_INPUT, ORG);
-    expect(body).not.toHaveProperty("location_label");
-    expect(body).not.toHaveProperty("description");
     expect(Object.keys(body).sort()).toEqual(["org_label", "role_title", "vacancies"]);
+  });
+
+  it.each(TRADE_FORM_KINDS_ALL)("carries role_kind=%s through to the body for every one of the 21", (kind) => {
+    const body = toPayerJobPostingBody({ ...MINIMAL_INPUT, roleKind: kind }, ORG);
+    expect(body.role_kind).toBe(kind);
+    // The label is the shared one — the card will render exactly this.
+    expect(JOB_ROLE_LABELS[kind].label.length).toBeGreaterThan(0);
   });
 });
 
-// The full set of keys UpdateJobPostingSchema accepts (mirrored from the backend DTO). WIDER
-// than create: it includes the worker-visible display fields (city/pay_min/pay_max/shift/
-// needed_by). match_skill_ids/unticked_related_ids ride the SEPARATE publish body, not this one.
-const PATCH_ALLOWED_KEYS = new Set([
-  "org_label",
-  "role_title",
-  "location_label",
-  "description",
-  "vacancy_band",
-  "vacancies",
-  "status",
-  "city",
-  "pay_min",
-  "pay_max",
-  "shift",
-  "needed_by",
-]);
+// The FULL set UpdateJobPostingSchema accepts: create's set + status + clear (match half rides publish).
+const PATCH_ALLOWED_KEYS = new Set([...ALLOWED_KEYS, "status", "clear"]);
 
-describe("toPayerJobPostingPatchBody — matches UpdateJobPostingSchema (edit)", () => {
-  it("sends the RAW vacancies count (never a band), and NO org_label (session identity isn't edited)", () => {
-    const body = toPayerJobPostingPatchBody(FULL_INPUT);
-    expect(body.vacancies).toBe(7);
-    expect(body).not.toHaveProperty("vacancy_band");
-    // The PATCH never re-stamps org_label — the org is the session identity, not an edit field.
-    expect(body).not.toHaveProperty("org_label");
-  });
+const FULL_UPDATE_INPUT: UpdatePostingInput = {
+  roleKind: "cnc_turner",
+  roleTitle: "CNC Machinist",
+  vacancies: 7,
+  locationLabel: "Pune, MH",
+  description: "Two-shift CNC role, PPE provided.",
+  city: "Pune",
+  area: "Chakan",
+  payMin: 20000,
+  payMax: 35000,
+  payType: "in_hand",
+  minExperienceYears: 1,
+  maxExperienceYears: 5,
+  shift: "rotational",
+  neededBy: "immediate",
+  requirements: ["Fanuc control"],
+  benefits: ["PF + ESI"],
+};
 
-  it("NEVER carries payer_id / created_by (XB-A — the session is owner+creator)", () => {
-    for (const body of [toPayerJobPostingPatchBody(FULL_INPUT), toPayerJobPostingPatchBody(MINIMAL_INPUT)]) {
-      expect(body).not.toHaveProperty("payer_id");
-      expect(body).not.toHaveProperty("created_by");
-    }
-  });
+const INITIAL_FULL: PostingEditInitial = {
+  locationLabel: "Pune, MH",
+  description: "old",
+  roleKind: "welder",
+  city: "Pune",
+  area: "Chakan",
+  payMin: 10000,
+  payMax: 20000,
+  payType: "gross",
+  minExperienceYears: 0,
+  maxExperienceYears: 2,
+  shift: "day",
+  neededBy: "soon",
+  requirements: ["old req"],
+  benefits: ["old ben"],
+};
 
-  it("passes pay STRAIGHT THROUGH (snake_case) — the UPDATE schema accepts it, unlike create", () => {
-    const body = toPayerJobPostingPatchBody(FULL_INPUT);
-    expect(body.pay_min).toBe(20000);
-    expect(body.pay_max).toBe(35000);
-    // camelCase never leaks and nothing invented a price.
-    expect(body).not.toHaveProperty("payMin");
-    expect(body).not.toHaveProperty("payMax");
-  });
-
-  it("maps the wider worker-visible fields (city/shift/needed_by) to snake_case", () => {
+describe("toPayerJobPostingPatchBody — card keys + clear diff + publish (PR-B)", () => {
+  it("maps every card field to snake_case, and NO org_label (session identity isn't edited)", () => {
     const body = toPayerJobPostingPatchBody(FULL_UPDATE_INPUT);
+    expect(body.role_kind).toBe("cnc_turner");
     expect(body.city).toBe("Pune");
+    expect(body.pay_min).toBe(20000);
+    expect(body.pay_type).toBe("in_hand");
     expect(body.shift).toBe("rotational");
     expect(body.needed_by).toBe("immediate");
-    expect(body.pay_min).toBe(20000);
-    expect(body.pay_max).toBe(35000);
-    // camelCase originals never leak onto the wire.
-    for (const k of ["neededBy", "payMin", "payMax"]) expect(body).not.toHaveProperty(k);
+    expect(body.requirements).toEqual(["Fanuc control"]);
+    expect(body).not.toHaveProperty("org_label");
+    for (const k of ["payMin", "neededBy", "payType"]) expect(body).not.toHaveProperty(k);
   });
 
-  it("does NOT leak the fields NO schema accepts (trade/exp/state)", () => {
-    const body = toPayerJobPostingPatchBody(FULL_INPUT);
-    for (const k of ["trade_key", "state", "min_experience_years", "max_experience_years"]) {
-      expect(body).not.toHaveProperty(k);
-    }
+  it("NEVER carries trade_key / payer_id / created_by", () => {
+    const body = toPayerJobPostingPatchBody(FULL_UPDATE_INPUT);
+    for (const k of ["trade_key", "payer_id", "created_by"]) expect(body).not.toHaveProperty(k);
+  });
+
+  it("computes `clear` from the diff — a field present in initial but blank now is unset", () => {
+    // Only role_title is set; every clearable field HAD a value in initial and is absent now.
+    const body = toPayerJobPostingPatchBody({ roleTitle: "CNC Machinist" }, INITIAL_FULL);
+    const clear = body.clear as string[];
+    expect(clear).toContain("city");
+    expect(clear).toContain("pay_min");
+    expect(clear).toContain("role_kind");
+    expect(clear).toContain("requirements");
+    // A field that IS set is never in clear (no set+clear contradiction).
+    const body2 = toPayerJobPostingPatchBody({ roleTitle: "X", city: "Mumbai" }, INITIAL_FULL);
+    expect(body2.clear as string[]).not.toContain("city");
+    expect(body2.city).toBe("Mumbai");
+  });
+
+  it("omits `clear` entirely when nothing was blanked (empty list would 400 server-side)", () => {
+    const body = toPayerJobPostingPatchBody(FULL_UPDATE_INPUT, INITIAL_FULL);
+    expect(body).not.toHaveProperty("clear");
+  });
+
+  it("the publish variant adds match_skill_ids + unticks + status:open in the SAME patch", () => {
+    const body = toPayerJobPostingPatchBody(FULL_UPDATE_INPUT, null, {
+      matchSkillIds: ["mskill_cnc_turning"],
+      untickedRelatedIds: ["mskill_vmc_operating"],
+    });
+    expect(body.match_skill_ids).toEqual(["mskill_cnc_turning"]);
+    expect(body.unticked_related_ids).toEqual(["mskill_vmc_operating"]);
+    expect(body.status).toBe("open");
+    // Policy 10: NEVER a client reach set.
+    expect(body).not.toHaveProperty("reach_skill_ids");
   });
 
   it("every emitted key is in the UpdateJobPostingSchema accepted set", () => {
-    for (const body of [
-      toPayerJobPostingPatchBody(FULL_INPUT),
-      toPayerJobPostingPatchBody(MINIMAL_INPUT),
-      toPayerJobPostingPatchBody(FULL_UPDATE_INPUT),
-    ]) {
-      for (const key of Object.keys(body)) {
-        expect(PATCH_ALLOWED_KEYS.has(key)).toBe(true);
-      }
-      expect(body).toHaveProperty("role_title");
-    }
+    const body = toPayerJobPostingPatchBody(FULL_UPDATE_INPUT, INITIAL_FULL, {
+      matchSkillIds: ["mskill_cnc_turning"],
+      untickedRelatedIds: [],
+    });
+    for (const key of Object.keys(body)) expect(PATCH_ALLOWED_KEYS.has(key)).toBe(true);
+    expect(body).toHaveProperty("role_title");
   });
 
-  it("omits optional fields when absent (minimal edit carries only meaningful keys)", () => {
-    const body = toPayerJobPostingPatchBody(MINIMAL_INPUT);
-    expect(body).not.toHaveProperty("location_label");
-    expect(body).not.toHaveProperty("description");
-    for (const k of ["city", "pay_min", "pay_max", "shift", "needed_by"]) {
-      expect(body).not.toHaveProperty(k);
-    }
-    expect(Object.keys(body).sort()).toEqual(["role_title", "vacancies"]);
+  it.each(TRADE_FORM_KINDS_ALL)("carries role_kind=%s through the PATCH for every one of the 21", (kind) => {
+    const body = toPayerJobPostingPatchBody({ roleTitle: "X", roleKind: kind });
+    expect(body.role_kind).toBe(kind);
   });
 });

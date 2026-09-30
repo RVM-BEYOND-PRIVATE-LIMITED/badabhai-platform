@@ -846,13 +846,15 @@ describe("createPosting — LIVE: org_label from /payer/me, faceless body, PII d
     });
     const { createPosting, toPayerJobPostingBody } = await import("./payer-api");
     const input = {
-      tradeKey: "cnc_operator" as const,
+      roleKind: "cnc_turner" as const,
       roleTitle: "CNC Machinist",
       locationLabel: "Pune, MH",
       description: "Two-shift CNC role, PPE provided.",
       vacancies: 7,
+      city: "Pune",
       payMin: 20000,
       payMax: 35000,
+      payType: "in_hand" as const,
       minExperienceYears: 1,
       maxExperienceYears: 5,
     };
@@ -877,8 +879,12 @@ describe("createPosting — LIVE: org_label from /payer/me, faceless body, PII d
     expect(body).not.toHaveProperty("vacancy_band");
     expect(body).not.toHaveProperty("payer_id");
     expect(body).not.toHaveProperty("created_by");
+    // PR-B: the company form dropped `trade_key`; the CREATE body now carries the card fields
+    // (role_kind + pay + city …) the backend `PayerCreateJobPostingSchema` accepts.
     expect(body).not.toHaveProperty("trade_key");
-    expect(body).not.toHaveProperty("pay_min");
+    expect(body.role_kind).toBe("cnc_turner");
+    expect(body.pay_min).toBe(20000);
+    expect(body.city).toBe("Pune");
 
     // Mapped to the faceless PostingSummary — org_label/description/createdBy/payerId DROPPED.
     expect(Object.keys(res).sort()).toEqual(
