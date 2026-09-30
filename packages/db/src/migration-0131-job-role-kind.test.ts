@@ -57,8 +57,15 @@ const KINDS_0131 = [
 
 const CHECKS = ["job_postings_role_kind_chk", "jobs_role_kind_chk"] as const;
 
-const checkText = (name: string): string =>
-  FLAT.match(new RegExp(`"${name}" CHECK[^;]*`))?.[0] ?? "";
+// String scan, not `new RegExp(name)`: `name` is a fixed constraint name from CHECKS, so a
+// dynamic RegExp buys nothing and trips semgrep's ReDoS rule (detect-non-literal-regexp). Slice
+// from the named CHECK to the statement terminator — a CHECK body has no `;` inside it.
+const checkText = (name: string): string => {
+  const start = FLAT.indexOf(`"${name}" CHECK`);
+  if (start < 0) return "";
+  const end = FLAT.indexOf(";", start);
+  return end < 0 ? FLAT.slice(start) : FLAT.slice(start, end);
+};
 const listed = (text: string): string[] =>
   [...text.matchAll(/'([a-z_]+)'/g)].map((m) => m[1] as string);
 
