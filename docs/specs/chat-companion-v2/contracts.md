@@ -27,6 +27,13 @@ export const COMPANION_V2_OUTCOMES = [
 An intent whose phase flag is off is still **classified** (so the metrics show demand) but answered
 with the `phase_off` line + task chips.
 
+**What each intent source means** (the enum is closed and shipped; this is its meaning, not a new
+value). `v1_deterministic` is a deterministic, zero-model route taken before the classifier — in
+practice **only a task-chip tap** (§5.3). A v1 resolver **hit** is not a v2 turn: it is served by v1
+and records v1's own `chat.companion_turn_served`, even while v2 is on. `lexicon` = the P2 abuse
+lexicon; `llm` = the classifier; `guard` = the P2 cool-down; `fallback` = gateway blocked/unreachable
+or classifier null/blocked.
+
 ## 2. AI-service contracts
 
 Zod in `packages/ai-contracts`, mirrored in Pydantic in `apps/ai-service/app/contracts.py`
@@ -48,6 +55,11 @@ CompanionClassifyOutput = {
 
 The API treats `confidence < CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE`, `blocked`, a schema miss,
 a timeout or a null (AI service down) as `unclear`.
+
+**The API sends at most the first 1000 chars** of the pseudonymized message (`CLASSIFY_TEXT_MAX`,
+never splitting a surrogate pair). The message DTO accepts 4000, and an over-long `text` would be a
+422 → `unclear` for a message that was perfectly clear. The handler still receives the WHOLE masked
+text (edit-parse and career accept 4000); memory stores the clipped text (§7).
 
 ### 2.2 `POST /companion/edit-parse` (P1) — task `companion_edit_parse`, Gemini Flash, json_mode
 
@@ -124,6 +136,10 @@ CompanionCareerOutput =
   | { status: "answer", lines: string[] /* 1..4, Latin Hinglish */, followup_chips: string[] /* 0..3 */ }
   | { status: "refuse", topic: "salary_promise" | "legal_medical_financial" | "named_employer" | "worker_rating" | "unsafe_other" }
 ```
+
+The career handler sends the **newest 6** memory turns whatever `CHAT_COMPANION_V2_MEMORY_TURNS`
+says (the knob has no ceiling; above 6 every call would be a 422 and every career event invalid), and
+`turns_in_memory` on `chat.companion_career_answered` is the count actually sent.
 
 ## 3. Edit catalogue (P1)
 
@@ -265,6 +281,17 @@ consent case; recording it apart needs a v2 of the event (Architect), so it is `
 `chat_edit` on the edited profile (never the profile's initial row), emits `resume.regenerated`
 and queues its render; a queue retry converges onto the `chat_edit` row it already wrote. The
 processor re-checks consent, and a CHECK violation (0130 not applied) is terminal.
+**Retries replay (2026-09-30).** The app re-sends the same `submission_id` on a retry. A v1 miss that
+carries one is answered, on a retry, with the v2 turn already served for it (Redis
+`turn:{workerId}:{submissionId}`, §7) — no second classify/edit-parse/career call, no second faltu
+strike, no second memory pair, no second outcome event. Fail-open: an unreadable cache processes the
+message as before. A retry that arrives while the first request is STILL running is not covered.
+
+**`chat.companion_turn_served_v2` field meanings.** `intent` is always v1's `fallback` ("no named v1
+intent answered"; nominal for chip and guard turns, which run before v1). `v2_intent` is the intent
+the turn was routed on — the chip's, the lexicon's `faltu`, or the classifier's (recorded even below
+the confidence floor) — and null on the guard and fail-closed paths. `confidence_bucket` is set only
+when the classifier answered.
 
 Registry key note (T3, 2026-09-28): the v2 turn is minted as **`chat.companion_turn_served_v2`**
 (`version: 2`), the house new-name pattern (`feed.shown_v2`, `profile.viewed_v2`,
@@ -289,6 +316,11 @@ read_aloud?: false,                    // P3: present and false on model-written
                                        // the app must NOT fall back to speaking `reply`
 cooldown_until?: string,               // P2: ISO; app may disable the composer until then
 ```
+
+`cooldown_until` rides the refused message's turn AND, while `CHAT_COMPANION_V2_ENABLED` and
+`CHAT_COMPANION_V2_FALTU_ENABLED` are on and a cool-down is running, the **open** turn of
+`GET /chat/companion` — so a composer lock survives an app restart. Same field, same shape; absent
+otherwise (the open is then byte-for-byte what it was).
 
 Old apps ignore unknown keys (`ChatReply.fromJson` reads named keys only). `.strict()` stays: the
 fields are declared, so the schema still rejects undeclared ones.
@@ -359,7 +391,21 @@ and covered by the existing parity test)
 | `companion_task:career_talk` | Career ki baat | P3 |
 | `companion_task:jobs` | Naye jobs *(v1's existing jobs chip)* | v1 |
 
-Task chips are shown only for intents whose phase flag is on.
+Task chips are shown only for intents whose phase flag is on — and a posted label/key is
+**recognised as a tap only while that same flag is on** (one table, `companion-task-chips.ts`, so
+shown ⇔ routed). With the flag off the text is typed text and goes to v1 first, exactly as before the
+chip existed ("naya resume" → v1's redo menu, never the phase-off line).
+
+A recognised tap never sends its label to a model (it names a task, not a request):
+
+| Tap | Answer | Event |
+|---|---|---|
+| Resume badlo | `V2_EDIT_ASK` + task chips | `intent_source: v1_deterministic`, `v2_intent: edit_resume`, `outcome: served` |
+| Career ki baat | `V2_CAREER_ASK` + task chips | same, `v2_intent: career_talk` |
+| Naya resume | the new-résumé handler (redo menu; consent-gated) with the SERVER label | same, `v2_intent: new_resume` |
+
+No memory pair is stored for a tap, and the NEXT message goes through the normal order (v1 first);
+routing it straight to the chip's handler would be a v1 bypass, which is an owner decision.
 
 ## 6. Flags and knobs
 
@@ -377,7 +423,7 @@ Server (`packages/config`, `docs/environment-variables.md`, `ci.yml` deploy env 
 | `CHAT_COMPANION_V2_PROPOSAL_TTL_SECONDS` | `600` | Edit card lifetime |
 | `CHAT_COMPANION_V2_FALTU_STRIKES` | `3` | O11 |
 | `CHAT_COMPANION_V2_FALTU_COOLDOWN_MINUTES` | `30` | O11 |
-| `CHAT_COMPANION_V2_MEMORY_TURNS` | `6` | O13 |
+| `CHAT_COMPANION_V2_MEMORY_TURNS` | `6` | O13 — stored turns; the classifier reads 2 and career sends at most 6 whatever this says |
 | `CHAT_COMPANION_V2_MEMORY_TTL_SECONDS` | `1800` | O13 |
 
 App (Remote Config, default `false`): `worker_chat_companion_v2_enabled` (sends v2-capable UI:
@@ -396,8 +442,13 @@ client. All keys are prefixed `companion:v2:`.
 | `proposal-claim:{workerId}:{proposalId}` | flag, `SET NX` — one Haan/Nahi per card | same as the proposal record | edit service (confirm / cancel; released on a rollback) | confirm applies nothing and serves the card again; cancel proceeds (it writes nothing) |
 | `strikes:{workerId}:{utcDay}` | counter | 24 h | faltu handler | no strike counted |
 | `cooldown:{workerId}` | flag | `FALTU_COOLDOWN_MINUTES` | faltu handler | no cool-down |
+| `turn:{workerId}:{submissionId}` | JSON, the v2 turn served for a v1-miss message | 600 s | orchestrator | fail open: the retry is processed as a new message |
 
-Memory stores the **pseudonymized** text the AI service returned, never the raw text.
+Memory stores the **pseudonymized** text the AI service returned, never the raw text — clipped to
+1000 chars (the store drops longer turns on read), and **never** for a message the lexicon OR the
+classifier called `faltu` (any confidence, faltu phase on or off): pseudonymizing masks PII, not
+abuse. The replay key holds only what the worker was already sent (fixed copy, a validated career
+answer, or an edit card whose values `proposal:{workerId}` already holds); never the message.
 
 ## 8. Copy
 
@@ -421,6 +472,8 @@ All fixed lines live in `companion-replies.ts` (v1 file, extended) with a Devana
 | `V2_FALTU_COOLDOWN` | Thodi der baad baat karte hain. |
 | `V2_CAREER_REFUSE_*` | one line per refusal topic (P3) |
 | `V2_FALLBACK` | v1 `FALLBACK` reused |
+| `V2_EDIT_ASK` | **DRAFT (2026-09-30), pending owner review.** Resume mein kya badalna hai? Jaise: 'Marathi bhasha jod do' ya 'shehar Pune kar do'. |
+| `V2_CAREER_ASK` | **DRAFT (2026-09-30), pending owner review.** Career ke baare mein aapka kya sawaal hai? Jaise: 'nayi skill kaun si seekhun'. |
 
 "Aana baaki hai" copy is the owner's wording (O2); the rest are drafts for review before flag-ON.
 
@@ -474,3 +527,6 @@ tests scan it.
 
 The closed-set VALUE labels (`before_display` / `after_display`) are not new copy: they are the
 existing English dictionary labels the form chips and the résumé already show.
+`V2_EDIT_ASK` / `V2_CAREER_ASK` answer a task-chip tap (§5.3). Their quoted examples are v1 misses
+(asserted by test), so a worker who types one reaches the router, not a v1 menu. No salary figure is
+used as an example: the copy suite forbids any 4-digit number on a line.

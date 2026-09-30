@@ -4679,12 +4679,17 @@ export type ChatCompanionTurnServedPayload = z.infer<typeof ChatCompanionTurnSer
  * `feed.shown_v2` / `profile.viewed_v2` / `resume.edited_v2` pattern — same family, new
  * registry key, `version: 2`.
  *
- * WHAT IS ADDED, AND WHY THE SPINE NEEDS IT. `intent_source` says whether the v1 deterministic
- * resolver answered (zero model calls) or the classifier did; `v2_intent` is the classified
- * intent, null when no classifier ran or it failed; `confidence_bucket` is the coarse bucket,
- * null without a classifier; `outcome` says what was actually delivered (served, a proposed
- * card, the phase-off line, clarify, …). NOTHING HERE NAMES A WORKER'S WORDS: the message text
- * is classified and dropped, and every added field is an id, a count or a closed enum.
+ * WHAT IS ADDED, AND WHY THE SPINE NEEDS IT. `intent_source` says what chose the intent — a
+ * deterministic task-chip tap (`v1_deterministic`), the abuse lexicon, the classifier, the
+ * cool-down guard or the fail-closed path; `v2_intent` is the intent the turn was routed on (the
+ * chip's, the lexicon's `faltu`, or the classifier's — recorded even below the confidence floor),
+ * null on the guard and fail-closed paths; `confidence_bucket` is the coarse bucket, null unless
+ * the classifier answered; `outcome` says what was actually delivered (served, a proposed card,
+ * the phase-off line, clarify, …). A v1 resolver HIT is not a v2 turn and never lands here: it
+ * keeps emitting v1's `chat.companion_turn_served`. `intent` keeps the v1 vocabulary and is
+ * always `fallback` on this event ("no named v1 intent answered"). NOTHING HERE NAMES A WORKER'S
+ * WORDS: the message text is classified and dropped, and every added field is an id, a count or
+ * a closed enum.
  *
  * EVERY V1 FIELD IS RESTATED rather than shared: the v1 schema is a ZodEffects (its refine), so
  * `.extend` cannot reach it, and restating is what makes "v1 is untouched" a fact about the
@@ -4703,11 +4708,11 @@ export const ChatCompanionTurnServedV2Payload = z
     resume_source: resumeSource.nullable(),
     nudge: z.enum(COMPANION_NUDGES).nullable(),
     day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "day must be a UTC day bucket YYYY-MM-DD"),
-    /** Who chose the intent: the v1 resolver, the abuse lexicon, the classifier, a guard, fallback. */
+    /** Who chose the intent: a task-chip tap (`v1_deterministic`), the abuse lexicon, the classifier, a guard, fallback. */
     intent_source: z.enum(COMPANION_V2_INTENT_SOURCES),
-    /** The classified intent; null when no classifier ran (v1 hit / guard / failure). */
+    /** The intent the turn was routed on (chip / lexicon / classifier); null on the guard and fail-closed paths. */
     v2_intent: z.enum(COMPANION_V2_INTENTS).nullable(),
-    /** Coarse confidence bucket; null when no classifier ran. Never the raw score. */
+    /** Coarse confidence bucket; null unless the classifier answered. Never the raw score. */
     confidence_bucket: z.enum(COMPANION_V2_CONFIDENCE_BUCKETS).nullable(),
     /** What was delivered — a proposed card, the phase-off line, clarify, … (contracts §1). */
     outcome: z.enum(COMPANION_V2_OUTCOMES),

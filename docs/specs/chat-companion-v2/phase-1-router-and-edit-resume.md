@@ -25,6 +25,13 @@ POST /chat/companion/message {text}
   emit chat.companion_turn_served v2
 ```
 
+**The "Resume badlo" task chip (2026-09-30).** A tap is recognised (exact label/key, before v1 — the
+P2 chip step) only while `CHAT_COMPANION_V2_EDIT_ENABLED` is on, and is answered with the fixed
+`V2_EDIT_ASK` line + task chips: no snapshot read, no edit-parse call (the label names no change, so
+the parse could only ever return zero rows → `V2_EDIT_NONE`). The worker's next message — "Marathi
+bhasha jod do" — takes the flow above. With the flag off the label is typed text and v1 answers it
+(the recap), as before the chip existed.
+
 ### Edit résumé
 
 ```
@@ -212,7 +219,7 @@ A new edit message while a proposal is open replaces it (one active proposal per
 | `edit-catalogue.test.ts` | every catalogue field has a `field_label` (distinct within its section, no orphan); a whole-entry delete names the entry, by its target's list; every closed-set value maps to its dictionary's display label; free text, unknown slugs and nulls → null |
 | `resume-chat-edit.db.test.ts` (`RUN_DB_TESTS=1`) | a Haan on a profile that already has its v1 writes a NEW `chat_edit` row from the edited profile; a second edit is another; a queue retry does not duplicate |
 | `companion-edit.no-identity.test.ts` | name / phone / ID requests never produce a row; `V2_EDIT_IDENTITY` served — also when the model gives no hint (the deterministic check, `edit-identity.test.ts`) |
-| `chat-companion.module.boot.test.ts` (extended) | still no chat-table writers reachable from the module |
+| `chat-companion.module.boot.test.ts` (extended) | still no chat-table writers reachable from the module — the egress scan walks the whole `v2/` tree, `v2/handlers/` included, and the DI check reads every constructor in a file |
 | `companion-v2.privacy.test.ts` | no worker text in events, logs (spy on Logger) or Redis memory beyond pseudonymized text |
 | `companion-replies.test.ts` (extended) | every new line passes persona checks and has a matching twin |
 | event-schema tests | new/v2 payloads `.strict()`, reject text fields |

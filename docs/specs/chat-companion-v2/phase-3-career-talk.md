@@ -104,6 +104,9 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
 - [x] **C3** Memory: store last `MEMORY_TURNS` pairs (orchestrator already writes; handler reads 6).
       The orchestrator reads memory ONCE and passes the full list on `HandlerInput.recentTurns`
       (the classifier keeps its `slice(-2)`), so the handler pays no second Redis hop.
+      2026-09-30: the handler SLICES to the newest 6 (`CAREER_TURNS_MAX`) whatever the knob says,
+      and `turns_in_memory` reports the count sent — a knob above 6 no longer turns every career
+      call into a 422 and every career event into a validation failure.
 - [x] **C4** Refusal copy `V2_CAREER_REFUSE_*` (reviewed, with twins) + `read_aloud: false` on model turns.
       Five pairs keyed by the closed topics (persona-scanned like every other line);
       `read_aloud: false` is present-and-false on model turns only — refusal turns are fixed
@@ -115,6 +118,9 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
       Registry-gated like the other phases; the chip appears only while the flag is on, and a
       tap routes deterministically (the P2 chip step). The spend is recorded against
       `companion_career_answer` in the SAME change that routes it (the ledger-naming rule).
+      2026-09-30: a tap is recognised only while the flag is on, and it is answered with the fixed
+      `V2_CAREER_ASK` line (draft, contracts §8) — the literal label "Career ki baat" is no longer
+      sent to the model as a question.
 
 ### Frontend — worker app (GitHub issue)
 - [ ] **F1** `read_aloud: false` → no speaker button / no auto-read for that bubble (do **not** fall
@@ -126,7 +132,7 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
 | Test | Proves |
 |---|---|
 | `career-output.validator.test.ts` | each check rejects its fixture; a clean answer passes |
-| `career-talk.handler.test.ts` | refuse → fixed copy; invalid → fallback; memory passed (≤ 6) |
+| `career-talk.handler.test.ts` | refuse → fixed copy; invalid → fallback; memory passed (≤ 6, sliced to the newest 6 when the store holds more) |
 | `career.privacy.test.ts` | worker_context has only trade label + bucket; no text in events/logs |
 | ai-service `test_companion_career*` | contracts; mock mode; red-team gate thresholds |
 

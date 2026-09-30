@@ -106,9 +106,12 @@ export const COMPANION_V2_INTENTS = [
 ] as const;
 export type CompanionV2Intent = (typeof COMPANION_V2_INTENTS)[number];
 
-// WHAT CHOSE THE INTENT. `v1_deterministic` is the ADR-0044 resolver answering first at zero model
-// cost; `lexicon` is the Phase 2 abuse lexicon; `llm` is the classifier; `guard` is a deterministic
-// pre-emption (the Phase 2 cool-down); `fallback` is the fail-closed path.
+// WHAT CHOSE THE INTENT of a v2 turn (`chat.companion_turn_served_v2`). `v1_deterministic` is a
+// deterministic, zero-model route taken BEFORE the classifier — in practice only a task-chip tap
+// (exact label/key match, ADR-0046 P2). A v1 resolver HIT is not a v2 turn at all: it is served
+// by v1 and records v1's own `chat.companion_turn_served`. `lexicon` is the Phase 2 abuse lexicon;
+// `llm` is the classifier; `guard` is a deterministic pre-emption (the Phase 2 cool-down);
+// `fallback` is the fail-closed path (gateway blocked or unreachable, classifier null/blocked).
 export const COMPANION_V2_INTENT_SOURCES = [
   "v1_deterministic",
   "lexicon",
