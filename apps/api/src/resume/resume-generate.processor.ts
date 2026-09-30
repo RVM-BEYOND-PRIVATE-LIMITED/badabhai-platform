@@ -6,8 +6,10 @@ import { WorkersRepository } from "../workers/workers.repository";
 import { ProfilesRepository } from "../profiles/profiles.repository";
 import { ResumeService } from "./resume.service";
 import { ResumeRepository } from "./resume.repository";
+import { ResumeRateLimit } from "./resume-rate-limit.service";
 import { ConsentRepository } from "../consent/consent.repository";
 import { hasActiveConsent } from "../consent/consent-active";
+import { PG_CHECK_VIOLATION, redactQueryParams, sqlStateOf } from "../common/db-error";
 import { RESUME_GENERATE_QUEUE, type ResumeGenerateJobData } from "../queue/queue.constants";
 
 /**
@@ -29,6 +31,11 @@ import { RESUME_GENERATE_QUEUE, type ResumeGenerateJobData } from "../queue/queu
  *
  * Under the bypass the idempotency is PER PROFILE: a résumé already generated from this profile
  * means this job — or its twin from the other confirm — already did the work.
+ *
+ * ── A COMPANION EDIT CARD (ADR-0046 O6) — its own job, told apart by `trigger` ─────────────────
+ *
+ * Neither rule above fits it: the worker edited their CURRENT profile in place, so that profile
+ * already has its résumé and the worker already has one. See `processChatEdit`.
  */
 @Processor(RESUME_GENERATE_QUEUE)
 export class ResumeGenerateProcessor extends WorkerHost {
@@ -42,6 +49,9 @@ export class ResumeGenerateProcessor extends WorkerHost {
     // The consent re-check in front of the accepted-update generation — see `process`. Optional
     // so a construction without it compiles; absent, that generation does not run (fail closed).
     private readonly consents?: ConsentRepository,
+    // Hands back a chat edit's pre-charged cap slot when the job refuses before any spend. Optional
+    // on the same terms; absent, the slot stays spent (the fail-closed direction).
+    private readonly rateLimit?: ResumeRateLimit,
   ) {
     super();
   }
@@ -49,6 +59,10 @@ export class ResumeGenerateProcessor extends WorkerHost {
   async process(job: Job<ResumeGenerateJobData>): Promise<{ skipped: boolean }> {
     const { workerId, profileId, correlationId, requestId } = job.data;
     const ctx: RequestContext = { correlationId, requestId };
+
+    // FIRST, before the accepted-update read: an edited profile may itself have been an accepted
+    // update, and that branch would skip it as "already has its résumé".
+    if (job.data.trigger === "chat_edit") return this.processChatEdit(job, ctx);
 
     const profile = await this.profiles.findById(profileId);
     const acceptedUpdate =
@@ -109,6 +123,64 @@ export class ResumeGenerateProcessor extends WorkerHost {
       ctx,
       { systemInitiated: true },
     );
+    return { skipped: false };
+  }
+
+  /**
+   * A CONFIRMED COMPANION EDIT → A NEW HISTORY ENTRY (ADR-0046 O6), queued by
+   * `ResumeService.queueChatEditRegeneration` after the card's rows committed.
+   *
+   * THE SLOT IS ALREADY PAID FOR. The worker's daily cap was charged on their request, before
+   * this job existed, so no attempt charges it again (`capCharged`). If this job refuses before
+   * the model is called on its FIRST attempt — the profile is no longer theirs, or consent was
+   * withdrawn since the Haan — nothing will be produced, so the slot is handed back. Never on a
+   * retry: an earlier attempt may already have paid for a model call.
+   *
+   * IDEMPOTENT UNDER RETRIES in `generate` itself: an entry this job already wrote converges
+   * rather than duplicating (the `chat_edit` placement rule there).
+   *
+   * A CHECK VIOLATION IS TERMINAL. It means the running schema does not admit the `chat_edit`
+   * label yet (migration 0130), and a retry would pay for another model call to fail the same
+   * way. Any other failure is rethrown for BullMQ to retry — with its bound parameters stripped,
+   * because they are the résumé row, the worker's name included, and BullMQ stores the message.
+   */
+  private async processChatEdit(
+    job: Job<ResumeGenerateJobData>,
+    ctx: RequestContext,
+  ): Promise<{ skipped: boolean }> {
+    const { workerId, profileId } = job.data;
+    const firstAttempt = job.attemptsMade === 0;
+
+    const profile = await this.profiles.findById(profileId);
+    if (profile === undefined || profile.workerId !== workerId) {
+      this.logger.warn(`chat-edit resume for profile ${profileId} not generated: not the worker's`);
+      if (firstAttempt) await this.rateLimit?.releaseDailyCapSlot(workerId);
+      return { skipped: true };
+    }
+    if (!(await hasActiveConsent(this.consents, workerId, "resume_generation"))) {
+      this.logger.warn(
+        `chat-edit resume for profile ${profileId} not generated: consent is not active`,
+      );
+      if (firstAttempt) await this.rateLimit?.releaseDailyCapSlot(workerId);
+      return { skipped: true };
+    }
+
+    try {
+      await this.resumeService.generate({ worker_id: workerId, profile_id: profileId }, ctx, {
+        systemInitiated: true,
+        trigger: "chat_edit",
+        capCharged: true,
+      });
+    } catch (err) {
+      if (sqlStateOf(err) === PG_CHECK_VIOLATION) {
+        this.logger.error(
+          `chat-edit resume for profile ${profileId} refused by a CHECK constraint ` +
+            `(is migration 0130 applied?); not retried`,
+        );
+        return { skipped: true };
+      }
+      throw redactQueryParams(err, "chat-edit resume generation");
+    }
     return { skipped: false };
   }
 }

@@ -6,6 +6,8 @@ import { resumeRefCode } from "./resume-sheet-footer";
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   Logger,
@@ -27,12 +29,18 @@ import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { StorageService } from "../storage/storage.service";
-import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
+import {
+  RESUME_GENERATE_QUEUE,
+  RESUME_RENDER_QUEUE,
+  type ResumeGenerateJobData,
+  type ResumeRenderJobData,
+} from "../queue/queue.constants";
 import { ResumeRepository } from "./resume.repository";
 import { ResumeRateLimit } from "./resume-rate-limit.service";
 import { pendingUpdateFrom } from "./resume-pending-update";
 import { resolveResumeSource } from "./resume-source";
 import type {
+  ChatEditRegeneration,
   GenerateResumeInput,
   MyResumeDocumentResponse,
   ResumeHistoryResponse,
@@ -167,7 +175,89 @@ export class ResumeService {
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     @InjectQueue(RESUME_RENDER_QUEUE)
     private readonly renderQueue: Queue<ResumeRenderJobData>,
+    // ADR-0046 O6 — where a confirmed companion edit's generation is queued (the same queue, and
+    // the same processor, as the profile.confirmed auto-generate). Registered by ResumeModule.
+    @InjectQueue(RESUME_GENERATE_QUEUE)
+    private readonly generateQueue: Queue<ResumeGenerateJobData>,
   ) {}
+
+  /**
+   * A CONFIRMED COMPANION EDIT, TURNED INTO A QUEUED RÉSUMÉ GENERATION (ADR-0046 O6).
+   *
+   * The edit card's rows are already committed when this runs; this decides whether the worker
+   * gets a new résumé for them, and says so without waiting for one. The generation itself runs
+   * on RESUME_GENERATE_QUEUE (`ResumeGenerateProcessor`, `trigger: "chat_edit"`), where BullMQ
+   * retries a model failure — never inline in the worker's Haan request.
+   *
+   * EVERY REFUSAL IS DECIDED BEFORE ANYTHING IS SPENT, in this order:
+   *   1. the profile must be the worker's and carry a draft `generate` can read — otherwise
+   *      nothing could be produced, so neither the cap nor the model is touched (`failed`);
+   *   2. the daily cap is charged HERE, on the request, so `capped` is known before a job exists
+   *      and the worker is told the truth (a Redis outage is a fail-closed 429, so also `capped`);
+   *   3. the job is queued; if that throws, nothing will ever run, so the slot just taken is
+   *      handed back (`failed`).
+   * The job carries the fact that its slot is paid for, so a queue retry never charges again.
+   *
+   * NEVER THROWS: every outcome is one of the three the companion's event records.
+   */
+  async queueChatEditRegeneration(
+    workerId: string,
+    profileId: string,
+    ctx: RequestContext,
+  ): Promise<ChatEditRegeneration> {
+    try {
+      const profile = await this.profiles.findById(profileId);
+      if (
+        !profile ||
+        profile.workerId !== workerId ||
+        !DraftProfileSchema.safeParse(profile.rawProfile).success
+      ) {
+        this.logger.warn(
+          `chat-edit regeneration not queued for worker ${workerId}: profile ${profileId} has no ` +
+            `draft to generate from; the daily cap was not charged`,
+        );
+        return "failed";
+      }
+    } catch (err) {
+      this.logger.warn(
+        `chat-edit regeneration not queued for worker ${workerId}: the profile read failed (${
+          err instanceof Error ? err.name : "UnknownError"
+        })`,
+      );
+      return "failed";
+    }
+
+    try {
+      await this.rateLimit.assertWithinDailyCap(workerId, { perWorker: true });
+    } catch (err) {
+      const capped =
+        err instanceof HttpException && err.getStatus() === HttpStatus.TOO_MANY_REQUESTS;
+      this.logger.warn(
+        `chat-edit regeneration not queued for worker ${workerId}: ${
+          capped ? "refused by the daily cap" : "the cap check failed"
+        }`,
+      );
+      return capped ? "capped" : "failed";
+    }
+
+    try {
+      await this.generateQueue.add("generate", {
+        workerId,
+        profileId,
+        trigger: "chat_edit",
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `could not enqueue the chat-edit regeneration for worker ${workerId}; releasing its ` +
+          `daily-cap slot (reason: ${err instanceof Error ? err.message : String(err)})`,
+      );
+      await this.rateLimit.releaseDailyCapSlot(workerId);
+      return "failed";
+    }
+    return "queued";
+  }
 
   async generate(
     dto: GenerateResumeInput,
@@ -188,8 +278,20 @@ export class ResumeService {
        * daily generations on one "Haan".
        */
       retry?: boolean;
+      /**
+       * THE CALLER ALREADY CHARGED THE DAILY CAP FOR THIS GENERATION — the queued `chat_edit` job,
+       * whose slot `queueChatEditRegeneration` took on the worker's request so the worker could be
+       * told DONE or DONE_CAPPED before anything was spent (ADR-0046 O6). Honoured ONLY for a
+       * system `chat_edit` generation; on any other path the cap is charged as always.
+       */
+      capCharged?: boolean;
     } = {},
   ) {
+    // ADR-0046 O6 — a companion edit is an in-place change to the worker's CURRENT profile, so it
+    // is a new history entry on that profile, never the profile's initial row (see below).
+    const chatEdit =
+      opts.systemInitiated === true && opts.trigger === "chat_edit" && !opts.forceNewVersion;
+
     // Enforce the daily cap BEFORE any paid AI/render work; fails closed (429) if
     // Redis is down. The system-initiated auto-generate (on profile.confirmed) is
     // one-per-worker + idempotent, so it skips the per-worker abuse cap but still
@@ -199,12 +301,17 @@ export class ResumeService {
     // worker asked for it — one "Haan" per finished interview — so it is metered like the
     // worker's own regenerate. The exemption exists for the ONE auto-generate per worker, not for
     // a generation a worker can repeat.
-    await this.rateLimit.assertWithinDailyCap(dto.worker_id, {
-      perWorker:
-        !opts.systemInitiated ||
-        ((opts.trigger === "chat_update_accepted" || opts.trigger === "chat_edit") &&
-          opts.retry !== true),
-    });
+    //
+    // A QUEUED CHAT EDIT WAS METERED ON THE WORKER'S REQUEST (both dimensions, once), so none of
+    // its attempts charges again.
+    if (!(chatEdit && opts.capCharged === true)) {
+      await this.rateLimit.assertWithinDailyCap(dto.worker_id, {
+        perWorker:
+          !opts.systemInitiated ||
+          ((opts.trigger === "chat_update_accepted" || opts.trigger === "chat_edit") &&
+            opts.retry !== true),
+      });
+    }
 
     const profile = await this.profiles.findById(dto.profile_id);
     // OWNERSHIP gate (TD70 item 5): with `worker_id` session-derived in the
@@ -266,9 +373,12 @@ export class ResumeService {
     // THE MOMENT THIS GENERATION STARTED — before the model call, on the DATABASE's clock (the one
     // `generated_at` is stamped with). A row this profile gained after it was written DURING this
     // call, i.e. it is the same generation racing us (see `convergeOnto`), never an earlier entry
-    // the worker already has. Only the worker's own call converges, so only it pays the read.
+    // the worker already has. Only the worker's own call and a chat edit converge, so only they
+    // pay the read.
     const startedAt =
-      opts.systemInitiated || opts.forceNewVersion ? null : await this.resumes.now();
+      chatEdit || (!opts.systemInitiated && !opts.forceNewVersion)
+        ? await this.resumes.now()
+        : null;
 
     // The AI service receives ONLY the structured profile (no name/phone).
     const result = await this.ai.generateResume({ profile: draft }, ctx);
@@ -375,6 +485,13 @@ export class ResumeService {
     // is CONVERGENCE: two requests for the same generation must still land on one row.
     //
     //   ops regenerate             a new entry, numbered after the worker's highest version.
+    //   chat edit (ADR-0046 O6)    a new entry — the edit changed the SAME profile, whose initial
+    //                              row already exists, so insert-if-absent would hand back the old
+    //                              résumé. It converges only onto a `chat_edit` entry of this
+    //                              profile that is the same generation (still pending, or written
+    //                              during this call): a queue retry of this job, or an earlier
+    //                              edit whose entry has not rendered yet and whose content this
+    //                              one supersedes. Never onto another flow's entry.
     //   system (auto / chat Haan)  the profile's INITIAL row, insert-if-absent — idempotent under
     //                              queue retries and the app's own POST racing the job.
     //   manual, profile has none   the same initial row, authoritative (today's behaviour).
@@ -423,9 +540,29 @@ export class ResumeService {
       previousVersion = highest > 0 ? highest : null;
       return this.resumes.create({ ...initial, version: highest + 1 });
     };
+    // Converge onto `newest` when it is the SAME generation — still pending, or written at or
+    // after `since` — else record a new entry. The guard is re-applied IN the update.
+    const convergeOrNewEntry = async (
+      newest: GeneratedResume | undefined,
+      since: Date,
+    ): Promise<GeneratedResume> => {
+      const converged =
+        newest !== undefined && (newest.renderStatus === "pending" || newest.generatedAt >= since)
+          ? await this.resumes.convergeOnto(newest.id, initial, since)
+          : undefined;
+      if (!converged) return newEntry();
+      forceRender = true;
+      return converged;
+    };
 
     if (opts.forceNewVersion) {
       saved = await newEntry();
+    } else if (chatEdit) {
+      const newest = await this.resumes.newestForProfile(dto.profile_id);
+      saved = await convergeOrNewEntry(
+        newest?.generationTrigger === "chat_edit" ? newest : undefined,
+        startedAt ?? new Date(),
+      );
     } else if (opts.systemInitiated) {
       // The system auto-generate only fills if absent, so it never clobbers a manual résumé.
       saved = await this.resumes.createInitial(initial, { overwrite: false });
@@ -437,17 +574,7 @@ export class ResumeService {
         // it always was: the overwrite resets the row to 'pending', which the processor renders.
         saved = await this.resumes.createInitial(initial, { overwrite: true });
       } else {
-        const since = startedAt ?? new Date();
-        const sameGeneration = newest.renderStatus === "pending" || newest.generatedAt >= since;
-        const converged = sameGeneration
-          ? await this.resumes.convergeOnto(newest.id, initial, since)
-          : undefined;
-        if (converged) {
-          saved = converged;
-          forceRender = true;
-        } else {
-          saved = await newEntry();
-        }
+        saved = await convergeOrNewEntry(newest, startedAt ?? new Date());
       }
     }
 

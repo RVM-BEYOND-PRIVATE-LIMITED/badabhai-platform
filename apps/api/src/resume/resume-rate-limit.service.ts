@@ -13,6 +13,7 @@ import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.co
  */
 interface RedisCounter {
   incr(key: string): Promise<number>;
+  decr(key: string): Promise<number>;
   expire(key: string, seconds: number): Promise<number>;
 }
 
@@ -90,6 +91,37 @@ export class ResumeRateLimit {
       throw new HttpException(
         "Resume generation is at capacity; please try again later",
         HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
+
+  /**
+   * Hand back ONE slot that `assertWithinDailyCap({ perWorker: true })` took, for a generation
+   * that was refused BEFORE any paid work began (ADR-0046 O6: the companion charges a chat
+   * edit's slot on the worker's request, ahead of the queued job, and then learns the job could
+   * not be queued, or the job learns it must not run).
+   *
+   * NEVER AFTER THE MODEL WAS CALLED. The cap is what bounds a worker's paid generations; a slot
+   * handed back after spend would let a repeatable failure spend without limit.
+   *
+   * BEST EFFORT, NEVER THROWS. A failed release costs the worker one slot for the rest of the
+   * UTC day, which is the fail-closed direction. EXPIRE is re-asserted so a DECR that lands on a
+   * key the day rollover already dropped can never leave a TTL-less counter behind.
+   */
+  async releaseDailyCapSlot(workerId: string): Promise<void> {
+    const day = ResumeRateLimit.utcDayStamp();
+    const ttl = ResumeRateLimit.secondsUntilEndOfUtcDay();
+    try {
+      const redis = (await this.renderQueue.client) as unknown as RedisCounter;
+      for (const key of [`resume:gen:${workerId}:${day}`, `resume:gen:global:${day}`]) {
+        await redis.decr(key);
+        await redis.expire(key, ttl);
+      }
+    } catch (err) {
+      this.logger.warn(
+        `could not release a resume daily-cap slot for worker ${workerId} (reason: ${
+          err instanceof Error ? err.message : String(err)
+        })`,
       );
     }
   }
