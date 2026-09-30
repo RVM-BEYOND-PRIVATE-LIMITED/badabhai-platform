@@ -9,8 +9,8 @@ import type { AgencyJob, PostingSummary } from "./contracts";
  * selected / hired stage — those are product-locked out of scope).
  */
 
-/** The only posting lifecycle states (mirrors the contract enum). */
-export const JOB_STATUSES = ["draft", "open", "closed", "paused"] as const;
+/** The posting lifecycle states (mirrors the contract enum; `suspended` — ADR-0037 — added). */
+export const JOB_STATUSES = ["draft", "open", "closed", "paused", "suspended"] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
 /** A faceless job-status breakdown for the demand summary panel. */
@@ -19,6 +19,7 @@ export interface JobStatusSummary {
   open: number;
   closed: number;
   paused: number;
+  suspended: number;
   draft: number;
 }
 
@@ -27,7 +28,7 @@ export interface JobStatusSummary {
  * beyond `status`, and there is no PII anywhere in a `PostingSummary`.
  */
 export function summarizeJobStatuses(postings: readonly PostingSummary[]): JobStatusSummary {
-  const summary: JobStatusSummary = { total: 0, open: 0, closed: 0, paused: 0, draft: 0 };
+  const summary: JobStatusSummary = { total: 0, open: 0, closed: 0, paused: 0, suspended: 0, draft: 0 };
   for (const p of postings) {
     summary.total += 1;
     summary[p.status] += 1;
@@ -36,22 +37,31 @@ export function summarizeJobStatuses(postings: readonly PostingSummary[]): JobSt
 }
 
 /**
- * A faceless demand breakdown for the AGENCY's OWN `jobs.payer_id` vacancies (LIVE,
- * ADR-0022). Agency jobs are `open|closed` ONLY (Phase-1 `JobStatus`; pause == close).
- * Counts + a summed applicant count only — every field on an `AgencyJob` is coarse/
- * non-PII (trade enum, labels, bands, counts), so nothing identifying enters or leaves.
+ * A faceless demand breakdown for the AGENCY's OWN `jobs.payer_id` vacancies (LIVE, ADR-0022).
+ * Agency jobs are now the four-state `open|paused|suspended|closed` (pause became reversible,
+ * #1202). Counts + a summed applicant count only — every field on an `AgencyJob` is coarse/non-PII
+ * (trade enum, labels, bands, counts), so nothing identifying enters or leaves.
  */
 export interface AgencyDemandSummary {
   total: number;
   open: number;
+  paused: number;
+  suspended: number;
   closed: number;
   /** Total applicants received across all of the agency's own jobs (a count). */
   applicantsReceived: number;
 }
 
-/** Count the agency's OWN jobs by status (open|closed) + sum applicants. Counts only. */
+/** Count the agency's OWN jobs by status + sum applicants. Counts only. */
 export function summarizeAgencyJobs(jobs: readonly AgencyJob[]): AgencyDemandSummary {
-  const summary: AgencyDemandSummary = { total: 0, open: 0, closed: 0, applicantsReceived: 0 };
+  const summary: AgencyDemandSummary = {
+    total: 0,
+    open: 0,
+    paused: 0,
+    suspended: 0,
+    closed: 0,
+    applicantsReceived: 0,
+  };
   for (const j of jobs) {
     summary.total += 1;
     summary[j.status] += 1;

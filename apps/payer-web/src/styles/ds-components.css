@@ -498,33 +498,69 @@
 .bb-chat__wave i { width: 3px; border-radius: 2px; background: currentColor; opacity: 0.5; display: block; }
 .bb-chat__dur { font-family: var(--font-mono); font-size: var(--text-xs); opacity: 0.8; }
 
-/* ---------- JobCard (swipe-to-apply) ---------- */
-.bb-jobcard {
+/* ---------- JobCardPreview (PR-B — the posting↔card lineage) ----------
+   The payer-facing preview built LIVE from what the posting form collected. Token-only, brand:
+   Ivory card on a Shift-Blue accented salary box, Safety-Yellow pay-type pill. Responsive down to
+   375px; a subtle entrance that collapses under prefers-reduced-motion. The DS swipe JobCard was
+   removed with PR-B — this is the only job card in payer-web. */
+.jcp { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; }
+.jcp__card {
   background: var(--surface-card); border: var(--border-hairline) solid var(--border-subtle);
   border-radius: var(--radius-xl); box-shadow: var(--shadow-md);
-  padding: 20px; display: flex; flex-direction: column; gap: 14px;
+  padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4);
+  animation: jcp-rise 180ms ease-out both;
 }
-.bb-jobcard__top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-.bb-jobcard__title { font-family: var(--font-display); font-weight: var(--weight-bold); font-size: var(--text-2xl); line-height: 1.1; color: var(--text-primary); }
-.bb-jobcard__company { display: flex; align-items: center; gap: 6px; font-size: var(--text-base); color: var(--text-secondary); font-weight: var(--weight-semibold); margin-top: 5px; }
-.bb-jobcard__logo { width: 50px; height: 50px; border-radius: var(--radius-md); background: var(--surface-sunken); display: flex; align-items: center; justify-content: center; color: var(--ink-500); font-size: var(--text-xl); flex: none; overflow: hidden; }
-.bb-jobcard__logo img { width: 100%; height: 100%; object-fit: cover; }
-.bb-jobcard__facts { display: flex; flex-wrap: wrap; gap: 9px 18px; }
-.bb-jobcard__fact { display: flex; align-items: center; gap: 6px; font-size: var(--text-base); color: var(--text-secondary); }
-.bb-jobcard__fact .ph-fill { color: var(--text-faint); font-size: var(--text-md); }
-.bb-jobcard__salary { font-family: var(--font-mono); font-weight: var(--weight-bold); color: var(--text-primary); }
-.bb-jobcard__tags { display: flex; flex-wrap: wrap; gap: 7px; }
-.bb-jobcard__quota { display: flex; align-items: center; gap: 6px; font-size: var(--text-sm); color: var(--text-muted); }
-.bb-jobcard__quota b { color: var(--text-accent); }
-.bb-jobcard__foot { display: flex; gap: 12px; align-items: center; margin-top: 2px; }
-.bb-jobcard__skipbtn {
-  width: 56px; height: 56px; border-radius: var(--radius-round); flex: none;
-  border: var(--border-bold) solid var(--border-strong); background: var(--surface-card);
-  color: var(--text-muted); display: flex; align-items: center; justify-content: center;
-  font-size: var(--text-xl); cursor: pointer; transition: var(--transition-control);
+.jcp__head { display: flex; flex-direction: column; gap: var(--space-2); }
+.jcp__title {
+  font-family: var(--font-display); font-weight: var(--weight-bold);
+  font-size: var(--text-2xl); line-height: 1.1; color: var(--text-heading); margin: 0;
 }
-.bb-jobcard__skipbtn:hover { border-color: var(--danger); color: var(--danger); }
-.bb-jobcard__skipbtn:active { transform: scale(0.92); }
+.jcp__title--empty { color: var(--text-faint); }
+.jcp__role {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text-accent);
+}
+.jcp__place {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-size: var(--text-base); color: var(--text-secondary);
+}
+.jcp__role .ph-fill, .jcp__place .ph-fill { color: var(--text-faint); font-size: var(--text-md); }
+.jcp__salary {
+  background: var(--brand-tint); border: var(--border-hairline) solid var(--brand-border);
+  border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4);
+  display: flex; flex-direction: column; gap: var(--space-2);
+}
+.jcp__salary-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.jcp__salary-label {
+  font-family: var(--font-sans); font-weight: var(--weight-bold);
+  font-size: var(--text-xs); letter-spacing: 0.06em; color: var(--text-brand);
+}
+.jcp__paytype {
+  background: var(--brand); color: var(--text-on-brand);
+  border-radius: var(--radius-pill); padding: 0 var(--space-2);
+  font-size: var(--text-2xs); font-weight: var(--weight-bold); letter-spacing: 0.04em;
+}
+.jcp__salary-band {
+  font-family: var(--font-mono); font-weight: var(--weight-bold);
+  font-size: var(--text-xl); color: var(--text-brand);
+}
+.jcp__duty { display: flex; flex-direction: column; gap: var(--space-2); }
+.jcp__duty-label { font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text-secondary); }
+.jcp__chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.jcp__chip {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  background: var(--surface-sunken); border-radius: var(--radius-pill);
+  padding: var(--space-2) var(--space-3); font-size: var(--text-sm); color: var(--text-secondary);
+}
+.jcp__chip .ph-fill { color: var(--text-faint); font-size: var(--text-sm); }
+.jcp__caption { font-size: var(--text-xs); color: var(--text-muted); text-align: center; margin: 0; }
+@keyframes jcp-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jcp__card { animation: none; }
+}
 
 /* ---------- MaskedCandidate (payer demand loop) ---------- */
 .bb-candidate {

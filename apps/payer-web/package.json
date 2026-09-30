@@ -17,6 +17,7 @@
     "@badabhai/config": "workspace:*",
     "@badabhai/design-tokens": "workspace:*",
     "@badabhai/pricing": "workspace:*",
+    "@badabhai/types": "workspace:*",
     "@badabhai/validators": "workspace:*",
     "next": "^15.5.25",
     "qrcode.react": "^4.2.0",

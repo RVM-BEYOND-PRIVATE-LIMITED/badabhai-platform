@@ -78,7 +78,12 @@ describe("agency jobs seam — no-oracle 404 → null", () => {
     await expect(pauseAgencyJob(JOB.id)).resolves.toBeNull();
     await expect(closeAgencyJob(JOB.id)).resolves.toBeNull();
     await expect(
-      updateAgencyJob(JOB.id, { tradeKey: "cnc_operator", title: "X", city: "Pune" }),
+      updateAgencyJob(JOB.id, {
+        tradeKey: "cnc_operator",
+        roleKind: "cnc_turner",
+        title: "X",
+        city: "Pune",
+      }),
     ).resolves.toBeNull();
   });
 
@@ -95,6 +100,7 @@ describe("agency jobs seam — create body is snake_case + Bearer-only (XB-A)", 
     const { createAgencyJob } = await import("./payer-api");
     await createAgencyJob({
       tradeKey: "cnc_operator",
+      roleKind: "cnc_turner",
       title: "CNC Operator",
       city: "Pune",
       payMin: 20000,

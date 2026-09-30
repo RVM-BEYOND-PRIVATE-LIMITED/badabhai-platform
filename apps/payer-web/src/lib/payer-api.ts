@@ -81,6 +81,7 @@ import {
 } from "./contracts";
 import { revealResultSchema } from "./contracts";
 import { assertNoAgencyPII } from "./assert-no-agency-pii";
+import { cardFieldsFromPostingWire, type CardFields } from "./job-card-view";
 import { payerFetch } from "./payer-http";
 import { getLiveCatalog } from "./live-catalog";
 // `findCreditPack` is deliberately NOT imported here: the credit HISTORY renders the ₹
@@ -592,19 +593,60 @@ export class PurchaseConflictError extends Error {
  * job-postings surface below (also fully LIVE).
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** Map the camelCase UI input to the backend's snake_case agency-job body. */
-function toAgencyJobBody(input: AgencyJobInput): Record<string, unknown> {
-  return {
+/**
+ * The clearable agency-job fields — MIRRORED from the backend `CLEARABLE_AGENCY_JOB_FIELDS`
+ * (agency.dto.ts). SHORTER than the posting list by exactly three names: `trade_key`, `title` and
+ * `city` are NOT NULL on `jobs`, so they have no name here and a `clear` can never reach them.
+ */
+const CLEARABLE_AGENCY_JOB_FIELDS = [
+  ["area", "area"],
+  ["pay_min", "payMin"],
+  ["pay_max", "payMax"],
+  ["pay_type", "payType"],
+  ["min_experience_years", "minExperienceYears"],
+  ["max_experience_years", "maxExperienceYears"],
+  ["needed_by", "neededBy"],
+  ["description", "description"],
+  ["shift", "shift"],
+  ["benefits", "benefits"],
+  ["requirements", "requirements"],
+  ["role_kind", "roleKind"],
+] as const;
+
+/**
+ * Map the camelCase UI input to the backend's snake_case agency-job body. PR-B carries the full
+ * card content (role_kind + shift/pay_type/description/requirements/benefits) so an agency job
+ * traces to a card exactly like a company posting. On EDIT, `initial` drives the `clear` diff —
+ * a field the payer BLANKED (had a value, now absent) is unset; `trade_key`/`title`/`city` are
+ * NOT NULL and never clearable. `role_kind` is required, so it is always set (never cleared).
+ */
+function toAgencyJobBody(input: AgencyJobInput, initial?: AgencyJob | null): Record<string, unknown> {
+  const body: Record<string, unknown> = {
     trade_key: input.tradeKey,
+    role_kind: input.roleKind,
     title: input.title,
     city: input.city,
-    area: input.area,
-    pay_min: input.payMin,
-    pay_max: input.payMax,
-    min_experience_years: input.minExperienceYears,
-    max_experience_years: input.maxExperienceYears,
-    needed_by: input.neededBy,
   };
+  if (input.area !== undefined) body.area = input.area;
+  if (input.payMin !== undefined) body.pay_min = input.payMin;
+  if (input.payMax !== undefined) body.pay_max = input.payMax;
+  if (input.payType !== undefined) body.pay_type = input.payType;
+  if (input.minExperienceYears !== undefined) body.min_experience_years = input.minExperienceYears;
+  if (input.maxExperienceYears !== undefined) body.max_experience_years = input.maxExperienceYears;
+  if (input.shift !== undefined) body.shift = input.shift;
+  if (input.neededBy !== undefined) body.needed_by = input.neededBy;
+  if (input.description !== undefined) body.description = input.description;
+  if (input.requirements !== undefined) body.requirements = input.requirements;
+  if (input.benefits !== undefined) body.benefits = input.benefits;
+  if (initial) {
+    const clear: string[] = [];
+    for (const [snake, camel] of CLEARABLE_AGENCY_JOB_FIELDS) {
+      const setNow = (input as unknown as Record<string, unknown>)[camel] !== undefined;
+      if (!setNow && initialPresent((initial as unknown as Record<string, unknown>)[camel])) clear.push(snake);
+    }
+    if (clear.length > 0) body.clear = clear; // `.min(1)` server-side — omit an empty list.
+  }
+  return body;
 }
 
 /** GET /payer/agency/jobs — the caller's OWN jobs (faceless: ids/status/counts/bands). */
@@ -641,11 +683,12 @@ export async function createAgencyJob(input: AgencyJobInput): Promise<AgencyJob>
 export async function updateAgencyJob(
   jobId: string,
   input: AgencyJobInput,
+  initial?: AgencyJob | null,
 ): Promise<AgencyJob | null> {
   try {
     const wire = await payerFetch(`/payer/agency/jobs/${jobId}`, {
       method: "PATCH",
-      body: toAgencyJobBody(input),
+      body: toAgencyJobBody(input, initial),
       schema: agencyJobWireSchema,
     });
     return assertNoAgencyPII(wire, "payer/agency/jobs/:id (update)");
@@ -664,6 +707,25 @@ export async function pauseAgencyJob(jobId: string): Promise<AgencyJob | null> {
       schema: agencyJobWireSchema,
     });
     return assertNoAgencyPII(wire, "payer/agency/jobs/:id/pause");
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
+}
+
+/**
+ * POST /payer/agency/jobs/:jobId/resume — resume an OWN paused job (`paused` -> `open`, #1202).
+ * The other half of a reversible pause. Only a `paused` job resumes: `suspended` is SYSTEM-owned
+ * (ADR-0037) and 409s here (propagated). Neutral 404 (unknown/not-owned) → null.
+ */
+export async function resumeAgencyJob(jobId: string): Promise<AgencyJob | null> {
+  try {
+    const wire = await payerFetch(`/payer/agency/jobs/${jobId}/resume`, {
+      method: "POST",
+      body: {},
+      schema: agencyJobWireSchema,
+    });
+    return assertNoAgencyPII(wire, "payer/agency/jobs/:id/resume");
   } catch (e) {
     if (e instanceof Error && /returned 404/.test(e.message)) return null;
     throw e;
@@ -1042,8 +1104,24 @@ export function toPayerJobPostingBody(
     role_title: input.roleTitle,
     vacancies: input.vacancies, // EXACTLY ONE of vacancy_band|vacancies — the RAW count.
   };
+  // PR-B: the posting form is the traceable SOURCE of every card field, and the backend
+  // `PayerCreateJobPostingSchema` spreads `postingContentFields` (#1645/#1646/#1648) — so create
+  // carries them all (role_kind + the worker-visible card content), not just the description. Every
+  // key is sent only when defined, so a minimal posting still carries only meaningful keys.
   if (input.locationLabel !== undefined) body.location_label = input.locationLabel;
   if (input.description !== undefined) body.description = input.description;
+  if (input.roleKind !== undefined) body.role_kind = input.roleKind;
+  if (input.city !== undefined) body.city = input.city;
+  if (input.area !== undefined) body.area = input.area;
+  if (input.payMin !== undefined) body.pay_min = input.payMin;
+  if (input.payMax !== undefined) body.pay_max = input.payMax;
+  if (input.payType !== undefined) body.pay_type = input.payType;
+  if (input.minExperienceYears !== undefined) body.min_experience_years = input.minExperienceYears;
+  if (input.maxExperienceYears !== undefined) body.max_experience_years = input.maxExperienceYears;
+  if (input.shift !== undefined) body.shift = input.shift;
+  if (input.neededBy !== undefined) body.needed_by = input.neededBy;
+  if (input.requirements !== undefined) body.requirements = input.requirements;
+  if (input.benefits !== undefined) body.benefits = input.benefits;
   return body;
 }
 
@@ -1076,27 +1154,39 @@ export async function createPosting(input: CreatePostingInput): Promise<PostingS
  * own coarse, PII-free fields). `shift`/`neededBy` are surfaced as the raw wire strings;
  * the edit form only seeds a `<select>` from them when they match the closed enum.
  */
-export async function getPostingDraft(postingId: string): Promise<{
+export interface PostingDetail {
   summary: PostingSummary;
+  /** The traceable card fields — the ONE contract Create/Edit/View/Card/Agency all share. */
+  card: CardFields;
+  /** The payer's OWN free-text description (not a card field; prefilled + shown separately). */
   description: string | null;
-  city: string | null;
-  payMin: number | null;
-  payMax: number | null;
-  shift: string | null;
-  neededBy: string | null;
-} | null> {
+  /** The ADR-0030 descriptive skill phrases the posting carries (display list). */
+  skills: string[];
+  /** The MATCHABLE half echoed back, so the edit skill picker prefills what was published. */
+  matchSkillIds: string[];
+  untickedRelatedIds: string[];
+}
+
+/**
+ * GET /payer/job-postings/:id — the caller's OWN posting as a full DETAIL read (LIVE): the
+ * faceless summary + the CardFields (the traceable lineage the preview renders) + the payer's OWN
+ * description + skills + the match selection for the edit picker. Used by BOTH the detail page and
+ * the edit page (one read, one contract). `org_label` and any verified/trust flag are DROPPED —
+ * they are not card fields and never reach the UI. Same neutral 404 → `null` contract as
+ * {@link getPosting}. Replaces the old `getPostingDraft` (which returned an ad-hoc field bag).
+ */
+export async function getPostingDetail(postingId: string): Promise<PostingDetail | null> {
   try {
     const wire = await payerFetch(`/payer/job-postings/${postingId}`, {
       schema: jobPostingWireSchema,
     });
     return {
       summary: toPostingSummary(wire),
+      card: cardFieldsFromPostingWire(wire),
       description: wire.description,
-      city: wire.city ?? null,
-      payMin: wire.pay_min ?? null,
-      payMax: wire.pay_max ?? null,
-      shift: wire.shift ?? null,
-      neededBy: wire.needed_by ?? null,
+      skills: wire.skill_phrases,
+      matchSkillIds: wire.match_skill_ids ?? [],
+      untickedRelatedIds: wire.unticked_related_ids ?? [],
     };
   } catch (e) {
     if (e instanceof Error && /returned 404/.test(e.message)) return null;
@@ -1136,18 +1226,113 @@ export async function getPosting(postingId: string): Promise<PostingSummary | nu
  * omitted when absent, so the body carries only meaningful keys and an untouched field is left
  * server-side. Accepts the {@link UpdatePostingInput} subset (a CreatePostingInput satisfies it).
  */
-export function toPayerJobPostingPatchBody(input: UpdatePostingInput): Record<string, unknown> {
-  const body: Record<string, unknown> = {
-    role_title: input.roleTitle,
-    vacancies: input.vacancies, // RAW count — the backend derives its own band.
-  };
+/**
+ * The prior values of a posting's editable + clearable fields — the `initial` the edit form was
+ * seeded with. Used ONLY to compute the `clear` diff: a field the payer BLANKED (had a value,
+ * now empty) is added to `clear` so the backend unsets the column (#1652). A field the payer left
+ * untouched is simply omitted. camelCase to match the form/`UpdatePostingInput`.
+ */
+export interface PostingEditInitial {
+  locationLabel: string | null;
+  description: string | null;
+  roleKind: string | null;
+  city: string | null;
+  area: string | null;
+  payMin: number | null;
+  payMax: number | null;
+  payType: string | null;
+  minExperienceYears: number | null;
+  maxExperienceYears: number | null;
+  shift: string | null;
+  neededBy: string | null;
+  requirements: string[] | null;
+  benefits: string[] | null;
+}
+
+/** The MATCHABLE half added on the publish variant (draft → open in the SAME patch). */
+export interface PostingPublishSelection {
+  matchSkillIds: string[];
+  untickedRelatedIds: string[];
+}
+
+/**
+ * The clearable posting fields — MIRRORED from the backend `CLEARABLE_POSTING_FIELDS`
+ * (job-postings.dto.ts). Each entry maps the snake_case column to the camelCase key on the
+ * form/`UpdatePostingInput` + the seeded `initial`. Every name here is a NULLABLE column, so a
+ * `clear` can never reach a NOT NULL one (`role_title`/`vacancy_band`/`status` are absent).
+ */
+const CLEARABLE_POSTING_FIELDS = [
+  ["location_label", "locationLabel"],
+  ["description", "description"],
+  ["city", "city"],
+  ["area", "area"],
+  ["pay_min", "payMin"],
+  ["pay_max", "payMax"],
+  ["pay_type", "payType"],
+  ["min_experience_years", "minExperienceYears"],
+  ["max_experience_years", "maxExperienceYears"],
+  ["shift", "shift"],
+  ["needed_by", "neededBy"],
+  ["benefits", "benefits"],
+  ["requirements", "requirements"],
+  ["role_kind", "roleKind"],
+] as const;
+
+/** Whether a seeded initial value counts as "present" (so blanking it is a real clear). */
+function initialPresent(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim() !== "";
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+/**
+ * PATCH body for an EMPLOYER posting edit AND/OR publish. Sends the SET fields the payer changed
+ * (RAW `vacancies` count, never a band), computes the `clear` array from the diff against
+ * `initial` (a field that HAD a value and is now blank), and — on the publish variant — attaches
+ * `match_skill_ids` + `unticked_related_ids` + `status:"open"` in the SAME patch so create→publish
+ * and edit→publish are one round-trip. NEVER `org_label`/`payer_id`/`created_by` (XB-A). A SET and
+ * a CLEAR of the same field can never both happen (a field is cleared ONLY when it is not set).
+ */
+export function toPayerJobPostingPatchBody(
+  input: UpdatePostingInput,
+  initial?: PostingEditInitial | null,
+  publish?: PostingPublishSelection,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = { role_title: input.roleTitle };
+  if (input.vacancies !== undefined) body.vacancies = input.vacancies; // RAW count — backend re-bands.
   if (input.locationLabel !== undefined) body.location_label = input.locationLabel;
   if (input.description !== undefined) body.description = input.description;
+  if (input.roleKind !== undefined) body.role_kind = input.roleKind;
   if (input.city !== undefined) body.city = input.city;
+  if (input.area !== undefined) body.area = input.area;
   if (input.payMin !== undefined) body.pay_min = input.payMin;
   if (input.payMax !== undefined) body.pay_max = input.payMax;
+  if (input.payType !== undefined) body.pay_type = input.payType;
+  if (input.minExperienceYears !== undefined) body.min_experience_years = input.minExperienceYears;
+  if (input.maxExperienceYears !== undefined) body.max_experience_years = input.maxExperienceYears;
   if (input.shift !== undefined) body.shift = input.shift;
   if (input.neededBy !== undefined) body.needed_by = input.neededBy;
+  if (input.requirements !== undefined) body.requirements = input.requirements;
+  if (input.benefits !== undefined) body.benefits = input.benefits;
+
+  // The clear diff: a field the payer BLANKED (present in `initial`, absent from `input`).
+  if (initial) {
+    const clear: string[] = [];
+    for (const [snake, camel] of CLEARABLE_POSTING_FIELDS) {
+      const setNow = (input as unknown as Record<string, unknown>)[camel] !== undefined;
+      if (!setNow && initialPresent((initial as unknown as Record<string, unknown>)[camel])) clear.push(snake);
+    }
+    if (clear.length > 0) body.clear = clear; // `.min(1)` server-side — omit an empty list.
+  }
+
+  // Publish: the matchable half + the draft→open transition, in ONE patch (Policy 10: NEVER a
+  // client `reach_skill_ids` — the server resolves the reach set from these two inputs).
+  if (publish) {
+    body.match_skill_ids = publish.matchSkillIds;
+    body.unticked_related_ids = publish.untickedRelatedIds;
+    body.status = "open";
+  }
   return body;
 }
 
@@ -1159,11 +1344,12 @@ export function toPayerJobPostingPatchBody(input: UpdatePostingInput): Record<st
 export async function updatePosting(
   postingId: string,
   input: UpdatePostingInput,
+  options?: { initial?: PostingEditInitial | null; publish?: PostingPublishSelection },
 ): Promise<PostingSummary | null> {
   try {
     const wire = await payerFetch(`/payer/job-postings/${postingId}`, {
       method: "PATCH",
-      body: toPayerJobPostingPatchBody(input),
+      body: toPayerJobPostingPatchBody(input, options?.initial ?? null, options?.publish),
       schema: jobPostingWireSchema,
     });
     return toPostingSummary(wire);

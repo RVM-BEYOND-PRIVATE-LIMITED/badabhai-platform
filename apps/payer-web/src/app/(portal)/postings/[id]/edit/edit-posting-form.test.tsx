@@ -3,25 +3,20 @@ import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 
 /**
- * EditPostingForm tests — the BAND-DOWNGRADE GUARD lives here: an UNTOUCHED vacancies
- * count must be OMITTED from the action input (submitting the prefill hint would make
- * the backend re-derive — and for a "25+" posting DOWNGRADE — the stored band), while
- * a user-changed count IS sent. Also pins: empty optional fields → undefined (kept
- * server-side), client validate() blocks the action, success → router.push to detail.
- *
- * Env is node (no DOM); React state injected via mocked useState (source order:
- * roleTitle, locationLabel, vacancies, description, error, THEN the wider UPDATE fields
- * city, payMin, payMax, shift, neededBy — those hooks live after `error` on purpose so
- * this positional seeding of the first five stays stable); useTransition runs inline.
+ * EditPostingForm tests (PR-B) — the BAND-DOWNGRADE GUARD still lives here: an UNTOUCHED vacancies
+ * count is OMITTED from the action input, a changed one is sent. Also pins: empty optionals →
+ * undefined, `initial` threaded to the action (the clear diff), success → router.push to detail,
+ * client validate() blocks. Env is node; state injected via mocked useState (source order: fields,
+ * requirements, benefits, reqDraft, benDraft, error, selection, preview); useTransition runs inline.
  */
 
 const updatePostingAction = vi.fn();
 const push = vi.fn();
 
-vi.mock("./actions", () => ({
-  updatePostingAction: (i: unknown) => updatePostingAction(i),
-}));
+vi.mock("./actions", () => ({ updatePostingAction: (i: unknown) => updatePostingAction(i) }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: (p: string) => push(p) }) }));
+// The interactive picker is only rendered on the draft path; stub it hookless.
+vi.mock("../../new/match-skill-picker", () => ({ MatchSkillPicker: () => ({ type: "div", props: {} }) }));
 
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
@@ -38,7 +33,6 @@ vi.mock("react", async () => {
   return {
     ...actual,
     useState: (initial: unknown) => useState(initial),
-    // Run the transition callback INLINE so the submit path is awaitable in the test.
     useTransition: () => [false, (fn: () => void) => fn()] as const,
   };
 });
@@ -48,14 +42,38 @@ const { EditPostingForm } = await import("./edit-posting-form");
 const POSTING_ID = "bbbb2222-0000-4000-8000-000000000001";
 const INITIAL = {
   roleTitle: "CNC Machinist",
+  vacanciesHint: 26,
   locationLabel: "Pune, MH",
-  vacanciesHint: 26, // a "25+" posting's band-representative seed
   description: null,
+  roleKind: null,
   city: null,
+  area: null,
   payMin: null,
   payMax: null,
+  payType: null,
+  minExperienceYears: null,
+  maxExperienceYears: null,
   shift: null,
   neededBy: null,
+  requirements: [],
+  benefits: [],
+};
+
+const BLANK_FIELDS = {
+  roleTitle: "CNC Machinist",
+  roleKind: "",
+  locationLabel: "Pune, MH",
+  vacancies: "26",
+  city: "",
+  area: "",
+  payMin: "",
+  payMax: "",
+  payType: "",
+  minExperienceYears: "",
+  maxExperienceYears: "",
+  shift: "",
+  neededBy: "",
+  description: "",
 };
 
 function findForm(node: ReactNode): ReactElement<{ onSubmit: (e: unknown) => void }> | null {
@@ -69,41 +87,24 @@ function findForm(node: ReactNode): ReactElement<{ onSubmit: (e: unknown) => voi
   }
   const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
   if (el.type === "form") return el as ReactElement<{ onSubmit: (e: unknown) => void }>;
-  // The DS Card wrapper is a HOOKLESS pure component — expand it one level (call the
-  // function) so the <form> inside stays reachable. Inputs/Buttons are never expanded.
-  if (typeof el.type === "function" && (el.type as { name?: string }).name === "Card") {
-    return findForm((el.type as (p: unknown) => ReactNode)(el.props));
-  }
-  if (typeof el.type === "function") return null; // never invoke other (hooked) children
+  if (typeof el.type === "function") return null; // never invoke hooked children
   return el.props && "children" in el.props ? findForm(el.props.children) : null;
 }
 
-function render(state: {
-  roleTitle?: string;
-  locationLabel?: string;
-  vacancies?: string;
-  description?: string;
-  city?: string;
-  payMin?: string;
-  payMax?: string;
-  shift?: string;
-  neededBy?: string;
-}) {
+function render(overrides: Partial<typeof BLANK_FIELDS>, status = "open") {
   stateQueue = [
-    state.roleTitle ?? INITIAL.roleTitle,
-    state.locationLabel ?? INITIAL.locationLabel,
-    state.vacancies ?? String(INITIAL.vacanciesHint),
-    state.description ?? "",
+    { ...BLANK_FIELDS, ...overrides }, // fields
+    [], // requirements
+    [], // benefits
+    "", // reqDraft
+    "", // benDraft
     null, // error
-    state.city ?? "",
-    state.payMin ?? "",
-    state.payMax ?? "",
-    state.shift ?? "",
-    state.neededBy ?? "",
+    { matchSkillIds: [], untickedRelatedIds: [] }, // selection
+    null, // preview
   ];
   stateCursor = 0;
   setters = [];
-  return EditPostingForm({ postingId: POSTING_ID, initial: INITIAL }) as ReactElement;
+  return EditPostingForm({ postingId: POSTING_ID, status, initial: INITIAL }) as ReactElement;
 }
 
 async function submit(tree: ReactElement) {
@@ -138,12 +139,19 @@ describe("EditPostingForm — the band-downgrade guard (vacancies omission)", ()
     expect(input.locationLabel).toBeUndefined();
     expect(input.description).toBeUndefined();
   });
+
+  it("threads the prior `initial` to the action (the clear diff)", async () => {
+    await submit(render({}));
+    const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input.initial).toBe(INITIAL);
+  });
 });
 
-describe("EditPostingForm — the wider UPDATE fields (city/pay/shift/needed_by)", () => {
-  it("threads city/pay/shift/needed_by to the action; pay is passed straight through", async () => {
+describe("EditPostingForm — card fields + validation", () => {
+  it("threads role/city/pay/shift to the action; pay is passed straight through", async () => {
     await submit(
       render({
+        roleKind: "cnc_turner",
         city: "Pune",
         payMin: "20000",
         payMax: "35000",
@@ -152,6 +160,7 @@ describe("EditPostingForm — the wider UPDATE fields (city/pay/shift/needed_by)
       }),
     );
     const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input.roleKind).toBe("cnc_turner");
     expect(input.city).toBe("Pune");
     expect(input.payMin).toBe(20000);
     expect(input.payMax).toBe(35000);
@@ -159,42 +168,32 @@ describe("EditPostingForm — the wider UPDATE fields (city/pay/shift/needed_by)
     expect(input.neededBy).toBe("immediate");
   });
 
-  it("blank city/pay/shift/needed_by thread as undefined (kept server-side)", async () => {
-    await submit(render({}));
-    const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
-    expect(input.city).toBeUndefined();
-    expect(input.payMin).toBeUndefined();
-    expect(input.payMax).toBeUndefined();
-    expect(input.shift).toBeUndefined();
-    expect(input.neededBy).toBeUndefined();
-  });
-
-  it("an inverted pay band (max < min) is blocked client-side (parity with the server refine)", async () => {
-    await submit(render({ payMin: "40000", payMax: "20000" }));
-    expect(updatePostingAction).not.toHaveBeenCalled();
-    expect(setters[4]).toHaveBeenCalledWith("Max pay must be greater than or equal to min pay.");
-  });
-});
-
-describe("EditPostingForm — validation + outcomes", () => {
-  it("client validate() blocks the action on a too-short role title", async () => {
+  it("client validate() blocks the action on a too-short role title (error setter fires)", async () => {
     await submit(render({ roleTitle: "x" }));
     expect(updatePostingAction).not.toHaveBeenCalled();
-    // The error setter (source index 4) received the validation message.
-    expect(setters[4]).toHaveBeenCalledWith("Role title must be at least 2 characters.");
+    // error is state index 5.
+    expect(setters[5]).toHaveBeenCalledWith("Role title must be at least 2 characters.");
   });
 
-  it("a PII-looking description is blocked client-side (parity with the server refine)", async () => {
+  it("an inverted pay band (max < min) is blocked client-side", async () => {
+    await submit(render({ payMin: "40000", payMax: "20000" }));
+    expect(updatePostingAction).not.toHaveBeenCalled();
+    expect(setters[5]).toHaveBeenCalledWith("Max pay must be greater than or equal to min pay.");
+  });
+
+  it("a PII-looking description is blocked client-side", async () => {
     await submit(render({ description: "call 9876543210" }));
     expect(updatePostingAction).not.toHaveBeenCalled();
   });
+});
 
+describe("EditPostingForm — outcomes", () => {
   it("success routes back to the posting detail; failure surfaces the action error", async () => {
     await submit(render({}));
     expect(push).toHaveBeenCalledWith(`/postings/${POSTING_ID}`);
 
     updatePostingAction.mockResolvedValue({ ok: false, error: "No changes to save." });
     await submit(render({}));
-    expect(setters[4]).toHaveBeenCalledWith("No changes to save.");
+    expect(setters[5]).toHaveBeenCalledWith("No changes to save.");
   });
 });

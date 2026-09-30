@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { looksLikePii } from "@badabhai/validators";
+import { looksLikePii, looksLikeOrgName, looksLikeUrl } from "@badabhai/validators";
+import { roleKindInputSchema } from "./job-roles";
 
 /**
  * Typed contracts (Zod) for every payer-portal data boundary (invariant #7 / §HARD
@@ -22,7 +23,9 @@ export const postingSummarySchema = z.object({
   roleTitle: z.string(),
   locationLabel: z.string().nullable(),
   vacancyBand: z.string(),
-  status: z.enum(["draft", "open", "closed", "paused"]),
+  // "suspended" (ADR-0037 Decision 1) is a SYSTEM state a payer suspension freezes a posting
+  // into; it is on the backend status list, so the projection must parse it (invariant #8).
+  status: z.enum(["draft", "open", "closed", "paused", "suspended"]),
   applicantCount: z.number().int().nonnegative(),
   /**
    * How many applicant profiles this posting may disclose ("view more → pay more").
@@ -110,6 +113,58 @@ export const SHIFTS = ["day", "night", "rotational"] as const;
 export const shiftSchema = z.enum(SHIFTS);
 export type Shift = z.infer<typeof shiftSchema>;
 
+/**
+ * WHAT THE PAY BAND MEANS (#1648) — mirrors the backend `payTypeSchema` (db.JobPayType). A
+ * closed, PII-free enum. There is NO default and no inference: an omitted value stores NULL and
+ * the card shows the band with no pay-type pill (the platform never guesses net-vs-gross).
+ */
+export const PAY_TYPES = ["in_hand", "gross", "ctc"] as const;
+export const payTypeSchema = z.enum(PAY_TYPES);
+export type PayType = z.infer<typeof payTypeSchema>;
+
+/**
+ * One worker-visible chip (a requirement tag or a benefit) — shown VERBATIM. Screened
+ * fail-closed with the SAME three heuristics the backend `benefitsSchema`/`requirementsSchema`
+ * run (`looksLikePii` + `looksLikeOrgName` + `looksLikeUrl`); the server re-validates and stays
+ * the authority. Capped at 80 chars / 12 items to mirror the DTO.
+ */
+function chipListSchema(kind: "requirement" | "benefit") {
+  const label = kind === "requirement" ? "requirements" : "benefits";
+  return z
+    .array(
+      z
+        .string()
+        .trim()
+        .min(1)
+        .max(80)
+        .refine((s) => !looksLikePii(s), { message: `Remove contact details from ${label}.` })
+        .refine((s) => !looksLikeOrgName(s), { message: `Don't put a company name in ${label}.` })
+        .refine((s) => !looksLikeUrl(s), { message: `Don't put links in ${label}.` }),
+    )
+    .max(12);
+}
+export const requirementsInputSchema = chipListSchema("requirement");
+export const benefitsInputSchema = chipListSchema("benefit");
+
+/**
+ * A worker-visible PLACE label (city or area) — shown VERBATIM on the job card via
+ * `placeLabel` ("city, area"), so it is screened fail-closed with the SAME three heuristics as
+ * the chips (`looksLikePii` + `looksLikeOrgName` + `looksLikeUrl`). Coarse locality only — a
+ * payer must not be able to smuggle a phone number, a company name or a link onto the worker
+ * surface through the location (invariant #2 / the reveal-gate). The server re-validates and
+ * stays the authority. `max` mirrors each caller's existing cap.
+ */
+function placeFieldSchema(label: string, max: number) {
+  return z
+    .string()
+    .trim()
+    .min(1)
+    .max(max)
+    .refine((s) => !looksLikePii(s), { message: `Remove contact details from the ${label}.` })
+    .refine((s) => !looksLikeOrgName(s), { message: `Don't put a company name in the ${label}.` })
+    .refine((s) => !looksLikeUrl(s), { message: `Don't put links in the ${label}.` });
+}
+
 /* ── Post a job ─────────────────────────────────────────────────────────────── */
 
 /**
@@ -133,15 +188,21 @@ export type VacancyBand = z.infer<typeof vacancyBandSchema>;
  * differ — see {@link VACANCY_BANDS}). The server Zod (backend `PayerCreateJobPostingSchema`)
  * + this schema in the action stay the AUTHORITY; the form mirrors it for inline UX (C9).
  *
- * PII (invariant #2 / D3 defense-in-depth): `description` is the only free-text field, so it
- * is the only one screened for an OBVIOUS phone/email via `looksLikePii` (shared with the
- * backend). trade/role/location are short labels (machine codes/pincodes are legit) — not
- * screened. There is deliberately NO employer-name field (the payer's own org is the session
- * identity, stamped server-side — never typed here).
+ * PII (invariant #2 / D3 defense-in-depth): EVERY worker-visible free-text field is screened
+ * fail-closed with `looksLikePii` + `looksLikeOrgName` + `looksLikeUrl` — `description`, the
+ * requirement/benefit chips (`chipListSchema`) AND the `city`/`area` place labels
+ * (`placeFieldSchema`), which render verbatim on the card. `roleTitle` stays a short label
+ * (`looksLikePii` would false-positive on legit role names) and `roleKind` is a closed enum.
+ * The server re-validates and remains the authority. There is deliberately NO employer-name
+ * field (the payer's own org is the session identity, stamped server-side — never typed here).
  */
 export const createPostingInputSchema = z
   .object({
-    tradeKey: tradeKeySchema,
+    // PR-B: the ROLE the payer picked — one of the 21 declared kinds (display-only, never a
+    // match input). It REPLACES the old `tradeKey` field on the COMPANY posting form (agency
+    // keeps `trade_key`, its matching classifier). Optional at the boundary — the workerCardGap
+    // rule (create/publish only) is what insists on it, not the API (which accepts a NULL role).
+    roleKind: roleKindInputSchema.optional(),
     roleTitle: z.string().min(2).max(120),
     locationLabel: z.string().max(120).optional(),
     description: z
@@ -151,14 +212,30 @@ export const createPostingInputSchema = z
       .refine((s) => !looksLikePii(s), {
         message: "Remove contact details (phone/email) from the description.",
       })
+      .refine((s) => !looksLikeOrgName(s), {
+        message: "Don't put a company name in the description.",
+      })
+      .refine((s) => !looksLikeUrl(s), {
+        message: "Don't put links in the description.",
+      })
       .optional(),
     // Raw vacancy count — INTAKE ONLY. Mirrors the backend `vacancies` field (positive int);
     // the band is derived from it (locally for quota, server-side for the stored band).
     vacancies: z.number().int().positive(),
+    // The WORKER-VISIBLE card fields the backend `PayerCreateJobPostingSchema` accepts (it spreads
+    // `postingContentFields`, #1645/#1646/#1648). The posting form is the traceable SOURCE of
+    // every card field, so create carries them all. Coarse + PII-free; chips are screened above.
+    city: placeFieldSchema("city", 80).optional(),
+    area: placeFieldSchema("area", 120).optional(),
     payMin: z.number().int().nonnegative().max(PAY_MAX_INR).optional(),
     payMax: z.number().int().nonnegative().max(PAY_MAX_INR).optional(),
+    payType: payTypeSchema.optional(),
     minExperienceYears: z.number().int().nonnegative().max(EXPERIENCE_MAX_YEARS).optional(),
     maxExperienceYears: z.number().int().nonnegative().max(EXPERIENCE_MAX_YEARS).optional(),
+    shift: shiftSchema.optional(),
+    neededBy: neededBySchema.optional(),
+    requirements: requirementsInputSchema.optional(),
+    benefits: benefitsInputSchema.optional(),
   })
   .refine((o) => o.payMin === undefined || o.payMax === undefined || o.payMax >= o.payMin, {
     message: "Max pay must be greater than or equal to min pay.",
@@ -205,21 +282,43 @@ export const updatePostingInputSchema = z
       .refine((s) => !looksLikePii(s), {
         message: "Remove contact details (phone/email) from the description.",
       })
+      .refine((s) => !looksLikeOrgName(s), {
+        message: "Don't put a company name in the description.",
+      })
+      .refine((s) => !looksLikeUrl(s), {
+        message: "Don't put links in the description.",
+      })
       .optional(),
-    // Worker-visible display fields the UPDATE schema accepts (backend `UpdateJobPostingSchema`
-    // / migration 0054). Coarse + PII-free: a city bucket, an integer ₹ band, two coarse enums.
-    // `city` mirrors the backend cap (trim, 1–80). Pay is passed straight through from form
-    // state — the client NEVER invents or defaults a price.
-    city: z.string().trim().min(1).max(80).optional(),
+    // The SAME worker-visible card fields as create (backend `UpdateJobPostingSchema` spreads the
+    // same `postingContentFields`). One data contract: Create/Edit/View/Card all read these.
+    // Coarse + PII-free; pay rides straight through from form state (never invented/defaulted).
+    roleKind: roleKindInputSchema.optional(),
+    city: placeFieldSchema("city", 80).optional(),
+    area: placeFieldSchema("area", 120).optional(),
     payMin: z.number().int().nonnegative().max(PAY_MAX_INR).optional(),
     payMax: z.number().int().nonnegative().max(PAY_MAX_INR).optional(),
+    payType: payTypeSchema.optional(),
+    minExperienceYears: z.number().int().nonnegative().max(EXPERIENCE_MAX_YEARS).optional(),
+    maxExperienceYears: z.number().int().nonnegative().max(EXPERIENCE_MAX_YEARS).optional(),
     shift: shiftSchema.optional(),
     neededBy: neededBySchema.optional(),
+    requirements: requirementsInputSchema.optional(),
+    benefits: benefitsInputSchema.optional(),
   })
   .refine((o) => o.payMin === undefined || o.payMax === undefined || o.payMax >= o.payMin, {
     message: "Max pay must be greater than or equal to min pay.",
     path: ["payMax"],
-  });
+  })
+  .refine(
+    (o) =>
+      o.minExperienceYears === undefined ||
+      o.maxExperienceYears === undefined ||
+      o.maxExperienceYears >= o.minExperienceYears,
+    {
+      message: "Max experience must be greater than or equal to min experience.",
+      path: ["maxExperienceYears"],
+    },
+  );
 export type UpdatePostingInput = z.infer<typeof updatePostingInputSchema>;
 
 /* ── Matching V1 — the posting form's skill surface (ADR-0036) ───────────────── */
@@ -527,7 +626,7 @@ export const quotaTopUpWireSchema = z.object({
 export const postingCapacityRowSchema = z.object({
   postingId: z.string().uuid(),
   roleTitle: z.string(),
-  status: z.enum(["draft", "open", "closed", "paused"]),
+  status: z.enum(["draft", "open", "closed", "paused", "suspended"]),
   vacancyBand: z.string(),
   /** Applicant profiles disclosed so far (config-bounded by quota). */
   applicantsUsed: z.number().int().nonnegative(),
@@ -812,19 +911,32 @@ export const jobPostingWireSchema = z.object({
   location_label: z.string().nullable(),
   description: z.string().nullable(),
   vacancy_band: z.string(),
-  status: z.enum(["draft", "open", "closed", "paused"]),
+  // "suspended" (ADR-0037 Decision 1) landed on the backend status list; the wire must parse it.
+  status: z.enum(["draft", "open", "closed", "paused", "suspended"]),
   skill_phrases: z.array(z.string()),
   skill_ids: z.array(z.string()),
-  // Worker-visible display fields the backend `JobPostingApi` projection returns (migration
-  // 0054). Read here PURELY so the payer's OWN edit form can prefill them — the sibling of the
-  // `description` prefill. Coarse + PII-free (a city bucket, an integer ₹ band, two coarse
-  // enums), and the payer's OWN data, never worker PII. `nullable().optional()` because a
-  // pre-0054 row (or a fixture) may omit them; unset reads as null.
+  // THE WORKER-VISIBLE CARD FIELDS the backend `JobPostingApi` projection returns (migrations
+  // 0054 + 0116 + 0131). Read here so the edit form + the detail preview can prefill EXACTLY what
+  // the posting says — the whole lineage. Coarse + PII-free (a city/area bucket, integer ₹ bands,
+  // year counts, closed enums, short chips, the display role_kind), the payer's OWN data, never
+  // worker PII. All `nullable().optional()` because a pre-migration row (or a fixture) may omit
+  // them; unset reads as null. `role_kind` is DISPLAY-only (never a match input, #1823).
   city: z.string().nullable().optional(),
+  area: z.string().nullable().optional(),
   pay_min: z.number().nullable().optional(),
   pay_max: z.number().nullable().optional(),
+  pay_type: z.string().nullable().optional(),
+  min_experience_years: z.number().nullable().optional(),
+  max_experience_years: z.number().nullable().optional(),
   shift: z.string().nullable().optional(),
   needed_by: z.string().nullable().optional(),
+  requirements: z.array(z.string()).nullable().optional(),
+  benefits: z.array(z.string()).nullable().optional(),
+  role_kind: z.string().nullable().optional(),
+  // The MATCHABLE half echoed back on the row, so the edit form can prefill the skill picker.
+  // Never rendered on the card (role_kind is display; these are the match inputs).
+  match_skill_ids: z.array(z.string()).nullable().optional(),
+  unticked_related_ids: z.array(z.string()).nullable().optional(),
   created_at: z.string(),
   updated_at: z.string(),
   closed_at: z.string().nullable(),
@@ -851,7 +963,9 @@ export const jobPostingListWireSchema = z.array(jobPostingWireSchema);
  */
 export const agencyJobWireSchema = z.object({
   id: z.string().uuid(),
-  status: z.enum(["open", "closed"]),
+  // Phase-1 pause became REVERSIBLE (#1202): a job now sits in `open|paused|closed`, and
+  // `suspended` is the SYSTEM-owned state (ADR-0037). The four-state view mirrors `AgencyJobView`.
+  status: z.enum(["open", "paused", "suspended", "closed"]),
   tradeKey: z.string(),
   title: z.string(),
   city: z.string(),
@@ -861,6 +975,15 @@ export const agencyJobWireSchema = z.object({
   minExperienceYears: z.number().int().nullable(),
   maxExperienceYears: z.number().int().nullable(),
   neededBy: neededBySchema.nullable(),
+  // THE WORKER-VISIBLE CARD CONTENT the owner view returns (#1647/#1648 + migration 0131). These
+  // were write-only until the projection added them; the card + edit prefill read them now.
+  // `roleKind` is the display role (never a match input); `tradeKey` above stays the matcher.
+  shift: shiftSchema.nullable().optional(),
+  payType: payTypeSchema.nullable().optional(),
+  description: z.string().nullable().optional(),
+  requirements: z.array(z.string()).nullable().optional(),
+  benefits: z.array(z.string()).nullable().optional(),
+  roleKind: z.string().nullable().optional(),
   applicantsReceived: z.number().int().nonnegative(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -875,15 +998,33 @@ export const agencyJobListWireSchema = z.array(agencyJobWireSchema);
  */
 export const agencyJobInputSchema = z
   .object({
+    // `tradeKey` stays REQUIRED with NO default — it is the agency job's MATCHING classifier (15
+    // trades). PR-B adds `roleKind` beside it as the display role (21 kinds); the two are distinct
+    // and both required so an agency job traces to a card exactly like a company posting.
     tradeKey: tradeKeySchema,
+    roleKind: roleKindInputSchema,
     title: z.string().min(1).max(200),
-    city: z.string().min(1).max(120),
-    area: z.string().min(1).max(120).optional(),
+    city: placeFieldSchema("city", 120),
+    area: placeFieldSchema("area", 120).optional(),
     payMin: z.number().int().nonnegative().max(PAY_MAX_INR).optional(),
     payMax: z.number().int().nonnegative().max(PAY_MAX_INR).optional(),
+    payType: payTypeSchema.optional(),
     minExperienceYears: z.number().int().nonnegative().max(EXPERIENCE_MAX_YEARS).optional(),
     maxExperienceYears: z.number().int().nonnegative().max(EXPERIENCE_MAX_YEARS).optional(),
+    shift: shiftSchema.optional(),
     neededBy: neededBySchema.optional(),
+    description: z
+      .string()
+      .min(1)
+      .max(2000)
+      .refine((s) => !looksLikePii(s), {
+        message: "Remove contact details (phone/email) from the description.",
+      })
+      .refine((s) => !looksLikeOrgName(s), { message: "Don't put a company name in the description." })
+      .refine((s) => !looksLikeUrl(s), { message: "Don't put links in the description." })
+      .optional(),
+    requirements: requirementsInputSchema.optional(),
+    benefits: benefitsInputSchema.optional(),
   })
   .refine((o) => o.payMin === undefined || o.payMax === undefined || o.payMax >= o.payMin, {
     message: "Max pay must be greater than or equal to min pay.",

@@ -232,6 +232,9 @@ importers:
       '@badabhai/pricing':
         specifier: workspace:*
         version: link:../../packages/pricing
+      '@badabhai/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       '@badabhai/validators':
         specifier: workspace:*
         version: link:../../packages/validators

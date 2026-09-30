@@ -1976,6 +1976,50 @@ textarea.input {
   line-height: var(--leading-normal);
 }
 
+/* PR-B — the posting↔card lineage: the form beside a LIVE card preview. Two columns on wide
+   screens, stacked (preview on top, sticky-free) at the reading measure so it works to 375px. */
+.posting-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+@media (min-width: 60rem) {
+  .posting-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
+  }
+  .posting-preview {
+    position: sticky;
+    top: var(--space-5);
+  }
+}
+.posting-preview {
+  order: -1;
+}
+@media (min-width: 60rem) {
+  .posting-preview {
+    order: 0;
+  }
+}
+.chip-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.chip-editor__row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-end;
+}
+.chip-editor__row > .bb-field {
+  flex: 1;
+}
+.chip-editor__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 /* ------------------------------------------------------------------
  * MATCH SKILL PICKER (ADR-0036) — the posting form's MATCHABLE half.
  *

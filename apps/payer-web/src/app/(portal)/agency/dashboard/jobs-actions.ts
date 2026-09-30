@@ -7,9 +7,11 @@ import {
   closeAgencyJob,
   createAgencyJob,
   pauseAgencyJob,
+  resumeAgencyJob,
   updateAgencyJob,
 } from "../../../../lib/payer-api";
 import { requireAgent } from "../../../../lib/auth/roles";
+import { workerCardGap } from "../../../../lib/worker-card-gap";
 
 /**
  * Agency job lifecycle + CRUD Server Actions (ADR-0022, LIVE).
@@ -42,11 +44,12 @@ export type AgencyJobMutationResult =
 const jobIdSchema = z.string().uuid();
 
 /**
- * NOTE on EDIT semantics: the backend `UpdateAgencyJobSchema` treats an OMITTED field as
- * "no change" (and has no `nullable` for the optional bands), so BLANKING a previously-set
- * optional field (area / pay / experience) is a NO-OP, not a clear — the stored value
- * persists. Clearing an optional back to null is not expressible over the current contract;
- * a dedicated "clear" affordance would require a backend change first.
+ * EDIT semantics (PR-B): `UpdateAgencyJobSchema` now carries a `clear` list, so BLANKING a
+ * previously-set optional card field (area / pay / experience / shift / pay type / description /
+ * requirements / benefits) DOES clear it. `updateAgencyJobAction` passes the current row as
+ * `initial`, and `toAgencyJobBody` diffs it to build `clear` — restricted to the mirrored
+ * `CLEARABLE_AGENCY_JOB_FIELDS` allowlist (NOT NULL columns like `trade_key`/`title`/`city` can
+ * never be cleared). Backend re-validates and stays the authority.
  */
 
 /**
@@ -61,6 +64,27 @@ export async function createAgencyJobAction(input: unknown): Promise<AgencyJobMu
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues.map((i) => i.message).join("; ") };
   }
+  // GAP RULE — an agency create is create==publish (the vacancy goes live `open` immediately),
+  // so the full worker-card rule applies exactly as on company CREATE. Re-run server-side: a
+  // Server Action is independently invocable, so a direct POST must not be able to bypass the
+  // browser gate and ship a thin card (parity with `new/actions.ts`; XB-A).
+  const gap = workerCardGap({
+    roleKind: parsed.data.roleKind ?? null,
+    city: parsed.data.city ?? "",
+    payMin: parsed.data.payMin ?? null,
+    payMax: parsed.data.payMax ?? null,
+    payType: parsed.data.payType ?? null,
+    expMin: parsed.data.minExperienceYears ?? null,
+    expMax: parsed.data.maxExperienceYears ?? null,
+    shift: parsed.data.shift ?? null,
+    neededBy: parsed.data.neededBy ?? null,
+    description: parsed.data.description ?? "",
+    requirements: parsed.data.requirements ?? [],
+    benefits: parsed.data.benefits ?? [],
+  });
+  if (gap !== null) {
+    return { ok: false, error: `${gap.title}: ${gap.message}` };
+  }
   try {
     const job = await createAgencyJob(parsed.data);
     revalidatePath("/dashboard"); // MERGE-1: the agency vacancy manager now renders on /dashboard.
@@ -73,6 +97,7 @@ export async function createAgencyJobAction(input: unknown): Promise<AgencyJobMu
 export async function updateAgencyJobAction(
   jobId: string,
   input: unknown,
+  initial?: AgencyJob | null,
 ): Promise<AgencyJobMutationResult> {
   await requireAgent(); // role gate FIRST — employer → neutral notFound().
   if (!jobIdSchema.safeParse(jobId).success) {
@@ -83,12 +108,35 @@ export async function updateAgencyJobAction(
     return { ok: false, error: parsed.error.issues.map((i) => i.message).join("; ") };
   }
   try {
-    const job = await updateAgencyJob(jobId, parsed.data);
+    // `initial` (the current row) drives the `clear` diff — a card field the payer BLANKED is unset.
+    const job = await updateAgencyJob(jobId, parsed.data, initial ?? null);
     if (!job) return { ok: false, error: NOT_FOUND }; // no-oracle: not-found == not-owned.
     revalidatePath("/dashboard"); // MERGE-1: the agency vacancy manager now renders on /dashboard.
     return { ok: true, job };
   } catch {
     return { ok: false, error: "Could not update the vacancy right now. Please retry." };
+  }
+}
+
+/**
+ * Resume an OWN paused vacancy (`paused` -> `open`, #1202) — the reverse of pause. Role-gated
+ * FIRST (employer → neutral notFound()). A `suspended` job is SYSTEM-owned and 409s server-side
+ * (surfaced as the retryable message); unknown/not-owned → the neutral NOT_FOUND.
+ */
+export async function resumeAgencyJobAction(input: {
+  jobId: string;
+}): Promise<AgencyJobActionResult> {
+  await requireAgent();
+  if (!jobIdSchema.safeParse(input.jobId).success) {
+    return { ok: false, error: NOT_FOUND };
+  }
+  try {
+    const job = await resumeAgencyJob(input.jobId);
+    if (!job) return { ok: false, error: NOT_FOUND }; // no-oracle: not-found == not-owned.
+    revalidatePath("/dashboard");
+    return { ok: true, job };
+  } catch {
+    return { ok: false, error: "Could not resume the vacancy right now. Please retry." };
   }
 }
 

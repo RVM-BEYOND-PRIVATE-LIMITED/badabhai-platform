@@ -55,8 +55,6 @@ export { Toast } from "./toast";
 export type { ToastProps } from "./toast";
 export { Tabs, tabId, tabPanelId } from "./tabs";
 export type { TabsProps, TabItem } from "./tabs";
-export { JobCard } from "./job-card";
-export type { JobCardProps } from "./job-card";
 export { MaskedCandidate } from "./masked-candidate";
 export type { MaskedCandidateProps } from "./masked-candidate";
 export { ThemeToggle } from "./theme-toggle";

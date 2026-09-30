@@ -21,7 +21,7 @@ function posting(status: PostingSummary["status"], i: number): PostingSummary {
 }
 
 describe("summarizeJobStatuses", () => {
-  it("counts open / closed / paused / draft and the total", () => {
+  it("counts open / closed / paused / suspended / draft and the total", () => {
     const rows = [
       posting("open", 1),
       posting("open", 2),
@@ -34,6 +34,7 @@ describe("summarizeJobStatuses", () => {
       open: 2,
       closed: 1,
       paused: 1,
+      suspended: 0,
       draft: 1,
     });
   });
@@ -44,12 +45,13 @@ describe("summarizeJobStatuses", () => {
       open: 0,
       closed: 0,
       paused: 0,
+      suspended: 0,
       draft: 0,
     });
   });
 
-  it("only recognizes the four locked lifecycle states (no hire/interview stage)", () => {
-    expect([...JOB_STATUSES]).toEqual(["draft", "open", "closed", "paused"]);
+  it("recognizes the lifecycle states incl. system `suspended` (no hire/interview stage)", () => {
+    expect([...JOB_STATUSES]).toEqual(["draft", "open", "closed", "paused", "suspended"]);
     expect(JOB_STATUSES).not.toContain("hired");
     expect(JOB_STATUSES).not.toContain("interview");
     expect(JOB_STATUSES).not.toContain("selected");
@@ -75,18 +77,21 @@ function agencyJob(status: AgencyJob["status"], i: number, applicantsReceived: n
   };
 }
 
-describe("summarizeAgencyJobs (LIVE agency jobs — open|closed only)", () => {
-  it("splits open/closed, sums applicants, and counts the total", () => {
+describe("summarizeAgencyJobs (LIVE agency jobs — open|paused|suspended|closed)", () => {
+  it("splits by status, sums applicants, and counts the total", () => {
     const jobs = [
       agencyJob("open", 1, 3),
       agencyJob("open", 2, 2),
-      agencyJob("closed", 3, 5),
+      agencyJob("paused", 3, 4),
+      agencyJob("closed", 4, 5),
     ];
     expect(summarizeAgencyJobs(jobs)).toEqual({
-      total: 3,
+      total: 4,
       open: 2,
+      paused: 1,
+      suspended: 0,
       closed: 1,
-      applicantsReceived: 10,
+      applicantsReceived: 14,
     });
   });
 
@@ -94,6 +99,8 @@ describe("summarizeAgencyJobs (LIVE agency jobs — open|closed only)", () => {
     expect(summarizeAgencyJobs([])).toEqual({
       total: 0,
       open: 0,
+      paused: 0,
+      suspended: 0,
       closed: 0,
       applicantsReceived: 0,
     });

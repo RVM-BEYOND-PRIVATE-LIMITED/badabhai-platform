@@ -3,27 +3,57 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { looksLikePii } from "@badabhai/validators";
-import { Button, Input, Select, Textarea } from "../../../../../components/ds";
-import { NEEDED_BY, SHIFTS } from "../../../../../lib/contracts";
-import { neededByLabel, shiftLabel } from "../../../../../lib/agency-view";
+import { Badge, Button, Chip, Input, Select, Textarea } from "../../../../../components/ds";
+import {
+  NEEDED_BY,
+  PAY_TYPES,
+  SHIFTS,
+  type MatchSkillWire,
+  type ReachPreview,
+} from "../../../../../lib/contracts";
+import { roleOptionGroups } from "../../../../../lib/job-roles";
+import { neededByLabel, payTypeLabel, shiftLabel } from "../../../../../lib/job-card-view";
+import type { CardFields } from "../../../../../lib/job-card-view";
+import { workerCardGaps } from "../../../../../lib/worker-card-gap";
+import type { PostingEditInitial } from "../../../../../lib/payer-api";
+import { JobCardPreview } from "../../../../../components/job-card-preview";
+import { MatchSkillPicker, type MatchSelection } from "../../new/match-skill-picker";
 import { updatePostingAction } from "./actions";
 
 /**
- * Client form for EDITING a posting (EMPLOYER self-serve; LIVE
- * `PATCH /payer/job-postings/:id`). Fields are EXACTLY the PATCHable set the backend
- * `UpdateJobPostingSchema` accepts: role_title / vacancies / location_label? /
- * description? PLUS the worker-visible display fields the UPDATE schema is WIDER on than
- * create — city / pay_min / pay_max / shift / needed_by (migration 0054). This is the
- * ONLY self-serve place a payer edits those (create cannot take them). There is NO
- * trade/experience field here — the PATCH schema accepts neither, so they are never
- * invented. Runs in the BROWSER and sees NO secret; the session payer is stamped
- * server-side (XB-A). The inline validation is UX parity — `updatePostingInputSchema` in
- * the action stays the authority; pay rides straight through, never computed or defaulted.
+ * Edit a posting (EMPLOYER self-serve; LIVE `PATCH /payer/job-postings/:id`) — PR-B. Every card
+ * field + the role + the MatchSkillPicker (prefilled), beside a LIVE {@link JobCardPreview}. The
+ * card fields are ONE contract with create (same `CardFields`). DRAFT → "Save draft" (no gap block)
+ * + "Publish" (gap block + ≥1 skill). OPEN/PAUSED → "Save changes" (gaps HIGHLIGHTED, never blocked
+ * — owner ruling). The `initial` prop drives the `clear` diff (a blanked field is unset server-side).
  */
 
-const PAY_MAX_INR = 10_000_000; // ₹/month sanity ceiling — parity with contracts.ts
+const PAY_MAX_INR = 10_000_000;
+const ROLE_GROUPS = roleOptionGroups();
 
-/** Parse an optional non-negative integer field; "" → undefined; bad → NaN (caught in validate). */
+interface FormFields {
+  roleTitle: string;
+  roleKind: string;
+  locationLabel: string;
+  vacancies: string;
+  city: string;
+  area: string;
+  payMin: string;
+  payMax: string;
+  payType: string;
+  minExperienceYears: string;
+  maxExperienceYears: string;
+  shift: string;
+  neededBy: string;
+  description: string;
+}
+
+export interface EditPostingInitial extends PostingEditInitial {
+  roleTitle: string;
+  /** A count INSIDE the stored band, as the edit seed (the server re-derives from a submitted count). */
+  vacanciesHint: number;
+}
+
 function optInt(value: string): number | undefined {
   const t = value.trim();
   if (t === "") return undefined;
@@ -31,57 +61,107 @@ function optInt(value: string): number | undefined {
   return Number.isInteger(n) && n >= 0 ? n : Number.NaN;
 }
 
-/** Seed a closed-enum <select> from a raw wire string, blank when it is null/off-enum. */
-function seedEnum<T extends string>(value: string | null, allowed: readonly T[]): string {
-  return value !== null && (allowed as readonly string[]).includes(value) ? value : "";
+function nullInt(value: string): number | null {
+  const n = optInt(value);
+  return n === undefined || Number.isNaN(n) ? null : n;
+}
+
+function seedEnum(value: string | null, allowed: readonly string[]): string {
+  return value !== null && allowed.includes(value) ? value : "";
 }
 
 export function EditPostingForm({
   postingId,
+  status,
   initial,
+  matchSkills = [],
+  matchSelection,
 }: {
   postingId: string;
-  initial: {
-    roleTitle: string;
-    locationLabel: string | null;
-    /** Band lower bound — the stored row keeps only the BAND; adjust if needed. */
-    vacanciesHint: number;
-    description: string | null;
-    city: string | null;
-    payMin: number | null;
-    payMax: number | null;
-    /** Raw wire strings — only seed the <select> when they match the closed enum. */
-    shift: string | null;
-    neededBy: string | null;
-  };
+  status: string;
+  initial: EditPostingInitial;
+  matchSkills?: MatchSkillWire[];
+  matchSelection?: MatchSelection;
 }) {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  // useState order (mirrored positionally by edit-posting-form.test.tsx): roleTitle,
-  // locationLabel, vacancies, description, error — then the fields added for the wider
-  // UPDATE schema. New hooks stay AFTER `error` so that test's positional seeding of the
-  // first five keeps working unchanged.
-  const [roleTitle, setRoleTitle] = useState(initial.roleTitle);
-  const [locationLabel, setLocationLabel] = useState(initial.locationLabel ?? "");
-  const [vacancies, setVacancies] = useState(String(initial.vacanciesHint));
-  const [description, setDescription] = useState(initial.description ?? "");
+  // useState order (mirrored positionally by edit-posting-form.test.tsx): fields, requirements,
+  // benefits, reqDraft, benDraft, error, selection, preview.
+  const [fields, setFields] = useState<FormFields>({
+    roleTitle: initial.roleTitle,
+    roleKind: initial.roleKind ?? "",
+    locationLabel: initial.locationLabel ?? "",
+    vacancies: String(initial.vacanciesHint),
+    city: initial.city ?? "",
+    area: initial.area ?? "",
+    payMin: initial.payMin !== null ? String(initial.payMin) : "",
+    payMax: initial.payMax !== null ? String(initial.payMax) : "",
+    payType: seedEnum(initial.payType, PAY_TYPES),
+    minExperienceYears: initial.minExperienceYears !== null ? String(initial.minExperienceYears) : "",
+    maxExperienceYears: initial.maxExperienceYears !== null ? String(initial.maxExperienceYears) : "",
+    shift: seedEnum(initial.shift, SHIFTS),
+    neededBy: seedEnum(initial.neededBy, NEEDED_BY),
+    description: initial.description ?? "",
+  });
+  const [requirements, setRequirements] = useState<string[]>(initial.requirements ?? []);
+  const [benefits, setBenefits] = useState<string[]>(initial.benefits ?? []);
+  const [reqDraft, setReqDraft] = useState("");
+  const [benDraft, setBenDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [city, setCity] = useState(initial.city ?? "");
-  const [payMin, setPayMin] = useState(initial.payMin !== null ? String(initial.payMin) : "");
-  const [payMax, setPayMax] = useState(initial.payMax !== null ? String(initial.payMax) : "");
-  const [shift, setShift] = useState(seedEnum(initial.shift, SHIFTS));
-  const [neededBy, setNeededBy] = useState(seedEnum(initial.neededBy, NEEDED_BY));
+  const [selection, setSelection] = useState<MatchSelection>(
+    matchSelection ?? { matchSkillIds: [], untickedRelatedIds: [] },
+  );
+  const [preview, setPreview] = useState<ReachPreview | null>(null);
+  const [pending, startTransition] = useTransition();
 
-  function validate(): string | null {
-    if ([...roleTitle.trim()].length < 2) return "Role title must be at least 2 characters.";
-    const count = Number(vacancies);
+  const isDraft = status === "draft";
+
+  function set<K extends keyof FormFields>(key: K, value: string) {
+    setFields((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function card(): CardFields {
+    return {
+      role_title: fields.roleTitle.trim() || null,
+      role_kind: fields.roleKind || null,
+      city: fields.city.trim() || null,
+      area: fields.area.trim() || null,
+      pay_min: nullInt(fields.payMin),
+      pay_max: nullInt(fields.payMax),
+      pay_type: fields.payType || null,
+      min_experience_years: nullInt(fields.minExperienceYears),
+      max_experience_years: nullInt(fields.maxExperienceYears),
+      shift: fields.shift || null,
+      needed_by: fields.neededBy || null,
+      requirements,
+      benefits,
+    };
+  }
+
+  /** The gaps STILL open — highlighted (never blocked) so the payer sees what the card is missing. */
+  const gaps = workerCardGaps({
+    roleKind: fields.roleKind || null,
+    city: fields.city,
+    payMin: nullInt(fields.payMin),
+    payMax: nullInt(fields.payMax),
+    payType: fields.payType || null,
+    expMin: nullInt(fields.minExperienceYears),
+    expMax: nullInt(fields.maxExperienceYears),
+    shift: fields.shift || null,
+    neededBy: fields.neededBy || null,
+    description: fields.description,
+    requirements,
+    benefits,
+  });
+
+  function clientValidate(): string | null {
+    if ([...fields.roleTitle.trim()].length < 2) return "Role title must be at least 2 characters.";
+    const count = Number(fields.vacancies);
     if (!Number.isInteger(count) || count <= 0) return "Vacancies must be a positive number.";
-    if (description.trim() !== "" && looksLikePii(description)) {
+    if (fields.description.trim() !== "" && looksLikePii(fields.description)) {
       return "Remove contact details (phone/email) from the description.";
     }
-    // Pay: whole, non-negative, within the C10 ceiling, and ordered (parity with the server Zod).
-    const min = optInt(payMin);
-    const max = optInt(payMax);
+    const min = optInt(fields.payMin);
+    const max = optInt(fields.payMax);
     if (Number.isNaN(min) || (min !== undefined && min > PAY_MAX_INR)) {
       return "Min pay must be a whole number within the allowed range.";
     }
@@ -94,9 +174,8 @@ export function EditPostingForm({
     return null;
   }
 
-  function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const clientError = validate();
+  function submit(mode: "save" | "publish") {
+    const clientError = clientValidate();
     if (clientError !== null) {
       setError(clientError);
       return;
@@ -105,20 +184,27 @@ export function EditPostingForm({
     startTransition(async () => {
       const res = await updatePostingAction({
         postingId,
-        roleTitle: roleTitle.trim(),
-        // OMIT the count when untouched: the stored row keeps only the BAND, and
-        // re-submitting the prefill hint would make the backend re-derive (and for a
-        // "25+" posting DOWNGRADE) the band on an unrelated edit.
-        vacancies: vacancies === String(initial.vacanciesHint) ? undefined : Number(vacancies),
-        locationLabel: locationLabel.trim() === "" ? undefined : locationLabel.trim(),
-        description: description.trim() === "" ? undefined : description.trim(),
-        // Blank → undefined (kept server-side, never sent as ""/0). Pay is passed straight
-        // through from form state — the client never computes or defaults a price.
-        city: city.trim() === "" ? undefined : city.trim(),
-        payMin: optInt(payMin),
-        payMax: optInt(payMax),
-        shift: shift === "" ? undefined : shift,
-        neededBy: neededBy === "" ? undefined : neededBy,
+        roleTitle: fields.roleTitle.trim(),
+        roleKind: fields.roleKind || undefined,
+        // OMIT the count when untouched — re-submitting the prefill hint would re-derive (and for a
+        // "25+" posting DOWNGRADE) the stored band on an unrelated edit.
+        vacancies:
+          fields.vacancies === String(initial.vacanciesHint) ? undefined : Number(fields.vacancies),
+        locationLabel: fields.locationLabel.trim() || undefined,
+        description: fields.description.trim() || undefined,
+        city: fields.city.trim() || undefined,
+        area: fields.area.trim() || undefined,
+        payMin: optInt(fields.payMin),
+        payMax: optInt(fields.payMax),
+        payType: fields.payType || undefined,
+        minExperienceYears: optInt(fields.minExperienceYears),
+        maxExperienceYears: optInt(fields.maxExperienceYears),
+        shift: fields.shift || undefined,
+        neededBy: fields.neededBy || undefined,
+        requirements,
+        benefits,
+        initial,
+        ...(mode === "publish" ? { publish: selection } : {}),
       });
       if (res.ok) {
         router.push(`/postings/${postingId}`);
@@ -128,132 +214,191 @@ export function EditPostingForm({
     });
   }
 
+  function addChip(kind: "req" | "ben") {
+    const draft = (kind === "req" ? reqDraft : benDraft).trim();
+    if (draft === "") return;
+    if (kind === "req") {
+      setRequirements((prev) => (prev.includes(draft) ? prev : [...prev, draft]));
+      setReqDraft("");
+    } else {
+      setBenefits((prev) => (prev.includes(draft) ? prev : [...prev, draft]));
+      setBenDraft("");
+    }
+  }
+
+  const publishDisabled = pending || selection.matchSkillIds.length === 0;
+
   return (
-    <section className="panel">
-      <div className="panel__body">
-        <form onSubmit={onSubmit} noValidate>
-          <div className="form__section">
-            <p className="form__legend">The role</p>
-            <Input
-              label="Role title"
-              value={roleTitle}
-              onChange={(e) => setRoleTitle(e.target.value)}
-              required
-            />
-            <div className="form-grid">
-              <Input
-                label="Location (optional)"
-                value={locationLabel}
-                onChange={(e) => setLocationLabel(e.target.value)}
-                hint="Leaving this blank keeps the current value (clearing is not supported yet)."
-              />
-              <Input
-                label="Vacancies"
-                type="number"
-                min={1}
-                value={vacancies}
-                onChange={(e) => setVacancies(e.target.value)}
-                hint="Left unchanged, the stored vacancy band is kept as-is; a new count re-derives the band server-side."
-                required
-              />
-            </div>
-            <Input
-              label="City (optional)"
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              hint="A coarse city bucket workers filter on. Leaving this blank keeps the current value."
-            />
-          </div>
-
-          <div className="form__section">
-            <p className="form__legend">Pay and timing</p>
-            <div className="form-grid">
-              <Input
-                label="Pay — min (₹ / month)"
-                type="number"
-                min={0}
-                inputMode="numeric"
-                value={payMin}
-                onChange={(e) => setPayMin(e.target.value)}
-                hint="Optional. Leaving this blank keeps the current value."
-              />
-              <Input
-                label="Pay — max (₹ / month)"
-                type="number"
-                min={0}
-                inputMode="numeric"
-                value={payMax}
-                onChange={(e) => setPayMax(e.target.value)}
-                hint="Optional. Leaving this blank keeps the current value."
-              />
-            </div>
-            <div className="form-grid">
-              <Select
-                label="Shift"
-                optional
-                value={shift}
-                onChange={(e) => setShift(e.target.value)}
-              >
-                <option value="">— keep current —</option>
-                {SHIFTS.map((s) => (
-                  <option key={s} value={s}>
-                    {shiftLabel(s)}
+    <div className="posting-layout">
+      <form
+        className="form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit("save");
+        }}
+      >
+        <div className="form__section">
+          <p className="form__legend">The role</p>
+          <Select
+            id="roleKind"
+            label="Role"
+            value={fields.roleKind}
+            onChange={(e) => set("roleKind", e.target.value)}
+          >
+            <option value="">— pick the role —</option>
+            {ROLE_GROUPS.map((group) => (
+              <optgroup key={group.family} label={group.label}>
+                {group.options.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
                   </option>
                 ))}
-              </Select>
-              <Select
-                label="Needed by"
-                optional
-                value={neededBy}
-                onChange={(e) => setNeededBy(e.target.value)}
-              >
-                <option value="">— keep current —</option>
-                {NEEDED_BY.map((n) => (
-                  <option key={n} value={n}>
-                    {neededByLabel(n)}
-                  </option>
+              </optgroup>
+            ))}
+          </Select>
+          <Input label="Role title" value={fields.roleTitle} onChange={(e) => set("roleTitle", e.target.value)} required />
+          <div className="form-grid">
+            <Input label="Location note (optional)" value={fields.locationLabel} onChange={(e) => set("locationLabel", e.target.value)} />
+            <Input label="Vacancies" type="number" min={1} value={fields.vacancies} onChange={(e) => set("vacancies", e.target.value)} required />
+          </div>
+          <div className="form-grid">
+            <Input label="City" value={fields.city} onChange={(e) => set("city", e.target.value)} />
+            <Input label="Area / locality (optional)" value={fields.area} onChange={(e) => set("area", e.target.value)} />
+          </div>
+        </div>
+
+        <div className="form__section">
+          <p className="form__legend">Pay and timing</p>
+          <div className="form-grid">
+            <Input label="Pay — min (₹ / month)" type="number" min={0} inputMode="numeric" value={fields.payMin} onChange={(e) => set("payMin", e.target.value)} />
+            <Input label="Pay — max (₹ / month)" type="number" min={0} inputMode="numeric" value={fields.payMax} onChange={(e) => set("payMax", e.target.value)} />
+          </div>
+          <Select id="payType" label="Pay type" value={fields.payType} onChange={(e) => set("payType", e.target.value)}>
+            <option value="">— pick the pay type —</option>
+            {PAY_TYPES.map((p) => (
+              <option key={p} value={p}>
+                {payTypeLabel(p)}
+              </option>
+            ))}
+          </Select>
+          <div className="form-grid">
+            <Input label="Experience — min (years)" type="number" min={0} inputMode="numeric" value={fields.minExperienceYears} onChange={(e) => set("minExperienceYears", e.target.value)} />
+            <Input label="Experience — max (years)" type="number" min={0} inputMode="numeric" value={fields.maxExperienceYears} onChange={(e) => set("maxExperienceYears", e.target.value)} />
+          </div>
+          <div className="form-grid">
+            <Select id="shift" label="Shift" value={fields.shift} onChange={(e) => set("shift", e.target.value)}>
+              <option value="">— pick the shift —</option>
+              {SHIFTS.map((s) => (
+                <option key={s} value={s}>
+                  {shiftLabel(s)}
+                </option>
+              ))}
+            </Select>
+            <Select id="neededBy" label="Needed by" value={fields.neededBy} onChange={(e) => set("neededBy", e.target.value)}>
+              <option value="">— pick joining time —</option>
+              {NEEDED_BY.map((n) => (
+                <option key={n} value={n}>
+                  {neededByLabel(n)}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </div>
+
+        <div className="form__section">
+          <p className="form__legend">Requirements and benefits</p>
+          <div className="chip-editor">
+            <div className="chip-editor__row">
+              <Input id="requirements" label="Requirements" optional placeholder="e.g. Fanuc control" value={reqDraft} onChange={(e) => setReqDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addChip("req"); } }} />
+              <Button type="button" variant="secondary" iconLeft="plus" onClick={() => addChip("req")}>Add</Button>
+            </div>
+            {requirements.length > 0 ? (
+              <div className="chip-editor__chips">
+                {requirements.map((item, i) => (
+                  <Chip key={`${item}:${i}`} onRemove={() => setRequirements((p) => p.filter((_, j) => j !== i))}>{item}</Chip>
                 ))}
-              </Select>
+              </div>
+            ) : null}
+          </div>
+          <div className="chip-editor">
+            <div className="chip-editor__row">
+              <Input id="benefits" label="Benefits" optional placeholder="e.g. PF + ESI" value={benDraft} onChange={(e) => setBenDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addChip("ben"); } }} />
+              <Button type="button" variant="secondary" iconLeft="plus" onClick={() => addChip("ben")}>Add</Button>
+            </div>
+            {benefits.length > 0 ? (
+              <div className="chip-editor__chips">
+                {benefits.map((item, i) => (
+                  <Chip key={`${item}:${i}`} onRemove={() => setBenefits((p) => p.filter((_, j) => j !== i))}>{item}</Chip>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="form__section">
+          <p className="form__legend">Description</p>
+          <Textarea label="Description (optional — no phone/email)" value={fields.description} onChange={(e) => set("description", e.target.value)} rows={4} />
+        </div>
+
+        {isDraft && matchSkills.length > 0 ? (
+          <MatchSkillPicker vocabulary={matchSkills} selection={selection} onChange={setSelection} onPreviewChange={setPreview} />
+        ) : null}
+
+        {gaps.length > 0 ? (
+          <div className="alert alert--warning" role="status">
+            <i className="ph-fill ph-warning alert__icon" aria-hidden="true" />
+            <div className="alert__text">
+              <p className="alert__title">This card still has gaps</p>
+              <p className="alert__body">
+                Still to fill: {gaps.map((g) => g.title.toLowerCase()).join(", ")}.
+                {isDraft ? " Publishing needs them filled." : " You can save now and finish later."}
+              </p>
             </div>
           </div>
+        ) : null}
 
-          <div className="form__section">
-            <p className="form__legend">Description</p>
-            <Textarea
-              label="Description (optional — no phone/email)"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={4}
-              hint="Leaving this blank keeps the current description (clearing is not supported yet)."
-            />
-          </div>
-
-          {/* Announceable, retryable error region — the form never blanks on failure.
-              The aria-live node is the INNER div and is always in the tree: `.form-status`
-              carries the layout but must never be the live region itself, because its
-              `:empty { display: none }` rule would drop the region out of the
-              accessibility tree while idle and the first error would go unannounced. */}
-          <div className="form-status">
-            <div aria-live="polite">
-              {error !== null ? (
-                <div className="alert alert--danger">
-                  <i className="ph-fill ph-warning-circle alert__icon" aria-hidden="true" />
-                  <div className="alert__text">
-                    <p className="alert__title">Your changes were not saved</p>
-                    <p className="alert__body">{error}</p>
-                  </div>
+        <div className="form-status">
+          <div aria-live="polite">
+            {error !== null ? (
+              <div className="alert alert--danger">
+                <i className="ph-fill ph-warning-circle alert__icon" aria-hidden="true" />
+                <div className="alert__text">
+                  <p className="alert__title">Your changes were not saved</p>
+                  <p className="alert__body">{error}</p>
                 </div>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
           </div>
+        </div>
 
-          <div className="form-actions">
+        <div className="form-actions">
+          {isDraft ? (
+            <>
+              <Button type="submit" variant="secondary" loading={pending} disabled={pending}>
+                Save draft
+              </Button>
+              <Button
+                type="button"
+                loading={pending}
+                disabled={publishDisabled}
+                iconRight="rocket-launch"
+                onClick={() => submit("publish")}
+              >
+                {preview?.zero_reach ? "Publish anyway — reaches nobody yet" : "Publish"}
+              </Button>
+            </>
+          ) : (
             <Button type="submit" loading={pending} disabled={pending}>
               Save changes
             </Button>
-          </div>
-        </form>
-      </div>
-    </section>
+          )}
+        </div>
+      </form>
+
+      <aside className="posting-preview" aria-label="Live card preview">
+        {isDraft ? <Badge tone="neutral" upper>draft</Badge> : null}
+        <JobCardPreview fields={card()} />
+      </aside>
+    </div>
   );
 }
