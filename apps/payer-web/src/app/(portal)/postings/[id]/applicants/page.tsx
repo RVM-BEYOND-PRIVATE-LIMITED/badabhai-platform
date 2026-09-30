@@ -41,8 +41,10 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
     balance = null;
   }
 
+  // `.applicants-page` only NAMESPACES this screen's layout rules (see the "APPLICANT FEED
+  // (DS1.3 · W2-B polish)" block in globals.css); it carries no styling of its own.
   return (
-    <>
+    <div className="applicants-page">
       <p className="page-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
@@ -118,7 +120,7 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
               <h2 className="section__title">{feed.roleTitle}</h2>
               {balance !== null ? (
                 <div className="section__actions">
-                  <Badge tone="neutral">
+                  <Badge tone="neutral" icon="coins">
                     Balance: <span className="bb-mono">{balance}</span>
                   </Badge>
                 </div>
@@ -161,6 +163,6 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
           </section>
         </>
       ) : null}
-    </>
+    </div>
   );
 }

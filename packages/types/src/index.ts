@@ -719,6 +719,9 @@ export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
   // Layer A profile surfaces (ADR-0042 D9, issue #1545) — the Profile-edit
   // screen pushed from the Profile tab.
   "/profile/edit", // Routes.profileEdit
+  // E4 (worker-app #1828) — the worker's match-skill toggles + clear-all,
+  // pushed full-screen from the Profile tab.
+  "/profile/match-skills", // Routes.matchSkills
   "/profile/kit", // Routes.kit
   "/profile/kit/detail/:id", // Routes.kitDetail + '/<tradeKey>'
   "/profile/settings", // Routes.settings

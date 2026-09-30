@@ -42,6 +42,19 @@
   --warn-soft: var(--warning-tint);
 }
 
+/* FOCUS IN FORCED COLORS. The base `:focus-visible` in tokens.css is `outline: none` + a
+   box-shadow ring, and Windows forced-colors mode DROPS box-shadows — a keyboard user in High
+   Contrast had no focus indicator anywhere in the portal. A TRANSPARENT outline is invisible in
+   normal mode (the look is unchanged) but forced colors repaint it in the system colour. Offset
+   one ring-width so it sits where the ring's outer band does. Every component ring that
+   overrides this keeps the same fallback (see the FOCUS note at the top of ds-components.css);
+   a ring drawn on a NON-focused host (:has / :focus-within / a sibling box) declares it itself.
+   (tokens.css is the shared package admin-web also imports; this override is payer-web's.) */
+:focus-visible {
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
+}
+
 /* Sticky footer — the body is a viewport-tall flex column so `.chrome-footer` always sits at
    the page END (only scrolling below the fold when content overflows). The page wrappers
    (.pshell / .login-wrap) flex to fill the space above it; the footer's margin-top:auto
@@ -125,7 +138,8 @@ body {
   background: var(--surface-ink-hover);
 }
 .pshell__brandlink:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 /* The rail lockup stacks the persona under the logotype; the logotype takes a fixed height
@@ -305,7 +319,8 @@ body {
   color: var(--text-on-ink);
 }
 .pshell__collapse:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 .pshell__collapse .ph-fill {
@@ -392,7 +407,8 @@ body {
   border-color: transparent;
 }
 .pshell__balance:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 .pshell__balancenum {
@@ -882,13 +898,18 @@ textarea.input {
  * page two different screens either side of 1024px. One card, one column, all widths.
  * ------------------------------------------------------------------ */
 .login-card {
+  /* ONE inset for the whole card. The brand band below bleeds to the card edge by negating
+     it, so a phone breakpoint that tightens the inset moves the band with it. */
+  --login-pad: var(--space-7);
   width: 100%;
   max-width: var(--app-max);
   background: var(--surface-card);
   border: var(--border-hairline) solid var(--border-subtle);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-md);
-  padding: var(--space-7);
+  box-shadow: var(--shadow-lg);
+  padding: var(--login-pad);
+  /* Clips the full-bleed brand band to the card's rounded corners. */
+  overflow: hidden;
   /* A short, low-travel entrance — collapses to nothing under prefers-reduced-motion. */
   animation: login-card-in var(--duration-base) var(--ease-out);
 }
@@ -903,10 +924,18 @@ textarea.input {
     animation: none;
   }
 }
+/* PR-D2 — the brand band: the card's one explicit focal point before the form. Shift Blue in
+   BOTH themes (--surface-ink does not flip), carrying the on-ink lockup, with a Safety Yellow
+   rule as the hand-off into the white form surface. Full-bleed via the card's own inset. */
 .login-card__brand {
+  --bb-wordmark-h: var(--space-5);
   display: flex;
   justify-content: center;
-  margin-bottom: var(--space-5);
+  align-items: center;
+  margin: calc(-1 * var(--login-pad)) calc(-1 * var(--login-pad)) var(--space-6);
+  padding: var(--space-6) var(--login-pad);
+  background: var(--surface-ink);
+  border-bottom: var(--border-spine) solid var(--brand);
 }
 .login-card__title {
   font-family: var(--font-display);
@@ -942,6 +971,25 @@ textarea.input {
   font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
   color: var(--text-primary);
+}
+/* PR-D2 — the code is ONE row at every width. The DS row is a wrapping inline-flex of fixed
+   cells, which inside this card split a 6-digit code 4 + 2 on every phone (measured at 320,
+   360 and 375px) — the one moment a payer is copying digits from another app. Here the cells
+   share the row as equal zero-minimum tracks capped at the DS cell width, so they shrink
+   instead of wrapping and never exceed their desktop size. Scoped to the login card; the DS
+   primitive is untouched. */
+.login-otp .bb-otp {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, var(--control-lg));
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  overflow: visible;
+}
+.login-otp .bb-otp__cell {
+  width: 100%;
+  min-width: 0;
 }
 /* "We sent a code to you@company.example." — keeps the typed email on screen for
    reference at the verify step (previously the address was lost after step 1). */
@@ -1127,7 +1175,8 @@ textarea.input {
   border: 0;
 }
 .login-mode:has(.login-mode__input:focus-visible) {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 
@@ -1153,6 +1202,26 @@ textarea.input {
   font-size: var(--text-base);
   line-height: var(--leading-normal);
   flex: none;
+}
+
+/* PR-D2 — phones. Below the card's own max width (440px + the wrap inset) the card is the
+   whole screen, so the insets tighten to hand the form the width. The top inset reserves the
+   theme toggle's row (its offset + its 32px switch + a gap) so the toggle never sits on the
+   brand band; see `.login-theme` for why it also stops being fixed here. Scoped to the
+   `--auth` modifier: the neutral 404 page reuses `.login-wrap` but renders no toggle, so it
+   must not inherit the reserved row or the top alignment. */
+@media (max-width: 480px) {
+  .login-wrap--auth {
+    align-items: flex-start;
+    padding: calc(var(--space-4) + var(--space-7) + var(--space-3)) var(--space-4) var(--space-6);
+  }
+  .login-card {
+    --login-pad: var(--space-5);
+  }
+  .login-card__sub {
+    margin-bottom: var(--space-5);
+    padding-bottom: var(--space-4);
+  }
 }
 
 /* ------------------------------------------------------------------
@@ -1184,7 +1253,8 @@ textarea.input {
   transform: scale(0.96);
 }
 .account-menu__trigger:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 .account-menu__panel {
@@ -1251,7 +1321,8 @@ textarea.input {
   text-decoration: none;
 }
 .account-menu__link:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 /* Sign-out menu item — rendered as a <button> so it needs the native control reset, then the
@@ -1661,7 +1732,8 @@ textarea.input {
 .credit-pack__price {
   font-size: var(--text-3xl);
   font-weight: var(--weight-bold);
-  color: var(--text-primary);
+  /* PR-D2 — Shift Blue (the heading step): the price is each tile's figure to compare. */
+  color: var(--text-heading);
   letter-spacing: var(--tracking-tight);
 }
 .credit-pack__credits {
@@ -1676,6 +1748,120 @@ textarea.input {
 }
 .credits-result:empty {
   display: none;
+}
+
+/* PR-D2 · WALLET HERO — the balance is the page's focal point, so its StatTile takes the Shift
+   Blue container (the brand's "core container wrapper") instead of a white tile at the same
+   weight as every pack below it. It is still the DS StatTile, restyled by one class — not a
+   fork. Icon chip goes Safety Yellow (a key icon), figure white on navy (15:1+). Navy in BOTH
+   themes; the ink theme adds the on-ink hairline so the band keeps an edge on the dark page.
+   `.bb-stat.credits-balance …` out-ranks the shared `.stat-row .bb-stat__*` roles by
+   specificity, so source order cannot undo it. */
+.bb-stat.credits-balance {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "icon label"
+    "icon value"
+    "icon caption";
+  align-items: center;
+  column-gap: var(--space-5);
+  padding: var(--space-6);
+  background: var(--surface-ink);
+  border-color: transparent;
+  box-shadow: var(--shadow-md);
+  color: var(--text-on-ink);
+}
+[data-theme="ink"] .bb-stat.credits-balance {
+  border-color: var(--border-on-ink);
+  /* Shift Blue on the ink page is ~1.26:1 — lift one step so the hero stays the focal point. */
+  background: var(--surface-ink-raised);
+}
+.bb-stat.credits-balance .bb-stat__head {
+  display: contents;
+}
+.bb-stat.credits-balance .bb-stat__icon {
+  grid-area: icon;
+  width: var(--space-10);
+  height: var(--space-10);
+  border-radius: var(--radius-lg);
+  background: var(--brand);
+  color: var(--text-on-brand);
+  font-size: var(--text-2xl);
+}
+.bb-stat.credits-balance .bb-stat__label {
+  grid-area: label;
+  color: var(--text-on-ink-muted);
+}
+.bb-stat.credits-balance .bb-stat__value {
+  grid-area: value;
+  margin-top: var(--space-1);
+  font-size: var(--text-4xl);
+  color: var(--text-on-ink);
+}
+.bb-stat.credits-balance .bb-stat__caption {
+  grid-area: caption;
+  margin-top: var(--space-1);
+  color: var(--text-on-ink-muted);
+}
+
+/* PR-D2 — the best-value pack is the purchase decision's focal point: its container carries the
+   accent edge, not just the badge inside it. A ring (not a thicker border) so the tile does not
+   shift its content by a pixel against its neighbours. */
+.credit-pack--best {
+  border-color: var(--brand);
+  box-shadow:
+    0 0 0 var(--border-hairline) var(--brand),
+    var(--shadow-md);
+}
+
+/* PR-D2 — phones: each pack is a compact row (name + credits | price) over a full-width Buy,
+   instead of a 219px-tall tile; three packs now fit roughly one screen. */
+@media (max-width: 480px) {
+  .credits-packs {
+    gap: var(--space-3);
+  }
+  .credit-pack {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "head price"
+      "credits price"
+      "cta cta";
+    align-items: center;
+    column-gap: var(--space-3);
+    row-gap: var(--space-1);
+    padding: var(--space-4);
+  }
+  .credit-pack__head {
+    grid-area: head;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+  .credit-pack__price {
+    grid-area: price;
+    font-size: var(--text-2xl);
+  }
+  .credit-pack__credits {
+    grid-area: credits;
+    margin: 0;
+  }
+  .credit-pack > .bb-btn {
+    grid-area: cta;
+    margin-top: var(--space-3);
+  }
+  .bb-stat.credits-balance {
+    column-gap: var(--space-4);
+    padding: var(--space-5);
+  }
+  .bb-stat.credits-balance .bb-stat__icon {
+    width: var(--space-9);
+    height: var(--space-9);
+    font-size: var(--text-xl);
+  }
+  .bb-stat.credits-balance .bb-stat__value {
+    font-size: var(--text-3xl);
+  }
 }
 .credits-section {
   margin-top: var(--section-gap);
@@ -1710,68 +1896,16 @@ textarea.input {
 }
 
 /* ------------------------------------------------------------------
- * APPLICANT FEED (DS1.3) — faceless pipeline + unlock/reveal, re-skinned onto the
- * design system. Every value resolves from tokens (no raw hex/px). The visual layer
- * only; behaviour + the faceless / no-oracle / confirm-on-spend invariants are unchanged.
+ * APPLICANT FEED (DS1.3 · W2-B polish) — faceless pipeline + unlock/reveal on the design
+ * system. Every value resolves from tokens (no raw hex/px). The visual layer only;
+ * behaviour + the faceless / no-oracle / confirm-on-spend invariants are unchanged.
+ *
+ * W2-B — the card has ONE focal point: the Unlock action, in a sunken footer band that
+ * bleeds to the card edge. Above it, identity (masked avatar · opaque id · trade · bands),
+ * the relevance cluster, the static signal tags, and one toolbar of secondary actions.
+ * The retired pre-UI-1 page classes (.applicants-back/-title/-meta/-explainer/-warn/
+ * -state/-empty) had no markup left behind them and are gone.
  * ------------------------------------------------------------------ */
-.applicants-back {
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  margin: 0 0 var(--space-2);
-}
-.applicants-title {
-  font-family: var(--font-display);
-  font-size: var(--text-2xl);
-  color: var(--text-heading);
-  margin: 0 0 var(--space-4);
-}
-.applicants-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  margin: 0 0 var(--space-4);
-}
-.applicants-explainer {
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-  margin-bottom: var(--space-5);
-}
-.applicants-explainer strong {
-  color: var(--text-primary);
-}
-.applicants-warn {
-  display: grid;
-  gap: var(--space-2);
-  justify-items: start;
-  margin-bottom: var(--space-4);
-}
-.applicants-warn__msg {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-}
-.applicants-state {
-  display: grid;
-  gap: var(--space-3);
-  justify-items: start;
-}
-.applicants-state__msg {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-}
-.applicants-empty {
-  text-align: center;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-}
 .applicants-pipeline {
   display: flex;
   align-items: center;
@@ -1783,33 +1917,53 @@ textarea.input {
   color: var(--text-muted);
   font-size: var(--text-sm);
 }
+/* ONE zero-minimum track. With the default `auto` track the column took its minimum from a
+   card's min-content — a nowrap relevance cluster beside the identity — and at 375px the page
+   body rendered 585px wide and scrolled sideways. */
 .applicants-list {
   display: grid;
-  gap: var(--space-3);
-}
-.applicant {
-  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
 }
+/* `--applicant-pad` restates the DS Card inset so the footer band below can bleed by exactly
+   that amount (a phone step shrinks both together). `--applicant-band` names the focal band's
+   fill for THIS card, so the surface it means is not read as an "info" status. */
+.applicant {
+  --applicant-pad: var(--space-5);
+  --applicant-band: var(--info-tint);
+  /* A container edge that holds against the Ivory page (the DS card's subtle hairline does not). */
+  border-color: var(--border-default);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  padding: var(--applicant-pad);
+  min-width: 0;
+}
+/* Identity left, relevance right (≤600px the relevance drops under the identity text). The
+   relevance column is capped at half the head: a long E18 label wraps inside it rather than
+   squeezing the trade/bands column (an `auto` track let it claim nearly the whole row). */
 .applicant__head {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) fit-content(50%);
+  align-items: start;
+  gap: var(--space-2) var(--space-3);
 }
 .applicant__id {
   display: grid;
   gap: var(--space-1);
   min-width: 0;
-  flex: 1;
 }
 .applicant__id-code {
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }
+/* The trade is the card's headline — Shift Blue, like every heading in the system. */
 .applicant__trade {
-  font-weight: var(--weight-semibold);
-  color: var(--text-primary);
+  font-weight: var(--weight-bold);
+  color: var(--text-heading);
   font-size: var(--text-base);
+  line-height: var(--leading-snug);
+  overflow-wrap: anywhere;
 }
 .applicant__bands {
   color: var(--text-muted);
@@ -1818,8 +1972,18 @@ textarea.input {
 .applicant__relevance {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: var(--space-2);
-  flex: none;
+  min-width: 0;
+}
+/* E18 — the related-skill label must be read IN FULL before a spend, so a long one wraps at
+   a space inside its badge instead of being clipped or pushing the card wider. A long skill
+   tag gets the same treatment. */
+.applicant__relevance .bb-badge,
+.applicant__signals .bb-badge {
+  white-space: normal;
+  line-height: var(--leading-snug);
 }
 .applicant__score {
   font-size: var(--text-sm);
@@ -1832,10 +1996,22 @@ textarea.input {
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }
+/* The skill/signal tags: a plain list of outline Badges (static text, not controls). */
 .applicant__signals {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* One toolbar: triage (Keep / Pass) beside the gated contact pair (Call / WhatsApp); the
+   contact pair wraps under the triage pair when the card is too narrow for both. */
+.applicant__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3) var(--space-6);
 }
 .applicant__pipeline,
 .applicant__reach {
@@ -1843,6 +2019,14 @@ textarea.input {
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
+  min-width: 0;
+}
+.applicant__pipeline {
+  flex: 0 1 auto;
+}
+/* 16rem is an optical basis (two small buttons + the start of the hint), not a spacing. */
+.applicant__reach {
+  flex: 1 1 16rem;
 }
 .applicant__hint {
   flex-basis: 100%;
@@ -1851,9 +2035,24 @@ textarea.input {
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
 }
+/* THE FOCAL BAND — the spend decision, bled to the card edge so the Unlock CTA (Safety
+   Yellow) sits on its own surface and the revealed relay/resume cards read as white cards on
+   it. The fill (--applicant-band) is the Shift Blue tint step (navy-50, flips under ink): the
+   sunken Ivory step was near-identical to the page and dissolved the card's bottom edge. */
 .applicant__contact {
-  border-top: var(--border-hairline) solid var(--border-subtle);
-  padding-top: var(--space-3);
+  margin: 0 calc(-1 * var(--applicant-pad)) calc(-1 * var(--applicant-pad));
+  padding: var(--space-4) var(--applicant-pad) var(--applicant-pad);
+  background: var(--applicant-band);
+  border-top: var(--border-hairline) solid var(--border-default);
+  border-end-start-radius: calc(var(--radius-lg) - var(--border-hairline));
+  border-end-end-radius: calc(var(--radius-lg) - var(--border-hairline));
+}
+/* --text-muted measured 4.43:1 (paper) / 4.12:1 (ink) on the tint — under AA for this small
+   text — so every muted line in the band takes the secondary step instead. */
+.applicant__contact .applicant__hint,
+.applicant__contact .applicant__neutral,
+.applicant__contact .applicant__until {
+  color: var(--text-secondary);
 }
 .applicant__granted {
   display: grid;
@@ -1891,6 +2090,74 @@ textarea.input {
   color: var(--danger);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
+}
+/* --danger is a paper-tuned red (3.1:1 on the ink card, 2.3:1 on the band): the ink theme
+   takes the light end of the ramp, as `.req` and `.state--error` already do. */
+[data-theme="ink"] .applicant__error {
+  color: var(--red-300);
+}
+/* Wide cards: a hairline separates the two toolbar groups. Only from 768px, where both groups
+   always fit one row (so the rule never lands on a wrapped, left-edge group). */
+@media (min-width: 768px) {
+  .applicant__reach {
+    padding-left: var(--space-5);
+    border-left: var(--border-hairline) solid var(--border-subtle);
+  }
+}
+/* Phones: identity keeps the width, relevance drops under it, the pipeline control spans the
+   row, and the spend + reveal actions go full-width thumb targets. */
+@media (max-width: 600px) {
+  .applicant {
+    --applicant-pad: var(--space-4);
+  }
+  .applicant__head {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .applicant__relevance {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+  .applicant__unlock,
+  .applicant__reveal {
+    justify-items: stretch;
+  }
+  .applicants-pipeline > .bb-tabs {
+    flex: 1 1 100%;
+  }
+  .applicants-pipeline .bb-tab {
+    flex: 1;
+    justify-content: center;
+  }
+  /* The result toast spans the phone rail instead of hugging the left edge. */
+  .applicants-page .unlock-toast-region {
+    left: var(--gutter);
+    right: var(--gutter);
+  }
+}
+/* Touch: every control on this screen is at least a 44px target. Only what the DS does NOT
+   already cover is added here, ON THIS SCREEN ONLY:
+     · the segmented pipeline tab (36px) and the toast's close glyph (~22px) have no DS hit
+       area at any width — they get one on phones and on any coarse pointer;
+     · the DS small button (36px) has its 44px hit strip at ≤600px (ds-components.css), so it
+       is lifted here only for a coarse pointer ABOVE 600px (a tablet), where the DS strip
+       stops. That lift is a drawn min-height: the DS reserves `.bb-btn--sm::before` for its
+       own phone strip. */
+@media (pointer: coarse) and (min-width: 601px) {
+  .applicants-page .bb-btn--sm {
+    min-height: var(--control-md);
+  }
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .applicants-page .bb-tab {
+    min-height: var(--control-md);
+  }
+  .applicants-page .bb-toast__close {
+    min-width: var(--control-md);
+    min-height: var(--control-md);
+    margin: calc(-1 * var(--space-3));
+    align-items: center;
+    justify-content: center;
+  }
 }
 .reveal-card {
   width: 100%;
@@ -2317,6 +2584,18 @@ textarea.input {
   color: var(--text-muted);
   font-size: var(--text-sm);
 }
+/* PR-D2 — phones (the agent branch of /dashboard renders nine of these, stacked one per row).
+   A tighter inset and the small KPI numeral take ~20% off each tile without hiding anything:
+   the hints carry the honesty copy (parked / not available / consent), so they stay. */
+@media (max-width: 600px) {
+  .agency-stat {
+    gap: var(--space-1);
+    padding: var(--space-4);
+  }
+  .agency-stat__value {
+    font-size: var(--ui-kpi-sm-size);
+  }
+}
 
 /* Vacancy manager. */
 .agency-jobs {
@@ -2575,7 +2854,8 @@ textarea.input {
   display: none;
 }
 .agency-parked-disclosure__summary:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 .agency-parked-disclosure__summary .agency-section__title {
@@ -2652,6 +2932,67 @@ textarea.input {
   margin-top: var(--space-4);
   color: var(--text-muted);
   font-size: var(--text-sm);
+}
+
+/* ==================================================================
+ * AGENCY · REFERRALS & EARNINGS + WORKER ACTIVITY (W2-B polish) — page-scoped layout only.
+ * ------------------------------------------------------------------
+ * Every selector is namespaced to `.agency-referrals-page` / `.agency-workers-page` (the page
+ * wrappers) or `.agency-referrals-payout__now`, so the shared invite panels keep their current
+ * look on /dashboard. Copy, data and behaviour are untouched; tokens only.
+ * ================================================================== */
+
+/* /agency/referrals — the two invite tools are FORMS, and on this page every form lives in a
+   framed panel (KYC, Payouts). Framing them the same way turns one long column of loose forms
+   and tiles into a stack of distinct blocks: forms in panels, tile runs in sections. */
+.agency-referrals-page .agency-section {
+  padding: var(--panel-pad);
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+}
+/* One heading size for every block on the page — the panel/section title role (the legacy
+   agency title is a size larger, so the invite tools out-shouted the money panels). */
+.agency-referrals-page .agency-section__title {
+  font-size: var(--ui-h2-size);
+  line-height: var(--ui-h2-leading);
+  font-weight: var(--ui-h2-weight);
+  letter-spacing: var(--ui-h2-tracking);
+}
+/* The consent note inside a framed panel is an inset callout, not a second bordered box. */
+.agency-referrals-page .agency-invite__note {
+  background: var(--surface-sunken);
+  border-color: transparent;
+  box-shadow: none;
+}
+/* Payouts head — title + "Request payout" on row 1, the mock-money description on row 2, at
+   EVERY width. The shared head is a wrapping flex row, which at 320px dropped the button under
+   the title (238px of content could not hold both). A two-track grid lets the title track
+   shrink instead; the sub spans both tracks. Two classes, because the shared `.panel__head`
+   rule comes later in this file. */
+.panel__head.agency-referrals-payout__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+.agency-referrals-payout__head > .panel__sub {
+  grid-column: 1 / -1;
+}
+/* Payouts — the amount the action would request is the panel's focal figure. */
+.agency-referrals-payout__now .bb-mono {
+  margin-inline-start: var(--space-1);
+  font-size: var(--ui-kpi-sm-size);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* /agency/workers — the empty list is the state this page ships in. Its two paragraphs get the
+   reading measure instead of the 46ch default, so they read as prose rather than a tall,
+   narrow centred column. */
+.agency-workers-page .state {
+  max-width: var(--reading-max);
 }
 
 /* ==================================================================
@@ -3635,8 +3976,14 @@ img.agency-qr__code,
   user-select: none;
   transition: background-color var(--duration-instant) var(--ease-out);
 }
+/* The active (aria-activedescendant) option is the keyboard position while focus sits on the
+   list, and a background alone shows it — forced colors drop backgrounds, and the list's own
+   `outline: none` defeats the global :focus-visible fallback. A transparent outline is repainted
+   in the system colour there (invisible otherwise); inset, because the list is a scroller. */
 .bb-selectmenu__option--active {
   background: var(--surface-sunken);
+  outline: var(--border-bold) solid transparent;
+  outline-offset: calc(-1 * var(--border-bold));
 }
 .bb-selectmenu__option--selected {
   color: var(--text-accent);
@@ -3673,7 +4020,8 @@ img.agency-qr__code,
   transition: var(--transition-control);
 }
 .theme-toggle__switch:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 /* The track: a pill that fills brand-tinted when "on" (dark). */
@@ -3733,7 +4081,8 @@ img.agency-qr__code,
   color: var(--text-secondary);
 }
 .theme-toggle__system:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 .theme-toggle__system[aria-pressed="true"] {
@@ -3743,6 +4092,37 @@ img.agency-qr__code,
 }
 .theme-toggle__system-label {
   line-height: 1;
+}
+/* PHONE HIT AREAS (≤600px) for the shell's small controls: the theme switch (32px) and
+   "System" (~22px), the header's hamburger (36px) and balance chip (36px). Same technique and
+   maths as the DS `.bb-btn--sm` / `.bb-chip` (see ds-components.css): a full-width 44px strip
+   BEHIND the control's content, drawn size unchanged. Measured at 375px: the header row keeps
+   its height (60px holds a 44px strip), and neighbours sit --space-2/--space-3 apart, so no
+   two hit areas overlap. The static (recruiter) balance is not a control and gets none.
+   /login: at ≤480px the toggle is absolute and `.login-wrap--auth` reserves its row, which the
+   strip still clears. From 481–600px there is NO reserved row — the toggle is fixed over a
+   vertically centred card, as it was before this change. At rest the card only reaches the
+   toggle on a short viewport, and then the switch and its strip (6px more) overlap only the
+   card's non-interactive navy brand band; scrolled, the fixed toggle can float over the form
+   either way. */
+@media (max-width: 600px) {
+  .theme-toggle__switch,
+  .theme-toggle__system,
+  .pshell__menu,
+  .pshell__balance:not(.pshell__balance--static) {
+    position: relative;
+    isolation: isolate;
+  }
+  .theme-toggle__switch::before,
+  .theme-toggle__system::before,
+  .pshell__menu::before,
+  .pshell__balance:not(.pshell__balance--static)::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0px, calc((100% - var(--control-md)) / 2));
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .theme-toggle__thumb,
@@ -3829,6 +4209,14 @@ img.agency-qr__code,
   top: var(--space-4);
   right: var(--space-4);
   z-index: var(--z-sticky);
+}
+/* PR-D2 — on a phone the card is taller than the screen, so a FIXED toggle floated over the
+   form fields as the page scrolled (and sat on the card edge at rest: measured overlapping it
+   at 320/360/375px). It scrolls away with the page instead; `.login-wrap--auth` reserves its row. */
+@media (max-width: 480px) {
+  .login-theme {
+    position: absolute;
+  }
 }
 
 /* ------------------------------------------------------------------
@@ -4299,6 +4687,64 @@ body:has(.invite-landing) .chrome-footer {
   margin-top: var(--space-1);
 }
 
+/* PR-D2 · KPI variant (opt-in) — the dashboard's POSITION band. Two problems with the base
+   grid for a short row of StatTiles:
+     · three tiles at two-across left a hole beside the third (auto-fit keeps equal tracks);
+       a wrapping flex row lets the last line's tiles GROW, so a lone tile spans the row;
+     · on a phone the three tiles stacked to 474px — the whole first screen was counters,
+       above the actions the band exists to support. Below 600px each tile becomes a compact
+       ledger row (icon · label/caption · figure), ~65px tall.
+   Opt-in so the other `.stat-row` consumers (capacity / plans / agency) are unchanged. */
+.stat-row--kpi {
+  display: flex;
+  flex-wrap: wrap;
+}
+.stat-row--kpi > * {
+  flex: 1 1 var(--stat-min);
+  min-width: 0;
+}
+@media (max-width: 600px) {
+  .stat-row--kpi {
+    gap: var(--space-2);
+  }
+  .stat-row--kpi > * {
+    flex-basis: 100%;
+  }
+  .stat-row--kpi .bb-stat {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "icon label value"
+      "icon caption value";
+    align-items: center;
+    column-gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+  }
+  /* The head's two children join the tile grid directly (a plain div — no semantics lost). */
+  .stat-row--kpi .bb-stat__head {
+    display: contents;
+  }
+  .stat-row--kpi .bb-stat__icon {
+    grid-area: icon;
+  }
+  .stat-row--kpi .bb-stat__label {
+    grid-area: label;
+    align-self: end;
+  }
+  .stat-row--kpi .bb-stat__caption {
+    grid-area: caption;
+    align-self: start;
+    margin-top: 0;
+    font-size: var(--ui-caption-size);
+  }
+  .stat-row--kpi .bb-stat__value {
+    grid-area: value;
+    margin-top: 0;
+    font-size: var(--ui-kpi-sm-size);
+    text-align: right;
+  }
+}
+
 /* ---- panel: a titled section on the page ---- */
 .panel {
   background: var(--surface-card);
@@ -4326,13 +4772,20 @@ body:has(.invite-landing) .chrome-footer {
   color: var(--text-heading);
   margin: 0;
 }
+/* The sub sits on its OWN line under the title, at every width. In the head's wrapping flex
+   row a `max-width` clamps the 100% basis back to the reading measure, so wherever title +
+   measure fit on one line (every desktop) the sub rode up BESIDE the title — pushed to the
+   right edge by space-between. So the BOX always takes the whole row (an unclamped 100% basis
+   can share a line with nothing) and the MEASURE is kept by an end padding instead: the row
+   minus the measure, which clamps to 0 once the row is narrower than the measure. The same
+   holds outside a head (a block `p`): full-width box, same text measure. */
 .panel__sub {
   font-size: var(--ui-body-sm-size);
   line-height: var(--ui-body-leading);
   color: var(--text-muted);
   margin: var(--space-1) 0 0;
-  max-width: var(--reading-max);
   flex-basis: 100%;
+  padding-inline-end: calc(100% - var(--reading-max));
 }
 .panel__actions {
   display: flex;
@@ -4364,6 +4817,23 @@ body:has(.invite-landing) .chrome-footer {
   overflow: auto;
   max-block-size: calc(100dvh - 18rem);
   overscroll-behavior: contain;
+}
+/* PR-D2 — a keyboard-reachable scroller (tabindex=0 + a labelled region in the markup) needs
+   a visible focus. Inset, because the enclosing `.panel` clips anything drawn outside it. */
+/* A focusable scroller needs a visible focus. A real outline (negative offset, so the panel's
+   overflow clip can't eat it) rather than an inset box-shadow: a box-shadow paints under the
+   sticky header cells and hovered rows, and vanishes entirely in forced-colors mode. Inside a
+   panel the ring moves to the panel itself (its own shadow is not clipped by its overflow), and
+   the scroller's outline turns transparent — which forced-colors still draws. */
+.tablewrap:focus-visible {
+  outline: var(--border-bold) solid var(--focus-ring);
+  outline-offset: calc(-1 * var(--border-bold));
+}
+.panel:has(.tablewrap:focus-visible) {
+  box-shadow: var(--ring-focus);
+}
+.panel:has(.tablewrap:focus-visible) .tablewrap:focus-visible {
+  outline-color: transparent;
 }
 .table {
   width: 100%;
@@ -4423,6 +4893,15 @@ body:has(.invite-landing) .chrome-footer {
   font-size: var(--ui-caption-size);
   font-variant-numeric: slashed-zero;
   color: var(--text-secondary);
+}
+/* PR-D2 · no-wrap variant (opt-in) — for ledgers whose cells are dates, ids, amounts and short
+   status badges. Without it a narrow container shrinks the table to min-content first, which
+   breaks at every hyphen: "2026-09-28" became "2026-/09-28" and the "Top-up" badge split, at
+   375px, while the Ref column was still clipped. With it, each row stays one line and the
+   table scrolls INSIDE `.tablewrap` instead — the page body never scrolls sideways. */
+.table--nowrap th,
+.table--nowrap td {
+  white-space: nowrap;
 }
 /* The row actions column: quiet until the row is hovered or something in it is focused, so
    a long table is not a wall of buttons. Always reachable by keyboard. */
@@ -4602,7 +5081,10 @@ body:has(.invite-landing) .chrome-footer {
   font-weight: var(--ui-eyebrow-weight);
   letter-spacing: var(--ui-eyebrow-tracking);
   text-transform: uppercase;
-  color: var(--text-muted);
+  /* PR-D2 — the heading (Shift Blue) rather than the muted step the "Quick actions" eyebrow
+     uses: when this band renders it is the first thing to read, and the two eyebrows were
+     indistinguishable. Still an eyebrow, so it does not out-shout the page title. */
+  color: var(--text-heading);
   margin: 0 0 var(--space-2);
 }
 .attention__list {
@@ -4700,7 +5182,10 @@ body:has(.invite-landing) .chrome-footer {
 }
 .quick__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  /* PR-D2 — the shared tile floor (--stat-min) rather than 15rem: an Owner's four actions
+     were 3 + 1 with a two-slot hole on a standard desktop rail; at the token floor they fit
+     one row from ~900px of content, and the labels still clear it on one line. */
+  grid-template-columns: repeat(auto-fit, minmax(var(--stat-min), 1fr));
   gap: var(--space-3);
 }
 .quick__card {
@@ -4726,10 +5211,16 @@ body:has(.invite-landing) .chrome-footer {
   background: var(--surface-hover);
 }
 .quick__card:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
   border-color: var(--brand);
 }
+/* PR-D2 — the action chip is the brand tile: a Shift Blue rounded square carrying a solid
+   Safety Yellow glyph (the monogram's own tile treatment). Yellow on navy is 9.39:1, where the
+   old navy-on-yellow-50 read as a quiet status chip — the same weight as the StatTile icons
+   one band up, so "do something" and "your numbers" looked alike. Navy in both themes; the
+   ink theme lifts it one step so the tile still separates from the dark card. */
 .quick__icon {
   grid-area: icon;
   display: flex;
@@ -4738,17 +5229,22 @@ body:has(.invite-landing) .chrome-footer {
   width: var(--space-8);
   height: var(--space-8);
   border-radius: var(--radius-md);
-  background: var(--brand-tint);
-  color: var(--text-accent);
+  background: var(--surface-ink);
+  color: var(--brand);
   font-size: var(--text-lg);
   flex: none;
   transition: var(--transition-control);
 }
 [data-theme="ink"] .quick__icon {
-  color: var(--brand);
+  background: var(--surface-ink-raised);
 }
 .quick__card:hover .quick__icon {
-  background: var(--brand-tint-2);
+  background: var(--surface-ink-hover);
+}
+/* Ink theme: the light-theme hover darkens the tile, which on the ink card makes it vanish
+   (~1.02:1). Lift it instead, so hover reads as feedback (~1.45:1 tile, 5.5:1 glyph). */
+[data-theme="ink"] .quick__card:hover .quick__icon {
+  background: var(--navy-600);
 }
 .quick__label {
   grid-area: label;
@@ -4762,6 +5258,46 @@ body:has(.invite-landing) .chrome-footer {
   font-size: var(--ui-body-sm-size);
   line-height: var(--ui-body-leading);
   color: var(--text-muted);
+}
+/* PR-D2 — phones: a two-across launcher grid of icon + label tiles. Stacked full-width cards
+   with their descriptions were 374–460px of the first scroll (4–5 actions). The description
+   leaves the LAYOUT but not the accessibility tree (visually hidden, still part of each link's
+   name). An odd last tile spans the row rather than leaving a hole. */
+@media (max-width: 600px) {
+  .quick__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+  .quick__card:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+  .quick__card {
+    position: relative;
+    grid-template-areas: "icon label";
+    align-items: center;
+    min-height: var(--tap);
+    padding: var(--space-3);
+  }
+  .quick__icon {
+    width: var(--space-7);
+    height: var(--space-7);
+    font-size: var(--text-md);
+  }
+  .quick__desc {
+    position: absolute;
+    width: var(--border-hairline);
+    height: var(--border-hairline);
+    margin: calc(-1 * var(--border-hairline));
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+/* The narrowest phones (≈320px): two tiles would leave each label ~66px; one column. */
+@media (max-width: 340px) {
+  .quick__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* ---- 4 · the posting rows, retuned onto the UI-1 roles ---- */
@@ -4794,10 +5330,39 @@ body:has(.invite-landing) .chrome-footer {
   .dash-posting__cta {
     font-size: 0;
     gap: 0;
+    /* PR-D2 — the arrow's cell in the phone row grid below. */
+    grid-area: cta;
   }
   .dash-posting__cta .dash-view__arrow {
     font-size: var(--text-lg);
   }
+  /* PR-D2 — the status badge drops under the meta line so the role title gets the row. Side
+     by side, badge + arrow left a long title 145px at 375px (four lines) and 90px at 320px
+     (six). The arrow stays on the right, centred, as the row's "go" affordance. The whole
+     card is still the one stretched link; this only re-flows its children. */
+  .dash-posting {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "main cta"
+      "status cta";
+    align-items: center;
+    column-gap: var(--space-3);
+    row-gap: var(--space-2);
+  }
+  .dash-posting__main {
+    grid-area: main;
+  }
+  .dash-posting__right {
+    display: contents;
+  }
+  .dash-posting__right > .bb-badge {
+    grid-area: status;
+    justify-self: start;
+  }
+}
+.dash-posting__title {
+  overflow-wrap: anywhere;
 }
 
 /* ==================================================================
@@ -5015,13 +5580,14 @@ body:has(.invite-landing) .chrome-footer {
   color: var(--text-heading);
   margin: 0;
 }
+/* Own line under the title at every width, measure kept by end padding — see `.panel__sub`. */
 .section__sub {
   font-size: var(--ui-body-sm-size);
   line-height: var(--ui-body-leading);
   color: var(--text-muted);
   margin: var(--space-1) 0 0;
-  max-width: var(--reading-max);
   flex-basis: 100%;
+  padding-inline-end: calc(100% - var(--reading-max));
 }
 .section__actions {
   display: flex;
@@ -5080,4 +5646,42 @@ body:has(.invite-landing) .chrome-footer {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ==================================================================
+ * PR-D2 · ≤375px — the small-phone step for /login, /dashboard and /credits.
+ * ------------------------------------------------------------------
+ * The ≤480/≤600px rules above make each screen a phone layout; this is the last step for the
+ * 320–375px class (iPhone SE / mini, small Android), where the remaining insets and display
+ * sizes are what squeeze the content. Kept LAST so it wins over those rules at equal
+ * specificity. Each line was measured to need it.
+ * ================================================================== */
+@media (max-width: 375px) {
+  /* /login — every pixel of inset goes back to the form (and the six OTP cells). */
+  .login-wrap--auth {
+    padding-inline: var(--space-3);
+  }
+  .login-card {
+    --login-pad: var(--space-4);
+  }
+  /* "Your hiring desk" at the 30px display size wrapped onto two lines at 320px. */
+  .login-card__title {
+    font-size: var(--text-xl);
+  }
+
+  /* /dashboard — a Needs-you action drops UNDER its text (aligned with it, per the ≤600px
+     rule) instead of squeezing the explanation into a ~190px column beside it. */
+  .attention__text {
+    flex-basis: calc(100% - var(--text-lg) - var(--space-3));
+  }
+
+  /* /credits — the wallet hero and pack prices step down one size so a 5–6 digit figure
+     still sits beside its label/icon instead of forcing a wrap. */
+  .bb-stat.credits-balance {
+    column-gap: var(--space-3);
+    padding: var(--space-4);
+  }
+  .credit-pack__price {
+    font-size: var(--text-xl);
+  }
 }

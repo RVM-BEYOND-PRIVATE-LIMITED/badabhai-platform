@@ -16,6 +16,11 @@ export const dynamic = "force-dynamic";
  * no copy the form needs — and the card is now identical from a phone to an ultrawide
  * rather than being two different screens at 1023px and 1024px.
  *
+ * PR-D2 brand band: the lockup sits on a Shift Blue band across the top of the card (the
+ * `on-ink` lockup — ivory/yellow mark, white logotype — with a Safety Yellow rule under it).
+ * The band is navy in BOTH themes (`--surface-ink` does not flip), so the lockup is always the
+ * on-ink variant here. Presentation only: the page's single h1 and the form are unchanged.
+ *
  * Login is the backend payer-auth OTP flow ONLY; there is NO mock/dev sign-in and NO
  * code convenience on this surface. The code is delivered to the payer's email and typed
  * in — never displayed, pre-filled, or one-click skipped. A third-party IdP / MFA is a
@@ -26,7 +31,7 @@ export default async function LoginPage() {
   if (existing) redirect("/dashboard");
 
   return (
-    <div className="login-wrap">
+    <div className="login-wrap login-wrap--auth">
       {/* Pre-auth theme control — the preference is available before sign-in too. */}
       <div className="login-theme">
         <ThemeToggle />
@@ -34,7 +39,7 @@ export default async function LoginPage() {
 
       <main className="login-card">
         <div className="login-card__brand">
-          <BadaBhaiLogo size={34} />
+          <BadaBhaiLogo size={44} theme="ink" />
         </div>
         <h1 className="login-card__title">Your hiring desk</h1>
         <p className="login-card__sub">

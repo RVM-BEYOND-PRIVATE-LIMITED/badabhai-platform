@@ -20,8 +20,10 @@
  * The last one is the subtle one and the reason this file asserts an ABSENCE. Arming
  * `AI_ENABLE_REAL_CALLS` does not arm embeddings: `skill_embedding` has to be in
  * `AI_REAL_CALL_TASKS` as well, and that variable is deliberately not in the deploy job's
- * `envs:` bridge, so the box always takes docker-compose.staging.yml's default. Adding it to
- * the bridge would silently make a GitHub secret able to widen the real-call surface.
+ * `envs:` bridge, so no GitHub secret can reach it: the container gets
+ * docker-compose.staging.yml's default unless the box's own environment sets the variable
+ * (the production box does — #1843). Adding it to the bridge would silently make a GitHub
+ * secret able to widen the real-call surface.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -222,7 +224,7 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     expect(bridged).not.toMatch(/envs:[^\n]*\bREFERRAL_SHORT_LINK_BASE\b/);
   });
 
-  it("AI_REAL_CALL_TASKS is NOT bridged — the box always takes the compose default", () => {
+  it("AI_REAL_CALL_TASKS is NOT bridged — no GitHub secret can widen the real-call surface", () => {
     // The load-bearing absence. `AI_ENABLE_REAL_CALLS=true` arms only the tasks named in this
     // list; bridging it would let a GitHub secret add `skill_embedding` with no code review.
     //

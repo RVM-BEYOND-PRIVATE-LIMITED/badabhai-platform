@@ -304,6 +304,69 @@ class ApiClient {
     return EmployerContactWithdrawDto.fromJson(json);
   }
 
+  /// The worker's match skills and their on/off state (GET
+  /// /workers/me/match-skills — WorkerAuthGuard + ConsentGuard, E4 #1828).
+  ///
+  /// Worker-scoped: the worker is the session's, never a param. Rows with
+  /// `wants: false` come back on purpose, so a switched-off skill stays
+  /// findable and can be turned back on.
+  Future<List<MatchSkillDto>> getMatchSkills({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/match-skills', authToken: authToken);
+    final Object? rows = json['skills'];
+    if (rows is! List<dynamic>) {
+      throw ApiException(502, 'match-skills: missing skills list');
+    }
+    return rows
+        .map(MatchSkillDto.tryParse)
+        .whereType<MatchSkillDto>()
+        .toList(growable: false);
+  }
+
+  /// Turns ONE match skill on or off (PUT
+  /// /workers/me/match-skills/:skillId/wants — E4 #1828). [wants] is the
+  /// RESULTING state, not a toggle, so a retried call is harmless. Returns the
+  /// state the server now holds. `400` = id outside the closed vocabulary;
+  /// `404` = a valid id this worker does not hold.
+  Future<MatchSkillDto> setMatchSkillWants({
+    required String skillId,
+    required bool wants,
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _put(
+      '/workers/me/match-skills/${Uri.encodeComponent(skillId)}/wants',
+      <String, dynamic>{'wants': wants},
+      authToken: authToken,
+    );
+    final Object? echoed = json['skill_id'];
+    final Object? held = json['wants'];
+    if (echoed is! String || held is! bool) {
+      throw ApiException(502, 'match-skills: malformed wants response');
+    }
+    return MatchSkillDto(skillId: echoed, label: '', wants: held);
+  }
+
+  /// Turns EVERY match skill off in one call (POST
+  /// /workers/me/match-skills/clear-all — E4 #1828).
+  ///
+  /// Returns the server's `cleared` as sent. It is NOT a count of switches
+  /// this call turned off: the server re-stamps every row the worker holds and
+  /// counts them all — rows already off, and rows the list never shows — so a
+  /// repeat call answers N, not the `0` its docs promise (#1850). Callers that
+  /// need "how many did this turn off" derive it from the list.
+  Future<int> clearAllMatchSkills({required String authToken}) async {
+    final Map<String, dynamic> json = await _post(
+      '/workers/me/match-skills/clear-all',
+      const <String, dynamic>{},
+      authToken: authToken,
+    );
+    final Object? cleared = json['cleared'];
+    if (cleared is! num) {
+      throw ApiException(502, 'match-skills: malformed clear-all response');
+    }
+    return cleared.toInt();
+  }
+
   /// Starts a chat session. Worker-scoped — requires [authToken]; the worker is
   /// taken from the token (WorkerAuthGuard + ConsentGuard), never from the body.
   ///

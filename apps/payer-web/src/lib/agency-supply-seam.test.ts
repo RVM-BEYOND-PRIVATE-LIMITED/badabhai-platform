@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type * as GuardModule from "./assert-no-agency-pii";
 
 /**
  * Agency SUPPLY-money LIVE-seam transport tests (ADR-0022 Amendment 2). Exercises the REAL
@@ -25,6 +26,13 @@ vi.mock("./auth", () => ({
     role: "agent",
   })),
 }));
+
+// The REAL faceless guard, wrapped in a call-through spy: every existing test still runs through
+// the genuine key scan, and the crossing test below can see WHICH reads cross it, with what label.
+vi.mock("./assert-no-agency-pii", async () => {
+  const actual = await vi.importActual<typeof GuardModule>("./assert-no-agency-pii");
+  return { ...actual, assertNoAgencyPII: vi.fn(actual.assertNoAgencyPII) };
+});
 
 const fetchMock = vi.fn();
 
@@ -174,5 +182,51 @@ describe("payout POST — discriminated union passthrough", () => {
     await expect(listAgencyPayouts()).resolves.toEqual([
       { id: "p1", amountInr: 400, accrualCount: 10, status: "paid", createdAt: "2026-07-01T00:00:00Z" },
     ]);
+  });
+});
+
+describe("every gated money read crosses the faceless guard (defence-in-depth)", () => {
+  const PAYOUTS = [
+    {
+      id: "p1",
+      amountInr: 400,
+      accrualCount: 10,
+      status: "paid",
+      createdAt: "2026-07-01T00:00:00Z",
+    },
+  ];
+  const KYC = {
+    status: "verified",
+    panLast4: "234F",
+    bankLast4: "6789",
+    rejectReason: null,
+    updatedAt: "2026-07-23T00:00:00.000Z",
+  };
+
+  it.each([
+    ["listAgencyPayouts", "payer/agency/payouts", PAYOUTS],
+    ["getAgencyEarnings", "payer/agency/earnings", EARNINGS],
+    ["getAgencyKyc", "payer/agency/kyc", KYC],
+  ] as const)("%s hands its parsed payload to assertNoAgencyPII as %s", async (fn, label, body) => {
+    const { assertNoAgencyPII } = await import("./assert-no-agency-pii");
+    const guard = vi.mocked(assertNoAgencyPII);
+    guard.mockClear();
+    fetchMock.mockResolvedValue(jsonResponse(body));
+    const api = await import("./payer-api");
+    const out = await (api[fn] as () => Promise<unknown>)();
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect(guard).toHaveBeenCalledWith(body, label);
+    // What the page receives is what the guard returned — nothing bypasses it.
+    expect(out).toEqual(guard.mock.results[0]!.value);
+  });
+
+  it("the payout history's own keys pass the key scan (nothing is stripped or thrown)", async () => {
+    const { assertNoAgencyPII } =
+      await vi.importActual<typeof GuardModule>("./assert-no-agency-pii");
+    expect(assertNoAgencyPII(PAYOUTS, "payouts")).toEqual(PAYOUTS);
+    // …while the same guard still refuses a regressed row carrying a worker identity.
+    expect(() => assertNoAgencyPII([{ ...PAYOUTS[0], workerName: "x" }], "payouts")).toThrow(
+      /forbidden PII key/,
+    );
   });
 });

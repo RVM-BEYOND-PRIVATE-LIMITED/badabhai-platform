@@ -22,12 +22,15 @@ const currentSession = vi.fn<() => Promise<PayerSession | null>>();
 const redirect = vi.fn((url: string) => {
   throw new Error(`REDIRECT:${url}`);
 });
-vi.mock("../../lib/auth", () => ({ payerAuth: () => ({ currentSession: () => currentSession() }) }));
+vi.mock("../../lib/auth", () => ({
+  payerAuth: () => ({ currentSession: () => currentSession() }),
+}));
 vi.mock("next/navigation", () => ({ redirect: (url: string) => redirect(url) }));
 // The brand lockup + theme toggle are client/SVG primitives; render them as inert markers so the
 // page shell's own copy + structure is the thing under test (no hooks, no font/SVG concerns).
+const BadaBhaiLogoMock = vi.fn(() => null);
 vi.mock("../../components/ds", () => ({
-  BadaBhaiLogo: () => null,
+  BadaBhaiLogo: BadaBhaiLogoMock,
   ThemeToggle: () => null,
 }));
 // The auth form is a client component with hooks — mock it to a stable marker function. The page
@@ -135,5 +138,30 @@ describe("login page — one column, no marketing panel", () => {
     const txt = textOf((await LoginPage()) as ReactElement);
     expect(txt).not.toMatch(/@/); // no email
     expect(txt).not.toMatch(/\+?\d[\d\s-]{7,}/); // no phone-like run
+  });
+});
+
+describe("login page — PR-D2 brand band", () => {
+  it("renders the lockup ONCE, inside the card's brand band, as the on-ink variant", async () => {
+    // The band is Shift Blue in BOTH themes (--surface-ink does not flip), so the paper lockup
+    // (navy logotype) would sit navy-on-navy there. The on-ink variant is the only legible one.
+    currentSession.mockResolvedValue(null);
+    const tree = (await LoginPage()) as ReactElement;
+    const cards = findByClass(tree, "login-card");
+    expect(cards).toHaveLength(1);
+    const bands = findByClass(cards[0], "login-card__brand");
+    expect(bands).toHaveLength(1);
+    const logos = findAll(tree, BadaBhaiLogoMock);
+    expect(logos).toHaveLength(1);
+    expect(findAll(bands[0], BadaBhaiLogoMock)).toHaveLength(1);
+    expect((logos[0]!.props as { theme?: string }).theme).toBe("ink");
+  });
+
+  it("the band carries no heading or copy of its own — the card's <h1> stays the only title", async () => {
+    currentSession.mockResolvedValue(null);
+    const tree = (await LoginPage()) as ReactElement;
+    const band = findByClass(tree, "login-card__brand")[0]!;
+    expect(textOf(band).trim()).toBe("");
+    expect(findAll(band, "h1")).toHaveLength(0);
   });
 });

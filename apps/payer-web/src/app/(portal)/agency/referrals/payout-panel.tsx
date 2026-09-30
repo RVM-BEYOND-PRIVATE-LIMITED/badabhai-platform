@@ -14,6 +14,14 @@ import { Badge, Button } from "../../../../components/ds";
 import { requestPayoutAction } from "./supply-actions";
 
 /**
+ * Element ids the two panels' ARIA references point at. The panel renders once per page, so a
+ * fixed id is unique; each reference names or describes a control by its VISIBLE text rather
+ * than a second, hand-kept copy of it.
+ */
+const PAYOUT_DESC_ID = "agency-payout-desc";
+const HISTORY_HEADING_ID = "agency-payout-history-title";
+
+/**
  * AGENCY PAYOUT panel (ADR-0022 Amendment 2, LIVE) — request a payout of the requestable
  * balance and show request history. Runs in the BROWSER; sees NO secret. MOCK money.
  *
@@ -60,28 +68,32 @@ export function PayoutPanel({
   return (
     <>
       {/* The REQUEST control. A bordered `.panel` — the primary action lives in the panel head,
-          where the screen's other panels put theirs. */}
+          where the screen's other panels put theirs. Source order is title → action → sub (as on
+          the applicant feed), so the button shares the title row and the sub takes the row
+          beneath — reading order and visual order stay the same (no CSS `order`). */}
       <section className="panel">
-        <div className="panel__head">
+        <div className="panel__head agency-referrals-payout__head">
           <h2 className="panel__title">Payouts</h2>
-          <p className="panel__sub">
-            Request a payout of your requestable balance. Mock money — nothing is actually
-            disbursed.
-          </p>
           <div className="panel__actions">
             <Button
               variant="success"
               onClick={handleRequest}
               disabled={!canRequest || pending}
               loading={pending}
+              aria-describedby={PAYOUT_DESC_ID}
             >
               {pending ? "Requesting…" : "Request payout"}
             </Button>
           </div>
+          <p className="panel__sub" id={PAYOUT_DESC_ID}>
+            Request a payout of your requestable balance. Mock money — nothing is actually
+            disbursed.
+          </p>
         </div>
         <div className="panel__body">
+          {/* The figure the action spends is the panel's focal number (W2-B). */}
           {canRequest ? (
-            <p className="section__sub">
+            <p className="section__sub agency-referrals-payout__now">
               Requestable now:{" "}
               <span className="bb-mono">{formatInr(earnings.requestableInr)}</span>
             </p>
@@ -138,7 +150,9 @@ function payoutHistory(payouts: AgencyPayout[]) {
   return (
     <section className="panel panel--table">
       <div className="panel__head">
-        <h2 className="panel__title">Request history</h2>
+        <h2 className="panel__title" id={HISTORY_HEADING_ID}>
+          Request history
+        </h2>
       </div>
       <div className="panel__body">
         {payouts.length === 0 ? (
@@ -153,16 +167,27 @@ function payoutHistory(payouts: AgencyPayout[]) {
             </p>
           </div>
         ) : (
-          <div className="tablewrap">
-            <table className="table">
+          // W2-B: a focusable scroll region NAMED BY the panel's visible heading, around the
+          // no-wrap ledger, so the 4 columns scroll inside it on a phone.
+          <div
+            className="tablewrap"
+            tabIndex={0}
+            role="region"
+            aria-labelledby={HISTORY_HEADING_ID}
+          >
+            <table className="table table--nowrap">
               <caption className="sr-only">
                 Your payout requests: the amount, how many accruals it covers, the day it was
                 requested, and its current status.
               </caption>
               <thead>
                 <tr>
-                  <th scope="col">Amount</th>
-                  <th scope="col">Accruals</th>
+                  <th scope="col" className="num">
+                    Amount
+                  </th>
+                  <th scope="col" className="num">
+                    Accruals
+                  </th>
                   <th scope="col">Requested</th>
                   <th scope="col">Status</th>
                 </tr>

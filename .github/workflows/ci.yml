@@ -2057,7 +2057,8 @@ jobs:
           # Companion v2 (ADR-0046) — the phase gates, all default off, and off is v1
           # byte-for-byte. Production ON requires the ADR's signature + companion v1 live, and
           # REAL model calls need the box to widen the ai-service's AI_REAL_CALL_TASKS allowlist
-          # to name the two companion tasks — an env action, never a secret. The knobs are
+          # to name the three companion tasks (companion_classify, companion_edit_parse,
+          # companion_career_answer) — an env action on the box, never a secret. The knobs are
           # deliberately NOT bridged (reviewed defaults; changing one is a compose diff).
           CHAT_COMPANION_V2_ENABLED: ${{ secrets.CHAT_COMPANION_V2_ENABLED }}
           CHAT_COMPANION_V2_EDIT_ENABLED: ${{ secrets.CHAT_COMPANION_V2_EDIT_ENABLED }}
@@ -2242,8 +2243,10 @@ jobs:
           # ONE VARIABLE IS DELIBERATELY LEFT OUT OF LINKS 2 AND 3, and it must stay out:
           # `AI_REAL_CALL_TASKS`. Bridging it would let a GitHub secret add a task to the
           # real-call allowlist with no code review, which is the one decision that must not be
-          # editable from the secrets UI. Widening it is a reviewed change to the compose
-          # default. `deploy-workflow-taxonomy.guard.test.ts` pins that absence.
+          # editable from the secrets UI. The compose default is the reviewed fallback, and a
+          # value set in the box's own environment replaces it — the production box does set
+          # one (#1843), so widening there is an owner action on the box, never a secret.
+          # `deploy-workflow-taxonomy.guard.test.ts` pins that absence.
           #
           # `secret-parity-check.yml` does NOT cover this. It compares the bridges against
           # compose's REQUIRED (`${VAR:?...}`) vars only, so every optional `${VAR:-default}`
