@@ -187,7 +187,7 @@ def test_edit_parse_drops_bad_rows_individually(monkeypatch: pytest.MonkeyPatch)
                 {"op": "add", "section": "skills", "field": "skill", "value": "welding"},
                 {"op": "rename", "section": "skills", "field": "skill", "value": "x"},  # bad op
                 {"op": "add", "section": "identity", "field": "name", "value": "Ramesh"},  # O3
-                {"op": "delete", "section": "languages", "ref": "l1"},  # valid
+                {"op": "delete", "section": "languages", "ref": "l1", "field": "language"},
             ],
             "unsupported": ["identity", "identity", "phone", "contact"],
         }
@@ -200,6 +200,29 @@ def test_edit_parse_drops_bad_rows_individually(monkeypatch: pytest.MonkeyPatch)
     assert [row["section"] for row in body["rows"]] == ["skills", "languages"]
     # Unknown unsupported values are filtered, duplicates collapsed.
     assert body["unsupported"] == ["identity", "contact"]
+
+
+@pytest.mark.parametrize("op", ["add", "edit", "delete"])
+def test_edit_parse_drops_a_row_without_a_field(op: str) -> None:
+    """EVERY row names its field. The API resolves a row through its `(section, field)`
+    catalogue entry before any op check (`companion-edit.service.ts` validateRow), so a
+    field-less delete — "Hindi hata do" as `{op: delete, ref: l1}` — would be dropped there
+    unseen. Dropping it here keeps the service's output equal to what the API can use."""
+    row = {"op": op, "section": "languages", "ref": None if op == "add" else "l1"}
+    if op != "delete":
+        row["value"] = "punjabi"
+    kept = {"op": "add", "section": "skills", "field": "skill", "value": "welding"}
+    parsed = edit_parse_logic.parse_edit_rows(json.dumps({"rows": [row, kept]}), max_rows=3)
+    assert [(r.section, r.field) for r in parsed.rows] == [("skills", "skill")]
+
+
+def test_a_field_less_row_does_not_spend_a_slot_of_the_cap() -> None:
+    rows = [
+        {"op": "delete", "section": "languages", "ref": "l1"},  # no field: dropped
+        {"op": "delete", "section": "languages", "ref": "l1", "field": "language"},
+    ]
+    parsed = edit_parse_logic.parse_edit_rows(json.dumps({"rows": rows}), max_rows=1)
+    assert [(r.op, r.ref, r.field) for r in parsed.rows] == [("delete", "l1", "language")]
 
 
 def test_edit_parse_caps_rows_at_max_rows(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -277,6 +300,34 @@ def test_the_prompts_state_the_closed_sets_and_the_refusal_rule() -> None:
     assert "identity" in EDIT_PARSE_SYSTEM_PROMPT
     assert "contact" in EDIT_PARSE_SYSTEM_PROMPT
     assert "You never write anything" in EDIT_PARSE_SYSTEM_PROMPT
+
+
+def test_the_edit_prompt_requires_a_field_on_every_op() -> None:
+    """The prompt used to say "'delete' needs a ref" and schema-hint `"field": null`, so a model
+    that obeyed it literally emitted field-less deletes the API then dropped silently."""
+    assert '"field": null' not in EDIT_PARSE_SYSTEM_PROMPT
+    assert '"field": "<field>"' in EDIT_PARSE_SYSTEM_PROMPT
+    assert 'EVERY row names a "field": add, edit AND delete' in EDIT_PARSE_SYSTEM_PROMPT
+    assert '"delete" needs a ref and a field' in EDIT_PARSE_SYSTEM_PROMPT
+
+
+def test_the_delete_anchors_the_prompt_names_are_catalogue_fields_that_allow_delete() -> None:
+    """The prompt names four anchor fields for multi-field rows. A catalogue rename on the API side
+    would leave the prompt pointing at a field that no longer exists; the gold catalogue is pinned
+    to `edit-catalogue.ts` by `test_the_gold_catalogue_matches_the_api_catalogue`, so this closes
+    the loop from the prompt to the API."""
+    from app.companion import eval_edit_parse_gold as edit_gold
+
+    ops = {(section, field): allowed for section, field, allowed in edit_gold.CATALOGUE}
+    anchors = {
+        ("employment", "employer_name"),
+        ("qualifications", "certificate_name"),
+        ("qualifications", "education_field"),
+        ("qualifications", "training_name"),
+    }
+    for section, field in anchors:
+        assert f'"{field}"' in EDIT_PARSE_SYSTEM_PROMPT
+        assert "delete" in ops[(section, field)]
 
 
 def test_the_routes_are_registered() -> None:

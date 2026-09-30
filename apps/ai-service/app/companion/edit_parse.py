@@ -79,9 +79,16 @@ def parse_edit_rows(content: str, max_rows: int) -> CompanionEditParseOutput:
     if isinstance(raw_rows, list):
         for candidate in raw_rows:
             try:
-                rows.append(CompanionEditRow.model_validate(candidate))
+                row = CompanionEditRow.model_validate(candidate)
             except ValidationError:
                 continue
+            # EVERY ROW NAMES ITS FIELD — add, edit and delete alike. The API resolves each row
+            # through its `(section, field)` catalogue entry BEFORE any op-specific check, so a
+            # field-less row is one it drops unseen; dropping it here keeps "every drop is a row
+            # the API would also have dropped" true, and stops it spending a slot of the cap.
+            if row.field is None:
+                continue
+            rows.append(row)
             if len(rows) >= max_rows:
                 break
 

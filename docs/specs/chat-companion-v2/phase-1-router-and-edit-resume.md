@@ -107,6 +107,10 @@ A new edit message while a proposal is open replaces it (one active proposal per
       return. Deterministic `mock_response` for mock mode.
       Note: the two `model_config` task routes landed here too — the endpoints cannot be green
       without them (the router RAISES on an unknown task, and two guard tests say so).
+      Audit fix (2026-09-30): the edit-parse prompt requires a catalogue `field` on EVERY row,
+      delete included, and names the delete anchor per row kind; `parse_edit_rows` drops a
+      field-less row (the API dropped it unseen, so "Hindi hata do" could vanish from the
+      "Welding bhi add karo aur Hindi hata do" card). Contract note: `contracts.md` §2.2.
 - [x] **A3 Model routes.** `model_config.py`: tasks `companion_classify`, `companion_edit_parse`
       (tier `cheap` → Gemini Flash, json_mode on, low temperature). Prompts in the prompt registry.
       The route shapes landed with A2 (the endpoints cannot be green without them); A3 added the

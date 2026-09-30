@@ -85,6 +85,11 @@ def rows_outside_catalogue(rows: list[Row]) -> list[str]:
         if section not in SECTIONS:
             bad.append(f"{section}: unknown section")
             continue
+        # Named apart from "not in the catalogue": a field-less row is the prompt gap the API
+        # drops unseen (every row must name its field, delete included), not a wrong field.
+        if field is None:
+            bad.append(f"{section}: {op} row names no field")
+            continue
         if (section, field) not in _CATALOGUE_FIELDS:
             bad.append(f"{section}:{field}: not in the catalogue")
             continue

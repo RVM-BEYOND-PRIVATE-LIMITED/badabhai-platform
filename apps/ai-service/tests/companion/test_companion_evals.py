@@ -102,6 +102,35 @@ def test_every_expected_row_is_inside_the_catalogue():
     assert edit_gold.rows_outside_catalogue(rows) == []
 
 
+def test_a_field_less_row_is_reported_as_such():
+    # The API drops a row with no field before any op check; the scorer must call it out rather
+    # than let it hide inside the generic "not in the catalogue" line.
+    bad = edit_gold.rows_outside_catalogue([("delete", "languages", "l1", None, None)])
+    assert bad == ["languages: delete row names no field"]
+
+
+def test_every_gold_delete_names_the_anchor_the_prompt_tells_the_model_to_use():
+    """The gold rows and the prompt must agree on WHICH field a delete names, or a model that
+    follows the prompt misses the exact-row bar. The rule (prompts.py): the row's only field, or
+    the named anchor for a multi-field row."""
+    from app.companion import eval_cli
+    from app.companion.prompts import EDIT_PARSE_SYSTEM_PROMPT
+
+    snapshot = {row["ref"]: row["fields"] for row in eval_cli._EDIT_SNAPSHOT}
+    for text, rows in edit_gold.CASES:
+        for op, _section, ref, field, _value in rows:
+            assert field is not None, f"{text!r}: every gold row names its field"
+            if op != "delete":
+                continue
+            fields = snapshot[ref]
+            if len(fields) == 1:
+                assert [field] == list(fields), f"{text!r}: a one-field row deletes by that field"
+            else:
+                assert f'"{field}"' in EDIT_PARSE_SYSTEM_PROMPT, (
+                    f"{text!r}: {field} is not an anchor the prompt names"
+                )
+
+
 def test_the_gold_catalogue_matches_the_api_catalogue():
     """The eval fixture mirrors `apps/api/.../edit-catalogue.ts` — read from source, not a copy.
 
