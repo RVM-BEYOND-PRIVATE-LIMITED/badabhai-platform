@@ -85,7 +85,7 @@ Map<String, dynamic> _sentBody(_Router router) =>
 
 void main() {
   group('the typed names mirror the server sets', () {
-    test('company: CLEARABLE_POSTING_FIELDS, all 13', () {
+    test('company: CLEARABLE_POSTING_FIELDS, all 14', () {
       expect(
         JobPostingClearField.values.map((JobPostingClearField f) => f.wire),
         <String>[
@@ -102,11 +102,12 @@ void main() {
           'needed_by',
           'benefits',
           'requirements',
+          'role_kind',
         ],
       );
     });
 
-    test('agency: CLEARABLE_AGENCY_JOB_FIELDS, 11 — no trade, title or city',
+    test('agency: CLEARABLE_AGENCY_JOB_FIELDS, 12 — no trade, title or city',
         () {
       final List<String> wires = AgencyJobClearField.values
           .map((AgencyJobClearField f) => f.wire)
@@ -123,6 +124,7 @@ void main() {
         'shift',
         'benefits',
         'requirements',
+        'role_kind',
       ]);
       expect(wires, isNot(contains('city')));
       expect(wires, isNot(contains('title')));

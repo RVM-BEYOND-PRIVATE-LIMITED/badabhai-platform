@@ -258,7 +258,12 @@ enum JobPostingClearField {
   shift('shift'),
   neededBy('needed_by'),
   benefits('benefits'),
-  requirements('requirements');
+  requirements('requirements'),
+
+  /// Migration 0131 (#1840) — `job_postings.role_kind` is nullable, so "no role
+  /// picked" is clearable. The app does not surface the role yet; the name is
+  /// here so this set stays equal to the server's.
+  roleKind('role_kind');
 
   const JobPostingClearField(this.wire);
 
@@ -930,7 +935,11 @@ enum AgencyJobClearField {
   description('description'),
   shift('shift'),
   benefits('benefits'),
-  requirements('requirements');
+  requirements('requirements'),
+
+  /// Migration 0131 (#1840) — `jobs.role_kind` is nullable, so it is clearable
+  /// (unlike `trade_key`). Not surfaced by the app yet.
+  roleKind('role_kind');
 
   const AgencyJobClearField(this.wire);
 
