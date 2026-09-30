@@ -79,6 +79,13 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
       the model on staging — and it is STRICTER than §6: zero answers on risky prompts, where §6
       also accepts an answer the API's validator would reject (that validator is measured by its
       own tests).
+      Audit fix (2026-09-30): `--career` now also gates **p95 < 4 s** (round trip to the
+      ai-service; excludes the API hop, the validator and the turn's classify call), prints that
+      the answered rate is measured BEFORE the API validator (so the served rate can be lower),
+      and `--dump-samples N --dump-file PATH` writes up to N answered samples (prompt id, prompt,
+      lines, chips, model — synthetic prompts only; answered risky prompts first) for the §6
+      owner review. Failed / mock / over-timeout calls are handled as in phase-1 A4. Procedure:
+      `docs/ops/companion-v2-staging-evals-runbook.md`.
 
 ### Backend — API
 - [x] **C1** `v2/handlers/career-talk.handler.ts` + `v2/career-output.validator.ts` (§2).

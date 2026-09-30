@@ -125,6 +125,14 @@ A new edit message while a proposal is open replaces it (one active proposal per
       158 classifier lines + 74 edit cases; the real accuracy bars gate in
       `python -m app.companion.eval_cli` (staging), and CI gates set shape, scorer capability,
       catalogue containment and the TS↔gold catalogue parity.
+      Audit fix (2026-09-30): the CLI scores what production routes — below the API's
+      confidence floor (`--min-confidence`, default = the `CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE`
+      default, pinned to `packages/config`) a classification counts as `unclear`, and a response
+      slower than the API's own timeout (3 s / 6 s, pinned to `ai.service.ts`) counts as no
+      answer. A failed call is retried once, then scored as no answer and listed (the run no
+      longer aborts); a mock answer marks the run CONTAMINATED; either fails the gate. Latency
+      is measured per call and the classifier gates on p95 < 1.5 s (ADR-0046 §4). Procedure:
+      `docs/ops/companion-v2-staging-evals-runbook.md`.
 
 ### Frontend — worker app (GitHub issue for Frontend Platform)
 
