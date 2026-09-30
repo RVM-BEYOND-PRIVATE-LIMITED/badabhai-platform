@@ -38,7 +38,7 @@ describe("CARDS-1 · stretched-link overlay geometry", () => {
     expect(block(".bb-stretched-link")).toMatch(/z-index:\s*calc\(var\(--z-base\)\s*\+\s*1\)/);
   });
 
-  it("the anchor paints no focus ring of its own (the parent's :focus-within does)", () => {
+  it("the anchor paints no focus ring of its own (the parent draws it, on :focus-visible)", () => {
     expect(block(".bb-stretched-link")).toMatch(/box-shadow:\s*none/);
   });
 

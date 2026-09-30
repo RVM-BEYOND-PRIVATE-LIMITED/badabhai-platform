@@ -42,6 +42,19 @@
   --warn-soft: var(--warning-tint);
 }
 
+/* FOCUS IN FORCED COLORS. The base `:focus-visible` in tokens.css is `outline: none` + a
+   box-shadow ring, and Windows forced-colors mode DROPS box-shadows — a keyboard user in High
+   Contrast had no focus indicator anywhere in the portal. A TRANSPARENT outline is invisible in
+   normal mode (the look is unchanged) but forced colors repaint it in the system colour. Offset
+   one ring-width so it sits where the ring's outer band does. Every component ring that
+   overrides this keeps the same fallback (see the FOCUS note at the top of ds-components.css);
+   a ring drawn on a NON-focused host (:has / :focus-within / a sibling box) declares it itself.
+   (tokens.css is the shared package admin-web also imports; this override is payer-web's.) */
+:focus-visible {
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
+}
+
 /* Sticky footer — the body is a viewport-tall flex column so `.chrome-footer` always sits at
    the page END (only scrolling below the fold when content overflows). The page wrappers
    (.pshell / .login-wrap) flex to fill the space above it; the footer's margin-top:auto
@@ -125,7 +138,8 @@ body {
   background: var(--surface-ink-hover);
 }
 .pshell__brandlink:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 /* The rail lockup stacks the persona under the logotype; the logotype takes a fixed height
@@ -305,7 +319,8 @@ body {
   color: var(--text-on-ink);
 }
 .pshell__collapse:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 .pshell__collapse .ph-fill {
@@ -392,7 +407,8 @@ body {
   border-color: transparent;
 }
 .pshell__balance:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 .pshell__balancenum {
@@ -1159,7 +1175,8 @@ textarea.input {
   border: 0;
 }
 .login-mode:has(.login-mode__input:focus-visible) {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 
@@ -1236,7 +1253,8 @@ textarea.input {
   transform: scale(0.96);
 }
 .account-menu__trigger:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 .account-menu__panel {
@@ -1303,7 +1321,8 @@ textarea.input {
   text-decoration: none;
 }
 .account-menu__link:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 /* Sign-out menu item — rendered as a <button> so it needs the native control reset, then the
@@ -2754,7 +2773,8 @@ textarea.input {
   display: none;
 }
 .agency-parked-disclosure__summary:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 .agency-parked-disclosure__summary .agency-section__title {
@@ -3814,8 +3834,14 @@ img.agency-qr__code,
   user-select: none;
   transition: background-color var(--duration-instant) var(--ease-out);
 }
+/* The active (aria-activedescendant) option is the keyboard position while focus sits on the
+   list, and a background alone shows it — forced colors drop backgrounds, and the list's own
+   `outline: none` defeats the global :focus-visible fallback. A transparent outline is repainted
+   in the system colour there (invisible otherwise); inset, because the list is a scroller. */
 .bb-selectmenu__option--active {
   background: var(--surface-sunken);
+  outline: var(--border-bold) solid transparent;
+  outline-offset: calc(-1 * var(--border-bold));
 }
 .bb-selectmenu__option--selected {
   color: var(--text-accent);
@@ -3852,7 +3878,8 @@ img.agency-qr__code,
   transition: var(--transition-control);
 }
 .theme-toggle__switch:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 /* The track: a pill that fills brand-tinted when "on" (dark). */
@@ -3912,7 +3939,8 @@ img.agency-qr__code,
   color: var(--text-secondary);
 }
 .theme-toggle__system:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
 }
 .theme-toggle__system[aria-pressed="true"] {
@@ -3922,6 +3950,37 @@ img.agency-qr__code,
 }
 .theme-toggle__system-label {
   line-height: 1;
+}
+/* PHONE HIT AREAS (≤600px) for the shell's small controls: the theme switch (32px) and
+   "System" (~22px), the header's hamburger (36px) and balance chip (36px). Same technique and
+   maths as the DS `.bb-btn--sm` / `.bb-chip` (see ds-components.css): a full-width 44px strip
+   BEHIND the control's content, drawn size unchanged. Measured at 375px: the header row keeps
+   its height (60px holds a 44px strip), and neighbours sit --space-2/--space-3 apart, so no
+   two hit areas overlap. The static (recruiter) balance is not a control and gets none.
+   /login: at ≤480px the toggle is absolute and `.login-wrap--auth` reserves its row, which the
+   strip still clears. From 481–600px there is NO reserved row — the toggle is fixed over a
+   vertically centred card, as it was before this change. At rest the card only reaches the
+   toggle on a short viewport, and then the switch and its strip (6px more) overlap only the
+   card's non-interactive navy brand band; scrolled, the fixed toggle can float over the form
+   either way. */
+@media (max-width: 600px) {
+  .theme-toggle__switch,
+  .theme-toggle__system,
+  .pshell__menu,
+  .pshell__balance:not(.pshell__balance--static) {
+    position: relative;
+    isolation: isolate;
+  }
+  .theme-toggle__switch::before,
+  .theme-toggle__system::before,
+  .pshell__menu::before,
+  .pshell__balance:not(.pshell__balance--static)::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0px, calc((100% - var(--control-md)) / 2));
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .theme-toggle__thumb,
@@ -4571,13 +4630,20 @@ body:has(.invite-landing) .chrome-footer {
   color: var(--text-heading);
   margin: 0;
 }
+/* The sub sits on its OWN line under the title, at every width. In the head's wrapping flex
+   row a `max-width` clamps the 100% basis back to the reading measure, so wherever title +
+   measure fit on one line (every desktop) the sub rode up BESIDE the title — pushed to the
+   right edge by space-between. So the BOX always takes the whole row (an unclamped 100% basis
+   can share a line with nothing) and the MEASURE is kept by an end padding instead: the row
+   minus the measure, which clamps to 0 once the row is narrower than the measure. The same
+   holds outside a head (a block `p`): full-width box, same text measure. */
 .panel__sub {
   font-size: var(--ui-body-sm-size);
   line-height: var(--ui-body-leading);
   color: var(--text-muted);
   margin: var(--space-1) 0 0;
-  max-width: var(--reading-max);
   flex-basis: 100%;
+  padding-inline-end: calc(100% - var(--reading-max));
 }
 .panel__actions {
   display: flex;
@@ -5003,7 +5069,8 @@ body:has(.invite-landing) .chrome-footer {
   background: var(--surface-hover);
 }
 .quick__card:focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
   border-color: var(--brand);
 }
@@ -5371,13 +5438,14 @@ body:has(.invite-landing) .chrome-footer {
   color: var(--text-heading);
   margin: 0;
 }
+/* Own line under the title at every width, measure kept by end padding — see `.panel__sub`. */
 .section__sub {
   font-size: var(--ui-body-sm-size);
   line-height: var(--ui-body-leading);
   color: var(--text-muted);
   margin: var(--space-1) 0 0;
-  max-width: var(--reading-max);
   flex-basis: 100%;
+  padding-inline-end: calc(100% - var(--reading-max));
 }
 .section__actions {
   display: flex;

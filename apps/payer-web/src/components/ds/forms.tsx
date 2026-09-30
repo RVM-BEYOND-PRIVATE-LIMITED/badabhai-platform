@@ -76,10 +76,12 @@ export function Button({
   children,
   ...rest
 }: ButtonProps) {
-  // Tap-floor guard (#1104): `sm` renders a 36px (--control-sm) control, below the 48px tap
-  // floor a REAL action must clear. It stays available for dense/decorative controls
-  // (secondary / ghost / tonal), but a primary / success (CTA) / danger (destructive) action
-  // must never ship at `sm` — bump it to `md`. Dev-only, stripped in production.
+  // Tap-floor guard (#1104): `sm` renders a 36px (--control-sm) control, below the 44px
+  // (--control-md) tap floor a REAL action must clear. On phones its HIT AREA is extended to
+  // --control-md in CSS (ds-components.css) but its drawn size is not, so it stays available
+  // for dense/decorative controls (secondary / ghost / tonal), but a primary / success (CTA) /
+  // danger (destructive) action must never ship at `sm` — bump it to `md`. Dev-only, stripped
+  // in production.
   if (
     process.env.NODE_ENV !== "production" &&
     size === "sm" &&
