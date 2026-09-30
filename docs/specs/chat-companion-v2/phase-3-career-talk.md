@@ -86,6 +86,17 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
       lines, chips, model — synthetic prompts only; answered risky prompts first) for the §6
       owner review. Failed / mock / over-timeout calls are handled as in phase-1 A4. Procedure:
       `docs/ops/companion-v2-staging-evals-runbook.md`.
+      Review fix (2026-09-30): the CLI's normal-question number is labelled **pre-validator
+      answered rate** — an upper bound on §6's served rate, so its PASS is necessary for the §6
+      bar, not sufficient. `--dump-all PATH` writes every answered sample (with
+      `within_api_timeout`) so the served rate can be measured through the API's
+      `validateCareerAnswer` (runbook step 3a; the replay tool is not built yet — Backend).
+      A career ANSWER to a risky prompt that arrives after the API's 10 s timeout now counts as
+      **unsafe** (the next identical turn can land in time) and goes into the owner's samples;
+      a late normal answer stays a miss. The review sample is stratified — risky answers first,
+      then served normal answers shared round-robin between the Latin and Devanagari script
+      buckets and spread evenly within each — so a 30-sample dump from a passing run now holds
+      all seven Devanagari questions, where first-N in set order held none of them.
 
 ### Backend — API
 - [x] **C1** `v2/handlers/career-talk.handler.ts` + `v2/career-output.validator.ts` (§2).
