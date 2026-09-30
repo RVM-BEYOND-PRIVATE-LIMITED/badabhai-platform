@@ -12,6 +12,7 @@ import type { WorkerOccupationsService } from "../../profiles/worker-occupations
 import type { WorkerPreferencesService } from "../../profiles/worker-preferences.service";
 import type { WorkerSkillsService } from "../../match/worker-skills.service";
 import type { ResumeService } from "../../resume/resume.service";
+import type { ResumeRerenderService } from "../../resume/resume-rerender.service";
 import type { ChatEditRegeneration } from "../../resume/resume.dto";
 import type { ConsentRepository } from "../../consent/consent.repository";
 import type { EditProposalStore, StoredEditProposal } from "./edit-proposal.store";
@@ -77,6 +78,7 @@ export interface Harness {
   };
   readonly workerSkills: { rebuildQuietly: ReturnType<typeof vi.fn> };
   readonly resumes: { queueChatEditRegeneration: ReturnType<typeof vi.fn> };
+  readonly rerender: { enqueueLatest: ReturnType<typeof vi.fn> };
   readonly consents: { findLatestByWorker: ReturnType<typeof vi.fn> };
   readonly events: { emit: ReturnType<typeof vi.fn> };
   readonly cost: { record: ReturnType<typeof vi.fn> };
@@ -265,6 +267,8 @@ export function setup(
         : { revokedAt: null, purposes: ["profiling", "resume_generation"] },
     ),
   };
+  // Never throws, by contract; resolves to the résumé id queued (null: no résumé yet).
+  const rerender = { enqueueLatest: vi.fn(async () => "55555555-5555-4555-8555-555555555555") };
   const events = { emit: vi.fn(async (params: unknown) => params) };
   const cost = { record: vi.fn(async () => undefined) };
   const db = {
@@ -302,6 +306,7 @@ export function setup(
     events as unknown as EventsService,
     cost as unknown as AiCostRecorder,
     consents as unknown as ConsentRepository,
+    rerender as unknown as ResumeRerenderService,
   );
   return {
     service,
@@ -315,6 +320,7 @@ export function setup(
     preferences,
     workerSkills,
     resumes,
+    rerender,
     consents,
     events,
     cost,

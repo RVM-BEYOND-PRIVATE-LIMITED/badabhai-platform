@@ -21,6 +21,7 @@ import { WorkerOccupationsService } from "../../profiles/worker-occupations.serv
 import { WorkerPreferencesService } from "../../profiles/worker-preferences.service";
 import { WorkerSkillsService } from "../../match/worker-skills.service";
 import { ResumeService } from "../../resume/resume.service";
+import { ResumeRerenderService } from "../../resume/resume-rerender.service";
 import type { ChatEditRegeneration } from "../../resume/resume.dto";
 import {
   EDIT_CARD_ROWS_MAX,
@@ -74,6 +75,20 @@ import { sectionsOf, taskChips, v2CopyTurn, v2EditCardTurn } from "./companion-v
 export const EDIT_PARSE_SNAPSHOT_MAX = 64;
 export const EDIT_PARSE_MAX_ROWS_MAX = 10;
 
+/**
+ * The sections the résumé render reads LIVE on every render (`ResumeRenderProcessor`: employment,
+ * credentials + languages, secondary occupations, and the preference attributes) — so a re-render
+ * alone puts an edit to them on the PDF. Skills are absent: the render prints the skills stored
+ * with the résumé, which only a regeneration replaces.
+ */
+const RENDERED_LIVE: ReadonlySet<CompanionV2EditSection> = new Set([
+  "employment",
+  "languages",
+  "qualifications",
+  "occupations",
+  "preferences",
+]);
+
 export type ConfirmResult =
   | {
       readonly kind: "applied";
@@ -114,7 +129,8 @@ type RowVerdict =
  * apply per card), re-reads the state, refuses a stale card, applies every selected row through
  * the section writers on ONE transaction, and only then runs the post-commit side effects and
  * QUEUES the résumé regeneration (a new history entry, trigger `chat_edit`, the daily cap charged
- * up front) — when the worker's consent names `resume_generation`.
+ * up front) — when the worker's consent names `resume_generation`. When none is queued, the
+ * LLM-free re-render the form path would have run puts the live-printed edits on the PDF.
  *
  * FAIL CLOSED, EVERYWHERE. No parse, no rows or a store failure means no card and no claim; a
  * claim Redis refuses, an unreadable section or a writer failure writes nothing, and the card is
@@ -145,6 +161,8 @@ export class CompanionEditService {
     private readonly cost: AiCostRecorder,
     // Read (never written) for the regeneration's fail-closed `resume_generation` gate.
     private readonly consents: ConsentRepository,
+    // The LLM-free re-render when no regeneration was queued (see `confirm`).
+    private readonly rerender: ResumeRerenderService,
   ) {}
 
   // ── propose ───────────────────────────────────────────────────────────────────────────────
@@ -481,6 +499,13 @@ export class CompanionEditService {
       await this.workerSkills.rebuildQuietly(workerId, ctx);
     }
     const resumeRegen = await this.regenerate(workerId, profile, ctx);
+    if (resumeRegen !== "queued" && selected.some((row) => RENDERED_LIVE.has(row.section))) {
+      // EDIT-RERENDER: the writers skipped their own forced re-render on the joined transaction
+      // because a regeneration was to follow; none will. So the form path's re-render runs here —
+      // once, LLM-free, no consent or cap needed (it reprints the stored résumé with the live
+      // tables) — and the PDF shows these edits. Best-effort; it never throws.
+      await this.rerender.enqueueLatest(workerId, ctx);
+    }
 
     await this.emit(workerId, ctx, "chat.companion_edit_confirmed", {
       proposal_id: proposalId,
@@ -551,8 +576,9 @@ export class CompanionEditService {
    * CONSENT FIRST, FAIL CLOSED. The generation sends the edited profile to a model, so the
    * worker's latest consent must be active AND name `resume_generation` (the P2 new-résumé
    * handler's gate). Anything else asks for nothing — no cap slot, no model call — and records
-   * `failed`: the edits ARE written, the résumé is not regenerated, and the reply says exactly
-   * that. The event's closed set has no value of its own for this (contracts §4).
+   * `failed`: the edits ARE written, the résumé is not regenerated (`confirm` re-renders it
+   * instead), and the reply says so. The event's closed set has no value of its own for this
+   * (contracts §4).
    */
   private async regenerate(
     workerId: string,

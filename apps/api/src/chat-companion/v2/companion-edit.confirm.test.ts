@@ -132,6 +132,8 @@ describe("CompanionEditService.confirm", () => {
     expect(h.resumes.queueChatEditRegeneration).toHaveBeenCalledTimes(1);
     expect(h.resumes.queueChatEditRegeneration).toHaveBeenCalledWith(WORKER_ID, PROFILE_ID, CTX);
     expect(committedAtRequest).toBe(2);
+    // Queued: the new entry renders the live tables itself, so no separate re-render.
+    expect(h.rerender.enqueueLatest).not.toHaveBeenCalled();
     const confirmed = confirmedPayload(h) as { sections: string[] };
     expect(confirmed).toMatchObject({ applied_count: 2, resume_regen: "queued" });
     expect([...confirmed.sections].sort()).toEqual(["languages", "skills"]);
@@ -308,6 +310,99 @@ describe("CompanionEditService.confirm", () => {
       if (result.kind !== "applied") throw new Error("expected applied");
       expect(result.resumeRegen).toBe("failed");
       expect(h.resumes.queueChatEditRegeneration).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("NO REGENERATION QUEUED → the form path's LLM-free re-render (EDIT-RERENDER)", () => {
+    // The section writers skip their own forced re-render on the joined transaction, because a
+    // regeneration is to follow. When none does, the confirm must run that re-render itself, or
+    // the PDF keeps printing the old values the form path would have replaced for free.
+    const SHIFT_NIGHT: StoredEditProposalRow = {
+      row_id: SKILL_ROW_ID,
+      section: "preferences",
+      op: "edit",
+      field: "shift",
+      value: "night",
+      before: "day",
+      section_label: "Pasand",
+      target: null,
+    };
+
+    it.each(["capped", "failed"] as const)(
+      "%s: one re-render of the latest résumé, AFTER commit",
+      async (regen) => {
+        const h = setup({ proposal: storedProposal(), languageEntries: [LANGUAGE_HINDI], regen });
+        let committedAtRerender = -1;
+        h.rerender.enqueueLatest.mockImplementation(async () => {
+          committedAtRerender = h.committed.length;
+          return "55555555-5555-4555-8555-555555555555";
+        });
+        const result = await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID], CTX);
+        if (result.kind !== "applied") throw new Error("expected applied");
+        expect(result.resumeRegen).toBe(regen);
+        expect(h.rerender.enqueueLatest).toHaveBeenCalledTimes(1);
+        expect(h.rerender.enqueueLatest).toHaveBeenCalledWith(WORKER_ID, CTX);
+        expect(committedAtRerender).toBe(1);
+        // The event is unchanged: the re-render is not a regeneration and records nothing.
+        expect(confirmedPayload(h)).toMatchObject({ resume_regen: regen });
+      },
+    );
+
+    it("no consent: the regeneration is refused, the re-render still runs (it calls no model)", async () => {
+      vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+      const h = setup({ proposal: storedProposal(), languageEntries: [LANGUAGE_HINDI], consent: null });
+      const result = await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID], CTX);
+      if (result.kind !== "applied") throw new Error("expected applied");
+      expect(h.resumes.queueChatEditRegeneration).not.toHaveBeenCalled();
+      expect(h.rerender.enqueueLatest).toHaveBeenCalledTimes(1);
+    });
+
+    it("two live-printed sections on one card: still ONE re-render", async () => {
+      const h = setup({
+        proposal: storedProposal({ rows: [DELETE_HINDI, SHIFT_NIGHT] }),
+        languageEntries: [LANGUAGE_HINDI],
+        preferenceValues: { shift: "day" },
+        regen: "capped",
+      });
+      const result = await h.service.confirm(
+        WORKER_ID,
+        profileRow(),
+        PROPOSAL_ID,
+        [ROW_ID, SKILL_ROW_ID],
+        CTX,
+      );
+      expect(result.kind).toBe("applied");
+      expect(h.committed.map((w) => w.writer).sort()).toEqual(["languages", "preferences"]);
+      expect(h.rerender.enqueueLatest).toHaveBeenCalledTimes(1);
+    });
+
+    it("queued: NO re-render — the new history entry renders the live tables itself", async () => {
+      const h = setup({ proposal: storedProposal(), languageEntries: [LANGUAGE_HINDI] });
+      const result = await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID], CTX);
+      if (result.kind !== "applied") throw new Error("expected applied");
+      expect(result.resumeRegen).toBe("queued");
+      expect(h.rerender.enqueueLatest).not.toHaveBeenCalled();
+    });
+
+    it("a skills-only card: NO re-render — the render prints the skills stored with the résumé", async () => {
+      const h = setup({ proposal: storedProposal({ rows: [ADD_WELDING] }), regen: "capped" });
+      const result = await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [SKILL_ROW_ID], CTX);
+      if (result.kind !== "applied") throw new Error("expected applied");
+      expect(h.committed.map((w) => w.writer)).toEqual(["skills"]);
+      expect(h.rerender.enqueueLatest).not.toHaveBeenCalled();
+    });
+
+    it("a rolled-back apply: NO re-render — nothing changed", async () => {
+      vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+      const h = setup({
+        proposal: storedProposal(),
+        languageEntries: [LANGUAGE_HINDI],
+        regen: "capped",
+        writerThrows: true,
+      });
+      const result = await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID], CTX);
+      expect(result.kind).toBe("failed");
+      expect(h.rerender.enqueueLatest).not.toHaveBeenCalled();
     });
   });
 

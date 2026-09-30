@@ -76,6 +76,8 @@ POST /chat/companion/edits/:id/confirm {row_ids}
        resume-generate job {trigger:"chat_edit"}; the job writes a NEW history entry
        (never the profile's initial row) and queues its render — contracts §4
        queued → V2_EDIT_DONE · capped → V2_EDIT_DONE_CAPPED · failed → V2_EDIT_DONE_CAPPED copy
+       not queued + a live-printed section changed (all but skills) → ONE LLM-free re-render
+       of the latest résumé (ResumeRerenderService.enqueueLatest) — contracts §3.2
   6. emit chat.companion_edit_confirmed
 
 POST /chat/companion/edits/:id/cancel → past expires_at: 404 + cancelled(expired);
@@ -205,7 +207,7 @@ A new edit message while a proposal is open replaces it (one active proposal per
 | `companion-v2.v1-first.test.ts` | every v1 chip / alias / intent resolves without a model call |
 | `companion-v2.orchestrator.test.ts` | each intent → correct handler; null / low-confidence / blocked → clarify |
 | `companion-edit.validate.test.ts` | each drop rule (catalogue, op, ref, a field of another entry kind, DTO, token, skill floor, no-op) — incl. no-op ADDS, duplicates, the writer's real schema, the row cap, the snapshot cap, the O17 Profile-screen line |
-| `companion-edit.confirm.test.ts` | ownership 404; stale 409; transaction rollback on a writer failure (row 2 fails → row 1 undone); regenerate queued / capped / failed; consent off → no regeneration; at most one apply per card (concurrent / retried Haan); a rollback serves the card again; expired → cancelled(expired) |
+| `companion-edit.confirm.test.ts` | ownership 404; stale 409; transaction rollback on a writer failure (row 2 fails → row 1 undone); regenerate queued / capped / failed; consent off → no regeneration; not queued → one re-render (none for skills-only, queued or a rollback); at most one apply per card (concurrent / retried Haan); a rollback serves the card again; expired → cancelled(expired) |
 | `companion-edit.apply.test.ts` | the body each writer receives: preferences `touched_only` + folded lists, qualifications by identity and only the touched lists, skills never duplicated, the night-shift seed after commit |
 | `edit-catalogue.test.ts` | every catalogue field has a `field_label` (distinct within its section, no orphan); a whole-entry delete names the entry, by its target's list; every closed-set value maps to its dictionary's display label; free text, unknown slugs and nulls → null |
 | `resume-chat-edit.db.test.ts` (`RUN_DB_TESTS=1`) | a Haan on a profile that already has its v1 writes a NEW `chat_edit` row from the edited profile; a second edit is another; a queue retry does not duplicate |

@@ -217,6 +217,18 @@ After commit, a `preferences.shift` row runs the form path's own
 `WorkerPreferencesService.seedNightShiftReadyFromShift` (now public; the writer skips it on a
 joined transaction), before occupations' rebuild and the résumé regeneration.
 
+**No regeneration queued → one re-render (2026-09-30, EDIT-RERENDER).** The employment,
+languages, qualifications and preferences writers skip their own forced re-render on the joined
+transaction, because a regeneration is to follow. When `resume_regen` is `capped` or `failed`
+none follows, so the confirm runs the form path's re-render itself —
+`ResumeRerenderService.enqueueLatest` (exported by `ResumeModule`), ONCE per confirm, LLM-free,
+no consent or cap (it reprints the latest stored résumé with the live tables, in place: no new
+version, no `resume.generated`). Only when the card touched a section the render reads LIVE —
+employment, languages, qualifications, occupations (the "Also works as" row) or preferences;
+a skills-only card gets none, because the render prints the skills stored with the résumé. Not
+after a rollback, and not when `queued` (the new entry renders the live tables itself). The event
+is unchanged.
+
 ## 4. Events (`packages/event-schema`, registry + payloads)
 
 All `.strict()`, ids/counts/enums only, never text. v1 `chat.companion_turn_served` v1 is **not**
@@ -402,7 +414,7 @@ All fixed lines live in `companion-replies.ts` (v1 file, extended) with a Devana
 | `V2_EDIT_IDENTITY` | Naam aur phone Profile mein jaa kar badliye. — Served when no row survives and the model's `unsupported` names identity/contact OR the message itself names the worker's own name / phone / ID number (`v2/edit-identity.ts`, deterministic, 2026-09-30). |
 | `V2_EDIT_PLACEHOLDER` | Yeh badlav chat se nahi ho sakta. Profile mein jaa kar badliye. — **DRAFT (2026-09-30), pending owner review.** Served when no row survives and at least one was dropped for a placeholder token (O17: a masked company or person name chat can never write back). |
 | `V2_EDIT_DONE` | Badlav ho gaya. Aapka resume update ho raha hai. |
-| `V2_EDIT_DONE_CAPPED` | Badlav ho gaya. Resume abhi update nahi hua, baad mein Resume tab se update karein. — **DRAFT (2026-09-30), pending owner review.** Served for `capped` and `failed` (incl. no `resume_generation` consent). Replaces "Resume aaj update nahi ho sakta, kal ho jayega": nothing regenerates later on its own, so the line promises no time. |
+| `V2_EDIT_DONE_CAPPED` | Badlav ho gaya. Resume abhi update nahi hua, baad mein Resume tab se update karein. — **DRAFT (2026-09-30), pending owner review.** Served for `capped` and `failed` (incl. no `resume_generation` consent). Replaces "Resume aaj update nahi ho sakta, kal ho jayega": nothing regenerates later on its own, so the line promises no time. **Owner question (2026-09-30, EDIT-RERENDER):** when this line is served the confirm now also re-renders the PDF with the live tables (§3.2), so an edit to work history, languages, qualifications, occupations or preferences DOES reach the PDF once that render runs; the line under-states that (only skills wait for a regeneration). Copy unchanged pending that review. |
 | `V2_EDIT_CANCELLED` | Theek hai, kuch nahi badla. |
 | `V2_EDIT_STALE` | Profile beech mein badal gaya. Dobara bataiye kya badalna hai. |
 | `V2_FALTU_REDIRECT` | Main resume aur kaam mein madad karta hoon. Inme se kuch chuniye. |
