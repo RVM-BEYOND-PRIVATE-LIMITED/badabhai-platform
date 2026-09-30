@@ -1,0 +1,57 @@
+import { describe, expect, it } from "vitest";
+import { decl, globalsCss, rule, rules } from "../../test/css-rules";
+
+/**
+ * /skills/discovery's vertical rhythm (#1856). Each block of the page used to ride on whatever
+ * margin its pieces happened to carry, measured in Chrome at 375 and 1280: four loose page
+ * children for one metrics block (a full page gap apart), 0px between the tier caption and the
+ * batch-order row, 0px between the filter form and the first result, 0px above the trailing
+ * captions. These pin the stacks that replaced them. The markup side (which element carries
+ * which class) is pinned in `(portal)/skills/discovery/page.render.test.tsx`.
+ */
+const CSS = globalsCss();
+const own = (selector: string) => {
+  const body = rule(CSS, selector);
+  expect(body, `${selector} must be declared at top level`).not.toBeNull();
+  return body!;
+};
+
+describe("discovery rhythm", () => {
+  it("the metrics block and the queue controls are each one stack with one gap", () => {
+    const stack = own(".queue-metrics, .queue-controls");
+    expect(decl(stack, "display")).toBe("flex");
+    expect(decl(stack, "flex-direction")).toBe("column");
+    // The chip rows' old trailing margin, now owned by the stack.
+    expect(decl(stack, "gap")).toBe("var(--space-4)");
+    expect(decl(own(".queue-controls .filters--inline"), "margin-bottom")).toBe("0");
+  });
+
+  it("a caption sits closer to what it explains than to the next block", () => {
+    const group = own(".queue-controls__group, .queue-notes");
+    expect(decl(group, "gap")).toBe("var(--space-2)");
+  });
+
+  it("the results and the trailing captions stand off the controls by the pager's step", () => {
+    const pagerStep = decl(own(".pager"), "margin-top");
+    expect(pagerStep).toBe("var(--space-5)");
+    expect(decl(own(".queue-controls"), "margin-block-end")).toBe(pagerStep);
+    expect(decl(own(".queue-notes--foot"), "margin-block-start")).toBe(pagerStep);
+  });
+
+  it("on a phone the two metric tile rows stay one grid (row gap = tile gap)", () => {
+    const phone = (selector: string) =>
+      rules(CSS, true).find(
+        (r) => r.selector === selector && r.atRules.join() === "@media (max-width: 600px)",
+      );
+    expect(decl(phone(".queue-metrics")!.body, "gap")).toBe(decl(phone(".stats")!.body, "gap"));
+  });
+
+  it("an action label never breaks inside its button; the row wraps instead", () => {
+    expect(decl(own(".queue-controls .filters__actions"), "flex-wrap")).toBe("wrap");
+    expect(decl(own(".queue-controls .filters__actions .btn"), "white-space")).toBe("nowrap");
+  });
+
+  it("a batch card nested in the queue panel takes the small panel pad", () => {
+    expect(decl(own(".reviewgroups > .panel"), "padding")).toBe("var(--panel-pad-sm)");
+  });
+});

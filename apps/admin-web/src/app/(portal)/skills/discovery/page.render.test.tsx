@@ -593,5 +593,64 @@ describe("loading", () => {
     // Four headline tiles + five outcome tiles = nine `.stat` skeletons, plus the queue panel.
     expect((out.match(/class="stat"/g) ?? []).length).toBe(9);
     expect(out).toContain('class="panel"');
+    // Both tile rows inside the same stack the page uses, so they do not jump apart on load.
+    expect(out).toContain('<div class="queue-metrics"><div class="stats">');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1856 — hierarchy and rhythm. The CSS stacks (`.queue-metrics`, `.queue-controls`, …) are
+// fenced in app/discovery-rhythm.css.test.ts; these pin which markup they wrap.
+// ---------------------------------------------------------------------------
+describe("hierarchy and rhythm", () => {
+  it("the metrics are ONE named section: both tile rows and both captions inside it", async () => {
+    const out = await render();
+    const open =
+      '<section class="queue-metrics" aria-labelledby="sd-metrics">' +
+      '<h2 class="sr-only" id="sd-metrics">Queue metrics</h2>';
+    const start = out.indexOf(open);
+    expect(start).toBeGreaterThanOrEqual(0);
+    const section = out.slice(start, out.indexOf("</section>", start));
+    expect(section).toContain('<div class="stats">');
+    expect(section).toContain('<div class="stats stats--compact">');
+    expect((section.match(/class="stat"/g) ?? []).length).toBe(9);
+    // The two captions travel together, closer to each other than to the tiles.
+    expect(section).toContain('<div class="queue-notes"><p class="field__help">6,673 candidates in total.');
+  });
+
+  it("a failed metrics read renders its error state inside the section (h3 under an h2)", async () => {
+    stub.metricsFailure = new stub.RequestError(503);
+    const out = await render();
+    expect(out).toContain(
+      '<h2 class="sr-only" id="sd-metrics">Queue metrics</h2><div class="state state--error">' +
+        '<h3 class="state__title">Dashboard tiles are unavailable</h3>',
+    );
+  });
+
+  it("every control sits in one stack ABOVE the results, the tier caption with its tabs", async () => {
+    stub.groups = { ...stub.groups, groups: [GROUP], total_groups: 1, total_candidates: 2, total_undecided: 1 };
+    const out = await render();
+    const at = (s: string) => {
+      const i = out.indexOf(s);
+      expect(i, s).toBeGreaterThanOrEqual(0);
+      return i;
+    };
+    const order = [
+      at('<div class="queue-controls">'),
+      at('aria-label="Status"'),
+      at('<div class="queue-controls__group"><div class="filters--inline" role="group" aria-label="Review tier">'),
+      at('aria-label="Batch order"'),
+      at('<ul class="reviewgroups">'),
+    ];
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // The caption closes the tier group — it explains the tabs directly above it.
+    const group = out.slice(at('<div class="queue-controls__group">'), at('aria-label="Batch order"'));
+    expect(group).toContain('</div><p class="field__help">');
+  });
+
+  it("the grouped view's trailing captions sit in a foot block after the batch list", async () => {
+    stub.groups = { ...stub.groups, groups: [GROUP], total_groups: 1, total_candidates: 2, total_undecided: 1 };
+    const out = await render();
+    expect(out).toContain('</ul><div class="queue-notes queue-notes--foot"><p class="field__help">1 batches');
   });
 });

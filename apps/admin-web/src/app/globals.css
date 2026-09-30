@@ -2050,6 +2050,52 @@ textarea.field__input {
 .reviewgroup[open] > summary {
   margin-block-end: var(--space-3);
 }
+/* A batch card is a panel INSIDE the queue panel. At the outer panel's pad a one-line summary
+   sat in a 72px box, so the queue read as a stack of pages; the small pad (the phone step every
+   panel already takes) keeps it a list. */
+.reviewgroups > .panel {
+  padding: var(--panel-pad-sm);
+}
+
+/* #1856 — the discovery page's rhythm. Its metrics are two tile rows plus two captions, and its
+   queue panel stacks four control rows above the results; each piece used to float on whatever
+   margin it happened to carry — 0px between the tier caption and the batch-order row, 0px
+   between the filter form and the first result, 0px above the trailing captions (measured). Now
+   each block is one stack with one gap: the tile rows keep their own tile gap (`.stats`, and the
+   phone step below), the control rows the chip rows' old margin, and a caption sits closer to
+   what it explains than to the next block. */
+.queue-metrics,
+.queue-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.queue-controls {
+  margin-block-end: var(--space-5);
+}
+/* The stack's gap replaces a chip row's own trailing margin; (0,2,0) beats `.filters--inline`. */
+.queue-controls .filters--inline {
+  margin-bottom: 0;
+}
+/* This filter bar is the console's only one with TWO actions (Apply, Clear filters), and in its
+   13rem grid track "Clear filters" broke onto two lines inside its own button at 1280. A label
+   never breaks; the second button drops under the first instead. */
+.queue-controls .filters__actions {
+  flex-wrap: wrap;
+}
+.queue-controls .filters__actions .btn {
+  white-space: nowrap;
+}
+.queue-controls__group,
+.queue-notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+/* Captions under the batch list sit off it by the pager's own step (`.pager` in the flat view). */
+.queue-notes--foot {
+  margin-block-start: var(--space-5);
+}
 
 .btn[aria-current="page"] {
   background: var(--brand-tint);
@@ -2189,6 +2235,10 @@ textarea.field__input {
      "₹2,145.382716" or "₹1,23,45,678", so its unbroken figure (the tile's minimum width)
      already gives it a row of its own — no placement rule is needed for that. */
   .stats {
+    gap: var(--space-3);
+  }
+  /* The discovery metrics' two tile rows stay one grid: row gap = tile gap. */
+  .queue-metrics {
     gap: var(--space-3);
   }
   .stats > .stat {

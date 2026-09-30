@@ -17,38 +17,42 @@ export default function SkillDiscoveryLoading() {
         </div>
       </header>
 
-      {/* The four headline tiles. */}
-      <div className="stats">
-        <div className="stat">
-          <div className="skeleton skeleton--row" />
+      {/* The metrics block — the same `.queue-metrics` stack the page renders, so the two tile
+          rows sit the same distance apart while loading as once loaded. */}
+      <div className="queue-metrics">
+        {/* The four headline tiles. */}
+        <div className="stats">
+          <div className="stat">
+            <div className="skeleton skeleton--row" />
+          </div>
+          <div className="stat">
+            <div className="skeleton skeleton--row" />
+          </div>
+          <div className="stat">
+            <div className="skeleton skeleton--row" />
+          </div>
+          <div className="stat">
+            <div className="skeleton skeleton--row" />
+          </div>
         </div>
-        <div className="stat">
-          <div className="skeleton skeleton--row" />
-        </div>
-        <div className="stat">
-          <div className="skeleton skeleton--row" />
-        </div>
-        <div className="stat">
-          <div className="skeleton skeleton--row" />
-        </div>
-      </div>
 
-      {/* The five outcome tiles. */}
-      <div className="stats stats--compact">
-        <div className="stat">
-          <div className="skeleton skeleton--row" />
-        </div>
-        <div className="stat">
-          <div className="skeleton skeleton--row" />
-        </div>
-        <div className="stat">
-          <div className="skeleton skeleton--row" />
-        </div>
-        <div className="stat">
-          <div className="skeleton skeleton--row" />
-        </div>
-        <div className="stat">
-          <div className="skeleton skeleton--row" />
+        {/* The five outcome tiles. */}
+        <div className="stats stats--compact">
+          <div className="stat">
+            <div className="skeleton skeleton--row" />
+          </div>
+          <div className="stat">
+            <div className="skeleton skeleton--row" />
+          </div>
+          <div className="stat">
+            <div className="skeleton skeleton--row" />
+          </div>
+          <div className="stat">
+            <div className="skeleton skeleton--row" />
+          </div>
+          <div className="stat">
+            <div className="skeleton skeleton--row" />
+          </div>
         </div>
       </div>
 
