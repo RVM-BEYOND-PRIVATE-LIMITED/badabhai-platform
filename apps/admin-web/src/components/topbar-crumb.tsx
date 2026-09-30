@@ -46,7 +46,10 @@ export function TopbarCrumb() {
     <nav className="crumbs" aria-label="Breadcrumb">
       {group ? (
         <>
-          <span className="crumb">{group}</span>
+          {/* `crumb--group` lets the phone tier drop the section name first: it is the one
+              segment the open drawer already shows, and at 375px keeping it truncates all
+              three. */}
+          <span className="crumb crumb--group">{group}</span>
           <span className="crumb__sep" aria-hidden="true">
             /
           </span>

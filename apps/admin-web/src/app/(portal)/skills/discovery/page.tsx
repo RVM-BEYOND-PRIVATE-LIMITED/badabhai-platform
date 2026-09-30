@@ -26,6 +26,7 @@ import {
 import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../../lib/format";
 import { StatusPill } from "../../../../components/status-pill";
 import { Pager } from "../../../../components/pager";
+import { Stat } from "../../../../components/stat";
 import { SkillDiscoveryFilterBar } from "./filter-bar";
 
 export const dynamic = "force-dynamic";
@@ -504,44 +505,23 @@ function MetricsTiles({ metrics }: { metrics: SkillDiscoveryMetrics | null }) {
   return (
     <>
       <div className="stats">
-        <div className="stat">
-          <span className="stat__value">{formatCount(metrics.awaiting_decision)}</span>
-          <span className="stat__label">Pending review</span>
-        </div>
-        <div className="stat">
-          <span className="stat__value">{formatCount(byTier("direct"))}</span>
-          <span className="stat__label">{ADMIN_SKILL_REVIEW_TIER_LABELS.direct}</span>
-        </div>
-        <div className="stat">
-          <span className="stat__value">{formatCount(byTier("ambiguous"))}</span>
-          <span className="stat__label">{ADMIN_SKILL_REVIEW_TIER_LABELS.ambiguous}</span>
-        </div>
-        <div className="stat">
-          <span className="stat__value">{formatCount(byTier("derived"))}</span>
-          <span className="stat__label">{ADMIN_SKILL_REVIEW_TIER_LABELS.derived}</span>
-        </div>
+        <Stat label="Pending review" value={formatCount(metrics.awaiting_decision)} />
+        <Stat label={ADMIN_SKILL_REVIEW_TIER_LABELS.direct} value={formatCount(byTier("direct"))} />
+        <Stat
+          label={ADMIN_SKILL_REVIEW_TIER_LABELS.ambiguous}
+          value={formatCount(byTier("ambiguous"))}
+        />
+        <Stat
+          label={ADMIN_SKILL_REVIEW_TIER_LABELS.derived}
+          value={formatCount(byTier("derived"))}
+        />
       </div>
       <div className="stats stats--compact">
-        <div className="stat">
-          <span className="stat__value">{formatCount(byStatus("approved_create"))}</span>
-          <span className="stat__label">Created</span>
-        </div>
-        <div className="stat">
-          <span className="stat__value">{formatCount(byStatus("approved_map"))}</span>
-          <span className="stat__label">Mapped</span>
-        </div>
-        <div className="stat">
-          <span className="stat__value">{formatCount(byStatus("approved_merge"))}</span>
-          <span className="stat__label">Merged</span>
-        </div>
-        <div className="stat">
-          <span className="stat__value">{formatCount(byStatus("rejected"))}</span>
-          <span className="stat__label">Rejected</span>
-        </div>
-        <div className="stat">
-          <span className="stat__value">{formatCount(metrics.deferred)}</span>
-          <span className="stat__label">Held</span>
-        </div>
+        <Stat label="Created" value={formatCount(byStatus("approved_create"))} />
+        <Stat label="Mapped" value={formatCount(byStatus("approved_map"))} />
+        <Stat label="Merged" value={formatCount(byStatus("approved_merge"))} />
+        <Stat label="Rejected" value={formatCount(byStatus("rejected"))} />
+        <Stat label="Held" value={formatCount(metrics.deferred)} />
       </div>
       <p className="field__help">
         {formatCount(metrics.total)} candidates in total.{" "}
