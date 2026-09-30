@@ -22,13 +22,26 @@ import { FontResolutionError } from "../common/pdf/font-resolution";
 import { countPdfPages } from "../common/pdf/pdf-page-count";
 import { ResumeRenderer } from "./resume-renderer.service";
 import { buildResumeRenderInput, type TradeSheetContext } from "./resume-render-input";
-import { buildResumeQrDataUri } from "./resume-qr";
+import { buildResumeQrDataUri, templateTakesQr } from "./resume-qr";
 import { verificationBadgeFor } from "./verification-tier";
-import { buildSheetFooterMeta, RESUME_PROFILE_ORIGIN, resumeRefCode } from "./resume-sheet-footer";
+import {
+  buildSheetFooterMeta,
+  RESUME_PROFILE_ORIGIN,
+  RESUME_QR_CAPTION,
+  resumeQrScanUrl,
+  resumeRefCode,
+} from "./resume-sheet-footer";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { PROFILING_TIER_FOOTER_LABEL } from "../profiling/tiers/profiling-tier.policy";
 import { applyTierScope, type ResumeTierScope } from "./resume-tier-scope";
 import { ResumeTierScopeReader } from "./resume-tier-scope.reader";
+import { GeneralRoadReader, type GeneralRoadMarker } from "./general-road.reader";
+import { ownBriefUsable } from "./resume-brief";
+import type { ResumeSkin } from "@badabhai/types";
+import { templateTakesSkin } from "./resume-skins";
+import { ResumeSkinReader } from "./resume-skin.reader";
+import { ResumeQrLinkService } from "../referrals/resume-qr-link.service";
+import { logSafeReason } from "../common/db-error";
 
 /**
  * Renders a resume PDF off the request path (NODE-ONLY render, see ADR).
@@ -85,8 +98,54 @@ export class ResumeRenderProcessor extends WorkerHost {
     // TIERED PROFILING. Optional so its absence is today's sheet — every pre-tier construction
     // (the processor tests) renders exactly as before, as does PROFILING_TIERS_ENABLED off.
     @Optional() private readonly tierScopes?: ResumeTierScopeReader,
+    // ADR-0045 Phase 5 — THE GENERAL ROAD, by the résumé's own provenance. Optional on the same
+    // terms as the tier reader: absent is today's sheet. Database-only reads, no event surface.
+    @Optional() private readonly generalRoads?: GeneralRoadReader,
+    // #1801 — THE WORKER'S RÉSUMÉ SKIN. Optional on the same terms as the two readers above:
+    // absent is today's sheet, and so is RESUME_SKINS_ENABLED off (the reader then answers null
+    // without a query). Read only for a `bb_trade` render — the one template a skin applies to.
+    // THE READER, NEVER ResumeSkinService: the service emits, and this processor holds no event
+    // surface (the TD5 security test).
+    @Optional() private readonly skins?: ResumeSkinReader,
+    // #1800 — THE RÉSUMÉ QR's OWN LINK. Optional on the same terms as the readers above: absent is
+    // today's sheet (the homepage QR), and so is RESUME_QR_SCAN_ENABLED off (no query at all).
+    // THE NARROW MINT, NEVER ReferralLinkService: this class's one method is the get-or-create of
+    // the worker's `resume_qr` row, and its one emit is `referral.link_created` (ids + closed
+    // enums, strict). It is handed the worker id and nothing else this render decrypted.
+    @Optional() private readonly resumeQrLinks?: ResumeQrLinkService,
   ) {
     super();
+  }
+
+  /**
+   * #1800 — the footer QR's data URI: the worker's `/r/<code>` when their résumé-QR link can be
+   * had, the homepage otherwise. NEVER THROWS; every failure is the homepage QR.
+   *
+   * MINTS ONLY FOR A LIVE WORKER: no row (erased mid-queue) or a scheduled deletion (the grace
+   * window) is the homepage QR with no query — a worker on their way out is not handed a new
+   * bearer code. NEVER LOGS THE CODE: a failure is logged by its SQLSTATE and class only
+   * (`logSafeReason` strips a query error's bound parameters, which carry the code).
+   */
+  private async buildQr(
+    workerId: string,
+    worker: { deletionScheduledAt?: Date | null } | undefined,
+    templatePrintsQr: boolean,
+  ): Promise<string | null> {
+    // A sheet with no QR slot (the legacy classic / modern / minimal / fallback renders) must not
+    // mint a bearer code nobody will ever see — nor emit `referral.link_created` for it.
+    if (templatePrintsQr && worker && !worker.deletionScheduledAt && this.resumeQrLinks?.enabled) {
+      try {
+        const code = await this.resumeQrLinks.codeFor(workerId);
+        const scan = code === null ? null : await buildResumeQrDataUri(resumeQrScanUrl(code));
+        if (scan !== null) return scan;
+      } catch (err) {
+        this.logger.warn(
+          `could not get the résumé QR link for worker ${workerId}; printing the homepage QR ` +
+            `(${logSafeReason(err, "résumé QR link")})`,
+        );
+      }
+    }
+    return buildResumeQrDataUri(RESUME_PROFILE_ORIGIN);
   }
 
   async process(job: Job<ResumeRenderJobData>): Promise<{ rendered: boolean }> {
@@ -141,11 +200,16 @@ export class ResumeRenderProcessor extends WorkerHost {
     // any failure (rotated key / tampered token) — same as ResumeService. Never log
     // the token, the error detail, or the name.
     let displayName: string | null = null;
+    // ADR-0045 — whether a STORED name could not be read, which is not the same as no name stored.
+    // The general road's brief is re-checked against this name before it prints, and a check that
+    // could not run is not a check that passed: the brief then prints the fallback line.
+    let nameUnreadable = false;
     const worker = await this.workers.findById(workerId);
     if (worker?.fullName) {
       try {
         displayName = this.pii.decrypt(worker.fullName);
       } catch {
+        nameUnreadable = true;
         this.logger.warn(
           `could not decrypt full_name for worker ${workerId}; rendering a name-less resume`,
         );
@@ -227,15 +291,6 @@ export class ResumeRenderProcessor extends WorkerHost {
     // unverified / self-declared / employer-rated print nothing. See `verification-tier.ts` for
     // why a self-declaration may not wear the badge.
     const trustBadge = verificationBadgeFor(worker?.verificationState);
-
-    // POINTS AT THE SITE ROOT FOR NOW — owner ruling 2026-08-28. The per-worker `/w/<code>` page
-    // is Phase 3, and a QR that resolves to a 404 is worse on a printed page than a QR that
-    // resolves to the homepage: the sheet outlives the render, and paper cannot be re-issued once
-    // it is in an employer's stack.
-    //
-    // NOT INSIDE ANY OF THE LOADS BELOW. It depends on a module constant and nothing else, so
-    // there is no failure it can legitimately share.
-    const qrDataUri = await buildResumeQrDataUri(RESUME_PROFILE_ORIGIN);
 
     // THE TRADE CAPABILITY BLOCK — the `bb_trade` sheet's first and most-scanned section.
     //
@@ -421,6 +476,69 @@ export class ResumeRenderProcessor extends WorkerHost {
       );
     }
 
+    // THE TEMPLATE THIS RENDER DRAWS WITH — the stored id, upgraded to the trade sheet if he has
+    // since taken a role form. RESOLVED ONCE and read twice: by the general-road gate below and by
+    // the mapper, so the two can never disagree about which sheet this is.
+    const templateId = renderTemplateId(resume.templateId, loaded?.packId ?? null);
+
+    // THE QR. The homepage (owner ruling 2026-08-28) unless RESUME_QR_SCAN_ENABLED is on, in which
+    // case it is `/r/<code>` of this worker's own `resume_qr` link (#1800, owner ruling
+    // 2026-09-28): a scan is counted (`profile.qr_scanned`) and lands on the install page, and a
+    // worker who installs from it is attributed — never commissioned. There is still no public
+    // per-worker page, and a QR resolving to a 404 is worse on paper than one resolving to the
+    // homepage: the sheet outlives the render and cannot be re-issued.
+    //
+    // BUILT AFTER THE TEMPLATE IS RESOLVED, so a sheet with no QR slot never mints a code.
+    // ITS OWN DEGRADE, INSIDE NONE OF THE LOADS AROUND IT. Any failure to produce the `/r/` QR —
+    // the flag off, 0129 not applied, a DB error, collisions exhausted, an encoder refusal — is
+    // the homepage QR, byte-identical to before #1800. The QR must never cost the PDF.
+    const qrDataUri = await this.buildQr(workerId, worker, templateTakesQr(templateId));
+
+    // ADR-0045 Phase 5 — THE GENERAL ROAD, an EIGHTH independent load on the same degrade as the
+    // seven above: a failure costs the road (today's sheet — no brief, the pre-road years rule) and
+    // never the PDF. QUERIED ONLY FOR A `bb_general` RENDER: the trade sheet has no brief slot and
+    // no road, so every other render makes no extra query at all. The reader answers by the
+    // résumé's own provenance and itself degrades to null; this catch is the one-load-one-section
+    // rule held regardless.
+    let road: GeneralRoadMarker | null = null;
+    if (templateId === "bb_general") {
+      try {
+        road =
+          (await this.generalRoads?.forResume({ id: resume.id, workerId: resume.workerId })) ??
+          null;
+      } catch {
+        this.logger.warn(
+          `could not read the general-road provenance of resume ${resumeId}; rendering without`,
+        );
+      }
+    }
+    // THE BRIEF'S RENDER-TIME RE-CHECK, decided HERE because it needs the worker's real name, which
+    // is decrypted above for the masthead and must never ride the context. A name that could not be
+    // decrypted fails the check (fail closed); the mapper then prints the fixed fallback line —
+    // exactly what the employer copy prints on the same failure, so the two copies agree.
+    // #1801 — THE SKIN, a NINTH independent load on the same degrade as the eight above: a failure
+    // costs the skin (the template's own colours, i.e. Neela) and never the PDF. QUERIED ONLY FOR A
+    // `bb_trade` RENDER, and only while RESUME_SKINS_ENABLED is on (the reader answers null
+    // without a query when off) — every other render makes no extra query at all.
+    let skin: ResumeSkin | null = null;
+    if (templateTakesSkin(templateId)) {
+      try {
+        skin = (await this.skins?.forWorker(workerId)) ?? null;
+      } catch {
+        this.logger.warn(
+          `could not read the résumé skin for worker ${workerId}; rendering the house skin`,
+        );
+      }
+    }
+
+    const generalRoad =
+      road === null
+        ? null
+        : {
+            ownBriefUsable:
+              !nameUnreadable && ownBriefUsable(loaded?.attributes?.profile_brief, displayName),
+          };
+
     // ALWAYS A CONTEXT, never null. `packId`/`attributes` carry the empty defaults so a failed
     // attribute load collapses the capability section and costs exactly that.
     const tradeSheet: TradeSheetContext = {
@@ -466,7 +584,7 @@ export class ResumeRenderProcessor extends WorkerHost {
       // as a warning. The five-value→label mapping lives in `verification-tier.ts`.
       trustBadge,
       qrDataUri,
-      qrCaption: "Scan to open this worker's live profile",
+      qrCaption: RESUME_QR_CAPTION,
       shortLink: RESUME_PROFILE_ORIGIN.replace(/^https?:\/\//, ""),
       footerMeta: buildSheetFooterMeta({
         generatedAt: renderedAt,
@@ -476,13 +594,17 @@ export class ResumeRenderProcessor extends WorkerHost {
         // Absent while tiers are off, so the footer is exactly today's.
         tierLabel: tierScope ? PROFILING_TIER_FOOTER_LABEL[tierScope.tier] : null,
       }),
+      // ADR-0045 — ABSENT, not null, off the road, so this context is exactly today's for every
+      // other worker. A marker and one verdict; never the name, never the brief.
+      ...(generalRoad === null ? {} : { generalRoad }),
     };
 
     const input = buildResumeRenderInput(
       resume.sourceProfileSnapshot,
       displayName,
-      // The stored id, upgraded to the trade sheet if he has since taken a role form.
-      renderTemplateId(resume.templateId, loaded?.packId ?? null),
+      // The stored id, upgraded to the trade sheet if he has since taken a role form — resolved
+      // once above, the same value the general-road gate read.
+      templateId,
       photoDataUri,
       // #947 — the worker's OWN "Night shift ke liye taiyaar" answer. Off the worker row
       // already loaded above for the name and the photo, so this costs no extra query.
@@ -536,7 +658,9 @@ export class ResumeRenderProcessor extends WorkerHost {
 
     let pdf: Buffer | null = null;
     try {
-      pdf = await this.renderer.renderPdf(input);
+      // #1801 — the skin rides only the PRINT: absent (null) is the template exactly as shipped,
+      // and the document projection below never sees it.
+      pdf = await this.renderer.renderPdf(skin === null ? input : { ...input, skin });
     } catch (err) {
       if (err instanceof FontResolutionError) {
         // NOT a per-resume fault: the image cannot resolve the sheet's fonts, so every

@@ -2,7 +2,9 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 
+import { ROAD_FALLBACK_DATED, roadContext, roadPersona } from "./__fixtures__/general-road";
 import { primeSheetQr, SHEET_SHAPES, withSheetQr } from "./__fixtures__/sheet-shapes";
+import { maskInitials } from "./mask-initials";
 import { buildResumeRenderInput } from "./resume-render-input";
 
 /**
@@ -97,5 +99,105 @@ describe("withheld vs missing stays INDISTINGUISHABLE on the employer copy", () 
     const withSalary = structuredClone(shape.snapshot);
     const worker = build(withSalary, "worker");
     expect(worker.expectedSalary).not.toBeNull();
+  });
+});
+
+/**
+ * ADR-0045 PHASE 5 — THE SAME PIN ON THE GENERAL ROAD, which the pair above cannot see.
+ *
+ * They build as `bb_trade` from a container's `expected_salary`; the road renders `bb_general`
+ * from a pack-less profile whose band lives in the general form's attributes
+ * (`salary_expected_min` / `_max`) — a source the pair above never touches. So the road gets its
+ * own pair, and one more: its brief is the worker's own words on the payer copy, so a line that
+ * talks money must not become the salary row in prose, and a payer must not be able to tell a
+ * line the render refused from one the worker declined to write.
+ */
+describe("withheld vs missing stays INDISTINGUISHABLE on the general road's employer copy", () => {
+  const persona = roadPersona("road-answered");
+  const BAND = { salary_expected_min: 18000, salary_expected_max: 22000 } as const;
+  const NO_BAND: Record<string, unknown> = { ...persona.attributes };
+  delete NO_BAND.salary_expected_min;
+  delete NO_BAND.salary_expected_max;
+
+  const build = (
+    attributes: Record<string, unknown>,
+    audience: "worker" | "employer",
+    generalRoad?: { ownBriefUsable: boolean },
+  ) =>
+    buildResumeRenderInput(
+      persona.snapshot,
+      audience === "employer" ? maskInitials(persona.displayName) : persona.displayName,
+      "bb_general",
+      null,
+      false,
+      audience,
+      withSheetQr(
+        roadContext(persona, {
+          attributes: { ...attributes, profile_brief: persona.storedBrief },
+          ...(generalRoad ? { generalRoad } : {}),
+        }),
+      ),
+    );
+
+  it("a withheld band produces the same employer artifact as no band at all — every shape of it", () => {
+    const neverGiven = JSON.stringify(build(NO_BAND, "employer"));
+    for (const band of [BAND, { salary_expected_min: 18000 }, { salary_expected_max: 22000 }]) {
+      const withheld = build({ ...NO_BAND, ...band }, "employer");
+      expect(JSON.stringify(withheld), JSON.stringify(band)).toBe(neverGiven);
+      expect(withheld.expectedSalary).toBeNull();
+    }
+  });
+
+  it("...and the difference IS visible on the worker's own copy — the gate bites", () => {
+    const worker = build({ ...NO_BAND, ...BAND }, "worker");
+    expect(worker.expectedSalary).toBe(18000);
+    expect(worker.availFactRows?.find((r) => r.label === "Salary expected")?.value).toBe(
+      "₹18,000 – ₹22,000 / month",
+    );
+    expect(JSON.stringify(build(NO_BAND, "worker"))).not.toBe(
+      JSON.stringify(build({ ...NO_BAND, ...BAND }, "worker")),
+    );
+  });
+
+  it("a stored brief that talks money prints the fixed line — no employer field carries a figure", () => {
+    const money = { status: "answered", text: "Wiring karta hoon, 15000 rupaye chahiye" };
+    // Whether the caller caught it (`false`) or passed it through unvetted (`true`), the mapper's
+    // own re-check holds: the payer reads the fixed line, never the figure.
+    for (const ownBriefUsable of [false, true]) {
+      const input = buildResumeRenderInput(
+        persona.snapshot,
+        maskInitials(persona.displayName),
+        "bb_general",
+        null,
+        false,
+        "employer",
+        withSheetQr(
+          roadContext(persona, {
+            attributes: { ...persona.attributes, profile_brief: money },
+            generalRoad: { ownBriefUsable },
+          }),
+        ),
+      );
+      expect(input.profileBrief).toBe(ROAD_FALLBACK_DATED);
+      expect(JSON.stringify(input)).not.toMatch(/15,?000|18,?000|22,?000|rupaye|₹/);
+    }
+  });
+
+  it("a payer cannot tell a refused own line from a declined one", () => {
+    const refused = build(persona.attributes, "employer", { ownBriefUsable: false });
+    const declinedInput = buildResumeRenderInput(
+      persona.snapshot,
+      maskInitials(persona.displayName),
+      "bb_general",
+      null,
+      false,
+      "employer",
+      withSheetQr(
+        roadContext(persona, {
+          attributes: { ...persona.attributes, profile_brief: { status: "declined" } },
+        }),
+      ),
+    );
+    expect(JSON.stringify(refused)).toBe(JSON.stringify(declinedInput));
   });
 });

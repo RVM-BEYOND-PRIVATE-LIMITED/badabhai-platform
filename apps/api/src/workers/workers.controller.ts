@@ -266,7 +266,8 @@ export class WorkersController {
     @Body(new ZodValidationPipe(SetWorkerNameSchema)) dto: SetWorkerNameDto,
     @Ctx() ctx: RequestContext,
   ) {
-    return this.workersService.setFullName(id, dto.full_name, ctx);
+    // Ops write, not the worker editing their résumé: no resume.edited_v2 (#1318).
+    return this.workersService.setFullName(id, dto.full_name, ctx, { origin: "internal_ops" });
   }
 
   /**
@@ -295,7 +296,7 @@ export class WorkersController {
     @Body(new ZodValidationPipe(SetMyNameSchema)) dto: SetMyNameDto,
     @Ctx() ctx: RequestContext,
   ): Promise<{ ok: true }> {
-    await this.workersService.setFullName(worker.id, dto.full_name, ctx);
+    await this.workersService.setFullName(worker.id, dto.full_name, ctx, { origin: "worker_self" });
     // #1428 — the same screen also captures a coarse home location, so it rides the same PATCH:
     // one round trip on a 3G handset instead of two, on the first screen of onboarding. Both
     // halves are optional and a name-only body is byte-identical to the pre-#1428 request, so

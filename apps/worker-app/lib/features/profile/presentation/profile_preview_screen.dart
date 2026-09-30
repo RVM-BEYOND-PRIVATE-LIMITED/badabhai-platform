@@ -476,6 +476,8 @@ class _ProfileViewState extends State<_ProfileView> {
             initialEntries: employments,
             loadOptions: cubit.loadEmploymentOptions,
             onSave: cubit.saveEmployments,
+            // #1516 — résumé/chat jobs he never confirmed, offered as cards.
+            loadSuggestions: cubit.loadEmploymentSuggestions,
           ),
         ),
       ),

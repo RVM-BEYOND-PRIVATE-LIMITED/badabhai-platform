@@ -2,10 +2,12 @@ import 'package:equatable/equatable.dart';
 
 import '../../../core/api/api_models.dart'
     show
+        ChatAnswerType,
         ChatInputMode,
         ChatOption,
         ChatProgress,
         ChatQuestionKind,
+        EditProposal,
         FormOffer,
         PredictedQuestion;
 
@@ -27,14 +29,21 @@ class ChatTurn extends Equatable {
     this.progress,
     this.questionKind = ChatQuestionKind.ask,
     this.inputMode = ChatInputMode.text,
+    this.answerType,
     this.occupationLabel,
     this.askedQuestionId,
     this.ttsText,
     this.lookahead = const <String, PredictedQuestion?>{},
     this.formOffer,
     this.resumeUpdate,
+    this.gateKind,
+    this.generalFormOffer,
     this.companion = false,
     this.digestKey,
+    this.sessionEnded = false,
+    this.editProposal,
+    this.cooldownUntil,
+    this.readAloud,
   });
 
   final String reply;
@@ -71,6 +80,12 @@ class ChatTurn extends Equatable {
   /// Whether the composer is offered this turn (#770). [ChatInputMode.optionsOnly]
   /// hides it and leaves [followups] as the only answer path.
   final ChatInputMode inputMode;
+
+  /// HOW this turn's question is answered (`answer_type`, #1559 / #1583),
+  /// carried from `ChatReply.answerType`. Null on an older API build and on
+  /// every turn that is not serving a pack item — the UI then renders exactly
+  /// today's chips and composer.
+  final ChatAnswerType? answerType;
 
   /// The worker's trade in their own vernacular once retrieval pins it (#649),
   /// or null before it pins. The interview's trust moment.
@@ -122,8 +137,16 @@ class ChatTurn extends Equatable {
   /// and still reads as "not queued" — see [resumeUpdateQueued].
   final String? resumeUpdate;
 
-  /// The only value that changes what the app does. Fails closed.
-  bool get resumeUpdateQueued => resumeUpdate == 'queued';
+  /// ADR-0045 — the server's word on whether the skills gate is open this turn.
+  /// `skills` means the skills gate ("Kya aur koi skill jodni hai?") is open.
+  /// When absent or unknown the keyboard stays unlocked. Turn-scoped: cleared
+  /// on the next turn, like [formOffer].
+  final String? gateKind;
+
+  /// ADR-0045 — the server's offer to open the general form after the skills
+  /// gate closes. Both `headline` and `cta_label` are required. The key is
+  /// ABSENT (never `null`) when unset. Turn-scoped: cleared on the next turn.
+  final Map<String, String>? generalFormOffer;
 
   /// ADR-0044 — this turn came from the post-completion COMPANION
   /// (`/chat/companion`), not the interview. Set ONLY by the repository's
@@ -139,6 +162,34 @@ class ChatTurn extends Equatable {
   /// counts moved". Null on every other turn. Never shown.
   final String? digestKey;
 
+  /// The server's `session_ended`: this reply CLOSED the interview session, or
+  /// came from one that was already closed. Only the interview mapping carries
+  /// it; a companion turn belongs to no session and keeps `false`.
+  ///
+  /// Read with [isMock] to tell the two apart: a reply from a session that was
+  /// ALREADY over (the stateless résumé menu, or "Aapki baat poori ho chuki
+  /// hai" for a send that raced the close) is served with `is_mock: true`, and
+  /// a live interview turn never is.
+  final bool sessionEnded;
+
+  /// See [sessionEnded].
+  bool get fromClosedSession => sessionEnded && isMock;
+
+  /// The only value that changes what the app does. Fails closed.
+  bool get resumeUpdateQueued => resumeUpdate == 'queued';
+
+  /// ADR-0046 **Phase 1** (contracts §5.1) — the edit proposal card.
+  /// When present, the UI shows the checkbox card with Haan/Nahi buttons.
+  final EditProposal? editProposal;
+
+  /// ADR-0046 Phase 2 — the faltu cool-down. Carried, not acted on in P1.
+  /// While the current time is before this, the companion UI shows a wait state.
+  final DateTime? cooldownUntil;
+
+  /// ADR-0046 **Phase 3** — whether the companion's reply should be read aloud
+  /// automatically.
+  final bool? readAloud;
+
   @override
   List<Object?> get props => <Object?>[
         reply,
@@ -151,13 +202,20 @@ class ChatTurn extends Equatable {
         progress,
         questionKind,
         inputMode,
+        answerType,
         occupationLabel,
         askedQuestionId,
         ttsText,
         lookahead,
         formOffer,
         resumeUpdate,
+        gateKind,
+        generalFormOffer,
         companion,
         digestKey,
+        sessionEnded,
+        editProposal,
+        cooldownUntil,
+        readAloud,
       ];
 }

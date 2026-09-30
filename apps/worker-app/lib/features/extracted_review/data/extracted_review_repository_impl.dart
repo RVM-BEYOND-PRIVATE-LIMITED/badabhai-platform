@@ -124,6 +124,28 @@ class ExtractedReviewRepositoryImpl implements ExtractedReviewRepository {
   }
 
   @override
+  Future<List<CatalogueOptionDto>> loadSkillOptions() async {
+    try {
+      return await _api.getSkillOptions(authToken: _token);
+    } on Failure {
+      rethrow;
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
+  @override
+  Future<List<CatalogueOptionDto>> loadMachineOptions() async {
+    try {
+      return await _api.getMachineOptions(authToken: _token);
+    } on Failure {
+      rethrow;
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
+  @override
   Future<String?> confirm() async {
     try {
       final String? profileId = _session.profileId;

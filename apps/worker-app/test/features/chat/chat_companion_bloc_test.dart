@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart'
-    show ChatOption, ChatQuestionKind;
+    show ChatOption, ChatQuestionKind, EditProposal, EditProposalRow;
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/observability/analytics.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
@@ -412,20 +412,366 @@ void main() {
       await bloc.close();
     });
 
-    test('never pulls an INTERVIEW into the companion', () async {
-      when(() => repo.openCompanion())
-          .thenAnswer((_) async => const CompanionOpening.interview());
+  });
+
+  // ── A TAB THAT OPENED AS THE INTERVIEW, on refocus ──────────────────────────
+  // The tab picks its chat when it opens and used to never ask again, so a tab
+  // that opened as the interview kept the old transcript until the app was
+  // killed — after the worker confirmed, and whenever the Remote Config switch
+  // landed after the tab opened. The server decides it again on refocus, unless
+  // the worker is taking part in that interview on this screen.
+  group('ChatCompanionRefreshRequested on an INTERVIEW tab', () {
+    late DateTime now;
+    ChatBloc bloc0() => ChatBloc(repo, clock: () => now);
+
+    const List<ChatMessage> oldTranscript = <ChatMessage>[
+      ChatMessage(text: 'Aap aur kaun sa kaam karte hain?', fromWorker: false),
+      ChatMessage(text: 'welding', fromWorker: true),
+      ChatMessage(text: 'Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.', fromWorker: false),
+    ];
+
+    void serverSays(CompanionOpening answer) =>
+        when(() => repo.openCompanion()).thenAnswer((_) async => answer);
+
+    CompanionOpening recap() =>
+        CompanionOpening(CompanionOpenOutcome.companion, _companion(_recap, digestKey: 'k1'));
+
+    setUp(() {
+      now = DateTime.utc(2026, 9, 28, 5, 31);
+      when(() => repo.loadHistory()).thenAnswer((_) async => oldTranscript);
+      when(() => repo.forgetSession()).thenReturn(null);
+    });
+
+    test('opened with the switch OFF, a refocus moves a REDRAWN transcript to the recap', () async {
+      serverSays(recap());
+      final ChatBloc bloc = bloc0()..add(const ChatStarted());
+      await pumpEventQueue();
+      expect(bloc.state.companion, isFalse);
+      expect(bloc.state.messages, hasLength(1 + oldTranscript.length));
+
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+
+      expect(bloc.state.companion, isTrue);
+      // The recap stands alone: no canned opener, no old transcript (ADR-0044 R4).
+      expect(bloc.state.messages.map((ChatMessage m) => m.text).toList(), <String>[_recap]);
+      expect(bloc.state.messages.single.ttsText, 'नमस्ते।');
+      expect(bloc.state.suggestedOptions, _recapOptions);
+      expect(bloc.state.questionKind, ChatQuestionKind.disambiguate);
+      expect(bloc.state.initializing, isFalse);
+      verify(() => repo.openCompanion()).called(1);
+      // As if it had opened on the recap: the old interview's id is not kept.
+      verify(() => repo.forgetSession()).called(1);
+      await bloc.close();
+    });
+
+    test('opened as the interview by the SERVER, a refocus asks again and moves to the recap', () async {
+      serverSays(const CompanionOpening.interview());
       final ChatBloc bloc = bloc0()..add(const ChatCompanionStarted());
       await pumpEventQueue();
       expect(bloc.state.companion, isFalse);
-      when(() => repo.openCompanion())
-          .thenAnswer((_) async => CompanionOpening(CompanionOpenOutcome.companion, _companion(_recap, digestKey: 'k')));
-      now = now.add(const Duration(minutes: 5));
+
+      // The worker confirmed their profile elsewhere; the server's answer changed.
+      serverSays(recap());
+      now = now.add(const Duration(seconds: 5));
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+
+      expect(bloc.state.companion, isTrue);
+      expect(bloc.state.messages.map((ChatMessage m) => m.text).toList(), <String>[_recap]);
+      verify(() => repo.openCompanion()).called(2);
+      await bloc.close();
+    });
+
+    test('an "interview" answer on refocus keeps the transcript exactly as it was', () async {
+      serverSays(const CompanionOpening.interview());
+      final ChatBloc bloc = bloc0()..add(const ChatStarted());
+      await pumpEventQueue();
+      final ChatState before = bloc.state;
+
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+
+      expect(bloc.state, before);
+      verify(() => repo.openCompanion()).called(1);
+      verifyNever(() => repo.forgetSession());
+      await bloc.close();
+    });
+
+    test('an unreachable or throwing read keeps the transcript and shows no retry card', () async {
+      serverSays(const CompanionOpening.unreachable());
+      final ChatBloc bloc = bloc0()..add(const ChatStarted());
+      await pumpEventQueue();
+      final ChatState before = bloc.state;
+
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+      expect(bloc.state, before);
+
+      when(() => repo.openCompanion()).thenThrow(StateError('boom'));
+      now = now.add(const Duration(minutes: 2));
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+      expect(bloc.state, before);
+      expect(bloc.state.companionUnreachable, isFalse);
+      verify(() => repo.openCompanion()).called(2);
+      await bloc.close();
+    });
+
+    // After a redo closes, a returning worker keeps his confirmed profile until he
+    // opens the preview, so the SERVER already says "companion" — only the tab
+    // knows the redo's "build my profile" button is still his to tap.
+    test('a worker whose LIVE interview closed in this tab keeps it: the server is not even asked', () async {
+      serverSays(recap());
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(
+                reply: 'Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.',
+                followups: <String>[],
+                extractionReady: true,
+                sessionEnded: true,
+              ));
+      final ChatBloc bloc = bloc0()..add(const ChatStarted());
+      await pumpEventQueue();
+      bloc.add(const ChatMessageSent('welding'));
+      await pumpEventQueue();
+      expect(bloc.state.extractionReady, isTrue);
+
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+
+      expect(bloc.state.companion, isFalse);
+      expect(bloc.state.messages.last.text, contains('poori ho chuki'));
+      verifyNever(() => repo.openCompanion());
+      await bloc.close();
+    });
+
+    test('a FAILED answer counts too: the worker is still in that interview', () async {
+      serverSays(recap());
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+          .thenThrow(const NetworkFailure());
+      final ChatBloc bloc = bloc0()..add(const ChatStarted());
+      await pumpEventQueue();
+      bloc.add(const ChatMessageSent('welding'));
+      await pumpEventQueue();
+
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+
+      expect(bloc.state.companion, isFalse);
+      verifyNever(() => repo.openCompanion());
+      await bloc.close();
+    });
+
+    test('a settled "Haan" to the résumé update may leave it, and the interview\'s latches go with it', () async {
+      serverSays(recap());
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(
+                reply: 'Theek hai, aapka resume update ho raha hai.',
+                followups: <String>[],
+                extractionReady: true,
+                resumeUpdate: 'queued',
+              ));
+      final ChatBloc bloc = bloc0()..add(const ChatStarted());
+      await pumpEventQueue();
+      bloc.add(const ChatMessageSent('Haan'));
+      await pumpEventQueue();
+      expect(bloc.state.resumeUpdateQueued, isTrue);
+
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+
+      expect(bloc.state.companion, isTrue);
+      expect(bloc.state.messages.map((ChatMessage m) => m.text).toList(), <String>[_recap]);
+      expect(bloc.state.extractionReady, isFalse);
+      expect(bloc.state.resumeUpdateQueued, isFalse);
+      await bloc.close();
+    });
+
+    test('a send that starts while the read is out keeps the interview', () async {
+      final Completer<CompanionOpening> read = Completer<CompanionOpening>();
+      when(() => repo.openCompanion()).thenAnswer((_) => read.future);
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(reply: 'Kitne saal ka tajurba hai?', followups: <String>[]));
+      final ChatBloc bloc = bloc0()..add(const ChatStarted());
+      await pumpEventQueue();
+
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+      bloc.add(const ChatMessageSent('welding'));
+      await pumpEventQueue();
+      read.complete(recap());
+      await pumpEventQueue();
+
+      expect(bloc.state.companion, isFalse);
+      expect(bloc.state.messages.last.text, 'Kitne saal ka tajurba hai?');
+      await bloc.close();
+    });
+
+    // The production symptom: the tab redrew the worker's OLD, finished
+    // interview; he typed into it and got the stateless résumé menu. That reply
+    // comes from a session that was already over — nothing of his to finish.
+    test('a reply from the ENDED session it redrew (the résumé menu) does not hold the tab', () async {
+      serverSays(recap());
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(
+                reply: 'Aap resume mein kya badalna chahte hain?',
+                followups: <String>['Apna resume edit karein'],
+                extractionReady: true,
+                isMock: true,
+                sessionEnded: true,
+              ));
+      final ChatBloc bloc = bloc0()..add(const ChatStarted());
+      await pumpEventQueue();
+      bloc.add(const ChatMessageSent('hi'));
+      await pumpEventQueue();
+      expect(bloc.state.extractionReady, isTrue);
+
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+
+      expect(bloc.state.companion, isTrue);
+      expect(bloc.state.messages.map((ChatMessage m) => m.text).toList(), <String>[_recap]);
+      expect(bloc.state.extractionReady, isFalse);
+      await bloc.close();
+    });
+
+    test('a DEGRADED reply from a live session still holds it (the worker retries into it)', () async {
+      serverSays(recap());
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(
+                reply: 'Abhi thodi dikkat aa rahi hai.',
+                followups: <String>[],
+                isMock: true,
+              ));
+      final ChatBloc bloc = bloc0()..add(const ChatStarted());
+      await pumpEventQueue();
+      bloc.add(const ChatMessageSent('welding'));
+      await pumpEventQueue();
+
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+
+      expect(bloc.state.companion, isFalse);
+      verifyNever(() => repo.openCompanion());
+      await bloc.close();
+    });
+
+    test('a redo the worker asked for ("Chat se resume banayein") is never pulled back to the recap', () async {
+      serverSays(recap());
+      when(() => repo.startNewSession()).thenAnswer((_) async => null);
+      final ChatBloc bloc = bloc0()..add(const ChatSessionRestarted());
+      await pumpEventQueue();
+      expect(bloc.state.initializing, isFalse);
+
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+
+      expect(bloc.state.companion, isFalse);
+      verifyNever(() => repo.openCompanion());
+      await bloc.close();
+    });
+
+    test('a refocus while the transcript is still loading asks nothing, and the redraw never lands under a recap', () async {
+      serverSays(recap());
+      final Completer<List<ChatMessage>> history = Completer<List<ChatMessage>>();
+      when(() => repo.loadHistory()).thenAnswer((_) => history.future);
+      final ChatBloc bloc = bloc0()..add(const ChatStarted());
+      await pumpEventQueue();
+      expect(bloc.state.initializing, isFalse);
+
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+      verifyNever(() => repo.openCompanion());
+
+      history.complete(oldTranscript);
+      await pumpEventQueue();
+      expect(bloc.state.messages, hasLength(1 + oldTranscript.length));
+
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+      expect(bloc.state.companion, isTrue);
+      expect(bloc.state.messages.map((ChatMessage m) => m.text).toList(), <String>[_recap]);
+      await bloc.close();
+    });
+
+    test('after a "Haan" switch, the failed bubble a 409 fallback leaves holds the interview for its retry', () async {
+      serverSays(recap());
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(
+                reply: 'Theek hai, aapka resume update ho raha hai.',
+                followups: <String>[],
+                sessionEnded: true,
+                resumeUpdate: 'queued',
+              ));
+      final ChatBloc bloc = bloc0()..add(const ChatStarted());
+      await pumpEventQueue();
+      bloc.add(const ChatMessageSent('Haan'));
+      await pumpEventQueue();
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+      expect(bloc.state.companion, isTrue);
+
+      // A companion send is refused (409): the tab falls back to the interview,
+      // leaving that text as a failed bubble for the worker to retry.
+      when(() => repo.sendCompanionMessage(any(), submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => null);
+      bloc.add(const ChatMessageSent('naye jobs'));
+      await pumpEventQueue();
+      expect(bloc.state.companion, isFalse);
+
+      // The failed bubble holds the tab: it is the worker's to retry.
+      now = now.add(const Duration(minutes: 2));
       bloc.add(const ChatCompanionRefreshRequested());
       await pumpEventQueue();
       expect(bloc.state.companion, isFalse);
-      expect(bloc.state.messages.map((ChatMessage m) => m.text), isNot(contains(_recap)));
-      // Not even asked: an interview tab makes no companion request on refocus.
+      verify(() => repo.openCompanion()).called(1);
+      await bloc.close();
+    });
+
+    test('an unreachable open whose retry says "interview" stops retrying: the interview-tab rule takes over', () async {
+      serverSays(const CompanionOpening.unreachable());
+      final ChatBloc bloc = bloc0()..add(const ChatCompanionStarted());
+      await pumpEventQueue();
+      expect(bloc.state.companionUnreachable, isTrue);
+
+      serverSays(const CompanionOpening.interview());
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+      expect(bloc.state.companionUnreachable, isFalse);
+      verify(() => repo.ensureSession()).called(1);
+      verify(() => repo.openCompanion()).called(2);
+
+      // The worker answers the interview; the server would now say companion.
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(reply: 'Kitne saal ka tajurba hai?'));
+      bloc.add(const ChatMessageSent('welding'));
+      await pumpEventQueue();
+      serverSays(recap());
+      now = now.add(const Duration(minutes: 2));
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+
+      expect(bloc.state.companion, isFalse);
+      expect(bloc.state.messages.last.text, 'Kitne saal ka tajurba hai?');
+      verifyNever(() => repo.openCompanion());
+      await bloc.close();
+    });
+
+    test('is throttled like the recap refresh — a second refocus within a minute asks nothing', () async {
+      serverSays(const CompanionOpening.interview());
+      final ChatBloc bloc = bloc0()..add(const ChatStarted());
+      await pumpEventQueue();
+
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+      now = now.add(const Duration(seconds: 30));
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+      verify(() => repo.openCompanion()).called(1);
+
+      now = now.add(const Duration(seconds: 31));
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
       verify(() => repo.openCompanion()).called(1);
       await bloc.close();
     });
@@ -530,5 +876,322 @@ void main() {
       expect(spoken.single.parameters['question_index'], 1);
       await bloc.close();
     });
+  });
+
+  // ── ADR-0046 §5.1/§5.2 — THE EDIT CARD ─────────────────────────────────────
+  //
+  // A card arrives on a companion turn (`edit_proposal`); Haan POSTs the ticked
+  // rows' ids to the confirm route, Nahi POSTs the cancel route. Both answers
+  // are TURNS, and the two failure shapes are DISTINCT: a gone proposal (404 /
+  // stale) keeps the worker in the companion and re-reads the recap; a 409
+  // `{mode:"interview"}` leaves companion mode for the interview.
+  group('ADR-0046 edit card', () {
+    const String proposalId = '22222222-2222-4222-8222-222222222222';
+    const String rowA = '33333333-3333-4333-8333-333333333333';
+    const String rowB = '44444444-4444-4444-8444-444444444444';
+
+    EditProposal proposal() => EditProposal(
+          proposalId: proposalId,
+          expiresAt: DateTime.now().add(const Duration(minutes: 10)),
+          rows: const <EditProposalRow>[
+            EditProposalRow(
+              rowId: rowA,
+              sectionLabel: 'Skills',
+              op: 'add',
+              after: 'Welding',
+            ),
+            EditProposalRow(
+              rowId: rowB,
+              sectionLabel: 'Languages',
+              op: 'delete',
+              before: 'Hindi',
+            ),
+          ],
+        );
+
+    ChatTurn cardTurn() => ChatTurn(
+          reply: 'Yeh badlav karne hain?',
+          suggestedOptions: const <ChatOption>[],
+          questionKind: ChatQuestionKind.disambiguate,
+          companion: true,
+          editProposal: proposal(),
+        );
+
+    /// A bloc already in companion mode whose LAST turn carries the card.
+    Future<ChatBloc> blocWithCard() async {
+      when(() => repo.openCompanion()).thenAnswer(
+        (_) async => CompanionOpening(
+          CompanionOpenOutcome.companion,
+          _companion(_recap, digestKey: 'k1'),
+        ),
+      );
+      when(() => repo.sendCompanionMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => cardTurn());
+      final ChatBloc bloc = ChatBloc(repo)..add(const ChatCompanionStarted());
+      await pumpEventQueue();
+      bloc.add(const ChatMessageSent('Resume badlo'));
+      await pumpEventQueue();
+      expect(bloc.state.editProposal, isNotNull);
+      return bloc;
+    }
+
+    test('Haan sends the TICKED row ids and renders the served turn', () async {
+      final ChatBloc bloc = await blocWithCard();
+      when(() => repo.confirmCompanionEdit(proposalId, <String>[rowA],
+              submissionId: any(named: 'submissionId'))).thenAnswer(
+        (_) async => CompanionEditResult.served(
+          const ChatTurn(
+            reply: 'Badlav ho gaya. Aapka resume update ho raha hai.',
+            companion: true,
+          ),
+        ),
+      );
+
+      bloc.add(const ChatEditProposalConfirmed(<String>[rowA]));
+      await pumpEventQueue();
+
+      expect(bloc.state.editProposal, isNull);
+      expect(bloc.state.messages.last.text, contains('Badlav ho gaya'));
+      verify(() => repo.confirmCompanionEdit(proposalId, <String>[rowA],
+          submissionId: any(named: 'submissionId'))).called(1);
+      await bloc.close();
+    });
+
+    test('Nahi cancels and renders the served turn', () async {
+      final ChatBloc bloc = await blocWithCard();
+      when(() => repo.cancelCompanionEdit(proposalId,
+              submissionId: any(named: 'submissionId'))).thenAnswer(
+        (_) async => CompanionEditResult.served(
+          const ChatTurn(
+            reply: 'Theek hai, kuch nahi badla.',
+            companion: true,
+          ),
+        ),
+      );
+
+      bloc.add(const ChatEditProposalCancelled());
+      await pumpEventQueue();
+
+      expect(bloc.state.editProposal, isNull);
+      expect(bloc.state.messages.last.text, contains('kuch nahi badla'));
+      expect(bloc.state.companion, isTrue);
+      await bloc.close();
+    });
+
+    test('a GONE proposal clears the card and re-reads the recap, staying in companion', () async {
+      final ChatBloc bloc = await blocWithCard();
+      when(() => repo.confirmCompanionEdit(any(), any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const CompanionEditResult.gone());
+
+      bloc.add(const ChatEditProposalConfirmed(<String>[rowA, rowB]));
+      await pumpEventQueue();
+
+      expect(bloc.state.editProposal, isNull);
+      expect(bloc.state.companion, isTrue);
+      // The forced refresh re-read the recap (one read on open + one here).
+      verify(() => repo.openCompanion()).called(2);
+      await bloc.close();
+    });
+
+    test('a 409 mode:interview leaves companion mode and opens the interview', () async {
+      final ChatBloc bloc = await blocWithCard();
+      when(() => repo.confirmCompanionEdit(any(), any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const CompanionEditResult.interview());
+      when(() => repo.ensureSession()).thenAnswer(
+        (_) async => const ChatSessionOpening(text: 'Aap kya karna chahte hain.'),
+      );
+
+      bloc.add(const ChatEditProposalConfirmed(<String>[rowA]));
+      await pumpEventQueue();
+
+      expect(bloc.state.companion, isFalse);
+      expect(bloc.state.editProposal, isNull);
+      verify(() => repo.ensureSession()).called(1);
+      await bloc.close();
+    });
+
+    test('a failed confirm KEEPS the card so the worker can retry', () async {
+      final ChatBloc bloc = await blocWithCard();
+      when(() => repo.confirmCompanionEdit(any(), any(),
+              submissionId: any(named: 'submissionId')))
+          .thenThrow(const NetworkFailure());
+
+      bloc.add(const ChatEditProposalConfirmed(<String>[rowA]));
+      await pumpEventQueue();
+
+      expect(bloc.state.editProposal, isNotNull);
+      expect(bloc.state.companion, isTrue);
+      expect(bloc.state.sending, isFalse);
+      await bloc.close();
+    });
+
+    test('an empty tick set is a no-op — nothing is POSTed', () async {
+      final ChatBloc bloc = await blocWithCard();
+      bloc.add(const ChatEditProposalConfirmed(<String>[]));
+      await pumpEventQueue();
+      expect(bloc.state.editProposal, isNotNull);
+      verifyNever(() => repo.confirmCompanionEdit(any(), any(),
+          submissionId: any(named: 'submissionId')));
+      await bloc.close();
+    });
+  });
+
+  // ── ADR-0046 — THE v2 FIELDS REACH STATE FROM *EVERY* COMPANION PATH ───────
+  //
+  // A companion turn becomes state in five places. Two of them (the refocus
+  // refresh and the interview→recap move) never learned about `edit_proposal`,
+  // so a card served there was dropped — and, worse, a card already on screen
+  // OUTLIVED the turn that should have replaced it, because a copyWith that
+  // names nothing keeps the old value. All five now go through one projection;
+  // these tests are what keeps a sixth from being written by hand.
+  group('every companion path carries the v2 fields', () {
+    EditProposal card(String id) => EditProposal(
+          proposalId: id,
+          expiresAt: DateTime.now().add(const Duration(minutes: 5)),
+          rows: const <EditProposalRow>[
+            EditProposalRow(
+              rowId: 'r1',
+              sectionLabel: 'Skills',
+              op: 'add',
+              after: 'Welding',
+            ),
+          ],
+        );
+
+    ChatTurn withCard(String reply, String id, {String? digestKey}) => ChatTurn(
+          reply: reply,
+          companion: true,
+          digestKey: digestKey,
+          editProposal: card(id),
+        );
+
+    test('the OPEN carries a card', () async {
+      when(() => repo.openCompanion()).thenAnswer((_) async =>
+          CompanionOpening(CompanionOpenOutcome.companion,
+              withCard(_recap, 'p-open', digestKey: 'k1')));
+      final ChatBloc bloc = ChatBloc(repo)..add(const ChatCompanionStarted());
+      await pumpEventQueue();
+      expect(bloc.state.editProposal?.proposalId, 'p-open');
+      await bloc.close();
+    });
+
+    test('a REFOCUS REFRESH carries a card, and clears a stale one', () async {
+      when(() => repo.openCompanion()).thenAnswer((_) async =>
+          CompanionOpening(CompanionOpenOutcome.companion,
+              withCard(_recap, 'p-first', digestKey: 'k1')));
+      final ChatBloc bloc = ChatBloc(repo)..add(const ChatCompanionStarted());
+      await pumpEventQueue();
+      expect(bloc.state.editProposal?.proposalId, 'p-first');
+
+      // A refresh whose turn carries a DIFFERENT card replaces it...
+      when(() => repo.openCompanion()).thenAnswer((_) async =>
+          CompanionOpening(CompanionOpenOutcome.companion,
+              withCard('Naya recap.', 'p-second', digestKey: 'k2')));
+      bloc.add(const ChatCompanionRefreshRequested(force: true));
+      await pumpEventQueue();
+      expect(bloc.state.editProposal?.proposalId, 'p-second',
+          reason: 'the refresh dropped the card');
+
+      // ...and a refresh whose turn carries NONE clears it, rather than leaving
+      // a dead card the worker can still tap Haan on.
+      when(() => repo.openCompanion()).thenAnswer((_) async => CompanionOpening(
+          CompanionOpenOutcome.companion,
+          _companion('Aur kuch?', digestKey: 'k3')));
+      bloc.add(const ChatCompanionRefreshRequested(force: true));
+      await pumpEventQueue();
+      expect(bloc.state.editProposal, isNull,
+          reason: 'a card outlived the turn that replaced it');
+      await bloc.close();
+    });
+  });
+
+  // ── #1821 F1 — THE COOL-DOWN IS STICKY ─────────────────────────────────────
+  group('the cool-down survives the turns that follow it', () {
+    test('a later turn without cooldown_until does NOT hand the composer back',
+        () async {
+      final DateTime until = DateTime.now().add(const Duration(minutes: 20));
+      when(() => repo.openCompanion()).thenAnswer((_) async => CompanionOpening(
+            CompanionOpenOutcome.companion,
+            ChatTurn(
+              reply: 'Thodi der ruk jaayein.',
+              companion: true,
+              digestKey: 'k1',
+              cooldownUntil: until,
+            ),
+          ));
+      // The server sends `cooldown_until` ONLY on the turn that starts the wait.
+      when(() => repo.sendCompanionMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => _companion('Theek hai.'));
+
+      final ChatBloc bloc = ChatBloc(repo)..add(const ChatCompanionStarted());
+      await pumpEventQueue();
+      expect(bloc.state.cooldownUntil, until);
+
+      // Tapping any chip posts a message; its reply omits the field.
+      bloc.add(const ChatMessageSent('Naya resume'));
+      await pumpEventQueue();
+
+      expect(bloc.state.cooldownUntil, until,
+          reason: 'a chip tap unlocked the composer while the server cool-down '
+              'still had minutes to run — the next message would be refused');
+      await bloc.close();
+    });
+
+    test('a cool-down whose instant has PASSED is dropped', () async {
+      final DateTime past = DateTime.now().subtract(const Duration(minutes: 1));
+      when(() => repo.openCompanion()).thenAnswer((_) async => CompanionOpening(
+            CompanionOpenOutcome.companion,
+            ChatTurn(
+              reply: 'Thodi der ruk jaayein.',
+              companion: true,
+              digestKey: 'k1',
+              cooldownUntil: past,
+            ),
+          ));
+      when(() => repo.sendCompanionMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => _companion('Theek hai.'));
+      final ChatBloc bloc = ChatBloc(repo)..add(const ChatCompanionStarted());
+      await pumpEventQueue();
+
+      bloc.add(const ChatMessageSent('Naya resume'));
+      await pumpEventQueue();
+      expect(bloc.state.cooldownUntil, isNull,
+          reason: 'an elapsed wait must not stay pinned forever');
+      await bloc.close();
+    });
+  });
+
+  // ── ADR-0046 O9 — the read-aloud guard on EVERY bot bubble ─────────────────
+  test('a model-written turn never yields a speakable bubble, on any path',
+      () async {
+    when(() => repo.openCompanion()).thenAnswer((_) async => CompanionOpening(
+          CompanionOpenOutcome.companion,
+          const ChatTurn(
+            reply: 'Welding mein NDT seekhein.',
+            companion: true,
+            digestKey: 'k1',
+            readAloud: false,
+          ),
+        ));
+    when(() => repo.sendCompanionMessage(any(),
+            submissionId: any(named: 'submissionId')))
+        .thenAnswer((_) async => const ChatTurn(
+              reply: 'Uske baad supervisor.',
+              companion: true,
+              readAloud: false,
+            ));
+    final ChatBloc bloc = ChatBloc(repo)..add(const ChatCompanionStarted());
+    await pumpEventQueue();
+    expect(bloc.state.messages.last.canReadAloud, isFalse, reason: 'open');
+
+    bloc.add(const ChatMessageSent('Career ki baat'));
+    await pumpEventQueue();
+    expect(bloc.state.messages.last.canReadAloud, isFalse, reason: 'reply');
+    await bloc.close();
   });
 }

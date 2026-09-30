@@ -2,6 +2,7 @@ import { ConflictException, Injectable } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { AgencyKyc, AgencyKycStatus } from "@badabhai/db";
 import { EventsService } from "../events/events.service";
+import { isUniqueViolation } from "../common/db-error";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { PayersRepository } from "../payers/payers.repository";
 import { AgencyKycRepository } from "./agency-kyc.repository";
@@ -26,11 +27,6 @@ export interface AgencyKycView {
 export interface AgencyKycOpsRow extends AgencyKycView {
   payerId: string;
   submittedAt: Date;
-}
-
-/** Postgres unique-violation (23505) — here, a cross-agency duplicate PAN hash. */
-function isUniqueViolation(err: unknown): boolean {
-  return typeof err === "object" && err !== null && (err as { code?: string }).code === "23505";
 }
 
 /**
@@ -89,7 +85,7 @@ export class AgencyKycService {
       });
     } catch (err) {
       // The payer_id conflict is absorbed by upsert; the only unique that can escape is the
-      // cross-agency PAN hash. Surface a NEUTRAL conflict (never "PAN X is taken" — no oracle,
+      // cross-agency PAN hash (a 23505 on drizzle's `cause` — #1811). Surface a NEUTRAL conflict (never "PAN X is taken" — no oracle,
       // no PAN echoed) rather than a raw 500.
       if (isUniqueViolation(err)) {
         throw new ConflictException("These KYC details could not be saved");

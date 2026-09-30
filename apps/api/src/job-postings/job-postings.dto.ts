@@ -12,6 +12,7 @@ import {
   payBandOrdered,
   payTypeSchema,
   requirementsSchema,
+  roleKindSchema,
   shiftSchema,
 } from "../common/job-content.schemas";
 
@@ -119,6 +120,11 @@ const postingContentFields = {
   // looksLikePii + looksLikeOrgName + looksLikeUrl, capped at 12 items of 80 chars.
   benefits: benefitsSchema.optional(),
   requirements: requirementsSchema.optional(),
+  // Migration 0131 — the ROLE the payer picked, one of the 21 declared kinds. DISPLAY /
+  // CLASSIFICATION ONLY (ADR-0036 addendum 2026-09-29): it is never a match input — that is
+  // `match_skill_ids` below — and it is on no worker read this phase. No default: omitted
+  // stores NULL. The chat publish never sends it (the interview does not ask for a role).
+  role_kind: roleKindSchema.optional(),
 } as const;
 
 /**
@@ -173,6 +179,8 @@ const CLEARABLE_POSTING_FIELDS = [
   "needed_by",
   "benefits",
   "requirements",
+  // Migration 0131 — nullable, so clearable: "no role picked" is a legitimate state.
+  "role_kind",
 ] as const;
 export type ClearablePostingField = (typeof CLEARABLE_POSTING_FIELDS)[number];
 export { CLEARABLE_POSTING_FIELDS };

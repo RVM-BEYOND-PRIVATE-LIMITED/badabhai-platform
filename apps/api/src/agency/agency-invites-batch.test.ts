@@ -3,6 +3,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Logger, ServiceUnavailableException } from "@nestjs/common";
+import { DrizzleQueryError } from "drizzle-orm";
 import { AgencyService } from "./agency.service";
 
 /**
@@ -31,11 +32,18 @@ type EmittedEvent = {
 /** The invite id the in-memory `create` below mints on its Nth call. */
 const inviteId = (n: number) => `aaaaaaaa-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
-/** A Postgres unique-violation as the driver raises it (the 23505 the service classifies). */
+/**
+ * A Postgres unique-violation as the service actually receives it: drizzle 0.45 wraps the driver
+ * error in a `DrizzleQueryError`, so the 23505 is on `cause`, never on the error itself (#1811).
+ */
 const pgUnique = (constraint: string) =>
-  Object.assign(new Error(`duplicate key value violates unique constraint "${constraint}"`), {
-    code: "23505",
-  });
+  new DrizzleQueryError(
+    "insert into …",
+    [],
+    Object.assign(new Error(`duplicate key value violates unique constraint "${constraint}"`), {
+      code: "23505",
+    }),
+  );
 
 /**
  * Mirrors `EVENT_EMIT_RETRIES` in agency.service.ts (module-private). The value is not the
@@ -355,7 +363,7 @@ describe("createInviteBatch — code collision is bounded-retried, never a 500 (
       create: vi.fn().mockImplementation((input: { code: string }) => {
         calls += 1;
         codes.push(input.code);
-        if (calls === 1) return Promise.reject(Object.assign(new Error("dup"), { code: "23505" }));
+        if (calls === 1) return Promise.reject(pgUnique("agency_invites_code_uq"));
         return Promise.resolve({ id: "aaaaaaaa-0000-4000-8000-000000000001", code: input.code });
       }),
     };
@@ -376,14 +384,7 @@ describe("createInviteBatch — code collision is bounded-retried, never a 500 (
   it("exhausted collision retries surface a NEUTRAL error — no constraint name, no stack", async () => {
     const emit = vi.fn();
     const invitesRepo = {
-      create: vi.fn().mockRejectedValue(
-        Object.assign(
-          new Error('duplicate key value violates unique constraint "agency_invites_code_uq"'),
-          {
-            code: "23505",
-          },
-        ),
-      ),
+      create: vi.fn().mockRejectedValue(pgUnique("agency_invites_code_uq")),
     };
     const svc = new AgencyService(
       {} as never,

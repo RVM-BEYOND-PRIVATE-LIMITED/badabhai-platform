@@ -179,6 +179,17 @@ describe("listFeed — the company NAME is not in the projection (ADR-0036's ope
     expect(sql).toContain("jp.city AS city");
     expect(sql).not.toContain("location_label");
   });
+
+  it("never selects role_kind — the posting's display role is on NO worker read (0131, #1823)", async () => {
+    // ADR-0024 addendum 2026-09-29: the payer's role pick is display / classification for the
+    // payer portal only this phase. Selecting it here is the first step of putting it on the
+    // worker card, which is #1823's decision, not a mapper edit's.
+    const { repo, statements } = makeDb();
+    await repo.listFeed(WORKER, 10, {});
+    const { sql } = statements[0]!;
+    expect(sql).toContain("jp.role_title");
+    expect(sql).not.toContain("role_kind");
+  });
 });
 
 describe("listFeed — every filter is INERT unless the worker set it (Part 3)", () => {

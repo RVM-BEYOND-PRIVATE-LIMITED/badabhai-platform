@@ -3,6 +3,7 @@ import {
   WORKER_FEEDBACK_CATEGORIES,
   WORKER_FEEDBACK_APP_BUILD_MAX,
   WORKER_APP_SCREEN_TEMPLATES,
+  TRADE_FORM_KINDS_ALL,
 } from "@badabhai/types";
 import {
   validateEvent,
@@ -706,6 +707,41 @@ describe("job_posting events (ops-created, vacancy-banded, PII-free)", () => {
     if (result.success && result.event.event_name === "job_posting.created") {
       expect(result.event.payload.vacancy_band).toBe("2-5");
       expect(result.event.payload.status).toBe("draft");
+      // Migration 0131 — an emitter that predates `role_kind` still validates, and the
+      // parsed payload reads as "no role picked", never a guessed role.
+      expect(result.event.payload.role_kind).toBeNull();
+    }
+  });
+
+  it("carries job_posting.created role_kind as one of the 21 declared kinds, or null (0131)", () => {
+    const base = {
+      ...workerCreatedEvent(),
+      event_name: "job_posting.created",
+      actor: { actor_type: "payer", actor_id: UUID_C },
+      subject: { subject_type: "job_posting", subject_id: UUID_A },
+    };
+    const payload = {
+      job_posting_id: UUID_A,
+      vacancy_band: "1",
+      status: "draft",
+      created_by: UUID_C,
+      has_location: false,
+      has_description: false,
+    };
+    for (const kind of TRADE_FORM_KINDS_ALL) {
+      const ok = validateEvent({ ...base, payload: { ...payload, role_kind: kind } });
+      expect(ok.success, kind).toBe(true);
+      if (ok.success && ok.event.event_name === "job_posting.created") {
+        expect(ok.event.payload.role_kind).toBe(kind);
+      }
+    }
+    expect(validateEvent({ ...base, payload: { ...payload, role_kind: null } }).success).toBe(true);
+    // A closed enum, never free text: a trade key, a display label and a PII-shaped string
+    // are all refused at the payload stage.
+    for (const bad of ["cnc_operator", "Welder", "Ramesh 9876543210", ""]) {
+      const r = validateEvent({ ...base, payload: { ...payload, role_kind: bad } });
+      expect(r.success, bad).toBe(false);
+      if (!r.success) expect(r.error.stage).toBe("payload");
     }
   });
 
@@ -754,6 +790,18 @@ describe("job_posting events (ops-created, vacancy-banded, PII-free)", () => {
       },
     };
     expect(validateEvent(noBandChange).success).toBe(true);
+
+    // Migration 0131 — `role_kind` is an ADDITIVE key-enum member (no version bump).
+    const roleChanged = {
+      ...evt,
+      payload: {
+        job_posting_id: UUID_A,
+        changed_fields: ["role_kind"],
+        status: "open",
+        vacancy_band: null,
+      },
+    };
+    expect(validateEvent(roleChanged).success).toBe(true);
   });
 
   it("validates job_posting.closed and pins status to the literal 'closed'", () => {
@@ -1437,8 +1485,12 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
     if (result.success && result.event.event_name === "job.created") {
       expect(result.event.payload.pay_min).toBeNull();
       expect(result.event.payload.max_experience_years).toBeNull();
+      // Migration 0131 — defaulted like the bands: an emitter that predates it reads as
+      // "no role picked", never a guessed role.
+      expect(result.event.payload.role_kind).toBeNull();
       // No field could carry an employer name / address / worker id — opaque ids +
-      // coarse bands only (the city label is the only non-id string, capped + coarse).
+      // coarse bands + closed enums only (the city label is the only non-id string,
+      // capped + coarse; `role_kind` is a closed 21-slug enum).
       expect(Object.keys(result.event.payload).sort()).toEqual(
         [
           "city",
@@ -1448,10 +1500,33 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
           "pay_max",
           "pay_min",
           "payer_id",
+          "role_kind",
           "status",
           "trade_key",
         ].sort(),
       );
+    }
+  });
+
+  it("carries job.created role_kind as one of the 21 declared kinds, or null (0131)", () => {
+    const payload = {
+      job_id: UUID_A,
+      payer_id: UUID_B,
+      status: "open",
+      trade_key: "cnc_operator",
+      city: "Pune",
+    };
+    for (const kind of TRADE_FORM_KINDS_ALL) {
+      const ok = validateEvent(jobEvent("job.created", { ...payload, role_kind: kind }));
+      expect(ok.success, kind).toBe(true);
+      if (ok.success && ok.event.event_name === "job.created") {
+        expect(ok.event.payload.role_kind).toBe(kind);
+      }
+    }
+    // `trade_key` and `role_kind` are DIFFERENT vocabularies: a trade key is not a role kind.
+    for (const bad of ["cnc_operator", "Welder", "Ramesh 9876543210"]) {
+      expect(validateEvent(jobEvent("job.created", { ...payload, role_kind: bad })).success, bad)
+        .toBe(false);
     }
   });
 
@@ -1490,6 +1565,17 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
       }),
     );
     expect(okNew.success).toBe(true);
+
+    // Migration 0131 — `role_kind` is another ADDITIVE key-enum member (no version bump).
+    const okRole = validateEvent(
+      jobEvent("job.updated", {
+        job_id: UUID_A,
+        payer_id: UUID_B,
+        status: "open",
+        changed_fields: ["role_kind"],
+      }),
+    );
+    expect(okRole.success).toBe(true);
 
     const bad = validateEvent(
       jobEvent("job.updated", {
@@ -3042,8 +3128,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 205 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events)", () => {
-    expect(EVENT_NAMES).toHaveLength(205);
+  it("exposes all 215 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event)", () => {
+    expect(EVENT_NAMES).toHaveLength(215);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -3166,6 +3252,9 @@ describe("registry", () => {
     expect(isEventName("referral.bonus_accrued")).toBe(true);
     // ADR-0036 — Matching V1. Six new v1 events + the versioned feed.shown_v2.
     expect(isEventName("worker.match_skills_rebuilt")).toBe(true);
+    // E4 — the worker's own visibility toggle / clear-all. The seventh Matching V1 event, and
+    // the only one a WORKER (not the derivation) authors.
+    expect(isEventName("worker.match_skill_wants_set")).toBe(true);
     expect(isEventName("job_posting.reach_materialized")).toBe(true);
     expect(isEventName("job_posting.reach_alert")).toBe(true);
     expect(isEventName("job_posting.reach_widened")).toBe(true);
@@ -3269,9 +3358,24 @@ describe("registry", () => {
     expect(isEventName("resume.downloaded")).toBe(true);
     expect(isEventName("resume.regenerated")).toBe(true);
     expect(isEventName("resume.shared")).toBe(true);
-    // #1311 backend half — the per-field extracted-correction audit event (NOT #1318:
-    // skin_changed / qr_scanned stay absent).
+    // #1311 backend half — the per-field extracted-correction audit event.
     expect(isEventName("resume.edited")).toBe(true);
+    // #1318 (owner ruling 2026-09-27) — the résumé SAFE-FIELD edit (name, photo, show_photo,
+    // night_shift_ready) as a SECOND registry entry, v1 untouched.
+    expect(isEventName("resume.edited_v2")).toBe(true);
+    // #1801 (owner ruling 2026-09-28) — the per-worker résumé skin change, registered WITH the
+    // skin vocabulary it names.
+    expect(isEventName("resume.skin_changed")).toBe(true);
+    // #1800 (owner ruling 2026-09-28, "Count + attribute worker signups") — the résumé-QR scan,
+    // registered now that the QR resolves to something observable (`GET /r/:code`).
+    expect(isEventName("profile.qr_scanned")).toBe(true);
+    // ADR-0046 (companion v2, Phase 1) — the router turn's new generation and the three edit
+    // events. Where the v1 turn event is the deterministic recap, these carry the classified
+    // intent / source / outcome and the card's own lifecycle.
+    expect(isEventName("chat.companion_turn_served_v2")).toBe(true);
+    expect(isEventName("chat.companion_edit_proposed")).toBe(true);
+    expect(isEventName("chat.companion_edit_confirmed")).toBe(true);
+    expect(isEventName("chat.companion_edit_cancelled")).toBe(true);
     expect(isEventName("action.recorded")).toBe(true);
     expect(isEventName("profile.extraction_ready")).toBe(true);
     expect(isEventName("ai.cost_recorded")).toBe(true);
@@ -3310,6 +3414,16 @@ describe("registry", () => {
     // `profile.viewed`. v1's `job_id` is REQUIRED and an unlock found by search carries
     // none, so v2 makes it OPTIONAL rather than relaxing v1 in place.
     "profile.viewed_v2": 2,
+    // #1318 (owner ruling 2026-09-27): the safe-field generation of `resume.edited`. v1's
+    // correction_id / session_id / profile_id are REQUIRED and a safe-field edit has none of
+    // them, so v2 is a new name rather than a relaxed v1. v1 keeps its extracted-correction
+    // emitter unchanged.
+    "resume.edited_v2": 2,
+    // ADR-0046 (companion v2): the router's own facts (intent_source / v2_intent /
+    // confidence_bucket / outcome) on the v1 recap shape. A NEW name for the same reason as the
+    // three above; the v1 `chat.companion_turn_served` entry above keeps its definition and its
+    // emitter (the v1 path, byte-for-byte while the v2 flag is off).
+    "chat.companion_turn_served_v2": 2,
   };
 
   it("every registry entry is version 1 except the ADR-versioned payloads", () => {
@@ -3349,6 +3463,39 @@ describe("registry", () => {
       v1.payload.safeParse({ worker_id: UUID_A, viewer_payer_id: UUID_B, job_id: UUID_C }).success,
     ).toBe(true);
     expect(v1.payload.safeParse({ worker_id: UUID_A, viewer_payer_id: UUID_B }).success).toBe(false);
+  });
+
+  // The behavioural v1 lock (required anchors, v2 shapes refused) lives with the v2 tests in
+  // resume-edited-v2.test.ts. This one pins the SHAPE, which a parse-based lock cannot: an
+  // OPTIONAL key added to v1 (or v2) would still parse every fixed sample and slip through.
+  it("keeps the shipped resume.edited v1 payload SHAPE exactly as it was (invariant #8)", () => {
+    const v1 = EVENT_REGISTRY["resume.edited"];
+    expect(v1.version).toBe(1);
+    expect(Object.keys(v1.payload.shape).sort()).toEqual([
+      "correction_id",
+      "field",
+      "profile_id",
+      "session_id",
+      "worker_id",
+    ]);
+    expect(v1.payload.shape.field.options).toEqual([
+      "skills",
+      "machines",
+      "experience",
+      "education",
+      "certificates",
+    ]);
+  });
+
+  it("pins the resume.edited_v2 payload SHAPE — ids and the four safe fields, nothing else", () => {
+    const v2 = EVENT_REGISTRY["resume.edited_v2"];
+    expect(Object.keys(v2.payload.shape).sort()).toEqual(["field", "resume_id", "worker_id"]);
+    expect(v2.payload.shape.field.options).toEqual([
+      "name",
+      "photo",
+      "show_photo",
+      "night_shift_ready",
+    ]);
   });
 });
 

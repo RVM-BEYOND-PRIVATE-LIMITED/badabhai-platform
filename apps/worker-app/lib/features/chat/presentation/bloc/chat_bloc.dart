@@ -6,13 +6,16 @@ import 'package:uuid/uuid.dart';
 
 import '../../../../core/api/api_models.dart'
     show
+        ChatAnswerType,
         ChatInputMode,
         ChatOption,
         ChatProgress,
         ChatQuestionKind,
+        EditProposal,
         FormOffer,
         PredictedQuestion;
 import '../../../../core/error/failure.dart';
+import '../../../../core/error/failure_reason.dart';
 import '../../../../core/observability/analytics.dart';
 import '../../../../core/session/known_worker_facts_store.dart';
 import '../../domain/chat_answered_facts.dart';
@@ -114,10 +117,6 @@ class ChatCompanionStarted extends ChatEvent {
   const ChatCompanionStarted();
 }
 
-/// ADR-0044 — the Bada Bhai tab came back into focus. In companion mode the
-/// recap is re-read, and a NEW bubble is appended only when its facts changed
-/// (the server's `digest_key`) — the worker who just applied on the Jobs tab sees
-/// the new count; a worker who changed nothing sees nothing new.
 /// #1753 — a companion chip was tapped. Routed through the bloc ONLY so it logs
 /// through the same analytics sink every other funnel event uses; the routing
 /// itself stays on the screen, which is the thing that owns navigation.
@@ -125,7 +124,14 @@ class ChatCompanionChipTapped extends ChatEvent {
   const ChatCompanionChipTapped(this.keyClass, {this.openedJob = false});
 
   /// A CLASS, never the key: `job` | `jobs_tab` | `applied` | `new_jobs` |
-  /// `resume` | `other`.
+  /// `resume` | `task_edit_resume` | `task_new_resume` | `task_career_talk` |
+  /// `other`.
+  ///
+  /// The three `task_*` classes are ADR-0046's task chips. Enumerated here in
+  /// full because this doc is what a reader checks the analytics against, and a
+  /// class that exists in [companionChipKeyClass] but not in this list reads as
+  /// `other` to anyone auditing the funnel. A job key's id never reaches this —
+  /// that is the whole point of a class.
   final String keyClass;
 
   /// True when the tap opened job detail, which logs its own event too.
@@ -150,6 +156,16 @@ class ChatCompanionJobApplied extends ChatEvent {
   List<Object?> get props => <Object?>[jobId];
 }
 
+/// ADR-0044 — the Bada Bhai tab came back into focus.
+///
+/// In companion mode the recap is re-read, and a NEW bubble is appended only
+/// when its facts changed (the server's `digest_key`) — the worker who just
+/// applied on the Jobs tab sees the new count; a worker who changed nothing sees
+/// nothing new.
+///
+/// In interview mode the server is asked again, and the tab moves to the recap
+/// when the answer is now "companion" — unless the tab holds an interview the
+/// worker is taking part in (see [ChatBloc]'s `_holdInterview`).
 class ChatCompanionRefreshRequested extends ChatEvent {
   const ChatCompanionRefreshRequested({this.force = false});
 
@@ -165,6 +181,23 @@ class ChatCompanionRefreshRequested extends ChatEvent {
 
   @override
   List<Object?> get props => <Object?>[force];
+}
+
+/// ADR-0046 §5.2 — the worker tapped Haan on the edit card. [rowIds] are the
+/// TICKED rows' server-minted `row_id`s (1..3); the card's VALUES never ride
+/// the wire.
+class ChatEditProposalConfirmed extends ChatEvent {
+  const ChatEditProposalConfirmed(this.rowIds);
+
+  final List<String> rowIds;
+
+  @override
+  List<Object?> get props => <Object?>[rowIds];
+}
+
+/// ADR-0046 §5.2 — the worker tapped Nahi on the edit card: nothing is applied.
+class ChatEditProposalCancelled extends ChatEvent {
+  const ChatEditProposalCancelled();
 }
 
 // ---------------- State ----------------
@@ -184,6 +217,7 @@ class ChatState extends Equatable {
     this.progress,
     this.questionKind = ChatQuestionKind.ask,
     this.inputMode = ChatInputMode.text,
+    this.answerType,
     this.occupationLabel,
     this.lookahead = const <String, PredictedQuestion?>{},
     this.predictedQuestionKey,
@@ -192,6 +226,12 @@ class ChatState extends Equatable {
     this.resumeUpdateQueued = false,
     this.companion = false,
     this.companionUnreachable = false,
+    this.gateKind,
+    this.generalFormOffer,
+    this.editProposal,
+    this.cooldownUntil,
+    this.readAloud = false,
+    this.editNotice,
   });
 
   /// Ordered, append-only transcript.
@@ -263,6 +303,17 @@ class ChatState extends Equatable {
   /// unless the server re-imposes options-only.
   final ChatInputMode inputMode;
 
+  /// HOW the latest turn's question is answered (`answer_type`, #1559 /
+  /// #1583) — `multiSelect` lets the chips tick instead of send, `boolean`
+  /// with no served chips draws Haan / Nahi, `number` opens a number keypad.
+  ///
+  /// TURN-SCOPED, like [formOffer]: set from a live reply (or a prediction on
+  /// the optimistic path) and cleared the moment the worker acts again (a
+  /// send, a retry, a voice merge), so a keypad or a tick row can never
+  /// outlive the question that asked for it. Null — absent, unknown, or no
+  /// pack item on screen — is exactly today's rendering.
+  final ChatAnswerType? answerType;
+
   /// The worker's pinned trade in their own vernacular (#649). STICKY: latches on
   /// the first non-null and stays (the trust moment, shown for the rest of the
   /// interview). A fresh chat rebuilds the bloc, so it clears there.
@@ -316,6 +367,51 @@ class ChatState extends Equatable {
   /// "aap kaunsa kaam karte hain?" opener.
   final bool resumePending;
 
+  /// ADR-0045 — turn-scoped gate kind and general form offer from the latest
+  /// chat reply. Set from [ChatReply.gateKind] and
+  /// [ChatReply.generalFormOffer] on every turn; cleared on the next turn when
+  /// the server does not send them.
+  final String? gateKind;
+  final Map<String, String>? generalFormOffer;
+
+  /// ADR-0046 — the edit proposal card from the companion (**Phase 1**). When
+  /// present, the screen renders the checkbox card with Haan/Nahi buttons.
+  /// TURN-SCOPED: set from the reply, cleared on the next turn.
+  final EditProposal? editProposal;
+
+  /// ADR-0046 §5.2 — ONE LINE explaining why the edit card just went away, or
+  /// why Haan did nothing. Null when there is nothing to say.
+  ///
+  /// A card that vanishes with no word is the worst of the three outcomes: the
+  /// worker tapped Haan on their own profile and the screen simply changed. The
+  /// issue's wording is that a dead card must be dropped AND THE WORKER
+  /// RE-ASKED, so the drop is always accompanied by a reason, and a transport
+  /// failure says what actually went wrong rather than leaving Haan looking like
+  /// a broken button (the repo's error-copy rule: state the real cause).
+  ///
+  /// ONE-SHOT: the screen shows it once on the change edge and the next turn
+  /// clears it. It is a UI string only — never a server body, so no PII and no
+  /// server detail can ride it.
+  final String? editNotice;
+
+  /// ADR-0046 — cooldown timestamp from the companion. While the current time
+  /// is before this, the companion UI shows a wait state. TURN-SCOPED.
+  final DateTime? cooldownUntil;
+
+  /// ADR-0046 §5.1 — `read_aloud`, carried but NOT ACTED ON in Phase 1.
+  ///
+  /// The contract marks this **P3**, and marks it `read_aloud?: false` — it is
+  /// only ever sent as FALSE, on model-written replies, and its meaning is a
+  /// prohibition: "the app must NOT fall back to speaking `reply`". So there is
+  /// no Phase 1 behaviour to implement and, in particular, nothing here should
+  /// read it as "true means speak" — that inverts a field that never arrives
+  /// true. It is parsed and carried so the wire stays whole and the day P3 lands
+  /// the value is already here; nothing consumes it yet, deliberately.
+  ///
+  /// TURN-SCOPED, and unlike the old code this is now honoured by [copyWith]:
+  /// an emit that does not mention it KEEPS it, as every other field does.
+  final bool readAloud;
+
   /// ADR-0044 — the tab is in the post-completion COMPANION: sends go to
   /// `/chat/companion/message`, the "build my profile" CTA is hidden (the profile
   /// is done), and a turn is never counted as an answered interview ask.
@@ -361,10 +457,25 @@ class ChatState extends Equatable {
     // previous turn's card, which `formOffer ?? this.formOffer` cannot express
     // on its own — every non-null-in-the-wire turn passes this explicitly.
     bool clearFormOffer = false,
+    // #1559 / #1583 — TURN-SCOPED like formOffer, so clearing it takes the same
+    // explicit flag.
+    ChatAnswerType? answerType,
+    bool clearAnswerType = false,
     bool? resumePending,
     bool? resumeUpdateQueued,
     bool? companion,
     bool? companionUnreachable,
+    // ADR-0045 — turn-scoped gate kind and general form offer.
+    String? gateKind,
+    Map<String, String>? generalFormOffer,
+    // ADR-0046 — the v2 turn fields: the P1 edit card, P2 cool-down, P3 read-aloud.
+    EditProposal? editProposal,
+    bool clearEditProposal = false,
+    DateTime? cooldownUntil,
+    bool clearCooldownUntil = false,
+    bool? readAloud,
+    String? editNotice,
+    bool clearEditNotice = false,
   }) {
     return ChatState(
       messages: messages ?? this.messages,
@@ -388,6 +499,7 @@ class ChatState extends Equatable {
           ? null
           : (predictedQuestionKey ?? this.predictedQuestionKey),
       formOffer: clearFormOffer ? null : (formOffer ?? this.formOffer),
+      answerType: clearAnswerType ? null : (answerType ?? this.answerType),
       // Sticky: once a résumé-confirm session, always (the opening is applied
       // exactly once and never un-opens).
       resumePending: this.resumePending || (resumePending ?? false),
@@ -396,6 +508,16 @@ class ChatState extends Equatable {
       resumeUpdateQueued: resumeUpdateQueued ?? this.resumeUpdateQueued,
       companion: companion ?? this.companion,
       companionUnreachable: companionUnreachable ?? this.companionUnreachable,
+      gateKind: gateKind ?? this.gateKind,
+      generalFormOffer: generalFormOffer ?? this.generalFormOffer,
+      // ADR-0046 — TURN-SCOPED: cleared on next turn unless explicitly set.
+      editProposal: clearEditProposal ? null : (editProposal ?? this.editProposal),
+      cooldownUntil: clearCooldownUntil ? null : (cooldownUntil ?? this.cooldownUntil),
+      // `?? this`, NOT `?? false`: the old form silently RESET the flag on every
+      // emit that did not mention it — a spinner flip, a message append — which
+      // is the one thing no other field on this state does.
+      readAloud: readAloud ?? this.readAloud,
+      editNotice: clearEditNotice ? null : (editNotice ?? this.editNotice),
     );
   }
 
@@ -414,6 +536,7 @@ class ChatState extends Equatable {
         progress,
         questionKind,
         inputMode,
+        answerType,
         occupationLabel,
         lookahead,
         predictedQuestionKey,
@@ -422,6 +545,12 @@ class ChatState extends Equatable {
         resumeUpdateQueued,
         companion,
         companionUnreachable,
+        gateKind,
+        generalFormOffer,
+        editProposal,
+        cooldownUntil,
+        readAloud,
+        editNotice,
       ];
 }
 
@@ -484,6 +613,16 @@ typedef ChatAnalyticsSink = void Function(BbAnalyticsEvent event);
 void _defaultChatAnalyticsSink(BbAnalyticsEvent event) =>
     unawaited(BbAnalytics.instance.log(event));
 
+/// What the worker is told when the edit card could not be applied and has been
+/// taken away (404 expired / 409 stale, ADR-0046 §5.2).
+///
+/// Names the real cause — the card went out of date, usually because the profile
+/// moved under it — and says what happens next, because the tab re-reads the
+/// recap straight after. Hinglish, aap-form, like the rest of this tab.
+const String kCompanionEditGoneNotice =
+    'Ye badlav ab purana ho gaya. Aapka profile dobara padh rahe hain — '
+    'zaroorat ho to phir se kahein.';
+
 class ChatBloc extends Bloc<ChatEvent, ChatState> {
   ChatBloc(
     this._repo, {
@@ -503,6 +642,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     on<ChatCompanionRefreshRequested>(_onCompanionRefreshRequested);
     on<ChatCompanionChipTapped>(_onCompanionChipTapped);
     on<ChatCompanionJobApplied>(_onCompanionJobApplied);
+    // ADR-0046 Phase 1 — the edit card's Haan / Nahi.
+    on<ChatEditProposalConfirmed>(_onEditProposalConfirmed);
+    on<ChatEditProposalCancelled>(_onEditProposalCancelled);
   }
 
   final ChatRepository _repo;
@@ -535,6 +677,24 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// most once per [_companionRefreshMinGap] so tab-flipping costs no requests.
   DateTime? _companionReadAt;
   static const Duration _companionRefreshMinGap = Duration(seconds: 60);
+
+  /// True once THIS tab holds an interview the worker is taking part in: a LIVE
+  /// interview reply to something they sent here (a question, or the close
+  /// itself), a merged voice note, or a redo they asked for ("Chat se resume
+  /// banayein").
+  ///
+  /// A refocus never moves such a tab to the recap (see [_mayLeaveInterview]).
+  /// The server cannot see this: after a redo closes, a returning worker keeps
+  /// his confirmed profile until he opens the preview, so the server already
+  /// answers "companion" while the redo's "build my profile" button is still
+  /// his to tap.
+  ///
+  /// NOT set by a reply from a session that was already over
+  /// ([ChatTurn.fromClosedSession]) — the résumé menu a completed worker gets
+  /// when he types into the old transcript the tab redrew. That tab holds
+  /// nothing of his to finish, so the server's answer decides it, exactly as it
+  /// does when the app starts.
+  bool _holdInterview = false;
 
   /// PII-free funnel-milestone sink (#B7, #1316). Defaults to
   /// [BbAnalytics.instance]; a test injects its own to observe the per-ask
@@ -595,6 +755,20 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   String? _askedQuestionId;
 
   Future<void> _onStarted(ChatStarted event, Emitter<ChatState> emit) async {
+    _hydrating = true;
+    try {
+      await _open(emit);
+    } finally {
+      _hydrating = false;
+    }
+  }
+
+  /// True while [_onStarted] is opening the interview and redrawing its
+  /// transcript. The spinner drops before the redraw lands (#502), so
+  /// `initializing` alone cannot say the tab has settled.
+  bool _hydrating = false;
+
+  Future<void> _open(Emitter<ChatState> emit) async {
     bool failed = false;
     ChatSessionOpening? opening;
     try {
@@ -634,6 +808,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       resumePending: opening?.resumePending ?? false,
       suggestedOptions: opening?.options,
       followups: openingFollowups,
+      // #1750's retry is over once the interview is open: a later refocus is
+      // decided by the interview-tab rule, never by another companion open.
+      companionUnreachable: false,
     ));
 
     if (failed) return;
@@ -755,6 +932,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         event.optionKey == null ? null : state.lookahead[event.optionKey];
 
     if (predicted != null && predicted.questionKey != null) {
+      final ChatAnswerType? predictedAnswerType =
+          ChatAnswerType.parse(predicted.answerType);
       emit(state.copyWith(
         messages: <ChatMessage>[
           ...state.messages,
@@ -778,6 +957,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // optimistic path too: an options-only turn must never outlive the
         // question that imposed it, and the predicted turn brings its own mode.
         inputMode: ChatInputMode.text,
+        // #1559 / #1583 — the predicted turn brings its own answer shape (a
+        // tick row, Haan / Nahi, a number keypad); unknown/absent is today's.
+        answerType: predictedAnswerType,
+        clearAnswerType: predictedAnswerType == null,
         predictedQuestionKey: predicted.questionKey,
         // The previous turn's card, if any, belongs to a question already
         // answered — clear it alongside the other turn-scoped fields (#1340). A
@@ -805,6 +988,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         questionKind: ChatQuestionKind.ask,
         // Same reason (#770): bring the composer back the moment the worker answers.
         inputMode: ChatInputMode.text,
+        // #1559 / #1583 — the answered question's shape (tick row, Haan / Nahi,
+        // number keypad) goes with it.
+        clearAnswerType: true,
         // The previous turn's handover card, if any, belongs to a question
         // already answered — clear it alongside the chips (#1340). In practice a
         // handover turn also ends the session, so this send is rare, but a stale
@@ -863,6 +1049,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           followups: const <String>[],
           suggestedOptions: const <ChatOption>[],
           questionKind: ChatQuestionKind.ask,
+          clearAnswerType: true, // #1559 / #1583 — no question on screen
         ));
         await _onStarted(const ChatStarted(), emit);
         return;
@@ -898,6 +1085,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
             text: turn.reply,
             fromWorker: false,
             ttsText: turn.ttsText,
+            // ADR-0046 O9 — a model-written turn says `read_aloud: false` and
+            // carries no reviewed Devanagari twin, so this bubble is never
+            // spoken. Absent (every other turn) keeps read-aloud as it was.
+            canReadAloud: turn.readAloud != false,
           ),
         ];
       } else if (predictionWasRight) {
@@ -909,9 +1100,14 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       } else {
         // The prediction was wrong — overwrite the optimistic bubble in place
         // with the real reply AND its Devanagari read-aloud script (#896).
-        nextMessages = _replaceLastBot(healed, turn.reply, turn.ttsText);
+        nextMessages = _replaceLastBot(
+          healed,
+          turn.reply,
+          turn.ttsText,
+          canReadAloud: turn.readAloud != false,
+        );
       }
-      emit(state.copyWith(
+      emit(_withCompanionTurn(state.copyWith(
         messages: nextMessages,
         sending: _inFlightSends > 0,
         followups: turn.followups,
@@ -940,6 +1136,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // #770 — this turn's composer decision; text on a blocked/older turn, so
         // the worker is never left without a way to answer.
         inputMode: turn.inputMode,
+        // #1559 / #1583 — THIS turn's answer shape, or null (today's rendering)
+        // on an ordinary, blocked or older turn. Passed on every turn, so a
+        // later turn without it clears the previous one.
+        answerType: turn.answerType,
+        clearAnswerType: turn.answerType == null,
         occupationLabel: turn.occupationLabel,
         // #761 — the fresh predictions for the NEXT tap; the current one is done.
         lookahead: turn.lookahead,
@@ -956,11 +1157,14 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // ADR-0044 — TURN-SCOPED: a companion answer keeps the tab in companion
         // mode; an interview reply (a 409 fallback) takes it out.
         companion: turn.companion,
-      ));
+      ), turn));
       // ADR-0044 — a companion answer is not an interview ask: it must not feed
       // the per-ask funnel, the wrap-up milestone, the answered-facts store or
       // `asked_question_id`. Everything below is interview bookkeeping.
-      if (turn.companion) return;
+      if (turn.companion) {
+        return;
+      }
+      if (!turn.fromClosedSession) _holdInterview = true;
       // #1316 — the ask is now ANSWERED (the reply landed). Emit its per-ask
       // index for the abandonment curve. On a retry this is the FIRST time this
       // ask records (the failed attempt threw below and emitted nothing), so no
@@ -995,6 +1199,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         suggestedOptions:
             reconciling ? const <ChatOption>[] : state.suggestedOptions,
         questionKind: reconciling ? ChatQuestionKind.ask : state.questionKind,
+        // #1559 / #1583 — a retracted optimistic turn takes its predicted answer
+        // shape with it; a plain failure keeps the current turn's.
+        clearAnswerType: reconciling,
         clearPredictedQuestionKey: true,
       ));
     }
@@ -1111,7 +1318,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // The recap REPLACES the canned interview question in bubble 0: a finished
     // worker is not asked "aap kaun sa kaam karte hain?". Rebuilt from `state`
     // at emit time (#344), though the composer is not shown while initializing.
-    emit(state.copyWith(
+    emit(_withCompanionTurn(state.copyWith(
       initializing: false,
       sessionFailed: false,
       companion: true,
@@ -1121,6 +1328,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           text: opening.reply,
           fromWorker: false,
           ttsText: opening.ttsText,
+          canReadAloud: opening.readAloud != false,
         ),
         ...state.messages.skip(1),
       ],
@@ -1128,32 +1336,27 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       suggestedOptions: opening.suggestedOptions,
       questionKind: opening.questionKind,
       inputMode: ChatInputMode.text,
-    ));
+      clearAnswerType: true, // #1559 / #1583 — the recap serves no pack item
+    ), opening));
   }
 
-  /// ADR-0044 — see [ChatCompanionRefreshRequested]. Only ever acts while the
-  /// tab is ALREADY in companion mode: it never switches an interview into the
-  /// companion, because a worker mid-redo needs that interview's own CTA.
+  /// ADR-0044 — see [ChatCompanionRefreshRequested].
   Future<void> _onCompanionRefreshRequested(
     ChatCompanionRefreshRequested event,
     Emitter<ChatState> emit,
   ) async {
-    // #1750 — a tab that fell back on an UNREACHABLE read retries here. It is
-    // the one case where a refresh may ENTER companion mode: nothing is known
-    // yet, so nothing is being overridden.
+    // #1750 — a tab that fell back on an UNREACHABLE read retries here: nothing
+    // is known yet, so nothing is being overridden.
     if (state.companionUnreachable && !state.sending) {
       await _onCompanionStarted(const ChatCompanionStarted(), emit);
       return;
     }
-    if (!state.companion || state.initializing || state.sending) return;
-    final DateTime now = _clock();
-    final DateTime? last = _companionReadAt;
-    if (!event.force &&
-        last != null &&
-        now.difference(last) < _companionRefreshMinGap) {
+    if (state.initializing || state.sending) return;
+    if (!state.companion) {
+      await _companionFromInterview(event, emit);
       return;
     }
-    _companionReadAt = now;
+    if (!_companionReadDue(force: event.force)) return;
     // The transcript as this read began. Handlers run CONCURRENTLY (see
     // [_inFlightSends]), so a send can start AND finish inside the await below;
     // its answer then owns the thread and the chips, and a recap landing after
@@ -1176,31 +1379,144 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     final String? key = fresh.digestKey;
     if (key == null || key == _companionDigestKey) return;
     _companionDigestKey = key;
-    emit(state.copyWith(
-      messages: <ChatMessage>[
-        ...state.messages,
-        ChatMessage(text: fresh.reply, fromWorker: false, ttsText: fresh.ttsText),
-      ],
-      followups: fresh.followups,
-      suggestedOptions: fresh.suggestedOptions,
-      questionKind: fresh.questionKind,
-      inputMode: ChatInputMode.text,
+    emit(_withCompanionTurn(
+      state.copyWith(
+        messages: <ChatMessage>[
+          ...state.messages,
+          ChatMessage(
+            text: fresh.reply,
+            fromWorker: false,
+            ttsText: fresh.ttsText,
+            canReadAloud: fresh.readAloud != false,
+          ),
+        ],
+        followups: fresh.followups,
+        suggestedOptions: fresh.suggestedOptions,
+        questionKind: fresh.questionKind,
+        inputMode: ChatInputMode.text,
+        clearAnswerType: true, // #1559 / #1583 — the recap serves no pack item
+      ),
+      fresh,
     ));
+  }
+
+  /// Whether a refocus read is due, recording it when it is: at most one per
+  /// [_companionRefreshMinGap] unless [force]d.
+  bool _companionReadDue({required bool force}) {
+    final DateTime now = _clock();
+    final DateTime? last = _companionReadAt;
+    if (!force &&
+        last != null &&
+        now.difference(last) < _companionRefreshMinGap) {
+      return false;
+    }
+    _companionReadAt = now;
+    return true;
+  }
+
+  /// The tab is on the INTERVIEW and came back into focus: ask the server
+  /// again, and move to the recap when it now answers "companion".
+  ///
+  /// The tab picks its chat once, when it opens, and it used to never ask again:
+  /// a tab that opened as the interview stayed there until the app was killed.
+  /// A worker who confirmed their profile after the tab opened, or whose phone
+  /// loaded the Remote Config lever after it opened, came back to the old
+  /// transcript instead of the recap. The server applies the same rule it applies
+  /// when the app starts, and that rule already answers "interview" for a live
+  /// redo and for an unfinished form. What it cannot see is an interview the
+  /// worker is taking part in on THIS screen (see [_holdInterview]).
+  ///
+  /// An "interview" or unreachable answer changes nothing: the transcript stays,
+  /// and no retry card replaces it.
+  Future<void> _companionFromInterview(
+    ChatCompanionRefreshRequested event,
+    Emitter<ChatState> emit,
+  ) async {
+    // Not while a redo is opening or the transcript is still loading, and never
+    // over an interview that is the worker's own.
+    if (_restarting || _hydrating || !_mayLeaveInterview) return;
+    if (!_companionReadDue(force: event.force)) return;
+    final List<ChatMessage> before = state.messages;
+    ChatTurn? recap;
+    try {
+      recap = (await _repo.openCompanion()).turn;
+    } catch (_) {
+      recap = null;
+    }
+    // Only when nothing happened while the read was out: a send, a restart or a
+    // new bubble means the worker is using the interview, and it stays.
+    if (recap == null || state.companion || state.initializing) return;
+    if (state.sending || _restarting || _hydrating || !_mayLeaveInterview) {
+      return;
+    }
+    if (!identical(state.messages, before)) return;
+    _analytics(BbAnalytics.companionOpened());
+    _askedQuestionId = null;
+    _wrapUpLogged = false;
+    _holdInterview = false;
+    _companionBubbleOffset = 0;
+    _companionDigestKey = recap.digestKey;
+    // As if the tab had opened on the recap: no cached interview id, so a later
+    // fallback to the interview reads the worker's latest session.
+    _repo.forgetSession();
+    // A FRESH state, not a copy: the interview's latches (the ready CTA, the
+    // progress bar, the trade label) belong to the interview, and the recap
+    // stands alone, as it does when the tab opens on it (ADR-0044 R4).
+    emit(_withCompanionTurn(
+      ChatState(
+        messages: <ChatMessage>[
+          ChatMessage(
+            text: recap.reply,
+            fromWorker: false,
+            ttsText: recap.ttsText,
+            canReadAloud: recap.readAloud != false,
+          ),
+        ],
+        initializing: false,
+        followups: recap.followups,
+        suggestedOptions: recap.suggestedOptions,
+        questionKind: recap.questionKind,
+        companion: true,
+      ),
+      recap,
+    ));
+  }
+
+  /// Whether a refocus may move this interview tab to the recap: nothing here is
+  /// the worker's to finish — no live interview of theirs ([_holdInterview])
+  /// and no failed answer waiting for a retry. A settled "Haan" to the résumé
+  /// update always may: the server finishes that update itself.
+  bool get _mayLeaveInterview {
+    if (state.resumeUpdateQueued) return true;
+    if (_holdInterview) return false;
+    return !state.messages.any(
+      (ChatMessage m) => m.fromWorker && m.status == ChatSendStatus.failed,
+    );
   }
 
   /// Returns [messages] with the LAST message replaced by a bot bubble carrying
   /// [reply] and its Devanagari read-aloud script [ttsText] (#761 optimistic-
   /// bubble overwrite; #896 read-aloud). Defensive, mirroring [_withStatus]: an
   /// empty list or a worker-bubble tail is returned unchanged.
+  ///
+  /// [canReadAloud] rides along for the same reason every other bot-bubble site
+  /// carries it (ADR-0046 O9): this one overwrites an optimistic bubble with the
+  /// REAL reply, and if that reply is model-written it must not gain a speaker
+  /// button just because it arrived down the prediction path.
   List<ChatMessage> _replaceLastBot(
     List<ChatMessage> messages,
     String reply,
-    String? ttsText,
-  ) {
+    String? ttsText, {
+    bool canReadAloud = true,
+  }) {
     if (messages.isEmpty || messages.last.fromWorker) return messages;
     final List<ChatMessage> next = List<ChatMessage>.of(messages);
-    next[next.length - 1] =
-        ChatMessage(text: reply, fromWorker: false, ttsText: ttsText);
+    next[next.length - 1] = ChatMessage(
+      text: reply,
+      fromWorker: false,
+      ttsText: ttsText,
+      canReadAloud: canReadAloud,
+    );
     return next;
   }
 
@@ -1267,6 +1583,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       questionKind: ChatQuestionKind.ask, // #649 — drop a stale disambiguate
       inputMode: ChatInputMode.text, // #770 — bring the composer back on retry
       clearFormOffer: true, // #1340 — drop a stale card while the retry is in flight
+      clearAnswerType: true, // #1559 / #1583 — the reply brings its own shape
     ));
 
     // #1316 — the ask this bubble answers, by its rank among worker bubbles UP TO
@@ -1310,6 +1627,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     _restarting = true;
     _askedQuestionId = null;
     _wrapUpLogged = false;
+    // The worker ASKED for this interview; a refocus must not take it away.
+    _holdInterview = true;
     _inFlightSends = 0;
     emit(const ChatState(messages: <ChatMessage>[kChatOpeningMessage]));
     try {
@@ -1335,6 +1654,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// Appends the already-server-merged voice transcript + reply. Local only —
   /// the voice pipeline sent the transcript through ChatRepository.sendMessage.
   void _onVoiceMerged(ChatVoiceMerged event, Emitter<ChatState> emit) {
+    _holdInterview = true;
     // The voice pipeline returns only the reply text (no followups), so clear
     // any stale chips from the previous typed turn.
     emit(state.copyWith(
@@ -1361,6 +1681,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // predates #1339 and the handover flow is text-only today), so a stale
       // card from a previous typed turn must not survive a voice answer.
       clearFormOffer: true,
+      // #1559 / #1583 — the merge carries no answer_type either: the answered
+      // question's tick row / Haan-Nahi / keypad must not outlive it.
+      clearAnswerType: true,
     ));
     // #1316 — a voice answer is an answered ask too: the transcript was already
     // sent server-side and is merged (recorded) here, so emit its per-ask index
@@ -1369,5 +1692,179 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       state.messages.where((ChatMessage m) => m.fromWorker).length,
     );
     _logWrapUpOnce(ready: event.extractionReady);
+  }
+
+  
+
+/// ADR-0046 §5.2 — the worker tapped Haan: apply the ticked rows.
+  ///
+  /// The card's rows are the ONLY source of the row ids, so a card that has
+  /// already been replaced/cleared (or a turn that left companion mode) is a
+  /// no-op — never a POST with stale ids. A failed call KEEPS the card: the
+  /// server is transactional (nothing was applied), and the proposal lives
+  /// until its TTL, so re-tapping Haan is safe and is the retry.
+  Future<void> _onEditProposalConfirmed(
+    ChatEditProposalConfirmed event,
+    Emitter<ChatState> emit,
+  ) async {
+    final EditProposal? proposal = state.editProposal;
+    if (!state.companion || proposal == null || state.sending) return;
+    if (event.rowIds.isEmpty) return;
+    _inFlightSends++;
+    emit(state.copyWith(sending: true));
+    try {
+      final CompanionEditResult result = await _repo.confirmCompanionEdit(
+        proposal.proposalId,
+        event.rowIds,
+      );
+      _inFlightSends--;
+      await _applyEditResult(result, emit);
+    } on Failure catch (failure) {
+      // Keep the card (see the doc above) — drop the spinner and say what went
+      // wrong, with its REAL reason. Silence here reads as a dead button, and
+      // re-tapping Haan is the safe retry, so the worker needs to know to.
+      _inFlightSends--;
+      emit(state.copyWith(
+        sending: _inFlightSends > 0,
+        editNotice: failureReason(failure).reason,
+      ));
+    }
+  }
+
+  /// ADR-0046 §5.2 — the worker tapped Nahi: nothing is applied.
+  Future<void> _onEditProposalCancelled(
+    ChatEditProposalCancelled event,
+    Emitter<ChatState> emit,
+  ) async {
+    final EditProposal? proposal = state.editProposal;
+    if (!state.companion || proposal == null || state.sending) return;
+    _inFlightSends++;
+    emit(state.copyWith(sending: true));
+    try {
+      final CompanionEditResult result = await _repo.cancelCompanionEdit(
+        proposal.proposalId,
+      );
+      _inFlightSends--;
+      await _applyEditResult(result, emit);
+    } on Failure catch (failure) {
+      // Nahi failed: the proposal is untouched and still live, so the card stays
+      // and the worker is told why nothing happened.
+      _inFlightSends--;
+      emit(state.copyWith(
+        sending: _inFlightSends > 0,
+        editNotice: failureReason(failure).reason,
+      ));
+    }
+  }
+
+  /// Apply the three-answer result of a confirm/cancel call (ADR-0046 §5.2).
+  Future<void> _applyEditResult(
+    CompanionEditResult result,
+    Emitter<ChatState> emit,
+  ) async {
+    switch (result.outcome) {
+      case CompanionEditOutcome.served:
+        _applyCompanionTurn(result.turn!, emit);
+        return;
+      case CompanionEditOutcome.gone:
+        // The card is dead (404 expired / 409 stale): clear it and re-read the
+        // recap, so the worker sees the server's current facts rather than a
+        // card that can never be applied — AND say so. Dropping it in silence
+        // would leave a worker who just tapped Haan on their own profile
+        // watching the card disappear with no idea whether it worked.
+        emit(state.copyWith(
+          sending: _inFlightSends > 0,
+          clearEditProposal: true,
+          clearCooldownUntil: true,
+          editNotice: kCompanionEditGoneNotice,
+        ));
+        await _onCompanionRefreshRequested(
+          const ChatCompanionRefreshRequested(force: true),
+          emit,
+        );
+        return;
+      case CompanionEditOutcome.interview:
+        // 409 `{mode:"interview"}`: this worker is no longer a companion
+        // worker — leave companion mode and open the interview, exactly as a
+        // 409 on a message send does.
+        _leaveCompanionMode();
+        emit(state.copyWith(
+          sending: _inFlightSends > 0,
+          companion: false,
+          clearEditProposal: true,
+          clearCooldownUntil: true,
+        ));
+        await _onStarted(const ChatStarted(), emit);
+        return;
+    }
+  }
+
+  /// Append a companion turn's reply bubble and refresh every turn-scoped
+  /// field — the confirm/cancel path's answer. A companion MESSAGE answer goes
+  /// through [_deliver] instead, which also owns the worker's own bubble.
+  /// THE ONE PLACE a companion turn's v2 fields become state (ADR-0046 §5.1).
+  ///
+  /// WHY THIS IS A FUNCTION AND NOT FOUR MORE LINES AT EACH EMIT. A companion
+  /// turn reaches state from FIVE places — the open, an ordinary reply, a
+  /// refocus refresh, the interview→recap move, and a confirm/cancel — and each
+  /// used to spell the projection out by hand. Two of them never learned about
+  /// `edit_proposal` at all, so a card served on a refresh or on the recap was
+  /// silently dropped, and a card already on screen OUTLIVED the turn that
+  /// replaced it. That is the same defect the wire→ChatTurn hop had, one layer
+  /// up, and hand-copying the projection a sixth time would only schedule it
+  /// again. Every site now goes through here, so a field added to [ChatTurn] is
+  /// wired everywhere or nowhere.
+  ///
+  /// THE COOL-DOWN IS STICKY, and it is the one field that is not turn-scoped.
+  /// The server sends `cooldown_until` ONLY on the turn that starts the wait, so
+  /// clearing it whenever a later turn omits it handed the composer straight
+  /// back — a worker tapped any chip and was typing again while the server's own
+  /// cool-down still had minutes to run, and their next message would be
+  /// refused. The deadline therefore survives until the INSTANT passes; a fresh
+  /// one always replaces it.
+  ChatState _withCompanionTurn(ChatState next, ChatTurn turn) {
+    final DateTime? carried = next.cooldownUntil;
+    final bool keepCarried =
+        carried != null && carried.isAfter(_clock());
+    final DateTime? cooldown = turn.cooldownUntil ?? (keepCarried ? carried : null);
+    return next.copyWith(
+      editProposal: turn.editProposal,
+      clearEditProposal: turn.editProposal == null,
+      cooldownUntil: cooldown,
+      clearCooldownUntil: cooldown == null,
+      readAloud: turn.readAloud ?? false,
+      // A NEW TURN ends the one-shot notice: it explained the turn now gone.
+      clearEditNotice: true,
+    );
+  }
+
+  void _applyCompanionTurn(ChatTurn turn, Emitter<ChatState> emit) {
+    emit(_withCompanionTurn(
+      state.copyWith(
+        messages: <ChatMessage>[
+          ...state.messages,
+          ChatMessage(
+            text: turn.reply,
+            fromWorker: false,
+            ttsText: turn.ttsText,
+            // ADR-0046 O9 — this was the one bot-bubble site in the feature
+            // without the guard, so a model-written confirm/cancel reply gained
+            // a speaker button the other four paths correctly withhold.
+            canReadAloud: turn.readAloud != false,
+          ),
+        ],
+        sending: _inFlightSends > 0,
+        companion: true,
+        followups: turn.followups,
+        suggestedOptions: turn.suggestedOptions,
+        questionKind: turn.questionKind,
+        inputMode: turn.inputMode,
+        answerType: turn.answerType,
+        clearAnswerType: turn.answerType == null,
+      ),
+      // The confirm/cancel turn never carries a new card; a `served` turn that
+      // somehow did replaces the one just applied — handled either way.
+      turn,
+    ));
   }
 }

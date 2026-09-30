@@ -183,7 +183,7 @@ export function SelectMenu({
           <span className={selected ? "bb-selectmenu__value" : "bb-selectmenu__placeholder"}>
             {selected ? selected.label : placeholder}
           </span>
-          <i className="ph ph-caret-down bb-selectmenu__caret" aria-hidden="true" />
+          <i className="ph-fill ph-caret-down bb-selectmenu__caret" aria-hidden="true" />
         </button>
 
         {open ? (
@@ -219,7 +219,7 @@ export function SelectMenu({
                 >
                   <span className="bb-selectmenu__option-label">{opt.label}</span>
                   {isSelected ? (
-                    <i className="ph ph-check bb-selectmenu__option-check" aria-hidden="true" />
+                    <i className="ph-fill ph-check bb-selectmenu__option-check" aria-hidden="true" />
                   ) : null}
                 </li>
               );
@@ -230,7 +230,7 @@ export function SelectMenu({
 
       {error ? (
         <span className="bb-field__error">
-          <i className="ph ph-warning-circle" aria-hidden="true" />
+          <i className="ph-fill ph-warning-circle" aria-hidden="true" />
           {error}
         </span>
       ) : hint ? (

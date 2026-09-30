@@ -232,7 +232,20 @@ class TestServiceAuthEnabled:
         # read of the same document, this time against the pack's closed options. Same
         # sensitivity again — same bucket, same D5 posture — so gated identically. The
         # override widens what the API may DO with the mappings, never who may ask for one.
+        #
+        # 17 -> 19 with ADR-0046 Phase 1 (companion v2): POST /companion/classify and
+        # POST /companion/edit-parse. Both carry worker free text (the message, and the
+        # current values the model is shown), so both are gated identically. They are the
+        # first routes whose caller is gated by flags on the API side rather than here -
+        # that changes who CALLS them, never who may reach them directly.
+        #
+        # 19 -> 20 with ADR-0046 Phase 3: POST /companion/career. The most sensitive of the
+        # three - the model's ANSWER is served to the worker - so the same TD67 bearer gates
+        # it, and the API's content validator is the second lock.
         assert post_paths == [
+            "/companion/career",
+            "/companion/classify",
+            "/companion/edit-parse",
             "/embeddings/skill-alias",
             "/growth/cluster",
             "/job-posting-chat/opening",

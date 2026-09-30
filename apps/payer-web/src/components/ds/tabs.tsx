@@ -117,7 +117,9 @@ export function Tabs({
             onClick={() => onChange?.(t.id)}
             onKeyDown={(e) => onKeyDown(e, i)}
           >
-            {t.icon && <i className={`${active ? "ph-fill" : "ph"} ph-${t.icon}`} aria-hidden="true" />}
+            {/* Solid glyph in both states (brand: no outline icons) — the active tab is
+                carried by .bb-tab--active + aria-selected, not by the icon weight. */}
+            {t.icon && <i className={`ph-fill ph-${t.icon}`} aria-hidden="true" />}
             {t.label}
           </button>
         );

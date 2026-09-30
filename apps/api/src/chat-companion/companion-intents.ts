@@ -108,6 +108,31 @@ function hasAny(words: Set<string>, list: readonly string[]): boolean {
 
 const normalizedLabel = (label: string): string => normalizeResumeMenuText(label);
 
+/**
+ * Is this message an EXACT tap on one of v1's own chips — the résumé menu's, or the companion's?
+ *
+ * P2 (ADR-0046 O11) asks this BEFORE the faltu cool-down gate, because the cool-down blocks
+ * free text only: a chip tap must always be served. It is deliberately the same recognition
+ * `resolveCompanionText` steps 1–2 perform, factored out so the two cannot drift — a message
+ * this returns true for is one those steps would have answered.
+ */
+export function isCompanionChipTap(text: string): boolean {
+  const normalized = normalizeResumeMenuText(text);
+  if (normalized.length === 0) return false;
+  if (MENU_CHIP_TEXTS.has(normalized)) return true;
+  return (
+    normalized === normalizedLabel(COMPANION_RESUME_LABEL) ||
+    normalized === COMPANION_RESUME_KEY ||
+    normalized === normalizedLabel(COMPANION_NEW_JOBS_LABEL) ||
+    normalized === COMPANION_NEW_JOBS_KEY ||
+    normalized === normalizedLabel(COMPANION_JOBS_TAB_LABEL) ||
+    normalized === COMPANION_JOBS_TAB_KEY ||
+    normalized.startsWith(COMPANION_JOB_KEY_PREFIX) ||
+    normalized === normalizedLabel(COMPANION_APPLIED_LABEL) ||
+    normalized === COMPANION_APPLIED_KEY
+  );
+}
+
 const intent = (i: Exclude<CompanionIntent, "resume_menu">): CompanionResolution => ({
   kind: "intent",
   intent: i,

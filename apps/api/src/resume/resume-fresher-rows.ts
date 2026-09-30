@@ -189,8 +189,12 @@ export function tenureStatusLabel(
 /**
  * The word itself. §6.2's vocabulary, and NOT per-role: a fresher is a fresher in every trade,
  * and the only per-trade fact is which stored value means it.
+ *
+ * EXPORTED FOR THE GENERAL ROAD (ADR-0045 §3.4), whose own Fresher rule sits in the mapper — the
+ * road is pack-less, so `tenureStatusLabel`'s form-pack bound would refuse it — but must print the
+ * same word.
  */
-const FRESHER_LABEL = "Fresher";
+export const FRESHER_LABEL = "Fresher";
 
 /** The most machines a fresher's line prints, so one row cannot wrap into three. */
 const MAX_WORKSHOP_MACHINES = 4;

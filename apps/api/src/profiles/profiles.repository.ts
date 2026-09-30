@@ -102,6 +102,65 @@ export class ProfilesRepository {
   }
 
   /**
+   * ADR-0046 T7 — the companion's RÉSUMÉ-ONLY skill labels (owner ruling 2026-09-28).
+   *
+   * WHAT IT WRITES, AND WHAT IT MUST NEVER WRITE. The résumé prints skills from the raw-profile
+   * snapshot — the container's `resume_profile.skills` when it carries values, else the draft's
+   * `skills` (canonical ids) and `skill_labels` (the worker's own words). This method replaces
+   * whichever of those lists it is given, and touches NOTHING else: not the
+   * `worker_profiles.skills` COLUMN (matching derives from it), not `worker_skill`, not
+   * `job_reach`. A chat edit changes what the sheet says, never who the worker is matched to.
+   *
+   * It re-validates the merged draft through `DraftProfileSchema` before writing (fail closed on
+   * a corrupt row), exactly as {@link setSkillLists} does.
+   */
+  async setResumeSkillLabels(
+    profileId: string,
+    next: {
+      /** The container's own free-text list. */
+      resumeProfileSkills?: readonly string[];
+      /** The draft's canonical ids. */
+      skills?: readonly string[];
+      /** The draft's worker-typed labels. */
+      skillLabels?: readonly string[];
+    },
+    tx?: Database,
+  ): Promise<void> {
+    const executor = tx ?? this.db;
+    const rows = await executor
+      .select({ rawProfile: workerProfiles.rawProfile })
+      .from(workerProfiles)
+      .where(eq(workerProfiles.id, profileId))
+      .limit(1);
+    const current = rows[0];
+    if (!current) throw new Error(`Profile ${profileId} not found`);
+
+    const base =
+      typeof current.rawProfile === "object" && current.rawProfile !== null
+        ? (current.rawProfile as Record<string, unknown>)
+        : {};
+    const draft = DraftProfileSchema.parse({
+      ...base,
+      ...(next.skills === undefined ? {} : { skills: [...next.skills] }),
+      ...(next.skillLabels === undefined ? {} : { skill_labels: [...next.skillLabels] }),
+      ...(next.resumeProfileSkills === undefined
+        ? {}
+        : {
+            resume_profile: {
+              ...(typeof base.resume_profile === "object" && base.resume_profile !== null
+                ? (base.resume_profile as Record<string, unknown>)
+                : {}),
+              skills: [...next.resumeProfileSkills],
+            },
+          }),
+    });
+    await executor
+      .update(workerProfiles)
+      .set({ rawProfile: draft, updatedAt: new Date() })
+      .where(eq(workerProfiles.id, profileId));
+  }
+
+  /**
    * Apply a worker's corrected machine list (#1311 backend half). Same triple-store
    * rule as {@link setSkillLists}: the profile columns ARE the machines store (no
    * authored relation exists), so the display column and the snapshot move together,

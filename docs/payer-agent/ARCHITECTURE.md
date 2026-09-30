@@ -69,7 +69,8 @@ app carries its own copy:
 maintainability liability on the web side and the prerequisite for any future app split.
 
 There is **no Tailwind anywhere in the repo.** The DS is CSS custom properties
-(`apps/payer-web/src/styles/tokens.css`, 545 lines) + `.bb-*` component classes
+(`apps/payer-web/src/styles/tokens.css`, 545 lines — moved 2026-09-29 to the shared
+`packages/design-tokens/tokens.css`, which admin-web imports too) + `.bb-*` component classes
 (`ds-components.css`, 559 lines) + `globals.css` (4,099 lines), with typed React wrappers.
 `eslint.config.mjs:79-121` bans raw hex and `px` literals in payer-web and admin-web sources.
 

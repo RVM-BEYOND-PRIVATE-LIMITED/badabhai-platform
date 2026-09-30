@@ -1,17 +1,50 @@
 import { createHash } from "node:crypto";
 
 /**
- * Where the résumé's QR and short link point, TODAY.
+ * The origin the résumé's QR and printed short link point at.
  *
- * THE SITE ROOT, NOT A PER-WORKER PAGE — owner ruling 2026-08-28. `/w/<code>` is Phase 3 and
- * does not exist; a QR resolving to a 404 is strictly worse on paper than one resolving to the
- * homepage, because the sheet outlives the render and cannot be re-issued once it is in an
- * employer's stack. When that page ships this constant is the only thing that changes.
+ * TWO QRs ARE BUILT ON IT, and neither is a per-worker PAGE (none exists; no PII is ever shown):
+ *  - the bare origin — the homepage (owner ruling 2026-08-28). What every sheet printed while
+ *    RESUME_QR_SCAN_ENABLED is off carries, and the fallback of any render whose `/r/` QR fails;
+ *  - {@link resumeQrScanUrl} — `<origin>/r/<code>` of the worker's own `resume_qr` link (#1800,
+ *    owner ruling 2026-09-28 "Count + attribute worker signups"). badabhai.ai 302s `/r/*` to the
+ *    api's resolver, which counts the scan and 302s to the install page.
+ *
+ * THE HOST IS PART OF THE QR SIZE BUDGET. `https://badabhai.ai/r/<12 hex>` is a version-4 symbol
+ * at level Q (33 modules, 0.545 mm at 18 mm — `sheet-qr.gate.test.ts`), and version 5 would break
+ * the 0.5 mm floor, so any longer host or path must be re-measured there first. The QR names
+ * badabhai.ai rather than the api's interim host by owner ruling: the printed sheet outlives the
+ * Lightsail IP the api's hostname embeds, and a Netlify `/r/*` 302 can be re-pointed in minutes
+ * while paper cannot be re-issued.
  *
  * `.ai`, NOT `.in`. The registered domain is badabhai.ai; 56 files still say `.in` and are a
  * separate cross-cutting rename, but nothing new should add to that pile.
  */
 export const RESUME_PROFILE_ORIGIN = "https://badabhai.ai";
+
+/**
+ * The line printed under the QR. It must describe what the QR opens, because the sheet outlives
+ * the render and is read by the employer holding it.
+ *
+ * It used to say "Scan to open this worker's live profile", which promised a per-worker page that
+ * does not exist. "Scan to visit BadaBhai" is true of BOTH QRs {@link RESUME_PROFILE_ORIGIN}
+ * describes: the homepage, and the `/r/<code>` variant (#1800), which lands on BadaBhai's install
+ * page. If a per-worker page ever ships, this line and the target change TOGETHER.
+ */
+export const RESUME_QR_CAPTION = "Scan to visit BadaBhai";
+
+/**
+ * #1800 — the URL the worker's own résumé QR encodes when their `resume_qr` link exists:
+ * `https://badabhai.ai/r/<code>`.
+ *
+ * THE CODE IS A BEARER TOKEN. It lives in the QR's modules and nowhere else on the page: the
+ * printed short link stays the bare host and the caption names no code (`resume-fabrication.gate
+ * .test.ts` would refuse a 12-hex run in the chrome). Percent-encoded for the same reason the
+ * resolver encodes it on the way out, though a well-formed code never needs it.
+ */
+export function resumeQrScanUrl(code: string): string {
+  return `${RESUME_PROFILE_ORIGIN}/r/${encodeURIComponent(code)}`;
+}
 
 /**
  * The `bb_trade` sheet's footer line and its reference code. PURE — the clock is an argument.

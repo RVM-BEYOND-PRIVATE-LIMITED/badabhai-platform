@@ -7,6 +7,7 @@ import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../
 import { StatusPill } from "../../../components/status-pill";
 import { NameCell } from "../../../components/name-cell";
 import { IdentityCapNotice } from "../../../components/identity-notice";
+import { Stat } from "../../../components/stat";
 import { InviteAdminForm } from "./invite-admin-form";
 import { AdminRowActions } from "./admin-row-actions";
 
@@ -154,22 +155,18 @@ export default async function AdminsPage({
           Access summary
         </h2>
         <div className="stats">
-          <div className="stat">
-            <span className="stat__value">{formatCount(admins.length)}</span>
-            <span className="stat__label">Admin accounts</span>
-          </div>
-          <div className={`stat${supers === 1 ? " stat--warn" : ""}`}>
-            <span className="stat__value">{formatCount(supers)}</span>
-            <span className="stat__label">Active super admins</span>
-          </div>
-          <div className={`stat${noMfa > 0 ? " stat--warn" : ""}`}>
-            <span className="stat__value">{formatCount(noMfa)}</span>
-            <span className="stat__label">Active without MFA</span>
-          </div>
-          <div className="stat">
-            <span className="stat__value">{formatCount(neverLoggedIn)}</span>
-            <span className="stat__label">Never signed in</span>
-          </div>
+          <Stat label="Admin accounts" value={formatCount(admins.length)} />
+          <Stat
+            label="Active super admins"
+            value={formatCount(supers)}
+            tone={supers === 1 ? "warn" : undefined}
+          />
+          <Stat
+            label="Active without MFA"
+            value={formatCount(noMfa)}
+            tone={noMfa > 0 ? "warn" : undefined}
+          />
+          <Stat label="Never signed in" value={formatCount(neverLoggedIn)} />
         </div>
       </section>
 

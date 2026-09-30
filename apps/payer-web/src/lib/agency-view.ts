@@ -97,12 +97,19 @@ export function kAnonCount(count: number, minBucket: number): string {
 }
 
 /**
- * Whether a job is in an ACTIVE state that can be paused/closed. Agency-job status is
- * `open|closed` ONLY (Phase-1 `JobStatus`; pause == close), so "open" is the only
- * active state.
+ * Whether a job is ACTIVE (`open`) — it can be paused or closed. Agency-job status is now the
+ * four-state `open|paused|suspended|closed` (pause became reversible, #1202).
  */
 export function isActiveJob(job: AgencyJob): boolean {
   return job.status === "open";
+}
+
+/**
+ * Whether a job is PAUSED — it can be resumed (`paused` -> `open`) or closed. A `suspended` job is
+ * SYSTEM-owned (ADR-0037) and is neither active nor payer-resumable; it is not paused.
+ */
+export function isPausedJob(job: AgencyJob): boolean {
+  return job.status === "paused";
 }
 
 /**

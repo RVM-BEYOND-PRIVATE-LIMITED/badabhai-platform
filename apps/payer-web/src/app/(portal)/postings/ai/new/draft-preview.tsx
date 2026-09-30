@@ -43,36 +43,6 @@ export function fieldLabel(key: string): string {
   return FIELD_LABELS[key] ?? key.replace(/_/g, " ");
 }
 
-/**
- * #1727 — the worker-card columns a published posting can hold NULL, in the
- * words a payer reads them in on the card. The two pay bounds and the two
- * experience bounds each collapse to one phrase, because that is how the card
- * shows them.
- */
-const CARD_GAP_LABELS: Record<string, string> = {
-  city: "city",
-  pay_min: "pay band",
-  pay_max: "pay band",
-  pay_type: "pay type",
-  min_experience_years: "experience",
-  max_experience_years: "experience",
-  shift: "shift",
-  needed_by: "joining time",
-  description: "description",
-  requirements: "requirements",
-  benefits: "benefits",
-};
-
-/** De-duplicated in first-seen order; an unknown key is humanised, never dropped. */
-export function cardGapLabels(keys: string[]): string[] {
-  const out: string[] = [];
-  for (const key of keys) {
-    const label = CARD_GAP_LABELS[key] ?? key.replace(/_/g, " ");
-    if (!out.includes(label)) out.push(label);
-  }
-  return out;
-}
-
 /** `in_hand` → "In-hand". A RAW ENUM never reaches a payer's eye. */
 export function payTypeLabel(payType: string | null): string {
   switch (payType) {
@@ -198,7 +168,10 @@ export function DraftPreview({ draft, draftReady }: DraftPreviewProps) {
         <>
           <dl className="ai-draft__list">
             <Row label="Role title" value={draft.roleTitle ?? NONE} />
-            <Row label="Trade" value={draft.tradeKey ?? NONE} />
+            {/* PR-B: the "Trade" row is gone. The chat interview never asks for a trade, so it
+                was ALWAYS "—" — a permanently empty row that read as a hole in the posting. The
+                role is surfaced by the skills below + the posting form's role picker; the chat
+                publish leaves `role_kind` NULL (backend contract), which the edit page highlights. */}
             <Row label="Location" value={draft.locationLabel ?? NONE} />
             {/* #1727 — the coarse card city, beside the poster's own wording
                 rather than instead of it: only this one reaches a worker. */}

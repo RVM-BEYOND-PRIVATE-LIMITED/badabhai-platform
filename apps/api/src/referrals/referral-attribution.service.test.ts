@@ -186,3 +186,66 @@ describe("ReferralAttributionService — fail-safe (never throws to the caller)"
     expect(out.reason).toBe("error");
   });
 });
+
+/**
+ * #1800 — A RÉSUMÉ-QR CODE NEVER REACHES A PAYING SEAM.
+ *
+ * Its attribution IS the first-touch claim (`referral.install_claimed` names the link, and the
+ * link names the worker whose sheet was scanned). It is never commissioned, so the hook must stop
+ * BEFORE `recordAccept` (the worker bonus's input) and `attributeWorkerToInvite` (the agency
+ * commission's) — including when the SAME code also exists in one of those tables, which is the
+ * cross-space collision this ordering exists to make harmless.
+ */
+describe("ReferralAttributionService — #1800 résumé-QR codes stop before invites and agency", () => {
+  let h: ReturnType<typeof make>;
+  beforeEach(() => {
+    h = make();
+    h.consent.findLatestByWorker.mockResolvedValue(activeConsent);
+    // The collision case: BOTH legacy seams would attribute this code if they were asked.
+    h.workerInvites.recordAccept.mockResolvedValue({ ok: true });
+    h.agency.attributeWorkerToInvite.mockResolvedValue({ ok: true });
+  });
+
+  it("a CLAIMED résumé-QR install is attributed as resume_qr — and neither seam is called", async () => {
+    h.referralLinks.claimInstall.mockResolvedValue({
+      claimed: true,
+      referralLinkId: "11111111-1111-4111-8111-111111111111",
+      linkKind: "resume_qr",
+    });
+    const out = await h.svc.attribute(CODE, WORKER, "install_referrer");
+    expect(out).toEqual({ attributed: true, kind: "resume_qr", claimed: true });
+    expect(h.workerInvites.recordAccept).not.toHaveBeenCalled();
+    expect(h.agency.attributeWorkerToInvite).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "self_claim",
+    "dead_link",
+    "already_claimed",
+    "unknown_code",
+    "outside_window",
+  ] as const)(
+    "an UNCLAIMED résumé-QR code (%s) is terminal too — never a fall-through to a paying seam",
+    async (reason) => {
+      h.referralLinks.claimInstall.mockResolvedValue({
+        claimed: false,
+        reason,
+        linkKind: "resume_qr",
+      });
+      const out = await h.svc.attribute(CODE, WORKER);
+      expect(out).toEqual({ attributed: false, kind: "resume_qr", reason, claimed: false });
+      expect(h.workerInvites.recordAccept).not.toHaveBeenCalled();
+      expect(h.agency.attributeWorkerToInvite).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["agent", "worker", "campaign", null] as const)(
+    "every OTHER kind (%s) still reaches the legacy seams exactly as before",
+    async (linkKind) => {
+      h.referralLinks.claimInstall.mockResolvedValue({ claimed: false, linkKind });
+      const out = await h.svc.attribute(CODE, WORKER);
+      expect(out.kind).toBe("worker");
+      expect(h.workerInvites.recordAccept).toHaveBeenCalledOnce();
+    },
+  );
+});

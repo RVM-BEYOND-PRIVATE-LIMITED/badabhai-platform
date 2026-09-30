@@ -460,6 +460,9 @@ class _FeedViewState extends State<_FeedView> {
             // #362); the green "APPLY →" applies to THIS job.
             onTitleTap: () => _openDetail(context, bloc, item),
             onApply: () => bloc.add(SwipeCardApplied(item.jobId)),
+            // Both Jobs-tab views carry the lockup at the foot of the card —
+            // the deck card draws its own (see [Design1JobCard]).
+            showBrand: true,
           );
         },
       ),

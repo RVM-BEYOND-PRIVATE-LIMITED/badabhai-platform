@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/onboarding_theme.dart';
+import '../../../../core/util/devanagari_guard.dart' show stripDevanagari;
 import '../../../../core/widgets/onboarding/form_flow_parts.dart';
 import '../../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../../core/widgets/onboarding/onboarding_select_field.dart';
@@ -32,6 +33,20 @@ const String kTradeFormDeclineLabel = 'Pata nahi / Baad mein batayein';
 const String _kSearchLabel = 'Search karein';
 const String _kSearchHint = 'Type karke dhoondein';
 const String _kSearchEmpty = 'Koi option nahi mila. Doosra shabd try karein.';
+
+/// #1519 — the extra option under every single/multi-select question: the
+/// worker's OWN answer when none of the chips fits ("typed custom answer,
+/// everywhere"). Sent as `{kind: 'text'}`, which the server saves as an
+/// answer to the question in place of any chips.
+const String kTradeFormOtherAnswerLabel = 'Koi aur — khud likhein';
+const String _kOtherAnswerHint = 'Apna jawab yahan likhein';
+
+/// #1519 — on a searchable list whose search found nothing, turns what the
+/// worker typed into his own answer. It PICKS the typed answer; the docked
+/// "Aage badhein" still sends it, exactly like tapping a card.
+String tradeFormUseSearchAsAnswerLabel(String query) =>
+    '“$query” ko apna jawab banayein';
+
 // The current-city pickers — the same State → City steps /name uses.
 const String _kCityStateLabel = 'State (Rajya)';
 const String _kCityCityLabel = 'Sheher (City)';
@@ -143,6 +158,25 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
   /// The live pick for a BOOLEAN question.
   bool? _boolValue;
 
+  /// #1519 — whether "Koi aur — khud likhein" is the pick on a single/multi-
+  /// select question. EXCLUSIVE with the chips: the server keeps ONE value
+  /// per question and a typed answer replaces the chips, so picking one side
+  /// clears the other rather than showing a combination that cannot be saved.
+  bool _otherSelected = false;
+
+  /// Focus the "Koi aur" box only when the worker opens it himself — never
+  /// when a saved typed answer reopens it on load.
+  bool _otherAutofocus = false;
+
+  /// The typed "Koi aur" answer, seeded from a saved `other_text` so a
+  /// reopened form shows what he wrote. Kept while the option is unpicked, so
+  /// tapping a chip and coming back does not lose his words.
+  late final TextEditingController _otherController = TextEditingController(
+    text: (widget.step.answer?.hasOtherText ?? false)
+        ? widget.step.answer!.otherText!.trim()
+        : '',
+  );
+
   @override
   void initState() {
     super.initState();
@@ -161,8 +195,12 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
         _text = answer?.text ?? _suggestedFactText() ?? '';
       case VoiceQuestionKind.multiSelect:
         _selected = _seedOptionKeys(answer, q.options);
+        // #1519 — a saved typed answer comes back with no chips at all; it
+        // reopens as the picked "Koi aur" with his words in the box.
+        _otherSelected = answer?.hasOtherText ?? false;
       case VoiceQuestionKind.singleSelect:
         _singleKey = _seedSingleKey(answer, q.options);
+        _otherSelected = answer?.hasOtherText ?? false;
       case VoiceQuestionKind.boolean:
         _boolValue =
             (answer == null || answer.isDeclined) ? null : answer.boolValue;
@@ -193,15 +231,21 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
 
   bool get _canSubmit => switch (widget.step.question.kind) {
         VoiceQuestionKind.open => _text.trim().isNotEmpty,
-        VoiceQuestionKind.multiSelect => _selected.isNotEmpty,
-        VoiceQuestionKind.singleSelect => _singleKey != null,
+        VoiceQuestionKind.multiSelect =>
+          _otherSelected ? _otherReady : _selected.isNotEmpty,
+        VoiceQuestionKind.singleSelect =>
+          _otherSelected ? _otherReady : _singleKey != null,
         VoiceQuestionKind.boolean => _boolValue != null,
       };
+
+  /// The server's own rule for a typed answer: `text.trim().min(1)`.
+  bool get _otherReady => _otherController.text.trim().isNotEmpty;
 
   @override
   void dispose() {
     // A fresh body mounts per question, so this is also "the step changed".
     _stopSpeech();
+    _otherController.dispose();
     super.dispose();
   }
 
@@ -240,9 +284,15 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
       case VoiceQuestionKind.open:
         widget.onSubmitText(_text.trim());
       case VoiceQuestionKind.multiSelect:
-        widget.onSubmitChips(List<String>.of(_selected));
       case VoiceQuestionKind.singleSelect:
-        widget.onSubmitChips(<String>[_singleKey!]);
+        if (_otherSelected) {
+          // #1519 — `{kind: 'text'}`, the same answer an open question sends.
+          widget.onSubmitText(_otherController.text.trim());
+        } else if (q.kind == VoiceQuestionKind.multiSelect) {
+          widget.onSubmitChips(List<String>.of(_selected));
+        } else {
+          widget.onSubmitChips(<String>[_singleKey!]);
+        }
       case VoiceQuestionKind.boolean:
         widget.onSubmitBoolean(_boolValue!);
     }
@@ -250,12 +300,54 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
 
   /// A multi-select tap. Computed from [_selected] BEFORE it is replaced —
   /// [applyNoneOfAboveRule] handles both toggle-off and the #1382 exclusion.
+  /// A chip unpicks "Koi aur" (#1519 — see [_otherSelected]).
   void _toggleMulti(String key) {
-    setState(() => _selected = applyNoneOfAboveRule(
-          current: _selected,
-          key: key,
-          options: widget.step.question.options,
-        ));
+    setState(() {
+      _otherSelected = false;
+      _selected = applyNoneOfAboveRule(
+        current: _selected,
+        key: key,
+        options: widget.step.question.options,
+      );
+    });
+  }
+
+  /// A single-select tap. Unpicks "Koi aur" (#1519).
+  void _pickSingle(String key) {
+    setState(() {
+      _otherSelected = false;
+      _singleKey = key;
+    });
+  }
+
+  /// #1519 — the "Koi aur — khud likhein" card. A checkbox on a multi-select
+  /// (a second tap unpicks it), a radio on a single-select (a tap only ever
+  /// picks). Picking it clears the chips and opens the box, focused.
+  void _tapOther() {
+    final bool pick =
+        !widget.step.question.isMultiSelect || !_otherSelected;
+    setState(() {
+      _otherSelected = pick;
+      if (pick) {
+        _otherAutofocus = true;
+        _selected = const <String>[];
+        _singleKey = null;
+      }
+    });
+  }
+
+  /// #1519 — the search found nothing: what the worker typed becomes his
+  /// answer, picked in the "Koi aur" box (cut to the server's cap) for him to
+  /// check and send with the docked bar.
+  void _useSearchQuery(String query) {
+    _otherController.text = query.length > kTradeFormTextAnswerMaxLength
+        ? query.substring(0, kTradeFormTextAnswerMaxLength)
+        : query;
+    setState(() {
+      _otherSelected = true;
+      _selected = const <String>[];
+      _singleKey = null;
+    });
   }
 
   @override
@@ -385,16 +477,20 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
       );
     }
     if (widget.step.searchable) {
-      return _SearchableOptionList(
-        key: ValueKey<String>('${q.id}-searchable'),
-        options: q.options,
-        // Never filter away a pick, nor a résumé's hint: a hint the worker
-        // cannot find is not a hint.
-        isPinned: (String key) =>
-            _selected.contains(key) ||
-            _singleKey == key ||
-            _suggestedKeys.contains(key),
-        buildCard: (VoiceChoice c) => _optionCard(q, c),
+      return _withOtherAnswer(
+        q,
+        _SearchableOptionList(
+          key: ValueKey<String>('${q.id}-searchable'),
+          options: q.options,
+          // Never filter away a pick, nor a résumé's hint: a hint the worker
+          // cannot find is not a hint.
+          isPinned: (String key) =>
+              _selected.contains(key) ||
+              _singleKey == key ||
+              _suggestedKeys.contains(key),
+          buildCard: (VoiceChoice c) => _optionCard(q, c),
+          onUseQuery: _useSearchQuery,
+        ),
       );
     }
     if (q.isBoolean) {
@@ -436,11 +532,14 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
         ],
       );
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        for (final VoiceChoice c in q.options) _optionCard(q, c),
-      ],
+    return _withOtherAnswer(
+      q,
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          for (final VoiceChoice c in q.options) _optionCard(q, c),
+        ],
+      ),
     );
   }
 
@@ -479,10 +578,59 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
             subtitle: tier?.description,
             leadingIcon: icon,
             isSelected: _singleKey == c.key,
-            onTap: () => setState(() => _singleKey = c.key),
+            onTap: () => _pickSingle(c.key),
             variant: OnboardingVariant.formFlow,
           );
     return _suggestable(suggested: _suggestedKeys.contains(c.key), card: card);
+  }
+
+  /// #1519 — [options] followed by the "Koi aur — khud likhein" card and,
+  /// while it is the pick, its text box. Same card type as the question's own
+  /// options (checkbox on multi, radio on single) so it reads as one more
+  /// choice, not a separate control.
+  Widget _withOtherAnswer(VoiceQuestion q, Widget options) {
+    const IconData icon = Icons.edit_outlined;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        options,
+        if (q.isMultiSelect)
+          MultiSelectQuestionCard(
+            title: kTradeFormOtherAnswerLabel,
+            leadingIcon: icon,
+            isSelected: _otherSelected,
+            onTap: _tapOther,
+            variant: OnboardingVariant.formFlow,
+          )
+        else
+          SingleSelectQuestionCard(
+            title: kTradeFormOtherAnswerLabel,
+            leadingIcon: icon,
+            isSelected: _otherSelected,
+            onTap: _tapOther,
+            variant: OnboardingVariant.formFlow,
+          ),
+        if (_otherSelected)
+          Padding(
+            // The kit cards' own 10px bottom gap, so the decline link's lift
+            // never overlaps the box.
+            padding: const EdgeInsets.only(bottom: 10),
+            child: TradeFormTextField(
+              key: ValueKey<String>('${q.id}-other'),
+              controller: _otherController,
+              hint: _kOtherAnswerHint,
+              label: kTradeFormOtherAnswerLabel,
+              maxLines: 3,
+              maxLength: kTradeFormTextAnswerMaxLength,
+              textInputAction: TextInputAction.done,
+              autofocus: _otherAutofocus,
+              // Rebuilds the docked bar's gate as he types.
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (_) => _submit(),
+            ),
+          ),
+      ],
+    );
   }
 
   Widget _suggestable({required bool suggested, required Widget card}) =>
@@ -680,6 +828,7 @@ class _SearchableOptionList extends StatefulWidget {
     required this.options,
     required this.isPinned,
     required this.buildCard,
+    this.onUseQuery,
   });
 
   /// The full option list (unfiltered). Order is preserved — never re-sorted
@@ -690,6 +839,11 @@ class _SearchableOptionList extends StatefulWidget {
   final bool Function(String key) isPinned;
 
   final Widget Function(VoiceChoice option) buildCard;
+
+  /// #1519 — when no option matches the search, offered with what the worker
+  /// typed (Devanagari stripped, as every trade-form text field does, and
+  /// trimmed) so he can make it his own answer. Null offers nothing.
+  final ValueChanged<String>? onUseQuery;
 
   @override
   State<_SearchableOptionList> createState() => _SearchableOptionListState();
@@ -714,6 +868,12 @@ class _SearchableOptionListState extends State<_SearchableOptionList> {
             q.isEmpty ||
             o.label.toLowerCase().contains(q))
         .toList();
+    // #1519 — "nothing matched" is about the SEARCH, not the list: a pinned
+    // pick may still be showing, and the worker's words are still not there.
+    final bool noMatch = q.isNotEmpty &&
+        !widget.options
+            .any((VoiceChoice o) => o.label.toLowerCase().contains(q));
+    final String typed = stripDevanagari(_query).trim();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -743,6 +903,15 @@ class _SearchableOptionListState extends State<_SearchableOptionList> {
           )
         else
           for (final VoiceChoice option in visible) widget.buildCard(option),
+        if (noMatch && typed.isNotEmpty && widget.onUseQuery != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: TradeFormSecondaryButton(
+              label: tradeFormUseSearchAsAnswerLabel(typed),
+              icon: Icons.edit_outlined,
+              onPressed: () => widget.onUseQuery!(typed),
+            ),
+          ),
       ],
     );
   }

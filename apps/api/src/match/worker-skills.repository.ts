@@ -35,6 +35,14 @@ export interface WorkerTenureRow {
 }
 
 /**
+ * A transaction executor. Typed as `Database` and cast at the `transaction` seam, matching
+ * `ChatRepository` / `AdminActionsRepository`: Drizzle's real `PgTransaction` is structurally
+ * compatible for every query builder used here but lacks `$client`, so the narrower true type
+ * would fight the `Database`-typed helpers this class already passes around.
+ */
+export type Tx = Database;
+
+/**
  * Drizzle data access for the Matching V1 SUPPLY side (migration 0053) plus the
  * per-worker `job_reach` reconciliation (migration 0055).
  *
@@ -243,7 +251,17 @@ export class WorkerSkillsRepository {
 
   /** The skill ids this worker currently WANTS — the reach driver's input set. */
   async listWantedSkillIds(workerId: string): Promise<string[]> {
-    const rows = await this.db
+    return this.listWantedSkillIdsWithin(this.db, workerId);
+  }
+
+  /**
+   * The same read on a caller's executor, so a `wants` flip can READ ITS OWN WRITE BACK
+   * inside the transaction that made it. That read-back is not ceremony: the flip touches one
+   * row, and the reach set must be reconciled against the whole set as the database now holds
+   * it, not against whatever the caller believes the set to be.
+   */
+  private async listWantedSkillIdsWithin(executor: Tx, workerId: string): Promise<string[]> {
+    const rows = await executor
       .select({ skillId: workerSkills.skillId })
       .from(workerSkills)
       .where(and(eq(workerSkills.workerId, workerId), eq(workerSkills.wants, true)));
@@ -281,42 +299,135 @@ export class WorkerSkillsRepository {
     wantedSkillIds: readonly string[],
   ): Promise<void> {
     await this.db.transaction(async (tx) => {
-      // 1. Clear his rows on every LIVE posting. `paused` is included because a pause is
-      //    reversible (B1) and a resumed posting must not carry a stale reach set.
-      await tx.execute(dsql`
-        DELETE FROM job_reach jr
-        USING job_postings jp
-        WHERE jr.worker_id = ${workerId}::uuid
-          AND jp.id = jr.job_posting_id
-          AND jp.status IN ('open', 'paused')
-      `);
-
-      if (wantedSkillIds.length === 0) return; // he supplies nothing: reaches nobody.
-
-      const skills = dsql.param([...wantedSkillIds]);
-      // 2. Re-insert. The GROUP BY is per posting (the materializer groups per worker for
-      //    one posting; here it is one worker across postings) — same MIN/ARRAY_AGG rule.
-      await tx.execute(dsql`
-        INSERT INTO job_reach (job_posting_id, worker_id, match_tier, matched_skill_id)
-        SELECT jp.id,
-               ${workerId}::uuid,
-               MIN(CASE WHEN jp.match_skill_ids @> to_jsonb(ws.skill_id) THEN 1 ELSE 2 END),
-               (ARRAY_AGG(ws.skill_id ORDER BY (jp.match_skill_ids @> to_jsonb(ws.skill_id)) DESC,
-                                               ws.months_bucketed DESC))[1]
-        FROM job_postings jp
-        JOIN worker_skill ws
-          ON ws.worker_id = ${workerId}::uuid
-         AND ws.wants
-         AND jp.reach_skill_ids @> to_jsonb(ws.skill_id)
-        WHERE jp.status IN ('open', 'paused')
-          AND jp.reach_skill_ids ?| ${skills}::text[]
-        GROUP BY jp.id
-        ON CONFLICT (job_posting_id, worker_id) DO UPDATE
-          SET match_tier       = EXCLUDED.match_tier,
-              matched_skill_id = EXCLUDED.matched_skill_id,
-              computed_at      = now()
-      `);
+      await this.reconcileReachWithin(tx as unknown as Tx, workerId, wantedSkillIds);
     });
+  }
+
+  /**
+   * THE WANTS FLIP — the worker says yes/no to ONE skill, and `job_reach` moves with it.
+   *
+   * ONE TRANSACTION, and that is the invariant this phase exists to make true: flipping
+   * `wants` and reconciling `job_reach` commit together. A crash between the two would leave
+   * the worker reachable through a skill he had just declined (or invisible through one he had
+   * just re-enabled), and no reader could tell the state was half-applied.
+   *
+   * THE WANTED SET IS READ BACK INSIDE THE TRANSACTION, never computed from the flip. A worker
+   * has many rows; this write touches one, and the reach set must be reconciled against the
+   * whole set as the database now holds it — the same reason `rebuildForWorker` reads the set
+   * back before reconciling.
+   *
+   * `source = 'interview'` because a worker answering "do you want this work?" IS the interview
+   * speaking. It is the one source the coarse re-derivation may not rewrite
+   * (`packages/db/src/schema/match.ts:26-30`), and it is what makes the opt-out durable:
+   * `wants` alone would not be enough, because a re-derivation that no longer derives the skill
+   * would PRUNE the row and a later one would re-propose it with `wants: true`.
+   *
+   * Returns `false` when the worker holds no such row — the caller 404s, nothing moved, and
+   * no event is emitted.
+   */
+  async setWantsAndReconcile(
+    workerId: string,
+    skillId: string,
+    wants: boolean,
+    now: Date,
+  ): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const executor = tx as unknown as Tx;
+      const updated = await executor
+        .update(workerSkills)
+        .set({ wants, source: "interview", updatedAt: now })
+        .where(and(eq(workerSkills.workerId, workerId), eq(workerSkills.skillId, skillId)))
+        .returning({ skillId: workerSkills.skillId });
+      if (updated.length === 0) return false;
+
+      await this.reconcileReachWithin(
+        executor,
+        workerId,
+        await this.listWantedSkillIdsWithin(executor, workerId),
+      );
+      return true;
+    });
+  }
+
+  /**
+   * THE CLEAR-ALL EXIT — every `worker_skill` row the worker holds is declined in ONE
+   * transaction, and `job_reach` is reconciled once against the resulting (empty) wanted set.
+   *
+   * UPDATE, NOT DELETE, and the difference is the whole point. Deleting the rows would let the
+   * next profile-write rebuild recreate them `wants: true`, so the exit would silently undo
+   * itself on the next extraction. Stamping every row `wants: false, source='interview'` is
+   * exactly the state the coarse re-derivation is forbidden to overwrite — the worker's exit
+   * is as durable as the per-skill one, and his rows (with their months) survive to be turned
+   * back on.
+   *
+   * Idempotent and honest: a second call matches zero rows, still reconciles (nothing is
+   * wanted, so his stale live reach rows go), and returns 0.
+   */
+  async clearAllWantsAndReconcile(workerId: string, now: Date): Promise<number> {
+    return this.db.transaction(async (tx) => {
+      const executor = tx as unknown as Tx;
+      const cleared = await executor
+        .update(workerSkills)
+        .set({ wants: false, source: "interview", updatedAt: now })
+        .where(eq(workerSkills.workerId, workerId))
+        .returning({ skillId: workerSkills.skillId });
+
+      await this.reconcileReachWithin(
+        executor,
+        workerId,
+        await this.listWantedSkillIdsWithin(executor, workerId),
+      );
+      return cleared.length;
+    });
+  }
+
+  /**
+   * The reconcile body, on a caller's executor so it can ride an ALREADY-OPEN transaction
+   * (`setWantsAndReconcile`, `clearAllWantsAndReconcile`) or open its own
+   * (`reconcileReachForWorker`). Nested `db.transaction` calls would be a second, independent
+   * transaction — not atomic with the flip — so the flip paths must run this one, not the
+   * wrapper.
+   */
+  private async reconcileReachWithin(
+    tx: Tx,
+    workerId: string,
+    wantedSkillIds: readonly string[],
+  ): Promise<void> {
+    // 1. Clear his rows on every LIVE posting. `paused` is included because a pause is
+    //    reversible (B1) and a resumed posting must not carry a stale reach set.
+    await tx.execute(dsql`
+      DELETE FROM job_reach jr
+      USING job_postings jp
+      WHERE jr.worker_id = ${workerId}::uuid
+        AND jp.id = jr.job_posting_id
+        AND jp.status IN ('open', 'paused')
+    `);
+
+    if (wantedSkillIds.length === 0) return; // he supplies nothing: reaches nobody.
+
+    const skills = dsql.param([...wantedSkillIds]);
+    // 2. Re-insert. The GROUP BY is per posting (the materializer groups per worker for
+    //    one posting; here it is one worker across postings) — same MIN/ARRAY_AGG rule.
+    await tx.execute(dsql`
+      INSERT INTO job_reach (job_posting_id, worker_id, match_tier, matched_skill_id)
+      SELECT jp.id,
+             ${workerId}::uuid,
+             MIN(CASE WHEN jp.match_skill_ids @> to_jsonb(ws.skill_id) THEN 1 ELSE 2 END),
+             (ARRAY_AGG(ws.skill_id ORDER BY (jp.match_skill_ids @> to_jsonb(ws.skill_id)) DESC,
+                                             ws.months_bucketed DESC))[1]
+      FROM job_postings jp
+      JOIN worker_skill ws
+        ON ws.worker_id = ${workerId}::uuid
+       AND ws.wants
+       AND jp.reach_skill_ids @> to_jsonb(ws.skill_id)
+      WHERE jp.status IN ('open', 'paused')
+        AND jp.reach_skill_ids ?| ${skills}::text[]
+      GROUP BY jp.id
+      ON CONFLICT (job_posting_id, worker_id) DO UPDATE
+        SET match_tier       = EXCLUDED.match_tier,
+            matched_skill_id = EXCLUDED.matched_skill_id,
+            computed_at      = now()
+    `);
   }
 
   /**

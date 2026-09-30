@@ -12,6 +12,7 @@ import {
 import { PaymentsPostureBanner, MockMoneyTag } from "../../../components/payments-posture";
 import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
+import { Stat } from "../../../components/stat";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Transactions" };
@@ -106,47 +107,39 @@ export default async function TransactionsPage({
           </h2>
           <div className="stats">
             {mockPurchases && summary.payments.mode === "mock" ? (
-              <div className="stat stat--warn">
-                <span className="stat__value">
-                  {formatRupees(mockPurchases.amount_inr)}{" "}
-                  <MockMoneyTag posture={summary.payments} />
-                </span>
-                <span className="stat__label">
-                  Pack purchases via the mock path ({formatCount(mockPurchases.movements)}) —
-                  recorded in the credit ledger, not as orders
-                </span>
-              </div>
+              <Stat
+                label={`Pack purchases via the mock path (${formatCount(mockPurchases.movements)}) — recorded in the credit ledger, not as orders`}
+                value={formatRupees(mockPurchases.amount_inr)}
+                adornment={<MockMoneyTag posture={summary.payments} />}
+                tone="warn"
+                wide
+              />
             ) : (
-              <div className="stat">
-                <span className="stat__value">
-                  {formatRupees(summary.paid_orders.amount_inr)}{" "}
-                  <MockMoneyTag posture={summary.payments} />
-                </span>
-                <span className="stat__label">
-                  Settled ({formatCount(summary.paid_orders.count)} orders)
-                </span>
-              </div>
+              <Stat
+                label={`Settled (${formatCount(summary.paid_orders.count)} orders)`}
+                value={formatRupees(summary.paid_orders.amount_inr)}
+                adornment={<MockMoneyTag posture={summary.payments} />}
+                wide
+              />
             )}
-            <div className="stat">
-              <span className="stat__value">
-                {formatCount(
-                  summary.payments.mode === "mock" && mockPurchases
-                    ? mockPurchases.credits_delta
-                    : summary.paid_orders.credits,
-                )}
-              </span>
-              <span className="stat__label">Credits sold</span>
-            </div>
-            <div className={`stat${summary.unsettled_orders.count > 0 ? " stat--warn" : ""}`}>
-              <span className="stat__value">{formatCount(summary.unsettled_orders.count)}</span>
-              <span className="stat__label">
-                Unsettled orders — started, never completed. Not revenue.
-              </span>
-            </div>
-            <div className={`stat${summary.failed_orders.count > 0 ? " stat--warn" : ""}`}>
-              <span className="stat__value">{formatCount(summary.failed_orders.count)}</span>
-              <span className="stat__label">Failed orders</span>
-            </div>
+            <Stat
+              label="Credits sold"
+              value={formatCount(
+                summary.payments.mode === "mock" && mockPurchases
+                  ? mockPurchases.credits_delta
+                  : summary.paid_orders.credits,
+              )}
+            />
+            <Stat
+              label="Unsettled orders — started, never completed. Not revenue."
+              value={formatCount(summary.unsettled_orders.count)}
+              tone={summary.unsettled_orders.count > 0 ? "warn" : undefined}
+            />
+            <Stat
+              label="Failed orders"
+              value={formatCount(summary.failed_orders.count)}
+              tone={summary.failed_orders.count > 0 ? "warn" : undefined}
+            />
           </div>
         </section>
       )}

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { createDbClient, events, referralClicks, type DbClient } from "@badabhai/db";
+import { createDbClient, events, referralClicks, referralLinks, type DbClient } from "@badabhai/db";
 
 /**
  * THE REFERRAL ROUND-TRIP — share → click → install → first-touch attribution.
@@ -303,6 +303,77 @@ describe.skipIf(!RUN)("referral round-trip: /r/:code -> click -> attribute", () 
     expect(all.length).toBeGreaterThan(0);
     for (const e of all) {
       expect(JSON.stringify(e.payload), `${e.eventName} leaked the bearer code`).not.toContain(
+        code,
+      );
+    }
+  });
+
+  // ── #1800 — THE RÉSUMÉ QR (`resume_qr`), through the same round trip ───────────────────
+  //
+  // The link row is SEEDED rather than minted: minting happens inside the résumé render worker
+  // (WeasyPrint, a queue, RESUME_QR_SCAN_ENABLED), none of which this suite runs. What it proves
+  // is the half only a real database can: migration 0129 admits the kind, the resolver emits
+  // `profile.qr_scanned` for the OWNER (and no `referral.link_clicked`), a different worker's
+  // install is claimed, the owner's own is not — and the code reaches no event.
+  it("#1800 — a résumé-QR scan counts for the OWNER, a stranger's install is claimed, the owner's is not", async () => {
+    const owner = await loginWorker();
+    const code = freshCode();
+    const [link] = await client.db
+      .insert(referralLinks)
+      .values({ code, kind: "resume_qr", medium: "organic", ownerWorkerId: owner.workerId })
+      .returning();
+    const linkId = link!.id;
+
+    const scans = async () =>
+      (await client.db.select().from(events)).filter(
+        (e) =>
+          (e.eventName === "profile.qr_scanned" || e.eventName === "referral.link_clicked") &&
+          (e.payload as { referral_link_id?: string }).referral_link_id === linkId,
+      );
+
+    const res = await req("GET", `/r/${code}`, { ua: ANDROID_UA, manualRedirect: true });
+    expect(res.status).toBe(302);
+    // The same install page every other code lands on — no oracle.
+    expect(res.location).toMatch(new RegExp(`/i/${code}$`));
+
+    const rows = await clicksFor(code);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.referralLinkId).toBe(linkId);
+
+    const emitted = await waitFor("profile.qr_scanned to land", scans, (e) => e.length === 1);
+    expect(emitted[0]!.eventName).toBe("profile.qr_scanned");
+    expect(emitted[0]!.payload).toEqual({
+      worker_id: owner.workerId,
+      referral_link_id: linkId,
+      platform: "android",
+    });
+
+    // THE OWNER posting their own code claims nothing.
+    await acceptConsent(owner.token);
+    await req("POST", "/referrals/attribute", {
+      token: owner.token,
+      body: { code, source: "app_link" },
+    });
+    await settle();
+    expect(await claimsFor(owner.workerId)).toHaveLength(0);
+
+    // A STRANGER who installed from the scan is claimed.
+    const scanner = await loginWorker();
+    await acceptConsent(scanner.token);
+    await req("POST", "/referrals/attribute", {
+      token: scanner.token,
+      body: { code, source: "install_referrer" },
+    });
+    const claimed = await waitFor(
+      "the résumé-QR claim to land",
+      () => claimsFor(scanner.workerId),
+      (r) => r.length === 1,
+    );
+    expect(claimed[0]!.referralLinkId).toBe(linkId);
+
+    // The bearer code is on no event row at all.
+    for (const e of await client.db.select().from(events)) {
+      expect(JSON.stringify(e.payload), `${e.eventName} leaked the résumé-QR code`).not.toContain(
         code,
       );
     }

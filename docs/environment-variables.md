@@ -104,6 +104,23 @@ NestJS boot assertion).
   the chat tab as it was), `CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS` (7), `CHAT_COMPANION_NEW_JOBS_COUNT_CAP`
   (20) and `CHAT_COMPANION_JOB_CHIPS` (3). Only the flag is bridged to staging; the knobs run on
   their defaults. Production ON only after ADR-0044 is Accepted.
+- **Companion v2 — the LLM task router (ADR-0046)** — **every switch defaults off, and off is v1
+  byte-for-byte** (deterministic resolver, zero model calls). Flags:
+  `CHAT_COMPANION_V2_ENABLED` (master), `CHAT_COMPANION_V2_EDIT_ENABLED` (P1),
+  `CHAT_COMPANION_V2_NEW_RESUME_ENABLED` / `CHAT_COMPANION_V2_FALTU_ENABLED` (P2),
+  `CHAT_COMPANION_V2_CAREER_ENABLED` (P3). Knobs: `CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE` (0.6,
+  0..1; below → `unclear`), `CHAT_COMPANION_V2_EDIT_MAX_ROWS` (3),
+  `CHAT_COMPANION_V2_PROPOSAL_TTL_SECONDS` (600), `CHAT_COMPANION_V2_FALTU_STRIKES` (3),
+  `CHAT_COMPANION_V2_FALTU_COOLDOWN_MINUTES` (30), `CHAT_COMPANION_V2_MEMORY_TURNS` (6),
+  `CHAT_COMPANION_V2_MEMORY_TTL_SECONDS` (1800). The five phase flags are bridged to staging
+  through the GitHub environment secrets of the same names (compose `${VAR:-false}`, `ci.yml`
+  `env:` + `envs:`); the knobs run on their reviewed defaults and are deliberately NOT bridged.
+  Nothing v2 is reachable until both the parent `CHAT_COMPANION_ENABLED` and
+  `CHAT_COMPANION_V2_ENABLED` are on, production ON additionally requires ADR-0046's signature
+  with companion v1 live, and real model calls need the box to widen the ai-service's
+  `AI_REAL_CALL_TASKS` allowlist to name `companion_classify` and `companion_edit_parse` (P1)
+  and `companion_career_answer` (P3). The production box sets its own list, which replaces
+  the compose default (#1843), so widening means appending to that list on the box.
 - **The general road (ADR-0045)** — `CHAT_GENERAL_ROAD_ENABLED` (default off; off is the interview
   as it was for every worker). On, a chat worker whose role is outside the 21 predefined roles gets
   role → skills and then the offline general form. Needs `CHAT_LLM_INTERVIEW_ENABLED`. Stamped per

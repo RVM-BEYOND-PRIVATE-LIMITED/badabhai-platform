@@ -184,22 +184,25 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
       {packs.length === 0 ? (
         <div className="state">
           <span className="state__icon">
-            <i className="ph ph-wallet" aria-hidden="true" />
+            <i className="ph-fill ph-wallet" aria-hidden="true" />
           </span>
           <h3 className="state__title">No credit packs on offer</h3>
           <p className="state__body">
-            There is nothing to buy right now — this usually means the price list is being
-            updated. Your existing balance is unaffected; check back shortly.
+            There is nothing to buy right now — this usually means the price list is being updated.
+            Your existing balance is unaffected; check back shortly.
           </p>
         </div>
       ) : (
         <div className="credits-packs">
           {packs.map((p) => (
-            <Card key={p.code} className="credit-pack">
+            <Card
+              key={p.code}
+              className={p.code === bestValueCode ? "credit-pack credit-pack--best" : "credit-pack"}
+            >
               <div className="credit-pack__head">
                 <span className="credit-pack__name">{p.code.replace(/_/g, " ")}</span>
                 {p.code === bestValueCode ? (
-                  <Badge tone="brand" upper>
+                  <Badge tone="brand" variant="solid" upper>
                     Best value
                   </Badge>
                 ) : null}
@@ -215,7 +218,13 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
                 loading={pendingCode === p.code}
                 onClick={() => onBuy(p)}
               >
-                {pendingCode === p.code ? (real ? "Opening…" : "Adding…") : real ? "Buy" : "Buy (mock)"}
+                {pendingCode === p.code
+                  ? real
+                    ? "Opening…"
+                    : "Adding…"
+                  : real
+                    ? "Buy"
+                    : "Buy (mock)"}
               </Button>
             </Card>
           ))}

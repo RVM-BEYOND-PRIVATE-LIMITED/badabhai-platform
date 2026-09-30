@@ -17,6 +17,27 @@ abstract interface class TradeFormRepository {
   /// worker who simply re-opens their form still gets the whole thing.
   Future<TradeForm?> loadForm({bool upgradeView = false});
 
+  /// GET /profiling/general-form — the GENERAL ROAD's form (ADR-0045 §3.3).
+  ///
+  /// Null means 404: this worker was never handed the general form, which with
+  /// the road's flag off is every worker. That is an honest "nothing to fill",
+  /// not an error — the same distinction [loadForm] draws.
+  ///
+  /// Every other failure PROPAGATES, because a worker who was handed a form and
+  /// cannot load it must be told, not shown an empty one.
+  Future<GeneralForm?> loadGeneralForm();
+
+  /// POST /profiling/general-form/answer — one of the form's OWN two questions.
+  ///
+  /// Only `has_work_history` and `profile_brief` go here; every other screen on
+  /// the general form saves through its existing page endpoint. The result
+  /// carries `complete` (run the finish) and `schema_stale` (re-GET the form and
+  /// rebuild the walk) instead of the trade form's answered/total counters.
+  Future<TradeFormAnswerResult> submitGeneralAnswer({
+    required String questionKey,
+    required TradeFormAnswer answer,
+  });
+
   /// GET /profiling/form/tiers — may this worker choose how long profiling
   /// takes, and what do the tiers cost them (#1698)?
   ///

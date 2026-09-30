@@ -1,0 +1,15 @@
+{
+  "_comment": "ADR-0046 Phase 1 (chat companion v2). The Zod shapes live in packages/ai-contracts/src/companion.ts and the Pydantic mirror in apps/ai-service/app/contracts.py; BOTH suites assert against this file, so a field added on one side only turns the other side red (Pydantic silently drops unknown request keys and Zod strips unknown response keys).",
+  "CompanionRecentTurn": ["role", "text"],
+  "EditableField": ["section", "field", "ops"],
+  "CompanionEditSnapshotRow": ["ref", "section", "fields"],
+  "CompanionEditRow": ["op", "section", "ref", "field", "value"],
+  "CompanionClassifyInput": ["text", "recent_turns"],
+  "CompanionClassifyOutput": ["intent", "confidence", "blocked", "ai_metadata"],
+  "CompanionEditParseInput": ["text", "catalogue", "snapshot", "max_rows"],
+  "CompanionEditParseOutput": ["rows", "unsupported", "ai_metadata"],
+  "CompanionCareerWorkerContext": ["trade_label", "experience_bucket"],
+  "CompanionCareerInput": ["text", "recent_turns", "worker_context"],
+  "CompanionCareerAnswer": ["status", "lines", "followup_chips", "ai_metadata"],
+  "CompanionCareerRefuse": ["status", "topic", "ai_metadata"]
+}

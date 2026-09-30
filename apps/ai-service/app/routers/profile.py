@@ -19,6 +19,7 @@ from ..ai.langfuse_tracing import (
 )
 from ..ai.model_config import rate_inr_per_1k
 from ..ai.skill_store import get_skill_store
+from ..certified_values import certified_scalar
 from ..config import get_settings
 from ..contracts import (
     AICallMetadata,
@@ -358,8 +359,20 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
     # LLM-filled source) onto the PERSISTED legacy profile, so the résumé + resume
     # tab (which read the DraftProfile snapshot) can show them. Mirrors the
     # skill_labels carry above; None stays None (mock mode leaves them unset).
-    legacy.education_level = rich.education_level
-    legacy.education_field = rich.education_field
+    #
+    # #1739: CERTIFIED AT REST, exactly like the education LIST below. Both are free text the
+    # MODEL wrote (`merge_model_draft` overlays them), and apps/api persists this profile and
+    # renders it from the snapshot with no TypeScript pseudonymize equivalent, so a value that
+    # fails certification is withheld (None) here rather than stored. Neither field is a matching
+    # input. The location fields are NOT certified here: on this route they come from the local
+    # gazetteer detector (`merge_model_draft` never overlays them), never from the model.
+    legacy.education_level = certified_scalar(rich.education_level)
+    legacy.education_field = certified_scalar(rich.education_field)
+    # AND ON THE RICH DRAFT, which is returned as `worker_profile_draft` and stored as
+    # `worker_profiles.rich_profile_draft`: withholding a value on one and storing it on the other
+    # would still store it.
+    rich.education_level = legacy.education_level
+    rich.education_field = legacy.education_field
 
     # #499 / TD102: carry the list-topics for education and certifications, sanitized.
     legacy.education = profile_extractor.sanitize_skill_labels(rich.education)

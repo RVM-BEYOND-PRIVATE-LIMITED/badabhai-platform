@@ -42,6 +42,7 @@ class TradeFormSavedAnswer extends Equatable {
     this.text,
     this.number,
     this.boolValue,
+    this.otherText,
   });
 
   final TradeFormAnswerStatus status;
@@ -50,11 +51,25 @@ class TradeFormSavedAnswer extends Equatable {
   final double? number;
   final bool? boolValue;
 
+  /// #1519 — the worker's OWN typed words on a single/multi-select question
+  /// ("Koi aur — khud likhein"), replayed verbatim (`answer.other_text`).
+  ///
+  /// NOT [text]: the server stores a typed answer against a closed-option
+  /// question in its own column, so such a row comes back `answered` with an
+  /// EMPTY [optionKeys] and a null [text]. Without this field that question
+  /// would reopen looking blank although it is settled. Null on an older
+  /// server that does not send the key, and on every other answer shape.
+  final String? otherText;
+
   bool get isDeclined => status == TradeFormAnswerStatus.declined;
+
+  /// True when this is a settled typed "other" answer worth showing back.
+  bool get hasOtherText =>
+      !isDeclined && otherText != null && otherText!.trim().isNotEmpty;
 
   @override
   List<Object?> get props =>
-      <Object?>[status, optionKeys, text, number, boolValue];
+      <Object?>[status, optionKeys, text, number, boolValue, otherText];
 }
 
 /// What the worker's UPLOADED RÉSUMÉ said about one question (#1499, ADR-0041
@@ -245,25 +260,55 @@ class TradeFormTierScope extends Equatable {
 /// page (`PUT /workers/me/work-preferences`) sits in the journey. Not a copy
 /// of that contract; the endpoint owns its own vocabulary and validation.
 class TradeFormPreferencesStep extends TradeFormStep {
-  const TradeFormPreferencesStep({this.tierScope = TradeFormTierScope.unscoped});
+  const TradeFormPreferencesStep({
+    this.tierScope = TradeFormTierScope.unscoped,
+    this.fields = const <String>[],
+  });
 
   /// Which of this page's fields the chosen tier asks for (#1698). Defaults to
   /// [TradeFormTierScope.unscoped] — what a tier-less server serves.
   final TradeFormTierScope tierScope;
 
+  /// THE GENERAL ROAD'S ASK LIST (`fields`, ADR-0045 §3.3) — the exact
+  /// preference fields this screen must show, named by the server.
+  ///
+  /// Empty on the trade form, which has no `fields` key and is scoped by
+  /// [tierScope] instead; empty therefore means "this page decides for itself",
+  /// exactly as it always has. A general-form screen names its own set —
+  /// `salary_expected_min`, `salary_expected_max`, `preferred_cities`, `shift`,
+  /// `work_types`, `languages`, `availability` — because the general road asks
+  /// for a salary BAND and for work types, neither of which the trade form has.
+  final List<String> fields;
+
+  /// Whether the server explicitly asked for [field] on this screen.
+  ///
+  /// An EMPTY ask list answers true for everything: a trade-form screen carries
+  /// none, and hiding a field a worker still owes an answer to is the harm — the
+  /// same fail-open direction [tierScope] takes.
+  bool asks(String field) => fields.isEmpty || fields.contains(field);
+
   @override
-  List<Object?> get props => <Object?>[tierScope];
+  List<Object?> get props => <Object?>[tierScope, fields];
 }
 
 /// `type: "employment"` — a MARKER for the work-history page
 /// (`PUT /workers/me/employment`). Same argument as [TradeFormPreferencesStep].
 class TradeFormEmploymentStep extends TradeFormStep {
-  const TradeFormEmploymentStep({this.tierScope = TradeFormTierScope.unscoped});
+  const TradeFormEmploymentStep({
+    this.tierScope = TradeFormTierScope.unscoped,
+    this.requireStartYm = false,
+  });
 
   final TradeFormTierScope tierScope;
 
+  /// THE GENERAL ROAD MAKES THE START MONTH COMPULSORY (`require_start_ym`,
+  /// ADR-0045 §3.3). False on the trade form, where the month is optional and
+  /// the key is absent — so the default is today's behaviour, and only a server
+  /// that asks for it changes the page.
+  final bool requireStartYm;
+
   @override
-  List<Object?> get props => <Object?>[tierScope];
+  List<Object?> get props => <Object?>[tierScope, requireStartYm];
 }
 
 /// `type: "qualifications"` — a MARKER for the credentials page
@@ -282,14 +327,123 @@ class TradeFormQualificationsStep extends TradeFormStep {
   const TradeFormQualificationsStep({
     this.suggestedCertificates = const <String>[],
     this.tierScope = TradeFormTierScope.unscoped,
+    this.lists = const <String>[],
+    this.educationOptions = const <TradeFormLabelledOption>[],
   });
 
   final List<String> suggestedCertificates;
 
   final TradeFormTierScope tierScope;
 
+  /// WHICH LISTS THIS SCREEN OWNS (`lists`, ADR-0045 §3.3).
+  ///
+  /// The general road splits credentials across TWO screens — Education carries
+  /// `["educations"]` and Certificates & training carries
+  /// `["certificates","trainings"]` — so a page that always sent everything it
+  /// held would have each screen overwrite the other's work.
+  ///
+  /// Empty on the trade form, whose single screen owns them all; empty therefore
+  /// means "every list", which is exactly today's behaviour.
+  final List<String> lists;
+
+  /// THE EIGHT EDUCATION LEVELS, server-named (`education_options`, ADR-0045).
+  ///
+  /// Empty on the trade form, which offers its own trade-shaped credential
+  /// chips. When the server sends them the page must use THESE — they are the
+  /// closed set the write endpoint validates against, and their labels are the
+  /// only thing that can render a stored `postgraduate` as "Postgraduate"
+  /// rather than as a raw token.
+  final List<TradeFormLabelledOption> educationOptions;
+
+  /// Whether this screen owns [list]. An empty [lists] owns all of them.
+  bool owns(String list) => lists.isEmpty || lists.contains(list);
+
   @override
-  List<Object?> get props => <Object?>[suggestedCertificates, tierScope];
+  List<Object?> get props =>
+      <Object?>[suggestedCertificates, tierScope, lists, educationOptions];
+}
+
+/// A server-named `{key, label}` pair — the general form's education levels
+/// today (ADR-0045).
+///
+/// The KEY is what the write endpoint takes and the LABEL is what the worker
+/// reads; the app invents neither. Without the pair a stored level can only be
+/// shown as its raw token, which the repo forbids on a worker-facing screen.
+class TradeFormLabelledOption extends Equatable {
+  const TradeFormLabelledOption({required this.key, required this.label});
+
+  /// Null unless BOTH halves are present and non-empty — a half-formed option
+  /// would put an empty chip on screen or send an empty key to the server.
+  static TradeFormLabelledOption? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final Object? key = raw['key'];
+    final Object? label = raw['label'];
+    if (key is! String || key.trim().isEmpty) return null;
+    if (label is! String || label.trim().isEmpty) return null;
+    return TradeFormLabelledOption(key: key.trim(), label: label.trim());
+  }
+
+  final String key;
+  final String label;
+
+  @override
+  List<Object?> get props => <Object?>[key, label];
+}
+
+/// THE GENERAL ROAD'S FORM (`GET /profiling/general-form`, ADR-0045 §3.3).
+///
+/// The offline form a worker OUTSIDE the 21 predefined roles fills after the
+/// chat's skills gate. It is built exactly like the trade form —
+/// `sections[].screens[]`, walked in order, each screen drawn by its `type`,
+/// with no model anywhere — so it reuses [TradeFormSection] and every
+/// [TradeFormStep] verbatim rather than cloning them.
+///
+/// WHAT IT DOES NOT SHARE, and why this is its own type:
+///   * [sessionId] is REQUIRED and re-read from every response. It is the
+///     handover chat session: the mic posts against it and the finish extracts
+///     against it, and a chat redo that hands over again changes it. The trade
+///     form's is optional.
+///   * there is no pack — no `kind`, no `pack_id`, no `pack_version`.
+///   * [complete] is the server's own answer about whether the brief has been
+///     saved for THIS handover, and it resets on a new one. The general route
+///     sends no answered/total counters, so there is nothing to count.
+class GeneralForm extends Equatable {
+  const GeneralForm({
+    required this.sessionId,
+    required this.sections,
+    this.roleLabel,
+    this.complete = false,
+  });
+
+  /// The handover chat session. Never cached by a caller — read it again from
+  /// every response (see the class doc).
+  final String sessionId;
+
+  /// The role the chat confirmed, for the heading. Null when the chat never
+  /// settled one, and the screen then shows a generic heading rather than a
+  /// blank space.
+  final String? roleLabel;
+
+  /// True once the brief has been saved for this handover.
+  final bool complete;
+
+  /// In server order, with the section titles used verbatim.
+  final List<TradeFormSection> sections;
+
+  /// Every screen, flattened into the order the worker walks them.
+  List<TradeFormStep> get steps =>
+      <TradeFormStep>[for (final TradeFormSection s in sections) ...s.screens];
+
+  /// The section a step belongs to, for the heading above it.
+  TradeFormSection? sectionOf(TradeFormStep step) {
+    for (final TradeFormSection s in sections) {
+      if (s.screens.contains(step)) return s;
+    }
+    return null;
+  }
+
+  @override
+  List<Object?> get props => <Object?>[sessionId, roleLabel, complete, sections];
 }
 
 /// One zone of the form (`sections[]`) — a heading the sheet itself prints,
@@ -358,6 +512,14 @@ class TradeForm extends Equatable {
 /// one.
 enum TradeFormAnswerKind { chips, text, boolean, declined }
 
+/// Server cap on a `{kind: 'text'}` answer (`TradeFormAnswerSchema`:
+/// `text.trim().min(1).max(600)`), mirrored as the box's `maxLength` for a
+/// typed "Koi aur" answer (#1519). It is a characters bound, not a guarantee:
+/// the field counts grapheme clusters while zod counts UTF-16 code units, so
+/// text heavy in emoji can still pass here and draw the server's 400, whose
+/// real message the screen shows.
+const int kTradeFormTextAnswerMaxLength = 600;
+
 class TradeFormAnswer extends Equatable {
   const TradeFormAnswer.chips(this.optionKeys)
       : kind = TradeFormAnswerKind.chips,
@@ -414,6 +576,7 @@ class TradeFormAnswerResult extends Equatable {
     required this.answered,
     required this.total,
     this.schemaStale = false,
+    this.complete = false,
   });
 
   final String questionKey;
@@ -432,9 +595,18 @@ class TradeFormAnswerResult extends Equatable {
   /// A client that never sees `true` behaves exactly as it does now.
   final bool schemaStale;
 
+  /// `complete` — THE GENERAL FORM IS FINISHED (ADR-0045 §3.4).
+  ///
+  /// It arrives true on the brief write, and it is the app's only signal to run
+  /// the finish: the general route sends no `answered`/`total` counters, so
+  /// there is no "all questions answered" for the client to compute. Absent on
+  /// the trade form, so this defaults to false and that form's flow is
+  /// unchanged.
+  final bool complete;
+
   @override
   List<Object?> get props =>
-      <Object?>[questionKey, status, answered, total, schemaStale];
+      <Object?>[questionKey, status, answered, total, schemaStale, complete];
 }
 
 /// ---- The two marker-screen writes (#1296's endpoints, reused verbatim) ----
@@ -795,7 +967,22 @@ class TradeFormStoredEmployment extends Equatable {
   const TradeFormStoredEmployment({
     this.entries = const <TradeFormEmploymentEntry>[],
     this.expectedExistingCount = 0,
+    this.suggestions = const <TradeFormEmploymentSuggestion>[],
   });
+
+  /// Jobs the worker never confirmed, from the SAME read (#1516) — résumé
+  /// first, then chat, exactly as the server ordered them. NOT rows: nothing
+  /// here is in [entries], counts toward [expectedExistingCount], or reaches
+  /// the PUT unless the worker adds it and saves. Raw — see [openSuggestions].
+  final List<TradeFormEmploymentSuggestion> suggestions;
+
+  /// [suggestions] minus the ones that are already a stored job. The server
+  /// does not do this (it offers every suggestion on every read, saved or
+  /// not), so a host that does NOT draw [entries] as cards — the chat road's
+  /// experience editor — must filter here, or a saved job shows twice.
+  List<TradeFormEmploymentSuggestion> get openSuggestions => suggestions
+      .where((TradeFormEmploymentSuggestion s) => !entries.any(s.matches))
+      .toList(growable: false);
 
   /// The stored history, already projected onto the page's own entry shape.
   /// Rows the server could not decrypt are NOT here — they are counted in
@@ -811,7 +998,135 @@ class TradeFormStoredEmployment extends Equatable {
   bool get isEmpty => entries.isEmpty && expectedExistingCount == 0;
 
   @override
-  List<Object?> get props => <Object?>[entries, expectedExistingCount];
+  List<Object?> get props =>
+      <Object?>[entries, expectedExistingCount, suggestions];
+}
+
+/// Where a [TradeFormEmploymentSuggestion] came from (#1516).
+///
+/// CLOSED ON PURPOSE. The page names the source in plain words ("aapke resume
+/// se" / "aapki chat se") and never draws the wire token, so a source this
+/// build has no words for is dropped by the repository rather than shown
+/// raw or unexplained.
+enum TradeFormEmploymentSuggestionSource {
+  resume('resume'),
+  chat('chat');
+
+  const TradeFormEmploymentSuggestionSource(this.wire);
+
+  /// The server's spelling (`EmploymentSuggestionSource`).
+  final String wire;
+
+  /// Null for a token this build does not know.
+  static TradeFormEmploymentSuggestionSource? fromWire(String raw) {
+    for (final TradeFormEmploymentSuggestionSource s in values) {
+      if (s.wire == raw) return s;
+    }
+    return null;
+  }
+}
+
+/// A job the worker NEVER CONFIRMED, offered beside the Work History page's
+/// saved rows (#1516, `GET /workers/me/employment` → `employment_suggestions`).
+///
+/// ── IT IS NOT A ROW, AND IT IS SHAPED SO IT CANNOT BE MISTAKEN FOR ONE ─────
+///
+/// Same discipline as [TradeFormSuggestion]: nothing here is ever sent. It
+/// becomes a [TradeFormEmploymentEntry] only through [toEntry], when the worker
+/// taps "Jodein", and that card is saved only by the page's ordinary PUT —
+/// with every field the page requires (company name, dates, description)
+/// still enforced by the page, because a suggestion is allowed to be partial.
+///
+/// Values are already trimmed; a blank one arrives as null. A chat suggestion
+/// NEVER carries [employerName] (the chat contract has no such field), and
+/// neither source carries a month today — both may, so both are honoured.
+///
+/// PRIVACY: [employerName] and [workDone] are free text — never logged here.
+class TradeFormEmploymentSuggestion extends Equatable {
+  const TradeFormEmploymentSuggestion({
+    required this.source,
+    this.employerName,
+    this.employerCity,
+    this.roleLabel,
+    this.startYm,
+    this.endYm,
+    this.workDone,
+  });
+
+  final TradeFormEmploymentSuggestionSource source;
+  final String? employerName;
+  final String? employerCity;
+  final String? roleLabel;
+
+  /// "YYYY-MM" or null.
+  final String? startYm;
+  final String? endYm;
+  final String? workDone;
+
+  /// Nothing a worker could recognise as a job — never offered.
+  bool get isEmpty =>
+      employerName == null && roleLabel == null && workDone == null;
+
+  /// Whether [entry] is already THIS job, so the page never shows it twice
+  /// (the server re-offers a suggestion on every read, saved or not).
+  ///
+  /// Case-insensitive on role + employer, and A SIDE THE SUGGESTION DOES NOT
+  /// STATE DOES NOT CONSTRAIN: a chat suggestion has no employer, so it matches
+  /// a card with its role whatever company the worker typed — which is exactly
+  /// the card accepting it produced. A suggestion stating neither matches
+  /// nothing. The role is checked against every stored stint of [entry], not
+  /// only the one its card shows.
+  bool matches(TradeFormEmploymentEntry entry) {
+    final String? role = _foldForMatch(roleLabel);
+    final String? employer = _foldForMatch(employerName);
+    if (role == null && employer == null) return false;
+    if (employer != null && employer != _foldForMatch(entry.employerName)) {
+      return false;
+    }
+    if (role == null) return true;
+    if (role == _foldForMatch(entry.roleLabel)) return true;
+    return entry.storedRoles.any((Map<String, dynamic> r) {
+      final Object? label = r['role_label'];
+      return label is String && _foldForMatch(label) == role;
+    });
+  }
+
+  /// The NEW card an accepted suggestion opens as — every fact it states, and
+  /// nothing it does not.
+  ///
+  /// NOT "STILL WORKING HERE". A fresh card defaults the "Abhi yahin" switch
+  /// ON, but a suggestion never said this is the worker's current job, and a
+  /// card saved that way would print "Present" on the résumé for a job he may
+  /// have left. So the switch starts OFF and, with no end month, the page's
+  /// own date rule asks for one — or for the worker to turn the switch on.
+  TradeFormEmploymentEntry toEntry() => TradeFormEmploymentEntry(
+        employerName: employerName ?? '',
+        roleLabel: roleLabel ?? '',
+        employerCity: employerCity,
+        startYm: startYm,
+        endYm: endYm,
+        workDone: workDone,
+        stillWorking: false,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[
+        source,
+        employerName,
+        employerCity,
+        roleLabel,
+        startYm,
+        endYm,
+        workDone,
+      ];
+}
+
+/// Trimmed, lower-cased, inner whitespace collapsed; null when blank. The
+/// one comparison [TradeFormEmploymentSuggestion.matches] uses on both sides.
+String? _foldForMatch(String? value) {
+  final String? t = value?.trim();
+  if (t == null || t.isEmpty) return null;
+  return t.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 }
 
 /// ---- The `qualifications` marker's write (#1384/#1385, migration 0098) ----
@@ -841,6 +1156,8 @@ class TradeFormCertificateEntry extends Equatable {
     required this.name,
     this.issuer,
     this.year,
+    this.licenceNumber,
+    this.licenceExpiry,
   });
 
   final String name;
@@ -849,6 +1166,20 @@ class TradeFormCertificateEntry extends Equatable {
   /// 1950–2100 (`wc_year_chk`) — enforced by the picker sheet that produces
   /// this value, never re-validated here.
   final int? year;
+
+  /// #1542 — the certificate's licence number, as `GET /workers/me/
+  /// qualifications` returned it (set on Profile edit; PII, worker-self only).
+  ///
+  /// PRESERVE-ONLY ON THIS PAGE. The trade form never asks for it, but the PUT
+  /// reads a MISSING `licence_number` as null and ERASES the stored one, and a
+  /// certificates save replaces the whole list — so every entry carries its
+  /// stored value through [copyWith] and [toJson] sends it back unchanged. A
+  /// brand-new certificate has none and sends null. Never logged.
+  final String? licenceNumber;
+
+  /// #1542 — the licence's expiry day, `YYYY-MM-DD`, carried exactly like
+  /// [licenceNumber] (same erase-on-absent rule server-side).
+  final String? licenceExpiry;
 
   bool get isBlank =>
       name.trim().isEmpty &&
@@ -871,10 +1202,14 @@ class TradeFormCertificateEntry extends Equatable {
       name: name ?? this.name,
       issuer: issuer == _sentinel ? this.issuer : issuer as String?,
       year: year == _sentinel ? this.year : year as int?,
+      // #1542 — never editable here, so always carried over as-is.
+      licenceNumber: licenceNumber,
+      licenceExpiry: licenceExpiry,
     );
   }
 
-  /// Wire shape for one `certificates[]` entry.
+  /// Wire shape for one `certificates[]` entry. The licence pair is ALWAYS
+  /// sent (#1542): the stored value unchanged, or null for a new entry.
   Map<String, dynamic> toJson() {
     String? trimOrNull(String? v) {
       final String? t = v?.trim();
@@ -885,11 +1220,14 @@ class TradeFormCertificateEntry extends Equatable {
       'name': name.trim(),
       'issuer': trimOrNull(issuer),
       'year': year,
+      'licence_number': trimOrNull(licenceNumber),
+      'licence_expiry': trimOrNull(licenceExpiry),
     };
   }
 
   @override
-  List<Object?> get props => <Object?>[name, issuer, year];
+  List<Object?> get props =>
+      <Object?>[name, issuer, year, licenceNumber, licenceExpiry];
 }
 
 /// One entry of the `educations` sub-section — `educations[]` on the wire.

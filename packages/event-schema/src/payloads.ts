@@ -8,6 +8,8 @@ import {
   WORKER_APP_SCREEN_TEMPLATES,
   TRADE_FORM_KINDS_ALL,
   PROFILING_TIERS,
+  RESUME_SKINS,
+  REFERRAL_LINK_KINDS,
   RESUME_DEGRADED_POSTURES,
   RESUME_EXTRACTION_METHODS,
   RESUME_GENERATION_TRIGGERS,
@@ -19,6 +21,13 @@ import {
   COMPANION_INTENTS,
   COMPANION_NUDGES,
   COMPANION_JOBS_SCOPES,
+  COMPANION_V2_INTENTS,
+  COMPANION_V2_INTENT_SOURCES,
+  COMPANION_V2_OUTCOMES,
+  COMPANION_V2_EDIT_SECTIONS,
+  COMPANION_V2_UNSUPPORTED_EDIT_TARGETS,
+  COMPANION_V2_CONFIDENCE_BUCKETS,
+  COMPANION_V2_CAREER_REFUSAL_TOPICS,
   PROFILING_LANES,
   PROFILING_LANE_REASONS,
   SKILLS_GATE_REPLIES,
@@ -964,6 +973,60 @@ export const ResumeEditedPayload = z.object({
   field: z.enum(["skills", "machines", "experience", "education", "certificates"]),
 });
 
+/**
+ * A worker edited one of the résumé SAFE FIELDS (#1318; owner ruling 2026-09-27) — VERSION 2.
+ *
+ * WHY A NEW NAME AND NOT A WIDER v1. v1 (`ResumeEditedPayload` above) is the extracted-profile
+ * CORRECTION event: `correction_id`/`session_id`/`profile_id` are REQUIRED because every v1 fact is
+ * a `profile_correction` row anchored to a pinned interview. A safe-field edit (name, photo, the two
+ * display prefs) has none of the three, so it could only ride v1 by relaxing shipped required
+ * fields or widening a shipped enum — both mutate a shipped schema (CLAUDE.md §3), and the registry
+ * allows one version per NAME. v1 stays exactly as it is and keeps its emitter
+ * (`ExtractedCorrectionsService`); v2 is the `profile.viewed_v2` precedent: new name, v1 untouched.
+ *
+ * EMITTED ONLY FOR A REAL CHANGE ON A WORKER WHO ALREADY HAS A RÉSUMÉ — onboarding name capture and
+ * a pre-résumé avatar are not résumé edits. One event per changed field.
+ *
+ * PII-FREE BY CONSTRUCTION: two opaque ids and a closed field enum. No value in either direction —
+ * not the name, not the photo's storage key, not even the resulting boolean of a pref — and
+ * `.strict()`, so a value cannot be smuggled in beside them without a version bump.
+ */
+export const ResumeEditedV2Payload = z
+  .object({
+    worker_id: uuidSchema,
+    /** The worker's LATEST résumé at the time of the edit — the one the edit re-renders. */
+    resume_id: uuidSchema,
+    field: z.enum(["name", "photo", "show_photo", "night_shift_ready"]),
+  })
+  .strict();
+export type ResumeEditedV2Payload = z.infer<typeof ResumeEditedV2Payload>;
+
+/**
+ * A worker CHANGED their résumé skin (#1801; owner ruling 2026-09-28, "Plumbing, Neela only").
+ *
+ * PER-WORKER PREFERENCE, so the subject is the worker and there is NO `resume_id`: the skin applies
+ * to every future and re-rendered `bb_trade` sheet of theirs, not to one generated row.
+ *
+ * EMITTED ONLY FOR A PERSISTED REAL CHANGE — never for a preview tap, never for re-selecting the
+ * skin already held — and in the SAME transaction as the `worker_resume_skin` write, so the event
+ * and the preference cannot disagree.
+ *
+ * `previous_skin` is NULL for the worker's first explicit choice (they had no row, and were printing
+ * in the house default). The skin enum is the closed `RESUME_SKINS` vocabulary — `neela` alone
+ * today. BECAUSE A SHIPPED PAYLOAD IS FROZEN, a new skin reaching this enum is a new event
+ * version, not an edit to this one.
+ *
+ * PII-FREE BY CONSTRUCTION: an opaque id and two closed enums, `.strict()`. No template id.
+ */
+export const ResumeSkinChangedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    skin: z.enum(RESUME_SKINS),
+    previous_skin: z.enum(RESUME_SKINS).nullable(),
+  })
+  .strict();
+export type ResumeSkinChangedPayload = z.infer<typeof ResumeSkinChangedPayload>;
+
 // ---------------------------------------------------------------------------
 // interview_kit.* (per-trade preparation kit — deterministic, render-once)
 //
@@ -1121,6 +1184,17 @@ const aiTaskType = z.enum([
   // form-routed document — a third read of the same file, this time against the
   // pack's closed options. Added in the SAME change that routes it.
   "resume_option_map",
+  // THE COMPANION ROUTER (ADR-0046 Phase 1). Both routed in
+  // `model_config._ROUTE_SHAPES` and charged per call: `companion_classify` once per
+  // free-text message the v1 resolver missed, `companion_edit_parse` once more only
+  // when that message classified as an edit. Added in the SAME change that routes
+  // them, per the lesson the entries above record twice over.
+  "companion_classify",
+  "companion_edit_parse",
+  // ADR-0046 PHASE 3 — the career answer. Routed in `model_config._ROUTE_SHAPES`
+  // (`companion_career_answer`, Claude primary) and charged per answer, so it is nameable
+  // here in the SAME change that routes it — the lesson the entries above record.
+  "companion_career_answer",
   // Provider calls with their own fail-closed allowlist keys, outside the LLM router.
   "stt_transcription",
   "tts_synthesis",
@@ -1385,6 +1459,13 @@ const JOB_POSTING_CHANGED_FIELDS = [
   "pay_type",
   "benefits",
   "requirements",
+  // Migration 0131 (ADDITIVE enum member, same precedent as "skills", the ADR-0036 block and
+  // #1646/#1648 above). The payer set, changed or cleared the posting's ROLE — one of the 21
+  // declared kinds. The KEY only: which role moved to is not on this event, exactly as the
+  // other card fields report their key and never their value. Display / classification only
+  // (ADR-0036 addendum 2026-09-29), so a reader must not treat it as a match change —
+  // `match_skills` above is the only key that says the reach inputs moved.
+  "role_kind",
 ] as const;
 
 /**
@@ -1400,6 +1481,18 @@ export const JobPostingCreatedPayload = z.object({
   created_by: uuidSchema,
   has_location: z.boolean(),
   has_description: z.boolean(),
+  /**
+   * The role the poster picked (migration 0131) — one of the 21 DECLARED kinds in
+   * {@link TRADE_FORM_KINDS_ALL}, or null for "no role picked" (every chat-published posting,
+   * every posting created before the column existed).
+   *
+   * ADDITIVE AND DEFAULTED, so `job_posting.created` stays v1: an emitter that predates the
+   * field still validates and reads as null, and no consumer is told a key it has seen before
+   * now means something new. A closed enum of occupation slugs — PII-free on the same footing
+   * as `vacancy_band` — and DISPLAY / CLASSIFICATION ONLY (ADR-0036 addendum 2026-09-29): never
+   * a match or rank input.
+   */
+  role_kind: z.enum(TRADE_FORM_KINDS_ALL).nullable().default(null),
 });
 export type JobPostingCreatedPayload = z.infer<typeof JobPostingCreatedPayload>;
 
@@ -2302,6 +2395,13 @@ export const JobCreatedPayload = z.object({
   pay_max: z.number().int().nonnegative().nullable().default(null),
   min_experience_years: z.number().int().nonnegative().nullable().default(null),
   max_experience_years: z.number().int().nonnegative().nullable().default(null),
+  /**
+   * The role the poster picked (migration 0131), or null. The twin of
+   * `job_posting.created.role_kind` — see there. ADDITIVE and defaulted exactly like the bands
+   * above, so `job.created` stays v1. Distinct from `trade_key`, which stays the agency job's
+   * matching classifier; this is the 21-kind display role and never a match input.
+   */
+  role_kind: z.enum(TRADE_FORM_KINDS_ALL).nullable().default(null),
 });
 export type JobCreatedPayload = z.infer<typeof JobCreatedPayload>;
 
@@ -2329,6 +2429,10 @@ export const JOB_CHANGED_FIELDS = [
   // #1648 — ADDITIVE, same precedent. The agency job gained a pay-type claim; the KEY says
   // the poster changed what the band MEANS, never what it says.
   "pay_type",
+  // Migration 0131 — ADDITIVE, same precedent. The agency job's display ROLE (one of the 21
+  // declared kinds) was set, changed or cleared. KEY only. Not `trade_key`: that key above is
+  // still the one that says the job's matching classifier moved.
+  "role_kind",
 ] as const;
 
 /**
@@ -3187,8 +3291,15 @@ export type ReferralBonusAccruedPayload = z.infer<typeof ReferralBonusAccruedPay
 // storage-side de-duplication key, not something the audit spine needs.
 // ---------------------------------------------------------------------------
 
-/** The link's owner axis — which commission channel a click belongs to. */
-export const ReferralLinkKindEnum = z.enum(["agent", "worker", "campaign"]);
+/**
+ * The link's owner axis — which commission channel (if any) a click belongs to. The closed set is
+ * `REFERRAL_LINK_KINDS` in @badabhai/types (the `referral_links_kind_chk` vocabulary).
+ *
+ * WIDENED AT v1 by #1800 with `resume_qr` — the worker's own résumé QR, never commissioned. An
+ * additive enum widening is the accepted v1 precedent (JobStatusEnum, BoostTierEnum): every payload
+ * that validated before still validates.
+ */
+export const ReferralLinkKindEnum = z.enum(REFERRAL_LINK_KINDS);
 
 // `ReferralLinkMediumEnum` (organic | paid) is declared ABOVE, next to
 // `AgencyInviteCreatedPayload` — the agency funnel needs it earlier in the file and both
@@ -3252,6 +3363,30 @@ export const ReferralInstallClaimedPayload = z
   })
   .strict();
 export type ReferralInstallClaimedPayload = z.infer<typeof ReferralInstallClaimedPayload>;
+
+/**
+ * `profile.qr_scanned` (#1800, owner ruling 2026-09-28 "Count + attribute worker signups") — the
+ * QR printed on a worker's OWN résumé was scanned and resolved through `GET /r/:code`.
+ *
+ * Emitted by the resolver INSTEAD OF `referral.link_clicked` for a `resume_qr` link, so one tap is
+ * one event on the spine. Behind the same bot filter, per-IP cap and 10-minute hashed-visitor
+ * dedupe as every other click, and never for a DEAD link (owner erased).
+ *
+ * `worker_id` IS THE RÉSUMÉ'S OWNER — the worker whose sheet was scanned — never the scanner, who
+ * is anonymous. The payload carries the opaque link row id and never the `code` (a bearer token),
+ * the IP, the User-Agent, the URL, or anything about the scanner. `.strict()` is the backstop.
+ */
+export const ProfileQrScannedPayload = z
+  .object({
+    /** The résumé owner (opaque). Never the scanner. */
+    worker_id: uuidSchema,
+    /** The opaque `referral_links.id` of the owner's `resume_qr` link. NEVER the code. */
+    referral_link_id: uuidSchema,
+    /** Coarse device class of the scan — the same enum `referral.link_clicked` carries. */
+    platform: ReferralClickPlatformEnum,
+  })
+  .strict();
+export type ProfileQrScannedPayload = z.infer<typeof ProfileQrScannedPayload>;
 
 // ---------------------------------------------------------------------------
 // Matching V1 (ADR-0036, spec docs/specs/matching-algorithm-v1.md).
@@ -4532,6 +4667,162 @@ export const ChatCompanionTurnServedPayload = z
   });
 export type ChatCompanionTurnServedPayload = z.infer<typeof ChatCompanionTurnServedPayload>;
 
+// ---------------------------------------------------------------------------
+// chat.companion_turn_served_v2 + chat.companion_edit_* (ADR-0046, Phase 1)
+// ---------------------------------------------------------------------------
+/**
+ * A V2 COMPANION TURN (ADR-0046) — the v1 recap shape plus the router's own facts.
+ *
+ * WHY A NEW NAME AND NOT A MUTATION. `validateEvent` allows exactly one version per NAME, so
+ * the alternative to `_v2` would be editing the shipped v1 payload in place, which invariant #8
+ * forbids: an installed consumer reading v1 must keep parsing it. This is the
+ * `feed.shown_v2` / `profile.viewed_v2` / `resume.edited_v2` pattern — same family, new
+ * registry key, `version: 2`.
+ *
+ * WHAT IS ADDED, AND WHY THE SPINE NEEDS IT. `intent_source` says whether the v1 deterministic
+ * resolver answered (zero model calls) or the classifier did; `v2_intent` is the classified
+ * intent, null when no classifier ran or it failed; `confidence_bucket` is the coarse bucket,
+ * null without a classifier; `outcome` says what was actually delivered (served, a proposed
+ * card, the phase-off line, clarify, …). NOTHING HERE NAMES A WORKER'S WORDS: the message text
+ * is classified and dropped, and every added field is an id, a count or a closed enum.
+ *
+ * EVERY V1 FIELD IS RESTATED rather than shared: the v1 schema is a ZodEffects (its refine), so
+ * `.extend` cannot reach it, and restating is what makes "v1 is untouched" a fact about the
+ * source rather than a claim about it. The `new_jobs_count` ↔ `jobs_scope` refine is repeated
+ * verbatim, so a reader cannot mistake "no claim" for "no jobs" on v2 either.
+ */
+export const ChatCompanionTurnServedV2Payload = z
+  .object({
+    worker_id: uuidSchema,
+    trigger: z.enum(COMPANION_TRIGGERS),
+    intent: z.enum(COMPANION_INTENTS),
+    applied_count: z.number().int().nonnegative().nullable(),
+    new_jobs_count: z.number().int().nonnegative().nullable(),
+    jobs_scope: z.enum(COMPANION_JOBS_SCOPES).nullable(),
+    job_chips_count: z.number().int().nonnegative(),
+    resume_source: resumeSource.nullable(),
+    nudge: z.enum(COMPANION_NUDGES).nullable(),
+    day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "day must be a UTC day bucket YYYY-MM-DD"),
+    /** Who chose the intent: the v1 resolver, the abuse lexicon, the classifier, a guard, fallback. */
+    intent_source: z.enum(COMPANION_V2_INTENT_SOURCES),
+    /** The classified intent; null when no classifier ran (v1 hit / guard / failure). */
+    v2_intent: z.enum(COMPANION_V2_INTENTS).nullable(),
+    /** Coarse confidence bucket; null when no classifier ran. Never the raw score. */
+    confidence_bucket: z.enum(COMPANION_V2_CONFIDENCE_BUCKETS).nullable(),
+    /** What was delivered — a proposed card, the phase-off line, clarify, … (contracts §1). */
+    outcome: z.enum(COMPANION_V2_OUTCOMES),
+  })
+  .strict()
+  .refine((v) => (v.jobs_scope === "profile") === (v.new_jobs_count !== null), {
+    message:
+      "new_jobs_count is set iff jobs_scope is 'profile' — null scope (not read), 'unavailable' " +
+      "(read failed) and 'no_skills' (no claim) carry no count",
+  });
+export type ChatCompanionTurnServedV2Payload = z.infer<typeof ChatCompanionTurnServedV2Payload>;
+
+/**
+ * THE COMPANION PROPOSED AN EDIT CARD (ADR-0046 O4/O5). Emitted when the card is stored in Redis
+ * and served; `row_count`/`sections`/`dropped_count`/`unsupported` are the card's own shape,
+ * never its values.
+ *
+ * `proposal_id` is the opaque id the worker's confirm/cancel routes address; it is a uuid the
+ * API minted, never a DB row id and never derivable from the worker's text. `dropped_count` is
+ * how many parsed rows failed deterministic validation (catalogue, op, ref, DTO, placeholder
+ * token, skill floor, no-op); `unsupported` names only the CLOSED reasons (identity / contact /
+ * other) — the asked-for values themselves never leave the request.
+ *
+ * NO VALUE BOUND ON `row_count`/`sections`, deliberately: `CHAT_COMPANION_V2_EDIT_MAX_ROWS` is a
+ * product knob, and a spine refusal on this event must never be the thing that fails a turn whose
+ * worker did nothing wrong. The bounds that matter are the `.min(1)` floors — a card exists only
+ * when at least one row survived.
+ */
+export const ChatCompanionEditProposedPayload = z
+  .object({
+    proposal_id: uuidSchema,
+    row_count: z.number().int().positive(),
+    sections: z.array(z.enum(COMPANION_V2_EDIT_SECTIONS)).min(1),
+    dropped_count: z.number().int().nonnegative(),
+    unsupported: z.array(z.enum(COMPANION_V2_UNSUPPORTED_EDIT_TARGETS)),
+  })
+  .strict();
+export type ChatCompanionEditProposedPayload = z.infer<typeof ChatCompanionEditProposedPayload>;
+
+/**
+ * THE WORKER TAPPED HAAN AND THE SELECTED ROWS APPLIED (ADR-0046 O4/O6).
+ *
+ * `applied_count` is POSITIVE: the route requires 1..3 ticked row ids, the card is applied in
+ * ONE transaction or not at all, and a failure rolls back and serves the fallback line instead
+ * of this event — so an emitted confirmed event always describes at least one written row.
+ * `resume_regen` says how the post-apply regeneration ended: `queued`, refused by the daily cap
+ * (`capped`), or `failed` — the last two still leave the edits written.
+ */
+export const ChatCompanionEditConfirmedPayload = z
+  .object({
+    proposal_id: uuidSchema,
+    applied_count: z.number().int().positive(),
+    sections: z.array(z.enum(COMPANION_V2_EDIT_SECTIONS)).min(1),
+    resume_regen: z.enum(["queued", "capped", "failed"]),
+  })
+  .strict();
+export type ChatCompanionEditConfirmedPayload = z.infer<typeof ChatCompanionEditConfirmedPayload>;
+
+/**
+ * THE CARD WAS DISMISSED WITHOUT WRITING (ADR-0046 O4). `worker` is the Nahi tap, `expired` is
+ * the TTL passing, `stale` is the profile having changed under the card (the confirm route then
+ * deletes the proposal and answers 409 {reason:"stale"}). Nothing was written in any of them.
+ */
+export const ChatCompanionEditCancelledPayload = z
+  .object({
+    proposal_id: uuidSchema,
+    reason: z.enum(["worker", "expired", "stale"]),
+  })
+  .strict();
+export type ChatCompanionEditCancelledPayload = z.infer<typeof ChatCompanionEditCancelledPayload>;
+
+/**
+ * A FALTU STRIKE WAS COUNTED (ADR-0046 P2, O11) — a count and whether THIS strike started the
+ * cool-down. Emitted by the faltu handler once per counted strike, whether the intent came from
+ * the abuse lexicon or the classifier.
+ *
+ * `strike_count` IS POSITIVE, AND THE FLOOR IS THE POINT: a Redis refusal counts NO strike (the
+ * store fails open so a worker is never silenced by an outage), and that path emits nothing
+ * rather than a fabricated zero — the same rule the cost recorder applies to absent metadata.
+ *
+ * THE MESSAGE IS NEVER NAMED, ECHOED OR SUMMARISED. The payload is one integer and one boolean;
+ * the worker is the envelope's subject; `.strict()` keeps it that way. `cooldown_started` is
+ * `false` when the counter crossed the threshold but the cool-down flag itself could not be
+ * written — the two facts are independent, and reporting them as one would be a lie about the
+ * other.
+ */
+export const ChatCompanionFaltuStrikePayload = z
+  .object({
+    strike_count: z.number().int().positive(),
+    cooldown_started: z.boolean(),
+  })
+  .strict();
+export type ChatCompanionFaltuStrikePayload = z.infer<typeof ChatCompanionFaltuStrikePayload>;
+
+/**
+ * A CAREER ANSWER WAS SERVED (ADR-0046 P3) — how it ended, and nothing the model wrote.
+ *
+ * `outcome` is the disposition: `answered` (the model's lines passed the API's deterministic
+ * validator and were served), `refused` (the model chose one of the closed O10 topics and the
+ * worker read the REVIEWED copy), `fallback` (unreachable, schema miss, or a validator
+ * rejection — the worker read the fail-closed line). `refusal_topic` is set only for `refused`.
+ * `turns_in_memory` is how much conversation the answer saw (0..6, O13) — a depth, not content.
+ *
+ * NEVER THE ANSWER, THE QUESTION OR THE WORKER'S WORDS. The model's lines reach a worker and a
+ * trace, never this spine; `.strict()` keeps it that way.
+ */
+export const ChatCompanionCareerAnsweredPayload = z
+  .object({
+    outcome: z.enum(["answered", "refused", "fallback"]),
+    refusal_topic: z.enum(COMPANION_V2_CAREER_REFUSAL_TOPICS).nullable(),
+    turns_in_memory: z.number().int().min(0).max(6),
+  })
+  .strict();
+export type ChatCompanionCareerAnsweredPayload = z.infer<typeof ChatCompanionCareerAnsweredPayload>;
+
 // ── THE GENERAL ROAD (ADR-0045) ──────────────────────────────────────────────────────────────
 //
 // A chat worker whose role is OUTSIDE the 21 predefined roles runs role → skills and closes with a
@@ -4675,3 +4966,32 @@ export const ProfileGeneralFormCompletedPayload = z
     message: "employments_dated cannot exceed employments",
   });
 export type ProfileGeneralFormCompletedPayload = z.infer<typeof ProfileGeneralFormCompletedPayload>;
+
+/**
+ * E4 — the worker changed the VISIBILITY of his own supply: he set `wants` on one skill, or
+ * turned every skill off in one call.
+ *
+ * `wants` is half of ADR-0036's visibility rule ("SHOW job TO worker IFF … AND
+ * worker.wants[matched skill]"), so a change to it changes which postings can reach him — a
+ * business action, and this is its audit record. The flip and the `job_reach` reconcile commit
+ * in the same transaction at the write site; this event is emitted after it commits.
+ *
+ * `skill_id: null` IS THE CLEAR-ALL, not a missing value: the worker declined every
+ * `worker_skill` row he held in one call (the E4 exit affordance). A non-null id is the
+ * single-skill toggle, and `wants: true` is a row turned back on.
+ *
+ * PII-FREE BY CONSTRUCTION: an opaque worker uuid, a closed-vocabulary `mskill_*` id (or
+ * null) and a boolean. No name, no phone, no free text — and deliberately NO count of who
+ * could see him (`reached_postings` is absent): the spine needs to know what he chose, not
+ * how wide the audience was. Strict, so nothing else can ride along.
+ */
+export const WorkerMatchSkillWantsSetPayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** The toggled skill, or null when this call cleared EVERY skill the worker held. */
+    skill_id: matchSkillIdSchema.nullable(),
+    /** The resulting state: false = declined/hidden, true = wanted again. */
+    wants: z.boolean(),
+  })
+  .strict();
+export type WorkerMatchSkillWantsSetPayload = z.infer<typeof WorkerMatchSkillWantsSetPayload>;

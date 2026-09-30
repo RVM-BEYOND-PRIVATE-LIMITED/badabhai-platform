@@ -88,6 +88,61 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
   }
 
   @override
+  Future<GeneralForm?> loadGeneralForm() async {
+    final String? token = _session.sessionToken;
+    if (token == null) throw const UnauthorizedFailure();
+    try {
+      final Map<String, dynamic> json =
+          await _api.getGeneralForm(authToken: token);
+      return _parseGeneralForm(json);
+    } on ApiException catch (error) {
+      // 404 — never handed the general form, which with the road's flag off is
+      // every worker. An honest "nothing to fill", exactly as [loadForm] treats
+      // its own 404, so this is null rather than a Failure.
+      if (error.statusCode == 404) return null;
+      throw mapError(error);
+    } on Failure {
+      rethrow;
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
+  @override
+  Future<TradeFormAnswerResult> submitGeneralAnswer({
+    required String questionKey,
+    required TradeFormAnswer answer,
+  }) async {
+    final String? token = _session.sessionToken;
+    if (token == null) throw const UnauthorizedFailure();
+    try {
+      final Map<String, dynamic> json = await _api.submitGeneralFormAnswer(
+        authToken: token,
+        body: <String, dynamic>{
+          'question_key': questionKey,
+          'answer': answer.toJson(),
+        },
+      );
+      return _parseAnswerResult(json);
+    } on ApiException catch (error, stack) {
+      // The SAME split [submitAnswer] makes, for the same reasons: a 400 is the
+      // server's considered answer about this request and the worker is told
+      // what to change, so it is surfaced and not reported; anything else is a
+      // fault they cannot fix and we would otherwise never hear about.
+      if (error.statusCode == 400 && error.message.trim().isNotEmpty) {
+        throw InvalidRequestFailure(error.message);
+      }
+      _report(mapError(error), stack, reason: 'general_form_answer_failed');
+      throw mapError(error);
+    } on Failure {
+      rethrow;
+    } catch (error, stack) {
+      _report(mapError(error), stack, reason: 'general_form_answer_failed');
+      throw mapError(error);
+    }
+  }
+
+  @override
   Future<TierState> loadTierState() async {
     final String? token = _session.sessionToken;
     // No session at all: there is nothing to ask about, and a tier screen must
@@ -255,7 +310,43 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
     return TradeFormStoredEmployment(
       entries: dto.employments.map(_entryFromView).toList(growable: false),
       expectedExistingCount: dto.expectedExistingCount,
+      suggestions: <TradeFormEmploymentSuggestion>[
+        for (final EmploymentSuggestionDto s in dto.employmentSuggestions)
+          if (_suggestionFrom(s) case final TradeFormEmploymentSuggestion kept)
+            kept,
+      ],
     );
+  }
+
+  /// One wire suggestion → the page's own shape (#1516), or null when it is
+  /// not worth offering: a source this build cannot NAME (the page must say
+  /// where a suggestion came from, and never shows the raw token), or nothing
+  /// a worker could recognise as a job. Values are trimmed and a blank one is
+  /// null — the server already does this; it is restated so the page's
+  /// "is anything stated?" checks never see whitespace. The server's order is
+  /// kept (résumé first, then chat) so the list does not reshuffle.
+  static TradeFormEmploymentSuggestion? _suggestionFrom(
+    EmploymentSuggestionDto dto,
+  ) {
+    final TradeFormEmploymentSuggestionSource? source =
+        TradeFormEmploymentSuggestionSource.fromWire(dto.source);
+    if (source == null) return null;
+    String? clean(String? v) {
+      final String? t = v?.trim();
+      return (t == null || t.isEmpty) ? null : t;
+    }
+
+    final TradeFormEmploymentSuggestion suggestion =
+        TradeFormEmploymentSuggestion(
+      source: source,
+      employerName: clean(dto.employerName),
+      employerCity: clean(dto.employerCity),
+      roleLabel: clean(dto.roleLabel),
+      startYm: clean(dto.startYm),
+      endYm: clean(dto.endYm),
+      workDone: clean(dto.workDone),
+    );
+    return suggestion.isEmpty ? null : suggestion;
   }
 
   /// One stored employment → the flat card the page draws (#1710).
@@ -359,6 +450,11 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
                 name: c.name,
                 issuer: c.issuer,
                 year: c.year,
+                // #1542 — carried so a save from this page sends them back
+                // unchanged; dropping them here erased every licence number
+                // the worker saved on Profile edit.
+                licenceNumber: c.licenceNumber,
+                licenceExpiry: c.licenceExpiry,
               ))
           .toList(growable: false),
       educations: dto.educations
@@ -420,6 +516,34 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
     );
   }
 
+  /// `GET /profiling/general-form` → [GeneralForm], reusing this file's own
+  /// section/screen parsers (ADR-0045 §3.3).
+  ///
+  /// FAIL SOFT, LIKE THE TRADE FORM: an unknown screen `type` is dropped by
+  /// [_parseStep] rather than costing the whole form. Null only when the body
+  /// carries no `session_id` — the one field with nothing sensible to fall back
+  /// to, since the mic and the finish both address it, and a form walked without
+  /// it would file the worker's answers against nothing.
+  GeneralForm? _parseGeneralForm(Map<String, dynamic> json) {
+    final Object? sessionId = json['session_id'];
+    if (sessionId is! String || sessionId.trim().isEmpty) return null;
+    final List<dynamic> rawSections =
+        json['sections'] as List<dynamic>? ?? const <dynamic>[];
+    final Object? roleLabel = json['role_label'];
+    return GeneralForm(
+      sessionId: sessionId.trim(),
+      roleLabel: roleLabel is String && roleLabel.trim().isNotEmpty
+          ? roleLabel.trim()
+          : null,
+      complete: json['complete'] == true,
+      sections: rawSections
+          .whereType<Map<dynamic, dynamic>>()
+          .map((Map<dynamic, dynamic> s) =>
+              _parseSection(s.cast<String, dynamic>()))
+          .toList(),
+    );
+  }
+
   TradeFormSection _parseSection(Map<String, dynamic> json) {
     final List<dynamic> rawScreens =
         json['screens'] as List<dynamic>? ?? const <dynamic>[];
@@ -450,22 +574,48 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
           answer: _parseSavedAnswer(json['answer']),
           suggestion: _parseSuggestion(json['suggestion']),
         );
+      // THE MARKER SCREENS ALSO CARRY THE GENERAL ROAD'S INSTRUCTIONS
+      // (ADR-0045 §3.3). Each key below is ABSENT on the trade form, and every
+      // default here is that form's existing behaviour — so reading them cannot
+      // change what the 21 predefined roles see. Dropping them, which is what
+      // this parser used to do, left the general form's own screens with no way
+      // to know what they had been asked for.
       case 'preferences':
-        return TradeFormPreferencesStep(tierScope: _tierScope(json));
+        return TradeFormPreferencesStep(
+          tierScope: _tierScope(json),
+          fields: _strings(json['fields']),
+        );
       case 'employment':
-        return TradeFormEmploymentStep(tierScope: _tierScope(json));
+        return TradeFormEmploymentStep(
+          tierScope: _tierScope(json),
+          requireStartYm: json['require_start_ym'] == true,
+        );
       case 'qualifications':
         return TradeFormQualificationsStep(
-          suggestedCertificates: (json['suggested_certificates'] as List<dynamic>?)
-                  ?.whereType<String>()
-                  .toList() ??
-              const <String>[],
+          suggestedCertificates: _strings(json['suggested_certificates']),
           tierScope: _tierScope(json),
+          lists: _strings(json['lists']),
+          educationOptions: (json['education_options'] as List<dynamic>?)
+                  ?.map(TradeFormLabelledOption.fromJson)
+                  .whereType<TradeFormLabelledOption>()
+                  .toList() ??
+              const <TradeFormLabelledOption>[],
         );
       default:
         return null;
     }
   }
+
+  /// A `string[]` on a screen entry, with everything that is not a non-empty
+  /// string dropped. Never null: an absent key and a malformed one both read as
+  /// "the server said nothing", which every caller treats as its old default.
+  List<String> _strings(Object? raw) =>
+      (raw as List<dynamic>?)
+          ?.whereType<String>()
+          .map((String s) => s.trim())
+          .where((String s) => s.isNotEmpty)
+          .toList() ??
+      const <String>[];
 
   /// `tier_scope` on a marker screen (#1698/#1710), or [unscoped] when the
   /// server did not send one — a tier-less server, tiers switched off, or a
@@ -540,6 +690,9 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
       text: a['text'] as String?,
       number: (a['number'] as num?)?.toDouble(),
       boolValue: a['bool'] as bool?,
+      // #1519 — a typed answer on a chip question comes back ONLY here
+      // (`option_keys: []`, `text: null`). Absent on an older server → null.
+      otherText: a['other_text'] as String?,
     );
   }
 
@@ -584,6 +737,9 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
       // #1382 — absent on the wire today (backend work in progress);
       // missing/null reads as false, the current, correct behaviour.
       schemaStale: json['schema_stale'] as bool? ?? false,
+      // ADR-0045 §3.4 — true on the general form's brief write, absent on the
+      // trade form.
+      complete: json['complete'] as bool? ?? false,
     );
   }
 }

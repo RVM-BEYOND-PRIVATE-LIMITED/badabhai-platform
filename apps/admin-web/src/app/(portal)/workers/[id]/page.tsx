@@ -10,6 +10,7 @@ import { StatusPill } from "../../../../components/status-pill";
 import { NameCell } from "../../../../components/name-cell";
 import { IdentityCapNotice } from "../../../../components/identity-notice";
 import { DetailList } from "../../../../components/detail-list";
+import { Stat } from "../../../../components/stat";
 import { WorkerDetailHeader } from "./worker-detail-header";
 
 export const dynamic = "force-dynamic";
@@ -180,14 +181,8 @@ export default async function WorkerDetailPage({
             <p className="panel__sub">Counts across the whole account lifetime.</p>
           </div>
           <div className="stats stats--compact">
-            <div className="stat">
-              <span className="stat__value">{formatCount(worker.application_count)}</span>
-              <span className="stat__label">Job decisions</span>
-            </div>
-            <div className="stat">
-              <span className="stat__value">{formatCount(worker.unlock_count)}</span>
-              <span className="stat__label">Times unlocked</span>
-            </div>
+            <Stat label="Job decisions" value={formatCount(worker.application_count)} />
+            <Stat label="Times unlocked" value={formatCount(worker.unlock_count)} />
           </div>
           <DetailList
             items={[

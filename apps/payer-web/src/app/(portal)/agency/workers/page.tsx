@@ -6,7 +6,7 @@ import { listAgencyWorkers } from "../../../../lib/payer-api";
 import { assertNoAgencyPII } from "../../../../lib/assert-no-agency-pii";
 import type { AgencyWorker } from "../../../../lib/contracts";
 import { RetryButton } from "../../../../components/retry-button";
-import { WorkerActivityList } from "./worker-activity-list";
+import { REFERRED_WORKERS_HEADING_ID, WorkerActivityList } from "./worker-activity-list";
 
 export const dynamic = "force-dynamic";
 
@@ -61,7 +61,8 @@ export default async function AgencyWorkersPage() {
   }
 
   // The truthful count/truncation line. Computed here (not inline) because it is the panel's
-  // SECOND sub-line, and an empty list must produce NO count line at all rather than "0".
+  // sub-line AND gates the handle-uniqueness line in the privacy alert, and an empty list must
+  // produce NO count line at all rather than "0".
   const countLine =
     workers !== null && workers.length > 0
       ? workers.length >= MAX_ROWS
@@ -70,7 +71,11 @@ export default async function AgencyWorkersPage() {
       : null;
 
   return (
-    <>
+    // `.agency-workers-page` only NAMESPACES this screen's layout rules (see the "AGENCY ·
+    // REFERRALS & EARNINGS + WORKER ACTIVITY (W2-B polish)" block in globals.css). Not
+    // `.agency-workers`: that is the retired B5 wrapper, whose grid rules are still fenced by
+    // agency-b5-layout.css.test.
+    <div className="agency-workers-page">
       <p className="page-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
@@ -83,31 +88,44 @@ export default async function AgencyWorkersPage() {
         </div>
       </div>
 
-      {/* `.panel--table` because the body IS the table (or, when there is nothing to show, the
-          state that stands in for it) — the cell padding is the rhythm, so the body owns none.
-          Both prose lines are panel SUBS, which is why nothing floats below the table. */}
-      <section className="panel panel--table">
-        <div className="panel__head">
-          <h2 className="panel__title">Referred workers</h2>
-          <p className="panel__sub">
-            Every row is a private handle, not a person. BadaBhai never shows an agency a
-            worker&rsquo;s name, phone number or employer, which job they applied to, or who
-            unlocked them. What you get is the funnel: whether they finished their profile, how
-            many times they applied, how many times a company unlocked them, and the last day
-            they were active.
+      {/* THE PRIVACY BOUNDARY, stated once, before the data — the same icon-led `.alert` the
+          applicant feed uses for "Applicants are faceless". Its first sentence is the headline;
+          the rest of the copy is unchanged, only moved out of the panel head. The
+          handle-uniqueness line is still shown only alongside a populated list. */}
+      <div className="alert alert--info">
+        <i className="ph-fill ph-mask-happy alert__icon" aria-hidden="true" />
+        <div className="alert__text">
+          <p className="alert__title">Every row is a private handle, not a person.</p>
+          <p className="alert__body">
+            BadaBhai never shows an agency a worker&rsquo;s name, phone number or employer, which
+            job they applied to, or who unlocked them. What you get is the funnel: whether they
+            finished their profile, how many times they applied, how many times a company unlocked
+            them, and the last day they were active.
           </p>
           {countLine ? (
-            <p className="panel__sub">
-              {countLine} Handles are unique to your agency — another agency that referred the
-              same worker sees a different one, so no two agencies can combine their lists.
+            <p className="alert__body">
+              Handles are unique to your agency — another agency that referred the same worker sees
+              a different one, so no two agencies can combine their lists.
             </p>
           ) : null}
+        </div>
+      </div>
+
+      {/* `.panel--table` because the body IS the table (or, when there is nothing to show, the
+          state that stands in for it) — the cell padding is the rhythm, so the body owns none.
+          The head is the title + the truthful count, so nothing floats below the table. */}
+      <section className="panel panel--table">
+        <div className="panel__head">
+          <h2 className="panel__title" id={REFERRED_WORKERS_HEADING_ID}>
+            Referred workers
+          </h2>
+          {countLine ? <p className="panel__sub">{countLine}</p> : null}
         </div>
         <div className="panel__body">
           {workers === null ? (
             <div className="state state--error">
               <span className="state__icon">
-                <i className="ph ph-warning-circle" aria-hidden="true" />
+                <i className="ph-fill ph-warning-circle" aria-hidden="true" />
               </span>
               <h3 className="state__title">Worker activity is unavailable</h3>
               <p className="state__body">
@@ -123,6 +141,6 @@ export default async function AgencyWorkersPage() {
           )}
         </div>
       </section>
-    </>
+    </div>
   );
 }

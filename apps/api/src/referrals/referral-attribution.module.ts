@@ -14,8 +14,7 @@ import { ReferralBonusRepository } from "./referral-bonus.repository";
 import { ReferralBonusController } from "./referral-bonus.controller";
 import { ReferralBonusProcessor } from "./referral-bonus.processor";
 import { WorkerActivityInterceptor } from "./worker-activity.interceptor";
-import { ReferralLinkRepository } from "./referral-link.repository";
-import { ReferralLinkService } from "./referral-link.service";
+import { ReferralLinksModule } from "./referral-links.module";
 import { ReferralResolverController } from "./referral-resolver.controller";
 
 /**
@@ -51,8 +50,9 @@ import { ReferralResolverController } from "./referral-resolver.controller";
  *    `referral_clicks`, migration 0060). It lives here rather than in MessagingModule
  *    because its consumer is {@link ReferralAttributionService} (the first-touch claim), and
  *    an edge from messaging into this module would invert the existing dependency direction
- *    and create a cycle. It needs no new imports: DatabaseModule, EventsModule, ConfigModule
- *    and CryptoModule are all `@Global()`, and RateLimitModule is already imported above.
+ *    and create a cycle. The repository and the service themselves now live in
+ *    {@link ReferralLinksModule} (#1800), imported above, so ResumeModule can reach the
+ *    résumé-QR mint without importing this module.
  */
 @Module({
   imports: [
@@ -61,6 +61,9 @@ import { ReferralResolverController } from "./referral-resolver.controller";
     AgencyModule,
     AuthModule,
     RateLimitModule,
+    // #1800 — ReferralLinkRepository + ReferralLinkService (and the résumé-QR mint), extracted so
+    // ResumeModule can reach the mint without importing this module. One instance each.
+    ReferralLinksModule,
     // The bonus-evaluation queue — consumed by ReferralBonusProcessor below, produced by
     // ProfilesService (confirm) and UnlocksService (grant).
     BullModule.registerQueue({ name: REFERRAL_BONUS_QUEUE }),
@@ -71,8 +74,6 @@ import { ReferralResolverController } from "./referral-resolver.controller";
     ReferralBonusService,
     ReferralBonusRepository,
     ReferralBonusProcessor,
-    ReferralLinkRepository,
-    ReferralLinkService,
     // GLOBAL by virtue of the APP_INTERCEPTOR token (not by being in this module).
     { provide: APP_INTERCEPTOR, useClass: WorkerActivityInterceptor },
   ],

@@ -847,6 +847,21 @@ describe("GeneralFormService.answer — the brief's name wall (the employer copy
     ).toBe("brief_name");
   });
 
+  it("REFUSES money as brief_salary (owner ruling 2026-09-27), never quoting it, storing nothing", async () => {
+    const h = make();
+    for (const text of ["15k chahiye, welder hoon", "Salary achhi ho", "₹20,000 per month"]) {
+      const err = await h.service.answer(WORKER, brief(text), CTX).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(BadRequestException);
+      const body = GeneralFormAnswerErrorSchema.parse((err as BadRequestException).getResponse());
+      expect(body.code).toBe("brief_salary");
+      // Named by its code; the message never quotes the brief.
+      expect(body.message).not.toMatch(/15k|20,000|achhi|welder/i);
+    }
+    expect(h.attributes.upsertMany).not.toHaveBeenCalled();
+    expect(h.emit).not.toHaveBeenCalled();
+    expect(allLogged()).not.toMatch(/15k|20,000/);
+  });
+
   it("a decline needs no name and reads none", async () => {
     const h = make({
       decrypt: () => {

@@ -10,6 +10,9 @@ import {
   SkillCanonicalizationSchema,
   JobPostingChatOpeningOutputSchema,
   JobPostingChatTurnOutputSchema,
+  CompanionClassifyOutputSchema,
+  CompanionCareerOutputSchema,
+  CompanionEditParseOutputSchema,
   PseudonymizationOutputSchema,
   ProfileParseOutputSchema,
   ResumeParseOutputSchema,
@@ -37,6 +40,12 @@ import {
   type ResumeOptionMapOutput,
   type JobPostingChatTurnInput,
   type JobPostingChatTurnOutput,
+  type CompanionClassifyInput,
+  type CompanionClassifyOutput,
+  type CompanionCareerInput,
+  type CompanionCareerOutput,
+  type CompanionEditParseInput,
+  type CompanionEditParseOutput,
   type SkillCanonicalizationInput,
   type SkillCanonicalization,
   type ProfileExtractionInput,
@@ -355,6 +364,65 @@ export class AiService {
       undefined,
       ctx,
     );
+  }
+
+  /**
+   * ADR-0046 Phase 1 — classify one free-text companion message into the closed intent set.
+   *
+   * THREE SECONDS, the phase spec's number, and it is a budget about the WORKER, not the model:
+   * this call sits on a chat turn that the v1 deterministic resolver has already missed, so the
+   * worker is watching the composer and a classifier that cannot decide quickly is worse than
+   * the clarify line. Null on every failure — unreachable, non-OK, a schema miss, the abort —
+   * and the caller treats null exactly like `unclear`, so the worker gets the clarify chips.
+   *
+   * The far side pseudonymizes `input.text` fail-closed before any model call; a blocked input
+   * comes back as `blocked:true` on a 200, which the caller also folds into `unclear`.
+   */
+  async companionClassify(
+    input: CompanionClassifyInput,
+    ctx?: AiRequestContext,
+  ): Promise<CompanionClassifyOutput | null> {
+    return this.post("/companion/classify", input, CompanionClassifyOutputSchema, 3_000, ctx);
+  }
+
+  /**
+   * ADR-0046 Phase 1 — extract typed edit rows from one companion message.
+   *
+   * SIX SECONDS: this is the SECOND model call of an edit turn (the classifier already ran) and
+   * the card is the feature's whole value, so it gets the larger budget — still far inside the
+   * worker's patience, and still under the phase spec's own ceiling. Null on every failure; the
+   * caller serves `V2_EDIT_NONE` and the worker is asked to say it another way.
+   *
+   * The request carries the API's closed catalogue and a snapshot of the worker's current values,
+   * and the endpoint masks every one of them before the model. Nothing here is trusted back: the
+   * rows are re-validated deterministically before a card is stored (O4).
+   */
+  async companionEditParse(
+    input: CompanionEditParseInput,
+    ctx?: AiRequestContext,
+  ): Promise<CompanionEditParseOutput | null> {
+    return this.post("/companion/edit-parse", input, CompanionEditParseOutputSchema, 6_000, ctx);
+  }
+
+  /**
+   * ADR-0046 Phase 3 — one career question to a short Hinglish answer or a closed refusal.
+   *
+   * TEN SECONDS, the phase spec's number, and it is larger than every sibling companion call
+   * for a measured reason: this is the one route where a provider failure costs the worker an
+   * ANSWER (the others degrade into a fixed line the worker expected anyway), and Claude
+   * Haiku's first token can arrive later than Gemini's. The API's own worker-facing budget is
+   * the turn timeout above it; this is the transport's.
+   *
+   * Null on every failure — unreachable, non-OK, a schema miss, the abort — and the caller
+   * serves the fallback line. The far side pseudonymizes `input.text` and masks every memory
+   * turn fail-closed before any model call; a blocked input comes back as a refusal on
+   * `unsafe_other`, which the caller serves as reviewed copy.
+   */
+  async companionCareer(
+    input: CompanionCareerInput,
+    ctx?: AiRequestContext,
+  ): Promise<CompanionCareerOutput | null> {
+    return this.post("/companion/career", input, CompanionCareerOutputSchema, 10_000, ctx);
   }
 
   async extractProfile(

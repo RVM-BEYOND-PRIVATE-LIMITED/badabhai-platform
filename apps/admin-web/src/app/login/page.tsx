@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { BrandLockup } from "../../components/brand-lockup";
 import { currentSession } from "../../lib/auth";
 import { LoginForm } from "./login-form";
 
@@ -29,13 +30,7 @@ export default async function LoginPage() {
     <main className="auth-wrap">
       <div className="auth-shell">
         <header className="auth-brand">
-          <span className="auth-brand__mark" aria-hidden="true">
-            BB
-          </span>
-          <span className="auth-brand__text">
-            <span className="auth-brand__name">BadaBhai</span>
-            <span className="auth-brand__role">Admin</span>
-          </span>
+          <BrandLockup />
         </header>
 
         <LoginForm />

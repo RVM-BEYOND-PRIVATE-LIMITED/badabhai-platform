@@ -3,6 +3,8 @@ import { validateEvent } from "@badabhai/event-schema";
 import { resolveResumeMenu, RESUME_MENU_EDIT_LABEL } from "../chat/resume-menu";
 import { ChatCompanionService, digestKey } from "./chat-companion.service";
 import { COMPANION_JOB_KEY_PREFIX, COMPANION_RESUME_KEY } from "./companion-keys";
+import { V2_CLARIFY, V2_EDIT_CANCELLED, V2_EDIT_DONE, V2_EDIT_STALE } from "./companion-replies";
+import { v2CopyTurn } from "./v2/companion-v2-compose";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SUBMISSION = "22222222-2222-4222-8222-222222222222";
@@ -68,6 +70,9 @@ function make(over: {
   hasMore?: boolean;
   jobsThrows?: boolean;
   emitThrows?: boolean;
+  v2?: boolean;
+  confirm?: unknown;
+  cancel?: unknown;
 } = {}) {
   const policy = {
     resolve: vi.fn(async () =>
@@ -110,11 +115,20 @@ function make(over: {
       return {};
     }),
   };
+  const edits = {
+    confirm: vi.fn(async () => over.confirm ?? { kind: "not_found" }),
+    cancel: vi.fn(async () => over.cancel ?? { kind: "not_found" }),
+  };
+  const v2 = {
+    handleMessage: vi.fn(async () => v2CopyTurn(V2_CLARIFY)),
+  };
   const config = {
     CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS: 7,
     CHAT_COMPANION_NEW_JOBS_COUNT_CAP: 20,
     CHAT_COMPANION_JOB_CHIPS: over.jobChips ?? 3,
     RESUME_UPDATE_PENDING_TIMEOUT_SECONDS: 1_200,
+    CHAT_COMPANION_V2_ENABLED: over.v2 ?? false,
+    CHAT_COMPANION_V2_EDIT_ENABLED: over.v2 ?? false,
   };
   const svc = new ChatCompanionService(
     config as never,
@@ -124,8 +138,10 @@ function make(over: {
     skills as never,
     jobs as never,
     events as never,
+    edits as never,
+    v2 as never,
   );
-  return { svc, policy, repo, resumes, skills, jobs, events };
+  return { svc, policy, repo, resumes, skills, jobs, events, edits, v2 };
 }
 
 type Emitted = { event_name: string; payload: Record<string, unknown>; idempotencyKey?: string };
@@ -417,10 +433,72 @@ describe("digest_key — what the app compares on a tab refocus", () => {
 });
 
 describe("the companion's reach", () => {
-  it("is constructed from repositories and the history projection only — no chat writer, no model, no impression-recording service", () => {
-    // Seven collaborators, all read-only or the event spine. A refactor that routes a read through
-    // MatchFeedService.getFeed / ApplicationsService.getFeed / JobsService.searchJobs (which record
-    // impressions and searches), ChatService, or AiService fails here first.
-    expect(ChatCompanionService.length).toBe(7);
+  it("is constructed from repositories, the history projection and the INERT v2 layer", () => {
+    // Nine collaborators: seven read-only or the event spine, plus (ADR-0046 T6) the v2
+    // orchestrator and (T7/T8) the edit service. The two v2 collaborators reach a model only
+    // through AiService, only from the v2 branches, and only while their flags are on — every v1
+    // path still makes zero model calls, which the flag-off suite proves. A refactor that routes
+    // a V1 read through MatchFeedService.getFeed / ApplicationsService.getFeed /
+    // JobsService.searchJobs / ChatService still fails here first.
+    expect(ChatCompanionService.length).toBe(9);
+  });
+});
+
+describe("ChatCompanionService.confirmEdit / cancelEdit (ADR-0046 T8)", () => {
+  const PROPOSAL = "99999999-9999-4999-8999-999999999999";
+
+  it("flags off → not_found, and neither the policy nor the edit service is touched", async () => {
+    const h = make({ v2: false });
+    expect(await h.svc.confirmEdit(WORKER, PROPOSAL, { row_ids: [PROPOSAL] }, CTX)).toEqual({
+      mode: "not_found",
+    });
+    expect(await h.svc.cancelEdit(WORKER, PROPOSAL, CTX)).toEqual({ mode: "not_found" });
+    expect(h.policy.resolve).not.toHaveBeenCalled();
+    expect(h.edits.confirm).not.toHaveBeenCalled();
+    expect(h.edits.cancel).not.toHaveBeenCalled();
+  });
+
+  it("policy says interview → 409 interview, same as a message", async () => {
+    const h = make({ v2: true, mode: "interview" });
+    expect(await h.svc.confirmEdit(WORKER, PROPOSAL, { row_ids: [PROPOSAL] }, CTX)).toEqual({
+      mode: "interview",
+    });
+    expect(h.edits.confirm).not.toHaveBeenCalled();
+  });
+
+  it("applied → the turn the edit service built, passing the strict outbound schema", async () => {
+    const turn = v2CopyTurn(V2_EDIT_DONE);
+    const h = make({
+      v2: true,
+      confirm: {
+        kind: "applied",
+        turn,
+        proposalId: PROPOSAL,
+        appliedCount: 2,
+        sections: ["skills", "languages"],
+        resumeRegen: "queued",
+      },
+    });
+    const result = await h.svc.confirmEdit(WORKER, PROPOSAL, { row_ids: [PROPOSAL] }, CTX);
+    expect(result).toEqual({ mode: "companion", turn });
+    expect(h.edits.confirm).toHaveBeenCalledWith(WORKER, PROFILE, PROPOSAL, [PROPOSAL], CTX);
+  });
+
+  it("stale → its own result, so the controller can answer 409 {reason:'stale'}", async () => {
+    const h = make({ v2: true, confirm: { kind: "stale", turn: v2CopyTurn(V2_EDIT_STALE) } });
+    expect(await h.svc.confirmEdit(WORKER, PROPOSAL, { row_ids: [PROPOSAL] }, CTX)).toEqual({
+      mode: "stale",
+    });
+  });
+
+  it("cancel: cancelled → the turn; unknown → not_found", async () => {
+    const cancelled = make({ v2: true, cancel: { kind: "cancelled", turn: v2CopyTurn(V2_EDIT_CANCELLED), proposalId: PROPOSAL } });
+    expect(await cancelled.svc.cancelEdit(WORKER, PROPOSAL, CTX)).toEqual({
+      mode: "companion",
+      turn: v2CopyTurn(V2_EDIT_CANCELLED),
+    });
+
+    const unknown = make({ v2: true, cancel: { kind: "not_found" } });
+    expect(await unknown.svc.cancelEdit(WORKER, PROPOSAL, CTX)).toEqual({ mode: "not_found" });
   });
 });

@@ -15,7 +15,6 @@ import {
   Dialog,
   IconButton,
   Input,
-  JobCard,
   MaskedCandidate,
   OtpInput,
   ProgressBar,
@@ -217,24 +216,30 @@ describe("DS0.2 · primitives render with their design-system classes", () => {
     expect(out).toContain("Shortlist");
   });
 
-  it("JobCard — title, mono salary, quota, apply action", () => {
-    const out = html(
-      <JobCard title="CNC Operator" company="Acme Tools" salary="₹22,000–28,000 / mo" tags={["Day shift"]} vacanciesLeft={3} />,
-    );
-    expect(out).toContain("bb-jobcard");
-    expect(out).toContain("CNC Operator");
-    expect(out).toContain("bb-jobcard__salary");
-    expect(out).toContain("3 spots");
-    expect(out).toContain("Apply");
+  it("BadaBhaiLogo — the brand-kit monogram on a tile + the navy logotype, sized by token var (no raw hex)", () => {
+    const out = html(<BadaBhaiLogo />);
+    expect(out).toContain("bb-lockup");
+    expect(out).toContain("bb-lockup__tile");
+    // The images are CSS backgrounds from the token package — no <img>, nothing to announce.
+    expect(out).toContain('<span class="bb-lockup__tile" aria-hidden="true"><span class="bb-lockup__mark"></span></span>');
+    expect(out).not.toContain("<img");
+    expect(out).toContain('role="img"');
+    expect(out).toContain('aria-label="BadaBhai"');
+    // The official logotype image (Shift Blue on paper); decorative — the root names it.
+    expect(out).toContain('<span class="bb-lockup__wordmark" aria-hidden="true"></span>');
+    expect(out).toContain("--bb-lockup-size:32px");
+    expect(out).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 
-  it("BadaBhaiLogo — wordmark, brand mark, colors from tokens (no raw hex)", () => {
-    const out = html(<BadaBhaiLogo />);
-    expect(out).toContain("bb-logo");
-    expect(out).toContain("Bada");
-    expect(out).toContain("Bhai");
-    expect(out).toContain("var(--brand)");
-    expect(out).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+  it("BadaBhaiLogo — ink drops the tile fill (on-ink), mark/wordmark variants, caption", () => {
+    const ink = html(<BadaBhaiLogo theme="ink" sub="for Employers" />);
+    expect(ink).toContain("bb-lockup--on-ink");
+    // On the navy band the WHITE logotype, never the navy one (it would vanish).
+    // The on-ink class is what swaps in the WHITE logotype (tokens.css); the markup is shared.
+    expect(ink).toContain('class="bb-lockup bb-lockup--on-ink"');
+    expect(ink).toContain('<span class="bb-lockup__sub">for Employers</span>');
+    expect(html(<BadaBhaiLogo variant="mark" />)).not.toContain("bb-lockup__wordmark");
+    expect(html(<BadaBhaiLogo variant="wordmark" />)).not.toContain("bb-lockup__tile");
   });
 });
 
@@ -262,8 +267,8 @@ describe("DS0.2 · adherence — no raw hex / px literal in any wrapper source",
     .filter((f) => f.endsWith(".tsx") && !f.includes(".test.") && !f.includes(".stories."))
     .map((f) => ({ f, code: stripComments(readFileSync(new URL(f, import.meta.url), "utf8")) }));
 
-  it("covers the whole library (13 component modules)", () => {
-    expect(sources.length).toBe(13);
+  it("covers the whole library (12 component modules — the swipe JobCard was removed in PR-B)", () => {
+    expect(sources.length).toBe(12);
   });
 
   for (const { f } of sources) {

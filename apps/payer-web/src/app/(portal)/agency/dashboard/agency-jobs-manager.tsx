@@ -8,6 +8,7 @@ import {
   day,
   experienceBandLabel,
   isActiveJob,
+  isPausedJob,
   neededByLabel,
   payBandLabel,
   tradeLabel,
@@ -19,6 +20,7 @@ import {
   closeAgencyJobAction,
   createAgencyJobAction,
   pauseAgencyJobAction,
+  resumeAgencyJobAction,
   updateAgencyJobAction,
   type AgencyJobActionResult,
 } from "./jobs-actions";
@@ -38,9 +40,11 @@ import {
  * status is `open|closed`, pause == close). Tokens only (no raw hex/px).
  */
 
-/** The DS Badge tone for a vacancy's REAL state (reflects `status`, never invented). */
-function statusTone(active: boolean): "success" | "neutral" {
-  return active ? "success" : "neutral";
+/** The DS Badge tone for a vacancy's REAL state (reflects `status`, never invented). 4-state now. */
+function statusTone(status: string): "success" | "warning" | "neutral" {
+  if (status === "open") return "success";
+  if (status === "paused" || status === "suspended") return "warning";
+  return "neutral";
 }
 
 export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
@@ -130,14 +134,15 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
             const busy = busyId === j.id;
             const err = errorById[j.id] ?? null;
             const active = isActiveJob(j);
+            const paused = isPausedJob(j);
             const editing = editingId === j.id;
             return (
               <Card key={j.id} className="agency-job">
                 <div className="agency-job__main">
                   <div className="agency-job__head">
                     <span className="agency-job__title">{j.title}</span>
-                    <Badge tone={statusTone(active)} upper>
-                      {active ? "open" : "closed"}
+                    <Badge tone={statusTone(j.status)} upper>
+                      {j.status}
                     </Badge>
                   </div>
                   <div className="agency-job__meta">
@@ -169,7 +174,7 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                 </div>
 
                 <div className="agency-job__actions">
-                  {active ? (
+                  {active || paused ? (
                     <div className="agency-job__btns">
                       <Button
                         variant="secondary"
@@ -183,16 +188,29 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                       >
                         {editing ? "Close edit" : "Edit"}
                       </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled={busy}
-                        loading={busy}
-                        iconLeft="pause"
-                        onClick={() => runLifecycle(j.id, () => pauseAgencyJobAction({ jobId: j.id }))}
-                      >
-                        {busy ? "Working…" : "Pause"}
-                      </Button>
+                      {active ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={busy}
+                          loading={busy}
+                          iconLeft="pause"
+                          onClick={() => runLifecycle(j.id, () => pauseAgencyJobAction({ jobId: j.id }))}
+                        >
+                          {busy ? "Working…" : "Pause"}
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={busy}
+                          loading={busy}
+                          iconLeft="play"
+                          onClick={() => runLifecycle(j.id, () => resumeAgencyJobAction({ jobId: j.id }))}
+                        >
+                          {busy ? "Working…" : "Resume"}
+                        </Button>
+                      )}
                       <Button
                         variant="secondary"
                         size="sm"
@@ -205,7 +223,9 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                       </Button>
                     </div>
                   ) : (
-                    <span className="agency-job__closed">Closed</span>
+                    <span className="agency-job__closed">
+                      {j.status === "suspended" ? "Suspended" : "Closed"}
+                    </span>
                   )}
                   <div aria-live="polite" className="agency-job__status">
                     {err ? <p className="agency-job__error">{err}</p> : null}
@@ -218,7 +238,8 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                         submitLabel="Save changes"
                         onCancel={() => setEditingId(null)}
                         onSubmit={async (input) => {
-                          const res = await updateAgencyJobAction(j.id, input);
+                          // Pass the current row as `initial` so the seam computes the clear diff.
+                          const res = await updateAgencyJobAction(j.id, input, j);
                           if (res.ok) {
                             upsertRow(res.job);
                             setEditingId(null);

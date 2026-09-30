@@ -210,6 +210,11 @@ jobs:
               - 'apps/api/src/chat/resume-menu.ts'
               - 'apps/api/src/profiling/question-tts-text.ts'
               - 'apps/api/src/chat-companion/companion-keys.ts'
+              # ADR-0046 — the companion v2 TASK chip keys. A second file because
+              # the v1 parity test pins `companion-keys.ts` to exactly its four
+              # keys; the app mirrors both, so a rename here must re-run the
+              # worker-app job or the mirror drifts unnoticed.
+              - 'apps/api/src/chat-companion/companion-task-keys.ts'
             payer-app:
               - 'apps/payer-app/**'
               - '.github/workflows/payer-app.yml'
@@ -226,12 +231,17 @@ jobs:
             # actually builds (@badabhai/config, @badabhai/pricing, @badabhai/validators)
             # plus validators' own @badabhai/types dependency are listed explicitly — a
             # change to any of them can break the image even with zero payer-web edits.
+            # @badabhai/design-tokens (packages/design-tokens) is listed too: CSS only, no
+            # build step, but globals.css `@import`s its tokens.css into `next build`, and
+            # it is the ONE token file both portals share — a token edit re-skins BOTH the
+            # payer-web and admin-web images with zero app edits, so it re-runs both gates.
             payer-web:
               - 'apps/payer-web/**'
               - 'packages/config/**'
               - 'packages/pricing/**'
               - 'packages/validators/**'
               - 'packages/types/**'
+              - 'packages/design-tokens/**'
               - '.github/workflows/ci.yml'
             # apps/admin-web (the INTERNAL admin portal) — same contract as the payer-web
             # filter above, gating ONLY the admin-web leg of `image-gate`. The workspace
@@ -240,13 +250,15 @@ jobs:
             # @badabhai/config (the /shared subpath), @badabhai/pricing, @badabhai/validators,
             # plus validators' own @badabhai/types. Same four as payer-web by coincidence,
             # not by inheritance — a change to any of them can break the image with zero
-            # admin-web edits.
+            # admin-web edits. The fifth, @badabhai/design-tokens, is shared ON PURPOSE
+            # (see the payer-web note above): a token edit must re-run this image gate too.
             admin-web:
               - 'apps/admin-web/**'
               - 'packages/config/**'
               - 'packages/pricing/**'
               - 'packages/validators/**'
               - 'packages/types/**'
+              - 'packages/design-tokens/**'
               - '.github/workflows/ci.yml'
             # SAST (#773). Mirrors the filter security-scan.yml used while the job lived
             # there, plus the two workflow files that now decide whether it runs at all —
@@ -1491,7 +1503,7 @@ jobs:
       # with no database and must keep skipping these files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
       # `node` job, and a six-file run cannot meet them.
-      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach)
+      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + unique violations)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -1518,7 +1530,7 @@ jobs:
           # Serialising costs nothing here (the whole step runs in ~4s) and is scoped to
           # THIS step on purpose: `apps/api/vitest.config.ts` stays parallel, because the
           # 2820-test `node` suite is database-free and has no shared state to race on.
-          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db 2>&1 | tee db-gates-raw.log
+          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db unique-violation.db 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
@@ -1528,12 +1540,12 @@ jobs:
           # The directory alternation must list EVERY directory a gate file lives in:
           # `ai-cost-totals.db` sits under src/ai, `jobs-search-sql` under src/jobs and
           # `admin-dashboard.db` under src/admin and `applied-subtitle.db` under
-          # src/applications and `turner-reach.db` under src/resume, and against a regex
-          # missing any one of them
+          # src/applications and `turner-reach.db` under src/resume and `unique-violation.db`
+          # under src/common, and against a regex missing any one of them
           # this loop reports "did not run at all" on a perfectly good run. Widen it whenever a
           # gate lands in a new directory.
-          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db; do
-            line=$(grep -E "src/(ai|admin|applications|match|profiles|jobs|resume)/${f}\.test\.ts" db-gates.log | head -1 || true)
+          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db unique-violation.db; do
+            line=$(grep -E "src/(ai|admin|applications|common|match|profiles|jobs|resume)/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
               exit 1
@@ -1550,8 +1562,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +9 passed \(9\)' db-gates.log; then
-            echo "::error::Expected exactly the 9 gate files to run — the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +10 passed \(10\)' db-gates.log; then
+            echo "::error::Expected exactly the 10 gate files to run — the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi
@@ -2042,6 +2054,17 @@ jobs:
           # Post-completion companion (ADR-0044). Off is the chat tab as it was, and is what an
           # unset or empty secret resolves to through compose's `:-false`.
           CHAT_COMPANION_ENABLED: ${{ secrets.CHAT_COMPANION_ENABLED }}
+          # Companion v2 (ADR-0046) — the phase gates, all default off, and off is v1
+          # byte-for-byte. Production ON requires the ADR's signature + companion v1 live, and
+          # REAL model calls need the box to widen the ai-service's AI_REAL_CALL_TASKS allowlist
+          # to name the three companion tasks (companion_classify, companion_edit_parse,
+          # companion_career_answer) — an env action on the box, never a secret. The knobs are
+          # deliberately NOT bridged (reviewed defaults; changing one is a compose diff).
+          CHAT_COMPANION_V2_ENABLED: ${{ secrets.CHAT_COMPANION_V2_ENABLED }}
+          CHAT_COMPANION_V2_EDIT_ENABLED: ${{ secrets.CHAT_COMPANION_V2_EDIT_ENABLED }}
+          CHAT_COMPANION_V2_NEW_RESUME_ENABLED: ${{ secrets.CHAT_COMPANION_V2_NEW_RESUME_ENABLED }}
+          CHAT_COMPANION_V2_FALTU_ENABLED: ${{ secrets.CHAT_COMPANION_V2_FALTU_ENABLED }}
+          CHAT_COMPANION_V2_CAREER_ENABLED: ${{ secrets.CHAT_COMPANION_V2_CAREER_ENABLED }}
           # The general road (ADR-0045): roles outside the 21 run role → skills → general form.
           # Off is the interview as it was, and is what an unset or empty secret resolves to
           # through compose's `:-false`.
@@ -2049,6 +2072,12 @@ jobs:
           # Tiered profiling (Easy/Medium/Hard). Unset/empty resolves to off at the compose level,
           # which is today's behaviour. Needs migration 0126 + a pack re-seed before it is set.
           PROFILING_TIERS_ENABLED: ${{ secrets.PROFILING_TIERS_ENABLED }}
+          # Résumé skins (#1801). Unset/empty resolves to off at the compose level, which is
+          # today's behaviour. Needs migration 0128 applied before it is set.
+          RESUME_SKINS_ENABLED: ${{ secrets.RESUME_SKINS_ENABLED }}
+          # Résumé QR scan (#1800). Unset/empty resolves to off at the compose level, which is
+          # today's behaviour. Needs migration 0129 + the badabhai.ai /r/* redirect before it is set.
+          RESUME_QR_SCAN_ENABLED: ${{ secrets.RESUME_QR_SCAN_ENABLED }}
 
           # Payer OTP email (ADR-0019) — the ZeptoMail analogue of the FAST2SMS_* trio
           # above. EMAIL_PROVIDER/ZEPTOMAIL_SANDBOX_MODE are NOT here: they now default
@@ -2199,7 +2228,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,PROFILING_TIERS_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_GENERAL_ROAD_ENABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,PROFILING_TIERS_ENABLED,RESUME_SKINS_ENABLED,RESUME_QR_SCAN_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_COMPANION_V2_ENABLED,CHAT_COMPANION_V2_EDIT_ENABLED,CHAT_COMPANION_V2_NEW_RESUME_ENABLED,CHAT_COMPANION_V2_FALTU_ENABLED,CHAT_COMPANION_V2_CAREER_ENABLED,CHAT_GENERAL_ROAD_ENABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS
           #
           # ⚠ FIVE LINKS, AND A SECRET ONLY BUYS THE FIRST. A value reaches a container by:
           #   1. existing as a GitHub environment secret
@@ -2214,8 +2243,10 @@ jobs:
           # ONE VARIABLE IS DELIBERATELY LEFT OUT OF LINKS 2 AND 3, and it must stay out:
           # `AI_REAL_CALL_TASKS`. Bridging it would let a GitHub secret add a task to the
           # real-call allowlist with no code review, which is the one decision that must not be
-          # editable from the secrets UI. Widening it is a reviewed change to the compose
-          # default. `deploy-workflow-taxonomy.guard.test.ts` pins that absence.
+          # editable from the secrets UI. The compose default is the reviewed fallback, and a
+          # value set in the box's own environment replaces it — the production box does set
+          # one (#1843), so widening there is an owner action on the box, never a secret.
+          # `deploy-workflow-taxonomy.guard.test.ts` pins that absence.
           #
           # `secret-parity-check.yml` does NOT cover this. It compares the bridges against
           # compose's REQUIRED (`${VAR:?...}`) vars only, so every optional `${VAR:-default}`

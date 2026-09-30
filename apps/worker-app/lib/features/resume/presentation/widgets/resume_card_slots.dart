@@ -479,7 +479,12 @@ ResumeFact _fact(ResumeFactRowDto row) =>
 /// a trade sheet has a server-composed two-line masthead, a generic document
 /// has flat fields, and a worker with neither has the parsed resume text.
 class ResumeProfileFacts {
-  const ResumeProfileFacts({this.subtitle, this.secondLine, this.salary});
+  const ResumeProfileFacts({
+    this.subtitle,
+    this.secondLine,
+    this.salary,
+    this.brief,
+  });
 
   /// "CNC Turner · 8 yrs · Fanuc" — the trade verdict. Null hides the line.
   final String? subtitle;
@@ -493,6 +498,19 @@ class ResumeProfileFacts {
 
   /// Already formatted and ready to print. Null hides the salary box.
   final String? salary;
+
+  /// #1796 — THE GENERAL ROAD'S BRIEF, under the headline.
+  ///
+  /// The worker's own line about their work, or a fixed line the server composed
+  /// from their role and years — never a model's words. It prints on both the
+  /// worker and the employer copy, so the tab has to show it: this screen is the
+  /// worker's only way to check what an employer reads about them.
+  ///
+  /// GENERAL SHEETS ONLY, and null everywhere else — a `bb_trade` sheet and a
+  /// `generic` document never carry one. Suppressed here rather than in the card
+  /// for the same reason [secondLine] is: the rule belongs in the one place all
+  /// three document shapes meet.
+  final String? brief;
 }
 
 /// Resolves the profile card's facts for whichever document shape exists.
@@ -521,6 +539,10 @@ ResumeProfileFacts resolveProfileFacts({
           ? null
           : _nullIfEmpty(_clean(document.headline.line2 ?? '')),
       salary: _tradeSheetSalary(document),
+      // #1796 — on the road only. `brief` is absent on every other document,
+      // but the guard is explicit so a server that ever sent one on a
+      // `bb_trade` sheet could not put it on a trade worker's card.
+      brief: general ? _nullIfEmpty(_clean(document.brief ?? '')) : null,
     );
   }
   if (document is GenericResumeDocument) {

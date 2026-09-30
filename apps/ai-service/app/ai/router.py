@@ -260,7 +260,7 @@ class AIRouter:
         # AND its provider differs from the primary's. Each candidate is tried in
         # turn; the first success wins. messages are pseudonymized once, upstream,
         # and reused unchanged for every candidate (privacy invariant intact).
-        candidates = self._candidate_models(primary_model) if real else []
+        candidates = self._candidate_models(primary_model, route.fallback_model) if real else []
 
         # Hard spend ceiling: a candidate whose WORST-CASE cost (input tokens +
         # the route's max output tokens, priced at THAT model's rate) would exceed
@@ -643,21 +643,23 @@ class AIRouter:
         )
         return mock_response, meta
 
-    def _candidate_models(self, primary_model: str) -> list[str]:
+    def _candidate_models(self, primary_model: str, fallback_model: str | None = None) -> list[str]:
         """Ordered provider-fallback chain for a real call.
 
-        ``primary_model`` first; then ``settings.default_fallback_model`` IFF the
-        FALLBACK's OWN provider transport is actually usable (credential set AND its
-        client library importable) AND its provider differs from the primary's.
+        ``primary_model`` first; then the fallback model IFF the FALLBACK's OWN provider
+        transport is actually usable (credential set AND its client library importable) AND its
+        provider differs from the primary's. ``fallback_model`` is the ROUTE's own fallback when
+        it names one (ADR-0046 O7: Claude primary → Gemini fallback); otherwise the global
+        ``settings.default_fallback_model``.
         De-duplicated, order preserved. Gating on the fallback provider's own
         TRANSPORT (not just a hardcoded key) lets primary/fallback be either provider
-        — e.g. Claude Haiku primary, Gemini fallback — without the chain silently
+        - e.g. Claude Haiku primary, Gemini fallback - without the chain silently
         dropping the fallback, AND prevents a key-set-but-SDK-absent config from
         arming a fallback that fails 100% of the time and burns the per-call retries
-        + the TD27 retry budget. The fallback key is NOT a master gate; the master
-        switch is enforced upstream via ``real_call_enabled_for``."""
+        + the TD27 retry budget. The fallback key is NOT a master gate; the
+        master switch is enforced upstream via ``real_call_enabled_for``."""
         candidates = [primary_model]
-        fallback = self._settings.default_fallback_model
+        fallback = fallback_model or self._settings.default_fallback_model
         if (
             fallback
             and fallback not in candidates

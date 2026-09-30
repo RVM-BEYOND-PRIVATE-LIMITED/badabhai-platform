@@ -2,6 +2,13 @@ import { Badge } from "../../../../components/ds";
 import type { AgencyWorker } from "../../../../lib/contracts";
 
 /**
+ * The id of the page's visible "Referred workers" heading. The table's scroll region is NAMED
+ * BY it (aria-labelledby) rather than carrying a second copy of the words; the page renders the
+ * heading with this id, and it renders once per page.
+ */
+export const REFERRED_WORKERS_HEADING_ID = "agency-referred-workers-title";
+
+/**
  * The referred-worker ENGAGEMENT table (ADR-0022 agency portal, B5) — presentational only.
  *
  * FACELESS (CLAUDE.md §2 #2): a row is an opaque per-agency handle, a profile boolean, two
@@ -31,7 +38,7 @@ export function WorkerActivityList({ workers }: { workers: AgencyWorker[] }) {
     return (
       <div className="state">
         <span className="state__icon">
-          <i className="ph ph-users-three" aria-hidden="true" />
+          <i className="ph-fill ph-users-three" aria-hidden="true" />
         </span>
         <h3 className="state__title">No workers to show yet</h3>
         <p className="state__body">
@@ -51,9 +58,18 @@ export function WorkerActivityList({ workers }: { workers: AgencyWorker[] }) {
     );
   }
 
+  // W2-B: the scroller is a focusable region (a keyboard user can scroll the 5-column table on
+  // a phone) named by the page's visible heading, and the table is the no-wrap ledger variant —
+  // a hyphenated day or the "In progress" badge never breaks mid-value on a narrow screen; the
+  // row scrolls inside `.tablewrap` instead.
   return (
-    <div className="tablewrap">
-      <table className="table">
+    <div
+      className="tablewrap"
+      tabIndex={0}
+      role="region"
+      aria-labelledby={REFERRED_WORKERS_HEADING_ID}
+    >
+      <table className="table table--nowrap">
         <caption className="sr-only">
           Workers you referred who agreed to share their activity: a private handle, whether
           their profile is complete, how many times they applied, how many times a company
@@ -63,8 +79,13 @@ export function WorkerActivityList({ workers }: { workers: AgencyWorker[] }) {
           <tr>
             <th scope="col">Worker</th>
             <th scope="col">Profile</th>
-            <th scope="col">Applied</th>
-            <th scope="col">Unlocked</th>
+            {/* Count headers align with their right-aligned, tabular `.num` cells. */}
+            <th scope="col" className="num">
+              Applied
+            </th>
+            <th scope="col" className="num">
+              Unlocked
+            </th>
             <th scope="col">Last active</th>
           </tr>
         </thead>

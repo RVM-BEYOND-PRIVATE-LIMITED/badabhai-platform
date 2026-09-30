@@ -49,7 +49,7 @@ export default async function AccountPage() {
         <Card>
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph ph-warning-circle" aria-hidden="true" />
+              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
             </span>
             {/* Neutral, account-state-independent copy: it never says WHY the read failed. */}
             <h2 className="state__title">Service unavailable</h2>
@@ -178,7 +178,7 @@ function AgencyKycCard({ kyc }: { kyc: AgencyKyc }) {
       {/* Both rows keep a visible, named action (not an invisible stretched link) to the full
           KYC surface. The status Badge + masked last-4 come straight from the API. */}
       <div className={view.alert}>
-        <i className="ph ph-identification-card alert__icon" aria-hidden="true" />
+        <i className="ph-fill ph-identification-card alert__icon" aria-hidden="true" />
         <div className="alert__text">
           <p className="alert__title">
             KYC &mdash; PAN &amp; Identity{" "}
@@ -200,7 +200,7 @@ function AgencyKycCard({ kyc }: { kyc: AgencyKyc }) {
       </div>
 
       <div className={bankAdded ? "alert alert--success" : "alert"}>
-        <i className="ph ph-bank alert__icon" aria-hidden="true" />
+        <i className="ph-fill ph-bank alert__icon" aria-hidden="true" />
         <div className="alert__text">
           <p className="alert__title">
             Bank Account{" "}

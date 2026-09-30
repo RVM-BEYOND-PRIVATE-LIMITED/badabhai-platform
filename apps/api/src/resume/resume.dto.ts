@@ -32,7 +32,8 @@ export interface GenerateResumeInput {
  */
 export type SystemResumeTrigger = Extract<
   ResumeGenerationTrigger,
-  "profile_confirmed" | "chat_update_accepted"
+  // ADR-0046 O6 — the companion's confirmed edit card regenerates through this same path.
+  "profile_confirmed" | "chat_update_accepted" | "chat_edit"
 >;
 
 /** One card on the worker's résumé history (`GET /resume/history`, ADR-0043). */

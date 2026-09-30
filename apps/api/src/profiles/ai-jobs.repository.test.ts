@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { Column, Param, StringChunk, is, type SQL } from "drizzle-orm";
 import { aiJobs, workerProfiles, type Database } from "@badabhai/db";
-import { AiJobsRepository } from "./ai-jobs.repository";
+import { AiJobsRepository, EXTRACTION_SESSION_LIVE_KEY } from "./ai-jobs.repository";
 
 /**
  * STRUCTURAL tests for the issue #420 dedupe lookup. The service tests mock this
@@ -244,6 +244,8 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — the predicate (#420
       "id",
       "locationPreference",
       "machines",
+      // #1764 — whether the job was minted while its session was still live.
+      "mintedWhileLive",
       "profileId",
       "richProfileDraft",
       "salaryExpectation",
@@ -507,7 +509,42 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — row mapping", () =>
         richProfileDraft: null,
       },
     ]);
-    expect(result).toEqual({ id: "job-1", status: "completed", createdAt: SINCE, profile: null });
+    expect(result).toEqual({
+      id: "job-1",
+      status: "completed",
+      createdAt: SINCE,
+      mintedWhileLive: false,
+      profile: null,
+    });
+  });
+
+  it("#1764 — reads the live flag from input_ref, and a job minted before the key reads false", async () => {
+    const { captured } = await run();
+    const { sql: text, params } = compile(captured.selection!.mintedWhileLive);
+    // A bound key, never interpolated text; a missing key coalesces to false (today's dedupe).
+    expect(text).toMatch(/coalesce\(\("ai_jobs"\."input_ref"->>\$\d+\) = 'true', false\)/);
+    expect(params).toEqual([EXTRACTION_SESSION_LIVE_KEY]);
+    expect(EXTRACTION_SESSION_LIVE_KEY).toBe("session_live");
+  });
+
+  it("#1764 — maps the live flag through, and anything but true as false", async () => {
+    const base = {
+      id: "job-1",
+      status: "completed",
+      createdAt: SINCE,
+      profileId: null,
+      canonicalTradeId: null,
+      canonicalRoleId: null,
+      skills: null,
+      machines: null,
+      experience: null,
+      salaryExpectation: null,
+      locationPreference: null,
+      availability: null,
+      richProfileDraft: null,
+    };
+    expect((await run([{ ...base, mintedWhileLive: true }])).result?.mintedWhileLive).toBe(true);
+    expect((await run([{ ...base, mintedWhileLive: null }])).result?.mintedWhileLive).toBe(false);
   });
 
   it("maps the joined profile columns through when a profile row exists", async () => {

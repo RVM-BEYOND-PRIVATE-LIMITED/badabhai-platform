@@ -90,8 +90,11 @@ export default async function AgencyReferralsPage() {
     updatedAt: null,
   };
 
+  // `.agency-referrals-page` only NAMESPACES this screen's layout rules (see the "AGENCY ·
+  // REFERRALS & EARNINGS + WORKER ACTIVITY (W2-B polish)" block in globals.css): the two invite
+  // tools are framed like the panels below them, and every block heading shares one size.
   return (
-    <>
+    <div className="agency-referrals-page">
       <p className="page-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
@@ -143,7 +146,9 @@ export default async function AgencyReferralsPage() {
         </div>
         {summary && !funnelError ? (
           <>
-            <div className="stat-row">
+            {/* `stat-row--kpi` (the shared opt-in): no hole beside a wrapped tile, and each
+                tile is a compact ledger row on a phone instead of a 115px card. */}
+            <div className="stat-row stat-row--kpi">
               <StatTile
                 label="Invites created"
                 value={kAnonCount(summary.created, summary.minBucket)}
@@ -177,7 +182,7 @@ export default async function AgencyReferralsPage() {
         ) : (
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph ph-warning-circle" aria-hidden="true" />
+              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
             </span>
             <h3 className="state__title">Referral funnel unavailable</h3>
             <p className="state__body">
@@ -199,7 +204,7 @@ export default async function AgencyReferralsPage() {
           </div>
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph ph-warning-circle" aria-hidden="true" />
+              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
             </span>
             <h3 className="state__title">Earnings unavailable</h3>
             <p className="state__body">
@@ -237,7 +242,7 @@ export default async function AgencyReferralsPage() {
           <PayoutPanel earnings={earnings} payouts={payouts} />
         </>
       ) : null}
-    </>
+    </div>
   );
 }
 

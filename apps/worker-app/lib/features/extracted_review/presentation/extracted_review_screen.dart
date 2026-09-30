@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/api/api_models.dart'
     show
+        CatalogueOptionDto,
         CertificateEntryDto,
         CorrectionRejected,
         EducationEntryDto,
@@ -14,6 +15,7 @@ import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/kit/kit_card.dart';
 import '../../../core/widgets/kit/kit_info_chip.dart';
+import '../../../core/widgets/kit/kit_select_chip.dart';
 import 'cubit/extracted_review_cubit.dart';
 
 /// The extracted-profile review surface (#1595, §8.4): what the interview
@@ -21,13 +23,14 @@ import 'cubit/extracted_review_cubit.dart';
 /// certificates — with a correction affordance on every field the client
 /// can validly write.
 ///
-/// skills/machines render READ-ONLY chips: the extracted labels carry no
-/// canonical ids and no worker-facing catalogue exists to select from, so
-/// any affordance there would invent ids client-side (forbidden by §1.2).
-/// A backend catalogue issue tracks the follow-up; until it ships, those
-/// sections show values and nothing else.
+/// Skills/machines pick from the worker-facing catalogues (#1596): catalogue
+/// labels render as tick chips and only catalogue ids are sent (§1.2 — never
+/// an id invented from an extracted label). The worker's current labels
+/// pre-tick by exact match; a label with no match is shown with a warning,
+/// since the full-list correction drops it. A catalogue miss shows its real
+/// reason with a retry on that card alone.
 ///
-/// Experience/education/certificates POST structured corrections
+/// Every section POSTs structured corrections
 /// (bounded int / full-list replace), re-read after every accepted batch,
 /// and confirm the corrected profile via the existing confirm endpoint.
 /// 409s render honestly: unpinned-session deferral is surfaced, never
@@ -152,6 +155,10 @@ class _ReviewBody extends StatelessWidget {
 
 String _fieldLabel(String field) {
   switch (field) {
+    case 'skills':
+      return 'Hunar';
+    case 'machines':
+      return 'Machine';
     case 'experience':
       return 'Anubhav';
     case 'education':
@@ -235,25 +242,25 @@ class _SkillsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final List<String> skills = state.review?.skills ?? const <String>[];
-    return KitCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const _SectionTitle('Hunar (skills)'),
-          const SizedBox(height: 8),
-          if (skills.isEmpty)
-            const Text('Koi hunar darj nahi.')
-          else
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: <Widget>[
-                for (final String s in skills) KitInfoChip(label: s),
-              ],
-            ),
-        ],
-      ),
+    final ExtractedReviewCubit cubit = context.read<ExtractedReviewCubit>();
+    return _CatalogueCard(
+      title: 'Hunar (skills)',
+      labels: state.review?.skills ?? const <String>[],
+      emptyText: 'Koi hunar darj nahi.',
+      pick: state.skillPick,
+      locked: state.correctionsLocked,
+      busy: state.sendingSection == ExtractedSection.skills,
+      dirty: state.skillsDirty,
+      loadingText: 'Hunar ki list aa rahi hai…',
+      failedText: 'Hunar ki list load nahi hui.',
+      emptyCatalogueText:
+          'Hunar ki list khaali aayi — abhi hunar sudhaar nahi ho sakta.',
+      unmatchedText:
+          'Yeh hunar list mein nahi hain — sudhaar save karne par profile se hat jayenge:',
+      saveLabel: 'Hunar sudhaarein',
+      onToggle: cubit.toggleSkill,
+      onSave: cubit.submitSkills,
+      onRetry: cubit.retryCatalogues,
     );
   }
 }
@@ -265,26 +272,183 @@ class _MachinesCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final List<String> machines = state.review?.machines ?? const <String>[];
+    final ExtractedReviewCubit cubit = context.read<ExtractedReviewCubit>();
+    return _CatalogueCard(
+      title: 'Machinein',
+      labels: state.review?.machines ?? const <String>[],
+      emptyText: 'Koi machine darj nahi.',
+      pick: state.machinePick,
+      locked: state.correctionsLocked,
+      busy: state.sendingSection == ExtractedSection.machines,
+      dirty: state.machinesDirty,
+      loadingText: 'Machine ki list aa rahi hai…',
+      failedText: 'Machine ki list load nahi hui.',
+      emptyCatalogueText:
+          'Machine ki list khaali aayi — abhi machine sudhaar nahi ho sakti.',
+      unmatchedText:
+          'Yeh machine list mein nahi hain — sudhaar save karne par profile se hat jayengi:',
+      saveLabel: 'Machine sudhaarein',
+      onToggle: cubit.toggleMachine,
+      onSave: cubit.submitMachines,
+      onRetry: cubit.retryCatalogues,
+    );
+  }
+}
+
+/// One id-list section (#1596). Locked (no anchor / cap spent) → the
+/// extracted labels read-only. Otherwise the catalogue drives it: a loader or
+/// the real failure reason + retry while it is not ready (current labels
+/// stay visible), then catalogue labels as tick chips — ids never shown,
+/// only sent — with the unmatched extracted labels called out as dropped.
+class _CatalogueCard extends StatelessWidget {
+  const _CatalogueCard({
+    required this.title,
+    required this.labels,
+    required this.emptyText,
+    required this.pick,
+    required this.locked,
+    required this.busy,
+    required this.dirty,
+    required this.loadingText,
+    required this.failedText,
+    required this.emptyCatalogueText,
+    required this.unmatchedText,
+    required this.saveLabel,
+    required this.onToggle,
+    required this.onSave,
+    required this.onRetry,
+  });
+
+  final String title;
+  final List<String> labels;
+  final String emptyText;
+  final CataloguePick pick;
+  final bool locked;
+  final bool busy;
+  final bool dirty;
+  final String loadingText;
+  final String failedText;
+  final String emptyCatalogueText;
+  final String unmatchedText;
+  final String saveLabel;
+  final ValueChanged<String> onToggle;
+  final VoidCallback onSave;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
     return KitCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const _SectionTitle('Machinein'),
+          _SectionTitle(title),
           const SizedBox(height: 8),
-          if (machines.isEmpty)
-            const Text('Koi machine darj nahi.')
+          if (locked)
+            _current()
           else
+            ..._editor(),
+        ],
+      ),
+    );
+  }
+
+  /// The extracted labels as stored — read-only.
+  Widget _current() {
+    if (labels.isEmpty) return Text(emptyText);
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: <Widget>[
+        for (final String label in labels) KitInfoChip(label: label),
+      ],
+    );
+  }
+
+  List<Widget> _editor() {
+    switch (pick.status) {
+      case CatalogueStatus.idle:
+      case CatalogueStatus.loading:
+        return <Widget>[
+          _current(),
+          const SizedBox(height: 12),
+          Row(
+            children: <Widget>[
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 8),
+              Expanded(child: Text(loadingText)),
+            ],
+          ),
+        ];
+      case CatalogueStatus.failed:
+        return <Widget>[
+          _current(),
+          const SizedBox(height: 12),
+          _NoticeBanner(
+            text: '$failedText ${failureReason(pick.failure).reason}',
+            tone: _NoticeTone.error,
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.refresh),
+            label: const Text('Dobara try karein'),
+            onPressed: onRetry,
+          ),
+        ];
+      case CatalogueStatus.ready:
+        if (pick.options.isEmpty) {
+          return <Widget>[
+            _current(),
+            const SizedBox(height: 12),
+            _NoticeBanner(text: emptyCatalogueText),
+          ];
+        }
+        return <Widget>[
+          if (labels.isEmpty) ...<Widget>[
+            Text(emptyText),
+            const SizedBox(height: 8),
+          ],
+          const Text('Jo sahi hai, woh chunein:'),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              for (final CatalogueOptionDto option in pick.options)
+                KitSelectChip(
+                  label: option.label,
+                  selected: pick.isSelected(option.id),
+                  onTap: busy ? null : () => onToggle(option.id),
+                ),
+            ],
+          ),
+          if (pick.unmatchedLabels.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 12),
+            _NoticeBanner(text: unmatchedText),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: <Widget>[
-                for (final String m in machines) KitInfoChip(label: m),
+                for (final String label in pick.unmatchedLabels)
+                  KitInfoChip(
+                    label: label,
+                    dot: OnboardingColors.safetyYellow,
+                  ),
               ],
             ),
-        ],
-      ),
-    );
+          ],
+          const SizedBox(height: 8),
+          BbButton(
+            label: saveLabel,
+            loading: busy,
+            onPressed: (!busy && dirty) ? onSave : null,
+          ),
+        ];
+    }
   }
 }
 

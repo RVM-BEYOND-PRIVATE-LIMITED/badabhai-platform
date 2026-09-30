@@ -4,6 +4,27 @@ import jobPostingChatKeys from "./__fixtures__/job-posting-chat.keys.json";
 import profilingKeys from "./__fixtures__/profiling.keys.json";
 import oieKeys from "./__fixtures__/oie.keys.json";
 import aiCallMetadataKeys from "./__fixtures__/ai-call-metadata.keys.json";
+import companionKeys from "./__fixtures__/companion.keys.json";
+import {
+  COMPANION_V2_EDIT_OPS,
+  COMPANION_V2_EDIT_SECTIONS,
+  COMPANION_V2_INTENTS,
+  COMPANION_V2_UNSUPPORTED_EDIT_TARGETS,
+} from "@badabhai/types";
+import {
+  CompanionCareerAnswerSchema,
+  CompanionCareerInputSchema,
+  CompanionCareerRefuseSchema,
+  CompanionCareerWorkerContextSchema,
+  CompanionClassifyInputSchema,
+  CompanionClassifyOutputSchema,
+  CompanionEditParseInputSchema,
+  CompanionEditParseOutputSchema,
+  CompanionEditRowSchema,
+  CompanionEditSnapshotRowSchema,
+  CompanionRecentTurnSchema,
+  EditableFieldSchema,
+} from "./companion";
 import {
   AnswerRecordHistoryEntrySchema,
   AnswerRecordSchema,
@@ -1090,5 +1111,138 @@ describe("LlmTurnInput.interview_mode (ADR-0045)", () => {
     for (const bad of ["skills", "general", ""]) {
       expect(() => LlmTurnInputSchema.parse({ worker_ref: "w1", interview_mode: bad })).toThrow();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Chat companion v2 — Zod <-> Pydantic parity (ADR-0046 Phase 1), against the
+// golden fixture apps/ai-service/tests/test_contract_parity.py reads too.
+// ---------------------------------------------------------------------------
+
+describe("Companion v2 contract parity (contracts.py mirror)", () => {
+  const shapes: Array<[string, Record<string, unknown>]> = [
+    ["CompanionRecentTurn", CompanionRecentTurnSchema.shape],
+    ["EditableField", EditableFieldSchema.shape],
+    ["CompanionEditSnapshotRow", CompanionEditSnapshotRowSchema.shape],
+    ["CompanionEditRow", CompanionEditRowSchema.shape],
+    ["CompanionClassifyInput", CompanionClassifyInputSchema.shape],
+    ["CompanionClassifyOutput", CompanionClassifyOutputSchema.shape],
+    ["CompanionEditParseInput", CompanionEditParseInputSchema.shape],
+    ["CompanionEditParseOutput", CompanionEditParseOutputSchema.shape],
+    // ADR-0046 P3 — career talk (the union's two members; the union itself is not a `.shape`).
+    ["CompanionCareerWorkerContext", CompanionCareerWorkerContextSchema.shape],
+    ["CompanionCareerInput", CompanionCareerInputSchema.shape],
+    ["CompanionCareerAnswer", CompanionCareerAnswerSchema.shape],
+    ["CompanionCareerRefuse", CompanionCareerRefuseSchema.shape],
+  ];
+
+  it.each(shapes)("%s keys match the golden fixture shared with Pydantic", (name, shape) => {
+    const golden = (companionKeys as unknown as Record<string, string[] | string>)[name];
+    expect(golden, `fixture is missing ${name}`).toBeDefined();
+    expect(Array.isArray(golden)).toBe(true);
+    expect(Object.keys(shape).sort()).toEqual([...(golden as string[])].sort());
+  });
+
+  it("the fixture declares no contract the TypeScript side lacks", () => {
+    const declared = Object.keys(companionKeys).filter((k) => !k.startsWith("_"));
+    expect(declared.sort()).toEqual(shapes.map(([n]) => n).sort());
+  });
+
+  it("the closed sets come from @badabhai/types, not a private copy", () => {
+    // The same source the API's catalogue and the event spine read — one list, three
+    // consumers. A private literal here is how the classifier could start naming an intent
+    // the event schema refuses, or a section the catalogue cannot write.
+    expect(EditableFieldSchema.shape.section.options).toEqual([...COMPANION_V2_EDIT_SECTIONS]);
+    expect(EditableFieldSchema.shape.ops.element.options).toEqual([...COMPANION_V2_EDIT_OPS]);
+    expect(CompanionClassifyOutputSchema.shape.intent.options).toEqual([...COMPANION_V2_INTENTS]);
+    // `.default([])` wraps the array, so the members are asserted through a PARSE (which is
+    // also the behaviour that matters: what the schema actually accepts).
+    expect(
+      CompanionEditParseOutputSchema.parse({ unsupported: [...COMPANION_V2_UNSUPPORTED_EDIT_TARGETS] })
+        .unsupported,
+    ).toEqual([...COMPANION_V2_UNSUPPORTED_EDIT_TARGETS]);
+    expect(() => CompanionEditParseOutputSchema.parse({ unsupported: ["phone"] })).toThrow();
+    // Non-vacuous: the fixtures/source actually carry members.
+    expect(EditableFieldSchema.shape.section.options.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it("carries NO identity-capable field, by construction", () => {
+    // These contracts carry free text (the message, a proposed value) that is pseudonymized
+    // before the model — but there is nowhere to put a name, a phone or an ID number.
+    const banned = ["worker_id", "worker_ref", "worker_name", "name", "phone", "address"];
+    for (const [contractName, shape] of shapes) {
+      for (const field of banned) {
+        expect(Object.keys(shape), `${contractName} must not declare ${field}`).not.toContain(field);
+      }
+    }
+  });
+
+  it("caps the classify text, the memory turns and the message text", () => {
+    const turn = { role: "worker", text: "kuch" };
+    expect(CompanionClassifyInputSchema.parse({ text: "x".repeat(1000) }).text).toHaveLength(1000);
+    expect(() => CompanionClassifyInputSchema.parse({ text: "x".repeat(1001) })).toThrow();
+    expect(
+      CompanionClassifyInputSchema.parse({ text: "hi", recent_turns: [turn, turn] }).recent_turns,
+    ).toHaveLength(2);
+    expect(() =>
+      CompanionClassifyInputSchema.parse({ text: "hi", recent_turns: [turn, turn, turn] }),
+    ).toThrow();
+    // The edit-parse text cap is the companion message DTO's own bound, so a message the API
+    // accepted can never be refused by this contract.
+    const base = { catalogue: [], snapshot: [], max_rows: 3 };
+    expect(CompanionEditParseInputSchema.parse({ ...base, text: "x".repeat(4000) }).text).toHaveLength(
+      4000,
+    );
+    expect(() => CompanionEditParseInputSchema.parse({ ...base, text: "x".repeat(4001) })).toThrow();
+  });
+
+  it("bounds max_rows and confidence", () => {
+    const base = { text: "kuch", catalogue: [], snapshot: [] };
+    expect(CompanionEditParseInputSchema.parse({ ...base, max_rows: 1 }).max_rows).toBe(1);
+    expect(() => CompanionEditParseInputSchema.parse({ ...base, max_rows: 0 })).toThrow();
+    expect(() => CompanionEditParseInputSchema.parse({ ...base, max_rows: 11 })).toThrow();
+
+    expect(CompanionClassifyOutputSchema.parse({ intent: "unclear", confidence: 0.6 }).confidence).toBe(
+      0.6,
+    );
+    for (const confidence of [-0.1, 1.1]) {
+      expect(() =>
+        CompanionClassifyOutputSchema.parse({ intent: "unclear", confidence }),
+      ).toThrow();
+    }
+  });
+
+  it("keeps the edit row SHAPE permissive — per-op requirements are the API's validation", () => {
+    // The model may return a malformed row; the API drops it deterministically (catalogue,
+    // op, ref, DTO, token, no-op) instead of treating a null ref as a transport failure.
+    // `blocked` defaults false, so an older far side that omits it still parses.
+    expect(CompanionClassifyOutputSchema.parse({ intent: "faltu", confidence: 0.9 }).blocked).toBe(
+      false,
+    );
+    const row = CompanionEditRowSchema.parse({
+      op: "add",
+      section: "skills",
+      ref: null,
+      field: "skill",
+      value: "welding",
+    });
+    expect(row).toEqual({ op: "add", section: "skills", ref: null, field: "skill", value: "welding" });
+    // ref/field/value may be OMITTED (they default to null, mirroring the Pydantic defaults),
+    // which is what lets the API drop a malformed row rather than fail the transport — but op
+    // and section are the row's identity and stay required.
+    expect(CompanionEditRowSchema.parse({ op: "delete", section: "languages" })).toEqual({
+      op: "delete",
+      section: "languages",
+      ref: null,
+      field: null,
+      value: null,
+    });
+    expect(() => CompanionEditRowSchema.parse({ section: "skills" })).toThrow();
+    expect(
+      CompanionEditParseOutputSchema.parse({
+        rows: [{ op: "add", section: "skills" }],
+        unsupported: ["identity"],
+      }).unsupported,
+    ).toEqual(["identity"]);
   });
 });

@@ -178,6 +178,89 @@ void main() {
     });
   });
 
+  // ── ADR-0046 §5.1 — THE EDIT CARD'S WIRE SHAPE ─────────────────────────────
+  group('EditProposal.fromJson / ChatReply edit fields', () {
+    Map<String, dynamic> card() => <String, dynamic>{
+          'proposal_id': 'p1',
+          'expires_at': '2026-09-29T10:10:00.000Z',
+          'rows': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'row_id': 'r1',
+              'section_label': 'Skills',
+              'op': 'add',
+              'before': null,
+              'after': 'Welding',
+            },
+            <String, dynamic>{
+              'row_id': 'r2',
+              'section_label': 'Languages',
+              'op': 'delete',
+              'before': 'Hindi',
+              'after': null,
+            },
+          ],
+        };
+
+    test('parses the card and its rows', () {
+      final EditProposal p = EditProposal.fromJson(card())!;
+      expect(p.proposalId, 'p1');
+      expect(p.rows, hasLength(2));
+      expect(p.rows.first.rowId, 'r1');
+      expect(p.rows.first.sectionLabel, 'Skills');
+      expect(p.rows.first.op, 'add');
+      expect(p.rows.first.after, 'Welding');
+      expect(p.rows.first.before, isNull);
+      expect(p.rows.last.before, 'Hindi');
+    });
+
+    test('fails closed to null on a malformed card', () {
+      for (final Object? bad in <Object?>[
+        null,
+        'card',
+        <String, dynamic>{},
+        <String, dynamic>{...card()}..remove('proposal_id'),
+        <String, dynamic>{...card(), 'expires_at': 'not-a-date'},
+        <String, dynamic>{...card(), 'rows': 'nope'},
+        <String, dynamic>{...card(), 'rows': <Object?>[]},
+      ]) {
+        expect(EditProposal.fromJson(bad), isNull, reason: '$bad');
+      }
+    });
+
+    test('a malformed ROW is dropped, the rest of the card survives', () {
+      final EditProposal p = EditProposal.fromJson(<String, dynamic>{
+        ...card(),
+        'rows': <Object?>[
+          <String, dynamic>{'row_id': 'r1', 'section_label': 'Skills', 'op': 'add'},
+          <String, dynamic>{'row_id': '', 'section_label': 'Skills', 'op': 'add'},
+          'garbage',
+        ],
+      })!;
+      expect(p.rows, hasLength(1));
+      expect(p.rows.single.rowId, 'r1');
+    });
+
+    test('ChatReply carries edit_proposal / read_aloud / cooldown_until', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        ..._recapJson(),
+        'edit_proposal': card(),
+        // P3 / P2 fields, parsed for forward-compat (never served in P1).
+        'read_aloud': false,
+        'cooldown_until': '2026-09-29T11:00:00.000Z',
+      });
+      expect(reply.editProposal!.proposalId, 'p1');
+      expect(reply.readAloud, isFalse);
+      expect(reply.cooldownUntil, isNotNull);
+    });
+
+    test('an absent edit_proposal / read_aloud / cooldown_until is null', () {
+      final ChatReply reply = ChatReply.fromJson(_recapJson());
+      expect(reply.editProposal, isNull);
+      expect(reply.readAloud, isNull);
+      expect(reply.cooldownUntil, isNull);
+    });
+  });
+
   group('ChatRepositoryImpl.sendCompanionMessage', () {
     test('posts {text, submission_id} to the companion and returns a companion turn', () async {
       Map<String, dynamic>? body;
@@ -232,6 +315,197 @@ void main() {
       );
       await repo.sendCompanionMessage('hi');
       expect(session.sessionId, 'live-1');
+    });
+  });
+
+  // ── ADR-0046 §5.2 — CONFIRM / CANCEL ───────────────────────────────────────
+  //
+  // The two routes answer `200 turn` / `404` / two DISTINCT 409s. The
+  // repository maps them to the three-answer contract: served, gone (404 or
+  // stale), interview (409 `{mode:"interview"}`).
+  group('ChatRepositoryImpl.confirmCompanionEdit / cancelCompanionEdit', () {
+    const String proposalId = '22222222-2222-4222-8222-222222222222';
+
+    String errorBody(String key, String value) => jsonEncode(<String, dynamic>{
+          'statusCode': 409,
+          'error': <String, dynamic>{key: value},
+          'requestId': 'r',
+          'path': '/chat/companion/edits/$proposalId/confirm',
+          'timestamp': '2026-09-29T10:00:00.000Z',
+        });
+
+    ChatRepositoryImpl repoWith(MockClient client) =>
+        ChatRepositoryImpl(ApiClient(baseUrl: 'http://test', client: client), _signedIn());
+
+    test('confirm POSTs {row_ids, submission_id} and returns the served turn', () async {
+      Map<String, dynamic>? body;
+      String? path;
+      final ChatRepositoryImpl repo = repoWith(MockClient((http.Request req) async {
+        path = req.url.path;
+        body = jsonDecode(req.body) as Map<String, dynamic>;
+        return _json(_recapJson(reply: 'Badlav ho gaya.'), 200);
+      }));
+
+      final CompanionEditResult result = await repo.confirmCompanionEdit(
+        proposalId,
+        <String>['r1', 'r2'],
+        submissionId: 'sub-1',
+      );
+
+      expect(path, '/chat/companion/edits/$proposalId/confirm');
+      expect(body, <String, dynamic>{
+        'row_ids': <String>['r1', 'r2'],
+        'submission_id': 'sub-1',
+      });
+      expect(result.outcome, CompanionEditOutcome.served);
+      expect(result.turn!.reply, 'Badlav ho gaya.');
+    });
+
+    test('cancel POSTs to the cancel route', () async {
+      String? path;
+      final ChatRepositoryImpl repo = repoWith(MockClient((http.Request req) async {
+        path = req.url.path;
+        return _json(_recapJson(reply: 'Theek hai, kuch nahi badla.'), 200);
+      }));
+
+      final CompanionEditResult result = await repo.cancelCompanionEdit(proposalId);
+
+      expect(path, '/chat/companion/edits/$proposalId/cancel');
+      expect(result.outcome, CompanionEditOutcome.served);
+    });
+
+    test('a 404 is GONE — the proposal is unknown or expired', () async {
+      final ChatRepositoryImpl repo = repoWith(
+        MockClient((http.Request req) async => http.Response('{"statusCode":404}', 404)),
+      );
+      expect((await repo.confirmCompanionEdit(proposalId, <String>['r1'])).outcome,
+          CompanionEditOutcome.gone);
+      expect((await repo.cancelCompanionEdit(proposalId)).outcome,
+          CompanionEditOutcome.gone);
+    });
+
+    test('a 409 {reason:"stale"} is GONE — the profile changed under the card', () async {
+      final ChatRepositoryImpl repo = repoWith(
+        MockClient((http.Request req) async => http.Response(errorBody('reason', 'stale'), 409)),
+      );
+      expect((await repo.confirmCompanionEdit(proposalId, <String>['r1'])).outcome,
+          CompanionEditOutcome.gone);
+    });
+
+    test('a 409 {mode:"interview"} LEAVES companion mode', () async {
+      final ChatRepositoryImpl repo = repoWith(
+        MockClient((http.Request req) async =>
+            http.Response(errorBody('mode', 'interview'), 409)),
+      );
+      expect((await repo.confirmCompanionEdit(proposalId, <String>['r1'])).outcome,
+          CompanionEditOutcome.interview);
+      expect((await repo.cancelCompanionEdit(proposalId)).outcome,
+          CompanionEditOutcome.interview);
+    });
+
+    test('any other failure is a Failure the card keeps', () async {
+      final ChatRepositoryImpl repo = repoWith(
+        MockClient((http.Request req) async => http.Response('{"statusCode":500}', 500)),
+      );
+      expect(repo.confirmCompanionEdit(proposalId, <String>['r1']),
+          throwsA(isA<Failure>()));
+      expect(repo.cancelCompanionEdit(proposalId), throwsA(isA<Failure>()));
+    });
+  });
+  // ── THE HOP THAT WAS MISSING ────────────────────────────────────────────────
+  //
+  // Everything above asserts on `ChatReply` — the parse. Everything in the bloc
+  // and widget suites hand-builds a `ChatTurn` that already carries the card.
+  // Between those two sits `_companionTurn`, the ONLY ChatReply → ChatTurn hop
+  // on the companion path, and it did not copy `edit_proposal` at all: the card,
+  // its ticker, the confirm/cancel routes and all their tests existed and could
+  // never run, with a fully green suite over the top.
+  //
+  // These tests drive the real repository from a raw JSON body to the `ChatTurn`
+  // the bloc actually receives. They are the ones that fail if the mapper ever
+  // drops a field again.
+  group('wire → ChatTurn: the companion carries its v2 fields', () {
+    Map<String, dynamic> cardJson() => <String, dynamic>{
+          'proposal_id': 'p1',
+          'expires_at': '2026-09-29T10:10:00.000Z',
+          'rows': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'row_id': 'r1',
+              'section_label': 'Skills',
+              'op': 'add',
+              'before': null,
+              'after': 'Welding',
+            },
+          ],
+        };
+
+    Map<String, dynamic> turnJson() => <String, dynamic>{
+          ..._recapJson(),
+          'edit_proposal': cardJson(),
+          'cooldown_until': '2026-09-29T11:00:00.000Z',
+          'read_aloud': false,
+        };
+
+    ChatRepositoryImpl repoServing(Map<String, dynamic> body) =>
+        ChatRepositoryImpl(
+          ApiClient(
+            baseUrl: 'http://test',
+            client: MockClient((http.Request _) async => _json(body, 200)),
+          ),
+          _signedIn(),
+        );
+
+    test('GET /chat/companion — the OPEN turn carries the card', () async {
+      final CompanionOpening open = await repoServing(turnJson()).openCompanion();
+      expect(open.isCompanion, isTrue);
+      expect(open.turn!.editProposal, isNotNull,
+          reason: 'the recap dropped edit_proposal — the card can never render');
+      expect(open.turn!.editProposal!.proposalId, 'p1');
+      expect(open.turn!.editProposal!.rows.single.after, 'Welding');
+      expect(open.turn!.cooldownUntil, isNotNull);
+      expect(open.turn!.readAloud, isFalse);
+    });
+
+    test('POST /chat/companion/message — the reply carries the card', () async {
+      final ChatTurn? turn =
+          await repoServing(turnJson()).sendCompanionMessage('Resume badlo');
+      expect(turn, isNotNull);
+      expect(turn!.editProposal, isNotNull,
+          reason: 'a message reply dropped edit_proposal');
+      expect(turn.editProposal!.rows, hasLength(1));
+      expect(turn.cooldownUntil, isNotNull);
+    });
+
+    test('confirm and cancel both answer a turn that carries the card',
+        () async {
+      for (final String what in <String>['confirm', 'cancel']) {
+        final ChatRepositoryImpl repo = repoServing(turnJson());
+        final CompanionEditResult result = what == 'confirm'
+            ? await repo.confirmCompanionEdit('p1', <String>['r1'])
+            : await repo.cancelCompanionEdit('p1');
+        expect(result.outcome, CompanionEditOutcome.served, reason: what);
+        expect(result.turn!.editProposal, isNotNull,
+            reason: '$what dropped edit_proposal');
+      }
+    });
+
+    test('a turn WITHOUT the fields carries nulls, never a throw', () async {
+      // The everyday case: the flag is off, or the turn simply has no card.
+      final CompanionOpening open = await repoServing(_recapJson()).openCompanion();
+      expect(open.turn!.editProposal, isNull);
+      expect(open.turn!.cooldownUntil, isNull);
+      expect(open.turn!.readAloud, isNull);
+      expect(open.turn!.companion, isTrue, reason: 'still a companion turn');
+    });
+
+    test('a MALFORMED card does not cost the turn its reply', () async {
+      final Map<String, dynamic> body = <String, dynamic>{
+        ..._recapJson(reply: 'Aapki profile taiyaar hai.'),
+        'edit_proposal': <String, dynamic>{'proposal_id': 42},
+      };
+      final CompanionOpening open = await repoServing(body).openCompanion();
+      expect(open.turn!.editProposal, isNull, reason: 'fail closed');
+      expect(open.turn!.reply, 'Aapki profile taiyaar hai.');
     });
   });
 }

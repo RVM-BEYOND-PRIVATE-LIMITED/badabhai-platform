@@ -96,6 +96,40 @@ describe("stuck panel — a real stall", () => {
     expect(out).toContain("notice--warn");
   });
 
+  /** The markup of the named-question tile's value for a stall on `key`. */
+  const keyTile = (key: string) => {
+    const out = html(
+      <StuckPanel
+        stuck={stuck({
+          stuck_question: { ...CANDIDATE, question_key: key },
+          candidates: [{ ...CANDIDATE, question_key: key }],
+        })}
+      />,
+    );
+    const open = '<span class="stat__value mono">';
+    const start = out.indexOf(open) + open.length;
+    return out.slice(start, out.indexOf('<span class="stat__label">', start));
+  };
+  /** The runs of text between break opportunities, and the text a reader copies. */
+  const runs = (value: string) => value.split("<wbr/>").map((r) => r.replace(/<[^>]+>/g, ""));
+  const text = (value: string) => value.replace(/<[^>]+>/g, "");
+
+  it("breaks the key tile only at underscores, and the key text stays intact", () => {
+    // A tile never shrinks below its unbroken value; without break points a 25-character key
+    // made a 350px tile and scrolled a 375px page sideways. `<wbr>` adds no text.
+    const value = keyTile("maintenance_fault_finding");
+    expect(runs(value)).toEqual(["maintenance_", "fault_", "finding"]);
+    expect(text(value)).toBe("maintenance_fault_finding");
+  });
+
+  it("leaves a key with no underscore whole, and caps any unbroken run at 16 characters", () => {
+    expect(runs(keyTile("troubleshooting"))).toEqual(["troubleshooting"]);
+    // No pack key has a run this long today; if one ever does, it still fits a 320px row.
+    const long = "electromechanical_x";
+    expect(runs(keyTile(long))).toEqual(["electromechanica", "l_", "x"]);
+    expect(text(keyTile(long))).toBe(long);
+  });
+
   it("shows the ranked candidates SUBORDINATE to the headline", () => {
     const out = html(
       <StuckPanel stuck={stuck({ candidates: [CANDIDATE, ADVANCED_PAST] })} />,

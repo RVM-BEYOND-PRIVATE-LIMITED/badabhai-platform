@@ -18,7 +18,7 @@
  * never pre-rendered. `companion-replies.test.ts` holds them to the persona rules instead.
  */
 import { personaCorpus } from "@badabhai/profiling-lexicon";
-import type { CompanionNudge, ResumeSource } from "@badabhai/types";
+import type { CompanionNudge, CompanionV2CareerRefusalTopic, ResumeSource } from "@badabhai/types";
 
 export interface CopyPair {
   readonly latin: string;
@@ -222,6 +222,132 @@ export function guaranteeLine(): string {
   return personaCorpus().guaranteeLine;
 }
 
+// ── Companion v2 — the router's fixed lines (ADR-0046 Phase 1) ───────────────────────────────
+//
+// The v2 pipeline answers a classified intent with one of these. They are constants for the same
+// reason every line above is: the model CLASSIFIES, it never phrases (ADR-0046 §2). A line whose
+// phase is not built yet says so — the owner's wording, O2 — and never pretends the capability
+// exists. Every one carries its Devanagari twin and is scanned by `companion-replies.test.ts`.
+
+/** An intent whose phase is not built yet. The owner's wording (ADR-0046 O2). */
+export const V2_PHASE_OFF: CopyPair = {
+  latin: "Yeh feature abhi aana baaki hai. Aap kisi aur baare mein baat kar sakte hain.",
+  dev: "यह फ़ीचर अभी आना बाकी है। आप किसी और बारे में बात कर सकते हैं।",
+};
+
+/** A jobs question in chat: deferred by O2, and distinct from the phase-off line by name. */
+export const V2_JOBS_DEFERRED: CopyPair = {
+  latin: "Chat se jobs dhoondhna abhi aana baaki hai. Aap kisi aur baare mein baat kar sakte hain.",
+  dev: "चैट से जॉब्स ढूँढना अभी आना बाकी है। आप किसी और बारे में बात कर सकते हैं।",
+};
+
+/** The classifier could not place the message (or the model failed): ask, with task chips. */
+export const V2_CLARIFY: CopyPair = {
+  latin: "Samajh nahi aaya. Aap inme se kya karna chahte hain?",
+  dev: "समझ नहीं आया। आप इनमें से क्या करना चाहते हैं?",
+};
+
+/** An edit card was stored: the worker reviews the rows and taps Haan or Nahi. */
+export const V2_EDIT_CARD_INTRO: CopyPair = {
+  latin: "Yeh badlav karne hain? Dekh kar Haan dabaiye.",
+  dev: "ये बदलाव करने हैं? देख कर हाँ दबाइए।",
+};
+
+/** No row survived validation: nothing was proposed, and nothing is claimed to have changed. */
+export const V2_EDIT_NONE: CopyPair = {
+  latin: "Kya badalna hai, samajh nahi aaya. Thoda aur batayiye.",
+  dev: "क्या बदलना है, समझ नहीं आया। थोड़ा और बताइए।",
+};
+
+/** Identity/contact is out of scope (O3): the settings/Profile screen owns it. */
+export const V2_EDIT_IDENTITY: CopyPair = {
+  latin: "Naam aur phone Profile mein jaa kar badliye.",
+  dev: "नाम और फ़ोन प्रोफ़ाइल में जा कर बदलिए।",
+};
+
+/** Haan: the rows were applied in one transaction and the résumé regeneration is queued. */
+export const V2_EDIT_DONE: CopyPair = {
+  latin: "Badlav ho gaya. Aapka resume update ho raha hai.",
+  dev: "बदलाव हो गया। आपका रिज़्यूमे अपडेट हो रहा है।",
+};
+
+/** Applied, but the daily cap refused the regeneration (or it failed): the edits are written. */
+export const V2_EDIT_DONE_CAPPED: CopyPair = {
+  latin: "Badlav ho gaya. Resume aaj update nahi ho sakta, kal ho jayega.",
+  dev: "बदलाव हो गया। रिज़्यूमे आज अपडेट नहीं हो सकता, कल हो जाएगा।",
+};
+
+/** Nahi: the card was dismissed and NOTHING was written. */
+export const V2_EDIT_CANCELLED: CopyPair = {
+  latin: "Theek hai, kuch nahi badla.",
+  dev: "ठीक है, कुछ नहीं बदला।",
+};
+
+/** The profile moved under the card: nothing was written, and the worker is asked again. */
+export const V2_EDIT_STALE: CopyPair = {
+  latin: "Profile beech mein badal gaya. Dobara bataiye kya badalna hai.",
+  dev: "प्रोफ़ाइल बीच में बदल गया। दोबारा बताइए क्या बदलना है।",
+};
+
+/** The proposal store refused the card (contracts §7): no card is offered, nothing is claimed. */
+export const V2_EDIT_UNAVAILABLE: CopyPair = {
+  latin: "Abhi badlav nahi ho paaya, thodi der mein try karein.",
+  dev: "अभी बदलाव नहीं हो पाया, थोड़ी देर में ट्राई करें।",
+};
+
+// ── Companion v2 — faltu (ADR-0046 P2, O11) ──────────────────────────────────────────────────
+
+/**
+ * Strikes 1–2: the message was trash talk or noise. No lecture, no echo of what was said — the
+ * line redirects to what the tab is for and the task chips stay open (a worker must always be
+ * able to reach the résumé and jobs).
+ */
+export const V2_FALTU_REDIRECT: CopyPair = {
+  latin: "Main resume aur kaam mein madad karta hoon. Inme se kuch chuniye.",
+  dev: "मैं रिज़्यूमे और काम में मदद करता हूँ। इनमें से कुछ चुनिए।",
+};
+
+/**
+ * The cool-down line (strike 3, then every free-text message until the window passes). Fixed
+ * copy only — a model must never answer an abusive message — and the chips stay open so the
+ * cool-down blocks free text, not the worker.
+ */
+export const V2_FALTU_COOLDOWN: CopyPair = {
+  latin: "Thodi der baad baat karte hain.",
+  dev: "थोड़ी देर बाद बात करते हैं।",
+};
+
+// ── Companion v2 — career refusals (ADR-0046 P3, O9/O10) ─────────────────────────────────────
+
+/**
+ * One reviewed pair per refusal topic, keyed by the CLOSED set in `@badabhai/types`. When the
+ * model refuses, the worker reads THIS copy, never the model's wording (O9) — so each line is
+ * persona-checked fixed text with its Devanagari twin, and the model's only contribution is
+ * choosing the topic.
+ */
+export const V2_CAREER_REFUSE: Readonly<Record<CompanionV2CareerRefusalTopic, CopyPair>> = {
+  salary_promise: {
+    latin: "Salary ke aankde main nahi bata sakta. Yeh baat aap khud tay kariye.",
+    dev: "सैलरी के आँकड़े मैं नहीं बता सकता। यह बात आप खुद तय कीजिए।",
+  },
+  legal_medical_financial: {
+    latin: "Yeh kanoon ya paise ka mamla hai. Iske liye vakil ya bank se salah lijiye.",
+    dev: "यह कानून या पैसे का मामला है। इसके लिए वकील या बैंक से सलाह लीजिए।",
+  },
+  named_employer: {
+    latin: "Main kisi ka naam nahi bata sakta. Naye jobs aap Jobs tab me dekh lijiye.",
+    dev: "मैं किसी का नाम नहीं बता सकता। नए जॉब्स आप जॉब्स टैब में देख लीजिए।",
+  },
+  worker_rating: {
+    latin: "Main aapko judge nahi karta. Aap apne kaam aur skill par dhyan dijiye.",
+    dev: "मैं आपको जज नहीं करता। आप अपने काम और स्किल पर ध्यान दीजिए।",
+  },
+  unsafe_other: {
+    latin: "Is sawaal ka jawab main nahi de sakta. Kisi aur baat me madad karun?",
+    dev: "इस सवाल का जवाब मैं नहीं दे सकता। किसी और बात में मदद करूँ?",
+  },
+};
+
 /** Every pair above, for the persona and twin tests. */
 export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPair]> = [
   ["LEAD", LEAD],
@@ -246,4 +372,23 @@ export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPai
   ["JOBS_NONE_TAIL", JOBS_NONE_TAIL],
   ["APPLIED_LIST_TAIL", APPLIED_LIST_TAIL],
   ["FALLBACK", FALLBACK],
+  // ADR-0046 Phase 1 — the router's fixed lines.
+  ["V2_PHASE_OFF", V2_PHASE_OFF],
+  ["V2_JOBS_DEFERRED", V2_JOBS_DEFERRED],
+  ["V2_CLARIFY", V2_CLARIFY],
+  ["V2_EDIT_CARD_INTRO", V2_EDIT_CARD_INTRO],
+  ["V2_EDIT_NONE", V2_EDIT_NONE],
+  ["V2_EDIT_IDENTITY", V2_EDIT_IDENTITY],
+  ["V2_EDIT_DONE", V2_EDIT_DONE],
+  ["V2_EDIT_DONE_CAPPED", V2_EDIT_DONE_CAPPED],
+  ["V2_EDIT_CANCELLED", V2_EDIT_CANCELLED],
+  ["V2_EDIT_STALE", V2_EDIT_STALE],
+  ["V2_EDIT_UNAVAILABLE", V2_EDIT_UNAVAILABLE],
+  // ADR-0046 P2 — faltu.
+  ["V2_FALTU_REDIRECT", V2_FALTU_REDIRECT],
+  ["V2_FALTU_COOLDOWN", V2_FALTU_COOLDOWN],
+  // ADR-0046 P3 — one refusal pair per closed topic.
+  ...Object.entries(V2_CAREER_REFUSE).map(
+    ([topic, pair]) => [`V2_CAREER_REFUSE.${topic}`, pair] as const,
+  ),
 ];

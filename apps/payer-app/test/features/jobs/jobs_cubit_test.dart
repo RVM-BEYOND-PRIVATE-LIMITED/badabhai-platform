@@ -18,6 +18,7 @@ class _ScriptedJobsApi extends MockPayerApiClient {
   final List<String> updated = <String>[];
   String? lastRoleTitle;
   String? lastVacancyBand;
+  List<JobPostingClearField>? lastClear;
 
   @override
   Future<List<JobPosting>> fetchJobs({String? status}) async {
@@ -48,10 +49,12 @@ class _ScriptedJobsApi extends MockPayerApiClient {
     String? neededBy,
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
+    List<JobPostingClearField>? clear,
   }) async {
     updated.add(id);
     lastRoleTitle = roleTitle;
     lastVacancyBand = vacancyBand;
+    lastClear = clear;
     if (throwOnUpdate != null) throw throwOnUpdate!;
     final JobPosting row = jobs.firstWhere((JobPosting j) => j.id == id);
     final JobPosting next = _job(
@@ -139,6 +142,43 @@ void main() {
       // Classified via PayerFailure, same honesty as load() — a real connection
       // problem, not a blanket 'network error' that also mislabels a timeout.
       expect(result.message, contains('internet'));
+    });
+
+    // #1652 — the fields to UNSET ride through to the API untouched.
+    test('passes the clear list through to the PATCH', () async {
+      final JobActionResult result = await cubit.editJob(
+        'j1',
+        clear: const <JobPostingClearField>[
+          JobPostingClearField.area,
+          JobPostingClearField.locationLabel,
+        ],
+      );
+
+      expect(result.success, isTrue);
+      expect(api.lastClear, <JobPostingClearField>[
+        JobPostingClearField.area,
+        JobPostingClearField.locationLabel,
+      ]);
+    });
+
+    test('a set-and-cleared 400 names the real reason, not a retry', () async {
+      api.throwOnUpdate =
+          const PayerApiException(400, code: kJobEditSetAndClearedCode);
+
+      final JobActionResult result = await cubit.editJob('j1', area: 'x');
+
+      expect(result.success, isFalse);
+      expect(result.message, kJobEditSetAndClearedMessage);
+      expect(api.fetches, 0);
+    });
+
+    test('any other 400 keeps the neutral retry copy', () async {
+      api.throwOnUpdate = const PayerApiException(400);
+
+      final JobActionResult result = await cubit.editJob('j1', roleTitle: 'x');
+
+      expect(result.success, isFalse);
+      expect(result.message, 'Could not update. Please try again.');
     });
   });
 }

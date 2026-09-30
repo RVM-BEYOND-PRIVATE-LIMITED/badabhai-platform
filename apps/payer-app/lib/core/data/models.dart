@@ -235,6 +235,42 @@ class JobPosting extends Equatable {
       ];
 }
 
+/// The COMPANY posting fields `PATCH /payer/job-postings/:id` may UNSET through
+/// its `clear` list (#1652) — the server's `CLEARABLE_POSTING_FIELDS`, mirrored
+/// as a CLOSED set so the app can never name a NOT NULL column (role title,
+/// vacancy band) or a server-resolved one (the skill sets).
+///
+/// `clear` exists because the PATCH is value-or-absent: an omitted key leaves
+/// the stored value alone, so without it a saved value could be changed but
+/// never removed. [wire] is the exact name the route accepts AND the body key it
+/// must never share a request with — a body that both sets and clears one field
+/// is a 400. The enum is never rendered.
+enum JobPostingClearField {
+  locationLabel('location_label'),
+  description('description'),
+  city('city'),
+  area('area'),
+  payMin('pay_min'),
+  payMax('pay_max'),
+  payType('pay_type'),
+  minExperienceYears('min_experience_years'),
+  maxExperienceYears('max_experience_years'),
+  shift('shift'),
+  neededBy('needed_by'),
+  benefits('benefits'),
+  requirements('requirements'),
+
+  /// Migration 0131 (#1840) — `job_postings.role_kind` is nullable, so "no role
+  /// picked" is clearable. The app does not surface the role yet; the name is
+  /// here so this set stays equal to the server's.
+  roleKind('role_kind');
+
+  const JobPostingClearField(this.wire);
+
+  /// The field's name on the wire (`clear: [wire]`).
+  final String wire;
+}
+
 /// Direction of an unlock-ledger entry — drives the +/- mono colour.
 enum LedgerDirection { credit, debit }
 
@@ -578,10 +614,30 @@ class PayerApiException implements Exception {
   bool get isBadRequest => statusCode == 400;
   bool get isNotFound => statusCode == 404;
 
+  /// #1652 — a job edit that both SET and CLEARED one field (see
+  /// [kJobEditSetAndClearedCode]).
+  bool get isSetAndCleared => code == kJobEditSetAndClearedCode;
+
   @override
   String toString() =>
       'PayerApiException($statusCode${code == null ? '' : ', $code'})';
 }
+
+/// #1652 — the [PayerApiException.code] for a job edit whose body both SETS and
+/// CLEARS the same field, which both edit PATCHes reject with a 400.
+///
+/// The server sends no code of its own: its 400 is a validation failure whose
+/// issue path is `clear`, and the HTTP client stamps this code on it. The HTTP
+/// client and the mock also refuse the same contradiction BEFORE sending, with
+/// the same code, so the request that cannot succeed never leaves the device. A
+/// closed token — never PII, never rendered.
+const String kJobEditSetAndClearedCode = 'JOB_EDIT_SET_AND_CLEARED';
+
+/// What the payer is told when a job edit comes back [kJobEditSetAndClearedCode]
+/// — the real reason (nothing was saved, and why), not a generic retry.
+const String kJobEditSetAndClearedMessage =
+    'Nothing was saved — one detail was both changed and removed in the same '
+    'save. Open the job again and retry.';
 
 /// Result of buying/topping-up a job posting's applicant-visibility PLAN
 /// (`POST /payer/job-postings/:id/plan` and `.../quota-topup`). Flattens the
@@ -858,6 +914,37 @@ class AgencyJobView extends Equatable {
         createdAt,
         updatedAt,
       ];
+}
+
+/// The AGENCY job fields `PATCH /payer/agency/jobs/:id` may UNSET through its
+/// `clear` list (#1652) — the server's `CLEARABLE_AGENCY_JOB_FIELDS`.
+///
+/// SHORTER than [JobPostingClearField] on purpose: `jobs.trade_key`,
+/// `jobs.title` and `jobs.city` are NOT NULL, so the agency route has no name
+/// for them (while a company posting's city IS clearable — same word, different
+/// table). [wire] is the exact name the route accepts AND the body key it must
+/// never share a request with (set + clear of one field is a 400).
+enum AgencyJobClearField {
+  area('area'),
+  payMin('pay_min'),
+  payMax('pay_max'),
+  payType('pay_type'),
+  minExperienceYears('min_experience_years'),
+  maxExperienceYears('max_experience_years'),
+  neededBy('needed_by'),
+  description('description'),
+  shift('shift'),
+  benefits('benefits'),
+  requirements('requirements'),
+
+  /// Migration 0131 (#1840) — `jobs.role_kind` is nullable, so it is clearable
+  /// (unlike `trade_key`). Not surfaced by the app yet.
+  roleKind('role_kind');
+
+  const AgencyJobClearField(this.wire);
+
+  /// The field's name on the wire (`clear: [wire]`).
+  final String wire;
 }
 
 /// A jsonb string array that may be ABSENT (null) or an EMPTY list, keeping the

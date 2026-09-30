@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart';
 
+import '../firebase/firebase_boot.dart';
+
 /// B7 — Firebase Remote Config, as a small typed wrapper.
 ///
 /// ## What this is NOT
@@ -65,6 +67,15 @@ class BbRemoteConfig {
   /// existed — not even the extra request is made.
   static const String kKeyChatCompanionEnabled = 'worker_chat_companion_enabled';
 
+  /// ADR-0046 — the companion's **Phase 1** v2 surface: the edit proposal card
+  /// (contracts §5.1, P1), the task chips (§5.3) and the composer's voice
+  /// button. Its own lever, separate from ADR-0044's `chatCompanionEnabled`
+  /// recap, so v2 can ship dark while the recap is already live.
+  ///
+  /// This decides only whether the app may RENDER the v2 fields; the server's
+  /// own phase flags decide what it sends. Defaults to HIDDEN.
+  static const String kKeyChatCompanionV2Enabled = 'worker_chat_companion_v2_enabled';
+
   // ---- Compiled-in defaults == today's behaviour ----
 
   /// The mic is VISIBLE today.
@@ -90,6 +101,10 @@ class BbRemoteConfig {
   /// on (with the server flag) staging-first.
   static const bool kDefaultChatCompanionEnabled = false;
 
+  /// The v2 surface ships DARK — no edit card, no task chips, no voice button.
+  /// Flipped on staging-first, with the server's Phase 1 flags.
+  static const bool kDefaultChatCompanionV2Enabled = false;
+
   /// EVERY remote key with the default its getter falls back to — the single
   /// source for `setDefaults` AND for the activated snapshot.
   ///
@@ -106,6 +121,7 @@ class BbRemoteConfig {
     kKeyBoostVisible: kDefaultBoostVisible,
     kKeyFreeQuotaCopy: kDefaultFreeQuotaCopy,
     kKeyChatCompanionEnabled: kDefaultChatCompanionEnabled,
+    kKeyChatCompanionV2Enabled: kDefaultChatCompanionV2Enabled,
   };
 
   /// The activated snapshot, or null until a fetch has succeeded. Read
@@ -161,7 +177,17 @@ class BbRemoteConfig {
   bool get chatCompanionEnabled =>
       _bool(kKeyChatCompanionEnabled, kDefaultChatCompanionEnabled);
 
+  /// ADR-0046 — whether the companion's v2 surface may be drawn (the Phase 1
+  /// edit card, task chips and voice button). Independent of
+  /// [chatCompanionEnabled], which is ADR-0044's recap.
+  bool get chatCompanionV2Enabled =>
+      _bool(kKeyChatCompanionV2Enabled, kDefaultChatCompanionV2Enabled);
+
   bool _bool(String key, bool fallback) {
+    // A DEBUG-BUILD override, so a lever can be exercised on a cabled phone
+    // without a console round-trip. Empty and inert in every release build —
+    // see [kDebugForcedRemoteFlags].
+    if (_debugForced.contains(key)) return true;
     final Object? value = _snapshot?[key];
     return value is bool ? value : fallback;
   }
@@ -171,16 +197,64 @@ class BbRemoteConfig {
     return value is String ? value : fallback;
   }
 
+  /// The boolean levers a DEBUG build forces on, comma-separated.
+  ///
+  /// WHY THIS EXISTS. Every lever here ships at today's behaviour, and the v2
+  /// levers ship OFF, so a developer with the app on a cable sees exactly
+  /// nothing of a dark feature — the only switch is the Firebase console, which
+  /// means waiting on whoever owns the project and flipping a parameter that
+  /// reaches real devices within five minutes. That is the wrong tool for
+  /// "does my screen render". This is the right one:
+  ///
+  ///   flutter run --dart-define=FORCE_REMOTE_FLAGS=worker_chat_companion_enabled,worker_chat_companion_v2_enabled
+  ///
+  /// RELEASE BUILDS IGNORE IT COMPLETELY, and that is the whole safety argument.
+  /// These levers include KILL SWITCHES (`worker_voice_entry_hidden`), so an
+  /// override that survived into a release could pin a mic visible during the
+  /// very incident ops were trying to stop. [_debugForced] is therefore empty
+  /// in any release build, regardless of what was defined at build time.
+  ///
+  /// PROFILE BUILDS DO HONOUR IT, and deliberately. The guard is `!kReleaseMode`
+  /// rather than `kDebugMode` because a profile build is a developer build — it
+  /// never reaches a worker — while DEBUG is the one mode where the IDE halts on
+  /// every exception this codebase catches on purpose (telemetry, Remote Config,
+  /// Firebase before its init completes). Forcing a developer into debug just to
+  /// see a dark feature hands them a debugger that stops on caught exceptions
+  /// and looks exactly like a crash. Release is the boundary that matters;
+  /// profile is not on the other side of it.
+  ///
+  /// FORCES ON ONLY. A lever is either left alone or forced true; nothing here
+  /// can force one false, because "off" is already every default and is
+  /// reachable by simply not passing the flag. One direction is one thing to
+  /// reason about.
+  static const String kDebugForcedRemoteFlags =
+      String.fromEnvironment('FORCE_REMOTE_FLAGS');
+
+  /// [kDebugForcedRemoteFlags], parsed — and empty in release.
+  static final Set<String> _debugForced = !kReleaseMode
+      ? kDebugForcedRemoteFlags
+          .split(',')
+          .map((String k) => k.trim())
+          .where((String k) => k.isNotEmpty)
+          .toSet()
+      : const <String>{};
+
   /// Fetch and activate, bounded by [timeout]. NEVER throws, and never delays
   /// startup: call it unawaited from the splash / after the first frame.
   ///
-  /// The timeout is short on purpose. Firebase's own `fetchTimeout` covers the
-  /// network leg, but `Firebase.initializeApp()` on a non-GMS / AOSP ROM can
-  /// hang rather than error (the same failure mode `CrashReporter` is bounded
-  /// for), so the whole call is wrapped too. A miss costs nothing — the defaults
-  /// above ARE today's behaviour.
+  /// FIREBASE FIRST. `FirebaseRemoteConfig.instance` throws until an
+  /// `initializeApp()` has COMPLETED, and this used to start beside the crash
+  /// reporter's still-pending one: it threw on every cold start, the catch below
+  /// swallowed it, and no console value ever reached a device. It now waits for
+  /// the shared [FirebaseBoot], which carries its own timeout for a native init
+  /// that hangs on a non-GMS / AOSP ROM.
+  ///
+  /// The fetch timeout is short on purpose. Firebase's own `fetchTimeout` covers
+  /// the network leg, and the whole fetch is wrapped too. A miss costs nothing —
+  /// the defaults above ARE today's behaviour.
   Future<void> init({Duration timeout = const Duration(seconds: 5)}) async {
     try {
+      await FirebaseBoot.ensureInitialized();
       await _fetchAndActivate(timeout).timeout(timeout);
     } catch (_) {
       // Fail-open to the compiled-in defaults. Never surfaced, never fatal.

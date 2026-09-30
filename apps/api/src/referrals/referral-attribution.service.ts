@@ -1,12 +1,17 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { InviteInstallSource } from "@badabhai/event-schema";
+import { isNonCommissionedLinkKind, type NonCommissionedLinkKind } from "@badabhai/types";
 import { ConsentRepository } from "../consent/consent.repository";
 import { InviteService } from "../messaging/invite.service";
 import { AgencyService } from "../agency/agency.service";
 import { ReferralLinkService } from "./referral-link.service";
 
-/** INTERNAL outcome kinds — the HTTP surface returns a neutral body regardless. */
-export type AttributionKind = "worker" | "agency" | "none";
+/**
+ * INTERNAL outcome kinds — the HTTP surface returns a neutral body regardless.
+ * `resume_qr` (#1800): the code was a worker's résumé-QR link — attributed (or not) by the
+ * first-touch claim alone, and never handed to a paying seam.
+ */
+export type AttributionKind = "worker" | "agency" | NonCommissionedLinkKind | "none";
 
 export interface AttributionOutcome {
   attributed: boolean;
@@ -89,6 +94,24 @@ export class ReferralAttributionService {
       //    commission is computed from), while the funnel seams keep their existing
       //    behaviour. That split is deliberate — see the B4 report.
       const claim = await this.referralLinks.claimInstall({ code, workerId, source });
+
+      // 2b) #1800 — A RÉSUMÉ-QR CODE STOPS HERE, BEFORE EITHER PAYING SEAM. Its attribution IS the
+      //     first-touch claim above (`referral.install_claimed` names the link, whose owner is the
+      //     worker whose sheet was scanned), and it is NEVER commissioned (owner ruling
+      //     2026-09-28; `isNonCommissionedLinkKind`, the one list any payout must consult).
+      //     Stopping here — rather than letting the two
+      //     seams answer `unknown_code` — is what guarantees that a code which ALSO exists in
+      //     `invites`/`agency_invites` (a cross-space collision the mint checks for, but cannot
+      //     prevent a later invite mint from creating) can never pay an unrelated inviter for a
+      //     résumé scan. Same for a self-claim and a dead (owner-erased) link: no fall-through.
+      if (claim.linkKind && isNonCommissionedLinkKind(claim.linkKind)) {
+        return {
+          attributed: claim.claimed,
+          kind: claim.linkKind,
+          ...(claim.claimed ? {} : { reason: claim.reason ?? "unknown_code" }),
+          claimed: claim.claimed,
+        };
+      }
 
       // 3) Worker→worker (ADR-0020). Only `unknown_code` falls through to agency; a
       //    KNOWN worker invite that can't attribute (self / already) is terminal here.

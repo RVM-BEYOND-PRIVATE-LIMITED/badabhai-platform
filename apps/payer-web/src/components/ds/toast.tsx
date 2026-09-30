@@ -41,7 +41,7 @@ export function Toast({ tone = "neutral", icon, title, children, onClose, classN
       </div>
       {onClose && (
         <button className="bb-toast__close" aria-label="Dismiss" onClick={onClose}>
-          <i className="ph ph-x" aria-hidden="true" />
+          <i className="ph-fill ph-x" aria-hidden="true" />
         </button>
       )}
     </div>

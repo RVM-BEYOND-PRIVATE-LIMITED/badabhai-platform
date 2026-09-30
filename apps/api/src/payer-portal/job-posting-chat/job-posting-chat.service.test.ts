@@ -704,6 +704,19 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
     expect(d.pii.decrypt).toHaveBeenCalledTimes(1);
   });
 
+  it("never sends role_kind — the interview does not ask for a role, so the posting stores NULL (0131)", async () => {
+    // Owner ruling 2026-09-29: chat publish leaves `role_kind` NULL. The create DTO's field is
+    // optional with no default, so an absent key is what makes `createForPayer` store NULL.
+    await d.svc.publish(PAYER_A, SESSION, CTX);
+    const dto = d.jobPostings.createForPayer.mock.calls[0]![1] as Record<string, unknown>;
+    expect("role_kind" in dto).toBe(false);
+  });
+
+  it("does not report role_kind as an unset CARD field — it is display-only, not on the worker card", async () => {
+    const res = await d.svc.publish(PAYER_A, SESSION, CTX);
+    expect(res.unset_card_fields as readonly string[]).not.toContain("role_kind");
+  });
+
   it("sends the BANDED vacancy and never a raw count (ADR-0012)", async () => {
     await d.svc.publish(PAYER_A, SESSION, CTX);
     const dto = d.jobPostings.createForPayer.mock.calls[0]![1] as Record<string, unknown>;

@@ -330,11 +330,17 @@ describe("publish — gated on the ENGINE's readiness, routes to the existing de
     expect(Object.keys(arg)).toEqual(["sessionId"]);
   });
 
-  it("routes to the EXISTING posting detail page on success (no new detail UI)", async () => {
-    publishJobPostingChatAction.mockResolvedValue({ ok: true, postingId: POSTING_ID });
+  it("routes to the posting's EDIT page on success (PR-B: highlights the worker-card gaps)", async () => {
+    publishJobPostingChatAction.mockResolvedValue({
+      ok: true,
+      postingId: POSTING_ID,
+      unsetCardFields: [],
+    });
     button(render({ convo: { ...CONVO, draftReady: true } }), "Publish")?.onClick?.();
     await flush();
-    expect(push).toHaveBeenCalledWith(`/postings/${POSTING_ID}`);
+    // PR-B: publish leaves role_kind + the card fields the interview does not collect NULL, so
+    // the chat routes to /edit (where workerCardGaps are highlighted), never the read-only detail.
+    expect(push).toHaveBeenCalledWith(`/postings/${POSTING_ID}/edit`);
   });
 
   it("stays disabled across the success→navigation window (no double publish)", () => {

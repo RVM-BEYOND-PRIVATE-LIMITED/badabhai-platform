@@ -69,7 +69,7 @@ export interface NavMatch {
 export interface NavItem {
   href: string;
   label: string;
-  /** Phosphor glyph name, rendered as `ph ph-{icon}`. Always paired with a text label. */
+  /** Phosphor glyph name, rendered as `ph-fill ph-{icon}`. Always paired with a text label. */
   icon: string;
   /** One line, shown as a tooltip when the rail is collapsed and under Coming Soon items. */
   description?: string;

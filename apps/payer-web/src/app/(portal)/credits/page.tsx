@@ -99,7 +99,7 @@ export default async function CreditsPage() {
 
       {lowBalance ? (
         <div className="alert alert--warning">
-          <i className="ph ph-warning alert__icon" aria-hidden="true" />
+          <i className="ph-fill ph-warning alert__icon" aria-hidden="true" />
           <div className="alert__text">
             <p className="alert__title">Running low</p>
             <p className="alert__body">
@@ -116,7 +116,7 @@ export default async function CreditsPage() {
         <Card>
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph ph-warning-circle" aria-hidden="true" />
+              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
             </span>
             <h2 className="state__title">Service unavailable</h2>
             <p className="state__body">
@@ -130,7 +130,9 @@ export default async function CreditsPage() {
       ) : dashboard ? (
         <>
           <div className="stat-row">
+            {/* The wallet hero — the DS StatTile on the Shift Blue container (one class). */}
             <StatTile
+              className="credits-balance"
               label="Credit balance"
               value={dashboard.credits.balance}
               icon="wallet"
@@ -147,8 +149,8 @@ export default async function CreditsPage() {
             <div className="section__head">
               <h2 className="section__title">Top up</h2>
               <p className="section__sub">
-                Pick a pack — the credits land in the balance above and can be spent on any
-                contact unlock.
+                Pick a pack — the credits land in the balance above and can be spent on any contact
+                unlock.
               </p>
             </div>
             <CreditsPanel packs={packs} real={realPayments} />
@@ -166,8 +168,11 @@ export default async function CreditsPage() {
         </div>
         <div className="panel__body">
           {history.length > 0 ? (
-            <div className="tablewrap">
-              <table className="table">
+            // A labelled, keyboard-reachable scroll region: on a phone this ledger is wider
+            // than the screen and scrolls inside itself, so it must be focusable to be
+            // scrollable without a pointer.
+            <div className="tablewrap" tabIndex={0} role="region" aria-label="Credit history">
+              <table className="table table--nowrap">
                 <thead>
                   <tr>
                     <th>Date</th>
@@ -205,12 +210,12 @@ export default async function CreditsPage() {
             // say that rather than claiming there were never any movements.
             <div className="state state--error">
               <span className="state__icon">
-                <i className="ph ph-warning-circle" aria-hidden="true" />
+                <i className="ph-fill ph-warning-circle" aria-hidden="true" />
               </span>
               <h3 className="state__title">History unavailable</h3>
               <p className="state__body">
-                We couldn&rsquo;t load your credit movements right now. Nothing has changed —
-                please retry.
+                We couldn&rsquo;t load your credit movements right now. Nothing has changed — please
+                retry.
               </p>
               <div className="state__actions">
                 <RetryButton />
@@ -219,12 +224,12 @@ export default async function CreditsPage() {
           ) : (
             <div className="state">
               <span className="state__icon">
-                <i className="ph ph-receipt" aria-hidden="true" />
+                <i className="ph-fill ph-receipt" aria-hidden="true" />
               </span>
               <h3 className="state__title">No credit movements yet</h3>
               <p className="state__body">
-                Top-ups and unlock spends land here the moment they happen. Buy a pack above to
-                get started.
+                Top-ups and unlock spends land here the moment they happen. Buy a pack above to get
+                started.
               </p>
             </div>
           )}
@@ -240,8 +245,8 @@ export default async function CreditsPage() {
         </div>
         <div className="panel__body">
           {expiry.length > 0 ? (
-            <div className="tablewrap">
-              <table className="table">
+            <div className="tablewrap" tabIndex={0} role="region" aria-label="Credit expiry">
+              <table className="table table--nowrap">
                 <thead>
                   <tr>
                     <th className="num">Credits</th>
@@ -263,7 +268,7 @@ export default async function CreditsPage() {
           ) : (
             <div className="state">
               <span className="state__icon">
-                <i className="ph ph-hourglass" aria-hidden="true" />
+                <i className="ph-fill ph-hourglass" aria-hidden="true" />
               </span>
               <h3 className="state__title">Nothing expiring yet</h3>
               <p className="state__body">
@@ -276,18 +281,18 @@ export default async function CreditsPage() {
 
       {realPayments ? (
         <div className="alert alert--info">
-          <i className="ph ph-shield-check alert__icon" aria-hidden="true" />
+          <i className="ph-fill ph-shield-check alert__icon" aria-hidden="true" />
           <div className="alert__text">
             <p className="alert__title">Payments by Razorpay.</p>
             <p className="alert__body">
-              Card and UPI details are entered on Razorpay&rsquo;s secure form — BadaBhai never
-              sees or stores them. Credits are added once the payment is confirmed.
+              Card and UPI details are entered on Razorpay&rsquo;s secure form — BadaBhai never sees
+              or stores them. Credits are added once the payment is confirmed.
             </p>
           </div>
         </div>
       ) : (
         <div className="alert alert--info">
-          <i className="ph ph-info alert__icon" aria-hidden="true" />
+          <i className="ph-fill ph-info alert__icon" aria-hidden="true" />
           <div className="alert__text">
             <p className="alert__title">Mock payments only.</p>
             <p className="alert__body">

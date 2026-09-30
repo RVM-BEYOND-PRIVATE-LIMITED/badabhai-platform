@@ -167,6 +167,7 @@ class HttpPayerApiClient implements PayerApiClient {
     String? neededBy,
     List<String>? benefits,
     List<String>? requirements,
+    List<JobPostingClearField>? clear,
   }) async {
     final Map<String, dynamic> body = <String, dynamic>{
       if (orgLabel != null) 'org_label': orgLabel,
@@ -195,14 +196,58 @@ class HttpPayerApiClient implements PayerApiClient {
       if (benefits != null) 'benefits': benefits,
       if (requirements != null) 'requirements': requirements,
     };
+    // #1652 — the fields to UNSET, after the values so a contradiction is caught.
+    _addClear(body, clear?.map((JobPostingClearField f) => f.wire));
     if (body.isEmpty) {
       throw ArgumentError('updateJob needs at least one field');
     }
     final PayerResponse res = await _http
         .send(PayerMethod.patch, '/payer/job-postings/$id', body: body);
     // 400 no-op / 409 closed or illegal transition surface as a typed error.
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    if (!res.isSuccess) {
+      throw PayerApiException(res.statusCode, code: _jobEditRejectionCode(res));
+    }
     return _jobFromRow(res.body);
+  }
+
+  /// #1652 — fold a `clear` list ([names], the fields' wire names) into a job
+  /// edit PATCH [body].
+  ///
+  /// Added only when non-empty: the route's `clear` is `.min(1)`, so an empty
+  /// list would 400 for asking nothing. FAILS CLOSED on a name the body also
+  /// SETS — the server rejects that contradiction with a 400, so it is refused
+  /// here with the same typed code instead of spending a round-trip on a request
+  /// that cannot succeed.
+  static void _addClear(Map<String, dynamic> body, Iterable<String>? names) {
+    if (names == null) return;
+    final List<String> clear = names.toSet().toList(growable: false);
+    if (clear.isEmpty) return;
+    if (clear.any(body.containsKey)) {
+      throw const PayerApiException(400, code: kJobEditSetAndClearedCode);
+    }
+    body['clear'] = clear;
+  }
+
+  /// The typed code for a failed job-edit PATCH, or null.
+  ///
+  /// [kJobEditSetAndClearedCode] when the 400 is the server's `clear` rejection
+  /// — a validation issue on the `clear` path, inside the global
+  /// `{ error: { issues: [{ path, message }] } }` envelope. The server sends no
+  /// code for it, and the path is the only structural signal; the app's typed
+  /// [JobPostingClearField]/[AgencyJobClearField] names, the non-empty rule and
+  /// the pre-send check in [_addClear] leave "set and cleared" as the only
+  /// `clear` refusal it can meet.
+  static String? _jobEditRejectionCode(PayerResponse res) {
+    if (res.statusCode != 400) return null;
+    final Object? error = res.body['error'];
+    final Object? issues = error is Map ? error['issues'] : null;
+    if (issues is! List) return null;
+    for (final Object? issue in issues) {
+      if (issue is Map && issue['path'] == 'clear') {
+        return kJobEditSetAndClearedCode;
+      }
+    }
+    return null;
   }
 
   @override
@@ -775,6 +820,7 @@ class HttpPayerApiClient implements PayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    List<AgencyJobClearField>? clear,
   }) async {
     final Map<String, dynamic> body = <String, dynamic>{
       if (tradeKey != null) 'trade_key': tradeKey,
@@ -796,12 +842,16 @@ class HttpPayerApiClient implements PayerApiClient {
       if (benefits != null) 'benefits': benefits,
       if (requirements != null) 'requirements': requirements,
     };
+    // #1652 — the fields to UNSET, after the values so a contradiction is caught.
+    _addClear(body, clear?.map((AgencyJobClearField f) => f.wire));
     if (body.isEmpty) {
       throw ArgumentError('updateAgencyJob needs at least one field');
     }
     final PayerResponse res =
         await _http.send(PayerMethod.patch, '/payer/agency/jobs/$id', body: body);
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    if (!res.isSuccess) {
+      throw PayerApiException(res.statusCode, code: _jobEditRejectionCode(res));
+    }
     return AgencyJobView.fromJson(res.body);
   }
 

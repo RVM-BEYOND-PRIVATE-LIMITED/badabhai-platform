@@ -3,6 +3,7 @@ import {
   day,
   experienceBandLabel,
   isActiveJob,
+  isPausedJob,
   kAnonCount,
   neededByLabel,
   payBandLabel,
@@ -62,7 +63,7 @@ describe("coarse, non-PII formatters", () => {
   });
 });
 
-describe("isActiveJob — only 'open' is active (status is open|closed)", () => {
+describe("isActiveJob / isPausedJob — the 4-state lifecycle (open|paused|suspended|closed)", () => {
   const base: AgencyJob = {
     id: "00000000-0000-4000-8000-000000000001",
     status: "open",
@@ -79,10 +80,16 @@ describe("isActiveJob — only 'open' is active (status is open|closed)", () => 
     createdAt: "2026-06-22T00:00:00.000Z",
     updatedAt: "2026-06-22T00:00:00.000Z",
   };
-  it("treats an open job as active", () => {
+  it("only 'open' is active", () => {
     expect(isActiveJob(base)).toBe(true);
-  });
-  it("treats a closed job as inactive", () => {
     expect(isActiveJob({ ...base, status: "closed" })).toBe(false);
+    expect(isActiveJob({ ...base, status: "paused" })).toBe(false);
+    expect(isActiveJob({ ...base, status: "suspended" })).toBe(false);
+  });
+  it("only 'paused' is paused (a suspended job is SYSTEM-owned, not payer-paused)", () => {
+    expect(isPausedJob({ ...base, status: "paused" })).toBe(true);
+    expect(isPausedJob(base)).toBe(false);
+    expect(isPausedJob({ ...base, status: "suspended" })).toBe(false);
+    expect(isPausedJob({ ...base, status: "closed" })).toBe(false);
   });
 });

@@ -45,6 +45,46 @@ class CompanionOpening {
   bool get isUnreachable => outcome == CompanionOpenOutcome.unreachable;
 }
 
+/// What a companion edit confirm/cancel call actually did (ADR-0046 §5.2).
+///
+/// THREE ANSWERS, NOT TWO — the same discipline as [CompanionOpenOutcome]. The
+/// routes answer `200 turn` (applied / cancelled), `404` (the proposal is
+/// unknown, expired, or another worker's) and two different 409s: the
+/// `{mode:"interview"}` one (this worker is no longer a companion worker) and
+/// the `{reason:"stale"}` one (the profile changed under the card). Collapsing
+/// them would either abandon a live companion on a dead card, or keep showing a
+/// card the server has already forgotten.
+enum CompanionEditOutcome {
+  /// The server answered with a turn — the edit was applied, or the cancel
+  /// acknowledged. [CompanionEditResult.turn] is that turn.
+  served,
+
+  /// The proposal is GONE (404, or a 409-stale): nothing was applied. The tab
+  /// clears the card and re-reads the recap — the server's current facts are
+  /// the only honest thing to show.
+  gone,
+
+  /// The server says this worker is no longer a companion worker (409
+  /// `{mode:"interview"}`): the tab leaves companion mode for the interview,
+  /// exactly as a 409 on a message send does.
+  interview,
+}
+
+/// The result of one companion edit confirm/cancel call.
+class CompanionEditResult {
+  const CompanionEditResult(this.outcome, [this.turn]);
+
+  const CompanionEditResult.served(ChatTurn turn)
+      : this(CompanionEditOutcome.served, turn);
+  const CompanionEditResult.gone() : this(CompanionEditOutcome.gone);
+  const CompanionEditResult.interview() : this(CompanionEditOutcome.interview);
+
+  final CompanionEditOutcome outcome;
+
+  /// The turn the server served, present only for [CompanionEditOutcome.served].
+  final ChatTurn? turn;
+}
+
 abstract interface class ChatRepository {
   /// Ensures a chat session exists (starts one if needed) and stores its id in
   /// the session. No-op when a session is already open.
@@ -68,6 +108,15 @@ abstract interface class ChatRepository {
   /// one-shot opener), else null — the caller then renders the canned opener,
   /// exactly like an ordinary open.
   Future<ChatSessionOpening?> startNewSession();
+
+  /// Forget the cached interview session id, so the next [ensureSession] asks
+  /// the server for the worker's latest session instead of reusing it.
+  ///
+  /// ADR-0044 — called when the tab leaves the interview for the recap. A tab
+  /// that opened ON the recap holds no id, and a later fallback to the
+  /// interview reads the latest session; this makes a tab that moved there
+  /// from the interview behave the same. Touches nothing server-side.
+  void forgetSession();
 
   /// Sends [text] and returns bada bhai's reply plus any tap-to-answer
   /// [ChatTurn.followups].
@@ -105,4 +154,24 @@ abstract interface class ChatRepository {
   /// turned off); the caller then sends the same text down [sendMessage].
   /// Throws a [Failure] on any other error, like [sendMessage].
   Future<ChatTurn?> sendCompanionMessage(String text, {String? submissionId});
+
+  /// ADR-0046 §5.2 — Haan on the edit card: apply [rowIds] (the TICKED rows'
+  /// server-minted `row_id`s, 1..3; the values never cross the wire).
+  ///
+  /// Never throws for the three contract answers — a `200` returns
+  /// [CompanionEditOutcome.served] with the turn, a `404` / 409-stale returns
+  /// [CompanionEditOutcome.gone], and a 409 `{mode:"interview"}` returns
+  /// [CompanionEditOutcome.interview]. Throws a [Failure] on any other error.
+  Future<CompanionEditResult> confirmCompanionEdit(
+    String proposalId,
+    List<String> rowIds, {
+    String? submissionId,
+  });
+
+  /// ADR-0046 §5.2 — Nahi on the edit card. The same three-answer contract as
+  /// [confirmCompanionEdit].
+  Future<CompanionEditResult> cancelCompanionEdit(
+    String proposalId, {
+    String? submissionId,
+  });
 }

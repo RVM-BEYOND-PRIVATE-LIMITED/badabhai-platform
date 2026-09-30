@@ -109,6 +109,68 @@ void main() {
     });
   });
 
+  // ── ADR-0046 F5 — the v2 TASK CHIP KEYS MUST NOT DRIFT ─────────────────────
+  //
+  // The task chips live in their OWN server file (`companion-task-keys.ts`),
+  // deliberately NOT in `companion-keys.ts`: that file is pinned verbatim by the
+  // v1 block above, and adding these there would have reddened this suite
+  // before the app build that knows them existed. This reads the task file and
+  // fails on any drift, exactly as the v1 block reads its own.
+  group('ADR-0046 task chips', () {
+    final File taskKeys =
+        File('../api/src/chat-companion/companion-task-keys.ts');
+
+    String readTaskKeys() {
+      expect(
+        taskKeys.existsSync(),
+        isTrue,
+        reason: 'the server source (${taskKeys.path}) must be readable from the '
+            'worker-app package root — the parity net is worthless if it '
+            'silently skips',
+      );
+      return taskKeys.readAsStringSync();
+    }
+
+    test('the three task keys match the server constants byte-for-byte', () {
+      final String ts = readTaskKeys();
+      final Set<String> serverKeys =
+          RegExp('COMPANION_TASK_[A-Z_]+_KEY\\s*=\\s*"([^"]+)"')
+              .allMatches(ts)
+              .map((Match m) => m.group(1)!)
+              .toSet();
+      expect(serverKeys, <String>{
+        kCompanionTaskEditResumeKey,
+        kCompanionTaskNewResumeKey,
+        kCompanionTaskCareerTalkKey,
+      });
+    });
+
+    test('the task keys never collide with a key a shipped client routes on', () {
+      for (final String key in <String>[
+        kCompanionTaskEditResumeKey,
+        kCompanionTaskNewResumeKey,
+        kCompanionTaskCareerTalkKey,
+      ]) {
+        expect(key.startsWith('companion_task:'), isTrue);
+        // Task chips are POSTED — the app sends the chip's LABEL as ordinary
+        // text and the classifier routes it — so nothing here may resolve to a
+        // client route, or the chip would never reach the server.
+        expect(companionActionFor(key), CompanionAction.none, reason: key);
+        expect(resumeMenuActionFor(key), ResumeMenuAction.sendToServer,
+            reason: key);
+      }
+    });
+
+    test('task chips have analytics classes', () {
+      expect(companionChipKeyClass(kCompanionTaskEditResumeKey),
+          'task_edit_resume');
+      expect(companionChipKeyClass(kCompanionTaskNewResumeKey),
+          'task_new_resume');
+      expect(companionChipKeyClass(kCompanionTaskCareerTalkKey),
+          'task_career_talk');
+    });
+  });
+
   group('companionJobLabelParts', () {
     test('splits the title from the city', () {
       final ({String title, String? city}) p =

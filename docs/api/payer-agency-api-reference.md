@@ -216,13 +216,20 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 
 #### `POST /payer/job-postings`
 - **Auth:** `PayerAuthGuard` (Bearer). Role: employer (primary); session-scoped.
-- **Body:** `{ org_label: string, role_title: string (1–200), location_label?: string, description?: string (1–2000, PII-screened), vacancy_band?: '1'|'2-5'|'6-10'|'11-25'|'25+' | vacancies?: positive int, city?: string (1–80), area?: string (1–120), pay_min?: int, pay_max?: int, pay_type?: 'in_hand'|'gross'|'ctc', min_experience_years?: int, max_experience_years?: int, shift?: 'day'|'night'|'rotational', needed_by?: 'immediate'|'soon'|'flexible', benefits?: string[] (≤12 × ≤80 chars, PII-screened), requirements?: string[] (same caps), match_skill_ids?: 'mskill_*'[], unticked_related_ids?: 'mskill_*'[] }` — **exactly one** of `vacancy_band` / `vacancies`. No `payer_id`/`created_by` (session-stamped).
-- **Response:** the full posting row, including `city`, `area`, `payMin`, `payMax`, `payType`, `minExperienceYears`, `maxExperienceYears`, `shift`, `neededBy`, `benefits`, `requirements`, `matchSkillIds`, `reachSkillIds`, `untickedRelatedIds`, `status: 'draft'`, `createdAt`, `updatedAt`, `closedAt: null`.
-- **Events:** `job_posting.created` (actor `payer`; payload keys only — `vacancy_band`, `status`, `has_location`, `has_description`).
+- **Body:** `{ org_label: string, role_title: string (1–200), location_label?: string, description?: string (1–2000, PII-screened), vacancy_band?: '1'|'2-5'|'6-10'|'11-25'|'25+' | vacancies?: positive int, city?: string (1–80), area?: string (1–120), pay_min?: int, pay_max?: int, pay_type?: 'in_hand'|'gross'|'ctc', min_experience_years?: int, max_experience_years?: int, shift?: 'day'|'night'|'rotational', needed_by?: 'immediate'|'soon'|'flexible', benefits?: string[] (≤12 × ≤80 chars, PII-screened), requirements?: string[] (same caps), role_kind?: RoleKind, match_skill_ids?: 'mskill_*'[], unticked_related_ids?: 'mskill_*'[] }` — **exactly one** of `vacancy_band` / `vacancies`. No `payer_id`/`created_by` (session-stamped).
+- **Response:** the full posting row — **snake_case on the wire** (`JobPostingApi`), including `city`, `area`, `pay_min`, `pay_max`, `pay_type`, `min_experience_years`, `max_experience_years`, `shift`, `needed_by`, `benefits`, `requirements`, `role_kind`, `match_skill_ids`, `reach_skill_ids`, `unticked_related_ids`, `status: 'draft'`, `created_at`, `updated_at`, `closed_at: null`. (This line used to list camelCase keys; the API has always returned snake_case here.)
+- **Events:** `job_posting.created` (actor `payer`; payload — `vacancy_band`, `status`, `has_location`, `has_description`, and `role_kind` (the closed enum value, or `null`) — never free text).
 - **Mobile gotchas:** Send `vacancies` as a **raw integer**; the backend derives the band. `org_label` is the session org (the web portal resolves it from `GET /payer/me`); never collect raw company PII. Free-through-launch — **no price/quota in the body**. `201`.
 - **#1645 (2026-09-22) — the create used to accept only the first six keys and answer `201` anyway.** Everything else was stripped silently by Zod. Because `match_skill_ids` was among the dropped fields the row's reach set stayed empty, publish skipped materialization, `job_reach` got no rows, and **the posting reached no worker at all** while the company saw a success state. The payer app worked around it with an immediate follow-up `PATCH`; **that workaround can now be deleted.**
 - `pay_type` (#1648) states what the ₹ band MEANS. **Omit it rather than guess** — `NULL` renders the band with no pay-type pill, and there is no server-side default.
 - `unticked_related_ids` is now **persisted on the draft** (migration 0121), so unticks chosen on the create form survive to publish. `reach_skill_ids` remains server-resolved and is never accepted from a client (Policy 10).
+- **`role_kind` (migration 0131, 2026-09-29) — the posting's ROLE.** `RoleKind` is exactly one of the 21 declared worker-side roles:
+  `'cnc_turner'|'vmc_milling'|'cnc_grinding'|'cam_programmer'|'cad_draughtsman'|'conventional_machinist'|'tool_die_maker'|'welder'|'sheet_metal_worker'|'press_operator'|'painter_coating'|'fitter'|'maintenance_technician'|'industrial_electrician'|'assembly_line_worker'|'quality_inspector'|'injection_moulding_operator'|'mould_die_maker'|'blow_moulding_operator'|'rubber_moulding_operator'|'plastic_process_technician'`
+  (`TRADE_FORM_KINDS_ALL` in `@badabhai/types`; display labels in `JOB_ROLE_LABELS` / `jobRoleLabel()`).
+  - **Display / classification only** (ADR-0036 addendum 2026-09-29): it is **never a match input** — sending `role_kind` without `match_skill_ids` still reaches nobody — and it is **on no worker read** (not in `/feed`, `/jobs/search` or job detail; #1823). Do not tell the payer that workers see it.
+  - Optional, **no default**: omitted stores `null` ("no role picked"). A chat-published posting always has `role_kind: null`.
+  - **Errors:** anything outside the 21 (a trade key such as `cnc_operator`, a display label such as `"Welder"`, free text) → `400`; an explicit `role_kind: null` → `400` (unset with `clear`, see PATCH).
+  - **Deploy note:** an API older than migration 0131 strips this key silently (Zod), so clients must not ship a role picker ahead of the API.
 
 #### `GET /payer/job-postings`
 - **Auth:** `PayerAuthGuard` (Bearer).
@@ -238,9 +245,10 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Auth:** `PayerAuthGuard` (Bearer).
 - **Body:** every field `POST` accepts (see above), all optional, plus `status?: 'open'` — at least one field; `status` may only be `'open'` (publish draft→open). No `org_label`/`payer_id`.
 - **Response:** updated posting row.
-- **Events:** `job_posting.updated` (changed-field **keys** only; publish surfaces as `status` in keys). Keys added 2026-09-22: `area`, `experience` (ONE key for both ends of the window, as `pay_band` is one key for `pay_min`+`pay_max`), `pay_type`, `benefits`, `requirements`. Additive enum widening — every shipped payload still validates, no version bump.
+- **Events:** `job_posting.updated` (changed-field **keys** only; publish surfaces as `status` in keys). Keys added 2026-09-22: `area`, `experience` (ONE key for both ends of the window, as `pay_band` is one key for `pay_min`+`pay_max`), `pay_type`, `benefits`, `requirements`. Key added 2026-09-29: `role_kind` (its own key — a role change is never reported as `match_skills`). Additive enum widening — every shipped payload still validates, no version bump.
 - **Ordering is re-checked against the STORED row**, so a one-sided edit (`pay_max` alone) that would invert the band or the experience window is a `400`.
-- **#1652 (2026-09-22) — `clear: [...]` unsets a field.** The contract used to be value-or-absent, so a payer could overwrite a wrong pay band or shift but never REMOVE it, and the stale wage stayed on the worker card. Send `{ "clear": ["pay_min", "shift"] }` to store NULL. Clearable: `location_label`, `description`, `city`, `area`, `pay_min`, `pay_max`, `pay_type`, `min_experience_years`, `max_experience_years`, `shift`, `needed_by`, `benefits`, `requirements`.
+- **#1652 (2026-09-22) — `clear: [...]` unsets a field.** The contract used to be value-or-absent, so a payer could overwrite a wrong pay band or shift but never REMOVE it, and the stale wage stayed on the worker card. Send `{ "clear": ["pay_min", "shift"] }` to store NULL. Clearable: `location_label`, `description`, `city`, `area`, `pay_min`, `pay_max`, `pay_type`, `min_experience_years`, `max_experience_years`, `shift`, `needed_by`, `benefits`, `requirements`, `role_kind` (0131).
+  - **`role_kind` edits:** `{ "role_kind": "welder" }` sets it (`changed_fields: ["role_kind"]`); `{ "clear": ["role_kind"] }` stores `null`; re-sending the stored value, or clearing an already-null role, is no change (`400 no effective changes` if nothing else changed); an unknown value or `null` is a `400`.
   - **A field that is both set and cleared is a `400`**, naming the field — not a precedence rule. Resolving it silently would mean one of the two things you asked for did not happen.
   - **Clearing one end of a band is legal** (`clear: ["pay_min"]` keeps `pay_max`). The ordering re-check runs against the RESULT, so it does not compare against the value you are erasing.
   - **`clear: ["benefits"]` stores NULL, `benefits: []` stores an empty list.** Different values: "never stated" vs "stated: none". The client renders them differently.
@@ -355,12 +363,13 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 > All `/payer/agency/*` routes require `PayerAuthGuard` **+ `PayerRoleGuard` role=`agent`**. A non-agent gets `403` (or no-oracle `404`). `payer_id` is session-derived; never in body. Responses are faceless camelCase views with **no `payer_id`**.
 
 #### `POST /payer/agency/jobs`
-- **Body:** `{ trade_key: enum, title: string (1–200, no PII), city: string (1–120), area?: string (1–120), pay_min?: int (0–10M), pay_max?: int (0–10M, ≥pay_min), pay_type?: 'in_hand'|'gross'|'ctc', min_experience_years?: int (0–60), max_experience_years?: int (0–60, ≥min_exp), needed_by?: 'immediate'|'soon'|'flexible', description?: string (1–2000, PII-screened), shift?: 'day'|'night'|'rotational', benefits?: string[] (≤12 × ≤80, PII-screened), requirements?: string[] (same caps) }`.
-- **Response:** `AgencyJobView { id, status: 'open', tradeKey, title, city, area, payMin, payMax, payType, minExperienceYears, maxExperienceYears, neededBy, description, shift, benefits, requirements, applicantsReceived, createdAt, updatedAt }`.
-- **Events:** `job.created` (PII-free: opaque IDs + coarse bands).
+- **Body:** `{ trade_key: enum, title: string (1–200, no PII), city: string (1–120), area?: string (1–120), pay_min?: int (0–10M), pay_max?: int (0–10M, ≥pay_min), pay_type?: 'in_hand'|'gross'|'ctc', min_experience_years?: int (0–60), max_experience_years?: int (0–60, ≥min_exp), needed_by?: 'immediate'|'soon'|'flexible', description?: string (1–2000, PII-screened), shift?: 'day'|'night'|'rotational', benefits?: string[] (≤12 × ≤80, PII-screened), requirements?: string[] (same caps), role_kind?: RoleKind }` — `RoleKind` is the same 21-value enum as on `/payer/job-postings`.
+- **Response:** `AgencyJobView { id, status: 'open', tradeKey, title, city, area, payMin, payMax, payType, minExperienceYears, maxExperienceYears, neededBy, description, shift, benefits, requirements, roleKind, applicantsReceived, createdAt, updatedAt }`.
+- **Events:** `job.created` (PII-free: opaque IDs + coarse bands + `role_kind`, the closed enum value or `null`).
 - **Mobile gotchas:** Starts `open` (no draft). Pay is whole INR (no paise). `201`.
 - **#1647 (2026-09-22) — `description`, `shift`, `benefits` and `requirements` are now RETURNED.** They were accepted and stored by `POST`/`PATCH` and projected by nothing, so a payer could not see what they had posted and the edit screen had to start those inputs empty with an overwrite warning. **That warning can now be removed** — the view prefills.
 - `pay_type` (#1648) states what the ₹ band means; omit it rather than guess. `NULL` renders no pay-type pill.
+- **`role_kind` (migration 0131, 2026-09-29) — a SECOND classifier beside `trade_key`, not a replacement.** `trade_key` (15 trades) stays required and stays the job's matching classifier; `role_kind` (21 roles) is display / classification only, never a match input, and on no worker read (#1823). Optional with no default (`roleKind: null` when omitted — never inferred from `trade_key`). Same errors as the posting contract: unknown value or explicit `null` → `400`.
 
 #### `GET /payer/agency/jobs`
 - **Response:** `AgencyJobView[]`, newest-first. No pagination.
@@ -370,11 +379,11 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 
 #### `PATCH /payer/agency/jobs/:jobId`
 - **Body:** any subset of the create fields (≥1 required), plus `clear?: string[]`. Ordering re-validated against the **result** row (handles one-sided edits).
-- **#1652 — `clear: [...]` unsets a field.** Clearable here: `area`, `pay_min`, `pay_max`, `pay_type`, `min_experience_years`, `max_experience_years`, `needed_by`, `description`, `shift`, `benefits`, `requirements`.
+- **#1652 — `clear: [...]` unsets a field.** Clearable here: `area`, `pay_min`, `pay_max`, `pay_type`, `min_experience_years`, `max_experience_years`, `needed_by`, `description`, `shift`, `benefits`, `requirements`, `role_kind` (0131).
   - **`city`, `title` and `trade_key` are NOT clearable on this contract** — they are `NOT NULL` on `jobs`. Note `city` IS clearable on `/payer/job-postings` because `job_postings.city` is nullable: same word, different table, different answer.
   - Same rules as the posting contract: set-and-clear of one field is a `400`, clearing one end of a band is legal, `clear: ["benefits"]` stores NULL while `benefits: []` stores an empty list, and clearing an already-NULL field is not a change.
 - **Response:** updated `AgencyJobView`.
-- **Events:** `job.updated` (`changed_fields` = keys only).
+- **Events:** `job.updated` (`changed_fields` = keys only; `role_kind` is its own key since 2026-09-29, never reported as `trade_key`).
 - **Mobile gotchas:** Editing a **closed** job → `400` (terminal). Status is not edited here (use close/pause).
 
 #### `POST /payer/agency/jobs/:jobId/close`
@@ -399,6 +408,12 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 #### `POST /payer/agency/invites/:code/click` — **NOT a primary mobile call (STUB)**
 - **Auth:** agency-scoped stub. **Response:** **VERIFIED CORRECTION:** `{ ok: true }` always (even for unknown code — no-oracle), **not** `{ code, status, clicked_at }`.
 - **Mobile gotchas:** Local funnel metric only; does not attribute a worker. The real invitee click is the public `POST /invites/:code/click` (worker funnel), not this. You generally do not need to call this from the agency app.
+
+### 4.7 Admin posting detail (NOT a payer/mobile route — for reference)
+
+#### `GET /admin/job-postings/:id`
+- **Auth:** `AdminAuthGuard` + capability `read_entities`. Never called by the payer app.
+- **Response (`AdminJobPostingDetail`, snake_case):** the list fields plus `description`, `shift`, `needed_by`, `boosted_until`, `previous_status`, `applied_count`, `skipped_count`, `updated_at`, and — **added 2026-09-29** — `area`, `min_experience_years`, `max_experience_years`, `pay_type`, `requirements`, `benefits`, `role_kind`. Every one is a nullable, PII-free card field the owning payer already reads back; `role_kind` is returned **raw** (the admin UI labels it with `jobRoleLabel()` and shows the raw id when it is not one of the 21). Explicit column select — never a bare `select()`.
 
 ---
 

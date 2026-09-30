@@ -7,7 +7,8 @@ import type { ServerConfig } from "@badabhai/config";
 import { FontResolutionError } from "../common/pdf/font-resolution";
 import { ResumeRenderProcessor } from "./resume-render.processor";
 import { ITI_PROJECT_WORK_KEY } from "./resume-fresher-rows";
-import { resumeRefCode } from "./resume-sheet-footer";
+import { RESUME_PROFILE_ORIGIN, RESUME_QR_CAPTION, resumeRefCode } from "./resume-sheet-footer";
+import { buildResumeQrDataUri } from "./resume-qr";
 import type { ResumeRenderInput } from "./resume-renderer.service";
 import type { ResumeRepository } from "./resume.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
@@ -27,6 +28,25 @@ import type {
   WorkerTrainingRecord,
 } from "./resume-qualification-rows";
 import type { ResumeRenderJobData } from "../queue/queue.constants";
+import { ROAD_FALLBACK_FRESHER, roadSnapshot } from "./__fixtures__/general-road";
+import type { TradeSheetContext } from "./resume-render-input";
+import { ResumeSkinReader } from "./resume-skin.reader";
+import type { ResumeSkinRepository } from "./resume-skin.repository";
+
+// ADR-0045 Phase 5 — THE CONTEXT the processor hands the mapper, captured by a PASS-THROUGH
+// wrapper so "the name never rides the context" is asserted on the object itself rather than
+// inferred from the output. Every call still reaches the real mapper unchanged.
+const mapperCalls = vi.hoisted(() => ({ contexts: [] as unknown[] }));
+vi.mock("./resume-render-input", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./resume-render-input")>();
+  return {
+    ...actual,
+    buildResumeRenderInput: (...args: Parameters<typeof actual.buildResumeRenderInput>) => {
+      mapperCalls.contexts.push(args[6]);
+      return actual.buildResumeRenderInput(...args);
+    },
+  };
+});
 
 const RESUME_ID = "res-1";
 const WORKER_ID = "w-1";
@@ -260,6 +280,18 @@ function setup(
     // ADR-0043 — the id `latestResume` reports as the worker's CURRENT résumé. Omitted, the row
     // under render IS current, which is every test written before résumé history existed.
     currentResumeId?: string;
+    // ADR-0045 Phase 5 — the general road's reader, as the optional 15th dependency. OMITTED is
+    // the reader absent (every construction before Phase 5); `"throws"` is a reader whose read
+    // escapes it, for the one-load-one-section degrade.
+    generalRoads?: { answer: { road: "general" } | null } | "throws";
+    // #1801 — the résumé skin reader, as the optional 16th dependency. OMITTED is the service
+    // absent (every construction before skins existed), which renders the template as shipped.
+    skins?: unknown;
+    // #1800 — the résumé-QR link service, as the optional 17th dependency. OMITTED is the service
+    // absent (every construction before #1800), which prints the homepage QR.
+    resumeQrLinks?: unknown;
+    // ADR-0031 — the deletion grace marker on the worker row. Omitted is an active worker.
+    deletionScheduledAt?: Date | null;
   } = {},
 ) {
   const resumeRow = opts.resume === undefined ? DEFAULT_ROW : (opts.resume ?? undefined);
@@ -278,6 +310,7 @@ function setup(
       currentCity: opts.currentCity ?? null,
       currentState: opts.currentState ?? null,
       verificationState: opts.verificationState ?? null,
+      deletionScheduledAt: opts.deletionScheduledAt ?? null,
     })),
     latestResume: vi.fn(async () => ({
       id: opts.currentResumeId ?? (resumeRow as { id?: string } | undefined)?.id ?? RESUME_ID,
@@ -372,6 +405,15 @@ function setup(
     // #1350 item 4 — the renderer half of the kill switch, and the gate the refusal rides on.
     WORK_HISTORY_POLISH_ENABLED: opts.polishEnabled ?? false,
   } as ServerConfig;
+  const generalRoads =
+    opts.generalRoads === undefined
+      ? undefined
+      : {
+          forResume: vi.fn(async (_resume: { id: string; workerId: string }) => {
+            if (opts.generalRoads === "throws") throw new Error("road boom Asha Kumari");
+            return (opts.generalRoads as { answer: { road: "general" } | null }).answer;
+          }),
+        };
 
   const proc = new ResumeRenderProcessor(
     resumes as unknown as ResumeRepository,
@@ -387,6 +429,11 @@ function setup(
     transcript as unknown as WorkerTranscriptRepository,
     polish as never,
     config,
+    // `tierScopes` — absent, as in every test here: its own suite covers it.
+    undefined,
+    generalRoads as never,
+    opts.skins as never,
+    opts.resumeQrLinks as never,
   );
   return {
     proc,
@@ -399,6 +446,7 @@ function setup(
     employments,
     transcript,
     polish,
+    generalRoads,
   };
 }
 
@@ -645,13 +693,58 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
     // @Global-DATABASE-only reads, plus SERVER_CONFIG; no service, no event surface. Checked
     // before this bump.
     //
+    // `generalRoads` (GeneralRoadReader) joined for ADR-0045 Phase 5 — whether the résumé's own
+    // provenance puts it on the general road. It reaches GeneralRoadRepository alone, whose only
+    // dependency is the @Global DATABASE: four primary-key reads, no service, no event surface.
+    // The render still emits nothing. Checked before this bump.
+    //
+    // `skins` (ResumeSkinReader) joined for #1801 — the colour skin a `bb_trade` sheet prints in.
+    // It reaches ResumeSkinRepository (the @Global DATABASE only, one primary-key read) and
+    // SERVER_CONFIG. DELIBERATELY THE READER AND NOT ResumeSkinService, which emits
+    // `resume.skin_changed` and so would put an event surface within reach. Checked before this
+    // bump.
+    //
+    // `resumeQrLinks` (ResumeQrLinkService) joined for #1800 — and it is the ONE dependency on this
+    // list that CAN emit, so it is bounded by construction rather than by absence. It was made a
+    // class of its own, NOT ReferralLinkService (which resolves and claims), so that what is within
+    // reach is exactly one method, `codeFor(workerId)`, whose only emit is `referral.link_created`
+    // with a strict payload of ids and closed enums, on the same transaction as the row it records.
+    // The processor hands it the worker id and NOTHING it decrypted, and emits nothing itself. The
+    // two assertions after the arity pin both halves of that: the processor's own source still names
+    // no event surface, and the one class it may reach names exactly one event.
+    //
     // ARITY ALONE IS A PROXY, so the real property is asserted directly below it: a number can be
     // bumped to make this pass while wiring in exactly the dependency it exists to keep out.
-    expect(ResumeRenderProcessor.length).toBe(14);
+    expect(ResumeRenderProcessor.length).toBe(17);
     const source = readFileSync(join(__dirname, "resume-render.processor.ts"), "utf8");
     expect(source, "an events dependency reached the render processor").not.toMatch(
       /EventsService|events\.emit/,
     );
+    // Read off the IMPORTS, not the prose: the constructor's comment names the class it must not
+    // take, and a bare-word match would forbid documenting the rule.
+    const imports = [...source.matchAll(/^import [^;]+ from "([^"]+)";/gm)].map((m) => m[1]);
+    expect(
+      imports,
+      "the render may reach the NARROW mint, never the resolver/claim service",
+    ).toContain("../referrals/resume-qr-link.service");
+    for (const forbidden of [
+      "../referrals/referral-link.service",
+      "../referrals/referral-attribution.service",
+      "../events/events.service",
+    ]) {
+      expect(imports).not.toContain(forbidden);
+    }
+    const qrLinks = readFileSync(
+      join(__dirname, "..", "referrals", "resume-qr-link.service.ts"),
+      "utf8",
+    );
+    expect([...qrLinks.matchAll(/event_name:\s*"([a-z_.0-9]+)"/g)].map((m) => m[1])).toEqual([
+      "referral.link_created",
+    ]);
+    // …and it is handed the worker id alone: the only call is `codeFor(workerId)`.
+    expect([...source.matchAll(/resumeQrLinks\.codeFor\(([^)]*)\)/g)].map((m) => m[1])).toEqual([
+      "workerId",
+    ]);
   });
 
   it("degrades to a name-less render WITHOUT throwing when decrypt fails", async () => {
@@ -1536,5 +1629,443 @@ describe("ResumeRenderProcessor — the history card's facts (#1714)", () => {
       city: facts.city,
       pageCount: 2,
     });
+  });
+});
+
+/**
+ * ADR-0045 PHASE 5 — THE GENERAL ROAD ON THE WORKER'S OWN COPY.
+ *
+ * The reader is an EIGHTH independent load on the same degrade as the other seven: absent, null
+ * or throwing, the worker gets today's sheet and never a failed render. What only this processor
+ * can get right is the brief's re-check: it holds the worker's REAL name (decrypted once, for the
+ * masthead), and the verdict it passes on must never carry that name into the context.
+ */
+describe("ResumeRenderProcessor — the general road (ADR-0045 Phase 5)", () => {
+  const OWN = "Ghar aur dukaan ki wiring karta hoon.";
+  const ROAD_ROW = {
+    ...DEFAULT_ROW,
+    templateId: "bb_general",
+    sourceProfileSnapshot: roadSnapshot(),
+  };
+  const roadSheet = (brief: unknown = { status: "answered", text: OWN }) => ({
+    packId: null,
+    attributes: { profile_brief: brief },
+  });
+  const ON_ROAD = { answer: { road: "general" as const } };
+  const lastContext = () => mapperCalls.contexts.at(-1) as TradeSheetContext;
+  const drawn = (renderer: ReturnType<typeof setup>["renderer"]) =>
+    renderer.renderPdf.mock.calls[0]![0];
+  const stored = (resumes: ReturnType<typeof setup>["resumes"]) =>
+    (resumes.markRendered.mock.calls as unknown[][])[0]![2] as Record<string, unknown>;
+
+  it("asks the reader about THIS résumé on a bb_general render, and prints his own line", async () => {
+    const t = setup({
+      resume: ROAD_ROW,
+      fullName: NAME_TOKEN,
+      tradeSheet: roadSheet(),
+      generalRoads: ON_ROAD,
+    });
+    await t.proc.process(makeJob());
+    expect(t.generalRoads!.forResume).toHaveBeenCalledWith({ id: RESUME_ID, workerId: WORKER_ID });
+    expect(drawn(t.renderer).profileBrief).toBe(OWN);
+    expect(drawn(t.renderer).generalRoad).toBe(true);
+    // A MARKER AND ONE VERDICT — never the name the verdict was reached with.
+    const ctx = lastContext();
+    expect(ctx.generalRoad).toEqual({ ownBriefUsable: true });
+    expect(JSON.stringify(ctx)).not.toContain(REAL_NAME);
+    // The document is the general sheet's, whatever the (absent) pack says.
+    expect(stored(t.resumes)).toMatchObject({
+      format: "trade_sheet",
+      trade: "trade",
+      layout: "bb_general",
+      brief: OWN,
+    });
+  });
+
+  it("re-checks his line against the name it decrypted — decrypting it no more than before", async () => {
+    // "Asha" is a token of his CURRENT name: the write-time screen may have seen another one.
+    const t = setup({
+      resume: ROAD_ROW,
+      fullName: NAME_TOKEN,
+      tradeSheet: roadSheet({ status: "answered", text: "Asha ka kaam: wiring aur panel" }),
+      generalRoads: ON_ROAD,
+    });
+    await t.proc.process(makeJob());
+    expect(drawn(t.renderer).profileBrief).toBe(ROAD_FALLBACK_FRESHER);
+    expect(lastContext().generalRoad).toEqual({ ownBriefUsable: false });
+    expect(JSON.stringify(lastContext())).not.toContain(REAL_NAME);
+    // The re-check rides the masthead's decrypt: the name token is read exactly once.
+    expect(t.pii.decrypt.mock.calls.filter(([token]) => token === NAME_TOKEN)).toHaveLength(1);
+  });
+
+  it("a name that could not be decrypted fails the check — the fixed line, never unchecked words", async () => {
+    const t = setup({
+      resume: ROAD_ROW,
+      fullName: NAME_TOKEN,
+      decryptThrows: true,
+      tradeSheet: roadSheet(),
+      generalRoads: ON_ROAD,
+    });
+    expect(await t.proc.process(makeJob())).toEqual({ rendered: true });
+    expect(drawn(t.renderer).profileBrief).toBe(ROAD_FALLBACK_FRESHER);
+    expect(lastContext().generalRoad).toEqual({ ownBriefUsable: false });
+  });
+
+  it("a worker with no stored name has no name to find — his line prints", async () => {
+    const t = setup({
+      resume: ROAD_ROW,
+      fullName: null,
+      tradeSheet: roadSheet(),
+      generalRoads: ON_ROAD,
+    });
+    await t.proc.process(makeJob());
+    expect(drawn(t.renderer).profileBrief).toBe(OWN);
+  });
+
+  it("never asks for a bb_trade render, nor for a bb_general row a role pack now draws as bb_trade", async () => {
+    const trade = setup({
+      resume: { ...ROAD_ROW, templateId: "bb_trade" },
+      tradeSheet: roadSheet(),
+      generalRoads: ON_ROAD,
+    });
+    await trade.proc.process(makeJob());
+    expect(trade.generalRoads!.forResume).not.toHaveBeenCalled();
+    expect(drawn(trade.renderer).profileBrief).toBeUndefined();
+
+    // The template is RESOLVED once and read by both the gate and the mapper.
+    const upgraded = setup({
+      resume: ROAD_ROW,
+      tradeSheet: { packId: "qp_cnc_turning", attributes: {} },
+      generalRoads: ON_ROAD,
+    });
+    await upgraded.proc.process(makeJob());
+    expect(upgraded.generalRoads!.forResume).not.toHaveBeenCalled();
+    expect(drawn(upgraded.renderer).templateId).toBe("bb_trade");
+    expect(lastContext().generalRoad).toBeUndefined();
+  });
+
+  it("is optional: with no reader, or a reader that says no, the sheet is today's", async () => {
+    for (const generalRoads of [undefined, { answer: null }]) {
+      const t = setup({ resume: ROAD_ROW, tradeSheet: roadSheet(), generalRoads });
+      await t.proc.process(makeJob());
+      expect(drawn(t.renderer).profileBrief).toBeUndefined();
+      expect(drawn(t.renderer).generalRoad).toBeUndefined();
+      // ABSENT from the context, not null — so the context is exactly today's.
+      expect("generalRoad" in lastContext()).toBe(false);
+      // A pack-less document stays generic off the road.
+      expect(stored(t.resumes)).toMatchObject({ format: "generic" });
+    }
+  });
+
+  it("a reader that THROWS costs the road, never the PDF — and the warning carries ids only", async () => {
+    const t = setup({
+      resume: ROAD_ROW,
+      fullName: NAME_TOKEN,
+      tradeSheet: roadSheet(),
+      generalRoads: "throws",
+    });
+    const lines: string[] = [];
+    const logger = (t.proc as unknown as { logger: { warn: (m: string) => void } }).logger;
+    logger.warn = (m: string) => void lines.push(String(m));
+
+    expect(await t.proc.process(makeJob())).toEqual({ rendered: true });
+    expect(drawn(t.renderer).profileBrief).toBeUndefined();
+    expect(lines.some((l) => l.includes(`general-road provenance of resume ${RESUME_ID}`))).toBe(
+      true,
+    );
+    const joined = lines.join("\n");
+    expect(joined).not.toContain(REAL_NAME);
+    expect(joined).not.toContain("road boom");
+    expect(joined).not.toContain(OWN);
+  });
+});
+
+/**
+ * #1801 — THE SKIN, as the render worker reads it. The flag decides whether the table is touched
+ * at all; the template decides whether a skin is even asked for; and a failed read costs the skin,
+ * never the PDF. The renderer's own suite proves Neela is byte-identical to no skin.
+ */
+describe("résumé skin (#1801)", () => {
+  const TRADE_ROW = { ...DEFAULT_ROW, templateId: "bb_trade" };
+
+  function skinService(opts: { enabled: boolean; stored?: string | null; throws?: boolean }) {
+    const repo = {
+      findSkin: vi.fn(async (_workerId: string) => {
+        if (opts.throws) throw new Error('relation "worker_resume_skin" does not exist');
+        return opts.stored ?? null;
+      }),
+      lockSkin: vi.fn(),
+      insertSkin: vi.fn(),
+      updateSkin: vi.fn(),
+      withTransaction: vi.fn(),
+    };
+    const service = new ResumeSkinReader(repo as unknown as ResumeSkinRepository, {
+      RESUME_SKINS_ENABLED: opts.enabled,
+    });
+    return { service, repo };
+  }
+
+  const printed = (t: ReturnType<typeof setup>) => t.renderer.renderPdf.mock.calls[0]![0];
+
+  it("FLAG OFF: a trade-sheet render never touches worker_resume_skin and prints no skin", async () => {
+    const { service, repo } = skinService({ enabled: false, stored: "neela" });
+    const t = setup({ resume: TRADE_ROW, skins: service });
+    expect(await t.proc.process(makeJob())).toEqual({ rendered: true });
+    expect(repo.findSkin).not.toHaveBeenCalled();
+    expect(repo.lockSkin).not.toHaveBeenCalled();
+    expect(repo.withTransaction).not.toHaveBeenCalled();
+    expect("skin" in printed(t)).toBe(false);
+  });
+
+  it("FLAG ON, no row: the trade sheet prints in Neela (the house default)", async () => {
+    const { service, repo } = skinService({ enabled: true, stored: null });
+    const t = setup({ resume: TRADE_ROW, skins: service });
+    await t.proc.process(makeJob());
+    expect(repo.findSkin).toHaveBeenCalledWith(WORKER_ID);
+    expect(printed(t).skin).toBe("neela");
+  });
+
+  it("FLAG ON, a stored choice: the trade sheet prints in it", async () => {
+    const { service } = skinService({ enabled: true, stored: "neela" });
+    const t = setup({ resume: TRADE_ROW, skins: service });
+    await t.proc.process(makeJob());
+    expect(printed(t).skin).toBe("neela");
+  });
+
+  it("FLAG ON: a non-trade render never asks — skins are bb_trade only", async () => {
+    for (const templateId of ["bb_general", "classic", "modern", "minimal", "fallback", null]) {
+      const { service, repo } = skinService({ enabled: true, stored: "neela" });
+      const t = setup({ resume: { ...DEFAULT_ROW, templateId }, skins: service });
+      await t.proc.process(makeJob());
+      expect(repo.findSkin, String(templateId)).not.toHaveBeenCalled();
+      expect("skin" in printed(t), String(templateId)).toBe(false);
+    }
+  });
+
+  it("a read that THROWS costs the skin, never the PDF — and the document is untouched", async () => {
+    const { service } = skinService({ enabled: true, throws: true });
+    const t = setup({ resume: TRADE_ROW, skins: service });
+    const lines: string[] = [];
+    const logger = (t.proc as unknown as { logger: { warn: (m: string) => void } }).logger;
+    logger.warn = (m: string) => void lines.push(String(m));
+
+    expect(await t.proc.process(makeJob())).toEqual({ rendered: true });
+    expect("skin" in printed(t)).toBe(false);
+    expect(lines.some((l) => l.includes(`résumé skin for worker ${WORKER_ID}`))).toBe(true);
+    expect(lines.join("\n")).not.toContain("worker_resume_skin");
+  });
+
+  it("the skin rides the PRINT only — the stored document projection never carries it", async () => {
+    const { service } = skinService({ enabled: true, stored: "neela" });
+    const t = setup({ resume: TRADE_ROW, skins: service });
+    await t.proc.process(makeJob());
+    const document = (t.resumes.markRendered.mock.calls as unknown[][])[0]![2] as Record<
+      string,
+      unknown
+    >;
+    expect(JSON.stringify(document)).not.toContain("neela");
+  });
+});
+
+/**
+ * #1800 — THE RÉSUMÉ QR's OWN LINK (owner ruling 2026-09-28, "Count + attribute worker signups").
+ *
+ * The rules pinned: flag off (or the service absent) is the homepage QR, byte-identical to before
+ * and with no mint; flag on encodes `https://badabhai.ai/r/<code>` of the worker's own link; ANY
+ * failure falls back to the homepage QR and still renders; the code is never printed and never
+ * logged; and only a live worker is minted for.
+ */
+describe("ResumeRenderProcessor — #1800 the résumé QR encodes the worker's /r/ link", () => {
+  const QR_CODE = "abcdef012345";
+  // A sheet that PRINTS the QR — the default row resolves to the fallback template, which has
+  // no {{#qr}} slot and so (correctly) never mints.
+  const QR_ROW = { ...DEFAULT_ROW, templateId: "bb_trade" };
+  const homepageQr = (): Promise<string | null> => buildResumeQrDataUri(RESUME_PROFILE_ORIGIN);
+  const qrLinks = (over: { enabled?: boolean; codeFor?: ReturnType<typeof vi.fn> } = {}) => ({
+    enabled: over.enabled ?? true,
+    codeFor: over.codeFor ?? vi.fn(async (_workerId: string) => QR_CODE),
+  });
+  const renderedInput = (renderer: { renderPdf: { mock: { calls: unknown[][] } } }) =>
+    renderer.renderPdf.mock.calls[0]![0] as ResumeRenderInput;
+
+  it("service ABSENT (every pre-#1800 construction): the homepage QR, byte-identical", async () => {
+    const { proc, renderer } = setup({ resume: QR_ROW, fullName: NAME_TOKEN });
+    await proc.process(makeJob());
+    expect(renderedInput(renderer).qrDataUri).toBe(await homepageQr());
+  });
+
+  it("flag OFF: the homepage QR, byte-identical — and the mint is never asked", async () => {
+    const links = qrLinks({ enabled: false });
+    const { proc, renderer } = setup({
+      resume: QR_ROW,
+      fullName: NAME_TOKEN,
+      resumeQrLinks: links,
+    });
+    await proc.process(makeJob());
+    expect(renderedInput(renderer).qrDataUri).toBe(await homepageQr());
+    expect(links.codeFor).not.toHaveBeenCalled();
+  });
+
+  it("flag ON: encodes https://badabhai.ai/r/<code>, asked with the worker id alone", async () => {
+    const links = qrLinks();
+    const { proc, renderer } = setup({
+      resume: QR_ROW,
+      fullName: NAME_TOKEN,
+      resumeQrLinks: links,
+    });
+    await proc.process(makeJob());
+
+    expect(links.codeFor).toHaveBeenCalledWith(WORKER_ID);
+    const input = renderedInput(renderer);
+    expect(input.qrDataUri).toBe(await buildResumeQrDataUri(`https://badabhai.ai/r/${QR_CODE}`));
+    expect(input.qrDataUri).not.toBe(await homepageQr());
+  });
+
+  it("STABLE across a forced re-render: the same code, so the same QR", async () => {
+    const links = qrLinks();
+    const first = setup({ resume: QR_ROW, fullName: NAME_TOKEN, resumeQrLinks: links });
+    await first.proc.process(makeJob());
+    const again = setup({
+      fullName: NAME_TOKEN,
+      resumeQrLinks: links,
+      resume: { ...QR_ROW, renderStatus: "rendered" },
+    });
+    await again.proc.process(makeJob({ force: true }));
+    expect(renderedInput(again.renderer).qrDataUri).toBe(renderedInput(first.renderer).qrDataUri);
+  });
+
+  it("the code is NEVER PRINTED: caption, short link and footer are exactly today's", async () => {
+    const { proc, renderer } = setup({
+      resume: QR_ROW,
+      fullName: NAME_TOKEN,
+      resumeQrLinks: qrLinks(),
+    });
+    await proc.process(makeJob());
+    const input = renderedInput(renderer);
+    expect(input.qrCaption).toBe(RESUME_QR_CAPTION);
+    expect(input.qrCaption).toBe("Scan to visit BadaBhai");
+    expect(input.shortLink).toBe("badabhai.ai");
+    // Everything the renderer is handed, minus the QR's own modules, is free of the bearer code.
+    const { qrDataUri: _modules, ...printed } = input;
+    expect(JSON.stringify(printed)).not.toContain(QR_CODE);
+    // The QR is an SVG of modules; the code is not in it as text either.
+    expect(decodeURIComponent(input.qrDataUri ?? "")).not.toContain(QR_CODE);
+  });
+
+  it.each([
+    ["the kind CHECK (0129 not applied)", Object.assign(new Error("check"), { code: "23514" })],
+    [
+      "collisions exhausted",
+      Object.assign(new Error("exhausted"), { name: "ResumeQrMintExhaustedError" }),
+    ],
+    ["a database outage", new Error("connection terminated")],
+  ])(
+    "a mint that throws (%s) falls back to the homepage QR and STILL renders",
+    async (_why, err) => {
+      const links = qrLinks({ codeFor: vi.fn(async () => Promise.reject(err)) });
+      const { proc, renderer, storage } = setup({
+        resume: QR_ROW,
+        fullName: NAME_TOKEN,
+        resumeQrLinks: links,
+      });
+      const res = await proc.process(makeJob());
+      expect(res).toEqual({ rendered: true });
+      expect(storage.uploadPdf).toHaveBeenCalledOnce();
+      expect(renderedInput(renderer).qrDataUri).toBe(await homepageQr());
+    },
+  );
+
+  it("a mint that answers null (flag flipped off mid-render) is the homepage QR", async () => {
+    const links = qrLinks({ codeFor: vi.fn(async () => null) });
+    const { proc, renderer } = setup({
+      resume: QR_ROW,
+      fullName: NAME_TOKEN,
+      resumeQrLinks: links,
+    });
+    await proc.process(makeJob());
+    expect(renderedInput(renderer).qrDataUri).toBe(await homepageQr());
+  });
+
+  it("a failed mint is logged WITHOUT the code or the query's bound parameters", async () => {
+    // What drizzle 0.45 actually throws: the parameters — the code and the worker id — are in the
+    // wrapper's MESSAGE, and the SQLSTATE is on its cause.
+    const wrapped = Object.assign(
+      new Error(`Failed query: insert into "referral_links" …\nparams: ${QR_CODE},w-1`),
+      {
+        query: 'insert into "referral_links" …',
+        params: [QR_CODE, WORKER_ID],
+        cause: Object.assign(new Error("violates check constraint"), { code: "23514" }),
+      },
+    );
+    const links = qrLinks({ codeFor: vi.fn(async () => Promise.reject(wrapped)) });
+    const { proc } = setup({ resume: QR_ROW, fullName: NAME_TOKEN, resumeQrLinks: links });
+    const lines: string[] = [];
+    const instLogger = (proc as unknown as { logger: { warn: (m: string) => void } }).logger;
+    instLogger.warn = (m: string) => void lines.push(String(m));
+
+    await proc.process(makeJob());
+    const joined = lines.join("\n");
+    expect(joined).toContain("printing the homepage QR");
+    expect(joined).toContain("23514");
+    expect(joined).not.toContain(QR_CODE);
+  });
+
+  it("a worker whose deletion is SCHEDULED is not handed a new code — homepage QR, no mint", async () => {
+    const links = qrLinks();
+    const { proc, renderer } = setup({
+      resume: QR_ROW,
+      fullName: NAME_TOKEN,
+      resumeQrLinks: links,
+      deletionScheduledAt: new Date("2026-10-05T00:00:00Z"),
+    });
+    await proc.process(makeJob());
+    expect(links.codeFor).not.toHaveBeenCalled();
+    expect(renderedInput(renderer).qrDataUri).toBe(await homepageQr());
+  });
+
+  it("an ABSENT worker row (erased mid-queue) is never minted for", async () => {
+    const links = qrLinks();
+    const { proc, workers } = setup({ resume: QR_ROW, fullName: NAME_TOKEN, resumeQrLinks: links });
+    workers.findById.mockResolvedValue(undefined as never);
+    await proc.process(makeJob());
+    expect(links.codeFor).not.toHaveBeenCalled();
+  });
+
+  it("a sheet with NO QR slot (legacy classic / fallback) never mints — the flag on or not", async () => {
+    for (const templateId of ["classic", "modern", "minimal", "fallback", null]) {
+      const links = qrLinks();
+      const { proc } = setup({
+        resume: { ...DEFAULT_ROW, templateId },
+        fullName: NAME_TOKEN,
+        resumeQrLinks: links,
+      });
+      await proc.process(makeJob());
+      expect(links.codeFor, String(templateId)).not.toHaveBeenCalled();
+    }
+  });
+
+  it("bb_general prints the QR too, so it DOES mint", async () => {
+    const links = qrLinks();
+    const { proc } = setup({
+      resume: { ...DEFAULT_ROW, templateId: "bb_general" },
+      fullName: NAME_TOKEN,
+      resumeQrLinks: links,
+    });
+    await proc.process(makeJob());
+    expect(links.codeFor).toHaveBeenCalledWith(WORKER_ID);
+  });
+});
+
+describe("#1800 — the employer copy still prints NO QR", () => {
+  it("the disclosure path neither mints a link nor builds a QR", () => {
+    // NEEDS_PRAKASH Q6/R4: only the worker's OWN sheet carries a QR. The disclosure never reached
+    // the builder before #1800 and must not reach the mint now.
+    const disclosure = readFileSync(
+      join(__dirname, "..", "disclosures", "resume-disclosure.service.ts"),
+      "utf8",
+    );
+    expect(disclosure).not.toMatch(
+      /buildResumeQrDataUri|ResumeQrLinkService|resumeQrScanUrl|qrDataUri/,
+    );
   });
 });

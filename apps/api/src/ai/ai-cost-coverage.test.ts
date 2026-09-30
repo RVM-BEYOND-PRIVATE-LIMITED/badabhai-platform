@@ -137,7 +137,7 @@ const ALL_TASK_TYPES = AiCostRecordedPayload.shape.task_type.options as readonly
  *                       deliberately — the person who arms that seam edits Python, not this
  *                       app, which is exactly how `stt_transcription` shipped unledgered.
  *
- * WHAT REMAINS, and why none of the three is a gap of the same shape — all spend OUTSIDE
+ * WHAT REMAINS, and why neither is a gap of the same shape — both spend OUTSIDE
  * apps/api, so there is no request path here that could emit for them:
  *
  *   tts_synthesis       no apps/api caller at all; spend originates in the render CLI (#701)
@@ -153,7 +153,10 @@ const ALL_TASK_TYPES = AiCostRecordedPayload.shape.task_type.options as readonly
  * narrated here: a source-text matcher must not be coupled to a variable name, and an entry on
  * this list is a claim about TODAY that has to be re-derived, not inherited.
  */
-const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = ["domain_match", "tts_synthesis"];
+const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = [
+  "domain_match",
+  "tts_synthesis",
+];
 
 describe("every task type that can spend is either emitted or named as unledgered (#738)", () => {
   it("finds the real emitter call sites — without this the coverage check is vacuous", () => {
@@ -163,6 +166,17 @@ describe("every task type that can spend is either emitted or named as unledgere
     // `profiling_chat_turn` was always the seventh and the matcher simply could not see it).
     const emitted = emittedTaskTypes();
     expect([...emitted].sort()).toEqual([
+      // ADR-0046 Phase 3 — the career answer, wired in `CareerTalkHandler.handle` in the SAME
+      // change that routed the task (A2/A3 of that phase). It is the one companion call whose
+      // spend is the model writing the worker's answer, which is exactly the spend O12 exists
+      // to watch.
+      "companion_career_answer",
+      // ADR-0046 Phase 1 — the companion router's two calls, wired in
+      // `CompanionV2Orchestrator.handleMessage` (classify) and `CompanionEditService.propose`
+      // (edit-parse). Route and ledger landed in the SAME change — the lesson the
+      // `work_history_polish` comment below records, applied in advance.
+      "companion_classify",
+      "companion_edit_parse",
       "job_posting_chat_turn",
       "profile_extraction",
       "profile_parse",

@@ -28,7 +28,12 @@ import { agencyJobInputSchema } from "../../../../lib/contracts";
 
 /* ── 1. SCHEMA — the validation authority the form mirrors (C9) ───────────────── */
 
-const VALID = { tradeKey: "cnc_operator", title: "CNC Operator", city: "Pune" } as const;
+const VALID = {
+  tradeKey: "cnc_operator",
+  roleKind: "cnc_turner",
+  title: "CNC Operator",
+  city: "Pune",
+} as const;
 const PAY_MAX_INR = 10_000_000;
 const EXPERIENCE_MAX_YEARS = 60;
 

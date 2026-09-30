@@ -1229,6 +1229,88 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileGeneralFormCompletedPayload,
   },
+
+  // #1318 (owner ruling 2026-09-27) — `resume.edited` VERSION 2: a worker edited a résumé SAFE
+  // FIELD (name, photo, show_photo, night_shift_ready). The v1 entry keeps its definition,
+  // unmodified, and its emitter (extracted-profile corrections); v1's required correction/session
+  // ids cannot describe a safe-field edit. Emitted from `WorkersService` only on a REAL change by
+  // the worker themself, only once a résumé exists, one per field. Ids + closed enum, strict. v2.
+  "resume.edited_v2": { version: 2, domain: "resume", payload: p.ResumeEditedV2Payload },
+
+  // #1801 (owner ruling 2026-09-28, "Plumbing, Neela only") — a worker CHANGED their résumé skin.
+  // Moved here from #1318 so the payload ships with the vocabulary it names. Per-worker preference,
+  // so subject = worker and no resume_id. Emitted by `ResumeSkinService` only on a persisted real
+  // change, in the same transaction as the `worker_resume_skin` write. Id + closed enums, strict.
+  "resume.skin_changed": { version: 1, domain: "resume", payload: p.ResumeSkinChangedPayload },
+
+  // #1800 (owner ruling 2026-09-28, "Count + attribute worker signups") — the QR on a worker's own
+  // résumé was scanned. Emitted by `GET /r/:code` for a `resume_qr` link INSTEAD OF
+  // `referral.link_clicked` (one tap, one event), behind the resolver's bot filter, per-IP cap and
+  // hashed-visitor dedupe. worker_id = the résumé OWNER, never the scanner; the link row id, never
+  // the bearer code; a closed platform enum. Strict. v1.
+  "profile.qr_scanned": { version: 1, domain: "profile", payload: p.ProfileQrScannedPayload },
+
+  // ── ADR-0046 (companion v2, Phase 1) — appended at the tail, per the append-only protocol ──
+  //
+  // `chat.companion_turn_served` VERSION 2 — the router's own facts on the v1 recap shape
+  // (intent_source / v2_intent / confidence_bucket / outcome). A NEW NAME, exactly as
+  // `feed.shown_v2`, `profile.viewed_v2` and `resume.edited_v2` do: `validateEvent` allows one
+  // version per name, so the v1 entry above keeps its definition and its emitter (the v1 path,
+  // byte-for-byte when the v2 flag is off) while v2 turns emit this key. Counts and closed sets
+  // only — never the worker's text. v2.
+  "chat.companion_turn_served_v2": {
+    version: 2,
+    domain: "chat",
+    payload: p.ChatCompanionTurnServedV2Payload,
+  },
+  // One edit card was stored and served (O4/O5). The card's shape only: opaque proposal id,
+  // counts, closed section names and closed unsupported reasons. Never a before/after value.
+  // Emitted by the edit service when the proposal is stored, once per proposal. v1.
+  "chat.companion_edit_proposed": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatCompanionEditProposedPayload,
+  },
+  // The worker tapped Haan and the selected rows applied in ONE transaction (O4/O6). Counts and
+  // closed sections plus how the résumé regeneration ended. Never a written value. v1.
+  "chat.companion_edit_confirmed": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatCompanionEditConfirmedPayload,
+  },
+  // The card was dismissed without writing: Nahi (`worker`), TTL (`expired`), or a profile that
+  // moved under the card (`stale`; the confirm route answers 409 and deletes the proposal). v1.
+  "chat.companion_edit_cancelled": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatCompanionEditCancelledPayload,
+  },
+  // ADR-0046 P2 (O11) — one faltu strike was counted, and whether it started the cool-down.
+  // A count and a boolean; never the message that caused it. v1.
+  "chat.companion_faltu_strike": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatCompanionFaltuStrikePayload,
+  },
+  // ADR-0046 P3 — a career answer was served: answered / refused / fallback, the refusal topic
+  // when there was one, and how many memory turns the answer saw. Never the answer's text. v1.
+  "chat.companion_career_answered": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatCompanionCareerAnsweredPayload,
+  },
+
+  // ── E4 — appended at the tail, per the append-only protocol ──────────────────────────────
+  //
+  // The worker changed the VISIBILITY of his own supply: one skill toggled, or every skill
+  // cleared in one call (`skill_id: null`). `wants` is half of ADR-0036's visibility rule, so
+  // a change to it is a business action. PII-FREE: an opaque worker uuid, a closed-vocabulary
+  // `mskill_*` id (or null) and a boolean — never a name, never a count of who could see him. v1.
+  "worker.match_skill_wants_set": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerMatchSkillWantsSetPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

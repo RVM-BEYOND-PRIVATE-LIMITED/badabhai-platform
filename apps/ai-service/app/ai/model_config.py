@@ -38,6 +38,15 @@ class TaskRoute:
     temperature: float
     json_mode: bool
     max_retries: int
+    #: An EXPLICIT model for a task that must not ride a tier default — ADR-0046 O7's career
+    #: answer, whose primary is Claude while every tier resolves to Gemini. `None` = resolve
+    #: from `tier`. Additive: every existing construction leaves it unset.
+    model: str | None = None
+    #: The cross-provider fallback for THIS task, used when the global
+    #: `default_fallback_model` is the SAME provider as the primary (Claude primary → Gemini
+    #: fallback, O7). `None` = the router's existing `default_fallback_model` rule. Still
+    #: subject to the router's provider-differs and transport-available gates.
+    fallback_model: str | None = None
 
 
 # Routing rules. The SHAPE of a route is code (which tasks exist, whether each
@@ -109,6 +118,18 @@ _ROUTE_SHAPES: dict[str, tuple[ModelTier, bool]] = {
     # scraped for a sentence, which is how a refusal ("I cannot rewrite this") gets printed on
     # a resume as if it were the worker's description.
     "work_history_polish": ("cheap", True),
+    # ADR-0046 Phase 1 — the companion router's two calls. CHEAP on purpose, and it is a
+    # judgement about the task rather than a cost compromise: classification is a six-way
+    # choice over one short message, and edit extraction points at a catalogue the API has
+    # already narrowed to the fields the worker can change. `json_mode` because both answers
+    # are parsed as objects — a prose preamble would be scraped, which is how a hallucinated
+    # intent or field gets past a parser.
+    "companion_classify": ("cheap", True),
+    "companion_edit_parse": ("cheap", True),
+    # ADR-0046 Phase 3 - the career answer. `json_mode` because the reply is a discriminated
+    # object (answer lines or a refusal topic); the tier is a harmless placeholder - the route
+    # sets `model` explicitly (O7: Claude primary), so no tier default is consulted.
+    "companion_career_answer": ("cheap", True),
 }
 
 
@@ -285,6 +306,49 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
             json_mode=json_mode,
             max_retries=settings.ai_extraction_max_retries,
         )
+    if task_type in ("companion_classify", "companion_edit_parse"):
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # TEMPERATURE ZERO. Both calls are classifications against closed sets — a
+            # six-intent choice and a field catalogue — and the same sentence must route
+            # the same way on a retry. Sampling here would make "edit" vs "jobs" a coin
+            # toss for the same worker message.
+            #
+            # SMALL BUDGETS ON PURPOSE. The classifier's whole answer is
+            # `{"intent": ..., "confidence": ...}`; the parser's is at most `max_rows`
+            # rows of five short fields. A generous budget invites commentary the
+            # contract does not carry, and a truncated candidate loses the closing
+            # brace and fails the contract exactly like a rejected one.
+            max_output_tokens=64 if task_type == "companion_classify" else 512,
+            temperature=0.0,
+            json_mode=json_mode,
+            # One retry, the chat surface's own number: these calls sit on a worker's
+            # message, where a second attempt is worth it and a third is a stall.
+            max_retries=settings.ai_chat_max_retries,
+        )
+    if task_type == "companion_career_answer":
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # SMALL BUDGET: the contract is at most 4 lines plus 3 chips, so 512 tokens is
+            # slack for both; a tighter cap would only add truncation as a failure mode, and
+            # a truncated object fails the contract exactly like a rejected one.
+            max_output_tokens=512,
+            # LOW, NOT ZERO (phase-3 §3 sets the ceiling at 0.4). The model writes prose here,
+            # and an answer that is verbatim identical on every ask reads like a form - but
+            # sampling is never what keeps the answer SAFE: the API's deterministic validator
+            # and the O10 refusal backstop do that, whatever the temperature.
+            temperature=0.4,
+            json_mode=json_mode,
+            max_retries=settings.ai_chat_max_retries,
+            # O7: Claude primary from settings, and Gemini Flash as THIS task's fallback. The
+            # global `default_fallback_model` is ALSO Claude, and the router skips a fallback
+            # whose provider matches the primary's - so without this the career chain would
+            # have no cross-provider fallback at all.
+            model=settings.default_career_model,
+            fallback_model=settings.default_capable_model,
+        )
     if task_type == "work_history_polish":
         return TaskRoute(
             task_type,
@@ -331,8 +395,14 @@ def resolve_model(task_type: str, settings: Settings) -> str:
     folded into the capable branch, so that adding a fourth tier without a branch here falls to
     the CHEAP default and is caught by the tier round-trip test, instead of quietly resolving to
     whatever the last branch happened to return.
+
+    A ROUTE MAY NAME ITS OWN MODEL (ADR-0046 O7's career answer): `route.model` wins over the
+    tier, because the tier defaults are pinned by other tasks and a task whose primary must be
+    a DIFFERENT provider cannot be expressed as a tier without moving them.
     """
     route = get_route(task_type, settings)
+    if route.model is not None:
+        return route.model
     if route.tier == "pro":
         return settings.default_pro_model
     if route.tier == "capable":

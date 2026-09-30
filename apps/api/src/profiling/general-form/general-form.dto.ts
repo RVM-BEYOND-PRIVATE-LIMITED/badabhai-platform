@@ -287,6 +287,8 @@ export const BRIEF_REFUSAL_CODES = {
   name: "brief_name",
   contact: "brief_contact",
   link: "brief_link",
+  // Owner ruling 2026-09-27 (ADR-0045 §6): money in the brief is refused at write time.
+  salary: "brief_salary",
   organisation: "brief_organisation",
   unscreenable: "brief_unscreenable",
 } as const satisfies { readonly [R in BriefRefusalReason]: `brief_${R}` };

@@ -12,7 +12,14 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_models.dart'
-    show ChatInputMode, ChatOption, ChatQuestionKind, FormOffer;
+    show
+        ChatAnswerType,
+        ChatInputMode,
+        ChatOption,
+        ChatQuestionKind,
+        EditProposal,
+        EditProposalRow,
+        FormOffer;
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/nav/tab_focus.dart';
@@ -22,6 +29,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_animated_switcher.dart';
 import '../../../core/widgets/bb_bottom_sheet.dart';
+import '../../../core/widgets/bb_button.dart';
 // Only for [kChatSendFailedLabel]: the bubble itself is drawn locally in the
 // Master UI Kit style (see [_ChatBubble]), the copy stays the shared constant.
 import '../../../core/widgets/bb_chat_bubble.dart' show kChatSendFailedLabel;
@@ -36,8 +44,15 @@ import '../../voice/domain/speech_reader.dart';
 import '../../voice/domain/voice_models.dart';
 import '../../voice/presentation/dictation_controller.dart';
 import '../../voice/presentation/widgets/dictation_bar.dart';
+// #1559 / #1583 — the SAME Haan / Nahi copy and none-of-above tick rule the
+// voice form and the trade form already use for these answer types.
+import '../../voice_form/domain/voice_form_models.dart' show VoiceChoice;
+import '../../voice_form/presentation/widgets/voice_choice_chips.dart'
+    show applyNoneOfAboveRule, kVoiceBooleanNo, kVoiceBooleanYes;
 import '../domain/chat_message.dart';
+import '../domain/chat_multi_select.dart';
 import '../domain/chat_companion_keys.dart';
+import '../domain/companion_edit_value.dart';
 import '../domain/chat_resume_menu.dart';
 import '../../swipe/domain/job_detail.dart';
 import 'bloc/chat_bloc.dart';
@@ -105,7 +120,9 @@ const String _kExperienceGatePrompt = 'Aur koi experience jodna hai?';
 /// allows no digits).
 const String _kLlmOptionKeyPrefix = 'llm_';
 
-/// The server's "none of these" escape `option_key` (mirrors
+// ADR-0045 — the server's word on whether the skills gate is open this turn.
+// `gateKind == "skills"` means the skills gate ("Kya aur koi skill jodni hai?")
+// is open and the composer must be locked. The chips above are the only answer path.
 /// `DISAMBIGUATION_ESCAPE_KEY` in `packages/config` occupation tuning).
 /// Whatever turn it rides on (a disambiguation list today, a model chip row
 /// once the backend appends it there) it opens custom-answer mode and is never
@@ -169,6 +186,11 @@ const String kChatOptionsOnlyHint = 'Upar diye gaye vikalp mein se chunein';
 /// are no chips above to point at on this turn.
 const String kChatFormOfferLockedHint = 'Neeche diya button dabakar aage badhein';
 
+/// The button under a `multi_select` turn's chips (#1559 / #1583): the chips
+/// only TICK there, and this sends every ticked choice as ONE answer. Disabled
+/// until at least one chip is ticked. Aap-form-neutral, PII-free constant copy.
+const String kChatMultiSelectDoneLabel = 'Ho gaya';
+
 /// Nudge-sheet heading.
 ///
 /// PERSONA: was 'Ek minute, bhai'. `bhai` as a VOCATIVE is banned by the Ten
@@ -222,23 +244,37 @@ class ChatProfilingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Read ONCE, at mount: the lever decides which chat this tab opens, and a
-    // Remote Config fetch landing later must not swap it under the worker.
+    // Read at mount, for the chat this tab OPENS. A Remote Config fetch landing
+    // later never swaps the chat on screen; the lever is read again only when
+    // the tab comes back into focus (see [_CompanionRefocus]).
     final bool companion =
         assistantTab && BbRemoteConfig.instance.chatCompanionEnabled;
+    final Widget view = _ChatView(fromResumeImport: fromResumeImport);
     return BlocProvider<ChatBloc>(
       create: (_) => locator<ChatBloc>()
-        ..add(companion ? const ChatCompanionStarted() : const ChatStarted()),
-      child: companion
-          ? _CompanionRefocus(child: _ChatView(fromResumeImport: fromResumeImport))
-          : _ChatView(fromResumeImport: fromResumeImport),
+        ..add(companion ? ChatCompanionStarted() : ChatStarted()),
+      // Wrapped whatever the lever said at mount: the tree must not change shape
+      // when the lever does, and a tab that opened as the interview needs the
+      // refocus as much as one that opened on the recap.
+      child: assistantTab ? _CompanionRefocus(child: view) : view,
     );
   }
 }
 
-/// ADR-0044 — re-reads the companion recap each time the Bada Bhai tab comes
-/// back into focus (the shell keeps the tab mounted, so nothing else would).
-/// The bloc throttles it and appends a bubble only when the facts changed.
+/// ADR-0044 — each time the Bada Bhai tab comes back into focus (the shell keeps
+/// the tab mounted, so nothing else would), asks the bloc to re-read the
+/// companion, while the Remote Config lever is on:
+///
+///   - on the recap, the recap is refreshed; the bloc throttles it and appends a
+///     bubble only when the facts changed;
+///   - on the interview, the tab moves to the recap when the server now says so
+///     and the worker has not answered that interview in this tab (the bloc's
+///     rule). That is how a worker who confirmed after the tab opened, or whose
+///     phone loaded the lever after it opened, reaches the recap without
+///     restarting the app.
+///
+/// The lever is read at FOCUS time, not at mount: a tab that opened before the
+/// fetch landed would otherwise never ask.
 ///
 /// No-op when [TabFocus] is not registered (a widget test's bare locator), so a
 /// test that does not care about refocus need not wire it.
@@ -253,8 +289,10 @@ class _CompanionRefocus extends StatelessWidget {
     return TabFocusRefetch(
       tabFocus: locator<TabFocus>(),
       index: TabIndex.chat,
-      onFocused: () =>
-          context.read<ChatBloc>().add(const ChatCompanionRefreshRequested()),
+      onFocused: () {
+        if (!BbRemoteConfig.instance.chatCompanionEnabled) return;
+        context.read<ChatBloc>().add(const ChatCompanionRefreshRequested());
+      },
       child: child,
     );
   }
@@ -328,6 +366,13 @@ class _ChatViewState extends State<_ChatView> {
   /// The composer hint while [_customAnswerMode] is on: the profile hint for a
   /// disambiguation list, the question-neutral one for a chip row.
   String _customAnswerHint = kChatCustomAnswerHint;
+
+  /// #1559 / #1583 — the chips TICKED on a `multi_select` turn, as
+  /// [ChatOption.optionKey]s in the order the worker ticked them. Nothing is
+  /// sent until [kChatMultiSelectDoneLabel]. TURN-SCOPED like
+  /// [_customAnswerMode]: cleared by the bloc listener the moment the turn
+  /// moves on (a send, a reply), never carried to the next question.
+  List<String> _ticked = const <String>[];
 
   /// Focus for the composer [TextField], so entering [_customAnswerMode] can
   /// raise the keyboard straight onto the field.
@@ -622,6 +667,65 @@ class _ChatViewState extends State<_ChatView> {
             servedOption: true,
           ),
         );
+  }
+
+  /// #1559 / #1583 — a chip on a `multi_select` turn TICKS (or unticks)
+  /// instead of sending. [options] is the whole row, so the none-of-above rule
+  /// the voice and trade forms apply holds here too: ticking "none of these"
+  /// clears the rest, ticking anything else clears "none of these".
+  ///
+  /// Blocked while a send is pending (see [_optionTapPending]): the turn is
+  /// about to move on, and the listener would clear the tick anyway.
+  void _toggleTick(ChatOption option, List<ChatOption> options) {
+    if (_optionTapPending) return;
+    setState(() {
+      _ticked = applyNoneOfAboveRule(
+        current: _ticked,
+        key: option.optionKey,
+        options: <VoiceChoice>[
+          for (final ChatOption o in options)
+            VoiceChoice(
+              key: o.optionKey,
+              label: o.labelText,
+              isNoneOfAbove: o.isNoneOfAbove,
+            ),
+        ],
+      );
+    });
+  }
+
+  /// #1559 / #1583 — "Ho gaya" on a `multi_select` turn: every ticked choice
+  /// goes as ONE message, the labels joined ([chatMultiSelectAnswer]) — the
+  /// form the server's option matcher reads several choices from. One send
+  /// per turn, like any chip (see [_optionTapPending]).
+  ///
+  /// No `optionKey`: the server serves no lookahead on a multi-select turn,
+  /// and a joined answer has no single key to predict from. Flagged
+  /// [ChatMessageSent.servedOption] because every part of it is a served label.
+  void _sendTicked(List<ChatOption> options) {
+    if (_optionTapPending) return;
+    final String answer =
+        chatMultiSelectAnswer(options: options, tickedKeys: _ticked);
+    if (answer.isEmpty) return;
+    setState(() {
+      _optionTapPending = true;
+      _ticked = const <String>[];
+    });
+    context
+        .read<ChatBloc>()
+        .add(ChatMessageSent(answer, servedOption: true));
+  }
+
+  /// #1583 — a Haan / Nahi quick reply on a `boolean` turn the server served
+  /// no chips for. Sent as the plain word, exactly as if typed: the server
+  /// reads it with the same yes/no parser it runs on typed text
+  /// (`parseAffirmation`). Client-authored, so not a served option; no
+  /// lookahead key (the question has no options to key one by). One send per
+  /// turn (see [_optionTapPending]).
+  void _sendBooleanReply(String word) {
+    if (_optionTapPending) return;
+    setState(() => _optionTapPending = true);
+    context.read<ChatBloc>().add(ChatMessageSent(word));
   }
 
   /// Re-send the failed bubble at [index] (#343) — in place, no duplicate.
@@ -1365,8 +1469,12 @@ class _ChatViewState extends State<_ChatView> {
             curr.initializing != prev.initializing ||
             // #1689 — the terminal turn that settled a "Haan" must be acted on
             // even if nothing else about the state moved.
-            curr.resumeUpdateQueued != prev.resumeUpdateQueued,
+            curr.resumeUpdateQueued != prev.resumeUpdateQueued ||
+            // ADR-0046 §5.2 — the edit card's one-shot notice. On the CHANGE
+            // edge only, so it is shown once and never re-shown on a rebuild.
+            curr.editNotice != prev.editNotice,
         listener: (BuildContext context, ChatState state) {
+          _showEditNotice(state);
           _maybeSayEmptyImport(state);
           _maybeLeaveForResumeUpdate(state);
           // Release on the SETTLE EDGE (sending true → false), never on the
@@ -1381,6 +1489,9 @@ class _ChatViewState extends State<_ChatView> {
           // listener only fires when a message lands or `sending` flips —
           // i.e. the turn has moved on — so drop it here.
           if (_customAnswerMode) setState(() => _customAnswerMode = false);
+          // #1559 / #1583 — ticks belong to the question they were made on,
+          // for the same reason.
+          if (_ticked.isNotEmpty) setState(() => _ticked = const <String>[]);
           _wasSending = state.sending;
           _onMessagesChanged(state.messages);
         },
@@ -1448,7 +1559,15 @@ class _ChatViewState extends State<_ChatView> {
                                   // only (never the worker's own messages). #896 —
                                   // pass the Devanagari script so read-aloud speaks
                                   // it (falls back to the romanized text when null).
-                                  trailing: (!m.fromWorker && !failed)
+                                  //
+                                  // ADR-0046 O9 — EXCEPT on a model-written turn.
+                                  // That fallback is the hazard there: such a turn
+                                  // has no reviewed Devanagari twin, so `ttsText ??
+                                  // text` would read the model's raw romanized
+                                  // Hinglish aloud in a hi-IN voice. A bubble the
+                                  // server marked `read_aloud: false` is offered no
+                                  // speaker at all.
+                                  trailing: (!m.fromWorker && !failed && m.canReadAloud)
                                       ? _speakerButton(i, m.text, m.ttsText)
                                       : null,
                                 );
@@ -1483,6 +1602,11 @@ class _ChatViewState extends State<_ChatView> {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: <Widget>[
+                      // ADR-0046 Phase 1 — the edit card (companion mode only)
+                      if (state.companion &&
+                          BbRemoteConfig.instance.chatCompanionV2Enabled &&
+                          state.editProposal != null)
+                        _editProposalCard(state.editProposal!),
                       BbAnimatedSwitcher(child: _answerAffordance(state)),
                       // A blocked turn (pseudonymize fail-closed) never processed the
                       // worker's last answer — say so rather than let the canned
@@ -1575,10 +1699,24 @@ class _ChatViewState extends State<_ChatView> {
             !_customAnswerMode &&
             _isYesNoGate(state))
           _optionsOnlyHint()
+        // #1821 F1 — THE COOL-DOWN BLOCKS FREE TEXT, AND ONLY FREE TEXT. The
+        // server serves `cooldown_until` on a faltu turn; until that instant the
+        // composer is replaced by a locked bar counting down. The chips above
+        // this segment are untouched on purpose: a cooled-down worker must still
+        // reach their résumé and the jobs, which is what the chips are for.
+        else if (_cooldownActive(state))
+          _cooldownComposerLock(state.cooldownUntil!)
+        else if (state.gateKind == 'skills')
+          _skillsGateLockedHint()
         else if (state.formOffer != null)
           _formOfferLockedHint()
         else
-          _inputBar(showVoice),
+          _inputBar(
+            showVoice,
+            // #1583 — a `number` question opens the number keypad for this
+            // turn only; the turn-scoped answerType reverts it on the next.
+            numeric: state.answerType == ChatAnswerType.number,
+          ),
         // #1339/#1340 — the handover card REPLACES the "build my
         // profile" CTA on the one turn that hands the worker to a
         // trade form, never alongside it. `extraction_ready` is
@@ -1592,18 +1730,99 @@ class _ChatViewState extends State<_ChatView> {
         // ADR-0044 — a companion worker's profile is DONE: "build my profile"
         // would only re-open the preview for a finished interview.
         else if (!state.companion)
-          _doneCta(state),
+          _doneCta(state)
+        // ADR-0046 F3 — the companion composer's mic. TWO levers, both of which
+        // must be on: the v2 lever (the whole Phase 1 UI ships dark) and the
+        // SHIPPED B7 mic kill switch, which exists so ops can pull every mic in
+        // the app without a release when transcription is degraded. This is the
+        // same `voiceEntryHidden` the interview composer above obeys — a second
+        // mic that ignored it would quietly defeat the switch during exactly the
+        // incident it was built for.
+        // ...AND NOT WHILE COOLING DOWN. The mic resolves to typed text in the
+        // very composer the cool-down just removed, so leaving it up let a
+        // worker record, transcribe and land a transcript in a box that is not
+        // on screen — the wait, defeated by the control beside it.
+        else if (state.companion &&
+            BbRemoteConfig.instance.chatCompanionV2Enabled &&
+            !BbRemoteConfig.instance.voiceEntryHidden &&
+            !_cooldownActive(state))
+          _companionVoiceButton(),
       ],
       ),
       ),
     );
   }
 
+  /// ADR-0046 F3 — the companion composer's voice button: the EXISTING voice
+  /// upload + transcribe flow (consent `voice_processing` as today), but the
+  /// transcript lands in the COMPOSER for the worker to review and send rather
+  /// than being merged into a chat session the companion does not have.
+  ///
+  /// Only rendered while the v2 lever is on (the whole Phase 1 UI ships dark).
+  Widget _companionVoiceButton() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s4,
+        AppSpacing.s3,
+        AppSpacing.s4,
+        AppSpacing.s3,
+      ),
+      child: _capped(
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Semantics(
+              button: true,
+              label: 'Bolkar likhein',
+              // Named so a test can assert on THIS mic. The screen carries three
+              // (this one, the composer's dictation button and the interview's
+              // voice note), and only this one rides the v2 lever.
+              child: Material(
+                key: kCompanionVoiceButtonKey,
+                color: OnboardingColors.safetyYellow,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: _openCompanionVoiceNote,
+                  child: const SizedBox(
+                    width: AppSpacing.tap,
+                    height: AppSpacing.tap,
+                    child: Icon(
+                      Icons.mic,
+                      color: OnboardingColors.textOnYellow,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Opens the voice-note screen in COMPOSE mode: it records, uploads and
+  /// transcribes exactly as it always has, then pops the approved transcript
+  /// instead of sending it. The text lands in the composer for review — the
+  /// worker sends it as an ordinary companion message, so it goes through the
+  /// classifier like anything they type.
+  Future<void> _openCompanionVoiceNote() async {
+    final String? transcript =
+        await context.push<String>(Routes.voiceNote, extra: true);
+    if (transcript == null || !mounted || transcript.trim().isEmpty) return;
+    _landDictation(transcript);
+    _composerFocus.requestFocus();
+  }
+
   /// Kit 03 composer. IDLE: a rounded pill input + a trailing MIC / SEND button.
   /// While the worker dictates, the input area IS the recorder — a FULL-WIDTH
   /// static waveform ([_listeningBar]) fills the field slot with Stop + Send, and
   /// NOTHING is typed until Stop lands the recognised text in the field.
-  Widget _inputBar(bool showVoice) {
+  ///
+  /// [numeric] (#1583) swaps the field's keyboard to a number keypad; the mic
+  /// and dictation are untouched (dictated text lands in the field as before).
+  Widget _inputBar(bool showVoice, {bool numeric = false}) {
     return Container(
       decoration: const BoxDecoration(
         color: OnboardingColors.paperWhite,
@@ -1623,14 +1842,14 @@ class _ChatViewState extends State<_ChatView> {
                 onStop: _stopDictation,
                 onSend: _sendFromDictation,
               )
-            : _idleBar(showVoice),
+            : _idleBar(showVoice, numeric: numeric),
       ),
     );
   }
 
   /// The normal composer row: (hidden) voice-note mic + text field + the trailing
-  /// mic/send action.
-  Widget _idleBar(bool showVoice) {
+  /// mic/send action. [numeric]: see [_inputBar].
+  Widget _idleBar(bool showVoice, {bool numeric = false}) {
     return Row(
       children: <Widget>[
         // Owner request: HIDE the bottom-left voice-note mic — hidden with
@@ -1652,6 +1871,9 @@ class _ChatViewState extends State<_ChatView> {
             focusNode: _composerFocus,
             minLines: 1,
             maxLines: 4,
+            // #1583 — null keeps the field's own default (today's keyboard);
+            // a live change re-configures the open keyboard in place.
+            keyboardType: numeric ? TextInputType.number : null,
             textInputAction: TextInputAction.send,
             onSubmitted: (_) => _send(),
             inputFormatters: <TextInputFormatter>[
@@ -1770,7 +1992,8 @@ class _ChatViewState extends State<_ChatView> {
   /// Whether this turn is the one legitimate keyboard lock (#770): the yes/no
   /// gate — its chips ([_isYesNoPair]) AND its prompt, the latest bot bubble
   /// ([_kExperienceGatePrompt], trimmed and case-folded). A model's own
-  /// Haan / Nahi question keeps the composer.
+  /// Haan / Nahi question keeps the composer. Additionally, the skills gate
+  /// (ADR-0045) locks the keyboard when [gateKind] is `"skills"`.
   static bool _isYesNoGate(ChatState state) {
     if (state.messages.isEmpty) return false;
     final ChatMessage last = state.messages.last;
@@ -1811,6 +2034,15 @@ class _ChatViewState extends State<_ChatView> {
   Widget _formOfferLockedHint() => _lockedComposerBar(
         text: kChatFormOfferLockedHint,
         icon: Icons.arrow_downward_rounded,
+      );
+
+  /// Replaces the composer on a skills gate turn (ADR-0045): the same
+  /// locked-look frame as [_optionsOnlyHint], but pointing at the Haan/Nahi
+  /// chips above rather than a hint — the skills gate locks the keyboard
+  /// and only the two gate chips are the answer path.
+  Widget _skillsGateLockedHint() => _lockedComposerBar(
+        text: kChatOptionsOnlyHint,
+        icon: Icons.touch_app_outlined,
       );
 
   /// Shared locked-look composer replacement: same paper-bar frame as
@@ -1953,6 +2185,13 @@ class _ChatViewState extends State<_ChatView> {
     // and the optimistic prediction finally fires. Served ALONGSIDE
     // `suggested_followups`, so a deterministic/older turn with no options falls
     // through to the label-keyed path below, unchanged (label == key there).
+    //
+    // #1559 / #1583 — a `multi_select` pack question: its chips TICK and one
+    // "Ho gaya" sends them together. Never in companion mode (those chips
+    // navigate) and never on a disambiguation (one trade is the answer).
+    final bool multiSelect = !state.companion &&
+        state.answerType == ChatAnswerType.multiSelect &&
+        state.questionKind != ChatQuestionKind.disambiguate;
     if (state.suggestedOptions.isNotEmpty) {
       return KeyedSubtree(
         key: const ValueKey<String>('chips'),
@@ -1968,7 +2207,9 @@ class _ChatViewState extends State<_ChatView> {
             ? _companionActionChips(state.suggestedOptions)
             : state.questionKind == ChatQuestionKind.disambiguate
                 ? _disambiguateOptions(state.suggestedOptions)
-                : _followupOptions(state.suggestedOptions),
+                : multiSelect
+                    ? _multiSelectOptions(state.suggestedOptions)
+                    : _followupOptions(state.suggestedOptions),
       );
     }
     if (state.followups.isNotEmpty) {
@@ -1977,9 +2218,41 @@ class _ChatViewState extends State<_ChatView> {
       // single-select, not the horizontal scroller a worker can skim past (#649).
       return KeyedSubtree(
         key: const ValueKey<String>('chips'),
-        child: state.questionKind == ChatQuestionKind.disambiguate
+        // COMPANION FIRST, exactly as the `suggested_options` branch above.
+        // #1754 fixed companion chips rendering as unchecked radio buttons, but
+        // only on the options branch — and ADR-0046's career answer (P3) arrives
+        // with `suggested_followups` and NO options, on a turn the server marks
+        // `question_kind: disambiguate`. It therefore fell straight back into
+        // `_disambiguate`, reinstating the exact bug #1754 closed: TalkBack
+        // announcing "unchecked radio button" for a chip that just sends text,
+        // and circles that tell a low-literacy worker to "pick one, then
+        // confirm". In companion mode these are chips, whichever field carried
+        // them.
+        child: state.companion
+            ? _companionActionChips(<ChatOption>[
+                for (final String f in state.followups)
+                  ChatOption(optionKey: f, labelText: f),
+              ])
+            : state.questionKind == ChatQuestionKind.disambiguate
             ? _disambiguate(state.followups)
-            : _followups(state.followups),
+            : multiSelect
+                // Label-only chips (an older build, or the optimistic
+                // prediction's labels): the label is the key, as on
+                // [_followups].
+                ? _multiSelectOptions(<ChatOption>[
+                    for (final String f in state.followups)
+                      ChatOption(optionKey: f, labelText: f),
+                  ])
+                : _followups(state.followups),
+      );
+    }
+    // #1583 — a `boolean` pack question arrives with NO chips (every boolean
+    // pack item carries zero options), so offer Haan / Nahi. Only when the
+    // server served none: served chips above always win.
+    if (!state.companion && state.answerType == ChatAnswerType.boolean) {
+      return KeyedSubtree(
+        key: const ValueKey<String>('chips'),
+        child: _booleanReplies(),
       );
     }
     return const SizedBox.shrink(key: ValueKey<String>('none'));
@@ -2085,6 +2358,79 @@ class _ChatViewState extends State<_ChatView> {
       child: _AnswerChip(label: kChatCustomAnswerLabel, onTap: open),
     );
   }
+
+  /// #1559 / #1583 — a `multi_select` turn's chips. A tap TICKS (the kit's
+  /// selected paint) instead of sending ([_toggleTick]), and
+  /// [kChatMultiSelectDoneLabel] — enabled once anything is ticked — sends
+  /// every ticked choice as one answer ([_sendTicked]).
+  ///
+  /// A WRAP, not the horizontal scroller: a worker choosing several has to be
+  /// able to see them all (sixteen languages), and the stack under the
+  /// transcript already scrolls within its cap on a short phone.
+  ///
+  /// The server's own escape ([_kServerEscapeOptionKey]) is never a tick: it
+  /// opens the composer, exactly as on [_followupOptions].
+  Widget _multiSelectOptions(List<ChatOption> options) {
+    final List<ChatOption> answers =
+        options.where((ChatOption o) => !_isServerEscape(o)).toList();
+    final bool escape = answers.length != options.length;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s4,
+        AppSpacing.s1,
+        AppSpacing.s4,
+        AppSpacing.s2,
+      ),
+      child: _capped(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Wrap(
+              spacing: AppSpacing.s2,
+              runSpacing: AppSpacing.s2,
+              children: <Widget>[
+                for (final ChatOption o in answers)
+                  _AnswerChip(
+                    label: o.labelText,
+                    selected: _ticked.contains(o.optionKey),
+                    onTap: () => _toggleTick(o, answers),
+                  ),
+                if (escape) _customAnswerChip(),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.s2),
+            // Navy, not the yellow primary: yellow is the SELECTED chip paint
+            // right above it, and the "build my profile" CTA below is the
+            // screen's one primary (the voice form's multi-select submit
+            // makes the same call).
+            BbButton(
+              label: kChatMultiSelectDoneLabel,
+              variant: BbButtonVariant.navy,
+              size: BbButtonSize.md,
+              block: true,
+              onPressed: _ticked.isEmpty ? null : () => _sendTicked(answers),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// #1583 — Haan / Nahi for a `boolean` question the server served with no
+  /// chips. Same row and look as served chips; the composer stays, since the
+  /// server reads a typed "haan ji" the same way.
+  Widget _booleanReplies() => _chipScroller(<Widget>[
+        _AnswerChip(
+          label: kVoiceBooleanYes,
+          onTap: () => _sendBooleanReply(kVoiceBooleanYes),
+        ),
+        const SizedBox(width: AppSpacing.s2),
+        _AnswerChip(
+          label: kVoiceBooleanNo,
+          onTap: () => _sendBooleanReply(kVoiceBooleanNo),
+        ),
+      ]);
 
   /// The horizontal, scrollable wrapper shared by the label-keyed fallback
   /// ([_followups]) and the `suggested_options` path ([_followupOptions]) — just
@@ -2209,6 +2555,18 @@ class _ChatViewState extends State<_ChatView> {
   /// a worker — and a test — cannot reach them. Routing is untouched: the tap
   /// still goes to [_sendChoice], which decides on the KEY.
   Widget _companionActionChips(List<ChatOption> options) {
+    // THE LEVER GATES THE DOOR TOO (ADR-0046 F4). v2-only chips are dropped on a
+    // build whose lever is off — see [isCompanionV2OnlyKey] for why offering one
+    // without its destination is worse than not offering it. v1's chips (jobs,
+    // applied, a job, the résumé menu) are untouched by this and always render.
+    final List<ChatOption> shown = BbRemoteConfig.instance.chatCompanionV2Enabled
+        ? options
+        : options
+            .where((ChatOption o) => !isCompanionV2OnlyKey(o.optionKey))
+            .toList(growable: false);
+    // Every chip on the turn was v2-only: draw NOTHING rather than an empty
+    // padded column, so a lever-off build is byte-identical to v1.
+    if (shown.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.s4,
@@ -2220,7 +2578,7 @@ class _ChatViewState extends State<_ChatView> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          for (final ChatOption o in options)
+          for (final ChatOption o in shown)
             Padding(
               padding: const EdgeInsets.only(bottom: AppSpacing.s2),
               child: Semantics(
@@ -2270,6 +2628,68 @@ class _ChatViewState extends State<_ChatView> {
       ),
     );
   }
+
+  /// ADR-0046 §5.2 — say why the edit card could not be applied.
+  ///
+  /// The bloc sets [ChatState.editNotice] on exactly three paths: a dead card
+  /// (404 expired / 409 stale), a failed Haan and a failed Nahi. All three used
+  /// to be SILENT — the card either vanished or the button did nothing — which
+  /// on a worker's own profile is the most alarming thing this screen can do.
+  ///
+  /// A snackbar, the same surface the companion already uses for "Applied", and
+  /// fired from the listener's change edge so it shows once per notice.
+  void _showEditNotice(ChatState state) {
+    final String? notice = state.editNotice;
+    if (notice == null || notice.isEmpty) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(notice)));
+  }
+
+  /// ADR-0046 §5.1 — the edit card: one row per proposed change, all ticked,
+  /// with Haan / Nahi under them. Haan sends the TICKED rows' server-minted
+  /// `row_id`s to the confirm route; Nahi cancels. The card disables itself
+  /// once `expires_at` passes (the server would refuse it anyway).
+  Widget _editProposalCard(EditProposal proposal) {
+    return _EditProposalCard(
+      // Keyed on the proposal: a replaced card starts with every row ticked
+      // again and a fresh expiry clock.
+      key: ValueKey<String>(proposal.proposalId),
+      proposal: proposal,
+      onConfirm: (List<String> rowIds) =>
+          context.read<ChatBloc>().add(ChatEditProposalConfirmed(rowIds)),
+      onCancel: () =>
+          context.read<ChatBloc>().add(const ChatEditProposalCancelled()),
+    );
+  }
+
+  /// #1821 F1 — is the companion still cooling down, right now?
+  ///
+  /// Gated by the v2 lever like every other v2 surface, so a lever-off build
+  /// never locks its composer on a field it would not otherwise render.
+  bool _cooldownActive(ChatState state) =>
+      state.companion &&
+      BbRemoteConfig.instance.chatCompanionV2Enabled &&
+      state.cooldownUntil != null &&
+      state.cooldownUntil!.isAfter(DateTime.now());
+
+  /// #1821 F1 — the composer, replaced by a live countdown until [until].
+  ///
+  /// It REPLACES the composer rather than sitting above it, using the same
+  /// locked-bar frame as the skills gate and the form handover, because a
+  /// visible-but-ignored text box is the thing that makes a worker type into
+  /// nothing. [_CooldownComposerLock] owns the clock and tells this screen when
+  /// the wait is over, so the composer comes back on its own.
+  Widget _cooldownComposerLock(DateTime until) => _CooldownComposerLock(
+        until: until,
+        onExpired: () {
+          if (mounted) setState(() {});
+        },
+        builder: (String text) => _lockedComposerBar(
+          text: text,
+          icon: Icons.hourglass_empty,
+        ),
+      );
 
   Widget _disambiguateOptions(List<ChatOption> options) {
     return Padding(
@@ -2587,23 +3007,36 @@ class _ChatBubble extends StatelessWidget {
 /// no persistent "selected" state — the tap sends the answer and the row is
 /// replaced on the next turn. Keeps `BbChip`'s 48px tap floor and its
 /// single-line label inside the horizontally-scrolling row.
+///
+/// The one exception is a `multi_select` turn (#1559 / #1583), where the chip
+/// is a TOGGLE — see [selected].
 class _AnswerChip extends StatelessWidget {
-  const _AnswerChip({required this.label, required this.onTap});
+  const _AnswerChip({required this.label, required this.onTap, this.selected});
 
   final String label;
   final VoidCallback onTap;
+
+  /// Null on every chip but a multi-select's: today's chip, unchanged.
+  /// Non-null makes the chip a toggle announced as selected / not selected;
+  /// `true` wears the kit's SELECTED paint (the [OnboardingColors.selectedCardBg]
+  /// wash behind a 1.8 safety-yellow border, navy label) plus a check, so the
+  /// tick never rests on colour alone.
+  final bool? selected;
 
   static const BorderRadius _radius = BorderRadius.all(Radius.circular(12));
 
   @override
   Widget build(BuildContext context) {
-    return Material(
+    final bool ticked = selected ?? false;
+    final Widget chip = Material(
       color: Colors.transparent,
       child: Ink(
         decoration: BoxDecoration(
-          color: OnboardingColors.chipBg,
+          color: ticked ? OnboardingColors.selectedCardBg : OnboardingColors.chipBg,
           borderRadius: _radius,
-          border: Border.all(color: OnboardingColors.borderDefault, width: 1.2),
+          border: ticked
+              ? Border.all(color: OnboardingColors.safetyYellow, width: 1.8)
+              : Border.all(color: OnboardingColors.borderDefault, width: 1.2),
         ),
         child: InkWell(
           onTap: onTap,
@@ -2619,14 +3052,35 @@ class _AnswerChip extends StatelessWidget {
               horizontal: 14,
               vertical: AppSpacing.s2,
             ),
-            child: Text(
-              label,
-              style: OnboardingTypography.inter(size: 14),
-            ),
+            child: ticked
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      const Icon(
+                        Icons.check_rounded,
+                        size: 16,
+                        color: OnboardingColors.shiftBlue,
+                      ),
+                      const SizedBox(width: AppSpacing.s1),
+                      Text(
+                        label,
+                        style: OnboardingTypography.inter(
+                          size: 14,
+                          color: OnboardingColors.shiftBlue,
+                        ),
+                      ),
+                    ],
+                  )
+                : Text(
+                    label,
+                    style: OnboardingTypography.inter(size: 14),
+                  ),
           ),
         ),
       ),
     );
+    if (selected == null) return chip;
+    return Semantics(button: true, selected: ticked, child: chip);
   }
 }
 
@@ -2735,4 +3189,421 @@ class _WrappingPrimaryButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// ADR-0046 §5.1 — the pending edit card.
+///
+/// STATEFUL so the tick set and the expiry clock belong to ONE proposal: the
+/// parent keys it on `proposal_id`, so a replaced card starts fresh (every row
+/// ticked, the clock re-armed).
+///
+/// THE VALUES NEVER LEAVE. The card shows `before` / `after`; the confirm call
+/// carries only the ticked `row_id`s — the server re-reads its own stored
+/// proposal and re-checks everything on confirm (contracts §5.2).
+/// The most row ids `POST /chat/companion/edits/:id/confirm` accepts
+/// (`ConfirmEditSchema.row_ids` is `.min(1).max(3)`, ADR-0046 §5.2).
+///
+/// Mirrored here because the app must not build a body the route will reject.
+/// Note the asymmetry it guards: `EditProposalSchema.rows` is `.min(1)` with NO
+/// maximum, so a proposal MAY legitimately arrive with more rows than a single
+/// confirm can carry — and since every row starts ticked, that card would open
+/// with an un-confirmable Haan unless the worker is told to narrow it.
+/// #1821 F1 — the cool-down countdown that replaces the composer.
+///
+/// ITS OWN TICKER, for the same reason the edit card has one: nothing else on a
+/// waiting chat screen rebuilds, so a countdown computed once at build time
+/// would freeze at whatever it first read and the composer would never return.
+/// This rebuilds every second and calls [onExpired] on the tick that crosses
+/// [until], which is what lets the SCREEN re-evaluate and give the composer back.
+///
+/// The text counts minutes while there are minutes left and seconds below that —
+/// "2 minute baad" is useful, "0 minute baad" is not.
+class _CooldownComposerLock extends StatefulWidget {
+  const _CooldownComposerLock({
+    required this.until,
+    required this.onExpired,
+    required this.builder,
+  });
+
+  final DateTime until;
+  final VoidCallback onExpired;
+
+  /// Draws the bar. Passed in so this widget owns the CLOCK and the screen keeps
+  /// ownership of the locked-bar frame it shares with the skills gate.
+  final Widget Function(String text) builder;
+
+  @override
+  State<_CooldownComposerLock> createState() => _CooldownComposerLockState();
+}
+
+class _CooldownComposerLockState extends State<_CooldownComposerLock> {
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      if (!widget.until.isAfter(DateTime.now())) {
+        _ticker?.cancel();
+        widget.onExpired();
+        return;
+      }
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      widget.builder(kCooldownComposerText(widget.until));
+}
+
+/// What the locked composer says while the companion is cooling down.
+///
+/// Hinglish, aap-form. Names the real reason — Bada Bhai is busy — and the wait,
+/// because "try again later" with no number is what makes a worker tap a dead
+/// box repeatedly.
+String kCooldownComposerText(DateTime until) {
+  final Duration left = until.difference(DateTime.now());
+  if (left.inSeconds <= 0) return 'Bada Bhai abhi vyast hain.';
+  if (left.inMinutes >= 1) {
+    return 'Bada Bhai abhi vyast hain. ${left.inMinutes} minute baad likh sakte hain.';
+  }
+  return 'Bada Bhai abhi vyast hain. ${left.inSeconds} second baad likh sakte hain.';
+}
+
+/// The companion composer's mic (ADR-0046 F3) — keyed because this screen draws
+/// three mics and only this one is gated by the v2 lever.
+const Key kCompanionVoiceButtonKey = ValueKey<String>('companion-voice-button');
+
+/// What an edit row's operation DOES, in the worker's words. `section_label`
+/// names the section only, so without these a row is ambiguous between adding
+/// and removing the very same value.
+const String kEditOpAdd = 'Jodenge:';
+const String kEditOpDelete = 'Hatayenge:';
+
+const int kEditProposalMaxRows = 3;
+
+/// Shown when more rows are ticked than one confirm can carry.
+const String kEditProposalTooManyTicked =
+    'Ek baar mein teen badlav tak. Kuch ka tick hata dein.';
+
+class _EditProposalCard extends StatefulWidget {
+  const _EditProposalCard({
+    super.key,
+    required this.proposal,
+    required this.onConfirm,
+    required this.onCancel,
+  });
+
+  final EditProposal proposal;
+
+  /// Called with the TICKED rows' server-minted ids (never the values).
+  final void Function(List<String> rowIds) onConfirm;
+
+  /// Nahi.
+  final VoidCallback onCancel;
+
+  @override
+  State<_EditProposalCard> createState() => _EditProposalCardState();
+}
+
+class _EditProposalCardState extends State<_EditProposalCard> {
+  /// The rows the worker UNTICKED. Everything starts ticked, so an empty set
+  /// needs no initialisation pass — and the card cannot be built before the
+  /// proposal it belongs to exists.
+  final Set<String> _unticked = <String>{};
+
+  /// Rebuilds once a second so Haan / Nahi disable the moment `expires_at`
+  /// passes, with no other rebuild arriving.
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  /// True once the proposal's TTL has passed: the server would refuse the
+  /// confirm, so the card must not offer one.
+  bool get _expired => !DateTime.now().isBefore(widget.proposal.expiresAt);
+
+  List<String> get _tickedRowIds => <String>[
+        for (final EditProposalRow row in widget.proposal.rows)
+          if (!_unticked.contains(row.rowId)) row.rowId,
+      ];
+
+  void _toggle(EditProposalRow row) {
+    if (_expired) return;
+    setState(() {
+      if (!_unticked.remove(row.rowId)) _unticked.add(row.rowId);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool expired = _expired;
+    final List<String> ticked = _tickedRowIds;
+    // The confirm route takes at most [kEditProposalMaxRows] row ids, but the
+    // proposal schema puts NO ceiling on rows — so a longer card arrives with
+    // every row ticked and a Haan that the server would 400. Say so, in the
+    // worker's terms, instead of letting them tap into a rejection.
+    final bool overTicked = ticked.length > kEditProposalMaxRows;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s4,
+        AppSpacing.s2,
+        AppSpacing.s4,
+        AppSpacing.s3,
+      ),
+      child: Center(
+        heightFactor: 1,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxWidth: OnboardingLayout.maxContentWidth,
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: OnboardingColors.paperWhite,
+              borderRadius: BorderRadius.circular(OnboardingRadii.card),
+              border: Border.all(
+                color: OnboardingColors.borderDefault,
+                width: 1.2,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                for (final EditProposalRow row in widget.proposal.rows)
+                  _row(row, expired: expired),
+                const SizedBox(height: AppSpacing.s2),
+                Text(
+                  expired
+                      ? 'Ye prastav ki samay-seema khatam ho gayi.'
+                      : 'Ye prastav ${_formatExpiry(widget.proposal.expiresAt)} tak maany hai.',
+                  style: OnboardingTypography.bodyMuted(
+                    color: OnboardingColors.ink600,
+                  ),
+                ),
+                // Why Haan is off, when it is off for THIS reason. Without the
+                // line a worker sees a dead button and no way to work out what
+                // the card wants from them.
+                if (overTicked) ...<Widget>[
+                  const SizedBox(height: AppSpacing.s2),
+                  Text(
+                    kEditProposalTooManyTicked,
+                    style: OnboardingTypography.inter(
+                      size: 12,
+                      height: 1.35,
+                      color: OnboardingColors.errorRed,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: AppSpacing.s3),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: expired ? null : widget.onCancel,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: OnboardingColors.errorRed,
+                          side: const BorderSide(
+                            color: OnboardingColors.errorRed,
+                          ),
+                          minimumSize: const Size(double.infinity, 48),
+                          shape: RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.circular(OnboardingRadii.button),
+                          ),
+                        ),
+                        child: Text(
+                          kVoiceBooleanNo,
+                          style: OnboardingTypography.buttonLabel(
+                            color: OnboardingColors.errorRed,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.s3),
+                    Expanded(
+                      child: PrimaryActionButton(
+                        label: kVoiceBooleanYes,
+                        showArrow: false,
+                        // Nothing ticked is nothing to apply; expired is nothing
+                        // the server would accept; and more than
+                        // [kEditProposalMaxRows] is a body the confirm route
+                        // rejects outright (see the getter).
+                        onPressed: (expired ||
+                                ticked.isEmpty ||
+                                ticked.length > kEditProposalMaxRows)
+                            ? null
+                            : () => widget.onConfirm(ticked),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// One row: a tick (everything starts ticked), the section's server-supplied
+  /// label, and what changes.
+  Widget _row(EditProposalRow row, {required bool expired}) {
+    final bool ticked = !_unticked.contains(row.rowId);
+    return InkWell(
+      onTap: expired ? null : () => _toggle(row),
+      borderRadius: BorderRadius.circular(OnboardingRadii.card),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.s2),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            // The tick is the row's only control; the whole row is its target.
+            Checkbox(
+              value: ticked,
+              onChanged: expired ? null : (_) => _toggle(row),
+              activeColor: OnboardingColors.shiftBlue,
+              checkColor: OnboardingColors.textOnBlue,
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            const SizedBox(width: AppSpacing.s2),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    row.sectionLabel,
+                    style: OnboardingTypography.inter(
+                      size: 13,
+                      weight: FontWeight.w700,
+                      color: OnboardingColors.ink900,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  _rowChange(row),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// What one row's change reads as. `add` shows the new value, `delete` the
+  /// removed one (struck through), `edit` both; an unknown future op falls back
+  /// to the same before→after line rather than hiding the row.
+  ///
+  /// BOTH VALUES GO THROUGH [companionEditValue], because for nine of the edit
+  /// catalogue's fields the server's `before`/`after` is a closed-set token —
+  /// `role_cnc_operator`, `night`, `daily_wage`, `"true"` — and a worker must
+  /// never be asked to confirm a change written in ids. The row_ids sent back on
+  /// Haan are untouched by this; only the pixels are humanised.
+  Widget _rowChange(EditProposalRow row) {
+    final String? before =
+        row.before == null ? null : companionEditValue(row.before!);
+    final String? after =
+        row.after == null ? null : companionEditValue(row.after!);
+    switch (row.op) {
+      case 'add':
+        // Say it is being ADDED. A bare value under a section label reads as a
+        // statement of fact, not as a change the worker is about to authorise.
+        return _opLine(kEditOpAdd, after ?? '');
+      case 'delete':
+        // THE ONE ROW THAT DESTROYS SOMETHING. A strikethrough alone carries
+        // that meaning only to a reader who already knows the convention, and
+        // every row arrives pre-ticked — so a worker who taps Haan without
+        // decoding it loses a skill, a language or a qualification off their own
+        // résumé. The word says so, in the same red the app uses for removal.
+        return _opLine(
+          kEditOpDelete,
+          before ?? '',
+          struckThrough: true,
+          tone: OnboardingColors.errorRed,
+        );
+      default:
+        if ((before ?? '').isEmpty) return _valueText(after ?? '');
+        if ((after ?? '').isEmpty) return _valueText(before!);
+        return Text(
+          '$before  →  $after',
+          style: OnboardingTypography.inter(
+            size: 13,
+            color: OnboardingColors.ink600,
+          ),
+        );
+    }
+  }
+
+  /// One row's change, prefixed by what the change DOES.
+  ///
+  /// The prefix is the fix for the card's worst ambiguity: `section_label` names
+  /// the SECTION ("Skills"), never the operation, so "Welding" under "Skills"
+  /// could equally mean adding it or removing it. Screen readers get the same
+  /// sentence, which a strikethrough cannot give them at all.
+  Widget _opLine(
+    String op,
+    String value, {
+    bool struckThrough = false,
+    Color? tone,
+  }) =>
+      Text.rich(
+        TextSpan(children: <InlineSpan>[
+          TextSpan(
+            text: '$op ',
+            style: OnboardingTypography.inter(
+              size: 13,
+              weight: FontWeight.w700,
+              color: tone ?? OnboardingColors.ink600,
+            ),
+          ),
+          TextSpan(
+            text: value,
+            style: OnboardingTypography.inter(
+              size: 13,
+              color: OnboardingColors.ink600,
+              decoration:
+                  struckThrough ? TextDecoration.lineThrough : null,
+            ),
+          ),
+        ]),
+      );
+
+  Widget _valueText(String value, {bool struckThrough = false}) => Text(
+        value,
+        style: OnboardingTypography.inter(
+          size: 13,
+          color: OnboardingColors.ink600,
+          decoration: struckThrough ? TextDecoration.lineThrough : null,
+        ),
+      );
+}
+
+/// The card's remaining lifetime, e.g. "8 minute". A relative figure is all the
+/// worker needs; the exact instant is not actionable.
+String _formatExpiry(DateTime expiresAt) {
+  final Duration remaining = expiresAt.difference(DateTime.now());
+  if (remaining.inMinutes <= 0) return 'kuch second';
+  if (remaining.inHours >= 1) return '${remaining.inHours} ghante';
+  return '${remaining.inMinutes} minute';
 }

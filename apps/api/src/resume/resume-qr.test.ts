@@ -1,7 +1,27 @@
 import QRCode from "qrcode";
 import { describe, expect, it } from "vitest";
 
-import { buildResumeQrDataUri, RESUME_QR } from "./resume-qr";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { buildResumeQrDataUri, RESUME_QR, templateTakesQr } from "./resume-qr";
+import { RESUME_TEMPLATES } from "./templates/registry";
+
+// #1800 — the mint gate. A `resume_qr` bearer code is minted only for a render whose sheet prints
+// the QR; this pins that list against the SKELETONS, so a template gaining or losing `{{#qr}}`
+// cannot silently leave the gate wrong in either direction.
+describe("templateTakesQr — exactly the templates whose skeleton has a {{#qr}} slot", () => {
+  it.each(RESUME_TEMPLATES.map((t) => [t.id, t.file] as const))("%s (%s)", (id, file) => {
+    const skeleton = readFileSync(join(__dirname, "templates", file), "utf8");
+    expect(templateTakesQr(id)).toBe(skeleton.includes("{{#qr}}"));
+  });
+
+  it("an unknown or absent id resolves to the fallback sheet, which has no QR", () => {
+    expect(templateTakesQr(null)).toBe(false);
+    expect(templateTakesQr(undefined)).toBe(false);
+    expect(templateTakesQr("no-such-template")).toBe(false);
+  });
+});
 
 /**
  * The properties worth pinning are the ones that make the printed code UNSCANNABLE or the PDF

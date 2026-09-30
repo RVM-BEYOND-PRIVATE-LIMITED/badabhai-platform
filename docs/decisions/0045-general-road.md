@@ -1,8 +1,8 @@
 # ADR-0045: The general road — role → skills → offline general form, for roles outside the 21
 
-- **Status:** **Accepted for build (ships OFF).** The rulings R1–R7 below were given by the owner on 2026-09-26; the
-  defaults in §6 were approved with the plan. **Production flag-ON is gated on the owner's signature** at the foot and
-  on the worker-app release that draws the card and the form.
+- **Status:** **Accepted — signed 2026-09-27** (see the foot). The rulings R1–R7 below were given by the owner on
+  2026-09-26; the defaults in §6 were approved with the plan. The backend is complete and ships OFF. **Production
+  flag-ON is now gated only on the worker-app release** that draws the card and the form (#1791–#1795).
 - **Date:** 2026-09-26
 - **Owner:** product owner (rulings relayed by Divyanshu, 2026-09-26)
 - **Amends:** [ADR-0042](0042-profile-road-separation.md) D8 (chat-road completions no longer always go straight to
@@ -136,9 +136,11 @@ their dated jobs only (R5). An undated job makes the total unknown, exactly as t
     the same mark, per handover, so a chat redo that hands the form over again starts incomplete. Residual: a handover
     whose flush failed is still active, and a later re-flush replaces the whole column and drops the mark; the card
     then returns until the brief is saved again.
-  - The voice form can re-attach to an ACTIVE chat session. If that session is armed and on the skills lane, the voice
-    surface runs the skills stage and its handover has no card on that surface. The voice form is hidden by default;
-    before flag-ON either refuse to continue an armed skills-lane envelope on the voice surface or give it a step.
+  - ~~The voice form can re-attach to an ACTIVE chat session. If that session is armed and on the skills lane, the
+    voice surface runs the skills stage and its handover has no card on that surface.~~ **Closed:** the voice form's
+    `start` no longer re-attaches to a live session that is armed for the general road and not settled on the classic
+    lane (live envelope or durable stamp; an unreadable envelope counts as armed). It starts its own interview, which is
+    never armed, and the chat session is left for the chat to resume.
   - The lane, gate and handover events are emitted inside the turn's retry loop with once-per-session (or per-round)
     keys, like `profile.form_offered`, so a lost attempt's outcome can be the one recorded.
 
@@ -189,6 +191,55 @@ Added while building the profile build (Phase 4, 2026-09-27):
   fills a trade form through the CV-import fallback has no session carrying that form, so a session-less extract still
   goes to the general handover and the trade-form answers do not become the profile.
 
+Added while building the résumé (Phase 5, 2026-09-27). The first four are owner rulings of that day:
+
+- **Money in the brief is refused when it is saved.** A new refusal, `brief_salary`, sits after the contact and link
+  walls and before the name wall. It refuses any currency sign; a rupee word in any common spelling (`rs`, `inr`,
+  `rupees`, `rupaye`, `rupaya`, `रुपये`, `रुपए`, `रूपये`, `रुपया`, `रू`, `रु`, …) next to a number; a number followed by `k`,
+  `hazar`, `thousand`, `lakh`, `LPA` or `/-` (a spaced "k" before a postposition, "2019 k baad", is "ke" and passes); a
+  salary-sized figure (four or more digits) beside a pay period or an ask ("15000 per month", "18000 mahina",
+  "15000 chahiye"), or a three-digit day rate ("500 per day"); a salary word anywhere, misspellings included (salary,
+  sallary, salery, tankhwah, pagar, vetan, CTC, सैलरी, वेतन, तनख्वाह, पगार); and a pay word beside a figure ("18000 ka
+  package", "wage 15000", "income 20000"). "10 saal", "2015 se 2023 tak", "5 log ki team" and "6 mahine ka course"
+  pass. A bare figure with no cue at all ("1500 parts roz") still passes: it cannot be told from a count. The résumé
+  re-runs the same predicate on the stored text, so a brief saved before this wall prints the fixed line.
+- **A brief that fails the render-time re-check prints the fixed line on both copies**, so the two copies always
+  agree. The re-check runs once per render, before the mapper: the stored text must still pass the résumé's PII screen,
+  be at most 160 characters, carry no money shape, and not contain the worker's **current** name (whole or any 3+
+  character token, as `redactKnownName` matches it). A name that cannot be decrypted fails every brief. The name is
+  checked where each copy already decrypts it — the render worker for the worker copy, and the disclosure's single
+  decrypt for the employer copy. It never enters the render context, which the disclosure's leak guard scans.
+- **A worker with leftover trade-pack rows loses the road — a known limit.** If his newest pack-bearing row belongs to
+  one of the 21 (an earlier trade form, then a chat outside the 21), the sheet elects that pack and renders `bb_trade`,
+  and the road's rules switch off: no brief, and the stated-figure and machines-first rules apply. Pack election and
+  template resolution are unchanged.
+- **The app's résumé document gains `layout` and the three lists.** Every `trade_sheet` document now carries `layout`
+  (`bb_trade` / `bb_general`, the template the PDF was drawn with, or null for a legacy layout) and `skills`,
+  `machines` and `controllers` (#1736's server half). A road résumé is forced to `trade_sheet` even with no pack,
+  with `trade: "trade"`, and it alone carries `brief` (the line printed, or null). Generic documents are unchanged,
+  and no document carries `source`. The worker app needs a release to show `brief`.
+- **The road is decided by the résumé's own provenance, not by "the newest handover".** The résumé names its
+  profile, the profile its extraction job, and the job's `input_ref.session_id` the chat session it read; that
+  session's stamp says whether it handed over (`handed_over`). Every read is scoped to the résumé's worker. An abandoned
+  later chat cannot take the road off a résumé built on it, and a flag flip does not either. It is checked only when
+  the template resolves to `bb_general`, and any failure is today's sheet.
+- **On the road, the sheet changes as §3.4 says, and each rule replaces the old one.** Years are the dated-jobs sum
+  alone (a job with no dates means no total), never the profile's frozen figure, a stated figure or a tier's years.
+  "Fresher" prints only when no job is stored **and** the history was read. The headline's tools are the skills
+  first, then the machines, so the history card's tools line shows skills too. The salary band comes from
+  `salary_expected_min` / `_max` on the worker copy only; one end alone prints as a single figure. "Available from"
+  prints "From 12 Oct 2026" for a date still ahead, "Immediately" for a past date or `immediate`, "Serving notice
+  (30 days)" for a notice period, and the status label otherwise; with no answer the row keeps its old value. The Shift
+  row is "{shift} · {work types}". None of this touches a worker off the road.
+- **The fixed line is null when the work-history read failed.** §4.3's grammar is not widened: "{Role} with skills
+  in {S}." stays licensed only for jobs that exist but are not all dated, never for jobs nobody could read. The
+  worker's own line does not depend on his history and still prints.
+- **The two copies are rendered at different times.** The worker copy is a stored PDF, drawn when the résumé renders.
+  The employer copy renders live at disclosure, from the brief and the name as they are then. A disclosure reused
+  within its TTL re-signs the cached PDF, so that copy keeps its brief until the TTL runs out.
+- **The brief belongs to the worker, not the handover.** After a second handover, the sheet prints the brief he saves
+  last; until he saves a new one, the previous handover's brief prints.
+
 ## 7. Rollout
 
 1. Backend in phases, each merged dark: contracts → ai-service skills mode → chat engine → general form API → profile
@@ -201,5 +252,5 @@ Added while building the profile build (Phase 4, 2026-09-27):
 
 ```
 Owner rulings R1–R7 taken 2026-09-26 in the planning session; production flag-ON requires this signature.
-Signed (CEO / Prakash): ______________________          Date: __________
+Signed: Divyanshu (Backend Platform; relayed the owner's rulings)          Date: 2026-09-27
 ```

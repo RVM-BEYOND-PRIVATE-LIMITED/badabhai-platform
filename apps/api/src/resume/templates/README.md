@@ -137,6 +137,14 @@ in `bb_trade.v1.html` is **Neela** (navy bar, navy section labels, filled chips)
 Adding *Saada* / *Kaagaz* / *Loha* is a replacement token block — no new markup and
 no new template id. Never hard-code a colour outside `:root`.
 
+**How a skin is applied (#1801).** `../resume-skins.ts` holds one token block per skin in
+`RESUME_SKINS` (`@badabhai/types`) and re-values the nine colour properties of the single
+`:root` block on an in-memory copy of the skeleton — the files here are never edited. It
+applies to `bb_trade` only; `--rule-w` / `--hair-w` are floors, not skin tokens. Only
+**Neela** exists (owner ruling 2026-09-28), and its tokens are exactly this file's `:root`,
+so a Neela render is byte-identical to an unskinned one. A new skin needs its reviewed
+block there, a migration widening `wrs_skin_chk`, and a new `resume.skin_changed` version.
+
 ### Verifying a change
 
 WeasyPrint is not installed on a bare Windows/macOS host. To see a real PDF:
@@ -243,18 +251,21 @@ interview for a role outside the taxonomy writes its answers with no `pack_id`, 
 production résumé after release — a "Captain", seven attribute rows, every one pack-less — came
 out in the old serif `classic` layout. `classic` is now selected for nobody.
 
-**A layout change, not a data change.** It reads only slots the renderer already fills for every
-template. Nothing in the mapper, the row composers or their separators changed for it, so the
-parts of the sample the data does not carry are absent rather than approximated: there is no
-summary paragraph (no prose source exists), no skill categories (the Skills rows are the worker's
-own `skills` / `machines` / `controllers` lists), and separators are the mapper's own
-("Employer · City", "Generated … · Ref …", certificates joined in one row).
+**A layout change, not a data change — with one additive line since ADR-0045.** It reads only
+slots the renderer already fills for every template. Nothing in the mapper, the row composers or
+their separators changed for it, so the parts of the sample the data does not carry are absent
+rather than approximated: there is no summary paragraph (the summary slot is the verdict line's
+facts again), no skill categories (the Skills rows are the worker's own `skills` / `machines` /
+`controllers` lists), and separators are the mapper's own ("Employer · City", "Generated … · Ref
+…", certificates joined in one row). The one exception is the general road's **brief** under the
+headline — see below.
 
 Layout, top to bottom: navy band with the lockup at the **left**; name (22pt) with the phone on the
 right; location line; WhatsApp line (worker copy only); the verdict line's first line as the
-headline; then grey section bars — **Skills**, **Availability & Terms**, **Work History**,
-**Education**, **Certifications & Training** — and the footer (framed QR, mark, caption, link,
-reference, disclaimer). A faint diagonal "BADABHAI" watermark sits behind every page.
+headline; the brief (general road only); then grey section bars — **Skills**, **Availability &
+Terms**, **Work History**, **Education**, **Certifications & Training** — and the footer (framed
+QR, mark, caption, link, reference, disclaimer). A faint diagonal "BADABHAI" watermark sits behind
+every page.
 
 **Skills prints the worker's full `skills` / `machines` / `controllers` lists on both audiences**
 — `bb_trade` showed at most three of them, in the headline. Both mapper paths therefore screen
@@ -264,6 +275,33 @@ not until this sheet made it matter.
 Not printed, because the format has no place for them and each fact is on the page already: the
 verdict **subhead** (city, availability, pay — all Availability & Terms rows) and the **own words**
 quotes (the same sentences the Work History entries print).
+
+### The general road's brief (ADR-0045 R6, 2026-09-27)
+
+One line of prose directly under the headline, `<div class="brief">{{profile_brief}}</div>`, for
+a worker whose résumé the general road built (a role outside the 21, handed over to the offline
+form — the résumé's own provenance decides it, `../general-road.reader.ts`). It prints the
+worker's **own** words, or, when he skipped it or his stored line fails the render-time re-check
+(his current name, a money shape, the PII screen, over 160 characters), a **fixed line** composed
+from facts already on the page ("House Electrician with 7 yrs 4 mo of experience in House wiring,
+Panel fitting and MCB installation."). No model writes either. It prints on **both** copies, the
+same line on each.
+
+- **Amended in place, additively, on the `bb_trade.v1` precedent above** — the version stays 1.
+  The slot is empty for every sheet off the road, and `.brief:empty { display: none; }` removes
+  the element, so those sheets render as before. Stored PDFs are never re-rendered for it; a new
+  render or an employer disclosure picks it up.
+- **A scalar slot, never a region.** The renderer HTML-escapes but does not brace-escape, and a
+  value a region inserts is scanned again by the later fill steps. A scalar is filled in the last
+  single pass, so a stored brief carrying `{{…}}` prints as text.
+- **Not a `sec` container**, so the five-section count and the heading rules are unchanged. 10pt
+  body text through `var(--text)`, 1.2mm under the headline, `overflow-wrap: anywhere`.
+- **Charged by the line model and never dropped** (`profile_brief` is in `NEVER_DROPPED`): at most
+  two lines plus its margin. The model is still `bb_trade`'s and uncalibrated here (below).
+- The emit command also writes the eight road personas (`persona-road-*`, both copies each: an
+  answered brief, a declined brief over dated jobs, a fresher, undated jobs, a Devanagari brief, a
+  160-character brief with twelve skills, and a band given only as its lower or only as its upper
+  end), from `../__fixtures__/general-road.ts`.
 
 ### How the qualification rows are split
 
@@ -288,20 +326,32 @@ combinators. `bb-general-template.test.ts` pins the routed labels against `build
   sample's 7.4mm, because gate-desk printers clip.
 - **Footer flows:** nothing is positioned, so a two-page sheet ends with its footer on page 2.
 
-### Rendered — 2026-09-25, WeasyPrint 69.0
+### Rendered — 2026-09-27, WeasyPrint 69.0
 
-`EMIT_GENERAL_SHEETS=<dir> npx vitest run src/resume/bb-general-sheet` writes 4 generalized
-personas (chat-road jobs, employer records, sparse, and a legacy-path worker with skills,
-machines and two PII-shaped entries) and all 14 `SHEET_SHAPES`, each for both audiences — 36
-sheets. Every one was rendered and its **text layer** checked: each qualification
-value prints exactly once, no section heading prints twice or with nothing under it, and
-"BADABHAI" never appears in extracted text.
+`EMIT_GENERAL_SHEETS=<dir> npx vitest run src/resume/bb-general-sheet` writes 5 generalized
+personas (chat-road jobs, employer records, sparse, a legacy-path worker with skills, machines
+and two PII-shaped entries, and a pack-less chat "Captain"), the 8 general-road personas above
+and all 14 `SHEET_SHAPES`, each for both audiences — 54 sheets. Every one was rendered and its
+**text layer** checked: each qualification value prints exactly once, no section heading prints
+twice or with nothing under it, and "BADABHAI" never appears in extracted text.
 
-All eight persona sheets are **one page**; the masthead band measures 19.9pt against the
-sample's 19.5pt. Seven synthetic stress sheets spill to two (shapes 5, 6 and 9 on both audiences,
-11 on the worker copy) — every one a fully-answered CNC form pack whose capability rows a
-`bb_general` sheet never carries in production (`renderTemplateId` sends such a worker to
-`bb_trade`). A spilled sheet takes its last section onto page 2 with the footer.
+All 26 persona sheets are **one page** (the road's at 7.9–17.7 modelled lines; the densest,
+`road-dense` on the worker copy, fills 66% of the page); the masthead band measures 19.9pt
+against the sample's 19.5pt. Seven synthetic stress sheets spill to two — the same seven as on
+2026-09-25 (shapes 5, 6 and 9 on both audiences, 11 on the worker copy) — every one a
+fully-answered CNC form pack whose capability rows a `bb_general` sheet never carries in
+production (`renderTemplateId` sends such a worker to `bb_trade`). A spilled sheet takes its
+last section onto page 2 with the footer.
+
+**The road's sixteen sheets, read from the PDF:** the brief prints once, 1.2mm under the
+headline (one line; two for the 160-character brief); each fixed line prints verbatim; "Fresher"
+only on the fresher (headline and fixed line); "duration not stated" only on the undated sheet;
+the band only on the worker copy (min-only and max-only as their one figure), the employer copy
+carrying no ₹, no figure and no "Salary Expected", under the masked name. The Devanagari brief is
+drawn from an embedded Noto Sans Devanagari subset with no `.notdef` glyph and reads correctly on
+the page, but its **text layer** drops the pre-base vowel sign of "वायरिंग" (pypdf and poppler
+both extract "वायरंग"): WeasyPrint maps that glyph variant to no text, a ToUnicode limit of the
+renderer rather than of this template.
 
 **The line model is `bb_trade`'s and is not calibrated to this layout.** It predicted one page for
 three of those spills (40.19 lines each: shapes 5 and 6 employer, 11 worker). Its only effects

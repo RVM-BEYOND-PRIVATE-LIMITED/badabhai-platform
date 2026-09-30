@@ -8,6 +8,239 @@ boundary moved).
 
 ---
 
+## 2026-09-28 — #1811: unique violations are read through drizzle's wrapper; the admin invite no longer catches one
+- **The defect.** drizzle-orm 0.45 throws `DrizzleQueryError`, whose own `code` is undefined; the
+  Postgres SQLSTATE is on `cause`. Three services compared `err.code === "23505"` and so never
+  matched a real query failure: a duplicate agency PAN 500'd instead of the neutral 409, an agency
+  invite-code collision 500'd instead of retrying, and the admin invite never reached its
+  duplicate-email branch. Unit tests passed because they mocked a bare `{ code: "23505" }`.
+- **One classifier: `isUniqueViolation` (+ `PG_UNIQUE_VIOLATION`) in `common/db-error.ts`**, built
+  on `sqlStateOf` (#1800). It replaces the three copy-pasted local helpers and the inline check
+  in `ResumeQrLinkService`. No production code compares a SQLSTATE literal directly.
+- **Admin invite: `ON CONFLICT (email_hash) DO NOTHING`, not a caught 23505.** Fixing the
+  classifier alone was not enough there: the insert runs inside the invite transaction, and a
+  raised unique violation aborts it, so the follow-up `refreshInvite` on the same `tx` failed with
+  25P02. Re-inviting a still-pending admin (the case the refresh exists for) therefore also
+  500'd. `AdminRepository.create` is now `createUnlessEmailTaken`, which returns `undefined` on a
+  taken email, and the service goes straight to the pending-only refresh, else 409. The service
+  contract is unchanged: pending → refreshed, active or suspended → value-free 409.
+- **New DB-backed gate `common/unique-violation.db.test.ts`**, registered in ci.yml's DB-gates
+  step (10 files). Through the real driver, it covers the wrapped classification, a CONTROL
+  showing that a caught 23505 poisons its transaction (25P02), both admin re-invite outcomes, and
+  a real duplicate PAN through `AgencyKycService`. Unit tests now throw the real
+  `DrizzleQueryError` from `drizzle-orm`, which IS exported from the package root; the old
+  comment claiming otherwise is corrected.
+- No schema, event or API change.
+
+## 2026-09-28 — #1800: the résumé QR counts scans and attributes worker signups, behind `RESUME_QR_SCAN_ENABLED`
+- **Owner ruling (2026-09-28), recorded: "Count + attribute worker signups".** The worker's OWN
+  résumé QR encodes `https://badabhai.ai/r/<code>` with a PER-WORKER code from a new,
+  NON-COMMISSIONED `referral_links` kind `resume_qr` — no referral bonus and no agency commission,
+  ever. The existing hardened resolver `GET /r/:code` counts the scan and 302s to the install page;
+  a worker who installs from it is attributed through the existing first-touch chain. No public
+  profile page, no PII shown, nothing new unauthenticated. Employer signups are out of scope. The
+  employer disclosure copy still prints no QR.
+- **Vocabulary: `REFERRAL_LINK_KINDS` (+ `ReferralLinkKind`, `NON_COMMISSIONED_REFERRAL_LINK_KINDS`,
+  `isCommissionedLinkKind`) in `@badabhai/types`** — the one list `referral_links_kind_chk`, the
+  `referral.link_created` enum and the API derive from. `resume_qr` is the one non-commissioned kind.
+- **Migration 0129 (`0129_referral_links_resume_qr`)** — `referral_links_kind_chk` widened (DROP +
+  ADD) to admit `resume_qr`, plus the PARTIAL UNIQUE index `referral_links_resume_qr_owner_uq ON
+  (owner_worker_id) WHERE kind = 'resume_qr' AND owner_worker_id IS NOT NULL`. No column changes, so
+  no select is affected by a deploy ahead of it. Deliberately NO `resume_qr ⇒ owner NOT NULL` CHECK:
+  the owner FK is ON DELETE SET NULL and such a CHECK would abort the erasure. Registered in
+  `schema-contract.ts` as `0129-referral-links-resume-qr-owner-index` (its absence is silent).
+- **Mint: `ResumeQrLinkService.codeFor(workerId)`** (new, `referrals/`; exported with
+  `ReferralLinkRepository` + `ReferralLinkService` by the new leaf `ReferralLinksModule`, imported
+  by `ReferralAttributionModule` and `ResumeModule`). Get-or-create of the worker's one link:
+  re-select, else a fresh 12-hex code checked against all THREE code spaces (`referral_links`,
+  `invites`, `agency_invites`), `INSERT … ON CONFLICT (owner_worker_id) WHERE <index predicate> DO
+  NOTHING`, re-select the winner on a lost race; a `23505` on the code index is retried, bounded at
+  3. The row and its `referral.link_created` (SYSTEM actor, `kind: "resume_qr"`) commit in ONE
+  transaction. `mintLink`'s type now excludes `resume_qr` — one mint path.
+- **Render.** `ResumeRenderProcessor` takes `ResumeQrLinkService` as an `@Optional()` 17th
+  dependency and builds the QR from `resumeQrScanUrl(code)`; flag off, service absent, worker absent
+  or deletion-scheduled, or ANY failure → today's homepage QR (byte-identical). The printed short
+  link stays `badabhai.ai` and the caption `Scan to visit BadaBhai`; the code is never printed and a
+  failure is logged through `logSafeReason` (never the bound parameters). TD5 posture, stated: this
+  is the ONE event-capable dependency the processor holds — a narrow class with one method and one
+  event (`referral.link_created`, ids + closed enums), handed only the worker id; the processor's
+  own source still names no event surface (pinned). QR budget: `https://badabhai.ai/r/<12 hex>` is
+  v4-Q, 33 modules, 0.545 mm at 18 mm — pinned in `sheet-qr.gate.test.ts`.
+- **Resolver (unconditional — not flag-gated, so printed sheets keep counting if the flag goes
+  off).** A `resume_qr` click still writes the `referral_clicks` row (claims read it) and emits the
+  new event `profile.qr_scanned` INSTEAD OF `referral.link_clicked` (one tap, one event), behind the
+  same bot filter, per-IP cap and 10-minute HMAC dedupe. A DEAD link (owner erased → NULL) records
+  no click, emits nothing and can never be claimed; its redirect is unchanged (no oracle). Link rows
+  are never deleted on erasure (the `referral_clicks` cascade would wipe others' attribution).
+- **New event `profile.qr_scanned` v1** (domain `profile`, registry tail): `{ worker_id (the
+  résumé OWNER, never the scanner), referral_link_id (never the code), platform:
+  ReferralClickPlatformEnum }`, `.strict()`; actor system, subject the owner, idempotency
+  `profile.qr_scanned:<click id>`. `referral.link_created.kind` widened at v1 with `resume_qr` (the
+  `JobStatusEnum` / `BoostTierEnum` additive precedent).
+- **Attribution.** `ClaimOutcome` carries `linkKind`; `claimInstall` refuses a SELF-claim (owner =
+  claimer) and a dead link. `ReferralAttributionService` returns right after the claim for ANY
+  `resume_qr` code — before `recordAccept` (invites) and `attributeWorkerToInvite` (agency) — so a
+  cross-space code collision can never pay an unrelated inviter. `resume_qr` DOES take part in
+  first touch (it is the real install source). Money still reads only `invites` / `agency_invites`;
+  `ReferralBonusService.evaluate` answers `no_referral` for a résumé-QR signup (pinned end to end in
+  `resume-qr-never-commissioned.test.ts`, with a structural pin on every payout reader).
+- **Config.** New flag `RESUME_QR_SCAN_ENABLED` (default off) wired exactly as
+  `RESUME_SKINS_ENABLED`; it gates the MINT + ENCODE only. `REFERRAL_SHORT_LINK_BASE` is now
+  declared in `docker-compose.staging.yml` as `${REFERRAL_SHORT_LINK_BASE:-https://payer.43-204-36-199.sslip.io}`
+  (the payer-web origin serving `/i/<code>`, = the App Link host + `kInviteLinkBase` +
+  `shortLinkOrigin()`; interim host per #1319) and deliberately NOT bridged from a secret (a
+  redirect destination is topology — the `BACKEND_API_URL` rule). **Behaviour change on the next
+  deploy:** `GET /r/<code>` on the api stops 302ing to `https://app.badabhai.in/i/<code>` (a host
+  with no `/i/` route — the config default had been winning) and 302s to the live landing page.
+- **OWNER MANUAL STEPS, in order:** (1) merge — safe, the flag is off; (2) apply
+  `0129_referral_links_resume_qr.sql` by hand, all three statements inside ONE `BEGIN; SET LOCAL
+  lock_timeout = '3s'; … COMMIT;`, retrying on 55P03; (3) on the badabhai.ai Netlify site add the
+  redirect rule `/r/*  https://43-204-36-199.sslip.io/r/:splat  302` — a **302, NOT a 200 proxy**:
+  a proxy would make every scan arrive from Netlify's IPs and collapse the per-IP cap and the
+  hashed-visitor dedupe onto a handful of addresses; (4) `gh secret set RESUME_QR_SCAN_ENABLED --env
+  production` = `true` (an ENVIRONMENT secret; a repo secret of the same name is shadowed) and
+  redeploy; (5) verify `curl -sI https://badabhai.ai/r/<a real code>` → 302 to the api's `/r/<code>`
+  → 302 to `https://payer.43-204-36-199.sslip.io/i/<code>`, and that TWO scans from two different
+  networks produce TWO `profile.qr_scanned` events. Sheets already printed keep the homepage QR,
+  and a sheet only gets the `/r/` QR on its next render, so the metric starts at zero.
+- **THE SCAN COUNT IS A LOWER BOUND UNTIL TD25 IS FIXED.** The 302 keeps the scanner's own IP on
+  the connection, but the api sits behind the host nginx with `TRUST_PROXY_HOP_COUNT=0` (TD25), so
+  `req.ip` is nginx's address for EVERY `/r/` visitor. Consequences today: two different scanners
+  of the same sheet on the same platform within the 10-minute dedupe window collapse into ONE
+  click, and all `/r/` traffic shares ONE 600/h `invite_click` bucket with payer-web's `/i/` pings
+  — past it, clicks are shed, losing both the scan event and the first-touch claim. The fix is
+  edge topology, not this code: once the host nginx is confirmed to append `X-Forwarded-For`, set
+  `TRUST_PROXY_HOP_COUNT=1`. Until then read `profile.qr_scanned` as "at least".
+  Rollback: the secret off (new renders print the homepage QR; printed `/r/` sheets keep resolving
+  and counting); the migration's rollback needs zero `resume_qr` rows (header).
+
+## 2026-09-28 — #1801: résumé skin plumbing, Neela only, behind `RESUME_SKINS_ENABLED`
+- **Owner ruling (2026-09-28), recorded: "Plumbing, Neela only".** The backend skin-selection
+  path ships with ONE skin in the vocabulary — `neela`, the house style `bb_trade` has always
+  printed in. Saada / Kaagaz / Loha have no approved design tokens and are NOT offered; nothing
+  invents their colours. Per-worker preference (not per `generated_resumes` row). `bb_trade` only
+  — `bb_general`, `classic` / `modern` / `minimal` and the fallback print as before. The Flutter
+  picker and live preview are Frontend's (a separate issue).
+- **Closed vocabulary: `RESUME_SKINS = ["neela"]`** (+ `ResumeSkin`, `DEFAULT_RESUME_SKIN`,
+  `isResumeSkin`) in `@badabhai/types` — the one list the DB CHECK, the DTO, the renderer's token
+  map (`satisfies Record<ResumeSkin, …>`) and the event enum all derive from.
+- **New table `worker_resume_skin` (migration 0128)** — `worker_id` PK → `workers` ON DELETE
+  cascade, `skin` text NOT NULL behind `wrs_skin_chk` = `('neela')`, `updated_at`. RLS ENABLE +
+  hand-appended FORCE + four REVOKEs, no policy; registered as `0128-worker-resume-skin-rls` in
+  `schema-contract.ts`; listed in the e2e RLS spine. A NEW TABLE, NOT A COLUMN: Drizzle names every
+  model column in a bare select, so a column on `workers` / `generated_resumes` would 500 every
+  worker or résumé read between deploy and a hand-applied ALTER (the 2026-09-10 outage).
+- **New flag `RESUME_SKINS_ENABLED` (default off)** — wired exactly as `PROFILING_TIERS_ENABLED`:
+  `packages/config` (`booleanFromString`), `.env.example`, the deploy job's `env:` AND its ssh
+  `envs:` list, `docker-compose.staging.yml` (`${…:-false}`); pinned by `config.test.ts` and
+  `deploy-workflow-taxonomy.guard.test.ts`. **OFF, NOTHING READS OR WRITES THE TABLE**: `GET
+  /resume/skin` answers `{enabled:false, skin:null, skins:[]}`, `PUT /resume/skin` is a 404 (the
+  tier endpoints' precedent), and the render worker passes no skin — so 0128 is
+  apply-before-FLAG-ON, not apply-before-deploy.
+- **New contract surface: `GET /resume/skin`, `PUT /resume/skin`** on `ResumeController`
+  (`[WorkerAuthGuard, ConsentGuard]` like every sibling worker résumé route; declared before
+  `:id`). `GET` → `{ enabled, skin: ResumeSkin|null, skins: ResumeSkin[] }` (skin = their choice, or
+  `neela` when they have none). `PUT { skin }` (`.strict()`, `z.enum(RESUME_SKINS)`) → `{ skin,
+  previous_skin: ResumeSkin|null, change: "changed"|"unchanged" }`; 400 unknown skin / extra key,
+  404 flag off, 409 only when a concurrent first choice committed a DIFFERENT skin (a concurrent
+  same-skin choice — a double-tap — is the idempotent `unchanged`). Logic in `ResumeSkinService` (NOT
+  `WorkersService`/`ResumeService`); reads in `ResumeSkinReader`; rows in `ResumeSkinRepository`.
+- **New event `resume.skin_changed` v1** (domain `resume`, appended at the registry tail; moved
+  here from #1318). Payload `{ worker_id, skin, previous_skin: nullable }`, both enums
+  `RESUME_SKINS`, `.strict()` — no `resume_id` (per-worker preference; subject = worker), no
+  template id. Emitted ONLY on a persisted real change (a same-skin re-select writes nothing and
+  emits nothing; a first explicit choice is a change with `previous_skin: null`), in the SAME
+  transaction as the row write (row-locked `FOR UPDATE`), so an emit failure rolls the choice back.
+  When a second skin ships, WIDENING the enum stays v1 (additive, the `JobStatusEnum` /
+  `BoostTierEnum` precedent); removing or renaming a skin never happens in place.
+- **Renderer.** A skin is applied by re-valuing the nine colour custom properties of `bb_trade`'s
+  single `:root` block on an in-memory copy (`resume-skins.ts`); shipped template files are never
+  touched, and the `--rule-w` / `--hair-w` floors are not skin tokens. Neela's tokens ARE the
+  shipped values, so a Neela render is byte-identical to a no-skin render (pinned). A skeleton the
+  swap cannot apply cleanly throws (never a half-skinned sheet). The render worker reads the skin
+  through `ResumeSkinReader` — never the emitting service, keeping the processor's no-event-surface
+  invariant — only for a `bb_trade` render, and degrades a failed read to the house skin.
+- **New shared seam `ResumeRerenderService.enqueueLatest`** — the cosmetic (force, fail-open)
+  re-render of the worker's latest résumé, which six profile services each carry privately and
+  `WorkersService.enqueueResumeRerender` holds privately with its erasure fan-out. A real skin
+  change queues it after commit — only when a résumé exists AND the skin the page prints in
+  actually changed (no row already prints in Neela, so a first choice of Neela re-renders
+  nothing; with Neela the only skin, this path is dormant until the second skin). The six private
+  copies are left untouched (can migrate onto it later); the erasure direction stays in
+  `WorkersService`. A per-worker rate cap on `PUT /resume/skin` should ship WITH the second skin
+  (A→B→A flips would each queue a render).
+- **OWNER MANUAL STEPS, in order:** (1) merge; (2) apply `0128_worker_resume_skin.sql` to
+  production by hand (runbook P1) — nothing breaks before this while the flag is off; (3) then
+  `gh secret set RESUME_SKINS_ENABLED --env production` with value `true` (a production-ENVIRONMENT
+  secret; a repo secret of the same name is shadowed) and redeploy. Rollback: unset/false the
+  secret, then `DROP TABLE "worker_resume_skin";`.
+
+## 2026-09-28 — #1803 / #1804 ruled: erasure writes commit with their audit event; ops name writes are attributed to ops
+- **#1803, owner ruling (2026-09-28): "write + audit in one transaction".** On every
+  `WorkersService` path where a fail-loud `worker.*` audit emit sat between the SoR write and a
+  `failClosed: true` erasure re-render, the write and that emit now run in ONE transaction
+  (`WorkersRepository.withTransaction` + `EventsService.emit({ …, tx })`, the H3 seam
+  `AdminActionsRepository` / `AgencyPayoutRepository` / `ChatRepository` already use). A failed
+  emit rolls the write back, so the request fails cleanly and the worker's retry re-drives the
+  erasure. Before this, the write landed, the request 500'd, the erasure was never queued, and the
+  retry could not repair it (no photo / no flip / no number left to see), so the erased data stayed
+  on every PDF. Three paths, all covered:
+  - `deletePhoto` — `tx{ clear pointer; worker.photo_removed }` → commit → best-effort object
+    delete (never before commit: a rolled-back pointer must not point at deleted bytes) →
+    best-effort `resume.edited_v2` → fail-closed erasure.
+  - `updateResumePrefs` — `tx{ write prefs; worker.resume_prefs_updated }` → commit →
+    best-effort `resume.edited_v2` → re-render gated exactly as before (fail-closed on
+    show_photo true→false with a photo).
+  - `setWhatsapp` — `tx{ write number; worker.whatsapp_recorded when the state changes }` →
+    commit → re-render (fail-closed on clear). Both directions share the transaction.
+- **Unchanged on purpose:** `resume.edited_v2` (#1318) stays OUTSIDE the transaction and
+  best-effort, so a measurement signal can never roll back an erasure. `confirmPhoto` and
+  `setFullName` are not erasure paths (their re-renders are `failClosed: false`) and keep their
+  standalone writes. `WorkersRepository.updatePhotoStorageKey` / `updateResumePrefs` /
+  `updateWhatsapp` gain an OPTIONAL trailing `tx`; without it they run on the pool exactly as
+  before (`WorkerPreferencesService` and `confirmPhoto` call them that way). No schema, event or
+  API change.
+- **#1804: the ops-only `PUT /workers/:id/name` (InternalServiceGuard) now emits
+  `worker.name_recorded` with `{ actor_type: "ops", actor_id: null }`**, the shape
+  `resume.erasure_backfill_enqueued` already uses for the shared-secret ops caller, which has no
+  identity. It was attributed to the worker. The worker-self `PATCH /workers/me/name` keeps the
+  worker actor. Payload, subject and version are unchanged; the actor is envelope, not payload,
+  and `ops` is already in `ACTOR_TYPES`. Consumers checked: the Phase-1 e2e counts
+  `worker.name_recorded` by `payload.worker_id` (still 1); the worker notification feed matches
+  on the subject leg as well as the actor leg and does not list this event; the admin event browser
+  filters by `actor_type` generically, so an ops name write now correctly files under `ops`.
+
+## 2026-09-27 — #1318 ruled: `resume.edited_v2` for résumé safe-field edits; v1 untouched
+- **Owner ruling (2026-09-27), recorded.** The safe-field edit gets its OWN registry entry,
+  `resume.edited_v2` (v2, domain `resume`, appended at the registry tail) — not a widened v1.
+  `resume.edited` v1's `correction_id`/`session_id`/`profile_id` are REQUIRED and a safe-field
+  edit has none of them; relaxing them would mutate a shipped schema (CLAUDE.md §3), and the
+  registry allows one version per name. v1 keeps its definition and its emitter
+  (`ExtractedCorrectionsService`, extracted-profile corrections). Same route as
+  `profile.viewed_v2`.
+- **New contract surface: `resume.edited_v2`** (`packages/event-schema`). Payload `worker_id`,
+  `resume_id`, `field ∈ {name, photo, show_photo, night_shift_ready}`, `.strict()` — no value in
+  either direction, no name, no storage key. Emitted from `WorkersService` (`setFullName`,
+  `confirmPhoto`, `deletePhoto`, `updateResumePrefs`) after the sibling `worker.*` event, one per
+  field that REALLY changed (before-vs-after; `night_shift_ready` compares null ≡ false), and
+  ONLY when the worker already has a résumé — onboarding name capture and pre-résumé avatars do
+  not count. Subject is the latest résumé; no idempotency key, like its `worker.*` siblings.
+  `photo` counts a NEW object only — re-confirming the key already on file is a retry. The stored
+  name is decrypted for the compare only AFTER the résumé gate passes, never on onboarding.
+- **Best-effort, unlike its siblings — a deliberate asymmetry.** The sibling `worker.*` event is
+  the write's audit record and stays fail-loud. `resume.edited_v2` is a measurement signal that
+  sits in front of two PII-erasure re-renders (photo removed, show_photo off); a failure there
+  (lookup or insert) is logged at error and swallowed, so the fail-closed erasure is always
+  queued. A retry could not repair a skipped erasure (the photo is already gone / the pref already
+  off), and a lost analytics row must never un-queue an erasure — the same rule as the audit row
+  beside the erasure backfill.
+- **Name writes now declare their origin.** `setFullName` takes a required
+  `{ origin: "worker_self" | "internal_ops" }`. The ops-only `PUT /workers/:id/name`
+  (InternalServiceGuard) passes `internal_ops` and never emits `resume.edited_v2`; the
+  worker-self `PATCH /workers/me/name` passes `worker_self`.
+- **Out of scope, split:** `profile.qr_scanned` → #1800, `resume.skin_changed` → #1801. Neither is
+  registered.
+
 ## 2026-09-21 — E0 relay built: resolution, message table, send/read/reply, notification, and the per-purpose exit
 - **The handle now resolves.** `UnlockService.resolveRelayForPayer` / `resolveRelayForWorker`
   walk `relay_handle -> unlock_routing -> unlocks -> worker` and re-check AT USE TIME: caller

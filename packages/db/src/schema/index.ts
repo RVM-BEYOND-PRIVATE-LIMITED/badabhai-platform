@@ -40,6 +40,7 @@ import { workerEmployment, workerEmploymentRole } from "./employment";
 import { workerCertificates, workerEducations, workerTrainings } from "./qualification";
 import { profileCorrections } from "./profile-correction";
 import { workerProfilingTiers } from "./worker-profiling-tier";
+import { workerResumeSkins } from "./worker-resume-skin";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
 import {
@@ -119,6 +120,7 @@ export * from "./portfolio";
 export * from "./profile";
 export * from "./profile-correction";
 export * from "./worker-profiling-tier";
+export * from "./worker-resume-skin";
 export * from "./job";
 export * from "./payer";
 export * from "./match";
@@ -298,6 +300,8 @@ export const schema = {
   profileCorrections,
   // Tiered profiling — the tier each worker profiled at (migration 0126).
   workerProfilingTiers,
+  // #1801 — the résumé skin each worker chose (migration 0128).
+  workerResumeSkins,
   chatSessions,
   voiceNotes,
   chatMessages,

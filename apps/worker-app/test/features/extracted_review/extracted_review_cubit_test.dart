@@ -25,6 +25,17 @@ const ExtractedReview _review = ExtractedReview(
   sessionId: 'session-1',
 );
 
+const List<CatalogueOptionDto> _skillOptions = <CatalogueOptionDto>[
+  CatalogueOptionDto(id: 'skill_gdt_reading', label: 'GD&T / drawing reading'),
+  CatalogueOptionDto(id: 'skill_fanuc', label: 'Fanuc control operation'),
+  CatalogueOptionDto(id: 'skill_siemens', label: 'Siemens control operation'),
+];
+
+const List<CatalogueOptionDto> _machineOptions = <CatalogueOptionDto>[
+  CatalogueOptionDto(id: 'mach_cnc_lathe', label: 'CNC Lathe / Turning Center'),
+  CatalogueOptionDto(id: 'mach_vmc', label: 'Vertical Machining Center (VMC)'),
+];
+
 void _stubLoad(MockExtractedReviewRepository repo,
     [ExtractedReview review = _review]) {
   when(() => repo.load()).thenAnswer((_) async => review);
@@ -34,7 +45,18 @@ void _stubLoad(MockExtractedReviewRepository repo,
       educationCouncil: <String, String>{'ncvt': 'NCVT'},
     ),
   );
+  when(() => repo.loadSkillOptions()).thenAnswer((_) async => _skillOptions);
+  when(() => repo.loadMachineOptions())
+      .thenAnswer((_) async => _machineOptions);
 }
+
+/// A correctable review whose labels partly match the catalogues above.
+const ExtractedReview _catalogueReview = ExtractedReview(
+  skills: <String>['Fanuc control operation', 'MIG Welding'],
+  machines: <String>['Vertical Machining Center (VMC)'],
+  profileId: 'profile-1',
+  sessionId: 'session-1',
+);
 
 void main() {
   late MockExtractedReviewRepository repo;
@@ -291,6 +313,262 @@ void main() {
         ),
       ],
     );
+  });
+
+  group('skills / machines catalogue (#1596)', () {
+    blocTest<ExtractedReviewCubit, ExtractedReviewState>(
+      'load pre-ticks exact label matches and lists the rest as unmatched',
+      build: () {
+        _stubLoad(repo, _catalogueReview);
+        return ExtractedReviewCubit(repo);
+      },
+      act: (ExtractedReviewCubit c) => c.load(),
+      expect: () => <Object?>[
+        const ExtractedReviewState(status: ExtractedReviewStatus.loading),
+        predicate<ExtractedReviewState>(
+          (ExtractedReviewState s) =>
+              s.status == ExtractedReviewStatus.ready &&
+              s.skillPick.status == CatalogueStatus.ready &&
+              s.skillPick.options == _skillOptions &&
+              s.skillPick.selectedIds.single == 'skill_fanuc' &&
+              s.skillPick.unmatchedLabels.single == 'MIG Welding' &&
+              s.machinePick.selectedIds.single == 'mach_vmc' &&
+              s.machinePick.unmatchedLabels.isEmpty &&
+              // Untouched, even with an unmatched label: no save on offer
+              // (a no-edit replace would silently drop MIG Welding).
+              !s.skillsDirty &&
+              // Fully matched and untouched: nothing to save.
+              !s.machinesDirty,
+        ),
+      ],
+    );
+
+    blocTest<ExtractedReviewCubit, ExtractedReviewState>(
+      'only a worker tick makes the section dirty; ticking back clears it',
+      build: () {
+        _stubLoad(repo, _catalogueReview);
+        return ExtractedReviewCubit(repo);
+      },
+      act: (ExtractedReviewCubit c) async {
+        await c.load();
+        c.toggleSkill('skill_siemens');
+        c.toggleSkill('skill_siemens');
+      },
+      skip: 2,
+      expect: () => <Object?>[
+        predicate<ExtractedReviewState>(
+          (ExtractedReviewState s) =>
+              s.skillPick.isSelected('skill_siemens') &&
+              s.skillPick.unmatchedLabels.single == 'MIG Welding' &&
+              s.skillsDirty,
+        ),
+        predicate<ExtractedReviewState>(
+          (ExtractedReviewState s) =>
+              !s.skillPick.isSelected('skill_siemens') &&
+              s.skillPick.unmatchedLabels.single == 'MIG Welding' &&
+              !s.skillsDirty,
+        ),
+      ],
+    );
+
+    blocTest<ExtractedReviewCubit, ExtractedReviewState>(
+      'a catalogue miss fails ITS card with the typed cause — never the review',
+      build: () {
+        _stubLoad(repo, _catalogueReview);
+        when(() => repo.loadSkillOptions())
+            .thenThrow(const ConsentRequiredFailure());
+        return ExtractedReviewCubit(repo);
+      },
+      act: (ExtractedReviewCubit c) => c.load(),
+      expect: () => <Object?>[
+        const ExtractedReviewState(status: ExtractedReviewStatus.loading),
+        predicate<ExtractedReviewState>(
+          (ExtractedReviewState s) =>
+              s.status == ExtractedReviewStatus.ready &&
+              s.skillPick.status == CatalogueStatus.failed &&
+              s.skillPick.failure == const ConsentRequiredFailure() &&
+              !s.skillsDirty &&
+              s.machinePick.status == CatalogueStatus.ready,
+        ),
+      ],
+    );
+
+    blocTest<ExtractedReviewCubit, ExtractedReviewState>(
+      'retry re-fetches only the failed catalogue, with its own loader',
+      build: () {
+        _stubLoad(repo, _catalogueReview);
+        int calls = 0;
+        when(() => repo.loadSkillOptions()).thenAnswer((_) async {
+          calls++;
+          if (calls == 1) throw const NetworkFailure();
+          return _skillOptions;
+        });
+        return ExtractedReviewCubit(repo);
+      },
+      act: (ExtractedReviewCubit c) async {
+        await c.load();
+        await c.retryCatalogues();
+      },
+      skip: 2,
+      expect: () => <Object?>[
+        predicate<ExtractedReviewState>(
+          (ExtractedReviewState s) =>
+              s.skillPick.status == CatalogueStatus.loading &&
+              s.machinePick.status == CatalogueStatus.ready,
+        ),
+        predicate<ExtractedReviewState>(
+          (ExtractedReviewState s) =>
+              s.skillPick.status == CatalogueStatus.ready &&
+              s.skillPick.selectedIds.single == 'skill_fanuc',
+        ),
+      ],
+      verify: (_) {
+        verify(() => repo.loadSkillOptions()).called(2);
+        verify(() => repo.loadMachineOptions()).called(1);
+      },
+    );
+
+    blocTest<ExtractedReviewCubit, ExtractedReviewState>(
+      'ticks POST catalogue ids only (catalogue order), then re-read without '
+      're-fetching the static catalogue',
+      build: () {
+        _stubLoad(repo, _catalogueReview);
+        when(() => repo.submit(any())).thenAnswer(
+          (_) async => (applied: 1, correctionCount: 1),
+        );
+        return ExtractedReviewCubit(repo);
+      },
+      act: (ExtractedReviewCubit c) async {
+        await c.load();
+        c.toggleSkill('skill_siemens');
+        c.toggleSkill('skill_gdt_reading');
+        c.toggleSkill('not_in_catalogue');
+        await c.submitSkills();
+      },
+      verify: (ExtractedReviewCubit c) {
+        final List<ExtractedCorrection> sent =
+            verify(() => repo.submit(captureAny())).captured.single
+                as List<ExtractedCorrection>;
+        expect(
+          sent.single,
+          const SkillsCorrection(
+              <String>['skill_gdt_reading', 'skill_fanuc', 'skill_siemens']),
+        );
+        verify(() => repo.load()).called(2);
+        verify(() => repo.loadSkillOptions()).called(1);
+        expect(c.state.lastSent, (field: 'skills', applied: 1));
+      },
+    );
+
+    blocTest<ExtractedReviewCubit, ExtractedReviewState>(
+      'machines POST a MachinesCorrection',
+      build: () {
+        _stubLoad(repo, _catalogueReview);
+        when(() => repo.submit(any())).thenAnswer(
+          (_) async => (applied: 1, correctionCount: 1),
+        );
+        return ExtractedReviewCubit(repo);
+      },
+      act: (ExtractedReviewCubit c) async {
+        await c.load();
+        c.toggleMachine('mach_cnc_lathe');
+        await c.submitMachines();
+      },
+      verify: (_) {
+        final List<ExtractedCorrection> sent =
+            verify(() => repo.submit(captureAny())).captured.single
+                as List<ExtractedCorrection>;
+        expect(sent.single,
+            const MachinesCorrection(<String>['mach_cnc_lathe', 'mach_vmc']));
+      },
+    );
+
+    blocTest<ExtractedReviewCubit, ExtractedReviewState>(
+      'an empty list never POSTs (the DTO needs one id) — honest inline error',
+      build: () {
+        _stubLoad(repo, _catalogueReview);
+        return ExtractedReviewCubit(repo);
+      },
+      act: (ExtractedReviewCubit c) async {
+        await c.load();
+        c.toggleMachine('mach_vmc');
+        await c.submitMachines();
+      },
+      verify: (ExtractedReviewCubit c) {
+        verifyNever(() => repo.submit(any()));
+        expect(c.state.machinePick.selectedIds, isEmpty);
+        expect(c.state.machinesDirty, isTrue);
+        expect(c.state.validationError, contains('Kam se kam ek machine'));
+      },
+    );
+
+    blocTest<ExtractedReviewCubit, ExtractedReviewState>(
+      'a tick past the server cap is refused with the cap in the message',
+      build: () {
+        final List<CatalogueOptionDto> big = <CatalogueOptionDto>[
+          for (int i = 0; i <= kMaxCorrectionSkills; i++)
+            CatalogueOptionDto(id: 'skill_$i', label: 'Skill $i'),
+        ];
+        _stubLoad(
+          repo,
+          ExtractedReview(
+            skills: <String>[
+              for (int i = 0; i < kMaxCorrectionSkills; i++) 'Skill $i',
+            ],
+            profileId: 'profile-1',
+            sessionId: 'session-1',
+          ),
+        );
+        when(() => repo.loadSkillOptions()).thenAnswer((_) async => big);
+        return ExtractedReviewCubit(repo);
+      },
+      act: (ExtractedReviewCubit c) async {
+        await c.load();
+        c.toggleSkill('skill_$kMaxCorrectionSkills');
+      },
+      verify: (ExtractedReviewCubit c) {
+        expect(c.state.skillPick.selectedIds, hasLength(kMaxCorrectionSkills));
+        expect(c.state.skillPick.isSelected('skill_$kMaxCorrectionSkills'),
+            isFalse);
+        expect(c.state.validationError, contains('$kMaxCorrectionSkills'));
+      },
+    );
+
+    blocTest<ExtractedReviewCubit, ExtractedReviewState>(
+      'no anchor: the catalogues are never fetched (nothing to pick into)',
+      build: () {
+        _stubLoad(repo, const ExtractedReview(skills: <String>['X']));
+        return ExtractedReviewCubit(repo);
+      },
+      act: (ExtractedReviewCubit c) => c.load(),
+      verify: (ExtractedReviewCubit c) {
+        verifyNever(() => repo.loadSkillOptions());
+        verifyNever(() => repo.loadMachineOptions());
+        expect(c.state.skillPick.status, CatalogueStatus.idle);
+        expect(c.state.correctionsLocked, isTrue);
+      },
+    );
+  });
+
+  group('matchCatalogueLabels', () {
+    test('exact label only; ambiguous or unknown labels are never guessed',
+        () {
+      const List<CatalogueOptionDto> options = <CatalogueOptionDto>[
+        CatalogueOptionDto(id: 'skill_b', label: 'B'),
+        CatalogueOptionDto(id: 'skill_a', label: 'A'),
+        CatalogueOptionDto(id: 'skill_d1', label: 'Dup'),
+        CatalogueOptionDto(id: 'skill_d2', label: 'Dup'),
+      ];
+      final ({List<String> ids, List<String> unmatched}) m =
+          matchCatalogueLabels(
+        <String>['A', 'b', 'Dup', 'B', 'A', 'Other'],
+        options,
+      );
+      // Catalogue order, deduped.
+      expect(m.ids, <String>['skill_b', 'skill_a']);
+      // Case differs, shared by two options, or not in the catalogue.
+      expect(m.unmatched, <String>['b', 'Dup', 'Other']);
+    });
   });
 
   group('confirm', () {

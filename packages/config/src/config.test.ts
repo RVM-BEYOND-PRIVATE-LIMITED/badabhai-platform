@@ -633,6 +633,84 @@ describe("loadServerConfig", () => {
     expect(loadServerConfig({ CHAT_GENERAL_ROAD_ENABLED: "" }).CHAT_GENERAL_ROAD_ENABLED).toBe(false);
     expect(loadServerConfig({ CHAT_GENERAL_ROAD_ENABLED: "true" }).CHAT_GENERAL_ROAD_ENABLED).toBe(true);
   });
+
+  it("RESUME_SKINS_ENABLED (#1801) is OFF by default and for the empty string", () => {
+    // Off means nothing touches `worker_resume_skin` (migration 0128), which is what makes a
+    // deploy ahead of that migration safe — so the default is load-bearing, not cosmetic.
+    expect(loadServerConfig({}).RESUME_SKINS_ENABLED).toBe(false);
+    expect(loadServerConfig({ RESUME_SKINS_ENABLED: "" }).RESUME_SKINS_ENABLED).toBe(false);
+    expect(loadServerConfig({ RESUME_SKINS_ENABLED: "true" }).RESUME_SKINS_ENABLED).toBe(true);
+  });
+
+  it("RESUME_QR_SCAN_ENABLED (#1800) is OFF by default and for the empty string", () => {
+    // Off means the render worker mints no `resume_qr` link (migration 0129) and the résumé QR
+    // encodes the homepage exactly as before — which is what makes a deploy ahead of 0129 safe.
+    expect(loadServerConfig({}).RESUME_QR_SCAN_ENABLED).toBe(false);
+    expect(loadServerConfig({ RESUME_QR_SCAN_ENABLED: "" }).RESUME_QR_SCAN_ENABLED).toBe(false);
+    expect(loadServerConfig({ RESUME_QR_SCAN_ENABLED: "true" }).RESUME_QR_SCAN_ENABLED).toBe(true);
+  });
+
+  it("REFERRAL_SHORT_LINK_BASE accepts the interim payer-web origin and refuses a non-https one", () => {
+    // #1800: staging now declares the origin that SERVES `/i/<code>`. The default stays the old
+    // value only so a bare local boot validates; the refinement keeps a redirect off plain http.
+    const base = "https://payer.43-204-36-199.sslip.io";
+    expect(loadServerConfig({ REFERRAL_SHORT_LINK_BASE: base }).REFERRAL_SHORT_LINK_BASE).toBe(base);
+    expect(() =>
+      loadServerConfig({ REFERRAL_SHORT_LINK_BASE: "http://payer.43-204-36-199.sslip.io" }),
+    ).toThrow();
+  });
+});
+
+describe("companion v2 flags and knobs (ADR-0046 — every switch defaults off)", () => {
+  it("all five phase flags default OFF and treat the empty string as absent", () => {
+    const c = loadServerConfig({});
+    expect(c.CHAT_COMPANION_V2_ENABLED).toBe(false);
+    expect(c.CHAT_COMPANION_V2_EDIT_ENABLED).toBe(false);
+    expect(c.CHAT_COMPANION_V2_NEW_RESUME_ENABLED).toBe(false);
+    expect(c.CHAT_COMPANION_V2_FALTU_ENABLED).toBe(false);
+    expect(c.CHAT_COMPANION_V2_CAREER_ENABLED).toBe(false);
+
+    const empty = loadServerConfig({
+      CHAT_COMPANION_V2_ENABLED: "",
+      CHAT_COMPANION_V2_EDIT_ENABLED: "",
+    });
+    expect(empty.CHAT_COMPANION_V2_ENABLED).toBe(false);
+    expect(empty.CHAT_COMPANION_V2_EDIT_ENABLED).toBe(false);
+    expect(loadServerConfig({ CHAT_COMPANION_V2_ENABLED: "true" }).CHAT_COMPANION_V2_ENABLED).toBe(
+      true,
+    );
+  });
+
+  it("knobs default to the contracts' values and survive an empty env string (the `${VAR:-}` class)", () => {
+    const c = loadServerConfig({});
+    expect(c.CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE).toBe(0.6);
+    expect(c.CHAT_COMPANION_V2_EDIT_MAX_ROWS).toBe(3);
+    expect(c.CHAT_COMPANION_V2_PROPOSAL_TTL_SECONDS).toBe(600);
+    expect(c.CHAT_COMPANION_V2_FALTU_STRIKES).toBe(3);
+    expect(c.CHAT_COMPANION_V2_FALTU_COOLDOWN_MINUTES).toBe(30);
+    expect(c.CHAT_COMPANION_V2_MEMORY_TURNS).toBe(6);
+    expect(c.CHAT_COMPANION_V2_MEMORY_TTL_SECONDS).toBe(1800);
+
+    const empty = loadServerConfig({
+      CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: "",
+      CHAT_COMPANION_V2_EDIT_MAX_ROWS: "",
+    });
+    expect(empty.CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE).toBe(0.6);
+    expect(empty.CHAT_COMPANION_V2_EDIT_MAX_ROWS).toBe(3);
+  });
+
+  it("the confidence knob is a 0..1 fraction; the bounds pass, outside refuses", () => {
+    expect(
+      loadServerConfig({ CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: "0" })
+        .CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE,
+    ).toBe(0);
+    expect(
+      loadServerConfig({ CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: "1" })
+        .CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE,
+    ).toBe(1);
+    expect(() => loadServerConfig({ CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: "1.1" })).toThrow();
+    expect(() => loadServerConfig({ CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: "-0.1" })).toThrow();
+  });
 });
 
 describe("realAiCalls gating (fail closed)", () => {

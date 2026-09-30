@@ -648,6 +648,9 @@ export class JobPostingsService {
       // default precisely so "not stated" and "stated as empty" stay distinguishable.
       benefits: dto.benefits ?? null,
       requirements: dto.requirements ?? null,
+      // Migration 0131 — the payer's role pick, or NULL. DISPLAY ONLY: it is not handed to
+      // `matchSkills` above and nothing derives a skill or a domain from it.
+      roleKind: dto.role_kind ?? null,
       matchSkillIds: dto.match_skill_ids ? [...dto.match_skill_ids] : [],
       untickedRelatedIds: dto.unticked_related_ids ? [...dto.unticked_related_ids] : [],
     };
@@ -680,6 +683,8 @@ export class JobPostingsService {
       created_by: row.created_by,
       has_location: row.location_label != null,
       has_description: row.description != null,
+      // Migration 0131 — a closed 21-slug enum (or null), PII-free like `vacancy_band`.
+      role_kind: row.role_kind,
     };
     await this.events.emit(this.emitParams("job_posting.created", row.id, actor, payload, ctx));
     return row;
@@ -794,6 +799,9 @@ export class JobPostingsService {
     // independently, so half the window can be cleared.
     applyNullable("min_experience_years", "minExperienceYears", dto.min_experience_years, current.min_experience_years, "experience");
     applyNullable("max_experience_years", "maxExperienceYears", dto.max_experience_years, current.max_experience_years, "experience");
+    // Migration 0131 — the display role. Its own key, never folded into `match_skills`: a role
+    // change moves no reach input, and a reader must be able to tell the two apart.
+    applyNullable("role_kind", "roleKind", dto.role_kind, current.role_kind, "role_kind");
 
     // The two jsonb lists are compared as LISTS, not by identity, so they cannot use the
     // scalar helper. #1652: clearing one stores NULL ("never stated"), which is a DIFFERENT

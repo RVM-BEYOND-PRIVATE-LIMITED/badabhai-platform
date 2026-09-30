@@ -372,3 +372,166 @@ describe("mintLink", () => {
     expect(JSON.stringify(emitted![0].payload)).not.toContain(out.code);
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────────
+// #1800 — the RÉSUMÉ QR (`resume_qr`), through the same resolver and claim.
+// ───────────────────────────────────────────────────────────────────────────────
+describe("#1800 — a resume_qr link through GET /r/:code", () => {
+  const OWNER = "55555555-5555-4555-8555-555555555555";
+  const resumeQrLink = (ownerWorkerId: string | null = OWNER) => ({
+    id: LINK_ID,
+    kind: "resume_qr" as const,
+    medium: "organic" as const,
+    ownerWorkerId,
+    expiresAt: null,
+  });
+
+  it("emits profile.qr_scanned — exact payload, the OWNER as subject — and NOT referral.link_clicked", async () => {
+    const h = make({ findLinkByCode: vi.fn().mockResolvedValue(resumeQrLink()) });
+    const out = await h.svc.resolve({ code: CODE, ip: "1.2.3.4", userAgent: ANDROID });
+
+    expect(out.clickRecorded).toBe(true);
+    // The click row is still written: the first-touch claim reads it.
+    expect(h.repo.recordClick).toHaveBeenCalledTimes(1);
+    expect(h.repo.recordClick.mock.calls[0]![0]).toMatchObject({ referralLinkId: LINK_ID });
+
+    // ONE tap, ONE event.
+    expect(h.events.emit).toHaveBeenCalledTimes(1);
+    const call = h.events.emit.mock.calls[0]![0];
+    expect(call.event_name).toBe("profile.qr_scanned");
+    expect(call.payload).toEqual({
+      worker_id: OWNER,
+      referral_link_id: LINK_ID,
+      platform: "android",
+    });
+    expect(call.actor).toEqual({ actor_type: "system", actor_id: null });
+    expect(call.subject).toEqual({ subject_type: "worker", subject_id: OWNER });
+    expect(call.idempotencyKey).toBe(`profile.qr_scanned:${CLICK_ID}`);
+    // The bearer code and the scanner's IP / UA never ride the event.
+    const wire = JSON.stringify(call);
+    expect(wire).not.toContain(CODE);
+    expect(wire).not.toContain("1.2.3.4");
+    expect(wire).not.toContain("SM-A125F");
+  });
+
+  it("the redirect is exactly the one any other code gets — the install page, no oracle", async () => {
+    const qr = make({ findLinkByCode: vi.fn().mockResolvedValue(resumeQrLink()) });
+    const legacy = make();
+    const a = await qr.svc.resolve({ code: CODE, ip: "1.2.3.4", userAgent: ANDROID });
+    const b = await legacy.svc.resolve({ code: CODE, ip: "1.2.3.4", userAgent: ANDROID });
+    expect(a.redirectTo).toBe(b.redirectTo);
+    expect(a.redirectTo).toBe(`${BASE}/i/${CODE}`);
+  });
+
+  it("other kinds are unchanged: an agent link still emits referral.link_clicked only", async () => {
+    const h = make({
+      findLinkByCode: vi
+        .fn()
+        .mockResolvedValue({ ...resumeQrLink(null), kind: "agent", ownerWorkerId: null }),
+    });
+    await h.svc.resolve({ code: CODE, ip: "1.2.3.4", userAgent: ANDROID });
+    expect(h.events.emit.mock.calls.map((c) => c[0].event_name)).toEqual(["referral.link_clicked"]);
+  });
+
+  it("a DEAD link (owner erased → NULL) records NO click and emits nothing, yet redirects the same", async () => {
+    const h = make({ findLinkByCode: vi.fn().mockResolvedValue(resumeQrLink(null)) });
+    const out = await h.svc.resolve({ code: CODE, ip: "1.2.3.4", userAgent: ANDROID });
+    expect(out.redirectTo).toBe(`${BASE}/i/${CODE}`);
+    expect(out.clickRecorded).toBe(false);
+    expect(h.repo.recordClick).not.toHaveBeenCalled();
+    expect(h.events.emit).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a link-preview crawler", { userAgent: "WhatsApp/2.23.20.0 A" }, {}],
+    ["the per-IP cap (skipClick)", { skipClick: true }, {}],
+    [
+      "the 10-minute hashed-visitor dedupe",
+      {},
+      { hasRecentClick: vi.fn().mockResolvedValue(true) },
+    ],
+  ])("%s still applies: no click row, no profile.qr_scanned", async (_what, extra, repoOver) => {
+    const h = make({ findLinkByCode: vi.fn().mockResolvedValue(resumeQrLink()), ...repoOver });
+    const out = await h.svc.resolve({ code: CODE, ip: "1.2.3.4", userAgent: ANDROID, ...extra });
+    expect(out.clickRecorded).toBe(false);
+    expect(out.redirectTo).toBe(`${BASE}/i/${CODE}`);
+    expect(h.repo.recordClick).not.toHaveBeenCalled();
+    expect(h.events.emit).not.toHaveBeenCalled();
+  });
+});
+
+describe("#1800 — claiming an install through a resume_qr link", () => {
+  const OWNER = "55555555-5555-4555-8555-555555555555";
+  const click = {
+    id: CLICK_ID,
+    referralLinkId: LINK_ID,
+    medium: "organic" as const,
+    clickedAt: new Date(Date.now() - 60 * 60 * 1000),
+  };
+  const link = (ownerWorkerId: string | null) => ({
+    id: LINK_ID,
+    kind: "resume_qr" as const,
+    medium: "organic" as const,
+    ownerWorkerId,
+    expiresAt: null,
+  });
+
+  it("a DIFFERENT worker claims first touch like any link, and the outcome carries the kind", async () => {
+    const h = make({
+      findLinkByCode: vi.fn().mockResolvedValue(link(OWNER)),
+      claimFirstTouch: vi.fn().mockResolvedValue(click),
+    });
+    const out = await h.svc.claimInstall({ code: CODE, workerId: WORKER, source: "app_link" });
+    expect(out).toEqual({ claimed: true, referralLinkId: LINK_ID, linkKind: "resume_qr" });
+    const claimed = h.events.emit.mock.calls.find(
+      (c) => c[0].event_name === "referral.install_claimed",
+    );
+    expect(claimed![0].payload).toMatchObject({ referral_link_id: LINK_ID, worker_id: WORKER });
+  });
+
+  it("SELF-CLAIM is refused: the owner posting their own résumé's code claims nothing", async () => {
+    const claimFirstTouch = vi.fn().mockResolvedValue(click);
+    const h = make({ findLinkByCode: vi.fn().mockResolvedValue(link(WORKER)), claimFirstTouch });
+    const out = await h.svc.claimInstall({ code: CODE, workerId: WORKER, source: "app_link" });
+    expect(out).toEqual({ claimed: false, reason: "self_claim", linkKind: "resume_qr" });
+    expect(claimFirstTouch).not.toHaveBeenCalled();
+    expect(h.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("a DEAD link attributes nobody, even over a click recorded while its owner was live", async () => {
+    const claimFirstTouch = vi.fn().mockResolvedValue(click);
+    const h = make({ findLinkByCode: vi.fn().mockResolvedValue(link(null)), claimFirstTouch });
+    const out = await h.svc.claimInstall({ code: CODE, workerId: WORKER, source: "app_link" });
+    expect(out).toEqual({ claimed: false, reason: "dead_link", linkKind: "resume_qr" });
+    expect(claimFirstTouch).not.toHaveBeenCalled();
+    expect(h.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("a lost race still reports the kind, so the caller stops before the paying seams", async () => {
+    const uniqueViolation = Object.assign(new Error("duplicate key value"), { code: "23505" });
+    const h = make({
+      findLinkByCode: vi.fn().mockResolvedValue(link(OWNER)),
+      claimFirstTouch: vi.fn().mockRejectedValue(uniqueViolation),
+    });
+    const out = await h.svc.claimInstall({ code: CODE, workerId: WORKER, source: "app_link" });
+    expect(out).toEqual({ claimed: false, reason: "already_claimed", linkKind: "resume_qr" });
+  });
+
+  it("a LEGACY code (no referral_links row) reports linkKind null — its funnels are unchanged", async () => {
+    const h = make({ claimFirstTouch: vi.fn().mockResolvedValue(null) });
+    const out = await h.svc.claimInstall({ code: CODE, workerId: WORKER, source: "app_link" });
+    expect(out).toEqual({ claimed: false, reason: "unknown_code", linkKind: null });
+  });
+});
+
+describe("#1800 — mintLink cannot mint a resume_qr link", () => {
+  it("is excluded by TYPE — the résumé QR has exactly one mint path (ResumeQrLinkService)", () => {
+    const h = make();
+    // The assertion is the compile error: `tsc` fails this file if the exclusion is ever removed,
+    // because the directive below would then be unused. Never invoked, so nothing is minted.
+    const mint = (): Promise<unknown> =>
+      // @ts-expect-error — `resume_qr` is not an accepted kind for mintLink.
+      h.svc.mintLink({ kind: "resume_qr", ownerWorkerId: WORKER });
+    expect(typeof mint).toBe("function");
+  });
+});

@@ -54,14 +54,14 @@ export default async function PostingsPage() {
         </div>
         <div className="page-head__actions">
           <Link className="bb-btn bb-btn--primary bb-btn--sm" href="/postings/new">
-            <i className="ph ph-plus" aria-hidden="true" />
+            <i className="ph-fill ph-plus" aria-hidden="true" />
             <span>{isAgency ? "Post a vacancy" : "Post a job"}</span>
           </Link>
         </div>
       </div>
 
       <div className="alert alert--info">
-        <i className="ph ph-info alert__icon" aria-hidden="true" />
+        <i className="ph-fill ph-info alert__icon" aria-hidden="true" />
         <div className="alert__text">
           <p className="alert__title">Applicant quota</p>
           <p className="alert__body">
@@ -83,7 +83,7 @@ export default async function PostingsPage() {
         <Card>
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph ph-warning-circle" aria-hidden="true" />
+              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
             </span>
             <h2 className="state__title">
               We couldn&rsquo;t load your {isAgency ? "vacancies" : "postings"}

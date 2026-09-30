@@ -17,7 +17,7 @@ export default function PortalError({ reset }: { error: Error; reset: () => void
   return (
     <div className="state state--error" role="alert">
       <span className="state__icon">
-        <i className="ph ph-warning-circle" aria-hidden="true" />
+        <i className="ph-fill ph-warning-circle" aria-hidden="true" />
       </span>
       <h1 className="state__title">Something went wrong</h1>
       <p className="state__body">

@@ -276,3 +276,69 @@ describe("MERGE-1 · single role-aware dashboard composition (agent vs employer)
     expect(findAll(tree, MaskedCandidate).length).toBe(2);
   });
 });
+
+/**
+ * PR-D2 — the five-band reading order is the dashboard's whole design (see the page header):
+ * NEEDS YOU → POSITION → DO SOMETHING → YOUR WORK → RECENT. The polish pass restyled every band,
+ * so the order is pinned here at the top level of the rendered tree, for both personas.
+ */
+describe("PR-D2 · hierarchy + KPI variant", () => {
+  /** Name each TOP-LEVEL band of the page fragment, in render order. */
+  function bands(tree: ReactElement): string[] {
+    const kids = (tree.props as { children?: ReactNode }).children;
+    const list = (Array.isArray(kids) ? kids : [kids]).flat(Infinity) as ReactNode[];
+    const out: string[] = [];
+    for (const k of list) {
+      if (k === null || k === undefined || typeof k !== "object") continue;
+      const el = k as ReactElement<{ className?: unknown }>;
+      if (el.type === AgentSectionsStub) {
+        out.push("agency");
+        continue;
+      }
+      const cn = typeof el.props?.className === "string" ? el.props.className : "";
+      const words = cn.split(/\s+/);
+      if (words.includes("page-head")) out.push("head");
+      else if (words.includes("attention")) out.push("needs-you");
+      else if (words.includes("stat-row")) out.push("position");
+      else if (words.includes("quick")) out.push("actions");
+      else if (words.includes("panel")) {
+        const t = textOf(el);
+        out.push(
+          t.includes("Your postings")
+            ? "postings"
+            : t.includes("Recent unlocks")
+              ? "recent"
+              : "panel?",
+        );
+      } else out.push(`?${cn}`);
+    }
+    return out;
+  }
+
+  it("employer: head → needs-you → position → actions → postings → recent", async () => {
+    // balance 3 < LOW_BALANCE_THRESHOLD, so the needs-you band renders.
+    const tree = await render({ credits: { payerId: "p", balance: 3 } });
+    expect(bands(tree)).toEqual(["head", "needs-you", "position", "actions", "postings", "recent"]);
+  });
+
+  it("agent: the same spine minus the employer postings band, agency modules last", async () => {
+    const tree = await render({ credits: { payerId: "p", balance: 3 } }, "agent");
+    expect(bands(tree)).toEqual(["head", "needs-you", "position", "actions", "recent", "agency"]);
+  });
+
+  it("needs-you is ABSENT (not an empty band) when nothing needs the payer", async () => {
+    // Balance 247 (above the low threshold), an open posting, and ONLY the granted unlock —
+    // the fixture's expired unlock would itself raise an item.
+    const tree = await render({ unlocks: [DATA.unlocks[0]!] });
+    expect(bands(tree)).not.toContain("needs-you");
+    expect(bands(tree)[1]).toBe("position");
+  });
+
+  it("the POSITION band is the opt-in KPI variant and holds exactly the StatTiles", async () => {
+    const tree = await render();
+    const rows = findByClass(tree, "stat-row");
+    expect(rows).toHaveLength(1);
+    expect(String(p(rows[0]!).className).split(/\s+/)).toEqual(["stat-row", "stat-row--kpi"]);
+    expect(findAll(rows[0], StatTile)).toHaveLength(3);
+  });
+});

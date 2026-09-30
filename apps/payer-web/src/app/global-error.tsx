@@ -29,7 +29,7 @@ import {
  *
  * UI-1: composed from the shared `.state state--error` block, same as `error.tsx` and
  * `(portal)/error.tsx` — markup only, the copy and the `reset()` wiring are unchanged.
- * The one deliberate difference: NO `.state__icon`. Phosphor (`ph ph-*`) is appended at
+ * The one deliberate difference: NO `.state__icon`. Phosphor (`ph-fill ph-*`) is appended at
  * runtime by ASYNC_CSS_SCRIPT in the ROOT LAYOUT, and the root layout is exactly what is NOT
  * applied when this boundary fires — the glyph would render as a tofu box inside an empty
  * circle. The DS pairs every icon with a text label precisely so the label carries the

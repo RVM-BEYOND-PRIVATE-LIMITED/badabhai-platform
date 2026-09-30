@@ -188,6 +188,17 @@ const PROFILING_TASK_TYPE_KEYS: Record<AiCostTaskType, boolean> = {
   // fresher's training description. Counted as profiling, it would inflate the cost-per-profile
   // with spend that produced no profile.
   work_history_polish: false,
+  // THE COMPANION ROUTER (ADR-0046 Phase 1) — `false`, same side as `work_history_polish`
+  // and for the same reason. Both calls happen on the Bada Bhai tab AFTER the profile is
+  // confirmed: the classifier routes a free-text message, the parser turns one into an edit
+  // card. Neither builds a profile, and charging them to cost-per-profile would inflate the
+  // figure with spend on a worker the platform had already profiled.
+  companion_classify: false,
+  companion_edit_parse: false,
+  // THE CAREER ANSWER (ADR-0046 Phase 3) — `false`, same side as the router pair above and
+  // for the same reason: it runs on the Bada Bhai tab after the profile is confirmed and
+  // builds nothing. Charging it to cost-per-profile would bill a finished worker.
+  companion_career_answer: false,
   // ₹0.000000 today — the open classification in the header above.
   domain_match: false,
   stt_transcription: false,

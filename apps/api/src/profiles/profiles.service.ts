@@ -12,7 +12,11 @@ import {
   readGeneralRoadStamp,
 } from "../profiling/conversation-state";
 import { ProfilesRepository } from "./profiles.repository";
-import { AiJobsRepository, type ExtractionDedupeCandidate } from "./ai-jobs.repository";
+import {
+  AiJobsRepository,
+  EXTRACTION_SESSION_LIVE_KEY,
+  type ExtractionDedupeCandidate,
+} from "./ai-jobs.repository";
 import {
   PROFILE_EXTRACTION_QUEUE,
   REFERRAL_BONUS_QUEUE,
@@ -139,6 +143,37 @@ function secondsUntilEndOfUtcHour(now: Date = new Date()): number {
     0,
   );
   return Math.max(1, Math.ceil((endOfHour - now.getTime()) / 1000));
+}
+
+/**
+ * #1764 — was this COMPLETED extraction minted while its session was still LIVE, and has that
+ * interview since FINISHED?
+ *
+ * THE EARLY FINISH. "Phir bhi profile banaiye" → preview → confirm extracts from the live session
+ * and never ends it, so the worker can go back and keep answering. When that interview then
+ * finishes, its full answers are in `chat_messages` and `worker_pack_answers` — and the preview's
+ * extract found the early job (completed, with content) and handed it back, so the finished
+ * interview never became a profile. That job was built from part of an interview that no longer
+ * exists in that form.
+ *
+ * NO CLOCK. The signal is recorded when the job is minted (`EXTRACTION_SESSION_LIVE_KEY` in its
+ * `input_ref`), not inferred by comparing `ai_jobs.created_at` (the database's clock) with
+ * `chat_sessions.ended_at` (the API's): a normal completion's job is minted right after the flush,
+ * and any skew between the two clocks would re-run it — a second paid extraction on every
+ * interview. A job minted after the session ended never carries the key.
+ *
+ * NARROW ON PURPOSE, like `completedBeforeGeneralForm`: only a COMPLETED job, only one minted while
+ * live, and only once the session has ENDED (a finished interview). An in-flight job still dedupes
+ * (its result is re-judged by this rule once it completes); a session still live dedupes as before
+ * (the worker tapped the preview twice mid-interview); an abandoned or superseded one was not
+ * finished. The attempt cap still applies to the re-run.
+ */
+function completedWhileInterviewLive(
+  candidate: ExtractionDedupeCandidate | undefined,
+  session: { status: string } | null,
+): boolean {
+  if (candidate?.status !== "completed" || session === null) return false;
+  return candidate.mintedWhileLive && session.status === "ended";
 }
 
 /**
@@ -316,12 +351,15 @@ export class ProfilesService {
         existing,
         session ? readGeneralFormCompletedAt(session.conversationState) : null,
       );
+      // #1764 — a completed job minted while this interview was still live, which has since
+      // finished. See `completedWhileInterviewLive`.
+      const predatesFinish = completedWhileInterviewLive(existing, session ?? null);
       // A completed job only counts if it actually produced something. An empty
       // profile from the AI-down fallback must NOT pin the session forever.
       const usable =
         existing !== undefined &&
         (existing.status !== "completed" ||
-          (hasExtractedContent(existing.profile) && !predatesForm));
+          (hasExtractedContent(existing.profile) && !predatesForm && !predatesFinish));
 
       if (existing && usable) {
         // No second `profile.extraction_requested`: one event per extraction
@@ -337,9 +375,11 @@ export class ProfilesService {
         this.logger.log(
           `extract re-running session=${sessionId} worker=${input.worker_id}: prior ai_job ` +
             `${existing.id} completed ` +
-            (hasExtractedContent(existing.profile)
-              ? `before the general form was finished`
-              : `with an empty profile`),
+            (!hasExtractedContent(existing.profile)
+              ? `with an empty profile`
+              : predatesFinish
+                ? `while the interview was still live, and it has since finished`
+                : `before the general form was finished`),
         );
       }
 
@@ -375,7 +415,13 @@ export class ProfilesService {
     const job = await this.aiJobs.create({
       jobType: "profile_extraction",
       status: "queued",
-      inputRef: { worker_id: input.worker_id, session_id: sessionId },
+      inputRef: {
+        worker_id: input.worker_id,
+        session_id: sessionId,
+        // #1764 — an extraction of a session that is still LIVE (an early finish). See
+        // `completedWhileInterviewLive`; absent otherwise, so an ordinary job is unchanged.
+        ...(session?.status === "active" ? { [EXTRACTION_SESSION_LIVE_KEY]: true } : {}),
+      },
     });
 
     await this.events.emit({

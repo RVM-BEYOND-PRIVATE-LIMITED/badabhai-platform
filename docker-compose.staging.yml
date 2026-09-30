@@ -292,6 +292,32 @@ services:
       # Production ON only after ADR-0044 is Accepted. `:-false` because this bool rejects "".
       CHAT_COMPANION_ENABLED: ${CHAT_COMPANION_ENABLED:-false}
 
+      # ---- CHAT COMPANION v2 (ADR-0046) — THE PHASE GATES, ALL DEFAULT OFF.
+      #
+      # OFF IS v1 BYTE-FOR-BYTE: `POST /chat/companion/message` answers from the deterministic
+      # resolver with zero model calls and the v1 event, and neither v2 route nor the
+      # `edit_proposal` wire field is reachable. The parent `CHAT_COMPANION_ENABLED` above still
+      # decides whether the companion surface exists at all.
+      #
+      # Production ON additionally requires ADR-0046's signature AND companion v1 live (spec
+      # README "Prerequisites"), and REAL model calls need the box to widen the ai-service's
+      # `AI_REAL_CALL_TASKS` allowlist (below) to name `companion_classify,companion_edit_parse`
+      # (P1) and `companion_career_answer` (P3) — an env action on the box, never a code change
+      # (see the allowlist's note on why this file's default does not reach production).
+      # `:-false` because these bools reject "".
+      #
+      # THE KNOBS (confidence floor, max rows, proposal TTL, strikes, memory) ARE NOT BRIDGED:
+      # like every other feature's knobs in this file they run on their reviewed defaults, and
+      # changing one is a reviewed diff here, not a repository secret.
+      CHAT_COMPANION_V2_ENABLED: ${CHAT_COMPANION_V2_ENABLED:-false}
+      # P1 — the edit handler: propose card → Haan → deterministic writers → regenerate.
+      CHAT_COMPANION_V2_EDIT_ENABLED: ${CHAT_COMPANION_V2_EDIT_ENABLED:-false}
+      # P2 — the new-résumé offer and the faltu strike path.
+      CHAT_COMPANION_V2_NEW_RESUME_ENABLED: ${CHAT_COMPANION_V2_NEW_RESUME_ENABLED:-false}
+      CHAT_COMPANION_V2_FALTU_ENABLED: ${CHAT_COMPANION_V2_FALTU_ENABLED:-false}
+      # P3 — career answers (Claude, Hinglish only, inside the fixed refusals).
+      CHAT_COMPANION_V2_CAREER_ENABLED: ${CHAT_COMPANION_V2_CAREER_ENABLED:-false}
+
       # ---- THE GENERAL ROAD (ADR-0045) — roles outside the 21 predefined roles.
       #
       # On, such a worker's chat runs role → skills and closes with a card to the offline general
@@ -304,6 +330,27 @@ services:
       # résumé, and nothing reads migration 0126's table or column. Turn on only after 0126 is
       # applied and `db:seed:packs --apply` has run. `:-false` because this bool rejects "".
       PROFILING_TIERS_ENABLED: ${PROFILING_TIERS_ENABLED:-false}
+
+      # RÉSUMÉ SKINS (#1801). Off is every sheet in its template's own colours, and nothing reads
+      # migration 0128's table. Turn on only after 0128 is applied. `:-false` because this bool
+      # rejects "".
+      RESUME_SKINS_ENABLED: ${RESUME_SKINS_ENABLED:-false}
+
+      # RÉSUMÉ QR SCAN (#1800). Off is the résumé QR encoding the homepage, exactly as before, and
+      # nothing mints a `resume_qr` link. Turn on only after migration 0129 is applied AND the
+      # badabhai.ai `/r/*` 302 rule points at this api. `:-false` because this bool rejects "".
+      RESUME_QR_SCAN_ENABLED: ${RESUME_QR_SCAN_ENABLED:-false}
+
+      # ---- THE REFERRAL RESOLVER'S DESTINATION (#1800).
+      #
+      # `GET /r/<code>` 302s to `<this>/i/<code>`, so this must be the origin that SERVES payer-web's
+      # `/i/` landing page — the worker app's App Link host (AndroidManifest `android:host`,
+      # `kInviteLinkBase`) and payer-web's `shortLinkOrigin()`. Until #1800 it was not declared
+      # here, so the config default `https://app.badabhai.in` won and every `/r/` visitor landed on
+      # a host with no `/i/` route. The interim sslip host moves with the Lightsail IP (#1319).
+      # TOPOLOGY, NOT A CREDENTIAL, so it is NOT bridged from a GitHub secret (the BACKEND_API_URL
+      # rule): a redirect destination changes in a reviewed diff to this file, never by a setting.
+      REFERRAL_SHORT_LINK_BASE: ${REFERRAL_SHORT_LINK_BASE:-https://payer.43-204-36-199.sslip.io}
 
       # ---- V8 VOICE STORAGE: PASS-THROUGH, NEVER REQUIRED.
       #
@@ -848,9 +895,17 @@ services:
       # STT in particular sends real worker AUDIO, which cannot be pseudonymized before the
       # provider hears it, and remains a separate owner decision.
       #
-      # Widening is an env action, not a code change — `export
-      # AI_REAL_CALL_TASKS=profiling_chat_turn,profile_extraction` on the box and re-run the
-      # deploy. Narrowing works the same way, which is why this keeps the `:-` form.
+      # Widening is an env action, not a code change: set the value in the box's own environment
+      # and re-run the deploy job. Narrowing works the same way, which is why this keeps the
+      # `:-` form. An `export` typed into a console shell does NOT count — the deploy runs in a
+      # fresh SSH session and never sees it; the value must live where every deploy reads it.
+      #
+      # THE PRODUCTION BOX ALREADY OVERRIDES THIS DEFAULT (measured 2026-09-30, #1843): the
+      # `ai.cost_recorded` spine shows REAL calls for tasks this default does not name
+      # (`profile_extraction`, `resume_generation`, `work_history_polish`, `resume_parse`,
+      # `resume_profile_summary`, `resume_option_map`), deploy after deploy. So on that box a
+      # change to the default below changes nothing, and widening there means APPENDING to the
+      # box's existing list — replacing it with a short one silently un-arms every task on it.
       #
       # THIS LINE IS INERT UNTIL THE BOX ARMS THE MASTER FLAG ABOVE, and the split of duties
       # is deliberate: this line answers WHICH task may go real, `AI_ENABLE_REAL_CALLS`

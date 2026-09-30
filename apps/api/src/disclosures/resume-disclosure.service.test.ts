@@ -20,6 +20,23 @@ import { ResumeDisclosureService } from "./resume-disclosure.service";
 import type { ResumeDisclosureRepository } from "./resume-disclosure.repository";
 import { RequestDisclosureSchema } from "./resume-disclosure.dto";
 import { neutralUnavailable } from "../unlocks/unlock-response";
+import { ROAD_FALLBACK_FRESHER, roadSnapshot } from "../resume/__fixtures__/general-road";
+import type { TradeSheetContext } from "../resume/resume-render-input";
+
+// ADR-0045 Phase 5 — WHAT THE LEAK GUARD SCANS, captured by a PASS-THROUGH wrapper: the guard
+// still runs for real on every call, and the context it saw is the evidence that the road was
+// merged BEFORE it and that the worker's real name never rode that context.
+const guardCalls = vi.hoisted(() => ({ contexts: [] as unknown[] }));
+vi.mock("../resume/other-answer-leak-guard", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../resume/other-answer-leak-guard")>();
+  return {
+    ...actual,
+    containsOtherAnswerMarker: (value: unknown) => {
+      guardCalls.contexts.push(value);
+      return actual.containsOtherAnswerMarker(value);
+    },
+  };
+});
 
 const CTX = { correlationId: "corr-1", requestId: "req-1" } as RequestContext;
 const PAYER = "11111111-1111-1111-1111-111111111111";
@@ -74,6 +91,15 @@ interface SetupOpts {
   phoneE164?: string | null;
   // Makes the phone decrypt (and only the phone decrypt) throw, for the degrade case.
   phoneDecryptThrows?: boolean;
+  // ADR-0045 Phase 5 — the NAME decrypt throws (and only it), for the brief's fail-closed case.
+  nameDecryptThrows?: boolean;
+  // The disclosed résumé row's template id and snapshot. Default: `classic`, an empty snapshot —
+  // every case written before the general road.
+  templateId?: string;
+  snapshot?: Record<string, unknown>;
+  // ADR-0045 Phase 5 — the general road's reader, as the optional last dependency. OMITTED is
+  // the reader absent; `"throws"` is a read that escapes it.
+  generalRoads?: { answer: { road: "general" } | null } | "throws";
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -107,7 +133,12 @@ function setup(opts: SetupOpts = {}) {
     withTransaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work(txMethods)),
     findResumeSource: vi.fn(async () =>
       hasResume
-        ? { resumeId: "resume-1", sourceProfileSnapshot: {}, templateId: "classic", version: 1 }
+        ? {
+            resumeId: "resume-1",
+            sourceProfileSnapshot: opts.snapshot ?? {},
+            templateId: opts.templateId ?? "classic",
+            version: 1,
+          }
         : undefined,
     ),
     markDisclosed: vi.fn(async (_id: string, _input: Record<string, unknown>) => undefined),
@@ -142,6 +173,9 @@ function setup(opts: SetupOpts = {}) {
   const pii = {
     decrypt: vi.fn((token: string) => {
       if (opts.phoneDecryptThrows && opts.phoneE164 != null && token === opts.phoneE164) {
+        throw new Error("bad/rotated key");
+      }
+      if (opts.nameDecryptThrows && token === "enc:" + REAL_NAME) {
         throw new Error("bad/rotated key");
       }
       return token.replace(/^enc:/, "");
@@ -195,6 +229,15 @@ function setup(opts: SetupOpts = {}) {
   const occupations = {
     loadForWorker: vi.fn(async () => opts.occupations ?? []),
   };
+  const generalRoads =
+    opts.generalRoads === undefined
+      ? undefined
+      : {
+          forResume: vi.fn(async (_resume: { id: string; workerId: string }) => {
+            if (opts.generalRoads === "throws") throw new Error("road boom " + REAL_NAME);
+            return (opts.generalRoads as { answer: { road: "general" } | null }).answer;
+          }),
+        };
 
   const service = new ResumeDisclosureService(
     repo as unknown as ResumeDisclosureRepository,
@@ -209,6 +252,9 @@ function setup(opts: SetupOpts = {}) {
     occupations as never,
     events as unknown as EventsService,
     CONFIG,
+    // `tierScopes` — absent here; its own suite covers it.
+    undefined,
+    generalRoads as never,
   );
 
   return {
@@ -223,6 +269,7 @@ function setup(opts: SetupOpts = {}) {
     attributes,
     events,
     emitted,
+    generalRoads,
     getRenderInput: () => renderInput,
   };
 }
@@ -687,5 +734,129 @@ describe("ADR-0031 — a pending-deletion worker is not disclosable (byte-identi
     expect(t.storage.createSignedUrl).not.toHaveBeenCalled();
     expect(t.renderer.renderPdf).not.toHaveBeenCalled();
     expect(t.emitted).toHaveLength(0);
+  });
+});
+
+/**
+ * ADR-0045 PHASE 5 — THE GENERAL ROAD ON THE EMPLOYER'S COPY.
+ *
+ * R6 puts the worker's own line on BOTH copies, and this copy hides his name: so the line is
+ * re-checked here against his CURRENT name (it may have changed since he wrote it) and the money
+ * wall, off the SAME single decrypt that derives the mask. A line that fails prints the fixed
+ * fallback line — on both copies, which then agree (owner ruling 2026-09-27). The reader degrades
+ * like every other load here: a failure is today's sheet, never a failed disclosure.
+ */
+describe("ADR-0045 — the general road on the employer's copy", () => {
+  const OWN = "Ghar aur dukaan ki wiring karta hoon.";
+  const REQUEST = { payerId: PAYER, workerId: WORKER, jobPostingId: null };
+  const ON_ROAD = { answer: { road: "general" as const } };
+  const road = (over: SetupOpts = {}, brief: unknown = { status: "answered", text: OWN }) =>
+    setup({
+      templateId: "bb_general",
+      snapshot: roadSnapshot(),
+      tradeSheet: { packId: null, attributes: { profile_brief: brief } },
+      generalRoads: ON_ROAD,
+      ...over,
+    });
+  /** The context the leak guard scanned on the latest disclosure. */
+  const scanned = () => guardCalls.contexts.at(-1) as TradeSheetContext;
+
+  it("asks about THE DISCLOSED résumé, and prints his own line under a masked name", async () => {
+    const t = road();
+    const res = await t.service.requestDisclosure(REQUEST, CTX);
+    expect(res).toMatchObject({ ok: true, status: "disclosed" });
+    expect(t.generalRoads!.forResume).toHaveBeenCalledWith({ id: "resume-1", workerId: WORKER });
+    expect(t.getRenderInput()?.profileBrief).toBe(OWN);
+    expect(t.getRenderInput()?.displayName).toBe(MASKED);
+    expect(t.getRenderInput()?.expectedSalary).toBeNull();
+    // MERGED BEFORE THE GUARD, a marker and one verdict — and the real name is nowhere in it.
+    expect(scanned().generalRoad).toEqual({ ownBriefUsable: true });
+    expect(JSON.stringify(scanned())).not.toContain(REAL_NAME);
+    // One PII touch, as before the road: the re-check rides the mask's decrypt.
+    expect(t.pii.decrypt).toHaveBeenCalledOnce();
+    // The event is exactly what it was: ids only, no brief, no road.
+    expect(t.emitted).toHaveLength(1);
+    expect(JSON.stringify(t.emitted)).not.toContain(OWN);
+  });
+
+  it("a line carrying his CURRENT name prints the fixed line — decrypted exactly once", async () => {
+    const t = road({}, { status: "answered", text: "Ramesh bhai ka wiring ka kaam" });
+    await t.service.requestDisclosure(REQUEST, CTX);
+    expect(t.getRenderInput()?.profileBrief).toBe(ROAD_FALLBACK_FRESHER);
+    expect(scanned().generalRoad).toEqual({ ownBriefUsable: false });
+    expect(t.pii.decrypt).toHaveBeenCalledOnce();
+    expect(JSON.stringify(t.getRenderInput())).not.toContain("Ramesh");
+  });
+
+  it("a stored line that talks money prints the fixed line — the figure never reaches the payer", async () => {
+    // Saved before the write wall existed, or under a looser build.
+    const t = road({}, { status: "answered", text: "Wiring karta hoon, 15000 rupaye chahiye" });
+    await t.service.requestDisclosure(REQUEST, CTX);
+    expect(t.getRenderInput()?.profileBrief).toBe(ROAD_FALLBACK_FRESHER);
+    expect(JSON.stringify(t.getRenderInput())).not.toContain("15000");
+  });
+
+  it("a name that could not be decrypted fails every line (fail closed), and still discloses", async () => {
+    const t = road({ nameDecryptThrows: true });
+    const res = await t.service.requestDisclosure(REQUEST, CTX);
+    expect(res).toMatchObject({ ok: true, status: "disclosed" });
+    expect(t.getRenderInput()?.profileBrief).toBe(ROAD_FALLBACK_FRESHER);
+    expect(t.getRenderInput()?.displayName).toBeNull();
+  });
+
+  it("a payer cannot tell a rejected line from a declined one — the two copies are identical", async () => {
+    const rejected = road({}, { status: "answered", text: "Ramesh bhai ka wiring ka kaam" });
+    await rejected.service.requestDisclosure(REQUEST, CTX);
+    const declined = road({}, { status: "declined" });
+    await declined.service.requestDisclosure(REQUEST, CTX);
+    expect(JSON.stringify(rejected.getRenderInput())).toBe(
+      JSON.stringify(declined.getRenderInput()),
+    );
+  });
+
+  it("sets a clock on EVERY road copy — a fresher's too — before the guard scans it", async () => {
+    const t = road();
+    await t.service.requestDisclosure(REQUEST, CTX);
+    expect(scanned().asOf).toBeInstanceOf(Date);
+    // Off the road a fresher's copy keeps today's shape: no clock without an employment.
+    const off = road({ generalRoads: { answer: null } });
+    await off.service.requestDisclosure(REQUEST, CTX);
+    expect(scanned().asOf).toBeUndefined();
+    expect("generalRoad" in scanned()).toBe(false);
+  });
+
+  it("never asks on another layout, nor on a bb_general row a role pack now draws as bb_trade", async () => {
+    const classic = road({ templateId: "classic" });
+    await classic.service.requestDisclosure(REQUEST, CTX);
+    expect(classic.generalRoads!.forResume).not.toHaveBeenCalled();
+    expect(classic.getRenderInput()?.profileBrief).toBeUndefined();
+
+    const upgraded = road({ tradeSheet: { packId: "qp_cnc_turning", attributes: {} } });
+    await upgraded.service.requestDisclosure(REQUEST, CTX);
+    expect(upgraded.generalRoads!.forResume).not.toHaveBeenCalled();
+    // RESOLVED ONCE: the value the gate read is the value the mapper drew with.
+    expect(upgraded.getRenderInput()?.templateId).toBe("bb_trade");
+  });
+
+  it("is optional, and a reader that says no or THROWS is today's disclosure — never a failed one", async () => {
+    for (const generalRoads of [undefined, { answer: null }, "throws" as const]) {
+      const t = road({ generalRoads });
+      const res = await t.service.requestDisclosure(REQUEST, CTX);
+      expect(res, String(generalRoads)).toMatchObject({ ok: true, status: "disclosed" });
+      expect(t.getRenderInput()?.profileBrief).toBeUndefined();
+      expect("generalRoad" in scanned()).toBe(false);
+    }
+  });
+
+  it("the throw's warning names the disclosure, never the error's text or the worker's name", async () => {
+    const t = road({ generalRoads: "throws" });
+    const lines: string[] = [];
+    const logger = (t.service as unknown as { logger: { warn: (m: string) => void } }).logger;
+    logger.warn = (m: string) => void lines.push(String(m));
+    await t.service.requestDisclosure(REQUEST, CTX);
+    expect(lines.some((l) => l.includes("general-road provenance for disclosure=disc-1"))).toBe(
+      true,
+    );
+    expect(lines.join("\n")).not.toMatch(/road boom|Ramesh/);
   });
 });

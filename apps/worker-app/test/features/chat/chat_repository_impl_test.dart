@@ -443,10 +443,36 @@ void main() {
     );
 
     expect(session.sessionId, 's1');
-    await repo.sendMessage('hi');
+    final ChatTurn turn = await repo.sendMessage('hi');
     expect(session.sessionId, isNull,
         reason: 'session_ended must clear the cached id so "start a fresh chat" '
             'on the Resume/Profile tabs still works');
+    // ADR-0044 — and the turn carries it: with `is_mock` it tells the bloc a
+    // reply came from a session that was already over.
+    expect(turn.sessionEnded, isTrue);
+  });
+
+  test('forgetSession drops the cached id and touches nothing else (ADR-0044)', () async {
+    final SessionRepository session = SessionRepository()
+      ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok')
+      ..setSession('s1');
+    int calls = 0;
+    final ChatRepositoryImpl repo = ChatRepositoryImpl(
+      ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async {
+          calls++;
+          return http.Response('{}', 200);
+        }),
+      ),
+      session,
+    );
+
+    repo.forgetSession();
+
+    expect(session.sessionId, isNull);
+    expect(session.sessionToken, 'tok', reason: 'the worker stays logged in');
+    expect(calls, 0, reason: 'nothing is sent to the server');
   });
 
   // #502 transcript hydration — the persisted transcript is redrawn as bubbles.

@@ -7,7 +7,11 @@ import '../../../../core/error/failure.dart';
 import '../../../profile_tab/domain/profile_summary.dart';
 import '../../../profile_tab/domain/profile_summary_repository.dart';
 import '../../../trade_form/domain/trade_form_models.dart'
-    show TradeForm, TradeFormEmploymentEntry;
+    show
+        TradeForm,
+        TradeFormEmploymentEntry,
+        TradeFormEmploymentSuggestion,
+        TradeFormStoredEmployment;
 import '../../../trade_form/domain/trade_form_repository.dart';
 import '../../domain/profile_repository.dart';
 
@@ -268,6 +272,20 @@ class ProfileCubit extends Cubit<ProfileState> {
   /// added employer's location.
   Future<WorkPrefOptionsDto> loadEmploymentOptions() =>
       _tradeForm.loadPreferenceOptions();
+
+  /// #1516 — the jobs a résumé or this worker's chat described that he never
+  /// confirmed, for the experience editor to offer as cards.
+  ///
+  /// [TradeFormStoredEmployment.openSuggestions], NOT the raw list: the server
+  /// re-offers every suggestion on every read, and this editor draws only the
+  /// rows added in this session — never the stored ones — so without this
+  /// filter a job already saved would come back as a suggestion. THROWS a
+  /// [Failure] like the read it wraps; the editor treats that as "none".
+  Future<List<TradeFormEmploymentSuggestion>> loadEmploymentSuggestions() async {
+    final TradeFormStoredEmployment stored =
+        await _tradeForm.loadSavedEmployment();
+    return stored.openSuggestions;
+  }
 
   /// #issue5 — persists the work history the worker built in the confirm
   /// screen's experience editor. The route REPLACES the whole list, so

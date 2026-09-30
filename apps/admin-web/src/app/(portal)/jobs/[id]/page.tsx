@@ -1,19 +1,42 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { jobRoleLabel } from "@badabhai/types";
 import { requireCapability } from "../../../../lib/auth";
 import { can } from "../../../../lib/auth/capabilities";
 import { getJobPosting, listApplications } from "../../../../lib/entities";
 import { isAdminRequestError } from "../../../../lib/admin-http";
 import {
   formatCount,
+  formatExperienceBand,
   formatPayBand,
   formatRelative,
   formatTimestamp,
+  payTypeLabel,
   shortId,
 } from "../../../../lib/format";
 import { StatusPill } from "../../../../components/status-pill";
 import { DetailList } from "../../../../components/detail-list";
+import { Stat } from "../../../../components/stat";
 import { JobDetailHeader } from "./job-detail-header";
+
+/**
+ * A poster-set list (requirements / benefits) as chips, or a plain fallback phrase when the
+ * poster set none. An empty array is NOT null — it must still fall through to the phrase rather
+ * than render an empty `<ul>`, so the check is on length, not just presence.
+ */
+function chipList(items: readonly string[] | null | undefined, empty: string): ReactNode {
+  if (!items || items.length === 0) return empty;
+  return (
+    <ul className="chips">
+      {items.map((item, i) => (
+        <li className="chip" key={`${i}-${item}`}>
+          {item}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Job posting" };
@@ -43,6 +66,21 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   const applyRate = total > 0 ? Math.round((job.applied_count / total) * 100) : null;
 
   const timelineHref = `/jobs/${job.id}/timeline`;
+
+  // The display role the payer picked (migration 0131). Labelled for a human; an unknown or
+  // absent value never renders raw as a friendly label. `null` means no role was picked; a
+  // non-null value the label map does not know is shown as its raw id in the monospace id face,
+  // so it is still legible and copyable rather than a blank or a crash.
+  const roleLabel = jobRoleLabel(job.role_kind);
+  const roleValue: ReactNode =
+    job.role_kind == null ? (
+      "not set"
+    ) : roleLabel !== null ? (
+      roleLabel
+    ) : (
+      <span className="mono">{job.role_kind}</span>
+    );
+
   const title = (
     <div>
       <p className="page__eyebrow">
@@ -52,8 +90,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
       </p>
       <h1 className="page__title">{job.role_title}</h1>
       <p className="page__sub">
-        One posting exactly as workers see it, with its reach and its trust review. Published
-        as <strong>{job.org_label}</strong>
+        One posting&rsquo;s full content, with its reach and its trust review. Published as{" "}
+        <strong>{job.org_label}</strong>
         {job.city || job.location_label ? ` · ${job.city ?? job.location_label}` : ""} · created{" "}
         {formatRelative(job.created_at)}.
       </p>
@@ -93,18 +131,36 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
             <h2 className="panel__title" id="j-content">
               Posting content
             </h2>
-            <p className="panel__sub">Exactly what the poster wrote and workers see.</p>
+            <p className="panel__sub">
+              What the poster set for this job. The role classification is internal and is not
+              shown to workers.
+            </p>
           </div>
           <DetailList
             items={[
               { label: "Role title", value: job.role_title },
+              { label: "Role", value: roleValue },
               { label: "Published as", value: job.org_label },
               { label: "Location", value: job.location_label ?? "not stated" },
               { label: "Match city", value: job.city ?? "not set" },
+              { label: "Area", value: job.area ?? "not stated" },
               { label: "Vacancies", value: job.vacancy_band },
               { label: "Monthly pay", value: formatPayBand(job.pay_min, job.pay_max) },
+              {
+                label: "Pay type",
+                value: job.pay_type ? payTypeLabel(job.pay_type) : "not stated",
+              },
+              {
+                label: "Experience",
+                value: formatExperienceBand(
+                  job.min_experience_years ?? null,
+                  job.max_experience_years ?? null,
+                ),
+              },
               { label: "Shift", value: job.shift ?? "not stated" },
               { label: "Needed by", value: job.needed_by ?? "not stated" },
+              { label: "Requirements", value: chipList(job.requirements, "none listed") },
+              { label: "Benefits", value: chipList(job.benefits, "none listed") },
             ]}
           />
           <div className="prose">
@@ -136,20 +192,12 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
           </div>
 
           <div className="stats stats--compact">
-            <div className="stat">
-              <span className="stat__value">{formatCount(job.applied_count)}</span>
-              <span className="stat__label">Applied</span>
-            </div>
-            <div className="stat">
-              <span className="stat__value">{formatCount(job.skipped_count)}</span>
-              <span className="stat__label">Skipped</span>
-            </div>
-            <div className="stat">
-              <span className="stat__value">{applyRate === null ? "—" : `${applyRate}%`}</span>
-              <span className="stat__label">
-                {applyRate === null ? "Not seen yet" : "Apply rate"}
-              </span>
-            </div>
+            <Stat label="Applied" value={formatCount(job.applied_count)} />
+            <Stat label="Skipped" value={formatCount(job.skipped_count)} />
+            <Stat
+              label={applyRate === null ? "Not seen yet" : "Apply rate"}
+              value={applyRate === null ? "—" : `${applyRate}%`}
+            />
           </div>
 
           <DetailList

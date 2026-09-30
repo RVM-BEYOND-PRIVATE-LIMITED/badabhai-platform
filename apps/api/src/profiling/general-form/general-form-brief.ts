@@ -38,6 +38,10 @@
  *                 out ("ramesh at gmail dot com").
  *   link          a URL (`looksLikeUrl`), a host followed by a path ("t.me/ramesh"), or a
  *                 short-link host ("bit.ly", "linktr.ee").
+ *   salary        MONEY (owner ruling 2026-09-27, ADR-0045 §6) — see {@link looksLikeMoney}. The
+ *                 brief prints on the EMPLOYER copy, and the one number the employer copy
+ *                 withholds is the worker's asking price: a "15000 chahiye" typed here would
+ *                 hand the payer exactly what the Salary row is suppressed to keep from him.
  *   organisation  a legal-entity name — `looksLikeOrgName`, plus a bare "Ltd"/"LLC"/"GmbH"/"LLP"
  *                 anywhere and a Capitalised "Limited" after a word.
  *   unscreenable  a wall THREW. Fail closed: a wall that did not finish is not a wall that passed.
@@ -85,6 +89,8 @@
  * caller that wants to observe a refusal has the REASON and must never reach for the text.
  */
 
+import { z } from "zod";
+
 import { looksLikeOrgName, looksLikePii, looksLikeUrl } from "@badabhai/validators";
 import { GENERAL_FORM_BRIEF_MAX_CHARS, GENERAL_FORM_BRIEF_MIN_CHARS } from "@badabhai/types";
 
@@ -122,6 +128,7 @@ export const BRIEF_REFUSAL_REASONS = [
   "identifier",
   "contact",
   "link",
+  "salary",
   "name",
   "organisation",
   "unscreenable",
@@ -131,6 +138,46 @@ export type BriefRefusalReason = (typeof BRIEF_REFUSAL_REASONS)[number];
 export type BriefScreenResult =
   | { readonly ok: true; readonly text: string }
   | { readonly ok: false; readonly reason: BriefRefusalReason };
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// THE STORED BRIEF
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The brief's stored value (`worker_attributes.value_json` under `profile_brief`).
+ *
+ * A `json` ROW, NOT `text`, for two reasons that each close a leak:
+ *  - a DECLINE must be a row too (`wa_value_present_chk` allows no value-less row, and "the worker
+ *    skipped it" is a settled answer that must not be re-asked), and
+ *  - `WorkerSkillsRepository.findPackAttributeOptions` reads every `value_text` as an option KEY
+ *    for the matcher; free text there would enter a matching read whose own docstring promises it
+ *    never carries free text.
+ * NOT the `{kind: "other_answer", text}` shape: `other-answer-leak-guard.ts` deep-scans the
+ * employer disclosure context for that shape and fails the whole disclosure closed on it.
+ *
+ * STRICT ON READ: a hand-written or damaged row reads as UNSETTLED — the form asks again, and the
+ * résumé prints the fallback line — rather than as an answer nobody gave.
+ *
+ * HERE, BESIDE THE WALLS, AND EXPORTED (ADR-0045 Phase 5), because it now has TWO readers that
+ * must agree: the general form (which serves the saved answer back) and the résumé (which prints
+ * it). A second copy of the shape in `resume/` could drift from the one the form writes, and the
+ * drift would be silent — a brief the form shows as saved that the sheet reads as absent.
+ */
+export const StoredBriefSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("answered"), text: z.string().min(1) }).strict(),
+  z.object({ status: z.literal("declined") }).strict(),
+]);
+export type StoredBrief = z.infer<typeof StoredBriefSchema>;
+
+/**
+ * A stored `profile_brief` value, narrowed — or `undefined` for anything that is not one (no row,
+ * a damaged row, a shape a later build wrote). FAILS SOFT, never throws: every read of a jsonb
+ * column is untrusted input.
+ */
+export function readStoredBrief(value: unknown): StoredBrief | undefined {
+  const parsed = StoredBriefSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // NORMALISATION
@@ -311,6 +358,113 @@ function looksLikeLink(text: string): boolean {
   );
 }
 
+// ── money (owner ruling 2026-09-27) ──
+
+/**
+ * Any currency SIGN, anywhere — `\p{Sc}`, so "₹" and the "$" a worker quoting a Gulf wage types
+ * are one rule. A sign has no trade-prose meaning in a one-line brief, so position and a
+ * neighbouring number do not matter.
+ */
+const CURRENCY_SIGN_RE = /\p{Sc}/u;
+
+/**
+ * A currency WORD, only next to a number, on either side: "Rs 15000", "Rs.15,000", "INR 20000",
+ * "15000 rupees", "15000 रुपये", "रु 15000", "15000 रु". ONLY next to a number because "rs" and "रु"
+ * are also the ends and starts of ordinary words — the letter lookarounds (marks included, which
+ * is where a Devanagari word continues) keep "hours 5" and "15000 रुकता" out. Digits of ANY script
+ * (`\p{Nd}`): the stored brief is the worker's own digits, and this predicate is also the
+ * résumé's render-time re-check, which has no scan form to fold them for it.
+ */
+const CURRENCY_WORD = String.raw`(?:rs\.?|inr|rupees?|rupaye|rupay|rupaya|rupiya|rupiye|rupye|rupya|रुपये|रुपए|रूपये|रूपए|रुपया|रूपया|रुपय|रुपैया|रू|रु)`;
+const CURRENCY_NEAR_NUMBER_RE = new RegExp(
+  String.raw`(?<![\p{L}\p{M}\p{N}])${CURRENCY_WORD}\s*\p{Nd}|\p{Nd}\s*${CURRENCY_WORD}(?![\p{L}\p{M}\p{N}])`,
+  "iu",
+);
+
+/**
+ * A number followed by a MAGNITUDE or the rupee dash: "15k", "15 hazar", "15 hazaar", "15
+ * thousand", "2 lakh", "3 LPA", "15 हजार", "15000/-". The magnitude must end its word, so "5
+ * kaam" is prose. A number written as a word ("do hazar log") is not a number here and passes —
+ * the ruling is about figures an employer could anchor on. The nukta on "हज़ार" is optional:
+ * NFKC decomposes the precomposed letter, so the stored text may carry it either way.
+ *
+ * A SPACED "k" IS NOT ALWAYS A THOUSAND. In chat Hinglish "k" is also "ke", and after a number it
+ * is then followed by a postposition: "2019 k baad", "Class 10 k baad ITI". Those pass; "15 k se
+ * kam nahi" (an asking floor) and an attached "15k" are money.
+ */
+const K_AS_KE = String.raw`\s+(?:baad|bad|pehle|pahle|saath|sath|liye|lie|andar|upar|niche|neeche|beech|dauran|zariye|jariye)(?![\p{L}\p{M}\p{N}])`;
+const MONEY_MAGNITUDE_RE = new RegExp(
+  String.raw`\p{Nd}k(?![\p{L}\p{M}\p{N}])|\p{Nd}\s+k(?![\p{L}\p{M}\p{N}])(?!${K_AS_KE})|\p{Nd}\s*(?:hazaa?r|thousand|lakhs?|lacs?|lpa|हज़?ार|लाख)(?![\p{L}\p{M}\p{N}])|\p{Nd}\s*\/-`,
+  "iu",
+);
+
+/**
+ * A SALARY-SIZED FIGURE — four or more digits, or grouped thousands ("15,000") — beside a PAY
+ * PERIOD or an ASK: "15000 per month", "15000/month", "18000 mahina", "15,000 pm", "मुझे 15000
+ * महीना चाहिए", "15000 प्रति माह", "15000 chahiye", "20000 expected". The size is what separates
+ * pay from a duration: "6 mahine ka experience" and "3 month ka course" are one or two digits, and
+ * a clock time ("5 pm") is never four. A day rate is smaller, so a three-digit figure beside an
+ * explicit per-day ("500 per day", "600/din", "700 daily") counts too. Years are four digits but
+ * are never followed by a pay period or an ask ("2015 se 2023 tak" passes).
+ */
+const SALARY_FIGURE = String.raw`(?:\p{Nd}{1,3}(?:[,.]\p{Nd}{3})+|\p{Nd}{4,})`;
+const PAY_PERIOD = String.raw`(?:months?|monthly|mahina|mahine|mahena|maheena|mahiina|mahiine|pm|p\.m\.|महीना|महीने|माह|मासिक)`;
+const PAY_ASK = String.raw`(?:chahiye|chaiye|chahie|expected|expect|चाहिए|चाहिये)`;
+const DAY_RATE = String.raw`(?:(?:per|\/|prati|प्रति)\s*(?:day|din|दिन)|daily|rozana|रोज़?ाना)`;
+const PAY_FIGURE_RE = new RegExp(
+  String.raw`${SALARY_FIGURE}\s*(?:(?:per|\/|prati|प्रति|a|ek|har)\s*)?${PAY_PERIOD}(?![\p{L}\p{M}\p{N}])|${SALARY_FIGURE}\s*${PAY_ASK}(?![\p{L}\p{M}\p{N}])|\p{Nd}{3,}\s*${DAY_RATE}(?![\p{L}\p{M}\p{N}])`,
+  "iu",
+);
+
+/**
+ * A salary WORD anywhere, with or without a figure — "salary chahiye", "tankhwah achhi ho",
+ * "CTC", "वेतन" — and the misspellings workers actually type ("sallary", "salery", "salry",
+ * "tankhwaah"). The brief is about the worker's WORK; his pay has its own row, which the employer
+ * copy withholds, and a sentence about it is the same disclosure in prose. "tanka" without the
+ * "h" is NOT here: it is a tailor's stitch.
+ */
+const SALARY_WORD_RE = new RegExp(
+  String.raw`(?<![\p{L}\p{M}\p{N}])(?:sal+[ae]?r+(?:y|i|ie|ies)|tankh(?:w?aa?h?)|pagaa?r|vetan|ctc|सैलरी|सेलरी|वेतन|तनख़?्वाह|तनख़?्वा|तनख़?ा|पगार)(?![\p{L}\p{M}\p{N}])`,
+  "iu",
+);
+
+/**
+ * A PAY SYNONYM next to a figure, either side — "18000 ka package", "wage 15000", "pay: 12000",
+ * "income 20000", "stipend 8000", "kamai 15000", "15000 की कमाई". Only beside a number, because
+ * each is also ordinary prose ("Tally package", "pay attention", "kamai ka zariya").
+ */
+const PAY_WORD = String.raw`(?:package|wages?|pay|income|stipend|kamai|kamaai|कमाई|पैकेज)`;
+const PAY_WORD_NEAR_NUMBER_RE = new RegExp(
+  String.raw`(?<![\p{L}\p{M}\p{N}])${PAY_WORD}\s*[:\-]?\s*(?:of\s+)?\p{Nd}|\p{Nd}[\p{Nd},.]*\s*(?:(?:ka|ki|ke|का|की|के)\s+)?${PAY_WORD}(?![\p{L}\p{M}\p{N}])`,
+  "iu",
+);
+
+/**
+ * DOES THIS TEXT TALK ABOUT MONEY? (owner ruling 2026-09-27, ADR-0045 §6)
+ *
+ * EXPORTED, because the refusal is not the only reader. The write wall refuses a brief that
+ * matches (`brief_salary`); the résumé re-runs THIS predicate at render time on the stored text
+ * (`resume/resume-brief.ts`) and prints the fixed fallback line if a stored brief matches — a
+ * brief saved before the wall existed, or under a looser build. One predicate for both moments,
+ * so the render can never pass a figure the write would have refused.
+ *
+ * WHAT PASSES, pinned by tests: "10 saal", "2015 se 2023 tak", "5 log ki team", "6 mahine ka
+ * course", "2019 k baad" — years, spans, head-counts and short durations are the ordinary numbers
+ * of a work brief. FAILS CLOSED on the rest: "10k+ parts banaye" is refused as money, and the
+ * worker rewords. A bare figure with no cue at all ("1500 parts roz banata hoon") still passes —
+ * it cannot be told from a count.
+ */
+export function looksLikeMoney(text: string): boolean {
+  return (
+    CURRENCY_SIGN_RE.test(text) ||
+    CURRENCY_NEAR_NUMBER_RE.test(text) ||
+    MONEY_MAGNITUDE_RE.test(text) ||
+    PAY_FIGURE_RE.test(text) ||
+    SALARY_WORD_RE.test(text) ||
+    PAY_WORD_NEAR_NUMBER_RE.test(text)
+  );
+}
+
 // ── organisations ──
 
 /**
@@ -362,7 +516,9 @@ function looksLikeOwnName(text: string, knownName: RegExp | null): boolean {
  * is refused for two things, the one that would have put a number on an employer's copy is the
  * one the worker should hear about. The name wall follows contact and link: a handle or a link
  * that happens to contain his name ("ramesh@okaxis") is refused as the route it is, which is the
- * more specific thing to retype.
+ * more specific thing to retype. Money sits after the routes and before the name: a UPI handle
+ * with a figure beside it is still the route first, and "Ramesh, 15000 chahiye" is the figure the
+ * employer copy exists to withhold before it is the name.
  */
 const WALLS: readonly {
   readonly reason: BriefRefusalReason;
@@ -371,6 +527,7 @@ const WALLS: readonly {
   { reason: "identifier", test: looksLikeIdentifier },
   { reason: "contact", test: looksLikeContactRoute },
   { reason: "link", test: looksLikeLink },
+  { reason: "salary", test: looksLikeMoney },
   { reason: "name", test: looksLikeOwnName },
   { reason: "organisation", test: looksLikeOrganisation },
 ]);

@@ -665,6 +665,102 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "grant exposes that across the worker base to every PostgREST role while every surface " +
       "keeps working",
   },
+  // 0128: THE API names `worker_resume_skin` only while RESUME_SKINS_ENABLED is on (#1801), so a
+  // deploy ahead of the migration breaks no request and the table is NOT a `table` entry. It is
+  // listed for its lock, exactly as 0126's table is. APPLY BEFORE THE FLAG (migration header).
+  {
+    id: "0128-worker-resume-skin-rls",
+    migration: "0128_worker_resume_skin",
+    kind: "rls",
+    table: "worker_resume_skin",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which workers chose a résumé skin and when, keyed by worker id; " +
+      "an open grant exposes that across the worker base to every PostgREST role while every " +
+      "surface keeps working",
+  },
+  // 0129: THE API names the widened kind CHECK and this index only while RESUME_QR_SCAN_ENABLED is
+  // on (#1800), so a deploy ahead of the migration breaks no request. Listed — like the RLS entries
+  // — because its absence is SILENT: the render's mint fails and falls back to the homepage QR,
+  // which is exactly what a sheet looked like before #1800. The CHECK and the index are applied in
+  // one transaction, so the index answers for both. APPLY BEFORE THE FLAG (migration header).
+  {
+    id: "0129-referral-links-resume-qr-owner-index",
+    migration: "0129_referral_links_resume_qr",
+    kind: "index",
+    table: "referral_links",
+    object: "referral_links_resume_qr_owner_uq",
+    requiredBy:
+      "ReferralLinkRepository.insertResumeQrLink — the render worker's get-or-create of a " +
+      "worker's résumé-QR link, whose ON CONFLICT infers this partial unique index — and only " +
+      "while RESUME_QR_SCAN_ENABLED is on. The same migration widens referral_links_kind_chk to " +
+      "admit 'resume_qr', which the insert needs as well",
+    failureMode:
+      "SILENT. With the flag on, every mint fails (CHECK violation or no matching ON CONFLICT " +
+      "index) and every résumé keeps the homepage QR — the PDF still renders, and profile." +
+      "qr_scanned simply never fires, so the scan metric reads zero rather than erroring",
+  },
+  // 0130: THE API writes trigger 'chat_edit' only while CHAT_COMPANION_V2_EDIT_ENABLED is on
+  // (ADR-0046 Phase 1), so a deploy ahead of the migration breaks no request. Registered because
+  // the CHECK's absence is LOUD on one surface and silent on the funnel: with the flag on, the
+  // confirm transaction rolls back (the worker gets the fallback line and nothing is written),
+  // and no history entry or resume.generated event is ever recorded for an edit. APPLY BEFORE
+  // THE FLAG (migration header).
+  {
+    id: "0130-generated-resumes-generation-trigger-chat-edit",
+    migration: "0130_resume_generation_trigger_chat_edit",
+    kind: "constraint",
+    table: "generated_resumes",
+    object: "generated_resumes_generation_trigger_chk",
+    requiredBy:
+      "ChatCompanionEditService's confirm path enqueues the regeneration through " +
+      "ResumeService.generate({ trigger: 'chat_edit' }) — the ADR-0043 path (O6) — and only while " +
+      "CHAT_COMPANION_V2_EDIT_ENABLED is on. The constraint is also named by every INSERT into " +
+      "generated_resumes, whatever the trigger",
+    failureMode:
+      "LOUD on the confirm route (the insert fails the CHECK, the transaction rolls back and the " +
+      "worker sees the fallback line; nothing is written) and SILENT in the funnel — no history " +
+      "entry, no resume.generated event, so edit-driven regenerations read as zero rather than " +
+      "erroring",
+  },
+  // 0131: the payer's role pick (ADR-0036 addendum 2026-09-29). Unconditional — no flag — because
+  // both tables are read through bare `select()` / `.returning()`, which name every model column.
+  // The two CHECKs are applied in the same transaction as the columns, so the columns answer for
+  // them. APPLY-BEFORE-DEPLOY (migration header).
+  {
+    id: "0131-job-postings-role-kind",
+    migration: "0131_job_role_kind",
+    kind: "column",
+    table: "job_postings",
+    object: "role_kind",
+    requiredBy:
+      "JobPostingsRepository's bare `select()` / `.returning()` (create, findById, list, update, " +
+      "close, findByIdAndPayer, listByPayer, updateOwned, closeOwned, transitionOwned) — every ops " +
+      "and payer posting read and write, including the chat publish's create",
+    failureMode:
+      "every payer/ops job-posting route 500s (column does not exist): create, list, detail, " +
+      "edit, publish, pause/resume, close. Old builds on a migrated database are fine (a " +
+      "superset); new builds on an unmigrated one are not, which is why this is " +
+      "APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0131-jobs-role-kind",
+    migration: "0131_job_role_kind",
+    kind: "column",
+    table: "jobs",
+    object: "role_kind",
+    requiredBy:
+      "AgencyJobsRepository's bare `select()` / `.returning()` (every agency job route) and " +
+      "ApplicationsRepository.findJobById — the existence check on the worker's legacy " +
+      "apply/skip path (`jobs`, MATCH_V1_ENABLED off)",
+    failureMode:
+      "every agency job route 500s, and so does a worker's apply/skip on the legacy path " +
+      "(column does not exist). Old builds on a migrated database are fine (a superset); new " +
+      "builds on an unmigrated one are not, which is why this is APPLY-BEFORE-DEPLOY",
+  },
   {
     id: "0125-resume-history-generation-source",
     migration: "0125_resume_history",

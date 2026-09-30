@@ -20,8 +20,10 @@
  * The last one is the subtle one and the reason this file asserts an ABSENCE. Arming
  * `AI_ENABLE_REAL_CALLS` does not arm embeddings: `skill_embedding` has to be in
  * `AI_REAL_CALL_TASKS` as well, and that variable is deliberately not in the deploy job's
- * `envs:` bridge, so the box always takes docker-compose.staging.yml's default. Adding it to
- * the bridge would silently make a GitHub secret able to widen the real-call surface.
+ * `envs:` bridge, so no GitHub secret can reach it: the container gets
+ * docker-compose.staging.yml's default unless the box's own environment sets the variable
+ * (the production box does — #1843). Adding it to the bridge would silently make a GitHub
+ * secret able to widen the real-call surface.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -165,6 +167,48 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /CHAT_GENERAL_ROAD_ENABLED:\s*\$\{\{\s*secrets\.CHAT_GENERAL_ROAD_ENABLED\s*\}\}/,
       /envs:[^\n]*\bCHAT_GENERAL_ROAD_ENABLED\b/,
     ],
+    // #1801 — résumé skins. A plain boolean flag, turned on in production ONLY by the
+    // environment secret, after migration 0128 is applied — so the bridge is the switch.
+    [
+      "RESUME_SKINS_ENABLED",
+      /RESUME_SKINS_ENABLED:\s*\$\{\{\s*secrets\.RESUME_SKINS_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bRESUME_SKINS_ENABLED\b/,
+    ],
+    // #1800 — the résumé QR scan. A plain boolean flag, turned on in production ONLY by the
+    // environment secret, after migration 0129 and the badabhai.ai /r/* redirect.
+    [
+      "RESUME_QR_SCAN_ENABLED",
+      /RESUME_QR_SCAN_ENABLED:\s*\$\{\{\s*secrets\.RESUME_QR_SCAN_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bRESUME_QR_SCAN_ENABLED\b/,
+    ],
+    // ADR-0046 — the companion v2 phase gates. Plain boolean flags; production ON additionally
+    // requires the ADR's signature with companion v1 live, and real calls need the box to widen
+    // the ai-service's AI_REAL_CALL_TASKS allowlist (an env action, not this bridge).
+    [
+      "CHAT_COMPANION_V2_ENABLED",
+      /CHAT_COMPANION_V2_ENABLED:\s*\$\{\{\s*secrets\.CHAT_COMPANION_V2_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_COMPANION_V2_ENABLED\b/,
+    ],
+    [
+      "CHAT_COMPANION_V2_EDIT_ENABLED",
+      /CHAT_COMPANION_V2_EDIT_ENABLED:\s*\$\{\{\s*secrets\.CHAT_COMPANION_V2_EDIT_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_COMPANION_V2_EDIT_ENABLED\b/,
+    ],
+    [
+      "CHAT_COMPANION_V2_NEW_RESUME_ENABLED",
+      /CHAT_COMPANION_V2_NEW_RESUME_ENABLED:\s*\$\{\{\s*secrets\.CHAT_COMPANION_V2_NEW_RESUME_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_COMPANION_V2_NEW_RESUME_ENABLED\b/,
+    ],
+    [
+      "CHAT_COMPANION_V2_FALTU_ENABLED",
+      /CHAT_COMPANION_V2_FALTU_ENABLED:\s*\$\{\{\s*secrets\.CHAT_COMPANION_V2_FALTU_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_COMPANION_V2_FALTU_ENABLED\b/,
+    ],
+    [
+      "CHAT_COMPANION_V2_CAREER_ENABLED",
+      /CHAT_COMPANION_V2_CAREER_ENABLED:\s*\$\{\{\s*secrets\.CHAT_COMPANION_V2_CAREER_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_COMPANION_V2_CAREER_ENABLED\b/,
+    ],
   ])("%s is bridged from the environment's secrets", (_name, fromSecrets, inEnvs) => {
     expect(DEPLOY).toMatch(fromSecrets);
     // …and reaches the container: drone-ssh only exports what `envs:` lists, so a job-level
@@ -172,7 +216,15 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     expect(DEPLOY).toMatch(inEnvs);
   });
 
-  it("AI_REAL_CALL_TASKS is NOT bridged — the box always takes the compose default", () => {
+  it("REFERRAL_SHORT_LINK_BASE is NOT bridged — a redirect destination is topology, not a secret", () => {
+    // #1800. The BACKEND_API_URL rule: bridging it would let one repository setting re-point every
+    // `/r/` redirect at an arbitrary host. It changes in a reviewed diff to the compose file.
+    const bridged = uncommented(DEPLOY);
+    expect(bridged).not.toMatch(/REFERRAL_SHORT_LINK_BASE:\s*\$\{\{/);
+    expect(bridged).not.toMatch(/envs:[^\n]*\bREFERRAL_SHORT_LINK_BASE\b/);
+  });
+
+  it("AI_REAL_CALL_TASKS is NOT bridged — no GitHub secret can widen the real-call surface", () => {
     // The load-bearing absence. `AI_ENABLE_REAL_CALLS=true` arms only the tasks named in this
     // list; bridging it would let a GitHub secret add `skill_embedding` with no code review.
     //
@@ -191,6 +243,17 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["WORK_HISTORY_POLISH_ENABLED", "false"],
     ["RESUME_AUTOFILL_ENABLED", "false"],
     ["CHAT_GENERAL_ROAD_ENABLED", "false"],
+    ["RESUME_SKINS_ENABLED", "false"],
+    ["RESUME_QR_SCAN_ENABLED", "false"],
+    // ADR-0046 — the companion v2 phase gates, all five off by default.
+    ["CHAT_COMPANION_V2_ENABLED", "false"],
+    ["CHAT_COMPANION_V2_EDIT_ENABLED", "false"],
+    ["CHAT_COMPANION_V2_NEW_RESUME_ENABLED", "false"],
+    ["CHAT_COMPANION_V2_FALTU_ENABLED", "false"],
+    ["CHAT_COMPANION_V2_CAREER_ENABLED", "false"],
+    // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's
+    // `/i/<code>`. Undeclared, the stale config default (app.badabhai.in, no `/i/`) won.
+    ["REFERRAL_SHORT_LINK_BASE", "https://payer.43-204-36-199.sslip.io"],
   ])(
     "docker-compose.staging.yml defaults %s to %s when the secret is absent or empty",
     (name, fallback) => {

@@ -75,6 +75,16 @@ RESUME_SUMMARY = "resume-profile-summary"
 # parse: document lines onto pack option ids. Versioned like the rest so "did v2 map
 # better than v1?" is answerable from one generation record — same reason as above.
 RESUME_OPTION_MAP = "resume-option-map"
+# ADR-0046 Phase 1 — the companion router's two prompts. Versioned like the rest so
+# "which prompt routed this message" and "which one extracted this card" are answerable
+# from one generation record: the classifier's intent distribution is exactly the metric
+# a prompt edit moves, and the parser's rows are the card the worker reviews.
+COMPANION_CLASSIFY = "companion-classify"
+COMPANION_EDIT_PARSE = "companion-edit-parse"
+# ADR-0046 Phase 3 - the career answer's prompt. Versioned like the rest: the refusal rate and
+# the sampled-answer review are exactly what a prompt edit moves, so "which prompt wrote this
+# answer" has to be answerable from one generation record.
+COMPANION_CAREER = "companion-career"
 
 #: ``prompt_source`` values. Two, and they mean different things to an operator: "local"
 #: says the deploy decides the prompt, "langfuse" says someone outside the deploy can.
@@ -199,21 +209,26 @@ def resolve(name: str, tracer: Any | None = None) -> ResolvedPrompt | None:
 
 
 def install_default_prompts() -> None:
-    """Register the three production prompts that sit on a live LLM path.
+    """Register every prompt that sits on a live LLM path.
 
-    EXACTLY THREE, and the boundary is evidence-based rather than tidy: these are the
-    prompts behind the only three routes that reach a provider today —
-    ``POST /profiling/turn`` (Phase A), ``POST /profiling/extract`` (Phase C) and
-    ``POST /profile/parse``. ``build_resume`` in ``extraction.py`` is deterministic string
-    assembly with no model behind it, and the legacy ``/profile/extract`` prompt is on a
-    route the OIE cutover left behind — registering either would claim prompt management
-    over text no provider ever sees.
+    THE BOUNDARY IS EVIDENCE-BASED RATHER THAN TIDY: a name is registered here when a route
+    reaches a provider with it. ``build_resume`` in ``extraction.py`` is deterministic string
+    assembly with no model behind it, and the legacy ``/profile/extract`` prompt is on a route
+    the OIE cutover left behind — registering either would claim prompt management over text no
+    provider ever sees. The list has grown with the routes: the original three (the Phase A
+    turn, the Phase C extract, the profile parse), then the general road, #1350's polish, the
+    ADR-0041 import trio, and ADR-0046's companion pair.
 
     Imports are LOCAL to this function, deliberately: it is called from the FastAPI
     lifespan, so the profiling package is imported after app construction rather than at
     ``app.ai`` import time, and the AI package keeps no import-time dependency on the
     profiling package.
     """
+    from ..companion.prompts import (
+        CAREER_SYSTEM_PROMPT,
+        CLASSIFY_SYSTEM_PROMPT,
+        EDIT_PARSE_SYSTEM_PROMPT,
+    )
     from ..profiling.interview_prompts import (
         extract_system_prompt,
         interview_system_prompt,
@@ -233,3 +248,12 @@ def install_default_prompts() -> None:
     register(RESUME_PARSE, lambda: RESUME_PARSE_SYSTEM_PROMPT)
     register(RESUME_SUMMARY, lambda: RESUME_SUMMARY_SYSTEM_PROMPT)
     register(RESUME_OPTION_MAP, lambda: RESUME_OPTION_MAP_SYSTEM_PROMPT)
+    # ADR-0046 Phase 1. Both are module constants with no interpolation, so the registered
+    # text and the route's fallback literal are the same bytes by construction — a
+    # Langfuse-managed copy is the only way they can differ, and that is deliberate.
+    register(COMPANION_CLASSIFY, lambda: CLASSIFY_SYSTEM_PROMPT)
+    register(COMPANION_EDIT_PARSE, lambda: EDIT_PARSE_SYSTEM_PROMPT)
+    # ADR-0046 Phase 3. Same construction as the pair above: a module constant with no
+    # interpolation, so the registered text and the route's fallback literal are the same
+    # bytes unless a Langfuse-managed copy deliberately differs.
+    register(COMPANION_CAREER, lambda: CAREER_SYSTEM_PROMPT)

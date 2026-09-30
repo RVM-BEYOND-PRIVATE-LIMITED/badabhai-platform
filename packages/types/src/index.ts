@@ -41,11 +41,13 @@ export type ResumeSource = (typeof RESUME_SOURCES)[number];
 //   manual                the worker asked (POST /resume/generate)
 //   chat_update_accepted  the worker said "Haan" to "Resume update kar doon?" in chat
 //   ops_regenerate        an operator re-ran generation (internal route)
+//   chat_edit             ADR-0046 O6 — the worker tapped Haan on a companion edit card
 export const RESUME_GENERATION_TRIGGERS = [
   "profile_confirmed",
   "manual",
   "chat_update_accepted",
   "ops_regenerate",
+  "chat_edit",
 ] as const;
 export type ResumeGenerationTrigger = (typeof RESUME_GENERATION_TRIGGERS)[number];
 
@@ -85,6 +87,95 @@ export type CompanionNudge = (typeof COMPANION_NUDGES)[number];
 // failed and the line was left out.
 export const COMPANION_JOBS_SCOPES = ["profile", "no_skills", "unavailable"] as const;
 export type CompanionJobsScope = (typeof COMPANION_JOBS_SCOPES)[number];
+
+// ---- Companion v2 — the LLM task router (ADR-0046) ----
+// The closed sets the v2 turn pipeline classifies into, attributes its answers to, and reports as
+// outcomes. Shared by the API (which decides), the AI-service contract mirror (which returns an
+// intent) and the event spine (which records), so no layer can name a value another does not know.
+// IDS, NEVER TEXT: none of these carries a word the worker typed.
+//
+// THE FIVE WORKER TASKS plus `unclear`. An intent whose phase flag is off is still CLASSIFIED —
+// so the metrics show demand — and answered with the phase-off line (ADR-0046 §1).
+export const COMPANION_V2_INTENTS = [
+  "edit_resume", // P1
+  "career_talk", // P3
+  "jobs_talk", // deferred — always the fixed "abhi aana baaki hai" line (O2)
+  "new_resume", // P2
+  "faltu", // P2
+  "unclear", // P1 — low confidence, invalid output, model failure
+] as const;
+export type CompanionV2Intent = (typeof COMPANION_V2_INTENTS)[number];
+
+// WHAT CHOSE THE INTENT. `v1_deterministic` is the ADR-0044 resolver answering first at zero model
+// cost; `lexicon` is the Phase 2 abuse lexicon; `llm` is the classifier; `guard` is a deterministic
+// pre-emption (the Phase 2 cool-down); `fallback` is the fail-closed path.
+export const COMPANION_V2_INTENT_SOURCES = [
+  "v1_deterministic",
+  "lexicon",
+  "llm",
+  "guard",
+  "fallback",
+] as const;
+export type CompanionV2IntentSource = (typeof COMPANION_V2_INTENT_SOURCES)[number];
+
+// WHAT THE TURN DELIVERED. `served` a normal answer; `proposed` an edit card awaiting Haan/Nahi;
+// `phase_off` the intent's phase flag is off; `clarify` unclear; `cooldown` the Phase 2 strike
+// cool-down; `refused` a Phase 3 career refusal; `fallback` the fail-closed line.
+export const COMPANION_V2_OUTCOMES = [
+  "served",
+  "proposed",
+  "phase_off",
+  "clarify",
+  "cooldown",
+  "refused",
+  "fallback",
+] as const;
+export type CompanionV2Outcome = (typeof COMPANION_V2_OUTCOMES)[number];
+
+// WHY THE CAREER MODEL MAY REFUSE (ADR-0046 P3, O10). A closed set so the refusal COPY is reviewed
+// text, never the model's wording: the AI contract carries one topic, the API maps it to the
+// `V2_CAREER_REFUSE_<topic>` pair, and the event records it. The four O10 topics plus
+// `unsafe_other` for anything the prompt wants to decline that they do not cover.
+export const COMPANION_V2_CAREER_REFUSAL_TOPICS = [
+  "salary_promise",
+  "legal_medical_financial",
+  "named_employer",
+  "worker_rating",
+  "unsafe_other",
+] as const;
+export type CompanionV2CareerRefusalTopic = (typeof COMPANION_V2_CAREER_REFUSAL_TOPICS)[number];
+
+// THE SECTION A PROPOSED EDIT ROW BELONGS TO (contracts §3). Closed, and shared by the edit
+// catalogue (which maps a section to its writer), the AI-service edit-parse contract (which may
+// only name a member) and the event spine (`sections[]`). Identity and contact are ABSENT BY
+// CONSTRUCTION (ADR-0046 O3): those requests can never become a row.
+export const COMPANION_V2_EDIT_SECTIONS = [
+  "employment",
+  "skills",
+  "languages",
+  "qualifications",
+  "occupations",
+  "preferences",
+] as const;
+export type CompanionV2EditSection = (typeof COMPANION_V2_EDIT_SECTIONS)[number];
+
+// WHAT A PROPOSED ROW MAY DO. `add` is offered only where ONE field defines the entry (skills,
+// languages, occupations) — owner ruling 2026-09-29 — so an employment or a qualification is
+// edit/delete-only in chat; `edit`/`delete` address an existing snapshot row by `ref`.
+export const COMPANION_V2_EDIT_OPS = ["add", "edit", "delete"] as const;
+export type CompanionV2EditOp = (typeof COMPANION_V2_EDIT_OPS)[number];
+
+// WHAT A WORKER ASKED FOR THAT THIS SURFACE CANNOT EDIT. `identity` and `contact` are steered to
+// the settings/Profile screen; `other` is anything else the parser recognised as out of scope.
+// The event carries these instead of the request text.
+export const COMPANION_V2_UNSUPPORTED_EDIT_TARGETS = ["identity", "contact", "other"] as const;
+export type CompanionV2UnsupportedEditTarget = (typeof COMPANION_V2_UNSUPPORTED_EDIT_TARGETS)[number];
+
+// HOW CONFIDENT THE CLASSIFIER WAS, BUCKETED FOR THE SPINE — never the raw score, which would be
+// a per-worker fingerprint of the model's behaviour rather than a metric anyone reads. `lt50` is
+// below the default router threshold (0.6) and therefore the fail-closed `unclear` path.
+export const COMPANION_V2_CONFIDENCE_BUCKETS = ["lt50", "50_70", "70_90", "gte90"] as const;
+export type CompanionV2ConfidenceBucket = (typeof COMPANION_V2_CONFIDENCE_BUCKETS)[number];
 
 // ---- The general road (ADR-0045) ----
 // A chat worker whose role is OUTSIDE the 21 predefined roles runs role → skills and closes with
@@ -628,6 +719,9 @@ export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
   // Layer A profile surfaces (ADR-0042 D9, issue #1545) — the Profile-edit
   // screen pushed from the Profile tab.
   "/profile/edit", // Routes.profileEdit
+  // E4 (worker-app #1828) — the worker's match-skill toggles + clear-all,
+  // pushed full-screen from the Profile tab.
+  "/profile/match-skills", // Routes.matchSkills
   "/profile/kit", // Routes.kit
   "/profile/kit/detail/:id", // Routes.kitDetail + '/<tradeKey>'
   "/profile/settings", // Routes.settings
@@ -728,6 +822,108 @@ export const TRADE_FORM_KINDS_ALL = Object.freeze([
 
 export type TradeFormKindName = (typeof TRADE_FORM_KINDS_ALL)[number];
 
+const TRADE_FORM_KIND_SET: ReadonlySet<string> = new Set(TRADE_FORM_KINDS_ALL);
+
+/** Whether a value is one of the 21 DECLARED role kinds. A type guard, like the others here. */
+export function isTradeFormKindName(value: unknown): value is TradeFormKindName {
+  return typeof value === "string" && TRADE_FORM_KIND_SET.has(value);
+}
+
+// ---- Job-posting role (migration 0131) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS BELOW: `packages/db` spells the 21 kinds into
+// `job_postings_role_kind_chk` / `jobs_role_kind_chk`, `packages/event-schema` puts `role_kind` on
+// `job.created` / `job_posting.created`, `apps/api` validates the posting routes by it, and the web
+// clients render the picker and the preview from the labels below. Declared once so none can drift.
+//
+// DISPLAY / CLASSIFICATION ONLY (ADR-0036 addendum 2026-09-29). A posting's `role_kind` is what the
+// payer picked from this list; it is NEVER a match or rank input — `match_skill_ids` stays the only
+// thing a posting is matched on — and it appears on NO worker read in this phase (ADR-0024 addendum
+// 2026-09-29, #1823).
+
+/**
+ * The six role FAMILIES the picker groups the 21 kinds under — the same six the API's
+ * `ROLE_CLUSTERS` (`apps/api/src/profiling/roles/role-form-descriptor.ts`) veto within, in the same
+ * order. The API's parity test asserts the two agree, so a seventh cluster turns it red until this
+ * list learns it.
+ */
+export const JOB_ROLE_FAMILIES = Object.freeze([
+  "machining",
+  "design",
+  "fabrication",
+  "maintenance",
+  "production",
+  "polymer",
+] as const);
+export type JobRoleFamily = (typeof JOB_ROLE_FAMILIES)[number];
+
+/** A family's heading in a grouped role picker. Plain English, PII-free, closed. */
+export const JOB_ROLE_FAMILY_LABELS: Readonly<Record<JobRoleFamily, string>> = Object.freeze({
+  machining: "Machining",
+  design: "Design & Programming",
+  fabrication: "Fabrication",
+  maintenance: "Maintenance",
+  production: "Production & Quality",
+  polymer: "Plastics & Rubber",
+} satisfies Record<JobRoleFamily, string>);
+
+/** How one role kind reads on a job posting, and which family it is grouped under. */
+export interface JobRoleLabel {
+  readonly label: string;
+  readonly family: JobRoleFamily;
+}
+
+/**
+ * THE ROLE A POSTING NAMES, as a person reads it — one entry per declared kind.
+ *
+ * `label` IS the role descriptor's `displayName` (the name the résumé sheet and the handover card
+ * print), and `family` IS its `cluster`. They are COPIED here, not imported, because the
+ * descriptors live in `apps/api` and a package cannot import from an app; the API's
+ * `job-role-labels.parity.test.ts` asserts label === displayName and family === cluster for every
+ * kind, so an edit to either side alone turns it red.
+ *
+ * EXHAUSTIVE AT COMPILE TIME: a `Record` over {@link TradeFormKindName}, so a 22nd declared kind
+ * does not type-check until it has a label here. Deliberately carries no `formEnabled`: whether a
+ * worker-side FORM exists says nothing about whether an employer may post the role, and all 21 are
+ * postable by owner ruling.
+ */
+export const JOB_ROLE_LABELS: Readonly<Record<TradeFormKindName, JobRoleLabel>> = Object.freeze({
+  cnc_turner: { label: "CNC Turner", family: "machining" },
+  vmc_milling: { label: "CNC Machining Centre Operator", family: "machining" },
+  cnc_grinding: { label: "CNC Grinding Operator", family: "machining" },
+  conventional_machinist: { label: "Conventional Machinist", family: "machining" },
+  tool_die_maker: { label: "Tool & Die Maker", family: "machining" },
+  cam_programmer: { label: "CAM Programmer", family: "design" },
+  cad_draughtsman: { label: "CAD Designer / Draughtsman", family: "design" },
+  welder: { label: "Welder", family: "fabrication" },
+  sheet_metal_worker: { label: "Sheet Metal Worker", family: "fabrication" },
+  press_operator: { label: "Press / Machine Operator", family: "fabrication" },
+  painter_coating: { label: "Painter / Powder Coating", family: "fabrication" },
+  fitter: { label: "Fitter", family: "maintenance" },
+  maintenance_technician: { label: "Maintenance Technician", family: "maintenance" },
+  industrial_electrician: { label: "Industrial Electrician", family: "maintenance" },
+  assembly_line_worker: { label: "Assembly Line Worker", family: "production" },
+  quality_inspector: { label: "Quality Inspector / QC", family: "production" },
+  injection_moulding_operator: { label: "Injection Moulding Operator", family: "polymer" },
+  mould_die_maker: { label: "Mould / Die Maker (Plastics)", family: "polymer" },
+  blow_moulding_operator: { label: "Blow Moulding / Extrusion Operator", family: "polymer" },
+  rubber_moulding_operator: { label: "Rubber Moulding / Compression Operator", family: "polymer" },
+  plastic_process_technician: { label: "Plastic Process / Quality Technician", family: "polymer" },
+} satisfies Record<TradeFormKindName, JobRoleLabel>);
+
+/**
+ * The display label for a stored `role_kind`, or `null` when it is not one of the 21.
+ *
+ * TAKES `unknown` ON PURPOSE: the value comes off a wire or a row, and a reader must not have to
+ * narrow before asking. NEVER ECHOES ITS INPUT — an unknown or malformed value is `null`, so a
+ * caller that renders the result can never put a raw, unvalidated string on a screen; showing the
+ * raw id (admin only) is a separate, explicit decision at the call site. Membership is an own-key
+ * test on the closed set, so `"toString"` / `"__proto__"` are unknown rather than inherited.
+ */
+export function jobRoleLabel(kind: unknown): string | null {
+  return isTradeFormKindName(kind) ? JOB_ROLE_LABELS[kind].label : null;
+}
+
 // ---- Tiered profiling (migration 0126) ----
 //
 // HERE FOR THE SAME REASON AS THE SETS BELOW: `packages/db` writes these into CHECK constraints,
@@ -772,6 +968,85 @@ export function tierIncludes(
   return profilingTierRank(itemMinTier ?? DEFAULT_PROFILING_TIER) <= profilingTierRank(workerTier);
 }
 
+// ---- Résumé skins (#1801, migration 0128) ----
+//
+// HERE FOR THE SAME REASON AS THE TIERS ABOVE: `packages/db` spells this set into a CHECK
+// constraint, `packages/event-schema` puts it on the spine (`resume.skin_changed`), and `apps/api`
+// validates the select endpoint and picks the renderer's colour tokens by it. Declared once so the
+// four cannot drift.
+
+/**
+ * The colour skins a worker may choose for the `bb_trade` sheet. A skin is a `:root` token block,
+ * never markup and never a template id (`apps/api/src/resume/templates/README.md`, "Skins").
+ *
+ * ONLY NEELA, BY OWNER RULING (2026-09-28, "Plumbing, Neela only"). Saada, Kaagaz and Loha are
+ * named by the design guideline but have no approved tokens, so they are NOT offered: a skin joins
+ * this list only with its reviewed token block, a migration widening `wrs_skin_chk`, and — because
+ * the event's `skin` enum is frozen once shipped — a new `resume.skin_changed` version.
+ */
+export const RESUME_SKINS = Object.freeze(["neela"] as const);
+export type ResumeSkin = (typeof RESUME_SKINS)[number];
+
+/**
+ * The skin of a worker with NO recorded preference: the house style every `bb_trade` sheet has
+ * printed in since it shipped, so a missing row renders exactly as before skins existed.
+ */
+export const DEFAULT_RESUME_SKIN: ResumeSkin = "neela";
+
+export function isResumeSkin(value: unknown): value is ResumeSkin {
+  return typeof value === "string" && (RESUME_SKINS as readonly string[]).includes(value);
+}
+
+// ---- Referral link kinds (B4 migration 0060; #1800 migration 0129) ----
+//
+// HERE FOR THE SAME REASON AS THE SKINS ABOVE: `packages/db` spells this set into
+// `referral_links_kind_chk`, `packages/event-schema` puts it on the spine
+// (`referral.link_created.kind`), and `apps/api` decides who may be paid by it. Declared once so
+// the three cannot drift.
+
+/**
+ * Who owns a `referral_links` row — which funnel (if any) a click on it belongs to.
+ *
+ * `resume_qr` (#1800, owner ruling 2026-09-28 "Count + attribute worker signups"): the ONE
+ * per-worker link the worker's own résumé QR encodes. It counts scans (`profile.qr_scanned`) and
+ * takes part in first-touch install attribution, and it is NEVER commissioned — see
+ * {@link isCommissionedLinkKind}.
+ */
+export const REFERRAL_LINK_KINDS = Object.freeze([
+  "agent",
+  "worker",
+  "campaign",
+  "resume_qr",
+] as const);
+export type ReferralLinkKind = (typeof REFERRAL_LINK_KINDS)[number];
+
+/**
+ * The kinds that can NEVER earn anyone money — no referral bonus, no agency commission, ever.
+ *
+ * `resume_qr` is here by owner ruling: a résumé is a free product, and a worker-kind link on it
+ * would silently turn every printed sheet into a paid referral instrument. TODAY money reads only
+ * `invites` (the worker bonus) and `agency_invites` (the agency commission), never
+ * `referral_links`, so this list is the rule any future payout reading `referral_links` must
+ * consult — and the attribution path already stops a `resume_qr` code before either paying seam.
+ */
+export const NON_COMMISSIONED_REFERRAL_LINK_KINDS = Object.freeze([
+  "resume_qr",
+] as const satisfies readonly ReferralLinkKind[]);
+export type NonCommissionedLinkKind = (typeof NON_COMMISSIONED_REFERRAL_LINK_KINDS)[number];
+
+/**
+ * A link of this kind can never pay anyone — a TYPE GUARD, so the attribution path that stops on
+ * it (before either paying seam) keeps the precise kind rather than re-spelling the string.
+ */
+export function isNonCommissionedLinkKind(kind: ReferralLinkKind): kind is NonCommissionedLinkKind {
+  return (NON_COMMISSIONED_REFERRAL_LINK_KINDS as readonly ReferralLinkKind[]).includes(kind);
+}
+
+/** Whether an attribution through a link of this kind may ever pay anyone. */
+export function isCommissionedLinkKind(kind: ReferralLinkKind): boolean {
+  return !isNonCommissionedLinkKind(kind);
+}
+
 // ---- Résumé import (ADR-0041) ----
 //
 // THESE LIVE HERE RATHER THAN IN THE SCHEMA because two packages that cannot import each other
@@ -813,9 +1088,10 @@ export type ResumeExtractionMethodName = (typeof RESUME_EXTRACTION_METHODS)[numb
 /**
  * Which surface the worker was sent to afterwards — the output of `routeToTradeForm()`.
  *
- * Only 9 of 21 declared roles have a form at all, so "how often did an import actually reach one"
- * is a real question about whether this feature earns its keep, and it is unanswerable unless the
- * decision is recorded at the time it is made.
+ * Not every declared role has a form (`formEnabled` in the API's role registry decides which;
+ * 16 of the 21 on 2026-09-29, the five polymer roles still declared only), so "how often did an
+ * import actually reach one" is a real question about whether this feature earns its keep, and it
+ * is unanswerable unless the decision is recorded at the time it is made.
  */
 export const RESUME_IMPORT_ROUTES = Object.freeze(["form", "chat"] as const);
 export type ResumeImportRouteName = (typeof RESUME_IMPORT_ROUTES)[number];

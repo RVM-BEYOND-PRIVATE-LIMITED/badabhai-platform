@@ -20,6 +20,11 @@ import {
   COMPANION_NEW_JOBS_LABEL,
   COMPANION_RESUME_LABEL,
 } from "./companion-keys";
+import {
+  COMPANION_TASK_CAREER_LABEL,
+  COMPANION_TASK_EDIT_RESUME_LABEL,
+  COMPANION_TASK_NEW_RESUME_LABEL,
+} from "./companion-task-keys";
 
 const DEVANAGARI = /[ऀ-ॿ]/u;
 // Pictographs and the emoji presentation selector — the persona ships no emoji.
@@ -53,9 +58,16 @@ describe("companion copy is on-persona (persona v3.2)", () => {
   const shown: ReadonlyArray<readonly [string, string]> = [
     ...ALL_COPY_PAIRS.flatMap(([name, pair]) => renderings(pair.latin).map((t) => [name, t] as const)),
     ["guaranteeLine", guaranteeLine()],
-    ...[COMPANION_NEW_JOBS_LABEL, COMPANION_JOBS_TAB_LABEL, COMPANION_APPLIED_LABEL, COMPANION_RESUME_LABEL].map(
-      (l) => ["chip", l] as const,
-    ),
+    ...[
+      COMPANION_NEW_JOBS_LABEL,
+      COMPANION_JOBS_TAB_LABEL,
+      COMPANION_APPLIED_LABEL,
+      COMPANION_RESUME_LABEL,
+      // ADR-0046 Phase 1 task chips — labels the app posts as text, so they are copy too.
+      COMPANION_TASK_EDIT_RESUME_LABEL,
+      COMPANION_TASK_NEW_RESUME_LABEL,
+      COMPANION_TASK_CAREER_LABEL,
+    ].map((l) => ["chip", l] as const),
   ];
 
   it.each(shown)("%s — %j carries no banned token", (_name, text) => {

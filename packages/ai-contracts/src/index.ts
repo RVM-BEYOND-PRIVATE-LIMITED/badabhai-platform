@@ -249,3 +249,36 @@ export type {
   ParsedField,
   ProfileParseOutput,
 } from "./oie";
+
+// Chat companion v2 — the LLM task router (ADR-0046 Phase 1). Mirrored in
+// apps/ai-service/app/contracts.py and pinned by __fixtures__/companion.keys.json.
+export {
+  CompanionRecentTurnSchema,
+  EditableFieldSchema,
+  CompanionEditSnapshotRowSchema,
+  CompanionEditRowSchema,
+  CompanionClassifyInputSchema,
+  CompanionClassifyOutputSchema,
+  CompanionEditParseInputSchema,
+  CompanionEditParseOutputSchema,
+  CompanionCareerWorkerContextSchema,
+  CompanionCareerInputSchema,
+  CompanionCareerAnswerSchema,
+  CompanionCareerRefuseSchema,
+  CompanionCareerOutputSchema,
+} from "./companion";
+export type {
+  CompanionRecentTurn,
+  EditableField,
+  CompanionEditSnapshotRow,
+  CompanionEditRow,
+  CompanionClassifyInput,
+  CompanionClassifyOutput,
+  CompanionEditParseInput,
+  CompanionEditParseOutput,
+  CompanionCareerWorkerContext,
+  CompanionCareerInput,
+  CompanionCareerAnswer,
+  CompanionCareerRefuse,
+  CompanionCareerOutput,
+} from "./companion";

@@ -304,6 +304,69 @@ class ApiClient {
     return EmployerContactWithdrawDto.fromJson(json);
   }
 
+  /// The worker's match skills and their on/off state (GET
+  /// /workers/me/match-skills — WorkerAuthGuard + ConsentGuard, E4 #1828).
+  ///
+  /// Worker-scoped: the worker is the session's, never a param. Rows with
+  /// `wants: false` come back on purpose, so a switched-off skill stays
+  /// findable and can be turned back on.
+  Future<List<MatchSkillDto>> getMatchSkills({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/match-skills', authToken: authToken);
+    final Object? rows = json['skills'];
+    if (rows is! List<dynamic>) {
+      throw ApiException(502, 'match-skills: missing skills list');
+    }
+    return rows
+        .map(MatchSkillDto.tryParse)
+        .whereType<MatchSkillDto>()
+        .toList(growable: false);
+  }
+
+  /// Turns ONE match skill on or off (PUT
+  /// /workers/me/match-skills/:skillId/wants — E4 #1828). [wants] is the
+  /// RESULTING state, not a toggle, so a retried call is harmless. Returns the
+  /// state the server now holds. `400` = id outside the closed vocabulary;
+  /// `404` = a valid id this worker does not hold.
+  Future<MatchSkillDto> setMatchSkillWants({
+    required String skillId,
+    required bool wants,
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _put(
+      '/workers/me/match-skills/${Uri.encodeComponent(skillId)}/wants',
+      <String, dynamic>{'wants': wants},
+      authToken: authToken,
+    );
+    final Object? echoed = json['skill_id'];
+    final Object? held = json['wants'];
+    if (echoed is! String || held is! bool) {
+      throw ApiException(502, 'match-skills: malformed wants response');
+    }
+    return MatchSkillDto(skillId: echoed, label: '', wants: held);
+  }
+
+  /// Turns EVERY match skill off in one call (POST
+  /// /workers/me/match-skills/clear-all — E4 #1828).
+  ///
+  /// Returns the server's `cleared` as sent. It is NOT a count of switches
+  /// this call turned off: the server re-stamps every row the worker holds and
+  /// counts them all — rows already off, and rows the list never shows — so a
+  /// repeat call answers N, not the `0` its docs promise (#1850). Callers that
+  /// need "how many did this turn off" derive it from the list.
+  Future<int> clearAllMatchSkills({required String authToken}) async {
+    final Map<String, dynamic> json = await _post(
+      '/workers/me/match-skills/clear-all',
+      const <String, dynamic>{},
+      authToken: authToken,
+    );
+    final Object? cleared = json['cleared'];
+    if (cleared is! num) {
+      throw ApiException(502, 'match-skills: malformed clear-all response');
+    }
+    return cleared.toInt();
+  }
+
   /// Starts a chat session. Worker-scoped — requires [authToken]; the worker is
   /// taken from the token (WorkerAuthGuard + ConsentGuard), never from the body.
   ///
@@ -395,6 +458,48 @@ class ApiClient {
       '/chat/companion/message',
       <String, dynamic>{
         'text': text,
+        if (submissionId != null) 'submission_id': submissionId,
+      },
+      authToken: authToken,
+    );
+    return ChatReply.fromJson(json);
+  }
+
+  /// `POST /chat/companion/edits/:proposalId/confirm` (ADR-0046 §5.2) — the
+  /// worker ticked rows on the edit card and tapped Haan.
+  ///
+  /// [rowIds] are the ticked rows' server-minted `row_id`s (1..3); the VALUES
+  /// never cross the wire. The 200 body is a companion turn. Throws
+  /// [ApiException] on non-2xx like every call; the repository maps 404 /
+  /// 409-stale / 409-interview.
+  Future<ChatReply> confirmCompanionEdit({
+    required String authToken,
+    required String proposalId,
+    required List<String> rowIds,
+    String? submissionId,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/chat/companion/edits/$proposalId/confirm',
+      <String, dynamic>{
+        'row_ids': rowIds,
+        if (submissionId != null) 'submission_id': submissionId,
+      },
+      authToken: authToken,
+    );
+    return ChatReply.fromJson(json);
+  }
+
+  /// `POST /chat/companion/edits/:proposalId/cancel` (ADR-0046 §5.2) — the
+  /// worker tapped Nahi on the edit card. The 200 body is a companion turn;
+  /// a 404 means the proposal is already gone.
+  Future<ChatReply> cancelCompanionEdit({
+    required String authToken,
+    required String proposalId,
+    String? submissionId,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/chat/companion/edits/$proposalId/cancel',
+      <String, dynamic>{
         if (submissionId != null) 'submission_id': submissionId,
       },
       authToken: authToken,
@@ -906,6 +1011,37 @@ class ApiClient {
     return QualificationOptionsDto.fromJson(json);
   }
 
+  /// GET /workers/me/skills/options (#1596) — the canonical skill catalogue
+  /// (`{skills: [{skill_id, label}]}`, taxonomy order) a [SkillsCorrection]
+  /// picks its ids from. Static vocabulary, no worker data; worker + consent
+  /// guarded like its write route. Worker from [authToken].
+  Future<List<CatalogueOptionDto>> getSkillOptions({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _get(
+      '/workers/me/skills/options',
+      authToken: authToken,
+    );
+    return CatalogueOptionDto.listFromJson(json['skills'], idKey: 'skill_id');
+  }
+
+  /// GET /workers/me/machines/options (#1596) — the canonical machine
+  /// catalogue (`{machines: [{machine_id, label}]}`, taxonomy order) a
+  /// [MachinesCorrection] picks its ids from. Same posture as
+  /// [getSkillOptions].
+  Future<List<CatalogueOptionDto>> getMachineOptions({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _get(
+      '/workers/me/machines/options',
+      authToken: authToken,
+    );
+    return CatalogueOptionDto.listFromJson(
+      json['machines'],
+      idKey: 'machine_id',
+    );
+  }
+
   /// PUT /workers/me/qualifications (#1384/#1385, migration 0098) — the
   /// worker's own certificates + education rows. [fields] is the already
   /// TRI-STATE-shaped body the repository builds
@@ -1184,6 +1320,37 @@ class ApiClient {
     final Map<String, dynamic> json =
         await _get('/resume/history', authToken: authToken);
     return ResumeHistory.fromJson(json);
+  }
+
+  /// RÉSUMÉ SKINS (#1808, server #1801) — `GET /resume/skin`.
+  ///
+  /// Worker-scoped (WorkerAuthGuard + ConsentGuard). The server answers
+  /// `{enabled, skin, skins}`; with `RESUME_SKINS_ENABLED` off it answers
+  /// `enabled: false` and the app shows no picker, which is why this is safe to
+  /// ship before the flag is ever turned on.
+  Future<ResumeSkinState> getResumeSkin({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/resume/skin', authToken: authToken);
+    return ResumeSkinState.fromJson(json);
+  }
+
+  /// `PUT /resume/skin` (#1808) — records the worker's choice.
+  ///
+  /// The server re-renders the latest résumé only when the printed skin really
+  /// changes, and says which happened in `change`. A repeated or double-tapped
+  /// SAME choice is a 200 `"unchanged"`, never an error; a 404 means the flag is
+  /// off and a 409 means a concurrent different first choice won, so the caller
+  /// re-fetches rather than guessing.
+  Future<ResumeSkinChange> putResumeSkin({
+    required String skin,
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _put(
+      '/resume/skin',
+      <String, dynamic>{'skin': skin},
+      authToken: authToken,
+    );
+    return ResumeSkinChange.fromJson(json);
   }
 
   /// Fetches a short-lived SIGNED url to the worker's own resume PDF
@@ -1644,6 +1811,43 @@ class ApiClient {
     view == null || view.isEmpty ? '/profiling/form' : '/profiling/form?view=$view',
     authToken: authToken,
   );
+
+  /// GET /profiling/general-form — THE GENERAL ROAD'S FORM (ADR-0045 §3.3).
+  ///
+  /// The offline form a worker outside the 21 predefined roles fills after the
+  /// chat's skills gate. Same envelope as [getTradeForm] — `sections[].screens[]`
+  /// walked in order, each screen drawn by its `type` — so it parses through the
+  /// very same code; what differs is the instructions the marker screens carry
+  /// (`fields`, `require_start_ym`, `lists`, `education_options`) and the two
+  /// questions the form owns itself.
+  ///
+  /// `session_id` IS RE-READ FROM EVERY RESPONSE and never cached: it is the
+  /// handover chat session, the mic needs it, the finish extracts against it,
+  /// and a chat redo that hands over again changes it.
+  ///
+  /// A 404 means this worker was never handed the general form, which with the
+  /// road's flag off is every worker. It surfaces as an [ApiException] for the
+  /// repository to read as "nothing to fill" — an honest empty state, not an
+  /// error screen.
+  Future<Map<String, dynamic>> getGeneralForm({required String authToken}) =>
+      _get('/profiling/general-form', authToken: authToken);
+
+  /// POST /profiling/general-form/answer — the general form's OWN two questions
+  /// (`has_work_history`, `profile_brief`), ADR-0045 §3.4.
+  ///
+  /// [body] is `{question_key, answer}` in the same shape
+  /// `TradeFormAnswer.toJson()` already produces — except that this route does
+  /// not accept `chips`. The reply is
+  /// `{question_key, status, complete, schema_stale}` with NO `answered`/`total`
+  /// counters, so progress is the client's step index.
+  ///
+  /// Two flags drive the walk: `schema_stale` (a `has_work_history` write just
+  /// showed or hid the employment screen — re-GET and rebuild) and `complete`
+  /// (the brief was saved — run the finish).
+  Future<Map<String, dynamic>> submitGeneralFormAnswer({
+    required String authToken,
+    required Map<String, dynamic> body,
+  }) => _post('/profiling/general-form/answer', body, authToken: authToken);
 
   /// GET /profiling/form/tiers — may this worker choose how long profiling
   /// takes, and what do the three tiers cost them (#1698, ADR tiered

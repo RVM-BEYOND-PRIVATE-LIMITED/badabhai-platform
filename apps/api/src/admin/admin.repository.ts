@@ -87,12 +87,19 @@ export class AdminRepository {
   }
 
   /**
-   * Create an admin (invite). `status` defaults to `'pending'` at the DB (ADR-0025 OQ-2,
-   * invite-then-activate) — a created-but-unactivated admin authenticates to NOTHING.
-   * Encrypts the email at rest + stores its keyed hash. Returns the new id only (never the
-   * email). Idempotent enough for callers: a duplicate email 23505s on `admin_users_email_hash_uq`.
+   * Create an admin (invite), or return undefined when the email is already registered.
+   * `status` defaults to `'pending'` at the DB (ADR-0025 OQ-2, invite-then-activate) — a
+   * created-but-unactivated admin authenticates to NOTHING. Encrypts the email at rest + stores
+   * its keyed hash. Returns the new id only (never the email).
+   *
+   * `ON CONFLICT (email_hash) DO NOTHING`, not a caught 23505 (#1811): the invite runs inside a
+   * transaction, and a raised unique violation aborts it — the caller's follow-up
+   * `refreshInvite` on the same `tx` would then fail with 25P02 instead of refreshing.
    */
-  async create(input: CreateAdminInput, tx: Database = this.db): Promise<{ id: string }> {
+  async createUnlessEmailTaken(
+    input: CreateAdminInput,
+    tx: Database = this.db,
+  ): Promise<{ id: string } | undefined> {
     const normEmail = AdminRepository.normEmail(input.email);
     const [row] = await tx
       .insert(adminUsers)
@@ -104,8 +111,9 @@ export class AdminRepository {
         inviteTokenHash: input.inviteTokenHash,
         inviteExpiresAt: input.inviteExpiresAt,
       })
+      .onConflictDoNothing({ target: adminUsers.emailHash })
       .returning({ id: adminUsers.id });
-    return { id: row!.id };
+    return row;
   }
 
   /**

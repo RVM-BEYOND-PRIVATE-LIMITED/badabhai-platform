@@ -420,6 +420,12 @@ class Settings(BaseSettings):
     # model's provider differs from the primary's. Claude Haiku 4.5 (no date
     # suffix per the Anthropic API).
     default_fallback_model: str = "claude-haiku-4-5"
+    # ADR-0046 O7 — the career answer's own model. Claude, deliberately: Phase 3 is the one
+    # place a model WRITES what the worker reads. A SETTING rather than a tier because the
+    # tier defaults are pinned by other tasks — `pro`/`capable` resolve to Gemini for the
+    # interview and extraction, and moving either to serve this phase would move them
+    # everywhere. The Gemini fallback rides `TaskRoute.fallback_model` (see `get_route`).
+    default_career_model: str = "claude-haiku-4-5"
 
     # ADR-0030 / TAX-3: embedding model for the skill-vocabulary embed (offline corpus +
     # later the request-path resolver). MUST output the 768-dim vector skill_alias.embedding

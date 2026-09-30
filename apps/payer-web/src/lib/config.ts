@@ -105,7 +105,7 @@ export function __resetAgencyFlagsForTest(): void {
 /**
  * PORTAL THEME (THEME-1) — the light⇄dark (paper/ink) selector.
  *
- * The whole portal is token-driven, and `src/styles/tokens.css` defines a full
+ * The whole portal is token-driven, and `@badabhai/design-tokens/tokens.css` defines a full
  * `[data-theme="ink"]` block that flips the semantic surface/text tokens. Setting
  * `data-theme="ink"` on the portal shell (the <html> root) therefore re-themes the
  * entire app with zero per-screen changes.

@@ -710,6 +710,8 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         // history with its blank default.
         onSkip: cubit.skipEmploymentAndAdvance,
         initialEntries: state.savedEmployment,
+        // #1516 — unconfirmed résumé/chat jobs, offered as cards, never sent.
+        suggestions: state.employmentSuggestions,
         tierScope: step.tierScope,
         onPageChanged: _onMarkerPageChanged,
       );

@@ -11,6 +11,7 @@ import {
   type JobShift,
   type JobPayType,
 } from "@badabhai/db";
+import type { TradeFormKindName } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
 
 /**
@@ -38,6 +39,8 @@ export type AgencyJobUpdate = Partial<
     | "requirements"
     // #1648 — what the ₹ band MEANS (in_hand | gross | ctc). Coarse, closed, non-PII.
     | "payType"
+    // Migration 0131 — the display role (one of the 21 declared kinds). Closed, non-PII.
+    | "roleKind"
     | "status"
   >
 > & { updatedAt: Date };
@@ -62,6 +65,8 @@ export interface CreateAgencyJobInput {
   requirements: string[] | null;
   /** #1648 — NULL means the poster did not state it. There is no default anywhere. */
   payType: JobPayType | null;
+  /** Migration 0131 — the display role, or NULL ("no role picked"). Never a match input. */
+  roleKind: TradeFormKindName | null;
 }
 
 /**
@@ -95,6 +100,7 @@ export class AgencyJobsRepository {
         benefits: input.benefits,
         requirements: input.requirements,
         payType: input.payType,
+        roleKind: input.roleKind,
         status,
       })
       .returning();

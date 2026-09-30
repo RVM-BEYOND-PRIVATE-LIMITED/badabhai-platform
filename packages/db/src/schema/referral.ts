@@ -15,6 +15,7 @@ import {
   uniqueIndex,
   check,
 } from "drizzle-orm/pg-core";
+import type { ReferralLinkKind as TypesReferralLinkKind } from "@badabhai/types";
 import { workers } from "./worker";
 import { payers, unlocks } from "./payer";
 
@@ -370,8 +371,17 @@ export const referralBonusAccruals = pgTable(
 // worker, and its links have no meaning once the tenant is gone.
 // ---------------------------------------------------------------------------
 
-/** Who owns a link. Drives which legacy funnel (if any) an attribution belongs to. */
-export type ReferralLinkKind = "agent" | "worker" | "campaign";
+/**
+ * Who owns a link. Drives which legacy funnel (if any) an attribution belongs to. The closed set
+ * is `REFERRAL_LINK_KINDS` in @badabhai/types — the CHECK below spells it out, and
+ * `migration-0129-referral-links-resume-qr.test.ts` pins that the two agree.
+ *
+ * `resume_qr` (#1800, migration 0129) is the worker's own résumé QR: exactly ONE per worker
+ * (`referral_links_resume_qr_owner_uq`), NEVER commissioned (`isCommissionedLinkKind`). A
+ * `resume_qr` row whose `owner_worker_id` has been SET NULL by erasure is DEAD: the resolver
+ * records no click and emits nothing for it, and it can never be claimed.
+ */
+export type ReferralLinkKind = TypesReferralLinkKind;
 
 /**
  * ORGANIC vs PAID — the match-window discriminator, stamped on the LINK and
@@ -418,6 +428,14 @@ export const referralLinks = pgTable(
     // "This agent's links" — the agent dashboard read + the FK cascade's index.
     index("referral_links_agent_payer_id_idx").on(t.agentPayerId),
     index("referral_links_owner_worker_id_idx").on(t.ownerWorkerId),
+    // #1800 (migration 0129) — AT MOST ONE résumé-QR link per worker. It is what makes the
+    // render's get-or-create stable across forced re-renders and safe under two concurrent
+    // renders: the loser's `INSERT … ON CONFLICT DO NOTHING` (which must repeat this predicate
+    // to infer the index) inserts nothing and re-selects the winner's row. PARTIAL on the owner
+    // being set, because erasure SETs it NULL and any number of dead rows may then coexist.
+    uniqueIndex("referral_links_resume_qr_owner_uq")
+      .on(t.ownerWorkerId)
+      .where(sql`${t.kind} = 'resume_qr' AND ${t.ownerWorkerId} IS NOT NULL`),
     // Campaign roll-ups; sparse, so partial.
     index("referral_links_campaign_idx").on(t.campaignId).where(sql`${t.campaignId} IS NOT NULL`),
     // Exactly one owner axis, or none (a pure campaign link). Both set would make
@@ -426,7 +444,12 @@ export const referralLinks = pgTable(
       "referral_links_single_owner_chk",
       sql`NOT (${t.agentPayerId} IS NOT NULL AND ${t.ownerWorkerId} IS NOT NULL)`,
     ),
-    check("referral_links_kind_chk", sql`${t.kind} IN ('agent', 'worker', 'campaign')`),
+    // Widened by 0129 (#1800) to admit 'resume_qr'. DELIBERATELY NO "resume_qr ⇒ owner NOT NULL"
+    // CHECK: the owner FK is ON DELETE SET NULL, and such a CHECK would abort the worker's erasure.
+    check(
+      "referral_links_kind_chk",
+      sql`${t.kind} IN ('agent', 'worker', 'campaign', 'resume_qr')`,
+    ),
     check("referral_links_medium_chk", sql`${t.medium} IN ('organic', 'paid')`),
   ],
 ).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0060

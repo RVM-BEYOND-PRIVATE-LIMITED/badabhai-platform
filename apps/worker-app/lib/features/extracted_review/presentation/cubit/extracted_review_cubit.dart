@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/api/api_models.dart'
     show
         ApiException,
+        CatalogueOptionDto,
         CertificateEntryDto,
         CertificatesCorrection,
         CorrectionRejected,
@@ -11,8 +12,12 @@ import '../../../../core/api/api_models.dart'
         EducationEntryDto,
         ExperienceCorrection,
         ExtractedCorrection,
+        MachinesCorrection,
         QualificationOptionsDto,
+        SkillsCorrection,
         correctionRejectedOf,
+        kMaxCorrectionMachines,
+        kMaxCorrectionSkills,
         kMaxCorrectionsPerProfile;
 import '../../../../core/error/failure.dart';
 import '../../domain/extracted_review.dart';
@@ -22,7 +27,100 @@ enum ExtractedReviewStatus { loading, ready, failed }
 
 /// Which section a send is in flight for — one correction POST at a time,
 /// so a double-tap can never burn the lifetime cap twice.
-enum ExtractedSection { experience, education, certificates }
+enum ExtractedSection { skills, machines, experience, education, certificates }
+
+/// Where a correction catalogue read (#1596) stands. `idle` = never asked:
+/// the review has no correctable anchor, so there is nothing to pick into.
+enum CatalogueStatus { idle, loading, ready, failed }
+
+/// One id-list correction section — skills or machines (#1596): the
+/// catalogue read, the ids the extracted labels pre-ticked, the worker's
+/// current ticks, and the labels no option matched (a save drops them —
+/// skills/machines corrections replace the whole list).
+class CataloguePick extends Equatable {
+  const CataloguePick({
+    this.status = CatalogueStatus.idle,
+    this.failure,
+    this.options = const <CatalogueOptionDto>[],
+    this.seededIds = const <String>[],
+    this.selectedIds = const <String>[],
+    this.unmatchedLabels = const <String>[],
+  });
+
+  /// A ready pick over [options], pre-ticked from the extracted [labels] by
+  /// exact match ([matchCatalogueLabels]) — never a guessed id.
+  factory CataloguePick.seeded(
+    List<CatalogueOptionDto> options,
+    List<String> labels,
+  ) {
+    final ({List<String> ids, List<String> unmatched}) match =
+        matchCatalogueLabels(labels, options);
+    return CataloguePick(
+      status: CatalogueStatus.ready,
+      options: options,
+      seededIds: match.ids,
+      selectedIds: match.ids,
+      unmatchedLabels: match.unmatched,
+    );
+  }
+
+  final CatalogueStatus status;
+
+  /// The typed cause when [status] is `failed` — rendered via the app's
+  /// Failure→reason map, never a generic line.
+  final Failure? failure;
+  final List<CatalogueOptionDto> options;
+
+  /// Pre-ticked from the extracted labels (the "unchanged" baseline).
+  final List<String> seededIds;
+
+  /// The worker's ticks, in catalogue order — ids only ever come from
+  /// [options].
+  final List<String> selectedIds;
+
+  /// Extracted labels with no single exact catalogue match.
+  final List<String> unmatchedLabels;
+
+  bool isSelected(String id) => selectedIds.contains(id);
+
+  /// True only once the worker moved a tick — like every other card, an
+  /// untouched section never offers a save. Unmatched labels alone do NOT
+  /// make it dirty: the save is a full-list replace that would drop them
+  /// (and burn a lifetime correction) on a tap that changed nothing.
+  bool get dirty =>
+      status == CatalogueStatus.ready && !_sameIds(selectedIds, seededIds);
+
+  /// [id] flipped. An id outside [options] is ignored — never sent.
+  CataloguePick toggled(String id) {
+    if (!options.any((CatalogueOptionDto o) => o.id == id)) return this;
+    final Set<String> next = selectedIds.toSet();
+    if (!next.remove(id)) next.add(id);
+    return CataloguePick(
+      status: status,
+      failure: failure,
+      options: options,
+      seededIds: seededIds,
+      selectedIds: List<String>.unmodifiable(<String>[
+        for (final CatalogueOptionDto o in options)
+          if (next.contains(o.id)) o.id,
+      ]),
+      unmatchedLabels: unmatchedLabels,
+    );
+  }
+
+  static bool _sameIds(List<String> a, List<String> b) =>
+      a.length == b.length && a.toSet().containsAll(b);
+
+  @override
+  List<Object?> get props => <Object?>[
+        status,
+        failure,
+        options,
+        seededIds,
+        selectedIds,
+        unmatchedLabels,
+      ];
+}
 
 /// Credential years the correction editors accept (the trade form's UI rule:
 /// no future year, nothing before 1950 — the server's own `credentialYear`
@@ -48,6 +146,8 @@ class ExtractedReviewState extends Equatable {
     this.confirming = false,
     this.confirmed = false,
     this.confirmNext,
+    this.skillPick = const CataloguePick(),
+    this.machinePick = const CataloguePick(),
   });
 
   final ExtractedReviewStatus status;
@@ -82,9 +182,16 @@ class ExtractedReviewState extends Equatable {
   final bool confirmed;
   final String? confirmNext;
 
+  /// Skills / machines pickers (#1596).
+  final CataloguePick skillPick;
+  final CataloguePick machinePick;
+
   /// No anchor (form-road / pre-interview) or budget spent: saves disabled.
   bool get correctionsLocked =>
       review == null || !review!.canCorrect || rejected == CorrectionRejected.capReached;
+
+  bool get skillsDirty => review != null && skillPick.dirty;
+  bool get machinesDirty => review != null && machinePick.dirty;
 
   bool get expDirty =>
       review != null && expYears != null && expYears != review!.experienceYears;
@@ -126,6 +233,8 @@ class ExtractedReviewState extends Equatable {
     bool? confirming,
     bool? confirmed,
     String? Function()? confirmNext,
+    CataloguePick? skillPick,
+    CataloguePick? machinePick,
   }) {
     return ExtractedReviewState(
       status: status ?? this.status,
@@ -146,6 +255,8 @@ class ExtractedReviewState extends Equatable {
       confirming: confirming ?? this.confirming,
       confirmed: confirmed ?? this.confirmed,
       confirmNext: confirmNext != null ? confirmNext() : this.confirmNext,
+      skillPick: skillPick ?? this.skillPick,
+      machinePick: machinePick ?? this.machinePick,
     );
   }
 
@@ -166,6 +277,8 @@ class ExtractedReviewState extends Equatable {
         confirming,
         confirmed,
         confirmNext,
+        skillPick,
+        machinePick,
       ];
 }
 
@@ -205,6 +318,17 @@ class ExtractedReviewCubit extends Cubit<ExtractedReviewState> {
             ? review.correctionCount
             : _knownCorrectionCount,
       );
+      // The correction catalogues (#1596) load alongside the qualification
+      // maps. Static vocabulary, so fetched once and then only RE-SEEDED from
+      // each re-read — after a save the ticks re-derive from what the server
+      // now stores. A catalogue miss fails its own card, never the review.
+      final Future<List<CataloguePick>> picks =
+          Future.wait<CataloguePick>(<Future<CataloguePick>>[
+        _pickFor(state.skillPick, withCount.skills, withCount,
+            _repo.loadSkillOptions),
+        _pickFor(state.machinePick, withCount.machines, withCount,
+            _repo.loadMachineOptions),
+      ]);
       QualificationOptionsDto? options;
       try {
         options = await _repo.loadQualificationOptions();
@@ -213,6 +337,7 @@ class ExtractedReviewCubit extends Cubit<ExtractedReviewState> {
         // to the stored slugs. Never costs the review underneath.
         options = null;
       }
+      final List<CataloguePick> seeded = await picks;
       if (isClosed) return;
       emit(state.copyWith(
         status: ExtractedReviewStatus.ready,
@@ -223,6 +348,8 @@ class ExtractedReviewCubit extends Cubit<ExtractedReviewState> {
             List<CertificateEntryDto>.unmodifiable(withCount.certificates),
         options: () => options,
         lastSent: () => null,
+        skillPick: seeded[0],
+        machinePick: seeded[1],
       ));
     } on Failure catch (f) {
       if (isClosed) return;
@@ -235,7 +362,102 @@ class ExtractedReviewCubit extends Cubit<ExtractedReviewState> {
     }
   }
 
+  /// One catalogue's pick for a (re-)read [review]: a loaded catalogue is
+  /// only re-seeded; a locked review asks for nothing (`idle`); otherwise
+  /// [fetch] runs and a miss becomes `failed` with its typed cause. Never
+  /// throws — the review underneath must survive a catalogue miss.
+  Future<CataloguePick> _pickFor(
+    CataloguePick current,
+    List<String> labels,
+    ExtractedReview review,
+    Future<List<CatalogueOptionDto>> Function() fetch,
+  ) async {
+    if (current.status == CatalogueStatus.ready) {
+      return CataloguePick.seeded(current.options, labels);
+    }
+    if (!review.canCorrect) return const CataloguePick();
+    try {
+      return CataloguePick.seeded(await fetch(), labels);
+    } on Failure catch (f) {
+      return CataloguePick(status: CatalogueStatus.failed, failure: f);
+    } catch (_) {
+      return const CataloguePick(
+        status: CatalogueStatus.failed,
+        failure: UnknownFailure(),
+      );
+    }
+  }
+
+  /// The catalogue card's retry: re-fetches whichever catalogue failed,
+  /// showing that card's own loader. The rest of the review is untouched.
+  Future<void> retryCatalogues() async {
+    final ExtractedReview? review = state.review;
+    if (review == null) return;
+    final bool skills = state.skillPick.status == CatalogueStatus.failed;
+    final bool machines = state.machinePick.status == CatalogueStatus.failed;
+    if (!skills && !machines) return;
+    const CataloguePick loading = CataloguePick(status: CatalogueStatus.loading);
+    emit(state.copyWith(
+      skillPick: skills ? loading : null,
+      machinePick: machines ? loading : null,
+    ));
+    final List<CataloguePick> picks =
+        await Future.wait<CataloguePick>(<Future<CataloguePick>>[
+      if (skills)
+        _pickFor(const CataloguePick(), review.skills, review,
+            _repo.loadSkillOptions)
+      else
+        Future<CataloguePick>.value(state.skillPick),
+      if (machines)
+        _pickFor(const CataloguePick(), review.machines, review,
+            _repo.loadMachineOptions)
+      else
+        Future<CataloguePick>.value(state.machinePick),
+    ]);
+    if (isClosed) return;
+    emit(state.copyWith(
+      skillPick: skills ? picks[0] : null,
+      machinePick: machines ? picks[1] : null,
+    ));
+  }
+
   // ---- drafts ----
+
+  /// Ticks/unticks one catalogue skill. Refuses a tick past the server cap
+  /// with the reason, instead of letting a save 400.
+  void toggleSkill(String skillId) {
+    final CataloguePick pick = state.skillPick;
+    if (!pick.isSelected(skillId) &&
+        pick.selectedIds.length >= kMaxCorrectionSkills) {
+      emit(state.copyWith(validationError: () => _skillsCapMessage));
+      return;
+    }
+    emit(state.copyWith(
+      skillPick: pick.toggled(skillId),
+      validationError: () => null,
+      lastSent: () => null,
+    ));
+  }
+
+  /// Same as [toggleSkill], for machines.
+  void toggleMachine(String machineId) {
+    final CataloguePick pick = state.machinePick;
+    if (!pick.isSelected(machineId) &&
+        pick.selectedIds.length >= kMaxCorrectionMachines) {
+      emit(state.copyWith(validationError: () => _machinesCapMessage));
+      return;
+    }
+    emit(state.copyWith(
+      machinePick: pick.toggled(machineId),
+      validationError: () => null,
+      lastSent: () => null,
+    ));
+  }
+
+  static const String _skillsCapMessage =
+      'Zyada se zyada $kMaxCorrectionSkills hunar chun sakte hain.';
+  static const String _machinesCapMessage =
+      'Zyada se zyada $kMaxCorrectionMachines machine chun sakte hain.';
 
   void setExperience(int? years) {
     emit(state.copyWith(
@@ -262,6 +484,65 @@ class ExtractedReviewCubit extends Cubit<ExtractedReviewState> {
   }
 
   // ---- submits ----
+
+  /// The ticked skills as ONE full-list correction (replace semantics —
+  /// unmatched extracted labels are dropped, which the card says up front).
+  Future<void> submitSkills() async {
+    final CataloguePick pick = state.skillPick;
+    final String? error = _pickError(
+      pick,
+      max: kMaxCorrectionSkills,
+      notReady: 'Hunar ki list abhi load nahi hui.',
+      empty: 'Kam se kam ek hunar chunein — khaali list nahi bheji ja sakti.',
+      overCap: _skillsCapMessage,
+    );
+    if (error != null) {
+      emit(state.copyWith(validationError: () => error));
+      return;
+    }
+    await _submit(
+      ExtractedSection.skills,
+      'skills',
+      <ExtractedCorrection>[SkillsCorrection(pick.selectedIds)],
+    );
+  }
+
+  /// Same as [submitSkills], for machines.
+  Future<void> submitMachines() async {
+    final CataloguePick pick = state.machinePick;
+    final String? error = _pickError(
+      pick,
+      max: kMaxCorrectionMachines,
+      notReady: 'Machine ki list abhi load nahi hui.',
+      empty:
+          'Kam se kam ek machine chunein — khaali list nahi bheji ja sakti.',
+      overCap: _machinesCapMessage,
+    );
+    if (error != null) {
+      emit(state.copyWith(validationError: () => error));
+      return;
+    }
+    await _submit(
+      ExtractedSection.machines,
+      'machines',
+      <ExtractedCorrection>[MachinesCorrection(pick.selectedIds)],
+    );
+  }
+
+  /// Client mirror of the id-list DTO (`min(1).max(cap)`): never burn the
+  /// lifetime cap or the worker's wait on a 400 we can see coming.
+  static String? _pickError(
+    CataloguePick pick, {
+    required int max,
+    required String notReady,
+    required String empty,
+    required String overCap,
+  }) {
+    if (pick.status != CatalogueStatus.ready) return notReady;
+    if (pick.selectedIds.isEmpty) return empty;
+    if (pick.selectedIds.length > max) return overCap;
+    return null;
+  }
 
   Future<void> submitExperience() async {
     final int? years = state.expYears;

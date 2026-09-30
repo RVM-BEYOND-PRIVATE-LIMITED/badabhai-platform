@@ -1,0 +1,991 @@
+/* ============================================================
+   BadaBhai — BRAND TOKEN LAYER (@badabhai/design-tokens)
+   ------------------------------------------------------------
+   The ONE token file for the BadaBhai web portals. apps/payer-web (Company + Agency) and
+   apps/admin-web both import it, so the two consoles cannot drift the way their two
+   hand-kept copies of this file did (warning hue and radius scale had already forked).
+
+   BRAND SOURCE OF TRUTH — the owner's brand block (CLAUDE.md, "UI/UX Engineering Design
+   System"), which fixes exactly three colours, two families and the icon rules:
+     --color-brand-primary  #05194C  Shift Blue    deep backgrounds, heavy headings, wrappers
+     --color-brand-accent   #FFB32C  Safety Yellow crucial actions, active states, key icons
+     --color-brand-surface  #F3F5F4  Ivory         layout backgrounds and card surfaces
+     Headings: Kilimanjaro Sans · Body/UI: Inter
+     Disabled / secondary: 80% · 60% · 40% alpha step-downs of the primary.
+   Everything else here (ramps, neutrals, status hues, radii, elevation, motion) is DERIVED
+   from those three values and from the worker app, which already ships this palette in code
+   (apps/worker-app/lib/core/theme/onboarding_theme.dart — shiftBlue, shiftBlueLight,
+   safetyYellow, safetyYellowDark, canvasIvory, the ink/border/status constants).
+
+   NAMING CONTRACT. The semantic names below (--brand, --primary, --surface-*, --text-*,
+   --border-*, --focus-ring …) are the SAME names the portals were written against, so the
+   ~1,600 `var(--…)` call sites re-skin by value, not by edit. Two of those names changed
+   MEANING with the new brand and are called out where they are declared:
+     --brand / --primary  = the ACTION colour (Safety Yellow), exactly as before (was haldi).
+     --blue-500           = Shift Blue, the STRUCTURE colour (was #123D8C). Razorpay's
+                            checkout reads this one by name — do not rename it.
+   The CLAUDE.md names (--color-brand-primary/-accent/-surface) are declared as aliases so a
+   new component can name the brand role directly.
+
+   LINKS ARE NAVY ON LIGHT SURFACES, YELLOW ON NAVY. The brand block lists yellow for
+   "primary text links", but Safety Yellow measures 1.63:1 on Ivory and 1.79:1 on white —
+   under the 4.5:1 AA floor for text and the 3:1 floor for any UI boundary. So on a light
+   surface the link is Shift-Blue-family text (11.65:1) and yellow is the ACCENT (underline,
+   active spine, focus on dark); on a navy surface yellow IS the link colour (9.39:1).
+
+   SOURCE FILE: docs/design/BB - Brand Kit/BB - Brand Guidelines.pdf (Sept 2026 brand kit) — palette with 80/60/40
+   tints, Kilimanjaro Sans headings, Inter body/UI, the two-figure monogram and logotype.
+
+   FONTS. Kilimanjaro Sans is bundled here (fonts/, converted from the brand kit's OTF) and
+   is first in the display chain; Anek stays behind it for the glyphs it lacks (₹,
+   Devanagari). LICENCE: the file is a commercial font ("Nicky Laatz 2022 – All rights
+   reserved"); the owner ruled on 2026-09-29 to ship it in this public repo, accepting that.
+   Inter is loaded by each app. Roboto Mono is self-hosted from each app's public/fonts.
+   ============================================================ */
+
+/* ---- Kilimanjaro Sans · headings (brand kit, bundled with this package) ----------------
+   One face (Regular — already a heavy display cut). Declared across the whole weight range
+   so a `font-weight: 700` heading maps to it instead of triggering a synthetic bold. The file
+   ships no ₹ and no Devanagari; per-glyph fallback hands those to the next family. */
+@font-face {
+  font-family: "Kilimanjaro Sans";
+  src: url("./fonts/KilimanjaroSans-Regular.woff") format("woff");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---- Roboto Mono · data / IDs / ₹ (self-hosted from the importing app's public/fonts) -- */
+@font-face {
+  font-family: "Roboto Mono";
+  src: url("/fonts/RobotoMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Roboto Mono";
+  src: url("/fonts/RobotoMono-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Roboto Mono";
+  src: url("/fonts/RobotoMono-Italic.ttf") format("truetype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Roboto Mono";
+  src: url("/fonts/RobotoMono-BoldItalic.ttf") format("truetype");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* ============================================================
+   COLOR — Shift Blue structure · Safety Yellow action · Ivory canvas.
+   Blue carries the frame (rail, headers, headings); yellow is the ONE action per view
+   and every active state; ivory is the page; white cards sit on it.
+   ============================================================ */
+:root {
+  /* ---- Navy — the Shift Blue ramp. 900 IS the brand primary. ---- */
+  --navy-950: #030f2e; /* pressed / deepest wrapper */
+  --navy-900: #05194c; /* Shift Blue — brand primary */
+  --navy-800: #0a256e; /* worker shiftBlueLight — hover on navy, active borders */
+  --navy-700: #0f2b7a; /* worker shiftBlueSurface — pill/raised on navy; link text (11.65:1 on ivory) */
+  --navy-600: #1c3d91;
+  --navy-500: #2f55b0;
+  --navy-400: #5b78c4;
+  --navy-300: #8fa3d6; /* 6.7:1 on navy — secondary text on dark */
+  --navy-200: #b9c8e6; /* worker textOnBlueMuted — muted text on navy (9.97:1) */
+  --navy-100: #dde4f2;
+  --navy-50: #eef2f9;
+
+  /* ---- Blue — the STRUCTURE names every component was written against, re-pointed at the
+     Shift Blue ramp. --blue-500 stays the base (Razorpay's checkout reads it by name). ---- */
+  --blue-50: var(--navy-50);
+  --blue-100: var(--navy-100);
+  --blue-300: var(--navy-300);
+  --blue-500: var(--navy-900); /* base structure = Shift Blue */
+  --blue-600: var(--navy-950);
+  --blue-700: var(--navy-950);
+  --blue-tint-chat: var(--navy-50);
+
+  /* ---- Yellow — the Safety Yellow ramp. Kept under the historical --vermilion-* names
+     (then haldi) because the brand/CTA layer resolves through them. 500 IS the accent. ---- */
+  --vermilion-50: #fff6e3;
+  --vermilion-100: #ffe9bf;
+  --vermilion-200: #ffdb94;
+  --vermilion-300: #ffcb61;
+  --vermilion-400: #ffbe45;
+  --vermilion-500: #ffb32c; /* Safety Yellow — brand accent; carries NAVY text (9.39:1) */
+  --vermilion-600: #e09a1f; /* worker safetyYellowDark — pressed */
+  --vermilion-700: #b87a10;
+  --vermilion-800: #8a5b0a;
+  --vermilion-900: #5c3c06;
+
+  /* ---- Saffron / marigold → the same yellow ramp (one accent family, no orange) ---- */
+  --saffron-50: var(--vermilion-50);
+  --saffron-100: var(--vermilion-100);
+  --saffron-200: var(--vermilion-200);
+  --saffron-300: var(--vermilion-300);
+  --saffron-400: var(--vermilion-400);
+  --saffron-500: var(--vermilion-500);
+  --saffron-600: var(--vermilion-600);
+  --saffron-700: var(--vermilion-700);
+  --marigold-50: var(--vermilion-50);
+  --marigold-100: var(--vermilion-100);
+  --marigold-200: var(--vermilion-200);
+  --marigold-300: var(--vermilion-300);
+  --marigold-400: var(--vermilion-400);
+  --marigold-500: var(--vermilion-500);
+  --marigold-600: var(--vermilion-600);
+  --marigold-700: var(--vermilion-700);
+  --marigold-800: var(--vermilion-800);
+  --marigold-900: var(--vermilion-900);
+
+  /* ---- Green (go / verified / money) — worker successGreen ---- */
+  --green-50: #e9f5ec;
+  --green-100: #cfe5d6;
+  --green-200: #a6d2b4;
+  --green-300: #6db588;
+  --green-500: #1e7a3c; /* base — 5.38:1 on white */
+  --green-600: #145c2d;
+  --green-700: #0f4a24;
+
+  /* ---- Amber (CAUTION) — deliberately DISTINCT from the yellow accent (#1103): a caution
+     surface must never read as the brand. Tunable as a set. ---- */
+  --amber-100: #fef3c7;
+  --amber-200: #fde68a;
+  --amber-300: #fcd34d;
+  --amber-500: #d97706;
+  --amber-700: #b45309; /* base — caution fill; carries WHITE text (5.02:1) */
+  --amber-800: #92400e; /* caution text on the light amber tint */
+
+  /* ---- Pink / teal fold to navy (not in the brand) ---- */
+  --pink-50: var(--navy-50);
+  --pink-100: var(--navy-100);
+  --pink-500: var(--navy-900);
+  --pink-600: var(--navy-950);
+  --teal-50: var(--navy-50);
+  --teal-100: var(--navy-100);
+  --teal-500: var(--navy-900);
+  --teal-600: var(--navy-950);
+  --teal-700: var(--navy-950);
+
+  /* ---- Crimson (danger only) — worker errorRed ---- */
+  --red-50: #fbeaea;
+  --red-100: #f5c9c9;
+  --red-300: #e38b8b;
+  --red-500: #c62828; /* 5.62:1 on white */
+  --red-600: #a21f1f;
+  --red-700: #7f1818;
+
+  /* ---- Ink (cool neutrals) — worker ink900/ink600/ink500 ---- */
+  --ink-950: #050d22; /* the ink-theme page — navy-leaning so the dark theme reads as the brand */
+  --ink-900: #101828; /* body text — 16.21:1 on ivory */
+  --ink-800: #1d2739;
+  --ink-700: #2e3a50;
+  --ink-600: #475069; /* secondary text — 7.32:1 on ivory */
+  --ink-500: #667085; /* muted text — 4.54:1 on ivory, 4.97:1 on white (AA) */
+  --ink-400: #8a92a6;
+  --ink-300: #b9c0ce;
+  --ink-200: #d8dee9;
+  --ink-100: #e8ecf1;
+  --ink-50: #f3f5f4;
+
+  /* ---- Paper — Ivory canvas + white cards ---- */
+  --paper-0: #ffffff; /* card */
+  --paper-1: #ffffff;
+  --paper-2: #f3f5f4; /* page — Ivory */
+  --paper-3: #eaedec; /* sunken — an Ivory step down */
+  --paper-4: #e1e5e4; /* inset */
+
+  /* ---- CLAUDE.md brand names — name the ROLE directly in new code ---- */
+  --color-brand-primary: var(--navy-900);
+  --color-brand-accent: var(--vermilion-500);
+  --color-brand-surface: var(--paper-2);
+
+  /* ---- The alpha step-down ladder (CLAUDE.md: 80 / 60 / 40 of the primary tokens).
+     Declared ONCE here as channels so no component writes an rgba literal (the TSX
+     adherence fence bans rgb()/rgba()/hsl() in screen sources). ---- */
+  --brand-primary-rgb: 5 25 76;
+  --brand-accent-rgb: 255 179 44;
+  --color-brand-primary-80: rgb(var(--brand-primary-rgb) / 0.8); /* 8.61:1 on ivory */
+  --color-brand-primary-60: rgb(var(--brand-primary-rgb) / 0.6); /* secondary icons */
+  --color-brand-primary-40: rgb(var(--brand-primary-rgb) / 0.4); /* disabled (exempt from AA) */
+  --color-brand-accent-80: rgb(var(--brand-accent-rgb) / 0.8);
+  --color-brand-accent-60: rgb(var(--brand-accent-rgb) / 0.6);
+  --color-brand-accent-40: rgb(var(--brand-accent-rgb) / 0.4);
+
+  /* ---- SEMANTIC ALIASES — reference these in components ---- */
+
+  /* text */
+  --text-primary: var(--ink-900);
+  --text-heading: var(--navy-900); /* "heavy headings" in Shift Blue (15.34:1 on ivory) */
+  --text-secondary: var(--ink-600);
+  --text-muted: var(--ink-500);
+  --text-faint: var(--ink-500);
+  --text-inverse: var(--paper-1);
+  --text-inverse-muted: var(--navy-200);
+  --text-brand: var(--navy-900);
+  --text-on-brand: var(--navy-900); /* text on Safety Yellow is ALWAYS Shift Blue */
+  --text-on-ink: var(--paper-1); /* text on a Shift Blue surface */
+  /* ACCENT TEXT — a label that carries the accent ROLE (selected chip, tonal button, active
+     tab glyph). On light surfaces it renders Shift Blue, because Safety Yellow is 1.6-1.8:1 as
+     text there; the ink theme flips it to Safety Yellow, which reads at 9.77:1 on navy. */
+  --text-accent: var(--navy-900);
+  --text-link: var(--navy-700);
+  --link-underline: currentColor; /* the accent is 1.6:1 on light — the underline follows the text */
+  --text-disabled: var(--color-brand-primary-40);
+  --icon-secondary: var(--color-brand-primary-60);
+
+  /* surfaces */
+  --surface-page: var(--paper-2);
+  --surface-card: var(--paper-0);
+  --surface-raised: var(--paper-1);
+  --surface-sunken: var(--paper-3);
+  --surface-inset: var(--paper-4);
+  --surface-ink: var(--navy-900); /* Shift Blue wrappers: rail, sidebar, hero bands */
+  --surface-ink-2: var(--navy-950);
+  --surface-ink-hover: var(--navy-800);
+  --surface-ink-raised: var(--navy-700);
+
+  /* ON-NAVY chrome (rail / sidebar / hero bands). The same in both themes: the frame is
+     always Shift Blue. Active = Safety Yellow text + spine on a 14% yellow wash. */
+  --surface-ink-active: rgb(var(--brand-accent-rgb) / 0.14);
+  --text-on-ink-muted: var(--navy-200); /* 9.97:1 on Shift Blue */
+  --text-on-ink-active: var(--vermilion-500); /* 9.39:1 on Shift Blue */
+  --text-on-ink-disabled: rgb(255 255 255 / 0.4);
+  --border-on-ink: rgb(255 255 255 / 0.1);
+
+  /* brand (the ACTION colour — Safety Yellow) */
+  --brand: var(--vermilion-500);
+  --brand-hover: var(--vermilion-400);
+  --brand-press: var(--vermilion-600);
+  --brand-tint: var(--vermilion-50);
+  --brand-tint-2: var(--vermilion-100);
+  --brand-border: var(--vermilion-300);
+
+  /* festive accents (sober) */
+  --saffron: var(--saffron-400);
+  --saffron-deep: var(--saffron-600);
+  --pink: var(--pink-500);
+  --teal: var(--teal-500);
+
+  /* status */
+  --success: var(--green-500);
+  --success-press: var(--green-600);
+  --success-tint: var(--green-50);
+  --danger: var(--red-500);
+  --danger-press: var(--red-600);
+  --danger-tint: var(--red-50);
+  --warning: var(--amber-700); /* AMBER, not the accent — caution ≠ brand */
+  --warning-tint: var(--amber-100);
+  --info: var(--navy-900);
+  --info-tint: var(--navy-50);
+
+  /* lines & dividers */
+  --border-subtle: #e8ecf1;
+  --border-default: #d8dee9;
+  --border-strong: #c3cbda;
+  --border-ink: var(--navy-900);
+  --border-accent: var(--vermilion-500);
+  --divider: var(--ink-100);
+  --border-festive: 2px solid var(--green-500);
+  --border-double: 2px solid var(--navy-900);
+
+  /* focus ring halo (compose with box-shadow) */
+  --ring: rgb(var(--brand-primary-rgb) / 0.35);
+
+  /* scrim — Shift Blue at 56% (worker scrim) */
+  --scrim: rgb(var(--brand-primary-rgb) / 0.56);
+}
+
+/* ---- DARK / INK THEME — Shift Blue based. Opt in with [data-theme="ink"]. --------------
+   On navy, Safety Yellow becomes legible as TEXT (9.77:1 on the ink card), so links, the
+   focus ring and the active spine all move to the accent here. */
+[data-theme="ink"] {
+  --text-primary: var(--paper-1);
+  --text-heading: var(--paper-1);
+  --text-secondary: var(--ink-300); /* 9.57:1 on the ink card */
+  --text-muted: var(--ink-400); /* 5.62:1 */
+  --text-faint: var(--ink-400);
+  --text-inverse-muted: var(--navy-200);
+  --text-brand: var(--navy-200);
+  --text-on-brand: var(--navy-900);
+  --text-link: var(--vermilion-500);
+  --text-accent: var(--vermilion-500);
+  --link-underline: var(--vermilion-500);
+  --icon-secondary: rgb(255 255 255 / 0.6);
+
+  --surface-page: var(--ink-950);
+  --surface-card: #0a1838;
+  --surface-raised: #10224a;
+  --surface-sunken: #07122b;
+  --surface-inset: #050d22;
+  --surface-ink: var(--navy-900);
+  --surface-ink-2: var(--navy-950);
+  --surface-ink-hover: var(--navy-800);
+  --surface-ink-raised: var(--navy-700);
+
+  --brand: var(--vermilion-500);
+  --brand-tint: rgb(var(--brand-accent-rgb) / 0.14);
+  --brand-tint-2: rgb(var(--brand-accent-rgb) / 0.22);
+  --brand-border: rgb(var(--brand-accent-rgb) / 0.42);
+
+  --success-tint: rgb(30 122 60 / 0.22);
+  --danger-tint: rgb(198 40 40 / 0.22);
+  --warning-tint: rgb(217 119 6 / 0.22);
+  --info-tint: rgb(143 163 214 / 0.18);
+
+  --border-subtle: #16264d;
+  --border-default: #1f3160;
+  --border-strong: #34497d;
+  --border-ink: var(--navy-300);
+  --divider: #1f3160;
+  --scrim: rgb(3 7 15 / 0.66);
+}
+
+/* ============================================================
+   TYPOGRAPHY — Kilimanjaro Sans (headings) · Inter (body/UI) · Roboto Mono (data)
+   ============================================================ */
+:root {
+  /* families
+     Display: Kilimanjaro Sans once its licensed files are bundled; until then Anek (which
+     each app already loads) renders every heading. Anek is served per-script on Google
+     Fonts, so Anek Latin / Anek Devanagari sit behind it for Hinglish headings.
+     Body/UI: Inter, with Roboto directly behind it — font fallback resolves PER GLYPH and
+     Inter ships no Devanagari, so every Hindi/Hinglish run renders in Roboto. Roboto must
+     stay in each app's loaded font URL for that reason. */
+  --font-display:
+    "Kilimanjaro Sans", "Anek", "Anek Latin", "Anek Devanagari", system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-sans: "Inter", "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Roboto Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* type scale (px) — mobile-first, generous for low literacy */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px; /* minimum body */
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 30px;
+  --text-3xl: 38px;
+  --text-4xl: 48px;
+  --text-5xl: 60px;
+  --text-6xl: 76px;
+
+  /* weights */
+  --weight-light: 300;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-extrabold: 800;
+
+  /* line-height */
+  --leading-none: 1;
+  --leading-tight: 1.1;
+  --leading-snug: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  /* tracking */
+  --tracking-tighter: -0.03em;
+  --tracking-tight: -0.015em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;
+  --tracking-wider: 0.09em; /* eyebrows / uppercase labels */
+  /* Kilimanjaro Sans is drawn tight already; the negative tracking the old display face
+     wanted crowds its heavy forms, so every heading role sits at 0. */
+  --tracking-display: 0;
+
+  /* semantic roles */
+  --font-eyebrow-size: var(--text-xs);
+  --font-eyebrow-spacing: var(--tracking-wider);
+  --font-eyebrow-weight: var(--weight-bold);
+
+  --font-body-size: var(--text-base);
+  --font-body-leading: var(--leading-normal);
+
+  --font-display-leading: var(--leading-tight);
+  --font-display-tracking: var(--tracking-display);
+}
+
+/* Optional helper classes (components mostly use the vars directly) */
+.bb-display {
+  font-family: var(--font-display);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-display);
+  font-weight: var(--weight-bold);
+  color: var(--text-heading);
+}
+.bb-eyebrow {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--text-brand);
+}
+.bb-body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+.bb-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-tight);
+}
+
+/* ============================================================
+   SPACING & LAYOUT — 4px grid; --tap is the worker touch floor.
+   ============================================================ */
+:root {
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 48px;
+  --space-10: 64px;
+  --space-11: 80px;
+  --space-12: 96px;
+  --space-13: 128px;
+  --space-14: 160px;
+
+  /* touch & control sizing */
+  --tap: 48px; /* minimum interactive height (worker app) */
+  --control-sm: 36px;
+  --control-md: 44px;
+  --control-lg: 52px; /* primary worker CTA */
+
+  /* Off-token control/media sizes minted from the EXACT existing px (#1101). */
+  --otp-cell-h: 60px; /* OTP cell height (its width reuses --control-lg = 52px) */
+  --avatar-lg: 52px; /* MaskedCandidate avatar diameter */
+  --avatar-lg-text: 20px; /* MaskedCandidate avatar initials */
+
+  /* brand mark sizes (the two-figure lockup) */
+  --logo-mark-sm: 24px;
+  --logo-mark-md: 32px;
+  --logo-mark-lg: 44px;
+
+  /* layout rails */
+  --gutter: 20px; /* mobile screen padding */
+  --gutter-web: 32px; /* web padding */
+  --content-max: 1200px;
+  --reading-max: 68ch;
+  --app-max: 440px; /* worker mobile canvas */
+
+  /* COMPACT-1 density rail — one layout scale for the portals, composed of space tokens. */
+  --stat-min: 13.5rem; /* ≈216px — packs ~5 across at --content-max, reflows below */
+  --section-gap: var(--space-6);
+  --block-gap: var(--space-4);
+  --rail-gap: var(--space-6);
+}
+
+/* ============================================================
+   RADIUS — soft, rounded geometry (the brand icons' "rounded terminals").
+   controls 10 · cards 14 · dialogs 16 · sheets/hero 20 · pills for chips.
+   One scale for BOTH portals (admin had forked to 14/18/24/32, payer capped at 12).
+   ============================================================ */
+:root {
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 10px; /* button / input / control */
+  --radius-lg: 14px; /* card / panel */
+  --radius-xl: 16px; /* dialog / large card */
+  --radius-2xl: 20px; /* sheet / hero band */
+  --radius-pill: 999px;
+  --radius-round: 50%;
+}
+
+/* ============================================================
+   ELEVATION — subtle, navy-tinted. Surfaces separate by a hairline FIRST; the shadow is a
+   quiet second cue, never a glow. The CTA stays flat (no brand glow).
+   ============================================================ */
+:root {
+  --shadow-xs: 0 1px 2px rgb(var(--brand-primary-rgb) / 0.05);
+  --shadow-sm: 0 1px 2px rgb(var(--brand-primary-rgb) / 0.04), 0 1px 3px rgb(var(--brand-primary-rgb) / 0.06);
+  --shadow-md: 0 2px 4px -2px rgb(var(--brand-primary-rgb) / 0.06), 0 4px 12px -2px rgb(var(--brand-primary-rgb) / 0.08);
+  --shadow-lg: 0 4px 8px -4px rgb(var(--brand-primary-rgb) / 0.08), 0 12px 28px -6px rgb(var(--brand-primary-rgb) / 0.12);
+  --shadow-xl: 0 8px 16px -8px rgb(var(--brand-primary-rgb) / 0.1), 0 24px 48px -12px rgb(var(--brand-primary-rgb) / 0.16);
+
+  /* the one CTA per screen — flat, no glow */
+  --shadow-brand: none;
+  --shadow-brand-lg: none;
+
+  /* pressed / sunken inputs */
+  --shadow-inset: none;
+
+  /* focus ring — TWO-TONE on purpose: the inner surface band separates the ring from a
+     filled control, so the indicator reads on a card, on the canvas and on a yellow button. */
+  --ring-focus: 0 0 0 2px var(--surface-card), 0 0 0 4px var(--focus-ring);
+  --ring-focus-tight: 0 0 0 2px var(--surface-card), 0 0 0 4px var(--focus-ring);
+
+  /* border widths */
+  --border-hairline: 1px;
+  --border-medium: 1.5px;
+  --border-bold: 2px;
+  --border-spine: 3px; /* the active-nav spine */
+}
+[data-theme="ink"] {
+  --shadow-xs: none;
+  --shadow-sm: 0 0 0 1px rgb(255 255 255 / 0.03);
+  --shadow-md: 0 0 0 1px rgb(255 255 255 / 0.04), 0 4px 12px -2px rgb(3 7 15 / 0.5);
+  --shadow-lg: 0 0 0 1px rgb(255 255 255 / 0.04), 0 12px 28px -6px rgb(3 7 15 / 0.6);
+  --shadow-xl: 0 0 0 1px rgb(255 255 255 / 0.05), 0 24px 48px -12px rgb(3 7 15 / 0.7);
+}
+
+/* ============================================================
+   MOTION — fast, subtle ease-out; one earned "stamp" spring for success.
+   Every duration collapses to 0 under prefers-reduced-motion.
+   ============================================================ */
+:root {
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.62, 0, 0.3, 1);
+  --ease-stamp: cubic-bezier(0.18, 0.9, 0.32, 1.28);
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+
+  --duration-instant: 80ms;
+  --duration-fast: 140ms;
+  --duration-base: 220ms;
+  --duration-slow: 320ms;
+  --duration-slower: 480ms;
+
+  /* common composed transition */
+  --transition-control:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-instant: 0ms;
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+    --duration-slower: 0ms;
+  }
+}
+
+/* ============================================================
+   BASE — z-index layers, reset, and brand-inheriting globals.
+   ============================================================ */
+:root {
+  --z-base: 0;
+  --z-raised: 10;
+  --z-sticky: 100;
+  --z-nav: 200;
+  --z-overlay: 1000;
+  --z-modal: 1100;
+  --z-toast: 1200;
+  --z-tooltip: 1300;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--font-body-size);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  background-color: var(--surface-page);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5 {
+  font-family: var(--font-display);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-display);
+  font-weight: var(--weight-bold);
+  color: var(--text-heading);
+  margin: 0;
+}
+
+p {
+  margin: 0;
+  text-wrap: pretty;
+}
+
+a {
+  color: var(--text-link);
+  text-decoration: none;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 2px;
+}
+a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--link-underline);
+}
+/* A link inside running text must not rely on colour alone (SC 1.4.1): Shift Blue link text
+   is too close to ink-900 body text to tell apart, so prose links are underlined at rest. */
+:where(p, li, dd, blockquote) a:not([class]) {
+  text-decoration: underline;
+  text-decoration-color: var(--link-underline);
+}
+
+::selection {
+  background: var(--vermilion-200);
+  color: var(--navy-900);
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+  border-radius: var(--radius-sm);
+}
+
+button {
+  font-family: inherit;
+}
+
+/* numbers in data contexts line up */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* the brand under-stroke used on key headlines — Safety Yellow */
+.bb-mark {
+  background-image: linear-gradient(transparent 62%, var(--vermilion-200) 62%);
+  padding: 0 0.04em;
+}
+
+/* ============================================================
+   UI-1 · ENTERPRISE PORTAL LAYER — the desktop density mode.
+   The scale above is mobile-first and generous (a 16px body floor) because payer-web still
+   serves a worker-facing page (/i/<code>). The authenticated consoles are dense B2B tools,
+   so their density lives in ROLE tokens: each --ui-* role bundles size, line-height, weight
+   and tracking, and a heading or table cell is set by NAMING the role.
+   ============================================================ */
+:root {
+  /* display — the one hero figure on an overview screen */
+  --ui-display-size: 1.75rem; /* 28px */
+  --ui-display-leading: 1.15;
+  --ui-display-weight: var(--weight-bold);
+  --ui-display-tracking: var(--tracking-display);
+
+  /* h1 — page title. One per screen. */
+  --ui-h1-size: 1.375rem; /* 22px */
+  --ui-h1-leading: 1.2;
+  --ui-h1-weight: var(--weight-bold);
+  --ui-h1-tracking: var(--tracking-display);
+
+  /* h2 — section within a page */
+  --ui-h2-size: 1.0625rem; /* 17px */
+  --ui-h2-leading: 1.3;
+  --ui-h2-weight: var(--weight-bold);
+  --ui-h2-tracking: var(--tracking-display);
+
+  /* h3 — card / panel title */
+  --ui-h3-size: 0.9375rem; /* 15px */
+  --ui-h3-leading: 1.35;
+  --ui-h3-weight: var(--weight-semibold);
+  --ui-h3-tracking: var(--tracking-display);
+
+  /* h4 — sub-group inside a panel */
+  --ui-h4-size: 0.8125rem; /* 13px */
+  --ui-h4-leading: 1.4;
+  --ui-h4-weight: var(--weight-semibold);
+  --ui-h4-tracking: 0;
+
+  /* body — the portal's default reading size */
+  --ui-body-lg-size: 0.9375rem; /* 15px — intro / lead paragraphs */
+  --ui-body-size: 0.875rem; /* 14px — DEFAULT */
+  --ui-body-sm-size: 0.8125rem; /* 13px — secondary/supporting prose */
+  --ui-body-leading: 1.55;
+
+  /* label — form labels, definition terms, tile captions */
+  --ui-label-size: 0.8125rem; /* 13px */
+  --ui-label-leading: 1.3;
+  --ui-label-weight: var(--weight-semibold);
+
+  /* caption — helper text, timestamps, footnotes */
+  --ui-caption-size: 0.75rem; /* 12px */
+  --ui-caption-leading: 1.45;
+
+  /* eyebrow — the uppercase micro-label above a section */
+  --ui-eyebrow-size: 0.6875rem; /* 11px */
+  --ui-eyebrow-leading: 1.2;
+  --ui-eyebrow-weight: var(--weight-bold);
+  --ui-eyebrow-tracking: 0.08em;
+
+  /* navigation — sidebar + header links */
+  --ui-nav-size: 0.84375rem; /* 13.5px */
+  --ui-nav-leading: 1.2;
+  --ui-nav-weight: var(--weight-medium);
+  --ui-nav-weight-active: var(--weight-bold);
+
+  /* table — a header is a LABEL (small, heavy, tracked); a cell is DATA (bigger, quiet). */
+  --ui-th-size: 0.71875rem; /* 11.5px */
+  --ui-th-leading: 1.3;
+  --ui-th-weight: var(--weight-bold);
+  --ui-th-tracking: 0.06em;
+  --ui-td-size: 0.84375rem; /* 13.5px */
+  --ui-td-leading: 1.45;
+
+  /* KPI — the numeral roles. Always tabular so columns of figures align. */
+  --ui-kpi-size: 1.875rem; /* 30px */
+  --ui-kpi-sm-size: 1.375rem; /* 22px */
+  --ui-kpi-leading: 1.05;
+  --ui-kpi-weight: var(--weight-bold);
+  --ui-kpi-tracking: -0.025em;
+
+  /* density rails */
+  --row-h: 44px; /* table row target */
+  --row-h-compact: 36px;
+  --panel-pad: var(--space-5);
+  --panel-pad-sm: var(--space-4);
+
+  /* shell geometry */
+  --shell-nav-w: 16.5rem; /* 264px — fits the longest nav label without truncation */
+  --shell-nav-w-collapsed: 4.75rem; /* 76px — icon rail */
+  --shell-header-h: 3.75rem; /* 60px */
+
+  /* responsive rails (override the fixed rails above) */
+  --content-max: 90rem; /* 1440px */
+  --gutter-web: clamp(1.25rem, 2.2vw, 2.5rem); /* 20px → 40px */
+
+  --surface-hover: var(--surface-sunken);
+
+  /* Primary-action aliases — the names the industry reaches for. */
+  --primary: var(--brand);
+  --primary-hover: var(--brand-hover);
+  --primary-active: var(--brand-press);
+  --primary-soft: var(--brand-tint);
+
+  /* COMING SOON — deliberately colourless: grey reads as "not yet", a tint reads as a
+     status to act on. */
+  --soon-fg: var(--text-disabled);
+  --soon-bg: var(--surface-sunken);
+  --soon-border: var(--border-subtle);
+
+  /* FOCUS — the one colour that may never be the accent on a LIGHT surface: Safety Yellow
+     is 1.79:1 on a white card, under the 3:1 SC 1.4.11 requires. Shift Blue is 16.8:1. */
+  --focus-ring: var(--navy-900);
+
+  /* CONTROL BORDER — the line that DRAWS an input must clear 3:1 (SC 1.4.11); dividers
+     do not have to. --ink-500 is 4.97:1 on white. */
+  --border-control: var(--ink-500);
+}
+[data-theme="ink"] {
+  --text-disabled: rgb(255 255 255 / 0.4);
+  --surface-hover: #13275a;
+  --soon-fg: var(--ink-500);
+  --soon-bg: #0c1a3d;
+  --soon-border: #16264d;
+  /* On navy the accent IS legible (9.77:1 on the ink card), so focus moves to yellow. */
+  --focus-ring: var(--vermilion-500);
+  --border-control: var(--ink-400);
+}
+
+/* ============================================================
+   UI-1 · OVERLAY ELEVATION — dropdowns, dialogs and toasts float ABOVE the page and need a
+   stronger plane cue than an in-page card.
+   ============================================================ */
+:root {
+  --shadow-overlay:
+    0 1px 2px rgb(var(--brand-primary-rgb) / 0.05), 0 8px 24px -4px rgb(var(--brand-primary-rgb) / 0.14),
+    0 2px 6px -2px rgb(var(--brand-primary-rgb) / 0.08);
+  --shadow-overlay-lg:
+    0 1px 2px rgb(var(--brand-primary-rgb) / 0.05), 0 20px 48px -8px rgb(var(--brand-primary-rgb) / 0.2),
+    0 4px 12px -4px rgb(var(--brand-primary-rgb) / 0.1);
+  /* A sticky header shows content scrolling UNDER it. */
+  --shadow-sticky: 0 1px 0 var(--border-subtle), 0 1px 3px rgb(var(--brand-primary-rgb) / 0.05);
+}
+[data-theme="ink"] {
+  --shadow-overlay:
+    0 0 0 1px rgb(255 255 255 / 0.05), 0 8px 24px -4px rgb(3 7 15 / 0.6),
+    0 2px 6px -2px rgb(3 7 15 / 0.4);
+  --shadow-overlay-lg:
+    0 0 0 1px rgb(255 255 255 / 0.06), 0 20px 48px -8px rgb(3 7 15 / 0.72),
+    0 4px 12px -4px rgb(3 7 15 / 0.5);
+  --shadow-sticky: 0 1px 0 var(--border-subtle), 0 1px 3px rgb(3 7 15 / 0.5);
+}
+
+/* ============================================================
+   UI-1 · TYPE-ROLE UTILITIES — apply a role by naming it. Nothing sets colour, so a role
+   never fights the semantic colour tokens at the call site.
+   ============================================================ */
+.ui-display {
+  font-family: var(--font-display);
+  font-size: var(--ui-display-size);
+  line-height: var(--ui-display-leading);
+  font-weight: var(--ui-display-weight);
+  letter-spacing: var(--ui-display-tracking);
+}
+.ui-h1 {
+  font-family: var(--font-display);
+  font-size: var(--ui-h1-size);
+  line-height: var(--ui-h1-leading);
+  font-weight: var(--ui-h1-weight);
+  letter-spacing: var(--ui-h1-tracking);
+}
+.ui-h2 {
+  font-family: var(--font-display);
+  font-size: var(--ui-h2-size);
+  line-height: var(--ui-h2-leading);
+  font-weight: var(--ui-h2-weight);
+  letter-spacing: var(--ui-h2-tracking);
+}
+.ui-h3 {
+  font-family: var(--font-display);
+  font-size: var(--ui-h3-size);
+  line-height: var(--ui-h3-leading);
+  font-weight: var(--ui-h3-weight);
+  letter-spacing: var(--ui-h3-tracking);
+}
+.ui-h4 {
+  font-family: var(--font-sans);
+  font-size: var(--ui-h4-size);
+  line-height: var(--ui-h4-leading);
+  font-weight: var(--ui-h4-weight);
+}
+.ui-body-lg {
+  font-size: var(--ui-body-lg-size);
+  line-height: var(--ui-body-leading);
+}
+.ui-body {
+  font-size: var(--ui-body-size);
+  line-height: var(--ui-body-leading);
+}
+.ui-body-sm {
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--ui-body-leading);
+}
+.ui-label {
+  font-size: var(--ui-label-size);
+  line-height: var(--ui-label-leading);
+  font-weight: var(--ui-label-weight);
+}
+.ui-caption {
+  font-size: var(--ui-caption-size);
+  line-height: var(--ui-caption-leading);
+}
+.ui-eyebrow {
+  font-size: var(--ui-eyebrow-size);
+  line-height: var(--ui-eyebrow-leading);
+  font-weight: var(--ui-eyebrow-weight);
+  letter-spacing: var(--ui-eyebrow-tracking);
+  text-transform: uppercase;
+}
+/* Numerals only — tabular widths so a column aligns; slashed zero keeps 0 and O apart. */
+.ui-num {
+  font-variant-numeric: tabular-nums slashed-zero;
+  letter-spacing: var(--ui-kpi-tracking);
+}
+.ui-kpi {
+  font-family: var(--font-display);
+  font-size: var(--ui-kpi-size);
+  line-height: var(--ui-kpi-leading);
+  font-weight: var(--ui-kpi-weight);
+  letter-spacing: var(--ui-kpi-tracking);
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+.ui-kpi--sm {
+  font-size: var(--ui-kpi-sm-size);
+}
+
+/* The brand logo lockup — shared by both portals. The monogram (two figures) sits on a Shift
+   Blue tile on light surfaces and straight on the band on navy; the wordmark is the official
+   "BADABHAI" logotype from the brand kit (white on navy, Shift Blue on light). Both images
+   live in this package (brand/) and are drawn as CSS backgrounds with RELATIVE urls, so each
+   app's bundler emits them content-hashed under /_next/static — cacheable even behind
+   admin-web's `no-store` catch-all, and one copy instead of one per app. The images are
+   decorative: the component carries the accessible name. The importing app sets
+   --bb-lockup-size (the tile) and may set --bb-wordmark-h. */
+.bb-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: inherit;
+  text-decoration: none;
+}
+.bb-lockup__tile {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: var(--bb-lockup-size, var(--logo-mark-md));
+  height: var(--bb-lockup-size, var(--logo-mark-md));
+  border-radius: 28%;
+  background: var(--surface-ink);
+}
+.bb-lockup--on-ink .bb-lockup__tile {
+  /* On a navy band the tile would vanish into it — the mark sits directly on the band. */
+  background: transparent;
+}
+.bb-lockup__mark {
+  display: block;
+  width: 72%;
+  aspect-ratio: 1;
+  background: url("./brand/badabhai-mark.png") center / contain no-repeat;
+}
+.bb-lockup--on-ink .bb-lockup__mark {
+  width: 100%;
+}
+/* A PAPER lockup on a page switched to the ink theme (the sign-in card has a theme toggle):
+   the Shift Blue logotype would sit navy-on-navy (~1.04:1), so it is knocked out to white.
+   `brightness(0) invert(1)` maps every opaque pixel to white and keeps the alpha. */
+[data-theme="ink"] .bb-lockup:not(.bb-lockup--on-ink) .bb-lockup__wordmark {
+  filter: brightness(0) invert(1);
+}
+/* Stacks a caption (persona / portal name) under the wordmark. */
+.bb-lockup__text {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.bb-lockup__wordmark {
+  /* The logotype file is 716×96; the width follows the height so the art never distorts. */
+  --bb-wordmark-h-resolved: var(--bb-wordmark-h, calc(var(--bb-lockup-size, var(--logo-mark-md)) * 0.42));
+  display: block;
+  flex: none;
+  height: var(--bb-wordmark-h-resolved);
+  width: calc(var(--bb-wordmark-h-resolved) * 716 / 96);
+  background: url("./brand/badabhai-wordmark-navy.png") left center / contain no-repeat;
+}
+.bb-lockup--on-ink .bb-lockup__wordmark {
+  background-image: url("./brand/badabhai-wordmark.png");
+}
+.bb-lockup__sub {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: var(--ui-caption-size);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-normal);
+  line-height: var(--ui-caption-leading);
+  color: var(--text-muted);
+}
+.bb-lockup--on-ink .bb-lockup__sub {
+  color: var(--text-on-ink-muted);
+}

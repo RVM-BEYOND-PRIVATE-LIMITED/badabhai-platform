@@ -586,6 +586,10 @@ the one direction nobody investigates** (PARKED.md, P-016).
    vocabularies. **I recommend not adding it**, and E1 is briefed that way with the question
    on its STATUS line. Reversing this adds a migration plus a `TRADE_KEYS` (15) →
    `MATCH_SKILLS` (18) mapping that nobody has drafted.
+   **RULED 2026-09-29 → [ADR-0036 addendum](0036-matching-algorithm-v1.md#addendum-2026-09-29--role_kind-a-postings-display-role-never-a-match-input).**
+   No `trade_key` on `job_postings`; instead a display-only `role_kind` over the 21 declared
+   roles on both `job_postings` and `jobs` (migration `0131`), never a match or rank input —
+   the posted match skill stays the matching role, so no second match vocabulary is minted.
 2. **Location — ship E2 without it, or open the trade form?** There is no worker city column,
    and the only question that would produce one lives in `qp_universal`, outside the five
    shipping packs. Adding it means editing the trade form question flow, which this session

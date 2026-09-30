@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join, relative } from "node:path";
 import { ASYNC_CSS_SCRIPT, ASYNC_STYLESHEETS } from "./theme";
 
 /**
@@ -17,10 +20,15 @@ import { ASYNC_CSS_SCRIPT, ASYNC_STYLESHEETS } from "./theme";
  * layout would silently undo it.
  */
 describe("async CSS loader — nothing third-party blocks first paint", () => {
-  it("covers the fonts + all three icon sheets (the four that were blocking)", () => {
-    expect(ASYNC_STYLESHEETS).toHaveLength(4);
+  it("covers the fonts + the one icon sheet the portal renders (fill — brand: solid icons only)", () => {
+    expect(ASYNC_STYLESHEETS).toHaveLength(2);
     expect(ASYNC_STYLESHEETS.some((u) => u.includes("fonts.googleapis.com"))).toBe(true);
-    expect(ASYNC_STYLESHEETS.filter((u) => u.includes("@phosphor-icons/web"))).toHaveLength(3);
+    const icons = ASYNC_STYLESHEETS.filter((u) => u.includes("@phosphor-icons/web"));
+    expect(icons).toHaveLength(1);
+    expect(icons[0]).toContain("/src/fill/style.css");
+    // The outline weights are gone with their last usage; re-adding one would ship bytes
+    // for glyphs the brand no longer allows.
+    expect(ASYNC_STYLESHEETS.some((u) => /\/src\/(regular|bold)\//.test(u))).toBe(false);
   });
 
   it("every entry is CROSS-ORIGIN — same-origin app CSS must stay blocking (no FOUC)", () => {
@@ -52,5 +60,62 @@ describe("async CSS loader — nothing third-party blocks first paint", () => {
   it("carries no raw hex/px literal (the DS adherence gate covers inline scripts too)", () => {
     expect(ASYNC_CSS_SCRIPT).not.toMatch(/#[0-9a-f]{3,8}\b/i);
     expect(ASYNC_CSS_SCRIPT).not.toMatch(/\b\d+px\b/);
+  });
+});
+
+/**
+ * Only the FILL sheet is loaded, so a glyph written in any other weight renders as an empty
+ * box. This walks the shipped sources and fails on the regular (`ph ph-*`) or bold
+ * (`ph-bold ph-*`) weight classes.
+ */
+describe("icon weight — every Phosphor glyph uses the one loaded (fill) sheet", () => {
+  const srcRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const sources: string[] = [];
+  (function walk(dir: string): void {
+    for (const ent of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, ent.name);
+      if (ent.isDirectory()) walk(full);
+      else if (/\.(tsx|ts)$/.test(ent.name) && !/\.(test|spec)\.(tsx|ts)$/.test(ent.name))
+        sources.push(full);
+    }
+  })(srcRoot);
+
+  // A standalone `ph` class token, or any non-fill weight class.
+  const OTHER_WEIGHT = /(^|["'`\s{])ph(?=["'`\s$])|\bph-(?:bold|regular|light|thin|duotone)\b/;
+
+  /** Code only — a comment may name the retired weights. (`https://` is kept.) */
+  const stripComments = (src: string) =>
+    src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+
+  it("walks the app + component sources", () => {
+    expect(sources.length).toBeGreaterThan(20);
+  });
+
+  it("the pattern catches each retired weight (so a pass below means something)", () => {
+    for (const bad of [
+      '<i className="ph ph-gear" />',
+      "<i className={`ph ph-${icon}`} />",
+      "<i className={`ph ${ok ? 'ph-check' : 'ph-x'}`} />",
+      '<i className="ph-bold ph-check" />',
+    ])
+      expect(bad).toMatch(OTHER_WEIGHT);
+    expect('<i className="ph-fill ph-gear" />').not.toMatch(OTHER_WEIGHT);
+  });
+
+  it("no source renders a regular/bold/outline Phosphor weight", () => {
+    const offenders = sources
+      .map((f) => {
+        const hit = stripComments(readFileSync(f, "utf8")).match(OTHER_WEIGHT);
+        return hit ? `${relative(srcRoot, f).replace(/\\/g, "/")} → ${hit[0].trim()}` : null;
+      })
+      .filter((x): x is string => x !== null);
+    expect(offenders, `non-fill icon weights:\n${offenders.join("\n")}`).toEqual([]);
+  });
+
+  it("no stylesheet targets a retired weight class (the selector would match nothing)", () => {
+    for (const css of ["app/globals.css", "styles/ds-components.css"]) {
+      const code = readFileSync(join(srcRoot, css), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+      expect(code, css).not.toMatch(/\.ph(?![\w-])|\.ph-(?:bold|regular|light|thin|duotone)\b/);
+    }
   });
 });

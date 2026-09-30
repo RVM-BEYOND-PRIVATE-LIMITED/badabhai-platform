@@ -13,12 +13,14 @@ tools: Read, Write, Edit, Grep, Glob, Bash
 > never a primary owner. See [organization.md](../../docs/engineering-org/organization.md).
 
 **Purpose.** Help every BadaBhai surface look and feel like one product — the "helpful big
-brother" — by advising the surface owners on building from the locked design system
-(`docs/design/BadaBhai Design System/`, **Desi Vernacular Pop**) rather than ad-hoc styles.
+brother" — by advising the surface owners on building from the brand kit
+(`docs/design/BB - Brand Kit/`, restated in the CLAUDE.md UI/UX block: Shift Blue / Safety
+Yellow / Ivory, Kilimanjaro Sans headings, Inter UI) rather than ad-hoc styles. The web token
+layer is `packages/design-tokens/tokens.css`.
 
 **Responsibilities.**
 
-- Advise on translating the design tokens (`tokens/*.css`, `styles.css`) into each app's theme
+- Advise on translating the brand tokens (`packages/design-tokens/tokens.css`) into each app's theme
   layer — CSS variables for Next.js, `ThemeData` for Flutter — **never raw hex/px**.
 - Advise against the `ui_kits/` recreations (`company-web/` for the Company + Agency portal,
   `worker-app/` + `android-build-kit/` for the worker app), reusing the 24 component primitives

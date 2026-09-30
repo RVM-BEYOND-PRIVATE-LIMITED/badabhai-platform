@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { BrandLockup } from "./brand-lockup";
 import { SidebarNav } from "./nav";
 import { TopbarCrumb } from "./topbar-crumb";
 import type { NavSection } from "./nav-model";
@@ -47,13 +48,7 @@ export function Shell({
     <div className={`shell${drawerOpen ? " shell--drawer-open" : ""}`}>
       <aside className="sidebar" id="portal-sidebar">
         <div className="sidebar__brand">
-          <span className="sidebar__mark" aria-hidden="true">
-            BB
-          </span>
-          <span className="sidebar__brandtext">
-            <span className="sidebar__name">BadaBhai</span>
-            <span className="sidebar__env">Admin</span>
-          </span>
+          <BrandLockup surface="ink" />
         </div>
 
         <SidebarNav sections={sections} />

@@ -5,6 +5,18 @@ import { primeSheetQr, SHEET_SHAPES, withSheetQr } from "./__fixtures__/sheet-sh
 // Render exactly what the other suites render. The QR is an attribute rather than printed
 // text, so it changes nothing this gate reads — which is itself worth having asserted.
 beforeAll(primeSheetQr);
+import {
+  AVAILABILITY_STATUSES,
+  SHIFTS,
+  WORK_TYPES,
+} from "../profiles/worker-preferences.vocabulary";
+import {
+  ROAD_PERSONAS,
+  ROAD_ROLE,
+  roadContext,
+  roadPersona,
+  type RoadPersona,
+} from "./__fixtures__/general-road";
 import { buildResumeRenderInput } from "./resume-render-input";
 import { TRADE_RESUME_MAPS } from "./trade-resume-map";
 
@@ -106,7 +118,25 @@ const SHEET_LABELS: readonly string[] = [
   "Present",
 ];
 
-const CLOSED_VOCABULARY: ReadonlySet<string> = new Set([...DICTIONARY, ...SHEET_LABELS]);
+/**
+ * THE GENERAL FORM'S CLOSED ANSWERS AS THE SHEET PRINTS THEM (ADR-0045 Phase 5) — the shift, the
+ * work types and the availability status. ENUMERATED from the vocabulary the form is bounded by,
+ * like {@link DICTIONARY}, so an option added tomorrow is licensed automatically and a label
+ * invented in the renderer is not. The general road is the first sheet this gate scans that
+ * prints them: its Shift row is "{shift} · {work types}", and its Available from row speaks the
+ * status vocabulary ("Within a week").
+ */
+const FORM_VOCABULARY: readonly string[] = [
+  ...Object.values(SHIFTS),
+  ...Object.values(WORK_TYPES),
+  ...Object.values(AVAILABILITY_STATUSES),
+];
+
+const CLOSED_VOCABULARY: ReadonlySet<string> = new Set([
+  ...DICTIONARY,
+  ...SHEET_LABELS,
+  ...FORM_VOCABULARY,
+]);
 
 /**
  * Deterministic compositions, each with the clause that authorises it.
@@ -132,12 +162,25 @@ const COMPOSED_PHRASES: readonly { re: RegExp; why: string }[] = [
   { re: /^\d{4}–\d{4}$/, why: "§11 #7 overflow year span" },
   { re: /^±[\d.]+ mm( or finer)?$/, why: "§4.3 tolerance band" },
   { re: /^Day$|^Night$|^Rotational$|^Any shift$/, why: "§4.3 shift_willingness" },
+  // ── ADR-0045 Phase 5 — the general road's terms rows. Each is the worker's own figure or date
+  // in a fixed frame; the digit rule below still has to find every number in what he stated.
+  {
+    // "₹18,000 – ₹22,000 / month" splits on " – ": the band's LOWER end stands alone.
+    re: /^₹[\d,]+$/,
+    why: "§4.4 expected pay, the lower end of a band",
+  },
+  { re: /^expects ₹[\d,]+$/, why: "§6.2 expected pay, the lower end of a band" },
+  {
+    re: /^From \d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4}$/,
+    why: "ADR-0045 §3.4 Available from, a stated date still ahead",
+  },
+  { re: /^Serving notice \(\d+ days?\)$/, why: "ADR-0045 §3.4 Available from, notice with days" },
 ];
 
 /** Chrome: the masthead, the footer and the fixed disclaimer. Not worker content, not a claim. */
 const CHROME_TEXT: readonly RegExp[] = [
   /^BadaBhai$/,
-  /^Scan to open this worker's live profile$/,
+  /^Scan to visit BadaBhai$/,
   /^badabhai\.ai$/,
   /^Generated \d{1,2} [A-Z][a-z]+ \d{4}$/,
   /^Ref [A-Z0-9]{6}$/,
@@ -152,17 +195,36 @@ function atomsOf(text: string): string[] {
     .filter(Boolean);
 }
 
-/** Every string this render puts on the page, before the template wraps it in markup. */
-function printedStrings(shape: (typeof SHEET_SHAPES)[number], audience: "worker" | "employer") {
-  const input = buildResumeRenderInput(
+/** The render input this gate reads — `bb_trade` for the matrix, `bb_general` for the road. */
+function renderFor(
+  shape: (typeof SHEET_SHAPES)[number],
+  audience: "worker" | "employer",
+  templateId = "bb_trade",
+) {
+  return buildResumeRenderInput(
     shape.snapshot,
     shape.displayName,
-    "bb_trade",
+    templateId,
     null,
     false,
     audience,
     withSheetQr(shape.tradeSheet),
   );
+}
+
+/**
+ * Every string this render puts on the page, before the template wraps it in markup.
+ *
+ * NOT THE BRIEF (ADR-0045 R6). The general road's one line of prose has its own licence —
+ * {@link briefLicensed}, checked WHOLE before any atom splitting — because an atom rule would
+ * either refuse the worker's own sentence or, to accept it, have to widen for every other string.
+ */
+function printedStrings(
+  shape: (typeof SHEET_SHAPES)[number],
+  audience: "worker" | "employer",
+  templateId = "bb_trade",
+) {
+  const input = renderFor(shape, audience, templateId);
   const out: string[] = [];
   const push = (v: string | null | undefined) => {
     if (v && v.trim()) out.push(v.trim());
@@ -215,6 +277,12 @@ function printedStrings(shape: (typeof SHEET_SHAPES)[number], audience: "worker"
     push(e.work);
   }
   (input.ownWords ?? []).forEach(push);
+  // `bb_general` PRINTS THE THREE LISTS IN FULL as its Skills section (`bb_trade` shows three
+  // tools in the headline, which the headline line above already carries) — so on that layout
+  // every entry is a printed string and has to have a source.
+  if (templateId === "bb_general") {
+    for (const list of [input.skills, input.machines, input.controllers]) list.forEach(push);
+  }
   push(input.qrCaption);
   push(input.shortLink);
   push(input.footerMeta);
@@ -248,6 +316,19 @@ function workerSupplied(shape: (typeof SHEET_SHAPES)[number]): string[] {
     for (const e of (rp.experiences as Record<string, string>[] | undefined) ?? []) {
       out.push(e.role_label, e.duration_text, e.work_done);
     }
+  }
+  // THE LEGACY DRAFT'S OWN FREE TEXT (ADR-0045 Phase 5). A general-road snapshot carries no
+  // container: its role and domain are the chat's certified labels, its skills the list the worker
+  // confirmed at the gate (`skill_labels`), its machines the draft's own. Walked for the reason the
+  // container's fields are — every matrix shape is container-only, so this licenses nothing new
+  // there.
+  const draft = shape.snapshot;
+  for (const key of ["role_label", "domain_label"]) {
+    if (typeof draft[key] === "string") out.push(draft[key] as string);
+  }
+  for (const key of ["skill_labels", "machines"]) {
+    const list = draft[key];
+    if (Array.isArray(list)) out.push(...list.filter((v): v is string => typeof v === "string"));
   }
   // The worker's own registration answer — `workers.current_city` / `current_state`, typed on the
   // onboarding screen beside his name. A value the worker stated, which is §8's second permitted
@@ -302,6 +383,108 @@ function sourced(atom: string, supplied: readonly string[]): boolean {
   return supplied.some((said) => said.toLowerCase().includes(lower));
 }
 
+/**
+ * ── THE GENERAL ROAD'S PASS (ADR-0045 Phase 5) ────────────────────────────────────────────
+ *
+ * The matrix above renders every shape as `bb_trade`, where the road is off by construction, so
+ * without this pass the road's sheet — its brief, its skills-first headline, its Skills lists,
+ * its band and its dated "Available from" — would never be scanned at all. Rendered as
+ * `bb_general` WITH the road context, from the shared road personas (`__fixtures__/general-road`),
+ * never as new `SHEET_SHAPES`: the matrix's shape count is quoted across the suite.
+ */
+type RoadShape = (typeof SHEET_SHAPES)[number] & { readonly persona: RoadPersona };
+
+const ROAD_SHAPES: readonly RoadShape[] = ROAD_PERSONAS.map((persona, i) => ({
+  n: 101 + i,
+  name: persona.name,
+  clause: "ADR-0045 R5/R6 — the general road",
+  overflow: false,
+  snapshot: persona.snapshot,
+  displayName: persona.displayName,
+  tradeSheet: roadContext(persona),
+  persona,
+}));
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** "A, B and C" / "A and B" / "A" — the fixed line's joiner, restated here rather than imported. */
+function joinedAsTheLineJoins(skills: readonly string[]): string {
+  return skills.length <= 1
+    ? skills.join("")
+    : `${skills.slice(0, -1).join(", ")} and ${skills[skills.length - 1]}`;
+}
+
+/**
+ * The fixture's employment total as the headline writes it ("7 yrs 4 mo"), RECOMPUTED here from
+ * the stated dates with the pipeline's own rounding — inclusive months, summed, one-decimal
+ * years, then the whole/remainder split — or null when any job is undated or none exists.
+ */
+function yearsAsTheHeadlineWrites(shape: RoadShape): string | null {
+  const employments = shape.tradeSheet?.employments ?? [];
+  const asOf = shape.tradeSheet?.asOf ?? null;
+  if (employments.length === 0) return null;
+  let months = 0;
+  for (const e of employments) {
+    const end =
+      e.endYm ??
+      (asOf ? `${asOf.getUTCFullYear()}-${String(asOf.getUTCMonth() + 1).padStart(2, "0")}` : null);
+    if (!e.durationStated || !e.startYm || !end) return null;
+    months +=
+      (Number(end.slice(0, 4)) - Number(e.startYm.slice(0, 4))) * 12 +
+      (Number(end.slice(5, 7)) - Number(e.startYm.slice(5, 7))) +
+      1;
+  }
+  const years = Math.round((months / 12) * 10) / 10;
+  const whole = Math.floor(years);
+  const mo = Math.round((years - whole) * 12);
+  const parts = [
+    whole > 0 ? `${whole} ${whole === 1 ? "yr" : "yrs"}` : null,
+    mo > 0 ? `${mo} mo` : null,
+  ];
+  const kept = parts.filter((p): p is string => p !== null);
+  return kept.length > 0 ? kept.join(" ") : null;
+}
+
+/**
+ * THE BRIEF'S LICENCE (ADR-0045 §4.3) — checked WHOLE, before any atom splitting.
+ *
+ * NEVER BY ADDING THE BRIEF TO `workerSupplied`. The containment rule would then license every
+ * substring of it for every OTHER printed string: a brief saying "experienced" would make the
+ * adjective sourced on any label on the page — the fabrication this file exists to stop.
+ *
+ * EXACTLY TWO WAYS TO PASS:
+ *   (a) EXACT equality with the worker's stored text. Not containment: a truncated line, or his
+ *       line with words appended, is a sentence he did not write.
+ *   (b) a STRICT parse of the ONE fixed-line sentence the fixture's facts select — years known:
+ *       "{R} with {Y} of experience in {S}." or "{R} with {Y} of experience."; no job stored:
+ *       "Fresher {R} with skills in {S}."; jobs not all dated: "{R} with skills in {S}." — with R
+ *       the fixture's cased role, Y recomputed from its dates, and S a prefix (at most three) of
+ *       its skills, joined. NOT by calling `composeFallbackBrief`: a gate that asks the code under
+ *       test for the answer approves whatever the code does.
+ * DIGITS need no rule of their own here: (a)'s are the worker's own words, (b)'s are Y, compared
+ * whole against arithmetic over his stated dates.
+ */
+function briefLicensed(text: string, shape: RoadShape): boolean {
+  const stored = shape.persona.storedBrief as { status?: unknown; text?: unknown } | undefined;
+  if (stored?.status === "answered" && text === stored.text) return true;
+  const role = escapeRegExp(ROAD_ROLE);
+  const skills = (shape.snapshot.skill_labels as string[] | undefined) ?? [];
+  const lists = [1, 2, 3]
+    .filter((k) => k <= skills.length)
+    .map((k) => joinedAsTheLineJoins(skills.slice(0, k)));
+  const years = yearsAsTheHeadlineWrites(shape);
+  if (years !== null) {
+    const m = new RegExp(`^${role} with (.+?) of experience in (.+)\\.$`).exec(text);
+    if (m) return m[1] === years && lists.includes(m[2]!);
+    return text === `${ROAD_ROLE} with ${years} of experience.`;
+  }
+  const fresher = (shape.tradeSheet?.employments ?? []).length === 0;
+  const m = new RegExp(
+    fresher ? `^Fresher ${role} with skills in (.+)\\.$` : `^${role} with skills in (.+)\\.$`,
+  ).exec(text);
+  return m !== null && lists.includes(m[1]!);
+}
+
 describe("§8 — every printed string has one of exactly three sources", () => {
   it.each(SHEET_SHAPES)("shape $n — $name", (shape) => {
     const supplied = workerSupplied(shape);
@@ -317,6 +500,30 @@ describe("§8 — every printed string has one of exactly three sources", () => 
             `shape ${shape.n}/${audience}: "${atom}" (in "${text}") has no source — it is not a ` +
               `closed-vocabulary label, not a composed phrase the guideline authorises, and not ` +
               `something this worker supplied. §8: there is no fourth source.`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
+  it.each(ROAD_SHAPES)("general road $n — $name (bb_general, ADR-0045)", (shape) => {
+    const supplied = workerSupplied(shape);
+    for (const audience of ["worker", "employer"] as const) {
+      // THE BRIEF FIRST, WHOLE, under its own licence — and never vacuously: every road persona
+      // prints one, on both copies.
+      const brief = renderFor(shape, audience, "bb_general").profileBrief;
+      expect(brief, `${shape.name}/${audience}: no brief printed`).toBeTruthy();
+      expect(
+        briefLicensed(brief!, shape),
+        `${shape.name}/${audience}: the brief "${brief}" is neither the worker's stored line nor ` +
+          `the fixed line the fixture's own facts compose. ADR-0045 §4.3.`,
+      ).toBe(true);
+      for (const text of printedStrings(shape, audience, "bb_general")) {
+        if (sourced(text, supplied)) continue;
+        for (const atom of atomsOf(text)) {
+          expect(
+            sourced(atom, supplied),
+            `${shape.name}/${audience}: "${atom}" (in "${text}") has no source. §8.`,
           ).toBe(true);
         }
       }
@@ -338,11 +545,30 @@ describe("§8 — every printed digit is stated or is arithmetic over stated dat
         digits.add(String(Number(ym.slice(5, 7)))); // the month, unpadded
       }
     }
-    const salary = (shape.snapshot.resume_profile as { expected_salary?: number } | undefined)
-      ?.expected_salary;
-    if (salary) {
+    const attributes = shape.tradeSheet?.attributes ?? {};
+    const salaries = [
+      (shape.snapshot.resume_profile as { expected_salary?: number } | undefined)?.expected_salary,
+      // ADR-0045 — the general form's band, both ends as the worker stated them.
+      attributes.salary_expected_min,
+      attributes.salary_expected_max,
+    ];
+    for (const salary of salaries) {
+      if (typeof salary !== "number" || !salary) continue;
       digits.add(String(salary));
       for (const g of new Intl.NumberFormat("en-IN").format(salary).split(",")) digits.add(g);
+    }
+    // ADR-0045 — the general form's availability: the stated date's day (unpadded, as "From 12 Oct
+    // 2026" prints it) and year, and the notice period's day count.
+    const availability = attributes.availability as
+      | { available_from?: string; notice_period_days?: number }
+      | undefined;
+    const from = /^(\d{4})-\d{2}-(\d{2})$/.exec(availability?.available_from ?? "");
+    if (from) {
+      digits.add(from[1]!);
+      digits.add(String(Number(from[2])));
+    }
+    if (typeof availability?.notice_period_days === "number") {
+      digits.add(String(availability.notice_period_days));
     }
     return digits;
   }
@@ -457,6 +683,25 @@ describe("§8 — every printed digit is stated or is arithmetic over stated dat
       }
     }
   });
+
+  it.each(ROAD_SHAPES)("general road $n — $name (bb_general, ADR-0045)", (shape) => {
+    // The brief is not scanned here: it is licensed WHOLE above, digits included.
+    const allowed = new Set([...statedDigits(shape), ...derivedTenureDigits(shape)]);
+    for (const audience of ["worker", "employer"] as const) {
+      for (const text of printedStrings(shape, audience, "bb_general")) {
+        for (const atom of atomsOf(text)) {
+          if (CLOSED_VOCABULARY.has(atom)) continue;
+          if (CHROME_TEXT.some((re) => re.test(atom))) continue;
+          for (const run of atom.match(/\d+/g) ?? []) {
+            expect(
+              allowed.has(run),
+              `${shape.name}/${audience}: the number ${run} in "${atom}" was never stated. §8.`,
+            ).toBe(true);
+          }
+        }
+      }
+    }
+  });
 });
 
 describe("the gate itself is capable of failing", () => {
@@ -487,5 +732,90 @@ describe("the gate itself is capable of failing", () => {
     expect(sourced("Fanuc", supplied)).toBe(true); // closed vocabulary
     expect(sourced("3 yrs 8 mo", supplied)).toBe(true); // composed, guideline-authorised
     expect(sourced("Rico Auto Industries", supplied)).toBe(true); // the worker's own words
+  });
+});
+
+describe("the brief's licence is capable of failing (ADR-0045 §4.3)", () => {
+  // The same predicate the road pass calls, pointed at the fabrications it exists to stop.
+  const shapeOf = (name: string) => ROAD_SHAPES.find((s) => s.name === name)!;
+  const DATED = shapeOf("road-declined");
+  const FRESHER = shapeOf("road-fresher");
+  const UNDATED = shapeOf("road-undated");
+  const ANSWERED = shapeOf("road-answered");
+  const OWN = (roadPersona("road-answered").storedBrief as { text: string }).text;
+
+  it("accepts the lines the fixtures' own facts compose — and the cap's shorter lists", () => {
+    const tail = "of experience in House wiring, Panel fitting and MCB installation.";
+    expect(briefLicensed(`House Electrician with 7 yrs 4 mo ${tail}`, DATED)).toBe(true);
+    expect(
+      briefLicensed("House Electrician with 7 yrs 4 mo of experience in House wiring.", DATED),
+    ).toBe(true);
+    expect(briefLicensed("House Electrician with 7 yrs 4 mo of experience.", DATED)).toBe(true);
+    expect(
+      briefLicensed(
+        "Fresher House Electrician with skills in House wiring and Panel fitting.",
+        FRESHER,
+      ),
+    ).toBe(true);
+    expect(briefLicensed("House Electrician with skills in House wiring.", UNDATED)).toBe(true);
+    expect(briefLicensed(OWN, ANSWERED)).toBe(true);
+  });
+
+  it("refuses an adjective on the role", () => {
+    expect(briefLicensed("Skilled House Electrician with 7 yrs 4 mo of experience.", DATED)).toBe(
+      false,
+    );
+    expect(
+      briefLicensed("Experienced House Electrician with skills in House wiring.", UNDATED),
+    ).toBe(false);
+  });
+
+  it("refuses a fourth skill, a skill he never gave, and his skills out of order", () => {
+    for (const s of [
+      "House wiring, Panel fitting, MCB installation and Earthing",
+      "Welding",
+      "Panel fitting and House wiring",
+      "House wiring, Panel fitting and Welding",
+    ]) {
+      expect(
+        briefLicensed(`House Electrician with 7 yrs 4 mo of experience in ${s}.`, DATED),
+        s,
+      ).toBe(false);
+    }
+  });
+
+  it("refuses a total his dates do not add up to", () => {
+    for (const y of ["8 yrs", "7 yrs 5 mo", "7 yrs", "11 yrs"]) {
+      expect(briefLicensed(`House Electrician with ${y} of experience.`, DATED), y).toBe(false);
+    }
+  });
+
+  it('refuses "Fresher" over a worker with a job, and a total over a worker with none', () => {
+    expect(briefLicensed("Fresher House Electrician with skills in House wiring.", DATED)).toBe(
+      false,
+    );
+    expect(briefLicensed("Fresher House Electrician with skills in House wiring.", UNDATED)).toBe(
+      false,
+    );
+    expect(briefLicensed("House Electrician with 1 yr of experience.", FRESHER)).toBe(false);
+    expect(briefLicensed("House Electrician with skills in House wiring.", FRESHER)).toBe(false);
+  });
+
+  it("refuses a truncated own line, his line with words appended, and another worker's line", () => {
+    expect(briefLicensed(OWN.slice(0, -10), ANSWERED)).toBe(false);
+    expect(briefLicensed(`${OWN} Best worker in Faridabad.`, ANSWERED)).toBe(false);
+    expect(briefLicensed(`Very good worker. ${OWN}`, ANSWERED)).toBe(false);
+    // Stored for ANSWERED, printed for DATED: not his words.
+    expect(briefLicensed(OWN, DATED)).toBe(false);
+  });
+
+  it('refuses the fixed line\'s filler words anywhere but the brief slot — "with skills in"', () => {
+    // The atom rule is what any OTHER printed string answers to, and the fixed line fails it.
+    const supplied = workerSupplied(FRESHER);
+    const line =
+      "Fresher House Electrician with skills in House wiring, Panel fitting and MCB installation.";
+    expect(sourced(line, supplied)).toBe(false);
+    expect(atomsOf(line).some((atom) => !sourced(atom, supplied))).toBe(true);
+    expect(sourced("House Electrician with skills in House wiring", supplied)).toBe(false);
   });
 });

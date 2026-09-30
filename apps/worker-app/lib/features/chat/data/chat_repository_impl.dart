@@ -158,6 +158,9 @@ class ChatRepositoryImpl implements ChatRepository {
   /// in `_openSession` must not: it fires when the latest-session read failed,
   /// and the worker may still be answering that session.
   @override
+  void forgetSession() => _session.clearChatSession();
+
+  @override
   Future<ChatSessionOpening?> startNewSession() async {
     final String? token = _session.sessionToken;
     if (token == null) throw const UnauthorizedFailure();
@@ -266,6 +269,8 @@ class ChatRepositoryImpl implements ChatRepository {
         progress: reply.progress,
         questionKind: reply.questionKind,
         inputMode: reply.inputMode,
+        // #1559 / #1583 — how this turn is answered; null = today's affordances.
+        answerType: reply.answerType,
         occupationLabel: reply.occupationLabel,
         // #896 — the Devanagari read-aloud script for THIS reply; null on an
         // older API build, and read-aloud then speaks the romanized reply.
@@ -279,6 +284,7 @@ class ChatRepositoryImpl implements ChatRepository {
         // #1689 — 'queued' on the ONE turn that settled a "Haan" to the resume
         // update offer; null everywhere else, including on an older server.
         resumeUpdate: reply.resumeUpdate,
+        sessionEnded: reply.sessionEnded,
       );
     } catch (error) {
       throw mapError(error);
@@ -353,10 +359,88 @@ class ChatRepositoryImpl implements ChatRepository {
     }
   }
 
+  /// ADR-0046 §5.2 — see [ChatRepository.confirmCompanionEdit].
+  @override
+  Future<CompanionEditResult> confirmCompanionEdit(
+    String proposalId,
+    List<String> rowIds, {
+    String? submissionId,
+  }) {
+    final String? token = _session.sessionToken;
+    if (token == null) throw const UnauthorizedFailure();
+    return _companionEditCall(
+      () => _api.confirmCompanionEdit(
+        authToken: token,
+        proposalId: proposalId,
+        rowIds: rowIds,
+        submissionId: submissionId,
+      ),
+    );
+  }
+
+  /// ADR-0046 §5.2 — see [ChatRepository.cancelCompanionEdit].
+  @override
+  Future<CompanionEditResult> cancelCompanionEdit(
+    String proposalId, {
+    String? submissionId,
+  }) {
+    final String? token = _session.sessionToken;
+    if (token == null) throw const UnauthorizedFailure();
+    return _companionEditCall(
+      () => _api.cancelCompanionEdit(
+        authToken: token,
+        proposalId: proposalId,
+        submissionId: submissionId,
+      ),
+    );
+  }
+
+  /// One companion edit call, mapped to the repository's three-answer contract
+  /// ([CompanionEditResult]). Shared by confirm and cancel so the 404 / 409
+  /// handling exists once.
+  ///
+  /// THE BODY IS THE ENVELOPE. Every error here goes through the global
+  /// `AllExceptionsFilter`: `{statusCode, error: {mode|reason, …}, requestId,
+  /// …}` — the discriminant sits under `error`, never at the top level. A 409
+  /// that is not `mode:"interview"` is the stale-proposal answer (contracts
+  /// §5.2), and any other 409 is still "this card cannot be applied" — both
+  /// read as [CompanionEditOutcome.gone], which is the safe direction: the tab
+  /// clears the card and re-reads rather than keeping a dead one on screen.
+  Future<CompanionEditResult> _companionEditCall(
+    Future<ChatReply> Function() call,
+  ) async {
+    try {
+      return CompanionEditResult.served(_companionTurn(await call()));
+    } on ApiException catch (error) {
+      if (error.statusCode == 404) return const CompanionEditResult.gone();
+      if (error.statusCode == 409) {
+        final Object? detail = error.body?['error'];
+        final Object? mode = detail is Map ? detail['mode'] : null;
+        if (mode == 'interview') return const CompanionEditResult.interview();
+        return const CompanionEditResult.gone();
+      }
+      throw mapError(error);
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
   /// A companion reply as a [ChatTurn]. The SAME field mapping [sendMessage] uses
   /// (the companion speaks the chat reply's own shape), plus the companion flag.
   /// `sessionEnded` is deliberately NOT honoured: a companion turn belongs to no
   /// session, so it must never clear the cached interview id.
+  ///
+  /// EVERY v2 FIELD IS CARRIED (ADR-0046 §5.1). This mapper is the ONLY
+  /// `ChatReply` → `ChatTurn` hop on the companion path — open, message, confirm
+  /// and cancel all land here — so a field parsed into [ChatReply] and not
+  /// copied out HERE is invisible to the bloc and to every widget, however
+  /// complete the rest of the feature is. `edit_proposal` was exactly that: the
+  /// card, its ticker, the confirm/cancel routes and their tests all existed and
+  /// none of them could ever run, because `ChatTurn.editProposal` was null on
+  /// every real and mock response. The tests hand-built a `ChatTurn` that
+  /// already carried the proposal, so the suite stayed green over dead wiring —
+  /// which is why `chat_companion_repository_test.dart` now drives this hop from
+  /// a raw JSON body instead.
   ChatTurn _companionTurn(ChatReply reply, {String? digestKey}) => ChatTurn(
         reply: reply.reply,
         followups: reply.suggestedFollowups,
@@ -368,12 +452,16 @@ class ChatRepositoryImpl implements ChatRepository {
         progress: reply.progress,
         questionKind: reply.questionKind,
         inputMode: reply.inputMode,
+        answerType: reply.answerType,
         occupationLabel: reply.occupationLabel,
         ttsText: reply.ttsText,
         askedQuestionId: reply.askedQuestionId,
         lookahead: reply.lookahead,
         formOffer: reply.formOffer,
         resumeUpdate: reply.resumeUpdate,
+        editProposal: reply.editProposal,
+        cooldownUntil: reply.cooldownUntil,
+        readAloud: reply.readAloud,
         companion: true,
         digestKey: digestKey,
       );

@@ -9,6 +9,15 @@
    ============================================================ */
 
 /* ============================================================
+   FOCUS IN FORCED COLORS — every ring in this layer is a box-shadow (--ring-focus), and
+   Windows forced-colors mode DROPS box-shadows, so a keyboard user in High Contrast lost the
+   focus indicator on every DS control. Each ring therefore also declares a TRANSPARENT
+   outline: invisible in normal mode (the look is unchanged), repainted in the system colour
+   under forced colors. It is offset one ring-width so it sits where the ring's outer band
+   does, clear of the control's own (also system-coloured) border.
+   ============================================================ */
+
+/* ============================================================
    FORMS — Buttons, inputs, selects, choices, switch, OTP.
    ============================================================ */
 
@@ -18,7 +27,7 @@
   gap: var(--space-2);
   height: var(--control-md); min-height: var(--control-md);
   padding: 0 var(--space-5);
-  font-family: var(--font-display); /* Anek — the kit's button voice (Roboto never on a button) */
+  font-family: var(--font-sans); /* Inter — the brand kit's UI face; Kilimanjaro Sans is for headings only */
   font-size: var(--text-base); font-weight: var(--weight-bold);
   line-height: 1; letter-spacing: 0;
   border: var(--border-medium) solid transparent;
@@ -27,11 +36,30 @@
   transition: var(--transition-control);
   text-decoration: none;
 }
-.bb-btn:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+.bb-btn:focus-visible { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); }
 .bb-btn:disabled, .bb-btn[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
-.bb-btn .ph, .bb-btn .ph-fill, .bb-btn .ph-bold { font-size: 1.25em; }
+.bb-btn .ph-fill { font-size: 1.25em; }
 
 .bb-btn--sm { height: var(--control-sm); min-height: var(--control-sm); padding: 0 var(--space-3); font-size: var(--text-sm); border-radius: var(--radius-sm); }
+/* PHONE HIT AREAS (≤600px). The dense 36px `sm` button (page-head actions, "Manage all",
+   Needs-you actions) and the 38px Chip are finger targets. Their HIT AREA — not their drawn
+   size — grows to the md control height (44px), so no phone layout measured around them moves
+   and desktop is untouched. The pseudo is a full-width strip centred on the control: the block
+   inset is negative (it reaches past a short control), the inline inset is 0 on a control
+   wider than 44px and negative only on a narrower one (min(), so it never shrinks). Neighbours
+   in a row sit ≥ --space-2 apart, so two 3–4px extensions never meet.
+   It sits BEHIND the control's own content (z-index below base, inside the host's isolated
+   stacking context): a removable Chip's ✕ is an inner target, and a pseudo painted over it
+   would turn every tap on the ✕ into a tap on the chip. Disabled controls keep
+   `pointer-events: none`, which the pseudo inherits. */
+@media (max-width: 600px) {
+  .bb-btn--sm, .bb-chip { position: relative; isolation: isolate; }
+  .bb-btn--sm::before, .bb-chip::before {
+    content: ""; position: absolute; z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0px, calc((100% - var(--control-md)) / 2));
+  }
+}
 .bb-btn--lg { height: var(--control-lg); min-height: var(--control-lg); padding: 0 var(--space-6); font-size: var(--text-md); }
 .bb-btn--block { display: flex; width: 100%; }
 
@@ -46,7 +74,7 @@
 .bb-btn--secondary:active { transform: scale(0.97); background: var(--surface-inset); }
 
 /* tonal — soft marigold */
-.bb-btn--tonal { background: var(--brand-tint-2); color: var(--brand-press); }
+.bb-btn--tonal { background: var(--brand-tint-2); color: var(--text-accent); }
 .bb-btn--tonal:hover { background: var(--marigold-200); }
 .bb-btn--tonal:active { transform: scale(0.97); }
 
@@ -77,7 +105,7 @@
 }
 .bb-iconbtn:hover { background: var(--surface-sunken); color: var(--text-primary); }
 .bb-iconbtn:active { transform: scale(0.92); }
-.bb-iconbtn:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+.bb-iconbtn:focus-visible { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); }
 .bb-iconbtn--sm { width: var(--control-sm); height: var(--control-sm); font-size: var(--text-md); }
 .bb-iconbtn--lg { width: var(--control-lg); height: var(--control-lg); font-size: var(--text-xl); }
 .bb-iconbtn--solid { background: var(--brand); color: var(--text-on-brand); box-shadow: var(--shadow-brand); }
@@ -103,7 +131,7 @@
 }
 .bb-input::placeholder { color: var(--text-faint); }
 .bb-input:hover { border-color: var(--ink-400); }
-.bb-input:focus { outline: none; border-color: var(--brand); box-shadow: var(--ring-focus); }
+.bb-input:focus { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); border-color: var(--brand); box-shadow: var(--ring-focus); }
 .bb-input:disabled { background: var(--surface-sunken); color: var(--text-muted); cursor: not-allowed; }
 .bb-input--has-left { padding-left: var(--space-9); }
 .bb-input--has-right { padding-right: var(--space-9); }
@@ -133,13 +161,12 @@
 }
 .bb-choice--checkbox .bb-choice__box { border-radius: var(--radius-xs); }
 .bb-choice--radio .bb-choice__box { border-radius: var(--radius-round); }
-.bb-choice__box .ph, .bb-choice__box .ph-bold { opacity: 0; transform: scale(0.5); transition: var(--transition-control); }
+.bb-choice__box .ph-fill { opacity: 0; transform: scale(0.5); transition: var(--transition-control); }
 .bb-choice__dot { width: 10px; height: 10px; border-radius: var(--radius-round); background: var(--surface-card); opacity: 0; transform: scale(0.4); transition: var(--transition-control); }
 .bb-choice input:checked + .bb-choice__box { background: var(--brand); border-color: var(--brand); }
-.bb-choice input:checked + .bb-choice__box .ph,
-.bb-choice input:checked + .bb-choice__box .ph-bold { opacity: 1; transform: scale(1); }
+.bb-choice input:checked + .bb-choice__box .ph-fill { opacity: 1; transform: scale(1); }
 .bb-choice input:checked + .bb-choice__box .bb-choice__dot { opacity: 1; transform: scale(1); }
-.bb-choice input:focus-visible + .bb-choice__box { box-shadow: var(--ring-focus); }
+.bb-choice input:focus-visible + .bb-choice__box { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); }
 .bb-choice:hover .bb-choice__box { border-color: var(--ink-400); }
 .bb-choice input:checked:hover + .bb-choice__box { border-color: var(--brand-press); }
 
@@ -153,7 +180,7 @@
 .bb-switch__thumb { width: var(--space-6); height: var(--space-6); border-radius: var(--radius-round); background: var(--surface-card); box-shadow: var(--shadow-sm); transition: transform var(--duration-base) var(--ease-out); }
 .bb-switch input:checked + .bb-switch__track { background: var(--success); }
 .bb-switch input:checked + .bb-switch__track .bb-switch__thumb { transform: translateX(22px); }
-.bb-switch input:focus-visible + .bb-switch__track { box-shadow: var(--ring-focus); }
+.bb-switch input:focus-visible + .bb-switch__track { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); }
 
 /* ---------- OTP input (brand) ---------- */
 /* The row WRAPS (and can scroll as a last-resort) so a 6-cell code never overflows a narrow
@@ -166,7 +193,7 @@
   border: var(--border-bold) solid var(--border-strong); border-radius: var(--radius-md);
   transition: var(--transition-control);
 }
-.bb-otp__cell:focus { outline: none; border-color: var(--brand); box-shadow: var(--ring-focus); }
+.bb-otp__cell:focus { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); border-color: var(--brand); box-shadow: var(--ring-focus); }
 .bb-otp__cell--filled { border-color: var(--brand); background: var(--brand-tint); }
 /* Narrow phones: shrink the cells so all six fit one line before wrapping is needed. */
 @media (max-width: 420px) {
@@ -182,7 +209,7 @@
   background: var(--surface-card);
   border: var(--border-hairline) solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-xs);
   padding: var(--space-5);
 }
 .bb-card--raised { box-shadow: var(--shadow-md); }
@@ -192,7 +219,7 @@
 .bb-card--ink .bb-card__muted { color: var(--ink-300); }
 .bb-card--interactive { cursor: pointer; transition: var(--transition-control); }
 .bb-card--interactive:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); border-color: var(--border-default); }
-.bb-card--interactive:active { transform: translateY(0); box-shadow: var(--shadow-sm); }
+.bb-card--interactive:active { transform: translateY(0); box-shadow: var(--shadow-xs); }
 .bb-card--pad-sm { padding: var(--space-3); }
 .bb-card--pad-lg { padding: var(--space-7); }
 .bb-card--pad-none { padding: 0; }
@@ -200,13 +227,20 @@
 /* CARDS-1 — whole-card link (stretched-link a11y). A card with `href` becomes ONE
    accessible link: the card root is the positioning context and a single overlay anchor
    (.bb-stretched-link) covers it. Hover lifts the surface + deepens the shadow; :active
-   presses; the focus ring is driven by :focus-within (the overlay anchor is the focus
-   target). Tokens only; transitions collapse to 0ms under prefers-reduced-motion (the
-   --transition-control durations flip to 0 in tokens.css). */
+   presses. The card draws the focus ring for its overlay anchor (the focus target) — but only
+   for KEYBOARD focus: a link takes focus on mousedown, so a :focus-within ring also lit up on
+   every mouse click. `:has(> .bb-stretched-link:focus-visible)` keys it to the anchor's own
+   :focus-visible (an inner button above the overlay shows its own ring, not the card's);
+   :focus-within survives only as the fallback where :has() is unsupported. Tokens only;
+   transitions collapse to 0ms under prefers-reduced-motion (the --transition-control
+   durations flip to 0 in tokens.css). */
 .bb-card--link { position: relative; cursor: pointer; transition: var(--transition-control); }
 .bb-card--link:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); border-color: var(--border-default); }
 .bb-card--link:active { transform: translateY(0); box-shadow: var(--shadow-md); }
-.bb-card--link:focus-within { box-shadow: var(--ring-focus); border-color: var(--brand); }
+.bb-card--link:has(> .bb-stretched-link:focus-visible) { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); border-color: var(--brand); }
+@supports not selector(:has(*)) {
+  .bb-card--link:focus-within { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); border-color: var(--brand); }
+}
 
 /* ---------- Badge ---------- */
 .bb-badge {
@@ -218,11 +252,11 @@
      is bounded by its container width rather than pushing the row wider than the screen. */
   letter-spacing: 0.01em; white-space: nowrap; max-width: 100%;
 }
-.bb-badge .ph, .bb-badge .ph-fill { font-size: 1.15em; }
+.bb-badge .ph-fill { font-size: 1.15em; }
 .bb-badge--upper { text-transform: uppercase; letter-spacing: 0.08em; }
 /* soft (default) */
 .bb-badge--neutral { background: var(--ink-100); color: var(--ink-700); }
-.bb-badge--brand   { background: var(--brand-tint-2); color: var(--brand-press); }
+.bb-badge--brand   { background: var(--brand-tint-2); color: var(--text-accent); }
 .bb-badge--success { background: var(--success-tint); color: var(--green-700); }
 .bb-badge--danger  { background: var(--danger-tint); color: var(--red-700); }
 .bb-badge--warning { background: var(--warning-tint); color: var(--amber-800); } /* #1103: amber, ~6.4:1 on the amber tint (was saffron/haldi) */
@@ -257,8 +291,13 @@
 [data-theme="ink"] .bb-badge--info    { color: var(--teal-100); }
 [data-theme="ink"] .bb-badge--outline.bb-badge--success { color: var(--green-300); }
 [data-theme="ink"] .bb-badge--outline.bb-badge--neutral { color: var(--ink-300); }
-/* The SOLID badges keep white-on-saturated text (unchanged): those backgrounds are the
-   same vivid brand/success/danger tones in both themes, so contrast is theme-independent. */
+/* The SOLID badges must keep their own label colour in the ink theme: their fills are the same
+   saturated tones in both themes. The tone overrides above share the solid rules' specificity
+   (0,2,0) and come later, so they repainted the solid labels too — success/danger/neutral/info
+   are restored by the JUL31 rule below, but brand and warning were left as light yellow/amber
+   text on a yellow/amber fill (the "Contacted" pill measured 1.35:1). Restore them here. */
+[data-theme="ink"] .bb-badge--solid.bb-badge--brand   { color: var(--text-on-brand); }
+[data-theme="ink"] .bb-badge--solid.bb-badge--warning { color: var(--text-inverse); }
 
 /* ---------- Chip ---------- */
 .bb-chip {
@@ -271,19 +310,19 @@
 }
 .bb-chip:hover { border-color: var(--ink-400); background: var(--surface-sunken); }
 .bb-chip:active { transform: scale(0.97); }
-.bb-chip:focus-visible { outline: none; box-shadow: var(--ring-focus); }
-.bb-chip--selected { background: var(--brand-tint); border-color: var(--brand); color: var(--brand-press); }
+.bb-chip:focus-visible { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); }
+.bb-chip--selected { background: var(--brand-tint); border-color: var(--text-accent); color: var(--text-accent); font-weight: var(--weight-bold); }
 .bb-chip--selected:hover { background: var(--brand-tint-2); border-color: var(--brand); }
 .bb-chip__remove { display: inline-flex; margin-right: -4px; opacity: 0.55; font-size: var(--text-sm); }
 .bb-chip__remove:hover { opacity: 1; }
-.bb-chip .ph { font-size: 1.05em; }
+.bb-chip .ph-fill { font-size: 1.05em; }
 
 /* ---------- Avatar ---------- */
 .bb-avatar {
   position: relative; display: inline-flex; align-items: center; justify-content: center;
   border-radius: var(--radius-round); flex: none;
   background: var(--ink-200);
-  color: var(--ink-600); font-family: var(--font-display); font-weight: var(--weight-bold);
+  color: var(--ink-600); font-family: var(--font-sans); font-weight: var(--weight-bold);
 }
 .bb-avatar__img { width: 100%; height: 100%; border-radius: var(--radius-round); object-fit: cover; display: block; }
 .bb-avatar__initials { width: 100%; height: 100%; border-radius: var(--radius-round); display: flex; align-items: center; justify-content: center; }
@@ -300,7 +339,7 @@
 }
 .bb-stat__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .bb-stat__label { font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text-muted); }
-.bb-stat__icon { width: 36px; height: 36px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: var(--text-lg); background: var(--brand-tint); color: var(--brand-press); flex: none; }
+.bb-stat__icon { width: 36px; height: 36px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: var(--text-lg); background: var(--brand-tint); color: var(--text-accent); flex: none; }
 .bb-stat__value { font-family: var(--font-mono); font-weight: var(--weight-bold); font-size: var(--text-3xl); color: var(--text-primary); letter-spacing: -0.02em; margin-top: var(--space-3); font-variant-numeric: tabular-nums; line-height: 1; }
 /* Neutral supporting caption under the value — NOT a trend (no arrow, no up/down colour). */
 .bb-stat__caption { color: var(--text-muted); font-size: var(--text-sm); margin-top: var(--space-2); }
@@ -309,26 +348,45 @@
 .bb-stat__delta--down { color: var(--danger); }
 .bb-stat__delta--flat { color: var(--text-muted); }
 
-/* CARDS-1 — whole-tile link (stretched-link a11y), mirrors .bb-card--link. */
+/* CARDS-1 — whole-tile link (stretched-link a11y), mirrors .bb-card--link (keyboard-only ring
+   via :has(:focus-visible); :focus-within only where :has() is unsupported). */
 .bb-stat--link { position: relative; cursor: pointer; transition: var(--transition-control); }
 .bb-stat--link:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); border-color: var(--border-default); }
 .bb-stat--link:active { transform: translateY(0); box-shadow: var(--shadow-xs); }
-.bb-stat--link:focus-within { box-shadow: var(--ring-focus); border-color: var(--brand); }
+.bb-stat--link:has(> .bb-stretched-link:focus-visible) { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); border-color: var(--brand); }
+@supports not selector(:has(*)) {
+  .bb-stat--link:focus-within { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); border-color: var(--brand); }
+}
 
 /* CARDS-1 — the single stretched-link overlay anchor. It is the ONE semantic link for the
-   whole card/tile: zero-size in flow, its ::after spans the whole positioned parent so the
-   entire surface is the hit target (still ONE <a>, not a div-with-onclick). The :focus ring
-   is rendered by the PARENT via :focus-within (above), so the overlay itself shows none. Any
-   other interactive child must carry position:relative; z-index:1 to stay clickable above it. */
+   whole card/tile and itself spans the positioned parent, so the entire surface is the hit
+   target (still ONE <a>, not a div-with-onclick). Out of flow, so it never becomes a grid or
+   flex item of the card. The focus ring is rendered by the PARENT (above);
+   `box-shadow: none` stops the global :focus-visible ring painting a second ring over the card.
+
+   It sits one step above the card's own layer (z-index: base + 1) so a positioned or
+   transformed descendant (the posting row's animated arrow, MaskedCandidate's avatar + seal)
+   cannot catch the click. A GENUINE interactive child must still carry position:relative and a
+   HIGHER z-index (2+) to stay clickable above it.
+
+   It was a 1px absolute box whose ::after carried `inset: 0` — but an absolutely positioned
+   anchor is its OWN ::after's containing block, so the "overlay" was 1x1px and a click on the
+   card body hit the text, not the link (mouse/touch dead; only keyboard worked). */
 .bb-stretched-link {
-  position: absolute; width: 1px; height: 1px;
-  font-size: 0; line-height: 0; color: transparent;
-  outline: none;
-}
-.bb-stretched-link::after {
-  content: ""; position: absolute; inset: 0; z-index: var(--z-base);
+  position: absolute;
+  inset: 0;
+  z-index: calc(var(--z-base) + 1);
   border-radius: inherit;
+  font-size: 0;
+  line-height: 0;
+  color: transparent;
+  outline: none;
+  box-shadow: none;
 }
+/* …including its forced-colors outline: the global :focus-visible (globals.css) gives every
+   focused element a transparent outline, and at equal specificity it comes later than the rule
+   above. The card/tile draws that outline instead, so the overlay never paints a second one. */
+.bb-stretched-link:focus-visible { outline: none; box-shadow: none; }
 
 /* ============================================================
    FEEDBACK — Dialog, Toast, Tooltip, ProgressBar.
@@ -355,7 +413,7 @@
   animation: bb-slideup var(--duration-base) var(--ease-out);
 }
 .bb-dialog__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding: var(--space-6) var(--space-6) 0; }
-.bb-dialog__title { font-family: var(--font-display); font-weight: var(--weight-bold); font-size: var(--text-xl); color: var(--text-primary); }
+.bb-dialog__title { font-family: var(--font-display); font-weight: var(--weight-bold); font-size: var(--text-xl); color: var(--text-heading); }
 .bb-dialog__body { padding: var(--space-3) var(--space-6) 0; color: var(--text-secondary); font-size: var(--text-base); line-height: var(--leading-normal); }
 .bb-dialog__foot { display: flex; gap: var(--space-3); justify-content: flex-end; padding: var(--space-6); }
 .bb-dialog__foot--stack { flex-direction: column-reverse; }
@@ -425,15 +483,15 @@
   padding: 12px 14px; border-radius: var(--radius-md);
   transition: var(--transition-control); white-space: nowrap;
 }
-.bb-tab .ph, .bb-tab .ph-fill { font-size: 1.15em; }
+.bb-tab .ph-fill { font-size: 1.15em; }
 .bb-tab:hover { color: var(--text-primary); background: var(--surface-sunken); }
-.bb-tab:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+.bb-tab:focus-visible { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); }
 
 /* underline variant */
 .bb-tabs--underline { gap: var(--space-2); border-bottom: var(--border-hairline) solid var(--border-default); }
 .bb-tabs--underline .bb-tab { border-radius: 0; padding: 12px 6px; margin-bottom: -1px; border-bottom: 2.5px solid transparent; }
 .bb-tabs--underline .bb-tab:hover { background: none; }
-.bb-tabs--underline .bb-tab--active { color: var(--text-primary); border-bottom-color: var(--brand); }
+.bb-tabs--underline .bb-tab--active { color: var(--text-primary); font-weight: var(--weight-bold); border-bottom-color: var(--text-accent); }
 
 /* segmented variant */
 .bb-tabs--segmented { display: inline-flex; background: var(--surface-sunken); padding: 4px; border-radius: var(--radius-md); gap: 2px; }
@@ -455,9 +513,9 @@
   min-height: var(--tap); transition: color var(--duration-fast) var(--ease-out);
   position: relative;
 }
-.bb-bottomnav__item .ph, .bb-bottomnav__item .ph-fill { font-size: var(--text-xl); }
+.bb-bottomnav__item .ph-fill { font-size: var(--text-xl); }
 .bb-bottomnav__item:active { transform: scale(0.94); }
-.bb-bottomnav__item--active { color: var(--brand-press); }
+.bb-bottomnav__item--active { color: var(--text-accent); }
 .bb-bottomnav__badge {
   position: absolute; top: 2px; left: 50%; margin-left: 6px;
   background: var(--danger); color: var(--text-on-brand); font-size: var(--text-2xs); font-weight: var(--weight-bold);
@@ -469,20 +527,8 @@
    BRAND — BadaBhaiLogo, ChatBubble, JobCard, MaskedCandidate.
    ============================================================ */
 
-/* ---------- Logo ---------- */
-.bb-logo { display: inline-flex; align-items: center; gap: 0.34em; }
-.bb-logo__mark { display: block; border-radius: 22%; box-shadow: var(--shadow-sm); }
-.bb-logo__word { font-family: var(--font-display); font-weight: var(--weight-extrabold); letter-spacing: -0.02em; line-height: 1; }
-.bb-logo__a { color: var(--ink-900); }
-.bb-logo__b { color: var(--marigold-600); }
-.bb-logo--ink .bb-logo__a { color: var(--paper-0); }
-.bb-logo--ink .bb-logo__b { color: var(--marigold-400); }
-/* Page dark-theme parity (THEME-1): when the whole portal flips to ink, the wordmark must
-   flip too — `.bb-logo__a`'s default ink-900 would vanish on the dark surface. Mirrors the
-   `.bb-logo--ink` prop variant, but keyed on the PAGE theme so the runtime toggle re-themes
-   the lockup. */
-[data-theme="ink"] .bb-logo__a { color: var(--paper-0); }
-[data-theme="ink"] .bb-logo__b { color: var(--marigold-400); }
+/* The lockup (.bb-lockup / __tile / __mark / __text / __wordmark / __sub, and the --on-ink
+   variant) lives entirely in the shared token package; the rail and login only size it. */
 
 /* ---------- ChatBubble (chat-first product) ---------- */
 .bb-chat { display: flex; gap: 8px; align-items: flex-end; max-width: 88%; }
@@ -511,46 +557,82 @@
 .bb-chat__wave i { width: 3px; border-radius: 2px; background: currentColor; opacity: 0.5; display: block; }
 .bb-chat__dur { font-family: var(--font-mono); font-size: var(--text-xs); opacity: 0.8; }
 
-/* ---------- JobCard (swipe-to-apply) ---------- */
-.bb-jobcard {
+/* ---------- JobCardPreview (PR-B — the posting↔card lineage) ----------
+   The payer-facing preview built LIVE from what the posting form collected. Token-only, brand:
+   Ivory card on a Shift-Blue accented salary box, Safety-Yellow pay-type pill. Responsive down to
+   375px; a subtle entrance that collapses under prefers-reduced-motion. The DS swipe JobCard was
+   removed with PR-B — this is the only job card in payer-web. */
+.jcp { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; }
+.jcp__card {
   background: var(--surface-card); border: var(--border-hairline) solid var(--border-subtle);
   border-radius: var(--radius-xl); box-shadow: var(--shadow-md);
-  padding: 20px; display: flex; flex-direction: column; gap: 14px;
+  padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4);
+  animation: jcp-rise 180ms ease-out both;
 }
-.bb-jobcard__top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-.bb-jobcard__title { font-family: var(--font-display); font-weight: var(--weight-bold); font-size: var(--text-2xl); line-height: 1.1; color: var(--text-primary); }
-.bb-jobcard__company { display: flex; align-items: center; gap: 6px; font-size: var(--text-base); color: var(--text-secondary); font-weight: var(--weight-semibold); margin-top: 5px; }
-.bb-jobcard__logo { width: 50px; height: 50px; border-radius: var(--radius-md); background: var(--surface-sunken); display: flex; align-items: center; justify-content: center; color: var(--ink-500); font-size: var(--text-xl); flex: none; overflow: hidden; }
-.bb-jobcard__logo img { width: 100%; height: 100%; object-fit: cover; }
-.bb-jobcard__facts { display: flex; flex-wrap: wrap; gap: 9px 18px; }
-.bb-jobcard__fact { display: flex; align-items: center; gap: 6px; font-size: var(--text-base); color: var(--text-secondary); }
-.bb-jobcard__fact .ph { color: var(--text-faint); font-size: var(--text-md); }
-.bb-jobcard__salary { font-family: var(--font-mono); font-weight: var(--weight-bold); color: var(--text-primary); }
-.bb-jobcard__tags { display: flex; flex-wrap: wrap; gap: 7px; }
-.bb-jobcard__quota { display: flex; align-items: center; gap: 6px; font-size: var(--text-sm); color: var(--text-muted); }
-.bb-jobcard__quota b { color: var(--brand-press); }
-.bb-jobcard__foot { display: flex; gap: 12px; align-items: center; margin-top: 2px; }
-.bb-jobcard__skipbtn {
-  width: 56px; height: 56px; border-radius: var(--radius-round); flex: none;
-  border: var(--border-bold) solid var(--border-strong); background: var(--surface-card);
-  color: var(--text-muted); display: flex; align-items: center; justify-content: center;
-  font-size: var(--text-xl); cursor: pointer; transition: var(--transition-control);
+.jcp__head { display: flex; flex-direction: column; gap: var(--space-2); }
+.jcp__title {
+  font-family: var(--font-display); font-weight: var(--weight-bold);
+  font-size: var(--text-2xl); line-height: 1.1; color: var(--text-heading); margin: 0;
 }
-.bb-jobcard__skipbtn:hover { border-color: var(--danger); color: var(--danger); }
-.bb-jobcard__skipbtn:active { transform: scale(0.92); }
+.jcp__title--empty { color: var(--text-faint); }
+.jcp__role {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text-accent);
+}
+.jcp__place {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-size: var(--text-base); color: var(--text-secondary);
+}
+.jcp__role .ph-fill, .jcp__place .ph-fill { color: var(--text-faint); font-size: var(--text-md); }
+.jcp__salary {
+  background: var(--brand-tint); border: var(--border-hairline) solid var(--brand-border);
+  border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4);
+  display: flex; flex-direction: column; gap: var(--space-2);
+}
+.jcp__salary-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.jcp__salary-label {
+  font-family: var(--font-sans); font-weight: var(--weight-bold);
+  font-size: var(--text-xs); letter-spacing: 0.06em; color: var(--text-brand);
+}
+.jcp__paytype {
+  background: var(--brand); color: var(--text-on-brand);
+  border-radius: var(--radius-pill); padding: 0 var(--space-2);
+  font-size: var(--text-2xs); font-weight: var(--weight-bold); letter-spacing: 0.04em;
+}
+.jcp__salary-band {
+  font-family: var(--font-mono); font-weight: var(--weight-bold);
+  font-size: var(--text-xl); color: var(--text-brand);
+}
+.jcp__duty { display: flex; flex-direction: column; gap: var(--space-2); }
+.jcp__duty-label { font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text-secondary); }
+.jcp__chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.jcp__chip {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  background: var(--surface-sunken); border-radius: var(--radius-pill);
+  padding: var(--space-2) var(--space-3); font-size: var(--text-sm); color: var(--text-secondary);
+}
+.jcp__chip .ph-fill { color: var(--text-faint); font-size: var(--text-sm); }
+.jcp__caption { font-size: var(--text-xs); color: var(--text-muted); text-align: center; margin: 0; }
+@keyframes jcp-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jcp__card { animation: none; }
+}
 
 /* ---------- MaskedCandidate (payer demand loop) ---------- */
 .bb-candidate {
   display: flex; gap: 14px; align-items: center;
   background: var(--surface-card); border: var(--border-hairline) solid var(--border-subtle);
-  border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: 16px;
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-xs); padding: 16px;
 }
 .bb-candidate__body { flex: 1; min-width: 0; }
 .bb-candidate__name { font-family: var(--font-sans); font-weight: var(--weight-bold); font-size: var(--text-md); color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
 .bb-candidate--masked .bb-candidate__name-text { filter: blur(5px); user-select: none; }
 .bb-candidate__meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--text-sm); color: var(--text-muted); margin-top: 5px; }
 .bb-candidate__meta span { display: inline-flex; align-items: center; gap: 4px; }
-.bb-candidate__meta .ph { font-size: var(--text-sm); color: var(--text-faint); }
+.bb-candidate__meta .ph-fill { font-size: var(--text-sm); color: var(--text-faint); }
 .bb-candidate__action { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
 .bb-candidate__unlocked { display: inline-flex; align-items: center; gap: 5px; font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--success); }
 

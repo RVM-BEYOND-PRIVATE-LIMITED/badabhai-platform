@@ -41,7 +41,7 @@ tests, and docs.
   user has denied permission.
 - Design for the actual user: ≥48px targets, minimal text, voice-first affordances, Hinglish
   "bada bhai" voice, regional-language readiness, and a flow that survives interruption.
-- Build to the Design System (`docs/design/`) — derive Flutter `ThemeData` from the tokens
+- Build to the brand kit (`docs/design/BB - Brand Kit/`, CLAUDE.md UI/UX block) — derive Flutter `ThemeData` from the tokens
   rather than hard-coding values. Frontend Product maintains those tokens; you consume them
   and are consulted before they change.
 - Own **on-device data hygiene**: no PII in logs, no secrets in the bundle, nothing sensitive

@@ -1,7 +1,9 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, eq, gte, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import {
   type Database,
+  agencyInvites,
+  invites,
   referralClicks,
   referralLinks,
   type NewReferralClick,
@@ -21,6 +23,60 @@ export interface ClaimedClick {
 }
 
 /**
+ * The PREDICATE of `referral_links_resume_qr_owner_uq` (migration 0129), spelled once. An
+ * `ON CONFLICT (owner_worker_id) WHERE …` infers a PARTIAL unique index only when it repeats the
+ * index's predicate, so the insert below must carry exactly this.
+ */
+const RESUME_QR_OWNER_INDEX_PREDICATE = sql`${referralLinks.kind} = 'resume_qr' AND ${referralLinks.ownerWorkerId} IS NOT NULL`;
+
+/**
+ * #1800 — the get-or-create INSERT of a worker's résumé-QR link, as a statement so its conflict
+ * target is testable on the compiled SQL without a database (the `settleParsedStatement`
+ * precedent). `DO NOTHING` on the per-owner partial unique index: a concurrent render that already
+ * minted this worker's link wins, and this insert returns no row. A CODE collision is NOT this
+ * conflict target and raises `23505` on `referral_links_code_uq`, which the service retries.
+ */
+export function insertResumeQrLinkStatement(
+  db: Database,
+  input: { code: string; ownerWorkerId: string },
+) {
+  return db
+    .insert(referralLinks)
+    .values({
+      code: input.code,
+      kind: "resume_qr",
+      medium: "organic",
+      agentPayerId: null,
+      ownerWorkerId: input.ownerWorkerId,
+      campaignId: null,
+      payload: {},
+      expiresAt: null,
+    })
+    .onConflictDoNothing({
+      target: referralLinks.ownerWorkerId,
+      where: RESUME_QR_OWNER_INDEX_PREDICATE,
+    })
+    .returning();
+}
+
+/**
+ * #1800 — "is this code already live in ANY of the three code spaces?" as one statement.
+ *
+ * WHY ALL THREE. `GET /r/:code` resolves `referral_links` first and the attribution hook then
+ * falls through to `invites` and `agency_invites`, so the three share ONE namespace in practice
+ * even though each only has its own unique index. A `resume_qr` code equal to a live invite code
+ * would make one scan look like both — and could put an inviter in line to be paid for a résumé
+ * scan. Each lookup is a unique-index probe on `code`.
+ */
+export function codeTakenStatement(code: string): SQL {
+  return sql`select (
+    exists (select 1 from ${referralLinks} where ${referralLinks.code} = ${code})
+    or exists (select 1 from ${invites} where ${invites.code} = ${code})
+    or exists (select 1 from ${agencyInvites} where ${agencyInvites.code} = ${code})
+  ) as "taken"`;
+}
+
+/**
  * Data access for `referral_links` + `referral_clicks` (B4). PII-FREE: opaque ids, an
  * opaque bearer code, and a keyed HMAC click hash. The RAW ip / user-agent never reach
  * this layer — the service hashes them before calling in.
@@ -33,6 +89,46 @@ export class ReferralLinkRepository {
     const [row] = await this.db.insert(referralLinks).values(input).returning();
     if (!row) throw new Error("failed to create referral link");
     return row;
+  }
+
+  /** #1800 — the worker's LIVE résumé-QR link, if one was ever minted. At most one exists. */
+  async findResumeQrLink(ownerWorkerId: string): Promise<ReferralLink | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(referralLinks)
+      .where(and(eq(referralLinks.kind, "resume_qr"), eq(referralLinks.ownerWorkerId, ownerWorkerId)))
+      .limit(1);
+    return row;
+  }
+
+  /**
+   * Run `cb` inside one Drizzle transaction (the `ResumeSkinRepository` / must-fix H3 seam). The
+   * `tx` handed to `cb` is a `Database`-shaped executor that {@link insertResumeQrLink} and
+   * `EventsService.emit` both accept, so a minted link and its `referral.link_created` commit or
+   * roll back together — a live bearer code is never left without its audit event.
+   */
+  withTransaction<T>(cb: (tx: Database) => Promise<T>): Promise<T> {
+    return this.db.transaction(cb as (tx: unknown) => Promise<T>);
+  }
+
+  /**
+   * #1800 — insert the worker's résumé-QR link unless they already have one. Returns the new row,
+   * or `undefined` when the per-owner partial unique index said one already exists (the caller
+   * re-selects). THROWS on a code collision (`23505` on `referral_links_code_uq`), and before
+   * migration 0129 on the kind CHECK (`23514`) or the missing conflict index (`42P10`).
+   */
+  async insertResumeQrLink(
+    input: { code: string; ownerWorkerId: string },
+    tx: Database = this.db,
+  ): Promise<ReferralLink | undefined> {
+    const [row] = await insertResumeQrLinkStatement(tx, input);
+    return row;
+  }
+
+  /** #1800 — whether `code` is already live in referral_links, invites or agency_invites. */
+  async isCodeTaken(code: string): Promise<boolean> {
+    const rows = await this.db.execute<{ taken: boolean }>(codeTakenStatement(code));
+    return rows[0]?.taken === true;
   }
 
   async findLinkByCode(code: string): Promise<ReferralLink | undefined> {

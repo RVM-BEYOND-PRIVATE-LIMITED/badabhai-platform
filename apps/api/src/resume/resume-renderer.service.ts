@@ -5,6 +5,8 @@ import { PdfRenderer } from "../common/pdf/pdf-renderer.service";
 import type { DegradationStep } from "./resume-degradation";
 import type { TranscriptVeto } from "./resume-transcript-veto";
 import { RESUME_FONT_CONTRACT } from "./resume-fonts";
+import type { ResumeSkin } from "@badabhai/types";
+import { applyResumeSkin, templateTakesSkin } from "./resume-skins";
 import { getResumeTemplate } from "./templates/registry";
 
 /**
@@ -62,6 +64,13 @@ export interface ResumeExperienceLine {
 export interface ResumeRenderInput {
   /** Which layout (templates/registry.ts). Unknown/empty → the generic fallback. */
   templateId: string | null;
+  /**
+   * #1801 — the colour skin to print a `bb_trade` sheet in (`resume-skins.ts`). ABSENT OR NULL IS
+   * THE TEMPLATE EXACTLY AS SHIPPED, which is what every caller but the worker-copy render worker
+   * passes, and what that worker passes while `RESUME_SKINS_ENABLED` is off. Ignored by every
+   * other layout. Never a template id, never a colour: the closed `RESUME_SKINS` vocabulary.
+   */
+  skin?: ResumeSkin | null;
   /** The worker's real full name, or null → render a name-less resume. */
   displayName: string | null;
   /** Role title → `{{headline}}` (e.g. "VMC Operator"). */
@@ -290,6 +299,30 @@ export interface ResumeRenderInput {
   /** `{{subhead_line}}` — city · availability · salary, composed by the mapper. */
   subheadLine?: string | null;
   /**
+   * `{{profile_brief}}` — the general road's one line of prose under the headline (ADR-0045 R6):
+   * the worker's own words, or the fixed fallback line (`resume-brief.ts`). On BOTH audiences.
+   *
+   * A SCALAR SLOT, NEVER A REGION, and that is a security property rather than a style: the
+   * renderer HTML-escapes but does not brace-escape, and a value a region inserts is scanned again
+   * by the later fill steps — so a brief carrying `{{phone}}` would expand inside a region. A
+   * scalar is filled in the last single pass and is never re-scanned.
+   *
+   * ABSENT (undefined) ON EVERY SHEET OFF THE ROAD — not null — so every other render input is
+   * byte-identical to what it was, down to its JSON. Only `bb_general.v1` carries the slot; on the
+   * road with no line to print it is null and the element collapses.
+   */
+  profileBrief?: string | null;
+  /**
+   * THE GENERAL-ROAD MARKER (ADR-0045 Phase 5). NOT A TEMPLATE SLOT.
+   *
+   * `true` when this input was built on the general road — the résumé's own provenance says its
+   * profile was built from a general-form handover, and it renders as `bb_general`. ABSENT on every
+   * other sheet. It exists for `toResumeDocument`, which is pure and keyed on the pack: a road
+   * worker is pack-less, so without the marker his document would be `generic` and the app would
+   * never draw the sheet his PDF prints.
+   */
+  generalRoad?: boolean;
+  /**
    * The settled facts the two lines above were composed from (#1714). NOT A TEMPLATE SLOT.
    *
    * Returned by `buildVerdictLine` beside the lines themselves, so both mapper branches carry it
@@ -508,7 +541,11 @@ export class ResumeRenderer {
    */
   buildResumeHtml(input: ResumeRenderInput): string {
     const template = getResumeTemplate(input.templateId);
-    const skeleton = this.loadTemplate(template.file);
+    const shipped = this.loadTemplate(template.file);
+    // #1801 — the skin re-values the `:root` colour tokens of an in-memory COPY; the cached
+    // skeleton, and the shipped file behind it, are never touched. Only `bb_trade` takes one.
+    const skeleton =
+      input.skin && templateTakesSkin(template.id) ? applyResumeSkin(shipped, input.skin) : shipped;
     return ResumeRenderer.fillSlots(skeleton, input);
   }
 
@@ -552,6 +589,9 @@ export class ResumeRenderer {
       trust_badge: input.trustBadge ?? "",
       headline_line: input.headlineLine ?? "",
       subhead_line: input.subheadLine ?? "",
+      // ADR-0045 R6 — the general road's brief. A SCALAR, filled in the single last pass, so a
+      // brief carrying braces is printed as text and never expanded (see `profileBrief`).
+      profile_brief: input.profileBrief ?? "",
       cap_section_title: input.capSectionTitle ?? "",
       // Empty for every sheet but a tier that drops documents and certificates. A closed value
       // selecting between two template literals — never a heading string.

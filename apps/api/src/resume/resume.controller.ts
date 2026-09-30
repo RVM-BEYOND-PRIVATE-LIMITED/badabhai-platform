@@ -10,6 +10,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   UseGuards,
 } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
@@ -25,6 +26,13 @@ import { ConsentGuard } from "../auth/consent.guard";
 import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { ResumeService } from "./resume.service";
+import { ResumeSkinService } from "./resume-skin.service";
+import {
+  SetResumeSkinSchema,
+  type ResumeSkinStateResponse,
+  type SetResumeSkinDto,
+  type SetResumeSkinResponse,
+} from "./resume-skin.dto";
 import {
   GenerateResumeSchema,
   ShareResumeSchema,
@@ -45,6 +53,8 @@ export class ResumeController {
     private readonly resume: ResumeService,
     private readonly ipRateLimit: IpRateLimit,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    // #1801 — the skin routes below. Their own small service, so ResumeService does not grow.
+    private readonly skins: ResumeSkinService,
   ) {}
 
   /**
@@ -120,6 +130,42 @@ export class ResumeController {
   @UseGuards(WorkerAuthGuard, ConsentGuard)
   history(@CurrentWorker() worker: AuthenticatedWorker): Promise<ResumeHistoryResponse> {
     return this.resume.history(worker.id);
+  }
+
+  /**
+   * #1801 — the worker's résumé skin: whether skins are on, the skin their trade sheet prints in, and
+   * the closed list they may choose from ({@link ResumeSkinStateResponse}). With
+   * `RESUME_SKINS_ENABLED` off it answers `enabled: false` and queries nothing.
+   *
+   * DECLARED BEFORE `@Get(":id")` for `document`'s reason above: below it, `skin` would be parsed
+   * as an id and rejected by `ParseUUIDPipe` as a 400. `no-store`: it is the worker's own
+   * preference and changes the moment they pick, so a cached answer would show the old one.
+   * CONSENT-GATED like every sibling worker résumé route; no id in the request.
+   */
+  @Get("skin")
+  @Header("Cache-Control", "no-store")
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  mySkin(@CurrentWorker() worker: AuthenticatedWorker): Promise<ResumeSkinStateResponse> {
+    return this.skins.state(worker.id);
+  }
+
+  /**
+   * #1801 — the worker confirms a skin (never a preview tap: previews are the app's). The body is
+   * `{ skin }` from the closed `RESUME_SKINS` set, `.strict()` — the worker is the SESSION's.
+   * 200 for a change and for a same-skin retry alike (`change` tells them apart); 404 while
+   * `RESUME_SKINS_ENABLED` is off; 409 when a concurrent first choice won. The service persists
+   * and emits `resume.skin_changed` only on a real change, then queues their latest résumé's
+   * re-render.
+   */
+  @Put("skin")
+  @HttpCode(200)
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  setMySkin(
+    @Body(new ZodValidationPipe(SetResumeSkinSchema)) dto: SetResumeSkinDto,
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Ctx() ctx: RequestContext,
+  ): Promise<SetResumeSkinResponse> {
+    return this.skins.set(worker.id, dto.skin, ctx);
   }
 
   /** Read a single generated resume by id (ops read view). */

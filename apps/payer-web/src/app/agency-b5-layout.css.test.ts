@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { decl, parseRules, stripComments, tokenValue } from "../../test/css-rules";
+import type { Rule } from "../../test/css-rules";
 
 /**
  * B5 AGENCY SURFACES — LAYOUT REGRESSION FENCE (source-level, measured where possible).
@@ -23,58 +25,18 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const CSS_RAW = readFileSync(join(here, "globals.css"), "utf8");
-const TOKENS_RAW = readFileSync(join(here, "..", "styles", "tokens.css"), "utf8");
+// The shared token package (packages/design-tokens) — payer-web imports it from globals.css.
+const TOKENS_RAW = readFileSync(
+  join(here, "..", "..", "..", "..", "packages", "design-tokens", "tokens.css"),
+  "utf8",
+);
 const WORKER_LIST_TSX = readFileSync(
   join(here, "(portal)", "agency", "workers", "worker-activity-list.tsx"),
   "utf8",
 );
 
-const stripComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "");
 const CSS = stripComments(CSS_RAW);
 const TOKENS = stripComments(TOKENS_RAW);
-
-interface Rule {
-  /** The selector list, whitespace-normalised. */
-  selector: string;
-  /** The declaration block. */
-  body: string;
-  /** The enclosing at-rule prelude ("" at top level). */
-  at: string;
-}
-
-/** Flatten a stylesheet into rules, descending through @media/@supports and keeping the prelude. */
-function parseRules(css: string, at = ""): Rule[] {
-  const out: Rule[] = [];
-  let prelude = "";
-  let i = 0;
-  while (i < css.length) {
-    const ch = css[i]!;
-    if (ch === "{") {
-      let depth = 1;
-      let j = i + 1;
-      while (j < css.length && depth > 0) {
-        if (css[j] === "{") depth += 1;
-        else if (css[j] === "}") depth -= 1;
-        j += 1;
-      }
-      const body = css.slice(i + 1, j - 1);
-      const selector = prelude.trim().replace(/\s+/g, " ");
-      if (/^@(media|supports)\b/.test(selector)) out.push(...parseRules(body, selector));
-      else out.push({ selector, body, at });
-      prelude = "";
-      i = j;
-      continue;
-    }
-    if (ch === "}") {
-      prelude = "";
-      i += 1;
-      continue;
-    }
-    prelude += ch;
-    i += 1;
-  }
-  return out;
-}
 
 const RULES = parseRules(CSS);
 
@@ -89,28 +51,21 @@ const rulesMatching = (needle: string, atNeedle = "") =>
 /** The rule whose selector list is EXACTLY `selector` (top level unless an at-rule is named). */
 function rule(selector: string, atNeedle = ""): Rule {
   const hits = RULES.filter(
-    (r) => r.selector.replace(/,\s*/g, ",") === selector.replace(/,\s*/g, ",") && inContext(r, atNeedle),
+    (r) =>
+      r.selector.replace(/,\s*/g, ",") === selector.replace(/,\s*/g, ",") && inContext(r, atNeedle),
   );
-  expect(hits, `expected exactly one rule for \`${selector}\`${atNeedle ? ` in ${atNeedle}` : ""}`).toHaveLength(1);
+  expect(
+    hits,
+    `expected exactly one rule for \`${selector}\`${atNeedle ? ` in ${atNeedle}` : ""}`,
+  ).toHaveLength(1);
   return hits[0]!;
-}
-
-/** The last declared value of `prop` in a block, or null. */
-function decl(r: Rule, prop: string): string | null {
-  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- the pattern is built from repo-controlled values (a UUID, a reviewed lexicon pattern, or a literal in this file) and never from worker or request text.
-  const re = new RegExp(`(?:^|;|\\n)\\s*${prop}\\s*:\\s*([^;]+)`, "g");
-  let last: string | null = null;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(r.body)) !== null) last = m[1]!.trim();
-  return last;
 }
 
 /** A custom property's value as declared in tokens.css `:root` (light ramp). */
 function token(name: string): string {
-  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- the pattern is built from repo-controlled values (a UUID, a reviewed lexicon pattern, or a literal in this file) and never from worker or request text.
-  const m = TOKENS.match(new RegExp(`${name}\\s*:\\s*([^;]+)`));
-  expect(m, `token ${name} must be declared in tokens.css`).not.toBeNull();
-  return m![1]!.trim();
+  const v = tokenValue(TOKENS, name);
+  expect(v, `token ${name} must be declared in tokens.css`).not.toBeNull();
+  return v!;
 }
 
 /** A token that resolves to a bare px length. */
@@ -154,8 +109,10 @@ function evalLength(expr: string, viewportPx: number): number {
       const [lo, val, hi] = splitTopLevel(inner).map((p) => evalLength(p, viewportPx));
       return Math.min(Math.max(lo!, val!), hi!);
     }
-    if (name === "min") return Math.min(...splitTopLevel(inner).map((p) => evalLength(p, viewportPx)));
-    if (name === "max") return Math.max(...splitTopLevel(inner).map((p) => evalLength(p, viewportPx)));
+    if (name === "min")
+      return Math.min(...splitTopLevel(inner).map((p) => evalLength(p, viewportPx)));
+    if (name === "max")
+      return Math.max(...splitTopLevel(inner).map((p) => evalLength(p, viewportPx)));
     // calc(): a single top-level +/- between two terms is all this file uses.
     const op = inner.match(/^([\s\S]+?)\s([+-])\s([\s\S]+)$/);
     expect(op, `calc() form not supported by this evaluator: ${inner}`).not.toBeNull();
@@ -194,7 +151,9 @@ describe("B5 · /agency/qr — the code fits the viewport it is previewed on", (
   it("the chrome around the code is still built from the tokens this test measures", () => {
     // The arithmetic below is only honest if the structure is still the one it models:
     // portal rail → sheet padding → frame padding (the quiet zone) → the code.
-    expect(decl(rule(".pshell__content", "max-width: 1023px"), "padding")).toContain("var(--gutter)");
+    expect(decl(rule(".pshell__content", "max-width: 1023px"), "padding")).toContain(
+      "var(--gutter)",
+    );
     expect(decl(sheet, "padding")).toContain("var(--space-6)");
     expect(decl(frame, "padding")).toBe("var(--qr-quiet-screen)");
     expect(decl(qrBlock, "--qr-quiet-screen")).toBe("var(--space-5)");
@@ -269,10 +228,13 @@ describe("B5 · /agency/qr — print rules are gated on a sheet that exists", ()
         const reachesOut = /(^|[\s>+~(])(body|\.portal-|\.chrome-footer|\.dash-)/.test(part);
         const targetsSection = /\.agency-qr(?![\w-])/.test(part);
         if (!reachesOut && !targetsSection) continue;
-        if (!part.includes(".agency-qr__sheet")) offenders.push(`${part}  {${r.body.trim().slice(0, 40)}…}`);
+        if (!part.includes(".agency-qr__sheet"))
+          offenders.push(`${part}  {${r.body.trim().slice(0, 40)}…}`);
       }
     }
-    expect(offenders, `print selectors armed without a sheet:\n${offenders.join("\n")}`).toEqual([]);
+    expect(offenders, `print selectors armed without a sheet:\n${offenders.join("\n")}`).toEqual(
+      [],
+    );
   });
 
   it("hides the non-sheet children only when a sheet is present", () => {
@@ -285,7 +247,9 @@ describe("B5 · /agency/qr — print rules are gated on a sheet that exists", ()
   it("declares NO unnamed @page rule (it would rewrite margins for every printable route)", () => {
     expect(CSS).not.toMatch(/@page\s*\{/);
     // The poster's paper margin lives on the sheet instead, where it can be scoped.
-    const printSheet = RULES.find((r) => r.at.includes("print") && r.selector === ".agency-qr__sheet");
+    const printSheet = RULES.find(
+      (r) => r.at.includes("print") && r.selector === ".agency-qr__sheet",
+    );
     expect(printSheet).toBeDefined();
     expect(decl(printSheet!, "padding")).toContain("var(--qr-paper-margin-print)");
     expect(decl(rule(".agency-qr"), "--qr-paper-margin-print")).toBeTruthy();
@@ -297,10 +261,9 @@ describe("B5 · /agency/qr — print rules are gated on a sheet that exists", ()
  * ================================================================== */
 describe("B5 · /agency/qr — print sizes come from the local rail, not from literals", () => {
   it("no raw mm literal inside @media print", () => {
-    const offenders = RULES.filter((r) => r.at.includes("print"))
-      .flatMap((r) =>
-        (r.body.match(/[\d.]+\s*mm/g) ?? []).map((hit) => `${r.selector} → ${hit}`),
-      );
+    const offenders = RULES.filter((r) => r.at.includes("print")).flatMap((r) =>
+      (r.body.match(/[\d.]+\s*mm/g) ?? []).map((hit) => `${r.selector} → ${hit}`),
+    );
     expect(offenders, `mm literals in the print block:\n${offenders.join("\n")}`).toEqual([]);
   });
 
@@ -328,7 +291,10 @@ describe("B5 · /agency/workers — the table header is not stuck behind the she
     const offenders = rulesMatching("agency-workers__table")
       .filter((r) => decl(r, "position") === "sticky")
       .map((r) => r.selector);
-    expect(offenders, `sticky (and therefore invisible) table headers:\n${offenders.join("\n")}`).toEqual([]);
+    expect(
+      offenders,
+      `sticky (and therefore invisible) table headers:\n${offenders.join("\n")}`,
+    ).toEqual([]);
   });
 
   it("the header still reads as a header (sunken, muted, uppercase)", () => {
@@ -424,8 +390,8 @@ describe("B5 · /agency/workers — the ref selector matches the shipped markup"
   });
 
   it("no rule is scoped to a <code> that is never rendered", () => {
-    const dead = RULES.filter(
-      (r) => /code\.agency-workers__ref|\.agency-workers__ref code/.test(r.selector),
+    const dead = RULES.filter((r) =>
+      /code\.agency-workers__ref|\.agency-workers__ref code/.test(r.selector),
     ).map((r) => r.selector);
     expect(dead, `dead selectors (no <code> in the markup):\n${dead.join("\n")}`).toEqual([]);
   });

@@ -163,7 +163,7 @@ export function MatchSkillPicker({
             // leaving the counter strip blank and letting it read as "reaches nobody".
             <div className="state">
               <span className="state__icon">
-                <i className="ph ph-crosshair" aria-hidden="true" />
+                <i className="ph-fill ph-crosshair" aria-hidden="true" />
               </span>
               <h3 className="state__title">No skill picked yet</h3>
               <p className="state__body">
@@ -220,7 +220,7 @@ export function MatchSkillPicker({
           */}
           {preview?.zero_reach ? (
             <div className="alert alert--warning" role="alert">
-              <i className="ph ph-warning alert__icon" aria-hidden="true" />
+              <i className="ph-fill ph-warning alert__icon" aria-hidden="true" />
               <div className="alert__text">
                 <p className="alert__title">No worker matches this yet</p>
                 <p className="alert__body">

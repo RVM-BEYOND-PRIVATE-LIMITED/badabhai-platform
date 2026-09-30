@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   booleanFromString,
+  fractionFromString,
   portSchema,
   positiveIntFromString,
   uuidListFromString,
@@ -313,6 +314,36 @@ export const serverEnvSchema = z.object({
   // How many new jobs ride a turn as tappable chips (the opening serves at most 2 of them, so the
   // whole chip row stays inside the persona's four-chip limit).
   CHAT_COMPANION_JOB_CHIPS: positiveIntFromString(3),
+
+  // ── COMPANION V2 (ADR-0046) — the LLM task router on the same chat tab ─────────────────────
+  //
+  // EVERYTHING HERE DEFAULTS OFF, AND OFF IS v1 EXACTLY: `POST /chat/companion/message` answers
+  // from the deterministic resolver with zero model calls and the v1 event, and neither new route
+  // nor new wire field is reachable. The parent `CHAT_COMPANION_ENABLED` still decides whether the
+  // companion surface exists at all. Turning any of these on in production additionally requires
+  // ADR-0046's signature AND companion v1 live first (spec README "Prerequisites").
+  CHAT_COMPANION_V2_ENABLED: booleanFromString,
+  // P1 — the edit handler: propose card → Haan → deterministic writers → regenerate.
+  CHAT_COMPANION_V2_EDIT_ENABLED: booleanFromString,
+  // P2 — the new-résumé offer (form / chat / upload choices) and the faltu strike path.
+  CHAT_COMPANION_V2_NEW_RESUME_ENABLED: booleanFromString,
+  CHAT_COMPANION_V2_FALTU_ENABLED: booleanFromString,
+  // P3 — career answers (Claude, Hinglish only, inside the fixed refusals O10).
+  CHAT_COMPANION_V2_CAREER_ENABLED: booleanFromString,
+  // Below this classifier confidence the turn is `unclear` — model failure, invalid output and a
+  // blocked input land there too (fail closed, spec §2.1). A 0..1 fraction.
+  CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: fractionFromString(0.6),
+  // The most edit rows one message may carry (O5: up to 3 changes, one card).
+  CHAT_COMPANION_V2_EDIT_MAX_ROWS: positiveIntFromString(3),
+  // How long an edit proposal stays confirmable in Redis (the card's lifetime, contracts §7).
+  CHAT_COMPANION_V2_PROPOSAL_TTL_SECONDS: positiveIntFromString(600),
+  // Faltu: strikes inside one UTC day before the 30-minute cool-down (O11).
+  CHAT_COMPANION_V2_FALTU_STRIKES: positiveIntFromString(3),
+  CHAT_COMPANION_V2_FALTU_COOLDOWN_MINUTES: positiveIntFromString(30),
+  // Conversation memory: the last N pseudonymized turn pairs kept in Redis for this many seconds
+  // (O13). Never Postgres.
+  CHAT_COMPANION_V2_MEMORY_TURNS: positiveIntFromString(6),
+  CHAT_COMPANION_V2_MEMORY_TTL_SECONDS: positiveIntFromString(1800),
   // TIERED PROFILING (docs/profiling-tiers/tier-tagging.md) — the Easy / Medium / Hard choice on
   // the Chat path, the form's tier filter, the upgrade flow and the tier-aware résumé.
   //
@@ -322,6 +353,25 @@ export const serverEnvSchema = z.object({
   // — so migration 0126 is apply-before-FLAG-ON, not apply-before-deploy. Turn it on only after
   // 0126 is applied and `db:seed:packs --apply` has written the pack tags.
   PROFILING_TIERS_ENABLED: booleanFromString,
+  // RÉSUMÉ SKINS (#1801, owner ruling 2026-09-28 "Plumbing, Neela only") — the per-worker colour
+  // skin of the `bb_trade` sheet, chosen through GET/PUT /resume/skin.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S BEHAVIOUR EXACTLY. With it off GET /resume/skin answers
+  // `enabled: false`, PUT /resume/skin is a 404, every sheet renders from its template untouched,
+  // and NOTHING reads or writes `worker_resume_skin` — so migration 0128 is apply-before-FLAG-ON,
+  // not apply-before-deploy. Turn it on only after 0128 is applied.
+  RESUME_SKINS_ENABLED: booleanFromString,
+  // RÉSUMÉ QR SCAN (#1800, owner ruling 2026-09-28 "Count + attribute worker signups") — the
+  // worker's own résumé QR encodes `https://badabhai.ai/r/<code>` with a per-worker, never-
+  // commissioned `resume_qr` referral link, instead of the bare homepage.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S SHEET EXACTLY: the render worker mints nothing and the QR
+  // encodes the homepage, byte-identical to before. The flag gates the MINT and the ENCODE only —
+  // the `GET /r/:code` resolver and the attribution path handle an existing `resume_qr` row
+  // unconditionally, so sheets printed while it was on keep counting if it is later turned off.
+  // Needs migration 0129 applied AND the badabhai.ai `/r/*` redirect in place BEFORE it is turned
+  // on; a mint that fails (0129 missing) falls back to the homepage QR and never costs the PDF.
+  RESUME_QR_SCAN_ENABLED: booleanFromString,
   // Per-worker generations allowed per UTC day (paid-path abuse cap).
   RESUME_DAILY_CAP: z.coerce.number().int().positive().default(5),
   // Global generations allowed per UTC day — interim backstop until TD4 binds a
@@ -462,10 +512,18 @@ export const serverEnvSchema = z.object({
   // are independent knobs and must not be collapsed.
   REFERRAL_MATCH_WINDOW_ORGANIC_HOURS: z.coerce.number().int().positive().default(168),
   REFERRAL_MATCH_WINDOW_PAID_HOURS: z.coerce.number().int().positive().default(24),
-  // The branded base the `/r/<code>` resolver builds its App-Link redirect against.
-  // Defaults to the domain the worker app's manifest already claims, so B4 introduces no
-  // new DNS dependency — pointing this at a real short domain is a P0-6 (App Links domain
-  // verification) deploy action, NOT a code change. Must be an absolute https origin.
+  // The origin the `/r/<code>` resolver 302s to — `<base>/i/<code>` (and `/i/<code>/desktop`),
+  // i.e. the origin that SERVES payer-web's `/i/` landing page. It must equal the worker app's
+  // App Link host (`android:host` in AndroidManifest.xml, `kInviteLinkBase`) and payer-web's
+  // `shortLinkOrigin()`, which today are all the interim host `https://payer.43-204-36-199.sslip.io`
+  // (#1138/#1144; the Lightsail IP is in the name, so it WILL move — #1319).
+  //
+  // ⚠ THE DEFAULT IS STALE. `https://app.badabhai.in` is NOT the host the manifest claims (that
+  // moved to the sslip host in #1144) and it serves no `/i/` route, so a deployment that does not
+  // set this variable 302s every `/r/` visitor to a dead page. docker-compose.staging.yml sets it
+  // explicitly (#1800); the default is kept only so a bare local boot still validates. Pointing it
+  // at a real short domain is a deploy action, NOT a code change. Must be an absolute https origin.
+  // `mintLink()` also builds its returned `/r/` URL on this base (a URL no caller uses yet).
   REFERRAL_SHORT_LINK_BASE: z
     .string()
     .url()

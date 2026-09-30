@@ -1,15 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { RedactedQueryError, logSafeReason, redactQueryParams } from "./db-error";
+import { DrizzleQueryError } from "drizzle-orm";
+import {
+  RedactedQueryError,
+  isUniqueViolation,
+  logSafeReason,
+  redactQueryParams,
+  sqlStateOf,
+} from "./db-error";
 
 /**
- * The exact shape `drizzle-orm` throws: a `DrizzleQueryError` whose own message embeds the bound
- * parameters. Reproduced rather than imported, because the class is not on drizzle's public export
- * surface — and reproducing it is what proves the duck-typed match in `db-error.ts` still fires.
+ * What `drizzle-orm` actually throws for a failed query: its own `DrizzleQueryError`, whose message
+ * embeds the bound parameters and whose `cause` is the driver error. The real class, so a drizzle
+ * bump that reshapes it fails here rather than in production.
  */
 function drizzleQueryError(query: string, params: unknown[], cause?: unknown): Error {
-  const err = new Error(`Failed query: ${query}\nparams: ${params}`);
-  Object.assign(err, { query, params, cause });
-  return err;
+  return new DrizzleQueryError(query, params, cause as Error);
 }
 
 const MESSAGE = "My name is Ramesh Kumar, my number is 98765 43210, my supervisor skims wages";
@@ -100,5 +105,30 @@ describe("logSafeReason — a failure reason that never carries row data", () =>
   it("a thrown non-Error is named by its type", () => {
     expect(logSafeReason(MESSAGE, "op")).toBe("string");
     expect(logSafeReason(null, "op")).toBe("object");
+  });
+});
+
+describe("sqlStateOf / isUniqueViolation — the SQLSTATE sits on the cause (#1811)", () => {
+  const unique = () => drizzleQueryError(QUERY, [], Object.assign(new Error("dup"), { code: "23505" }));
+
+  it("reads the SQLSTATE through drizzle's wrapper, which has no code of its own", () => {
+    const err = unique();
+    // The defect: every pre-#1811 check read this and never matched.
+    expect((err as { code?: unknown }).code).toBeUndefined();
+    expect(sqlStateOf(err)).toBe("23505");
+    expect(isUniqueViolation(err)).toBe(true);
+  });
+
+  it("still classifies an unwrapped driver error", () => {
+    expect(isUniqueViolation(Object.assign(new Error("dup"), { code: "23505" }))).toBe(true);
+  });
+
+  it("any other SQLSTATE, a cause with no code, or a non-error is not a unique violation", () => {
+    const check = drizzleQueryError(QUERY, [], Object.assign(new Error("chk"), { code: "23514" }));
+    expect(sqlStateOf(check)).toBe("23514");
+    expect(isUniqueViolation(check)).toBe(false);
+    expect(isUniqueViolation(drizzleQueryError(QUERY, [], new Error("socket hang up")))).toBe(false);
+    expect(sqlStateOf(null)).toBeUndefined();
+    expect(isUniqueViolation(undefined)).toBe(false);
   });
 });

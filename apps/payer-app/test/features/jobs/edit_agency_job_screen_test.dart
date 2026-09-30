@@ -24,6 +24,10 @@ class _ScriptedApi extends MockPayerApiClient {
   List<String>? lastBenefits;
   List<String>? lastRequirements;
 
+  /// #1652 — the Area value and the `clear` list of the last PATCH.
+  String? lastArea;
+  List<AgencyJobClearField>? lastClear;
+
   @override
   Future<AgencyJobView> updateAgencyJob(
     String id, {
@@ -41,6 +45,7 @@ class _ScriptedApi extends MockPayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    List<AgencyJobClearField>? clear,
   }) async {
     updated.add(id);
     lastTitle = title;
@@ -48,6 +53,8 @@ class _ScriptedApi extends MockPayerApiClient {
     lastShift = shift;
     lastBenefits = benefits;
     lastRequirements = requirements;
+    lastArea = area;
+    lastClear = clear;
     return AgencyJobView(
       id: id,
       status: 'open',
@@ -91,7 +98,11 @@ void main() {
   /// The form is taller than the default 600px test viewport and has a STICKY
   /// bottom action, so a scrolled-to widget can still sit under it. A tall
   /// viewport builds every field and keeps every tap a real hit.
-  Future<void> open(WidgetTester tester, AgencyJobsCubit cubit) async {
+  Future<void> open(
+    WidgetTester tester,
+    AgencyJobsCubit cubit, {
+    AgencyJobView job = _job,
+  }) async {
     tester.view.physicalSize = const Size(1000, 3000);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -105,7 +116,7 @@ void main() {
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) =>
-                        EditAgencyJobScreen(job: _job, cubit: cubit),
+                        EditAgencyJobScreen(job: job, cubit: cubit),
                   ),
                 ),
                 child: const Text('open'),
@@ -293,4 +304,101 @@ void main() {
     expect(api.updated, isEmpty);
     expect(find.text('Add the city'), findsOneWidget);
   });
+
+  // --- #1652: Area is the one OPTIONAL box, and emptying it now REMOVES it ---
+
+  /// The Area box (label 'Area (optional)').
+  Finder areaField() => find.descendant(
+        of: find
+            .ancestor(
+              of: find.text('Area (optional)'),
+              matching: find.byType(Column),
+            )
+            .first,
+        matching: find.byType(TextField),
+      );
+
+  testWidgets('emptying a saved Area sends clear [area] and no area value', (
+    WidgetTester tester,
+  ) async {
+    final _ScriptedApi api = _ScriptedApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+
+    await open(tester, cubit);
+
+    await tester.enterText(areaField(), '  ');
+    await tester.pump();
+    await save(tester);
+
+    expect(api.updated, <String>['a1']);
+    expect(api.lastClear, <AgencyJobClearField>[AgencyJobClearField.area]);
+    // Never in both lists — a field set AND cleared is a server 400.
+    expect(api.lastArea, isNull);
+  });
+
+  testWidgets('an untouched Area sends no clear', (WidgetTester tester) async {
+    final _ScriptedApi api = _ScriptedApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+
+    await open(tester, cubit);
+    await save(tester);
+
+    expect(api.updated, <String>['a1']);
+    expect(api.lastClear, isNull);
+    expect(api.lastArea, 'Chakan');
+  });
+
+  testWidgets('an edited Area rides as a value, never clear', (
+    WidgetTester tester,
+  ) async {
+    final _ScriptedApi api = _ScriptedApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+
+    await open(tester, cubit);
+
+    await tester.enterText(areaField(), 'Talegaon');
+    await tester.pump();
+    await save(tester);
+
+    expect(api.lastArea, 'Talegaon');
+    expect(api.lastClear, isNull);
+  });
+
+  testWidgets('an Area that was never set sends no clear', (
+    WidgetTester tester,
+  ) async {
+    final _ScriptedApi api = _ScriptedApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+
+    await open(tester, cubit, job: _jobNoArea);
+    await save(tester);
+
+    expect(api.updated, <String>['a1']);
+    expect(api.lastClear, isNull);
+    expect(api.lastArea, isNull);
+  });
 }
+
+/// [_job] with no Area ever stored — an empty box there is no change.
+const AgencyJobView _jobNoArea = AgencyJobView(
+  id: 'a1',
+  status: 'open',
+  tradeKey: 'fitter',
+  title: 'Fitter',
+  city: 'Pune',
+  payMin: 18000,
+  payMax: 24000,
+  payType: 'in_hand',
+  minExperienceYears: 1,
+  maxExperienceYears: 4,
+  neededBy: 'soon',
+  shift: 'day',
+  description: 'Fitting and assembly on site.',
+  benefits: <String>['PF + ESI'],
+  requirements: <String>['Fanuc control'],
+  applicantsReceived: 4,
+);

@@ -64,7 +64,7 @@ export default async function DashboardPage() {
         <Card>
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph ph-warning-circle" aria-hidden="true" />
+              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
             </span>
             <h2 className="state__title">We could not load your account</h2>
             <p className="state__body">
@@ -96,7 +96,7 @@ export default async function DashboardPage() {
         </div>
         <div className="page-head__actions">
           <Link className="bb-btn bb-btn--primary bb-btn--sm" href="/postings/new">
-            <i className="ph ph-plus" aria-hidden="true" />
+            <i className="ph-fill ph-plus" aria-hidden="true" />
             <span>{isAgency ? "Post a vacancy" : "Post a job"}</span>
           </Link>
         </div>
@@ -113,7 +113,7 @@ export default async function DashboardPage() {
             {attention.map((item) => (
               <li className={`attention__item attention__item--${item.tone}`} key={item.id}>
                 <i
-                  className={`ph ph-${
+                  className={`ph-fill ph-${
                     item.tone === "critical"
                       ? "warning-octagon"
                       : item.tone === "warning"
@@ -140,8 +140,9 @@ export default async function DashboardPage() {
         </section>
       ) : null}
 
-      {/* 2 · POSITION */}
-      <div className="stat-row">
+      {/* 2 · POSITION — the KPI variant: no hole beside a lone third tile, and a compact
+          ledger row per tile on a phone so the counters stay secondary to bands 1 and 3. */}
+      <div className="stat-row stat-row--kpi">
         <StatTile
           label="Credit balance"
           value={data.credits.balance}
@@ -196,14 +197,14 @@ export default async function DashboardPage() {
         <div className="quick__grid">
           <Link className="quick__card" href="/postings/new">
             <span className="quick__icon">
-              <i className="ph ph-plus-circle" aria-hidden="true" />
+              <i className="ph-fill ph-plus-circle" aria-hidden="true" />
             </span>
             <span className="quick__label">{isAgency ? "Post a vacancy" : "Post a job"}</span>
             <span className="quick__desc">Describe the role and reach matched workers.</span>
           </Link>
           <Link className="quick__card" href="/postings">
             <span className="quick__icon">
-              <i className="ph ph-users-three" aria-hidden="true" />
+              <i className="ph-fill ph-users-three" aria-hidden="true" />
             </span>
             <span className="quick__label">Review applicants</span>
             <span className="quick__desc">
@@ -213,7 +214,7 @@ export default async function DashboardPage() {
           {isAgency ? (
             <Link className="quick__card" href="/agency/referrals">
               <span className="quick__icon">
-                <i className="ph ph-share-network" aria-hidden="true" />
+                <i className="ph-fill ph-share-network" aria-hidden="true" />
               </span>
               <span className="quick__label">Invite workers</span>
               <span className="quick__desc">Mint an invite link or print a QR poster.</span>
@@ -222,7 +223,7 @@ export default async function DashboardPage() {
           {isOwner ? (
             <Link className="quick__card" href="/credits">
               <span className="quick__icon">
-                <i className="ph ph-wallet" aria-hidden="true" />
+                <i className="ph-fill ph-wallet" aria-hidden="true" />
               </span>
               <span className="quick__label">Top up credits</span>
               <span className="quick__desc">Add unlocks so shortlisting never stalls.</span>
@@ -230,7 +231,7 @@ export default async function DashboardPage() {
           ) : null}
           <Link className="quick__card" href="/plans">
             <span className="quick__icon">
-              <i className="ph ph-chart-donut" aria-hidden="true" />
+              <i className="ph-fill ph-chart-donut" aria-hidden="true" />
             </span>
             <span className="quick__label">Plans &amp; capacity</span>
             <span className="quick__desc">
@@ -248,7 +249,7 @@ export default async function DashboardPage() {
             <div className="panel__actions">
               <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/postings">
                 <span>Manage all</span>
-                <i className="ph ph-arrow-right" aria-hidden="true" />
+                <i className="ph-fill ph-arrow-right" aria-hidden="true" />
               </Link>
             </div>
           </div>
@@ -256,12 +257,12 @@ export default async function DashboardPage() {
             {data.postings.length === 0 ? (
               <div className="state">
                 <span className="state__icon">
-                  <i className="ph ph-briefcase" aria-hidden="true" />
+                  <i className="ph-fill ph-briefcase" aria-hidden="true" />
                 </span>
                 <h3 className="state__title">No postings yet</h3>
                 <p className="state__body">
-                  Matched workers can only find you once a role is live. Posting is free
-                  through launch.
+                  Matched workers can only find you once a role is live. Posting is free through
+                  launch.
                 </p>
                 <div className="state__actions">
                   <Link className="bb-btn bb-btn--primary bb-btn--sm" href="/postings/new">
@@ -298,7 +299,7 @@ export default async function DashboardPage() {
                       </Badge>
                       <span className="dash-posting__cta">
                         View applicants
-                        <i className="ph ph-arrow-right dash-view__arrow" aria-hidden="true" />
+                        <i className="ph-fill ph-arrow-right dash-view__arrow" aria-hidden="true" />
                       </span>
                     </div>
                   </Card>
@@ -321,12 +322,12 @@ export default async function DashboardPage() {
           {recentUnlocks.length === 0 ? (
             <div className="state">
               <span className="state__icon">
-                <i className="ph ph-lock-key-open" aria-hidden="true" />
+                <i className="ph-fill ph-lock-key-open" aria-hidden="true" />
               </span>
               <h3 className="state__title">No contacts unlocked yet</h3>
               <p className="state__body">
-                Open a {isAgency ? "vacancy" : "posting"}&rsquo;s applicants and unlock a
-                candidate to see their routed contact here.
+                Open a {isAgency ? "vacancy" : "posting"}&rsquo;s applicants and unlock a candidate
+                to see their routed contact here.
               </p>
               <div className="state__actions">
                 <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/postings">

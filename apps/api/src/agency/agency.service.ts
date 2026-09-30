@@ -15,6 +15,7 @@ import type {
   JobShift,
   TradeKey,
 } from "@badabhai/db";
+import type { TradeFormKindName } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { ConsentRepository } from "../consent/consent.repository";
@@ -28,6 +29,7 @@ import type {
   UpdateAgencyJobDto,
 } from "./agency.dto";
 import { clearedSet } from "../common/clearable-fields";
+import { isUniqueViolation } from "../common/db-error";
 
 /** Faceless projection of an owned job — ids / status / counts / coarse bands ONLY. */
 export interface AgencyJobView {
@@ -58,6 +60,12 @@ export interface AgencyJobView {
   requirements: string[] | null;
   /** #1648 — what the band MEANS. NULL = the poster did not state it. Never inferred. */
   payType: JobPayType | null;
+  /**
+   * Migration 0131 — the display ROLE the agency picked (one of the 21 declared kinds), or NULL
+   * for "no role picked". Returned on this owner view only; `tradeKey` above stays the job's
+   * matching classifier, and this is never a match input (ADR-0036 addendum 2026-09-29).
+   */
+  roleKind: TradeFormKindName | null;
   applicantsReceived: number;
   createdAt: Date;
   updatedAt: Date;
@@ -123,17 +131,6 @@ const CODE_COLLISION_RETRIES = 3;
  * invalid payload, which is deterministic) can never spin.
  */
 const EVENT_EMIT_RETRIES = 3;
-
-/**
- * Postgres unique-violation (23505). Used ONLY to classify a failure of the invite ROW
- * INSERT, where the sole unique index in play is `agency_invites_code_uq`. It is deliberately
- * NOT applied to any other statement: the `events` table has its own idempotency-key unique
- * index, and treating ITS 23505 as "the invite code collided" is what previously re-ran the
- * row insert and wrote a duplicate row holding a live bearer code.
- */
-function isUniqueViolation(err: unknown): boolean {
-  return typeof err === "object" && err !== null && (err as { code?: string }).code === "23505";
-}
 
 /** ORDER-SENSITIVE equality for the benefits/requirements chip lists (display order matters). */
 function sameStringList(a: string[], b: string[] | null): boolean {
@@ -204,6 +201,8 @@ export class AgencyService {
         requirements: dto.requirements ?? null,
         // #1648 — no default: omitted stores NULL and the card shows no pay-type pill.
         payType: dto.pay_type ?? null,
+        // Migration 0131 — the display role, or NULL. Never a match input; `trade_key` is.
+        roleKind: dto.role_kind ?? null,
       },
       "open",
     );
@@ -218,6 +217,8 @@ export class AgencyService {
       pay_max: row.payMax,
       min_experience_years: row.minExperienceYears,
       max_experience_years: row.maxExperienceYears,
+      // Migration 0131 — a closed 21-slug enum (or null), PII-free like `trade_key`.
+      role_kind: row.roleKind,
     };
     await this.events.emit(this.jobEmitParams("job.created", row.id, payerId, payload, ctx));
 
@@ -328,6 +329,8 @@ export class AgencyService {
       "description",
     );
     applyNullable("shift", "shift", dto.shift, current.shift, "shift");
+    // Migration 0131 — the display role. Its own key: a role change is not a `trade_key` change.
+    applyNullable("role_kind", "roleKind", dto.role_kind, current.roleKind, "role_kind");
 
     // The two jsonb lists compare as LISTS, so they cannot use the scalar helper. Clearing
     // one stores NULL ("never stated"), a DIFFERENT value from the `[]` the payer app
@@ -930,6 +933,8 @@ export class AgencyService {
       benefits: row.benefits,
       requirements: row.requirements,
       payType: row.payType,
+      // Migration 0131 — the display role; NULL stays NULL (never inferred from trade_key).
+      roleKind: row.roleKind,
       applicantsReceived: row.applicantsReceived,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
