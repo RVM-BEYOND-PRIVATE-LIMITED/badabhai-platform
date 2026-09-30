@@ -177,8 +177,9 @@ Notes T7 must carry forward:
 One pure module (`v2/edit-plan.ts`) turns a section's rows plus its current state into that
 writer's input, parsed by the writer's REAL schema (`SetMy*Schema`). It runs twice:
 
-- **At propose**, per row, after the per-row gates (catalogue, op, ref, value, token, edit no-op)
-  and the row-set gates — a second delete of one entry (the field is only a delete's anchor), an
+- **At propose**, per row, after the per-row gates (catalogue, op, ref, the field belongs to the
+  ref's entry, value, token, edit no-op) and the row-set gates — a second delete of one entry (the
+  field is only a delete's anchor), an
   edit of an entry the same card deletes, a second edit of one field, a second add of one value
   (case-insensitive), and an ADD OF SOMETHING ALREADY STORED (case-insensitive; skills included)
   are all dropped. Each surviving row is tried together with the rows already accepted for its
@@ -195,6 +196,17 @@ Per section:
 | `qualifications` | A row's target is `{list, index, fp}` — `fp` a hash of the entry's carded fields (never the licence). Rows resolve to entry OBJECTS before anything moves (the entry at `index` if it still matches `fp`, else the first unclaimed match), so deletes never shift an edit onto another entry. **Only the lists named by the rows are sent**: an absent list survives, so rows the GET withheld (`partial`) in the other lists are never erased. |
 | `skills` | An add already printed (case-insensitive, ids by label) is not appended — a label is never printed twice, even on a second Haan. |
 | others | Unchanged: employment by `employment_id` (with `expected_existing_count`), languages by slug, occupations by role id. |
+
+**The field must belong to the entry the ref names (2026-09-30, EDIT-ROW-KIND).** A section match
+is not enough: `q1` is an education and `certificate_name` is a qualifications field, so
+`delete q1 certificate_name` used to be carded — the apply removes the education (it goes by the
+ref's list) under a row labelled "Yeh poora certificate" with `before: null`. Now a qualification
+field's prefix (`certificate_` / `education_` / `training_`) must name the ref's own list, and
+every other section's field must be one of the addressed row's own keys (a scalar preference only
+on `pref`, a list member only on its own `pcN` / `wtN` / `drN`). Enforced three times: the
+per-row gate at propose (the row is dropped, counted in `dropped_count`); the stale check (a
+stored row whose field its entry lacks is `stale`, never read as a matching `before: null`); and
+`edit-plan.ts`, which refuses a qualification row whose field names another list.
 
 The stale check matches a qualification row by `list` + `fp`, never by index, so a reordered list
 still finds the entry and an entry edited elsewhere does not; a stored row without `fp` (none exist
@@ -278,7 +290,9 @@ reached the card as typed tokens. Each row now also carries, ADDITIVELY:
   `companion-replies.ts`, §8). Present on every row the server builds. A **delete in employment
   or qualifications** removes the whole entry (the field is only the model's anchor), so its
   label names the entry instead (`EDIT_ENTRY_LABELS`: "Yeh poora kaam", "Yeh poora certificate",
-  "Yeh poori padhai", "Yeh poori training").
+  "Yeh poori padhai", "Yeh poori training"). The qualification kind is read from the row's
+  resolved target (`target.list` — the entry the apply removes), never from the anchor field; a
+  qualification delete whose target names no list gets NO `field_label` rather than a guess.
 - `before_display` / `after_display` — the worker-facing label of a CLOSED-SET value, read from
   the dictionaries that already label it elsewhere: `LANGUAGES`, `EDUCATION_QUALIFICATIONS`,
   `EDUCATION_COUNCILS`, `SHIFTS`, `JOB_TYPES` / `WORK_TYPES`, `AVAILABILITY_STATUSES`,

@@ -37,12 +37,41 @@ export interface SnapshotRow {
 
 export type QualificationList = "certificates" | "educations" | "trainings";
 
-/** The catalogue's field prefix per qualification list (`certificate_name`, `education_year`, …). */
-const QUALIFICATION_PREFIX: Readonly<Record<QualificationList, string>> = {
+/**
+ * The catalogue's field prefix per qualification list (`certificate_name`, `education_year`, …) —
+ * also the entry kind a whole-entry delete names on the card (`EDIT_ENTRY_LABELS`).
+ */
+export const QUALIFICATION_PREFIX = {
   certificates: "certificate",
   educations: "education",
   trainings: "training",
-};
+} as const satisfies Readonly<Record<QualificationList, string>>;
+
+/** The list a catalogue qualification field belongs to, by its prefix; null for any other name. */
+export function qualificationListOfField(field: string): QualificationList | null {
+  for (const list of Object.keys(QUALIFICATION_PREFIX) as QualificationList[]) {
+    if (field.startsWith(`${QUALIFICATION_PREFIX[list]}_`)) return list;
+  }
+  return null;
+}
+
+/**
+ * Whether a model row may address this snapshot row with this field — i.e. whether the field is
+ * one the addressed ENTRY actually has (EDIT-ROW-KIND).
+ *
+ * The section matching is not enough: `q1` is an education and `certificate_name` is a
+ * qualifications field, yet a delete anchored so would remove the education while the card named
+ * a certificate with no value. A qualification field must name the list the ref points into; any
+ * other section's field must be one of the row's own keys — a scalar preference lives on `pref`,
+ * a city only on its `pcN` member, never the other way round.
+ */
+export function rowCarriesField(source: SnapshotRow, field: string): boolean {
+  if (source.section === "qualifications") {
+    const list = source.target?.["list"];
+    return typeof list === "string" && qualificationListOfField(field) === list;
+  }
+  return Object.hasOwn(source.fields, field);
+}
 
 /** Whether the section's read succeeded, i.e. whether it can be carded, checked and applied. */
 export function sectionReadable(state: EditState, section: CompanionV2EditSection): boolean {
@@ -300,17 +329,23 @@ function sameEntry(candidate: SnapshotRow, row: StoredEditProposalRow): boolean 
  * A card whose captured values no longer match the profile cannot be applied. Adds are never
  * stale: an add names no current row, and one that became a duplicate meanwhile is a no-op at
  * apply time by construction.
+ *
+ * The field must be one the entry HAS (`rowCarriesField`): a row whose field the entry lacks
+ * would otherwise read `undefined` as a matching `before: null` and pass. `propose` no longer
+ * cards such a row (EDIT-ROW-KIND); one stored before that gate is stale here, never applied.
  */
 export function isStale(
   fresh: readonly SnapshotRow[],
   rows: readonly StoredEditProposalRow[],
 ): boolean {
-  return rows.some(
-    (row) =>
-      row.op !== "add" &&
-      !fresh.some(
-        (candidate) =>
-          sameEntry(candidate, row) && (candidate.fields[row.field ?? ""] ?? null) === row.before,
-      ),
-  );
+  return rows.some((row) => {
+    if (row.op === "add") return false;
+    const field = row.field ?? "";
+    return !fresh.some(
+      (candidate) =>
+        sameEntry(candidate, row) &&
+        rowCarriesField(candidate, field) &&
+        (candidate.fields[field] ?? null) === row.before,
+    );
+  });
 }

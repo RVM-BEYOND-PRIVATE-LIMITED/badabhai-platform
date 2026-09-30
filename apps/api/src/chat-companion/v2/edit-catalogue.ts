@@ -46,6 +46,7 @@ import {
 } from "../../profiles/worker-preferences.vocabulary";
 import { CREDENTIAL_YEAR_FLOOR, currentYear } from "../../profiles/credential-year";
 import { EDIT_ENTRY_LABELS, EDIT_FIELD_LABELS, EDIT_YES_NO_LABELS } from "../companion-replies";
+import { QUALIFICATION_PREFIX } from "./edit-snapshot";
 
 /** The card's display label per section (reviewed copy, shown on every row of the card). */
 export const SECTION_LABELS: Readonly<Record<CompanionV2EditSection, string>> = {
@@ -325,15 +326,21 @@ export function displayValue(
   return null;
 }
 
-/** The entry kind a whole-entry delete removes, by the field it was anchored on. */
+/**
+ * The entry kind a whole-entry delete removes, read from the row's RESOLVED TARGET — the entry the
+ * apply will actually remove (`planQualifications` goes by `target.list`) — never from the anchor
+ * field the model chose (EDIT-ROW-KIND). Null when the target names no list: say nothing rather
+ * than guess.
+ */
 function entryOf(
   section: CompanionV2EditSection,
-  field: string,
+  target: Readonly<Record<string, string | number>> | null,
 ): keyof typeof EDIT_ENTRY_LABELS | null {
   if (section === "employment") return "employment";
-  if (section !== "qualifications") return null;
-  const prefix = field.split("_")[0];
-  return prefix === "certificate" || prefix === "education" || prefix === "training" ? prefix : null;
+  const list = target?.["list"];
+  return list === "certificates" || list === "educations" || list === "trainings"
+    ? QUALIFICATION_PREFIX[list]
+    : null;
 }
 
 /**
@@ -343,17 +350,22 @@ function entryOf(
  * A DELETE IN EMPLOYMENT OR QUALIFICATIONS NAMES THE ENTRY. Those sections are edit/delete-only
  * and a delete removes the whole entry — the field is only the model's anchor — so the label
  * says so ("Yeh poora kaam") instead of naming whichever field the model happened to point at.
+ * The kind comes from `target`, the entry being removed; a qualification delete without one has
+ * NO label (null), never a field's.
  */
 export function cardFieldLabel(
   section: CompanionV2EditSection,
   field: string | null,
   op: CompanionV2EditOp,
+  target: Readonly<Record<string, string | number>> | null = null,
 ): string | null {
   if (field === null) return null;
   const entry = catalogueEntry(section, field);
   if (entry === undefined) return null;
-  const kind = op === "delete" ? entryOf(section, field) : null;
-  if (kind !== null) return EDIT_ENTRY_LABELS[kind].latin;
+  if (op === "delete" && (section === "employment" || section === "qualifications")) {
+    const kind = entryOf(section, target);
+    return kind === null ? null : EDIT_ENTRY_LABELS[kind].latin;
+  }
   return EDIT_FIELD_LABELS[`${section}:${field}`]?.latin ?? null;
 }
 

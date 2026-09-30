@@ -35,6 +35,8 @@ EditResumeHandler
                  max_rows = min(EDIT_MAX_ROWS, 3)}
   3. validate each row (deterministic):
        section in catalogue · op allowed for section · ref exists AND was sent (edit/delete)
+       the field belongs to the ref's entry: a qualification field names the ref's list, any
+         other field is one of that row's keys (EDIT-ROW-KIND, contracts §3.2) → else drop
        value passes the field's normalisation
        value contains no placeholder token (O17) → else drop
        skills: phrase → skill_id via ADR-0030 canonicalizer (floor 0.75) → else drop
@@ -60,7 +62,7 @@ POST /chat/companion/edits/:id/confirm {row_ids}
   3. re-read the sections once; one that cannot be read → release the claim, V2_FALLBACK + the
      card (nothing is known, so it is not "stale")
      stale check: every selected row's current value == captured before-value (qualifications
-     matched by fingerprint, never by index) → else
+     matched by fingerprint, never by index; a field its entry lacks is stale) → else
      delete proposal, V2_EDIT_STALE, emit cancelled(stale), 409 {reason:"stale", turn}
   4. apply selected rows in ONE transaction through the catalogue writers, built from the state
      the stale check read (contracts §3.2)
@@ -202,10 +204,10 @@ A new edit message while a proposal is open replaces it (one active proposal per
 | `companion-v2.flag-off.test.ts` | v2 off ⇒ every existing v1 test fixture yields the identical turn |
 | `companion-v2.v1-first.test.ts` | every v1 chip / alias / intent resolves without a model call |
 | `companion-v2.orchestrator.test.ts` | each intent → correct handler; null / low-confidence / blocked → clarify |
-| `companion-edit.validate.test.ts` | each drop rule (catalogue, op, ref, DTO, token, skill floor, no-op) — incl. no-op ADDS, duplicates, the writer's real schema, the row cap, the snapshot cap, the O17 Profile-screen line |
+| `companion-edit.validate.test.ts` | each drop rule (catalogue, op, ref, a field of another entry kind, DTO, token, skill floor, no-op) — incl. no-op ADDS, duplicates, the writer's real schema, the row cap, the snapshot cap, the O17 Profile-screen line |
 | `companion-edit.confirm.test.ts` | ownership 404; stale 409; transaction rollback on a writer failure (row 2 fails → row 1 undone); regenerate queued / capped / failed; consent off → no regeneration; at most one apply per card (concurrent / retried Haan); a rollback serves the card again; expired → cancelled(expired) |
 | `companion-edit.apply.test.ts` | the body each writer receives: preferences `touched_only` + folded lists, qualifications by identity and only the touched lists, skills never duplicated, the night-shift seed after commit |
-| `edit-catalogue.test.ts` | every catalogue field has a `field_label` (distinct within its section, no orphan); a whole-entry delete names the entry; every closed-set value maps to its dictionary's display label; free text, unknown slugs and nulls → null |
+| `edit-catalogue.test.ts` | every catalogue field has a `field_label` (distinct within its section, no orphan); a whole-entry delete names the entry, by its target's list; every closed-set value maps to its dictionary's display label; free text, unknown slugs and nulls → null |
 | `resume-chat-edit.db.test.ts` (`RUN_DB_TESTS=1`) | a Haan on a profile that already has its v1 writes a NEW `chat_edit` row from the edited profile; a second edit is another; a queue retry does not duplicate |
 | `companion-edit.no-identity.test.ts` | name / phone / ID requests never produce a row; `V2_EDIT_IDENTITY` served — also when the model gives no hint (the deterministic check, `edit-identity.test.ts`) |
 | `chat-companion.module.boot.test.ts` (extended) | still no chat-table writers reachable from the module |

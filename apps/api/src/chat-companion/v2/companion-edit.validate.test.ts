@@ -571,3 +571,62 @@ describe("the snapshot fits the edit-parse contract (BUG-SNAPSHOT-CAP)", () => {
     expect(turn.reply).toBe(V2_EDIT_NONE.latin);
   });
 });
+
+describe("a row's field must belong to the entry its ref names (EDIT-ROW-KIND)", () => {
+  // The model's output is untrusted. `q1` is an education and `certificate_name` is a
+  // qualifications field, so a section check alone passed `delete q1 certificate_name` — and the
+  // apply, which goes by the ref's list, would delete the education under a card that said
+  // "Yeh poora certificate" with no value.
+  const EDU = { credential: "iti", field: "Fitter", council: "ncvt", year: 2016, institute: "Govt ITI" };
+  const TRAINING = { name: "CNC basics", provider: "NTTF", year: 2020 };
+
+  it.each([
+    ["a certificate field on an education (delete)", row({ op: "delete", section: "qualifications", ref: "q1", field: "certificate_name", value: null })],
+    ["an education field on a certificate (delete)", row({ op: "delete", section: "qualifications", ref: "c1", field: "education_year", value: null })],
+    ["a training field on a certificate (edit)", row({ op: "edit", section: "qualifications", ref: "c1", field: "training_year", value: "2019" })],
+    ["a scalar preference on a city member", row({ op: "edit", section: "preferences", ref: "pc1", field: "shift", value: "night" })],
+    ["a list preference on the scalar row", row({ op: "delete", section: "preferences", ref: "pref", field: "preferred_cities", value: null })],
+    ["one list's member deleted as another list's", row({ op: "delete", section: "preferences", ref: "pc1", field: "work_types", value: null })],
+  ])("drops %s — no card, nothing stored", async (_what, modelRow) => {
+    const h = setup({
+      parse: parse([modelRow]),
+      qualificationLists: { certificates: [CERT_A], educations: [EDU], trainings: [TRAINING] },
+      preferenceValues: { shift: "day", preferred_cities: ["Pune"], work_types: ["full_time"] },
+    });
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "kuch hatao", CTX);
+    expect(turn.reply).toBe(V2_EDIT_NONE.latin);
+    expect(turn.edit_proposal).toBeUndefined();
+    expect(h.proposals.save).not.toHaveBeenCalled();
+  });
+
+  it("the same entry anchored on its OWN field is carded, and labelled as that entry", async () => {
+    const h = setup({
+      parse: parse([
+        row({ op: "delete", section: "qualifications", ref: "q1", field: "education_council", value: null }),
+      ]),
+      qualificationLists: { certificates: [CERT_A], educations: [EDU] },
+    });
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "ITI wali padhai hatao", CTX);
+    expect(turn.edit_proposal?.rows).toHaveLength(1);
+    expect(turn.edit_proposal?.rows[0]).toMatchObject({
+      section_label: "Certificate aur padhai",
+      field_label: "Yeh poori padhai",
+      op: "delete",
+      before: "ncvt",
+    });
+  });
+
+  it("a mis-kinded row beside a good one: the card carries the good row only, dropped counted", async () => {
+    const h = setup({
+      parse: parse([
+        row({ op: "delete", section: "qualifications", ref: "q1", field: "certificate_name", value: null }),
+        row({ op: "edit", section: "preferences", ref: "pref", field: "shift", value: "night" }),
+      ]),
+      qualificationLists: { educations: [EDU] },
+      preferenceValues: { shift: "day" },
+    });
+    await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+    expect(savedRows(h).map((r) => [r.op, r.field])).toEqual([["edit", "shift"]]);
+    expect(proposedPayload(h)).toMatchObject({ row_count: 1, dropped_count: 1 });
+  });
+});

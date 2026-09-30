@@ -277,6 +277,24 @@ describe("qualifications — the stale check survives a reorder (P1-CONF-STALE)"
     expect(h.db.transaction).not.toHaveBeenCalled();
   });
 
+  it("a card stored before EDIT-ROW-KIND — a certificate field on an education — is stale, never applied", async () => {
+    // `undefined ?? null === before: null` used to pass the check, and the apply (by the ref's
+    // list) would have deleted the education under a row that said "certificate".
+    const misKinded = qualRow(1, "educations", 0, EDU, {
+      op: "delete",
+      field: "certificate_name",
+      before: null,
+    });
+    const h = setup({
+      proposal: storedProposal({ rows: [misKinded] }),
+      qualificationLists: { certificates: [A], educations: [EDU] },
+    });
+    const result = await confirmAll(h, [misKinded]);
+    expect(result.kind).toBe("stale");
+    expect(h.db.transaction).not.toHaveBeenCalled();
+    expect(h.qualifications.replaceForWorker).not.toHaveBeenCalled();
+  });
+
   it("a card stored before the fingerprint existed is stale, never guessed at", async () => {
     const legacy = { ...EDIT_B_YEAR, target: { list: "certificates", index: 1 } };
     const h = setup({

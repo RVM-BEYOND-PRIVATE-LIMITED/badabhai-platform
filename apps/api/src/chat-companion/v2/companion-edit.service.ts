@@ -55,6 +55,7 @@ import { identityAskIn } from "./edit-identity";
 import { dedupeRows, isNoopAdd, planSection, type SectionPlan } from "./edit-plan";
 import {
   isStale,
+  rowCarriesField,
   sectionReadable,
   snapshotRows,
   trimSnapshot,
@@ -289,10 +290,11 @@ export class CompanionEditService {
    * One model row through every per-row gate (spec §Edit step 3).
    *
    * The gates, in order: the catalogue names the pair; the op is legal for it; edit/delete
-   * address a row this snapshot actually minted AND showed; add carries no ref; add/edit carry a
-   * value that passes the field's own normalisation; a placeholder token drops the row (O17); and
-   * an edit identical to the current value is a no-op. The row-SET gates — duplicates, adds of
-   * what is already there, the writer's own schema — run after, in `propose`.
+   * address a row this snapshot actually minted AND showed, whose entry has that field (a
+   * certificate field on a certificate, a scalar preference on `pref`); add carries no ref;
+   * add/edit carry a value that passes the field's own normalisation; a placeholder token drops
+   * the row (O17); and an edit identical to the current value is a no-op. The row-SET gates —
+   * duplicates, adds of what is already there, the writer's own schema — run after, in `propose`.
    */
   private validateRow(
     row: {
@@ -314,6 +316,9 @@ export class CompanionEditService {
       if (row.ref === null) return invalid;
       const source = byRef.get(row.ref);
       if (source === undefined || source.section !== entry.section) return invalid;
+      // EDIT-ROW-KIND: the field must belong to the entry the ref names — an education anchored
+      // on `certificate_name` would be deleted under a card that says "certificate".
+      if (!rowCarriesField(source, entry.field)) return invalid;
       target = source.target;
       before = source.fields[entry.field] ?? null;
     } else if (row.ref !== null) {
@@ -377,7 +382,7 @@ export class CompanionEditService {
       proposal_id: proposal.proposal_id,
       expires_at: proposal.expires_at,
       rows: proposal.rows.map((row): EditProposalRow => {
-        const fieldLabel = cardFieldLabel(row.section, row.field, row.op);
+        const fieldLabel = cardFieldLabel(row.section, row.field, row.op, row.target);
         return {
           row_id: row.row_id,
           section_label: row.section_label,

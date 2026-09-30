@@ -22,6 +22,7 @@ import {
 import type { StoredEditProposalRow } from "./edit-proposal.store";
 import {
   qualificationFingerprint,
+  qualificationListOfField,
   type EditState,
   type QualificationList,
   type SnapshotRow,
@@ -230,10 +231,20 @@ function planQualifications(
   return SetMyQualificationsSchema.parse(body);
 }
 
+/**
+ * The list a row applies to — its target's — and only when its field names that same list
+ * (EDIT-ROW-KIND). `propose` never cards such a row; this refuses one stored before that gate, so
+ * an education can never be removed under a row that says "certificate".
+ */
 function qualificationListOf(row: StoredEditProposalRow): QualificationList {
   const list = row.target?.["list"];
-  if (list === "certificates" || list === "educations" || list === "trainings") return list;
-  throw new Error("qualification row without a list");
+  if (list !== "certificates" && list !== "educations" && list !== "trainings") {
+    throw new Error("qualification row without a list");
+  }
+  if (qualificationListOfField(row.field ?? "") !== list) {
+    throw new Error("qualification row's field names another list");
+  }
+  return list;
 }
 
 /** row_id → the entry object it names, resolved on the untouched lists (see planQualifications). */

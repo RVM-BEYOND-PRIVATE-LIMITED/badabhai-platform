@@ -84,15 +84,34 @@ describe("every catalogue field has a worker-facing field label", () => {
 describe("a whole-entry delete names the ENTRY, never its anchor field", () => {
   // Employment and qualification deletes remove the whole entry; the field is only the anchor
   // the model pointed at. "Kab shuru kiya — Hatayenge: 2019-01" would read as clearing a date.
+  const EMPLOYMENT_TARGET = { employment_id: "66666666-6666-4666-8666-666666666666" };
+  const target = (list: string) => ({ list, index: 0, fp: "0123456789abcdef" });
+
   it.each([
-    ["employment", "start_ym", EDIT_ENTRY_LABELS.employment.latin],
-    ["employment", "employer_name", EDIT_ENTRY_LABELS.employment.latin],
-    ["qualifications", "certificate_year", EDIT_ENTRY_LABELS.certificate.latin],
-    ["qualifications", "education_council", EDIT_ENTRY_LABELS.education.latin],
-    ["qualifications", "training_provider", EDIT_ENTRY_LABELS.training.latin],
-  ] as const)("%s:%s delete → %j", (section, field, expected) => {
-    expect(cardFieldLabel(section, field, "delete")).toBe(expected);
-    expect(cardFieldLabel(section, field, "edit")).not.toBe(expected);
+    ["employment", "start_ym", EMPLOYMENT_TARGET, EDIT_ENTRY_LABELS.employment.latin],
+    ["employment", "employer_name", EMPLOYMENT_TARGET, EDIT_ENTRY_LABELS.employment.latin],
+    ["qualifications", "certificate_year", target("certificates"), EDIT_ENTRY_LABELS.certificate.latin],
+    ["qualifications", "education_council", target("educations"), EDIT_ENTRY_LABELS.education.latin],
+    ["qualifications", "training_provider", target("trainings"), EDIT_ENTRY_LABELS.training.latin],
+  ] as const)("%s:%s delete → %j", (section, field, rowTarget, expected) => {
+    expect(cardFieldLabel(section, field, "delete", rowTarget)).toBe(expected);
+    expect(cardFieldLabel(section, field, "edit", rowTarget)).not.toBe(expected);
+  });
+
+  it("the entry kind is the TARGET's list — the entry removed — never the anchor field's (EDIT-ROW-KIND)", () => {
+    // A certificate field anchored on an education: the apply removes the education, so the card
+    // must say so rather than "Yeh poora certificate".
+    expect(cardFieldLabel("qualifications", "certificate_name", "delete", target("educations"))).toBe(
+      EDIT_ENTRY_LABELS.education.latin,
+    );
+    expect(cardFieldLabel("qualifications", "education_year", "delete", target("trainings"))).toBe(
+      EDIT_ENTRY_LABELS.training.latin,
+    );
+  });
+
+  it("a qualification delete with no list on its target has NO label — never a field's, never a guess", () => {
+    expect(cardFieldLabel("qualifications", "certificate_name", "delete")).toBeNull();
+    expect(cardFieldLabel("qualifications", "certificate_name", "delete", target("licences"))).toBeNull();
   });
 
   it("a member delete (language, skill, role, a list preference) keeps the field's label", () => {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { trimSnapshot, type SnapshotRow } from "./edit-snapshot";
+import {
+  qualificationListOfField,
+  rowCarriesField,
+  trimSnapshot,
+  type SnapshotRow,
+} from "./edit-snapshot";
 
 /** `n` rows of one ref family, each carrying one field value. */
 function family(prefix: string, section: SnapshotRow["section"], field: string, n: number): SnapshotRow[] {
@@ -56,5 +61,54 @@ describe("trimSnapshot", () => {
     const sent = trimSnapshot(big, "kuch", 64);
     expect(sent.filter((r) => r.ref.startsWith("s"))).toHaveLength(32);
     expect(sent.filter((r) => r.ref.startsWith("c"))).toHaveLength(32);
+  });
+});
+
+// EDIT-ROW-KIND — a model row may address an entry only with a field that entry has.
+describe("rowCarriesField", () => {
+  const qualification = (list: string): SnapshotRow => ({
+    ref: "q1",
+    section: "qualifications",
+    fields: {},
+    target: { list, index: 0, fp: "0123456789abcdef" },
+  });
+  const pref: SnapshotRow = {
+    ref: "pref",
+    section: "preferences",
+    fields: { shift: null, expected_salary: "20000" },
+    target: null,
+  };
+  const city: SnapshotRow = {
+    ref: "pc1",
+    section: "preferences",
+    fields: { preferred_cities: "Pune" },
+    target: { member: "Pune" },
+  };
+
+  it("a qualification field must name the ref's own list — by prefix, whatever the entry's keys", () => {
+    expect(rowCarriesField(qualification("educations"), "education_year")).toBe(true);
+    expect(rowCarriesField(qualification("educations"), "certificate_name")).toBe(false);
+    expect(rowCarriesField(qualification("certificates"), "training_year")).toBe(false);
+    expect(rowCarriesField(qualification("trainings"), "training_provider")).toBe(true);
+  });
+
+  it("a qualification ref without a list carries nothing", () => {
+    expect(rowCarriesField({ ...qualification("educations"), target: null }, "education_year")).toBe(false);
+  });
+
+  it("any other row carries exactly its own keys — a null value still counts, a prototype name does not", () => {
+    expect(rowCarriesField(pref, "shift")).toBe(true);
+    expect(rowCarriesField(pref, "preferred_cities")).toBe(false);
+    expect(rowCarriesField(pref, "constructor")).toBe(false);
+    expect(rowCarriesField(city, "preferred_cities")).toBe(true);
+    expect(rowCarriesField(city, "shift")).toBe(false);
+  });
+
+  it("qualificationListOfField reads only the three catalogue prefixes", () => {
+    expect(qualificationListOfField("certificate_issuer")).toBe("certificates");
+    expect(qualificationListOfField("education_institute")).toBe("educations");
+    expect(qualificationListOfField("training_name")).toBe("trainings");
+    expect(qualificationListOfField("certificates")).toBeNull();
+    expect(qualificationListOfField("licence_number")).toBeNull();
   });
 });
