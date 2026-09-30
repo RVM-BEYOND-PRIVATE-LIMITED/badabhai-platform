@@ -122,7 +122,7 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
               </div>
             </div>
           ) : (
-            <div className="tablewrap">
+            <div className="tablewrap" tabIndex={0} role="region" aria-label="Members">
               <table className="table">
                 <thead>
                   <tr>

@@ -284,3 +284,56 @@ describe("PostingsManager — A11Y-OF-FAILURE: per-row error region is aria-live
     expect(text).not.toMatch(/\b(phone|worker name)\b/i);
   });
 });
+
+/** Every element whose className carries `cls` (space-separated), depth-first. */
+function byClass(node: ReactNode, cls: string, acc: ReactElement[] = []): ReactElement[] {
+  if (node === null || node === undefined || typeof node !== "object") return acc;
+  if (Array.isArray(node)) {
+    for (const c of node) byClass(c, cls, acc);
+    return acc;
+  }
+  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  const cn = el.props?.className;
+  if (typeof cn === "string" && cn.split(/\s+/).includes(cls)) acc.push(el);
+  if (el.props && "children" in el.props) byClass(el.props.children, cls, acc);
+  return acc;
+}
+
+describe("PostingsManager — W3-B card anatomy (facts row / links row / action bar)", () => {
+  it("the facts row holds FACTS only; Details / Edit are their own row with the same targets", () => {
+    const tree = render([OPEN]);
+    const meta = byClass(tree, "posting-card__meta");
+    const links = byClass(tree, "posting-card__links");
+    expect(meta).toHaveLength(1);
+    expect(links).toHaveLength(1);
+    // No link inside the facts row — its separator slot is clipped (globals.css), so a focusable
+    // there could lose its focus ring.
+    expect(hrefs(meta[0]!)).toEqual([]);
+    expect(hrefs(links[0]!)).toEqual([`/postings/${OPEN.id}`, `/postings/${OPEN.id}/edit`]);
+    expect(textOf(links[0]!).replace(/\s+/g, " ").trim()).toBe("Details Edit");
+    // The facts themselves are unchanged (copy invariant).
+    expect(textOf(meta[0]!)).toBe("Pune, MH6-20 vacancies2 / 10 applicantsPosted 2026-06-22");
+  });
+
+  it("the links row sits in the text column, BEFORE the row's aria-live result region", () => {
+    const main = byClass(render([OPEN]), "posting-card__main")[0]!;
+    const kids = (main.props as { children: ReactNode[] }).children.filter(
+      (c): c is ReactElement => typeof c === "object" && c !== null,
+    );
+    const order = kids.map((k) => {
+      const p = k.props as Record<string, unknown>;
+      return typeof p.className === "string" ? p.className : `aria-live=${String(p["aria-live"])}`;
+    });
+    expect(order).toEqual([
+      "posting-card__head",
+      "posting-card__meta",
+      "posting-card__links",
+      "aria-live=polite",
+    ]);
+  });
+
+  it("the title still links to the posting's faceless applicant feed", () => {
+    const title = byClass(render([OPEN]), "posting-card__title")[0]!;
+    expect((title.props as { href: string }).href).toBe(`/postings/${OPEN.id}/applicants`);
+  });
+});

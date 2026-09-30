@@ -53,8 +53,10 @@ export default async function CapacityPage() {
   const atCapacity =
     capacity !== null && capacity.activeVacancies >= capacity.activeVacancyAllowance;
 
+  // `.capacity-page` only NAMESPACES this screen's layout rules (the "W3-B" block in
+  // globals.css) — it carries no styling of its own.
   return (
-    <>
+    <div className="capacity-page">
       <p className="page-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
@@ -84,7 +86,7 @@ export default async function CapacityPage() {
         </Card>
       ) : capacity ? (
         <>
-          <div className="stat-row">
+          <div className="stat-row stat-row--kpi">
             <StatTile
               label={`Active ${unit}`}
               value={
@@ -172,7 +174,7 @@ export default async function CapacityPage() {
                   </div>
                 </div>
               ) : (
-                <div className="tablewrap">
+                <div className="tablewrap" tabIndex={0} role="region" aria-label={`Per ${unitOne}`}>
                   <table className="table">
                     <thead>
                       <tr>
@@ -221,6 +223,6 @@ export default async function CapacityPage() {
           </section>
         </>
       ) : null}
-    </>
+    </div>
   );
 }
