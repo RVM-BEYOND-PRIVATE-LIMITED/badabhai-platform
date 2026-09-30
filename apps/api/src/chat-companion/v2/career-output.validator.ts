@@ -32,6 +32,7 @@ export type CareerAnswerFailure =
   | "persona"
   | "exclamation"
   | "emoji"
+  | "format_char"
   | "too_many_questions"
   | "money"
   | "promise"
@@ -78,6 +79,17 @@ const EMOJI =
   /\p{Extended_Pictographic}|\p{Regional_Indicator}|\p{Emoji_Modifier}|\p{Variation_Selector}|\u{200D}|\u{20E3}|[\u{E0020}-\u{E007F}]|[\u{2600}-\u{27BF}]/u;
 
 /**
+ * INVISIBLE FORMAT CHARACTERS (`\p{Cf}`) are barred outright: the zero-width space and non-joiner,
+ * the word joiner, the soft hyphen, the BOM, the bidi controls. They are `Common` or `Inherited`
+ * script, so `NON_LATIN` lets them through, and the fold below keeps them — so `Sal\u200Bary 25000`
+ * walked past every word check while the worker read "Salary 25000", and a phone number split by
+ * one walked past `looksLikePii`. A model writing Hinglish has no use for any of them. Checked
+ * after `EMOJI` only so that the joiner and tag characters inside an emoji keep reporting as
+ * `emoji`; both are rejections.
+ */
+const FORMAT_CHAR = /\p{Cf}/u;
+
+/**
  * THE FORM EVERY WORD PATTERN READS. The patterns below are spelled in plain ASCII, so a
  * lookalike would walk past them: fullwidth `Ｓａｌａｒｙ ２５０００` is Latin script and passes
  * `NON_LATIN`, and `sálary` is one accent away from the word list. NFKD maps the compatibility
@@ -90,9 +102,10 @@ const EMOJI =
 const scanForm = (text: string): string => text.normalize("NFKD").replace(/\p{M}/gu, "");
 
 /**
- * MONEY (O10): a FIGURE next to a money WORD — "salary 25000", "15000 salary", "₹ 20,000",
- * "20 hazaar mahina". The word alone is advice ("salary apne employer se poochiye") and legal; a
- * figure alone is a count ("2-3 years", "8 hours") and legal.
+ * MONEY (O10): a money WORD and a FIGURE in the same SENTENCE — "salary 25000", "15000 salary",
+ * "₹ 20,000", "aapki salary shuru mein lagbhag 15000 hogi", "15k per month". The word alone is
+ * advice ("salary apne employer se poochiye") and legal; a figure alone is a count ("2-3 years",
+ * "8 hours") and legal.
  *
  * WHOLE WORDS. No LETTER may touch either end of a money word (`₹` is a sign and needs no
  * anchor): the old substring match failed "years", "hours", "course" and "workers" on `rs`,
@@ -100,28 +113,45 @@ const scanForm = (text: string): string => text.normalize("NFKD").replace(/\p{M}
  * answer. The anchors are letter lookarounds rather than `\b` because a digit is a word character
  * to `\b` — `Rs500`, `500rs` and `salary25000` must still fail.
  *
- * "NEXT TO" means the figure touches the word, or at most two words sit between them inside one
- * sentence ("salary lagbhag 20000", "mahine ka 18,000"). A sentence stop ends the reach, so a
- * line that says "salary" and later gives an unrelated count is not a salary figure.
+ * THE REACH IS THE SENTENCE, not a word count: a salary claim puts any number of words between
+ * the word and the figure ("welder ki salary experience ke saath 25000 tak jaati hai"). Only a
+ * sentence stop ends it — `.` `?` `!`, the danda, a newline — because text after a stop is what
+ * the model could equally have written as its own line, and a line with a figure and no money
+ * word is legal anyway. A COMMA DOES NOT END IT: "Salary, experience ke hisaab se, 15000 se 25000"
+ * is exactly how a drifting model would phrase a wage, so "salary" and an unrelated count in one
+ * comma-joined sentence fail too — the cost of that false positive is one fallback line. A `.`
+ * between two digits is a decimal or grouping point (`1.5 lakh`), and the `rs.` abbreviation's
+ * dot is part of the word (`Rs. 500`), so neither ends a sentence.
  *
  * TWO KINDS OF WORD. A CURRENCY word (₹, rs, rupaye, salary, tankhwah, lakh, hazaar and their
- * spellings) makes any figure money. A MONTH word (per month, mahina, mahine) makes a figure money
- * only when it is salary-sized — four digits or more: "15000 mahina" is a wage, "6 mahine ka
+ * spellings) makes any figure money. A MONTH word (month(s), monthly, mahina, mahine) makes a
+ * figure money only when it is WAGE-SIZED: four digits or more ("15000 mahina", "25000/month"),
+ * or a figure with a thousands suffix ("15k per month", "15 thousand per month"). "6 mahine ka
  * course" and "har mahine 100 ghante" are a duration and a count, and no monthly wage is written
- * in three digits.
+ * in three bare digits. (`hazaar` and `lakh` need no suffix rule: they are currency words.)
  */
-const CURRENCY_WORD = String.raw`₹|(?<!\p{L})(?:rs|rupaye|rupaya|rupay|rupees?|salary|salaries|tankhwah|tankha|lakhs?|lacs?|hazaar|hazar)(?!\p{L})\.?`;
-const MONTH_WORD = String.raw`(?<!\p{L})(?:per\s+month|mahina|mahine)(?!\p{L})`;
-/** Any figure: `5`, `20,000`, `1.5`, `1,00,000` (a range like `15-20` is two figures). */
-const FIGURE = String.raw`\p{Nd}(?:[.,]?\p{Nd})*`;
-/** A salary-sized figure: four digits or more, separators allowed (`8000`, `18,000`). */
-const WAGE_FIGURE = String.raw`\p{Nd}(?:[.,]?\p{Nd}){3,}`;
-/** Spacing and joining punctuation, then at most two words — never a sentence stop. */
-const MONEY_GAP = String.raw`[\s,:;()/~\u2013\u2014-]*(?:\p{L}+[\s,:;()/~\u2013\u2014-]+){0,2}`;
+const CURRENCY_WORD =
+  /₹|(?<!\p{L})(?:rs|rupaye|rupaya|rupay|rupees?|salary|salaries|tankhwah|tankha|lakhs?|lacs?|hazaar|hazar)(?!\p{L})/iu;
+const MONTH_WORD = /(?<!\p{L})(?:months?|monthly|mahina|mahine|maheena|maheene)(?!\p{L})/iu;
+/** Any figure at all. */
+const FIGURE = /\p{Nd}/u;
+/** A wage-sized figure: four digits or more (separators allowed: `8000`, `18,000`), or `15k`. */
+const WAGE_FIGURE = /\p{Nd}(?:[.,]?\p{Nd}){3,}|\p{Nd}\s*(?:k|thousand)(?!\p{L})/iu;
+/** The `rs.` abbreviation: its dot is rewritten to a space before the line is split. */
+const RS_ABBREVIATION = /(?<!\p{L})(rs)\./giu;
+/** A sentence stop — never a comma, and never a `.` between two digits. */
+const SENTENCE_STOP = /[?!\u0964\u0965\n\r]|(?<!\p{Nd})\.|\.(?!\p{Nd})/u;
 
-const moneyNear = (word: string, figure: string): RegExp =>
-  new RegExp(`(?:${word})${MONEY_GAP}${figure}|${figure}${MONEY_GAP}(?:${word})`, "iu");
-const MONEY = [moneyNear(CURRENCY_WORD, FIGURE), moneyNear(MONTH_WORD, WAGE_FIGURE)] as const;
+function statesMoney(scan: string): boolean {
+  return scan
+    .replace(RS_ABBREVIATION, "$1 ")
+    .split(SENTENCE_STOP)
+    .some(
+      (sentence) =>
+        (CURRENCY_WORD.test(sentence) && FIGURE.test(sentence)) ||
+        (MONTH_WORD.test(sentence) && WAGE_FIGURE.test(sentence)),
+    );
+}
 
 /**
  * PROMISES (O10): a guarantee about a job, however phrased. `zaroor milegi` is matched as a
@@ -158,8 +188,9 @@ function contentFailure(text: string, maxWords: number): CareerAnswerFailure | n
   const scan = scanForm(text);
   if (scan.includes("!")) return "exclamation";
   if (EMOJI.test(text)) return "emoji";
+  if (FORMAT_CHAR.test(text)) return "format_char";
   if (checkPersonaTokens(scan).length > 0) return "persona";
-  if (MONEY.some((money) => money.test(scan))) return "money";
+  if (statesMoney(scan)) return "money";
   if (PROMISE.test(scan)) return "promise";
   if (SENSITIVE.test(scan)) return "sensitive_advice";
   if (RATING.test(scan)) return "worker_rating";

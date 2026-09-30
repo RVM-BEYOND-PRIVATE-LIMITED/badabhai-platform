@@ -126,11 +126,12 @@ describe("script: Latin only (O9) — every non-Latin script is barred, not just
 });
 
 /**
- * MONEY (O10): a FIGURE next to a money WORD. The fail table is the salary phrasings; the pass
- * table is the ordinary career lines the old substring rule threw away ("rs" inside "years",
+ * MONEY (O10): a whole money WORD and a FIGURE in one SENTENCE. The fail table is the salary
+ * phrasings — including the ones a word-count reach and a digits-only wage size let through; the
+ * pass table is the ordinary career lines the old substring rule threw away ("rs" inside "years",
  * "hours", "course", "workers"; "lac" inside "workplace"; "hazar" inside "hazard").
  */
-describe("money (O10): a figure next to a whole money word — and nothing else", () => {
+describe("money (O10): a whole money word and a figure in one sentence — and nothing else", () => {
   it.each([
     ["a figure after the word", "Salary 25000 milegi."],
     ["a figure before the word", "15000 salary milti hai."],
@@ -158,6 +159,29 @@ describe("money (O10): a figure next to a whole money word — and nothing else"
     ["a salary-sized figure before per month", "12000 per month milta hai."],
     ["a fullwidth lookalike, folded before the scan", "Ｓａｌａｒｙ ２５０００ hai."],
     ["an accent inside the word, folded before the scan", "Sálary 25000 hai."],
+    // A salary claim puts any number of words between the word and the figure: the reach is the
+    // sentence, not two words.
+    ["three words between", "Aapki salary shuru mein lagbhag 15000 hogi."],
+    ["a range, three words in", "Salary aam taur par 12000 se 18000 hoti hai."],
+    ["four words between", "Welder ki salary experience ke saath 25000 tak jaati hai."],
+    ["tankhwah, four words between", "Tankhwah ke roop mein aapko 18000 mil sakte hain."],
+    // A comma does not end the reach — this is how a drifting model phrases a wage.
+    ["commas between word and figure", "Salary, experience ke hisaab se, 15000 se 25000 tak hoti hai."],
+    [
+      "a currency word and an unrelated count in one comma-joined sentence",
+      "Salary employer se poochiye, pehle 2 skill test paas kariye.",
+    ],
+    // A thousands suffix makes a small figure wage-sized next to a month word.
+    ["k with per month", "15k per month milta hai."],
+    ["k with per month, sentence-final", "15k per month mil sakta hai."],
+    ["a k range with per month", "Shuru me 18-20k per month milta hai."],
+    ["k with mahina", "20k mahina milta hai."],
+    ["k with mahina, words between", "Is kaam mein 15k mahina milta hai."],
+    ["thousand with per month", "15 thousand per month milta hai."],
+    // Every spelling of the month.
+    ["monthly", "Shuru me 25,000 monthly milte hain."],
+    ["/month", "Shuru me 25000/month milta hai."],
+    ["months", "Pehle 3 months 12000 milte hain."],
   ])("%s → money", (_label, text) => {
     expect(line(text)).toBe("money");
   });
@@ -171,16 +195,48 @@ describe("money (O10): a figure next to a whole money word — and nothing else"
     ["hazard", "5 hazard signs yaad rakhiye."],
     ["workplace", "Workplace pe 3 cheezein yaad rakhiye."],
     ["a duration in months", "6 mahine ka course kariye."],
+    ["a duration in English months", "3 months ka course kariye."],
     ["a count next to a month word", "Har mahine 100 ghante practice kariye."],
+    ["a k-prefixed unit is not a thousands suffix", "Har mahine 2 kg welding rod practice me lagaiye."],
     ["the money word with no figure", "Salary ki baat khud tay kariye."],
-    [
-      "a figure out of reach of the word",
-      "Salary employer se poochiye, pehle 2 skill test paas kariye.",
-    ],
     ["a sentence stop between word and figure", "Salary baad me. 2 certificate pehle lijiye."],
+    ["a question mark between word and figure", "Salary ka kya? 2 certificate pehle lijiye."],
+    ["a decimal is not a sentence stop, and there is no money word", "Vernier se 0.02 mm naapiye."],
     ["hazaar as a count with no digit", "Ek hazaar baar practice kariye."],
   ])("%s → passes", (_label, text) => {
     expect(line(text)).toBeNull();
+  });
+});
+
+/**
+ * FORMAT CHARACTERS: invisible, `Common`/`Inherited` script, and kept by the NFKD fold — so each of
+ * these split a money word, a promise word or a phone number and walked past every word check
+ * while the worker read the plain text. Built with `String.fromCharCode` so the fixture is visible.
+ */
+describe("format characters (\\p{Cf}) are barred outright", () => {
+  const INVISIBLE = [
+    ["a zero-width space", String.fromCharCode(0x200b)],
+    ["a zero-width non-joiner", String.fromCharCode(0x200c)],
+    ["a word joiner", String.fromCharCode(0x2060)],
+    ["a soft hyphen", String.fromCharCode(0x00ad)],
+    ["a BOM", String.fromCharCode(0xfeff)],
+    ["a right-to-left mark", String.fromCharCode(0x200f)],
+  ] as const;
+
+  it.each(
+    INVISIBLE.flatMap(([name, ch]) => [
+      [`${name} inside "salary"`, `Sal${ch}ary 25000 milegi.`],
+      [`${name} inside "pakka"`, `Job pak${ch}ka milegi.`],
+      [`${name} inside a phone number`, `Call kariye 98765${ch}43210 par.`],
+    ]),
+  )("%s → format_char", (_label, text) => {
+    expect(line(text)).toBe("format_char");
+  });
+
+  it("a chip gets the same check", () => {
+    expect(validateCareerAnswer(answer(["line ok"], [`Sal${INVISIBLE[0][1]}ary?`]))).toBe(
+      "format_char",
+    );
   });
 });
 

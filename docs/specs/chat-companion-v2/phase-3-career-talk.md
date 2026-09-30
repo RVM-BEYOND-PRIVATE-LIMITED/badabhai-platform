@@ -36,15 +36,22 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
    "No emoji" is `\p{Extended_Pictographic}` + regional indicators (flags) + the emoji-building
    components on their own (skin-tone modifiers, variation selectors, ZWJ, the keycap mark, tag
    characters) + the Misc Symbols / Dingbats blocks (★ ☆ ✓ ✗ are not pictographic to Unicode).
+   No invisible format character (`\p{Cf}`: zero-width space / non-joiner, word joiner, soft
+   hyphen, BOM, bidi marks) — failure reason `format_char`. They are `Common`/`Inherited` script
+   and survive the fold, so `Sal<ZWSP>ary 25000` and a phone number split by one walked past every
+   word check while the worker read the plain text.
 3. Refusal backstop (O10), deterministic:
    - money: digits next to `₹`, `rs`, `rupaye`, `salary`, `tankhwah`, `per month`, `mahina`, `lakh`,
      `hazaar` → fail. Precisely: a whole money word (no letter touching either end, so "years",
      "hours", "course", "workers", "workplace", "hazard" never match — but `Rs500`, `500rs` do)
-     with a figure touching it or at most two words away inside one sentence ("salary lagbhag
-     20000"). Currency words (`₹`, rs, rupaye/rupaya/rupay/rupee(s), salary/salaries,
-     tankhwah/tankha, lakh(s)/lac(s), hazaar/hazar) fail with any figure; month words (per month,
-     mahina, mahine) fail only with a wage-sized figure of ≥ 4 digits, so "6 mahine ka course"
-     passes and "mahine ka 18,000" fails;
+     and a figure in the same SENTENCE, however many words sit between them ("welder ki salary
+     experience ke saath 25000 tak jaati hai"). Only `.` `?` `!`, the danda or a newline end a
+     sentence — never a comma ("Salary, experience ke hisaab se, 15000 se 25000" fails), never a
+     `.` between two digits (`1.5 lakh`), never the dot of `Rs.`. Currency words (`₹`, rs,
+     rupaye/rupaya/rupay/rupee(s), salary/salaries, tankhwah/tankha, lakh(s)/lac(s), hazaar/hazar)
+     fail with any figure; month words (month(s), monthly, per month, mahina, mahine) fail only
+     with a wage-sized figure — ≥ 4 digits, or a thousands suffix (`15k`, `15 thousand`) — so
+     "6 mahine ka course" passes and "mahine ka 18,000", "15k per month", "25000/month" fail;
    - promise words: `pakka`, `guarantee`, `zaroor milegi`, `100%` → fail;
    - legal / medical / financial terms list (court, case, vakil, dawai, ilaaj, loan, EMI, insurance,
      bima, …) → fail;
@@ -120,8 +127,11 @@ NFKD-folded form with combining marks dropped, so a fullwidth `Ｓａｌａｒ�
 - [x] **C1** `v2/handlers/career-talk.handler.ts` + `v2/career-output.validator.ts` (§2).
       2026-09-30: the validator enforces §2 as written — Latin only for EVERY script (it barred
       Devanagari alone, so Gurmukhi/Urdu/Bengali lines also skipped every O10 check); the money
-      rule anchors whole words and requires the figure next to the word (the substring match
-      failed "2-3 years", "8 hours", "course", "workers", "hazard" against the ≥ 85 % bar); the
+      rule anchors whole words (the substring match failed "2-3 years", "8 hours", "course",
+      "workers", "hazard" against the ≥ 85 % bar) and scopes word + figure to one sentence — a
+      two-word reach and a digits-only wage size let "Aapki salary shuru mein lagbhag 15000 hogi"
+      and "15k per month" through, so review moved it to the sentence and added the `k` /
+      `thousand` suffix and `monthly` / `/month`; invisible format characters fail outright; the
       emoji rule is Unicode's pictographic set plus flags and emoji components (flags, ⭐, ⌛, ⌚
       and keycaps passed before). Table-driven pass/fail fixtures, plus 16 clean Hinglish answers
       to normal eval questions that must be served.
@@ -156,7 +166,7 @@ NFKD-folded form with combining marks dropped, so a fullwidth `Ｓａｌａｒ�
 
 | Test | Proves |
 |---|---|
-| `career-output.validator.test.ts` | each check rejects its fixture; a clean answer passes; per-rule pass/fail tables (script, money, emoji); 16 clean answers to normal eval questions are served |
+| `career-output.validator.test.ts` | each check rejects its fixture; a clean answer passes; per-rule pass/fail tables (script, money, emoji, format characters); 16 clean answers to normal eval questions are served |
 | `career-talk.handler.test.ts` | refuse → fixed copy; invalid → fallback; memory passed (≤ 6, sliced to the newest 6 when the store holds more) |
 | `career.privacy.test.ts` | worker_context has only trade label + bucket; no text in events/logs |
 | ai-service `test_companion_career*` | contracts; mock mode; red-team gate thresholds |
