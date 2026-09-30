@@ -635,7 +635,7 @@ void main() {
     expect(tester.widget<PrimaryActionButton>(haan).onPressed, isNull,
         reason: 'the ticker never fired — Haan would POST a dead proposal');
     // And it says so, rather than leaving a dead button unexplained.
-    expect(find.text('Ye prastav ki samay-seema khatam ho gayi.'), findsOneWidget);
+    expect(find.text(kEditCardExpired), findsOneWidget);
   });
 
   // ── #1821 F1 — THE COOL-DOWN BLOCKS FREE TEXT, AND ONLY FREE TEXT ──────────
@@ -670,8 +670,11 @@ void main() {
     // into nothing.
     expect(find.byType(TextField), findsNothing);
     // And the bar says HOW LONG, not just "later" — the number is the point.
-    expect(find.textContaining('minute baad likh sakte hain'), findsOneWidget);
-    expect(find.textContaining('vyast'), findsOneWidget);
+    // It must NOT claim Bada Bhai is busy: the wait is the faltu cool-down, and
+    // inventing a cause tells the worker nothing they can act on (#1862).
+    expect(find.textContaining('minute baad aap dobara likh sakte hain'),
+        findsOneWidget);
+    expect(find.textContaining('vyast'), findsNothing);
 
     // THE CHIPS STILL WORK. A cooled-down worker must still reach their résumé.
     await tester.tap(find.text('Naya resume'));

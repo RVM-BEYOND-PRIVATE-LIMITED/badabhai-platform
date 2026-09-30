@@ -74,6 +74,19 @@ class ChatRepositoryImpl implements ChatRepository {
   Future<ChatSessionOpening?>? _inFlightOpen;
 
   @override
+  Future<String?> latestSessionId() async {
+    final String? token = _session.sessionToken;
+    if (token == null) return null;
+    try {
+      return await _api.latestChatSessionId(authToken: token);
+    } catch (_) {
+      // Never throws by contract — the caller refuses the recording rather than
+      // creating a session, which is the harm this method exists to avoid.
+      return null;
+    }
+  }
+
+  @override
   Future<ChatSessionOpening?> ensureSession() async {
     final String? token = _session.sessionToken;
     if (token == null) throw const UnauthorizedFailure();

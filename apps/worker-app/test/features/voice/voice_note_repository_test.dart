@@ -56,10 +56,16 @@ class _FakeUploader implements VoiceStorageUploader {
 
 class _FakeResolver implements VoiceTranscriptResolver {
   String? seenAuthToken;
+  bool? seenPreferEnglish;
 
   @override
-  Future<String> resolve(AiJob job, {required String authToken}) async {
+  Future<String> resolve(
+    AiJob job, {
+    required String authToken,
+    bool preferEnglish = false,
+  }) async {
     seenAuthToken = authToken;
+    seenPreferEnglish = preferEnglish;
     return 'CNC machine par 4 saal ka anubhav.';
   }
 }
@@ -342,5 +348,94 @@ void main() {
     );
     verifyNever(() => chat.sendMessage(any(),
         submissionId: any(named: 'submissionId')));
+  });
+
+  // ── #1862 — THE COMPANION'S MIC MUST NOT END THE COMPANION ─────────────────
+  //
+  // `ensureSession` CREATES a chat session when none is cached, and
+  // `ChatCompanionPolicy` rule 3 reads a live session started after confirmation
+  // as "this worker is interviewing" — so one mic tap dropped a companion worker
+  // out of the companion until a redo or the abandonment sweep. Two ways in: a
+  // worker who finished by form or résumé upload has no session at all, and a
+  // cold start caches none.
+  group('compose mode never mints a chat session', () {
+    test('an existing session is REUSED, and startSession is never called',
+        () async {
+      final SessionRepository session = SessionRepository()
+        ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok');
+      // No cached id — exactly the cold-start case.
+      expect(session.sessionId, isNull);
+      when(() => chat.latestSessionId()).thenAnswer((_) async => 'sess-existing');
+
+      final _FakeResolver resolver = _FakeResolver();
+      final VoiceNoteRepositoryImpl repo =
+          buildRepo(uploader: _FakeUploader(), resolver: resolver, session: session);
+      await repo.startRecording();
+      final String text = await repo.stopAndTranscribe(composeOnly: true);
+
+      expect(text, isNotEmpty);
+      expect(session.sessionId, 'sess-existing', reason: 'reused, not minted');
+      verifyNever(() => chat.ensureSession());
+    });
+
+    test('NO session: refuses honestly instead of creating one', () async {
+      final SessionRepository session = SessionRepository()
+        ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok');
+      when(() => chat.latestSessionId()).thenAnswer((_) async => null);
+
+      final VoiceNoteRepositoryImpl repo = buildRepo(uploader: _FakeUploader(), resolver: _FakeResolver(), session: session);
+      await repo.startRecording();
+
+      await expectLater(
+        repo.stopAndTranscribe(composeOnly: true),
+        throwsA(isA<VoiceUnavailableFailure>()),
+      );
+      verifyNever(() => chat.ensureSession());
+      expect(session.sessionId, isNull, reason: 'nothing was created');
+    });
+
+    test('a FAILED lookup also refuses — never falls back to creating one',
+        () async {
+      final SessionRepository session = SessionRepository()
+        ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok');
+      // `latestSessionId` never throws by contract; null is its failure answer.
+      when(() => chat.latestSessionId()).thenAnswer((_) async => null);
+      final VoiceNoteRepositoryImpl repo = buildRepo(uploader: _FakeUploader(), resolver: _FakeResolver(), session: session);
+      await repo.startRecording();
+      await expectLater(
+        repo.stopAndTranscribe(composeOnly: true),
+        throwsA(isA<VoiceUnavailableFailure>()),
+      );
+      verifyNever(() => chat.ensureSession());
+    });
+
+    test('the CHAT path is untouched: it still ensures a session', () async {
+      final VoiceNoteRepositoryImpl repo = buildRepo(uploader: _FakeUploader(), resolver: _FakeResolver());
+      await repo.startRecording();
+      await repo.stopAndTranscribe();
+      verify(() => chat.ensureSession()).called(1);
+    });
+  });
+
+  // ── #1862 — A HINDI NOTE MUST NOT LAND AS AN EMPTY BOX ─────────────────────
+  test('compose mode asks the resolver for the roman transcript', () async {
+    final SessionRepository session = SessionRepository()
+      ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok')
+      ..setSession('sess-1');
+    final _FakeResolver resolver = _FakeResolver();
+    final VoiceNoteRepositoryImpl repo =
+        buildRepo(uploader: _FakeUploader(), resolver: resolver, session: session);
+
+    await repo.startRecording();
+    await repo.stopAndTranscribe(composeOnly: true);
+    expect(resolver.seenPreferEnglish, isTrue,
+        reason: 'the composer strips Devanagari, so a Hindi note would land '
+            'as an empty correction box');
+
+    // The chat path keeps the source-language transcript: it merges into a
+    // session that stores what the worker actually said.
+    await repo.startRecording();
+    await repo.stopAndTranscribe();
+    expect(resolver.seenPreferEnglish, isFalse);
   });
 }
