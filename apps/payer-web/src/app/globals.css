@@ -1926,9 +1926,11 @@ textarea.input {
   gap: var(--space-4);
 }
 /* `--applicant-pad` restates the DS Card inset so the footer band below can bleed by exactly
-   that amount (a phone step shrinks both together). */
+   that amount (a phone step shrinks both together). `--applicant-band` names the focal band's
+   fill for THIS card, so the surface it means is not read as an "info" status. */
 .applicant {
   --applicant-pad: var(--space-5);
+  --applicant-band: var(--info-tint);
   /* A container edge that holds against the Ivory page (the DS card's subtle hairline does not). */
   border-color: var(--border-default);
   display: grid;
@@ -1937,10 +1939,12 @@ textarea.input {
   padding: var(--applicant-pad);
   min-width: 0;
 }
-/* Identity left, relevance right (≤600px the relevance drops under the identity text). */
+/* Identity left, relevance right (≤600px the relevance drops under the identity text). The
+   relevance column is capped at half the head: a long E18 label wraps inside it rather than
+   squeezing the trade/bands column (an `auto` track let it claim nearly the whole row). */
 .applicant__head {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) fit-content(50%);
   align-items: start;
   gap: var(--space-2) var(--space-3);
 }
@@ -1974,8 +1978,10 @@ textarea.input {
   min-width: 0;
 }
 /* E18 — the related-skill label must be read IN FULL before a spend, so a long one wraps at
-   a space inside its badge instead of being clipped or pushing the card wider. */
-.applicant__relevance .bb-badge {
+   a space inside its badge instead of being clipped or pushing the card wider. A long skill
+   tag gets the same treatment. */
+.applicant__relevance .bb-badge,
+.applicant__signals .bb-badge {
   white-space: normal;
   line-height: var(--leading-snug);
 }
@@ -1990,25 +1996,14 @@ textarea.input {
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }
+/* The skill/signal tags: a plain list of outline Badges (static text, not controls). */
 .applicant__signals {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-}
-/* The signal chips are INERT (tabIndex -1 + aria-disabled in the markup): they are taxonomy
-   tags, not filters, so they must not read as buttons — quiet, sunken, no hover/press. */
-.applicant__signals .bb-chip,
-.applicant__signals .bb-chip:hover,
-.applicant__signals .bb-chip:active {
-  min-height: 0;
-  padding: var(--space-1) var(--space-3);
-  border-width: var(--border-hairline);
-  border-color: var(--border-subtle);
-  background: var(--surface-sunken);
-  color: var(--text-secondary);
-  font-weight: var(--weight-medium);
-  cursor: default;
-  transform: none;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 /* One toolbar: triage (Keep / Pass) beside the gated contact pair (Call / WhatsApp); the
    contact pair wraps under the triage pair when the card is too narrow for both. */
@@ -2042,12 +2037,12 @@ textarea.input {
 }
 /* THE FOCAL BAND — the spend decision, bled to the card edge so the Unlock CTA (Safety
    Yellow) sits on its own surface and the revealed relay/resume cards read as white cards on
-   it. The fill is the Shift Blue tint step (--info-tint = navy-50, flips under ink): the
+   it. The fill (--applicant-band) is the Shift Blue tint step (navy-50, flips under ink): the
    sunken Ivory step was near-identical to the page and dissolved the card's bottom edge. */
 .applicant__contact {
   margin: 0 calc(-1 * var(--applicant-pad)) calc(-1 * var(--applicant-pad));
   padding: var(--space-4) var(--applicant-pad) var(--applicant-pad);
-  background: var(--info-tint);
+  background: var(--applicant-band);
   border-top: var(--border-hairline) solid var(--border-default);
   border-end-start-radius: calc(var(--radius-lg) - var(--border-hairline));
   border-end-end-radius: calc(var(--radius-lg) - var(--border-hairline));
@@ -2139,12 +2134,20 @@ textarea.input {
     right: var(--gutter);
   }
 }
-/* Touch: every control on this screen is at least a 44px target. The DS small button and
-   segmented tab are 36px; this lifts them ON THIS SCREEN ONLY (drop it if the DS primitive
-   gains a global touch-target rule). The toast's close glyph keeps its look but gains a
-   44px hit area. */
+/* Touch: every control on this screen is at least a 44px target. Only what the DS does NOT
+   already cover is added here, ON THIS SCREEN ONLY:
+     · the segmented pipeline tab (36px) and the toast's close glyph (~22px) have no DS hit
+       area at any width — they get one on phones and on any coarse pointer;
+     · the DS small button (36px) has its 44px hit strip at ≤600px (ds-components.css), so it
+       is lifted here only for a coarse pointer ABOVE 600px (a tablet), where the DS strip
+       stops. That lift is a drawn min-height: the DS reserves `.bb-btn--sm::before` for its
+       own phone strip. */
+@media (pointer: coarse) and (min-width: 601px) {
+  .applicants-page .bb-btn--sm {
+    min-height: var(--control-md);
+  }
+}
 @media (max-width: 600px), (pointer: coarse) {
-  .applicants-page .bb-btn--sm,
   .applicants-page .bb-tab {
     min-height: var(--control-md);
   }
@@ -2962,6 +2965,19 @@ textarea.input {
   background: var(--surface-sunken);
   border-color: transparent;
   box-shadow: none;
+}
+/* Payouts head — title + "Request payout" on row 1, the mock-money description on row 2, at
+   EVERY width. The shared head is a wrapping flex row, which at 320px dropped the button under
+   the title (238px of content could not hold both). A two-track grid lets the title track
+   shrink instead; the sub spans both tracks. Two classes, because the shared `.panel__head`
+   rule comes later in this file. */
+.panel__head.agency-referrals-payout__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+.agency-referrals-payout__head > .panel__sub {
+  grid-column: 1 / -1;
 }
 /* Payouts — the amount the action would request is the panel's focal figure. */
 .agency-referrals-payout__now .bb-mono {

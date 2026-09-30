@@ -30,6 +30,9 @@ const TOKENS = stripComments(
   ),
 );
 const RULES = parseRules(CSS);
+const DS_RULES = parseRules(
+  stripComments(readFileSync(join(here, "..", "styles", "ds-components.css"), "utf8")),
+);
 
 const PHONE = "max-width: 600px";
 const COARSE = "pointer: coarse";
@@ -85,10 +88,12 @@ describe("W2-B · applicants — the card can never widen the page", () => {
     expect(decl(rule(".applicant"), "min-width")).toBe("0");
   });
 
-  it("the identity column shrinks; ≤600px the relevance drops under the identity text", () => {
+  it("the identity column shrinks; the relevance column is capped at half the head", () => {
     const head = rule(".applicant__head");
     expect(decl(head, "display")).toBe("grid");
-    expect(decl(head, "grid-template-columns")).toBe("auto minmax(0, 1fr) auto");
+    // `fit-content(50%)`, not `auto`: a long E18 label wraps inside half the head instead of
+    // taking nearly the whole row from the trade/bands column (measured at 601–767px).
+    expect(decl(head, "grid-template-columns")).toBe("auto minmax(0, 1fr) fit-content(50%)");
     expect(decl(rule(".applicant__head", PHONE), "grid-template-columns")).toBe(
       "auto minmax(0, 1fr)",
     );
@@ -96,8 +101,8 @@ describe("W2-B · applicants — the card can never widen the page", () => {
     expect(decl(rule(".applicant__relevance"), "flex-wrap")).toBe("wrap");
   });
 
-  it("E18: a long related-skill badge wraps in full — never clipped, never widening the card", () => {
-    const badge = rule(".applicant__relevance .bb-badge");
+  it("E18: a long related-skill badge (or skill tag) wraps in full — never clipped or widening", () => {
+    const badge = rule(".applicant__relevance .bb-badge, .applicant__signals .bb-badge");
     expect(decl(badge, "white-space")).toBe("normal");
     expect(decl(badge, "overflow")).toBeNull();
     expect(decl(badge, "text-overflow")).toBeNull();
@@ -120,8 +125,9 @@ describe("W2-B · applicants — ONE focal spend band per card", () => {
   });
 
   it("the band is a flip-safe token surface, distinct from the Ivory page", () => {
-    const fill = decl(rule(".applicant__contact"), "background");
-    expect(fill).toBe("var(--info-tint)");
+    // The fill is the card-scoped alias, which names the Shift Blue tint step.
+    expect(decl(rule(".applicant__contact"), "background")).toBe("var(--applicant-band)");
+    expect(decl(rule(".applicant"), "--applicant-band")).toBe("var(--info-tint)");
     expect(resolve("--info-tint")).not.toBe(resolve("--surface-page"));
     expect(TOKENS, "--info-tint must flip under the ink theme").toMatch(
       /\[data-theme="ink"\][\s\S]*--info-tint:/,
@@ -129,7 +135,9 @@ describe("W2-B · applicants — ONE focal spend band per card", () => {
   });
 
   it("MEASURED: muted text fails AA on the band, so every muted line in it takes the secondary step", () => {
-    const band = resolve("--info-tint");
+    const alias = decl(rule(".applicant"), "--applicant-band")!.match(/^var\((--[\w-]+)\)$/);
+    expect(alias, "--applicant-band must be a single token reference").not.toBeNull();
+    const band = resolve(alias![1]!);
     expect(contrast(resolve("--text-muted"), band)).toBeLessThan(4.5);
     expect(contrast(resolve("--text-secondary"), band)).toBeGreaterThanOrEqual(4.5);
     const override = rule(
@@ -149,23 +157,48 @@ describe("W2-B · applicants — ONE focal spend band per card", () => {
   });
 });
 
-describe("W2-B · applicants — touch targets and inert tags", () => {
-  it("on touch / phones every small button and tab on the screen is ≥ 44px tall", () => {
-    const touch = rule(".applicants-page .bb-btn--sm, .applicants-page .bb-tab", COARSE);
-    expect(touch.at).toContain(PHONE);
-    expect(decl(touch, "min-height")).toBe("var(--control-md)");
+describe("W2-B · applicants — touch targets and static tags", () => {
+  const TABLET_TOUCH = "(pointer: coarse) and (min-width: 601px)";
+
+  it("the DS small button's 44px strip covers ≤600px, so this page adds it only ABOVE 600px", () => {
+    // The DS owns `.bb-btn--sm`'s phone hit area (a ≤600px ::before strip)…
+    const dsStrip = DS_RULES.filter(
+      (r) => r.at.includes("max-width: 600px") && r.selector.includes(".bb-btn--sm::before"),
+    );
+    expect(dsStrip).toHaveLength(1);
+    // …and the page lifts the button for a coarse pointer from 601px up: the two ranges meet
+    // with no gap and no overlap, and there is no page rule for it at phone widths.
+    const lift = rule(".applicants-page .bb-btn--sm", TABLET_TOUCH);
+    expect(lift.at).toBe(`@media ${TABLET_TOUCH}`);
+    expect(decl(lift, "min-height")).toBe("var(--control-md)");
+    expect(RULES.filter((r) => r.selector.includes(".applicants-page .bb-btn--sm"))).toHaveLength(
+      1,
+    );
     expect(px("--control-md")).toBeGreaterThanOrEqual(44);
+  });
+
+  it("the tab and the toast close (no DS hit area at any width) are ≥ 44px on phones and touch", () => {
+    for (const host of ["bb-tab", "bb-toast__close"]) {
+      expect(
+        DS_RULES.filter((r) => r.selector.includes(`.${host}::before`)),
+        `${host} has no DS hit strip, which is why this page adds one`,
+      ).toEqual([]);
+    }
+    const tab = rule(".applicants-page .bb-tab", COARSE);
+    expect(tab.at).toContain(PHONE);
+    expect(decl(tab, "min-height")).toBe("var(--control-md)");
     const close = rule(".applicants-page .bb-toast__close", COARSE);
+    expect(close.at).toContain(PHONE);
     expect(decl(close, "min-width")).toBe("var(--control-md)");
     expect(decl(close, "min-height")).toBe("var(--control-md)");
   });
 
-  it("the signal chips (tabIndex -1, aria-disabled) never read as buttons: no press, no pointer", () => {
-    const inert = rule(
-      ".applicant__signals .bb-chip, .applicant__signals .bb-chip:hover, .applicant__signals .bb-chip:active",
-    );
-    expect(decl(inert, "cursor")).toBe("default");
-    expect(decl(inert, "transform")).toBe("none");
+  it("the skill/signal tags are a plain list: no chip styling survives, the list is reset", () => {
+    expect(RULES.filter((r) => r.selector.includes(".applicant__signals .bb-chip"))).toEqual([]);
+    const list = rule(".applicant__signals");
+    expect(decl(list, "list-style")).toBe("none");
+    expect(decl(list, "padding")).toBe("0");
+    expect(decl(list, "margin")).toBe("0");
   });
 
   it("the phone toast spans the rail instead of hugging the left edge", () => {
@@ -198,6 +231,25 @@ describe("W2-B · agency referrals — forms in panels, one heading size", () =>
     const note = rule(".agency-referrals-page .agency-invite__note");
     expect(decl(note, "background")).toBe("var(--surface-sunken)");
     expect(decl(note, "border-color")).toBe("transparent");
+  });
+});
+
+describe("W2-B · agency referrals — the Payouts head keeps its action on the title row", () => {
+  it("is a two-track grid (the title shrinks, the action keeps its width); the sub spans both", () => {
+    const head = rule(".panel__head.agency-referrals-payout__head");
+    expect(decl(head, "display")).toBe("grid");
+    expect(decl(head, "grid-template-columns")).toBe("minmax(0, 1fr) auto");
+    expect(decl(rule(".agency-referrals-payout__head > .panel__sub"), "grid-column")).toBe(
+      "1 / -1",
+    );
+  });
+
+  it("ORDER: the modifier out-ranks the later shared `.panel__head` by specificity, not position", () => {
+    // Two classes (0,2,0) vs one (0,1,0): it wins wherever it sits. A single-class selector here
+    // would silently lose to the shared flex rule, which comes later in the file.
+    const at = (sel: string) => RULES.findIndex((r) => r.selector === sel && r.at === "");
+    expect(at(".panel__head")).toBeGreaterThan(at(".panel__head.agency-referrals-payout__head"));
+    expect(RULES.some((r) => r.selector === ".agency-referrals-payout__head")).toBe(false);
   });
 });
 

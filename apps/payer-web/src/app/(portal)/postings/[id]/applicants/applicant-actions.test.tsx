@@ -873,3 +873,37 @@ describe("ApplicantActions — ONE shared confirm-on-spend dialog, outside every
     }
   });
 });
+
+describe("ApplicantActions — the skill/signal TAGS are static text, not controls (W2-B)", () => {
+  const tagList = (applicant: FacelessApplicant) =>
+    elements(render({ applicants: [applicant] })).find((e) => hasClass(e, "applicant__signals"))!;
+
+  it("renders the tags as a list of OUTLINE neutral Badges — no buttons, same visible text", () => {
+    const withSkills = { ...APPLICANT, skills: ["CNC turning", "Fanuc control"] };
+    const list = tagList(withSkills);
+    expect(list.type).toBe("ul");
+    const items = childEls(list);
+    expect(items.map((li) => li.type)).toEqual(["li", "li"]);
+    const badges = items.map((li) => childEls(li)[0]!);
+    for (const b of badges) {
+      expect(b.type).toBe(Badge);
+      expect(b.props).toMatchObject({ tone: "neutral", variant: "outline" });
+    }
+    expect(badges.map((b) => textOf(b.props.children as ReactNode))).toEqual([
+      "CNC turning",
+      "Fanuc control",
+    ]);
+    // Nothing in the tag list is a control any more (they were disabled toggle buttons).
+    expect(elements(list.props.children as ReactNode).some((e) => e.type === Button)).toBe(false);
+    expect(elements(list.props.children as ReactNode).some((e) => e.type === "button")).toBe(false);
+  });
+
+  it("names the list for what it holds: Skills when present, else the relevance signals", () => {
+    expect(tagList({ ...APPLICANT, skills: ["CNC turning"] }).props["aria-label"]).toBe("Skills");
+    const signalsOnly = tagList({ ...APPLICANT, skills: undefined, signals: ["on-trade"] });
+    expect(signalsOnly.props["aria-label"]).toBe("Relevance signals");
+    expect(textOf(childEls(childEls(signalsOnly)[0]!)[0]!.props.children as ReactNode)).toBe(
+      "on-trade",
+    );
+  });
+});

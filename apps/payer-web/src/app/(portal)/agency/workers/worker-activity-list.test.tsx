@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ReactElement, ReactNode } from "react";
-import { WorkerActivityList } from "./worker-activity-list";
+import { REFERRED_WORKERS_HEADING_ID, WorkerActivityList } from "./worker-activity-list";
 import type { AgencyWorker } from "../../../../lib/contracts";
 
 /**
@@ -188,14 +188,15 @@ describe("WorkerActivityList — W2-B: the table scrolls in its own labelled reg
     return acc;
   };
 
-  it("the scroller is a focusable region named by the panel heading", () => {
+  it("the scroller is a focusable region NAMED BY the page's heading id (no copied label)", () => {
     const wrap = all(WorkerActivityList({ workers: [WORKER] })).find(
       (e) => e.props.className === "tablewrap",
     );
     expect(wrap).toBeDefined();
     expect(wrap!.props.tabIndex).toBe(0);
     expect(wrap!.props.role).toBe("region");
-    expect(wrap!.props["aria-label"]).toBe("Referred workers");
+    expect(wrap!.props["aria-label"]).toBeUndefined();
+    expect(wrap!.props["aria-labelledby"]).toBe(REFERRED_WORKERS_HEADING_ID);
   });
 
   it("is the no-wrap ledger (a day or a badge never breaks mid-value), counts right-aligned", () => {

@@ -55,7 +55,7 @@ const RetryStub = () => null;
 vi.mock("../../../../components/retry-button", () => ({ RetryButton: RetryStub }));
 
 const { default: AgencyWorkersPage } = await import("./page");
-const { WorkerActivityList } = await import("./worker-activity-list");
+const { REFERRED_WORKERS_HEADING_ID, WorkerActivityList } = await import("./worker-activity-list");
 
 const WORKER: AgencyWorker = {
   ref: "9f3a71c40b28de55",
@@ -218,6 +218,15 @@ describe("/agency/workers — W2-B: the privacy boundary is an alert that preced
     // Reading order: the boundary is stated before any row is shown.
     const top = childrenOf(tree).map((k) => String(k.props.className ?? ""));
     expect(top.indexOf("alert alert--info")).toBeLessThan(top.indexOf("panel panel--table"));
+  });
+
+  it("the panel heading carries the id the table's region is named by", async () => {
+    listAgencyWorkers.mockResolvedValueOnce([WORKER]);
+    const heading = elements(await AgencyWorkersPage()).find(
+      (e) => e.type === "h2" && textIn(e) === "Referred workers",
+    );
+    expect(heading).toBeDefined();
+    expect(heading!.props.id).toBe(REFERRED_WORKERS_HEADING_ID);
   });
 
   it("the panel head is the title + the truthful count only (the prose moved to the alert)", async () => {

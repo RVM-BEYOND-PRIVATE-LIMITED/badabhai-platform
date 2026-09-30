@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import type { FacelessApplicant } from "../../../../../lib/contracts";
 import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
-import { Avatar, Badge, Button, Card, Chip, Tabs } from "../../../../../components/ds";
+import { Avatar, Badge, Button, Card, Tabs } from "../../../../../components/ds";
 import { bandLabel, monthsLabel, opaqueId } from "../../../../../lib/masking";
 import {
   ConfirmSpendDialog,
@@ -343,14 +343,23 @@ export function ApplicantActions({
                   </div>
                 </div>
 
+                {/* Static taxonomy TAGS, not controls: a list of outline Badges (the outline
+                    keeps them visibly distinct from the soft rank badge). They were disabled
+                    toggle Chips, which a screen reader announced as "toggle button, not
+                    pressed, dimmed". Same text; the list is named for what it holds. */}
                 {tags.length > 0 ? (
-                  <div className="applicant__signals">
+                  <ul
+                    className="applicant__signals"
+                    aria-label={a.skills && a.skills.length > 0 ? "Skills" : "Relevance signals"}
+                  >
                     {tags.map((s) => (
-                      <Chip key={s} tabIndex={-1} aria-disabled="true">
-                        {s}
-                      </Chip>
+                      <li key={s}>
+                        <Badge tone="neutral" variant="outline">
+                          {s}
+                        </Badge>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 ) : null}
 
                 {/* The row's SECONDARY actions, grouped so they read as one toolbar: triage

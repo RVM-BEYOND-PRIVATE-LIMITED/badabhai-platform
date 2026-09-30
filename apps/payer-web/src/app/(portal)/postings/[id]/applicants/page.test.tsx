@@ -8,10 +8,13 @@ import type { ApplicantFeed, FacelessApplicant } from "../../../../../lib/contra
  * /postings/[id]/applicants PAGE tests — the invariants the W2-B polish pass re-laid out.
  *
  * Unlike applicant-actions.test (which seeds hook state into a hand-walked element tree), this
- * renders the WHOLE page through React's real server renderer, so it asserts on the markup a
- * browser actually receives — including the client pipeline, which SSRs with its initial state:
+ * renders the WHOLE page through React's real server renderer, so it asserts on the rendered
+ * HTML — including the client pipeline, which SSRs with its initial state. It does NOT see the
+ * RSC payload: the client pipeline's props (incl. each full worker id, which the unlock action
+ * needs) travel there, so the claims below are about what is RENDERED, not every byte sent:
  *  - FACELESS: the explainer alert stays; every card is a masked avatar + an 8-char opaque id;
- *    no phone/email-shaped run, no identity vocabulary in the list, never the full worker id.
+ *    no phone/email-shaped run, no identity vocabulary in the list, and the VISIBLE text never
+ *    shows the full worker id.
  *  - BALANCE IS AN AFFORDANCE: a failed balance read drops the chip but leaves Unlock ENABLED
  *    (only a real 0 disables it) — the no-oracle server makes the spend decision.
  *  - NEUTRAL NOT-FOUND: a null feed (backend 404 for unknown AND not-owned) renders one union
@@ -93,15 +96,17 @@ beforeEach(() => {
   getDashboard.mockReset().mockResolvedValue({ credits: { balance: 5 } });
 });
 
-describe("applicants page — FACELESS markup (what the browser receives)", () => {
+describe("applicants page — FACELESS rendered markup", () => {
   it("keeps the faceless alert and renders each card as a masked avatar + opaque id", async () => {
     const out = await html();
     expect(out).toContain("Applicants are faceless");
     expect(out.match(/bb-avatar--masked/g)).toHaveLength(FEED.applicants.length);
     expect(out).toContain("a1b2c3d4…");
     expect(out).toContain("b2c3d4e5…");
-    // The full worker id is an internal key — it never reaches the markup.
-    for (const a of FEED.applicants) expect(out).not.toContain(a.workerId);
+    // The VISIBLE text never shows the full worker id — only its 8-char opaque prefix. (The id
+    // itself is not secret from this payer: it rides the RSC payload to the unlock action.)
+    const visible = textOf(out);
+    for (const a of FEED.applicants) expect(visible).not.toContain(a.workerId);
   });
 
   it("carries no phone/email-shaped run anywhere and no identity vocabulary in the list", async () => {

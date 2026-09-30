@@ -177,8 +177,21 @@ const PAYOUT: AgencyPayout = {
 };
 
 describe("PayoutPanel — W2-B layout", () => {
+  it("the Request payout button is DESCRIBED BY the mock-money subtitle", () => {
+    const els = elements(render(BASE));
+    const sub = els.find((e) => e.props.className === "panel__sub")!;
+    expect(collect(sub).text.join("")).toMatch(/Mock money — nothing is actually\s+disbursed/);
+    expect(sub.props.id).toBeTruthy();
+    const [button] = collect(render(BASE)).buttons;
+    expect(button!.props["aria-describedby"]).toBe(sub.props.id);
+  });
+
   it("the request head reads title → action → sub, so the button shares the title row", () => {
-    const head = elements(render(BASE)).find((e) => e.props.className === "panel__head")!;
+    const head = elements(render(BASE)).find((e) =>
+      String(e.props.className).split(" ").includes("panel__head"),
+    )!;
+    // The scoped grid modifier holds that layout at every width (320px included).
+    expect(String(head.props.className).split(" ")).toContain("agency-referrals-payout__head");
     expect(kids(head).map((k) => String(k.props.className ?? k.type))).toEqual([
       "panel__title",
       "panel__actions",
@@ -201,14 +214,15 @@ describe("PayoutPanel — W2-B layout", () => {
     ).toBe(false);
   });
 
-  it("the history scrolls in a focusable, labelled region; a no-wrap ledger with numeric heads", () => {
+  it("the history scrolls in a focusable region NAMED BY its visible heading; no-wrap ledger", () => {
     const els = elements(render(BASE, [PAYOUT]));
     const wrap = els.find((e) => e.props.className === "tablewrap")!;
-    expect(wrap.props).toMatchObject({
-      tabIndex: 0,
-      role: "region",
-      "aria-label": "Request history",
-    });
+    expect(wrap.props).toMatchObject({ tabIndex: 0, role: "region" });
+    // The name is the heading's own text, referenced — not a second hand-kept copy of it.
+    expect(wrap.props["aria-label"]).toBeUndefined();
+    const heading = els.find((e) => e.type === "h2" && e.props.children === "Request history")!;
+    expect(heading.props.id).toBeTruthy();
+    expect(wrap.props["aria-labelledby"]).toBe(heading.props.id);
     const table = els.find((e) => e.type === "table")!;
     expect(table.props.className).toBe("table table--nowrap");
     expect(

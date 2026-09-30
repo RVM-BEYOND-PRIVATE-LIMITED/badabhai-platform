@@ -14,6 +14,14 @@ import { Badge, Button } from "../../../../components/ds";
 import { requestPayoutAction } from "./supply-actions";
 
 /**
+ * Element ids the two panels' ARIA references point at. The panel renders once per page, so a
+ * fixed id is unique; each reference names or describes a control by its VISIBLE text rather
+ * than a second, hand-kept copy of it.
+ */
+const PAYOUT_DESC_ID = "agency-payout-desc";
+const HISTORY_HEADING_ID = "agency-payout-history-title";
+
+/**
  * AGENCY PAYOUT panel (ADR-0022 Amendment 2, LIVE) — request a payout of the requestable
  * balance and show request history. Runs in the BROWSER; sees NO secret. MOCK money.
  *
@@ -64,7 +72,7 @@ export function PayoutPanel({
           the applicant feed), so the button shares the title row and the sub takes the row
           beneath — reading order and visual order stay the same (no CSS `order`). */}
       <section className="panel">
-        <div className="panel__head">
+        <div className="panel__head agency-referrals-payout__head">
           <h2 className="panel__title">Payouts</h2>
           <div className="panel__actions">
             <Button
@@ -72,11 +80,12 @@ export function PayoutPanel({
               onClick={handleRequest}
               disabled={!canRequest || pending}
               loading={pending}
+              aria-describedby={PAYOUT_DESC_ID}
             >
               {pending ? "Requesting…" : "Request payout"}
             </Button>
           </div>
-          <p className="panel__sub">
+          <p className="panel__sub" id={PAYOUT_DESC_ID}>
             Request a payout of your requestable balance. Mock money — nothing is actually
             disbursed.
           </p>
@@ -141,7 +150,9 @@ function payoutHistory(payouts: AgencyPayout[]) {
   return (
     <section className="panel panel--table">
       <div className="panel__head">
-        <h2 className="panel__title">Request history</h2>
+        <h2 className="panel__title" id={HISTORY_HEADING_ID}>
+          Request history
+        </h2>
       </div>
       <div className="panel__body">
         {payouts.length === 0 ? (
@@ -156,9 +167,14 @@ function payoutHistory(payouts: AgencyPayout[]) {
             </p>
           </div>
         ) : (
-          // W2-B: a focusable, labelled scroll region (named by the panel heading, as /credits
-          // does) around the no-wrap ledger, so the 4 columns scroll inside it on a phone.
-          <div className="tablewrap" tabIndex={0} role="region" aria-label="Request history">
+          // W2-B: a focusable scroll region NAMED BY the panel's visible heading, around the
+          // no-wrap ledger, so the 4 columns scroll inside it on a phone.
+          <div
+            className="tablewrap"
+            tabIndex={0}
+            role="region"
+            aria-labelledby={HISTORY_HEADING_ID}
+          >
             <table className="table table--nowrap">
               <caption className="sr-only">
                 Your payout requests: the amount, how many accruals it covers, the day it was

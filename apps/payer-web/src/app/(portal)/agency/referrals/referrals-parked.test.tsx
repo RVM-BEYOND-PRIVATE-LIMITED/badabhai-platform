@@ -204,39 +204,34 @@ describe("agency referrals page — W2-B layout", () => {
 });
 
 describe("agency referrals page — the conversion RATE honours the k-anon floor", () => {
-  const bar = async () =>
-    elements(await AgencyReferralsPage()).find((e) => e.type === ProgressBar)!.props as {
+  /** The funnel's conversion ProgressBar props, read off a rendered page tree. */
+  const barOf = (tree: ReactNode) =>
+    elements(tree).find((e) => e.type === ProgressBar)!.props as {
       value: number;
       showValue: boolean;
     };
 
+  /** Render with payouts OFF (no money panel renders), so only the funnel is in play. */
+  async function renderFunnelOnly(): Promise<ReactNode> {
+    getAgencyEarnings.mockResolvedValueOnce(null);
+    return AgencyReferralsPage();
+  }
+
   it("both stages clear the floor → the rate is shown (clicked / created, rounded)", async () => {
-    getEarningsNull();
-    expect(await bar()).toMatchObject({ value: 40, showValue: true }); // 12 / 30
+    expect(barOf(await renderFunnelOnly())).toMatchObject({ value: 40, showValue: true }); // 12 / 30
   });
 
   it("a suppressed stage → NO rate is shown, and the floor is explained instead", async () => {
-    getEarningsNull();
     getAgencyReferralsSummary.mockResolvedValueOnce({
       created: 7,
       clicked: 0,
       accepted: 0,
       minBucket: 5,
     });
-    const tree = await AgencyReferralsPage();
-    const props = elements(tree).find((e) => e.type === ProgressBar)!.props as {
-      value: number;
-      showValue: boolean;
-    };
-    expect(props.showValue).toBe(false);
-    expect(props.value).toBe(0);
+    const tree = await renderFunnelOnly();
+    expect(barOf(tree)).toMatchObject({ value: 0, showValue: false });
     expect(collect(tree).text.join(" ")).toMatch(
       /Conversion appears once both stages clear the\s+privacy floor of/,
     );
   });
 });
-
-/** Isolate the funnel: payouts OFF, so no money panel renders. */
-function getEarningsNull() {
-  getAgencyEarnings.mockResolvedValueOnce(null);
-}

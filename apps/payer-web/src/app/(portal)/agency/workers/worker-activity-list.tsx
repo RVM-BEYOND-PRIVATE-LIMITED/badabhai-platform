@@ -2,6 +2,13 @@ import { Badge } from "../../../../components/ds";
 import type { AgencyWorker } from "../../../../lib/contracts";
 
 /**
+ * The id of the page's visible "Referred workers" heading. The table's scroll region is NAMED
+ * BY it (aria-labelledby) rather than carrying a second copy of the words; the page renders the
+ * heading with this id, and it renders once per page.
+ */
+export const REFERRED_WORKERS_HEADING_ID = "agency-referred-workers-title";
+
+/**
  * The referred-worker ENGAGEMENT table (ADR-0022 agency portal, B5) — presentational only.
  *
  * FACELESS (CLAUDE.md §2 #2): a row is an opaque per-agency handle, a profile boolean, two
@@ -51,12 +58,17 @@ export function WorkerActivityList({ workers }: { workers: AgencyWorker[] }) {
     );
   }
 
-  // W2-B: the scroller is a focusable, labelled region (a keyboard user can scroll the 5-column
-  // table on a phone; the name repeats the panel heading, as /credits does) and the table is the
-  // no-wrap ledger variant — a hyphenated day or the "In progress" badge never breaks mid-value
-  // on a narrow screen; the row scrolls inside `.tablewrap` instead.
+  // W2-B: the scroller is a focusable region (a keyboard user can scroll the 5-column table on
+  // a phone) named by the page's visible heading, and the table is the no-wrap ledger variant —
+  // a hyphenated day or the "In progress" badge never breaks mid-value on a narrow screen; the
+  // row scrolls inside `.tablewrap` instead.
   return (
-    <div className="tablewrap" tabIndex={0} role="region" aria-label="Referred workers">
+    <div
+      className="tablewrap"
+      tabIndex={0}
+      role="region"
+      aria-labelledby={REFERRED_WORKERS_HEADING_ID}
+    >
       <table className="table table--nowrap">
         <caption className="sr-only">
           Workers you referred who agreed to share their activity: a private handle, whether

@@ -6,7 +6,7 @@ import { listAgencyWorkers } from "../../../../lib/payer-api";
 import { assertNoAgencyPII } from "../../../../lib/assert-no-agency-pii";
 import type { AgencyWorker } from "../../../../lib/contracts";
 import { RetryButton } from "../../../../components/retry-button";
-import { WorkerActivityList } from "./worker-activity-list";
+import { REFERRED_WORKERS_HEADING_ID, WorkerActivityList } from "./worker-activity-list";
 
 export const dynamic = "force-dynamic";
 
@@ -116,7 +116,9 @@ export default async function AgencyWorkersPage() {
           The head is the title + the truthful count, so nothing floats below the table. */}
       <section className="panel panel--table">
         <div className="panel__head">
-          <h2 className="panel__title">Referred workers</h2>
+          <h2 className="panel__title" id={REFERRED_WORKERS_HEADING_ID}>
+            Referred workers
+          </h2>
           {countLine ? <p className="panel__sub">{countLine}</p> : null}
         </div>
         <div className="panel__body">
