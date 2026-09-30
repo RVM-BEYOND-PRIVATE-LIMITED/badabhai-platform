@@ -778,3 +778,132 @@ describe("ApplicantActions — Matching V1 tier badge (ADR-0036 moment ⑥ / E18
     expect(gatherText(tree)).toContain("0.90");
   });
 });
+
+/* ── W2-B layout: one toolbar of secondary actions + ONE focal spend band per card ───────── */
+
+type El = ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+
+/** Every element (static className or component) in render order — Dialog internals excluded. */
+function elements(tree: ReactNode): El[] {
+  const out: El[] = [];
+  (function w(node: ReactNode): void {
+    if (node === null || node === undefined || typeof node === "boolean") return;
+    if (typeof node === "string" || typeof node === "number") return;
+    if (Array.isArray(node)) {
+      node.forEach(w);
+      return;
+    }
+    const el = node as El;
+    out.push(el);
+    if (isDialogEl(el)) return;
+    if (el.props && "children" in el.props) w(el.props.children as ReactNode);
+  })(tree);
+  return out;
+}
+
+const hasClass = (el: El, c: string) =>
+  typeof el.props?.className === "string" &&
+  (el.props.className as string).split(/\s+/).includes(c);
+
+/** The direct child elements of `el`, in source order. */
+function childEls(el: El): El[] {
+  const kids = ([] as ReactNode[]).concat(el.props.children as ReactNode);
+  return kids.filter((k): k is El => k !== null && typeof k === "object" && !Array.isArray(k));
+}
+
+/** DS Button labels inside `el`'s subtree. */
+const buttonLabels = (el: El) =>
+  elements(el.props.children as ReactNode)
+    .filter((e) => e.type === Button)
+    .map((e) => textOf(e.props.children as ReactNode).trim());
+
+describe("ApplicantActions — W2-B card anatomy: identity → tags → toolbar → focal spend band", () => {
+  it("every card reads head → signals → actions, and ENDS with the contact band", () => {
+    const cards = elements(render({ applicants: [A, B, C] })).filter((e) =>
+      hasClass(e, "applicant"),
+    );
+    expect(cards).toHaveLength(3);
+    for (const card of cards) {
+      const order = childEls(card).map((k) => String(k.props.className));
+      expect(order).toEqual([
+        "applicant__head",
+        "applicant__signals",
+        "applicant__actions",
+        "applicant__contact",
+      ]);
+    }
+  });
+
+  it("the spend CTA lives in the band; triage + the gated contact pair live in the toolbar", () => {
+    const all = elements(render({}));
+    const band = all.find((e) => hasClass(e, "applicant__contact"))!;
+    const toolbar = all.find((e) => hasClass(e, "applicant__actions"))!;
+    expect(buttonLabels(band)).toEqual(["Unlock contact (1 credit)"]);
+    expect(buttonLabels(toolbar)).toEqual(["Keep", "Pass", "Call", "WhatsApp"]);
+    // The toolbar is exactly the two groups, triage first.
+    expect(childEls(toolbar).map((k) => String(k.props.className))).toEqual([
+      "applicant__pipeline",
+      "applicant__reach",
+    ]);
+  });
+
+  it("after a routed reveal the band holds the reveal actions and the toolbar gains 'Mark as contacted'", () => {
+    const all = elements(render({ rows: routedRowState() }));
+    const band = all.find((e) => hasClass(e, "applicant__contact"))!;
+    const toolbar = all.find((e) => hasClass(e, "applicant__actions"))!;
+    expect(buttonLabels(band)).toEqual(["View masked resume"]);
+    expect(buttonLabels(toolbar)).toEqual([
+      "Keep",
+      "Pass",
+      "Mark as contacted",
+      "Call",
+      "WhatsApp",
+    ]);
+  });
+});
+
+describe("ApplicantActions — ONE shared confirm-on-spend dialog, outside every card", () => {
+  it("renders exactly one ConfirmSpendDialog for a three-card feed, never inside a card", () => {
+    const tree = render({ applicants: [A, B, C] });
+    const dialogs = elements(tree).filter(isConfirmDialogEl);
+    expect(dialogs).toHaveLength(1);
+    const cards = elements(tree).filter((e) => hasClass(e, "applicant"));
+    for (const card of cards) {
+      expect(elements(card.props.children as ReactNode).filter(isConfirmDialogEl)).toHaveLength(0);
+    }
+  });
+});
+
+describe("ApplicantActions — the skill/signal TAGS are static text, not controls (W2-B)", () => {
+  const tagList = (applicant: FacelessApplicant) =>
+    elements(render({ applicants: [applicant] })).find((e) => hasClass(e, "applicant__signals"))!;
+
+  it("renders the tags as a list of OUTLINE neutral Badges — no buttons, same visible text", () => {
+    const withSkills = { ...APPLICANT, skills: ["CNC turning", "Fanuc control"] };
+    const list = tagList(withSkills);
+    expect(list.type).toBe("ul");
+    const items = childEls(list);
+    expect(items.map((li) => li.type)).toEqual(["li", "li"]);
+    const badges = items.map((li) => childEls(li)[0]!);
+    for (const b of badges) {
+      expect(b.type).toBe(Badge);
+      expect(b.props).toMatchObject({ tone: "neutral", variant: "outline" });
+    }
+    expect(badges.map((b) => textOf(b.props.children as ReactNode))).toEqual([
+      "CNC turning",
+      "Fanuc control",
+    ]);
+    // Nothing in the tag list is a control any more (they were disabled toggle buttons).
+    expect(elements(list.props.children as ReactNode).some((e) => e.type === Button)).toBe(false);
+    expect(elements(list.props.children as ReactNode).some((e) => e.type === "button")).toBe(false);
+  });
+
+  it("names the list for what it holds: Skills when present, else the relevance signals", () => {
+    expect(tagList({ ...APPLICANT, skills: ["CNC turning"] }).props["aria-label"]).toBe("Skills");
+    const signalsOnly = tagList({ ...APPLICANT, skills: undefined, signals: ["on-trade"] });
+    expect(signalsOnly.props["aria-label"]).toBe("Relevance signals");
+    expect(textOf(childEls(childEls(signalsOnly)[0]!)[0]!.props.children as ReactNode)).toBe(
+      "on-trade",
+    );
+  });
+});

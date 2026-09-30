@@ -1896,68 +1896,16 @@ textarea.input {
 }
 
 /* ------------------------------------------------------------------
- * APPLICANT FEED (DS1.3) — faceless pipeline + unlock/reveal, re-skinned onto the
- * design system. Every value resolves from tokens (no raw hex/px). The visual layer
- * only; behaviour + the faceless / no-oracle / confirm-on-spend invariants are unchanged.
+ * APPLICANT FEED (DS1.3 · W2-B polish) — faceless pipeline + unlock/reveal on the design
+ * system. Every value resolves from tokens (no raw hex/px). The visual layer only;
+ * behaviour + the faceless / no-oracle / confirm-on-spend invariants are unchanged.
+ *
+ * W2-B — the card has ONE focal point: the Unlock action, in a sunken footer band that
+ * bleeds to the card edge. Above it, identity (masked avatar · opaque id · trade · bands),
+ * the relevance cluster, the static signal tags, and one toolbar of secondary actions.
+ * The retired pre-UI-1 page classes (.applicants-back/-title/-meta/-explainer/-warn/
+ * -state/-empty) had no markup left behind them and are gone.
  * ------------------------------------------------------------------ */
-.applicants-back {
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  margin: 0 0 var(--space-2);
-}
-.applicants-title {
-  font-family: var(--font-display);
-  font-size: var(--text-2xl);
-  color: var(--text-heading);
-  margin: 0 0 var(--space-4);
-}
-.applicants-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  margin: 0 0 var(--space-4);
-}
-.applicants-explainer {
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-  margin-bottom: var(--space-5);
-}
-.applicants-explainer strong {
-  color: var(--text-primary);
-}
-.applicants-warn {
-  display: grid;
-  gap: var(--space-2);
-  justify-items: start;
-  margin-bottom: var(--space-4);
-}
-.applicants-warn__msg {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-}
-.applicants-state {
-  display: grid;
-  gap: var(--space-3);
-  justify-items: start;
-}
-.applicants-state__msg {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-}
-.applicants-empty {
-  text-align: center;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-}
 .applicants-pipeline {
   display: flex;
   align-items: center;
@@ -1969,33 +1917,53 @@ textarea.input {
   color: var(--text-muted);
   font-size: var(--text-sm);
 }
+/* ONE zero-minimum track. With the default `auto` track the column took its minimum from a
+   card's min-content — a nowrap relevance cluster beside the identity — and at 375px the page
+   body rendered 585px wide and scrolled sideways. */
 .applicants-list {
   display: grid;
-  gap: var(--space-3);
-}
-.applicant {
-  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
 }
+/* `--applicant-pad` restates the DS Card inset so the footer band below can bleed by exactly
+   that amount (a phone step shrinks both together). `--applicant-band` names the focal band's
+   fill for THIS card, so the surface it means is not read as an "info" status. */
+.applicant {
+  --applicant-pad: var(--space-5);
+  --applicant-band: var(--info-tint);
+  /* A container edge that holds against the Ivory page (the DS card's subtle hairline does not). */
+  border-color: var(--border-default);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  padding: var(--applicant-pad);
+  min-width: 0;
+}
+/* Identity left, relevance right (≤600px the relevance drops under the identity text). The
+   relevance column is capped at half the head: a long E18 label wraps inside it rather than
+   squeezing the trade/bands column (an `auto` track let it claim nearly the whole row). */
 .applicant__head {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) fit-content(50%);
+  align-items: start;
+  gap: var(--space-2) var(--space-3);
 }
 .applicant__id {
   display: grid;
   gap: var(--space-1);
   min-width: 0;
-  flex: 1;
 }
 .applicant__id-code {
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }
+/* The trade is the card's headline — Shift Blue, like every heading in the system. */
 .applicant__trade {
-  font-weight: var(--weight-semibold);
-  color: var(--text-primary);
+  font-weight: var(--weight-bold);
+  color: var(--text-heading);
   font-size: var(--text-base);
+  line-height: var(--leading-snug);
+  overflow-wrap: anywhere;
 }
 .applicant__bands {
   color: var(--text-muted);
@@ -2004,8 +1972,18 @@ textarea.input {
 .applicant__relevance {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: var(--space-2);
-  flex: none;
+  min-width: 0;
+}
+/* E18 — the related-skill label must be read IN FULL before a spend, so a long one wraps at
+   a space inside its badge instead of being clipped or pushing the card wider. A long skill
+   tag gets the same treatment. */
+.applicant__relevance .bb-badge,
+.applicant__signals .bb-badge {
+  white-space: normal;
+  line-height: var(--leading-snug);
 }
 .applicant__score {
   font-size: var(--text-sm);
@@ -2018,10 +1996,22 @@ textarea.input {
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }
+/* The skill/signal tags: a plain list of outline Badges (static text, not controls). */
 .applicant__signals {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* One toolbar: triage (Keep / Pass) beside the gated contact pair (Call / WhatsApp); the
+   contact pair wraps under the triage pair when the card is too narrow for both. */
+.applicant__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3) var(--space-6);
 }
 .applicant__pipeline,
 .applicant__reach {
@@ -2029,6 +2019,14 @@ textarea.input {
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
+  min-width: 0;
+}
+.applicant__pipeline {
+  flex: 0 1 auto;
+}
+/* 16rem is an optical basis (two small buttons + the start of the hint), not a spacing. */
+.applicant__reach {
+  flex: 1 1 16rem;
 }
 .applicant__hint {
   flex-basis: 100%;
@@ -2037,9 +2035,24 @@ textarea.input {
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
 }
+/* THE FOCAL BAND — the spend decision, bled to the card edge so the Unlock CTA (Safety
+   Yellow) sits on its own surface and the revealed relay/resume cards read as white cards on
+   it. The fill (--applicant-band) is the Shift Blue tint step (navy-50, flips under ink): the
+   sunken Ivory step was near-identical to the page and dissolved the card's bottom edge. */
 .applicant__contact {
-  border-top: var(--border-hairline) solid var(--border-subtle);
-  padding-top: var(--space-3);
+  margin: 0 calc(-1 * var(--applicant-pad)) calc(-1 * var(--applicant-pad));
+  padding: var(--space-4) var(--applicant-pad) var(--applicant-pad);
+  background: var(--applicant-band);
+  border-top: var(--border-hairline) solid var(--border-default);
+  border-end-start-radius: calc(var(--radius-lg) - var(--border-hairline));
+  border-end-end-radius: calc(var(--radius-lg) - var(--border-hairline));
+}
+/* --text-muted measured 4.43:1 (paper) / 4.12:1 (ink) on the tint — under AA for this small
+   text — so every muted line in the band takes the secondary step instead. */
+.applicant__contact .applicant__hint,
+.applicant__contact .applicant__neutral,
+.applicant__contact .applicant__until {
+  color: var(--text-secondary);
 }
 .applicant__granted {
   display: grid;
@@ -2077,6 +2090,74 @@ textarea.input {
   color: var(--danger);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
+}
+/* --danger is a paper-tuned red (3.1:1 on the ink card, 2.3:1 on the band): the ink theme
+   takes the light end of the ramp, as `.req` and `.state--error` already do. */
+[data-theme="ink"] .applicant__error {
+  color: var(--red-300);
+}
+/* Wide cards: a hairline separates the two toolbar groups. Only from 768px, where both groups
+   always fit one row (so the rule never lands on a wrapped, left-edge group). */
+@media (min-width: 768px) {
+  .applicant__reach {
+    padding-left: var(--space-5);
+    border-left: var(--border-hairline) solid var(--border-subtle);
+  }
+}
+/* Phones: identity keeps the width, relevance drops under it, the pipeline control spans the
+   row, and the spend + reveal actions go full-width thumb targets. */
+@media (max-width: 600px) {
+  .applicant {
+    --applicant-pad: var(--space-4);
+  }
+  .applicant__head {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .applicant__relevance {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+  .applicant__unlock,
+  .applicant__reveal {
+    justify-items: stretch;
+  }
+  .applicants-pipeline > .bb-tabs {
+    flex: 1 1 100%;
+  }
+  .applicants-pipeline .bb-tab {
+    flex: 1;
+    justify-content: center;
+  }
+  /* The result toast spans the phone rail instead of hugging the left edge. */
+  .applicants-page .unlock-toast-region {
+    left: var(--gutter);
+    right: var(--gutter);
+  }
+}
+/* Touch: every control on this screen is at least a 44px target. Only what the DS does NOT
+   already cover is added here, ON THIS SCREEN ONLY:
+     · the segmented pipeline tab (36px) and the toast's close glyph (~22px) have no DS hit
+       area at any width — they get one on phones and on any coarse pointer;
+     · the DS small button (36px) has its 44px hit strip at ≤600px (ds-components.css), so it
+       is lifted here only for a coarse pointer ABOVE 600px (a tablet), where the DS strip
+       stops. That lift is a drawn min-height: the DS reserves `.bb-btn--sm::before` for its
+       own phone strip. */
+@media (pointer: coarse) and (min-width: 601px) {
+  .applicants-page .bb-btn--sm {
+    min-height: var(--control-md);
+  }
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .applicants-page .bb-tab {
+    min-height: var(--control-md);
+  }
+  .applicants-page .bb-toast__close {
+    min-width: var(--control-md);
+    min-height: var(--control-md);
+    margin: calc(-1 * var(--space-3));
+    align-items: center;
+    justify-content: center;
+  }
 }
 .reveal-card {
   width: 100%;
@@ -2851,6 +2932,67 @@ textarea.input {
   margin-top: var(--space-4);
   color: var(--text-muted);
   font-size: var(--text-sm);
+}
+
+/* ==================================================================
+ * AGENCY · REFERRALS & EARNINGS + WORKER ACTIVITY (W2-B polish) — page-scoped layout only.
+ * ------------------------------------------------------------------
+ * Every selector is namespaced to `.agency-referrals-page` / `.agency-workers-page` (the page
+ * wrappers) or `.agency-referrals-payout__now`, so the shared invite panels keep their current
+ * look on /dashboard. Copy, data and behaviour are untouched; tokens only.
+ * ================================================================== */
+
+/* /agency/referrals — the two invite tools are FORMS, and on this page every form lives in a
+   framed panel (KYC, Payouts). Framing them the same way turns one long column of loose forms
+   and tiles into a stack of distinct blocks: forms in panels, tile runs in sections. */
+.agency-referrals-page .agency-section {
+  padding: var(--panel-pad);
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+}
+/* One heading size for every block on the page — the panel/section title role (the legacy
+   agency title is a size larger, so the invite tools out-shouted the money panels). */
+.agency-referrals-page .agency-section__title {
+  font-size: var(--ui-h2-size);
+  line-height: var(--ui-h2-leading);
+  font-weight: var(--ui-h2-weight);
+  letter-spacing: var(--ui-h2-tracking);
+}
+/* The consent note inside a framed panel is an inset callout, not a second bordered box. */
+.agency-referrals-page .agency-invite__note {
+  background: var(--surface-sunken);
+  border-color: transparent;
+  box-shadow: none;
+}
+/* Payouts head — title + "Request payout" on row 1, the mock-money description on row 2, at
+   EVERY width. The shared head is a wrapping flex row, which at 320px dropped the button under
+   the title (238px of content could not hold both). A two-track grid lets the title track
+   shrink instead; the sub spans both tracks. Two classes, because the shared `.panel__head`
+   rule comes later in this file. */
+.panel__head.agency-referrals-payout__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+.agency-referrals-payout__head > .panel__sub {
+  grid-column: 1 / -1;
+}
+/* Payouts — the amount the action would request is the panel's focal figure. */
+.agency-referrals-payout__now .bb-mono {
+  margin-inline-start: var(--space-1);
+  font-size: var(--ui-kpi-sm-size);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* /agency/workers — the empty list is the state this page ships in. Its two paragraphs get the
+   reading measure instead of the 46ch default, so they read as prose rather than a tall,
+   narrow centred column. */
+.agency-workers-page .state {
+  max-width: var(--reading-max);
 }
 
 /* ==================================================================

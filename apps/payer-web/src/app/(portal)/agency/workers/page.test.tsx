@@ -55,7 +55,7 @@ const RetryStub = () => null;
 vi.mock("../../../../components/retry-button", () => ({ RetryButton: RetryStub }));
 
 const { default: AgencyWorkersPage } = await import("./page");
-const { WorkerActivityList } = await import("./worker-activity-list");
+const { REFERRED_WORKERS_HEADING_ID, WorkerActivityList } = await import("./worker-activity-list");
 
 const WORKER: AgencyWorker = {
   ref: "9f3a71c40b28de55",
@@ -177,3 +177,78 @@ describe("/agency/workers — FACELESS page copy", () => {
     expect(joined).not.toMatch(/\+?\d{7,}/);
   });
 });
+
+/* ── W2-B hierarchy: the privacy boundary is ONE alert before the data; the head is the count ─ */
+
+type El = ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+
+/** Every host/component element in render order. */
+function elements(node: ReactNode, acc: El[] = []): El[] {
+  if (node === null || node === undefined || typeof node !== "object") return acc;
+  if (Array.isArray(node)) {
+    node.forEach((c) => elements(c, acc));
+    return acc;
+  }
+  const el = node as El;
+  acc.push(el);
+  if (el.props && "children" in el.props) elements(el.props.children as ReactNode, acc);
+  return acc;
+}
+const byClass = (tree: ReactNode, cls: string) =>
+  elements(tree).filter(
+    (e) =>
+      typeof e.props?.className === "string" &&
+      (e.props.className as string).split(/\s+/).includes(cls),
+  );
+const textIn = (el: El) => collect(el.props.children as ReactNode).text.join(" ");
+
+describe("/agency/workers — W2-B: the privacy boundary is an alert that precedes the table", () => {
+  it("renders an info alert whose headline is the first privacy sentence, BEFORE the panel", async () => {
+    listAgencyWorkers.mockResolvedValueOnce([WORKER]);
+    const tree = (await AgencyWorkersPage()) as El;
+    expect(tree.props.className).toBe("agency-workers-page");
+    const [alert] = byClass(tree, "alert--info");
+    expect(alert).toBeDefined();
+    expect(textIn(byClass(alert, "alert__title")[0]!)).toBe(
+      "Every row is a private handle, not a person.",
+    );
+    expect(textIn(alert!)).toMatch(
+      /never shows an agency a worker.s name, phone number or employer/,
+    );
+    // Reading order: the boundary is stated before any row is shown.
+    const top = childrenOf(tree).map((k) => String(k.props.className ?? ""));
+    expect(top.indexOf("alert alert--info")).toBeLessThan(top.indexOf("panel panel--table"));
+  });
+
+  it("the panel heading carries the id the table's region is named by", async () => {
+    listAgencyWorkers.mockResolvedValueOnce([WORKER]);
+    const heading = elements(await AgencyWorkersPage()).find(
+      (e) => e.type === "h2" && textIn(e) === "Referred workers",
+    );
+    expect(heading).toBeDefined();
+    expect(heading!.props.id).toBe(REFERRED_WORKERS_HEADING_ID);
+  });
+
+  it("the panel head is the title + the truthful count only (the prose moved to the alert)", async () => {
+    listAgencyWorkers.mockResolvedValueOnce([WORKER]);
+    const tree = await AgencyWorkersPage();
+    const subs = byClass(tree, "panel__sub");
+    expect(subs.map(textIn)).toEqual(["Showing 1 referred worker."]);
+  });
+
+  it("the handle-uniqueness line rides the count line: present when populated, absent when empty", async () => {
+    listAgencyWorkers.mockResolvedValueOnce([WORKER]);
+    const populated = collect(await AgencyWorkersPage()).text.join(" ");
+    expect(populated).toContain("Handles are unique to your agency");
+    const empty = collect(await AgencyWorkersPage()).text.join(" ");
+    expect(empty).not.toContain("Handles are unique to your agency");
+    // …while the boundary itself is stated in BOTH states.
+    expect(empty).toContain("private handle, not a person");
+  });
+});
+
+/** The direct child elements of a host element, in source order. */
+function childrenOf(el: El): El[] {
+  const kids = ([] as ReactNode[]).concat(el.props.children as ReactNode);
+  return kids.filter((k): k is El => k !== null && typeof k === "object" && !Array.isArray(k));
+}

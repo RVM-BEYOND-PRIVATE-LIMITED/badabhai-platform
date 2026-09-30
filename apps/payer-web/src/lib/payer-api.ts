@@ -999,11 +999,15 @@ export async function submitAgencyKyc(input: AgencyKycInput): Promise<AgencyKyc 
 /**
  * GET /payer/agency/payouts — the caller's OWN payout-request history (LIVE, gated),
  * PII-free (ids / ₹ amounts / status / timestamps). `null` = supply payouts not enabled
- * (404).
+ * (404). Crosses {@link assertNoAgencyPII} like every other agency read (defence-in-depth) —
+ * it was the one read on /agency/referrals that did not.
  */
 export async function listAgencyPayouts(): Promise<AgencyPayout[] | null> {
   try {
-    return await payerFetch("/payer/agency/payouts", { schema: agencyPayoutListWireSchema });
+    const wire = await payerFetch("/payer/agency/payouts", {
+      schema: agencyPayoutListWireSchema,
+    });
+    return assertNoAgencyPII(wire, "payer/agency/payouts");
   } catch (e) {
     if (isPayoutsDisabled(e)) return null;
     throw e;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ReactElement, ReactNode } from "react";
-import { WorkerActivityList } from "./worker-activity-list";
+import { REFERRED_WORKERS_HEADING_ID, WorkerActivityList } from "./worker-activity-list";
 import type { AgencyWorker } from "../../../../lib/contracts";
 
 /**
@@ -171,5 +171,46 @@ describe("WorkerActivityList — FACELESS guardrails", () => {
   it("renders no 'which job' or 'who unlocked' column", () => {
     const joined = collect(WorkerActivityList({ workers: [WORKER] })).text.join(" ");
     expect(joined).not.toMatch(/which job|unlocked by|company name|job title/i);
+  });
+});
+
+describe("WorkerActivityList — W2-B: the table scrolls in its own labelled region on a phone", () => {
+  type El = ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  const all = (node: ReactNode, acc: El[] = []): El[] => {
+    if (node === null || node === undefined || typeof node !== "object") return acc;
+    if (Array.isArray(node)) {
+      node.forEach((c) => all(c, acc));
+      return acc;
+    }
+    const el = node as El;
+    acc.push(el);
+    if (el.props && "children" in el.props) all(el.props.children as ReactNode, acc);
+    return acc;
+  };
+
+  it("the scroller is a focusable region NAMED BY the page's heading id (no copied label)", () => {
+    const wrap = all(WorkerActivityList({ workers: [WORKER] })).find(
+      (e) => e.props.className === "tablewrap",
+    );
+    expect(wrap).toBeDefined();
+    expect(wrap!.props.tabIndex).toBe(0);
+    expect(wrap!.props.role).toBe("region");
+    expect(wrap!.props["aria-label"]).toBeUndefined();
+    expect(wrap!.props["aria-labelledby"]).toBe(REFERRED_WORKERS_HEADING_ID);
+  });
+
+  it("is the no-wrap ledger (a day or a badge never breaks mid-value), counts right-aligned", () => {
+    const els = all(WorkerActivityList({ workers: [WORKER] }));
+    const table = els.find((e) => e.type === "table")!;
+    expect(String(table.props.className).split(/\s+/)).toEqual(["table", "table--nowrap"]);
+    const numHeads = els
+      .filter((e) => e.type === "th" && e.props.className === "num")
+      .map((e) => String(e.props.children).trim());
+    expect(numHeads).toEqual(["Applied", "Unlocked"]);
+  });
+
+  it("the empty state stays a plain state block — no scroll region around nothing", () => {
+    const els = all(WorkerActivityList({ workers: [] }));
+    expect(els.some((e) => e.props.role === "region")).toBe(false);
   });
 });
