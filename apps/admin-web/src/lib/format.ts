@@ -112,6 +112,42 @@ export function formatPayBand(min: number | null, max: number | null): string {
 }
 
 /**
+ * Human label for a posting's pay-type bucket (`in_hand` | `gross` | `ctc`, migration 0121).
+ *
+ * A raw enum never reaches an operator's eye — same vocabulary payer-web's `payTypeLabel`
+ * shows the poster, so the two surfaces name the same value identically. An unmapped code is
+ * shown de-underscored rather than blanked, mirroring `creditReasonLabel`'s fallback.
+ */
+export function payTypeLabel(payType: string): string {
+  switch (payType) {
+    case "in_hand":
+      return "In-hand";
+    case "gross":
+      return "Gross";
+    case "ctc":
+      return "CTC";
+    default:
+      return payType.replace(/_/g, " ");
+  }
+}
+
+/**
+ * A required-experience window in whole years, with the same partial-case discipline as
+ * {@link formatPayBand}: "2–5 years", "from 2 years", "up to 5 years" and "not stated" are four
+ * different claims, and collapsing a missing bound into the one that exists would state a
+ * requirement the poster never set. Singular "year" when a bound is exactly one.
+ */
+export function formatExperienceBand(min: number | null, max: number | null): string {
+  const yr = (n: number) => `${n} ${n === 1 ? "year" : "years"}`;
+  if (min !== null && max !== null) {
+    return min === max ? yr(min) : `${min}–${yr(max)}`;
+  }
+  if (min !== null) return `from ${yr(min)}`;
+  if (max !== null) return `up to ${yr(max)}`;
+  return "not stated";
+}
+
+/**
  * Whole rupees, Indian digit grouping. Never paise — the columns are integer ₹, and
  * decimals would imply a precision the data does not have.
  *

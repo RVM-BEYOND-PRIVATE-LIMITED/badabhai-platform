@@ -199,6 +199,22 @@ export const jobPostingDetailSchema = jobPostingListItemSchema.extend({
   description: z.string().nullable(),
   shift: z.string().nullable(),
   needed_by: z.string().nullable(),
+  /**
+   * The rest of the card content the poster set (PR-A, migrations 0116/0121/0131). Every one is
+   * `.nullable().optional()`: the projection returns them nullable, and `.optional()` keeps an
+   * older server that predates the field an honest parse rather than a hard error.
+   *
+   * `role_kind` is DISPLAY / CLASSIFICATION ONLY and is NOT worker-visible — it is served RAW and
+   * typed here as a plain string, not the closed enum, so an unknown value narrows to the raw-id
+   * fallback at the call site (`jobRoleLabel`) instead of failing the whole parse.
+   */
+  role_kind: z.string().nullable().optional(),
+  area: z.string().nullable().optional(),
+  min_experience_years: z.number().nullable().optional(),
+  max_experience_years: z.number().nullable().optional(),
+  pay_type: z.string().nullable().optional(),
+  requirements: z.array(z.string()).nullable().optional(),
+  benefits: z.array(z.string()).nullable().optional(),
   boosted_until: z.string().nullable(),
   previous_status: z.string().nullable(),
   applied_count: z.number(),
