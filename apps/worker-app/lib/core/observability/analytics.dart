@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_analytics/firebase_analytics.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
 /// One analytics event: a Firebase event [name] plus its PII-FREE [parameters].
@@ -177,8 +178,26 @@ class BbAnalytics {
 
   /// Resolve the plugin lazily. Returns null (and stays null-safe) wherever
   /// Firebase is unavailable — `flutter test`, a non-GMS device, a stripped
-  /// build.
+  /// build, or the window before `initializeApp()` has completed.
+  ///
+  /// THE `Firebase.apps` CHECK COMES FIRST, AND IT IS NOT DEFENSIVE PADDING.
+  /// `FirebaseAnalytics.instance` resolves `Firebase.app()`, which THROWS
+  /// `core/no-app` until an `initializeApp()` has finished its platform round
+  /// trip — and analytics fires before that on every cold start. The throw was
+  /// always caught below, so the app was never harmed, but a caught exception is
+  /// not free: a debug run pauses on it in the IDE, every cold start, which is
+  /// exactly the noise that makes a developer distrust their own build.
+  ///
+  /// `Firebase.apps` is a plain list getter over the platform delegate. It
+  /// answers empty instead of throwing, so this asks the question that has an
+  /// answer rather than provoking an exception and catching it. The try/catch
+  /// stays for everything else that can genuinely fail (no plugin registered
+  /// under `flutter test`, a stripped build).
+  ///
+  /// NEVER CACHES A FAILURE — `_analytics ??=` only assigns on success, so the
+  /// first events after Firebase comes up resolve normally.
   FirebaseAnalytics? get _client {
+    if (Firebase.apps.isEmpty) return null;
     try {
       return _analytics ??= FirebaseAnalytics.instance;
     } catch (_) {
