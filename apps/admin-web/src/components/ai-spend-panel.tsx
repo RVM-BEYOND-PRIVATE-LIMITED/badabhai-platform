@@ -108,6 +108,8 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
                  different, wrong claim the moment it left this page. */
               label={`Spend recorded ${basis.headline.toLowerCase()}`}
               value={formatExactRupees(cost.total_cost_inr)}
+              /* Six exact places — a half-width phone tile would split it mid-number. */
+              wide
             />
             <Stat label="Calls recorded" value={formatCount(cost.total_calls)} />
             <Stat
@@ -170,6 +172,7 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
             <Stat
               label={`Profiling spend ${perProfileState.view.windowLabel}`}
               value={formatExactRupees(perProfile.profiling_cost_inr)}
+              wide
             />
             <Stat
               label={`Profiles completed ${perProfileState.view.windowLabel}`}
@@ -181,6 +184,7 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
                  stops the second from being set in the KPI face like the first. */
               value={perProfileState.view.averageText}
               absent={perProfileState.view.averageIsAbsent}
+              wide
             />
           </div>
 

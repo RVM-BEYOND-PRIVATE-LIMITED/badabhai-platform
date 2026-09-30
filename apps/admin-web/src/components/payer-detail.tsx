@@ -7,6 +7,7 @@ import { StatusPill } from "./status-pill";
 import { NameCell } from "./name-cell";
 import { IdentityCapNotice } from "./identity-notice";
 import { DetailList } from "./detail-list";
+import { Stat } from "./stat";
 import { PayerDetailHeader } from "./payer-detail-header";
 import { PayerCreditsPanel } from "./payer-credits-panel";
 
@@ -166,22 +167,10 @@ export function PayerDetailView({
             <p className="panel__sub">Postings, unlocks and the current credit balance.</p>
           </div>
           <div className="stats stats--compact">
-            <div className="stat">
-              <span className="stat__value">{formatCount(payer.open_posting_count)}</span>
-              <span className="stat__label">Open postings</span>
-            </div>
-            <div className="stat">
-              <span className="stat__value">{formatCount(payer.posting_count)}</span>
-              <span className="stat__label">Postings, all time</span>
-            </div>
-            <div className="stat">
-              <span className="stat__value">{formatCount(payer.unlock_count)}</span>
-              <span className="stat__label">Contacts unlocked</span>
-            </div>
-            <div className="stat">
-              <span className="stat__value">{formatCount(payer.credit_balance)}</span>
-              <span className="stat__label">Credit balance</span>
-            </div>
+            <Stat label="Open postings" value={formatCount(payer.open_posting_count)} />
+            <Stat label="Postings, all time" value={formatCount(payer.posting_count)} />
+            <Stat label="Contacts unlocked" value={formatCount(payer.unlock_count)} />
+            <Stat label="Credit balance" value={formatCount(payer.credit_balance)} />
           </div>
         </section>
       </div>

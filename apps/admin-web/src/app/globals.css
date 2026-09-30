@@ -671,9 +671,19 @@ h3 {
 /* ---- responsive ---------------------------------------------------------- */
 
 @media (max-width: 1023px) {
+  /* PR-D1 — below 1024px the drawer toggle is the only way to reach the navigation, and it
+     is reached by touch on tablets as well as phones, so it takes the 44px target here rather
+     than only at phone width. The bar's block padding steps down with it so a 44px button
+     still sits in the --shell-header-h bar instead of growing it to ~69px. */
+  .topbar {
+    padding-block: var(--space-2);
+  }
   .topbar__menu {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
+    min-width: var(--control-md);
+    min-height: var(--control-md);
   }
   .sidebar {
     position: fixed;
@@ -724,17 +734,39 @@ h3 {
 
 /* ---- data surfaces (Milestone 2) ----------------------------------------- */
 
+/* PR-D1 — the track minimum is capped at the container (`min(22rem, 100%)`). A bare 22rem
+   (352px) is WIDER than the 343px content box of a 375px phone, so the single stacked column
+   overflowed its own container: the panels ate the right gutter on every detail page, and
+   where `.cols` sits inside a padded panel (the dashboard's AI-spend block) it pushed the page
+   body 18px sideways. Two columns still form exactly where they did before; below 22rem the
+   one column now fits instead of spilling. */
 .cols {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
   gap: var(--space-5);
   align-items: start;
 }
 
+/* PR-D1 — stat tiles sit in wrapping FLEX rows, not a grid. Each tile starts at an 11rem basis,
+   grows to share its row, and never shrinks below its own content minimum — which, for a ₹
+   value (`nowrap`, see `.stat--wide .stat__value`) or a count (no break opportunity inside
+   "1,23,456"), is the whole unbroken figure. Two things follow, both measured over every stat
+   grid at 320–1440px:
+     - a figure never splits and never overflows its tile: the tile widens to fit it instead;
+     - a row always fills: a lone last tile takes the row rather than stranding half-width
+       beside empty tracks.
+   A grid could do neither. Its fixed track minimum let a ₹ figure overflow or wrap between
+   digits, and every way of widening a ₹ tile (a full-row span, `span 2` behind a container
+   query) occupied the tracks `auto-fit` would otherwise collapse, stranding a sibling tile or
+   narrowing the counts until "1,23,456" split. The price: tiles in different rows no longer
+   line up in columns. */
 .stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-4);
+}
+.stats > .stat {
+  flex: 1 1 11rem;
 }
 .stat {
   background: var(--surface-card);
@@ -749,16 +781,32 @@ h3 {
   border-color: var(--warning);
   background: var(--warning-tint);
 }
+/* PR-D1 — the label on a warn tile. The UI-1 type role below sets `.stat__label` to
+   --text-muted, which measures 4.47:1 on the amber-100 warn fill — under the 4.5:1 floor, on
+   exactly the tiles that exist to be read. The secondary step is 7.20:1 there, and 7.29:1 on the
+   ink theme's translucent warn fill over the ink card. Two classes, so it wins on specificity
+   wherever it sits in this file. */
+.stat--warn .stat__label {
+  color: var(--text-secondary);
+}
 .stat__value {
   font-family: var(--font-mono);
   font-size: var(--text-xl);
   font-weight: var(--weight-bold);
   line-height: 1.1;
-  /* `.stats` tracks have a FIXED 11rem minimum, so an over-long value does not widen its
-     track — it spills out of the card. AI spend is `numeric(16,6)` and renders every place
-     it has rather than rounding (see `formatExactRupees`), so "₹1,23,456.789012" is a
-     reachable value, not a hypothetical. Wrap it instead. */
+  /* Inert for LAYOUT inside a `.stats` row (every tile today): `break-word` does not lower a
+     flex item's min-content, so in a row a tile widens to its unbroken figure rather than
+     wrapping it — a count or a ₹ value never splits. Kept, with `word-break: normal`, because
+     both override an inherited `overflow-wrap: anywhere` / `word-break: break-all` from any
+     ancestor (either would split "1,23,456"), and for a tile placed outside a row.
+     The trade-off: a figure wider than the whole row widens the TILE (fill and border) past the
+     row and scrolls the page sideways. AI spend is `numeric(16,6)` and prints every place
+     (`formatExactRupees`), so a ₹12-crore six-place total does that at 320px (measured);
+     realistic amounts (to ₹9,99,999.999999, and ₹99,99,999 for credits) fit at every width from
+     320px. A ₹ value (`Stat wide`) is also `nowrap` (see `.stat--wide .stat__value`): a money
+     figure split between digits reads as two numbers. */
   overflow-wrap: break-word;
+  word-break: normal;
 }
 .stat__label {
   font-size: var(--text-sm);
@@ -871,13 +919,28 @@ h3 {
    header to a box that was always fully visible. The header never stuck on any of the five
    long tables that ask for it. Capping the block size makes a long table scroll in place
    under its own header, which is what a 200-row console table wants; a short table is
-   under the cap and behaves exactly as before. */
+   under the cap and behaves exactly as before.
+
+   PR-D1 — the cap has an 18rem floor. `100dvh - 16rem` alone is 50–150px on a landscape
+   phone: a box a few rows tall that traps the reader inside it. 18rem keeps roughly six rows
+   visible whatever the viewport height. */
 .tablewrap {
   overflow: auto;
-  max-block-size: calc(100dvh - 16rem);
+  max-block-size: max(calc(100dvh - 16rem), 18rem);
   overscroll-behavior: contain;
   border: var(--border-hairline) solid var(--divider);
   border-radius: var(--radius-md);
+}
+/* PR-D1 — on a touch screen, or a phone-width one, a vertical swipe that reaches the end of a
+   table chains to the PAGE instead of stopping dead: the table can cover most of the screen,
+   and a reader stuck inside it has nowhere else to put a finger. This is about touch, not
+   width, so a coarse pointer gets it at any size. The INLINE axis stays contained — a
+   horizontal swipe that reaches the table's edge must not become the browser's back gesture.
+   A mouse keeps the full containment: the wheel is over the table on purpose. */
+@media (max-width: 600px), (pointer: coarse) {
+  .tablewrap {
+    overscroll-behavior-block: auto;
+  }
 }
 .table {
   width: 100%;
@@ -912,7 +975,34 @@ h3 {
   box-shadow: inset 0 -1px 0 var(--divider);
   z-index: 1;
 }
-.table tbody tr:last-child td {
+/* A ROW header (`tbody th scope="row"`, `.table__rowhead`) labels its row — it is not a column
+   header. Inheriting the rule above made every row header `position: sticky; top: 0`, so on a
+   table that scrolls in place each one pinned over the real column header and covered it (roles,
+   worker journey, session detail, stuck panel, voice attempts). It reads as the row's data, in
+   the row-label weight, and scrolls with its row.
+
+   This is the ONLY row-header rule. The old `.table__rowhead` rule (left-aligned, medium weight)
+   was fully overridden by this one and is gone; its medium weight lives on below, left
+   alignment comes from `.table th, .table td`, and the class stays in the markup as a hook.
+   Specificity (0,1,2) beats `.table th` (0,1,1), so source order does not matter.
+
+   `font-size: inherit` is deliberate for the mono row heads too: it also beats `.mono` (12px),
+   so a mono key in a row header (a question key, a job id) is set at the row's 13.5px — it is
+   the row's main key — while a mono value in an ordinary cell (`td.mono`) stays at 12px. */
+.table tbody th {
+  position: static;
+  z-index: auto;
+  background: transparent;
+  box-shadow: none;
+  font-size: inherit;
+  line-height: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+  color: inherit;
+  font-weight: var(--weight-medium);
+}
+.table tbody tr:last-child td,
+.table tbody tr:last-child th {
   border-bottom: 0;
 }
 .table tbody tr:hover {
@@ -1015,13 +1105,16 @@ h3 {
   flex: 0 0 auto;
 }
 
+/* `.stats` used to collapse to one column here as well; the flex stat rows and the phone tier
+   at the end of this file own that now (two tiles per row at 375px, one at 320px). The single
+   column is `minmax(0, 1fr)`, not `1fr`: a bare `1fr` keeps an `auto` minimum, so one long unbroken
+   value (a select's widest option, an id) could still widen the track past the viewport. */
 @media (max-width: 560px) {
-  .stats,
   .filters {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .kv {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--space-1) 0;
   }
 }
@@ -1046,10 +1139,15 @@ h3 {
   flex-wrap: wrap;
 }
 
-/* Denser stat grid for detail sidebars, where four tiles share a narrow column. */
+/* Denser stat rows for detail sidebars, where four tiles share a narrow column. The smaller
+   basis only changes how many tiles START on a row; a ₹ tile still widens to its figure (the
+   session-spend tile holds ₹0.472316 in a 3-up row at 1280px, where a 7.5rem grid track ran it
+   through the tile's padding). */
 .stats--compact {
-  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
   gap: var(--space-3);
+}
+.stats--compact > .stat {
+  flex-basis: 7.5rem;
 }
 .stats--compact .stat {
   padding: var(--space-4);
@@ -1167,10 +1265,6 @@ h3 {
   border: var(--border-hairline) solid var(--divider);
   font-size: var(--text-xs);
   color: var(--text-secondary);
-}
-.table__rowhead {
-  text-align: left;
-  font-weight: var(--weight-medium);
 }
 /* The signed-in admin's column, so "what can I do" is findable at a glance. */
 .cell--mine {
@@ -1358,6 +1452,28 @@ h3 {
   font-weight: var(--weight-regular);
   letter-spacing: normal;
   color: var(--text-muted);
+}
+/* PR-D1 — a WIDE value is a ₹ figure (`Stat wide`), and a money figure never breaks between
+   digits at any width: "₹1,23,45,678" split over two lines reads as two numbers. So it stays on
+   one line (`nowrap`), at the 22px KPI step everywhere — the 30px step is what made it too long
+   for an 11rem desktop tile in the first place. The unbroken figure is then the tile's minimum
+   width in the flex `.stats` row, so the tile widens to hold it (on a phone, to a row of its
+   own) instead of the figure spilling. An ABSENT value is a sentence, not a figure, and keeps
+   the wrapping sans rule above — hence the `:not()`. (0,3,0) beats the KPI role and the phone
+   tier's (0,2,0) step wherever it sits.
+
+   The value is a wrapping flex row so `nowrap` binds the FIGURE only: a `simulated` tag
+   (`MockMoneyTag`, the adornment) is a separate item that drops under the figure when both do
+   not fit. With the whole span nowrap the tag was held on the figure's line and pushed out of
+   the tile — at 768px and 1024px far enough to scroll the page sideways. The column gap stands
+   in for the space the tag used to sit after, which a flex row does not render. */
+.stat--wide .stat__value:not(.stat__value--absent) {
+  font-size: var(--ui-kpi-sm-size);
+  white-space: nowrap;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
 }
 .table {
   font-size: var(--ui-td-size);
@@ -1851,4 +1967,145 @@ textarea.field__input {
   background: var(--brand-tint);
   color: var(--text-primary);
   border-color: var(--brand-border);
+}
+
+/* ==================================================================
+ * PR-D1 · PROSE RAG — the console's explanatory paragraphs.
+ * The `page__sub` / `panel__sub` / `state__body` blocks carry the invariants an operator is
+ * meant to read (why a column is withheld, why a figure is not revenue), and they run to
+ * several sentences. `pretty` stops the last line being a single orphaned word; `balance`
+ * evens out a title that wraps. Line-breaking only: no copy, size or box changes, and a
+ * browser without `text-wrap` simply wraps as before.
+ * ================================================================== */
+.page__sub,
+.panel__sub,
+.state__body,
+.alert__body,
+.attention__body {
+  text-wrap: pretty;
+}
+.page__title,
+.panel__title,
+.state__title {
+  text-wrap: balance;
+}
+
+/* ==================================================================
+ * PR-D1 · PHONE TIER — the console at 375px.
+ * ------------------------------------------------------------------
+ * The shell already turns the sidebar into an overlay drawer below 1024px; below 600px the
+ * content has to follow. One rule governs everything in this block: THE PAGE BODY NEVER
+ * SCROLLS SIDEWAYS. A wide table scrolls inside its own `.tablewrap` — that is where
+ * horizontal scroll belongs on this console — and everything outside a tablewrap must fit.
+ *
+ * 600px is the phone line this file already uses for `.alert` and `.attention`, not a new
+ * one. Nothing narrower is needed: the stat rows reflow by their own flex basis, so a 320px
+ * phone drops to one tile per row without a query of its own.
+ *
+ * Declared LAST on purpose. The UI-1 type roles and density rules above are single-class
+ * selectors, so a phone override declared before them would silently lose on source order —
+ * the same trap `.stat__value--absent` documents.
+ * ================================================================== */
+@media (max-width: 600px) {
+  /* Rhythm — every outer spacing steps down one notch, none to zero. The inline gutter stays
+     at the <1024px value (16px) so a table keeps as much width as the viewport allows. */
+  .content {
+    padding: var(--space-5) var(--space-4);
+  }
+  .page {
+    gap: var(--space-5);
+  }
+  .page__head {
+    gap: var(--space-3);
+  }
+  .panel {
+    padding: var(--panel-pad-sm);
+  }
+  .panel__head {
+    margin-bottom: var(--space-4);
+  }
+  .state {
+    padding: var(--space-6) var(--space-4);
+  }
+  .empty {
+    padding: var(--space-5) var(--space-4);
+  }
+  .notice {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  /* Topbar — aligned to the content gutter. The 44px drawer toggle and the block padding that
+     keeps it inside --shell-header-h live in the <1024px block, where touch tablets get them
+     too. */
+  .topbar {
+    gap: var(--space-2);
+    padding-inline: var(--space-4);
+  }
+  /* Three crumbs plus the role pill truncated every segment to a few letters ("Oper… / Wo…
+     / aaaa…"). The section name goes first — the drawer names it — so the destination and
+     the row stay readable. */
+  .crumb--group,
+  .crumb--group + .crumb__sep {
+    display: none;
+  }
+
+  /* Headings keep their roles: the h1 (22px) and h2 (17px) are already console-sized, and
+     shrinking them would flatten the hierarchy the KPI step below depends on. What a phone
+     needs is that a long unbroken title (a role title, an id) wraps instead of widening the
+     flex row it sits in — `anywhere`, because only it lowers the min-content size. */
+  .page__title,
+  .panel__title,
+  .state__title {
+    overflow-wrap: anywhere;
+  }
+
+  /* Stat rows — two tiles start per row at 375px, three near 600px, one on a 320px phone where
+     two 9rem bases no longer fit. Both variants take the same basis: at phone width the compact
+     one has no narrower column to fit into. A ₹ tile needs more than half a phone row for
+     "₹2,145.382716" or "₹1,23,45,678", so its unbroken figure (the tile's minimum width)
+     already gives it a row of its own — no placement rule is needed for that. */
+  .stats {
+    gap: var(--space-3);
+  }
+  .stats > .stat {
+    flex-basis: 9rem;
+  }
+  .stat {
+    padding: var(--space-4);
+  }
+  /* The KPI face steps 30px → 22px (the token that exists for exactly this). An ABSENT value
+     is a sentence, not a figure, and keeps its own smaller sans rule — hence the `:not()`. */
+  .stat__value:not(.stat__value--absent) {
+    font-size: var(--ui-kpi-sm-size);
+  }
+
+  /* Dense tables (workers 7-col, jobs 8-col, ai-calls 8-col, the roles matrix, the switch
+     table) stay inside their `.tablewrap` and scroll there. Only the INLINE cell padding
+     tightens, so more of a row shows per horizontal swipe; the block padding is untouched, so
+     rows keep their 44px height — the touch target a row link or row action needs. (Vertical
+     swipe pass-through is the `.tablewrap` touch rule up with the base table styles.) */
+  .table th,
+  .table td {
+    padding-inline: var(--space-3);
+  }
+
+  /* The event chain: a timestamp and an event name side by side do not fit 343px, so the
+     name drops under its time rather than squeezing both. */
+  .chain__item {
+    flex-wrap: wrap;
+    gap: 0 var(--space-3);
+  }
+
+  /* Funnel / bucket rows: a short label keeps its figures beside it, exactly as on desktop.
+     A label that cannot share the line (a journey step with its blurb and chips) puts its
+     figures on the next line instead of being squeezed into a ~110px column beside three of
+     them — and at 320px that figure cluster was itself wider than the viewport. */
+  .funnel__row {
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+  }
+  .funnel__nums {
+    flex-wrap: wrap;
+    row-gap: var(--space-1);
+  }
 }

@@ -17,6 +17,7 @@ import {
 } from "../../../../lib/format";
 import { StatusPill } from "../../../../components/status-pill";
 import { DetailList } from "../../../../components/detail-list";
+import { Stat } from "../../../../components/stat";
 import { JobDetailHeader } from "./job-detail-header";
 
 /**
@@ -191,20 +192,12 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
           </div>
 
           <div className="stats stats--compact">
-            <div className="stat">
-              <span className="stat__value">{formatCount(job.applied_count)}</span>
-              <span className="stat__label">Applied</span>
-            </div>
-            <div className="stat">
-              <span className="stat__value">{formatCount(job.skipped_count)}</span>
-              <span className="stat__label">Skipped</span>
-            </div>
-            <div className="stat">
-              <span className="stat__value">{applyRate === null ? "—" : `${applyRate}%`}</span>
-              <span className="stat__label">
-                {applyRate === null ? "Not seen yet" : "Apply rate"}
-              </span>
-            </div>
+            <Stat label="Applied" value={formatCount(job.applied_count)} />
+            <Stat label="Skipped" value={formatCount(job.skipped_count)} />
+            <Stat
+              label={applyRate === null ? "Not seen yet" : "Apply rate"}
+              value={applyRate === null ? "—" : `${applyRate}%`}
+            />
           </div>
 
           <DetailList
