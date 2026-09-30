@@ -182,6 +182,13 @@ describe("money (O10): a whole money word and a figure in one sentence — and n
     ["monthly", "Shuru me 25,000 monthly milte hain."],
     ["/month", "Shuru me 25000/month milta hai."],
     ["months", "Pehle 3 months 12000 milte hain."],
+    // Beyond the spec's minimum list: a thousands-suffixed figure alone, and the other wage words.
+    ["a k figure with no money word", "Shuru me 25k milte hain."],
+    ["a thousand figure with no money word", "Welder ko 25 thousand milte hain."],
+    ["kamai", "Kamai 20000 tak ho jaati hai."],
+    ["income", "Income 18000 hoti hai."],
+    ["wages", "Wages 600 roz milte hain."],
+    ["stipend", "Apprentice ko stipend 8000 milta hai."],
   ])("%s → money", (_label, text) => {
     expect(line(text)).toBe("money");
   });
@@ -203,6 +210,9 @@ describe("money (O10): a whole money word and a figure in one sentence — and n
     ["a question mark between word and figure", "Salary ka kya? 2 certificate pehle lijiye."],
     ["a decimal is not a sentence stop, and there is no money word", "Vernier se 0.02 mm naapiye."],
     ["hazaar as a count with no digit", "Ek hazaar baar practice kariye."],
+    ["thousand as a count with no digit", "Ek thousand baar practice kariye."],
+    ["a km distance is not a thousands suffix", "Roz 2 km chal kar site pahunchiye."],
+    ["paise is advice, not a wage word", "Paise bachaiye aur 2 tools khareediye."],
   ])("%s → passes", (_label, text) => {
     expect(line(text)).toBeNull();
   });

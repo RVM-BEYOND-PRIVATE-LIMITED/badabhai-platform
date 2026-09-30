@@ -129,9 +129,17 @@ const scanForm = (text: string): string => text.normalize("NFKD").replace(/\p{M}
  * or a figure with a thousands suffix ("15k per month", "15 thousand per month"). "6 mahine ka
  * course" and "har mahine 100 ghante" are a duration and a count, and no monthly wage is written
  * in three bare digits. (`hazaar` and `lakh` need no suffix rule: they are currency words.)
+ *
+ * BEYOND THE SPEC'S LIST (phase-3 §2 names the minimum, not the ceiling): `thousand`, `kamai`,
+ * `income`, `wage(s)` and `stipend` are currency words too, and a THOUSANDS-SUFFIXED figure is money
+ * on its own ("25k milte hain", "25 thousand milte hain") — in a career answer `15k` is a wage, and
+ * without these a figure walked past with no listed word beside it. `paisa`/`paise` stay off the
+ * list: "paise bachaiye" is ordinary advice and too often shares a sentence with a count.
  */
 const CURRENCY_WORD =
-  /₹|(?<!\p{L})(?:rs|rupaye|rupaya|rupay|rupees?|salary|salaries|tankhwah|tankha|lakhs?|lacs?|hazaar|hazar)(?!\p{L})/iu;
+  /₹|(?<!\p{L})(?:rs|rupaye|rupaya|rupay|rupees?|salary|salaries|tankhwah|tankha|lakhs?|lacs?|hazaar|hazar|thousands?|kamai|kamaai|kamaayi|income|wages?|stipend)(?!\p{L})/iu;
+/** A figure with a thousands suffix (`15k`, `25 thousand`) — money with no word beside it. */
+const THOUSANDS_FIGURE = /\p{Nd}\s*(?:k|thousand)(?!\p{L})/iu;
 const MONTH_WORD = /(?<!\p{L})(?:months?|monthly|mahina|mahine|maheena|maheene)(?!\p{L})/iu;
 /** Any figure at all. */
 const FIGURE = /\p{Nd}/u;
@@ -148,6 +156,7 @@ function statesMoney(scan: string): boolean {
     .split(SENTENCE_STOP)
     .some(
       (sentence) =>
+        THOUSANDS_FIGURE.test(sentence) ||
         (CURRENCY_WORD.test(sentence) && FIGURE.test(sentence)) ||
         (MONTH_WORD.test(sentence) && WAGE_FIGURE.test(sentence)),
     );
