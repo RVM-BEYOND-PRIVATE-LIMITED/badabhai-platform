@@ -9,8 +9,34 @@
 import type { ElementType, HTMLAttributes, ReactNode } from "react";
 import Link from "next/link";
 
+/* ---------- Whole-surface link (Card + StatTile) ---------- */
+/**
+ * The optional whole-surface link. `href` and `ariaLabel` travel TOGETHER: the stretched-link
+ * overlay is an EMPTY `<a>` (it carries no text of its own), so an `href` without a name would
+ * ship an unnamed link — screen readers announce it as the bare URL, or just "link" (WCAG 2.4.4
+ * / 4.1.2). With no `href` there is no link to name, so an `ariaLabel` is refused rather than
+ * silently dropped.
+ */
+type SurfaceLinkProps =
+  | {
+      /**
+       * When set, the WHOLE surface becomes ONE accessible interactive link to `href` via the
+       * stretched-link pattern (a single `<a>` that itself overlays the surface; the root becomes
+       * `position:relative`). Backward-compatible: omit `href` and it renders EXACTLY as before
+       * (no `<a>` is added). Any OTHER interactive child must sit above the overlay
+       * (`position:relative; z-index:2`) so it stays clickable and there is never an `<a>` in `<a>`.
+       */
+      href: string;
+      /**
+       * The link's accessible name — REQUIRED with `href`. Name the destination/action, not just
+       * the visible label (e.g. `"Credit balance 247 — open wallet"`).
+       */
+      ariaLabel: string;
+    }
+  | { href?: never; ariaLabel?: never };
+
 /* ---------- Card ---------- */
-export interface CardProps extends HTMLAttributes<HTMLElement> {
+interface CardOwnProps extends HTMLAttributes<HTMLElement> {
   /** @default 'default' */
   variant?: "default" | "raised" | "flat" | "outline" | "ink";
   /** @default 'md' */
@@ -19,17 +45,8 @@ export interface CardProps extends HTMLAttributes<HTMLElement> {
   interactive?: boolean;
   /** Element/tag to render. @default 'div' */
   as?: ElementType;
-  /**
-   * When set, the WHOLE card becomes ONE accessible interactive link to `href` via the
-   * stretched-link pattern (a single `<a>` that itself overlays the card; the card root
-   * becomes `position:relative`). Backward-compatible: omit `href` and the card renders
-   * EXACTLY as before. Any OTHER interactive child must sit above the overlay
-   * (`position:relative; z-index:1`) so it stays clickable and there is never an `<a>` in `<a>`.
-   */
-  href?: string;
-  /** Accessible name for the stretched link (use when the visible text isn't a clear name). */
-  ariaLabel?: string;
 }
+export type CardProps = CardOwnProps & SurfaceLinkProps;
 
 export function Card({
   variant = "default",
@@ -103,7 +120,7 @@ export function Badge({
 }
 
 /* ---------- StatTile ---------- */
-export interface StatTileProps extends HTMLAttributes<HTMLDivElement> {
+interface StatTileOwnProps extends HTMLAttributes<HTMLDivElement> {
   /** Metric name. */
   label: string;
   /** Big value — rendered in Roboto Mono (tabular). */
@@ -120,15 +137,9 @@ export interface StatTileProps extends HTMLAttributes<HTMLDivElement> {
    * `delta`/`deltaDir="flat"` for context that isn't a change over time.
    */
   caption?: ReactNode;
-  /**
-   * When set, the WHOLE tile becomes ONE accessible interactive link to `href` (stretched-link;
-   * see {@link CardProps.href}). Backward-compatible: omit `href` and the tile renders EXACTLY
-   * as before (no `<a>` is added).
-   */
-  href?: string;
-  /** Accessible name for the stretched link (the bare label+value is rarely a clear name). */
-  ariaLabel?: string;
 }
+/** `href` + `ariaLabel` as for {@link CardProps} — the bare label+value is rarely a clear name. */
+export type StatTileProps = StatTileOwnProps & SurfaceLinkProps;
 
 export function StatTile({
   label,

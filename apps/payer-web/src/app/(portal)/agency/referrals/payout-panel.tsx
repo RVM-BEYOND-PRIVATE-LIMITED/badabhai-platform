@@ -64,10 +64,6 @@ export function PayoutPanel({
       <section className="panel">
         <div className="panel__head">
           <h2 className="panel__title">Payouts</h2>
-          <p className="panel__sub">
-            Request a payout of your requestable balance. Mock money — nothing is actually
-            disbursed.
-          </p>
           <div className="panel__actions">
             <Button
               variant="success"
@@ -78,6 +74,10 @@ export function PayoutPanel({
               {pending ? "Requesting…" : "Request payout"}
             </Button>
           </div>
+          <p className="panel__sub">
+            Request a payout of your requestable balance. Mock money — nothing is actually
+            disbursed.
+          </p>
         </div>
         <div className="panel__body">
           {canRequest ? (
