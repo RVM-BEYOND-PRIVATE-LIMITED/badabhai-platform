@@ -1,7 +1,5 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { globalsCss, rule, rules } from "../../test/css-rules";
 
 /**
  * The stat-row and dense-table rules the PR-D1 review fixes depend on. The node env has no
@@ -18,8 +16,7 @@ import { describe, expect, it } from "vitest";
  *  - A warn tile's label on the amber fill needs the secondary text step to clear 4.5:1.
  *  - Phone table cells tighten INLINE padding only, so rows keep their 44px touch height.
  */
-const here = dirname(fileURLToPath(import.meta.url));
-const CSS = readFileSync(join(here, "globals.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+const CSS = globalsCss();
 
 /** The body of every `@media (max-width: 600px)` block, braces balanced. */
 function phoneBlocks(): string[] {
@@ -56,49 +53,6 @@ function topLevel(): string {
     i = j + 1;
   }
   return out;
-}
-
-type Rule = { selector: string; body: string; atRules: string[] };
-
-/**
- * Flat `{ selector, body }` pairs of the style rules in `css`. With `nested`, every at-rule body
- * (`@media`, `@container`, `@supports`, nested to any depth) is walked too, and each rule carries
- * the chain of at-rule preludes it sits in; without it, at-rule blocks are skipped.
- */
-function rules(css: string, nested = false, atRules: string[] = []): Rule[] {
-  const out: Rule[] = [];
-  let prelude = "";
-  let i = 0;
-  while (i < css.length) {
-    const ch = css[i]!;
-    if (ch === "{") {
-      let depth = 1;
-      let j = i + 1;
-      for (; j < css.length && depth > 0; j++) {
-        if (css[j] === "{") depth++;
-        else if (css[j] === "}") depth--;
-      }
-      const selector = prelude.trim().replace(/\s+/g, " ");
-      const body = css.slice(i + 1, j - 1);
-      if (!selector.startsWith("@")) out.push({ selector, body, atRules });
-      else if (nested) out.push(...rules(body, true, [...atRules, selector]));
-      prelude = "";
-      i = j;
-      continue;
-    }
-    if (ch === "}" || ch === ";") prelude = "";
-    else prelude += ch;
-    i++;
-  }
-  return out;
-}
-
-/**
- * The declarations of the first rule in `css` whose selector list is EXACTLY `selector`
- * (whitespace-normalised). A string match, not a RegExp built from the selector.
- */
-function rule(css: string, selector: string): string | null {
-  return rules(css).find((r) => r.selector === selector)?.body ?? null;
 }
 
 /**
