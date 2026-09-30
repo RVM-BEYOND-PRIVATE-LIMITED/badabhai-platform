@@ -50,6 +50,54 @@ class MockApiClient extends ApiClient {
   /// (session-local, like the rest of mock mode).
   bool _mockEmployerContact = true;
 
+  /// Canned E4 match skills (#1828): session-local on/off state so the toggle
+  /// screen can be walked end to end in mock mode. Labels are placeholders for
+  /// the server's checked-in copy.
+  final Map<String, MatchSkillDto> _mockMatchSkills = <String, MatchSkillDto>{
+    for (final MatchSkillDto s in const <MatchSkillDto>[
+      MatchSkillDto(skillId: 'mskill_cnc_turner', label: 'CNC Turner', wants: true),
+      MatchSkillDto(skillId: 'mskill_vmc_operator', label: 'VMC Operator', wants: true),
+      MatchSkillDto(skillId: 'mskill_fitter', label: 'Fitter', wants: false),
+    ])
+      s.skillId: s,
+  };
+
+  @override
+  Future<List<MatchSkillDto>> getMatchSkills({required String authToken}) async {
+    await _delay();
+    // Sorted by id, as the real list is.
+    return (_mockMatchSkills.values.toList()
+          ..sort((MatchSkillDto a, MatchSkillDto b) =>
+              a.skillId.compareTo(b.skillId)))
+        .toList(growable: false);
+  }
+
+  @override
+  Future<MatchSkillDto> setMatchSkillWants({
+    required String skillId,
+    required bool wants,
+    required String authToken,
+  }) async {
+    await _delay();
+    final MatchSkillDto? held = _mockMatchSkills[skillId];
+    if (held == null) throw ApiException(404, 'match skill not held');
+    _mockMatchSkills[skillId] =
+        MatchSkillDto(skillId: skillId, label: held.label, wants: wants);
+    return MatchSkillDto(skillId: skillId, label: '', wants: wants);
+  }
+
+  /// Mirrors the REAL server, not its docs: every held row is re-stamped off
+  /// and counted, already-off rows included (#1850).
+  @override
+  Future<int> clearAllMatchSkills({required String authToken}) async {
+    await _delay();
+    for (final MatchSkillDto s in _mockMatchSkills.values.toList()) {
+      _mockMatchSkills[s.skillId] =
+          MatchSkillDto(skillId: s.skillId, label: s.label, wants: false);
+    }
+    return _mockMatchSkills.length;
+  }
+
   @override
   Future<ConsentStateDto> getConsentState({required String authToken}) async {
     await _delay();

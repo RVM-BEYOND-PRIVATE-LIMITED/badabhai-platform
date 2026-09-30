@@ -611,6 +611,15 @@ class _ProfileTabView extends StatelessWidget {
               onTap: () => context.pushOnce(Routes.resumeHistory),
             ),
             _hairline,
+            // E4 (#1828) — the worker's own on/off for each kind of work
+            // he is shown to employers for.
+            BbListRow.kit(
+              icon: Icons.construction_rounded,
+              title: 'Mera kaam',
+              subtitle: 'Kaam dikhayein / band karein',
+              onTap: () => context.pushOnce(Routes.matchSkills),
+            ),
+            _hairline,
             BbListRow.kit(
               icon: Icons.work_history,
               title: 'Applied jobs',

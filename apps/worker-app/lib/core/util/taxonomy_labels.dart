@@ -82,7 +82,15 @@ final Map<String, String> _allLabels = <String, String>{
   ..._kIndustryLabels,
 };
 
-final RegExp _idPrefixPattern = RegExp(r'^(role|skill|mach|dom|ind|trade|ctrl)_');
+/// Every taxonomy id prefix, shared by [taxonomyLabel] and
+/// [replaceTaxonomyIds] so the two cannot drift apart. `mskill` is the closed
+/// match-skill vocabulary (E4, #1828).
+const String _idPrefixes = 'mskill|role|skill|mach|dom|ind|trade|ctrl';
+
+final RegExp _idPrefixPattern = RegExp('^($_idPrefixes)_');
+
+final RegExp _idTokenPattern =
+    RegExp(r'\b(' + _idPrefixes + r')_[a-z][a-z0-9_]+\b');
 
 final Set<String> _acronyms = <String>{
   'cnc', 'vmc', 'hmc', 'iti', 'mig', 'tig', 'gdt', 'cam', 'ncvt', 'nsqf',
@@ -104,14 +112,15 @@ String taxonomyLabel(String id) {
 
 /// Replace all known taxonomy IDs in [text] with their display labels.
 ///
-/// Matches whole-word taxonomy IDs (role_*, mach_*, skill_*, dom_*, ind_*,
-/// trade_*, ctrl_*) by word boundary so partial matches inside longer words
-/// are not replaced. Unknown ID-shaped tokens are prettified as a fallback.
+/// Matches whole-word taxonomy IDs (mskill_*, role_*, mach_*, skill_*, dom_*,
+/// ind_*, trade_*, ctrl_*) by word boundary so partial matches inside longer
+/// words are not replaced. Unknown ID-shaped tokens are prettified as a
+/// fallback.
 String replaceTaxonomyIds(String text) {
   if (text.isEmpty) return text;
 
   return text.replaceAllMapped(
-    RegExp(r'\b(role|skill|mach|dom|ind|trade|ctrl)_[a-z][a-z0-9_]+\b'),
+    _idTokenPattern,
     (Match m) {
       final String word = m.group(0)!;
       final String? known = _allLabels[word];

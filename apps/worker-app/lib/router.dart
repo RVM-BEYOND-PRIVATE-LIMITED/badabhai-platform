@@ -30,6 +30,7 @@ import 'features/inbox/presentation/inbox_thread_screen.dart';
 import 'features/notifications/presentation/notifications_screen.dart';
 import 'features/profile/presentation/profile_preview_screen.dart';
 import 'features/profile_edit/presentation/profile_edit_screen.dart';
+import 'features/match_skills/presentation/match_skills_screen.dart';
 import 'features/extracted_review/presentation/extracted_review_screen.dart';
 import 'features/finishing/presentation/finishing_screen.dart';
 import 'features/trade_form/domain/trade_form_args.dart';
@@ -166,6 +167,10 @@ class Routes {
 
   /// Layer A profile edit (issue #1545) — pushed full-screen from Profile.
   static const String profileEdit = '/profile/edit'; // (no bar)
+
+  /// E4 match-skill toggles + clear-all (#1828) — the worker's exit from being
+  /// shown to employers. Pushed full-screen from Profile; back → Profile.
+  static const String matchSkills = '/profile/match-skills'; // (no bar)
 
   /// App-wide feedback page — pushed FULL-SCREEN from the floating Feedback
   /// button that rides every non-auth screen (see [FeedbackFabOverlay]).
@@ -756,6 +761,12 @@ GoRouter _buildRouter() {
                     path: 'edit',
                     parentNavigatorKey: _rootNavKey, // no bar
                     builder: (_, __) => const ProfileEditScreen(),
+                  ),
+                  // E4 (#1828) — match-skill toggles; back → Profile.
+                  GoRoute(
+                    path: 'match-skills',
+                    parentNavigatorKey: _rootNavKey, // no bar
+                    builder: (_, __) => const MatchSkillsScreen(),
                   ),
                   // Interview kit — NESTED under the Profile branch (WA-3): it
                   // is entered from the Profile tab, so the kit list keeps the
