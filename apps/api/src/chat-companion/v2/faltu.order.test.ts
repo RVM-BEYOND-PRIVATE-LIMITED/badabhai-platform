@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import "reflect-metadata";
+import { Logger } from "@nestjs/common";
+import type { Queue } from "bullmq";
+import { describe, expect, it, vi } from "vitest";
+import { REDIS_TIMEOUT_MS } from "../../queue/redis-deadline";
 import { V2_FALTU_COOLDOWN } from "../companion-replies";
 import { CTX, makeCompanionServiceForV2, NOW, WORKER } from "../chat-companion.v2.fake";
+import { CompanionV2Orchestrator } from "./companion-v2.orchestrator";
+import { FaltuStore } from "./faltu.store";
 
 /**
  * ADR-0046 P2 §2 — THE ORDERING, asserted where it lives: chip keys → cool-down → v1 text
@@ -128,6 +134,54 @@ describe("GET /chat/companion carries a running cool-down", () => {
   it("not cooling: no field at all", async () => {
     const turn = await openTurn(makeCompanionServiceForV2({ v2: true, faltu: true, cooling: null }));
     expect("cooldown_until" in turn).toBe(false);
+  });
+
+  it("a Redis that NEVER ANSWERS: the open returns within the bound, with no cooldown_until", async () => {
+    // The shared BullMQ connection buffers a command against a downed Redis and never rejects it
+    // (`maxRetriesPerRequest: null` + the default offline queue), so a try/catch alone would hang
+    // the tab's open. The real chain runs here: service → orchestrator → FaltuStore → deadline.
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const idle = await openTurn(makeCompanionServiceForV2({ v2: true, faltu: true, cooling: null }));
+      for (const client of [
+        Promise.resolve({ pttl: () => new Promise<number>(() => undefined) }), // command hangs
+        new Promise<never>(() => undefined), // the connection itself never resolves
+      ]) {
+        const store = new FaltuStore(
+          { CHAT_COMPANION_V2_FALTU_COOLDOWN_MINUTES: 30 } as never,
+          { client } as unknown as Queue,
+        );
+        // Only the cool-down read is exercised; every other collaborator is unreachable from it.
+        const unused = null as never;
+        const orchestrator = new CompanionV2Orchestrator(
+          {} as never,
+          unused,
+          unused,
+          unused,
+          unused,
+          unused,
+          store,
+          unused,
+        );
+        const h = makeCompanionServiceForV2({
+          v2: true,
+          faltu: true,
+          cooldownUntil: (w, n) => orchestrator.cooldownUntil(w, n),
+        });
+        const started = Date.now();
+        const turn = await openTurn(h);
+        expect(Date.now() - started).toBeLessThan(REDIS_TIMEOUT_MS * 6);
+        expect("cooldown_until" in turn).toBe(false);
+        expect(turn).toEqual(idle);
+
+        // The same read gates free text: the message is served by v1, not stalled.
+        const out = await h.svc.message(WORKER, { text: "phir se jobs dikhao" }, CTX as never, NOW);
+        expect(out.mode).toBe("companion");
+        expect(h.jobs.searchOpenPostings).toHaveBeenCalled();
+      }
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("FALTU off, or v2 off: the store is never read and the open is byte-for-byte as before", async () => {

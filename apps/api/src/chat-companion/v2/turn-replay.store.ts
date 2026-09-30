@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { RESUME_RENDER_QUEUE } from "../../queue/queue.constants";
+import { withinRedisDeadline } from "../../queue/redis-deadline";
 import { CompanionTurnSchema, type CompanionTurn } from "../chat-companion.dto";
 
 /**
@@ -34,7 +35,10 @@ export const TURN_REPLAY_TTL_SECONDS = 600;
  * FAIL OPEN, like the faltu store and for the same reason: a Redis outage must not cost the worker
  * their answer. An unreadable cache is a miss (the message is processed as before this existed);
  * an unwritten one costs only a future retry its replay. A stored value that no longer parses as
- * a turn is a miss too — Redis is ours, but never trusted as typed.
+ * a turn is a miss too — Redis is ours, but never trusted as typed. BOTH METHODS RUN UNDER
+ * `withinRedisDeadline`: on the shared connection a command against a downed Redis never
+ * rejects, so the try/catch alone would turn "fail open" into a hung message. A timed-out write
+ * that lands late is harmless — it stores the turn the worker was already sent.
  *
  * WHAT IS STORED is the turn the worker was already SENT: reviewed copy, a validated career
  * answer, or an edit card — whose before/after values are the ones `proposal:{workerId}` already
@@ -62,7 +66,9 @@ export class CompanionTurnReplayStore {
   /** The turn already served for this submission, or null (never served, expired, unreadable). */
   async read(workerId: string, submissionId: string): Promise<CompanionTurn | null> {
     try {
-      const raw = await (await this.client()).get(CompanionTurnReplayStore.key(workerId, submissionId));
+      const raw = await withinRedisDeadline(async () =>
+        (await this.client()).get(CompanionTurnReplayStore.key(workerId, submissionId)),
+      );
       if (raw === null) return null;
       const parsed = CompanionTurnSchema.safeParse(JSON.parse(raw));
       return parsed.success ? parsed.data : null;
@@ -79,13 +85,13 @@ export class CompanionTurnReplayStore {
   /** Keep the served turn for a retry — best-effort, never throws. */
   async remember(workerId: string, submissionId: string, turn: CompanionTurn): Promise<void> {
     try {
-      await (
-        await this.client()
-      ).set(
-        CompanionTurnReplayStore.key(workerId, submissionId),
-        JSON.stringify(turn),
-        "EX",
-        TURN_REPLAY_TTL_SECONDS,
+      await withinRedisDeadline(async () =>
+        (await this.client()).set(
+          CompanionTurnReplayStore.key(workerId, submissionId),
+          JSON.stringify(turn),
+          "EX",
+          TURN_REPLAY_TTL_SECONDS,
+        ),
       );
     } catch (err) {
       this.logger.warn(

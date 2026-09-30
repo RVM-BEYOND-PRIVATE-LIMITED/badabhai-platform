@@ -6,6 +6,7 @@ import type { ServerConfig } from "@badabhai/config";
 import type { CompanionRecentTurn } from "@badabhai/ai-contracts";
 import { SERVER_CONFIG } from "../../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../../queue/queue.constants";
+import { withinRedisDeadline } from "../../queue/redis-deadline";
 
 /**
  * Minimal typed view of the raw Redis list commands this store needs. BullMQ's `IRedisClient`
@@ -41,6 +42,10 @@ const StoredTurnSchema = z
  * WHAT IS STORED IS ALREADY PSEUDONYMIZED: the orchestrator appends the masked text the AI
  * service returned, never the raw message (contracts §7). Nothing here writes a log line with a
  * turn's text, and a failed read is simply "no memory" — the turn proceeds without it.
+ *
+ * BOTH METHODS RUN UNDER `withinRedisDeadline`. On the shared connection a command against a
+ * downed Redis never rejects, so without the bound "fail soft" was a hung v1-miss message. An
+ * append abandoned at the deadline may still land later; it is the pair the worker was served.
  */
 @Injectable()
 export class CompanionMemoryStore {
@@ -73,10 +78,8 @@ export class CompanionMemoryStore {
   async read(workerId: string): Promise<CompanionRecentTurn[]> {
     const turns = this.config.CHAT_COMPANION_V2_MEMORY_TURNS;
     try {
-      const raw = await (await this.client()).lrange(
-        CompanionMemoryStore.key(workerId),
-        -turns,
-        -1,
+      const raw = await withinRedisDeadline(async () =>
+        (await this.client()).lrange(CompanionMemoryStore.key(workerId), -turns, -1),
       );
       const parsed: CompanionRecentTurn[] = [];
       for (const entry of raw) {
@@ -107,10 +110,12 @@ export class CompanionMemoryStore {
   async append(workerId: string, turn: CompanionRecentTurn): Promise<void> {
     const key = CompanionMemoryStore.key(workerId);
     try {
-      const redis = await this.client();
-      await redis.rpush(key, JSON.stringify(turn));
-      await redis.ltrim(key, -this.config.CHAT_COMPANION_V2_MEMORY_TURNS, -1);
-      await redis.expire(key, this.config.CHAT_COMPANION_V2_MEMORY_TTL_SECONDS);
+      await withinRedisDeadline(async () => {
+        const redis = await this.client();
+        await redis.rpush(key, JSON.stringify(turn));
+        await redis.ltrim(key, -this.config.CHAT_COMPANION_V2_MEMORY_TURNS, -1);
+        await redis.expire(key, this.config.CHAT_COMPANION_V2_MEMORY_TTL_SECONDS);
+      });
     } catch (err) {
       this.logger.warn(
         `companion memory not appended for worker ${workerId} (${

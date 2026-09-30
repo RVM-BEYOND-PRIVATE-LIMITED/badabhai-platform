@@ -1,6 +1,8 @@
 import "reflect-metadata";
+import { Logger } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { Queue } from "bullmq";
+import { REDIS_TIMEOUT_MS } from "../../queue/redis-deadline";
 import { V2_FALTU_REDIRECT } from "../companion-replies";
 import { v2CopyTurn } from "./companion-v2-compose";
 import { CompanionTurnReplayStore, TURN_REPLAY_TTL_SECONDS } from "./turn-replay.store";
@@ -51,5 +53,26 @@ describe("CompanionTurnReplayStore (contracts §7) — a retried submission is a
   it("FAILS OPEN: an unreadable cache is a miss and an unwritable one throws nothing", async () => {
     expect(await setup({ get: boom() }).store.read(WORKER, SID)).toBeNull();
     await expect(setup({ set: boom() }).store.remember(WORKER, SID, TURN)).resolves.toBeUndefined();
+  });
+
+  it("a Redis that NEVER ANSWERS is a miss and a skipped write — bounded, never a hung message", async () => {
+    // Every v1-miss message that carries a submission_id awaits this read. On the shared
+    // connection a command against a downed Redis never rejects, so only the deadline keeps it
+    // fail-open. Real timers: the bound is the contract.
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const never = () => vi.fn(() => new Promise<never>(() => undefined));
+    try {
+      const started = Date.now();
+      expect(await setup({ get: never() }).store.read(WORKER, SID)).toBeNull();
+      await expect(setup({ set: never() }).store.remember(WORKER, SID, TURN)).resolves.toBeUndefined();
+      // A connection that never comes up is bounded too — the client await is inside the race.
+      const pending = new CompanionTurnReplayStore({
+        client: new Promise<never>(() => undefined),
+      } as unknown as Queue);
+      expect(await pending.read(WORKER, SID)).toBeNull();
+      expect(Date.now() - started).toBeLessThan(REDIS_TIMEOUT_MS * 3 * 6);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

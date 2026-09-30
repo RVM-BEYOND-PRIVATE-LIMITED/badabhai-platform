@@ -127,7 +127,7 @@ Two consequences stated rather than discovered:
 | `faltu.order.test.ts` | chips served during cool-down; free text blocked during cool-down; lexicon hit skips the model |
 | `faltu.privacy.test.ts` | abusive text never appears in events, logs or memory — lexicon path AND classifier path (any confidence, faltu phase on or off) |
 | flag-off tests | each new flag off ⇒ Phase 1 behaviour unchanged — incl. `companion-v2.flag-off.test.ts`: each task chip's label/key with its phase off gets v1's turn byte-for-byte (or the Phase 1 router for a v1 miss), never the chip route |
-| `faltu.order.test.ts` (open) | a running cool-down rides the `GET /chat/companion` turn as `cooldown_until` (V2 + FALTU on only) |
+| `faltu.order.test.ts` (open) | a running cool-down rides the `GET /chat/companion` turn as `cooldown_until` (V2 + FALTU on only); a Redis that never answers (command or connection) still returns the open within the 150 ms bound, with no `cooldown_until`, and free text is served by v1 |
 | `companion-v2.orchestrator.test.ts` (retry) | a replayed `submission_id` is one strike, one model call, one memory pair |
 
 ## 5. Acceptance

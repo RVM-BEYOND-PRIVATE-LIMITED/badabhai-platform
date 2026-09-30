@@ -4,6 +4,7 @@ import { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../../queue/queue.constants";
+import { withinRedisDeadline } from "../../queue/redis-deadline";
 
 /**
  * Minimal typed view of the raw Redis commands this store needs — the same narrowing
@@ -107,10 +108,19 @@ export class FaltuStore {
    * which fails open by design. Only a POSITIVE remaining TTL counts: a key without one cannot
    * be produced by `startCooldown`, and treating it as an eternal cool-down would silence a
    * worker over a state this code cannot create.
+   *
+   * BOUNDED BY `withinRedisDeadline`, because this read sits on the tab's OPEN
+   * (`GET /chat/companion`) and in front of every free-text message: on the shared connection a
+   * command against a downed Redis never rejects, so without the bound "fails open" would be a
+   * hung chat tab. The two writers above are NOT bounded yet: an abandoned INCR or SET still
+   * lands after the timeout, as a strike or a cool-down the strike event never reported, and
+   * that trade is not this read's to make — so a Redis outage still stalls a faltu turn.
    */
   async cooldownUntil(workerId: string, now: Date): Promise<string | null> {
     try {
-      const remainingMs = await (await this.client()).pttl(FaltuStore.cooldownKey(workerId));
+      const remainingMs = await withinRedisDeadline(async () =>
+        (await this.client()).pttl(FaltuStore.cooldownKey(workerId)),
+      );
       if (remainingMs <= 0) return null;
       return new Date(now.getTime() + remainingMs).toISOString();
     } catch (err) {

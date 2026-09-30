@@ -63,6 +63,11 @@ import { QuestionPackSchema, type QuestionPack } from "@badabhai/ai-contracts";
 
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import {
+  REDIS_TIMEOUT_MS,
+  RedisDeadlineExceededError,
+  withinRedisDeadline,
+} from "../queue/redis-deadline";
+import {
   hashSerialized,
   resolutionKey,
   PACK_CACHE_TTL_SECONDS,
@@ -72,20 +77,16 @@ import {
 const CONTENT_PREFIX = "packcontent:v1";
 const RESOLUTION_PREFIX = "packresolve:v1";
 
-/**
- * How long any single Redis command may take before it is abandoned as a miss.
+/*
+ * How long any single Redis command may take before it is abandoned as a miss is the shared
+ * `REDIS_TIMEOUT_MS` (`queue/redis-deadline.ts`, 150 ms).
  *
- * THIS IS THE FAIL-OPEN MECHANISM, not the try/catch — see the class doc for why a command against
- * a downed connection never rejects at all. Without this bound a Redis outage hangs every
- * profiling turn in the process.
- *
- * 150 ms is ~two orders of magnitude above a healthy same-network round trip (low single-digit ms
- * on the compose network / VPC) and still far below anything a worker would notice, so it cannot
- * trip on a merely loaded box while still bounding a dead one. The comparable timeout on the
- * ai-service spend ledger is 2 s, but that one guards a fail-CLOSED check where a false timeout
- * blocks a real spend; here a false timeout costs one Postgres query, so it can be aggressive.
+ * THAT BOUND IS THE FAIL-OPEN MECHANISM, not the try/catch — see the class doc for why a command
+ * against a downed connection never rejects at all. Without it a Redis outage hangs every
+ * profiling turn in the process. The comparable timeout on the ai-service spend ledger is 2 s,
+ * but that one guards a fail-CLOSED check where a false timeout blocks a real spend; here a false
+ * timeout costs one Postgres query, so it can be aggressive.
  */
-export const REDIS_TIMEOUT_MS = 150;
 
 /** Which pack a resolution landed on. `null` = the chain ran and produced nothing. */
 export interface PackRef {
@@ -127,9 +128,6 @@ interface CachedPack {
   readonly pack: string;
 }
 
-/** Sentinel for "the race was won by the timer". A unique object, so no real value can equal it. */
-const TIMED_OUT = Symbol("pack-cache-timeout");
-
 @Injectable()
 export class PackCacheService {
   private readonly logger = new Logger(PackCacheService.name);
@@ -150,40 +148,26 @@ export class PackCacheService {
    * Run a Redis interaction under {@link REDIS_TIMEOUT_MS}, yielding `fallback` if it does not
    * settle in time. The one place the fail-open promise is actually kept.
    *
-   * `await this.client()` IS INSIDE THE RACE, deliberately. BullMQ's `client` is itself a promise
-   * that resolves on connection; during an outage it can be pending, so a timeout that only
-   * covered the command would still be preceded by an unbounded await.
-   *
-   * THE LOSING PROMISE IS EXPLICITLY DEFUSED. `Promise.race` does not cancel the loser — it keeps
-   * running, and if it later rejects (the reconnect finally fails) that rejection has no handler
-   * and takes the process down under Node's default `unhandledRejection` behaviour. Attaching a
-   * no-op catch is what makes abandoning it safe.
+   * `await this.client()` IS INSIDE THE RACE, deliberately — `withinRedisDeadline` explains why
+   * (a pending connection promise is an unbounded await of its own), and it also defuses the
+   * abandoned attempt so a late rejection cannot become an `unhandledRejection`.
    */
   private async guard<T>(operation: string, work: (client: RedisPackCacheClient) => Promise<T>, fallback: T): Promise<T> {
-    let timer: NodeJS.Timeout | undefined;
     try {
-      const attempt = (async () => work(await this.client()))();
-      attempt.catch(() => undefined);
-      const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
-        timer = setTimeout(() => resolve(TIMED_OUT), REDIS_TIMEOUT_MS);
-      });
-      const outcome = await Promise.race([attempt, timeout]);
-      if (outcome === TIMED_OUT) {
+      return await withinRedisDeadline(async () => work(await this.client()));
+    } catch (error) {
+      if (error instanceof RedisDeadlineExceededError) {
         this.logger.warn(
           `pack cache timed out after ${REDIS_TIMEOUT_MS}ms on ${operation}; ` +
             `falling through to the database`,
         );
         return fallback;
       }
-      return outcome;
-    } catch (error) {
       this.logger.warn(
         `pack cache could not ${operation}; falling through to the database ` +
           `(${error instanceof Error ? error.message : String(error)})`,
       );
       return fallback;
-    } finally {
-      if (timer) clearTimeout(timer);
     }
   }
 

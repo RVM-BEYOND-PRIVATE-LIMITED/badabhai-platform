@@ -123,7 +123,9 @@ export class ChatCompanionService {
    * A RUNNING FALTU COOL-DOWN RIDES THE RECAP (P2) as `cooldown_until`, so an app that restarted
    * mid-cool-down locks its composer again on open instead of learning it from the next refused
    * message. Read only while v2 and its faltu phase are on — otherwise the open is byte-for-byte
-   * what it was — and the read fails open (no field) like every cool-down read.
+   * what it was — and the read fails open (no field) like every cool-down read, including when
+   * Redis never answers: `FaltuStore.cooldownUntil` runs under `withinRedisDeadline`, because a
+   * command on the shared connection against a downed Redis never rejects.
    */
   async open(workerId: string, ctx: RequestContext, now: Date = new Date()): Promise<CompanionOpenResponse> {
     const mode = await this.policy.resolve(workerId);

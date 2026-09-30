@@ -444,6 +444,16 @@ client. All keys are prefixed `companion:v2:`.
 | `cooldown:{workerId}` | flag | `FALTU_COOLDOWN_MINUTES` | faltu handler | no cool-down |
 | `turn:{workerId}:{submissionId}` | JSON, the v2 turn served for a v1-miss message | 600 s | orchestrator | fail open: the retry is processed as a new message |
 
+**"If Redis fails" includes "Redis never answers" (2026-09-30).** The shared BullMQ connection runs
+with `maxRetriesPerRequest: null` and the default offline queue, so a command against a downed Redis
+is buffered and never rejects; a try/catch alone would hang the request. The `mem`, `turn` and
+`cooldown` reads/writes on a request path therefore run under `withinRedisDeadline`
+(`apps/api/src/queue/redis-deadline.ts`, 150 ms, shared with the pack cache) and take the right-hand
+column on a timeout — so the tab's open (`GET /chat/companion`, which reads `cooldown`) and a v1-miss
+message cannot hang on Redis. NOT yet bounded: the `strikes` INCR and the `cooldown` SET (an
+abandoned write still lands later, as a strike or cool-down the strike event never reported) and
+`proposal:*` — a Redis outage still stalls a faltu turn and the edit path.
+
 Memory stores the **pseudonymized** text the AI service returned, never the raw text — clipped to
 1000 chars (the store drops longer turns on read), and **never** for a message the lexicon OR the
 classifier called `faltu` (any confidence, faltu phase on or off): pseudonymizing masks PII, not
