@@ -302,7 +302,9 @@ services:
       # Production ON additionally requires ADR-0046's signature AND companion v1 live (spec
       # README "Prerequisites"), and REAL model calls need the box to widen the ai-service's
       # `AI_REAL_CALL_TASKS` allowlist (below) to name `companion_classify,companion_edit_parse`
-      # — an env action, never a code change. `:-false` because these bools reject "".
+      # (P1) and `companion_career_answer` (P3) — an env action on the box, never a code change
+      # (see the allowlist's note on why this file's default does not reach production).
+      # `:-false` because these bools reject "".
       #
       # THE KNOBS (confidence floor, max rows, proposal TTL, strikes, memory) ARE NOT BRIDGED:
       # like every other feature's knobs in this file they run on their reviewed defaults, and
@@ -893,9 +895,17 @@ services:
       # STT in particular sends real worker AUDIO, which cannot be pseudonymized before the
       # provider hears it, and remains a separate owner decision.
       #
-      # Widening is an env action, not a code change — `export
-      # AI_REAL_CALL_TASKS=profiling_chat_turn,profile_extraction` on the box and re-run the
-      # deploy. Narrowing works the same way, which is why this keeps the `:-` form.
+      # Widening is an env action, not a code change: set the value in the box's own environment
+      # and re-run the deploy job. Narrowing works the same way, which is why this keeps the
+      # `:-` form. An `export` typed into a console shell does NOT count — the deploy runs in a
+      # fresh SSH session and never sees it; the value must live where every deploy reads it.
+      #
+      # THE PRODUCTION BOX ALREADY OVERRIDES THIS DEFAULT (measured 2026-09-30, #1843): the
+      # `ai.cost_recorded` spine shows REAL calls for tasks this default does not name
+      # (`profile_extraction`, `resume_generation`, `work_history_polish`, `resume_parse`,
+      # `resume_profile_summary`, `resume_option_map`), deploy after deploy. So on that box a
+      # change to the default below changes nothing, and widening there means APPENDING to the
+      # box's existing list — replacing it with a short one silently un-arms every task on it.
       #
       # THIS LINE IS INERT UNTIL THE BOX ARMS THE MASTER FLAG ABOVE, and the split of duties
       # is deliberate: this line answers WHICH task may go real, `AI_ENABLE_REAL_CALLS`
