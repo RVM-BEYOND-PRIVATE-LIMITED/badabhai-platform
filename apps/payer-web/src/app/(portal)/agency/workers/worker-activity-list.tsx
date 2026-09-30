@@ -51,9 +51,13 @@ export function WorkerActivityList({ workers }: { workers: AgencyWorker[] }) {
     );
   }
 
+  // W2-B: the scroller is a focusable, labelled region (a keyboard user can scroll the 5-column
+  // table on a phone; the name repeats the panel heading, as /credits does) and the table is the
+  // no-wrap ledger variant — a hyphenated day or the "In progress" badge never breaks mid-value
+  // on a narrow screen; the row scrolls inside `.tablewrap` instead.
   return (
-    <div className="tablewrap">
-      <table className="table">
+    <div className="tablewrap" tabIndex={0} role="region" aria-label="Referred workers">
+      <table className="table table--nowrap">
         <caption className="sr-only">
           Workers you referred who agreed to share their activity: a private handle, whether
           their profile is complete, how many times they applied, how many times a company
@@ -63,8 +67,13 @@ export function WorkerActivityList({ workers }: { workers: AgencyWorker[] }) {
           <tr>
             <th scope="col">Worker</th>
             <th scope="col">Profile</th>
-            <th scope="col">Applied</th>
-            <th scope="col">Unlocked</th>
+            {/* Count headers align with their right-aligned, tabular `.num` cells. */}
+            <th scope="col" className="num">
+              Applied
+            </th>
+            <th scope="col" className="num">
+              Unlocked
+            </th>
             <th scope="col">Last active</th>
           </tr>
         </thead>

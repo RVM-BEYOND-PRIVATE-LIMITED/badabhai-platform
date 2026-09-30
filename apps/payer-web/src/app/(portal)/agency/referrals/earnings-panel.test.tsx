@@ -79,3 +79,20 @@ describe("EarningsPanel", () => {
     expect(text.join(" ")).toMatch(/No real money is disbursed/i);
   });
 });
+
+describe("EarningsPanel — W2-B: the four ₹ tiles use the compact KPI row", () => {
+  it("renders them in `stat-row stat-row--kpi` (no hole beside a wrapped tile; ledger rows on a phone)", () => {
+    const tree = EarningsPanel({ earnings: EARNINGS }) as ReactElement<{ children?: ReactNode }>;
+    const rows: string[] = [];
+    (function w(node: ReactNode): void {
+      if (node === null || node === undefined || typeof node !== "object") return;
+      if (Array.isArray(node)) return void node.forEach(w);
+      const el = node as ReactElement<{ className?: string; children?: ReactNode }>;
+      if (typeof el.props?.className === "string" && el.props.className.startsWith("stat-row")) {
+        rows.push(el.props.className);
+      }
+      if (el.props && "children" in el.props) w(el.props.children);
+    })(tree);
+    expect(rows).toEqual(["stat-row stat-row--kpi"]);
+  });
+});

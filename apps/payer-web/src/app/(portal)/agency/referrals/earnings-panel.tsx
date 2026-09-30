@@ -50,8 +50,10 @@ export function EarningsPanel({ earnings }: { earnings: AgencyEarnings }) {
         </div>
       </div>
 
-      {/* Four ₹ tiles — StatTile renders its value in mono tabular by design. */}
-      <div className="stat-row">
+      {/* Four ₹ tiles — StatTile renders its value in mono tabular by design. `stat-row--kpi`
+          (the shared opt-in) keeps a wrapped fourth tile from leaving a hole beside it, and on a
+          phone each tile is a compact ledger row. */}
+      <div className="stat-row stat-row--kpi">
         <StatTile label="Total accrued" value={formatInr(totalAccruedInr)} icon="wallet" />
         <StatTile label="Requestable" value={formatInr(requestableInr)} icon="hand-coins" />
         <StatTile label="In request" value={formatInr(inRequestInr)} icon="hourglass-medium" />

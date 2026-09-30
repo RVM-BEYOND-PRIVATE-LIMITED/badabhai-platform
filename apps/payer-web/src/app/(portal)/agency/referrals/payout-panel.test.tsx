@@ -147,3 +147,74 @@ describe("PayoutPanel — history", () => {
     expect(joined).toMatch(/listed here with its status/);
   });
 });
+
+/* ── W2-B: head source order, and the history ledger's own scroll region ─────────────────── */
+
+type El = ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+
+function elements(node: ReactNode, acc: El[] = []): El[] {
+  if (node === null || node === undefined || typeof node !== "object") return acc;
+  if (Array.isArray(node)) {
+    node.forEach((c) => elements(c, acc));
+    return acc;
+  }
+  const el = node as El;
+  acc.push(el);
+  if (el.props && "children" in el.props) elements(el.props.children as ReactNode, acc);
+  return acc;
+}
+const kids = (el: El) =>
+  ([] as ReactNode[])
+    .concat(el.props.children as ReactNode)
+    .filter((k): k is El => k !== null && typeof k === "object" && !Array.isArray(k));
+
+const PAYOUT: AgencyPayout = {
+  id: "r1",
+  amountInr: 400,
+  accrualCount: 10,
+  status: "paid",
+  createdAt: "2026-08-14T00:00:00.000Z",
+};
+
+describe("PayoutPanel — W2-B layout", () => {
+  it("the request head reads title → action → sub, so the button shares the title row", () => {
+    const head = elements(render(BASE)).find((e) => e.props.className === "panel__head")!;
+    expect(kids(head).map((k) => String(k.props.className ?? k.type))).toEqual([
+      "panel__title",
+      "panel__actions",
+      "panel__sub",
+    ]);
+    expect(collect(kids(head)[1]!).buttons).toHaveLength(1);
+  });
+
+  it("the requestable figure is the panel's focal number, shown only when a request is possible", () => {
+    const shown = elements(render(BASE)).find((e) =>
+      String(e.props.className).includes("agency-referrals-payout__now"),
+    );
+    expect(shown).toBeDefined();
+    expect(collect(shown!).text.join("")).toContain("₹800");
+    const blocked = elements(
+      render({ ...BASE, canRequest: false, blockedReason: "below_threshold" }),
+    );
+    expect(
+      blocked.some((e) => String(e.props.className).includes("agency-referrals-payout__now")),
+    ).toBe(false);
+  });
+
+  it("the history scrolls in a focusable, labelled region; a no-wrap ledger with numeric heads", () => {
+    const els = elements(render(BASE, [PAYOUT]));
+    const wrap = els.find((e) => e.props.className === "tablewrap")!;
+    expect(wrap.props).toMatchObject({
+      tabIndex: 0,
+      role: "region",
+      "aria-label": "Request history",
+    });
+    const table = els.find((e) => e.type === "table")!;
+    expect(table.props.className).toBe("table table--nowrap");
+    expect(
+      els
+        .filter((e) => e.type === "th" && e.props.className === "num")
+        .map((e) => String(e.props.children).trim()),
+    ).toEqual(["Amount", "Accruals"]);
+  });
+});

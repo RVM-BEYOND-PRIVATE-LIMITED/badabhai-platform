@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
-import { StatTile } from "../../../../components/ds";
+import { ProgressBar, StatTile } from "../../../../components/ds";
 import type { AgencyEarnings, AgencyKyc, AgencyReferralsSummary } from "../../../../lib/contracts";
 import { EarningsPanel } from "./earnings-panel";
 import { KycPanel } from "./kyc-panel";
@@ -168,3 +168,75 @@ describe("agency referrals page — GATED supply money", () => {
     expect(components).not.toContain(EarningsPanel);
   });
 });
+
+/* ── W2-B sectioning: page namespace, compact funnel tiles, and the k-anon rate floor ───────── */
+
+type El = ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+
+function elements(node: ReactNode, acc: El[] = []): El[] {
+  if (node === null || node === undefined || typeof node !== "object") return acc;
+  if (Array.isArray(node)) {
+    node.forEach((c) => elements(c, acc));
+    return acc;
+  }
+  const el = node as El;
+  acc.push(el);
+  if (el.props && "children" in el.props) elements(el.props.children as ReactNode, acc);
+  return acc;
+}
+
+describe("agency referrals page — W2-B layout", () => {
+  it("wraps the screen in `.agency-referrals-page` (the invite-tool framing is scoped to it)", async () => {
+    const tree = (await AgencyReferralsPage()) as El;
+    expect(tree.props.className).toBe("agency-referrals-page");
+  });
+
+  it("the funnel tiles use the compact KPI row (one ledger line per tile on a phone)", async () => {
+    const els = elements(await AgencyReferralsPage());
+    // The element whose DIRECT children are the three funnel tiles.
+    const row = els.find((e) =>
+      ([] as ReactNode[])
+        .concat(e.props.children as ReactNode)
+        .some((c) => c !== null && typeof c === "object" && (c as El).type === StatTile),
+    );
+    expect(String(row!.props.className).split(/\s+/)).toEqual(["stat-row", "stat-row--kpi"]);
+  });
+});
+
+describe("agency referrals page — the conversion RATE honours the k-anon floor", () => {
+  const bar = async () =>
+    elements(await AgencyReferralsPage()).find((e) => e.type === ProgressBar)!.props as {
+      value: number;
+      showValue: boolean;
+    };
+
+  it("both stages clear the floor → the rate is shown (clicked / created, rounded)", async () => {
+    getEarningsNull();
+    expect(await bar()).toMatchObject({ value: 40, showValue: true }); // 12 / 30
+  });
+
+  it("a suppressed stage → NO rate is shown, and the floor is explained instead", async () => {
+    getEarningsNull();
+    getAgencyReferralsSummary.mockResolvedValueOnce({
+      created: 7,
+      clicked: 0,
+      accepted: 0,
+      minBucket: 5,
+    });
+    const tree = await AgencyReferralsPage();
+    const props = elements(tree).find((e) => e.type === ProgressBar)!.props as {
+      value: number;
+      showValue: boolean;
+    };
+    expect(props.showValue).toBe(false);
+    expect(props.value).toBe(0);
+    expect(collect(tree).text.join(" ")).toMatch(
+      /Conversion appears once both stages clear the\s+privacy floor of/,
+    );
+  });
+});
+
+/** Isolate the funnel: payouts OFF, so no money panel renders. */
+function getEarningsNull() {
+  getAgencyEarnings.mockResolvedValueOnce(null);
+}

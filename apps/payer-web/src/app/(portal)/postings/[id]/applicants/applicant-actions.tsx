@@ -353,66 +353,72 @@ export function ApplicantActions({
                   </div>
                 ) : null}
 
-                <div className="applicant__pipeline">
-                  {/* Keep/Pass are LOCAL; "Mark as contacted" shows only after a routed reveal
-                      and rides the already-spent unlock (no network). */}
-                  {stage === "shortlist" ? (
-                    <Badge tone="success">Shortlisted</Badge>
-                  ) : (
-                    <Button variant="secondary" size="sm" onClick={() => onKeep(a.workerId)}>
-                      Keep
-                    </Button>
-                  )}
-                  <Button variant="ghost" size="sm" onClick={() => onPass(a.workerId)}>
-                    Pass
-                  </Button>
-                  {routed ? (
-                    row.contacted ? (
-                      <Badge tone="brand" variant="solid">
-                        Contacted
-                      </Badge>
+                {/* The row's SECONDARY actions, grouped so they read as one toolbar: triage
+                    (Keep / Pass) beside the gated contact pair (Call / WhatsApp). Layout only —
+                    the two groups and every handler are exactly as before. The PRIMARY action
+                    (Unlock) is the footer band below, the card's one focal point. */}
+                <div className="applicant__actions">
+                  <div className="applicant__pipeline">
+                    {/* Keep/Pass are LOCAL; "Mark as contacted" shows only after a routed
+                        reveal and rides the already-spent unlock (no network). */}
+                    {stage === "shortlist" ? (
+                      <Badge tone="success">Shortlisted</Badge>
                     ) : (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => onContacted(a.workerId)}
-                      >
-                        Mark as contacted
+                      <Button variant="secondary" size="sm" onClick={() => onKeep(a.workerId)}>
+                        Keep
                       </Button>
-                    )
-                  ) : null}
-                </div>
+                    )}
+                    <Button variant="ghost" size="sm" onClick={() => onPass(a.workerId)}>
+                      Pass
+                    </Button>
+                    {routed ? (
+                      row.contacted ? (
+                        <Badge tone="brand" variant="solid">
+                          Contacted
+                        </Badge>
+                      ) : (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => onContacted(a.workerId)}
+                        >
+                          Mark as contacted
+                        </Button>
+                      )
+                    ) : null}
+                  </div>
 
-                <div className="applicant__reach">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={!routed}
-                    title={routed ? undefined : "Unlock & open the routed contact to enable"}
-                    onClick={() => onReach(a.workerId, "call")}
-                  >
-                    Call
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={!routed}
-                    title={routed ? undefined : "Unlock & open the routed contact to enable"}
-                    onClick={() => onReach(a.workerId, "whatsapp")}
-                  >
-                    WhatsApp
-                  </Button>
-                  {routed && row.reach ? (
-                    <p className="applicant__hint">
-                      {row.reach === "call" ? "Voice" : "Chat"} relay ready — reach this candidate
-                      through the <strong>routed relay</strong> shown below. It&rsquo;s an opaque
-                      in-app relay, <strong>never a phone number</strong>.
-                    </p>
-                  ) : !routed ? (
-                    <p className="applicant__hint">
-                      Call / WhatsApp open after you unlock and open the routed contact.
-                    </p>
-                  ) : null}
+                  <div className="applicant__reach">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={!routed}
+                      title={routed ? undefined : "Unlock & open the routed contact to enable"}
+                      onClick={() => onReach(a.workerId, "call")}
+                    >
+                      Call
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={!routed}
+                      title={routed ? undefined : "Unlock & open the routed contact to enable"}
+                      onClick={() => onReach(a.workerId, "whatsapp")}
+                    >
+                      WhatsApp
+                    </Button>
+                    {routed && row.reach ? (
+                      <p className="applicant__hint">
+                        {row.reach === "call" ? "Voice" : "Chat"} relay ready — reach this candidate
+                        through the <strong>routed relay</strong> shown below. It&rsquo;s an opaque
+                        in-app relay, <strong>never a phone number</strong>.
+                      </p>
+                    ) : !routed ? (
+                      <p className="applicant__hint">
+                        Call / WhatsApp open after you unlock and open the routed contact.
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
 
                 <div className="applicant__contact">
