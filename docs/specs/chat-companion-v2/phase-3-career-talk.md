@@ -45,6 +45,12 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
 - System prompt states Bada Bhai persona v3.2 (aap register, calm, short), the four refusal topics
   with the exact `refuse` output, "answer only about trades, skills, learning, safety at work, how
   to grow in the worker's trade", and the JSON schema.
+- The prompt names every persona v3.2 banned token the API validator (§2.2) rejects — rendered
+  once at import from the profiling-lexicon mirror, pinned to the canonical `persona.json` and to
+  `bannedTokenGroups()` by `test_companion_career.py` — and tells the model the chips carry no "?"
+  (the validator's ≤ 1 "?" counts lines and chips together). Audit fix, 2026-09-30: without them a
+  normal answer using "perfect", "interview" or a question-chip became a fallback that the
+  ai-service eval (scored before the validator) could not see.
 - Temperature low (≤ 0.4). `max_output_tokens` small (answer ≤ 4 lines).
 - Input text pseudonymized at the endpoint; memory turns are already pseudonymized.
 
