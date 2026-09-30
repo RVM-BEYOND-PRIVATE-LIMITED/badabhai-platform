@@ -487,7 +487,7 @@ All fixed lines live in `companion-replies.ts` (v1 file, extended) with a Devana
 | `V2_FALTU_COOLDOWN` | Thodi der baad baat karte hain. |
 | `V2_CAREER_REFUSE_*` | one line per refusal topic (P3) |
 | `V2_FALLBACK` | v1 `FALLBACK` reused |
-| `V2_EDIT_ASK` | **DRAFT (2026-09-30), pending owner review.** Resume mein kya badalna hai? Jaise: 'Marathi bhasha jod do' ya 'shehar Pune kar do'. |
+| `V2_EDIT_ASK` | **DRAFT (2026-09-30), pending owner review.** Resume mein kya badalna hai? Jaise: 'Marathi bhasha jod do' ya 'night shift kar do'. |
 | `V2_CAREER_ASK` | **DRAFT (2026-09-30), pending owner review.** Career ke baare mein aapka kya sawaal hai? Jaise: 'nayi skill kaun si seekhun'. |
 
 "Aana baaki hai" copy is the owner's wording (O2); the rest are drafts for review before flag-ON.
@@ -543,5 +543,15 @@ tests scan it.
 The closed-set VALUE labels (`before_display` / `after_display`) are not new copy: they are the
 existing English dictionary labels the form chips and the résumé already show.
 `V2_EDIT_ASK` / `V2_CAREER_ASK` answer a task-chip tap (§5.3). Their quoted examples are v1 misses
-(asserted by test), so a worker who types one reaches the router, not a v1 menu. No salary figure is
-used as an example: the copy suite forbids any 4-digit number on a line.
+(asserted by test), so a worker who types one reaches the router, not a v1 menu. Each `V2_EDIT_ASK`
+example is also a change the edit catalogue can make (a `languages.language` add, a
+`preferences.shift` edit — asserted by test); the first draft's "shehar Pune kar do" was not (the
+catalogue has no home-city field). No salary figure is used as an example: the copy suite forbids
+any 4-digit number on a line.
+
+**These two drafts go live on the deploy that ships them, not on a flag:** `CHAT_COMPANION_V2_EDIT_ENABLED`
+and `CHAT_COMPANION_V2_CAREER_ENABLED` are already on in production, so their review gates the MERGE.
+Until the owner signs them off (recorded here in place of the DRAFT marker), the alternative is the
+previous tap behaviour — the label sent to the edit-parse / career model — which the audit found
+wrong on its own terms (a billed model call on a label that names no change; a model answer to a
+non-question).

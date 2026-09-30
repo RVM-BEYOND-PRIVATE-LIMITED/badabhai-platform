@@ -381,12 +381,15 @@ export const EDIT_YES_NO_LABELS = {
 /**
  * A tap on the "Resume badlo" task chip. The tap names a TASK, not a change, so no model is
  * asked to parse it: the worker is asked what to change, with two examples. Each quoted example
- * is a v1 MISS (asserted in `companion-v2.orchestrator.test.ts`), so a worker who types one
- * reaches the edit router rather than a v1 menu. DRAFT — pending owner review (contracts §8).
+ * is a v1 MISS and names a change the edit catalogue can make — a language ADD and a shift EDIT
+ * (both asserted in `companion-v2.orchestrator.test.ts`) — so a worker who types one reaches the
+ * edit router and gets a card, never a v1 menu or "samajh nahi aaya". (A home city is NOT one:
+ * the catalogue has only the employer's city and the preferred-city list.) DRAFT — pending owner
+ * review (contracts §8).
  */
 export const V2_EDIT_ASK: CopyPair = {
-  latin: "Resume mein kya badalna hai? Jaise: 'Marathi bhasha jod do' ya 'shehar Pune kar do'.",
-  dev: "रिज़्यूमे में क्या बदलना है? जैसे: 'मराठी भाषा जोड़ दो' या 'शहर पुणे कर दो'।",
+  latin: "Resume mein kya badalna hai? Jaise: 'Marathi bhasha jod do' ya 'night shift kar do'.",
+  dev: "रिज़्यूमे में क्या बदलना है? जैसे: 'मराठी भाषा जोड़ दो' या 'नाइट शिफ्ट कर दो'।",
 };
 
 // ── Companion v2 — faltu (ADR-0046 P2, O11) ──────────────────────────────────────────────────

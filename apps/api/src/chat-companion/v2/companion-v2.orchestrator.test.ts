@@ -3,10 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { ServerConfig } from "@badabhai/config";
 import { CompanionClassifyInputSchema, CompanionRecentTurnSchema } from "@badabhai/ai-contracts";
 import { EVENT_REGISTRY } from "@badabhai/event-schema";
+import type { CompanionV2EditOp } from "@badabhai/types";
 import { resolveCompanionText } from "../companion-intents";
 import { COMPANION_TASK_NEW_RESUME_LABEL } from "../companion-task-keys";
 import type { CompanionEditService } from "./companion-edit.service";
 import { resolveCompanionTaskChip } from "./companion-task-chips";
+import { catalogueEntry, normaliseValue, opAllowed } from "./edit-catalogue";
 import { CLASSIFY_TEXT_MAX, CompanionV2Orchestrator } from "./companion-v2.orchestrator";
 import { NewResumeHandler } from "./handlers/new-resume.handler";
 import { FaltuHandler } from "./handlers/faltu.handler";
@@ -441,6 +443,24 @@ describe("a TAPPED task chip names a task — no model ever reads its label", ()
     for (const example of examples) {
       expect(resolveCompanionText(example), example).toEqual({ kind: "intent", intent: "fallback" });
       expect(resolveCompanionTaskChip(example, allOpen), example).toBeNull();
+    }
+  });
+
+  it("every example V2_EDIT_ASK quotes is a change the edit catalogue can make — never a promise it cannot keep", () => {
+    // Keyed by the example's text: a copy change that swaps an example fails here until the new
+    // one is mapped to a catalogue field, an allowed op and a value the field normalises.
+    const writable: Record<string, { section: string; field: string; op: CompanionV2EditOp; value: string }> = {
+      "Marathi bhasha jod do": { section: "languages", field: "language", op: "add", value: "marathi" },
+      "night shift kar do": { section: "preferences", field: "shift", op: "edit", value: "night" },
+    };
+    const examples = [...V2_EDIT_ASK.latin.matchAll(/'([^']+)'/g)].map((m) => m[1]!);
+    expect(examples.sort()).toEqual(Object.keys(writable).sort());
+    for (const example of examples) {
+      const { section, field, op, value } = writable[example]!;
+      const entry = catalogueEntry(section, field);
+      expect(entry, example).toBeDefined();
+      expect(opAllowed(entry!, op), example).toBe(true);
+      expect(normaliseValue(entry!.section, field, value), example).toBe(value);
     }
   });
 });
