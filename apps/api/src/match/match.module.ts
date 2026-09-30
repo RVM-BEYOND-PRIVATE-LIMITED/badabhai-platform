@@ -1,5 +1,6 @@
 import { Global, Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
+import { AuthModule } from "../auth/auth.module";
 import { PayersModule } from "../payers/payers.module";
 import { REACH_WIDEN_EXPIRY_QUEUE } from "../queue/queue.constants";
 import { MatchConfigRepository } from "./match-config.repository";
@@ -7,6 +8,7 @@ import { MatchConfigService } from "./match-config.service";
 import { WorkerSkillsRepository } from "./worker-skills.repository";
 import { WorkerSkillsService } from "./worker-skills.service";
 import { MatchSkillsController } from "./match-skills.controller";
+import { WorkerMatchSkillsController } from "./worker-match-skills.controller";
 import { MatchSkillsService } from "./match-skills.service";
 import { PublishReachService } from "./publish-reach.service";
 import { ReachWidenRepository } from "./reach-widen.repository";
@@ -34,6 +36,10 @@ import { FreeTierService } from "./free-tier.service";
 @Global()
 @Module({
   imports: [
+    // WorkerAuthGuard + ConsentGuard for the E4 worker-self routes. A guard is resolved in
+    // the injector of the module that declares the controller, so naming the pair in
+    // `@UseGuards` without this import is a BOOT failure (`match.module.boot.test.ts`).
+    AuthModule,
     // PayerAuthGuard for the two payer-facing posting-form routes.
     PayersModule,
     // The widen-expiry sweep's clock (Policy 27 "Expiring"). The queue token is
@@ -41,7 +47,9 @@ import { FreeTierService } from "./free-tier.service";
     // and nothing else produces to it.
     BullModule.registerQueue({ name: REACH_WIDEN_EXPIRY_QUEUE }),
   ],
-  controllers: [MatchSkillsController],
+  // Two guard sets, two controllers on purpose: the payer posting form (`PayerAuthGuard`)
+  // and the worker's own exit (`WorkerAuthGuard` + `ConsentGuard`).
+  controllers: [MatchSkillsController, WorkerMatchSkillsController],
   providers: [
     MatchConfigRepository,
     MatchConfigService,

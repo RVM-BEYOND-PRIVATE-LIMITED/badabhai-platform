@@ -49,15 +49,25 @@ interface Captured {
   limit?: number;
   updateTable?: unknown;
   updateSet?: Record<string, unknown>;
+  updateReturning?: unknown;
+  /** The UPDATE's WHERE, kept apart from `where` (which a later SELECT would overwrite). */
+  updateWhere?: unknown;
   /** Every raw statement executed, in order, with the executor that ran it. */
   statements: { on: "db" | "tx"; sql: string; params: unknown[] }[];
   inserts: { on: "db" | "tx"; table: unknown; values: unknown; conflict?: unknown }[];
   deletes: { on: "db" | "tx"; table: unknown; where: unknown }[];
+  /**
+   * How many `db.transaction` calls the repository made. ONE is the whole point of the
+   * wants-flip methods: a reconcile that opened its own transaction would be a second,
+   * independent transaction — not atomic with the flip — and this counter is what fails.
+   */
+  transactions: number;
 }
 
-function makeDb(opts: { rows?: unknown[]; exec?: unknown[][] } = {}) {
-  const captured: Captured = { statements: [], inserts: [], deletes: [] };
+function makeDb(opts: { rows?: unknown[]; exec?: unknown[][]; updateRows?: unknown[][] } = {}) {
+  const captured: Captured = { statements: [], inserts: [], deletes: [], transactions: 0 };
   const execQueue = [...(opts.exec ?? [])];
+  const updateQueue = [...(opts.updateRows ?? [])];
 
   const selectNode = (rows: unknown[]) => {
     const node: Record<string, unknown> = {
@@ -116,10 +126,18 @@ function makeDb(opts: { rows?: unknown[]; exec?: unknown[][] } = {}) {
       set: (values: Record<string, unknown>) => {
         captured.updateTable = table;
         captured.updateSet = values;
-        return { where: (c: unknown) => {
-          captured.where = c;
-          return Promise.resolve();
-        } };
+        const node = {
+          where: (c: unknown) => {
+            captured.where = c;
+            captured.updateWhere = c;
+            return node;
+          },
+          returning: (selection: unknown) => {
+            captured.updateReturning = selection;
+            return Promise.resolve(updateQueue.shift() ?? []);
+          },
+        };
+        return node;
       },
     }),
   });
@@ -127,7 +145,10 @@ function makeDb(opts: { rows?: unknown[]; exec?: unknown[][] } = {}) {
   const tx = executor("tx");
   const db = {
     ...executor("db"),
-    transaction: async (cb: (tx: unknown) => Promise<unknown>) => cb(tx),
+    transaction: async (cb: (tx: unknown) => Promise<unknown>) => {
+      captured.transactions += 1;
+      return cb(tx);
+    },
   } as unknown as Database;
 
   return { db, captured, repo: new WorkerSkillsRepository(db) };
@@ -417,6 +438,140 @@ describe("reconcileReachForWorker — the per-worker job_reach rebuild", () => {
     const { repo, captured } = makeDb();
     await repo.reconcileReachForWorker(WORKER, SKILLS);
     expect(captured.statements.map((s) => s.on)).toEqual(["tx", "tx"]);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * setWantsAndReconcile — THE PHASE'S INVARIANT. The flip and the reach reconcile are
+ * ONE transaction, the wanted set is READ BACK from the database, and the row is
+ * stamped `source='interview'` so no future re-derivation may re-propose it.
+ * ══════════════════════════════════════════════════════════════════════════ */
+describe("setWantsAndReconcile — the flip and the reach reconcile commit together", () => {
+  const SKILL = "mskill_vmc_operator";
+  const NOW = new Date("2026-09-29T10:00:00.000Z");
+
+  it("runs the UPDATE and the reconcile in exactly ONE transaction", async () => {
+    // The invariant E4 exists to make true. Two `db.transaction` calls would be two
+    // independent commits: a crash between them leaves the worker reachable through a skill
+    // he just declined, and no reader could tell the state was half-applied.
+    const { repo, captured } = makeDb({
+      updateRows: [[{ skillId: SKILL }]],
+      rows: [{ skillId: "mskill_fitter" }],
+    });
+    await repo.setWantsAndReconcile(WORKER, SKILL, false, NOW);
+    expect(captured.transactions).toBe(1);
+  });
+
+  it("writes `wants`, `source='interview'` and the timestamp on the (worker, skill) row", async () => {
+    const { repo, captured } = makeDb({ updateRows: [[{ skillId: SKILL }]] });
+    await repo.setWantsAndReconcile(WORKER, SKILL, false, NOW);
+    expect(captured.updateTable).toBe(workerSkills);
+    // `interview` is the one source the coarse re-derivation may not overwrite
+    // (packages/db/src/schema/match.ts:26-30); `derived_coarse` here would make the toggle
+    // undo itself on the next profile write.
+    expect(captured.updateSet).toEqual({ wants: false, source: "interview", updatedAt: NOW });
+    const q = compile(captured.updateWhere);
+    expect(q.sql).toContain('"worker_skill"."worker_id" = $1');
+    expect(q.sql).toContain('"worker_skill"."skill_id" = $2');
+    expect(q.params).toEqual([WORKER, SKILL]);
+  });
+
+  it("reconciles against the wanted set READ BACK from the database, not the flip", async () => {
+    // The worker holds several rows; flipping one must reconcile the whole set as the DB now
+    // holds it. `mskill_fitter` is what the read-back returns.
+    const { repo, captured } = makeDb({
+      updateRows: [[{ skillId: SKILL }]],
+      rows: [{ skillId: "mskill_fitter" }],
+    });
+    await repo.setWantsAndReconcile(WORKER, SKILL, false, NOW);
+    expect(captured.statements).toHaveLength(2);
+    expect(captured.statements[0]!.sql).toContain("DELETE FROM job_reach");
+    expect(captured.statements[1]!.sql).toContain("INSERT INTO job_reach");
+    // The skill list crosses as ONE array parameter — the read-back set, not a computed one.
+    expect(captured.statements[1]!.params).toEqual([WORKER, WORKER, ["mskill_fitter"]]);
+  });
+
+  it("runs the UPDATE, the read-back and the reconcile all on the TRANSACTION", async () => {
+    const { repo, captured } = makeDb({
+      updateRows: [[{ skillId: SKILL }]],
+      rows: [{ skillId: "mskill_fitter" }],
+    });
+    await repo.setWantsAndReconcile(WORKER, SKILL, false, NOW);
+    expect(captured.statements.every((s) => s.on === "tx")).toBe(true);
+  });
+
+  it("reconciles with an EMPTY set after the LAST wanted skill is turned off", async () => {
+    // He must leave every reach set; the DELETE still runs (he reaches nobody).
+    const { repo, captured } = makeDb({ updateRows: [[{ skillId: SKILL }]], rows: [] });
+    await repo.setWantsAndReconcile(WORKER, SKILL, false, NOW);
+    expect(captured.statements).toHaveLength(1);
+    expect(captured.statements[0]!.sql).toContain("DELETE FROM job_reach");
+  });
+
+  it("answers false and touches NOTHING when the worker holds no such row", async () => {
+    // The caller 404s on false; reconciling anyway would churn `job_reach` for a request
+    // that changed no state.
+    const { repo, captured } = makeDb({ updateRows: [[]] });
+    expect(await repo.setWantsAndReconcile(WORKER, SKILL, false, NOW)).toBe(false);
+    expect(captured.transactions).toBe(1);
+    expect(captured.statements).toHaveLength(0);
+  });
+
+  it("answers true when the row existed (the caller may emit)", async () => {
+    const { repo } = makeDb({ updateRows: [[{ skillId: SKILL }]], rows: [] });
+    expect(await repo.setWantsAndReconcile(WORKER, SKILL, true, NOW)).toBe(true);
+  });
+
+  it("sets wants TRUE to turn a skill back on — the toggle is a state, never a deletion", async () => {
+    const { repo, captured } = makeDb({
+      updateRows: [[{ skillId: SKILL }]],
+      rows: [{ skillId: SKILL }],
+    });
+    await repo.setWantsAndReconcile(WORKER, SKILL, true, NOW);
+    expect(captured.updateSet!.wants).toBe(true);
+    expect(captured.updateSet!.source).toBe("interview");
+    expect(captured.statements[1]!.params).toEqual([WORKER, WORKER, [SKILL]]);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * clearAllWantsAndReconcile — the E4 exit. EVERY row declined in one transaction,
+ * stamped `interview` so the next re-derivation cannot resurrect it, reconciled once.
+ * ══════════════════════════════════════════════════════════════════════════ */
+describe("clearAllWantsAndReconcile — one call, every row off, one reconcile", () => {
+  const NOW = new Date("2026-09-29T10:00:00.000Z");
+
+  it("updates EVERY row of THIS worker, sets wants=false, and stamps interview", async () => {
+    const { repo, captured } = makeDb({ updateRows: [[{ skillId: "a" }, { skillId: "b" }]] });
+    const cleared = await repo.clearAllWantsAndReconcile(WORKER, NOW);
+    expect(captured.updateTable).toBe(workerSkills);
+    expect(captured.updateSet).toEqual({ wants: false, source: "interview", updatedAt: NOW });
+    // The scope is the worker and NOTHING else — no source predicate, because an
+    // `interview` row he already declined must be re-stamped rather than skipped.
+    expect(text(captured.updateWhere)).toBe('"worker_skill"."worker_id" = $1');
+    expect(params(captured.updateWhere)).toEqual([WORKER]);
+    expect(cleared).toBe(2);
+  });
+
+  it("reconciles ONCE, with the empty set read back, in the SAME transaction", async () => {
+    const { repo, captured } = makeDb({
+      updateRows: [[{ skillId: "a" }, { skillId: "b" }]],
+      rows: [],
+    });
+    await repo.clearAllWantsAndReconcile(WORKER, NOW);
+    expect(captured.transactions).toBe(1);
+    expect(captured.statements).toHaveLength(1);
+    expect(captured.statements[0]!.sql).toContain("DELETE FROM job_reach");
+    expect(captured.statements[0]!.on).toBe("tx");
+  });
+
+  it("is idempotent: a second call clears 0 rows and STILL reconciles (nothing is wanted)", async () => {
+    // The stale reach rows of a worker already cleared must still go; returning early on a
+    // zero-row UPDATE would leave reach rows for a worker who wants nothing.
+    const { repo, captured } = makeDb({ updateRows: [[]], rows: [] });
+    expect(await repo.clearAllWantsAndReconcile(WORKER, NOW)).toBe(0);
+    expect(captured.statements).toHaveLength(1);
+    expect(captured.statements[0]!.sql).toContain("DELETE FROM job_reach");
   });
 });
 

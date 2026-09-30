@@ -43,6 +43,7 @@ import { PayerCapacityController } from "../payer-portal/payer-capacity.controll
 import { PayerPricingController } from "../payer-portal/payer-pricing.controller";
 import { PayerReachController } from "../payer-portal/payer-reach.controller";
 import { MatchSkillsController } from "../match/match-skills.controller";
+import { WorkerMatchSkillsController } from "../match/worker-match-skills.controller";
 import { AgencyJobsController } from "../agency/agency-jobs.controller";
 import { AgencyInvitesController } from "../agency/agency-invites.controller";
 import { AgencyWorkersController } from "../agency/agency-workers.controller";
@@ -394,6 +395,14 @@ const CONTRACT: ControllerContract[] = [
     name: "MatchSkills",
     ctor: MatchSkillsController,
     routes: { listSkills: [P], reachPreview: [P] },
+  },
+  // E4 — the WORKER's own exit from matching. A separate controller from the payer form
+  // above so the two guard sets can never be confused; every route is the worker-self pair
+  // at the class level. Listed on arrival, not in a later sweep (the #1397 lesson).
+  {
+    name: "WorkerMatchSkills",
+    ctor: WorkerMatchSkillsController,
+    routes: { listMyMatchSkills: [C, W], setMySkillWants: [C, W], clearAllMyMatchSkills: [C, W] },
   },
   // Payer-facing LIVE catalog read (D-6): read-only products projection, session-authed
   // like every other payer-web data fetch (the ops GET /pricing/catalog stays its own
@@ -835,6 +844,9 @@ describe("API authz contract — guards on every controller route", () => {
       WorkerQualificationsController,
       // ADR-0045 — serves the worker's own brief back to him; a third route must not join unpinned.
       GeneralFormController,
+      // E4 — serves the worker's own match skills back to him and takes his visibility
+      // writes; a fourth route must not join this class unpinned.
+      WorkerMatchSkillsController,
     ] as Ctor[]) {
       it(`${ctor.name} lists every route it serves`, () => {
         const proto = ctor.prototype as Record<string, unknown>;
@@ -876,6 +888,10 @@ describe("API authz contract — guards on every controller route", () => {
       // that ran before WorkerAuthGuard had attached `req.worker` would fail open on a route
       // that stores and replays the worker's own words.
       { name: "GeneralForm", ctor: GeneralFormController },
+      // E4 — the worker's own match-skills exit. Same class-level pair, same ordering hazard:
+      // ConsentGuard reads `req.worker`, which WorkerAuthGuard attaches. A list route, a
+      // visibility WRITE and a clear-all under one class, so the constraint covers all three.
+      { name: "WorkerMatchSkills", ctor: WorkerMatchSkillsController },
     ]) {
       it(`${name}Controller runs [WorkerAuthGuard, ConsentGuard] in order`, () => {
         expect(guardNames(ctor)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);

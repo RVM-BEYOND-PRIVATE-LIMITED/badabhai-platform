@@ -1,10 +1,11 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import {
   computeIndustryTenure,
   deriveWorkerSkills,
   wantedSkillIds,
   type WorkerSkillRow,
 } from "@badabhai/match-engine";
+import { isMatchSkillId, matchSkillLabel, type MatchSkillId } from "@badabhai/taxonomy";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
@@ -19,6 +20,19 @@ export interface RebuildResult {
   industryCount: number;
   /** How many open/paused postings the worker can now be reached through. */
   reachedPostings: number;
+}
+
+/** One row of the worker's own match-skills page, in the page's wire vocabulary. */
+export interface WorkerMatchSkillView {
+  skill_id: string;
+  label: string;
+  wants: boolean;
+}
+
+/** The result of one wants flip — the id and the state it now holds. */
+export interface SetWantsResult {
+  skill_id: string;
+  wants: boolean;
 }
 
 /**
@@ -168,31 +182,82 @@ export class WorkerSkillsService {
   }
 
   /**
-   * THE WANTS-TOGGLE SEAM — deliberately NOT wired to an endpoint in this change.
+   * THE WANTS TOGGLE — the worker's own yes/no over one kind of work (E4 item 1).
    *
-   * Spec Part 2 makes `wants` half of the visibility rule, and E12 turns on it ("ten men
-   * hold it, none has `wants = true`"). The worker-facing toggle (endpoint + Flutter UI)
-   * is explicitly out of scope here, so this method exists as the seam that the endpoint
-   * will call and NOTHING calls it yet.
+   * Everything HARD about this already lives in the repository method it calls: the flip and
+   * the `job_reach` reconcile commit in ONE transaction, the wanted set is read back from the
+   * database rather than assumed from the flip, and the row is stamped `source='interview'`
+   * so no future coarse re-derivation may re-propose the skill he just declined. This method
+   * is the closed-set check, the 404, and the event.
    *
-   * It is written now, rather than left to the endpoint, because the SAFE part is the
-   * hard part: flipping `wants` must reconcile `job_reach` in the same breath, or the
-   * worker keeps seeing (and can keep applying to) jobs for work he just said he does not
-   * want. Doing it here means the future endpoint is a controller + a DTO.
-   *
-   * It writes `source='interview'` on the row it touches, because a worker answering
-   * "do you want this work?" IS the interview speaking — and that is precisely the source
-   * the coarse re-derivation is forbidden to overwrite.
+   * 400 AND 404 ARE DIFFERENT QUESTIONS. An id outside the closed `mskill_*` vocabulary can
+   * never name a row in this system, so it is a 400 (`assertMatchSkill`); a real id the worker
+   * does not hold is a 404 with no oracle — exactly the neutral shape
+   * `WorkerAnswerSourceService.setTextSource` returns for a key that is nobody's.
    */
-  async setWants(workerId: string, skillId: string, wants: boolean): Promise<void> {
-    void workerId;
-    void skillId;
-    void wants;
-    throw new Error(
-      "WorkerSkillsService.setWants is an unwired seam: the wants-toggle endpoint is out " +
-        "of scope for the Matching V1 API wiring change (ADR-0036). Wire it with its own " +
-        "controller + DTO + guard-contract entry, and make it reconcile job_reach.",
-    );
+  async setWants(
+    workerId: string,
+    skillId: string,
+    wants: boolean,
+    ctx?: RequestContext,
+  ): Promise<SetWantsResult> {
+    const skill = this.assertMatchSkill(skillId);
+    const updated = await this.repo.setWantsAndReconcile(workerId, skill, wants, new Date());
+    if (!updated) {
+      throw new NotFoundException(`match skill ${skill} is not one of this worker's skills`);
+    }
+
+    await this.emitWantsSet(workerId, skill, wants, ctx);
+    this.logger.log(`match skill wants=${wants} for worker=${workerId} skill=${skill}`);
+    return { skill_id: skill, wants };
+  }
+
+  /**
+   * THE CLEAR-ALL EXIT — one call turns EVERY skill off and reconciles `job_reach` once.
+   *
+   * It is not garnish: a worker with eight derived rows would otherwise tap eight times, and a
+   * partial failure would leave him half-visible with no way to tell. The exit has to be as
+   * easy as the entry was (E4 item 3).
+   *
+   * UPDATE, NOT DELETE, and the difference is durability: deleting the rows would let the next
+   * profile write recreate them `wants: true`, so the exit would silently undo itself.
+   * Idempotent — a second call clears 0 rows and is still reported honestly. It emits, because
+   * the worker's request is itself the fact being recorded.
+   */
+  async clearAllWants(workerId: string, ctx?: RequestContext): Promise<{ cleared: number }> {
+    const cleared = await this.repo.clearAllWantsAndReconcile(workerId, new Date());
+    await this.emitWantsSet(workerId, null, false, ctx);
+    this.logger.log(`match skills cleared for worker=${workerId} rows=${cleared}`);
+    return { cleared };
+  }
+
+  /**
+   * The worker's own match skills, for the page the toggles and the clear-all live on.
+   *
+   * WITHOUT THIS THE TOGGLES HAVE NOTHING TO RENDER FROM. `worker_skill` is the only place a
+   * worker's match skills exist and no worker-facing route served it, so a per-skill toggle
+   * with no list is not an exit a screen can offer. Kept on the wire vocabulary the page
+   * submits (`mskill_*`), filtered to the CLOSED SET: a retired or out-of-vocabulary row can
+   * never be matched on, and listing it as a toggle would offer a switch the API must reject.
+   *
+   * PII-FREE: closed-set ids, their checked-in labels and a boolean. No name, no phone, and no
+   * count of who can see him — this read has no reason to expose supply breadth to the worker.
+   */
+  async listMatchSkillsForWorker(workerId: string): Promise<WorkerMatchSkillView[]> {
+    const rows = await this.repo.listSkillRows(workerId);
+    return rows
+      .flatMap((row): WorkerMatchSkillView[] =>
+        isMatchSkillId(row.skillId)
+          ? [
+              {
+                skill_id: row.skillId,
+                label: matchSkillLabel(row.skillId) ?? row.skillId,
+                wants: row.wants,
+              },
+            ]
+          : [],
+      )
+      .sort((a, b) => (a.skill_id < b.skill_id ? -1 : a.skill_id > b.skill_id ? 1 : 0));
   }
 
   /**
@@ -249,6 +314,44 @@ export class WorkerSkillsService {
       correlationId: ctx?.correlationId,
       requestId: ctx?.requestId,
     });
+  }
+
+  /**
+   * The spine record of a VISIBILITY change (E4 item 4): the worker set `wants` on one skill,
+   * or cleared every skill in one call (`skillId === null`). `wants` is half of ADR-0036's
+   * visibility rule, so a change to it is a business action and this is its audit record.
+   *
+   * PII-FREE: an opaque worker id, a closed-set skill id (or null for the clear-all) and the
+   * resulting boolean. No name, no phone — and deliberately NO count of who could see him.
+   * The spine needs to know what he chose, not how wide the audience was.
+   */
+  private async emitWantsSet(
+    workerId: string,
+    skillId: string | null,
+    wants: boolean,
+    ctx?: RequestContext,
+  ): Promise<void> {
+    const payload: PayloadInputOf<"worker.match_skill_wants_set"> = {
+      worker_id: workerId,
+      skill_id: skillId,
+      wants,
+    };
+    await this.events.emit({
+      event_name: "worker.match_skill_wants_set",
+      actor: { actor_type: "worker", actor_id: workerId },
+      subject: { subject_type: "worker", subject_id: workerId },
+      payload,
+      correlationId: ctx?.correlationId,
+      requestId: ctx?.requestId,
+    });
+  }
+
+  /** Closed-set check for a client-supplied skill id — never free text (ADR-0030 SG-3). */
+  private assertMatchSkill(skillId: string): MatchSkillId {
+    if (!isMatchSkillId(skillId)) {
+      throw new BadRequestException(`unknown match skill id: ${skillId}`);
+    }
+    return skillId;
   }
 }
 
