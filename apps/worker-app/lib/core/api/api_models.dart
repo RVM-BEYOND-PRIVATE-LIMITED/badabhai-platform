@@ -4710,6 +4710,44 @@ class EmployerContactWithdrawDto extends Equatable {
   List<Object?> get props => <Object?>[ok, consentId, withdrawn];
 }
 
+/// One row of `GET /workers/me/match-skills` (E4, #1828) — a kind of work the
+/// worker holds and whether he still wants to be matched for it.
+///
+/// [label] is the server's checked-in label for the closed `mskill_*`
+/// vocabulary; the app renders it and never keeps its own list of trade names.
+/// PII-free by contract: a closed-set id, a label and a boolean.
+class MatchSkillDto extends Equatable {
+  const MatchSkillDto({
+    required this.skillId,
+    required this.label,
+    required this.wants,
+  });
+
+  final String skillId;
+  final String label;
+  final bool wants;
+
+  /// Null for a row the app cannot render truthfully, which is dropped rather
+  /// than shown: no usable `skill_id` (it could never be written back), or a
+  /// `wants` that is not a boolean — drawing that as OFF would tell the worker
+  /// he is hidden when the server's state is unknown (fail closed).
+  static MatchSkillDto? tryParse(Object? raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    final Object? id = raw['skill_id'];
+    final Object? wants = raw['wants'];
+    if (id is! String || id.isEmpty || wants is! bool) return null;
+    final Object? label = raw['label'];
+    return MatchSkillDto(
+      skillId: id,
+      label: label is String ? label : '',
+      wants: wants,
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[skillId, label, wants];
+}
+
 /// RÉSUMÉ SKINS (#1808, server #1801) — the state of `GET /resume/skin`.
 ///
 /// THE SERVER SERVES ONLY WHAT IT KNOWS: whether skins are on, the skin the

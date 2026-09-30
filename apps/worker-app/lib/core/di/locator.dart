@@ -37,6 +37,9 @@ import '../../features/consent/domain/consent_repository.dart';
 import '../../features/consent/presentation/cubit/consent_cubit.dart';
 import '../../features/consent/presentation/cubit/consent_withdraw_cubit.dart';
 import '../../features/consent/presentation/cubit/employer_contact_cubit.dart';
+import '../../features/match_skills/data/match_skills_repository_impl.dart';
+import '../../features/match_skills/domain/match_skills_repository.dart';
+import '../../features/match_skills/presentation/cubit/match_skills_cubit.dart';
 import '../../features/invite/data/invite_repository_impl.dart';
 import '../../features/invite/domain/invite_repository.dart';
 import '../../features/invite/presentation/cubit/invite_cubit.dart';
@@ -325,6 +328,11 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
     () => NotificationPrefsRepositoryImpl(
         locator<ApiClient>(), locator<SessionRepository>()),
   );
+  // E4 (#1828) — stateless (caches nothing), so no logout teardown needed.
+  locator.registerLazySingleton<MatchSkillsRepository>(
+    () => MatchSkillsRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
+  );
   // ADR-0032 profile photo: mint/confirm/read/delete ride the ApiClient (so the
   // MockApiClient covers them in mock mode); ONLY the raw byte-PUT to the signed
   // storage url needs its own MOCK/REAL split (the voice-uploader pattern) so
@@ -544,6 +552,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // E0 C-2 (#1630) — the per-purpose employer-contact exit (no logout).
   locator.registerFactory<EmployerContactCubit>(
     () => EmployerContactCubit(locator<ConsentRepository>()),
+  );
+  // E4 (#1828) — the match-skill toggle screen.
+  locator.registerFactory<MatchSkillsCubit>(
+    () => MatchSkillsCubit(locator<MatchSkillsRepository>()),
   );
   locator.registerFactory<NameCubit>(
     () => NameCubit(

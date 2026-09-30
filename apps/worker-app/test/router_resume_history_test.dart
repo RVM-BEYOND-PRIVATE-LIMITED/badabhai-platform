@@ -25,6 +25,7 @@ import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_bottom_nav.dart';
 import 'package:badabhai_worker_app/features/profile_tab/presentation/profile_tab_screen.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
+import 'package:badabhai_worker_app/features/match_skills/presentation/match_skills_screen.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/resume_history_screen.dart';
 import 'package:badabhai_worker_app/router.dart';
 
@@ -117,6 +118,33 @@ void main() {
     router.pop();
     await _pumpUntil(tester, find.byType(ProfileTabScreen));
     expect(find.byType(ResumeHistoryScreen), findsNothing);
+    expect(_activeTab(tester), kProfileTabIndex);
+  });
+
+  testWidgets(
+      'Profile → "Mera kaam" opens the match-skill toggles full-screen (no '
+      'bar), and BACK returns to the Profile tab (#1828)', (
+    WidgetTester tester,
+  ) async {
+    final GoRouter router = await _pumpApp(tester);
+
+    router.go(Routes.profile);
+    await _pumpUntil(tester, find.text('Mera kaam'));
+
+    await tester.ensureVisible(find.text('Mera kaam'));
+    await tester.pump();
+    await tester.tap(find.text('Mera kaam'));
+    await _pumpUntil(tester, find.byType(MatchSkillsScreen));
+
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('no routes for location'), findsNothing);
+    expect(find.byType(MatchSkillsScreen), findsOneWidget);
+    expect(find.byType(BbBottomNav), findsNothing,
+        reason: 'a pushed full-screen utility, like Settings — no bar');
+
+    router.pop();
+    await _pumpUntil(tester, find.byType(ProfileTabScreen));
+    expect(find.byType(MatchSkillsScreen), findsNothing);
     expect(_activeTab(tester), kProfileTabIndex);
   });
 
