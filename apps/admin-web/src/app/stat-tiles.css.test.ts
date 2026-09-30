@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { globalsCss, rule, rules } from "../../test/css-rules";
+import { decl, globalsCss, rule, rules } from "../../test/css-rules";
 
 /**
  * The stat-row and dense-table rules the PR-D1 review fixes depend on. The node env has no
@@ -172,6 +172,35 @@ describe("stat tiles", () => {
       )
       .map((r) => [...r.atRules, r.selector].join(" > "));
     expect(placed).toEqual([]);
+  });
+});
+
+describe("the simulated tag inside a stat value", () => {
+  // `MockMoneyTag` is a Stat adornment rendered INSIDE `.stat__value`, so every inherited type
+  // property of the KPI figure reached it: measured in Chrome it was Roboto Mono at -0.55px
+  // tracking and a 12.6px line (17.8px tall) against the 22.6px of every other pill.
+  const TAG = ".stat__value .pill";
+
+  it("takes back its own UI sans type, at every width", () => {
+    const body = rule(topLevel(), TAG);
+    expect(body).not.toBeNull();
+    expect(decl(body!, "font-family")).toBe("var(--font-sans)");
+    expect(decl(body!, "letter-spacing")).toBe("normal");
+    expect(decl(body!, "line-height")).toBe("var(--ui-caption-leading)");
+    expect(decl(body!, "font-weight")).toBe("var(--weight-medium)");
+    expect(decl(body!, "font-variant-numeric")).toBe("normal");
+    // An absent value is italic; a pill inside one is still upright.
+    expect(decl(body!, "font-style")).toBe("normal");
+  });
+
+  it("resets TYPE only — the value row's layout stays the wide rule's", () => {
+    // The flex/wrap/nowrap guarantees above belong to `.stat--wide .stat__value`; the tag rule
+    // must not add layout of its own (a nowrap or a width here would pin the tag beside the
+    // figure and push it out of the tile again).
+    const body = rule(topLevel(), TAG)!;
+    for (const prop of ["display", "white-space", "width", "min-width", "max-width", "flex", "margin"]) {
+      expect(decl(body, prop), prop).toBeNull();
+    }
   });
 });
 
