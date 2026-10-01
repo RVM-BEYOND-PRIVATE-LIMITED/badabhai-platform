@@ -263,23 +263,52 @@ describe("touch targets — 44px on a phone or any coarse pointer", () => {
 
 const ADMIN_RING = ":where(a, button, input, select, textarea, summary, [tabindex]):focus-visible";
 
-/** A zero length in any unit — `0`, `0px`, `0.0em` — but never `0.5px` or a `calc(0px + …)`. */
-const isZeroLength = (token: string) =>
-  /^[+-]?(\d+\.?\d*|\.\d+)([a-z%]+)?$/i.test(token) && parseFloat(token) === 0;
+/**
+ * A zero length in any unit — `0`, `0px`, `0.0em`, `calc(0px)` — but never `0.5px` or a
+ * `calc(0px + …)`.
+ */
+const isZeroLength = (token: string) => {
+  const t = token.startsWith("calc(") && token.endsWith(")") ? token.slice(5, -1).trim() : token;
+  return /^[+-]?(\d+\.?\d*|\.\d+)([a-z%]+)?$/i.test(t) && parseFloat(t) === 0;
+};
+
+/** The outline-style keywords that draw something — every one but `none` / `hidden`. */
+const DRAWN_STYLES = new Set([
+  "auto",
+  "solid",
+  "dashed",
+  "dotted",
+  "double",
+  "groove",
+  "ridge",
+  "inset",
+  "outset",
+]);
+
+/** A declared value, case-folded and without `!important` — `NONE !important` is still none. */
+const declared = (body: string, property: string) =>
+  decl(body, property)
+    ?.replace(/!\s*important\s*$/i, "")
+    .trim()
+    .toLowerCase() ?? null;
 
 /**
- * Does a rule's own outline draw nothing? No outline declared at all, or one whose style is
- * `none` or whose width is zero in any unit — anywhere in the shorthand (it is order-free:
- * `solid 0px` is as lost as `0`) or in an `outline-style` / `outline-width` longhand.
+ * Does a rule's own outline draw nothing? No outline declared at all; one whose style is `none`
+ * or whose width is zero in any unit — anywhere in the shorthand (it is order-free: `solid 0px`
+ * is as lost as `0`) or in an `outline-style` / `outline-width` longhand; or a shorthand that
+ * names no style at all, which resets the style to `none` (`outline: 2px var(--focus-ring)`,
+ * `outline: transparent`).
  */
 function outlineLost(body: string): boolean {
-  const shorthand = decl(body, "outline");
-  const style = decl(body, "outline-style");
+  const shorthand = declared(body, "outline");
+  const style = declared(body, "outline-style");
   if (shorthand === null && style === null) return true;
-  return [shorthand, style, decl(body, "outline-width")]
+  const zeroed = [shorthand, style, declared(body, "outline-width")]
     .filter((v): v is string => v !== null)
     .flatMap(valueTokens)
-    .some((t) => t === "none" || isZeroLength(t));
+    .some((t) => t === "none" || t === "hidden" || isZeroLength(t));
+  if (zeroed) return true;
+  return style === null && !valueTokens(shorthand ?? "").some((t) => DRAWN_STYLES.has(t));
 }
 
 /**
@@ -338,10 +367,18 @@ describe("focus in forced colours", () => {
         ".g:focus-visible { outline: solid 0.0em var(--focus-ring); box-shadow: var(--ring-focus); }" +
         ".h:focus-visible { outline: var(--border-bold) solid; outline-width: 0; box-shadow: var(--ring-focus); }" +
         ".i:focus-visible { outline: var(--border-bold) solid; outline-style: none; box-shadow: var(--ring-focus); }" +
+        // A shorthand naming no style resets it to `none`; case and `!important` change nothing.
+        ".m:focus-visible { outline: 2px var(--focus-ring); box-shadow: var(--ring-focus); }" +
+        ".n:focus-visible { outline: transparent; box-shadow: var(--ring-focus); }" +
+        ".o:focus-visible { outline: NONE !important; box-shadow: var(--ring-focus); }" +
+        ".p:focus-visible { outline: calc(0px) solid var(--focus-ring); box-shadow: var(--ring-focus); }" +
         // What it must PERMIT: a width that merely starts with 0, and zeros inside a function.
         ".j:focus-visible { outline: 0.5px solid var(--focus-ring); box-shadow: var(--ring-focus); }" +
         ".k:focus-visible { outline: calc(0px + var(--border-bold)) solid var(--focus-ring); box-shadow: var(--ring-focus); }" +
-        ".l:focus-visible { outline: var(--border-bold) solid color(srgb 0 0 0); box-shadow: var(--ring-focus); }",
+        ".l:focus-visible { outline: var(--border-bold) solid color(srgb 0 0 0); box-shadow: var(--ring-focus); }" +
+        // …an upper-case style keyword, and a style set by its own longhand.
+        ".q:focus-visible { outline: var(--border-bold) SOLID var(--focus-ring); box-shadow: var(--ring-focus); }" +
+        ".r:focus-visible { outline: var(--border-bold) var(--focus-ring); outline-style: solid; box-shadow: var(--ring-focus); }",
       true,
     );
     expect(ringsLostInForcedColors(fixture)).toEqual([
@@ -352,6 +389,10 @@ describe("focus in forced colours", () => {
       ".g:focus-visible",
       ".h:focus-visible",
       ".i:focus-visible",
+      ".m:focus-visible",
+      ".n:focus-visible",
+      ".o:focus-visible",
+      ".p:focus-visible",
     ]);
   });
 

@@ -88,11 +88,19 @@ describe("the roles matrix keeps its capability column in view", () => {
   });
 
   it("no rule, in any at-rule, gives a row header a block-axis inset", () => {
-    // Even a phone-tier `top` (or an `inset` shorthand) would pin the labels vertically again.
-    const blockStart = ["top", "inset-block-start", "inset-block", "inset"];
+    // Even a phone-tier `top` (or an `inset` shorthand) would pin the labels vertically again —
+    // and a `bottom` would pin every label to the scroller's bottom edge instead.
+    const blockAxis = [
+      "top",
+      "bottom",
+      "inset-block-start",
+      "inset-block-end",
+      "inset-block",
+      "inset",
+    ];
     const offenders = rules(CSS, true)
       .filter((r) => targetsRowHead(r.selector))
-      .filter((r) => blockStart.some((p) => ![null, "auto"].includes(decl(r.body, p))))
+      .filter((r) => blockAxis.some((p) => ![null, "auto"].includes(decl(r.body, p))))
       .map((r) => [...r.atRules, r.selector].join(" > "));
     expect(offenders).toEqual([]);
   });

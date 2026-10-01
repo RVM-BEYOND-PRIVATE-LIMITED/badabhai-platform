@@ -218,8 +218,10 @@ describe("the simulated tag inside a stat value", () => {
       "line-height",
       "font-variant-numeric",
     ];
+    // Any stat selector with the tag in it — a later `.stat .pill` or `.stat--warn .pill` has
+    // the reset's weight and would override it just as surely as a `.stat__value .pill`.
     const targetsTag = (selector: string) =>
-      selector.split(",").some((part) => part.includes(".stat__value") && part.includes(".pill"));
+      selector.split(",").some((part) => part.includes(".stat") && part.includes(".pill"));
     const drift = rules(CSS, true)
       .filter((r) => targetsTag(r.selector))
       .flatMap((r) =>
