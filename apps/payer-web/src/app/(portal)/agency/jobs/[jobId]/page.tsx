@@ -68,7 +68,7 @@ export default async function AgencyJobDetailPage({
       <div className="posting-layout">
         <section className="panel">
           <div className="panel__head">
-            <h2 className="panel__title">Vacancy details</h2>
+            <h2 className="panel__title">Posting details</h2>
           </div>
           <div className="panel__body">
             {/* FACELESS: bands, counts and dates only — every value below is derived from the
@@ -99,7 +99,7 @@ export default async function AgencyJobDetailPage({
           </div>
         </section>
 
-        <aside className="posting-preview" aria-label="Job card">
+        <aside className="posting-preview" aria-label="Worker card preview">
           <div className="posting-preview__scroll">
             <JobCardPreview fields={card} />
           </div>

@@ -361,3 +361,86 @@ describe("nothing between the rail and the page turns the sticky off", () => {
     expect(decl(g(".chip-editor__text"), "overflow-wrap")).toBe("anywhere");
   });
 });
+
+describe("M3 — the outcome's live region is always in the page (announced, and only once)", () => {
+  const LIVE = [".posting-actions__live", ".posting-dock__live"];
+
+  it("no rule ever hides a live slot (a region must exist BEFORE its text lands to be announced)", () => {
+    const hiding = G.filter((r) => LIVE.some((sel) => r.selector.includes(sel))).filter(
+      (r) => decl(r, "display") === "none" || decl(r, "visibility") === "hidden",
+    );
+    expect(hiding.map((r) => `${r.at} ${r.selector}`.trim())).toEqual([]);
+  });
+
+  it("the slots are spaced by their own margin, not the container's gap (an empty item takes a gap)", () => {
+    expect(decl(g(".posting-actions"), "gap")).toBeNull();
+    expect(decl(g(".posting-dock"), "gap")).toBeNull();
+    expect(decl(g(".posting-actions__status, .posting-actions__live:not(:empty)"), "margin-block-end")).toBe(
+      "var(--space-2)",
+    );
+    expect(decl(g(".posting-dock__status, .posting-dock__live:not(:empty)"), "margin-block-end")).toBe(
+      "var(--space-1)",
+    );
+    // The field-owned status is NOT live, so it may collapse when empty.
+    expect(decl(g(".posting-dock__status:empty"), "display")).toBe("none");
+    expect(decl(g(".posting-actions__status:empty"), "display")).toBe("none");
+  });
+
+  it("an outcome in the dock is clamped like the status (two lines above the button)", () => {
+    const clamp = g(".posting-dock__status .posting-actions__msg, .posting-dock__live .posting-actions__msg");
+    expect(decl(clamp, "-webkit-line-clamp")).toBe("2");
+  });
+});
+
+describe("CR-L1 — a removable chip's remove is a real, sized, named button", () => {
+  const TOUCH = "max-width: 600px), (pointer: coarse";
+
+  it("draws a 24px round target, positioned (it anchors the tooltip and the hit area)", () => {
+    const btn = d(".bb-chip__remove");
+    expect(decl(btn, "width")).toBe("var(--space-6)");
+    expect(decl(btn, "height")).toBe("var(--space-6)");
+    expect(px("var(--space-6)")).toBeGreaterThanOrEqual(24); // WCAG 2.5.8 minimum
+    expect(decl(btn, "position")).toBe("relative");
+    expect(decl(btn, "border-radius")).toBe("var(--radius-round)");
+    // A secondary icon at rest — the 60% step-down token, never an opacity (that would dim the
+    // tooltip and the focus ring with it).
+    expect(decl(btn, "color")).toBe("var(--icon-secondary)");
+    expect(decl(btn, "opacity")).toBeNull();
+  });
+
+  it("clears a 44px hit area on a phone or coarse pointer (the drawn size stays)", () => {
+    const hit = d(".bb-chip__remove::before", TOUCH);
+    expect(decl(hit, "position")).toBe("absolute");
+    expect(decl(hit, "inset")).toBe("calc((100% - var(--control-md)) / 2)");
+    expect(px("var(--control-md)")).toBeGreaterThanOrEqual(44);
+  });
+
+  it("shows the focus ring on keyboard focus", () => {
+    expect(decl(d(".bb-chip__remove:focus-visible"), "box-shadow")).toBe("var(--ring-focus)");
+  });
+
+  it("its tooltip (the item's name) wraps inside a bounded box instead of running off the page", () => {
+    const tip = d(".bb-chip__remove > .bb-icon-tip");
+    // An absolutely positioned tip inside a 24px button would shrink to one word per line: its
+    // width is its content's, capped (the shared tip is `nowrap` — this one may wrap).
+    expect(decl(tip, "white-space")).toBe("normal");
+    expect(decl(tip, "width")).toBe("max-content");
+    expect(decl(tip, "max-width")).toBe("min(20rem, calc(100vw - 2 * var(--space-4)))");
+  });
+
+  it("a removable chip is static content: no pointer, and hover/press belong to BUTTON chips only", () => {
+    expect(decl(d(".bb-chip--removable"), "cursor")).toBe("default");
+    expect(D.filter((r) => r.selector === ".bb-chip:hover" || r.selector === ".bb-chip:active")).toEqual([]);
+    expect(decl(d(".bb-chip:where(button):hover"), "background")).toBe("var(--surface-sunken)");
+    expect(decl(d(".bb-chip:where(button):active"), "transform")).toBe("scale(0.97)");
+  });
+});
+
+describe("L4/L5 — focusing the sticky dock never scrolls the page", () => {
+  it("the dock's buttons cancel the page's bottom scroll padding EXACTLY (it moved the page ~435px)", () => {
+    const pad = decl(g("html:has(.posting-dock)", PHONE), "scroll-padding-bottom")!;
+    const margin = decl(g(".posting-dock button", PHONE), "scroll-margin-bottom")!;
+    const inner = /^calc\((.+)\)$/.exec(pad)![1]!;
+    expect(margin).toBe(`calc(-1 * (${inner}))`);
+  });
+});

@@ -97,8 +97,8 @@ export function EditPostingForm({
 }) {
   const router = useRouter();
   // useState order (mirrored positionally by edit-posting-form.test.tsx): fields, requirements,
-  // benefits, reqDraft, benDraft, error, selection, preview, revealed, navigating, problem.
-  // APPEND new state only.
+  // benefits, reqDraft, benDraft, error, selection, preview, revealed, navigating, problem,
+  // submitting. APPEND new state only.
   const [fields, setFields] = useState<FormFields>({
     roleTitle: initial.roleTitle,
     roleKind: initial.roleKind ?? "",
@@ -130,6 +130,9 @@ export function EditPostingForm({
   const [navigating, setNavigating] = useState(false);
   // The refused save's reason, shown AT the control focus moves to (and in the status line).
   const [problem, setProblem] = useState<{ control: string; message: string } | null>(null);
+  // Which button's request is in flight — so only Publish reads "Publishing…" (a draft save
+  // shares the same pending state).
+  const [submitting, setSubmitting] = useState<"save" | "publish" | null>(null);
   const [pending, startTransition] = useTransition();
 
   const isDraft = status === "draft";
@@ -211,6 +214,7 @@ export function EditPostingForm({
     }
     setError(null);
     setProblem(null);
+    setSubmitting(mode);
     const v = read.values;
     const count = parseWholeNumber(fields.vacancies);
     startTransition(async () => {
@@ -274,7 +278,11 @@ export function EditPostingForm({
       iconRight="rocket-launch"
       onClick={() => submit("publish")}
     >
-      {preview?.zero_reach ? zeroReachLabel : "Publish posting"}
+      {busy && submitting === "publish"
+        ? "Publishing…"
+        : preview?.zero_reach
+          ? zeroReachLabel
+          : "Publish posting"}
     </Button>
   ) : (
     <Button type="submit" form={FORM_ID} loading={busy} disabled={busy}>
@@ -283,6 +291,15 @@ export function EditPostingForm({
   );
   // ONE status: the rail footer on desktop, the dock below 1024px (the form's end repeats only
   // the buttons) — the reason a save was refused sits by the button the payer pressed.
+  const refusal =
+    error !== null ? (
+      <p className="posting-actions__msg posting-actions__msg--danger">
+        <strong>Your changes were not saved.</strong> {error}
+      </p>
+    ) : null;
+  // A refusal a FIELD owns (`problem`) is not announced here: focus moves to that field, whose
+  // description reads the reason — once. One no field owns (the server's) is announced, from the
+  // live slot.
   const statusLine = (
     <>
       {gaps.length > 0 ? (
@@ -291,13 +308,10 @@ export function EditPostingForm({
           {isDraft ? " Publishing needs them filled." : " You can save now and finish later."}
         </p>
       ) : null}
-      {error !== null ? (
-        <p className="posting-actions__msg posting-actions__msg--danger">
-          <strong>Your changes were not saved.</strong> {error}
-        </p>
-      ) : null}
+      {problem !== null ? refusal : null}
     </>
   );
+  const outcomeLine = problem === null ? refusal : null;
   const buttons = (
     <>
       {isDraft ? (
@@ -547,9 +561,14 @@ export function EditPostingForm({
             matchSkills.length > 0 ? { ids: selection.matchSkillIds, vocabulary: matchSkills } : null,
           description: fields.description,
         })}
-        actions={<PostingActions status={statusLine}>{buttons}</PostingActions>}
+        actions={
+          <PostingActions status={statusLine} outcome={outcomeLine}>
+            {buttons}
+          </PostingActions>
+        }
         primary={primary}
         status={statusLine}
+        outcome={outcomeLine}
       />
     </div>
   );

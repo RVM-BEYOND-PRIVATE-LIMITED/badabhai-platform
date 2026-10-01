@@ -118,7 +118,7 @@ export default async function PostingDetailPage({ params }: { params: Promise<{ 
           </div>
         </section>
 
-        <aside className="posting-preview" aria-label="Job card">
+        <aside className="posting-preview" aria-label="Worker card preview">
           <div className="posting-preview__scroll">
             <JobCardPreview fields={card} />
           </div>

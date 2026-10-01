@@ -36,14 +36,19 @@ const CARD: CardFields = {
   benefits: ["PF + ESI"],
 };
 
-const rail = (fields: CardFields, draft = {}, status: ReactNode = null) =>
+const rail = (
+  fields: CardFields,
+  draft = {},
+  status: ReactNode = null,
+  outcome: ReactNode = null,
+) =>
   renderToStaticMarkup(
     <PostingPreviewRail
       fields={fields}
       draft={draft}
       facts={[{ label: "Role", value: "CNC Turner" }]}
       actions={
-        <PostingActions status={status}>
+        <PostingActions status={status} outcome={outcome}>
           {<button type="submit">Publish posting</button>}
         </PostingActions>
       }
@@ -53,6 +58,7 @@ const rail = (fields: CardFields, draft = {}, status: ReactNode = null) =>
         </button>
       }
       status={status}
+      outcome={outcome}
     />,
   );
 
@@ -72,16 +78,35 @@ describe("PostingPreviewRail", () => {
   });
 
   it("the dock carries the primary button itself, and the status ABOVE its row (phones)", () => {
-    const out = rail(CARD, {}, <p className="posting-actions__msg">Pick the pay type.</p>);
+    const out = rail(
+      CARD,
+      {},
+      <p className="posting-actions__msg">Pick the pay type.</p>,
+      <p className="posting-actions__msg">Could not publish.</p>,
+    );
     const dock = out.slice(out.indexOf('<div class="posting-dock">'));
     expect(dock).toContain(
       '<div class="posting-dock__primary"><button type="submit" id="the-primary">',
     );
-    // status, then the row: the reason sits right above the button the payer pressed.
-    expect(dock.indexOf("posting-dock__status")).toBeLessThan(dock.indexOf("posting-dock__row"));
+    // status, then the outcome, then the row: both sit right above the button the payer pressed.
+    expect(dock.indexOf("posting-dock__status")).toBeLessThan(dock.indexOf("posting-dock__live"));
+    expect(dock.indexOf("posting-dock__live")).toBeLessThan(dock.indexOf("posting-dock__row"));
+    // The field-owned reason is NOT live (focus moves to its field, which reads it); the outcome
+    // no field owns is.
     expect(dock).toContain(
-      '<div class="posting-dock__status" aria-live="polite"><p class="posting-actions__msg">Pick the pay type.</p></div>',
+      '<div class="posting-dock__status"><p class="posting-actions__msg">Pick the pay type.</p></div>',
     );
+    expect(dock).toContain(
+      '<div class="posting-dock__live" aria-live="polite"><p class="posting-actions__msg">Could not publish.</p></div>',
+    );
+  });
+
+  it("the live slots are ALWAYS drawn, even empty — a region must exist before its text lands", () => {
+    const out = rail(CARD);
+    expect(out).toContain('<div class="posting-dock__live" aria-live="polite"></div>');
+    expect(out).toContain('<div class="posting-actions__live" aria-live="polite"></div>');
+    // …and exactly two of them: the rail footer's and the dock's (one per breakpoint).
+    expect(out.match(/aria-live="polite"/g)).toHaveLength(2);
   });
 
   it("the scroll region is a labelled region with a hidden-until-needed 'More below' cue", () => {
@@ -138,15 +163,24 @@ describe("PostingPreviewRail", () => {
     );
   });
 
-  it("the actions block keeps an (empty) live region above the buttons", () => {
+  it("the actions block: the field-owned status (not live), then an always-drawn live outcome", () => {
     const out = renderToStaticMarkup(
       <PostingActions status={<p>Add the city.</p>}>
         <button type="button">Save</button>
       </PostingActions>,
     );
     expect(out).toBe(
-      '<div class="posting-actions"><div class="posting-actions__status" aria-live="polite"><p>Add the city.</p></div>' +
+      '<div class="posting-actions"><div class="posting-actions__status"><p>Add the city.</p></div>' +
+        '<div class="posting-actions__live" aria-live="polite"></div>' +
         '<div class="posting-actions__buttons"><button type="button">Save</button></div></div>',
+    );
+    const failed = renderToStaticMarkup(
+      <PostingActions status={null} outcome={<p>The server said no.</p>}>
+        <button type="button">Save</button>
+      </PostingActions>,
+    );
+    expect(failed).toContain(
+      '<div class="posting-actions__live" aria-live="polite"><p>The server said no.</p></div>',
     );
   });
 });

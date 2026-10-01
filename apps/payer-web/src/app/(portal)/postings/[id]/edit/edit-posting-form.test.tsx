@@ -101,7 +101,12 @@ function render(
   status = "open",
   chips: { requirements?: string[]; benefits?: string[]; reqDraft?: string; benDraft?: string } = {},
   selection = { matchSkillIds: [] as string[], untickedRelatedIds: [] as string[] },
-  appended: { navigating?: boolean; problem?: { control: string; message: string } | null } = {},
+  appended: {
+    navigating?: boolean;
+    problem?: { control: string; message: string } | null;
+    error?: string | null;
+    submitting?: "save" | "publish" | null;
+  } = {},
 ) {
   stateQueue = [
     { ...BLANK_FIELDS, ...overrides }, // fields
@@ -109,12 +114,13 @@ function render(
     chips.benefits ?? [], // benefits
     chips.reqDraft ?? "", // reqDraft
     chips.benDraft ?? "", // benDraft
-    null, // error
+    appended.error ?? null, // error
     selection, // selection
     null, // preview
     {}, // revealed (8)
     appended.navigating ?? false, // navigating (9)
     appended.problem ?? null, // problem (10)
+    appended.submitting ?? null, // submitting (11)
   ];
   stateCursor = 0;
   setters = [];
@@ -305,6 +311,95 @@ describe("EditPostingForm — a refused save says why AT the field focus moves t
     expect(updatePostingAction).not.toHaveBeenCalled();
     expect(setters[10]).toHaveBeenCalledWith({ control: "roleKind", message: expect.stringContaining("Pick the role") });
     expect(setters[5]).toHaveBeenCalledWith(expect.stringContaining("Pick the role:"));
+  });
+});
+
+/** ALL the text under a node (nested elements and arrays included; DS components rendered). */
+function deepText(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(deepText).join("");
+  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  if (typeof el.type === "function") return deepText((el.type as (p: unknown) => ReactNode)(el.props));
+  return "children" in el.props ? deepText(el.props.children) : "";
+}
+
+/** The text of every LIVE region the form draws (`aria-live`, role alert / status). */
+function liveTexts(tree: ReactNode): string[] {
+  const out: string[] = [];
+  for (const el of hosts(tree)) {
+    const role = el.props.role;
+    if (el.props["aria-live"] !== undefined || role === "alert" || role === "status") {
+      out.push(deepText(el.props.children as ReactNode));
+    }
+  }
+  return out;
+}
+
+describe("EditPostingForm — M3: a refused save's reason is announced ONCE", () => {
+  const REASON = "Role title must be at least 2 characters.";
+
+  it("a refusal a FIELD owns: the field is described by it, and no live region repeats it", () => {
+    const tree = render({ roleTitle: "x" }, "open", {}, undefined, {
+      error: REASON,
+      problem: { control: "roleTitle", message: REASON },
+    });
+    const els = hosts(tree);
+    expect(els.find((e) => e.props.id === "roleTitle")!.props["aria-describedby"]).toBe("roleTitle-msg");
+    expect(deepText(els.find((e) => e.props.id === "roleTitle-msg"))).toBe(REASON);
+    // Still drawn by the button, twice (rail footer + dock), as well as at the field…
+    expect(deepText(tree).split("Your changes were not saved. " + REASON)).toHaveLength(3);
+    // …but not announced from there: focus moves to the field, whose description reads it.
+    expect(liveTexts(tree).length).toBeGreaterThan(0);
+    expect(liveTexts(tree).filter((t) => t.includes(REASON))).toEqual([]);
+  });
+
+  it("a refusal no field owns (the server's) IS announced, from the live slots", () => {
+    const tree = render({}, "open", {}, undefined, { error: "The posting changed elsewhere." });
+    const live = liveTexts(tree).filter((t) => t.includes("The posting changed elsewhere."));
+    expect(live).toHaveLength(2); // rail footer + dock — one per breakpoint
+  });
+});
+
+describe("EditPostingForm — owner naming ruling: Publish posting / Publishing…", () => {
+  const SEL = { matchSkillIds: ["mskill_x"], untickedRelatedIds: [] };
+  const publishText = (tree: ReactElement) =>
+    textOf(hosts(railOf(tree).props.primary as unknown as ReactNode));
+
+  it("a draft's primary reads 'Publish posting'", () => {
+    expect(publishText(render({}, "draft", {}, SEL))).toContain("Publish posting");
+  });
+
+  it("while ITS request is in flight it reads 'Publishing…' — a draft save in flight does not", () => {
+    expect(publishText(render({}, "draft", {}, SEL, { navigating: true, submitting: "publish" }))).toContain(
+      "Publishing…",
+    );
+    const saving = publishText(render({}, "draft", {}, SEL, { navigating: true, submitting: "save" }));
+    expect(saving).toContain("Publish posting");
+    expect(saving).not.toContain("Publishing…");
+  });
+
+  it("a publish that passes the client checks records which button is in flight (index 11)", async () => {
+    const tree = render(
+      {
+        roleKind: "cnc_turner",
+        city: "Pune",
+        payMin: "18000",
+        payMax: "26000",
+        payType: "in_hand",
+        minExperienceYears: "1",
+        maxExperienceYears: "5",
+        shift: "day",
+        neededBy: "soon",
+        description: "Run two lathes.",
+      },
+      "draft",
+      { requirements: ["Fanuc"], benefits: ["PF"] },
+      SEL,
+    );
+    railOf(tree).props.primary.props.onClick!();
+    await Promise.resolve();
+    expect(setters[11]).toHaveBeenCalledWith("publish");
   });
 });
 

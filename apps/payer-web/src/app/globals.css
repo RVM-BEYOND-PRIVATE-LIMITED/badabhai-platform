@@ -2360,7 +2360,6 @@ textarea.input {
 .posting-dock {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
   min-width: 0;
   padding: var(--space-2) var(--space-3);
   padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
@@ -2372,9 +2371,18 @@ textarea.input {
 .posting-dock__status:empty {
   display: none;
 }
+/* The dock's two status slots (posting-preview-rail.tsx: the field-owned status, then the
+   announced outcome) are spaced by their own margin, not a `gap`: the LIVE slot stays in the page
+   even while empty — a region must exist before its text lands to be announced — and an empty
+   flex item would still take a gap. It is never `display: none` (job-card-preview.css.test.ts). */
+.posting-dock__status,
+.posting-dock__live:not(:empty) {
+  margin-block-end: var(--space-1);
+}
 /* The status a dock button produced, right above it — two lines at most (the full reason also
    sits at the field the payer is taken to). */
-.posting-dock__status .posting-actions__msg {
+.posting-dock__status .posting-actions__msg,
+.posting-dock__live .posting-actions__msg {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -2552,6 +2560,13 @@ textarea.input {
   html:has(.posting-dock) {
     scroll-padding-bottom: calc(var(--posting-dock-h) + var(--space-8));
   }
+  /* …except the dock's OWN buttons: the dock is sticky, always on screen, and sits INSIDE that
+     reserved band, so focusing one (a tap on "Preview the card", the sheet handing focus back,
+     Publish) had Chrome scroll the page ~435px trying to lift it above the band — under the sheet
+     on open and again on close (measured). The margin cancels the band for them exactly. */
+  .posting-dock button {
+    scroll-margin-bottom: calc(-1 * (var(--posting-dock-h) + var(--space-8)));
+  }
 }
 /* The sheet draws the card at the phone's own width (332dp needs the body's side padding back). */
 .bb-dialog__body:has(> .posting-sheet) {
@@ -2621,10 +2636,16 @@ textarea.input {
 /* The actions block: the message a click produced sits right above the buttons. */
 .posting-actions {
   display: grid;
-  gap: var(--space-2);
 }
 .posting-actions__status:empty {
   display: none;
+}
+/* Spaced by margin, not the grid's `gap` (as the dock's slots are): the live slot is always in
+   the page — an announced region must exist before its text lands — and an empty grid row would
+   still take a gap. */
+.posting-actions__status,
+.posting-actions__live:not(:empty) {
+  margin-block-end: var(--space-2);
 }
 .posting-actions__status {
   display: grid;

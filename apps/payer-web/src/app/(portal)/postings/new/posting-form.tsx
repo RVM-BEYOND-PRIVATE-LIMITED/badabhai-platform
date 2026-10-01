@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { Icon } from "@badabhai/icons";
 import { looksLikePii } from "@badabhai/validators";
 import {
   NEEDED_BY,
@@ -273,16 +274,17 @@ export function PostingForm({
   );
   // ONE status: the rail footer shows it on desktop, the dock below 1024px (the form's own end
   // repeats only the buttons) — so the reason always sits by the button the payer pressed.
-  const statusLine = (
-    <>
-      {gap !== null ? (
-        <p className="posting-actions__msg posting-actions__msg--warning" role="alert">
-          <strong>{gap.title}.</strong> {gap.message}
-        </p>
-      ) : null}
-      {error ? <p className="posting-actions__msg posting-actions__msg--danger">{error}</p> : null}
-    </>
-  );
+  // The gap is NOT announced here: focus moves to its field, whose description reads it (once).
+  const statusLine =
+    gap !== null ? (
+      <p className="posting-actions__msg posting-actions__msg--warning">
+        <strong>{gap.title}.</strong> {gap.message}
+      </p>
+    ) : null;
+  // The server's refusal has no field to focus — it is announced, from the live slot.
+  const outcomeLine = error ? (
+    <p className="posting-actions__msg posting-actions__msg--danger">{error}</p>
+  ) : null;
 
   return (
     <div className="posting-layout posting-layout--editor">
@@ -518,7 +520,7 @@ export function PostingForm({
             />
           ) : (
             <div className="alert alert--danger">
-              <i className="ph-fill ph-warning-circle alert__icon" aria-hidden="true" />
+              <Icon name="warning-circle" className="alert__icon" />
               <div className="alert__text">
                 <p className="alert__title">Could not load the skill list</p>
                 <p className="alert__body">
@@ -538,7 +540,7 @@ export function PostingForm({
               value={fields.description}
               error={errorOf("description", fieldErrors.description)}
               aria-invalid={errorOf("description", fieldErrors.description) ? true : undefined}
-              hint="Workers read this when they open the job. Never include a phone number or email — share contact only after you unlock a candidate."
+              hint="Workers read this when they open the job. Never include a phone number or email — share contact only after you unlock an applicant."
               onChange={(e) => set("description", e.target.value)}
             />
           </div>
@@ -559,9 +561,14 @@ export function PostingForm({
           matchSkills: { ids: selection.matchSkillIds, vocabulary: matchSkills },
           description: fields.description,
         })}
-        actions={<PostingActions status={statusLine}>{primary}</PostingActions>}
+        actions={
+          <PostingActions status={statusLine} outcome={outcomeLine}>
+            {primary}
+          </PostingActions>
+        }
         primary={primary}
         status={statusLine}
+        outcome={outcomeLine}
       />
     </div>
   );

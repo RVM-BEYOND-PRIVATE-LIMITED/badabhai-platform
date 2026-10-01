@@ -1,3 +1,4 @@
+import type { MouseEvent } from "react";
 import { Button, Chip, Input } from "./ds";
 
 /**
@@ -8,7 +9,33 @@ import { Button, Chip, Input } from "./ds";
  * `error` (a refused publish's "Add a requirement") is drawn UNDER the row, not inside the field,
  * so the Add button stays level with the box; the box points at it with `aria-describedby`. A
  * long unbroken chip wraps inside its pill (`.chip-editor__text`) instead of widening the page.
+ *
+ * Each chip's remove control is the DS Chip's real button, named for its item ("Remove Fanuc
+ * control"). Removing a chip from the KEYBOARD keeps focus in the list: on the chip that takes its
+ * place, else the one before, else the box — never dropped to the top of the page.
  */
+
+/**
+ * Where focus goes once the chip at `removedIndex` is gone — given the remove buttons AFTER the
+ * removal: the next chip (now at the same index), else the previous one, else the box.
+ */
+export function focusTargetAfterRemoval<T>(
+  removeButtons: readonly T[],
+  removedIndex: number,
+  box: T | null,
+): T | null {
+  return removeButtons[removedIndex] ?? removeButtons[removedIndex - 1] ?? box;
+}
+
+/** After the list re-renders (next frame), focus the chip that took the removed one's place. */
+function keepFocusInList(listId: string, boxId: string, removedIndex: number): void {
+  window.requestAnimationFrame(() => {
+    const list = document.getElementById(listId);
+    const buttons = list ? Array.from(list.querySelectorAll<HTMLElement>(".bb-chip__remove")) : [];
+    focusTargetAfterRemoval(buttons, removedIndex, document.getElementById(boxId))?.focus();
+  });
+}
+
 export function ChipEditor({
   id,
   label,
@@ -31,6 +58,14 @@ export function ChipEditor({
   onRemove: (index: number) => void;
 }) {
   const errorId = `${id}-error`;
+  const listId = `${id}-chips`;
+  const remove = (index: number) => (e: MouseEvent<HTMLButtonElement>) => {
+    // Only a remove button that HAD focus hands it on (a keyboard press, or a click in a browser
+    // that focuses buttons); a click that never focused it leaves focus where it was.
+    const hadFocus = typeof document !== "undefined" && e.currentTarget === document.activeElement;
+    onRemove(index);
+    if (hadFocus) keepFocusInList(listId, id, index);
+  };
   return (
     <div className="chip-editor">
       <div className="chip-editor__row">
@@ -62,9 +97,9 @@ export function ChipEditor({
         </p>
       ) : null}
       {items.length > 0 ? (
-        <div className="chip-editor__chips">
+        <div className="chip-editor__chips" id={listId}>
           {items.map((item, i) => (
-            <Chip key={`${item}:${i}`} onRemove={() => onRemove(i)}>
+            <Chip key={`${item}:${i}`} removeLabel={`Remove ${item}`} onRemove={remove(i)}>
               <span className="chip-editor__text">{item}</span>
             </Chip>
           ))}

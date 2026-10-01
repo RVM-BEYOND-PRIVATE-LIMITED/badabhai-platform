@@ -169,11 +169,12 @@ function render(seed: {
   revealed?: Record<string, true>;
   gap?: { title: string; message: string; field: string } | null;
   matchSkills?: Array<Record<string, unknown>>;
+  error?: string | null;
 }) {
   stateQueue = [
     seed.fields,
     seed.fieldErrors,
-    null,
+    seed.error ?? null,
     seed.navigating ?? false,
     seed.selection ?? { matchSkillIds: [MSKILL.skill_id], untickedRelatedIds: [] },
     seed.preview ?? null,
@@ -539,6 +540,64 @@ describe("PostingForm — a refused publish says why AT the field focus moves to
     expect(classes.filter((c) => c === "posting-actions__status")).toHaveLength(1); // rail footer
     expect(classes.filter((c) => c === "posting-dock__status")).toHaveLength(1); // phone dock
     expect(classes.filter((c) => c === "posting-actions")).toHaveLength(2); // footer + form end
+  });
+});
+
+/** The text of every LIVE region the form draws (`aria-live`, role alert / status). */
+function liveTexts(tree: ReactNode): string[] {
+  const out: string[] = [];
+  (function visit(node: ReactNode): void {
+    if (node === null || node === undefined || typeof node !== "object") return;
+    if (Array.isArray(node)) return node.forEach(visit);
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    if (typeof el.type === "function") return visit((el.type as (p: unknown) => ReactNode)(el.props));
+    const role = el.props.role;
+    if (el.props["aria-live"] !== undefined || role === "alert" || role === "status") {
+      out.push(textOf(el.props.children as ReactNode));
+    }
+    if ("children" in el.props) visit(el.props.children);
+  })(tree);
+  return out;
+}
+
+describe("PostingForm — M3: a refused publish's reason is announced ONCE", () => {
+  const GAP = {
+    title: "Pick the pay type",
+    message: "Say what the band means — in-hand, gross or CTC. We never guess it for you.",
+    field: "payType",
+  };
+
+  it("the target field is DESCRIBED by its own error — what focus reads when it lands there", () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {}, gap: GAP });
+    expect(byId(tree, "payType").props["aria-describedby"]).toBe("payType-msg");
+    expect(textOf(byId(tree, "payType-msg"))).toBe(GAP.message);
+  });
+
+  it("…so NO live region repeats it: the copy by the button is visible, not announced", () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {}, gap: GAP });
+    // Drawn by the button (rail footer + dock): title, then the same message…
+    expect(collect(tree).texts.filter((t) => t === GAP.title)).toHaveLength(2);
+    expect(liveTexts(tree).filter((t) => t.includes(GAP.message))).toEqual([]);
+  });
+
+  it("a refusal no field owns (the server's) IS announced — from the live slot, one per breakpoint", () => {
+    const ERR = "Could not publish right now — try again.";
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {}, error: ERR });
+    expect(liveTexts(tree).filter((t) => t.includes(ERR))).toHaveLength(2); // rail footer + dock
+  });
+
+  it("a typed number problem is the box's own description too (aria-describedby → its line)", () => {
+    const tree = render({ fields: { ...FULL_FIELDS, payMin: "21k" }, fieldErrors: {} });
+    expect(byId(tree, "payMin").props["aria-describedby"]).toBe("payMin-msg");
+    expect(byId(tree, "payMin").props["aria-invalid"]).toBe(true);
+  });
+});
+
+describe("PostingForm — owner naming ruling (labels)", () => {
+  it("the description hint says 'applicant', never 'candidate'", () => {
+    const hint = textOf(byId(render({ fields: FULL_FIELDS, fieldErrors: {} }), "description-msg"));
+    expect(hint).toContain("share contact only after you unlock an applicant.");
+    expect(hint).not.toContain("candidate");
   });
 });
 

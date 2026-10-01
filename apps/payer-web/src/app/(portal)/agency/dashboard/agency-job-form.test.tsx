@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
+import { IconButtonBase } from "@badabhai/icons/button";
 import { agencyJobInputSchema } from "../../../../lib/contracts";
 
 /**
@@ -170,6 +171,16 @@ function walk(node: ReactNode, acc: Collected): void {
     return;
   }
   const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  // The shared icon-only control (a chip's remove button) is the one HOOKED primitive: record it
+  // as the native button it renders — named by its label — instead of calling it outside React.
+  if (el.type === IconButtonBase) {
+    acc.buttons.push({
+      type: "button",
+      disabled: el.props.disabled as boolean | undefined,
+      text: String(el.props.label),
+    });
+    return;
+  }
   // A DS primitive (function component) — render it one level, then walk its output.
   if (typeof el.type === "function") {
     const fn = el.type as (props: unknown) => ReactNode;
@@ -305,10 +316,11 @@ function renderWith(
     onSubmit?: (i: unknown) => Promise<{ ok: true }>;
     gap?: { title: string; message: string; field: string } | null;
     lead?: ReactNode;
+    error?: string | null;
   } = {},
 ) {
   // fields, fieldErrors, error, requirements, benefits, reqDraft, benDraft, gap
-  stateQueue = [fields, {}, null, ...(opts.chips ?? [[], [], "", ""]), opts.gap ?? null];
+  stateQueue = [fields, {}, opts.error ?? null, ...(opts.chips ?? [[], [], "", ""]), opts.gap ?? null];
   stateCursor = 0;
   return AgencyJobForm({
     mode: opts.mode ?? "create",
@@ -386,6 +398,24 @@ describe("AgencyJobForm — the preview rail + the shared read", () => {
   });
 });
 
+/** The text of every LIVE region the form draws (`aria-live`, role alert / status). */
+function liveTexts(tree: ReactNode): string[] {
+  const out: string[] = [];
+  (function visit(node: ReactNode): void {
+    if (node === null || node === undefined || typeof node !== "object") return;
+    if (Array.isArray(node)) return node.forEach(visit);
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    if (el.type === IconButtonBase) return;
+    if (typeof el.type === "function") return visit((el.type as (p: unknown) => ReactNode)(el.props));
+    const role = el.props.role;
+    if (el.props["aria-live"] !== undefined || role === "alert" || role === "status") {
+      out.push(textOf(el.props.children as ReactNode));
+    }
+    if ("children" in el.props) visit(el.props.children);
+  })(tree);
+  return out;
+}
+
 describe("AgencyJobForm — the editor's lead, the refused create's reason, and the number gate", () => {
   it("the lead (the create heading / the row's header) heads the FORM column, above the form", () => {
     const tree = renderWith(FULL_AGENCY, { lead: <h3 className="lead-probe">Post a vacancy</h3> });
@@ -405,6 +435,22 @@ describe("AgencyJobForm — the editor's lead, the refused create's reason, and 
     expect(aria.find((a) => a.id === "shift")!.ariaInvalid).toBe(true);
     expect(texts).toContain(gap.message);
     expect(aria.filter((a) => a.ariaInvalid === true).map((a) => a.id)).toEqual(["shift"]);
+  });
+
+  it("M3: the gap is the target's DESCRIPTION, and no live region repeats it (announced once)", () => {
+    const gap = { title: "Pick the shift", message: "Day, night or rotational — the card shows it as a chip.", field: "shift" };
+    const tree = renderWith({ ...FULL_AGENCY, shift: "" }, { gap });
+    expect(collect(tree).aria.find((a) => a.id === "shift")!.ariaDescribedby).toBe("shift-msg");
+    // Drawn by the button too (rail footer + dock)…
+    expect(textOf(tree).split(gap.message)).toHaveLength(4); // field + footer + dock
+    // …but not announced from there: focus lands on the field, whose description reads it.
+    expect(liveTexts(tree).length).toBeGreaterThan(0);
+    expect(liveTexts(tree).filter((t) => t.includes(gap.message))).toEqual([]);
+  });
+
+  it("M3: a refusal no field owns (the server's) IS announced, from the live slots", () => {
+    const tree = renderWith(FULL_AGENCY, { error: "Could not save the posting." });
+    expect(liveTexts(tree).filter((t) => t.includes("Could not save the posting."))).toHaveLength(2);
   });
 
   it("a number that is not a whole number keeps the submit DISABLED (isValid reads the issues)", () => {

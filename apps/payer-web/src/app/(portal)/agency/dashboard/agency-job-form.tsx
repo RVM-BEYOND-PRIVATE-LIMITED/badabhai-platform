@@ -277,11 +277,12 @@ export function AgencyJobForm({
     </Button>
   );
   // ONE status: the rail footer on desktop, the dock below 1024px (the form's end repeats only
-  // the buttons) — the reason a create was refused sits by the button the payer pressed.
+  // the buttons) — the reason a create was refused sits by the button the payer pressed. The gap
+  // is NOT announced here: focus moves to its field, whose description reads it (once).
   const statusLine = (
     <>
       {gap !== null ? (
-        <p className="posting-actions__msg posting-actions__msg--warning" role="alert">
+        <p className="posting-actions__msg posting-actions__msg--warning">
           <strong>{gap.title}.</strong> {gap.message}
         </p>
       ) : null}
@@ -291,9 +292,12 @@ export function AgencyJobForm({
           {" You can save now and finish later."}
         </p>
       ) : null}
-      {error ? <p className="posting-actions__msg posting-actions__msg--danger">{error}</p> : null}
     </>
   );
+  // The server's refusal has no field to focus — it is announced, from the live slot.
+  const outcomeLine = error ? (
+    <p className="posting-actions__msg posting-actions__msg--danger">{error}</p>
+  ) : null;
   const buttons = (
     <>
       {primary}
@@ -415,9 +419,14 @@ export function AgencyJobForm({
           tradeKey: fields.tradeKey,
           description: fields.description,
         })}
-        actions={<PostingActions status={statusLine}>{buttons}</PostingActions>}
+        actions={
+          <PostingActions status={statusLine} outcome={outcomeLine}>
+            {buttons}
+          </PostingActions>
+        }
         primary={primary}
         status={statusLine}
+        outcome={outcomeLine}
       />
     </div>
   );

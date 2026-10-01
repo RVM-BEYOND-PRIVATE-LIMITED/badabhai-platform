@@ -3,41 +3,110 @@
 /**
  * BadaBhai Design System — Chip (selectable / removable pill).
  *
- * Client primitive: defines an inline remove handler. Style via `.bb-*` + tokens.
- * Prop contract mirrors docs/design/.../components/display/Chip.d.ts.
+ * Two shapes, one look (style via `.bb-*` + tokens):
+ *   - SELECTABLE (the default): the whole pill is ONE native `<button>`; `selected` is its
+ *     `aria-pressed` state. A suggestion chip is the same button without `selected`.
+ *   - REMOVABLE (`onRemove`): the pill is static content — its text is a value the payer entered,
+ *     not a control — holding ONE real control: a native remove `<button>` built on the shared
+ *     icon-only control (`IconButtonBase`, @badabhai/icons/button). So it is in the Tab order,
+ *     works with Enter / Space, is named by `removeLabel` ("Remove Fanuc control" — WHICH chip,
+ *     not a bare "Remove"), shows that name as its tooltip on hover and keyboard focus, and clears
+ *     a 44px hit area on a phone or any coarse pointer (ds-components.css). It used to be a
+ *     `span role="button"` nested INSIDE the chip's own button — never focusable, named only
+ *     "Remove", and interactive content inside a button is invalid HTML.
  */
-import type { ButtonHTMLAttributes, MouseEvent } from "react";
-import { Icon, type IconName } from "@badabhai/icons";
+import type { ButtonHTMLAttributes, MouseEvent, ReactNode } from "react";
+import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
+import { IconButtonBase } from "@badabhai/icons/button";
 
-export interface ChipProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onRemove"> {
-  /** Selected (brand) state. */
+interface ChipLook {
+  /** Selected (brand) state. On a selectable chip it is also `aria-pressed`. */
   selected?: boolean;
   /** Leading glyph. */
   icon?: IconName;
-  /** When provided, shows an ✕ and calls this on click. */
-  onRemove?: (e: MouseEvent) => void;
+  className?: string;
+  children?: ReactNode;
 }
 
-export function Chip({ selected = false, icon, onRemove, className = "", children, ...rest }: ChipProps) {
-  const cls = ["bb-chip", selected ? "bb-chip--selected" : "", className].filter(Boolean).join(" ");
+/** A selectable / action chip: one native button. */
+export interface SelectableChipProps
+  extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children" | "className">,
+    ChipLook {
+  onRemove?: undefined;
+  removeLabel?: undefined;
+}
 
+/** A removable chip: static text + one remove button. */
+export interface RemovableChipProps extends ChipLook {
+  /** Called when the remove button is activated (click, Enter or Space). */
+  onRemove: (e: MouseEvent<HTMLButtonElement>) => void;
+  /**
+   * REQUIRED with `onRemove`: the remove button's accessible name AND its visible tooltip. Name
+   * the item — `Remove ${item}` — so a list of chips is not a list of identical "Remove" buttons.
+   */
+  removeLabel: string;
+  /** Disables the remove button. */
+  disabled?: boolean;
+}
+
+export type ChipProps = SelectableChipProps | RemovableChipProps;
+
+const chipClass = (selected: boolean, className: string, removable: boolean) =>
+  [
+    "bb-chip",
+    removable ? "bb-chip--removable" : "",
+    selected ? "bb-chip--selected" : "",
+    className,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+function RemovableChip({
+  selected = false,
+  icon,
+  className = "",
+  children,
+  onRemove,
+  removeLabel,
+  disabled,
+}: RemovableChipProps) {
   return (
-    <button type="button" className={cls} aria-pressed={selected} {...rest}>
+    <span className={chipClass(selected, className, true)}>
       {icon && <Icon name={icon} />}
       <span>{children}</span>
-      {onRemove && (
-        <span
-          className="bb-chip__remove"
-          role="button"
-          aria-label="Remove"
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove(e);
-          }}
-        >
-          <Icon name="x" />
-        </span>
-      )}
+      <IconButtonBase
+        classBase="bb-chip__remove"
+        icon={ACTION_ICON.dismiss}
+        label={removeLabel}
+        // Grows inward from the chip's end, so a long name can never push the page sideways.
+        tooltipPlacement="top-end"
+        disabled={disabled}
+        onClick={onRemove}
+      />
+    </span>
+  );
+}
+
+export function Chip(props: ChipProps) {
+  if (props.onRemove !== undefined) return <RemovableChip {...props} />;
+  const {
+    selected = false,
+    icon,
+    className = "",
+    children,
+    onRemove: _onRemove,
+    removeLabel: _removeLabel,
+    ...rest
+  } = props;
+  return (
+    <button
+      type="button"
+      className={chipClass(selected, className, false)}
+      aria-pressed={selected}
+      {...rest}
+    >
+      {icon && <Icon name={icon} />}
+      <span>{children}</span>
     </button>
   );
 }

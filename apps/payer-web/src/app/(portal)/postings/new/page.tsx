@@ -9,6 +9,7 @@ import { getCapacity, listMatchSkills } from "../../../../lib/payer-api";
 import { formatInr } from "../../../../lib/format";
 import { CachedPricingNote } from "../../../../components/cached-pricing-note";
 import type { MatchSkillWire } from "../../../../lib/contracts";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { PostingForm } from "./posting-form";
 
 export const dynamic = "force-dynamic";
@@ -77,7 +78,7 @@ export default async function NewPostingPage() {
           create path — the manual form below is unchanged and remains the default. Both
           options are stated in one band so neither reads as the "real" way in. */}
       <div className="alert alert--info">
-        <i className="ph-fill ph-sparkle alert__icon" aria-hidden="true" />
+        <Icon name="sparkle" className="alert__icon" />
         <div className="alert__text">
           <p className="alert__title">Answer a few questions instead of filling this form</p>
           <p className="alert__body">
@@ -89,14 +90,14 @@ export default async function NewPostingPage() {
         <div className="alert__actions">
           <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/postings/ai/new">
             <span>Post with AI</span>
-            <i className="ph-fill ph-arrow-right" aria-hidden="true" />
+            <Icon name={ACTION_ICON.next} />
           </Link>
         </div>
       </div>
 
       {atCapacity ? (
         <div className="alert alert--warning">
-          <i className="ph-fill ph-gauge alert__icon" aria-hidden="true" />
+          <Icon name="gauge" className="alert__icon" />
           <div className="alert__text">
             <p className="alert__title">At capacity</p>
             <p className="alert__body">
@@ -109,7 +110,7 @@ export default async function NewPostingPage() {
 
       {free ? (
         <div className="alert alert--success">
-          <i className="ph-fill ph-gift alert__icon" aria-hidden="true" />
+          <Icon name="gift" className="alert__icon" />
           <div className="alert__text">
             <p className="alert__title">Free through launch</p>
             <p className="alert__body">
@@ -121,7 +122,7 @@ export default async function NewPostingPage() {
         </div>
       ) : (
         <div className="alert alert--warning">
-          <i className="ph-fill ph-tag alert__icon" aria-hidden="true" />
+          <Icon name="tag" className="alert__icon" />
           <div className="alert__text">
             <p className="alert__title">Paid plans</p>
             <p className="alert__body">

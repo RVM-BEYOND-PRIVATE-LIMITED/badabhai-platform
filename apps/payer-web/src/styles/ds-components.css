@@ -361,14 +361,47 @@
   padding: 7px 14px; min-height: 38px; cursor: pointer;
   transition: var(--transition-control); user-select: none;
 }
-.bb-chip:hover { border-color: var(--ink-400); background: var(--surface-sunken); }
-.bb-chip:active { transform: scale(0.97); }
+/* Hover and press belong to the BUTTON chip (selectable / suggestion); a removable chip is static
+   content and only its remove button reacts. `:where()` keeps each rule's specificity unchanged. */
+.bb-chip:where(button):hover { border-color: var(--ink-400); background: var(--surface-sunken); }
+.bb-chip:where(button):active { transform: scale(0.97); }
 .bb-chip:focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); }
 .bb-chip--selected { background: var(--brand-tint); border-color: var(--text-accent); color: var(--text-accent); font-weight: var(--weight-bold); }
-.bb-chip--selected:hover { background: var(--brand-tint-2); border-color: var(--brand); }
-.bb-chip__remove { display: inline-flex; margin-right: -4px; opacity: 0.55; font-size: var(--text-sm); }
-.bb-chip__remove:hover { opacity: 1; }
-.bb-chip .ph-fill { font-size: 1.05em; }
+.bb-chip--selected:where(button):hover { background: var(--brand-tint-2); border-color: var(--brand); }
+.bb-chip > .ph-fill { font-size: 1.05em; }
+
+/* REMOVABLE chip (Chip `onRemove`) — a value the payer entered, not a control: no pointer, its
+   text selectable, the end padding tightened around its ONE control, the remove button. */
+.bb-chip--removable { cursor: default; user-select: text; padding-inline-end: var(--space-1); }
+/* THE REMOVE BUTTON — the shared icon-only control (IconButtonBase, @badabhai/icons/button) in a
+   chip-sized skin: a 24px round target (the WCAG 2.5.8 minimum, drawn), the glyph a secondary icon
+   (60% step-down of the primary, --icon-secondary) at rest and the heading colour under the
+   pointer or focus. Positioned: it anchors the shared tooltip (.bb-icon-tip) and the hit area. */
+.bb-chip__remove {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: var(--space-6); height: var(--space-6);
+  padding: 0; border: 0; border-radius: var(--radius-round);
+  background: transparent; color: var(--icon-secondary);
+  font-size: var(--icon-size-sm);
+  cursor: pointer; transition: var(--transition-control);
+}
+.bb-chip__remove:hover { background: var(--surface-sunken); color: var(--text-heading); }
+.bb-chip__remove:focus-visible { color: var(--text-heading); outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); }
+.bb-chip__remove:disabled { background: transparent; color: var(--text-disabled); cursor: not-allowed; }
+/* HIT AREA ≥ 44px on a phone or any coarse pointer — the `.bb-iconbtn--sm` technique: the pseudo
+   is the button for hit-testing, centred, (100% − 44px) / 2 each way. It reaches 10px past the
+   24px circle: over the chip's own text (not a target) and 6px into the gap to the next chip. */
+@media (max-width: 600px), (pointer: coarse) {
+  .bb-chip__remove::before {
+    content: ""; position: absolute;
+    inset: calc((100% - var(--control-md)) / 2);
+  }
+}
+/* Its tooltip names the item ("Remove …"). Anchored at the chip's END (tooltipPlacement
+   "top-end") it grows toward the row's start, so it can never push the page sideways; a long name
+   WRAPS inside a 20rem (or page-wide, if narrower) box instead of running off as one line. */
+.bb-chip__remove > .bb-icon-tip { white-space: normal; width: max-content; max-width: min(20rem, calc(100vw - 2 * var(--space-4))); }
 
 /* ---------- Avatar ---------- */
 .bb-avatar {

@@ -64,18 +64,37 @@ export function PostingFacts({ facts }: { facts: readonly PostingFact[] }) {
 }
 
 /**
- * The actions block — a live status line (the gap that blocked a publish, a server error) above
- * the buttons. On desktop it is the rail's pinned footer, status included. Below 1024px the form
- * repeats the BUTTONS at its end (no status there) and the dock carries the status, so exactly one
- * status is ever on screen — next to the button the payer can see.
+ * The actions block — what the last publish/save produced, right above the buttons. On desktop it
+ * is the rail's pinned footer. Below 1024px the form repeats the BUTTONS at its end (nothing else
+ * there) and the dock carries the rest, so exactly one copy is ever on screen — next to the button
+ * the payer can see.
+ *
+ * Two slots, so a screen reader hears each message ONCE:
+ *  - `status` — what a FIELD owns: the refusal that blocked a publish/save (and, on edit, the
+ *    "Still to fill" summary, which is its own polite `role="status"` as it changes). The slot is
+ *    NOT a live region: a refused publish moves focus to that field, and its description (the DS
+ *    feedback line) reads the reason — an alert here would say it twice.
+ *  - `outcome` — a failure no field owns (the server refused). A polite live region that is ALWAYS
+ *    in the page, even empty (never `display: none`), so the text that lands in it is announced.
  */
-export function PostingActions({ status, children }: { status?: ReactNode; children: ReactNode }) {
+export function PostingActions({
+  status,
+  outcome,
+  children,
+}: {
+  status?: ReactNode;
+  outcome?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <div className="posting-actions">
-      {status === undefined ? null : (
-        <div className="posting-actions__status" aria-live="polite">
-          {status}
-        </div>
+      {status === undefined && outcome === undefined ? null : (
+        <>
+          <div className="posting-actions__status">{status}</div>
+          <div className="posting-actions__live" aria-live="polite">
+            {outcome}
+          </div>
+        </>
       )}
       <div className="posting-actions__buttons">{children}</div>
     </div>
@@ -105,8 +124,10 @@ export interface PostingPreviewRailProps {
   actions: ReactNode;
   /** The ONE primary button, repeated in the phone dock. */
   primary: ReactNode;
-  /** The same status the rail footer shows, for the phone dock (where the buttons are there). */
+  /** The same field-owned status the rail footer shows, for the phone dock. Not live. */
   status?: ReactNode;
+  /** The same outcome the rail footer announces, for the phone dock. Announced (polite). */
+  outcome?: ReactNode;
 }
 
 export function PostingPreviewRail({
@@ -116,6 +137,7 @@ export function PostingPreviewRail({
   actions,
   primary,
   status,
+  outcome,
 }: PostingPreviewRailProps) {
   // APPENDED-ONLY state for the positional useState mocks in the form tests: this is the only one.
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -148,8 +170,9 @@ export function PostingPreviewRail({
       </aside>
 
       <div className="posting-dock">
-        <div className="posting-dock__status" aria-live="polite">
-          {status}
+        <div className="posting-dock__status">{status}</div>
+        <div className="posting-dock__live" aria-live="polite">
+          {outcome}
         </div>
         <div className="posting-dock__row">
           <button

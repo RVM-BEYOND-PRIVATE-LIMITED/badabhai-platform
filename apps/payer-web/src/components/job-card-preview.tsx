@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import type { IconName } from "@badabhai/icons";
+import { Icon, type IconName } from "@badabhai/icons";
 import {
   JOB_CARD_CLAMPS,
   toJobCardView,
@@ -83,7 +83,7 @@ export function JobCardPreview({ fields, draft }: JobCardPreviewProps) {
             {/* Always drawn, like the phone's row — even with no place (a pin with nothing beside
                 it is exactly what the worker would get). */}
             <p className="jcp__place">
-              <i className="ph-fill ph-map-pin" aria-hidden="true" />
+              <Icon name="map-pin" />
               <span
                 className={hasPlace ? "jcp__place-text" : "jcp__place-text jcp__place-text--empty"}
                 data-slot="place"
@@ -145,7 +145,7 @@ export function JobCardPreview({ fields, draft }: JobCardPreviewProps) {
                           : `jcp__chip jcp__chip--${chip.kind} jcp__chip--${chip.state}`
                       }
                     >
-                      <i className={`ph-fill ph-${CHIP_ICON[chip.kind]}`} aria-hidden="true" />
+                      <Icon name={CHIP_ICON[chip.kind]} />
                       <span
                         className="jcp__chip-text"
                         data-slot="chip"
