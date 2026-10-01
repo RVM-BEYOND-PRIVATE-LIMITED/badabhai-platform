@@ -86,7 +86,7 @@ import {
   type JobNeededBy,
   type PayerRole,
 } from "./schema";
-import { looksLikePii, looksLikeOrgName, looksLikeUrl } from "@badabhai/validators";
+import { workerVisibleTextScreens } from "@badabhai/validators";
 import { encryptPii, hashPhone } from "./crypto";
 import {
   makeRng,
@@ -504,7 +504,7 @@ function assertSeedContentPiiFree(
   postings: SeededPosting[],
   jobs: SeededJob[],
 ): void {
-  const flagged = (s: string): boolean => looksLikePii(s) || looksLikeOrgName(s) || looksLikeUrl(s);
+  const flagged = (s: string): boolean => workerVisibleTextScreens(s).length > 0;
   const fail = (id: string, field: string): never => {
     throw new Error(
       `[seed:reach] PII guard tripped — ${id} field "${field}" looks like PII / an employer name / a link; aborting (content not echoed)`,

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
-import { looksLikePii, looksLikeOrgName, looksLikeUrl } from "@badabhai/validators";
+import { workerVisibleTextScreens, type WorkerVisibleScreen } from "@badabhai/validators";
 
 /**
  * THE WORKER-VISIBLE JOB-CONTENT FIELD SCHEMAS — one copy, two demand surfaces.
@@ -13,18 +13,32 @@ import { looksLikePii, looksLikeOrgName, looksLikeUrl } from "@badabhai/validato
  * heuristic and the other does not is the day the weaker surface becomes the leak. So the
  * definitions moved here and both DTO files import them.
  *
- * SCREENED FAIL-CLOSED WITH BOTH HEURISTICS. Every free-text surface here runs
+ * SCREENED FAIL-CLOSED WITH THREE HEURISTICS, through {@link screenWorkerVisibleText}:
  * `looksLikePii` (phone/email shapes), `looksLikeOrgName` (legal-entity suffixes —
- * `looksLikePii` is documented as NOT catching employer names) and `looksLikeUrl`. A
- * phone number or a "Pvt Ltd"-style name typed into any of them is rejected with a clear
- * 400 and never stored. Every message names the FIELD, never the offending content: an
- * error body that echoed the text back would be the leak the refusal just prevented.
+ * `looksLikePii` is documented as NOT catching employer names) and `looksLikeUrl`. The
+ * benefit/requirement chips here run it, and so do the agency `title` / `description` and
+ * the posting `role_title` / `description`. A phone number or a "Pvt Ltd"-style name typed
+ * into any of those is rejected with a clear 400 and never stored. Every message names the
+ * FIELD, never the offending content: an error body that echoed the text back would be the
+ * leak the refusal just prevented.
  *
- * DELIBERATELY NOT HERE: `title` / `role_title` / `org_label` / `location_label` and the
- * job-postings `description`. Those carry surface-specific rules that differ between the
- * two DTOs on purpose — a payer-company posting's `org_label` IS the company's own name,
- * while an agency `title` must never contain one — and folding them together would
- * silently retighten or loosen a shipped validator.
+ * NOT SCREENED AT THE SERVER, though a worker sees both verbatim: `area` (below) and each
+ * DTO's `city`. ADR-0024's guard names title, description, benefits and tags; payer-web
+ * screens city and area client-side only. Screening them here, and keeping a pincode legal
+ * if so, is an open follow-up from the #1823 B3 review, not a gap this file closes.
+ *
+ * ONE LIST OF HEURISTICS. `workerVisibleTextScreens` in `@badabhai/validators` is the list;
+ * this file only maps each screen to its field-naming message, and the D4 seed-job converter
+ * and the seed scripts call the same list. B3 (#1823) is what one copy per field produced: a
+ * posting `role_title` with no screen at all, and a posting `description` with one heuristic
+ * of three, while the agency fields they mirror had all three. Search and job detail served
+ * that gap to workers.
+ *
+ * DELIBERATELY NOT HERE: the BASE SHAPE of `title` / `role_title` / `description`
+ * (length caps, `.trim()`) and the `org_label` / `location_label` fields. Those stay in
+ * each DTO. A payer-company posting's `org_label` IS the company's own name and is never
+ * screened, and only the agency description trims, so folding the bases together would
+ * silently change what a shipped route stores.
  */
 
 // Length caps (chars). `area` is a short bucket label; benefits/requirements are SHORT
@@ -81,27 +95,54 @@ export const payTypeSchema = z.enum(["in_hand", "gross", "ctc"]);
  */
 export const roleKindSchema = z.enum(TRADE_FORM_KINDS_ALL);
 
+/**
+ * How a refusal NAMES its field. `from` completes "remove contact details from …" and
+ * `subject` opens "… must not contain a company name" / "… must not contain links". Both
+ * are static per field, so a message never carries the offending value.
+ */
+export interface ScreenedFieldName {
+  readonly from: string;
+  readonly subject: string;
+}
+
+/**
+ * One message per screen. EXHAUSTIVE over `WorkerVisibleScreen`, so a heuristic added to
+ * `workerVisibleTextScreens` fails the typecheck here until it has a message.
+ */
+const SCREEN_MESSAGES: Readonly<Record<WorkerVisibleScreen, (n: ScreenedFieldName) => string>> = {
+  contact_details: (n) => `remove contact details from ${n.from}`,
+  company_name: (n) => `${n.subject} must not contain a company name`,
+  link: (n) => `${n.subject} must not contain links`,
+};
+
+/**
+ * THE ADR-0024 WORKER-VISIBLE FREE-TEXT SCREEN: every screen `workerVisibleTextScreens`
+ * reports (`looksLikePii`, then `looksLikeOrgName`, then `looksLikeUrl`) is a fail-closed
+ * 400 that names the field. A value that trips two heuristics reports both, in that order.
+ *
+ * It takes the BASE schema rather than building one, because the base is the part that
+ * legitimately differs per surface (see the header). Apply it to a field shown verbatim to
+ * a worker. A field that is not, such as a posting's `org_label`, must not use it.
+ */
+export function screenWorkerVisibleText(base: z.ZodString, name: ScreenedFieldName) {
+  return base.superRefine((s, ctx) => {
+    for (const screen of workerVisibleTextScreens(s)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: SCREEN_MESSAGES[screen](name) });
+    }
+  });
+}
+
 /** One short worker-visible benefit chip (e.g. "PF + ESI") — all three heuristics apply. */
-const benefitItem = z
-  .string()
-  .trim()
-  .min(1)
-  .max(LIST_ITEM_MAX)
-  .refine((s) => !looksLikePii(s), { message: "remove contact details from benefits" })
-  .refine((s) => !looksLikeOrgName(s), { message: "benefits must not contain a company name" })
-  .refine((s) => !looksLikeUrl(s), { message: "benefits must not contain links" });
+const benefitItem = screenWorkerVisibleText(z.string().trim().min(1).max(LIST_ITEM_MAX), {
+  from: "benefits",
+  subject: "benefits",
+});
 
 /** One short worker-visible requirement tag (e.g. "Fanuc control") — all three apply. */
-const requirementItem = z
-  .string()
-  .trim()
-  .min(1)
-  .max(LIST_ITEM_MAX)
-  .refine((s) => !looksLikePii(s), { message: "remove contact details from requirements" })
-  .refine((s) => !looksLikeOrgName(s), {
-    message: "requirements must not contain a company name",
-  })
-  .refine((s) => !looksLikeUrl(s), { message: "requirements must not contain links" });
+const requirementItem = screenWorkerVisibleText(z.string().trim().min(1).max(LIST_ITEM_MAX), {
+  from: "requirements",
+  subject: "requirements",
+});
 
 export const benefitsSchema = z.array(benefitItem).max(LIST_ITEMS_MAX);
 export const requirementsSchema = z.array(requirementItem).max(LIST_ITEMS_MAX);

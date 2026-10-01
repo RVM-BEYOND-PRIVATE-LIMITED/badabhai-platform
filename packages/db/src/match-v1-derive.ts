@@ -7,6 +7,7 @@
  *
  * Everything below is DETERMINISTIC (invariant #4) and PII-free.
  */
+import { workerVisibleTextScreens, type WorkerVisibleScreen } from "@badabhai/validators";
 import { inArray } from "drizzle-orm";
 
 import type { Database } from "./client";
@@ -70,6 +71,70 @@ export function proposeMatchSkills(
     if (out.length >= maxSkills) break;
   }
   return out;
+}
+
+/** The worker-visible text D4 copies from one legacy `jobs` row into `job_postings`. */
+export interface JobTextForConversion {
+  id: string;
+  title: string;
+  description: string | null;
+  benefits: readonly string[] | null;
+  requirements: readonly string[] | null;
+}
+
+/**
+ * Which field failed. A chip is named by list and 0-based position (`benefits[2]`), so the
+ * operator can find it without the runner printing the chip.
+ */
+export type JobTextField =
+  | "title"
+  | "description"
+  | `benefits[${number}]`
+  | `requirements[${number}]`;
+
+/** One legacy-job field D4 must not copy, named by id, field and screen. Never the text. */
+export interface JobTextScreenFailure {
+  jobId: string;
+  field: JobTextField;
+  screens: WorkerVisibleScreen[];
+}
+
+/**
+ * THE D4 WRITE BOUNDARY FOR WORKER-VISIBLE TEXT (#1823 B3).
+ *
+ * D4 copies `jobs.title` into `job_postings.role_title`, and `description` and each
+ * `benefits` / `requirements` chip verbatim, without passing an API DTO. All four reach the
+ * worker card, so each gets the screen every API write path runs on them:
+ * `workerVisibleTextScreens` from `@badabhai/validators`, the same list the API's
+ * `screenWorkerVisibleText` maps to its 400s. `city` and `area` are copied too and are not
+ * screened here, matching the API, which does not screen them either (an open follow-up).
+ *
+ * The source rows were screened when they were written: agency routes run all three
+ * heuristics on all four fields, and seed content is fixtures with its own guard. This is
+ * the backstop for a row that predates that screen or was written by hand.
+ *
+ * Returns every failure, and an empty array when the batch is clean. The runner refuses
+ * `--apply` on a non-empty result: converting the clean rows and leaving the rest would be a
+ * partial cutover.
+ */
+export function screenJobTextForConversion(
+  rows: ReadonlyArray<JobTextForConversion>,
+): JobTextScreenFailure[] {
+  const failures: JobTextScreenFailure[] = [];
+  for (const row of rows) {
+    const fields: Array<[JobTextField, string | null]> = [
+      ["title", row.title],
+      ["description", row.description],
+      ...(row.benefits ?? []).map((b, i): [JobTextField, string] => [`benefits[${i}]`, b]),
+      ...(row.requirements ?? []).map((r, i): [JobTextField, string] => [`requirements[${i}]`, r]),
+    ];
+    for (const [field, text] of fields) {
+      if (text === null) continue;
+      const screens = workerVisibleTextScreens(text);
+      if (screens.length > 0) failures.push({ jobId: row.id, field, screens });
+    }
+  }
+  return failures;
 }
 
 /**

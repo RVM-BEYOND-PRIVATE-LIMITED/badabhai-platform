@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { uuidSchema, looksLikePii } from "@badabhai/validators";
+import { uuidSchema } from "@badabhai/validators";
 import { VACANCY_BANDS } from "@badabhai/types";
 import { clearFieldSchema, contradictoryClears } from "../common/clearable-fields";
 import {
@@ -13,6 +13,7 @@ import {
   payTypeSchema,
   requirementsSchema,
   roleKindSchema,
+  screenWorkerVisibleText,
   shiftSchema,
 } from "../common/job-content.schemas";
 
@@ -22,25 +23,46 @@ import {
 const LABEL_MAX = 200;
 const DESCRIPTION_MAX = 2000;
 
+/**
+ * NOT SCREENED, and never shown to a worker. `org_label` IS the posting company's own name,
+ * and `location_label` is the poster's free-text site label, which no worker read selects.
+ * A long digit run in either is a legitimate pincode or plant code.
+ */
 const orgLabel = z.string().min(1).max(LABEL_MAX);
-const roleTitle = z.string().min(1).max(LABEL_MAX);
 const locationLabel = z.string().min(1).max(LABEL_MAX);
 
 /**
- * Description is the ONLY free-text field we run the PII heuristic on. A long
- * digit run in org_label/role_title/location_label is a legit machine model
- * number / pincode / job code (false positive), so we do NOT screen those — but a
- * phone/email in the human-typed description is a real leak risk. This is D3
- * defense-in-depth, NOT the primary control (the events are PII-free by
- * construction); we name the field, never the offending content.
+ * THE TITLE AND THE DESCRIPTION (#1823 B3). The worker feed, search and job detail show
+ * `role_title` as the card title and `description` verbatim. So both run ADR-0024's
+ * write-time screen, `screenWorkerVisibleText` (`looksLikePii`, `looksLikeOrgName`,
+ * `looksLikeUrl`). It is the same function, and the same messages, as the agency `title`
+ * and `description` these fields mirror. The `benefits` / `requirements` chips run it too
+ * (`job-content.schemas.ts`).
+ *
+ * NOT THE ONLY WORKER-VISIBLE FREE TEXT. `city` and `area` below also reach the worker card
+ * and job detail verbatim, and neither is screened at the server, here or on the agency
+ * DTO. That gap predates B3 and is an open follow-up; see the header of
+ * `job-content.schemas.ts`.
+ *
+ * `role_title` used to be unscreened and `description` ran `looksLikePii` alone, while the
+ * agency fields ran all three. This reverses ADR-0012 §(c), which kept the phone/email
+ * heuristic off `role_title` (see that ADR's 2026-10-01 addendum). The tradeoff it named
+ * still holds: a title with a seven-digit run, such as a dated job code, is now a 400. The
+ * agency title has always taken that tradeoff. Every real role title the repository carries
+ * passes the screen; `job-postings.dto.test.ts` measures them.
+ *
+ * WRITE-SIDE ONLY. No read path filters, so feed, search and detail stay consistent with
+ * each other. A row stored before this screen keeps its text until an edit resends the
+ * field. Every write route parses one of the three schemas below, so that edit is screened.
  */
-const description = z
-  .string()
-  .min(1)
-  .max(DESCRIPTION_MAX)
-  .refine((s) => !looksLikePii(s), {
-    message: "remove contact details from the description",
-  });
+const roleTitle = screenWorkerVisibleText(z.string().min(1).max(LABEL_MAX), {
+  from: "the title",
+  subject: "title",
+});
+const description = screenWorkerVisibleText(z.string().min(1).max(DESCRIPTION_MAX), {
+  from: "the description",
+  subject: "description",
+});
 
 /**
  * Raw vacancy count — INTAKE ONLY. An ops actor MAY supply a concrete head count
@@ -99,7 +121,8 @@ const matchSkillId = z.string().regex(/^mskill_[a-z0-9_]+$/, "not a match skill 
  *
  * PII: every field is PII-free by its own classification — COARSE buckets (city, area),
  * integer ₹ bands, year counts, closed enums, and short chips screened fail-closed by
- * `../common/job-content.schemas` with all three heuristics.
+ * `../common/job-content.schemas` with all three heuristics. For city and area that is the
+ * intent, not an enforced check: both are free strings with no server screen (see above).
  */
 const postingContentFields = {
   // COARSE city bucket (never an address). `location_label` stays the poster's free text.

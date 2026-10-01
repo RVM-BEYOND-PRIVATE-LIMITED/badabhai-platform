@@ -537,8 +537,9 @@ export class JobPostingChatService {
     const validated = PayerCreateJobPostingSchema.safeParse(candidate);
     if (!validated.success) {
       // Field PATHS + the schema's own static messages only — never the offending
-      // value. (`description` carries a `looksLikePii` refine, so the one thing we
-      // must not do on that failure is echo the text back through an error body.)
+      // value. (`role_title` and `description` carry the worker-visible PII / org-name /
+      // link screen (#1823 B3), so the one thing we must not do on that failure is echo
+      // the text back through an error body.)
       const issues = validated.error.issues.map((i) => ({
         path: i.path.join(".") || "(root)",
         message: i.message,
