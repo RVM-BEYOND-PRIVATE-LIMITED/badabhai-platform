@@ -44,15 +44,17 @@
 
 /* FOCUS IN FORCED COLORS. The base `:focus-visible` in tokens.css is `outline: none` + a
    box-shadow ring, and Windows forced-colors mode DROPS box-shadows — a keyboard user in High
-   Contrast had no focus indicator anywhere in the portal. A TRANSPARENT outline is invisible in
-   normal mode (the look is unchanged) but forced colors repaint it in the system colour. Offset
-   one ring-width so it sits where the ring's outer band does. Every component ring that
-   overrides this keeps the same fallback (see the FOCUS note at the top of ds-components.css);
-   a ring drawn on a NON-focused host (:has / :focus-within / a sibling box) declares it itself.
+   Contrast had no focus indicator anywhere in the portal. So this rule also spends the
+   `--focus-outline` / `--focus-outline-offset` custom properties (declared at the top of
+   ds-components.css): `--focus-outline` is a TRANSPARENT outline in normal mode (the look is
+   unchanged) and the token itself switches to the system `Highlight` colour under
+   `@media (forced-colors: active)`. Offset one ring-width so it sits where the ring's outer
+   band does. Every component ring that overrides this spends the same two, and a
+   ring drawn on a NON-focused host (:has / :focus-within / a sibling box) declares them itself.
    (tokens.css is the shared package admin-web also imports; this override is payer-web's.) */
 :focus-visible {
-  outline: var(--border-bold) solid transparent;
-  outline-offset: var(--border-bold);
+  outline: var(--focus-outline);
+  outline-offset: var(--focus-outline-offset);
 }
 
 /* Sticky footer — the body is a viewport-tall flex column so `.chrome-footer` always sits at
@@ -138,8 +140,8 @@ body {
   background: var(--surface-ink-hover);
 }
 .pshell__brandlink:focus-visible {
-  outline: var(--border-bold) solid transparent;
-  outline-offset: var(--border-bold);
+  outline: var(--focus-outline);
+  outline-offset: var(--focus-outline-offset);
   box-shadow: var(--ring-focus);
 }
 /* The rail lockup stacks the persona under the logotype; the logotype takes a fixed height
@@ -319,8 +321,8 @@ body {
   color: var(--text-on-ink);
 }
 .pshell__collapse:focus-visible {
-  outline: var(--border-bold) solid transparent;
-  outline-offset: var(--border-bold);
+  outline: var(--focus-outline);
+  outline-offset: var(--focus-outline-offset);
   box-shadow: var(--ring-focus);
 }
 .pshell__collapse .ph-fill {
@@ -407,8 +409,8 @@ body {
   border-color: transparent;
 }
 .pshell__balance:focus-visible {
-  outline: var(--border-bold) solid transparent;
-  outline-offset: var(--border-bold);
+  outline: var(--focus-outline);
+  outline-offset: var(--focus-outline-offset);
   box-shadow: var(--ring-focus);
 }
 .pshell__balancenum {
@@ -598,9 +600,30 @@ body {
   }
 }
 
-/* Very narrow phones: the balance chip's word is the first thing that can go. */
+/* Very narrow phones: the balance chip's word is the first thing that can go. Then the header's
+   own slack: its inline padding and gaps step down one size, and the theme toggle's "System"
+   pill shows only its icon (the button keeps its accessible name, "Follow system theme", and its
+   phone hit strip). The actions group is `flex: none`, so without this it was ~265px wide and the
+   page scrolled sideways at 320–360px while the breadcrumb collapsed to 0px under it. */
 @media (max-width: 420px) {
   .pshell__balancelabel {
+    display: none;
+  }
+  .pshell__header {
+    gap: var(--space-2);
+    padding-inline: var(--space-4);
+  }
+  .pshell__headeractions .theme-toggle__system-label {
+    display: none;
+  }
+}
+/* Phones: the trail keeps only its CURRENT page (which ellipsizes). Its parent steps are `nowrap`
+   text, so in the 0–80px a phone header leaves the trail (0px at 421–430px with a 4-digit
+   balance) they painted on under the balance chip — the parent link still focusable beneath it.
+   That destination stays in the menu, and a detail page carries it as its back link too. */
+@media (max-width: 600px) {
+  .pcrumb > :not(:last-child),
+  .pcrumb__step > .pcrumb__sep {
     display: none;
   }
 }
@@ -1175,8 +1198,8 @@ textarea.input {
   border: 0;
 }
 .login-mode:has(.login-mode__input:focus-visible) {
-  outline: var(--border-bold) solid transparent;
-  outline-offset: var(--border-bold);
+  outline: var(--focus-outline);
+  outline-offset: var(--focus-outline-offset);
   box-shadow: var(--ring-focus);
 }
 
@@ -1253,8 +1276,8 @@ textarea.input {
   transform: scale(0.96);
 }
 .account-menu__trigger:focus-visible {
-  outline: var(--border-bold) solid transparent;
-  outline-offset: var(--border-bold);
+  outline: var(--focus-outline);
+  outline-offset: var(--focus-outline-offset);
   box-shadow: var(--ring-focus);
 }
 .account-menu__panel {
@@ -1321,8 +1344,8 @@ textarea.input {
   text-decoration: none;
 }
 .account-menu__link:focus-visible {
-  outline: var(--border-bold) solid transparent;
-  outline-offset: var(--border-bold);
+  outline: var(--focus-outline);
+  outline-offset: var(--focus-outline-offset);
   box-shadow: var(--ring-focus);
 }
 /* Sign-out menu item — rendered as a <button> so it needs the native control reset, then the
@@ -2105,7 +2128,9 @@ textarea.input {
   }
 }
 /* Phones: identity keeps the width, relevance drops under it, the pipeline control spans the
-   row, and the spend + reveal actions go full-width thumb targets. */
+   row, and the spend + reveal actions go full-width thumb targets. The relevance cluster takes
+   the WHOLE card width (the left edge the tags below start on): squeezed into the text column
+   beside the avatar it stacked rank / tier / tenure onto three lines at 320px. */
 @media (max-width: 600px) {
   .applicant {
     --applicant-pad: var(--space-4);
@@ -2114,7 +2139,7 @@ textarea.input {
     grid-template-columns: auto minmax(0, 1fr);
   }
   .applicant__relevance {
-    grid-column: 2;
+    grid-column: 1 / -1;
     justify-content: flex-start;
   }
   .applicant__unlock,
@@ -2854,8 +2879,8 @@ textarea.input {
   display: none;
 }
 .agency-parked-disclosure__summary:focus-visible {
-  outline: var(--border-bold) solid transparent;
-  outline-offset: var(--border-bold);
+  outline: var(--focus-outline);
+  outline-offset: var(--focus-outline-offset);
   box-shadow: var(--ring-focus);
 }
 .agency-parked-disclosure__summary .agency-section__title {
@@ -2966,18 +2991,37 @@ textarea.input {
   border-color: transparent;
   box-shadow: none;
 }
-/* Payouts head — title + "Request payout" on row 1, the mock-money description on row 2, at
-   EVERY width. The shared head is a wrapping flex row, which at 320px dropped the button under
-   the title (238px of content could not hold both). A two-track grid lets the title track
-   shrink instead; the sub spans both tracks. Two classes, because the shared `.panel__head`
+/* Payouts head, PHONES ONLY. The shared `.panel__text` pattern keeps "Request payout" on the
+   title row at every width — but on a phone that leaves the text column ~110px beside the
+   ~165px button, and the mock-money description would stack seven lines deep in it. So ≤600px
+   the head is a two-track grid and the text wrapper steps aside (`display: contents`, a plain
+   div — no semantics lost): title + button share row 1, the description spans row 2. Its
+   distance from the title is then the 44px button row + a --space-1 row gap (~26px measured),
+   not 4px — the one head where a readable sub wins over the 4px rhythm. Above 600px the shared
+   pattern already holds (text column ≥ 330px). Two classes, because the shared `.panel__head`
    rule comes later in this file. */
-.panel__head.agency-referrals-payout__head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-}
-.agency-referrals-payout__head > .panel__sub {
-  grid-column: 1 / -1;
+@media (max-width: 600px) {
+  .panel__head.agency-referrals-payout__head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title actions"
+      "sub sub";
+    align-items: start;
+    row-gap: var(--space-1);
+  }
+  .agency-referrals-payout__head > .panel__text {
+    display: contents;
+  }
+  .agency-referrals-payout__head .panel__title {
+    grid-area: title;
+  }
+  .agency-referrals-payout__head .panel__sub {
+    grid-area: sub;
+  }
+  .agency-referrals-payout__head > .panel__actions {
+    grid-area: actions;
+  }
 }
 /* Payouts — the amount the action would request is the panel's focal figure. */
 .agency-referrals-payout__now .bb-mono {
@@ -4240,11 +4284,12 @@ img.agency-qr__code,
 }
 /* The active (aria-activedescendant) option is the keyboard position while focus sits on the
    list, and a background alone shows it — forced colors drop backgrounds, and the list's own
-   `outline: none` defeats the global :focus-visible fallback. A transparent outline is repainted
-   in the system colour there (invisible otherwise); inset, because the list is a scroller. */
+   `outline: none` defeats the global :focus-visible fallback. So the option spends
+   `--focus-outline`: transparent in normal mode, and the token itself becomes the system
+   `Highlight` under forced colors. Inset, because the list is a scroller. */
 .bb-selectmenu__option--active {
   background: var(--surface-sunken);
-  outline: var(--border-bold) solid transparent;
+  outline: var(--focus-outline);
   outline-offset: calc(-1 * var(--border-bold));
 }
 .bb-selectmenu__option--selected {
@@ -4282,8 +4327,8 @@ img.agency-qr__code,
   transition: var(--transition-control);
 }
 .theme-toggle__switch:focus-visible {
-  outline: var(--border-bold) solid transparent;
-  outline-offset: var(--border-bold);
+  outline: var(--focus-outline);
+  outline-offset: var(--focus-outline-offset);
   box-shadow: var(--ring-focus);
 }
 /* The track: a pill that fills brand-tinted when "on" (dark). */
@@ -4343,8 +4388,8 @@ img.agency-qr__code,
   color: var(--text-secondary);
 }
 .theme-toggle__system:focus-visible {
-  outline: var(--border-bold) solid transparent;
-  outline-offset: var(--border-bold);
+  outline: var(--focus-outline);
+  outline-offset: var(--focus-outline-offset);
   box-shadow: var(--ring-focus);
 }
 .theme-toggle__system[aria-pressed="true"] {
@@ -4355,19 +4400,21 @@ img.agency-qr__code,
 .theme-toggle__system-label {
   line-height: 1;
 }
-/* PHONE HIT AREAS (≤600px) for the shell's small controls: the theme switch (32px) and
-   "System" (~22px), the header's hamburger (36px) and balance chip (36px). Same technique and
-   maths as the DS `.bb-btn--sm` / `.bb-chip` (see ds-components.css): a full-width 44px strip
-   BEHIND the control's content, drawn size unchanged. Measured at 375px: the header row keeps
-   its height (60px holds a 44px strip), and neighbours sit --space-2/--space-3 apart, so no
-   two hit areas overlap. The static (recruiter) balance is not a control and gets none.
+/* PHONE + TOUCH HIT AREAS (≤600px, and any coarse pointer — a tablet at 768/1024px is a finger
+   target too, like the shared back link) for the shell's small controls: the theme switch
+   (32px) and "System" (~22px), the header's hamburger (36px) and balance chip (36px). Same
+   technique and maths as the DS `.bb-btn--sm` / `.bb-chip` (see ds-components.css): a
+   full-width 44px strip BEHIND the control's content, drawn size unchanged. Measured at
+   320/375px and at 768/1024px under a coarse pointer: the header row keeps its height (60px
+   holds a 44px strip), and neighbours sit --space-2/--space-3 apart, so no two hit areas
+   overlap. The static (recruiter) balance is not a control and gets none.
    /login: at ≤480px the toggle is absolute and `.login-wrap--auth` reserves its row, which the
    strip still clears. From 481–600px there is NO reserved row — the toggle is fixed over a
    vertically centred card, as it was before this change. At rest the card only reaches the
    toggle on a short viewport, and then the switch and its strip (6px more) overlap only the
    card's non-interactive navy brand band; scrolled, the fixed toggle can float over the form
-   either way. */
-@media (max-width: 600px) {
+   either way. A coarse pointer above 600px is the same fixed-toggle case. */
+@media (max-width: 600px), (pointer: coarse) {
   .theme-toggle__switch,
   .theme-toggle__system,
   .pshell__menu,
@@ -4972,12 +5019,23 @@ body:has(.invite-landing) .chrome-footer {
   .stat-row--kpi > * {
     flex-basis: 100%;
   }
+  /* W3-A — the label/caption pair sits between two equal `1fr` spacer rows, so it is centred on
+     the tile exactly like the icon and the figure beside it. With only the two content rows, a
+     tile WITHOUT a caption (the referral funnel, the earnings tiles) left its label at the
+     bottom of row 1 — above the centre line the figure sits on. An absent caption's row now
+     collapses to 0 and the label alone is centred. The spacer cells are EMPTY grid cells, which
+     auto-placement fills — so every child the tile can render has a named area of its own
+     (incl. the trend `delta`, under the caption; an absent one's row is 0 too). */
   .stat-row--kpi .bb-stat {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: 1fr auto auto auto 1fr;
     grid-template-areas:
+      "icon . value"
       "icon label value"
-      "icon caption value";
+      "icon caption value"
+      "icon delta value"
+      "icon . value";
     align-items: center;
     column-gap: var(--space-3);
     padding: var(--space-3) var(--space-4);
@@ -4991,13 +5049,15 @@ body:has(.invite-landing) .chrome-footer {
   }
   .stat-row--kpi .bb-stat__label {
     grid-area: label;
-    align-self: end;
   }
   .stat-row--kpi .bb-stat__caption {
     grid-area: caption;
-    align-self: start;
     margin-top: 0;
     font-size: var(--ui-caption-size);
+  }
+  .stat-row--kpi .bb-stat__delta {
+    grid-area: delta;
+    margin-top: 0;
   }
   .stat-row--kpi .bb-stat__value {
     grid-area: value;
@@ -5478,8 +5538,8 @@ body:has(.invite-landing) .chrome-footer {
   background: var(--surface-hover);
 }
 .quick__card:focus-visible {
-  outline: var(--border-bold) solid transparent;
-  outline-offset: var(--border-bold);
+  outline: var(--focus-outline);
+  outline-offset: var(--focus-outline-offset);
   box-shadow: var(--ring-focus);
   border-color: var(--brand);
 }
@@ -5913,6 +5973,137 @@ body:has(.invite-landing) .chrome-footer {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ==================================================================
+ * W3-A · SHARED FOLLOW-UPS (#1856) — the additive rules of the wave-3 shared pass, in one
+ * place. The pass's in-place changes live with the rules they change: the focus-outline
+ * tokens (every ring), the Payouts phone head (W2-B block), the applicant relevance span and
+ * the KPI row centring + delta area (their own blocks), the shell header's ≤420px reflow, its
+ * phone-only breadcrumb and its coarse-pointer hit strips (the shell / theme-toggle blocks), and
+ * the segmented active-tab ring (ds-components.css). Tokens only.
+ * ================================================================== */
+
+/* ---- 1 · TITLE + SUBTITLE, GROUPED. As a sibling of the title the sub sat a whole head
+   row-gap (16px) plus its own 4px margin below it — 20px, five times the page head's 4px.
+   Wrapped with the title in `.panel__text` / `.section__text` the pair is ONE flex item with
+   the page-head rhythm (a --space-1 grid gap), so the head's 16px gap only ever separates text
+   from actions. The wrapper takes the row beside the actions from a ZERO basis: its line never
+   has to hold the sub's full width, so the actions stay on the title row, right-aligned, at
+   every width (an `auto` basis wrapped them under the prose wherever title/sub + actions
+   overran the row). Inside it the sub is a plain grid row again, so the measure is a real
+   max-width — the end-padding trick on `.panel__sub` / `.section__sub` only serves a sub that
+   is still a bare head item or a block `p`. Two classes, so it wins wherever it sits. */
+.panel__text,
+.section__text {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1 1 0;
+}
+.panel__text > .panel__sub,
+.section__text > .section__sub {
+  margin: 0;
+  padding-inline-end: 0;
+  max-width: var(--reading-max);
+}
+/* The wrapper's single grid track is as wide as its widest unbreakable run, so a long role word
+   in a title ("Electromechanical") beside the head's actions could push past the wrapper's edge
+   on a phone. The title breaks inside a word only when nothing else fits. */
+.panel__text > .panel__title,
+.section__text > .section__title {
+  overflow-wrap: anywhere;
+}
+
+/* ---- 3 · THE BACK LINK ("← Dashboard") is a small text link drawn ~20px tall, and on a phone
+   or any coarse pointer it is a finger target. Its HIT AREA — not its look — grows to the md
+   control height with the DS strip maths (see `.bb-btn--sm` in ds-components.css): a
+   full-width strip centred on the link, BEHIND its text inside the link's own stacking context.
+   The link is always the first thing in the content column; the strip's ~12px reach below it
+   ends at the page title under the --space-3 margin, and nothing above or below is a target. */
+@media (max-width: 600px), (pointer: coarse) {
+  .page-back > a {
+    position: relative;
+    isolation: isolate;
+  }
+  .page-back > a::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0px, calc((100% - var(--control-md)) / 2));
+  }
+}
+
+/* ---- 4 · THE APPLICANT SPEND ACTIONS: Unlock alone, or — on a real zero balance — the
+   disabled Unlock with a secondary "Top up" beside it, so the band always offers one ENABLED
+   next step. On phones each action grows: a lone Unlock stays the full-width thumb target it
+   was, and a pair that cannot share the row stacks, each full width. */
+.applicant__unlock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+@media (max-width: 600px) {
+  .applicant__unlock-actions > * {
+    flex: 1 1 auto;
+  }
+}
+
+/* ---- 6 · A PROSE STATE — a state whose body is several full sentences (not a one-line reason)
+   reads start-aligned: a centred paragraph has a ragged left edge on every line, which is what
+   makes long copy hard to follow. The block keeps its place and width; only its alignment
+   changes, so the icon and title line up with the paragraphs they introduce. After `.state`,
+   which it overrides at equal specificity. */
+.state--prose {
+  justify-items: start;
+  text-align: start;
+}
+.state--prose .state__actions {
+  justify-content: flex-start;
+}
+
+/* ---- 7 · PAGE-HEAD ACTIONS on a phone. The group is `flex: none` (its max-content width), so a
+   group wider than the content column — /postings/[id]'s status + "View applicants" + "Edit
+   posting", ~367px — scrolled the whole page sideways at ≤375px. On a phone it may now SHRINK
+   to the row it is on and wrap its own controls. A group that fits is untouched: it still
+   wraps under (or sits beside) the title exactly as before, at its own width. */
+@media (max-width: 600px) {
+  .page-head__actions {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+}
+
+/* ---- 8 · THE APPLICANT FEED HEAD on a narrow phone. The shared wrapper keeps the balance chip
+   on the title row, which at ≤420px left a long role title ~140–240px beside a 4-digit chip
+   (five lines at 320px). Here the head is a two-track grid instead — the Payouts recipe — and
+   the text wrapper steps aside (`display: contents`, a plain div): the title takes the whole
+   first row and the chip moves to the count's row. Measured at 320–420px: a 68-character title
+   is 2 lines (was 3–5), the head 74px (was 90–135px). Two classes, after the shared head. */
+@media (max-width: 420px) {
+  .section__head.applicants-feed__head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title title"
+      "sub actions";
+    align-items: center;
+    column-gap: var(--space-4);
+    row-gap: var(--space-1);
+  }
+  .applicants-feed__head > .section__text {
+    display: contents;
+  }
+  .applicants-feed__head .section__title {
+    grid-area: title;
+  }
+  .applicants-feed__head .section__sub {
+    grid-area: sub;
+  }
+  .applicants-feed__head > .section__actions {
+    grid-area: actions;
+  }
 }
 
 /* ==================================================================

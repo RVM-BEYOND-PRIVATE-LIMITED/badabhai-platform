@@ -186,15 +186,19 @@ describe("PayoutPanel — W2-B layout", () => {
     expect(button!.props["aria-describedby"]).toBe(sub.props.id);
   });
 
-  it("the request head reads title → action → sub, so the button shares the title row", () => {
+  it("W3-A: the request head is the shared pattern — [title + sub] wrapper, then the action", () => {
     const head = elements(render(BASE)).find((e) =>
       String(e.props.className).split(" ").includes("panel__head"),
     )!;
-    // The scoped grid modifier holds that layout at every width (320px included).
+    // The scoped modifier only re-lays the head on phones (the sub spans under the button).
     expect(String(head.props.className).split(" ")).toContain("agency-referrals-payout__head");
     expect(kids(head).map((k) => String(k.props.className ?? k.type))).toEqual([
-      "panel__title",
+      "panel__text",
       "panel__actions",
+    ]);
+    // Reading order: title → the description → the button it describes.
+    expect(kids(kids(head)[0]!).map((k) => String(k.props.className))).toEqual([
+      "panel__title",
       "panel__sub",
     ]);
     expect(collect(kids(head)[1]!).buttons).toHaveLength(1);

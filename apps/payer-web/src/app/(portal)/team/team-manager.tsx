@@ -101,12 +101,14 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
 
       <section className="panel panel--table">
         <div className="panel__head">
-          <h2 className="panel__title" id={MEMBERS_HEADING_ID}>
-            Members
-          </h2>
-          <p className="panel__sub">
-            Everyone who can sign in to this hiring desk. Emails stay masked.
-          </p>
+          <div className="panel__text">
+            <h2 className="panel__title" id={MEMBERS_HEADING_ID}>
+              Members
+            </h2>
+            <p className="panel__sub">
+              Everyone who can sign in to this hiring desk. Emails stay masked.
+            </p>
+          </div>
         </div>
         <div className="panel__body">
           {members.length === 0 ? (

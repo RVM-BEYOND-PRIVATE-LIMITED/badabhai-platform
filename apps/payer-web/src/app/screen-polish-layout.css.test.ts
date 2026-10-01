@@ -196,6 +196,73 @@ describe("PR-D2 · /dashboard — KPI band is opt-in and becomes ledger rows on 
     expect(decl(rule(".stat-row--kpi > *", NARROW), "flex-basis")).toBe("100%");
   });
 
+  it("W3-A ≤600px: the label/caption pair is CENTRED on the tile, with or without a caption", () => {
+    // Two content rows alone left a caption-less label (referral funnel, earnings) at the bottom
+    // of row 1 — 9.6px above the centre line the icon and figure sit on (measured at 375px).
+    // Between two equal 1fr spacer rows the pair is centred, and an absent caption's row is 0.
+    const tile = rule(".stat-row--kpi .bb-stat", NARROW);
+    expect(decl(tile, "grid-template-rows")).toBe("1fr auto auto auto 1fr");
+    const rows = decl(tile, "grid-template-areas")!.match(/"[^"]*"/g);
+    expect(rows).toEqual([
+      '"icon . value"',
+      '"icon label value"',
+      '"icon caption value"',
+      '"icon delta value"',
+      '"icon . value"',
+    ]);
+    // No row gap: three gaps between four rows would push a lone label off-centre by half one.
+    expect(decl(tile, "gap")).toBeNull();
+    expect(decl(tile, "row-gap")).toBeNull();
+    expect(decl(tile, "align-items")).toBe("center");
+    // The rows place the pair now; a self-alignment on either would fight the spacers.
+    for (const sel of [".stat-row--kpi .bb-stat__label", ".stat-row--kpi .bb-stat__caption"]) {
+      expect(decl(rule(sel, NARROW), "align-self"), sel).toBeNull();
+    }
+  });
+
+  it("W3-A ≤600px: EVERY child StatTile can render has its own named area (the '.' cells stay empty)", () => {
+    // The spacer cells are empty grid cells, and auto-placement FILLS empty cells: a child with
+    // no area (the trend `delta`) landed in row 1 / column 2, above the label — measured at 375px
+    // the text block sat 8.7px off the tile's centre. The children are read from the component,
+    // so a new one cannot be added without a place in this grid.
+    const display = readFileSync(join(here, "..", "components", "ds", "display.tsx"), "utf8");
+    const start = display.indexOf("export function StatTile(");
+    const body = display.slice(start, display.indexOf("\n}\n", start));
+    const children = [
+      ...new Set([...body.matchAll(/bb-stat__([a-z]+)(?![\w-])/g)].map((m) => m[1]!)),
+    ];
+    expect(children).toEqual(
+      expect.arrayContaining(["head", "label", "icon", "value", "caption", "delta"]),
+    );
+    const tile = rule(".stat-row--kpi .bb-stat", NARROW);
+    const areas = new Set(
+      decl(tile, "grid-template-areas")!
+        .replace(/"/g, " ")
+        .split(/\s+/)
+        .filter((a) => a && a !== "."),
+    );
+    const placed = new Map<string, string>();
+    for (const child of children) {
+      const own = `.stat-row--kpi .bb-stat__${child}`;
+      if (child === "head") {
+        // The head is not a box: its two children join the tile grid themselves.
+        expect(decl(rule(own, NARROW), "display")).toBe("contents");
+        continue;
+      }
+      const area = decl(rule(own, NARROW), "grid-area");
+      expect(area, `${own} needs a grid-area`).not.toBeNull();
+      expect(areas.has(area!), `${own} → "${area}" must be a named area of the tile`).toBe(true);
+      expect(placed.get(area!), `${own} shares "${area}"`).toBeUndefined();
+      placed.set(area!, child);
+    }
+    // The stretched link is the other possible child: it is out of flow, so it takes no cell.
+    const ds = stripComments(readFileSync(join(here, "..", "styles", "ds-components.css"), "utf8"));
+    const link = parseRules(ds).find((r) => r.selector === ".bb-stretched-link" && r.at === "");
+    expect(link && decl(link, "position")).toBe("absolute");
+    // A delta row sits under the caption and, like it, adds no margin of its own here.
+    expect(decl(rule(".stat-row--kpi .bb-stat__delta", NARROW), "margin-top")).toBe("0");
+  });
+
   it("ORDER: the KPI figure rule comes after the shared `.stat-row .bb-stat__value` role", () => {
     // Both are two classes deep; only source order decides which font-size/margin wins.
     expect(ruleIndex(".stat-row--kpi .bb-stat__value", NARROW)).toBeGreaterThan(

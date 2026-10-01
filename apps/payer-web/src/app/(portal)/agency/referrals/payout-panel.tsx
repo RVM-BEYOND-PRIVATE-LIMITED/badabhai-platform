@@ -68,12 +68,20 @@ export function PayoutPanel({
   return (
     <>
       {/* The REQUEST control. A bordered `.panel` — the primary action lives in the panel head,
-          where the screen's other panels put theirs. Source order is title → action → sub (as on
-          the applicant feed), so the button shares the title row and the sub takes the row
-          beneath — reading order and visual order stay the same (no CSS `order`). */}
+          where the screen's other panels put theirs. The shared head pattern: title + sub
+          grouped in `.panel__text`, then the action, which stays on the title row. Reading
+          order is title → description → the button it describes (aria-describedby). The
+          `agency-referrals-payout__head` modifier only re-lays the head on phones, where the
+          description spans the row under the title and the button. */}
       <section className="panel">
         <div className="panel__head agency-referrals-payout__head">
-          <h2 className="panel__title">Payouts</h2>
+          <div className="panel__text">
+            <h2 className="panel__title">Payouts</h2>
+            <p className="panel__sub" id={PAYOUT_DESC_ID}>
+              Request a payout of your requestable balance. Mock money — nothing is actually
+              disbursed.
+            </p>
+          </div>
           <div className="panel__actions">
             <Button
               variant="success"
@@ -85,10 +93,6 @@ export function PayoutPanel({
               {pending ? "Requesting…" : "Request payout"}
             </Button>
           </div>
-          <p className="panel__sub" id={PAYOUT_DESC_ID}>
-            Request a payout of your requestable balance. Mock money — nothing is actually
-            disbursed.
-          </p>
         </div>
         <div className="panel__body">
           {/* The figure the action spends is the panel's focal number (W2-B). */}

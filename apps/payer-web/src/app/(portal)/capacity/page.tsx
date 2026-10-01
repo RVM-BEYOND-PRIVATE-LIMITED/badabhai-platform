@@ -126,13 +126,15 @@ export default async function CapacityPage() {
 
           <section className="section">
             <div className="section__head">
-              <h2 className="section__title">Add capacity</h2>
-              <p className="section__sub">
-                Your active-{unitOne} count above is{" "}
-                <strong>live from the enforcement engine</strong> — it drives whether you are at
-                capacity. Adding capacity raises your concurrent allowance and resumes any paused{" "}
-                {unit}. Prices are <strong>mock</strong> — no real payment is taken.
-              </p>
+              <div className="section__text">
+                <h2 className="section__title">Add capacity</h2>
+                <p className="section__sub">
+                  Your active-{unitOne} count above is{" "}
+                  <strong>live from the enforcement engine</strong> — it drives whether you are at
+                  capacity. Adding capacity raises your concurrent allowance and resumes any
+                  paused {unit}. Prices are <strong>mock</strong> — no real payment is taken.
+                </p>
+              </div>
             </div>
             {!live ? <CachedPricingNote /> : null}
             <CapacityPanel tiers={tiers} />
@@ -151,15 +153,18 @@ export default async function CapacityPage() {
 
           <section className="panel panel--table">
             <div className="panel__head">
-              <h2 className="panel__title" id={POSTINGS_TABLE_HEADING_ID}>
-                Per {unitOne}
-              </h2>
-              <p className="panel__sub">
-                Your concurrent allowance and active count above are <strong>live</strong> from
-                the backend enforcement engine. The per-{unitOne} rows below reflect{" "}
-                <strong>backend-seeded plans only</strong> and do <strong>not</strong> drive that
-                count — they will become live once the create-posting backend endpoint lands.
-              </p>
+              <div className="panel__text">
+                <h2 className="panel__title" id={POSTINGS_TABLE_HEADING_ID}>
+                  Per {unitOne}
+                </h2>
+                <p className="panel__sub">
+                  Your concurrent allowance and active count above are <strong>live</strong> from
+                  the backend enforcement engine. The per-{unitOne} rows below reflect{" "}
+                  <strong>backend-seeded plans only</strong> and do <strong>not</strong> drive
+                  that count — they will become live once the create-posting backend endpoint
+                  lands.
+                </p>
+              </div>
             </div>
             <div className="panel__body">
               {capacity.postings.length === 0 ? (

@@ -573,6 +573,22 @@ describe("ApplicantActions — MOVE TO CONTACTED: local transition riding the sp
     expect(buttons.find((b) => b.text === "Mark as contacted")).toBeUndefined();
     expect(gatherText(tree)).toContain("Contacted");
   });
+
+  it("W3-A: 'Contacted' shows ONCE — in the toolbar; the band keeps the unlock's own status", () => {
+    const seeded = { [WORKER]: { ...routedRowState()[WORKER], contacted: true } };
+    const all = elements(render({ rows: seeded }));
+    const badgesIn = (el: El | undefined, label: string) =>
+      elements(el!.props.children as ReactNode).filter(
+        (e) => e.type === Badge && textOf(e.props.children as ReactNode).trim() === label,
+      );
+    const card = all.find((e) => hasClass(e, "applicant"));
+    expect(badgesIn(card, "Contacted")).toHaveLength(1);
+    const toolbar = all.find((e) => hasClass(e, "applicant__pipeline"));
+    expect(badgesIn(toolbar, "Contacted")).toHaveLength(1);
+    const band = all.find((e) => hasClass(e, "applicant__contact"));
+    expect(badgesIn(band, "Contacted")).toHaveLength(0);
+    expect(badgesIn(band, "Unlocked")).toHaveLength(1);
+  });
 });
 
 /** DEEP text — expands the pure RoutedContact / MaskedResume / DS children + Dialog footer too.
@@ -764,6 +780,26 @@ describe("ApplicantActions — Matching V1 tier badge (ADR-0036 moment ⑥ / E18
     expect(text).not.toContain("Has the skill");
   });
 
+  it("W3-A: the 'Related' badge is INFO-toned (Safety Yellow is the Unlock CTA's), text unchanged", () => {
+    const tierBadges = (a: FacelessApplicant) =>
+      elements(render({ applicants: [a] }))
+        .filter((e) => hasClass(e, "applicant__relevance"))
+        .flatMap((rel) => elements(rel.props.children as ReactNode))
+        .filter((e) => e.type === Badge && e.props.tone !== "neutral");
+    const related = tierBadges(
+      v1({ matchTier: 2, effectiveTier: 1, matchedSkillLabel: "VMC operating" }),
+    );
+    expect(related).toHaveLength(1);
+    expect(related[0]!.props.tone).toBe("info");
+    expect(related[0]!.props.variant).toBeUndefined(); // soft, never solid
+    expect(textOf(related[0]!.props.children as ReactNode)).toBe("Related · VMC operating");
+    const fallback = tierBadges(v1({ matchTier: 2, effectiveTier: 2 }));
+    expect(fallback[0]!.props.tone).toBe("info");
+    expect(textOf(fallback[0]!.props.children as ReactNode)).toBe("Related skill");
+    // …and no badge anywhere in a relevance cluster is brand-toned any more.
+    expect(tierBadges(v1({ matchTier: 2 })).some((b) => b.props.tone === "brand")).toBe(false);
+  });
+
   it("renders NO score and NO hot badge on the V1 path (they are placeholders, not values)", () => {
     const tree = render({ applicants: [v1({ hot: false, score: 0 })] });
     expect(hotBadgeCount(tree)).toBe(0);
@@ -859,6 +895,59 @@ describe("ApplicantActions — W2-B card anatomy: identity → tags → toolbar 
       "Call",
       "WhatsApp",
     ]);
+  });
+});
+
+describe("ApplicantActions — W3-A zero balance: an enabled Top up beside the disabled Unlock", () => {
+  const topUps = (tree: ReactNode) =>
+    elements(tree).filter(
+      (e) =>
+        e.props.href === "/credits" && hasClass(e, "bb-btn") && hasClass(e, "bb-btn--secondary"),
+    );
+
+  it("balance 0: one secondary Top up link to /credits per card, in the band's action row", () => {
+    const all = elements(render({ applicants: [A, B], balance: 0 }));
+    const rows = all.filter((e) => hasClass(e, "applicant__unlock-actions"));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      const inRow = elements(row.props.children as ReactNode);
+      const unlock = inRow.find((e) => e.type === Button)!;
+      expect(unlock.props.disabled).toBe(true);
+      const link = topUps(row.props.children as ReactNode);
+      expect(link).toHaveLength(1);
+      // An icon + the label; the only new copy is "Top up".
+      expect(textOf(link[0]!.props.children as ReactNode).trim()).toBe("Top up");
+    }
+    const bands = all.filter((e) => hasClass(e, "applicant__contact"));
+    for (const band of bands) {
+      expect(topUps(band.props.children as ReactNode)).toHaveLength(1);
+      // …and it is the band's ONLY way to /credits: the hint under it is plain text (two
+      // adjacent links to one page were a redundant tab stop on every card).
+      const toCredits = elements(band.props.children as ReactNode).filter(
+        (e) => e.props.href === "/credits",
+      );
+      expect(toCredits).toHaveLength(1);
+      const hint = elements(band.props.children as ReactNode).find((e) =>
+        hasClass(e, "applicant__hint"),
+      )!;
+      expect(elements(hint.props.children as ReactNode)).toEqual([]);
+      expect(textOf(hint.props.children as ReactNode).replace(/\s+/g, " ").trim()).toBe(
+        "Top up to unlock. Guidance only — this is your own balance, never a signal about this candidate.",
+      );
+    }
+  });
+
+  it("any positive balance (incl. the page's 1 for an UNREAD balance): no Top up, Unlock enabled", () => {
+    for (const balance of [1, 5]) {
+      const tree = render({ balance });
+      expect(topUps(tree), `balance ${balance}`).toEqual([]);
+      expect(buttonInfo(tree, "Unlock contact")!.disabled).toBe(false);
+    }
+  });
+
+  it("a granted row has nothing to spend: no Top up even on a zero balance", () => {
+    const tree = render({ rows: routedRowState(), balance: 0 });
+    expect(topUps(tree)).toEqual([]);
   });
 });
 

@@ -11,11 +11,25 @@
 /* ============================================================
    FOCUS IN FORCED COLORS — every ring in this layer is a box-shadow (--ring-focus), and
    Windows forced-colors mode DROPS box-shadows, so a keyboard user in High Contrast lost the
-   focus indicator on every DS control. Each ring therefore also declares a TRANSPARENT
-   outline: invisible in normal mode (the look is unchanged), repainted in the system colour
-   under forced colors. It is offset one ring-width so it sits where the ring's outer band
+   focus indicator on every DS control. Each ring therefore also declares an outline that is
+   TRANSPARENT in normal mode (the look is unchanged) and the system colour under forced
+   colors (below). It is offset one ring-width so it sits where the ring's outer band
    does, clear of the control's own (also system-coloured) border.
+   The pair is declared ONCE, here, as payer-web custom properties, and every ring in this
+   file and in globals.css spends them — `outline: var(--focus-outline)` +
+   `outline-offset: var(--focus-outline-offset)` — so the fallback cannot drift ring by ring.
+   Under forced colors the outline takes the system `Highlight` (the platform's own focus
+   colour) instead of the forced default; system colours survive forced-colors adjustment.
    ============================================================ */
+:root {
+  --focus-outline: var(--border-bold) solid transparent;
+  --focus-outline-offset: var(--border-bold);
+}
+@media (forced-colors: active) {
+  :root {
+    --focus-outline: var(--border-bold) solid Highlight;
+  }
+}
 
 /* ============================================================
    FORMS — Buttons, inputs, selects, choices, switch, OTP.
@@ -36,7 +50,7 @@
   transition: var(--transition-control);
   text-decoration: none;
 }
-.bb-btn:focus-visible { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); }
+.bb-btn:focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); }
 .bb-btn:disabled, .bb-btn[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
 .bb-btn .ph-fill { font-size: 1.25em; }
 
@@ -105,7 +119,7 @@
 }
 .bb-iconbtn:hover { background: var(--surface-sunken); color: var(--text-primary); }
 .bb-iconbtn:active { transform: scale(0.92); }
-.bb-iconbtn:focus-visible { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); }
+.bb-iconbtn:focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); }
 .bb-iconbtn--sm { width: var(--control-sm); height: var(--control-sm); font-size: var(--text-md); }
 .bb-iconbtn--lg { width: var(--control-lg); height: var(--control-lg); font-size: var(--text-xl); }
 .bb-iconbtn--solid { background: var(--brand); color: var(--text-on-brand); box-shadow: var(--shadow-brand); }
@@ -119,6 +133,10 @@
 .bb-field__label .bb-field__opt { color: var(--text-faint); font-weight: var(--weight-regular); }
 .bb-field__hint { font-size: var(--text-sm); color: var(--text-muted); }
 .bb-field__error { font-size: var(--text-sm); color: var(--danger); font-weight: var(--weight-medium); display: flex; align-items: center; gap: var(--space-1); }
+/* Ink: --danger is a paper-tuned red (#c62828 measured 3.11:1 on the ink card, under AA for this
+   small text). The field error takes the light end of the ramp in the ink theme, as the ink
+   danger badge and the portal's other ink error text already do. Paper is untouched. */
+[data-theme="ink"] .bb-field__error { color: var(--red-300); }
 
 .bb-input-wrap { position: relative; display: flex; align-items: center; }
 .bb-input {
@@ -131,7 +149,7 @@
 }
 .bb-input::placeholder { color: var(--text-faint); }
 .bb-input:hover { border-color: var(--ink-400); }
-.bb-input:focus { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); border-color: var(--brand); box-shadow: var(--ring-focus); }
+.bb-input:focus { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); border-color: var(--brand); box-shadow: var(--ring-focus); }
 .bb-input:disabled { background: var(--surface-sunken); color: var(--text-muted); cursor: not-allowed; }
 .bb-input--has-left { padding-left: var(--space-9); }
 .bb-input--has-right { padding-right: var(--space-9); }
@@ -166,7 +184,7 @@
 .bb-choice input:checked + .bb-choice__box { background: var(--brand); border-color: var(--brand); }
 .bb-choice input:checked + .bb-choice__box .ph-fill { opacity: 1; transform: scale(1); }
 .bb-choice input:checked + .bb-choice__box .bb-choice__dot { opacity: 1; transform: scale(1); }
-.bb-choice input:focus-visible + .bb-choice__box { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); }
+.bb-choice input:focus-visible + .bb-choice__box { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); }
 .bb-choice:hover .bb-choice__box { border-color: var(--ink-400); }
 .bb-choice input:checked:hover + .bb-choice__box { border-color: var(--brand-press); }
 
@@ -180,7 +198,7 @@
 .bb-switch__thumb { width: var(--space-6); height: var(--space-6); border-radius: var(--radius-round); background: var(--surface-card); box-shadow: var(--shadow-sm); transition: transform var(--duration-base) var(--ease-out); }
 .bb-switch input:checked + .bb-switch__track { background: var(--success); }
 .bb-switch input:checked + .bb-switch__track .bb-switch__thumb { transform: translateX(22px); }
-.bb-switch input:focus-visible + .bb-switch__track { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); }
+.bb-switch input:focus-visible + .bb-switch__track { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); }
 
 /* ---------- OTP input (brand) ---------- */
 /* The row WRAPS (and can scroll as a last-resort) so a 6-cell code never overflows a narrow
@@ -193,7 +211,7 @@
   border: var(--border-bold) solid var(--border-strong); border-radius: var(--radius-md);
   transition: var(--transition-control);
 }
-.bb-otp__cell:focus { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); border-color: var(--brand); box-shadow: var(--ring-focus); }
+.bb-otp__cell:focus { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); border-color: var(--brand); box-shadow: var(--ring-focus); }
 .bb-otp__cell--filled { border-color: var(--brand); background: var(--brand-tint); }
 /* Narrow phones: shrink the cells so all six fit one line before wrapping is needed. */
 @media (max-width: 420px) {
@@ -237,9 +255,9 @@
 .bb-card--link { position: relative; cursor: pointer; transition: var(--transition-control); }
 .bb-card--link:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); border-color: var(--border-default); }
 .bb-card--link:active { transform: translateY(0); box-shadow: var(--shadow-md); }
-.bb-card--link:has(> .bb-stretched-link:focus-visible) { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); border-color: var(--brand); }
+.bb-card--link:has(> .bb-stretched-link:focus-visible) { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); border-color: var(--brand); }
 @supports not selector(:has(*)) {
-  .bb-card--link:focus-within { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); border-color: var(--brand); }
+  .bb-card--link:focus-within { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); border-color: var(--brand); }
 }
 
 /* ---------- Badge ---------- */
@@ -310,7 +328,7 @@
 }
 .bb-chip:hover { border-color: var(--ink-400); background: var(--surface-sunken); }
 .bb-chip:active { transform: scale(0.97); }
-.bb-chip:focus-visible { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); }
+.bb-chip:focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); }
 .bb-chip--selected { background: var(--brand-tint); border-color: var(--text-accent); color: var(--text-accent); font-weight: var(--weight-bold); }
 .bb-chip--selected:hover { background: var(--brand-tint-2); border-color: var(--brand); }
 .bb-chip__remove { display: inline-flex; margin-right: -4px; opacity: 0.55; font-size: var(--text-sm); }
@@ -353,9 +371,9 @@
 .bb-stat--link { position: relative; cursor: pointer; transition: var(--transition-control); }
 .bb-stat--link:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); border-color: var(--border-default); }
 .bb-stat--link:active { transform: translateY(0); box-shadow: var(--shadow-xs); }
-.bb-stat--link:has(> .bb-stretched-link:focus-visible) { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); border-color: var(--brand); }
+.bb-stat--link:has(> .bb-stretched-link:focus-visible) { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); border-color: var(--brand); }
 @supports not selector(:has(*)) {
-  .bb-stat--link:focus-within { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); border-color: var(--brand); }
+  .bb-stat--link:focus-within { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); border-color: var(--brand); }
 }
 
 /* CARDS-1 — the single stretched-link overlay anchor. It is the ONE semantic link for the
@@ -485,7 +503,7 @@
 }
 .bb-tab .ph-fill { font-size: 1.15em; }
 .bb-tab:hover { color: var(--text-primary); background: var(--surface-sunken); }
-.bb-tab:focus-visible { outline: var(--border-bold) solid transparent; outline-offset: var(--border-bold); box-shadow: var(--ring-focus); }
+.bb-tab:focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); }
 
 /* underline variant */
 .bb-tabs--underline { gap: var(--space-2); border-bottom: var(--border-hairline) solid var(--border-default); }
@@ -498,6 +516,10 @@
 .bb-tabs--segmented .bb-tab { padding: 8px 16px; color: var(--text-secondary); }
 .bb-tabs--segmented .bb-tab:hover { background: transparent; color: var(--text-primary); }
 .bb-tabs--segmented .bb-tab--active { background: var(--surface-card); color: var(--text-primary); box-shadow: var(--shadow-xs); }
+/* The active segment's lift shadow (above) has `.bb-tab:focus-visible`'s specificity and comes
+   later, so it REPLACED the ring — on the very tab keyboard focus lands on (roving tabindex).
+   One class more puts the ring back; the forced-colors outline pair is restated with it. */
+.bb-tabs--segmented .bb-tab--active:focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); }
 
 /* ---------- BottomNav (worker app) ---------- */
 .bb-bottomnav {

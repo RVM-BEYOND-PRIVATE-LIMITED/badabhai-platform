@@ -116,10 +116,12 @@ export default async function AgencyWorkersPage() {
           The head is the title + the truthful count, so nothing floats below the table. */}
       <section className="panel panel--table">
         <div className="panel__head">
-          <h2 className="panel__title" id={REFERRED_WORKERS_HEADING_ID}>
-            Referred workers
-          </h2>
-          {countLine ? <p className="panel__sub">{countLine}</p> : null}
+          <div className="panel__text">
+            <h2 className="panel__title" id={REFERRED_WORKERS_HEADING_ID}>
+              Referred workers
+            </h2>
+            {countLine ? <p className="panel__sub">{countLine}</p> : null}
+          </div>
         </div>
         <div className="panel__body">
           {workers === null ? (

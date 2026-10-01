@@ -111,10 +111,12 @@ export default async function AccountPage() {
 
       <section className="panel">
         <div className="panel__head">
-          <h2 className="panel__title">Your details</h2>
-          <p className="panel__sub">
-            Change your organisation name or contact number. Your login email stays as it is.
-          </p>
+          <div className="panel__text">
+            <h2 className="panel__title">Your details</h2>
+            <p className="panel__sub">
+              Change your organisation name or contact number. Your login email stays as it is.
+            </p>
+          </div>
         </div>
         <div className="panel__body">
           <AccountForm
@@ -171,10 +173,12 @@ function AgencyKycCard({ kyc }: { kyc: AgencyKyc }) {
   return (
     <section className="section">
       <div className="section__head">
-        <h2 className="section__title">KYC &amp; Bank Details</h2>
-        <p className="section__sub">
-          Identity verification and payout banking information for your agency.
-        </p>
+        <div className="section__text">
+          <h2 className="section__title">KYC &amp; Bank Details</h2>
+          <p className="section__sub">
+            Identity verification and payout banking information for your agency.
+          </p>
+        </div>
       </div>
 
       {/* Both rows keep a visible, named action (not an invisible stretched link) to the full
