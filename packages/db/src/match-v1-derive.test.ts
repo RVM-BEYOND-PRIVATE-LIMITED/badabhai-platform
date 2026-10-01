@@ -103,12 +103,12 @@ describe("screenJobTextForConversion", () => {
     const src = readFileSync(join(__dirname, "seed-jobs.ts"), "utf8");
     const titles = [...src.matchAll(/^\s+title: "([^"]+)",\r?$/gm)].map((m) => m[1]!);
     const descriptions = [...src.matchAll(/^\s+description:\s*"([^"]+)",\r?$/gm)].map((m) => m[1]!);
-    const chips = (key: string): string[][] =>
-      [...src.matchAll(new RegExp(String.raw`^\s+${key}: (\[.*\]),\r?$`, "gm"))].map(
-        (m) => JSON.parse(m[1]!) as string[],
-      );
-    const benefits = chips("benefits");
-    const requirements = chips("requirements");
+    // Literal patterns, one per key: a pattern built from a variable trips semgrep's
+    // non-literal-regexp rule even when the variable is a constant.
+    const chips = (pattern: RegExp): string[][] =>
+      [...src.matchAll(pattern)].map((m) => JSON.parse(m[1]!) as string[]);
+    const benefits = chips(/^\s+benefits: (\[.*\]),\r?$/gm);
+    const requirements = chips(/^\s+requirements: (\[.*\]),\r?$/gm);
     expect(titles.length).toBeGreaterThanOrEqual(15); // vacuity guard: one per alpha trade
     expect(descriptions.length).toBe(titles.length);
     expect(benefits.length).toBe(titles.length);
