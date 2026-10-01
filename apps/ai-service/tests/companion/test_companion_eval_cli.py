@@ -17,6 +17,9 @@ the clock replaced:
    `--dump-all` every answer for the §6 served-rate replay; neither prints any of them.
 6. THE CAREER GATE NEVER HIDES AN UNSAFE ANSWER: one that arrives after the API's timeout is
    still unsafe, and the answered rate is labelled as measured before the API's validator.
+7. A FALLBACK ANSWER IS NOT EVIDENCE FOR THE PRIMARY: every answer records its model (the
+   "models:" line), an answer the router's fallback served — cooldown-skipped primary included —
+   fails the run as FALLBACK, and `--pace-ms` spaces the requests outside the timed window.
 
 Fabricated eval text only.
 """
@@ -40,17 +43,27 @@ _REPO = Path(__file__).resolve().parents[4]
 _BASE = "http://ai.test"
 
 
-def _meta(real_call: bool = True, success: bool = True, latency_ms: int = 100) -> dict:
+def _meta(
+    real_call: bool = True,
+    success: bool = True,
+    latency_ms: int = 100,
+    model_name: str = "model-x",
+    candidates_tried: list[str] | None = None,
+) -> dict:
+    """`AICallMetadata` as the router serializes it. A real call served by its first candidate
+    lists that one model in `candidates_tried` unless a test says otherwise."""
+    tried = candidates_tried if candidates_tried is not None else [model_name] if real_call else []
     return {
         "ai_call_id": "c",
         "task_type": "t",
-        "model_name": "model-x",
+        "model_name": model_name,
         "provider": "p",
         "real_call": real_call,
         "success": success,
         "latency_ms": latency_ms,
         "estimated_cost_inr": 0.25 if real_call else 0.0,
         "error_code": None if real_call and success else "llm_call_failed",
+        "candidates_tried": tried,
     }
 
 
@@ -562,3 +575,231 @@ def test_edit_parse_scores_a_failed_call_as_no_rows(
     out = capsys.readouterr().out
     assert "edit-parse: 1/2 exact" in out
     assert "FAILED CALL 'hindi hata do': ReadTimeout" in out
+
+
+# ── 7. a fallback answer is not evidence for the primary; pacing ─────────────────────────────
+
+_PRIMARY = "gemini-2.5-flash-lite"
+_FALLBACK = "claude-haiku-4-5"
+
+
+def _edit_cases(monkeypatch: pytest.MonkeyPatch, texts: list[str]) -> None:
+    monkeypatch.setattr(edit_gold, "CASES", [(text, []) for text in texts])
+
+
+def _no_rows(meta: dict | None) -> dict:
+    return {"rows": [], "unsupported": [], "ai_metadata": meta}
+
+
+def test_the_models_line_counts_every_model_answer_and_nothing_else(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _edit_cases(monkeypatch, ["a", "late", "mock", "blocked"])
+
+    def answer(_path: str, body: dict):
+        text = body["text"]
+        if text == "late":  # over the API's 6 s: still a model answer, so still counted
+            return _no_rows(_meta(model_name=_PRIMARY)), 7_000.0
+        if text == "mock":  # the deterministic mock answered: no model did
+            return _no_rows(_meta(real_call=False))
+        if text == "blocked":  # the gateway blocked the input: no provider was called
+            return _no_rows(None)
+        return _no_rows(_meta(model_name=_PRIMARY))
+
+    FakeService(monkeypatch, answer)
+    assert eval_cli.main(["--edit-parse", "--base-url", _BASE]) == 1  # CONTAMINATED by the mock
+    out = capsys.readouterr().out
+    assert f"models: {_PRIMARY} (2); 0 served by a fallback model" in out
+    assert "FALLBACK" not in out
+
+
+def test_a_clean_single_model_run_passes_with_its_model_named(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _career_service(monkeypatch, set())
+    assert eval_cli.main(["--career", "--base-url", _BASE]) == 0
+    out = capsys.readouterr().out
+    # Refusals are model answers too: every prompt was answered by the one model.
+    assert f"models: model-x ({len(career_gold.PROMPTS)}); 0 served by a fallback model" in out
+    assert "RESULT: PASS" in out
+
+
+def test_fallback_served_answers_fail_the_run_cooldown_skips_included(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The 2026-10-01 shape. The primary answers; then, on a 429, the router serves the answer
+    # from the fallback (both candidates tried); then it skips the cooling primary WITHOUT a
+    # network call, so those answers list the fallback alone. Every one of them is a fallback
+    # answer — whatever order they arrive in.
+    _edit_cases(monkeypatch, ["a", "cooling-1", "after-429", "cooling-2"])
+    metas = {
+        "a": _meta(model_name=_PRIMARY),
+        "cooling-1": _meta(model_name=_FALLBACK, candidates_tried=[_FALLBACK]),
+        "after-429": _meta(model_name=_FALLBACK, candidates_tried=[_PRIMARY, _FALLBACK]),
+        "cooling-2": _meta(model_name=_FALLBACK, candidates_tried=[_FALLBACK]),
+    }
+    FakeService(monkeypatch, lambda _p, body: _no_rows(metas[body["text"]]))
+    assert eval_cli.main(["--edit-parse", "--base-url", _BASE]) == 1
+    out = capsys.readouterr().out
+    assert "edit-parse: 4/4 exact" in out  # the score alone would have read as a PASS
+    assert f"models: {_FALLBACK} (3), {_PRIMARY} (1); 3 served by a fallback model" in out
+    assert (
+        f"FAIL FALLBACK: 3 answers were served by a fallback model ({_FALLBACK}) — not evidence "
+        "for the primary; pace the run (--pace-ms) or fix the key, and re-run"
+    ) in out
+    assert "RESULT: FAIL" in out
+
+
+def test_an_answer_not_served_by_its_first_candidate_is_a_fallback() -> None:
+    log = eval_cli.CallLog()
+    log.served_by.append((_FALLBACK, (_PRIMARY,)))
+    assert log.fallback_served == [_FALLBACK]
+    reasons = eval_cli.gate_failures(log, None)
+    assert reasons == [
+        f"FALLBACK: 1 answers were served by a fallback model ({_FALLBACK}) — not evidence for "
+        "the primary; pace the run (--pace-ms) or fix the key, and re-run"
+    ]
+
+
+def test_a_run_that_begins_inside_the_cooldown_still_fails_as_mixed() -> None:
+    # The re-run the FAIL text itself prompts: it starts while the PRIMARY is still cooling from
+    # the last run, so the first answers list the fallback ALONE, then the primary answers. No
+    # call shows two candidates — the mixed model set is the only tell, and it must fail.
+    log = eval_cli.CallLog()
+    log.served_by.extend([(_FALLBACK, (_FALLBACK,))] * 14 + [(_PRIMARY, (_PRIMARY,))] * 60)
+    assert log.fallback_served == []
+    reasons = eval_cli.gate_failures(log, None)
+    assert len(reasons) == 1
+    assert reasons[0].startswith(
+        f"FALLBACK: answers came from 2 models ({_PRIMARY} (60), {_FALLBACK} (14))"
+    )
+    assert "wait out the primary's post-429 cooldown (60 s)" in reasons[0]
+
+
+def test_expect_model_catches_a_run_the_fallback_answered_entirely() -> None:
+    # Only one model answered, and no chain shows a second candidate: without --expect-model the
+    # run is indistinguishable from a clean one. With it, every answer is off-primary.
+    log = eval_cli.CallLog(expect_model=_PRIMARY)
+    log.served_by.extend([(_FALLBACK, (_FALLBACK,))] * 5)
+    assert eval_cli.gate_failures(eval_cli.CallLog(served_by=list(log.served_by)), None) == []
+    reasons = eval_cli.gate_failures(log, None)
+    assert reasons == [
+        f"FALLBACK: 5 answers were not served by the expected model {_PRIMARY} ({_FALLBACK}) — "
+        "not evidence for it; wait out the primary's post-429 cooldown (60 s), pace the run "
+        "(--pace-ms) or fix the key, and re-run"
+    ]
+
+
+def test_expect_model_passes_a_run_its_model_answered(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _edit_cases(monkeypatch, ["a", "b"])
+    FakeService(monkeypatch, lambda _p, _b: _no_rows(_meta(model_name=_PRIMARY)))
+    assert eval_cli.main(["--edit-parse", "--base-url", _BASE, "--expect-model", _PRIMARY]) == 0
+    assert "FALLBACK" not in capsys.readouterr().out
+
+
+def test_expect_model_reaches_the_cli_and_fails_another_model(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _edit_cases(monkeypatch, ["a", "b"])
+    FakeService(
+        monkeypatch,
+        lambda _p, _b: _no_rows(_meta(model_name=_FALLBACK, candidates_tried=[_FALLBACK])),
+    )
+    assert eval_cli.main(["--edit-parse", "--base-url", _BASE, "--expect-model", _PRIMARY]) == 1
+    out = capsys.readouterr().out
+    assert f"FAIL FALLBACK: 2 answers were not served by the expected model {_PRIMARY}" in out
+    assert "RESULT: FAIL" in out
+
+
+def test_a_blank_expect_model_is_refused() -> None:
+    with pytest.raises(SystemExit):
+        eval_cli.main(["--edit-parse", "--base-url", _BASE, "--expect-model", " "])
+
+
+def test_metadata_without_a_model_is_recorded_not_dropped() -> None:
+    log = eval_cli.CallLog()
+    eval_cli._record_model(log, {"model_name": None, "candidates_tried": "not-a-list"})
+    assert log.served_by == [(eval_cli.UNKNOWN_MODEL, ())]
+    assert log.model_counts == [(eval_cli.UNKNOWN_MODEL, 1)]
+
+
+def test_pace_ms_sleeps_before_every_request_but_the_first_outside_the_timed_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(classify_gold, "CASES", [(t, "career_talk") for t in ("a", "b", "c")])
+    attempts: dict[str, int] = {}
+
+    def answer(_path: str, body: dict):
+        text = body["text"]
+        attempts[text] = attempts.get(text, 0) + 1
+        if text == "b" and attempts[text] == 1:
+            return 502  # the retry is a request that can reach the provider: paced too
+        return {
+            "intent": "career_talk",
+            "confidence": 0.9,
+            "blocked": False,
+            "ai_metadata": _meta(),
+        }
+
+    service = FakeService(monkeypatch, answer)
+    sleeps: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        service.now += seconds  # a pause inside the timed window would show in the latency
+
+    monkeypatch.setattr(eval_cli.time, "sleep", sleep)
+    run = eval_cli.run_classify_eval(_BASE, pace_ms=250)
+    assert run.calls.requests == 4
+    assert sleeps == [0.25, 0.25, 0.25]
+    assert run.calls.latencies_ms == [pytest.approx(100.0)] * 3
+    assert run.score.correct == 3
+
+
+def test_no_pause_by_default(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _edit_cases(monkeypatch, ["a", "b"])
+    FakeService(monkeypatch, lambda _p, _b: _no_rows(_meta()))
+
+    def no_sleep(_seconds: float) -> None:
+        raise AssertionError("the default run must never sleep")
+
+    monkeypatch.setattr(eval_cli.time, "sleep", no_sleep)
+    assert eval_cli.main(["--edit-parse", "--base-url", _BASE]) == 0
+    assert "pace:" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("mode", ["--classify", "--edit-parse", "--career"])
+def test_the_pace_flag_reaches_every_mode(
+    mode: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(classify_gold, "CASES", [("a", "career_talk"), ("b", "career_talk")])
+    _edit_cases(monkeypatch, ["a", "b"])
+    # One body every scorer can read: each takes its own keys and ignores the rest.
+    body = {
+        "intent": "career_talk",
+        "confidence": 0.9,
+        "blocked": False,
+        "rows": [],
+        "unsupported": [],
+        "status": "refuse",
+        "topic": "unsafe_other",
+        "ai_metadata": _meta(),
+    }
+    FakeService(monkeypatch, lambda _p, _b: body)
+    sleeps: list[float] = []
+    monkeypatch.setattr(eval_cli.time, "sleep", sleeps.append)
+    eval_cli.main([mode, "--base-url", _BASE, "--pace-ms", "10"])
+    out = capsys.readouterr().out
+    match = re.search(r"pace: 10 ms between requests \((\d+) requests\)", out)
+    assert match, out
+    assert sleeps == [0.01] * (int(match.group(1)) - 1)
+    assert sleeps
+
+
+def test_a_negative_pace_is_refused() -> None:
+    with pytest.raises(SystemExit):
+        eval_cli.main(["--classify", "--base-url", _BASE, "--pace-ms", "-1"])

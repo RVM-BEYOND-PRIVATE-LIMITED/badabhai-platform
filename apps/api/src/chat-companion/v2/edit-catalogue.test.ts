@@ -12,7 +12,14 @@ import {
 } from "../../profiles/worker-preferences.vocabulary";
 import { EditProposalRowSchema } from "../chat-companion.dto";
 import { EDIT_ENTRY_LABELS, EDIT_FIELD_LABELS, EDIT_YES_NO_LABELS } from "../companion-replies";
-import { cardFieldLabel, displayValue, EDIT_CATALOGUE, normaliseValue } from "./edit-catalogue";
+import {
+  cardFieldLabel,
+  displayValue,
+  EDIT_CATALOGUE,
+  isWholeJobDelete,
+  normaliseValue,
+  opAllowed,
+} from "./edit-catalogue";
 
 /**
  * BUG-CARD-LABELS / POLISH-language-slugs — every card row names its field, and every closed-set
@@ -81,13 +88,66 @@ describe("every catalogue field has a worker-facing field label", () => {
   });
 });
 
+describe("the legal ops per section ('Never from chat', owner ruling 2026-10-01)", () => {
+  const opsOf = (section: string) =>
+    EDIT_CATALOGUE.filter((e) => e.section === section).map((e) => [e.field, [...e.ops]] as const);
+
+  it("every employment field is EDIT-only — chat never deletes (or adds) a whole job", () => {
+    expect(opsOf("employment")).toEqual(
+      ["employer_name", "employer_city", "employer_state", "start_ym", "end_ym", "role_label", "work_done"].map(
+        (field) => [field, ["edit"]],
+      ),
+    );
+  });
+
+  it("every other section is unchanged: qualifications edit/delete, the member lists add/delete", () => {
+    for (const [, ops] of opsOf("qualifications")) expect(ops).toEqual(["edit", "delete"]);
+    for (const section of ["skills", "languages", "occupations"]) {
+      for (const [, ops] of opsOf(section)) expect(ops).toEqual(["add", "delete"]);
+    }
+    const PREFERENCE_SCALARS = [
+      "shift",
+      "job_type",
+      "willing_to_travel",
+      "willing_to_relocate",
+      "accommodation_needed",
+      "expected_salary",
+      "availability_status",
+      "availability_available_from",
+      "availability_notice_period_days",
+    ];
+    const PREFERENCE_LISTS = ["preferred_cities", "work_types", "documents_ready"];
+    expect(opsOf("preferences")).toEqual([
+      ...PREFERENCE_SCALARS.map((field) => [field, ["edit"]]),
+      ...PREFERENCE_LISTS.map((field) => [field, ["add", "delete"]]),
+    ]);
+  });
+
+  it("isWholeJobDelete is exactly (employment, delete) — whatever field, and for untrusted input", () => {
+    expect(isWholeJobDelete({ section: "employment", op: "delete" })).toBe(true);
+    expect(isWholeJobDelete({ section: "employment", op: "edit" })).toBe(false);
+    expect(isWholeJobDelete({ section: "employment", op: "add" })).toBe(false);
+    expect(isWholeJobDelete({ section: "occupations", op: "delete" })).toBe(false);
+    expect(isWholeJobDelete({ section: "qualifications", op: "delete" })).toBe(false);
+    expect(isWholeJobDelete({ section: "Employment", op: "delete" })).toBe(false);
+  });
+
+  it("no catalogue entry lets an employment delete through opAllowed", () => {
+    for (const entry of EDIT_CATALOGUE) {
+      if (entry.section === "employment") expect(opAllowed(entry, "delete")).toBe(false);
+    }
+  });
+});
+
 describe("a whole-entry delete names the ENTRY, never its anchor field", () => {
-  // Employment and qualification deletes remove the whole entry; the field is only the anchor
-  // the model pointed at. "Kab shuru kiya — Hatayenge: 2019-01" would read as clearing a date.
+  // A qualification delete removes the whole entry; the field is only the anchor the model
+  // pointed at. "Certificate ka saal — Hatayenge: 2018" would read as clearing a year.
   const EMPLOYMENT_TARGET = { employment_id: "66666666-6666-4666-8666-666666666666" };
   const target = (list: string) => ({ list, index: 0, fp: "0123456789abcdef" });
 
   it.each([
+    // A whole-JOB delete is never proposed any more; the label stays for a card stored before
+    // the 2026-10-01 ruling, which may still be served on a retry (and is never applied).
     ["employment", "start_ym", EMPLOYMENT_TARGET, EDIT_ENTRY_LABELS.employment.latin],
     ["employment", "employer_name", EMPLOYMENT_TARGET, EDIT_ENTRY_LABELS.employment.latin],
     ["qualifications", "certificate_year", target("certificates"), EDIT_ENTRY_LABELS.certificate.latin],

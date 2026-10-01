@@ -280,7 +280,7 @@ describe("career served-rate replay (runbook 3a)", () => {
       expect(err[0]).toContain("not from the same run");
     });
 
-    it.each(["CONTAMINATED", "INCOMPLETE"])(
+    it.each(["CONTAMINATED", "INCOMPLETE", "FALLBACK"])(
       "a run the CLI itself marked %s — not evidence, whatever the rate",
       (marker) => {
         const document = dumpAll(goodNormals(50));
@@ -368,6 +368,7 @@ describe("career served-rate replay (runbook 3a)", () => {
       );
       expect(cli).toContain('print(f"  FAIL {failure}")');
       expect(cli).toContain('f"CONTAMINATED: {len(log.mocked)} answers');
+      expect(cli).toContain('f"FALLBACK: {len(fallback)} answers were served by a fallback model');
       expect(cli).toContain('f"INCOMPLETE: {len(log.failures)} calls failed');
     });
   });

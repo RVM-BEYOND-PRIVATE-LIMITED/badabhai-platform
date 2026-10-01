@@ -1,0 +1,38 @@
+rep0 gemini-2.5-flash-lite  real=True exact=False DESTRUCTIVE=False 'welder hata do' -> []
+rep0 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'mujhe welder ka kaam nahi karna' -> [["delete", "occupations", "o1", "role_id", null]]
+rep0 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'purana employer hata do' -> []
+rep0 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'Tata wala kaam delete karo' -> []
+rep0 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'mera title welder nahi, fitter tha' -> [["edit", "employment", "e1", "role_label", "Fitter"]]
+rep0 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'welding bhi karta hoon, add karo' -> [["add", "occupations", null, "role_id", "role_welder"]]
+rep0 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'milling hata do' -> [["delete", "skills", "s1", "skill", null]]
+rep0 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'CNC operator bhi hoon' -> [["add", "occupations", null, "role_id", "role_cnc_operator"]]
+rep0 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'plumber bhi add karo' -> [["add", "occupations", null, "role_id", "role_plumber"]]
+rep1 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'welder hata do' -> [["delete", "occupations", "o1", "role_id", null]]
+rep1 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'mujhe welder ka kaam nahi karna' -> [["delete", "occupations", "o1", "role_id", null]]
+rep1 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'purana employer hata do' -> []
+rep1 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'Tata wala kaam delete karo' -> []
+rep1 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'mera title welder nahi, fitter tha' -> [["edit", "employment", "e1", "role_label", "Fitter"]]
+rep1 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'welding bhi karta hoon, add karo' -> [["add", "occupations", null, "role_id", "role_welder"]]
+rep1 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'milling hata do' -> [["delete", "skills", "s1", "skill", null]]
+rep1 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'CNC operator bhi hoon' -> [["add", "occupations", null, "role_id", "role_cnc_operator"]]
+rep1 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'plumber bhi add karo' -> [["add", "occupations", null, "role_id", "role_plumber"]]
+rep2 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'welder hata do' -> [["delete", "occupations", "o1", "role_id", null]]
+rep2 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'mujhe welder ka kaam nahi karna' -> [["delete", "occupations", "o1", "role_id", null]]
+rep2 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'purana employer hata do' -> []
+rep2 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'Tata wala kaam delete karo' -> []
+rep2 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'mera title welder nahi, fitter tha' -> [["edit", "employment", "e1", "role_label", "Fitter"]]
+rep2 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'welding bhi karta hoon, add karo' -> [["add", "occupations", null, "role_id", "role_welder"]]
+rep2 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'milling hata do' -> [["delete", "skills", "s1", "skill", null]]
+rep2 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'CNC operator bhi hoon' -> [["add", "occupations", null, "role_id", "role_cnc_operator"]]
+rep2 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'plumber bhi add karo' -> [["add", "occupations", null, "role_id", "role_plumber"]]
+
+SUMMARY (exact / employment-delete-misroutes / n):
+  2/3 exact, 0 destructive  'welder hata do'
+  3/3 exact, 0 destructive  'mujhe welder ka kaam nahi karna'
+  3/3 exact, 0 destructive  'purana employer hata do'
+  3/3 exact, 0 destructive  'Tata wala kaam delete karo'
+  3/3 exact, 0 destructive  'mera title welder nahi, fitter tha'
+  3/3 exact, 0 destructive  'welding bhi karta hoon, add karo'
+  3/3 exact, 0 destructive  'milling hata do'
+  3/3 exact, 0 destructive  'CNC operator bhi hoon'
+  3/3 exact, 0 destructive  'plumber bhi add karo'

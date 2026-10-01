@@ -41,6 +41,8 @@ EditResumeHandler
   2. parse     ← ai-service /companion/edit-parse {text, catalogue, snapshot,
                  max_rows = min(EDIT_MAX_ROWS, 3)}
   3. validate each row (deterministic):
+       an employment delete → drop as job_delete, whatever its field ("Never from chat",
+         owner 2026-10-01 — P1-OQ2(b); contracts §3.2); one counts-only log line per propose
        section in catalogue · op allowed for section · ref exists AND was sent (edit/delete)
        the field belongs to the ref's entry: a qualification field names the ref's list, any
          other field is one of that row's keys (EDIT-ROW-KIND, contracts §3.2) → else drop
@@ -55,7 +57,8 @@ EditResumeHandler
      DTO schema together with the rows before it → else drop; cap at max_rows
   4. rows = 0  → V2_EDIT_IDENTITY if unsupported ∋ identity|contact OR the message names the
                  worker's own name / phone / ID number (deterministic, no model);
-                 else V2_EDIT_PLACEHOLDER (DRAFT) if a row was dropped for a placeholder token;
+                 else V2_EDIT_PLACEHOLDER (DRAFT) if a row was dropped for a placeholder token
+                   OR as a whole-job delete, OR unsupported ∋ other ("cannot be edited here");
                  else V2_EDIT_NONE
      rows ≥ 1  → store proposal in Redis (ref → real row id resolved server-side, before-values
                  captured for the stale check), reply V2_EDIT_CARD_INTRO + edit_proposal
@@ -67,6 +70,8 @@ POST /chat/companion/edits/:id/confirm {row_ids}
      past its expires_at → 404, emit cancelled(expired) (the record outlives the card by 300 s)
   2. policy → interview? 409
   2b. CLAIM the card (SET NX) → already claimed: 404 · Redis refused: V2_FALLBACK + the card
+  2c. a TICKED employment delete (a card stored before 2026-10-01) → never applied: delete
+      proposal, V2_EDIT_STALE, emit cancelled(stale), 409 {reason:"stale", turn} ("Never from chat")
   3. re-read the sections once; one that cannot be read → release the claim, V2_FALLBACK + the
      card (nothing is known, so it is not "stale")
      stale check: every selected row's current value == captured before-value (qualifications
@@ -219,10 +224,10 @@ A new edit message while a proposal is open replaces it (one active proposal per
 | `companion-v2.flag-off.test.ts` | v2 off ⇒ every existing v1 test fixture yields the identical turn |
 | `companion-v2.v1-first.test.ts` | every v1 chip / alias / intent resolves without a model call |
 | `companion-v2.orchestrator.test.ts` | each intent → correct handler; null / low-confidence / blocked → clarify |
-| `companion-edit.validate.test.ts` | each drop rule (catalogue, op, ref, a field of another entry kind, DTO, token, hard identifier (ADR-0047 G1), skill floor, no-op) — incl. no-op ADDS, duplicates, the writer's real schema, the row cap, the snapshot cap, the O17 Profile-screen line |
-| `companion-edit.confirm.test.ts` | ownership 404; stale 409; transaction rollback on a writer failure (row 2 fails → row 1 undone); regenerate queued / capped / failed; consent off → no regeneration; not queued → one re-render (none for skills-only, queued or a rollback); at most one apply per card (concurrent / retried Haan); a rollback serves the card again; expired → cancelled(expired) |
+| `companion-edit.validate.test.ts` | each drop rule (catalogue, op, ref, a field of another entry kind, DTO, token, hard identifier (ADR-0047 G1), skill floor, no-op) — incl. no-op ADDS, duplicates, the writer's real schema, the row cap, the snapshot cap, the O17 Profile-screen line; "Never from chat": a whole-job delete on any anchor is never carded (Profile-screen line, one counts-only log), the trade delete beside it is, employment edits still card, `other` → the Profile-screen line |
+| `companion-edit.confirm.test.ts` | ownership 404; stale 409; transaction rollback on a writer failure (row 2 fails → row 1 undone); regenerate queued / capped / failed; consent off → no regeneration; not queued → one re-render (none for skills-only, queued or a rollback); at most one apply per card (concurrent / retried Haan); a rollback serves the card again; expired → cancelled(expired); a ticked stored whole-job delete → stale, nothing written (unticked → inert) |
 | `companion-edit.apply.test.ts` | the body each writer receives: preferences `touched_only` + folded lists, qualifications by identity and only the touched lists, skills never duplicated, the night-shift seed after commit |
-| `edit-catalogue.test.ts` | every catalogue field has a `field_label` (distinct within its section, no orphan); a whole-entry delete names the entry, by its target's list; every closed-set value maps to its dictionary's display label; free text, unknown slugs and nulls → null |
+| `edit-catalogue.test.ts` | every catalogue field has a `field_label` (distinct within its section, no orphan); the legal ops per section (employment edit-only); a whole-entry delete names the entry, by its target's list; every closed-set value maps to its dictionary's display label; free text, unknown slugs and nulls → null |
 | `resume-chat-edit.db.test.ts` (`RUN_DB_TESTS=1`) | a Haan on a profile that already has its v1 writes a NEW `chat_edit` row from the edited profile; a second edit is another; a queue retry does not duplicate |
 | `companion-edit.no-identity.test.ts` | name / phone / ID requests never produce a row; `V2_EDIT_IDENTITY` served — also when the model gives no hint (the deterministic check, `edit-identity.test.ts`) |
 | `chat-companion.module.boot.test.ts` (extended) | still no chat-table writers reachable from the module — the egress scan walks the whole `v2/` tree, `v2/handlers/` included, and the DI check reads every constructor in a file |
@@ -239,6 +244,13 @@ A new edit message while a proposal is open replaces it (one active proposal per
 - "Welding bhi add karo aur Hindi hata do" → one card, 2 rows; Haan with both ticked → both applied,
   résumé regenerated (trigger `chat_edit`), one `edit_confirmed` event.
 - "Mera naam badlo" → no card, `V2_EDIT_IDENTITY`.
+- "welder hata do" → at most one row, `delete occupations o1 role_id` (the TRADE); never an
+  employment row ("Never from chat", P1-OQ2(b)).
+- "mujhe welder ka kaam nahi karna" → the same single occupations delete; a job delete the model
+  adds beside it is dropped and counted in `dropped_count`.
+- A job-delete request ("purana employer hata do", "Tata wala kaam delete karo") → no card,
+  `V2_EDIT_PLACEHOLDER`, nothing stored — whether the model proposes no row (`other`) or still
+  proposes the delete.
 - Profile edited elsewhere between card and Haan → stale reply, nothing written.
 - Writer failure on row 2 → nothing written (rollback), fallback line.
 - AI service down → clarify line + chips, no error to the worker.
@@ -270,6 +282,15 @@ Add questions here rather than guessing (README rule 12).
   occupations; employment and qualifications are edit/delete-only in chat (an add request gets the
   profile-screen line). Rationale: an employment/credential is inherently multi-field and O5 caps
   a message at 3 rows.
+  **Amended by owner ruling, 2026-10-01 (Divyanshu): "Never from chat".** Chat must NEVER delete
+  a worker's whole job (employment) entry; whole-job deletes happen only on the Profile screen.
+  Employment stays EDITABLE from chat (employer name, city, state, dates, `role_label`,
+  `work_done`), so employment is now **edit-only** in chat. This reverses only the
+  employment-delete half of (b); qualification deletes are not covered and are unchanged (their
+  own ruling: TD151). Trigger: the production primary model (`gemini-2.5-flash-lite`) turned
+  "welder hata do" into `delete employment e1` in 3 of 3 measured repeats, which the API carded
+  as "Kaam · Yeh poora kaam" with the row pre-ticked.
+  Encoded in contracts §2.2/§3/§3.2/§8.
   **(c)** `preferences` catalogue reduced: `salary_period`, `commute_max_km` and the four
   `education_*` keys are removed; `expected_salary` is a single logical field written to
   `salary_expected_max` with `salary_expected_min` cleared.

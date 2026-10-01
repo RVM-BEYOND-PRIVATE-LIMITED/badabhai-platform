@@ -4,6 +4,7 @@
     python -m app.companion.eval_cli --edit-parse --base-url http://localhost:8000
     python -m app.companion.eval_cli --career --base-url http://localhost:8000 \\
         --dump-samples 30 --dump-file career-samples.json --dump-all career-all.json
+    python -m app.companion.eval_cli --edit-parse --base-url http://localhost:8000 --pace-ms 4500
 
 SCORES A RUNNING SERVICE, and exits non-zero when a bar is missed — classifier: >= 90% overall
 accuracy, >= 95% edit_resume precision and p95 < 1.5 s (phase-1 §4, ADR-0046 §4); edit-parse:
@@ -34,6 +35,18 @@ fail-closed line) and listed. An answer the service produced from its determinis
 answer: it is scored as no answer too, and marks the run CONTAMINATED. Either one fails the
 gate — the numbers are printed in full, but only a complete, uncontaminated run is evidence.
 
+A FALLBACK ANSWER IS NOT EVIDENCE FOR THE PRIMARY. The router answers from its fallback model
+when the primary fails — a 2026-10-01 run on a free-tier Gemini key was served by
+claude-haiku-4-5 after gemini-2.5-flash-lite returned HTTP 429, and nothing here could tell.
+Every answered call now records its ``ai_metadata.model_name`` (the "models:" line, per mode),
+and an answer is counted as FALLBACK-served when the router tried more than one candidate for
+it, when its model is not the first candidate it tried, or when its model is one this run
+already saw serving as a fallback. That last clause is what catches the provider cooldown:
+after a 429 the router skips the primary for a while WITHOUT a network call, so those answers
+list the fallback alone. Any fallback answer fails the gate as FALLBACK. ``--pace-ms N`` sleeps
+N ms before every request but the first, outside the timed window, so a rate-limited key stays
+under its RPM.
+
 LATENCY is the wall-clock round trip to the ai-service for each answered real call (p50/p95,
 nearest rank). It includes pseudonymization, the model and the parser; it does NOT include the
 API hop, the API's validator or — for a career turn — the classify call that precedes it.
@@ -53,6 +66,7 @@ import math
 import re
 import sys
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -97,6 +111,10 @@ THRESHOLDS = {
 _CLIENT_TIMEOUT_SECONDS = 30.0
 #: One retry on a transport error or a 5xx — enough to absorb a blip without hiding a real outage.
 _RETRIES = 1
+
+#: The model name recorded when an answered call's metadata carries none (never expected: the
+#: contract requires it). Recorded rather than skipped, so the per-model counts still add up.
+UNKNOWN_MODEL = "<unknown>"
 
 #: The fixture the edit cases are parsed against — the same shape the API sends.
 _EDIT_SNAPSHOT = [
@@ -192,6 +210,10 @@ class CallLog:
     ``model_latencies_ms`` the router's own ``ai_metadata.latency_ms`` for the same calls, and
     ``cost_inr`` the sum of their ``ai_metadata.estimated_cost_inr`` — the run's spend as the
     router's cost tracker measured it, so the evidence records a number, not a guess.
+
+    ``served_by`` holds, for the same calls, the model that answered and the candidates the
+    router tried for it — model ids only. ``pace_ms`` is the pause before every request but the
+    first (``--pace-ms``), and ``requests`` the HTTP requests posted, retries included.
     """
 
     sent: int = 0
@@ -201,6 +223,12 @@ class CallLog:
     mocked: list[str] = field(default_factory=list)
     over_api_timeout: list[str] = field(default_factory=list)
     cost_inr: float = 0.0
+    served_by: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
+    pace_ms: int = 0
+    requests: int = 0
+    #: ``--expect-model``: the route's primary. When set, any answer from another model fails the
+    #: run — the only check that also catches a run the fallback answered ENTIRELY.
+    expect_model: str | None = None
 
     @property
     def p50_ms(self) -> float | None:
@@ -209,6 +237,28 @@ class CallLog:
     @property
     def p95_ms(self) -> float | None:
         return nearest_rank(self.latencies_ms, 0.95)
+
+    @property
+    def model_counts(self) -> list[tuple[str, int]]:
+        """Answers per serving model, most first (ties by name) — deterministic report order."""
+        counts = Counter(model for model, _tried in self.served_by)
+        return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+
+    @property
+    def fallback_served(self) -> list[str]:
+        """The serving model of every answer a FALLBACK produced, in call order.
+
+        One mode is one route, so the router's candidate chain is the same on every call: a model
+        seen AFTER another candidate on any call is this run's fallback, and every answer it gave
+        counts — including the ones served while the primary sat in its post-429 cooldown, which
+        list the fallback alone in ``candidates_tried``.
+        """
+        fallbacks = {model for _model, tried in self.served_by for model in tried[1:]}
+        return [
+            model
+            for model, tried in self.served_by
+            if len(tried) > 1 or (tried and model != tried[0]) or model in fallbacks
+        ]
 
 
 def _label(text: str) -> str:
@@ -241,6 +291,29 @@ def _served(reply: Reply | None) -> dict | None:
     return reply.payload if reply is not None and reply.in_time else None
 
 
+def _pace(log: CallLog) -> None:
+    """Sleep ``log.pace_ms`` before every request but the mode's first, retries included — each
+    one can reach the provider, and a rate limit counts requests. Called BEFORE the clock starts,
+    so a pause is never part of a measured latency."""
+    if log.pace_ms > 0 and log.requests > 0:
+        time.sleep(log.pace_ms / 1000.0)
+    log.requests += 1
+
+
+def _record_model(log: CallLog, meta: dict) -> None:
+    """Which model answered, and which candidates the router tried first — model ids only."""
+    model = meta.get("model_name")
+    tried = meta.get("candidates_tried")
+    log.served_by.append(
+        (
+            model if isinstance(model, str) and model else UNKNOWN_MODEL,
+            tuple(name for name in tried if isinstance(name, str))
+            if isinstance(tried, list)
+            else (),
+        )
+    )
+
+
 def _call(base_url: str, path: str, body: dict, log: CallLog, label: str) -> Reply | None:
     """POST one case; the parsed body when the MODEL answered it, else None.
 
@@ -248,12 +321,14 @@ def _call(base_url: str, path: str, body: dict, log: CallLog, label: str) -> Rep
     Every non-answer is RECORDED, never raised: a failed call (after one retry on a transport
     error or 5xx) and a mock answer each land in their own list, and the scorer sees None — the
     value the API would have acted on. An answer slower than the API's timeout is listed too,
-    and returned with ``in_time`` False: the caller decides what a late answer means.
+    and returned with ``in_time`` False: the caller decides what a late answer means. Every
+    model answer, late or not, records the model that served it.
     """
     log.sent += 1
     payload: object = None
     wall_ms = 0.0
     for attempt in range(_RETRIES + 1):
+        _pace(log)
         started = time.perf_counter()
         try:
             response = httpx.post(
@@ -293,6 +368,7 @@ def _call(base_url: str, path: str, body: dict, log: CallLog, label: str) -> Rep
         return None
 
     log.latencies_ms.append(wall_ms)
+    _record_model(log, meta)
     model_ms = meta.get("latency_ms")
     if isinstance(model_ms, int | float):
         log.model_latencies_ms.append(float(model_ms))
@@ -305,9 +381,51 @@ def _call(base_url: str, path: str, body: dict, log: CallLog, label: str) -> Rep
     return Reply(payload)
 
 
+_RERUN_HINT = (
+    "wait out the primary's post-429 cooldown (60 s), pace the run (--pace-ms) or fix the key, "
+    "and re-run"
+)
+
+
+def _off_primary_reason(log: CallLog) -> str | None:
+    """Why this run is not evidence for the route's PRIMARY model, or None.
+
+    Three checks, most precise first. ``--expect-model`` names the primary, so any other model
+    fails — the only check that catches a run the fallback answered ENTIRELY. Without it, an
+    answer the chain shows as a fallback fails. And a run answered by MORE THAN ONE model fails
+    even when no single call shows two candidates: one mode is one route with one primary, so a
+    mixed run was partly served by a fallback — the shape of a run that BEGINS inside the
+    primary's cooldown (fallback alone in ``candidates_tried``) and ends on the primary.
+    """
+    if log.expect_model is not None:
+        wrong = [model for model, _tried in log.served_by if model != log.expect_model]
+        if not wrong:
+            return None
+        names = ", ".join(sorted(set(wrong)))
+        return (
+            f"FALLBACK: {len(wrong)} answers were not served by the expected model "
+            f"{log.expect_model} ({names}) — not evidence for it; {_RERUN_HINT}"
+        )
+    fallback = log.fallback_served
+    if fallback:
+        names = ", ".join(sorted(set(fallback)))
+        return (
+            f"FALLBACK: {len(fallback)} answers were served by a fallback model ({names}) — not "
+            "evidence for the primary; pace the run (--pace-ms) or fix the key, and re-run"
+        )
+    if len(log.model_counts) > 1:
+        counts = ", ".join(f"{model} ({count})" for model, count in log.model_counts)
+        return (
+            f"FALLBACK: answers came from {len(log.model_counts)} models ({counts}) — one route "
+            f"has one primary, so part of this run was served by a fallback; {_RERUN_HINT}"
+        )
+    return None
+
+
 def gate_failures(log: CallLog, p95_bar_ms: float | None) -> list[str]:
-    """The run-level checks every mode shares: complete, uncontaminated, and (where a bar is
-    set) fast enough. Accuracy bars are the gold modules' own ``failed`` lists."""
+    """The run-level checks every mode shares: complete, uncontaminated, served by the primary,
+    and (where a bar is set) fast enough. Accuracy bars are the gold modules' own ``failed``
+    lists."""
     reasons: list[str] = []
     if log.mocked:
         reasons.append(
@@ -319,6 +437,9 @@ def gate_failures(log: CallLog, p95_bar_ms: float | None) -> list[str]:
             f"INCOMPLETE: {len(log.failures)} calls failed and were scored as no answer — re-run "
             "before recording the result"
         )
+    off_primary = _off_primary_reason(log)
+    if off_primary is not None:
+        reasons.append(off_primary)
     if p95_bar_ms is not None:
         p95 = log.p95_ms
         if p95 is None:
@@ -339,12 +460,18 @@ class ClassifyRun:
     floored: int
 
 
-def run_classify_eval(base_url: str, min_confidence: float = ROUTER_MIN_CONFIDENCE) -> ClassifyRun:
+def run_classify_eval(
+    base_url: str,
+    min_confidence: float = ROUTER_MIN_CONFIDENCE,
+    *,
+    pace_ms: int = 0,
+    expect_model: str | None = None,
+) -> ClassifyRun:
     """Score the classifier AS THE ORCHESTRATOR ROUTES IT: below ``min_confidence`` the API
     answers `unclear` (companion-v2.orchestrator.ts), so that is the prediction scored here —
     in both directions: a right intent at 0.5 is a miss, a wrong one at 0.4 on an `unclear`
     line is a hit, and a sub-floor `edit_resume` never counts against precision."""
-    calls = CallLog()
+    calls = CallLog(pace_ms=pace_ms, expect_model=expect_model)
     floored = 0
 
     def predict(text: str) -> str | None:
@@ -377,12 +504,14 @@ class EditRun:
     calls: CallLog
 
 
-def run_edit_parse_eval(base_url: str) -> EditRun:
+def run_edit_parse_eval(
+    base_url: str, *, pace_ms: int = 0, expect_model: str | None = None
+) -> EditRun:
     catalogue = [
         {"section": section, "field": field, "ops": list(ops)}
         for section, field, ops in edit_gold.CATALOGUE
     ]
-    calls = CallLog()
+    calls = CallLog(pace_ms=pace_ms, expect_model=expect_model)
 
     def predict(text: str) -> list[edit_gold.Row]:
         body = _served(
@@ -425,7 +554,13 @@ CAREER_PROMPT_IDS: dict[str, str] = {
 }
 
 
-def run_career_eval(base_url: str, collect_samples: bool = False) -> CareerRun:
+def run_career_eval(
+    base_url: str,
+    collect_samples: bool = False,
+    *,
+    pace_ms: int = 0,
+    expect_model: str | None = None,
+) -> CareerRun:
     """Score the career route: disposition only — plus the answer text, in memory, when a dump
     for the owner's review was asked for.
 
@@ -441,7 +576,7 @@ def run_career_eval(base_url: str, collect_samples: bool = False) -> CareerRun:
     the turn out and served the fallback), but on a risky prompt it is UNSAFE — the model chose
     to answer, and the next identical turn can land inside the timeout.
     """
-    calls = CallLog()
+    calls = CallLog(pace_ms=pace_ms, expect_model=expect_model)
     samples: list[dict] = []
     expectations = {text: (expected, topic) for text, expected, topic in career_gold.PROMPTS}
 
@@ -575,6 +710,14 @@ def _ms(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.0f} ms"
 
 
+def _models_line(log: CallLog) -> str:
+    """Which models answered this mode — the evidence's own record of what was measured."""
+    if not log.served_by:
+        return "models: none (no call was answered by the model)"
+    counts = ", ".join(f"{model} ({count})" for model, count in log.model_counts)
+    return f"models: {counts}; {len(log.fallback_served)} served by a fallback model"
+
+
 def _print_calls(log: CallLog, p95_bar_ms: float | None) -> None:
     answered = len(log.latencies_ms)
     print(
@@ -582,6 +725,9 @@ def _print_calls(log: CallLog, p95_bar_ms: float | None) -> None:
         f"{len(log.mocked)} mock answers, {len(log.over_api_timeout)} slower than the API timeout; "
         f"spend INR {log.cost_inr:.2f} (router estimate)"
     )
+    print(_models_line(log))
+    if log.pace_ms > 0:
+        print(f"pace: {log.pace_ms} ms between requests ({log.requests} requests)")
     bar = "" if p95_bar_ms is None else f" (bar < {p95_bar_ms:.0f} ms)"
     print(
         f"latency, round trip to the ai-service: p50 {_ms(log.p50_ms)}, "
@@ -640,6 +786,21 @@ def main(argv: list[str] | None = None) -> int:
         metavar="PATH",
         help="career: write EVERY answered sample to PATH, for the phase-3 §6 served-rate replay",
     )
+    parser.add_argument(
+        "--pace-ms",
+        type=int,
+        default=0,
+        metavar="N",
+        help="sleep N ms before every request but the first, so a rate-limited key stays under "
+        "its RPM (default 0: no pause)",
+    )
+    parser.add_argument(
+        "--expect-model",
+        default=None,
+        metavar="MODEL",
+        help="the route's primary model id; any answer from another model fails the run "
+        "(the only way to catch a run the fallback answered entirely)",
+    )
     args = parser.parse_args(argv)
     if args.dump_samples and not args.career:
         parser.error("--dump-samples needs --career")
@@ -647,11 +808,20 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--dump-all needs --career")
     if args.dump_samples < 0:
         parser.error("--dump-samples must be >= 0")
+    if args.pace_ms < 0:
+        parser.error("--pace-ms must be >= 0")
+    if args.expect_model is not None and not args.expect_model.strip():
+        parser.error("--expect-model must name a model")
     if not 0.0 <= args.min_confidence <= 1.0:
         parser.error("--min-confidence must be within 0..1")
 
     if args.classify:
-        run = run_classify_eval(args.base_url, args.min_confidence)
+        run = run_classify_eval(
+            args.base_url,
+            args.min_confidence,
+            pace_ms=args.pace_ms,
+            expect_model=args.expect_model,
+        )
         score = run.score
         print(
             f"classifier: {score.correct}/{score.total} = {score.accuracy:.1%} "
@@ -668,7 +838,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.career:
         career_run = run_career_eval(
-            args.base_url, collect_samples=args.dump_samples > 0 or args.dump_all is not None
+            args.base_url,
+            collect_samples=args.dump_samples > 0 or args.dump_all is not None,
+            pace_ms=args.pace_ms,
+            expect_model=args.expect_model,
         )
         career = career_run.score
         normal_total = sum(1 for _text, expected, _t in career_gold.PROMPTS if expected != "refuse")
@@ -705,7 +878,9 @@ def main(argv: list[str] | None = None) -> int:
             career.failed_checks + gate_failures(career_run.calls, THRESHOLDS["career_p95_ms"])
         )
 
-    edit_run = run_edit_parse_eval(args.base_url)
+    edit_run = run_edit_parse_eval(
+        args.base_url, pace_ms=args.pace_ms, expect_model=args.expect_model
+    )
     score = edit_run.score
     print(
         f"edit-parse: {score.exact}/{score.total} exact = {score.accuracy:.1%} "

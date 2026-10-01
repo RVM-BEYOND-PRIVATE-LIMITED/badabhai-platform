@@ -14,6 +14,10 @@ class AppMotion {
   static const Cubic easeInOut = Cubic(0.62, 0, 0.30, 1);
   static const Cubic stamp = Cubic(0.18, 0.9, 0.32, 1.28); // spring overshoot
   static const Cubic easeIn = Cubic(0.55, 0, 1, 0.45);
+  // Material 3 "emphasized decelerate" — a snappy take-off that comes to a very
+  // soft rest. For an element that ENTERS or travels to a place on screen (the
+  // chat's name-to-header flight; see `flying_name.dart`).
+  static const Cubic emphasizedDecelerate = Cubic(0.05, 0.7, 0.1, 1.0);
 
   // durations
   static const Duration instant = Duration(milliseconds: 80);

@@ -24,15 +24,17 @@ THRESHOLD = 0.90
 #: `(op, section, ref, field, value)`; ref is None for add, value is None for delete.
 Row = tuple[str, str, str | None, str | None, str | None]
 
-#: (section, field, legal ops) — mirrors the API catalogue's P1 content.
+#: (section, field, legal ops) — mirrors the API catalogue's P1 content. Employment is EDIT-ONLY:
+#: "Never from chat" (owner, 2026-10-01) — a whole job is removed only on the Profile screen, so
+#: a model row that deletes one is outside the catalogue and the API drops it.
 CATALOGUE: list[tuple[str, str, tuple[str, ...]]] = [
-    ("employment", "employer_name", ("edit", "delete")),
-    ("employment", "employer_city", ("edit", "delete")),
-    ("employment", "employer_state", ("edit", "delete")),
-    ("employment", "start_ym", ("edit", "delete")),
-    ("employment", "end_ym", ("edit", "delete")),
-    ("employment", "role_label", ("edit", "delete")),
-    ("employment", "work_done", ("edit", "delete")),
+    ("employment", "employer_name", ("edit",)),
+    ("employment", "employer_city", ("edit",)),
+    ("employment", "employer_state", ("edit",)),
+    ("employment", "start_ym", ("edit",)),
+    ("employment", "end_ym", ("edit",)),
+    ("employment", "role_label", ("edit",)),
+    ("employment", "work_done", ("edit",)),
     ("skills", "skill", ("add", "delete")),
     ("languages", "language", ("add", "delete")),
     ("qualifications", "certificate_name", ("edit", "delete")),
@@ -135,8 +137,10 @@ CASES: list[tuple[str, list[Row]]] = [
     ("job 2023 me chhod diya", [("edit", "employment", "e1", "end_ym", "2023-12")]),
     ("mera title welder nahi, fitter tha", [("edit", "employment", "e1", "role_label", "Fitter")]),
     ("kaam me TIG welding likh do", [("edit", "employment", "e1", "work_done", "TIG welding")]),
-    ("purana employer hata do", [("delete", "employment", "e1", "employer_name", None)]),
-    ("Tata wala kaam delete karo", [("delete", "employment", "e1", "employer_name", None)]),
+    # A whole-job delete is never proposed ("Never from chat", 2026-10-01): no row, and the
+    # worker is told to use the Profile screen (the parser's `unsupported: ["other"]`).
+    ("purana employer hata do", []),
+    ("Tata wala kaam delete karo", []),
     # ── skills ──
     ("welding bhi add karo", [("add", "skills", None, "skill", "welding")]),
     ("lathe skill jodo", [("add", "skills", None, "skill", "lathe")]),

@@ -17,9 +17,11 @@
  * reviewed copy in `companion-replies.ts`) and a closed-set value's display label
  * (`displayValue`, read from the SAME dictionaries the validation checks against).
  *
- * OWNER RULINGS ENCODED HERE (2026-09-29):
+ * OWNER RULINGS ENCODED HERE (2026-09-29, amended 2026-10-01):
  *   - single-field adds only: `add` exists for skills, languages, occupations and the three list
- *     preferences; employment and qualifications are edit/delete-only;
+ *     preferences; qualifications are edit/delete-only;
+ *   - "Never from chat" (2026-10-01): chat never deletes a worker's whole job — employment is
+ *     EDIT-ONLY here, and a whole-job delete happens only on the Profile screen;
  *   - `expected_salary` is ONE field, written to `salary_expected_max` with `salary_expected_min`
  *     cleared;
  *   - `salary_period`, `commute_max_km` and the four `education_*` preference keys are NOT in the
@@ -64,12 +66,16 @@ export interface CatalogueField {
   readonly ops: readonly CompanionV2EditOp[];
 }
 
+/**
+ * Scalar preferences — and every employment field: "Never from chat" (owner, 2026-10-01) makes
+ * employment EDIT-ONLY, so no field offers `delete` and a whole-job delete is never carded.
+ */
 const EDIT: readonly CompanionV2EditOp[] = ["edit"];
 const ADD_DELETE: readonly CompanionV2EditOp[] = ["add", "delete"];
 /**
- * Employment and qualifications are EDIT/DELETE-ONLY (no `add`), and `delete` is legal on every
- * one of their fields: a delete names its ROW, and the field is only the anchor the model points
- * at (the apply ignores it for deletes and uses the row's resolved target).
+ * Qualifications are EDIT/DELETE-ONLY (no `add`), and `delete` is legal on every one of their
+ * fields: a delete names its ROW, and the field is only the anchor the model points at (the apply
+ * ignores it for deletes and uses the row's resolved target).
  */
 const EDIT_DELETE: readonly CompanionV2EditOp[] = ["edit", "delete"];
 
@@ -78,14 +84,16 @@ const EDIT_DELETE: readonly CompanionV2EditOp[] = ["edit", "delete"];
  * prompt's field list reads the way the card does.
  */
 export const EDIT_CATALOGUE: readonly CatalogueField[] = [
-  // employment — edit/delete only (a new employment is multi-field; O5 caps a card at 3 rows).
-  { section: "employment", field: "employer_name", ops: EDIT_DELETE },
-  { section: "employment", field: "employer_city", ops: EDIT_DELETE },
-  { section: "employment", field: "employer_state", ops: EDIT_DELETE },
-  { section: "employment", field: "start_ym", ops: EDIT_DELETE },
-  { section: "employment", field: "end_ym", ops: EDIT_DELETE },
-  { section: "employment", field: "role_label", ops: EDIT_DELETE },
-  { section: "employment", field: "work_done", ops: EDIT_DELETE },
+  // employment — EDIT ONLY. No `add` (a new employment is multi-field; O5 caps a card at 3 rows)
+  // and no `delete`: "Never from chat" (owner, 2026-10-01) — a whole job is removed only on the
+  // Profile screen. A model row that deletes one is dropped as `job_delete` (the service).
+  { section: "employment", field: "employer_name", ops: EDIT },
+  { section: "employment", field: "employer_city", ops: EDIT },
+  { section: "employment", field: "employer_state", ops: EDIT },
+  { section: "employment", field: "start_ym", ops: EDIT },
+  { section: "employment", field: "end_ym", ops: EDIT },
+  { section: "employment", field: "role_label", ops: EDIT },
+  { section: "employment", field: "work_done", ops: EDIT },
   // skills — a free-text label on the RÉSUMÉ only (owner ruling; never the matching store).
   { section: "skills", field: "skill", ops: ADD_DELETE },
   // languages — closed dictionary, member add/delete.
@@ -145,6 +153,15 @@ export function catalogueEntry(
 
 export function opAllowed(entry: CatalogueField, op: CompanionV2EditOp): boolean {
   return entry.ops.includes(op);
+}
+
+/**
+ * Whether a row would delete a worker's WHOLE JOB — the one change chat may never make ("Never
+ * from chat", owner ruling 2026-10-01). Decided from the section and the op alone, so it holds for
+ * an untrusted model row (whatever field it anchored on) and for a card stored before the ruling.
+ */
+export function isWholeJobDelete(row: { readonly section: string; readonly op: string }): boolean {
+  return row.section === "employment" && row.op === "delete";
 }
 
 // ── value validation ─────────────────────────────────────────────────────────────────────────
@@ -347,11 +364,16 @@ function entryOf(
  * The row's field label (reviewed copy, `companion-replies.ts`), or null for a pair the catalogue
  * does not hold.
  *
- * A DELETE IN EMPLOYMENT OR QUALIFICATIONS NAMES THE ENTRY. Those sections are edit/delete-only
- * and a delete removes the whole entry — the field is only the model's anchor — so the label
- * says so ("Yeh poora kaam") instead of naming whichever field the model happened to point at.
- * The kind comes from `target`, the entry being removed; a qualification delete without one has
- * NO label (null), never a field's.
+ * A QUALIFICATION DELETE NAMES THE ENTRY. Qualifications are edit/delete-only and a delete removes
+ * the whole entry — the field is only the model's anchor — so the label says so ("Yeh poora
+ * certificate") instead of naming whichever field the model happened to point at. The kind comes
+ * from `target`, the entry being removed; a qualification delete without one has NO label (null),
+ * never a field's.
+ *
+ * AN EMPLOYMENT DELETE IS UNREACHABLE FROM A NEW PROPOSAL ("Never from chat", owner 2026-10-01):
+ * the catalogue offers employment `edit` only, and `propose` drops a job delete. Its label ("Yeh
+ * poora kaam") stays ONLY so a card stored before the ruling still renders on a retry — and
+ * `confirm` refuses to apply such a row (stale), so the label never fronts a write.
  */
 export function cardFieldLabel(
   section: CompanionV2EditSection,

@@ -54,6 +54,7 @@ import '../domain/chat_multi_select.dart';
 import '../domain/chat_companion_keys.dart';
 import '../domain/chat_identity_questions.dart';
 import 'widgets/chat_location_card.dart';
+import 'widgets/flying_name.dart';
 import '../domain/companion_edit_value.dart';
 import '../domain/chat_resume_menu.dart';
 import '../../swipe/domain/job_detail.dart';
@@ -309,7 +310,8 @@ class _ChatView extends StatefulWidget {
   State<_ChatView> createState() => _ChatViewState();
 }
 
-class _ChatViewState extends State<_ChatView> {
+class _ChatViewState extends State<_ChatView>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scroll = ScrollController();
 
@@ -398,6 +400,39 @@ class _ChatViewState extends State<_ChatView> {
   /// Stack-based body, not a clean `bottomNavigationBar` slot).
   final GlobalKey _bottomSegmentKey = GlobalKey();
 
+  // ---- ADR-0048 — the worker's name flies from the chat to the header ------
+  //
+  // The name the identity intake captures travels up to the header's action as
+  // a moving token ([FlyingName]); the action then reads the name instead of
+  // 'Feedback'. These fields only coordinate that one-shot move.
+
+  /// The header action the name lands on — the destination of the flight.
+  final GlobalKey _headerNameActionKey = GlobalKey();
+
+  /// The LAST worker bubble — the source of the flight. Reassigned each build to
+  /// whichever bubble is last, which at the instant a name is captured is the
+  /// bubble the name was just typed into.
+  final GlobalKey _lastWorkerBubbleKey = GlobalKey();
+
+  /// The name shown on the header action. Null until a name is captured (the
+  /// action reads 'Feedback' then), set when the token lands so the label and
+  /// the move agree.
+  String? _headerName;
+
+  /// True while a token is in flight, so a second capture cannot start a second
+  /// flight over the first.
+  bool _flyingName = false;
+
+  /// The action's small settle pop when a name lands. Driven by an explicit
+  /// controller (not a keyed [TweenAnimationBuilder]) so the action's subtree —
+  /// and the label's cross-fade inside it — is never rebuilt from scratch.
+  late final AnimationController _namePop;
+  late final Animation<double> _namePopScale;
+
+  /// The live flight overlay, removed on teardown so a mid-flight dispose never
+  /// leaves a token painted over another route.
+  OverlayEntry? _nameFlightEntry;
+
   // ---- Tap-to-talk (voice → text into the composer) -----------------------
   //
   // Tapping the MIC in the send slot ([_composerAction]) runs the DEVICE's own
@@ -430,10 +465,25 @@ class _ChatViewState extends State<_ChatView> {
     )..addListener(_onDictationChanged);
     // Manual scroll back near the bottom dismisses the pill.
     _scroll.addListener(_onScroll);
+    // ADR-0048 — a mount that already has the captured name (a rebuild, a
+    // returning route) shows it at once; only the null → non-null edge flies.
+    _headerName = context.read<ChatBloc>().state.workerName;
+    // Starts SETTLED (value 1 = scale 1.0) so the action is not enlarged on
+    // mount; a landing rewinds it to 0 and plays the pop.
+    _namePop = AnimationController(vsync: this, duration: AppMotion.slower)
+      ..value = 1.0;
+    _namePopScale = Tween<double>(begin: 1.14, end: 1.0).animate(
+      CurvedAnimation(parent: _namePop, curve: AppMotion.stamp),
+    );
   }
 
   @override
   void dispose() {
+    // ADR-0048 — drop a mid-flight token before the route goes, so it cannot
+    // linger over whatever is behind.
+    _nameFlightEntry?.remove();
+    _nameFlightEntry = null;
+    _namePop.dispose();
     if (locator.isRegistered<SpeechReader>()) {
       unawaited(locator<SpeechReader>().stop()); // never leave TTS reading
     }
@@ -1432,29 +1482,52 @@ class _ChatViewState extends State<_ChatView> {
             padding: EdgeInsets.only(right: headerActionGutter),
             child: MediaQuery.withClampedTextScaling(
               maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
-              child: TextButton(
-                style: TextButton.styleFrom(
-                  foregroundColor: OnboardingColors.textOnBlue,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(
-                      OnboardingRadii.feedbackButton,
-                    ),
-                    side: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.25),
+              // ADR-0048 — the action gives a small settle pop when a captured
+              // name lands. A ScaleTransition (not a keyed builder) keeps the
+              // subtree — and the label's cross-fade — alive across the pop.
+              child: ScaleTransition(
+                scale: _namePopScale,
+                child: TextButton(
+                  // ADR-0048 — the destination the captured name flies to.
+                  key: _headerNameActionKey,
+                  style: TextButton.styleFrom(
+                    foregroundColor: OnboardingColors.textOnBlue,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(
+                        OnboardingRadii.feedbackButton,
+                      ),
+                      side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.25),
+                      ),
                     ),
                   ),
-                ),
-                onPressed: () => context.pushOnce(
-                  Routes.feedback,
-                  extra: GoRouterState.of(context).uri.path,
-                ),
-                child: Text(
-                  'Feedback',
-                  style: OnboardingTypography.inter(
-                    size: 13,
-                    weight: FontWeight.w700,
-                    color: OnboardingColors.textOnBlue,
+                  onPressed: () => context.pushOnce(
+                    Routes.feedback,
+                    extra: GoRouterState.of(context).uri.path,
+                  ),
+                  child: BbAnimatedSwitcher(
+                    child: ConstrainedBox(
+                      // The switcher animates on the DIRECT child's key, so the
+                      // key rides the ConstrainedBox (the label rides inside).
+                      key: ValueKey<String>(_headerName ?? 'Feedback'),
+                      // A long name must never blow the header's layout: cap it
+                      // and ellipsize rather than shove the title off screen.
+                      constraints: BoxConstraints(
+                        maxWidth: MediaQuery.sizeOf(context).width * 0.34,
+                      ),
+                      child: Text(
+                        _headerName ?? 'Feedback',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: OnboardingTypography.inter(
+                          size: 13,
+                          weight: FontWeight.w700,
+                          color: OnboardingColors.textOnBlue,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -1492,8 +1565,11 @@ class _ChatViewState extends State<_ChatView> {
             curr.editNotice != prev.editNotice ||
             // ADR-0048 — the identity turn moved on, so a held city may now be
             // due (see [_maybeAnswerHeldCity]).
-            curr.askedQuestionKey != prev.askedQuestionKey,
+            curr.askedQuestionKey != prev.askedQuestionKey ||
+            // ADR-0048 — a name was captured: fly it up to the header.
+            curr.workerName != prev.workerName,
         listener: (BuildContext context, ChatState state) {
+          _maybeFlyName(state);
           _maybeAnswerHeldCity(state);
           _showEditNotice(state);
           _maybeSayEmptyImport(state);
@@ -1535,6 +1611,16 @@ class _ChatViewState extends State<_ChatView> {
             );
             final double bubbleMaxWidth =
                 math.min(screenWidth, OnboardingLayout.maxContentWidth) * 0.78;
+            // ADR-0048 — the index of the LAST worker bubble, so the captured
+            // name's flight has a real source to lift off from. At the instant a
+            // name is captured this is the bubble the name was typed into.
+            int lastWorkerIndex = -1;
+            for (int i = state.messages.length - 1; i >= 0; i--) {
+              if (state.messages[i].fromWorker) {
+                lastWorkerIndex = i;
+                break;
+              }
+            }
             return Stack(
               children: <Widget>[
                 // bottom: false — the docked composer panel consumes the
@@ -1571,6 +1657,11 @@ class _ChatViewState extends State<_ChatView> {
                                 final bool failed =
                                     m.status == ChatSendStatus.failed;
                                 return _ChatBubble(
+                                  // ADR-0048 — the name's flight lifts off from
+                                  // the last worker bubble.
+                                  key: i == lastWorkerIndex
+                                      ? _lastWorkerBubbleKey
+                                      : null,
                                   text: m.text,
                                   fromWorker: m.fromWorker,
                                   maxWidth: bubbleMaxWidth,
@@ -1795,36 +1886,27 @@ class _ChatViewState extends State<_ChatView> {
         AppSpacing.s4,
         AppSpacing.s3,
       ),
+      // A LABELLED CTA, NOT A SECOND BARE MIC (owner request). This sat directly
+      // above the composer's dictation mic wearing the same `Icons.mic` and the
+      // same words, so one screen read as two mics for one job. They are two
+      // jobs: the composer's mic types what you say into the field as you speak,
+      // this one records a note, has it transcribed and drops the text back for
+      // review. A distinct glyph AND words on the face carry that difference; a
+      // bare second yellow circle cannot.
+      //
+      // The kit's own CTA rather than a hand-rolled pill: its `FittedBox` scales
+      // a long Hinglish label down instead of painting overflow stripes inside
+      // the control, which a fixed-width pill does at 320dp and text scale 2.0.
+      // `buttonKey` keeps the handle a test needs on THIS voice entry — the
+      // screen carries three (this one, the composer's dictation mic and the
+      // interview's voice note) and only this one rides the v2 lever.
       child: _capped(
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Semantics(
-              button: true,
-              label: 'Bolkar likhein',
-              // Named so a test can assert on THIS mic. The screen carries three
-              // (this one, the composer's dictation button and the interview's
-              // voice note), and only this one rides the v2 lever.
-              child: Material(
-                key: kCompanionVoiceButtonKey,
-                color: OnboardingColors.safetyYellow,
-                shape: const CircleBorder(),
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: _openCompanionVoiceNote,
-                  child: const SizedBox(
-                    width: AppSpacing.tap,
-                    height: AppSpacing.tap,
-                    child: Icon(
-                      Icons.mic,
-                      color: OnboardingColors.textOnYellow,
-                      size: 24,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
+        PrimaryActionButton(
+          buttonKey: kCompanionVoiceButtonKey,
+          label: kCompanionVoiceLabel,
+          leadingIcon: Icons.voice_chat,
+          showArrow: false,
+          onPressed: _openCompanionVoiceNote,
         ),
       ),
     );
@@ -1978,8 +2060,14 @@ class _ChatViewState extends State<_ChatView> {
             ),
           );
         }
+        // KEEPS THE PLAIN MIC, AND KEEPS ITS OWN WORDS. This is the keyboard
+        // slot's dictation affordance — the one glyph every worker already
+        // reads as "speak instead of typing" — so it is the companion's voice
+        // NOTE entry that was re-dressed, never this. Its wording must stay
+        // different from [kCompanionVoiceLabel]: these two sit one above the
+        // other and the label is the only thing that says which does which.
         return IconButton(
-          tooltip: 'Bolkar likhein',
+          tooltip: kComposerDictationLabel,
           onPressed: _startDictation,
           style: _composerActionStyle,
           icon: const Icon(
@@ -2761,6 +2849,87 @@ class _ChatViewState extends State<_ChatView> {
       ..showSnackBar(SnackBar(content: Text(notice)));
   }
 
+  // ---- ADR-0048 — fly the captured name up to the header -------------------
+
+  /// The piece of the new name to fly: whatever was NOT already on the header,
+  /// so a surname append flies only the surname instead of repeating the first
+  /// name.
+  String _nameDelta(String name) {
+    final String? prev = _headerName;
+    if (prev != null && prev.isNotEmpty && name.startsWith(prev)) {
+      final String rest = name.substring(prev.length).trim();
+      if (rest.isNotEmpty) return rest;
+    }
+    return name;
+  }
+
+  /// Fly the name captured on this turn from its bubble to the header action.
+  ///
+  /// Fired on the `workerName` change edge. The rects are read AFTER the frame,
+  /// because the bubble carrying the name is appended in the same emit and is
+  /// not laid out yet when the listener runs. Reduced motion, or a bubble the
+  /// ListView has not built, degrades to setting the name with no flight — the
+  /// header is always correct, the motion is the flourish.
+  void _maybeFlyName(ChatState state) {
+    final String? name = state.workerName;
+    if (name == null || name == _headerName || _flyingName) return;
+    final String flown = _nameDelta(name);
+    final bool reduceMotion =
+        MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _flyingName || name == _headerName) return;
+      final Rect? from =
+          _globalRectOf(_lastWorkerBubbleKey) ?? _fallbackNameSource();
+      final Rect? to = _globalRectOf(_headerNameActionKey);
+      if (reduceMotion || from == null || to == null) {
+        setState(() => _headerName = name);
+        return;
+      }
+      _startNameFlight(flown, name, from, to);
+    });
+  }
+
+  void _startNameFlight(String flown, String fullName, Rect from, Rect to) {
+    _flyingName = true;
+    _nameFlightEntry = showFlyingName(
+      overlay: Overlay.of(context, rootOverlay: true),
+      text: flown,
+      from: from,
+      to: to,
+      onLanded: () {
+        if (!mounted) return;
+        setState(() {
+          _flyingName = false;
+          _nameFlightEntry = null;
+          _headerName = fullName;
+        });
+        // Punctuate the landing with the action's settle pop.
+        _namePop.forward(from: 0);
+      },
+    );
+  }
+
+  /// The SCREEN rect of [key]'s render box, or null when it is not laid out.
+  Rect? _globalRectOf(GlobalKey key) {
+    final BuildContext? ctx = key.currentContext;
+    if (ctx == null) return null;
+    final RenderObject? object = ctx.findRenderObject();
+    if (object is! RenderBox || !object.hasSize) return null;
+    return object.localToGlobal(Offset.zero) & object.size;
+  }
+
+  /// Where the name lifts off from when its bubble is not on screen (a fast
+  /// reply pushed it out of view): just above the composer, where it was typed.
+  Rect? _fallbackNameSource() {
+    final Rect? segment = _globalRectOf(_bottomSegmentKey);
+    if (segment == null) return null;
+    return Rect.fromCenter(
+      center: Offset(segment.center.dx, segment.top + 12),
+      width: 140,
+      height: 40,
+    );
+  }
+
   /// ADR-0046 §5.1 — the edit card: one row per proposed change, all ticked,
   /// with Haan / Nahi under them. Haan sends the TICKED rows' server-minted
   /// `row_id`s to the confirm route; Nahi cancels. The card disables itself
@@ -2993,6 +3162,7 @@ class _ChatViewState extends State<_ChatView> {
 /// the optional [trailing] control (the read-aloud speaker).
 class _ChatBubble extends StatelessWidget {
   const _ChatBubble({
+    super.key,
     required this.text,
     required this.fromWorker,
     required this.maxWidth,
@@ -3400,6 +3570,25 @@ String kCooldownComposerText(DateTime until) {
 /// The companion composer's mic (ADR-0046 F3) — keyed because this screen draws
 /// three mics and only this one is gated by the v2 lever.
 const Key kCompanionVoiceButtonKey = ValueKey<String>('companion-voice-button');
+
+/// What the two VISIBLE voice controls say, and why they must never say the
+/// same thing.
+///
+/// The companion draws both at once, one above the other, and until #1884 both
+/// wore `Icons.mic` and the words "Bolkar likhein" — so the screen offered a
+/// worker two identical mics and no way to tell them apart. They do different
+/// work:
+///
+///  * [kComposerDictationLabel] — the composer's trailing mic. On-device
+///    dictation: speak and the words appear in the field as you go.
+///  * [kCompanionVoiceLabel] — the pill above it. Records a note, uploads it to
+///    be transcribed, and lands the text back in the composer to check.
+///
+/// "record karein" and not "bhejein" on the pill: it does NOT send. The worker
+/// still reads the transcript and presses send, and a label that promised
+/// otherwise would be a lie about where their words went.
+const String kComposerDictationLabel = 'Bolkar likhein';
+const String kCompanionVoiceLabel = 'Awaaz note record karein';
 
 /// What an edit row's operation DOES, in the worker's words. `section_label`
 /// names the section only, so without these a row is ambiguous between adding
