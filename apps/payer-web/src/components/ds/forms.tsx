@@ -8,8 +8,10 @@
  * the `.bb-*` design-system classes + tokens (src/styles/ds-components.css). No
  * business logic. Prop contracts mirror docs/design/.../components/forms/*.d.ts.
  *
- * Phosphor glyphs (`ph-fill ph-*`) are aria-hidden and degrade to empty inline marks if
- * the icon font is not loaded — text labels always carry the meaning.
+ * Glyphs come from the shared icon system (`<Icon>` from @badabhai/icons): typed names
+ * (`IconName` — a typo fails typecheck), the self-hosted Phosphor FILL font, aria-hidden — text
+ * labels always carry the meaning. The icon-only control is `IconButton` in ./icon-button.tsx
+ * (a client component: its tooltip dismisses on Escape).
  */
 import type {
   ButtonHTMLAttributes,
@@ -18,6 +20,7 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from "react";
+import { Icon, type IconName } from "@badabhai/icons";
 
 /* Auto-id for fields rendered without an explicit `id` (label ↔ control association). */
 let _fieldId = 0;
@@ -38,7 +41,7 @@ function FieldFeedback({ error, hint }: { error?: string; hint?: string }) {
   if (error) {
     return (
       <span className="bb-field__error">
-        <i className="ph-fill ph-warning-circle" aria-hidden="true" />
+        <Icon name="warning-circle" />
         {error}
       </span>
     );
@@ -55,10 +58,10 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: "sm" | "md" | "lg";
   /** Stretch to fill the container width. */
   block?: boolean;
-  /** Phosphor glyph name rendered before the label. */
-  iconLeft?: string;
-  /** Phosphor glyph name rendered after the label. */
-  iconRight?: string;
+  /** Glyph rendered before the label (sized per control size by `.bb-btn` CSS). */
+  iconLeft?: IconName;
+  /** Glyph rendered after the label. */
+  iconRight?: IconName;
   /** Show a spinner and disable interaction. */
   loading?: boolean;
 }
@@ -107,45 +110,9 @@ export function Button({
   return (
     <button type={type} className={cls} disabled={disabled || loading} {...rest}>
       {loading && <span className="bb-btn__spinner" aria-hidden="true" />}
-      {!loading && iconLeft && <i className={`ph-fill ph-${iconLeft}`} aria-hidden="true" />}
+      {!loading && iconLeft && <Icon name={iconLeft} />}
       {children != null && <span>{children}</span>}
-      {!loading && iconRight && <i className={`ph-fill ph-${iconRight}`} aria-hidden="true" />}
-    </button>
-  );
-}
-
-/* ---------- IconButton ---------- */
-export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> {
-  /** Phosphor glyph name (no `ph-` prefix). */
-  icon: string;
-  /** Accessible label — required, also used as the tooltip title. */
-  label: string;
-  /** @default 'ghost' */
-  variant?: "ghost" | "solid" | "outline";
-  /** @default 'md' */
-  size?: "sm" | "md" | "lg";
-}
-
-export function IconButton({
-  icon,
-  label,
-  variant = "ghost",
-  size = "md",
-  className = "",
-  ...rest
-}: IconButtonProps) {
-  const cls = [
-    "bb-iconbtn",
-    variant !== "ghost" ? `bb-iconbtn--${variant}` : "",
-    size !== "md" ? `bb-iconbtn--${size}` : "",
-    className,
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  return (
-    <button type="button" className={cls} aria-label={label} title={label} {...rest}>
-      <i className={`ph-fill ph-${icon}`} aria-hidden="true" />
+      {!loading && iconRight && <Icon name={iconRight} />}
     </button>
   );
 }
@@ -155,8 +122,8 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   hint?: string;
   error?: string;
-  iconLeft?: string;
-  iconRight?: string;
+  iconLeft?: IconName;
+  iconRight?: IconName;
   optional?: boolean;
 }
 
@@ -188,13 +155,13 @@ export function Input({
       <div className="bb-input-wrap">
         {iconLeft && (
           <span className="bb-input__icon bb-input__icon--left">
-            <i className={`ph-fill ph-${iconLeft}`} aria-hidden="true" />
+            <Icon name={iconLeft} />
           </span>
         )}
         <input id={inputId} className={cls} {...rest} />
         {iconRight && (
           <span className="bb-input__icon bb-input__icon--right">
-            <i className={`ph-fill ph-${iconRight}`} aria-hidden="true" />
+            <Icon name={iconRight} />
           </span>
         )}
       </div>
@@ -235,7 +202,7 @@ export function Select({
           {children}
         </select>
         <span className="bb-select__chevron">
-          <i className="ph-fill ph-caret-down" aria-hidden="true" />
+          <Icon name="caret-down" />
         </span>
       </div>
       <FieldFeedback error={error} hint={hint} />
@@ -287,7 +254,7 @@ export function Checkbox({ label, className = "", ...rest }: CheckboxProps) {
     <label className={["bb-choice", "bb-choice--checkbox", className].filter(Boolean).join(" ")}>
       <input type="checkbox" {...rest} />
       <span className="bb-choice__box">
-        <i className="ph-fill ph-check" aria-hidden="true" />
+        <Icon name="check" />
       </span>
       {label != null && <span className="bb-choice__label">{label}</span>}
     </label>

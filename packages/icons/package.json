@@ -1,0 +1,36 @@
+{
+  "name": "@badabhai/icons",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The ONE icon system for the BadaBhai web portals (payer-web Company + Agency, admin-web): self-hosted Phosphor FILL, a typed IconName union, the <Icon> element, the product-wide action → icon map and the icon-only-control contract. TS source, transpiled by each app (transpilePackages); no build step.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./icons.css": "./icons.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "icons.css"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rimraf --glob .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@phosphor-icons/web": "2.1.2"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "vitest": "^3.2.7"
+  }
+}

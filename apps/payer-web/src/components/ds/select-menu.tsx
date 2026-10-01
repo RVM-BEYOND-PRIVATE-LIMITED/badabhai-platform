@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Icon } from "@badabhai/icons";
 
 /**
  * BadaBhai Design System — SelectMenu (accessible custom combobox).
@@ -183,7 +184,7 @@ export function SelectMenu({
           <span className={selected ? "bb-selectmenu__value" : "bb-selectmenu__placeholder"}>
             {selected ? selected.label : placeholder}
           </span>
-          <i className="ph-fill ph-caret-down bb-selectmenu__caret" aria-hidden="true" />
+          <Icon name="caret-down" className="bb-selectmenu__caret" />
         </button>
 
         {open ? (
@@ -219,7 +220,7 @@ export function SelectMenu({
                 >
                   <span className="bb-selectmenu__option-label">{opt.label}</span>
                   {isSelected ? (
-                    <i className="ph-fill ph-check bb-selectmenu__option-check" aria-hidden="true" />
+                    <Icon name="check" className="bb-selectmenu__option-check" />
                   ) : null}
                 </li>
               );
@@ -230,7 +231,7 @@ export function SelectMenu({
 
       {error ? (
         <span className="bb-field__error">
-          <i className="ph-fill ph-warning-circle" aria-hidden="true" />
+          <Icon name="warning-circle" />
           {error}
         </span>
       ) : hint ? (

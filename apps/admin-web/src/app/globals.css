@@ -15,6 +15,13 @@
    ever see this.
    ============================================================ */
 
+/* The icon system — the same Phosphor FILL font payer-web draws, SELF-HOSTED from this app's own
+   origin (emitted under /_next/static/media; no CDN, no third-party request), plus the
+   --icon-size-* / --icon-gap tokens. Shared through @badabhai/icons (packages/icons).
+   FIRST, as in payer-web: a library's rules precede the app's, so an app rule that ties with
+   Phosphor's `.ph-fill` base rule wins; the size tokens are var() aliases of the token layer,
+   which resolve whatever the import order. */
+@import "@badabhai/icons/icons.css";
 @import "@badabhai/design-tokens/tokens.css";
 
 /* ---- base ---------------------------------------------------------------- */
@@ -131,7 +138,7 @@ h3 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2);
+  gap: var(--icon-gap);
   min-height: var(--control-md);
   padding: 0 var(--space-5);
   border-radius: var(--radius-md);
@@ -182,6 +189,168 @@ h3 {
 }
 .btn--danger:active:not(:disabled) {
   background: var(--danger-press);
+}
+/* ICON SIZE PER CONTROL SIZE — the shared icon tokens (@badabhai/icons/icons.css), the same scale
+   payer-web's buttons use: md 20, sm 16. The flex row centres the 1em glyph box on the label
+   (`.ph-fill` is line-height 1) at --icon-gap, and no rule here sets a colour, so an icon inherits
+   the button's text colour through hover, active and disabled. */
+.btn .ph-fill {
+  font-size: var(--icon-size-md);
+}
+.btn--sm .ph-fill {
+  font-size: var(--icon-size-sm);
+}
+
+/* ---- IconButton (components/icon-button.tsx) ------------------------------
+   The ONE icon-only control — payer-web's `.bb-iconbtn` contract in this console's vocabulary
+   (`IconOnlyControlProps`, @badabhai/icons). Declared BEFORE `.topbar__menu`, which is an
+   IconButton and must keep its `display: none` above 1024px by source order.
+   BRAND COLOUR RULE — structural Shift Blue at rest (--text-heading flips to paper on ink). An
+   ACTIVE utility (pressed / expanded) takes the Safety Yellow FILL with a navy glyph (--brand +
+   --text-on-brand): yellow as a glyph colour is 1.63:1 on Ivory. Disabled steps down to the 40%
+   primary. The glyph is `currentColor`, so it follows all of it. */
+.iconbtn {
+  position: relative; /* anchors the tooltip and the coarse-pointer hit area */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  inline-size: var(--control-md);
+  block-size: var(--control-md);
+  padding: 0;
+  border-radius: var(--radius-md);
+  border: var(--border-hairline) solid transparent;
+  background: transparent;
+  color: var(--text-heading);
+  font-size: var(--icon-size-md);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+.iconbtn:hover {
+  background: var(--surface-sunken);
+}
+.iconbtn--sm {
+  inline-size: var(--control-sm);
+  block-size: var(--control-sm);
+  font-size: var(--icon-size-sm);
+}
+.iconbtn--outline {
+  border-color: var(--divider);
+}
+.iconbtn--outline:hover {
+  border-color: var(--border-strong);
+}
+.iconbtn[aria-pressed="true"],
+.iconbtn[aria-expanded="true"] {
+  background: var(--brand);
+  border-color: var(--brand-border);
+  color: var(--text-on-brand);
+}
+/* Disabled: the 40% primary. NOTE a natively disabled button can show NO tooltip — browsers
+   neither hover nor focus it (measured in Chromium) — so an icon-only control whose reason must
+   stay discoverable needs the aria-disabled pattern instead (not built yet). */
+.iconbtn:disabled {
+  background: transparent;
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+/* The tooltip — the label, visible on hover (pointer devices only: a tap must not leave a stuck
+   bubble) and on keyboard focus. Hidden with visibility and no pointer events, so it never
+   catches a click while invisible; once shown it is hoverable (a child of the button), and the
+   `::before` bridge spans the --space-1 gap. Escape sets [data-tooltip-dismissed]
+   (TOOLTIP_DISMISSED_ATTRIBUTE) until blur / pointer leave. The hairline border is near-invisible
+   on navy and becomes the system border in forced colours. */
+.iconbtn__tip {
+  position: absolute;
+  z-index: var(--z-tooltip);
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-hairline) solid var(--border-on-ink);
+  border-radius: var(--radius-sm);
+  background: var(--surface-ink);
+  color: var(--text-on-ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-snug);
+  white-space: nowrap;
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    visibility var(--duration-fast) var(--ease-out);
+}
+.iconbtn__tip::before {
+  content: "";
+  position: absolute;
+}
+.iconbtn__tip--top {
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: var(--space-1);
+}
+.iconbtn__tip--top::before {
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: var(--space-1);
+}
+.iconbtn__tip--bottom {
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: var(--space-1);
+}
+.iconbtn__tip--bottom::before {
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  height: var(--space-1);
+}
+.iconbtn__tip--end {
+  inset-inline-start: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-inline-start: var(--space-1);
+}
+.iconbtn__tip--end::before {
+  inset-inline-end: 100%;
+  top: 0;
+  bottom: 0;
+  width: var(--space-1);
+}
+.iconbtn__tip--start {
+  inset-inline-end: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-inline-end: var(--space-1);
+}
+.iconbtn__tip--start::before {
+  inset-inline-start: 100%;
+  top: 0;
+  bottom: 0;
+  width: var(--space-1);
+}
+.iconbtn:focus-visible .iconbtn__tip {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+@media (hover: hover) {
+  .iconbtn:hover .iconbtn__tip {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+}
+/* After both triggers on purpose: same specificity, so source order makes Escape win. */
+.iconbtn[data-tooltip-dismissed] .iconbtn__tip {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .field {
@@ -498,30 +667,13 @@ h3 {
   top: 0;
   z-index: var(--z-sticky);
 }
-/* The toggle's only visible content is its glyph (`PhIcon name="list"`), sized by the button's
-   font-size exactly as payer-web sizes its `ph-fill ph-list` hamburger (--text-lg). A structural
-   navigation glyph takes Shift Blue per the brand kit: --text-heading is navy-900 on light
-   surfaces and flips to paper on ink, where the raw brand colour would vanish. */
+/* The drawer toggle is an outline IconButton (`.iconbtn.iconbtn--outline`, declared above): a
+   44x44 control drawing the solid Phosphor `list` glyph at --icon-size-md (20, the size
+   payer-web's hamburger draws) in --text-heading — Shift Blue, the brand's structural-navigation
+   colour, flipping to paper on ink where the raw brand colour would vanish. Shown only below
+   1024px (the responsive block), where it is the only way to reach the navigation. */
 .topbar__menu {
   display: none;
-  min-height: var(--control-sm);
-  padding: 0 var(--space-3);
-  border-radius: var(--radius-sm);
-  border: var(--border-hairline) solid var(--divider);
-  background: transparent;
-  color: var(--text-heading);
-  font-size: var(--text-lg);
-  cursor: pointer;
-}
-/* A Phosphor FILL glyph inlined as SVG (components/ph-icon.tsx): a one-em square painted in the
-   current text colour — the box payer-web's `ph-fill` webfont glyph occupies, without loading
-   the third-party icon sheet this console deliberately does not ship. Solid by construction;
-   the brand allows no outline weights. */
-.ph-icon {
-  inline-size: 1em;
-  block-size: 1em;
-  flex: none;
-  fill: currentColor;
 }
 .topbar__spacer {
   flex: 1;
@@ -710,10 +862,6 @@ h3 {
   }
   .topbar__menu {
     display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: var(--control-md);
-    min-height: var(--control-md);
   }
   .sidebar {
     position: fixed;
@@ -2169,6 +2317,13 @@ textarea.field__input {
     z-index: calc(var(--z-base) - 1);
     inset-block: calc((100% - var(--control-md)) / 2);
     inset-inline: min(0px, calc((100% - var(--control-md)) / 2));
+  }
+  /* `.iconbtn--sm` (36px square) — the same hit-area strip on both axes: percent insets resolve
+     against the padding box, so the pseudo is exactly 44x44 around the centre. */
+  .iconbtn--sm::before {
+    content: "";
+    position: absolute;
+    inset: calc((100% - var(--control-md)) / 2);
   }
 }
 

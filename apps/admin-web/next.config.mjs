@@ -38,6 +38,10 @@ const nextConfig = {
   // trusting auto-detection silently picks the same root every time). This must match
   // the Dockerfile's build context (repo root).
   outputFileTracingRoot: path.join(__dirname, "../.."),
+  // @badabhai/icons ships TypeScript SOURCE (no build step, no dist), so Next compiles it with
+  // the app. It is bundled into the app's own chunks, which also means `standalone` needs
+  // nothing extra traced for it; its stylesheet is `@import`ed by src/app/globals.css.
+  transpilePackages: ["@badabhai/icons"],
   // The admin portal is INTERNAL and highly privileged. It must never be framed,
   // sniffed into a different content type, or leak a referrer to another origin.
   async headers() {

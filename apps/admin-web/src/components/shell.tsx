@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { BrandLockup } from "./brand-lockup";
-import { PhIcon } from "./ph-icon";
+import { IconButton } from "./icon-button";
 import { SidebarNav } from "./nav";
 import { TopbarCrumb } from "./topbar-crumb";
 import type { NavSection } from "./nav-model";
@@ -79,18 +79,19 @@ export function Shell({
 
       <div className="shell__main">
         <header className="topbar">
-          <button
+          {/* The drawer toggle: the solid Phosphor `list` glyph (the ☰ character fell back to a
+              thin stroke in the UI face), named "Navigation" — its accessible name AND its visible
+              tooltip, which opens to the right because the toggle sits at the bar's left edge. */}
+          <IconButton
+            icon="list"
+            label="Navigation"
+            variant="outline"
+            tooltipPlacement="end"
             className="topbar__menu"
-            type="button"
             onClick={() => setDrawerOpen((v) => !v)}
             aria-expanded={drawerOpen}
             aria-controls="portal-sidebar"
-          >
-            {/* A solid Phosphor `list` glyph. The ☰ character fell back to a thin stroke in
-                the UI face; the name is the sr-only label, never the glyph. */}
-            <PhIcon name="list" />
-            <span className="sr-only">Navigation</span>
-          </button>
+          />
           {/* The topbar used to be a hamburger and a spacer. It now says where you are —
               the only such signal on a detail route, where the sidebar can name the section
               but not the row. */}

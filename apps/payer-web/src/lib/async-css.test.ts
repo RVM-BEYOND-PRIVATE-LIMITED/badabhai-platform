@@ -20,15 +20,15 @@ import { ASYNC_CSS_SCRIPT, ASYNC_STYLESHEETS } from "./theme";
  * layout would silently undo it.
  */
 describe("async CSS loader — nothing third-party blocks first paint", () => {
-  it("covers the fonts + the one icon sheet the portal renders (fill — brand: solid icons only)", () => {
-    expect(ASYNC_STYLESHEETS).toHaveLength(2);
-    expect(ASYNC_STYLESHEETS.some((u) => u.includes("fonts.googleapis.com"))).toBe(true);
-    const icons = ASYNC_STYLESHEETS.filter((u) => u.includes("@phosphor-icons/web"));
-    expect(icons).toHaveLength(1);
-    expect(icons[0]).toContain("/src/fill/style.css");
-    // The outline weights are gone with their last usage; re-adding one would ship bytes
-    // for glyphs the brand no longer allows.
-    expect(ASYNC_STYLESHEETS.some((u) => /\/src\/(regular|bold)\//.test(u))).toBe(false);
+  it("covers ONLY the web fonts — the icon sheet is self-hosted, never fetched from a CDN", () => {
+    expect(ASYNC_STYLESHEETS).toHaveLength(1);
+    expect(ASYNC_STYLESHEETS[0]).toContain("fonts.googleapis.com");
+    // Phosphor used to be appended from unpkg.com here. It now ships through
+    // @badabhai/icons/icons.css (globals.css), from this app's own origin.
+    expect(ASYNC_STYLESHEETS.some((u) => u.includes("phosphor") || u.includes("unpkg"))).toBe(
+      false,
+    );
+    expect(ASYNC_CSS_SCRIPT).not.toContain("unpkg");
   });
 
   it("every entry is CROSS-ORIGIN — same-origin app CSS must stay blocking (no FOUC)", () => {
@@ -110,6 +110,28 @@ describe("icon weight — every Phosphor glyph uses the one loaded (fill) sheet"
       })
       .filter((x): x is string => x !== null);
     expect(offenders, `non-fill icon weights:\n${offenders.join("\n")}`).toEqual([]);
+  });
+
+  it("the one sheet is imported through the bundler, from the shared icon package", () => {
+    const globals = readFileSync(join(srcRoot, "app/globals.css"), "utf8");
+    expect(globals).toContain('@import "@badabhai/icons/icons.css";');
+    // FIRST: before the token and component layers — library rules precede the app's (an app
+    // rule wins a tie with `.ph-fill`), and Next keeps tokens + components in one stylesheet.
+    const at = (s: string) => globals.indexOf(s);
+    expect(at('@import "@badabhai/icons/icons.css";')).toBeGreaterThanOrEqual(0);
+    expect(at('@import "@badabhai/icons/icons.css";')).toBeLessThan(
+      at('@import "@badabhai/design-tokens/tokens.css";'),
+    );
+    expect(at('@import "@badabhai/design-tokens/tokens.css";')).toBeLessThan(
+      at('@import "../styles/ds-components.css";'),
+    );
+  });
+
+  it("no shipped source references the unpkg CDN in code (the icon font is self-hosted)", () => {
+    const offenders = sources
+      .filter((f) => stripComments(readFileSync(f, "utf8")).includes("unpkg.com"))
+      .map((f) => relative(srcRoot, f).replace(/\\/g, "/"));
+    expect(offenders).toEqual([]);
   });
 
   it("no stylesheet targets a retired weight class (the selector would match nothing)", () => {

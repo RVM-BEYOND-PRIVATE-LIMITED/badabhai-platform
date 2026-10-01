@@ -38,7 +38,7 @@
 /* ---------- Button ---------- */
 .bb-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  gap: var(--space-2);
+  gap: var(--icon-gap);
   height: var(--control-md); min-height: var(--control-md);
   padding: 0 var(--space-5);
   font-family: var(--font-sans); /* Inter — the brand kit's UI face; Kilimanjaro Sans is for headings only */
@@ -52,7 +52,13 @@
 }
 .bb-btn:focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); }
 .bb-btn:disabled, .bb-btn[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
-.bb-btn .ph-fill { font-size: 1.25em; }
+/* ICON SIZE PER CONTROL SIZE — from the shared icon tokens (@badabhai/icons/icons.css), not a
+   ratio of the label: sm 16 · md 20 · lg 24. The flex row centres the 1em glyph box on the label
+   (`.ph-fill` is line-height 1), --icon-gap sets the spacing, and no rule here sets a colour, so
+   the icon inherits the button's text colour through hover, active and disabled. */
+.bb-btn .ph-fill { font-size: var(--icon-size-md); }
+.bb-btn--sm .ph-fill { font-size: var(--icon-size-sm); }
+.bb-btn--lg .ph-fill { font-size: var(--icon-size-lg); }
 
 .bb-btn--sm { height: var(--control-sm); min-height: var(--control-sm); padding: 0 var(--space-3); font-size: var(--text-sm); border-radius: var(--radius-sm); }
 /* PHONE HIT AREAS (≤600px). The dense 36px `sm` button (page-head actions, "Manage all",
@@ -108,24 +114,83 @@
 .bb-btn__spinner { width: 1.1em; height: 1.1em; border: var(--border-bold) solid currentColor; border-right-color: transparent; border-radius: var(--radius-round); animation: bb-spin var(--duration-slower) linear infinite; }
 @keyframes bb-spin { to { transform: rotate(360deg); } }
 
-/* ---------- IconButton ---------- */
+/* ---------- IconButton ----------
+   The ONE icon-only control (components/ds/icon-button.tsx; the contract is
+   `IconOnlyControlProps` in @badabhai/icons, shared with admin-web's `.iconbtn`).
+   BRAND COLOUR RULE — structural Shift Blue at rest (--text-heading: navy on light surfaces, light
+   on ink). An ACTIVE utility (pressed / expanded) takes the Safety Yellow FILL with a navy glyph
+   (--brand + --text-on-brand, 9.39:1): yellow as a glyph colour is 1.63:1 on Ivory. Disabled steps
+   down to the 40% primary (--text-disabled). The glyph is `currentColor`, so it follows all of it. */
 .bb-iconbtn {
-  display: inline-flex; align-items: center; justify-content: center;
+  position: relative; /* anchors the tooltip and the coarse-pointer hit area */
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: var(--control-md); height: var(--control-md);
   border-radius: var(--radius-md);
   border: var(--border-medium) solid transparent;
-  background: transparent; color: var(--text-secondary);
-  cursor: pointer; transition: var(--transition-control); font-size: var(--text-lg);
+  background: transparent; color: var(--text-heading);
+  cursor: pointer; transition: var(--transition-control); font-size: var(--icon-size-md);
 }
-.bb-iconbtn:hover { background: var(--surface-sunken); color: var(--text-primary); }
+.bb-iconbtn:hover { background: var(--surface-sunken); }
 .bb-iconbtn:active { transform: scale(0.92); }
 .bb-iconbtn:focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); }
-.bb-iconbtn--sm { width: var(--control-sm); height: var(--control-sm); font-size: var(--text-md); }
-.bb-iconbtn--lg { width: var(--control-lg); height: var(--control-lg); font-size: var(--text-xl); }
+.bb-iconbtn--sm { width: var(--control-sm); height: var(--control-sm); font-size: var(--icon-size-sm); }
+.bb-iconbtn--lg { width: var(--control-lg); height: var(--control-lg); font-size: var(--icon-size-lg); }
 .bb-iconbtn--solid { background: var(--brand); color: var(--text-on-brand); box-shadow: var(--shadow-brand); }
 .bb-iconbtn--solid:hover { background: var(--brand-hover); color: var(--text-on-brand); }
-.bb-iconbtn--outline { border-color: var(--border-strong); color: var(--text-primary); }
+.bb-iconbtn--outline { border-color: var(--border-strong); }
 .bb-iconbtn--outline:hover { background: var(--surface-sunken); }
+.bb-iconbtn[aria-pressed="true"],
+.bb-iconbtn[aria-expanded="true"] { background: var(--brand); color: var(--text-on-brand); }
+/* Disabled: the 40% primary. NOTE a natively disabled button can show NO tooltip — browsers
+   neither hover nor focus it (measured in Chromium) — so an icon-only control whose reason must
+   stay discoverable needs the aria-disabled pattern instead (not built yet). */
+.bb-iconbtn:disabled { background: transparent; color: var(--text-disabled); cursor: not-allowed; transform: none; box-shadow: none; }
+
+/* THE TOOLTIP — the label, visible on hover (pointer devices only: a tap must not leave a stuck
+   bubble) and on keyboard focus. Hidden with visibility + no pointer events, so it never catches a
+   click while invisible. Once shown it IS hoverable (a child of the button, so moving onto it keeps
+   :hover), and the `::before` bridge spans the --space-1 gap so the pointer can cross it. Escape
+   sets [data-tooltip-dismissed] (TOOLTIP_DISMISSED_ATTRIBUTE) until blur / pointer leave.
+   The hairline border is invisible on navy and becomes the system border in forced colours. */
+.bb-iconbtn__tip {
+  position: absolute; z-index: var(--z-tooltip);
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-hairline) solid var(--border-on-ink);
+  border-radius: var(--radius-sm);
+  background: var(--surface-ink); color: var(--text-on-ink);
+  font-family: var(--font-sans); font-size: var(--text-sm); font-weight: var(--weight-medium);
+  line-height: var(--leading-snug); letter-spacing: 0; white-space: nowrap;
+  box-shadow: var(--shadow-md);
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-out), visibility var(--duration-fast) var(--ease-out);
+}
+.bb-iconbtn__tip::before { content: ""; position: absolute; }
+.bb-iconbtn__tip--top { bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: var(--space-1); }
+.bb-iconbtn__tip--top::before { top: 100%; left: 0; right: 0; height: var(--space-1); }
+.bb-iconbtn__tip--bottom { top: 100%; left: 50%; transform: translateX(-50%); margin-top: var(--space-1); }
+.bb-iconbtn__tip--bottom::before { bottom: 100%; left: 0; right: 0; height: var(--space-1); }
+.bb-iconbtn__tip--end { inset-inline-start: 100%; top: 50%; transform: translateY(-50%); margin-inline-start: var(--space-1); }
+.bb-iconbtn__tip--end::before { inset-inline-end: 100%; top: 0; bottom: 0; width: var(--space-1); }
+.bb-iconbtn__tip--start { inset-inline-end: 100%; top: 50%; transform: translateY(-50%); margin-inline-end: var(--space-1); }
+.bb-iconbtn__tip--start::before { inset-inline-start: 100%; top: 0; bottom: 0; width: var(--space-1); }
+.bb-iconbtn:focus-visible .bb-iconbtn__tip { opacity: 1; visibility: visible; pointer-events: auto; }
+@media (hover: hover) {
+  .bb-iconbtn:hover .bb-iconbtn__tip { opacity: 1; visibility: visible; pointer-events: auto; }
+}
+/* Declared after both triggers on purpose: same specificity, so source order makes Escape win. */
+.bb-iconbtn[data-tooltip-dismissed] .bb-iconbtn__tip { opacity: 0; visibility: hidden; pointer-events: none; }
+
+/* HIT AREA ≥ 44px on a phone OR any coarse pointer (a tablet is touch at 820px too). md is 44 and
+   lg 52 already; the dense 36px `sm` grows its HIT AREA, not its drawn size. Percent insets
+   resolve against the PADDING box, so (100% − 44px) / 2 lands the pseudo at exactly 44×44 around
+   the centre whatever the border width — the `.bb-btn--sm` technique. A pseudo of the button is
+   the button for hit-testing. */
+@media (max-width: 600px), (pointer: coarse) {
+  .bb-iconbtn--sm::before {
+    content: ""; position: absolute;
+    inset: calc((100% - var(--control-md)) / 2);
+  }
+}
 
 /* ---------- Field shell (Input / Textarea / Select) ---------- */
 .bb-field { display: flex; flex-direction: column; gap: var(--space-2); font-family: var(--font-sans); }

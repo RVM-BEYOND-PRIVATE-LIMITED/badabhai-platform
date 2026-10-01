@@ -29,11 +29,12 @@ import {
  *
  * UI-1: composed from the shared `.state state--error` block, same as `error.tsx` and
  * `(portal)/error.tsx` — markup only, the copy and the `reset()` wiring are unchanged.
- * The one deliberate difference: NO `.state__icon`. Phosphor (`ph-fill ph-*`) is appended at
- * runtime by ASYNC_CSS_SCRIPT in the ROOT LAYOUT, and the root layout is exactly what is NOT
- * applied when this boundary fires — the glyph would render as a tofu box inside an empty
- * circle. The DS pairs every icon with a text label precisely so the label carries the
- * meaning, so dropping the icon here costs nothing.
+ * The one deliberate difference: NO `.state__icon`. It was dropped when Phosphor was appended at
+ * runtime by the ROOT LAYOUT (exactly what is not applied when this boundary fires), so a glyph
+ * would have rendered as a tofu box. The icon font is now self-hosted through
+ * `@badabhai/icons/icons.css` inside `globals.css`, which this boundary imports itself, so a
+ * glyph WOULD render here today; restoring the icon is left to the page-by-page icon pass. The
+ * label carries the meaning either way.
  */
 export default function GlobalError({ reset }: { error: Error; reset: () => void }) {
   const envDark = process.env.NEXT_PUBLIC_PAYER_THEME?.trim().toLowerCase() === "ink";

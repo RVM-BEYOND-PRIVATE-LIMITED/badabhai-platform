@@ -11,7 +11,6 @@
 /* ---- Forms (shared) ---- */
 export {
   Button,
-  IconButton,
   Input,
   Select,
   Textarea,
@@ -21,7 +20,6 @@ export {
 } from "./forms";
 export type {
   ButtonProps,
-  IconButtonProps,
   InputProps,
   SelectProps,
   TextareaProps,
@@ -43,6 +41,8 @@ export { BadaBhaiLogo } from "./logo";
 export type { BadaBhaiLogoProps } from "./logo";
 
 /* ---- Interactive ("use client") ---- */
+export { IconButton } from "./icon-button";
+export type { IconButtonProps } from "./icon-button";
 export { OtpInput } from "./otp-input";
 export type { OtpInputProps } from "./otp-input";
 export { SelectMenu } from "./select-menu";

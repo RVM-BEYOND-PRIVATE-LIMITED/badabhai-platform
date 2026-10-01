@@ -1,0 +1,42 @@
+/* ============================================================
+   @badabhai/icons — the ONE icon stylesheet both web portals import.
+   ------------------------------------------------------------
+   Each app's `src/app/globals.css` imports this file FIRST, before the token layer (a library's
+   rules precede the app's, so an app rule that ties with `.ph-fill` wins; see README.md):
+
+     @import "@badabhai/icons/icons.css";
+     @import "@badabhai/design-tokens/tokens.css";
+
+   SELF-HOSTED. The Phosphor FILL sheet below comes from the `@phosphor-icons/web` package this
+   package depends on (exact version, see package.json), NOT from a CDN. Its `@font-face` uses
+   RELATIVE urls, so each app's bundler emits the font under its own `/_next/static/media` and
+   the browser fetches it from the app's own origin. Only the woff2 is ever requested (it is the
+   first format listed); the face is fetched only by a page that actually paints a glyph.
+
+   FILL ONLY. The brand allows solid, rounded silhouettes and nothing thinner, so no other
+   Phosphor weight is imported anywhere.
+   ============================================================ */
+@import "@phosphor-icons/web/fill";
+
+/* ---- Icon size + spacing tokens -------------------------------------------------------
+   Aliases of the type and spacing scale in tokens.css — no new values. One scale for both
+   portals: a control of size sm / md / lg draws its icon at --icon-size-sm / md / lg, and every
+   icon sits --icon-gap from its label. Change the alias here, never a pixel at a call site. */
+:root {
+  --icon-size-sm: var(--text-base); /* 16 — sm controls (--control-sm, 36px) and dense rows */
+  --icon-size-md: var(--text-lg); /* 20 — md controls (--control-md, 44px): the default */
+  --icon-size-lg: var(--text-xl); /* 24 — lg controls (--control-lg, 52px) and state heroes */
+  --icon-gap: var(--space-2); /* icon ↔ label, every control */
+}
+
+/* `<Icon size="…">`. Without a size the glyph inherits the surrounding font size — that is how
+   a control sizes its own icon (the button rules in each app's CSS). */
+.bb-icon--sm {
+  font-size: var(--icon-size-sm);
+}
+.bb-icon--md {
+  font-size: var(--icon-size-md);
+}
+.bb-icon--lg {
+  font-size: var(--icon-size-lg);
+}
