@@ -8,7 +8,8 @@ import { OPS_LIST_CAP } from "../common/pagination";
 /**
  * One ranked candidate on the company's paid list. FACELESS: an opaque `workerId` and
  * the frozen rank inputs — no name, no phone, no employer, no photo. Identity is bought
- * separately through the `/payer/unlocks` chokepoint.
+ * separately through the `/payer/unlocks` chokepoint. A worker pending deletion is never
+ * a row (ADR-0031 (b); `MatchFeedRepository.listCandidates`).
  */
 export interface MatchCandidateRowDto {
   workerId: string;
@@ -53,7 +54,9 @@ export interface MatchCandidateListDto {
  * paid candidate list". So this re-sources it to the ACTUAL APPLICANTS.
  *
  * That is a real behaviour change, and it is deliberate: where the spec and the existing
- * code disagree, the spec wins. It only takes effect behind `MATCH_V1_ENABLED`.
+ * code disagree, the spec wins. With `MATCH_V1_ENABLED` on it serves every payer posting
+ * list; with it off it serves a company's OWNED posting only (#1823 owner decision O8, via
+ * `PayerApplicantsService`), while an agency `jobs` row keeps the weighted full-pool list.
  *
  * THE ORDER IS THE SQL'S, NOT THIS SERVICE'S. `MatchFeedRepository.listCandidates`
  * returns rows already in rank order out of `applications_rank_idx`; nothing here
