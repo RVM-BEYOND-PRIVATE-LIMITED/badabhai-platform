@@ -4,6 +4,7 @@ import { NAME_UNREADABLE, type IdentityPosture } from "../lib/identity";
 import { formatRelative, formatTimestamp, shortId } from "../lib/format";
 import { StatusPill } from "./status-pill";
 import { NameCell } from "./name-cell";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
  * The payer roster, shared by Companies (`role=employer`) and Agencies (`role=agent`).
@@ -49,6 +50,7 @@ export function PayerList({
         </p>
         <div className="state__actions">
           <Link className="btn btn--ghost" href="/jobs">
+            <Icon name={ACTION_ICON.posting} />
             Browse postings
           </Link>
         </div>

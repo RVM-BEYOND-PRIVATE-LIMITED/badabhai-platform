@@ -123,6 +123,7 @@ export function PayerCreditsPanel({
           <div className="form-actions">
             <AdminActionButton
               label="Grant credits"
+              icon="hand-coins"
               confirmLabel={`Confirm grant of ${amount || "0"}?`}
               variant="primary"
               disabled={!amountValid}

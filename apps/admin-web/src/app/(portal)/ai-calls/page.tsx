@@ -16,6 +16,7 @@ import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
 import { AiCallFilterBar } from "./filter-bar";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "AI calls" };
@@ -185,6 +186,7 @@ export default async function AiCallsPage({
           </div>
           {filtered && (
             <Link className="btn btn--ghost" href="/ai-calls">
+              <Icon name={ACTION_ICON.clearFilters} />
               Clear filters
             </Link>
           )}
@@ -231,6 +233,7 @@ export default async function AiCallsPage({
             {resettable && !filtered && (
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/ai-calls">
+                  <Icon name="arrow-line-left" />
                   Back to the first page
                 </Link>
               </div>
@@ -248,6 +251,7 @@ export default async function AiCallsPage({
               {/* The SAME query. A retry pointed at the bare route silently drops the filters
                   and the cursor, returning an operator to page one while claiming to retry. */}
               <Link className="btn btn--ghost" href={retryHref}>
+                <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>
             </div>
@@ -344,6 +348,8 @@ export default async function AiCallsPage({
                             title={`Interview session ${t.session_id}`}
                           >
                             Session
+                            {/* Every row's link says "Session"; this names WHICH one. */}
+                            <span className="sr-only"> {shortId(t.session_id)}</span>
                           </Link>
                         </>
                       ) : (
@@ -360,8 +366,14 @@ export default async function AiCallsPage({
                     </td>
                     {mayReadText && (
                       <td>
-                        <Link className="link" href={`/ai-calls/${t.id}`}>
-                          Read
+                        <Link className="link link--icon" href={`/ai-calls/${t.id}`}>
+                          <Icon name={ACTION_ICON.view} />
+                          <span>View</span>
+                          {/* Every row's link says "View"; this names WHICH call. */}
+                          <span className="sr-only">
+                            {" "}
+                            call {shortId(t.id)}, {taskTypeLabel(t.task_type)}
+                          </span>
                         </Link>
                       </td>
                     )}
@@ -388,6 +400,7 @@ export default async function AiCallsPage({
               {/* KEEPS every active filter and drops only the cursor. Widening the query on the
                   way back would answer a different question than the one being paged. */}
               <Link className="btn btn--ghost" href={listHref()}>
+                <Icon name="arrow-line-left" />
                 Back to the newest
               </Link>
             </div>
@@ -418,10 +431,12 @@ export default async function AiCallsPage({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/system">
+                <Icon name="gauge" />
                 View provider switches
               </Link>
               {mayReadEvents ? (
                 <Link className="btn btn--ghost" href="/events?eventName=ai.cost_recorded">
+                  <Icon name={ACTION_ICON.timeline} />
                   View events
                 </Link>
               ) : null}

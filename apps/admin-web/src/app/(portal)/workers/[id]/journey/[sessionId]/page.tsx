@@ -18,6 +18,7 @@ import { StatusPill } from "../../../../../../components/status-pill";
 import { StuckPanel } from "../../../../../../components/stuck-panel";
 import { VoiceAttempts } from "../../../../../../components/voice-attempts";
 import { PageHeader } from "../../../../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Interview session" };
@@ -76,6 +77,7 @@ export default async function ChatSessionDetailPage({
         }
         secondaryActions={
           <Link className="btn btn--ghost" href={`/workers/${session.worker_id}`}>
+            <Icon name={ACTION_ICON.candidate} />
             Open worker
           </Link>
         }

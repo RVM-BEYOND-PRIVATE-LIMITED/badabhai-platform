@@ -14,6 +14,7 @@ import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { Stat } from "../../../components/stat";
 import { PageHeader } from "../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Payment orders" };
@@ -152,6 +153,7 @@ export default async function TransactionsPage({
           </div>
           {filtered && (
             <Link className="btn btn--ghost" href="/transactions">
+              <Icon name={ACTION_ICON.clearFilters} />
               Clear filters
             </Link>
           )}
@@ -184,6 +186,7 @@ export default async function TransactionsPage({
                   transient failure quietly returned the operator to an unfiltered page one
                   while claiming to have retried. */}
               <Link className="btn btn--ghost" href={retryHref}>
+                <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>
             </div>
@@ -216,6 +219,7 @@ export default async function TransactionsPage({
               </p>
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/credits?reason=pack_purchase">
+                  <Icon name={ACTION_ICON.credits} />
                   Open the credit ledger
                 </Link>
               </div>
@@ -231,6 +235,7 @@ export default async function TransactionsPage({
               </p>
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/credits">
+                  <Icon name={ACTION_ICON.credits} />
                   Open the credit ledger
                 </Link>
               </div>

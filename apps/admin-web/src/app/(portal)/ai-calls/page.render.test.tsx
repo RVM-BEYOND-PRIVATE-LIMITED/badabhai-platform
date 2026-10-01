@@ -421,7 +421,7 @@ describe("the worker narrowing", () => {
     expect(out).toContain("Showing only the calls made for worker");
     expect(out).toContain("5eeded00…");
     // With the worker as the ONLY filter, the way out is the results head's one Clear filters.
-    expect(out).toContain('href="/ai-calls">Clear filters</a>');
+    expect(out).toMatch(/href="\/ai-calls">(<i [^>]*><\/i>)?Clear filters<\/a>/);
     expect(out).not.toContain("Show every worker");
     expect(out).not.toContain("Clear the worker filter");
   });

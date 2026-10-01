@@ -8,6 +8,7 @@ import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Pager } from "../../../components/pager";
 import { PayerFilterBar } from "../../../components/payer-filter-bar";
 import { PageHeader } from "../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Companies" };
@@ -94,6 +95,7 @@ export default async function CompaniesPage({
           </div>
           {status && (
             <Link className="btn btn--ghost" href="/companies">
+              <Icon name={ACTION_ICON.clearFilters} />
               Clear filters
             </Link>
           )}
@@ -111,6 +113,7 @@ export default async function CompaniesPage({
             {status ? null : (
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/companies">
+                  <Icon name={ACTION_ICON.retry} />
                   Retry
                 </Link>
               </div>

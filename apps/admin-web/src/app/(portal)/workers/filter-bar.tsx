@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
  * Worker filters. Same contract as the events bar: a plain form that writes the filters
@@ -58,6 +59,7 @@ export function WorkerFilterBar({
 
       <div className="filters__actions">
         <button className="btn btn--primary" type="submit">
+          <Icon name={ACTION_ICON.filter} />
           Apply
         </button>
       </div>

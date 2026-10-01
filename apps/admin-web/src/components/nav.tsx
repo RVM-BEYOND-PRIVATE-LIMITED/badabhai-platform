@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Icon } from "@badabhai/icons";
 import type { NavSection } from "./nav-model";
 
 /**
@@ -28,7 +29,8 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
                 return (
                   <li key={item.href}>
                     <span className="sidebar__link sidebar__link--upcoming" aria-disabled="true">
-                      {item.label}
+                      <Icon name={item.icon} className="sidebar__icon" />
+                      <span className="sidebar__label">{item.label}</span>
                       <span className="sidebar__soon">Soon</span>
                     </span>
                   </li>
@@ -42,7 +44,10 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
                     className={`sidebar__link${active ? " is-active" : ""}`}
                     aria-current={active ? "page" : undefined}
                   >
-                    {item.label}
+                    {/* Decorative: the label names the destination. The glyph inherits the
+                        link colour, so the active row's is Safety Yellow on the navy band. */}
+                    <Icon name={item.icon} className="sidebar__icon" />
+                    <span className="sidebar__label">{item.label}</span>
                   </Link>
                 </li>
               );

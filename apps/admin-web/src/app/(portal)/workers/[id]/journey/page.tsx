@@ -10,6 +10,7 @@ import { JourneyFunnel } from "../../../../../components/journey-funnel";
 import { Pager } from "../../../../../components/pager";
 import { StatusPill } from "../../../../../components/status-pill";
 import { PageHeader } from "../../../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Journey" };
@@ -113,11 +114,13 @@ export default async function WorkerJourneyPage({
                    shows every worker's messages while the button that opened it said one. */
                 href={`/feedback?workerId=${encodeURIComponent(id)}`}
               >
+                <Icon name="chat-centered-text" />
                 What they told us
               </Link>
             ) : null}
             {mayReadEvents ? (
               <Link className="btn btn--ghost" href={`/workers/${id}/timeline`}>
+                <Icon name={ACTION_ICON.timeline} />
                 View event timeline
               </Link>
             ) : null}

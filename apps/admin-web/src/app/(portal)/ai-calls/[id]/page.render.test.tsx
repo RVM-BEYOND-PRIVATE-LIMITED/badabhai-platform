@@ -154,7 +154,7 @@ describe("a session without read_ai_traces", () => {
     expect(out).not.toContain("backlink");
     expect(out).not.toContain("Back to AI calls");
     // …and still offers a way out that opens for them.
-    expect(out).toContain('href="/">Back to dashboard</a>');
+    expect(out).toMatch(/href="\/">(<i [^>]*><\/i>)?Back to dashboard<\/a>/);
   });
 
   it("renders no part of the call, and no caveat about text it is not showing", async () => {

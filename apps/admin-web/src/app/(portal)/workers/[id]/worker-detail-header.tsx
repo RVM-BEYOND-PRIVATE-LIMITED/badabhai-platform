@@ -16,6 +16,7 @@ import {
   type WorkerFlagReasonCode,
 } from "../../../../lib/admin-action-vocabulary";
 import type { AdminActionOutcome } from "../../../../lib/admin-action-result";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
  * The worker detail header: the shared `PageHeader`, given the server-built title block, with
@@ -88,6 +89,7 @@ export function WorkerDetailHeader({
               </label>
               <AdminActionButton
                 label="Flag"
+                icon="flag"
                 confirmLabel="Confirm flag?"
                 variant="danger"
                 action={() => flagWorkerAction(workerId, reasonCode)}
@@ -95,6 +97,7 @@ export function WorkerDetailHeader({
               />
               <AdminActionButton
                 label="Unflag"
+                icon="flag"
                 confirmLabel="Confirm unflag?"
                 variant="primary"
                 action={() => unflagWorkerAction(workerId)}
@@ -107,11 +110,13 @@ export function WorkerDetailHeader({
           <>
             {journeyHref && (
               <Link className="btn btn--ghost" href={journeyHref}>
+                <Icon name="path" />
                 View journey
               </Link>
             )}
             {timelineHref && (
               <Link className="btn btn--ghost" href={timelineHref}>
+                <Icon name={ACTION_ICON.timeline} />
                 View event timeline
               </Link>
             )}

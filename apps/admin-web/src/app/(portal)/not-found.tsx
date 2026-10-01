@@ -1,11 +1,12 @@
 import Link from "next/link";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
  * Not found, inside the portal chrome — so an operator who mistypes an id keeps their
  * navigation and can carry on, rather than being dropped onto a bare page.
  *
- * DS: the shared `.state` block with the recovery action in `.state__actions`. No icon: the
- * title and body carry the whole meaning (a glyph would only decorate it).
+ * DS: the shared `.state` block with the recovery action in `.state__actions`. The state itself
+ * draws no glyph — the title and body carry the meaning; the recovery action carries its own.
  */
 export default function PortalNotFound() {
   return (
@@ -17,6 +18,7 @@ export default function PortalNotFound() {
       </p>
       <div className="state__actions">
         <Link className="btn btn--primary" href="/">
+          <Icon name={ACTION_ICON.back} />
           Back to dashboard
         </Link>
       </div>

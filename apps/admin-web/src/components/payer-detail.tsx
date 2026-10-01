@@ -10,6 +10,7 @@ import { DetailList } from "./detail-list";
 import { Stat } from "./stat";
 import { PayerDetailHeader } from "./payer-detail-header";
 import { PayerCreditsPanel } from "./payer-credits-panel";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
  * One payer account — shared by Companies and Agencies, which differ only by `role`.
@@ -191,6 +192,7 @@ export function PayerDetailView({
           </div>
           {payer.posting_count > 0 && (
             <Link className="btn btn--ghost" href={`/jobs?payerId=${payer.id}`}>
+              <Icon name={ACTION_ICON.posting} />
               All their postings
             </Link>
           )}
@@ -206,6 +208,7 @@ export function PayerDetailView({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={`${backHref}/${payer.id}`}>
+                <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>
             </div>

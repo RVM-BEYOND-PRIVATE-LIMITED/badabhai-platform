@@ -405,7 +405,7 @@ describe("the worker narrowing", () => {
     // With the worker as the ONLY filter, the way out is the results head's one Clear filters —
     // not a second and third link to /feedback beside it.
     expect(out.split('href="/feedback"').length - 1).toBe(1);
-    expect(out).toContain('href="/feedback">Clear filters</a>');
+    expect(out).toMatch(/href="\/feedback">(<i [^>]*><\/i>)?Clear filters<\/a>/);
     expect(out).not.toContain("Show every worker");
     // …and it names the FILTERED worker, not whoever happens to be in the first row.
     expect(out).not.toContain("Showing only what worker <span class=\"mono\">abcde000…");

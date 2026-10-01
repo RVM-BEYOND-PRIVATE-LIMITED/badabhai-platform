@@ -11,6 +11,7 @@ import {
 import { PageHeader, type PageHeaderContent } from "../../../../components/page-header";
 import { forceClosePostingAction } from "./actions";
 import type { AdminActionOutcome } from "../../../../lib/admin-action-result";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
  * The posting detail header: the shared `PageHeader` with the (capability-gated) Force-close
@@ -55,6 +56,7 @@ export function JobDetailHeader({
           canForceClose && status !== "closed" ? (
             <AdminActionButton
               label="Force-close"
+              icon={ACTION_ICON.reject}
               confirmLabel="Confirm force-close?"
               variant="danger"
               action={() => forceClosePostingAction(jobId)}
@@ -65,6 +67,7 @@ export function JobDetailHeader({
         secondaryActions={
           timelineHref ? (
             <Link className="btn btn--ghost" href={timelineHref}>
+              <Icon name={ACTION_ICON.timeline} />
               View event timeline
             </Link>
           ) : null

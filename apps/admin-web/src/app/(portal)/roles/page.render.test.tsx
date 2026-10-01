@@ -89,3 +89,15 @@ describe("the copy says where a role is changed (owner brief 2026-10-01)", () =>
     expect(out).not.toContain('href="/admins"');
   });
 });
+
+describe("the matrix marks are named glyphs, not characters (owner brief 2026-10-01)", () => {
+  it("draws check / minus from the icon font, each with a name assistive tech reads", async () => {
+    stub.failure = null;
+    stub.matrix = MATRIX;
+    const out = await render();
+    expect(out).toContain('<i class="ph-fill ph-check" role="img" aria-label="Permitted"></i>');
+    expect(out).toContain('<i class="ph-fill ph-minus" role="img" aria-label="Not granted"></i>');
+    expect(out).not.toContain("\u2713");
+    expect(out).not.toContain(">\u00b7<");
+  });
+});

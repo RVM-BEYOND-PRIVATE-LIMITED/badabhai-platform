@@ -43,3 +43,18 @@ describe("nav labels", () => {
     expect(byHref("/roles")?.capability).toBeUndefined();
   });
 });
+
+describe("nav icons", () => {
+  it("every item has a glyph, and no two items share one (one concept, one icon)", () => {
+    for (const item of items) expect(item.icon, item.href).toBeTruthy();
+    const icons = items.map((i) => i.icon);
+    expect(new Set(icons).size).toBe(icons.length);
+  });
+
+  it("uses the shared action glyph where the item IS that concept", () => {
+    expect(byHref("/events")?.icon).toBe("clock-counter-clockwise"); // ACTION_ICON.timeline
+    expect(byHref("/jobs")?.icon).toBe("briefcase"); // ACTION_ICON.posting
+    expect(byHref("/credits")?.icon).toBe("wallet"); // ACTION_ICON.credits
+    expect(byHref("/workers")?.icon).toBe("users-three"); // ACTION_ICON.users
+  });
+});

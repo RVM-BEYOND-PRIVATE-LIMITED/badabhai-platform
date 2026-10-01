@@ -127,3 +127,91 @@ describe("IconButton — 44px hit area on a phone or coarse pointer", () => {
     expect(decl(body(".iconbtn"), "position")).toBe("relative");
   });
 });
+
+/**
+ * Owner brief 2026-10-01 (item 6): glyphs in the nav, the matrix and the disclosures, aligned
+ * from the shared size/gap tokens, and 44px targets on touch for the small text links.
+ */
+describe("nav, matrix and disclosure glyphs", () => {
+  it("the nav glyph sizes from the shared scale and takes the row's colour", () => {
+    const icon = body(".sidebar__icon");
+    expect(decl(icon, "font-size")).toBe("var(--icon-size-sm)");
+    expect(decl(icon, "color")).toBeNull();
+    expect(decl(body(".sidebar__link"), "gap")).toBe("var(--icon-gap)");
+  });
+
+  it("the back link and an icon link set their glyph from the scale, at the shared gap", () => {
+    expect(decl(body(".backlink"), "gap")).toBe("var(--icon-gap)");
+    expect(decl(body(".backlink .ph-fill"), "font-size")).toBe("var(--icon-size-sm)");
+    expect(decl(body(".link--icon"), "align-items")).toBe("center");
+    expect(decl(body(".link--icon .ph-fill"), "font-size")).toBe("var(--icon-size-sm)");
+  });
+
+  it("a `not granted` mark is the 60% secondary step, not the near-invisible faint one", () => {
+    expect(decl(body(".mark--no"), "color")).toBe("var(--icon-secondary)");
+  });
+
+  it("the browser's disclosure triangle is hidden wherever the brand caret replaces it", () => {
+    for (const s of [".reviewgroup > summary", ".enroll__manual > summary"]) {
+      expect(decl(body(s), "list-style"), s).toBe("none");
+      expect(decl(body(`${s}::-webkit-details-marker`), "display"), s).toBe("none");
+    }
+  });
+
+  it("the caret points along the line when closed and down when open", () => {
+    expect(decl(body(".disclosure__caret"), "transform")).toBe("rotate(-90deg)");
+    expect(decl(body("details[open] > summary > .disclosure__caret"), "transform")).toBe("none");
+    expect(decl(body(".disclosure__caret"), "font-size")).toBe("var(--icon-size-sm)");
+  });
+});
+
+describe("44px targets on a phone or coarse pointer (and only there)", () => {
+  const touch = (selector: string) => {
+    const r = ALL.find((x) => x.selector === selector && x.atRules.join() === TOUCH);
+    expect(r, `${selector} must be declared under the touch query`).toBeDefined();
+    return r!.body;
+  };
+
+  it("table links grow a row-high hit strip, the .btn--sm technique", () => {
+    const host = touch(".table td > .link, .table th > .link");
+    expect(decl(host, "position")).toBe("relative");
+    const strip = touch(".table td > .link::before, .table th > .link::before");
+    expect(decl(strip, "content")).toBe('""');
+    expect(decl(strip, "position")).toBe("absolute");
+    expect(decl(strip, "inset-block")).toBe("calc((100% - var(--control-md)) / 2)");
+    // …and none on a mouse: desktop density is unchanged.
+    expect(
+      ALL.filter((r) => r.selector.includes(".link::before") && r.atRules.join() !== TOUCH),
+    ).toEqual([]);
+  });
+
+  it("rows are taller than the strip on touch, so no strip reaches into the next row", () => {
+    expect(decl(touch(".table tbody td, .table tbody th"), "height")).toBe(
+      "calc(var(--control-md) + var(--space-1))",
+    );
+  });
+
+  it("the table scroller contains row-level hidden labels, so they cannot widen the page", () => {
+    expect(decl(body(".tablewrap"), "position")).toBe("relative");
+  });
+
+  it("two links stacked in one cell take the height themselves, so neither steals the other's taps", () => {
+    const stacked = touch(".table :is(td, th) > br + .link, .table :is(td, th) > .link:has(+ br)");
+    expect(decl(stacked, "min-block-size")).toBe("var(--control-md)");
+    expect(
+      decl(
+        touch(".table :is(td, th) > br + .link::before, .table :is(td, th) > .link:has(+ br)::before"),
+        "content",
+      ),
+    ).toBe("none");
+  });
+
+  it("back links, id chips, the crumb's section link and disclosure rows reach 44px", () => {
+    expect(decl(touch(".backlink"), "min-block-size")).toBe("var(--control-md)");
+    expect(decl(touch(".chip > .link"), "min-block-size")).toBe("var(--control-md)");
+    expect(decl(touch(".crumb__link"), "line-height")).toBe("var(--control-md)");
+    expect(decl(touch(".reviewgroup > summary, .enroll__manual > summary"), "min-block-size")).toBe(
+      "var(--control-md)",
+    );
+  });
+});

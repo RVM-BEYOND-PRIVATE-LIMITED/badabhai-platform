@@ -10,6 +10,7 @@ import {
   SKILL_CANDIDATE_SOURCE_TYPE_LABELS,
 } from "../../../../lib/skill-discovery-vocabulary";
 import type { AdminSkillDiscoverySort } from "../../../../lib/skill-discovery";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export interface SkillDiscoveryFilterValues {
   band: string;
@@ -234,11 +235,13 @@ export function SkillDiscoveryFilterBar({
 
       <div className="filters__actions">
         <button className="btn btn--primary" type="submit">
+          <Icon name={ACTION_ICON.filter} />
           Apply
         </button>
         {/* Not "Clear filters": that name goes to the bare route everywhere else in the
             portal, and this keeps the status, tier and view above. */}
         <button className="btn btn--ghost" type="button" onClick={clearFields}>
+          <Icon name={ACTION_ICON.clearFilters} />
           Clear these fields
         </button>
       </div>

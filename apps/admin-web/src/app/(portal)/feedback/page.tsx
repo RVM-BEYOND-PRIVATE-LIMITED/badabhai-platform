@@ -12,6 +12,7 @@ import { formatRelative, formatTimestamp, shortId } from "../../../lib/format";
 import { StatusPill, type Tone } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Feedback" };
@@ -201,6 +202,7 @@ export default async function FeedbackPage({
           </div>
           {filtered && (
             <Link className="btn btn--ghost" href="/feedback">
+              <Icon name={ACTION_ICON.clearFilters} />
               Clear filters
             </Link>
           )}
@@ -270,6 +272,7 @@ export default async function FeedbackPage({
             {resettable && !filtered && (
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/feedback">
+                  <Icon name="arrow-line-left" />
                   Back to the first page
                 </Link>
               </div>
@@ -288,6 +291,7 @@ export default async function FeedbackPage({
                   the filter and the cursor, so a transient failure would return an operator
                   to page one while claiming to have retried. */}
               <Link className="btn btn--ghost" href={retryHref}>
+                <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>
             </div>
@@ -339,6 +343,8 @@ export default async function FeedbackPage({
                             title="What this worker completed, and where they stopped"
                           >
                             View journey
+                            {/* Every row's link says the same; this names WHOSE journey. */}
+                            <span className="sr-only"> of worker {shortId(f.worker_id)}</span>
                           </Link>
                         </>
                       ) : null}
@@ -482,6 +488,7 @@ export default async function FeedbackPage({
                   and on a worker-narrowed view it would hand the operator everyone else's
                   messages while the copy still said "start again from the newest". */}
               <Link className="btn btn--ghost" href={listHref()}>
+                <Icon name="arrow-line-left" />
                 Back to the newest
               </Link>
             </div>
@@ -513,6 +520,7 @@ export default async function FeedbackPage({
             {workerId && category ? (
               <div className="state__actions">
                 <Link className="btn btn--ghost" href={listHref({ category: null })}>
+                  <Icon name={ACTION_ICON.clearFilters} />
                   Clear the tag filter
                 </Link>
               </div>
@@ -531,6 +539,7 @@ export default async function FeedbackPage({
             {mayReadEvents ? (
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/events?eventName=feedback.submitted">
+                  <Icon name={ACTION_ICON.timeline} />
                   View events
                 </Link>
               </div>

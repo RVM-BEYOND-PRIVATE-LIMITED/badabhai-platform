@@ -5,6 +5,7 @@ import { EventTable } from "../../../components/event-table";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
 import { EventFilterBar } from "./filter-bar";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Events" };
@@ -96,6 +97,7 @@ export default async function EventsPage({
           </div>
           {active.length > 0 && (
             <Link className="btn btn--ghost" href="/events">
+              <Icon name={ACTION_ICON.clearFilters} />
               Clear filters
             </Link>
           )}
@@ -114,6 +116,7 @@ export default async function EventsPage({
             {active.length > 0 ? null : (
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/events">
+                  <Icon name={ACTION_ICON.retry} />
                   Retry
                 </Link>
               </div>

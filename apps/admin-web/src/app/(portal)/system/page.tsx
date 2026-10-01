@@ -6,6 +6,7 @@ import { getKillSwitchStatus } from "../../../lib/entities";
 import { healthTone } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
 import { PageHeader } from "../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "System" };
@@ -89,6 +90,7 @@ export default async function SystemPage() {
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/system">
+                <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>
             </div>
@@ -138,6 +140,7 @@ export default async function SystemPage() {
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/roles">
+                <Icon name="shield-check" />
                 Roles and capabilities
               </Link>
             </div>
@@ -152,6 +155,7 @@ export default async function SystemPage() {
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/system">
+                <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>
             </div>

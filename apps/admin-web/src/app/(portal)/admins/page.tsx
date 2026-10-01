@@ -11,6 +11,7 @@ import { Stat } from "../../../components/stat";
 import { InviteAdminForm } from "./invite-admin-form";
 import { AdminRowActions } from "./admin-row-actions";
 import { PageHeader } from "../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Admin users" };
@@ -124,6 +125,7 @@ export default async function AdminsPage({
            foot of the page, under the directory it adds to; this is the way to it. */
         primaryAction={
           <a className="btn btn--primary" href="#ad-invite">
+            <Icon name="user-plus" />
             Invite an admin
           </a>
         }
@@ -133,6 +135,7 @@ export default async function AdminsPage({
         secondaryActions={
           mayReadEvents ? (
             <Link className="btn btn--ghost" href="/events?eventName=admin.action_performed">
+              <Icon name={ACTION_ICON.timeline} />
               View all admin actions
             </Link>
           ) : null
@@ -199,6 +202,7 @@ export default async function AdminsPage({
           </div>
           {(role || status) && (
             <Link className="btn btn--ghost" href="/admins">
+              <Icon name={ACTION_ICON.clearFilters} />
               Clear filters
             </Link>
           )}
@@ -228,6 +232,7 @@ export default async function AdminsPage({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={selfHref}>
+                <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>
             </div>

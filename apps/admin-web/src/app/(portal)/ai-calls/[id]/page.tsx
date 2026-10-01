@@ -18,6 +18,7 @@ import { formatCount, formatTimestamp, healthTone } from "../../../../lib/format
 import { DetailList } from "../../../../components/detail-list";
 import { StatusPill } from "../../../../components/status-pill";
 import { PageHeader } from "../../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 // Per-request, never cached. The body of this page can contain a worker's own words, and the
 // server sends the response it is built from with `Cache-Control: no-store` for exactly that
@@ -383,9 +384,11 @@ function Denied() {
             this reader that link only ever redirected to the dashboard. */}
         <div className="state__actions">
           <Link className="btn btn--ghost" href="/roles">
+            <Icon name="shield-check" />
             Roles and capabilities
           </Link>
           <Link className="btn btn--ghost" href="/">
+            <Icon name={ACTION_ICON.back} />
             Back to dashboard
           </Link>
         </div>
@@ -406,6 +409,7 @@ function BadId() {
         </p>
         <div className="state__actions">
           <Link className="btn btn--ghost" href="/ai-calls">
+            <Icon name={ACTION_ICON.back} />
             Back to AI calls
           </Link>
         </div>
@@ -437,6 +441,7 @@ function Unavailable() {
         </p>
         <div className="state__actions">
           <Link className="btn btn--ghost" href="/ai-calls">
+            <Icon name={ACTION_ICON.back} />
             Back to AI calls
           </Link>
         </div>

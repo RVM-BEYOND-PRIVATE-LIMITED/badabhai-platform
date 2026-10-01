@@ -7,6 +7,7 @@ import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
 import { JobFilterBar } from "./filter-bar";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Postings" };
@@ -82,6 +83,7 @@ export default async function JobsPage({
           </div>
           {filtered && (
             <Link className="btn btn--ghost" href="/jobs">
+              <Icon name={ACTION_ICON.clearFilters} />
               Clear filters
             </Link>
           )}
@@ -100,6 +102,7 @@ export default async function JobsPage({
             {filtered ? null : (
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/jobs">
+                  <Icon name={ACTION_ICON.retry} />
                   Retry
                 </Link>
               </div>
@@ -179,6 +182,7 @@ export default async function JobsPage({
             {mayReadEvents ? (
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/events">
+                  <Icon name={ACTION_ICON.timeline} />
                   View events
                 </Link>
               </div>

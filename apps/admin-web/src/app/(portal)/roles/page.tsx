@@ -8,6 +8,7 @@ import {
   isAdminCapability,
 } from "../../../lib/auth/capabilities";
 import { PageHeader } from "../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Roles and capabilities" };
@@ -97,6 +98,7 @@ export default async function RolesPage() {
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/roles">
+                <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>
             </div>
@@ -133,12 +135,18 @@ export default async function RolesPage() {
                       const mine = r === session.role;
                       return (
                         <td key={r} className={mine ? "cell--mine" : undefined}>
+                          {/* Solid glyphs from the icon font, each NAMED: `role="img"` + a label,
+                              which the old `aria-label` on a bare span never reliably was. Not
+                              granted is a muted minus rather than a red cross — most cells are
+                              denials by design, and least privilege is not a fault. */}
                           <span
                             className={`mark mark--${allowed ? "yes" : "no"}`}
-                            aria-label={allowed ? "permitted" : "denied"}
-                            title={`${ROLE_LABELS[r] ?? r}: ${allowed ? "permitted" : "denied"}`}
+                            title={`${ROLE_LABELS[r] ?? r}: ${allowed ? "permitted" : "not granted"}`}
                           >
-                            {allowed ? "✓" : "·"}
+                            <Icon
+                              name={allowed ? "check" : "minus"}
+                              label={allowed ? "Permitted" : "Not granted"}
+                            />
                           </span>
                         </td>
                       );

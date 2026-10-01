@@ -16,6 +16,7 @@ import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { Stat } from "../../../components/stat";
 import { PageHeader } from "../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Credits" };
@@ -91,6 +92,7 @@ export default async function CreditsPage({
                 href={`/credits?windowDays=${w}${reason ? `&reason=${encodeURIComponent(reason)}` : ""}`}
                 key={w}
               >
+                <Icon name={ACTION_ICON.calendar} />
                 {w}d
               </Link>
             ))}
@@ -147,6 +149,7 @@ export default async function CreditsPage({
                   {windowDays !== 90 && (
                     <div className="state__actions">
                       <Link className="btn btn--ghost" href="/credits?windowDays=90">
+                        <Icon name={ACTION_ICON.calendar} />
                         Widen to 90 days
                       </Link>
                     </div>
@@ -199,6 +202,7 @@ export default async function CreditsPage({
                   </p>
                   <div className="state__actions">
                     <Link className="btn btn--ghost" href="/transactions">
+                      <Icon name="receipt" />
                       Open payment orders
                     </Link>
                   </div>
@@ -253,6 +257,7 @@ export default async function CreditsPage({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={retryHref}>
+                <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>
             </div>
@@ -273,6 +278,7 @@ export default async function CreditsPage({
           {reason && (
             /* Clears the ledger's reason and keeps the reporting window above. */
             <Link className="btn btn--ghost" href={`/credits?windowDays=${windowDays}`}>
+              <Icon name={ACTION_ICON.clearFilters} />
               Clear filters
             </Link>
           )}
@@ -300,6 +306,7 @@ export default async function CreditsPage({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={retryHref}>
+                <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>
             </div>
@@ -325,6 +332,7 @@ export default async function CreditsPage({
               </p>
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/transactions">
+                  <Icon name="receipt" />
                   Open payment orders
                 </Link>
               </div>

@@ -3,6 +3,7 @@ import { getEntityTimeline, type AdminTimelineSubjectType } from "../lib/events"
 import { EventTable } from "./event-table";
 import { PageHeader, type PageBack } from "./page-header";
 import { Pager } from "./pager";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
  * The per-entity event timeline — every event recorded for ONE worker, payer or job
@@ -69,6 +70,7 @@ export async function EntityTimeline({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={basePath}>
+                <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>
             </div>

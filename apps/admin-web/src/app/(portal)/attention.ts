@@ -1,3 +1,4 @@
+import { ACTION_ICON, type CanonicalIconName } from "@badabhai/icons";
 import { healthTone } from "../../lib/format";
 
 /**
@@ -22,6 +23,8 @@ export interface AttentionItem {
   body: string;
   href?: string;
   linkLabel?: string;
+  /** The action's glyph, from the product-wide mapping — present whenever `href` is. */
+  linkIcon?: CanonicalIconName;
 }
 
 export interface AttentionInput {
@@ -66,6 +69,7 @@ export function buildAdminAttention(input: AttentionInput): AttentionItem[] {
       body: `${down.join(", ")} — platform paths that rely on ${down.length === 1 ? "it" : "them"} will be failing.`,
       href: "/system",
       linkLabel: "View system health",
+      linkIcon: "gauge",
     });
   }
 
@@ -79,6 +83,7 @@ export function buildAdminAttention(input: AttentionInput): AttentionItem[] {
       body: "A spend or rate ceiling was hit. Check which caps tripped before raising one.",
       href: "/events",
       linkLabel: "View events",
+      linkIcon: ACTION_ICON.timeline,
     });
   }
 
@@ -96,6 +101,7 @@ export function buildAdminAttention(input: AttentionInput): AttentionItem[] {
       body: `${mocked.join(", ")} — up, but not exercising the real provider in ${input.health?.environment ?? "this environment"}.`,
       href: "/system",
       linkLabel: "View system health",
+      linkIcon: "gauge",
     });
   }
 
@@ -157,6 +163,7 @@ export function buildAdminAttention(input: AttentionInput): AttentionItem[] {
       body: `${arrived === 1 ? "A worker" : "Workers"} wrote in over the last ${input.metrics?.window_days ?? "—"} days, and the spine records nobody opening the feedback screen since.`,
       href: "/feedback",
       linkLabel: "Read feedback",
+      linkIcon: "chat-centered-text",
     });
   }
 

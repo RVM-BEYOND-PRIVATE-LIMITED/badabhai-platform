@@ -8,6 +8,7 @@ import { AdminActionResultBanner, timelineLink } from "./admin-action-result-ban
 import { PageHeader, type PageHeaderContent } from "./page-header";
 import { reinstatePayerAction, suspendPayerAction } from "./payer-actions";
 import type { AdminActionOutcome } from "../lib/admin-action-result";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
  * The Company/Agency detail header: the shared `PageHeader` with the (capability-gated)
@@ -54,6 +55,7 @@ export function PayerDetailHeader({
             status === "suspended" ? (
               <AdminActionButton
                 label="Reinstate"
+                icon={ACTION_ICON.reinstate}
                 confirmLabel="Confirm reinstate?"
                 variant="primary"
                 action={() => reinstatePayerAction(payerId)}
@@ -62,6 +64,7 @@ export function PayerDetailHeader({
             ) : (
               <AdminActionButton
                 label="Suspend"
+                icon={ACTION_ICON.suspend}
                 confirmLabel="Confirm suspend?"
                 variant="danger"
                 action={() => suspendPayerAction(payerId)}
@@ -73,6 +76,7 @@ export function PayerDetailHeader({
         secondaryActions={
           timelineHref ? (
             <Link className="btn btn--ghost" href={timelineHref}>
+              <Icon name={ACTION_ICON.timeline} />
               View event timeline
             </Link>
           ) : null

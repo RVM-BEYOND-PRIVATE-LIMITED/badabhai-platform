@@ -15,6 +15,7 @@ import {
   healthTone,
   humanizeEventName,
 } from "../../lib/format";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Dashboard" };
@@ -120,6 +121,7 @@ export default async function DashboardPage({
                 </div>
                 {item.href ? (
                   <Link className="btn btn--ghost btn--sm attention__action" href={item.href}>
+                    {item.linkIcon ? <Icon name={item.linkIcon} /> : null}
                     {item.linkLabel}
                   </Link>
                 ) : null}
@@ -277,6 +279,7 @@ export default async function DashboardPage({
               <p className="panel__sub">The newest entries on the audit spine.</p>
             </div>
             <Link className="btn btn--ghost" href="/events">
+              <Icon name={ACTION_ICON.timeline} />
               View events
             </Link>
           </div>

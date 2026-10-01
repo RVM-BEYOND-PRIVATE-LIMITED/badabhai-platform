@@ -6,6 +6,7 @@ import { getEvent, getTrace } from "../../../../lib/events";
 import { AdminRequestError } from "../../../../lib/admin-http";
 import { formatTimestamp, humanizeEventName } from "../../../../lib/format";
 import { PageHeader } from "../../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Event details" };
@@ -127,6 +128,7 @@ export default async function EventDetailPage({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={`/events/${event.id}`}>
+                <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>
             </div>
@@ -145,6 +147,7 @@ export default async function EventDetailPage({
                 className="btn btn--ghost"
                 href={`/events?eventName=${encodeURIComponent(event.event_name)}`}
               >
+                <Icon name={ACTION_ICON.timeline} />
                 Other {humanizeEventName(event.event_name)} events
               </Link>
             </div>

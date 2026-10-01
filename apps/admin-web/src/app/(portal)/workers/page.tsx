@@ -10,6 +10,7 @@ import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
 import { WorkerFilterBar } from "./filter-bar";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Workers" };
@@ -113,6 +114,7 @@ export default async function WorkersPage({
           </div>
           {filtered && (
             <Link className="btn btn--ghost" href="/workers">
+              <Icon name={ACTION_ICON.clearFilters} />
               Clear filters
             </Link>
           )}
@@ -131,6 +133,7 @@ export default async function WorkersPage({
             {filtered ? null : (
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/workers">
+                  <Icon name={ACTION_ICON.retry} />
                   Retry
                 </Link>
               </div>
@@ -221,6 +224,7 @@ export default async function WorkersPage({
             {mayReadEvents ? (
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/events">
+                  <Icon name={ACTION_ICON.timeline} />
                   View events
                 </Link>
               </div>

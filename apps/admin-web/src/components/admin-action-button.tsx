@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import type { AdminActionOutcome } from "../lib/admin-action-result";
 
 interface AdminActionButtonProps {
@@ -13,6 +14,18 @@ interface AdminActionButtonProps {
   /** The tone of the CONFIRMING click. The first click always renders as a quiet ghost button. */
   variant?: "danger" | "primary";
   disabled?: boolean;
+  /**
+   * The action's glyph, drawn before the label in every state (rest, armed, working, disabled)
+   * and recoloured by the button. Take it from `ACTION_ICON` — one concept, one icon.
+   */
+  icon?: IconName;
+  /**
+   * WHICH record a per-row action acts on, read to assistive tech after the label ("Suspend"
+   * becomes "Suspend admin 1a2b3c4d…"). A table of rows whose actions all share one name gives
+   * a screen-reader user a list of identical "Suspend" buttons. Visually unchanged: the row
+   * already says which record it is.
+   */
+  subject?: string;
   /**
    * Called with the full outcome once the action settles, success or failure.
    *
@@ -48,6 +61,8 @@ export function AdminActionButton({
   action,
   variant = "danger",
   disabled = false,
+  icon,
+  subject,
   onSettled,
 }: AdminActionButtonProps) {
   const [armed, setArmed] = useState(false);
@@ -74,7 +89,9 @@ export function AdminActionButton({
         onClick={handleClick}
         disabled={disabled || pending}
       >
-        {pending ? "Working…" : armed ? confirmLabel : label}
+        {icon ? <Icon name={icon} /> : null}
+        <span>{pending ? "Working…" : armed ? confirmLabel : label}</span>
+        {subject ? <span className="sr-only"> {subject}</span> : null}
       </button>
       {armed && !pending && (
         <button
@@ -82,7 +99,9 @@ export function AdminActionButton({
           className="btn btn--ghost btn--sm"
           onClick={() => setArmed(false)}
         >
-          Cancel
+          <Icon name={ACTION_ICON.close} />
+          <span>Cancel</span>
+          {subject ? <span className="sr-only"> {subject}</span> : null}
         </button>
       )}
     </span>

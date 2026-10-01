@@ -417,6 +417,29 @@ h3 {
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }
+.enroll__manual > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--icon-gap);
+  cursor: pointer;
+  list-style: none;
+}
+.enroll__manual > summary::-webkit-details-marker {
+  display: none;
+}
+/* The disclosure caret (`ACTION_ICON.disclosure`, caret-down) that replaces the browser's
+   triangle on every <summary>: it points along the line while closed and down once open, the
+   same reading the UA marker gave, drawn in the brand's solid glyph. */
+.disclosure__caret {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--icon-size-sm);
+  transform: rotate(-90deg);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+details[open] > summary > .disclosure__caret {
+  transform: none;
+}
 .enroll__secret {
   display: block;
   margin: var(--space-3) 0;
@@ -494,8 +517,8 @@ h3 {
 .sidebar__link {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
+  justify-content: flex-start;
+  gap: var(--icon-gap);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
   color: var(--text-on-ink-muted);
@@ -519,6 +542,19 @@ h3 {
   font-size: var(--text-xs);
   padding: 0 var(--space-2);
   border-radius: var(--radius-pill);
+  margin-inline-start: auto;
+}
+/* The nav glyph (@badabhai/icons). It inherits the row's colour — muted on the band, full on
+   hover, Safety Yellow on the active row — so no state needs an icon rule of its own. */
+.sidebar__icon {
+  flex: none;
+  font-size: var(--icon-size-sm);
+}
+.sidebar__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sidebar__foot {
   display: flex;
@@ -1013,6 +1049,11 @@ h3 {
    phone: a box a few rows tall that traps the reader inside it. 18rem keeps roughly six rows
    visible whatever the viewport height. */
 .tablewrap {
+  /* The containing block for anything absolutely positioned inside a row — the `.sr-only` names
+     on per-row actions and links. Without it their containing block was the viewport, so a
+     hidden label in a wide, scrolled table pushed the whole PAGE sideways (measured: /admins
+     scrolled 381px at 375). Positioned, the table's scroller clips them like any cell. */
+  position: relative;
   overflow: auto;
   max-block-size: max(calc(100dvh - 16rem), 18rem);
   overscroll-behavior: contain;
@@ -1121,6 +1162,16 @@ h3 {
 .link:hover {
   text-decoration: underline;
 }
+/* A text link with a glyph before its label (the AI calls "View"): the glyph sits on the text's
+   centre line at the shared gap, sized for the dense row, coloured by the link. */
+.link--icon {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.link--icon .ph-fill {
+  font-size: var(--icon-size-sm);
+}
 
 .filters {
   display: grid;
@@ -1217,10 +1268,18 @@ h3 {
 /* The back link above a detail page's title (`BackLink`, components/page-header.tsx): the
    `arrow-left` glyph and the parent page's name. Detail and child pages only — a top-level page
    has no back link. A link, so it stays navy on a light surface and its glyph inherits that. */
+/* A flex row, not a paragraph line: the link's own box decides the row's height, so the 44px
+   touch target below is the row's height too and the title under it never overlaps it (as an
+   inline box in a text line it did, by 2px, measured). */
 .page__back {
+  display: flex;
   margin: 0 0 var(--space-2);
 }
 .backlink {
+  /* Positioned so it paints — and hit-tests — above the title's text, whose display-face glyph
+     box reaches ~2px above the h1's own line box (measured: the title stole the bottom 2px of
+     the link's 44px touch target). No visual change. */
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: var(--icon-gap);
@@ -1382,17 +1441,21 @@ h3 {
 .cell--mine {
   background: var(--brand-tint);
 }
+/* The roles matrix marks — solid `check` / `minus` glyphs (@badabhai/icons), each named
+   (`role="img"`), replacing the `✓` / `·` characters. Sized from the icon scale. */
 .mark {
-  font-family: var(--font-mono);
+  display: inline-flex;
+  font-size: var(--icon-size-sm);
 }
 .mark--yes {
   color: var(--success-press);
-  font-weight: var(--weight-bold);
 }
-/* Denied is a muted dot, not a red cross: most cells are denials by design, and a wall of
-   red would read as a wall of problems rather than as least-privilege working. */
+/* Not granted is a muted minus, not a red cross: most cells are denials by design, and a wall
+   of red would read as a wall of problems rather than as least-privilege working. The 60%
+   secondary-icon step, not the faint text one: the old dot was close to invisible, and a mark
+   that carries meaning needs 3:1 (WCAG 1.4.11). */
 .mark--no {
-  color: var(--text-faint);
+  color: var(--icon-secondary);
 }
 /* The roles matrix (`.table--matrix`) — its row headers ARE the table: scrolled sideways on a
    phone, every mark lost the capability it grants (0 of 14 labels on screen at 320/375/768,
@@ -1443,7 +1506,7 @@ h3 {
  * Typography roles, a legible active state, and a topbar that says where you are.
  * (Written when this console loaded no icon font. It now shares payer-web's SELF-HOSTED Phosphor
  * FILL sheet through @badabhai/icons — same origin, no third party — and renders glyphs only
- * through `<Icon>` / `IconButton`; the sidebar items are still text-only until the icon pass.)
+ * through `<Icon>` / `IconButton`; the sidebar items carry one each, see `.sidebar__icon`.)
  * ================================================================== */
 
 /* `sidebar__group` was referenced by nav.tsx but had no rule at all — the groups were held
@@ -1853,8 +1916,8 @@ textarea.field__input {
  * Rendered only when something genuinely needs an operator (see (portal)/attention.ts), so
  * its presence is itself information. Tone rides on a leading spine rather than a full-bleed
  * wash: three saturated banners stacked would out-shout the page they are directing
- * attention within. The spine plus the wording carry the tone; the items draw no tone icon yet
- * (the shared icon font is available through @badabhai/icons — adding one is the icon pass).
+ * attention within. The spine plus the wording carry the tone; the items draw no tone icon
+ * (each item's action link carries its own glyph).
  * ================================================================== */
 .attention {
   display: flex;
@@ -2128,11 +2191,15 @@ textarea.field__input {
   gap: var(--space-4);
 }
 .reviewgroup > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--icon-gap);
   cursor: pointer;
   font-weight: var(--weight-medium);
+  list-style: none;
 }
 .reviewgroup > summary::-webkit-details-marker {
-  color: var(--text-muted);
+  display: none;
 }
 .reviewgroup[open] > summary {
   margin-block-end: var(--space-3);
@@ -2264,6 +2331,61 @@ textarea.field__input {
   }
   .page__back {
     margin-block-end: 0;
+  }
+
+  /* TABLE LINKS — an id, a role title, "View": 17px of text in a row at least 44px tall. The
+     hit area grows to the row's height, not the drawn link: a strip centred on the link, the
+     `.btn--sm` technique, so no table moves. One link per cell, so a strip has the row to
+     itself. Two links stacked in one cell (worker + "View journey", worker + "Session") take
+     the height themselves instead (below): two strips would overlap and the second would win
+     the first one's taps. A link over a second line of text (a session's time over its id)
+     takes its height too: centred on the first line, a strip leaves the row. */
+  .table td > .link,
+  .table th > .link {
+    position: relative;
+  }
+  /* …and every body row is taller than the strip, with a little to spare, so a strip never
+     reaches into the next row (at 375 a row measured 43.6px and lost the overlap to its
+     neighbour; at exactly 44 a half-pixel off-centre link still did). A table cell's `height`
+     is its minimum. */
+  .table tbody td,
+  .table tbody th {
+    height: calc(var(--control-md) + var(--space-1));
+  }
+  .table td > .link::before,
+  .table th > .link::before {
+    content: "";
+    position: absolute;
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0px, calc((100% - var(--control-md)) / 2));
+  }
+  .table :is(td, th) > br + .link,
+  .table :is(td, th) > .link:has(+ br) {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: var(--control-md);
+  }
+  .table :is(td, th) > br + .link::before,
+  .table :is(td, th) > .link:has(+ br)::before {
+    content: none;
+  }
+
+  /* A candidate-id chip in a review group, and the crumb's section link: the target takes the
+     height itself (chips wrap in rows a strip would overlap; the crumb sits in a bar with room). */
+  .chip > .link {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: var(--control-md);
+  }
+  .crumb__link {
+    display: inline-block;
+    line-height: var(--control-md);
+  }
+
+  /* The review-group and enrolment disclosures: the whole summary row is the toggle. */
+  .reviewgroup > summary,
+  .enroll__manual > summary {
+    min-block-size: var(--control-md);
   }
 }
 

@@ -29,6 +29,7 @@ import { Pager } from "../../../../components/pager";
 import { Stat } from "../../../../components/stat";
 import { PageHeader } from "../../../../components/page-header";
 import { SkillDiscoveryFilterBar } from "./filter-bar";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Skill discovery" };
@@ -281,6 +282,7 @@ export default async function SkillDiscoveryPage({
               className={`btn btn--sm ${view === "grouped" ? "btn--primary" : "btn--ghost"}`}
               href={listHref({ view: undefined, cursor: undefined })}
             >
+              <Icon name="rows" />
               Grouped
             </Link>
             <Link
@@ -288,6 +290,7 @@ export default async function SkillDiscoveryPage({
               className={`btn btn--sm ${view === "flat" ? "btn--primary" : "btn--ghost"}`}
               href={listHref({ view: "flat", cursor: undefined })}
             >
+              <Icon name="list-bullets" />
               Flat
             </Link>
           </div>
@@ -400,6 +403,7 @@ export default async function SkillDiscoveryPage({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/skills/discovery">
+                <Icon name={ACTION_ICON.clearFilters} />
                 Clear filters
               </Link>
             </div>
@@ -412,6 +416,7 @@ export default async function SkillDiscoveryPage({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={retryHref}>
+                <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>
             </div>
@@ -611,6 +616,7 @@ function EmptyQueueState({
       </p>
       <div className="state__actions">
         <Link className="btn btn--ghost" href="/skills/discovery">
+          <Icon name={ACTION_ICON.clearFilters} />
           Clear filters
         </Link>
       </div>
@@ -677,6 +683,9 @@ function GroupedQueue({
         <li key={g.key} className="panel">
           <details className="reviewgroup">
             <summary>
+              {/* The brand caret replaces the browser's own triangle (hidden in CSS); it turns
+                  to point down when the group is open. */}
+              <Icon name={ACTION_ICON.disclosure} className="disclosure__caret" />
               <strong>{g.label}</strong> · {formatCount(g.candidates)}{" "}
               {g.candidates === 1 ? "candidate" : "candidates"} · {formatCount(g.undecided)} undecided
               {g.trade_family && <> · {g.trade_family}</>}

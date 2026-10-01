@@ -28,6 +28,7 @@ import { StatusPill } from "../../../../../components/status-pill";
 import { DetailList } from "../../../../../components/detail-list";
 import { PageHeader } from "../../../../../components/page-header";
 import { SkillDecisionPanel } from "./decision-panel";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Skill candidate" };
@@ -117,6 +118,7 @@ export default async function SkillDiscoveryDetailPage({
              the page's primary action is where every other page puts its own. */
           mayDecide && !terminal ? (
             <a className="btn btn--primary" href="#sd-decision">
+              <Icon name={ACTION_ICON.approve} />
               Record a decision
             </a>
           ) : null

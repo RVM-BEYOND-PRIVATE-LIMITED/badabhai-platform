@@ -20,6 +20,7 @@ import { StatusPill } from "../../../../components/status-pill";
 import { DetailList } from "../../../../components/detail-list";
 import { Stat } from "../../../../components/stat";
 import { JobDetailHeader } from "./job-detail-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
  * A poster-set list (requirements / benefits) as chips, or a plain fallback phrase when the
@@ -273,6 +274,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={`/jobs/${job.id}`}>
+                <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>
             </div>
