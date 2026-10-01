@@ -190,6 +190,9 @@ void main() {
               'op': 'add',
               'before': null,
               'after': 'Welding',
+              'field_label': 'Skill',
+              'before_display': null,
+              'after_display': null,
             },
             <String, dynamic>{
               'row_id': 'r2',
@@ -197,6 +200,9 @@ void main() {
               'op': 'delete',
               'before': 'Hindi',
               'after': null,
+              'field_label': 'Bhasha',
+              'before_display': 'Hindi',
+              'after_display': null,
             },
           ],
         };
@@ -211,6 +217,41 @@ void main() {
       expect(p.rows.first.after, 'Welding');
       expect(p.rows.first.before, isNull);
       expect(p.rows.last.before, 'Hindi');
+    });
+
+    // F6 — the ADDITIVE row labels (contracts §5.1). The server always sends
+    // `field_label` and always sends `before_display`/`after_display` (possibly
+    // null), so the header can name the field and the values can print the
+    // server's own dictionary wording rather than the app's fallback.
+    test('parses field_label / before_display / after_display', () {
+      final EditProposal p = EditProposal.fromJson(card())!;
+      expect(p.rows.first.fieldLabel, 'Skill');
+      expect(p.rows.first.beforeDisplay, isNull);
+      expect(p.rows.first.afterDisplay, isNull);
+      expect(p.rows.last.fieldLabel, 'Bhasha');
+      expect(p.rows.last.beforeDisplay, 'Hindi');
+      expect(p.rows.last.afterDisplay, isNull);
+    });
+
+    test('an older server without the labels reads them as null, never blank', () {
+      final EditProposal p = EditProposal.fromJson(<String, dynamic>{
+        ...card(),
+        'rows': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'row_id': 'r1',
+            'section_label': 'Skills',
+            'op': 'add',
+            'after': 'Welding',
+            // A blank string must read as absent, never as an empty label.
+            'field_label': '   ',
+            'before_display': '',
+            'after_display': null,
+          },
+        ],
+      })!;
+      expect(p.rows.single.fieldLabel, isNull);
+      expect(p.rows.single.beforeDisplay, isNull);
+      expect(p.rows.single.afterDisplay, isNull);
     });
 
     test('fails closed to null on a malformed card', () {
@@ -384,7 +425,35 @@ void main() {
           CompanionEditOutcome.gone);
     });
 
-    test('a 409 {reason:"stale"} is GONE — the profile changed under the card', () async {
+    test('a 409 {reason:"stale", turn} is STALE and carries the reviewed line',
+        () async {
+      final ChatRepositoryImpl repo = repoWith(MockClient((http.Request req) async =>
+          _json(<String, dynamic>{
+            'statusCode': 409,
+            'error': <String, dynamic>{
+              'reason': 'stale',
+              'turn': <String, dynamic>{
+                ..._recapJson(reply: 'Profile beech mein badal gaya.'),
+                'tts_text': 'प्रोफ़ाइल बीच में बदल गया।',
+              },
+            },
+            'requestId': 'r',
+            'path': '/chat/companion/edits/$proposalId/confirm',
+            'timestamp': '2026-09-29T10:00:00.000Z',
+          }, 409)));
+
+      final CompanionEditResult result =
+          await repo.confirmCompanionEdit(proposalId, <String>['r1']);
+
+      expect(result.outcome, CompanionEditOutcome.stale);
+      // The turn is the server's reviewed line, carried through as a companion
+      // turn so the bloc can render it as an ordinary bubble.
+      expect(result.turn!.reply, 'Profile beech mein badal gaya.');
+      expect(result.turn!.ttsText, 'प्रोफ़ाइल बीच में बदल गया।');
+      expect(result.turn!.companion, isTrue);
+    });
+
+    test('a 409 {reason:"stale"} with no usable turn falls back to GONE', () async {
       final ChatRepositoryImpl repo = repoWith(
         MockClient((http.Request req) async => http.Response(errorBody('reason', 'stale'), 409)),
       );
@@ -431,10 +500,13 @@ void main() {
           'rows': <Map<String, dynamic>>[
             <String, dynamic>{
               'row_id': 'r1',
-              'section_label': 'Skills',
-              'op': 'add',
-              'before': null,
-              'after': 'Welding',
+              'section_label': 'Shift',
+              'op': 'edit',
+              'before': 'day',
+              'after': 'night',
+              'field_label': 'Shift',
+              'before_display': 'Day shift',
+              'after_display': 'Night shift',
             },
           ],
         };
@@ -461,7 +533,11 @@ void main() {
       expect(open.turn!.editProposal, isNotNull,
           reason: 'the recap dropped edit_proposal — the card can never render');
       expect(open.turn!.editProposal!.proposalId, 'p1');
-      expect(open.turn!.editProposal!.rows.single.after, 'Welding');
+      expect(open.turn!.editProposal!.rows.single.after, 'night');
+      // The row labels survive the ChatReply → ChatTurn hop too (F6).
+      expect(open.turn!.editProposal!.rows.single.fieldLabel, 'Shift');
+      expect(open.turn!.editProposal!.rows.single.beforeDisplay, 'Day shift');
+      expect(open.turn!.editProposal!.rows.single.afterDisplay, 'Night shift');
       expect(open.turn!.cooldownUntil, isNotNull);
       expect(open.turn!.readAloud, isFalse);
     });

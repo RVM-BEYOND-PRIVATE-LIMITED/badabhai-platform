@@ -58,11 +58,11 @@ const List<String> kCompanionTaskKeys = <String>[
 ///
 /// THE LEVER GATES THE DOOR AS WELL AS THE ROOM (ADR-0046 F4: the Remote Config
 /// key gates F1–F3). "Resume badlo" is the one task chip Phase 1 actually
-/// serves, and tapping it asks the server for an edit proposal — whose card the
-/// same lever hides. Offered on a lever-off build it is a door onto a room that
-/// is bricked up: the worker taps, the message posts, the server proposes an
-/// edit, and the reply arrives with no card and no Haan to press. So a lever-off
-/// build does not draw it.
+/// serves: tapping it enters the v2 EDIT flow — the server answers the fixed
+/// `V2_EDIT_ASK` line ("Resume mein kya badalna hai?") and the card the worker
+/// then describes is hidden by the same lever. Offered on a lever-off build it
+/// is a door onto a room that is bricked up, so a lever-off build does not draw
+/// it.
 ///
 /// KEYED ON THE PREFIX, not on the three known keys, so a fourth task chip the
 /// server adds tomorrow is hidden by an old build rather than shown bare.

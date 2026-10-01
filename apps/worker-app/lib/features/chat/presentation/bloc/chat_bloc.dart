@@ -621,12 +621,16 @@ typedef ChatAnalyticsSink = void Function(BbAnalyticsEvent event);
 void _defaultChatAnalyticsSink(BbAnalyticsEvent event) =>
     unawaited(BbAnalytics.instance.log(event));
 
-/// What the worker is told when the edit card could not be applied and has been
-/// taken away (404 expired / 409 stale, ADR-0046 §5.2).
+/// What the worker is told when the edit card went away un-applied (404 expired
+/// or already confirmed, ADR-0046 §5.2).
 ///
-/// Names the real cause — the card went out of date, usually because the profile
-/// moved under it — and says what happens next, because the tab re-reads the
-/// recap straight after. Hinglish, aap-form, like the rest of this tab.
+/// Names the real cause — the card is too old to apply — and says what happens
+/// next, because the tab re-reads the recap straight after. Hinglish, aap-form,
+/// like the rest of this tab.
+///
+/// NOT used for a STALE card (409 `{reason:"stale"}`): that answer carries the
+/// server's own reviewed `V2_EDIT_STALE` line, which the tab shows as a normal
+/// bubble.
 const String kCompanionEditGoneNotice =
     'Ye badlav ab purana ho gaya. Aapka profile dobara padh rahe hain — '
     'zaroorat ho to phir se kahein.';
@@ -1775,7 +1779,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     }
   }
 
-  /// Apply the three-answer result of a confirm/cancel call (ADR-0046 §5.2).
+  /// Apply a confirm/cancel call's result (ADR-0046 §5.2).
+  ///
+  /// FOUR ANSWERS: served (a turn — applied, cancelled, or nothing-written with
+  /// the card handed back), gone (404), stale (409 with the server's own line)
+  /// and interview (409 `{mode:"interview"}`).
   Future<void> _applyEditResult(
     CompanionEditResult result,
     Emitter<ChatState> emit,
@@ -1784,12 +1792,24 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       case CompanionEditOutcome.served:
         _applyCompanionTurn(result.turn!, emit);
         return;
+      case CompanionEditOutcome.stale:
+        // The profile moved under the card (409 `{reason:"stale"}`): the server
+        // carries the reviewed `V2_EDIT_STALE` line, and the tab shows it as an
+        // ordinary Bada Bhai bubble rather than the gone snackbar. The card is
+        // dead and goes; `_applyCompanionTurn` projects the turn (which carries
+        // no `edit_proposal`) and clears it. No recap re-read: the line IS the
+        // answer, and the worker is asked to say the change again.
+        //
+        // THE COOL-DOWN IS NOT THE CARD'S TO CLEAR (#1862) — `_withCompanionTurn`
+        // inside `_applyCompanionTurn` preserves it exactly as on a message turn.
+        _applyCompanionTurn(result.turn!, emit);
+        return;
       case CompanionEditOutcome.gone:
-        // The card is dead (404 expired / 409 stale): clear it and re-read the
-        // recap, so the worker sees the server's current facts rather than a
-        // card that can never be applied — AND say so. Dropping it in silence
-        // would leave a worker who just tapped Haan on their own profile
-        // watching the card disappear with no idea whether it worked.
+        // The card is dead (404 expired or already applied): clear it and
+        // re-read the recap, so the worker sees the server's current facts
+        // rather than a card that can never be applied — AND say so. Dropping it
+        // in silence would leave a worker who just tapped Haan on their own
+        // profile watching the card disappear with no idea whether it worked.
         // THE COOL-DOWN IS NOT THE CARD'S TO CLEAR (#1862). A dead card says
         // nothing about the server's faltu wait, and clearing the deadline here
         // handed the composer back mid-wait — the #1834 stickiness rule, undone
@@ -1884,8 +1904,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         answerType: turn.answerType,
         clearAnswerType: turn.answerType == null,
       ),
-      // The confirm/cancel turn never carries a new card; a `served` turn that
-      // somehow did replaces the one just applied — handled either way.
+      // A confirm/cancel turn USUALLY carries no card, and then the one just
+      // applied is cleared. But when NOTHING could be written the server
+      // answers 200 with the FALLBACK turn CARRYING THE SAME card (contracts
+      // §5.2), so `_withCompanionTurn` re-shows it and the worker can tap Haan
+      // again — which is why this is projected like every other turn field
+      // rather than assumed null here.
       turn,
     ));
   }

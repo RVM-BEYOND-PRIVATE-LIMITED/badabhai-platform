@@ -470,8 +470,8 @@ class ApiClient {
   ///
   /// [rowIds] are the ticked rows' server-minted `row_id`s (1..3); the VALUES
   /// never cross the wire. The 200 body is a companion turn. Throws
-  /// [ApiException] on non-2xx like every call; the repository maps 404 /
-  /// 409-stale / 409-interview.
+  /// [ApiException] on non-2xx like every call; the repository maps 404, the
+  /// 409 `{reason:"stale", turn}`, and the 409 `{mode:"interview"}`.
   Future<ChatReply> confirmCompanionEdit({
     required String authToken,
     required String proposalId,

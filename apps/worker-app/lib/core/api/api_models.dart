@@ -769,6 +769,9 @@ class EditProposalRow extends Equatable {
     required this.op,
     this.before,
     this.after,
+    this.fieldLabel,
+    this.beforeDisplay,
+    this.afterDisplay,
   });
 
   /// Server-minted uuid; the ONLY thing the confirm route accepts for this row.
@@ -786,7 +789,26 @@ class EditProposalRow extends Equatable {
   /// The proposed value, or null (a `delete` has no after).
   final String? after;
 
-  /// Parses one `{row_id, section_label, op, before, after}` object. Returns
+  /// The field this row changes, as reviewed server copy ("Travel kar sakte
+  /// hain", "Certificate ka saal"). Null on an older server (or a
+  /// qualification delete whose target named no list).
+  ///
+  /// `section_label` names only the SECTION, so two rows of one section could
+  /// not be told apart ("Pasand: Nahi → Haan" — travel, relocation or a room?).
+  /// The screen shows this beside [sectionLabel]; the SERVER owns the wording,
+  /// so the app carries no label map of its own.
+  final String? fieldLabel;
+
+  /// The worker-facing label of a CLOSED-SET [before] value, or null when the
+  /// value is free text, a date, a number, or an unknown slug. When non-null it
+  /// DISPLACES [companionEditValue] on the screen (the server's dictionary is
+  /// authoritative); when null the client's own humaniser is the fallback.
+  final String? beforeDisplay;
+
+  /// See [beforeDisplay] — the same, for [after].
+  final String? afterDisplay;
+
+  /// Parses one `{row_id, section_label, op, before, after, …}` object. Returns
   /// null on a non-map or a missing/blank required field — a malformed row is
   /// dropped (the caller keeps the usable ones), never thrown (#371).
   static EditProposalRow? fromJson(Object? raw) {
@@ -804,11 +826,33 @@ class EditProposalRow extends Equatable {
       // `is String` not a cast (#371): a garbled value reads as "none".
       before: raw['before'] is String ? raw['before'] as String : null,
       after: raw['after'] is String ? raw['after'] as String : null,
+      // ADDITIVE (contracts §5.1): absent on an older server → null, and the
+      // card then reads exactly as it did before these fields existed. A blank
+      // string is treated as absent so it can never render an empty label.
+      fieldLabel: _nonBlank(raw['field_label']),
+      beforeDisplay: _nonBlank(raw['before_display']),
+      afterDisplay: _nonBlank(raw['after_display']),
     );
   }
 
+  /// A non-blank string, or null for anything else (absent, null, a blank
+  /// string, or a wrong type). Shared by the three additive label fields.
+  static String? _nonBlank(Object? raw) {
+    if (raw is! String) return null;
+    return raw.trim().isEmpty ? null : raw;
+  }
+
   @override
-  List<Object?> get props => <Object?>[rowId, sectionLabel, op, before, after];
+  List<Object?> get props => <Object?>[
+        rowId,
+        sectionLabel,
+        op,
+        before,
+        after,
+        fieldLabel,
+        beforeDisplay,
+        afterDisplay,
+      ];
 }
 
 /// ADR-0046 §5.1 — the pending EDIT CARD (`edit_proposal`).
