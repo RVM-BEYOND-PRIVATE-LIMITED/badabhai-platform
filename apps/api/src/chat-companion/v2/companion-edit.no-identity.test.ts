@@ -10,7 +10,12 @@ const LANGUAGE_HINDI = { language: "hindi", can_speak: true, can_read: true, can
  * ADR-0046 O3 — identity and contact are OUT of the edit scope. A request for any of them must
  * never produce a row (the catalogue has no such section/field by construction), and the worker
  * is pointed at the Profile screen. The model is untrusted, so this is enforced even when the
- * classifier's `unsupported` list is empty and the model tries a row anyway.
+ * model's `unsupported` list is empty.
+ *
+ * On real traffic the AI service already drops a row aimed outside the six sections, so the
+ * smuggled-row cases below are belt and braces; what serves the identity line when the model
+ * forgets its hint is the deterministic reading of the message (BUG-IDENTITY-UNSUPPORTED) — see
+ * "the worker's own words" below, which feeds exactly what the AI service returns: no rows.
  */
 describe("CompanionEditService — identity and contact can never become a row", () => {
   it.each([
@@ -51,5 +56,48 @@ describe("CompanionEditService — identity and contact can never become a row",
     const h = setup({ parse: { rows: [], unsupported: ["other"] } });
     const { turn } = await h.service.propose(WORKER_ID, profileRow(), "kuch samajh nahi aaya", CTX);
     expect(turn.reply).toBe(V2_EDIT_NONE.latin);
+  });
+});
+
+describe("the worker's own words serve the identity line when the model forgets the hint", () => {
+  it.each([
+    "Mera naam badlo",
+    "mera naam [PERSON_1] karo",
+    "phone number update karna hai",
+    "aadhaar number badal do",
+    "मेरा नाम बदलो",
+  ])("%j with no rows and no hint → V2_EDIT_IDENTITY, no card", async (text) => {
+    // Exactly what the AI service returns for these today: `{"rows": [], "unsupported": []}`.
+    const h = setup({ parse: { rows: [], unsupported: [] } });
+    const result = await h.service.propose(WORKER_ID, profileRow(), text, CTX);
+    expect(result.turn.reply).toBe(V2_EDIT_IDENTITY.latin);
+    expect(result.outcome).toBe("served");
+    expect(h.proposals.save).not.toHaveBeenCalled();
+  });
+
+  it("works with the AI service down too — the check needs no model", async () => {
+    const h = setup({ parse: null });
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "mera phone number badlo", CTX);
+    expect(turn.reply).toBe(V2_EDIT_IDENTITY.latin);
+  });
+
+  it.each(["company ka naam badlo", "certificate ka naam galat hai", "aadhaar card ready hai"])(
+    "%j is not the worker's identity: the clarify line",
+    async (text) => {
+      const h = setup({ parse: { rows: [], unsupported: [] } });
+      const { turn } = await h.service.propose(WORKER_ID, profileRow(), text, CTX);
+      expect(turn.reply).toBe(V2_EDIT_NONE.latin);
+    },
+  );
+
+  it("a card is always the better answer — the check is never consulted when a row survives", async () => {
+    const h = setup({
+      parse: {
+        rows: [{ op: "add", section: "skills", ref: null, field: "skill", value: "TIG welding" }],
+        unsupported: [],
+      },
+    });
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "mera naam badlo aur TIG welding jodo", CTX);
+    expect(turn.edit_proposal?.rows).toHaveLength(1);
   });
 });

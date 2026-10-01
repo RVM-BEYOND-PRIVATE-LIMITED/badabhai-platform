@@ -74,6 +74,19 @@ class ChatRepositoryImpl implements ChatRepository {
   Future<ChatSessionOpening?>? _inFlightOpen;
 
   @override
+  Future<String?> latestSessionId() async {
+    final String? token = _session.sessionToken;
+    if (token == null) return null;
+    try {
+      return await _api.latestChatSessionId(authToken: token);
+    } catch (_) {
+      // Never throws by contract — the caller refuses the recording rather than
+      // creating a session, which is the harm this method exists to avoid.
+      return null;
+    }
+  }
+
+  @override
   Future<ChatSessionOpening?> ensureSession() async {
     final String? token = _session.sessionToken;
     if (token == null) throw const UnauthorizedFailure();
@@ -135,6 +148,9 @@ class ChatRepositoryImpl implements ChatRepository {
       ttsText: start.openingTtsText,
       resumePending: start.resumePending,
       options: start.openingOptions,
+      // ADR-0048 — the identity intake's first question, when there is one.
+      questionKey: start.openingQuestionKey,
+      answerType: start.openingAnswerType,
     );
   }
 
@@ -400,12 +416,15 @@ class ChatRepositoryImpl implements ChatRepository {
   /// handling exists once.
   ///
   /// THE BODY IS THE ENVELOPE. Every error here goes through the global
-  /// `AllExceptionsFilter`: `{statusCode, error: {mode|reason, …}, requestId,
-  /// …}` — the discriminant sits under `error`, never at the top level. A 409
-  /// that is not `mode:"interview"` is the stale-proposal answer (contracts
-  /// §5.2), and any other 409 is still "this card cannot be applied" — both
-  /// read as [CompanionEditOutcome.gone], which is the safe direction: the tab
-  /// clears the card and re-reads rather than keeping a dead one on screen.
+  /// `AllExceptionsFilter`: `{statusCode, error: {mode|reason, turn, …},
+  /// requestId, …}` — the discriminant sits under `error`, never at the top
+  /// level. The two 409s are DISTINCT answers (contracts §5.2): `{mode:
+  /// "interview"}` leaves companion mode, and `{reason:"stale", turn}` carries
+  /// the reviewed `V2_EDIT_STALE` turn for the tab to show rather than a line of
+  /// its own. Any other 409 — or a stale answer with no usable turn, as an older
+  /// server would send — reads as [CompanionEditOutcome.gone], which is the safe
+  /// direction: the tab clears the card and re-reads rather than keeping a dead
+  /// one on screen.
   Future<CompanionEditResult> _companionEditCall(
     Future<ChatReply> Function() call,
   ) async {
@@ -415,8 +434,19 @@ class ChatRepositoryImpl implements ChatRepository {
       if (error.statusCode == 404) return const CompanionEditResult.gone();
       if (error.statusCode == 409) {
         final Object? detail = error.body?['error'];
-        final Object? mode = detail is Map ? detail['mode'] : null;
-        if (mode == 'interview') return const CompanionEditResult.interview();
+        if (detail is Map) {
+          if (detail['mode'] == 'interview') {
+            return const CompanionEditResult.interview();
+          }
+          if (detail['reason'] == 'stale') {
+            final Object? turn = detail['turn'];
+            if (turn is Map<String, dynamic>) {
+              return CompanionEditResult.stale(
+                _companionTurn(ChatReply.fromJson(turn)),
+              );
+            }
+          }
+        }
         return const CompanionEditResult.gone();
       }
       throw mapError(error);

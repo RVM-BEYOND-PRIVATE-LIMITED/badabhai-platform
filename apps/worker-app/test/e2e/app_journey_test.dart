@@ -45,7 +45,6 @@ import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_sc
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_view.dart';
 import 'package:badabhai_worker_app/core/session/known_worker_facts_store.dart';
 import 'package:badabhai_worker_app/features/finishing/presentation/cubit/finishing_cubit.dart';
-import 'package:badabhai_worker_app/core/widgets/onboarding/onboarding_select_field.dart';
 
 import '../core/auth/fakes.dart';
 
@@ -211,34 +210,20 @@ void main() {
     await _pumpUntil(tester, find.text('Aage Badhein'));
     await tester.tap(find.text('Aage Badhein'));
 
-    // ── 4b. YOUR NAME + LOCATION — consent-gated capture (PATCH
-    //     /workers/me/name), before the identity-free chat. Mock
-    //     ApiClient.updateName is a no-op. First and last name are text
-    //     fields; the location is chosen State FIRST, then City, through the
-    //     kit's searchable pickers (#1462 keeps both GPS and manual on screen).
-    //     This picks by hand rather than tapping GPS, which would need the
-    //     geolocator plugin — it has no platform channel in a widget-test host. ──
-    await _pumpUntil(tester, find.text('Aapka naam?'));
-    final Finder nameFields = find.byType(TextField);
-    await tester.enterText(nameFields.at(0), 'Asha');
-    await tester.enterText(nameFields.at(1), 'Kumari');
-    await tester.pump();
-    await tester.tap(find.text('State chunein (Select State)'));
-    await _pumpUntil(tester, find.byKey(kOnboardingPickerSearchKey));
-    await tester.enterText(find.byKey(kOnboardingPickerSearchKey), 'Rajasthan');
-    await tester.pump();
-    await tester.tap(find.widgetWithText(ListTile, 'Rajasthan'));
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.text('Sheher chunein (Select City)'));
-    await _pumpUntil(tester, find.byKey(kOnboardingPickerSearchKey));
-    await tester.enterText(find.byKey(kOnboardingPickerSearchKey), 'Jaipur');
-    await tester.pump();
-    await tester.tap(find.widgetWithText(ListTile, 'Jaipur'));
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.text('Continue'));
+    // ── 4b. NO NAME FORM ANY MORE (ADR-0048, #1864). `/name` used to sit
+    //     here, asking first name, surname and location before the chat.
+    //     Consent now hands straight to the two doors, and the chat's identity
+    //     intake asks for those four things as its opening turns — only for
+    //     what the worker's record is actually missing. This asserts the step
+    //     is GONE rather than silently skipping it, because a form that
+    //     reappeared would strand this journey at a screen it no longer
+    //     expects. ──
+    expect(find.text('Aapka naam?'), findsNothing,
+        reason: 'the name form is retired — the chat asks instead');
 
-    // ── 4c. THE TWO DOORS (#1499) — `/name` now hands here instead of
-    //     straight to the chat. This journey walks DOOR 2 ("mere paas resume
+    // ── 4c. THE TWO DOORS (#1499) — CONSENT hands here now (ADR-0048); it
+    //     was `/name` that did, and before that consent went straight to the
+    //     chat. This journey walks DOOR 2 ("mere paas resume
     //     nahi hai"), which must be byte-for-byte the old handover: one tap,
     //     no request, and the chat's own first turn is the first thing the
     //     network sees. Door 1 is not walked here — it needs a document picker,

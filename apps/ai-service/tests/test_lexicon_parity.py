@@ -195,6 +195,28 @@ def test_skill_keywords_keep_their_file_order():
     assert keywords.index("tool offset") < keywords.index("offset")
 
 
+# ------------------------------------------------------- persona banned tokens --
+def test_the_persona_banned_groups_are_the_ones_the_api_scan_reads():
+    """`checkPersonaTokens` scans the groups `bannedTokenGroups()` names, in its order. Every
+    prompt that forbids the tokens renders `lexicon.persona_banned_tokens` — the interview turn,
+    its skills stage and the companion career answer — so a sixth group added on the TS side
+    turns THIS test red once, for all of them. Compared with the TS source, not retyped."""
+    source = (_PACKAGE / "src" / "persona" / "index.ts").read_text(encoding="utf-8")
+    body = source.split("export function bannedTokenGroups", 1)[1].split("\n}\n", 1)[0]
+    ts_groups = tuple(re.findall(r"\bc\.(banned[A-Za-z]+)\b", body))
+    assert ts_groups, "bannedTokenGroups() moved — the parity read found nothing"
+    assert ts_groups == lexicon.PERSONA_BANNED_GROUPS
+
+
+def test_the_persona_banned_tokens_flatten_the_canonical_groups_in_order():
+    """Read from the CANONICAL file the API reads, not the mirror the helper loads — a parity
+    check across the two, not a tautology."""
+    canonical = json.loads((_CANONICAL_DIR / "persona.json").read_text(encoding="utf-8"))
+    expected = tuple(token for group in lexicon.PERSONA_BANNED_GROUPS for token in canonical[group])
+    assert len(expected) >= 30
+    assert lexicon.persona_banned_tokens() == expected
+
+
 # ------------------------------------------------------------------ corpus parity --
 def test_corpus_meets_the_phase_3_floor():
     assert len(_CORPUS_ROWS) >= _MIN_CASES, (

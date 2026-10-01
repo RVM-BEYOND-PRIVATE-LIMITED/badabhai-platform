@@ -79,6 +79,10 @@ import { ResumeRerenderService } from "./resume-rerender.service";
   // what it says. It reads `history()` — the SAME projection the Resume tab shows (source,
   // trigger, the rendered glance facts, pending_update) — so the chat can never describe a
   // different résumé than the tab. `history()` is a pure read: no event, no generation.
-  exports: [ResumeService],
+  //
+  // ADR-0046 O6 — `ResumeRerenderService` too: a confirmed companion edit card whose regeneration
+  // was NOT queued (capped, no consent) still gets the form path's free, LLM-free re-render, so the
+  // PDF prints the edited live tables. One instance, on this module's RESUME_RENDER_QUEUE.
+  exports: [ResumeService, ResumeRerenderService],
 })
 export class ResumeModule {}

@@ -1299,17 +1299,77 @@ class MockApiClient extends ApiClient {
     return null;
   }
 
-  /// ADR-0044 — demo mode is never a companion worker: the tab keeps its demo
-  /// interview, exactly as before the companion existed.
+  /// ADR-0044/0046 — DEMO MODE *IS* A COMPANION WORKER, and serves the whole v2
+  /// surface offline.
+  ///
+  /// WHY THIS CHANGED. The companion only appears for a worker the SERVER calls
+  /// a companion worker — a confirmed profile, no live session after it, no
+  /// pending form handover — and only when two Firebase levers are on. That is
+  /// correct in production and impossible to arrange on a demo phone: a fresh
+  /// account lands on `/name`, and the Remote Config console is another team's.
+  /// So the feature could be finished, merged and green, and still be
+  /// unviewable by the person who asked for it. Demo mode exists precisely so
+  /// "the whole UI is walkable with no backend running" (see this file's own
+  /// header); the companion was left out of that promise, and this puts it back.
+  ///
+  /// EVERYTHING HERE IS CANNED AND PII-FREE. No network, no account, no flags.
+  /// `USE_MOCKS=true` is compile-time and defaults to false, so none of this can
+  /// reach a real build.
   @override
   Future<CompanionOpen> getChatCompanion({required String authToken}) async {
     await _delay();
-    return CompanionOpen.interview;
+    return CompanionOpen(
+      companion: true,
+      digestKey: 'demo-digest-1',
+      turn: ChatReply.fromJson(_companionRecapJson()),
+    );
   }
 
-  /// Unreachable in demo mode ([getChatCompanion] never opens the companion), and
-  /// answered the way the real server answers a non-companion worker: 409, which
-  /// the repository turns into "send it down today's chat".
+  /// The recap the demo companion opens on, with the three task chips.
+  Map<String, dynamic> _companionRecapJson() => <String, dynamic>{
+        'mode': 'companion',
+        'digest_key': 'demo-digest-1',
+        'reply': 'Namaste. Aapki profile taiyaar hai.\n'
+            'Ab tak 2 jobs par apply kiya hai, aur 1 employer ne aapka resume dekha.',
+        'tts_text': 'नमस्ते। आपकी प्रोफ़ाइल तैयार है।',
+        'blocked': false,
+        'is_mock': true,
+        'session_ended': false,
+        'extraction_ready': false,
+        'unanswered_essentials': <String>[],
+        'input_mode': 'text',
+        'question_kind': 'disambiguate',
+        'suggested_followups': <String>[],
+        'suggested_options': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'option_key': 'companion_task:edit_resume',
+            'label_text': 'Resume badlo',
+            'is_none_of_above': false,
+          },
+          <String, dynamic>{
+            'option_key': 'companion_task:new_resume',
+            'label_text': 'Naya resume',
+            'is_none_of_above': false,
+          },
+          <String, dynamic>{
+            'option_key': 'companion_task:career_talk',
+            'label_text': 'Career ki baat',
+            'is_none_of_above': false,
+          },
+          <String, dynamic>{
+            'option_key': 'companion_jobs_tab',
+            'label_text': 'Sabhi jobs dekhein',
+            'is_none_of_above': false,
+          },
+        ],
+      };
+
+  /// The demo companion's ONE answer, chosen by what the worker said.
+  ///
+  /// It routes on the chip LABELS the recap offers, which is exactly how the
+  /// real thing works — a task chip is posted as ordinary text and the server's
+  /// classifier reads it. Anything else gets a plain reply, so typing never
+  /// dead-ends.
   @override
   Future<ChatReply> sendCompanionMessage({
     required String authToken,
@@ -1317,12 +1377,111 @@ class MockApiClient extends ApiClient {
     String? submissionId,
   }) async {
     await _delay();
-    throw ApiException(409, 'not in companion mode');
+    final String said = text.trim().toLowerCase();
+
+    // "Resume badlo" → the EDIT CARD (ADR-0046 P1). Three rows, one of each
+    // operation, so the card shows every shape it can take: an add, an edit
+    // and a delete. The values are deliberately the raw closed-set tokens the
+    // real server sends (`night`, `true`), so the demo also proves the app
+    // humanises them instead of printing ids at the worker.
+    if (said.contains('resume badlo') || said.contains('badal')) {
+      return ChatReply.fromJson(<String, dynamic>{
+        ..._companionTurnBase(
+          'Ye badlav karne hain? Tick hata kar chun sakte hain.',
+        ),
+        'edit_proposal': <String, dynamic>{
+          'proposal_id': 'demo-proposal-1',
+          'expires_at': DateTime.now()
+              .add(const Duration(minutes: 3))
+              .toUtc()
+              .toIso8601String(),
+          'rows': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'row_id': '11111111-1111-4111-8111-111111111111',
+              'section_label': 'Skills',
+              'op': 'add',
+              'before': null,
+              'after': 'Welding',
+              // The three ADDITIVE row labels the real server always sends
+              // (contracts §5.1). Free text keeps a null display, a closed-set
+              // token carries its dictionary label.
+              'field_label': 'Skill',
+              'before_display': null,
+              'after_display': null,
+            },
+            <String, dynamic>{
+              'row_id': '22222222-2222-4222-8222-222222222222',
+              'section_label': 'Shift',
+              'op': 'edit',
+              'before': 'day',
+              'after': 'night',
+              'field_label': 'Shift',
+              'before_display': 'Day shift',
+              'after_display': 'Night shift',
+            },
+            <String, dynamic>{
+              'row_id': '33333333-3333-4333-8333-333333333333',
+              'section_label': 'Languages',
+              'op': 'delete',
+              'before': 'Hindi',
+              'after': null,
+              'field_label': 'Bhasha',
+              'before_display': 'Hindi',
+              'after_display': null,
+            },
+          ],
+        },
+      });
+    }
+
+    // "Career ki baat" → a MODEL-WRITTEN answer (P3): several lines, its own
+    // follow-up chips, and `read_aloud: false` — which is what makes the app
+    // withhold the speaker button, since a machine-written line has no reviewed
+    // Devanagari twin.
+    if (said.contains('career')) {
+      return ChatReply.fromJson(<String, dynamic>{
+        ..._companionTurnBase(
+          'Welding mein aage badhne ke teen raaste hain.\n'
+          'NDT certificate sabse tez hai — 2-3 mahine.\n'
+          'Uske baad supervisor ya QC inspector ban sakte hain.',
+        ),
+        'read_aloud': false,
+        'suggested_followups': <String>[
+          'NDT kya hai',
+          'Kitna kharcha',
+          'Kahan seekhein',
+        ],
+      });
+    }
+
+    // "Naya resume" → the P2 cool-down, so the composer lock and its live
+    // countdown can be seen without waiting for a real faltu strike.
+    if (said.contains('naya resume')) {
+      return ChatReply.fromJson(<String, dynamic>{
+        ..._companionTurnBase('Abhi thodi der ruk jaayein.'),
+        'cooldown_until': DateTime.now()
+            .add(const Duration(minutes: 2))
+            .toUtc()
+            .toIso8601String(),
+      });
+    }
+
+    return ChatReply.fromJson(
+      _companionTurnBase('Samajh gaya. Aur kuch poochna hai?'),
+    );
   }
 
-  /// Unreachable in demo mode for the same reason as [sendCompanionMessage]:
-  /// no card is ever served, so no confirm can be tapped. Answered 409, which
-  /// the repository reads as "this worker is not a companion worker".
+  /// The fields every demo companion turn carries. Chips are repeated on each
+  /// turn so the worker always has a next step, exactly as the recap does.
+  Map<String, dynamic> _companionTurnBase(String reply) => <String, dynamic>{
+        ..._companionRecapJson(),
+        'reply': reply,
+        'tts_text': null,
+      };
+
+  /// Haan — the demo applies the ticked rows and answers a normal turn, which is
+  /// what the real route does. The count comes back in the reply so the worker
+  /// can see their own choice was heard.
   @override
   Future<ChatReply> confirmCompanionEdit({
     required String authToken,
@@ -1331,10 +1490,13 @@ class MockApiClient extends ApiClient {
     String? submissionId,
   }) async {
     await _delay();
-    throw ApiException(409, 'not in companion mode');
+    final String n = rowIds.length == 1 ? '1 badlav' : '${rowIds.length} badlav';
+    return ChatReply.fromJson(
+      _companionTurnBase('Ho gaya — $n aapke resume mein laga diye.'),
+    );
   }
 
-  /// Unreachable in demo mode; answered like [confirmCompanionEdit].
+  /// Nahi — nothing is applied, and the card goes away.
   @override
   Future<ChatReply> cancelCompanionEdit({
     required String authToken,
@@ -1342,7 +1504,9 @@ class MockApiClient extends ApiClient {
     String? submissionId,
   }) async {
     await _delay();
-    throw ApiException(409, 'not in companion mode');
+    return ChatReply.fromJson(
+      _companionTurnBase('Theek hai, kuch nahi badla.'),
+    );
   }
 
   @override

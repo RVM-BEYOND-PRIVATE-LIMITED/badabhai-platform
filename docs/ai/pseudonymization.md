@@ -11,6 +11,16 @@ service (`apps/ai-service/app/pseudonymize.py`) and runs **before any LLM call**
   money amount → `[AMOUNT_n]`.
 - The original↔token **mapping is never persisted or returned** — callers only
   see labels.
+- Numbering is per call by default. A caller that masks several strings for ONE
+  model request and needs the model to correlate them may pass one `TokenScope`
+  (`pseudonymize(text, scope=...)`, keyword-only): the same original then gets the
+  same token in every call, and different originals never share one. The scope
+  holds keyed-BLAKE2b digests under a random per-scope key, never the originals, and refuses
+  pickling/copying. Only the companion edit parser uses it (ADR-0046: the message
+  and the worker's stored values must name the same employer with the same token).
+  Rules, fail-closed paths and the `[PREFIX_n]` grammar are identical either way,
+  and only the egressed reader-view pass uses the scope: the #1738 spaced-view
+  detector pass keeps its own private numbering.
 - **Fails closed:** returns `blocked=true` on oversize input, non-string input,
   parsing errors, or a residual long digit run (potential un-masked numeric PII).
   When blocked, the LLM is never called and a safe fallback is returned.

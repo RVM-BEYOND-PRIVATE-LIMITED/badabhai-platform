@@ -1,7 +1,9 @@
 import "reflect-metadata";
+import { Logger } from "@nestjs/common";
 import { describe, it, expect, vi } from "vitest";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
+import { REDIS_TIMEOUT_MS } from "../../queue/redis-deadline";
 import { CompanionMemoryStore } from "./companion-memory.store";
 
 // ---------------------------------------------------------------------------
@@ -152,6 +154,23 @@ describe("CompanionMemoryStore — read (fail-soft, validates every entry)", () 
   it("a dead connection is also [] — never a throw", async () => {
     const { store } = setup({ clientThrows: true });
     await expect(store.read(WORKER_ID)).resolves.toEqual([]);
+  });
+
+  it("a Redis that NEVER ANSWERS is [] on read and a dropped append — bounded, never hung", async () => {
+    // On the shared connection a command against a downed Redis is buffered and never rejects, so
+    // only the deadline keeps the read fail-soft. Real timers: the bound is the contract.
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { store, redis } = setup();
+      redis.lrange.mockImplementation(() => new Promise<string[]>(() => undefined));
+      redis.rpush.mockImplementation(() => new Promise<number>(() => undefined));
+      const started = Date.now();
+      await expect(store.read(WORKER_ID)).resolves.toEqual([]);
+      await expect(store.append(WORKER_ID, { role: "worker", text: "x" })).resolves.toBeUndefined();
+      expect(Date.now() - started).toBeLessThan(REDIS_TIMEOUT_MS * 2 * 6);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("no turn text ever reaches a log line on a failure", async () => {

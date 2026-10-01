@@ -245,7 +245,7 @@ class _VoiceNoteView extends StatelessWidget {
                           maxSeconds: context.read<VoiceNoteCubit>().maxSeconds,
                           onSend: () => context
                               .read<VoiceNoteCubit>()
-                              .stopAndTranscribe(),
+                              .stopAndTranscribe(composeOnly: composeOnly),
                           onCancel: () =>
                               context.read<VoiceNoteCubit>().cancelRecording(),
                         ),

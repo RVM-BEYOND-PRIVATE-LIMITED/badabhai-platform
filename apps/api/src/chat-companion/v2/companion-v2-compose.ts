@@ -6,14 +6,7 @@ import type { CompanionTurn, EditProposal } from "../chat-companion.dto";
 import type { CopyPair } from "../companion-replies";
 import { render, V2_FALTU_COOLDOWN } from "../companion-replies";
 import { COMPANION_NEW_JOBS_KEY, COMPANION_NEW_JOBS_LABEL } from "../companion-keys";
-import {
-  COMPANION_TASK_CAREER_KEY,
-  COMPANION_TASK_CAREER_LABEL,
-  COMPANION_TASK_EDIT_RESUME_KEY,
-  COMPANION_TASK_EDIT_RESUME_LABEL,
-  COMPANION_TASK_NEW_RESUME_KEY,
-  COMPANION_TASK_NEW_RESUME_LABEL,
-} from "../companion-task-keys";
+import { openTaskChips } from "./companion-task-chips";
 
 /** One suggested option on a v2 turn — the wire shape the v1 composer already emits. */
 export interface V2Option {
@@ -103,34 +96,17 @@ export function v2MenuTurn(menu: ResumeMenuChoice): CompanionTurn {
 
 /**
  * The task chips a v2 turn may offer (contracts §5.3): a chip exists only while its phase's flag
- * is on, so a worker is never offered a door that opens onto "abhi aana baaki hai". The jobs chip
- * is v1's existing server-answered chip and is always available.
+ * is on, so a worker is never offered a door that opens onto "abhi aana baaki hai". The chips
+ * come from the same table the tap recogniser reads (`companion-task-chips.ts`), so a chip is
+ * shown exactly while a tap on it is routed. The jobs chip is v1's existing server-answered chip
+ * and is always available.
  */
 export function taskChips(config: ServerConfig): V2Option[] {
-  const chips: V2Option[] = [];
-  if (config.CHAT_COMPANION_V2_EDIT_ENABLED) {
-    chips.push({
-      option_key: COMPANION_TASK_EDIT_RESUME_KEY,
-      label_text: COMPANION_TASK_EDIT_RESUME_LABEL,
-      is_none_of_above: false,
-    });
-  }
-  // P2 — the new-résumé door, open only while its phase flag is on (contracts §5.3).
-  if (config.CHAT_COMPANION_V2_NEW_RESUME_ENABLED) {
-    chips.push({
-      option_key: COMPANION_TASK_NEW_RESUME_KEY,
-      label_text: COMPANION_TASK_NEW_RESUME_LABEL,
-      is_none_of_above: false,
-    });
-  }
-  // P3 — the career door, same rule.
-  if (config.CHAT_COMPANION_V2_CAREER_ENABLED) {
-    chips.push({
-      option_key: COMPANION_TASK_CAREER_KEY,
-      label_text: COMPANION_TASK_CAREER_LABEL,
-      is_none_of_above: false,
-    });
-  }
+  const chips: V2Option[] = openTaskChips(config).map((chip) => ({
+    option_key: chip.key,
+    label_text: chip.label,
+    is_none_of_above: false,
+  }));
   chips.push({
     option_key: COMPANION_NEW_JOBS_KEY,
     label_text: COMPANION_NEW_JOBS_LABEL,

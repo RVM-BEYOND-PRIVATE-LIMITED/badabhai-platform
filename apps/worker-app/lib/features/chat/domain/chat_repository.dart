@@ -47,22 +47,30 @@ class CompanionOpening {
 
 /// What a companion edit confirm/cancel call actually did (ADR-0046 §5.2).
 ///
-/// THREE ANSWERS, NOT TWO — the same discipline as [CompanionOpenOutcome]. The
-/// routes answer `200 turn` (applied / cancelled), `404` (the proposal is
-/// unknown, expired, or another worker's) and two different 409s: the
-/// `{mode:"interview"}` one (this worker is no longer a companion worker) and
-/// the `{reason:"stale"}` one (the profile changed under the card). Collapsing
-/// them would either abandon a live companion on a dead card, or keep showing a
-/// card the server has already forgotten.
+/// FOUR ANSWERS, NOT TWO — the same discipline as [CompanionOpenOutcome]. The
+/// routes answer `200 turn` (applied / cancelled, or NOTHING written with the
+/// card handed back), `404` (the proposal is unknown, expired, or another
+/// worker's) and two different 409s: the `{mode:"interview"}` one (this worker
+/// is no longer a companion worker) and the `{reason:"stale", turn}` one (the
+/// profile changed under the card). Collapsing them would either abandon a live
+/// companion on a dead card, keep showing a card the server has already
+/// forgotten, or swallow the reviewed line the stale answer carries.
 enum CompanionEditOutcome {
-  /// The server answered with a turn — the edit was applied, or the cancel
-  /// acknowledged. [CompanionEditResult.turn] is that turn.
+  /// The server answered with a turn — the edit was applied, the cancel
+  /// acknowledged, or NOTHING was written and the SAME card came back on the
+  /// fallback turn. [CompanionEditResult.turn] is that turn.
   served,
 
-  /// The proposal is GONE (404, or a 409-stale): nothing was applied. The tab
-  /// clears the card and re-reads the recap — the server's current facts are
-  /// the only honest thing to show.
+  /// The proposal is GONE (404: unknown, expired, another worker's, or already
+  /// confirmed): nothing was applied. The tab clears the card and re-reads the
+  /// recap — the server's current facts are the only honest thing to show.
   gone,
+
+  /// The profile moved under the card (409 `{reason:"stale"}`): nothing was
+  /// applied, and the server carries the reviewed `V2_EDIT_STALE` turn for the
+  /// tab to show in place of a line of its own. The card is dead and goes.
+  /// [CompanionEditResult.turn] is that turn.
+  stale,
 
   /// The server says this worker is no longer a companion worker (409
   /// `{mode:"interview"}`): the tab leaves companion mode for the interview,
@@ -77,11 +85,14 @@ class CompanionEditResult {
   const CompanionEditResult.served(ChatTurn turn)
       : this(CompanionEditOutcome.served, turn);
   const CompanionEditResult.gone() : this(CompanionEditOutcome.gone);
+  const CompanionEditResult.stale(ChatTurn turn)
+      : this(CompanionEditOutcome.stale, turn);
   const CompanionEditResult.interview() : this(CompanionEditOutcome.interview);
 
   final CompanionEditOutcome outcome;
 
-  /// The turn the server served, present only for [CompanionEditOutcome.served].
+  /// The turn the server served, present for [CompanionEditOutcome.served] and
+  /// [CompanionEditOutcome.stale].
   final ChatTurn? turn;
 }
 
@@ -95,6 +106,18 @@ abstract interface class ChatRepository {
   /// and on the lazy re-open inside [sendMessage], where the worker is
   /// mid-conversation and re-greeting them would be wrong. A null keeps the
   /// client's canned `kChatOpeningText` opener.
+  /// The worker's LATEST chat session id, or null when they have none.
+  ///
+  /// READ-ONLY, and that is the whole point (#1862). [ensureSession] CREATES a
+  /// session when none is cached; this only ever looks. The companion's mic
+  /// needs a session id to attach a clip to, but must never mint one — a live
+  /// session started after confirmation is read by `ChatCompanionPolicy` as
+  /// "this worker is interviewing", which would end their companion.
+  ///
+  /// NEVER THROWS: a failed lookup answers null, and the caller then refuses the
+  /// recording honestly rather than falling back to creating one.
+  Future<String?> latestSessionId();
+
   Future<ChatSessionOpening?> ensureSession();
 
   /// Mint a GENUINELY NEW session, bypassing the `GET /session/latest` resume
@@ -158,10 +181,13 @@ abstract interface class ChatRepository {
   /// ADR-0046 §5.2 — Haan on the edit card: apply [rowIds] (the TICKED rows'
   /// server-minted `row_id`s, 1..3; the values never cross the wire).
   ///
-  /// Never throws for the three contract answers — a `200` returns
-  /// [CompanionEditOutcome.served] with the turn, a `404` / 409-stale returns
-  /// [CompanionEditOutcome.gone], and a 409 `{mode:"interview"}` returns
-  /// [CompanionEditOutcome.interview]. Throws a [Failure] on any other error.
+  /// Never throws for the contract answers — a `200` returns
+  /// [CompanionEditOutcome.served] with the turn (including the fallback turn
+  /// that carries the SAME card back when nothing was written), a `404` returns
+  /// [CompanionEditOutcome.gone], a 409 `{reason:"stale"}` returns
+  /// [CompanionEditOutcome.stale] with the reviewed turn, and a 409
+  /// `{mode:"interview"}` returns [CompanionEditOutcome.interview]. Throws a
+  /// [Failure] on any other error.
   Future<CompanionEditResult> confirmCompanionEdit(
     String proposalId,
     List<String> rowIds, {

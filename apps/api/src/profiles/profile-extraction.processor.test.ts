@@ -1203,6 +1203,48 @@ describe("ProfileExtractionProcessor — transcript source", () => {
     expect(JSON.stringify(sent)).not.toContain("Suresh");
     expect((sent as { transcript: string }).transcript).toBe("Worker: [NAME], VMC operator");
   });
+
+  // ADR-0048 (D10) — the identity intake's lines are the worker's name and town typed in answer
+  // to the chat's first questions. They stay in `chat_messages` for his own thread and are left
+  // out of the extraction input, in BOTH branches, on the marker each branch carries.
+  it("drops the identity intake's FLUSHED rows (metadata.identity_intake) from both shapes", async () => {
+    const { proc, chat, ai } = make();
+    chat.listMessages.mockResolvedValue([
+      {
+        id: "m1",
+        direction: "outbound",
+        bodyText: "Aap kis sheher mein rehte hain?",
+        metadata: { identity_intake: true },
+      },
+      { id: "m2", direction: "inbound", bodyText: "Sitamarhi", metadata: { identity_intake: true } },
+      { id: "m3", direction: "inbound", bodyText: "VMC operator, 5 saal", metadata: {} },
+    ]);
+    await proc.process(makeJob());
+
+    const sent = ai.extractProfile.mock.calls[0]![0] as {
+      transcript: string;
+      messages: { role: string; text: string }[];
+    };
+    expect(sent.messages).toEqual([{ role: "worker", text: "VMC operator, 5 saal" }]);
+    expect(sent.transcript).toBe("Worker: VMC operator, 5 saal");
+  });
+
+  it("drops the identity intake's BUFFERED lines (`intake: true`) on the early-finish path", async () => {
+    const { proc, ai } = make({
+      messages: [],
+      buffered: {
+        messages: [
+          { role: "assistant", text: "Aapka pehla naam kya hai?", at: "2026-09-30T00:00:00.000Z", intake: true },
+          { role: "worker", text: "Sitaram", at: "2026-09-30T00:00:01.000Z", intake: true },
+          { role: "worker", text: "VMC chalata hun", at: "2026-09-30T00:00:02.000Z" },
+        ] as never,
+      },
+    });
+    await proc.process(makeJob());
+    const sent = ai.extractProfile.mock.calls[0]![0] as { transcript: string };
+    expect(sent.transcript).toBe("Worker: VMC chalata hun");
+    expect(JSON.stringify(sent)).not.toContain("Sitaram");
+  });
 });
 
 // ---------------------------------------------------------------------------

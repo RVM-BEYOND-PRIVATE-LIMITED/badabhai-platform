@@ -17,6 +17,7 @@ import { MatchModule } from "../match/match.module";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
 import { ResumeModule } from "../resume/resume.module";
 import { ResumeService } from "../resume/resume.service";
+import { ResumeRerenderService } from "../resume/resume-rerender.service";
 import { WorkersModule } from "../workers/workers.module";
 import { WorkersRepository } from "../workers/workers.repository";
 import { AppModule } from "../app.module";
@@ -55,6 +56,8 @@ describe("ChatCompanionModule wiring", () => {
       "CompanionHandlerRegistry",
       // ADR-0046 T5 — the v2 Redis stores (memory + the pending edit card).
       "CompanionMemoryStore",
+      // The served-turn replay cache that makes a retried submission idempotent.
+      "CompanionTurnReplayStore",
       "CompanionV2Orchestrator",
       "EditProposalStore",
       "EditResumeHandler",
@@ -87,6 +90,8 @@ describe("ChatCompanionModule wiring", () => {
     expect(imports).toContain(AuthModule); // WorkerAuthGuard + ConsentGuard
     expect(imports).toContain(ResumeModule);
     expect(getMeta("exports", ResumeModule)).toContain(ResumeService);
+    // ADR-0046 O6 — the edit confirm's LLM-free re-render when no regeneration was queued.
+    expect(getMeta("exports", ResumeModule)).toContain(ResumeRerenderService);
     expect(imports).toContain(JobsModule);
     expect(getMeta("exports", JobsModule)).toContain(JobsRepository);
     // ADR-0046 P2/N1 — the new-résumé handler reads the worker's consent through the same
@@ -131,8 +136,9 @@ describe("ChatCompanionModule wiring", () => {
  * worker PII, no impression or search events — are promises about what its files can REACH. So
  * pin the imports: a later change that routes a read through one of these fails here.
  *
- * EXTENDED FOR V2 (ADR-0046 T5, README rule 3). The `v2/` subtree is scanned too, and one rule
- * is deliberately RELAXED there: v2 may import `@badabhai/ai-contracts` and the `AiService`
+ * EXTENDED FOR V2 (ADR-0046 T5, README rule 3). The WHOLE `v2/` subtree is scanned too —
+ * recursively, so `v2/handlers/` (where the one model-calling handler lives) is covered — and one
+ * rule is deliberately RELAXED there: v2 may import `@badabhai/ai-contracts` and the `AiService`
  * client, because routing a message to the model is its job — through `AiService`, never by
  * opening its own HTTP/SDK call, which is the new v2-specific ban below. Every OTHER ban holds
  * for both generations, which is what keeps "the module has no route to a chat-table writer"
@@ -140,21 +146,34 @@ describe("ChatCompanionModule wiring", () => {
  */
 describe("the companion's egress guard", () => {
   const dir = __dirname;
+  const isSource = (f: string) => f.endsWith(".ts") && !f.endsWith(".test.ts");
+  /** This directory's own files only — the v1 generation. */
   const readSources = (d: string) =>
     readdirSync(d)
-      .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+      .filter(isSource)
       .map((f) => [f, readFileSync(join(d, f), "utf8")] as const);
+  /** Every source file under `d`, at any depth, named by its path relative to `dir`. */
+  const readTree = (d: string, prefix: string): (readonly [string, string])[] =>
+    readdirSync(d, { withFileTypes: true }).flatMap((entry) => {
+      const name = `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) return readTree(join(d, entry.name), name);
+      return isSource(entry.name) ? [[name, readFileSync(join(d, entry.name), "utf8")] as const] : [];
+    });
   const sources = readSources(dir);
-  const v2Sources = readSources(join(dir, "v2")).map(
-    ([f, s]) => [`v2/${f}`, s] as const,
-  );
+  const v2Sources = readTree(join(dir, "v2"), "v2");
   const allSources = [...sources, ...v2Sources];
 
-  it("sees the production files, including the v2 subtree", () => {
+  it("sees the production files, including every level of the v2 subtree", () => {
     expect(sources.map(([f]) => f)).toContain("chat-companion.service.ts");
     // Non-vacuous subdir scan: the v2 rules below must never pass by finding nothing.
-    expect(v2Sources.map(([f]) => f)).toContain("v2/companion-memory.store.ts");
-    expect(v2Sources.map(([f]) => f)).toContain("v2/edit-proposal.store.ts");
+    const v2Files = v2Sources.map(([f]) => f);
+    expect(v2Files).toContain("v2/companion-memory.store.ts");
+    expect(v2Files).toContain("v2/edit-proposal.store.ts");
+    // ...and the nested handlers, including the one that calls a model and the file that
+    // declares several injectable classes.
+    expect(v2Files).toContain("v2/handlers/career-talk.handler.ts");
+    expect(v2Files).toContain("v2/handlers/new-resume.handler.ts");
+    expect(v2Files).toContain("v2/handlers/fixed-line.handlers.ts");
   });
 
   it.each([
@@ -193,21 +212,23 @@ describe("the companion's egress guard", () => {
           .map((s) => s.trim().split(/\s+as\s+/)[0]!.trim())
           .filter((s) => s.length > 0),
       );
-      const params = source.match(/constructor\(([\s\S]*?)\{/);
-      if (params === null) continue;
-      // `@Inject(...)`-decorated parameters are exempt: the decorator carries the token, so
-      // their `: Type` annotation is documentation (e.g. `@Inject(SERVER_CONFIG) ... config:
-      // ServerConfig`). Split on commas — no decorator here takes a comma-bearing argument.
-      const undecorated = params[1]!
-        .split(",")
-        .filter((p) => !p.includes("@Inject("))
-        .join(",");
-      for (const name of typeOnly) {
-        expect(
-          undecorated,
-          `${file}: ${name} is imported type-only but used as a constructor parameter type — ` +
-            `import it as a value or Nest will inject null at boot`,
-        ).not.toMatch(new RegExp(`:\\s*${name}\\b`));
+      // EVERY constructor in the file, not just the first: `fixed-line.handlers.ts` declares
+      // several injectable classes, and a later one is exactly where a type-only import would hide.
+      for (const params of source.matchAll(/constructor\(([\s\S]*?)\{/g)) {
+        // `@Inject(...)`-decorated parameters are exempt: the decorator carries the token, so
+        // their `: Type` annotation is documentation (e.g. `@Inject(SERVER_CONFIG) ... config:
+        // ServerConfig`). Split on commas — no decorator here takes a comma-bearing argument.
+        const undecorated = params[1]!
+          .split(",")
+          .filter((p) => !p.includes("@Inject("))
+          .join(",");
+        for (const name of typeOnly) {
+          expect(
+            undecorated,
+            `${file}: ${name} is imported type-only but used as a constructor parameter type — ` +
+              `import it as a value or Nest will inject null at boot`,
+          ).not.toMatch(new RegExp(`:\\s*${name}\\b`));
+        }
       }
     }
   });

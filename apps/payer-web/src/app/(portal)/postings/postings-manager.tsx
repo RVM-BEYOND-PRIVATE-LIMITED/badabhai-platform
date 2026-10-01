@@ -133,9 +133,9 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
                   {p.status}
                 </Badge>
               </div>
-              {/* The middot separators are drawn by CSS (`::before` on every span after the
-                  first) so the glyph travels with its following segment and can't orphan on a
-                  wrap — see `.posting-card__meta` in globals.css. */}
+              {/* The middot separators are drawn by CSS (`::before` on the segments) so the
+                  glyph travels with its following segment and can't orphan on a wrap — see
+                  `.posting-card__meta` in globals.css. The row holds FACTS only. */}
               <div className="posting-card__meta">
                 <span>{p.locationLabel ?? "Location flexible"}</span>
                 <span>{p.vacancyBand} vacancies</span>
@@ -146,14 +146,16 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
                 <span>
                   Posted <span className="bb-mono">{day(p.createdAt)}</span>
                 </span>
-                <span>
-                  <Link className="postings-link" href={`/postings/${p.id}`}>
-                    Details
-                  </Link>{" "}
-                  <Link className="postings-link" href={`/postings/${p.id}/edit`}>
-                    Edit
-                  </Link>
-                </span>
+              </div>
+              {/* The row's two page links get their own line: inside the facts row they read
+                  as one "Details Edit" label led by a separator dot. */}
+              <div className="posting-card__links">
+                <Link className="postings-link" href={`/postings/${p.id}`}>
+                  Details
+                </Link>{" "}
+                <Link className="postings-link" href={`/postings/${p.id}/edit`}>
+                  Edit
+                </Link>
               </div>
 
               {/* B8 — the per-row result region is announceable (aria-live): a retryable

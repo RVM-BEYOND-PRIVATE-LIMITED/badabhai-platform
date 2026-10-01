@@ -44,5 +44,16 @@ abstract interface class VoiceNoteRegistrar {
 /// closed with [VoiceUnavailableFailure] when neither is ready; MOCK returns
 /// canned text so the merge-into-chat step is walkable offline.
 abstract interface class VoiceTranscriptResolver {
-  Future<String> resolve(AiJob job, {required String authToken});
+  /// [preferEnglish] flips the preference to `transcript_english` (#1862).
+  ///
+  /// THE COMPANION'S COMPOSER NEEDS IT. Sarvam returns DEVANAGARI for Hindi
+  /// audio (#1411), and the composer strips Devanagari before it will accept
+  /// text — so for the core audience a Hindi note landed as an EMPTY box. The
+  /// chat path is unaffected: it merges the source-language transcript into a
+  /// session that stores it as spoken, which is what `transcript_text` is for.
+  Future<String> resolve(
+    AiJob job, {
+    required String authToken,
+    bool preferEnglish = false,
+  });
 }

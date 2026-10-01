@@ -265,16 +265,36 @@ export const V2_EDIT_IDENTITY: CopyPair = {
   dev: "नाम और फ़ोन प्रोफ़ाइल में जा कर बदलिए।",
 };
 
-/** Haan: the rows were applied in one transaction and the résumé regeneration is queued. */
+/**
+ * The only change asked for carried a masked value (ADR-0046 O17): a company or a person's name
+ * the privacy gateway replaced with a token, which chat can never write back. Rephrasing cannot
+ * help, so the worker is pointed at the screen that can. DRAFT pending owner review (contracts §8).
+ */
+export const V2_EDIT_PLACEHOLDER: CopyPair = {
+  latin: "Yeh badlav chat se nahi ho sakta. Profile mein jaa kar badliye.",
+  dev: "यह बदलाव चैट से नहीं हो सकता। प्रोफ़ाइल में जा कर बदलिए।",
+};
+
+/**
+ * Haan: the rows were applied in one transaction and the résumé regeneration is QUEUED — its cap
+ * slot charged and its job in RESUME_GENERATE_QUEUE, so "update ho raha hai" is literally true.
+ */
 export const V2_EDIT_DONE: CopyPair = {
   latin: "Badlav ho gaya. Aapka resume update ho raha hai.",
   dev: "बदलाव हो गया। आपका रिज़्यूमे अपडेट हो रहा है।",
 };
 
-/** Applied, but the daily cap refused the regeneration (or it failed): the edits are written. */
+/**
+ * Applied, but no regeneration was queued — the daily cap refused it, it could not be queued, or
+ * consent does not cover résumé generation. The edits ARE written.
+ *
+ * NO "KAL HO JAYEGA". Nothing regenerates later on its own, so the line promises no time; it says
+ * what is true now and where the worker can update it themselves. DRAFT pending owner review
+ * (contracts §8).
+ */
 export const V2_EDIT_DONE_CAPPED: CopyPair = {
-  latin: "Badlav ho gaya. Resume aaj update nahi ho sakta, kal ho jayega.",
-  dev: "बदलाव हो गया। रिज़्यूमे आज अपडेट नहीं हो सकता, कल हो जाएगा।",
+  latin: "Badlav ho gaya. Resume abhi update nahi hua, baad mein Resume tab se update karein.",
+  dev: "बदलाव हो गया। रिज़्यूमे अभी अपडेट नहीं हुआ, बाद में रिज़्यूमे टैब से अपडेट करें।",
 };
 
 /** Nahi: the card was dismissed and NOTHING was written. */
@@ -293,6 +313,83 @@ export const V2_EDIT_STALE: CopyPair = {
 export const V2_EDIT_UNAVAILABLE: CopyPair = {
   latin: "Abhi badlav nahi ho paaya, thodi der mein try karein.",
   dev: "अभी बदलाव नहीं हो पाया, थोड़ी देर में ट्राई करें।",
+};
+
+// ── Companion v2 — the edit card's row labels (BUG-CARD-LABELS) ─────────────────────────────
+//
+// `section_label` names only the SECTION, so two rows of one section could not be told apart
+// ("Pasand: Nahi → Haan" — travel, relocation or a room?). Each row now also carries the FIELD's
+// name. Worded after the forms the worker filled the value in on, as plain labels (no "?"), and
+// never "company" (the counterparty rule the persona scan enforces). DRAFT pending owner review
+// (contracts §8).
+
+/** One label per edit-catalogue field, keyed `section:field` exactly as `edit-catalogue.ts` is. */
+export const EDIT_FIELD_LABELS: Readonly<Record<string, CopyPair>> = {
+  "employment:employer_name": { latin: "Kahan kaam kiya", dev: "कहाँ काम किया" },
+  "employment:employer_city": { latin: "Kaam ka sheher", dev: "काम का शहर" },
+  "employment:employer_state": { latin: "Kaam ka state", dev: "काम का स्टेट" },
+  "employment:start_ym": { latin: "Kab shuru kiya", dev: "कब शुरू किया" },
+  "employment:end_ym": { latin: "Kab tak kiya", dev: "कब तक किया" },
+  "employment:role_label": { latin: "Aapka role", dev: "आपका रोल" },
+  "employment:work_done": { latin: "Kya kaam karte the", dev: "क्या काम करते थे" },
+  "skills:skill": { latin: "Skill", dev: "स्किल" },
+  "languages:language": { latin: "Bhasha", dev: "भाषा" },
+  "qualifications:certificate_name": { latin: "Certificate ka naam", dev: "सर्टिफ़िकेट का नाम" },
+  "qualifications:certificate_issuer": { latin: "Certificate kisne diya", dev: "सर्टिफ़िकेट किसने दिया" },
+  "qualifications:certificate_year": { latin: "Certificate ka saal", dev: "सर्टिफ़िकेट का साल" },
+  "qualifications:education_credential": { latin: "Padhai", dev: "पढ़ाई" },
+  "qualifications:education_field": { latin: "Trade ya subject", dev: "ट्रेड या सब्जेक्ट" },
+  "qualifications:education_council": { latin: "Council / board", dev: "काउंसिल / बोर्ड" },
+  "qualifications:education_year": { latin: "Padhai ka saal", dev: "पढ़ाई का साल" },
+  "qualifications:education_institute": { latin: "Institute ka naam", dev: "इंस्टिट्यूट का नाम" },
+  "qualifications:training_name": { latin: "Training ka naam", dev: "ट्रेनिंग का नाम" },
+  "qualifications:training_provider": { latin: "Training kisne di", dev: "ट्रेनिंग किसने दी" },
+  "qualifications:training_year": { latin: "Training ka saal", dev: "ट्रेनिंग का साल" },
+  "occupations:role_id": { latin: "Role", dev: "रोल" },
+  "preferences:shift": { latin: "Shift", dev: "शिफ़्ट" },
+  "preferences:job_type": { latin: "Naukri ka type", dev: "नौकरी का टाइप" },
+  "preferences:willing_to_travel": { latin: "Travel kar sakte hain", dev: "ट्रैवल कर सकते हैं" },
+  "preferences:willing_to_relocate": { latin: "Doosre sheher ja sakte hain", dev: "दूसरे शहर जा सकते हैं" },
+  "preferences:accommodation_needed": { latin: "Rehne ki jagah chahiye", dev: "रहने की जगह चाहिए" },
+  "preferences:expected_salary": { latin: "Salary ki ummeed", dev: "सैलरी की उम्मीद" },
+  "preferences:availability_status": { latin: "Kab join kar sakte hain", dev: "कब जॉइन कर सकते हैं" },
+  "preferences:availability_available_from": { latin: "Join karne ki tareekh", dev: "जॉइन करने की तारीख़" },
+  "preferences:availability_notice_period_days": { latin: "Notice period ke din", dev: "नोटिस पीरियड के दिन" },
+  "preferences:preferred_cities": { latin: "Kahan kaam karna chahte hain", dev: "कहाँ काम करना चाहते हैं" },
+  "preferences:work_types": { latin: "Kaun si naukri chalegi", dev: "कौन सी नौकरी चलेगी" },
+  "preferences:documents_ready": { latin: "Taiyaar document", dev: "तैयार डॉक्यूमेंट" },
+};
+
+/**
+ * A DELETE in employment or qualifications removes the WHOLE entry — the field is only the anchor
+ * the model pointed at — so its row is labelled as the entry, never as that field ("Kab shuru
+ * kiya — Hatayenge: 2019-01" would read as clearing a date). Keyed by entry kind.
+ */
+export const EDIT_ENTRY_LABELS = {
+  employment: { latin: "Yeh poora kaam", dev: "यह पूरा काम" },
+  certificate: { latin: "Yeh poora certificate", dev: "यह पूरा सर्टिफ़िकेट" },
+  education: { latin: "Yeh poori padhai", dev: "यह पूरी पढ़ाई" },
+  training: { latin: "Yeh poori training", dev: "यह पूरी ट्रेनिंग" },
+} as const satisfies Readonly<Record<string, CopyPair>>;
+
+/** The three yes/no preferences' stored `"true"`/`"false"`, as the card and the app say them. */
+export const EDIT_YES_NO_LABELS = {
+  true: { latin: "Haan", dev: "हाँ" },
+  false: { latin: "Nahi", dev: "नहीं" },
+} as const satisfies Readonly<Record<"true" | "false", CopyPair>>;
+
+/**
+ * A tap on the "Resume badlo" task chip. The tap names a TASK, not a change, so no model is
+ * asked to parse it: the worker is asked what to change, with two examples. Each quoted example
+ * is a v1 MISS and names a change the edit catalogue can make — a language ADD and a shift EDIT
+ * (both asserted in `companion-v2.orchestrator.test.ts`) — so a worker who types one reaches the
+ * edit router and gets a card, never a v1 menu or "samajh nahi aaya". (A home city is NOT one:
+ * the catalogue has only the employer's city and the preferred-city list.) DRAFT — pending owner
+ * review (contracts §8).
+ */
+export const V2_EDIT_ASK: CopyPair = {
+  latin: "Resume mein kya badalna hai? Jaise: 'Marathi bhasha jod do' ya 'night shift kar do'.",
+  dev: "रिज़्यूमे में क्या बदलना है? जैसे: 'मराठी भाषा जोड़ दो' या 'नाइट शिफ्ट कर दो'।",
 };
 
 // ── Companion v2 — faltu (ADR-0046 P2, O11) ──────────────────────────────────────────────────
@@ -348,6 +445,16 @@ export const V2_CAREER_REFUSE: Readonly<Record<CompanionV2CareerRefusalTopic, Co
   },
 };
 
+/**
+ * A tap on the "Career ki baat" task chip. The label is not a question, so it is never sent to
+ * the career model as one: the worker is asked for their question, with one example that is a
+ * v1 miss (asserted beside `V2_EDIT_ASK`'s). DRAFT — pending owner review (contracts §8).
+ */
+export const V2_CAREER_ASK: CopyPair = {
+  latin: "Career ke baare mein aapka kya sawaal hai? Jaise: 'nayi skill kaun si seekhun'.",
+  dev: "करियर के बारे में आपका क्या सवाल है? जैसे: 'नई स्किल कौन सी सीखूँ'।",
+};
+
 /** Every pair above, for the persona and twin tests. */
 export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPair]> = [
   ["LEAD", LEAD],
@@ -379,11 +486,17 @@ export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPai
   ["V2_EDIT_CARD_INTRO", V2_EDIT_CARD_INTRO],
   ["V2_EDIT_NONE", V2_EDIT_NONE],
   ["V2_EDIT_IDENTITY", V2_EDIT_IDENTITY],
+  ["V2_EDIT_PLACEHOLDER", V2_EDIT_PLACEHOLDER],
   ["V2_EDIT_DONE", V2_EDIT_DONE],
   ["V2_EDIT_DONE_CAPPED", V2_EDIT_DONE_CAPPED],
   ["V2_EDIT_CANCELLED", V2_EDIT_CANCELLED],
   ["V2_EDIT_STALE", V2_EDIT_STALE],
   ["V2_EDIT_UNAVAILABLE", V2_EDIT_UNAVAILABLE],
+  // BUG-CARD-LABELS — the edit card's row labels (shown, so held to the same scan).
+  ...Object.entries(EDIT_FIELD_LABELS).map(([key, pair]) => [`EDIT_FIELD_LABELS.${key}`, pair] as const),
+  ...Object.entries(EDIT_ENTRY_LABELS).map(([key, pair]) => [`EDIT_ENTRY_LABELS.${key}`, pair] as const),
+  ...Object.entries(EDIT_YES_NO_LABELS).map(([key, pair]) => [`EDIT_YES_NO_LABELS.${key}`, pair] as const),
+  ["V2_EDIT_ASK", V2_EDIT_ASK],
   // ADR-0046 P2 — faltu.
   ["V2_FALTU_REDIRECT", V2_FALTU_REDIRECT],
   ["V2_FALTU_COOLDOWN", V2_FALTU_COOLDOWN],
@@ -391,4 +504,5 @@ export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPai
   ...Object.entries(V2_CAREER_REFUSE).map(
     ([topic, pair]) => [`V2_CAREER_REFUSE.${topic}`, pair] as const,
   ),
+  ["V2_CAREER_ASK", V2_CAREER_ASK],
 ];

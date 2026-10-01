@@ -6,6 +6,7 @@ import {
   HARDSHIP_REPLY_TEXTS,
 } from "./next-question";
 import { normalizeReplyText } from "./reply-closure";
+import { IDENTITY_INTAKE_REPLIES } from "./identity-intake/identity-intake.copy";
 
 /**
  * THE DEVANAGARI SIDECAR (#896) — the native-script twin of every string the interview can say.
@@ -95,6 +96,38 @@ const CONSTANT_TTS_TEXT: Readonly<Record<string, string>> = {
 
   // next-question.ts — asked ABOUT the packs, so it lives in none of them.
   "Aap in mein se kaun sa kaam karte hain?": "आप इन में से कौन सा काम करते हैं?",
+
+  // identity-intake.copy.ts (ADR-0048) — the first name: prompt, retry, why, why-then-question.
+  "Aapka pehla naam kya hai?": "आपका पहला नाम क्या है?",
+  "Kripya sirf apna pehla naam likhiye.": "कृपया सिर्फ़ अपना पहला नाम लिखिये।",
+  "Aapka naam aapke resume par chhapta hai.": "आपका नाम आपके रिज़्यूमे पर छपता है।",
+  "Aapka naam aapke resume par chhapta hai. Aapka pehla naam kya hai?":
+    "आपका नाम आपके रिज़्यूमे पर छपता है। आपका पहला नाम क्या है?",
+
+  // identity-intake.copy.ts — the surname.
+  "Aapka surname kya hai?": "आपका सरनेम क्या है?",
+  "Kripya sirf apna surname likhiye.": "कृपया सिर्फ़ अपना सरनेम लिखिये।",
+  "Poora naam resume par sahi dikhta hai.": "पूरा नाम रिज़्यूमे पर सही दिखता है।",
+  "Poora naam resume par sahi dikhta hai. Aapka surname kya hai?":
+    "पूरा नाम रिज़्यूमे पर सही दिखता है। आपका सरनेम क्या है?",
+
+  // identity-intake.copy.ts — the state.
+  "Aap kis state mein rehte hain?": "आप किस स्टेट में रहते हैं?",
+  "Kripya apne state ka naam likhiye.": "कृपया अपने स्टेट का नाम लिखिये।",
+  "State se aapke paas ki naukri dhoondhi jaati hai.": "स्टेट से आपके पास की नौकरी ढूँढी जाती है।",
+  "State se aapke paas ki naukri dhoondhi jaati hai. Aap kis state mein rehte hain?":
+    "स्टेट से आपके पास की नौकरी ढूँढी जाती है। आप किस स्टेट में रहते हैं?",
+
+  // identity-intake.copy.ts — the city.
+  "Aap kis sheher mein rehte hain?": "आप किस शहर में रहते हैं?",
+  "Kripya apne sheher ka naam likhiye.": "कृपया अपने शहर का नाम लिखिये।",
+  "Sheher se aapke paas ki naukri dikhayi jaati hai.": "शहर से आपके पास की नौकरी दिखाई जाती है।",
+  "Sheher se aapke paas ki naukri dikhayi jaati hai. Aap kis sheher mein rehte hain?":
+    "शहर से आपके पास की नौकरी दिखाई जाती है। आप किस शहर में रहते हैं?",
+
+  // identity-intake.copy.ts — the handoff onto the interview's opener.
+  "Shukriya. Aap kaun sa kaam karte hain, aur kitna tajurba hai?":
+    "शुक्रिया। आप कौन सा काम करते हैं, और कितना तजुर्बा है?",
 };
 
 /**
@@ -1202,6 +1235,7 @@ export const TTS_CONSTANT_SOURCES: readonly string[] = [
   CHAT_UNAVAILABLE_REPLY,
   DISAMBIGUATION_PROMPT_TEXT,
   CHAT_OPENING_TEXT,
+  ...IDENTITY_INTAKE_REPLIES,
 ];
 
 export { DEVANAGARI_RE };

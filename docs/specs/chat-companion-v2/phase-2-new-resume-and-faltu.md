@@ -39,7 +39,12 @@ faltu:
   emit chat.companion_faltu_strike {strike_count: n, cooldown_started}
 ```
 
-- The worker's text is never echoed, logged or put in an event.
+- The worker's text is never echoed, logged, put in an event or stored in memory — on the lexicon
+  path and on the classifier path alike (a message the classifier calls `faltu` passes no memory
+  pair).
+- A retried send (same `submission_id`) replays the turn already served: it is ONE strike.
+- A running cool-down also rides the open turn (`GET /chat/companion`), so the composer lock
+  survives an app restart.
 - Cool-down blocks **free text only**. Chip taps (v1 and task-chip keys) are still served, so a worker
   can always reach the résumé and jobs. Order in code: chip keys → cool-down → v1 text resolver →
   lexicon → classifier.
@@ -94,10 +99,19 @@ Two consequences stated rather than discovered:
 1. **The cool-down blocks free text, including text v1 would have answered.** That is what
    "chip keys → cool-down → v1 text resolver" says; chip taps (v1's and the task chips') skip
    the gate, so the résumé and jobs stay reachable.
-2. **Task-chip taps are routed deterministically, before v1.** This was load-bearing, not a
-   convenience: v1's weak signals answer "Resume badlo" and "Naya resume" with the digest
-   (both contain "resume"), so without this step a tapped chip could never reach its handler
-   (nor the classifier, in Phase 1). Exact label/key match only; typed sentences stay free text.
+2. **Task-chip taps are routed deterministically, before v1 — but only while that chip's phase
+   flag is on.** Without this step v1 would answer a tapped chip itself: its weak "resume" signal
+   answers "Resume badlo" with the digest, and its résumé-menu alias "naya resume" answers
+   "Naya resume" with the redo menu (not the digest, as this note first said). Exact label/key
+   match only; typed sentences stay free text. **Corrected 2026-09-30:** the step originally ran
+   whenever the master flag was on, so with NEW_RESUME (or EDIT / CAREER) off a worker typing
+   "naya resume" got the phase-off line instead of v1's redo menu — a v1 regression. A chip is
+   now recognised only while it can be shown (`companion-task-chips.ts`, one table for both);
+   with its flag off the label is typed text and takes the v1-first path exactly as before.
+3. **A tap names a task, not a request (2026-09-30).** "Resume badlo" and "Career ki baat" are
+   answered with fixed ask lines (`V2_EDIT_ASK`, `V2_CAREER_ASK` — drafts, contracts §8) and never
+   sent to a model; "Naya resume" goes to its handler with the SERVER-authored label. The next
+   message still takes the normal order (no pending-intent bypass — an owner decision).
 
 ### Frontend — worker app (GitHub issue)
 
@@ -111,8 +125,11 @@ Two consequences stated rather than discovered:
 | `new-resume.handler.test.ts` | served turn equals `resolveResumeMenu(REDO)` byte-for-byte; consent off → fallback |
 | `faltu.handler.test.ts` | strike 1–2 redirect; strike 3 starts cool-down; counter resets next UTC day |
 | `faltu.order.test.ts` | chips served during cool-down; free text blocked during cool-down; lexicon hit skips the model |
-| `faltu.privacy.test.ts` | abusive text never appears in events, logs or memory |
-| flag-off tests | each new flag off ⇒ Phase 1 behaviour unchanged |
+| `faltu.privacy.test.ts` | abusive text never appears in events, logs or memory — lexicon path AND classifier path (any confidence, faltu phase on or off) |
+| flag-off tests | each new flag off ⇒ Phase 1 behaviour unchanged — incl. `companion-v2.flag-off.test.ts`: each task chip's label/key with its phase off gets v1's turn byte-for-byte (or the Phase 1 router for a v1 miss), never the chip route |
+| `faltu.order.test.ts` (open) | a running cool-down rides the `GET /chat/companion` turn as `cooldown_until` (V2 + FALTU on only); a Redis that never answers (command or connection) still returns the open within the 150 ms bound, with no `cooldown_until`, and free text is served by v1 |
+| `companion-v2.orchestrator.test.ts` (retry) | a replayed `submission_id` is one strike, one model call, one memory pair; a fail-closed turn (`intent_source: fallback`) is not replayed — the retry reaches the classifier |
+| `companion-v2.privacy.test.ts`, `faltu.privacy.test.ts`, `career.privacy.test.ts` (replay) | the REAL replay store over a fake Redis: on the classifier, edit-card, lexicon, classifier-faltu and career paths the stored value is the served turn — never the message (raw or masked), its name or its phone number — and no log line carries them when the write fails |
 
 ## 5. Acceptance
 

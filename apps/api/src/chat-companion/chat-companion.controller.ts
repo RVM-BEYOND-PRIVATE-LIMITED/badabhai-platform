@@ -83,12 +83,16 @@ export class ChatCompanionController {
    * The worker tapped **Haan** on an edit card (ADR-0046 O4/O6). HTTP only.
    *
    * THE STATUS CODES ARE THE CONTRACT (§5.2):
-   *   - 200 — the ticked rows applied (or rolled back whole) and the answer is a normal turn;
-   *   - 404 — unknown, expired, already-confirmed, or ANOTHER WORKER'S proposal (the store is
-   *     keyed by the bearer's worker id, so there is no cross-worker oracle);
+   *   - 200 — the ticked rows applied, and the answer is a normal turn; or NOTHING was written
+   *     (rolled back whole), and the answer is the fallback turn carrying the SAME
+   *     `edit_proposal`, so the card stays and Haan can be tapped again;
+   *   - 404 — unknown, expired, already-confirmed (or being confirmed by another request), or
+   *     ANOTHER WORKER'S proposal (the store is keyed by the bearer's worker id, so there is no
+   *     cross-worker oracle);
    *   - 409 `{mode:"interview"}` — the worker is not in companion mode any more, same as message;
-   *   - 409 `{reason:"stale"}` — the profile moved under the card; NOTHING was written and the
-   *     app must drop the card and re-ask.
+   *   - 409 `{reason:"stale", turn}` — the profile moved under the card; NOTHING was written and
+   *     the app must drop the card. `turn` (additive) is the reviewed V2_EDIT_STALE line with its
+   *     read-aloud twin, for the app to show in place of a line of its own.
    */
   @Post("edits/:proposalId/confirm")
   @HttpCode(200)
@@ -101,7 +105,7 @@ export class ChatCompanionController {
   ) {
     const result = await this.companion.confirmEdit(worker.id, proposalId, dto, ctx);
     if (result.mode === "interview") throw new ConflictException({ mode: "interview" });
-    if (result.mode === "stale") throw new ConflictException({ reason: "stale" });
+    if (result.mode === "stale") throw new ConflictException({ reason: "stale", turn: result.turn });
     if (result.mode === "not_found") throw new NotFoundException();
     return result.turn;
   }

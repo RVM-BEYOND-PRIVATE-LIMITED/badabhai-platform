@@ -24,6 +24,7 @@ import app.routers.companion as companion_router
 from app.companion import classify as classify_logic
 from app.companion import edit_parse as edit_parse_logic
 from app.companion.prompts import CLASSIFY_SYSTEM_PROMPT, EDIT_PARSE_SYSTEM_PROMPT
+from app.contracts import CompanionEditSnapshotRow
 from app.main import app
 
 client = TestClient(app)
@@ -180,6 +181,50 @@ def test_edit_parse_masks_snapshot_values(monkeypatch: pytest.MonkeyPatch) -> No
     assert '"max_rows":3' in seen
 
 
+def test_edit_parse_masks_message_and_snapshot_with_one_token_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The model must tell employers apart. Masked one value at a time with a fresh numbering,
+    all three employers below came out `[EMPLOYER_1]` and the message's `[EMPLOYER_1]` matched
+    every row (audit probe, 2026-09-30). One scope per request: the message's token is e2's
+    alone, and three employers carry three tokens."""
+    captured: list[dict] = []
+    monkeypatch.setattr(
+        companion_router.router, "run", _fake_run(edit_parse_logic.MOCK_RESPONSE, captured)
+    )
+    body = {
+        "text": "Bajaj Auto Ltd ko hatao",
+        "catalogue": [{"section": "employment", "field": "employer_name", "ops": ["delete"]}],
+        "snapshot": [
+            {"ref": "e1", "section": "employment", "fields": {"employer_name": "Tata Motors Ltd"}},
+            {"ref": "e2", "section": "employment", "fields": {"employer_name": "Bajaj Auto Ltd"}},
+            {"ref": "e3", "section": "employment", "fields": {"employer_name": "Tata Motors"}},
+        ],
+        "max_rows": 3,
+    }
+    assert client.post("/companion/edit-parse", json=body).status_code == 200
+    user = captured[0]["messages"][1]["content"]
+    context = json.loads(user.split("\n", 1)[1].split("\n\nWORKER MESSAGE", 1)[0])
+    message = user.rsplit("\n", 1)[1]
+
+    tokens = {row["ref"]: row["fields"]["employer_name"] for row in context["current_values"]}
+    assert len(set(tokens.values())) == 3, tokens
+    assert message == f"{tokens['e2']} ko hatao"
+    assert [ref for ref, token in tokens.items() if token in message] == ["e2"]
+    # Still masked: no employer name reaches the model.
+    for name in ("Tata Motors", "Bajaj Auto"):
+        assert name not in user
+
+
+def test_mask_snapshot_alone_still_numbers_values_apart() -> None:
+    rows = [
+        CompanionEditSnapshotRow(ref=ref, section="employment", fields={"employer_name": name})
+        for ref, name in (("e1", "Tata Motors"), ("e2", "Bajaj Auto"))
+    ]
+    masked = edit_parse_logic.mask_snapshot(rows)
+    assert [row.fields["employer_name"] for row in masked] == ["[EMPLOYER_1]", "[EMPLOYER_2]"]
+
+
 def test_edit_parse_drops_bad_rows_individually(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = json.dumps(
         {
@@ -187,7 +232,7 @@ def test_edit_parse_drops_bad_rows_individually(monkeypatch: pytest.MonkeyPatch)
                 {"op": "add", "section": "skills", "field": "skill", "value": "welding"},
                 {"op": "rename", "section": "skills", "field": "skill", "value": "x"},  # bad op
                 {"op": "add", "section": "identity", "field": "name", "value": "Ramesh"},  # O3
-                {"op": "delete", "section": "languages", "ref": "l1"},  # valid
+                {"op": "delete", "section": "languages", "ref": "l1", "field": "language"},
             ],
             "unsupported": ["identity", "identity", "phone", "contact"],
         }
@@ -200,6 +245,29 @@ def test_edit_parse_drops_bad_rows_individually(monkeypatch: pytest.MonkeyPatch)
     assert [row["section"] for row in body["rows"]] == ["skills", "languages"]
     # Unknown unsupported values are filtered, duplicates collapsed.
     assert body["unsupported"] == ["identity", "contact"]
+
+
+@pytest.mark.parametrize("op", ["add", "edit", "delete"])
+def test_edit_parse_drops_a_row_without_a_field(op: str) -> None:
+    """EVERY row names its field. The API resolves a row through its `(section, field)`
+    catalogue entry before any op check (`companion-edit.service.ts` validateRow), so a
+    field-less delete — "Hindi hata do" as `{op: delete, ref: l1}` — would be dropped there
+    unseen. Dropping it here keeps the service's output equal to what the API can use."""
+    row = {"op": op, "section": "languages", "ref": None if op == "add" else "l1"}
+    if op != "delete":
+        row["value"] = "punjabi"
+    kept = {"op": "add", "section": "skills", "field": "skill", "value": "welding"}
+    parsed = edit_parse_logic.parse_edit_rows(json.dumps({"rows": [row, kept]}), max_rows=3)
+    assert [(r.section, r.field) for r in parsed.rows] == [("skills", "skill")]
+
+
+def test_a_field_less_row_does_not_spend_a_slot_of_the_cap() -> None:
+    rows = [
+        {"op": "delete", "section": "languages", "ref": "l1"},  # no field: dropped
+        {"op": "delete", "section": "languages", "ref": "l1", "field": "language"},
+    ]
+    parsed = edit_parse_logic.parse_edit_rows(json.dumps({"rows": rows}), max_rows=1)
+    assert [(r.op, r.ref, r.field) for r in parsed.rows] == [("delete", "l1", "language")]
 
 
 def test_edit_parse_caps_rows_at_max_rows(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -277,6 +345,34 @@ def test_the_prompts_state_the_closed_sets_and_the_refusal_rule() -> None:
     assert "identity" in EDIT_PARSE_SYSTEM_PROMPT
     assert "contact" in EDIT_PARSE_SYSTEM_PROMPT
     assert "You never write anything" in EDIT_PARSE_SYSTEM_PROMPT
+
+
+def test_the_edit_prompt_requires_a_field_on_every_op() -> None:
+    """The prompt used to say "'delete' needs a ref" and schema-hint `"field": null`, so a model
+    that obeyed it literally emitted field-less deletes the API then dropped silently."""
+    assert '"field": null' not in EDIT_PARSE_SYSTEM_PROMPT
+    assert '"field": "<field>"' in EDIT_PARSE_SYSTEM_PROMPT
+    assert 'EVERY row names a "field": add, edit AND delete' in EDIT_PARSE_SYSTEM_PROMPT
+    assert '"delete" needs a ref and a field' in EDIT_PARSE_SYSTEM_PROMPT
+
+
+def test_the_delete_anchors_the_prompt_names_are_catalogue_fields_that_allow_delete() -> None:
+    """The prompt names four anchor fields for multi-field rows. A catalogue rename on the API side
+    would leave the prompt pointing at a field that no longer exists; the gold catalogue is pinned
+    to `edit-catalogue.ts` by `test_the_gold_catalogue_matches_the_api_catalogue`, so this closes
+    the loop from the prompt to the API."""
+    from app.companion import eval_edit_parse_gold as edit_gold
+
+    ops = {(section, field): allowed for section, field, allowed in edit_gold.CATALOGUE}
+    anchors = {
+        ("employment", "employer_name"),
+        ("qualifications", "certificate_name"),
+        ("qualifications", "education_field"),
+        ("qualifications", "training_name"),
+    }
+    for section, field in anchors:
+        assert f'"{field}"' in EDIT_PARSE_SYSTEM_PROMPT
+        assert "delete" in ops[(section, field)]
 
 
 def test_the_routes_are_registered() -> None:

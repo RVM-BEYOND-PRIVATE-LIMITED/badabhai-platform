@@ -142,6 +142,15 @@ overrides:
   # DEP-5 (2026-09-05). GHSA on <=4.28.6 (HIGH). Transitive under `@nestjs/cli` only —
   # build tooling, never shipped to a production runtime. Same-major patch bump.
   browserslist@<4.28.7: "^4.28.7"
+  # DEP-8 (2026-10-01). Seven HIGH advisories published against axios <1.20.0 (ReDoS in the
+  # data: URI parser and in shouldBypassProxy, two prototype-pollution gadgets, the HTTP/2
+  # adapter bypassing the configured DNS lookup, an unhandled 'error' event DoS, and
+  # maxRedirects: 0 not enforced by the fetch adapter — GHSA-c29m-xwm3-cm6r, -mghh-pgcx-3jjj,
+  # -x97p-jq2g-jp4f, -3pq3-5fj3-cg6v, -542g-h47m-68v8, -m8m8-qj5v-23w3 and the redirect one).
+  # Our only axios is TRANSITIVE under `razorpay` (apps/api), which pins 1.19.0 exactly and has
+  # shipped no bump — a live request path (payment orders), so patched, not argued. Same-major
+  # minor bump to the patched line.
+  axios@<1.20.0: "^1.20.0"
   # DEP-7 (2026-09-29). SUPERSEDES `<3.1.6: ^3.1.6` — instance five of the pattern the
   # nanoid / js-yaml / fast-uri notes record: GHSA-qw65-cvwx-89v3 (HIGH, authority
   # injection via encoded delimiters) is patched at 3.1.7, and GHSA-58mr-gqgx-xq4g (HIGH,

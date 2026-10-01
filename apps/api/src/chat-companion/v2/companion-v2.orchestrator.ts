@@ -14,30 +14,85 @@ import { AiService } from "../../ai/ai.service";
 import type { RequestContext } from "../../common/request-context";
 import { EventsService } from "../../events/events.service";
 import type { CompanionMessageDto, CompanionTurn } from "../chat-companion.dto";
-import { V2_CLARIFY } from "../companion-replies";
+import { V2_CAREER_ASK, V2_CLARIFY, V2_EDIT_ASK, type CopyPair } from "../companion-replies";
 import { CompanionMemoryStore } from "./companion-memory.store";
+import { taskChipLabel, type CompanionTaskChipIntent } from "./companion-task-chips";
 import { taskChips, v2CooldownTurn, v2CopyTurn } from "./companion-v2-compose";
 import { FaltuStore } from "./faltu.store";
+import type { HandlerResult } from "./handlers/handler";
 import { CompanionHandlerRegistry } from "./handlers/registry";
+import { CompanionTurnReplayStore } from "./turn-replay.store";
 
 /** The reply stored as the companion's side of a memory turn — a context line, not a record. */
 const MEMORY_REPLY_MAX = 1_000;
 
 /**
- * THE V2 TURN PIPELINE (ADR-0046 §2.1) — reached ONLY when `CHAT_COMPANION_V2_ENABLED` is on AND
- * the v1 deterministic resolver missed (or, for a task-chip tap, before the resolver: see
- * `handleTaskChip`). v1 hits never arrive here and still cost zero model calls.
+ * The classify contract's text bound (contracts §2.1, `CompanionClassifyInputSchema.text`) — and
+ * the memory store's per-turn bound, which is the same number. The API accepts a 4000-char
+ * message, so the classifier sees its first 1000: a longer text would be a 422, i.e. `unclear`
+ * for a message that was perfectly clear. The HANDLER still gets the whole masked text (the
+ * edit-parse and career contracts take 4000). Pinned against the schema in the orchestrator test.
+ */
+export const CLASSIFY_TEXT_MAX = 1_000;
+
+/**
+ * A TAPPED TASK CHIP NAMES A TASK, NOT A REQUEST. "Resume badlo" says no change and "Career ki
+ * baat" asks no question, so neither label is ever sent to a model: the tap is answered with the
+ * fixed line that asks for the missing part. "Naya resume" IS the whole request — its handler
+ * serves the redo menu with no model — so it is the one chip that reaches a handler.
+ */
+const TASK_CHIP_ASK: Readonly<Partial<Record<CompanionTaskChipIntent, CopyPair>>> = {
+  edit_resume: V2_EDIT_ASK,
+  career_talk: V2_CAREER_ASK,
+};
+
+/** A turn about to be served, with the facts its memory append and its v2 event need. */
+interface ServedTurn {
+  turn: CompanionTurn;
+  intentSource: CompanionV2IntentSource;
+  v2Intent: CompanionV2Intent | null;
+  confidenceBucket: CompanionV2ConfidenceBucket | null;
+  outcome: CompanionV2Outcome;
+  memoryPair: { workerText: string; reply: string } | null;
+}
+
+/** A served v1-miss turn, and whether a retry of the same submission may be answered with it. */
+interface RoutedTurn {
+  readonly turn: CompanionTurn;
+  readonly replayable: boolean;
+}
+
+/**
+ * `text` cut to at most `max` UTF-16 units without splitting a surrogate pair — so the result
+ * is within the bound whether the far side counts code units (Zod) or code points (Pydantic).
+ */
+function clipText(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
+}
+
+/**
+ * THE V2 TURN PIPELINE (ADR-0046 §2.1) — reached ONLY while `CHAT_COMPANION_V2_ENABLED` is on,
+ * from three places in `ChatCompanionService.message`: an OPEN task-chip tap (`handleTaskChip`,
+ * before v1), a free-text message during a faltu cool-down (`handleCooldown`, before v1), and a
+ * v1 MISS (`handleMessage`). A v1 resolver hit never arrives here: it is served by v1 with zero
+ * model calls and records v1's own `chat.companion_turn_served`, not the v2 event.
  *
  * THE ORDER IS THE PRIVACY ORDER, and it fails closed at every step:
+ *   0. a RETRIED submission (same `submission_id`) is answered with the turn already served —
+ *      nothing below runs again (no model call, no strike, no memory append, no second event) —
+ *      unless that turn failed closed, which is never kept, so the retry is processed afresh;
  *   1. the ABUSE LEXICON (P2, only while the faltu flag is on) — deterministic, local, and
  *      BEFORE the gateway: a message it flags reaches no provider, no model, no memory;
  *   2. pseudonymize the message through the gateway — a blocked or unreachable gateway serves the
  *      clarify line WITHOUT a classifier call and stores nothing;
  *   3. read the (already pseudonymized) memory, last two turns;
- *   4. classify — null, blocked or a schema miss is `unclear`; a confidence below the configured
- *      floor is `unclear` too;
+ *   4. classify the first `CLASSIFY_TEXT_MAX` chars — null, blocked or a schema miss is
+ *      `unclear`; a confidence below the configured floor is `unclear` too;
  *   5. the registry picks the handler from the closed intent set;
- *   6. append the pseudonymized pair to memory;
+ *   6. append the pseudonymized pair to memory — never for a message the classifier called
+ *      `faltu` (abuse the lexicon missed is still never stored);
  *   7. emit `chat.companion_turn_served_v2` — ids, counts and closed enums only.
  *
  * The model NEVER decides anything but the intent: handlers are deterministic, and the only
@@ -55,6 +110,7 @@ export class CompanionV2Orchestrator {
     private readonly events: EventsService,
     private readonly cost: AiCostRecorder,
     private readonly faltu: FaltuStore,
+    private readonly replays: CompanionTurnReplayStore,
   ) {}
 
   /**
@@ -89,30 +145,37 @@ export class CompanionV2Orchestrator {
   }
 
   /**
-   * A TASK-CHIP TAP (P2) — deterministic routing for the `companion_task:*` labels, before the
-   * cool-down gate and before v1 (see `companion-task-chips.ts` for why v1 cannot be trusted
-   * with these two labels). No classifier runs; `intent_source` records the deterministic
-   * choice. The text handed to the handler is the chip's own server-authored label — never
-   * worker text — and no memory pair is stored: a tap adds no context.
+   * A TASK-CHIP TAP (P2) — deterministic routing for an OPEN `companion_task:*` chip (the
+   * service recognises a chip only while its phase flag is on), before the cool-down gate and
+   * before v1 (see `companion-task-chips.ts` for why v1 cannot be trusted with these labels).
+   * No classifier and no model run: an edit or career tap is answered with its fixed ask line
+   * (`TASK_CHIP_ASK`), and the new-résumé tap goes to its handler with the chip's SERVER-AUTHORED
+   * label — never the bytes the app posted, which only matched it after normalization. The v2
+   * event records `intent_source: "v1_deterministic"` (the deterministic chip route; the name
+   * predates it) and the chip's intent. No memory pair is stored: a tap adds no worker text.
    */
   async handleTaskChip(
     workerId: string,
     profile: WorkerProfile,
     dto: CompanionMessageDto,
-    intent: CompanionV2Intent,
+    intent: CompanionTaskChipIntent,
     ctx: RequestContext,
     now: Date,
   ): Promise<CompanionTurn> {
-    const handled = await this.registry.resolve(intent).handle({
-      workerId,
-      profile,
-      text: dto.text,
-      // A chip tap carries no new context, but a career tap may want the recent turns the
-      // conversation already has — one Redis read, the same as the classify path.
-      recentTurns: await this.memory.read(workerId),
-      ctx,
-      now,
-    });
+    const ask = TASK_CHIP_ASK[intent];
+    const handled: HandlerResult =
+      ask !== undefined
+        ? { turn: v2CopyTurn(ask, taskChips(this.config)), outcome: "served" }
+        : await this.registry.resolve(intent).handle({
+            workerId,
+            profile,
+            text: taskChipLabel(intent),
+            // A tap carries no new context; the handler input still carries what the
+            // conversation already has, exactly as on the classify path.
+            recentTurns: await this.memory.read(workerId),
+            ctx,
+            now,
+          });
     return this.finish(workerId, ctx, dto, now, {
       turn: handled.turn,
       intentSource: "v1_deterministic",
@@ -123,6 +186,20 @@ export class CompanionV2Orchestrator {
     });
   }
 
+  /**
+   * A v1 MISS. A retried submission is answered from the replay cache FIRST — before the lexicon,
+   * so a retried abusive message is not a second strike — and a freshly served turn is kept there
+   * for its own retry. Without a `submission_id` (an older client) there is nothing to key on and
+   * the message is simply processed.
+   *
+   * A FAIL-CLOSED TURN IS NEVER KEPT (`intent_source: fallback` — the gateway or the classifier
+   * was unreachable, blocked or off-contract). A retry is most often BECAUSE the AI path was slow,
+   * so pinning its clarify line for the replay TTL would answer every retry with the failure after
+   * the AI recovered. That path has little to dedupe: no strike, no handler model call, and the
+   * event is deduped on the submission id (so the spine keeps the FIRST attempt's `fallback`
+   * row). The one repeat is memory: a classifier failure still stores the masked pair, so a
+   * processed retry stores the worker's line twice — context only, capped at `MEMORY_TURNS`.
+   */
   async handleMessage(
     workerId: string,
     profile: WorkerProfile,
@@ -130,6 +207,23 @@ export class CompanionV2Orchestrator {
     ctx: RequestContext,
     now: Date = new Date(),
   ): Promise<CompanionTurn> {
+    const submissionId = dto.submission_id;
+    if (submissionId === undefined) return (await this.route(workerId, profile, dto, ctx, now)).turn;
+
+    const replayed = await this.replays.read(workerId, submissionId);
+    if (replayed !== null) return replayed;
+    const routed = await this.route(workerId, profile, dto, ctx, now);
+    if (routed.replayable) await this.replays.remember(workerId, submissionId, routed.turn);
+    return routed.turn;
+  }
+
+  private async route(
+    workerId: string,
+    profile: WorkerProfile,
+    dto: CompanionMessageDto,
+    ctx: RequestContext,
+    now: Date,
+  ): Promise<RoutedTurn> {
     // 0. THE ABUSE LEXICON (P2, O11), only while the faltu phase is on. It runs BEFORE the
     //    gateway because nothing crosses a boundary on this path: the answer is fixed copy and
     //    a strike count. A flagged message therefore costs no gateway hop and no model call,
@@ -143,7 +237,7 @@ export class CompanionV2Orchestrator {
         ctx,
         now,
       });
-      return this.finish(workerId, ctx, dto, now, {
+      return this.routed(workerId, ctx, dto, now, {
         turn: handled.turn,
         intentSource: "lexicon",
         v2Intent: "faltu",
@@ -157,7 +251,7 @@ export class CompanionV2Orchestrator {
     //    refusing. Both serve the clarify line and neither reaches a model or Redis.
     const pseudo = await this.ai.pseudonymize(dto.text, ctx);
     if (pseudo === null || pseudo.blocked) {
-      return this.finish(workerId, ctx, dto, now, {
+      return this.routed(workerId, ctx, dto, now, {
         turn: v2CopyTurn(V2_CLARIFY, taskChips(this.config)),
         intentSource: "fallback",
         v2Intent: null,
@@ -172,9 +266,12 @@ export class CompanionV2Orchestrator {
     //    career answer reads up to six and a second Redis hop would buy nothing.
     const recent = await this.memory.read(workerId);
 
-    // 3. CLASSIFY. Every failure mode lands on the SAME closed answer: `unclear`.
+    // 3. CLASSIFY the contract's first CLASSIFY_TEXT_MAX chars — the same clipped text is what
+    //    memory keeps, because the store drops any turn over that bound on read. Every failure
+    //    mode lands on the SAME closed answer: `unclear`.
+    const classifyText = clipText(pseudo.pseudonymized_text, CLASSIFY_TEXT_MAX);
     const classified = await this.ai.companionClassify(
-      { text: pseudo.pseudonymized_text, recent_turns: recent.slice(-2) },
+      { text: classifyText, recent_turns: recent.slice(-2) },
       ctx,
     );
     // THE SPEND IS RECORDED BEFORE ANY BRANCH BELOW CAN RETURN — the `ResumeParseService.parse`
@@ -218,15 +315,35 @@ export class CompanionV2Orchestrator {
       now,
     });
 
-    // 5 + 6. MEMORY, THEN THE SPINE.
-    return this.finish(workerId, ctx, dto, now, {
+    // 5 + 6. MEMORY, THEN THE SPINE. A message the CLASSIFIER called faltu — at any confidence,
+    //    with the faltu phase on or off — is never stored, exactly like one the lexicon caught:
+    //    pseudonymizing masks PII, not abuse, and memory is replayed to later model calls.
+    return this.routed(workerId, ctx, dto, now, {
       turn: handled.turn,
       intentSource,
       v2Intent,
       confidenceBucket,
       outcome: handled.outcome,
-      memoryPair: { workerText: pseudo.pseudonymized_text, reply: handled.turn.reply },
+      memoryPair:
+        v2Intent === "faltu" ? null : { workerText: classifyText, reply: handled.turn.reply },
     });
+  }
+
+  /**
+   * `finish` for the v1-miss route: the served turn, and whether a retry of the same submission
+   * may be answered with it — every turn except a fail-closed one (see `handleMessage`).
+   */
+  private async routed(
+    workerId: string,
+    ctx: RequestContext,
+    dto: CompanionMessageDto,
+    now: Date,
+    out: ServedTurn,
+  ): Promise<RoutedTurn> {
+    return {
+      turn: await this.finish(workerId, ctx, dto, now, out),
+      replayable: out.intentSource !== "fallback",
+    };
   }
 
   /** Memory append + the v2 event, both best-effort; the turn is served either way. */
@@ -235,20 +352,13 @@ export class CompanionV2Orchestrator {
     ctx: RequestContext,
     dto: CompanionMessageDto,
     now: Date,
-    out: {
-      turn: CompanionTurn;
-      intentSource: CompanionV2IntentSource;
-      v2Intent: CompanionV2Intent | null;
-      confidenceBucket: CompanionV2ConfidenceBucket | null;
-      outcome: CompanionV2Outcome;
-      memoryPair: { workerText: string; reply: string } | null;
-    },
+    out: ServedTurn,
   ): Promise<CompanionTurn> {
     if (out.memoryPair !== null) {
       await this.memory.append(workerId, { role: "worker", text: out.memoryPair.workerText });
       await this.memory.append(workerId, {
         role: "bada_bhai",
-        text: out.memoryPair.reply.slice(0, MEMORY_REPLY_MAX),
+        text: clipText(out.memoryPair.reply, MEMORY_REPLY_MAX),
       });
     }
     await this.record(workerId, ctx, dto, now, out);
@@ -257,8 +367,17 @@ export class CompanionV2Orchestrator {
 
   /**
    * `chat.companion_turn_served_v2` — the v1 counts-and-closed-sets shape plus the router's own
-   * facts. `intent` stays the V1 vocabulary (`fallback`: the resolver had no answer), and the
-   * truth of the turn lives in `v2_intent` / `outcome`. Never any worker text.
+   * facts. Never any worker text. What the fields MEAN on this event (the schema's closed sets
+   * are unchanged; see contracts §4):
+   *   - `intent` is ALWAYS v1's `fallback` — "no named v1 intent answered this turn". That holds
+   *     for the classifier path and is merely nominal for a chip tap or a guard turn, which run
+   *     before v1; the truth of the turn lives in `v2_intent` / `outcome`;
+   *   - `intent_source` is `v1_deterministic` ONLY for a task-chip tap (exact label/key match, no
+   *     model) — a v1 resolver hit never reaches this event; `lexicon`, `llm`, `guard` (the
+   *     cool-down) and `fallback` (gateway blocked/unreachable, classifier failed) as named;
+   *   - `v2_intent` is the intent the turn was routed on — the chip's, the lexicon's `faltu`, or
+   *     the classifier's (recorded even below the confidence floor) — and null on the guard and
+   *     fail-closed paths; `confidence_bucket` is set only when the classifier answered.
    */
   private async record(
     workerId: string,

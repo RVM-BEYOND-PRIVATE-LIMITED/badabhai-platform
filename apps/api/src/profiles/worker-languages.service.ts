@@ -88,7 +88,8 @@ export class WorkerLanguagesService {
         (replacedExisting ? ", replaced existing rows" : ""),
     );
 
-    // Skipped on a joined transaction: the companion regenerates once after commit (O6).
+    // Skipped on a joined transaction: the companion regenerates once after commit (O6), or
+    // re-renders once itself when no regeneration was queued.
     if (opts.tx === undefined) await this.enqueueRerender(workerId, ctx);
 
     return { worker_id: workerId, language_count: languagesWritten };

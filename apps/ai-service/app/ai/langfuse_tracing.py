@@ -125,11 +125,15 @@ _TASK_TRACE: dict[str, tuple[str, str]] = {
     # #1350. Tagged "resume" rather than "profiling": it is spent on the artifact, not on the
     # interview, and the question it has to answer is "what does the section-8 override cost".
     "work_history_polish": ("polish-work-history", "resume"),
-    # ADR-0046 Phase 1 — the companion router. Tagged "companion" rather than "profiling":
-    # both run on the Bada Bhai tab AFTER the profile is confirmed, and the question they
-    # answer is "what did the router do with this message", not "how was this profile built".
+    # ADR-0046 — the companion router. Tagged "companion" rather than "profiling": every one
+    # runs on the Bada Bhai tab AFTER the profile is confirmed, and the question they answer is
+    # "what did the companion do with this message", not "how was this profile built". The
+    # career answer (P3) belongs here most of all: it is the one route where the model writes
+    # what the worker reads, and under the unmapped fallback its traces were tagged "other",
+    # so the companion's cost and quality views silently left them out.
     "companion_classify": ("classify-companion-message", "companion"),
     "companion_edit_parse": ("parse-companion-edit", "companion"),
+    "companion_career_answer": ("answer-companion-career", "companion"),
 }
 
 #: Workflow names — the ROOT trace names. Business operations, not AI tasks: a workflow is

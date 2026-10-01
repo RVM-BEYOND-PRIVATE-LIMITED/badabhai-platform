@@ -42,6 +42,9 @@ import {
 // drift and which one a worker sees would then depend on which internal path produced it. Copying
 // it here to keep the module import-free would recreate exactly that problem.
 import { CHAT_OPENING_TEXT, CHAT_UNAVAILABLE_REPLY } from "../chat/chat-replies";
+// The intake's copy from its import-free module, not from the state machine: this file must stay
+// readable by a renderer that boots nothing.
+import { IDENTITY_INTAKE_REPLIES } from "./identity-intake/identity-intake.copy";
 
 /** Which code path can put this text in front of a worker. */
 export type ReplyProducer = "prompt" | "retry" | "clarify" | "why" | "constant";
@@ -123,6 +126,10 @@ export const CONSTANT_REPLIES: readonly string[] = [
   // is also the line most likely to be personalised later, which is exactly why it belongs under
   // the check rather than beside it.
   CHAT_OPENING_TEXT,
+  // ADR-0048 — the identity intake's questions, re-asks, why-texts and its handoff line. Engine
+  // copy that belongs to no pack, served on the chat's first turns — and name-free by ruling (D4),
+  // which is the property `assertNoInterpolation` now checks for them too.
+  ...IDENTITY_INTAKE_REPLIES,
 ];
 
 /** Thrown by the guards below. Names the offending text so the corpus row is findable. */

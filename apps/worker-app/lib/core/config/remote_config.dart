@@ -184,7 +184,13 @@ class BbRemoteConfig {
       _bool(kKeyChatCompanionV2Enabled, kDefaultChatCompanionV2Enabled);
 
   bool _bool(String key, bool fallback) {
-    // A DEBUG-BUILD override, so a lever can be exercised on a cabled phone
+    // DEMO MODE SHOWS THE DEMO. `USE_MOCKS=true` exists so the whole UI is
+    // walkable with no backend running, and a lever that hides a screen defeats
+    // exactly that — the companion was unreachable in demo mode not because the
+    // mock could not serve it, but because this returned false. See
+    // [_kMockVisibleKeys] for why it is these two keys and not "all of them".
+    if (kUseMocks && _kMockVisibleKeys.contains(key)) return true;
+    // A non-release override, so a lever can be exercised on a cabled phone
     // without a console round-trip. Empty and inert in every release build —
     // see [kDebugForcedRemoteFlags].
     if (_debugForced.contains(key)) return true;
@@ -196,6 +202,26 @@ class BbRemoteConfig {
     final Object? value = _snapshot?[key];
     return value is String ? value : fallback;
   }
+
+  /// `USE_MOCKS`, read here rather than imported from `app_config.dart` so this
+  /// file keeps its single dependency on `firebase_remote_config`.
+  static const bool kUseMocks =
+      bool.fromEnvironment('USE_MOCKS', defaultValue: false);
+
+  /// The levers demo mode turns on by itself.
+  ///
+  /// ONLY THE TWO THAT HIDE A SCREEN. The rest of this file's levers either
+  /// already ship at today's behaviour or are KILL SWITCHES, and forcing those
+  /// would do the opposite of what demo mode is for: `worker_voice_entry_hidden`
+  /// true would HIDE the mic, `worker_voice_form_hidden` true is already its
+  /// default. Turning everything on is not "show me everything".
+  ///
+  /// Demo mode is compile-time and defaults to false, so this cannot reach a
+  /// build a worker runs.
+  static const Set<String> _kMockVisibleKeys = <String>{
+    kKeyChatCompanionEnabled,
+    kKeyChatCompanionV2Enabled,
+  };
 
   /// The boolean levers a DEBUG build forces on, comma-separated.
   ///

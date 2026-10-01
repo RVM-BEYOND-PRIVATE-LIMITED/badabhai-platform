@@ -52,6 +52,8 @@ import '../../voice_form/presentation/widgets/voice_choice_chips.dart'
 import '../domain/chat_message.dart';
 import '../domain/chat_multi_select.dart';
 import '../domain/chat_companion_keys.dart';
+import '../domain/chat_identity_questions.dart';
+import 'widgets/chat_location_card.dart';
 import '../domain/companion_edit_value.dart';
 import '../domain/chat_resume_menu.dart';
 import '../../swipe/domain/job_detail.dart';
@@ -362,6 +364,11 @@ class _ChatViewState extends State<_ChatView> {
   /// typed-send path with no `optionKey`. TURN-SCOPED: cleared by the bloc
   /// listener on the next send / reply, never latched across questions.
   bool _customAnswerMode = false;
+
+  /// ADR-0048 — the state the worker chose on the `worker_state` turn, so the
+  /// `worker_city` turn can offer that state's cities. Screen-local and
+  /// deliberately not persisted: it is only needed for the very next turn.
+  String? _identityState;
 
   /// The composer hint while [_customAnswerMode] is on: the profile hint for a
   /// disambiguation list, the question-neutral one for a chip row.
@@ -825,6 +832,16 @@ class _ChatViewState extends State<_ChatView> {
     if (state.initializing || state.messages.isEmpty) return;
     _emptyImportSaid = true;
     if (state.resumePending) return; // the identity turn speaks for itself
+    // ADR-0048 (#1864) — NOR ON AN IDENTITY-INTAKE OPEN. This line infers a
+    // failed import from `resume_pending` being ABSENT, which stopped being a
+    // safe inference once the chat could open on "aapka naam?": there the
+    // absence means the server is asking for the worker's name, not that their
+    // résumé yielded nothing. Telling them their résumé failed while asking
+    // their name is two wrong things at once.
+    if (state.askedQuestionKey != null &&
+        kChatIdentityQuestionKeys.contains(state.askedQuestionKey)) {
+      return;
+    }
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(
@@ -1472,8 +1489,12 @@ class _ChatViewState extends State<_ChatView> {
             curr.resumeUpdateQueued != prev.resumeUpdateQueued ||
             // ADR-0046 §5.2 — the edit card's one-shot notice. On the CHANGE
             // edge only, so it is shown once and never re-shown on a rebuild.
-            curr.editNotice != prev.editNotice,
+            curr.editNotice != prev.editNotice ||
+            // ADR-0048 — the identity turn moved on, so a held city may now be
+            // due (see [_maybeAnswerHeldCity]).
+            curr.askedQuestionKey != prev.askedQuestionKey,
         listener: (BuildContext context, ChatState state) {
+          _maybeAnswerHeldCity(state);
           _showEditNotice(state);
           _maybeSayEmptyImport(state);
           _maybeLeaveForResumeUpdate(state);
@@ -1712,7 +1733,14 @@ class _ChatViewState extends State<_ChatView> {
           _formOfferLockedHint()
         else
           _inputBar(
-            showVoice,
+            // ONE MIC PER SCREEN (#1862). In companion mode the v2 voice button
+            // sits just below this composer, and BOTH were labelled "Bolkar
+            // likhein" — two identical controls, doing different things (this
+            // one dictates locally; that one uploads and transcribes). The v2
+            // button is the surface ADR-0046 F3 specifies, so the composer's own
+            // dictation mic stands down there. The interview keeps it, exactly
+            // as before.
+            showVoice && !state.companion,
             // #1583 — a `number` question opens the number keypad for this
             // turn only; the turn-scoped answerType reverts it on the next.
             numeric: state.answerType == ChatAnswerType.number,
@@ -2168,6 +2196,57 @@ class _ChatViewState extends State<_ChatView> {
   /// [BbAnimatedSwitcher] can cross-fade the swap (#1059). Every branch carries a
   /// ValueKey; the two chip paths share `'chips'` so a question→question chip
   /// change stays instant while typing→chips animates.
+  /// ADR-0048 — send the city the worker already gave, the moment the server
+  /// asks for it.
+  ///
+  /// The location card collects state AND city, but the server asks them as two
+  /// turns. This closes the gap: the state answer goes on "Theek hai", the
+  /// server replies with the city question, and this answers it immediately from
+  /// what the worker already chose. They are never asked twice for one thing.
+  ///
+  /// GUARDED ON `sending` so the auto-answer cannot race the turn that is still
+  /// in flight, and the held value is cleared BEFORE the send so a rebuild
+  /// cannot fire it a second time.
+  void _maybeAnswerHeldCity(ChatState state) {
+    final String? city = _heldCity;
+    if (city == null) return;
+    if (state.sending) return;
+    if (state.askedQuestionKey != kChatCityQuestionKey) return;
+    _heldCity = null;
+    _sendText(city);
+  }
+
+  /// ADR-0048 — the worker pressed "Theek hai" on the location card.
+  ///
+  /// ONE PRESS, TWO WIRE ANSWERS, because the server still asks two questions:
+  /// it HOLDS the state and writes `current_state`/`current_city` together when
+  /// the city lands (`identity-intake.ts`). So the state goes now and the city
+  /// is held here until the server asks for it, which it does on the very next
+  /// turn. The worker sees one question and answers it once.
+  ///
+  /// When only the city was asked (the record already had a state) there is
+  /// nothing to hold and the city goes straight out.
+  void _submitIdentityLocation({String? state, String? city}) {
+    final String? chosenState = state?.trim();
+    final String? chosenCity = city?.trim();
+    if (chosenState != null && chosenState.isNotEmpty) {
+      _identityState = chosenState;
+      // Held for the city turn that follows this answer.
+      _heldCity = (chosenCity != null && chosenCity.isNotEmpty) ? chosenCity : null;
+      _sendText(chosenState);
+      return;
+    }
+    if (chosenCity != null && chosenCity.isNotEmpty) {
+      _heldCity = null;
+      _sendText(chosenCity);
+    }
+  }
+
+  /// The city the worker chose on the STATE card, waiting for the server to ask
+  /// for it. Null whenever there is nothing waiting — which is every turn but
+  /// the one immediately after a two-field card.
+  String? _heldCity;
+
   Widget _answerAffordance(ChatState state) {
     // #761 — while an optimistic predicted turn is on screen
     // (predictedQuestionKey != null), show its chips instead of the typing
@@ -2177,6 +2256,37 @@ class _ChatViewState extends State<_ChatView> {
       return KeyedSubtree(
         key: const ValueKey<String>('typing'),
         child: _typingIndicator(),
+      );
+    }
+    // ADR-0048 (#1864) — THE TWO LOCATION QUESTIONS GET PICKERS, not a bare
+    // text box. `/name` never asked a worker to spell their state, and moving
+    // the question into the chat must not cost them that: the lists are closed
+    // and long, and typing "Maharashtra" correctly is not a test a worker should
+    // have to pass to finish signing up.
+    //
+    // The composer stays live underneath, exactly as `/name` kept free text —
+    // the city lists are suggestions, never a gate, and the server canonicalises
+    // whatever is sent.
+    if (isChatLocationQuestion(state.askedQuestionKey)) {
+      // THE CITY TURN IS ANSWERED BEFORE IT IS DRAWN when the worker already
+      // gave the city on the state card — see [_heldCity]. Nothing renders in
+      // that gap, so the pair reads as the single question it was.
+      if (state.askedQuestionKey == kChatCityQuestionKey && _heldCity != null) {
+        return const SizedBox.shrink();
+      }
+      return KeyedSubtree(
+        key: const ValueKey<String>('identity-location'),
+        child: ChatLocationCard(
+          // On the STATE turn the card collects both, because the server holds
+          // the state and writes the pair together — so answering them in one
+          // breath lands exactly as `/name`'s single PATCH did.
+          askState: state.askedQuestionKey == kChatStateQuestionKey,
+          askCity: true,
+          knownState: state.askedQuestionKey == kChatCityQuestionKey
+              ? _identityState
+              : null,
+          onSubmit: _submitIdentityLocation,
+        ),
       );
     }
     // #761 — when the turn serves `suggested_options` (the LLM chat), render
@@ -2632,9 +2742,14 @@ class _ChatViewState extends State<_ChatView> {
   /// ADR-0046 §5.2 — say why the edit card could not be applied.
   ///
   /// The bloc sets [ChatState.editNotice] on exactly three paths: a dead card
-  /// (404 expired / 409 stale), a failed Haan and a failed Nahi. All three used
-  /// to be SILENT — the card either vanished or the button did nothing — which
-  /// on a worker's own profile is the most alarming thing this screen can do.
+  /// (404 expired or already applied), a failed Haan and a failed Nahi. All
+  /// three used to be SILENT — the card either vanished or the button did
+  /// nothing — which on a worker's own profile is the most alarming thing this
+  /// screen can do.
+  ///
+  /// A STALE card (409 `{reason:"stale"}`) is deliberately NOT one of them: the
+  /// server carries the reviewed `V2_EDIT_STALE` line on that answer, so the
+  /// bloc renders it as an ordinary Bada Bhai bubble instead of a snackbar.
   ///
   /// A snackbar, the same surface the companion already uses for "Applied", and
   /// fired from the listener's change edge so it shows once per notice.
@@ -3271,11 +3386,15 @@ class _CooldownComposerLockState extends State<_CooldownComposerLock> {
 /// box repeatedly.
 String kCooldownComposerText(DateTime until) {
   final Duration left = until.difference(DateTime.now());
-  if (left.inSeconds <= 0) return 'Bada Bhai abhi vyast hain.';
+  // #1862 — DO NOT BLAME BADA BHAI'S BUSYNESS. The wait is the faltu
+  // cool-down, not the assistant being occupied; saying "vyast hain" invents a
+  // cause and tells the worker nothing they can act on. Say what they can do
+  // and when.
+  if (left.inSeconds <= 0) return 'Ab aap likh sakte hain.';
   if (left.inMinutes >= 1) {
-    return 'Bada Bhai abhi vyast hain. ${left.inMinutes} minute baad likh sakte hain.';
+    return '${left.inMinutes} minute baad aap dobara likh sakte hain.';
   }
-  return 'Bada Bhai abhi vyast hain. ${left.inSeconds} second baad likh sakte hain.';
+  return '${left.inSeconds} second baad aap dobara likh sakte hain.';
 }
 
 /// The companion composer's mic (ADR-0046 F3) — keyed because this screen draws
@@ -3287,6 +3406,10 @@ const Key kCompanionVoiceButtonKey = ValueKey<String>('companion-voice-button');
 /// and removing the very same value.
 const String kEditOpAdd = 'Jodenge:';
 const String kEditOpDelete = 'Hatayenge:';
+
+/// Shown on the edit card once its proposal has expired (#1862 — plain words,
+/// not "samay-seema").
+const String kEditCardExpired = 'Is card ka time khatam ho gaya.';
 
 const int kEditProposalMaxRows = 3;
 
@@ -3395,8 +3518,10 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                 const SizedBox(height: AppSpacing.s2),
                 Text(
                   expired
-                      ? 'Ye prastav ki samay-seema khatam ho gayi.'
-                      : 'Ye prastav ${_formatExpiry(widget.proposal.expiresAt)} tak maany hai.',
+                      // #1862 — everyday Hinglish. "samay-seema" and "maany"
+                      // are bookish Hindi a low-literacy worker does not use.
+                      ? kEditCardExpired
+                      : '${_formatExpiry(widget.proposal.expiresAt)} tak Haan daba sakte hain.',
                   style: OnboardingTypography.bodyMuted(
                     color: OnboardingColors.ink600,
                   ),
@@ -3419,12 +3544,18 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                 Row(
                   children: <Widget>[
                     Expanded(
+                      // NEUTRAL, NOT DESTRUCTIVE (#1862). Nahi only declines the
+                      // proposal — nothing of the worker's is lost by tapping
+                      // it, and red is this app's colour for removal (it is what
+                      // marks the card's own delete rows). Every other Haan/Nahi
+                      // pair in the app is neutral; this was the odd one out,
+                      // and it made the safe answer look like the dangerous one.
                       child: OutlinedButton(
                         onPressed: expired ? null : widget.onCancel,
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: OnboardingColors.errorRed,
+                          foregroundColor: OnboardingColors.ink900,
                           side: const BorderSide(
-                            color: OnboardingColors.errorRed,
+                            color: OnboardingColors.borderCard,
                           ),
                           minimumSize: const Size(double.infinity, 48),
                           shape: RoundedRectangleBorder(
@@ -3435,7 +3566,7 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                         child: Text(
                           kVoiceBooleanNo,
                           style: OnboardingTypography.buttonLabel(
-                            color: OnboardingColors.errorRed,
+                            color: OnboardingColors.ink900,
                           ),
                         ),
                       ),
@@ -3493,7 +3624,13 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    row.sectionLabel,
+                    // `section_label · field_label` (§5.1). The section alone
+                    // cannot tell two rows of one section apart, so the field's
+                    // own name rides beside it. An older server sends no
+                    // `field_label` and the header stays exactly the section.
+                    row.fieldLabel == null
+                        ? row.sectionLabel
+                        : '${row.sectionLabel} · ${row.fieldLabel}',
                     style: OnboardingTypography.inter(
                       size: 13,
                       weight: FontWeight.w700,
@@ -3515,16 +3652,22 @@ class _EditProposalCardState extends State<_EditProposalCard> {
   /// removed one (struck through), `edit` both; an unknown future op falls back
   /// to the same before→after line rather than hiding the row.
   ///
-  /// BOTH VALUES GO THROUGH [companionEditValue], because for nine of the edit
-  /// catalogue's fields the server's `before`/`after` is a closed-set token —
-  /// `role_cnc_operator`, `night`, `daily_wage`, `"true"` — and a worker must
-  /// never be asked to confirm a change written in ids. The row_ids sent back on
-  /// Haan are untouched by this; only the pixels are humanised.
+  /// The server now labels a CLOSED-SET value itself ([EditProposalRow
+  /// .beforeDisplay] / [.afterDisplay]) from the same dictionaries the form
+  /// chips and the résumé print, and the app PREFERS that label when it is
+  /// present. The server owns the wording; the client carries no label map of
+  /// its own. An older server sends null and every value falls back through
+  /// [companionEditValue], which is why that humaniser stays.
+  ///
+  /// The row_ids sent back on Haan are untouched by this; only the pixels are
+  /// humanised.
   Widget _rowChange(EditProposalRow row) {
-    final String? before =
-        row.before == null ? null : companionEditValue(row.before!);
-    final String? after =
-        row.after == null ? null : companionEditValue(row.after!);
+    final String? before = row.before == null
+        ? null
+        : (row.beforeDisplay ?? companionEditValue(row.before!));
+    final String? after = row.after == null
+        ? null
+        : (row.afterDisplay ?? companionEditValue(row.after!));
     switch (row.op) {
       case 'add':
         // Say it is being ADDED. A bare value under a section label reads as a
