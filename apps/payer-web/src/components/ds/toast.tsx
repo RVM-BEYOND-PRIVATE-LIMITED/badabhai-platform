@@ -8,8 +8,9 @@
  * docs/design/.../components/feedback/Toast.d.ts.
  */
 import type { HTMLAttributes, ReactNode } from "react";
+import { Icon, type IconName } from "@badabhai/icons";
 
-const DEFAULT_ICON: Record<NonNullable<ToastProps["tone"]>, string> = {
+const DEFAULT_ICON: Record<NonNullable<ToastProps["tone"]>, IconName> = {
   success: "check-circle",
   danger: "warning-circle",
   brand: "sparkle",
@@ -19,8 +20,8 @@ const DEFAULT_ICON: Record<NonNullable<ToastProps["tone"]>, string> = {
 export interface ToastProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
   /** @default 'neutral' */
   tone?: "neutral" | "success" | "danger" | "brand";
-  /** Override the default Phosphor glyph for the tone. */
-  icon?: string;
+  /** Override the default glyph for the tone. */
+  icon?: IconName;
   /** Bold first line. */
   title?: ReactNode;
   /** Supporting message (children). */
@@ -34,14 +35,14 @@ export function Toast({ tone = "neutral", icon, title, children, onClose, classN
 
   return (
     <div className={cls} role="status" {...rest}>
-      <i className={`ph-fill ph-${icon || DEFAULT_ICON[tone]} bb-toast__icon`} aria-hidden="true" />
+      <Icon name={icon || DEFAULT_ICON[tone]} className="bb-toast__icon" />
       <div className="bb-toast__content">
         {title && <div className="bb-toast__title">{title}</div>}
         {children && <div className="bb-toast__msg">{children}</div>}
       </div>
       {onClose && (
         <button className="bb-toast__close" aria-label="Dismiss" onClick={onClose}>
-          <i className="ph-fill ph-x" aria-hidden="true" />
+          <Icon name="x" />
         </button>
       )}
     </div>

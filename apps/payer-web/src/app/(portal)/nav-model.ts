@@ -46,6 +46,8 @@
  * instead of hiding roadmap that already exists in the codebase.
  */
 
+import type { IconName } from "@badabhai/icons";
+
 /**
  * WHICH PATHS LIGHT AN ITEM UP — as data, so it survives the RSC boundary.
  *
@@ -69,8 +71,8 @@ export interface NavMatch {
 export interface NavItem {
   href: string;
   label: string;
-  /** Phosphor glyph name, rendered as `ph-fill ph-{icon}`. Always paired with a text label. */
-  icon: string;
+  /** Glyph (a typed `IconName`, so a typo fails typecheck). Always paired with a text label. */
+  icon: IconName;
   /** One line, shown as a tooltip when the rail is collapsed and under Coming Soon items. */
   description?: string;
   /**

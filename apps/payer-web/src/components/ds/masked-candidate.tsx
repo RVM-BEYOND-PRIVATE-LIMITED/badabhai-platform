@@ -12,6 +12,7 @@
  * docs/design/.../components/brand/MaskedCandidate.d.ts.
  */
 import type { HTMLAttributes } from "react";
+import { Icon } from "@badabhai/icons";
 
 export interface MaskedCandidateProps extends HTMLAttributes<HTMLDivElement> {
   /** Real name — only revealed (and un-blurred) when `masked` is false. */
@@ -68,7 +69,7 @@ export function MaskedCandidate({
         <span className="bb-avatar__initials">{masked ? "••" : initials || "?"}</span>
         {verified && (
           <span className="bb-avatar__seal">
-            <i className="ph-fill ph-seal-check" aria-hidden="true" />
+            <Icon name="seal-check" />
           </span>
         )}
       </span>
@@ -87,19 +88,19 @@ export function MaskedCandidate({
         <div className="bb-candidate__meta">
           {trade && (
             <span>
-              <i className="ph-fill ph-wrench" aria-hidden="true" />
+              <Icon name="wrench" />
               {trade}
             </span>
           )}
           {experience && (
             <span>
-              <i className="ph-fill ph-medal" aria-hidden="true" />
+              <Icon name="medal" />
               {experience}
             </span>
           )}
           {location && (
             <span>
-              <i className="ph-fill ph-map-pin" aria-hidden="true" />
+              <Icon name="map-pin" />
               {location}
             </span>
           )}
@@ -110,12 +111,12 @@ export function MaskedCandidate({
         {matchLabel && <span className="bb-badge bb-badge--success">{matchLabel}</span>}
         {masked ? (
           <button className="bb-btn bb-btn--primary" onClick={onUnlock}>
-            <i className="ph-fill ph-lock-key-open" aria-hidden="true" />
+            <Icon name="lock-key-open" />
             <span>{price}</span>
           </button>
         ) : (
           <span className="bb-candidate__unlocked">
-            <i className="ph-fill ph-lock-key-open" aria-hidden="true" />
+            <Icon name="lock-key-open" />
             Unlocked
           </span>
         )}

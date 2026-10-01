@@ -12,6 +12,7 @@
  */
 import { useEffect, useId, useRef } from "react";
 import type { MouseEvent, ReactNode } from "react";
+import { Icon } from "@badabhai/icons";
 
 export interface DialogProps {
   /** Controls visibility. */
@@ -133,7 +134,7 @@ export function Dialog({
             )}
             {onClose && (
               <button className="bb-iconbtn" aria-label="Close" onClick={onClose}>
-                <i className="ph-fill ph-x" aria-hidden="true" />
+                <Icon name="x" />
               </button>
             )}
           </div>

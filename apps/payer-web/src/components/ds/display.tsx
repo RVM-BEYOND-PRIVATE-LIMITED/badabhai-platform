@@ -8,6 +8,7 @@
  */
 import type { ElementType, HTMLAttributes, ReactNode } from "react";
 import Link from "next/link";
+import { Icon, type IconName } from "@badabhai/icons";
 
 /* ---------- Whole-surface link (Card + StatTile) ---------- */
 /**
@@ -89,7 +90,7 @@ export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
   /** Uppercase + wide tracking for status labels. */
   upper?: boolean;
   /** Phosphor glyph name (rendered filled), e.g. `'seal-check'`. */
-  icon?: string;
+  icon?: IconName;
 }
 
 export function Badge({
@@ -113,7 +114,7 @@ export function Badge({
 
   return (
     <span className={cls} {...rest}>
-      {icon && <i className={`ph-fill ph-${icon}`} aria-hidden="true" />}
+      {icon && <Icon name={icon} />}
       {children}
     </span>
   );
@@ -126,7 +127,7 @@ interface StatTileOwnProps extends HTMLAttributes<HTMLDivElement> {
   /** Big value — rendered in Roboto Mono (tabular). */
   value: ReactNode;
   /** Phosphor glyph in the corner. */
-  icon?: string;
+  icon?: IconName;
   /** Delta text, e.g. `'+12% this week'`. */
   delta?: ReactNode;
   /** @default 'up' */
@@ -153,7 +154,8 @@ export function StatTile({
   className = "",
   ...rest
 }: StatTileProps) {
-  const arrow = deltaDir === "up" ? "trend-up" : deltaDir === "down" ? "trend-down" : "minus";
+  const arrow: IconName =
+    deltaDir === "up" ? "trend-up" : deltaDir === "down" ? "trend-down" : "minus";
   const isLink = href != null;
   const cls = ["bb-stat", isLink ? "bb-stat--link" : "", className].filter(Boolean).join(" ");
   return (
@@ -163,7 +165,7 @@ export function StatTile({
         <span className="bb-stat__label">{label}</span>
         {icon && (
           <span className="bb-stat__icon">
-            <i className={`ph-fill ph-${icon}`} aria-hidden="true" />
+            <Icon name={icon} />
           </span>
         )}
       </div>
@@ -171,7 +173,7 @@ export function StatTile({
       {caption != null && <div className="bb-stat__caption">{caption}</div>}
       {delta != null && (
         <div className={`bb-stat__delta bb-stat__delta--${deltaDir}`}>
-          <i className={`ph-fill ph-${arrow}`} aria-hidden="true" />
+          <Icon name={arrow} />
           {delta}
         </div>
       )}
@@ -234,7 +236,7 @@ export function Avatar({
       )}
       {verified && (
         <span className="bb-avatar__seal">
-          <i className="ph-fill ph-seal-check" aria-hidden="true" />
+          <Icon name="seal-check" />
         </span>
       )}
     </span>

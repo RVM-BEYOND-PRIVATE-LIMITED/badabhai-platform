@@ -20,6 +20,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Icon } from "@badabhai/icons";
 import {
   applyResolvedTheme,
   readThemeCookieClient,
@@ -134,7 +135,7 @@ export function ThemeToggle() {
       >
         <span className="theme-toggle__track" aria-hidden="true">
           <span className="theme-toggle__thumb">
-            <i className={`ph-fill ph-${isDark ? "moon" : "sun"}`} aria-hidden="true" />
+            <Icon name={isDark ? "moon" : "sun"} />
           </span>
         </span>
       </button>
@@ -147,7 +148,7 @@ export function ThemeToggle() {
         title="Follow system theme"
         onClick={onSystem}
       >
-        <i className="ph-fill ph-monitor" aria-hidden="true" />
+        <Icon name="monitor" />
         <span className="theme-toggle__system-label">System</span>
       </button>
 

@@ -71,6 +71,9 @@ importers:
       '@badabhai/design-tokens':
         specifier: workspace:*
         version: link:../../packages/design-tokens
+      '@badabhai/icons':
+        specifier: workspace:*
+        version: link:../../packages/icons
       '@badabhai/pricing':
         specifier: workspace:*
         version: link:../../packages/pricing
@@ -230,6 +233,9 @@ importers:
       '@badabhai/design-tokens':
         specifier: workspace:*
         version: link:../../packages/design-tokens
+      '@badabhai/icons':
+        specifier: workspace:*
+        version: link:../../packages/icons
       '@badabhai/pricing':
         specifier: workspace:*
         version: link:../../packages/pricing
@@ -368,6 +374,28 @@ importers:
       zod:
         specifier: ^3.24.1
         version: 3.25.76
+
+  packages/icons:
+    dependencies:
+      '@phosphor-icons/web':
+        specifier: 2.1.2
+        version: 2.1.2
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.17)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.7(react@19.2.7)
+      vitest:
+        specifier: ^3.2.7
+        version: 3.2.7(@types/node@22.19.20)(terser@5.48.0)(tsx@4.22.4)
 
   packages/match-engine:
     dependencies:
@@ -1341,6 +1369,9 @@ packages:
 
   '@petamoriken/float16@3.9.3':
     resolution: {integrity: sha512-8awtpHXCx/bNpFt4mt2xdkgtgVvKqty8VbjHI/WWWQuEw+KLzFot3f4+LkQY9YmOtq7A5GdOnqoIC8Pdygjk2g==}
+
+  '@phosphor-icons/web@2.1.2':
+    resolution: {integrity: sha512-rPAR9o/bEcp4Cw4DEeZHXf+nlGCMNGkNDRizYHM47NLxz9vvEHp/Tt6FMK1NcWadzw/pFDPnRBGi/ofRya958A==}
 
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
@@ -4517,6 +4548,8 @@ snapshots:
 
   '@petamoriken/float16@3.9.3':
     optional: true
+
+  '@phosphor-icons/web@2.1.2': {}
 
   '@pkgjs/parseargs@0.11.0':
     optional: true

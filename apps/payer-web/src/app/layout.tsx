@@ -39,9 +39,11 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         {/* Anek (display) + Roboto (body/multilingual) — the JUL31 type tokens
             (--font-display / --font-sans). Roboto Mono (--font-mono) is self-hosted via
             @font-face in @badabhai/design-tokens/tokens.css. Devanagari+Latin for Hinglish/regional copy.
-            Phosphor (`ph-fill ph-*`) supplies the DS glyphs, always beside a text label.
+            The Phosphor FILL icon font is NOT loaded here: it is self-hosted through
+            `@badabhai/icons/icons.css` (imported by globals.css), so it comes from this app's
+            own origin and no icon request ever leaves it.
 
-            NON-RENDER-BLOCKING (B4): these four CROSS-ORIGIN sheets used to be `<link
+            NON-RENDER-BLOCKING (B4): these CROSS-ORIGIN sheets used to be `<link
             rel=stylesheet>` in this head, which made them 4 of 6 render-blocking stylesheets
             and 250,748 B from two extra origins — measured on the PUBLIC `/i/<code>` install
             page, which uses no icons at all and exists to convert a worker on a congested 3G
@@ -49,7 +51,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             script, the same pattern the no-FOUC script above already uses), so nothing
             third-party blocks first paint. The preconnects stay: they warm the DNS/TLS
             handshake for exactly those origins, which is now pure upside.
-            The <noscript> twins below keep both working with JavaScript disabled. */}
+            The <noscript> twin below keeps the fonts working with JavaScript disabled. */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <script dangerouslySetInnerHTML={{ __html: ASYNC_CSS_SCRIPT }} />
