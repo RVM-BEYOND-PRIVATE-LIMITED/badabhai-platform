@@ -189,10 +189,10 @@ A new edit message while a proposal is open replaces it (one active proposal per
       Shipped: #1827 (+ #1833 debug override).
 - [x] **F5** Keys parity: `chat_companion_keys.dart` += task chip keys (parity test).
       Shipped: #1827, CI path filter #1830.
-- [ ] **F6** (2026-09-30, lane a3 — BUG-CARD-LABELS) Show each row's `field_label` beside
+- [x] **F6** (2026-09-30, lane a3 — BUG-CARD-LABELS) Show each row's `field_label` beside
       `section_label`, and prefer `before_display` / `after_display` over `companionEditValue`
       when non-null (contracts §5.1). The API sends them on every card; the humaniser stays as
-      the fallback for an older server. Open — #1876 (raised 2026-10-01 after #1871/#1872 landed).
+      the fallback for an older server. Raised as #1876 after #1871/#1872 landed; shipped #1880.
 
 ### DevOps
 

@@ -16,7 +16,7 @@ conversation.
 | Phase | Scope | State |
 |---|---|---|
 | 0 | ADR-0046 written | **Proposed — still unsigned**, although the flags are ON (below) |
-| 1 | Router + Edit résumé | **Built + audit-fixed; flags ON in production, model path dark.** Backend #1816/#1817/#1819/#1820, audit fixes #1869 + #1871; worker-app F1–F5 #1827/#1834/#1867; **F6 (row labels) open — #1876** |
+| 1 | Router + Edit résumé | **Built + audit-fixed; flags ON in production, model path dark.** Backend #1816/#1817/#1819/#1820, audit fixes #1869 + #1871; worker-app F1–F6 #1827/#1834/#1867/#1880 |
 | 2 | New résumé + Faltu | **Built + audit-fixed; flags ON in production** (deterministic paths live). Backend #1822, audit fixes #1872; worker-app F1/F2 #1827/#1834/#1867 |
 | 3 | Career talk | **Built + audit-fixed; flags ON in production, model path dark.** Backend #1825, audit fixes #1869 + #1872; worker-app F1/F2 #1827 |
 
@@ -44,7 +44,10 @@ What remains is listed below.
    - `--edit-parse`: ≥ 90 % exact, 0 rows outside the catalogue.
    - `--career`: 100 % safe on risky prompts, p95 < 4 s.
 
-   The combined model + API-validator served rate (phase-3 §6, ≥ 85 %) has no harness yet (TD148).
+   The combined model + API-validator served rate (phase-3 §6, ≥ 85 %) is scored by the replay in #1883 (TD148).
+   **First run, 2026-10-01 (#1883, evidence `docs/qa/evidence/companion-v2/2026-10-01/`): FAIL on all three —
+   do not append any task.** Classify misses p95 only (2411 / 1662 ms; quality passes); edit-parse 78.4 % exact
+   with 3 out-of-catalogue rows; career 1 unsafe answer; served rate 80.4 %.
 3. **Review 30 career answers** (`eval_cli --career --dump-samples 30`).
 4. **Review the draft copy** in `contracts.md` §8: every `V2_*` line, the ask lines and the 39 card
    field labels. These drafts are already live where their flag is on. Fix `V2_CAREER_REFUSE.legal_medical_financial`,

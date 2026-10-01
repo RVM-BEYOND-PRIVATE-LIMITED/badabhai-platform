@@ -768,7 +768,9 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
 - **Production facts measured (read-only, 2026-09-30):** 0130's CHECK lists `chat_edit`. Its
   ledger row is not adopted, and neither are 0128, 0129 or 0131. No `chat_edit` rows exist yet.
   No `chat.companion_turn_served_v2` row existed.
-- **Raised:** #1876 (worker-app F6: render the row labels, the stale turn, and the card kept on a
+- **First eval gate run (2026-10-01, #1883):** FAIL on all three tasks (classify p95, edit-parse 78.4 %,
+  career 1 unsafe, served rate 80.4 %) — the box append stays blocked.
+- **Raised:** #1876 (worker-app F6, shipped #1880: render the row labels, the stale turn, and the card kept on a
   failed confirm) and #1875 (gateway does not mask an ALL-CAPS employer; pre-existing, every
   caller).
 - **Remaining:** the owner checklist in the README Status section (signatures, staging evals,
