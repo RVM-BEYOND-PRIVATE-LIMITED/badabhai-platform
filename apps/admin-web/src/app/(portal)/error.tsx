@@ -14,7 +14,7 @@
  * printing it hands an operator a correlation key without handing them the failure text.
  *
  * DS: the shared `.state state--error` block with the recovery action in `.state__actions`.
- * No icon — admin-web ships no icon font, so the title and body carry the whole meaning.
+ * No icon: the title and body carry the whole meaning (a glyph would only decorate it).
  */
 export default function PortalError({
   error,

@@ -1,3 +1,4 @@
+import type { IconName } from "@badabhai/icons";
 import { toJobCardView, type CardFields, type JobCardChip } from "../lib/job-card-view";
 
 /**
@@ -13,7 +14,7 @@ import { toJobCardView, type CardFields, type JobCardChip } from "../lib/job-car
  * "Card preview — built from what you entered" — never "what workers see".
  */
 
-const CHIP_ICON: Record<JobCardChip["kind"], string> = {
+const CHIP_ICON: Record<JobCardChip["kind"], IconName> = {
   shift: "clock",
   experience: "user",
   needed_by: "lightning",

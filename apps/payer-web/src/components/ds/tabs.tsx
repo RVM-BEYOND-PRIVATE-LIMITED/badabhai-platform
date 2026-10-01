@@ -16,12 +16,13 @@
  * (segmented filters) keep working unchanged.
  */
 import type { HTMLAttributes, KeyboardEvent, ReactNode } from "react";
+import { Icon, type IconName } from "@badabhai/icons";
 
 export interface TabItem {
   id: string;
   label: ReactNode;
   /** Optional Phosphor glyph name (filled when active). */
-  icon?: string;
+  icon?: IconName;
 }
 
 export interface TabsProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChange"> {
@@ -119,7 +120,7 @@ export function Tabs({
           >
             {/* Solid glyph in both states (brand: no outline icons) — the active tab is
                 carried by .bb-tab--active + aria-selected, not by the icon weight. */}
-            {t.icon && <i className={`ph-fill ph-${t.icon}`} aria-hidden="true" />}
+            {t.icon && <Icon name={t.icon} />}
             {t.label}
           </button>
         );

@@ -7,12 +7,13 @@
  * Prop contract mirrors docs/design/.../components/display/Chip.d.ts.
  */
 import type { ButtonHTMLAttributes, MouseEvent } from "react";
+import { Icon, type IconName } from "@badabhai/icons";
 
 export interface ChipProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onRemove"> {
   /** Selected (brand) state. */
   selected?: boolean;
-  /** Leading Phosphor glyph name. */
-  icon?: string;
+  /** Leading glyph. */
+  icon?: IconName;
   /** When provided, shows an ✕ and calls this on click. */
   onRemove?: (e: MouseEvent) => void;
 }
@@ -22,7 +23,7 @@ export function Chip({ selected = false, icon, onRemove, className = "", childre
 
   return (
     <button type="button" className={cls} aria-pressed={selected} {...rest}>
-      {icon && <i className={`ph-fill ph-${icon}`} aria-hidden="true" />}
+      {icon && <Icon name={icon} />}
       <span>{children}</span>
       {onRemove && (
         <span
@@ -34,7 +35,7 @@ export function Chip({ selected = false, icon, onRemove, className = "", childre
             onRemove(e);
           }}
         >
-          <i className="ph-fill ph-x" aria-hidden="true" />
+          <Icon name="x" />
         </span>
       )}
     </button>

@@ -133,31 +133,50 @@ describe("ink theme — the warn pill stays legible", () => {
   });
 });
 
-describe("the drawer toggle's glyph", () => {
-  it("is a one-em solid fill in the current colour", () => {
-    const icon = body(".ph-icon");
-    expect(decl(icon, "inline-size")).toBe("1em");
-    expect(decl(icon, "block-size")).toBe("1em");
-    expect(decl(icon, "fill")).toBe("currentColor");
-    // No stroke: the brand allows solid silhouettes only, never a thin outline weight.
-    expect(decl(icon, "stroke")).toBeNull();
+describe("the drawer toggle's glyph (an IconButton drawing the self-hosted Phosphor fill)", () => {
+  it("the inline-SVG `.ph-icon` copy is gone — the glyph is the shared icon font", () => {
+    expect(rule(CSS, ".ph-icon")).toBeNull();
+    expect(CSS).toContain('@import "@badabhai/icons/icons.css";');
   });
 
   it("is sized like payer-web's hamburger and coloured as structural navigation", () => {
-    const menu = body(".topbar__menu");
-    expect(decl(menu, "font-size")).toBe("var(--text-lg)");
+    const btn = body(".iconbtn");
+    // --icon-size-md aliases --text-lg (20px): payer-web's hamburger size.
+    expect(decl(btn, "font-size")).toBe("var(--icon-size-md)");
     // Shift Blue on light surfaces, paper on ink — never the raw brand colour, which would
     // vanish on the ink card.
-    expect(decl(menu, "color")).toBe("var(--text-heading)");
+    expect(decl(btn, "color")).toBe("var(--text-heading)");
+    // The menu itself sets neither, so nothing overrides the IconButton's.
+    expect(decl(body(".topbar__menu"), "font-size")).toBeNull();
+    expect(decl(body(".topbar__menu"), "color")).toBeNull();
   });
 
-  it("keeps its 44px target wherever it is shown (the <1024px drawer tier)", () => {
+  it("keeps its 44px target wherever it is shown — the IconButton is a 44×44 square", () => {
+    const btn = body(".iconbtn");
+    expect(decl(btn, "inline-size")).toBe("var(--control-md)");
+    expect(decl(btn, "block-size")).toBe("var(--control-md)");
     const tier = ALL.find(
       (r) => r.selector === ".topbar__menu" && r.atRules.join() === "@media (max-width: 1023px)",
     );
     expect(tier).toBeDefined();
-    expect(decl(tier!.body, "min-width")).toBe("var(--control-md)");
-    expect(decl(tier!.body, "min-height")).toBe("var(--control-md)");
+    expect(decl(tier!.body, "display")).toBe("inline-flex");
+  });
+
+  it("stays hidden above 1024px: `.topbar__menu` hides it AFTER every `.iconbtn` rule shows it", () => {
+    // Equal single-class specificity — source order is the whole guarantee. ANY top-level rule
+    // for one of the toggle's IconButton classes that sets `display` must come before the hide.
+    const hide = TOP.findIndex(
+      (r) => r.selector === ".topbar__menu" && decl(r.body, "display") === "none",
+    );
+    expect(hide).toBeGreaterThanOrEqual(0);
+    const shows = TOP.flatMap((r, i) =>
+      r.selector.split(",").some((p) => [".iconbtn", ".iconbtn--outline"].includes(p.trim())) &&
+      decl(r.body, "display") !== null
+        ? [i]
+        : [],
+    );
+    expect(shows.length).toBeGreaterThan(0);
+    expect(shows.filter((i) => i > hide)).toEqual([]);
   });
 });
 

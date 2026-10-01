@@ -94,10 +94,13 @@ export default tseslint.config(
     // under [data-theme="ink"] and would drift from payer-web on the first restyle.
     // marketing-web (the public badabhai.ai site) ships on a trimmed port of the SAME
     // token values (apps/marketing-web/src/styles/tokens.css) for the same reason.
+    // packages/icons is the shared icon system both portals render through (its <Icon> and the
+    // icon-only-control contract), so it is held to the same adherence rules as the apps.
     files: [
       "apps/payer-web/src/**/*.{ts,tsx}",
       "apps/admin-web/src/**/*.{ts,tsx}",
       "apps/marketing-web/src/**/*.{ts,tsx}",
+      "packages/icons/src/**/*.{ts,tsx}",
     ],
     rules: {
       "no-restricted-syntax": [
@@ -122,6 +125,7 @@ export default tseslint.config(
       "apps/payer-web/**/*.stories.{ts,tsx}",
       "apps/admin-web/**/*.{test,spec}.{ts,tsx}",
       "apps/marketing-web/**/*.{test,spec}.{ts,tsx}",
+      "packages/icons/**/*.{test,spec}.{ts,tsx}",
     ],
     rules: {
       "no-restricted-syntax": "off",

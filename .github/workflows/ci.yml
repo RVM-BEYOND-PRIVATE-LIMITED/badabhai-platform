@@ -235,6 +235,10 @@ jobs:
             # build step, but globals.css `@import`s its tokens.css into `next build`, and
             # it is the ONE token file both portals share — a token edit re-skins BOTH the
             # payer-web and admin-web images with zero app edits, so it re-runs both gates.
+            # @badabhai/icons (packages/icons) is shared the same way and for the same reason: TS
+            # SOURCE with no build step, compiled into BOTH apps by `next build`
+            # (`transpilePackages`), and its icons.css (the self-hosted Phosphor font) is
+            # `@import`ed by both globals.css files — an edit there changes both images.
             payer-web:
               - 'apps/payer-web/**'
               - 'packages/config/**'
@@ -242,6 +246,7 @@ jobs:
               - 'packages/validators/**'
               - 'packages/types/**'
               - 'packages/design-tokens/**'
+              - 'packages/icons/**'
               - '.github/workflows/ci.yml'
             # apps/admin-web (the INTERNAL admin portal) — same contract as the payer-web
             # filter above, gating ONLY the admin-web leg of `image-gate`. The workspace
@@ -251,7 +256,8 @@ jobs:
             # plus validators' own @badabhai/types. Same four as payer-web by coincidence,
             # not by inheritance — a change to any of them can break the image with zero
             # admin-web edits. The fifth, @badabhai/design-tokens, is shared ON PURPOSE
-            # (see the payer-web note above): a token edit must re-run this image gate too.
+            # (see the payer-web note above): a token edit must re-run this image gate too. The
+            # sixth, @badabhai/icons, is shared on purpose for the same reason (see above).
             admin-web:
               - 'apps/admin-web/**'
               - 'packages/config/**'
@@ -259,6 +265,7 @@ jobs:
               - 'packages/validators/**'
               - 'packages/types/**'
               - 'packages/design-tokens/**'
+              - 'packages/icons/**'
               - '.github/workflows/ci.yml'
             # SAST (#773). Mirrors the filter security-scan.yml used while the job lived
             # there, plus the two workflow files that now decide whether it runs at all —

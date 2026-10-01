@@ -46,12 +46,14 @@ if(s){var mt=document.querySelector('meta[name="theme-color"]');if(mt){mt.setAtt
 }catch(e){}})();`;
 
 /**
- * The CROSS-ORIGIN stylesheets the shell wants but must not BLOCK first paint on:
- * Google Fonts (Anek + Inter + Roboto) and the Phosphor FILL icon sheet.
+ * The CROSS-ORIGIN stylesheet the shell wants but must not BLOCK first paint on: Google Fonts
+ * (Anek + Inter + Roboto).
  *
- * ONE icon weight. The brand forbids thin/outline icons, so every glyph in src is
- * `ph-fill ph-*`; the regular and bold sheets were dropped with the last `ph ph-*` /
- * `ph-bold ph-*` usage, which also takes two cross-origin requests off every page.
+ * THE ICON SHEET IS NO LONGER HERE. Phosphor FILL used to be appended from unpkg.com by this
+ * loader — a third-party runtime dependency that no package manifest declared, and an icon face
+ * that could not load if that CDN was down or blocked. It is now SELF-HOSTED: `globals.css`
+ * imports `@badabhai/icons/icons.css`, the bundler emits the font under `/_next/static/media`, and
+ * the browser fetches it from this app's own origin, only on a page that paints a glyph.
  *
  * Measured on the public `/i/<code>` install page (`next start`, production build): the
  * four sheets loaded then were 4 of 6 render-blocking stylesheets, 250,748 B of CSS from two extra
@@ -72,7 +74,6 @@ export const ASYNC_STYLESHEETS: readonly string[] = [
   // Google Fonts splits each family by unicode-range, so the Devanagari bytes are only
   // fetched by a page that actually paints a Devanagari glyph.
   "https://fonts.googleapis.com/css2?family=Anek+Latin:wght@400;500;600;700;800&family=Anek+Devanagari:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Roboto:wght@300;400;500;700&display=swap",
-  "https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css",
 ];
 
 /**
@@ -85,9 +86,7 @@ export const ASYNC_STYLESHEETS: readonly string[] = [
  * with JS disabled.
  *
  * The typography degrades gracefully in the gap: the Google Fonts URL already carries
- * `display=swap`, so text paints immediately in the fallback face and upgrades. Icons
- * (`ph-fill ph-*`) appear a beat later on portal screens — the DS pairs every icon with a text
- * label precisely so the label carries the meaning, so nothing is unreadable meanwhile.
+ * `display=swap`, so text paints immediately in the fallback face and upgrades.
  *
  * Plain string literal, no external dependency, no hex/px tokens — survives the adherence
  * lint and a nonce/hash CSP, same as the no-FOUC script.

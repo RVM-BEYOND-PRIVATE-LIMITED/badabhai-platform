@@ -1,5 +1,19 @@
+/* The icon system — Phosphor FILL, SELF-HOSTED from this app's own origin (the font is emitted
+ * under /_next/static/media by the bundler; nothing is fetched from a CDN), plus the
+ * --icon-size-* / --icon-gap tokens the component layer below sizes icons with. Shared with
+ * admin-web through @badabhai/icons (packages/icons).
+ * FIRST, on purpose: (1) a library's rules must precede the app's, so an app rule that ties with
+ * Phosphor's `.ph-fill` base rule wins (icon-system.css.test.ts pins every such tie); (2) Next
+ * then merges the token and component layers into one stylesheet again — imported between them,
+ * the sheet split the CSS into five requests on every page, measured on /i/<code>. Its size
+ * tokens are var() aliases of the token layer, which resolve whatever the import order.
+ * KNOWN COST, TRACKED (issue #1893, follow-up to PR #1886): the whole fill sheet is render-blocking here
+ * too — +12.3 KB gzipped on /i/<code>, which paints no glyph — and the build emits three unused
+ * font formats; the planned fix is a generated subset. Details at the import in icons.css. */
+@import "@badabhai/icons/icons.css";
+
 /* BadaBhai brand token layer — the foundation (colors / type / spacing / radii /
- * elevation / motion / base). Imported FIRST so every rule below resolves from tokens.
+ * elevation / motion / base). Imported before every rule below so each resolves from tokens.
  * Source of truth: the shared @badabhai/design-tokens package (packages/design-tokens),
  * which admin-web imports too, so the two portals cannot drift apart again. */
 @import "@badabhai/design-tokens/tokens.css";
@@ -5445,7 +5459,12 @@ body:has(.invite-landing) .chrome-footer {
 .attention__icon {
   flex: none;
   font-size: var(--text-lg);
-  line-height: 1.35;
+  /* 1, not the 1.35 this rule used to declare. That value never rendered: the Phosphor sheet was
+     appended from a CDN AFTER this file, so its equal-specificity `.ph-fill { line-height: 1 }`
+     won. Now that the sheet is bundled FIRST (@badabhai/icons/icons.css), 1.35 would apply and
+     drop the glyph ~4px below the title it sits beside (measured in Chromium). 1 keeps the 20px
+     icon centred on the first line, exactly as it has always rendered. */
+  line-height: 1;
   color: var(--attention-tone, var(--text-muted));
 }
 [data-theme="ink"] .attention__item--critical {
@@ -5737,7 +5756,12 @@ body:has(.invite-landing) .chrome-footer {
 .alert__icon {
   flex: none;
   font-size: var(--text-lg);
-  line-height: 1.35;
+  /* 1, not the 1.35 this rule used to declare. That value never rendered: the Phosphor sheet was
+     appended from a CDN AFTER this file, so its equal-specificity `.ph-fill { line-height: 1 }`
+     won. Now that the sheet is bundled FIRST (@badabhai/icons/icons.css), 1.35 would apply and
+     drop the glyph ~4px below the title it sits beside (measured in Chromium). 1 keeps the 20px
+     icon centred on the first line, exactly as it has always rendered. */
+  line-height: 1;
   color: var(--alert-tone, var(--text-muted));
 }
 .alert__text {

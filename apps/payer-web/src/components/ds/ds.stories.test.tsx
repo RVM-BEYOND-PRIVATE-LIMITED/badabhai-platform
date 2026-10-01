@@ -56,13 +56,15 @@ describe("DS0.2 · primitives render with their design-system classes", () => {
     expect(v).toContain("disabled");
   });
 
-  it("IconButton — base class, accessible label, icon", () => {
-    const out = html(<IconButton icon="microphone" label="Record" variant="solid" size="sm" />);
+  it("IconButton — base class, accessible label, icon, visible tooltip (no title)", () => {
+    const out = html(<IconButton icon="plus" label="Add trade" variant="solid" size="sm" />);
     expect(out).toContain("bb-iconbtn");
     expect(out).toContain("bb-iconbtn--solid");
     expect(out).toContain("bb-iconbtn--sm");
-    expect(out).toContain('aria-label="Record"');
-    expect(out).toContain("ph-microphone");
+    expect(out).toContain('aria-label="Add trade"');
+    expect(out).toContain("ph-plus");
+    expect(out).toContain('<span class="bb-icon-tip bb-icon-tip--top" aria-hidden="true">Add trade</span>');
+    expect(out).not.toContain("title=");
   });
 
   it("Input — field shell, error state replaces hint, leading icon", () => {
@@ -267,8 +269,8 @@ describe("DS0.2 · adherence — no raw hex / px literal in any wrapper source",
     .filter((f) => f.endsWith(".tsx") && !f.includes(".test.") && !f.includes(".stories."))
     .map((f) => ({ f, code: stripComments(readFileSync(new URL(f, import.meta.url), "utf8")) }));
 
-  it("covers the whole library (12 component modules — the swipe JobCard was removed in PR-B)", () => {
-    expect(sources.length).toBe(12);
+  it("covers the whole library (13 component modules — the swipe JobCard was removed in PR-B; IconButton moved to its own module)", () => {
+    expect(sources.length).toBe(13);
   });
 
   for (const { f } of sources) {

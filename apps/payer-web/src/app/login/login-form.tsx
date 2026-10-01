@@ -7,6 +7,7 @@ import { Badge, Button, Input, OtpInput, Tabs, Toast, tabId, tabPanelId } from "
 import { requestCodeAction, signupAction, verifyCodeAction } from "./actions";
 import { INVALID_ORG_NAME, INVALID_PHONE, SEND_CONFIRMATION } from "./messages";
 import type { PayerRole } from "../../lib/auth";
+import type { IconName } from "@badabhai/icons";
 
 /**
  * Client auth form (AUTH-1) — a tri-axis state machine over the design system, presented as a
@@ -54,7 +55,7 @@ const PAYER_ROLE: Record<RoleKey, PayerRole> = { company: "employer", agency: "a
 /** Per-tab voice — crisp/operational, distinct per audience (payer voice). */
 const ROLE_COPY: Record<
   RoleKey,
-  { tab: string; icon: string; tagline: string; signupSub: string; account: string }
+  { tab: string; icon: IconName; tagline: string; signupSub: string; account: string }
 > = {
   company: {
     tab: "Company",

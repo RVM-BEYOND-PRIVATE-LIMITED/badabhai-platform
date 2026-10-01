@@ -133,8 +133,10 @@ describe.each(BOUNDARIES)("%s — CAUSE-FREE neutral boundary (B5)", (_name, Bou
   });
 });
 
-describe("global-error.tsx — no icon font is loaded on that surface", () => {
-  it("renders NO `ph-fill ph-*` glyph (the root layout that loads Phosphor is exactly what failed)", () => {
+describe("global-error.tsx — renders no glyph (yet)", () => {
+  // The icon font now ships in globals.css, which this boundary imports itself, so a glyph would
+  // render here; the surface is unchanged until the page-by-page icon pass adds one.
+  it("renders NO `ph-fill ph-*` glyph", () => {
     const { classNames } = collect(
       GlobalError({ error: secretError(), reset: vi.fn() }),
     );
@@ -146,7 +148,7 @@ describe("global-error.tsx — no icon font is loaded on that surface", () => {
     for (const Boundary of [RootError, PortalError]) {
       const { classNames } = collect(Boundary({ error: secretError(), reset: vi.fn() }));
       const tokens = classNames.flatMap((c) => c.split(/\s+/)).filter(Boolean);
-      // Every glyph is the solid (fill) weight — the only Phosphor sheet the layout loads.
+      // Every glyph is the solid (fill) weight — the only Phosphor sheet @badabhai/icons ships.
       expect(tokens).toContain("ph-fill");
     }
   });
