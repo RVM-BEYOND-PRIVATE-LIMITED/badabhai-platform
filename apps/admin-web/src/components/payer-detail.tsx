@@ -63,7 +63,11 @@ export function PayerDetailView({
       <>
         One {kind === "Company" ? "company" : "agency"} account — what it has posted and
         spent{orgName === null ? ", not who registered it" : ""} —{" "}
-        {labels.length > 0 ? (
+        {postings === null ? (
+          /* The postings read FAILED (the panel below says so). "No postings yet" would be a
+             claim about the account made from a read that never arrived. */
+          <>its postings could not be loaded, so no self-declared label is shown.</>
+        ) : labels.length > 0 ? (
           <>
             publishing as <strong>{labels.slice(0, 3).join(", ")}</strong>
             {labels.length > 3 && ` and ${labels.length - 3} more`}, self-declared on its

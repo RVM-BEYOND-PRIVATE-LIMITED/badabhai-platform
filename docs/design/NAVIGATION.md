@@ -95,8 +95,12 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   record's timeline. Both are offered only to a session holding `read_events`; this is an
   affordance, and each route keeps its own gate.
 - **"Retry"** repeats exactly the current query, page cursor included. **"Back to the first
-  page"** drops the cursor, and appears only when there is one. A failed read of an unfiltered
-  list offers both when a cursor is present (`components/retry-actions.tsx`).
+  page"** is the same query without the cursor, and appears only when there is one. Every
+  paged list's failed read renders both through `components/retry-actions.tsx` (Workers,
+  Postings, Events, Companies, Agencies, the event timelines, Payment orders, the credit
+  ledger, Skill discovery's flat view, AI calls, Feedback); a test fails if one does not pass
+  its cursor. AI calls and Feedback, which tell a refused request apart, offer only "Back to
+  the first page" in that refusal state.
 - **One instruction per failure.** Where a Retry button sits under an error, the copy does not
   also say "reload". A failure with no button (a secondary read on a detail page) says
   "Reload this page".
@@ -105,10 +109,13 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
 - **Touch targets.** On a phone or any coarse pointer, every small text link reaches 44px:
   table links through a row-high hit strip; stacked cell links, record-row links (a posting's
   owner, an AI call's worker, session and correlation id), id chips, the back link and the
-  crumb's section link by taking the height themselves.
+  crumb's section link by taking the height themselves. Record rows then align on the text
+  baseline, so a 44px link stays beside its label.
 - **Names.** "Resume" (one spelling), "MFA" (never "second factor"), "account" / "Customers"
-  for Company and Agency together (never "Payer" on screen). `lib/terminology-fence.test.ts`
-  keeps the retired names out of the console's visible text.
+  for Company and Agency together (never "Payer" on screen), "Posting" for the job entity.
+  `lib/terminology-fence.test.ts` keeps the retired names out of the console's visible text. Event names are data and keep their words (`payer.suspended`); where one is
+  shown humanized, its domain reads as the console says it ("Customer · suspended",
+  "Posting · created" — `humanizeEventName`).
 - **Icons** come from `@badabhai/icons` only (`<Icon>`, `ACTION_ICON`). Key actions show icon
   and text. Icon-only controls use the admin `IconButton`. No arrow, tick or cross characters
   stand in for icons, and every `<summary>` draws the brand caret.

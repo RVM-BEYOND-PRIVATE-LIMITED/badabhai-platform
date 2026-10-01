@@ -330,3 +330,18 @@ describe("the event-timeline link (header and result banner) follows read_events
     expect(stub.headerProps).not.toHaveProperty("payerHref");
   });
 });
+
+describe("the posting page calls the posting a posting (owner ruling 2026-10-01)", () => {
+  it("never says 'this job' about it", async () => {
+    const out = await render();
+    expect(out).toContain("What the poster set for this posting.");
+    expect(out).not.toMatch(/this job\b/i);
+  });
+
+  it("nor in the no-description state", async () => {
+    stub.job = { ...BASE, description: null };
+    const out = await render();
+    expect(out).toContain("The poster published this posting without one");
+    expect(out).not.toMatch(/this job\b/i);
+  });
+});

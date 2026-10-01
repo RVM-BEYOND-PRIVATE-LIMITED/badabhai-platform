@@ -53,12 +53,27 @@ export function matchTierLabel(tier: number | null | undefined): string {
   return "—";
 }
 
-/** `worker.profile_confirmed` → `Worker · profile confirmed`. */
+/**
+ * How an event's DOMAIN reads on screen, where the console's names differ from the event's
+ * (owner ruling 2026-10-01: the job entity is "Posting"; Company and Agency together are
+ * "Customers"). DISPLAY ONLY: the event names in the data, in filters and in the payload view
+ * keep their words (`payer.suspended`, `job_posting.created`). `job.*` is the legacy jobs table,
+ * a different entity, and stays "Job".
+ */
+const EVENT_DOMAIN_LABELS: Readonly<Record<string, string>> = {
+  payer: "Customer",
+  job_posting: "Posting",
+};
+
+/** `worker.profile_confirmed` → `Worker · profile confirmed`; `payer.suspended` → `Customer · suspended`. */
 export function humanizeEventName(name: string): string {
-  const [domain, ...rest] = name.split(".");
+  const [domain = "", ...rest] = name.split(".");
   const action = rest.join(".").replace(/_/g, " ");
   const cap = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
-  return action ? `${cap(domain ?? "")} · ${action}` : cap(name);
+  const shown = Object.hasOwn(EVENT_DOMAIN_LABELS, domain)
+    ? EVENT_DOMAIN_LABELS[domain]!
+    : cap(domain.replace(/_/g, " "));
+  return action ? `${shown} · ${action}` : cap(name.replace(/_/g, " "));
 }
 
 /** Thousands separators. Counts only — never money (₹ has its own rules). */

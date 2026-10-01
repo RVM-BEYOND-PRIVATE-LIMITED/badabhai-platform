@@ -42,16 +42,33 @@ const ENTITIES: Record<string, string> = {
 };
 const decode = (s: string) => s.replace(/&[a-z]+;/g, (e) => ENTITIES[e] ?? e);
 
+/**
+ * Every combination of the parts. Past MAX_ALTERNATIVES it THROWS rather than keep the first
+ * few: a guard that silently stopped enumerating would pass a description whose 257th branch
+ * is two sentences.
+ */
 function product(parts: string[][]): string[] {
   let out = [""];
   for (const alts of parts) {
+    if (out.length * alts.length > MAX_ALTERNATIVES) throw tooMany(out.length * alts.length);
     const next: string[] = [];
-    for (const a of out) {
-      for (const b of alts) if (next.length < MAX_ALTERNATIVES) next.push(a + b);
-    }
+    for (const a of out) for (const b of alts) next.push(a + b);
     out = next;
   }
   return out;
+}
+
+const tooMany = (n: number) =>
+  new Error(
+    `a description can render ${n} texts, more than the ${MAX_ALTERNATIVES} this guard reads — ` +
+      "split it, so every branch can still be checked",
+  );
+
+/** Alternatives from branches (a ternary, `||`), held to the same ceiling as a product. */
+function either(...branches: string[][]): string[] {
+  const all = branches.flat();
+  if (all.length > MAX_ALTERNATIVES) throw tooMany(all.length);
+  return all;
 }
 
 /** Every text `node` can render. Anything that is not text-producing is the word "x". */
@@ -62,12 +79,12 @@ export function renderedTexts(node: ts.Node): string[] {
   if (ts.isParenthesizedExpression(node)) return renderedTexts(node.expression);
   if (ts.isJsxExpression(node)) return node.expression ? renderedTexts(node.expression) : [""];
   if (ts.isConditionalExpression(node))
-    return [...renderedTexts(node.whenTrue), ...renderedTexts(node.whenFalse)];
+    return either(renderedTexts(node.whenTrue), renderedTexts(node.whenFalse));
   if (ts.isBinaryExpression(node)) {
     const op = node.operatorToken.kind;
-    if (op === ts.SyntaxKind.AmpersandAmpersandToken) return ["", ...renderedTexts(node.right)];
+    if (op === ts.SyntaxKind.AmpersandAmpersandToken) return either([""], renderedTexts(node.right));
     if (op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.QuestionQuestionToken)
-      return [...renderedTexts(node.left), ...renderedTexts(node.right)];
+      return either(renderedTexts(node.left), renderedTexts(node.right));
     if (op === ts.SyntaxKind.PlusToken)
       return product([renderedTexts(node.left), renderedTexts(node.right)]);
     return ["x"];
@@ -82,9 +99,22 @@ export function renderedTexts(node: ts.Node): string[] {
   return ["x"];
 }
 
+/**
+ * Dots that do not end a sentence: abbreviations ("e.g.", "i.e.", "etc.", "vs.", "approx.",
+ * "incl.", "a.m.", "p.m."), "Rs." and "No." before a figure, and an ellipsis inside a sentence.
+ * Their dots are dropped before counting. (A sentence that really ends on "etc." then counts
+ * as no end at all — a guard that errs toward passing one sentence, never toward failing one.)
+ */
+function withoutFalseEnds(text: string): string {
+  return text
+    .replace(/\b(?:e\.g|i\.e|etc|vs|approx|incl|a\.m|p\.m)\./gi, (m) => m.replace(/\./g, ""))
+    .replace(/\b(?:Rs|No)\.(?=\s*\d)/gi, (m) => m.replace(/\./g, ""))
+    .replace(/\.{3}(?=\s)/g, "…");
+}
+
 /** Sentence ends: `.`, `!` or `?` followed by a space or the end (closing quotes allowed). */
 export const sentenceCount = (text: string): number =>
-  (text.trim().match(/[.!?](?=["'”’)\]]*(\s|$))/g) ?? []).length;
+  (withoutFalseEnds(text.trim()).match(/[.!?](?=["'”’)\]]*(\s|$))/g) ?? []).length;
 
 interface Found {
   where: string;
@@ -146,6 +176,31 @@ describe("the detector", () => {
     expect(sentenceCount("One thing. Another thing.")).toBe(2);
     expect(sentenceCount("Version v1.2 of the pack, 3.5 days")).toBe(0);
     expect(sentenceCount("Says “stop.” Then more.")).toBe(2);
+  });
+
+  it("does not end a sentence on an abbreviation, a currency or number sign, or an ellipsis", () => {
+    expect(sentenceCount("Trades, e.g. welding, and i.e. fitting, etc. all count.")).toBe(1);
+    expect(sentenceCount("Pay from Rs. 500 to Rs.900 a month.")).toBe(1);
+    expect(sentenceCount("Shift No. 5 runs from 6 a.m. to 2 p.m. daily.")).toBe(1);
+    expect(sentenceCount("Approx. ten postings, incl. paused ones, vs. last week.")).toBe(1);
+    expect(sentenceCount("Loading... then the list.")).toBe(1);
+    // …and a real second sentence is still caught after one of them.
+    expect(sentenceCount("Pay from Rs. 500. Paid monthly.")).toBe(2);
+    expect(sentenceCount("Say no. Then stop.")).toBe(2);
+  });
+
+  it("throws past its ceiling instead of silently reading only the first few branches", () => {
+    const choices = (n: number) =>
+      `const a = <PageHeader title="T" description={<>${Array.from(
+        { length: n },
+        (_, i) => `{c${i} ? "a" : "b"}`,
+      ).join("")}</>} />;`;
+    // Nine binary choices in one fragment: 512 texts.
+    expect(() => descriptionsIn("t.tsx", choices(9))).toThrow(/more than the 256/);
+    // Eight are fine: 256 texts, each one read.
+    const texts = descriptionsIn("t.tsx", choices(8))[0]!.texts;
+    expect(texts).toHaveLength(256);
+    expect(new Set(texts).size).toBe(256);
   });
 
   it("enumerates every branch a description can render", () => {

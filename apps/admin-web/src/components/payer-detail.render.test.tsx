@@ -223,3 +223,19 @@ describe("the event-timeline link follows read_events (an affordance; the route 
     expect(out).not.toContain("/timeline");
   });
 });
+
+describe("the description when the postings read FAILED (owner brief 2026-10-01)", () => {
+  it("says the postings could not be loaded — not that the account has none", () => {
+    const out = render(FACELESS, ENTITLED, null);
+    const at = out.indexOf('<p class="page__sub">');
+    const sub = out.slice(at, out.indexOf("</p>", at));
+    expect(sub).toContain("its postings could not be loaded");
+    expect(sub).not.toContain("no postings yet");
+  });
+
+  it("an account that genuinely has none still says so", () => {
+    const out = render(FACELESS, ENTITLED, []);
+    expect(out).toContain("with no postings yet");
+    expect(out).not.toContain("could not be loaded, so no self-declared label");
+  });
+});

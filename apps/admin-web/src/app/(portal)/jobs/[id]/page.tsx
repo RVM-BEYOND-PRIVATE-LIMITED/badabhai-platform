@@ -132,8 +132,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               Posting content
             </h2>
             <p className="panel__sub">
-              What the poster set for this job. The role classification is internal and is not
-              shown to workers.
+              What the poster set for this posting. The role classification is internal and is
+              not shown to workers.
             </p>
           </div>
           <DetailList
@@ -174,7 +174,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               <div className="state">
                 <h4 className="state__title">No description</h4>
                 <p className="state__body">
-                  The poster published this job without one, so workers judge it on the role
+                  The poster published this posting without one, so workers judge it on the role
                   title, pay band and location alone. There is nothing here to review for a
                   misleading claim — an empty description is a quality signal, not a fault.
                 </p>

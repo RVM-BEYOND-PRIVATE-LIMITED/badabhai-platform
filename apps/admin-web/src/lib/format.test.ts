@@ -99,6 +99,17 @@ describe("event names", () => {
     expect(humanizeEventName("admin.session_started")).toBe("Admin · session started");
   });
 
+  it("names the domain the way the console does — display only, the event name is unchanged", () => {
+    // Owner ruling 2026-10-01: Company + Agency are "Customers", the job entity is "Posting".
+    expect(humanizeEventName("payer.suspended")).toBe("Customer · suspended");
+    expect(humanizeEventName("job_posting.created")).toBe("Posting · created");
+    // The legacy jobs table is a different entity and keeps its name.
+    expect(humanizeEventName("job.created")).toBe("Job · created");
+    // No raw underscore leaks out of a domain.
+    expect(humanizeEventName("interview_kit.downloaded")).toBe("Interview kit · downloaded");
+    expect(humanizeEventName("constructor.called")).toBe("Constructor · called");
+  });
+
   it("handles a name with no dot", () => {
     expect(humanizeEventName("heartbeat")).toBe("Heartbeat");
   });
