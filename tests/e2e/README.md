@@ -64,6 +64,7 @@ or both of them:
 | `swipe-to-apply.e2e.test.ts` | worker seam | wired, opt-in |
 | `contact-unlock.e2e.test.ts` | worker seam | wired, **armed in CI** (`E2E_UNLOCK_SUITE=1`) |
 | `referral-round-trip.e2e.test.ts` | worker seam | wired, opt-in |
+| `match-skills-clear-all.e2e.test.ts` | worker seam | wired, opt-in (E4 clear-all `cleared` count over real SQL, #1850) |
 | `payer-tenancy.e2e.test.ts` | worker seam + payer seam | wired, opt-in (adds `PAYER_TEST_LOGIN_TOKEN`) |
 | `payer-capacity.e2e.test.ts` | neither (ops-token only, no `payers` row required) | wired, opt-in |
 | `phase1-flow.e2e.test.ts` | — | still hard `describe.skip` (real OTP provider required) — out of scope here |
