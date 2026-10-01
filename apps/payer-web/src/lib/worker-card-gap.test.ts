@@ -28,11 +28,50 @@ describe("workerCardGap — order + copy", () => {
     expect(workerCardGap(FULL)).toBeNull();
   });
 
-  it("checks roleKind FIRST (web) with the 'Pick the role' copy", () => {
+  it("checks roleKind FIRST (web) with the 'Pick the role' copy — and never claims it is on the card", () => {
     const gap = workerCardGap({ ...FULL, roleKind: null, city: "" });
     expect(gap).not.toBeNull();
     expect(gap!.title).toBe("Pick the role");
-    expect(gap!.message).toContain("The role leads the worker's card");
+    expect(gap!.field).toBe("roleKind");
+    // role_kind is on NO worker read (ADR-0024 addendum) — the copy must not say the card shows it.
+    expect(gap!.message).toContain("workers see your role title, not this");
+    expect(gap!.message).not.toMatch(/leads the worker's card/);
+  });
+
+  it("tells the truth about the description: the swipe card does NOT show it", () => {
+    const gap = workerCardGap({ ...FULL, description: "" });
+    expect(gap!.title).toBe("Add the description");
+    expect(gap!.message).not.toMatch(/card shows your description/i);
+    expect(gap!.message).toContain("Workers read it when they open the job");
+    expect(gap!.message).toContain("not on the swipe card");
+  });
+
+  it("names the form control to take the payer to, for every gap", () => {
+    const fields = workerCardGaps({
+      ...FULL,
+      roleKind: null,
+      city: "",
+      payMin: null,
+      payType: null,
+      expMax: null,
+      shift: null,
+      neededBy: null,
+      description: "",
+      requirements: [],
+      benefits: [],
+    }).map((g) => g.field);
+    expect(fields).toEqual([
+      "roleKind",
+      "city",
+      "payMin",
+      "payType",
+      "minExperienceYears",
+      "shift",
+      "neededBy",
+      "description",
+      "requirements",
+      "benefits",
+    ]);
   });
 
   it("surfaces the FIRST open field in top-to-bottom order", () => {

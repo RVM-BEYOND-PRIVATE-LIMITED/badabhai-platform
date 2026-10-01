@@ -121,7 +121,8 @@ vi.mock("react", async () => {
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
-vi.mock("./actions", () => ({ createPostingAction: vi.fn() }));
+const createPostingAction = vi.fn(async (_input: unknown) => ({ ok: true, postingId: "p1", published: true }));
+vi.mock("./actions", () => ({ createPostingAction: (i: unknown) => createPostingAction(i) }));
 vi.mock("./match-actions", () => ({ previewReachAction: vi.fn(async () => ({ ok: false, error: "x" })) }));
 // The interactive, hook-using picker is replaced with a hookless stand-in that still renders the
 // vocabulary it was HANDED, so "the form passes the server list down" stays a real assertion.
@@ -146,8 +147,9 @@ const MSKILL = {
 
 /**
  * useState order in the source: fields, fieldErrors, error, navigating, selection, preview,
- * requirements, benefits, reqDraft, benDraft, gap (then useTransition). The card-lineage state is
- * APPENDED after the ADR-0036 prefix so this positional seeding keeps working.
+ * requirements, benefits, reqDraft, benDraft, gap, revealed (then useTransition; the preview rail's
+ * own sheet state comes after, at its initial value). New state is APPENDED so this positional
+ * seeding keeps working.
  */
 function render(seed: {
   fields: Record<string, string>;
@@ -158,6 +160,9 @@ function render(seed: {
   preview?: unknown;
   requirements?: string[];
   benefits?: string[];
+  reqDraft?: string;
+  benDraft?: string;
+  revealed?: Record<string, true>;
   matchSkills?: Array<Record<string, unknown>>;
 }) {
   stateQueue = [
@@ -169,9 +174,10 @@ function render(seed: {
     seed.preview ?? null,
     seed.requirements ?? [],
     seed.benefits ?? [],
-    "",
-    "",
+    seed.reqDraft ?? "",
+    seed.benDraft ?? "",
     null,
+    seed.revealed ?? {},
   ];
   stateCursor = 0;
   return PostingForm({
@@ -258,6 +264,7 @@ const VALID_FIELDS = { ...BLANK_FIELDS, roleTitle: "CNC Machinist", vacancies: "
 beforeEach(() => {
   useState.mockClear();
   useTransition.mockClear();
+  createPostingAction.mockClear();
 });
 
 describe("PostingForm render — the role picker and the card fields are present", () => {
@@ -298,12 +305,12 @@ describe("PostingForm render — disable-submit-until-valid", () => {
     expect(submit!.disabled).toBe(false);
   });
 
-  it("B7 navigate-latch keeps submit DISABLED and reads 'Posting…'", () => {
+  it("B7 navigate-latch keeps submit DISABLED and reads 'Publishing…'", () => {
     const submit = collect(
       render({ fields: VALID_FIELDS, fieldErrors: {}, navigating: true }),
     ).buttons.find((b) => b.type === "submit");
     expect(submit!.disabled).toBe(true);
-    expect(submit!.text).toBe("Posting…");
+    expect(submit!.text).toBe("Publishing…");
   });
 
   it("a form with every demand field set but NO match skill keeps submit DISABLED", () => {
@@ -356,5 +363,112 @@ describe("PostingForm render — ADR-0036 match surface (fail-closed)", () => {
     const text = collect(render(seed)).texts.join(" ").replace(/\s+/g, " ");
     expect(text).toContain("Could not load the skill list");
     expect(collect(render(seed)).buttons.find((b) => b.type === "submit")!.disabled).toBe(true);
+  });
+});
+
+/* ── 3. THE PREVIEW RAIL + the shared read ─────────────────────────────────────── */
+
+const FULL_FIELDS = {
+  ...BLANK_FIELDS,
+  roleKind: "cnc_turner",
+  roleTitle: "CNC Turner",
+  locationLabel: "Chakan plant",
+  vacancies: "5",
+  city: "Pune",
+  area: "Chakan MIDC",
+  payMin: "18000",
+  payMax: "26000",
+  payType: "in_hand",
+  minExperienceYears: "2",
+  maxExperienceYears: "5",
+  shift: "day",
+  neededBy: "soon",
+  description: "Run two Fanuc turning centres per shift.",
+};
+
+function findForm(node: ReactNode): ReactElement<{ onSubmit: (e: unknown) => void; id?: string }> | null {
+  if (node === null || node === undefined || typeof node !== "object") return null;
+  if (Array.isArray(node)) {
+    for (const c of node) {
+      const f = findForm(c);
+      if (f) return f;
+    }
+    return null;
+  }
+  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  if (el.type === "form") return el as ReactElement<{ onSubmit: (e: unknown) => void; id?: string }>;
+  if (typeof el.type === "function") return null;
+  return el.props && "children" in el.props ? findForm(el.props.children) : null;
+}
+
+describe("PostingForm — the preview rail is the worker card, built from the shared read", () => {
+  it("draws the card (Area, City), 'Also in your posting' (role, openings, note) and the phone dock", () => {
+    const text = collect(render({ fields: FULL_FIELDS, fieldErrors: {} })).texts.join(" ").replace(/\s+/g, " ");
+    expect(text).toContain("Chakan MIDC, Pune");
+    expect(text).toContain("Also in your posting");
+    expect(text).toContain("Openings");
+    expect(text).toContain("Chakan plant");
+    expect(text).toContain("Preview the card");
+    expect(text).toContain("Publish posting");
+  });
+
+  it("the rail's primary button submits THIS form (form attribute), so it works outside the <form>", () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {} });
+    const form = findForm(tree);
+    expect(form!.props.id).toBe("posting-form");
+    const ids = new Set<string>();
+    (function walkForm(node: ReactNode): void {
+      if (node === null || node === undefined || typeof node !== "object") return;
+      if (Array.isArray(node)) return node.forEach(walkForm);
+      const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+      if (typeof el.type === "function") return walkForm((el.type as (p: unknown) => ReactNode)(el.props));
+      if (el.type === "button" && el.props.type === "submit") ids.add(String(el.props.form));
+      if ("children" in el.props) walkForm(el.props.children);
+    })(tree);
+    expect([...ids]).toEqual(["posting-form"]);
+  });
+
+  it('a pay of "21k" shows "needs a whole number" AT ONCE and keeps publish disabled', () => {
+    const { texts, aria, buttons } = collect(
+      render({ fields: { ...FULL_FIELDS, payMin: "21k" }, fieldErrors: {} }),
+    );
+    expect(texts.join(" ")).toContain("Min pay needs a whole number");
+    expect(texts.join(" ")).toContain("Pay needs a whole number"); // the card names the fix
+    expect(texts.join(" ")).not.toContain("Up to ₹26,000/mah");
+    expect(aria.find((a) => a.id === "payMin")!.ariaInvalid).toBe(true);
+    expect(buttons.find((b) => b.type === "submit")!.disabled).toBe(true);
+  });
+
+  it("max below min: the card says so at once; the FIELD error waits until the payer leaves the box", () => {
+    const typing = collect(render({ fields: { ...FULL_FIELDS, payMax: "1800" }, fieldErrors: {} }));
+    expect(typing.texts.join(" ")).toContain("Max pay is below min pay");
+    expect(typing.texts.join(" ")).not.toContain("Max pay must be greater than or equal to min pay.");
+    const left = collect(
+      render({ fields: { ...FULL_FIELDS, payMax: "1800" }, fieldErrors: {}, revealed: { payMin: true, payMax: true } }),
+    );
+    expect(left.texts.join(" ")).toContain("Max pay must be greater than or equal to min pay.");
+  });
+
+  it('submits the SAME values the card shows: "18,000" → 18000 and a typed-not-added chip is kept', async () => {
+    const tree = render({
+      fields: { ...FULL_FIELDS, payMin: "18,000" },
+      fieldErrors: {},
+      requirements: ["Fanuc control"],
+      benDraft: "  PF + ESI ",
+    });
+    await findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    expect(createPostingAction).toHaveBeenCalledTimes(1);
+    const input = createPostingAction.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input.payMin).toBe(18000);
+    expect(input.requirements).toEqual(["Fanuc control"]);
+    expect(input.benefits).toEqual(["PF + ESI"]);
+    expect(input.vacancies).toBe(5);
+    expect(input.roleTitle).toBe("CNC Turner");
+  });
+
+  it("a thin card is refused BEFORE the action (the gap rule reads the same values)", async () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {}, requirements: ["Fanuc control"] });
+    await findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    expect(createPostingAction).not.toHaveBeenCalled();
   });
 });

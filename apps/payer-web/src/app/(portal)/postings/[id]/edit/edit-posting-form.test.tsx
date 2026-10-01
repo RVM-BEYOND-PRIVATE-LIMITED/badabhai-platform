@@ -7,14 +7,19 @@ import type * as ReactModule from "react";
  * count is OMITTED from the action input, a changed one is sent. Also pins: empty optionals →
  * undefined, `initial` threaded to the action (the clear diff), success → router.push to detail,
  * client validate() blocks. Env is node; state injected via mocked useState (source order: fields,
- * requirements, benefits, reqDraft, benDraft, error, selection, preview); useTransition runs inline.
+ * requirements, benefits, reqDraft, benDraft, error, selection, preview, revealed); useTransition
+ * runs inline. The card fields reach the action through the shared `readCardForm` — the same read
+ * the preview draws — so the liveness fixes are pinned here at the submit end.
  */
 
 const updatePostingAction = vi.fn();
 const push = vi.fn();
+const refresh = vi.fn();
 
 vi.mock("./actions", () => ({ updatePostingAction: (i: unknown) => updatePostingAction(i) }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: (p: string) => push(p) }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: (p: string) => push(p), refresh: () => refresh() }),
+}));
 // The interactive picker is only rendered on the draft path; stub it hookless.
 vi.mock("../../new/match-skill-picker", () => ({ MatchSkillPicker: () => ({ type: "div", props: {} }) }));
 
@@ -91,16 +96,22 @@ function findForm(node: ReactNode): ReactElement<{ onSubmit: (e: unknown) => voi
   return el.props && "children" in el.props ? findForm(el.props.children) : null;
 }
 
-function render(overrides: Partial<typeof BLANK_FIELDS>, status = "open") {
+function render(
+  overrides: Partial<typeof BLANK_FIELDS>,
+  status = "open",
+  chips: { requirements?: string[]; benefits?: string[]; reqDraft?: string; benDraft?: string } = {},
+  selection = { matchSkillIds: [] as string[], untickedRelatedIds: [] as string[] },
+) {
   stateQueue = [
     { ...BLANK_FIELDS, ...overrides }, // fields
-    [], // requirements
-    [], // benefits
-    "", // reqDraft
-    "", // benDraft
+    chips.requirements ?? [], // requirements
+    chips.benefits ?? [], // benefits
+    chips.reqDraft ?? "", // reqDraft
+    chips.benDraft ?? "", // benDraft
     null, // error
-    { matchSkillIds: [], untickedRelatedIds: [] }, // selection
+    selection, // selection
     null, // preview
+    // revealed (index 8) is APPENDED — left to its initial value.
   ];
   stateCursor = 0;
   setters = [];
@@ -116,6 +127,7 @@ async function submit(tree: ReactElement) {
 beforeEach(() => {
   updatePostingAction.mockReset().mockResolvedValue({ ok: true, posting: {} });
   push.mockReset();
+  refresh.mockReset();
 });
 
 describe("EditPostingForm — the band-downgrade guard (vacancies omission)", () => {
@@ -195,5 +207,43 @@ describe("EditPostingForm — outcomes", () => {
     updatePostingAction.mockResolvedValue({ ok: false, error: "No changes to save." });
     await submit(render({}));
     expect(setters[5]).toHaveBeenCalledWith("No changes to save.");
+  });
+});
+
+describe("EditPostingForm — what is saved is what the preview showed (readCardForm)", () => {
+  it('"21,000" is saved as 21000 (the box was type=number, which turned it into "" → a CLEAR)', async () => {
+    await submit(render({ payMin: "21,000", payMax: "30,000" }));
+    const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input.payMin).toBe(21000);
+    expect(input.payMax).toBe(30000);
+  });
+
+  it('"1.5" years BLOCKS the save — sending it as "not stated" would clear the stored value', async () => {
+    await submit(render({ minExperienceYears: "1.5", maxExperienceYears: "4" }));
+    expect(updatePostingAction).not.toHaveBeenCalled();
+    expect(setters[5]).toHaveBeenCalledWith(expect.stringContaining("needs a whole number"));
+    // …and the order error is revealed on every number box (index 8 = revealed).
+    expect(setters[8]).toHaveBeenCalled();
+  });
+
+  it("a requirement typed but not added is SAVED (and shown as added)", async () => {
+    await submit(render({}, "open", { requirements: ["Fanuc control"], reqDraft: " MIG welding " }));
+    const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input.requirements).toEqual(["Fanuc control", "MIG welding"]);
+    expect(setters[1]).toHaveBeenCalledWith(["Fanuc control", "MIG welding"]);
+    expect(setters[3]).toHaveBeenCalledWith("");
+  });
+
+  it("a successful save navigates AND refreshes, so Back never restores the pre-save form", async () => {
+    await submit(render({}));
+    expect(push).toHaveBeenCalledWith(`/postings/${POSTING_ID}`);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("the role kind and the openings label are sent through the same read", async () => {
+    await submit(render({ roleKind: "welder", vacancies: "1,000" }));
+    const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input.roleKind).toBe("welder");
+    expect(input.vacancies).toBe(1000);
   });
 });

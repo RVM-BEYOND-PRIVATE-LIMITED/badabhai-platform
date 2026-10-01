@@ -2282,30 +2282,302 @@ textarea.input {
   line-height: var(--leading-normal);
 }
 
-/* PR-B — the posting↔card lineage: the form beside a LIVE card preview. Two columns on wide
-   screens, stacked (preview on top, sticky-free) at the reading measure so it works to 375px. */
+/* JOB-CARD PREVIEW LAYOUT — the posting editors (company create/edit, agency create/edit) and the
+   two detail pages. Measured in Chromium at 1280×720 / 1366×768 / 1440×900 / 1920×1080 and
+   320 / 375 / 768 (see the PR); fenced by job-card-preview.css.test.ts.
+
+   ≥1024px (the shell's own desktop line): the form keeps its reading measure and a 24rem rail
+   sits RIGHT BESIDE it (no dead gap on a wide screen). The rail is sticky BELOW the sticky shell
+   header — its offset is the header token plus the header's hairline, so the card's title can
+   never slide under the header — and capped to the viewport: the card and the facts scroll inside
+   it only if they truly do not fit, while the actions are its pinned footer.
+
+   <1024px: the editor's rail is not drawn (it sat above the form, out of sight for most fields).
+   A dock — a one-line card summary + the primary action — sticks to the bottom of the form and
+   opens the full card in a bottom sheet. The form's own actions return at its end. */
 .posting-layout {
+  --posting-rail-w: 24rem;
+  --posting-rail-top: calc(var(--shell-header-h) + var(--border-hairline) + var(--space-4));
+  /* Room the form leaves under its last field for the dock (one row ≈ 4rem; it may wrap to two
+     rows in a narrow nested column, e.g. the agency form inside the dashboard panel). */
+  --posting-dock-h: 7rem;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-6);
   align-items: start;
 }
-@media (min-width: 60rem) {
-  .posting-layout {
-    grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
-  }
-  .posting-preview {
-    position: sticky;
-    top: var(--space-5);
-  }
+.posting-layout__main {
+  min-width: 0;
 }
+/* A control focused from the actions (a refused publish) lands below the header, above the dock. */
+.posting-layout--editor :is(input, select, textarea) {
+  scroll-margin-top: var(--posting-rail-top);
+  scroll-margin-bottom: calc(var(--posting-dock-h) + var(--space-4));
+}
+.posting-layout__end {
+  padding-top: var(--space-2);
+}
+/* A detail page's card leads on a phone — it is what the page is about. */
 .posting-preview {
   order: -1;
+  min-width: 0;
 }
-@media (min-width: 60rem) {
+.posting-preview__scroll {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.posting-dock {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+.posting-dock__summary {
+  flex: 1 1 5rem;
+  min-width: 0;
+  min-height: var(--control-md);
+  display: grid;
+  justify-items: start;
+  padding: var(--space-1) var(--space-2);
+  margin: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.posting-dock__title,
+.posting-dock__meta {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  line-height: var(--leading-snug);
+}
+.posting-dock__title {
+  font-weight: var(--weight-bold);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+}
+.posting-dock__meta {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.posting-dock__cue {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-snug);
+  color: var(--text-link);
+  text-decoration: underline;
+  text-decoration-color: var(--link-underline);
+}
+.posting-dock__primary {
+  flex: none;
+  margin-inline-start: auto;
+}
+@media (min-width: 1024px) {
+  .posting-layout {
+    grid-template-columns: minmax(0, 1fr) var(--posting-rail-w);
+    column-gap: var(--space-7);
+  }
+  .posting-layout--editor {
+    grid-template-columns: minmax(0, var(--reading-max)) var(--posting-rail-w);
+    justify-content: start;
+  }
   .posting-preview {
     order: 0;
+    position: sticky;
+    top: var(--posting-rail-top);
+    max-height: calc(100vh - var(--posting-rail-top) - var(--space-4));
+    max-height: calc(100dvh - var(--posting-rail-top) - var(--space-4));
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
   }
+  /* The phone card at 1.125× — title 19px, place 15px, band 22.5px, chips 13.5px: readable on a
+     laptop, still within 1.2× of the phone, and the wrap points stay the phone's. */
+  .posting-preview .jcp {
+    --jcp-scale: 1.125;
+  }
+  .posting-preview__scroll {
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    gap: var(--space-3);
+    /* A soft edge at the bottom WHILE there is more to scroll (the page-coloured cover travels
+       with the content and hides the edge once the end is reached). */
+    background:
+      linear-gradient(transparent, var(--surface-page) 70%) bottom / 100% var(--space-6) no-repeat local,
+      linear-gradient(transparent, color-mix(in srgb, var(--text-primary) 10%, transparent)) bottom / 100%
+        var(--space-2) no-repeat scroll;
+  }
+  /* A company editor is the page's LAST block: its rail may run on into the shell's bottom
+     padding, so scrolling to the very end of the page does not shove the card up under the
+     header. The negative margin returns exactly the room the padding adds (page height unchanged). */
+  .pshell__content > .posting-layout--editor:last-child {
+    margin-bottom: calc(-1 * var(--space-10));
+  }
+  .pshell__content > .posting-layout--editor:last-child > .posting-layout__main {
+    padding-bottom: var(--space-10);
+  }
+  .posting-preview__foot {
+    flex: none;
+    padding-top: var(--space-3);
+    border-top: var(--border-hairline) solid var(--border-subtle);
+  }
+  .posting-dock,
+  .posting-layout__end {
+    display: none;
+  }
+}
+@media (max-width: 1023px) {
+  .posting-layout--editor > .posting-preview {
+    display: none;
+  }
+  /* The dock shares the form's grid cell and sits at its END, so `sticky; bottom` carries it along
+     the whole form (a grid item cannot stick beyond its own area); the form leaves room for it. */
+  .posting-layout--editor > .posting-layout__main {
+    grid-row: 1;
+    grid-column: 1;
+    padding-bottom: calc(var(--posting-dock-h) + var(--space-4));
+  }
+  .posting-dock {
+    grid-row: 1;
+    grid-column: 1;
+    align-self: end;
+    position: sticky;
+    bottom: var(--space-2);
+    z-index: var(--z-sticky);
+  }
+}
+/* The sheet draws the card at the phone's own width (332dp needs the body's side padding back). */
+.bb-dialog__body:has(> .posting-sheet) {
+  padding-inline: var(--space-4);
+}
+.posting-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* "Also in your posting — not on the worker's card": a divided list, not another card. */
+.posting-facts {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: var(--border-hairline) solid var(--border-subtle);
+}
+.posting-facts__title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-snug);
+  color: var(--text-heading);
+}
+.posting-facts__sub {
+  font-weight: var(--weight-regular);
+  color: var(--text-muted);
+}
+.posting-facts__list {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+.posting-facts__row {
+  display: contents;
+}
+.posting-facts__key {
+  color: var(--text-muted);
+}
+.posting-facts__value {
+  margin: 0;
+  min-width: 0;
+  display: grid;
+  color: var(--text-primary);
+}
+.posting-facts__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.posting-facts__unset {
+  color: var(--text-muted);
+}
+.posting-facts__note {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* The actions block: the message a click produced sits right above the buttons. */
+.posting-actions {
+  display: grid;
+  gap: var(--space-2);
+}
+.posting-actions__status:empty {
+  display: none;
+}
+.posting-actions__status {
+  display: grid;
+  gap: var(--space-1);
+}
+.posting-actions__msg {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+}
+.posting-actions__msg--warning {
+  padding-inline-start: var(--space-2);
+  border-inline-start: var(--border-bold) solid var(--warning);
+}
+.posting-actions__msg--danger {
+  color: var(--danger);
+}
+[data-theme="ink"] .posting-actions__msg--danger {
+  color: var(--red-300);
+}
+.posting-actions__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.posting-preview__foot .posting-actions__buttons > .bb-btn {
+  flex: 1 1 auto;
+}
+
+/* The agency vacancies panel clips its rounded corners with `overflow: clip`, NOT `hidden`: a
+   `hidden` panel is a scroll container, and a sticky rail inside one sticks to the PANEL — the
+   card scrolled away with the page (measured: rail top 318 → −828px). `flow-root` keeps the block
+   formatting context `hidden` gave it. */
+.panel:has(.posting-layout) {
+  overflow: clip;
+  display: flow-root;
+}
+/* An agency vacancy's inline edit form takes the row's full width (see .agency-job__editform) —
+   it used to sit in the right-aligned actions column, labels and card squeezed to the right. */
+.agency-job__actions:has(> .agency-job__editform) {
+  flex: 1 1 100%;
 }
 .chip-editor {
   display: flex;
@@ -2727,6 +2999,9 @@ textarea.input {
 .agency-job__editform {
   width: 100%;
   margin-top: var(--space-3);
+  /* It sits in the right-aligned actions column; the form itself spans and reads left to right. */
+  justify-self: stretch;
+  text-align: start;
 }
 
 /* Inline create/edit form. */
@@ -5895,6 +6170,10 @@ body:has(.invite-landing) .chrome-footer {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+/* A free-text value (a posting's description) keeps the payer's own line breaks. */
+.kv__v--prose {
+  white-space: pre-line;
 }
 @media (max-width: 520px) {
   .kv {

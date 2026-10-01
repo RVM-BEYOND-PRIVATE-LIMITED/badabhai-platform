@@ -1,23 +1,30 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JobCardPreview } from "./job-card-preview";
+import { PostingFacts } from "./posting-preview-rail";
 import {
+  JOB_CARD_CLAMPS,
   cardFieldsFromPostingWire,
-  toJobCardView,
   type CardFields,
+  type JobCardDraft,
 } from "../lib/job-card-view";
+import { companyPostingFacts } from "../lib/posting-facts";
 import { toPayerJobPostingBody } from "../lib/payer-api";
 import { jobPostingWireSchema, type CreatePostingInput } from "../lib/contracts";
 import { JOB_ROLE_LABELS, TRADE_FORM_KINDS_ALL } from "../lib/job-roles";
 
 /**
- * The preview is the payer-facing card. These pin that it NEVER renders a company name, a verified
- * seal, a boost/urgent claim, or a spots count (ADR-0024 addendum, #1823), that it carries the exact
- * ADR-0024 caption, and — the whole lineage — that a role picked in the form round-trips through the
- * create body, the wire echo and the ONE mapper to the label on the preview, for all 21 roles.
+ * The preview is the worker's swipe card. These pin that it NEVER renders a company name, a
+ * verified seal, a boost/urgent claim, a spots/openings count or a role-kind row (none is on the
+ * worker's card — ADR-0024 addendum, #1823, #1651), that it carries the exact ADR-0024 caption,
+ * that every clamped slot is stamped with the phone's line limit, and — the lineage — that a role
+ * picked in the form round-trips through the create body and the wire echo to the "Also in your
+ * posting" list (not the card), for all 21 roles. Slot ORDER vs the worker card is pinned by the
+ * cross-language fixture (job-card-contract.test.tsx).
  */
 
-const html = (fields: CardFields) => renderToStaticMarkup(<JobCardPreview fields={fields} />);
+const html = (fields: CardFields, draft?: JobCardDraft) =>
+  renderToStaticMarkup(<JobCardPreview fields={fields} draft={draft} />);
 
 const FULL: CardFields = {
   role_title: "CNC Machinist",
@@ -35,10 +42,10 @@ const FULL: CardFields = {
   benefits: ["PF + ESI"],
 };
 
-describe("JobCardPreview — renders only from the card, never a trust/identity claim", () => {
-  it("renders the role label, place, salary + pay-type pill, and duty chips", () => {
+describe("JobCardPreview — the worker card's rows, never a trust/identity claim", () => {
+  it("renders the place (area first), the salary + pay-type pill, and the duty chips", () => {
     const out = html(FULL);
-    expect(out).toContain("CNC Turner");
+    expect(out).toContain("Chakan, Pune");
     expect(out).toContain("MAHINE KI SALARY");
     expect(out).toContain("₹16,000–26,000/mah");
     expect(out).toContain("IN-HAND");
@@ -52,21 +59,73 @@ describe("JobCardPreview — renders only from the card, never a trust/identity 
     expect(out.toLowerCase()).not.toContain("what workers see");
   });
 
-  it("NEVER renders a company name, verified seal, boost, urgent, or a spots count", () => {
-    // Even if a company-shaped string were somehow present in the card, the preview reads no such
-    // field — so it cannot appear. The card carries none of these keys by construction.
+  it("NEVER renders a company name, verified seal, boost, urgent, spots/openings or the role kind", () => {
     const out = html(FULL).toLowerCase();
-    expect(out).not.toContain("verified");
-    expect(out).not.toContain("boost");
-    expect(out).not.toContain("urgent");
-    expect(out).not.toContain("spots");
-    expect(out).not.toContain("pvt ltd");
+    for (const banned of [
+      "verified",
+      "boost",
+      "urgent",
+      "spots",
+      "pvt ltd",
+      "openings",
+      "vacanc",
+    ]) {
+      expect(out, banned).not.toContain(banned);
+    }
+    // role_kind "cnc_turner" → "CNC Turner" is NOT a card row (the title here is "CNC Machinist").
+    expect(out).not.toContain("cnc turner");
+    expect(out).not.toContain("ph-briefcase");
   });
 
   it("hides a row whose value is absent (no empty salary box / no invented chips)", () => {
     const out = html({ ...FULL, pay_min: null, pay_max: null, shift: null, needed_by: null });
     expect(out).not.toContain("MAHINE KI SALARY");
     expect(out).not.toContain("Shift");
+  });
+
+  it("stamps every clamped slot with the PHONE's line limit (and keeps the full text in title)", () => {
+    const long = "Senior CNC Turner / VMC Setter-Operator cum In-process Quality Inspector";
+    const out = html({ ...FULL, role_title: long });
+    expect(out).toContain(
+      `data-slot="title" data-clamp="${JOB_CARD_CLAMPS.title}" title="${long}"`,
+    );
+    expect(out).toContain(
+      `data-slot="place" data-clamp="${JOB_CARD_CLAMPS.place}" title="Chakan, Pune"`,
+    );
+    expect(out).toContain(`data-slot="pay_label" data-clamp="${JOB_CARD_CLAMPS.pay_label}"`);
+    expect(out).toContain(`data-slot="pay_band" data-clamp="${JOB_CARD_CLAMPS.pay_band}"`);
+    expect(out).toContain(`data-clamp="${JOB_CARD_CLAMPS.chip}" title="Fanuc control"`);
+    expect(JOB_CARD_CLAMPS).toEqual({ title: 2, place: 1, pay_label: 1, pay_band: 1, chip: 2 });
+  });
+
+  it("draws the reference phone's fold: a clip-line marker and a show-all control (hidden until counted)", () => {
+    const out = html(FULL);
+    expect(out).toContain('data-fold-line=""');
+    expect(out).toContain('<details class="jcp__fold" data-fold="">');
+    expect(out).not.toContain("data-cut"); // only the browser's count reveals it
+    expect(out).toContain("cut off on a typical phone — show all");
+  });
+
+  it("an empty title shows the placeholder, not an empty heading", () => {
+    expect(html({ ...FULL, role_title: null })).toContain("Your role title");
+  });
+
+  it("a live form's issues replace their rows; a pending chip is dashed and announced", () => {
+    const out = html(
+      { ...FULL, requirements: ["Fanuc control", "MIG welding"] },
+      {
+        payIssue: "Pay needs a whole number",
+        experienceIssue: "Experience needs whole years",
+        pendingRequirement: "MIG welding",
+      },
+    );
+    expect(out).toContain('data-slot="pay_issue">Pay needs a whole number<');
+    expect(out).not.toContain('data-slot="pay_band"');
+    expect(out).toContain("jcp__chip--invalid");
+    expect(out).toContain("Experience needs whole years");
+    expect(out).not.toContain("2–5 yrs experience");
+    expect(out).toContain("jcp__chip--pending");
+    expect(out).toContain("typed, not added yet");
   });
 });
 
@@ -89,8 +148,8 @@ function wireEcho(body: Record<string, unknown>) {
   });
 }
 
-describe("the lineage — form → body → wire echo → view → preview, for all 21 roles", () => {
-  it.each(TRADE_FORM_KINDS_ALL)("role_kind=%s round-trips to its label on the preview", (kind) => {
+describe("the lineage — form → body → wire echo → 'Also in your posting', for all 21 roles", () => {
+  it.each(TRADE_FORM_KINDS_ALL)("role_kind=%s is listed beside the card, never on it", (kind) => {
     const input: CreatePostingInput = {
       roleKind: kind,
       roleTitle: "Operator",
@@ -102,13 +161,24 @@ describe("the lineage — form → body → wire echo → view → preview, for 
     };
     // form → body (create) → the backend echoes role_kind + the card fields back on the row.
     const body = toPayerJobPostingBody(input, "Acme Manufacturing");
-    const wire = wireEcho(body);
-    // wire echo → the ONE mapper → view.
-    const card = cardFieldsFromPostingWire(wire);
-    const view = toJobCardView(card);
+    const card = cardFieldsFromPostingWire(wireEcho(body));
     const label = JOB_ROLE_LABELS[kind].label;
-    expect(view.roleLabel).toBe(label);
-    // → preview contains the label (HTML-escaped — "Tool & Die Maker" renders "&amp;").
-    expect(html(card)).toContain(label.replace(/&/g, "&amp;"));
+    const escaped = label.replace(/&/g, "&amp;"); // "Tool & Die Maker" renders "&amp;"
+    // The card itself carries no role row…
+    expect(html(card)).not.toContain(escaped);
+    // …the "Also in your posting" list does.
+    const facts = renderToStaticMarkup(
+      <PostingFacts
+        facts={companyPostingFacts({
+          roleKind: card.role_kind,
+          openings: "3",
+          locationNote: "",
+          matchSkills: null,
+          description: "",
+        })}
+      />,
+    );
+    expect(facts).toContain(escaped);
+    expect(facts).toContain("not on the worker&#x27;s card");
   });
 });

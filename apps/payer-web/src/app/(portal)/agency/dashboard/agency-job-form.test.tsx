@@ -119,7 +119,8 @@ vi.mock("react", async () => {
 
 const { AgencyJobForm } = await import("./agency-job-form");
 
-// The form calls useState in source order: fields, fieldErrors, error, pending(useTransition).
+// The form calls useState in source order: fields, fieldErrors, error, requirements, benefits,
+// reqDraft, benDraft, gap, revealed (then useTransition; the preview rail's sheet state after).
 function render(seed: { fields: Record<string, string>; fieldErrors: Record<string, unknown> }) {
   stateQueue = [seed.fields, seed.fieldErrors, null];
   stateCursor = 0;
@@ -252,5 +253,128 @@ describe("AgencyJobForm render — aria-invalid + visible DS error on an invalid
     const { aria } = collect(render({ fields: VALID_FIELDS, fieldErrors: {} }));
     const city = aria.find((a) => a.id === "city");
     expect(city!.ariaInvalid).toBeUndefined();
+  });
+});
+
+/* ── 3. THE PREVIEW RAIL + the shared read (agency create == publish; edit highlights) ── */
+
+const JOB = {
+  id: "00000001-0000-4000-8000-000000000001",
+  status: "open",
+  tradeKey: "cnc_operator",
+  roleKind: null,
+  title: "CNC Operator",
+  city: "Pune",
+  area: "Chakan",
+  payMin: 20000,
+  payMax: 35000,
+  payType: null,
+  minExperienceYears: 1,
+  maxExperienceYears: 5,
+  neededBy: "soon",
+  shift: null,
+  description: null,
+  requirements: [],
+  benefits: [],
+  applicantsReceived: 3,
+  createdAt: "2026-06-22T00:00:00.000Z",
+  updatedAt: "2026-06-22T00:00:00.000Z",
+} as const;
+
+const FULL_AGENCY = {
+  tradeKey: "cnc_operator",
+  roleKind: "cnc_turner",
+  title: "CNC Turner",
+  city: "Pune",
+  area: "Chakan MIDC",
+  payMin: "18,000",
+  payMax: "26000",
+  payType: "in_hand",
+  minExperienceYears: "2",
+  maxExperienceYears: "5",
+  shift: "day",
+  neededBy: "soon",
+  description: "Two machines per shift.",
+};
+
+function renderWith(
+  fields: Record<string, string>,
+  opts: { mode?: "create" | "edit"; chips?: unknown[]; onSubmit?: (i: unknown) => Promise<{ ok: true }> } = {},
+) {
+  // fields, fieldErrors, error, requirements, benefits, reqDraft, benDraft
+  stateQueue = [fields, {}, null, ...(opts.chips ?? [[], [], "", ""])];
+  stateCursor = 0;
+  return AgencyJobForm({
+    mode: opts.mode ?? "create",
+    job: opts.mode === "edit" ? (JOB as never) : undefined,
+    submitLabel: opts.mode === "edit" ? "Save changes" : "Post vacancy",
+    onSubmit: (opts.onSubmit ?? (async () => ({ ok: true }))) as never,
+  }) as ReactElement;
+}
+
+function formOf(node: ReactNode): ReactElement<{ onSubmit: (e: unknown) => void }> | null {
+  if (node === null || node === undefined || typeof node !== "object") return null;
+  if (Array.isArray(node)) {
+    for (const c of node) {
+      const f = formOf(c);
+      if (f) return f;
+    }
+    return null;
+  }
+  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  if (el.type === "form") return el as ReactElement<{ onSubmit: (e: unknown) => void }>;
+  if (typeof el.type === "function") return null;
+  return el.props && "children" in el.props ? formOf(el.props.children) : null;
+}
+
+describe("AgencyJobForm — the preview rail + the shared read", () => {
+  it("is a plain form (no nested card) beside the worker card and 'Also in your posting'", () => {
+    const tree = renderWith(FULL_AGENCY);
+    expect(formOf(tree)!.props).toMatchObject({ id: "agency-job-form-new", className: "agency-job-form" });
+    const text = collect(tree).texts.join(" ").replace(/\s+/g, " ");
+    expect(text).toContain("Chakan MIDC, Pune");
+    expect(text).toContain("Trade (matching)");
+    expect(text).toContain("Also in your posting");
+  });
+
+  it("EDIT highlights every gap still open (it promised to, and rendered none)", () => {
+    const text = collect(renderWith({ ...FULL_AGENCY, payType: "", shift: "" }, { mode: "edit" }))
+      .texts.join(" ")
+      .replace(/\s+/g, " ");
+    expect(text).toContain("Still to fill:");
+    expect(text).toContain("pick the pay type");
+    expect(text).toContain("pick the shift");
+    expect(text).toContain("You can save now and finish later.");
+  });
+
+  it('submits the SAME values the card shows: "18,000" → 18000, a typed chip kept, text trimmed', async () => {
+    const onSubmit = vi.fn(async (_i: unknown) => ({ ok: true as const }));
+    const tree = renderWith(
+      { ...FULL_AGENCY, title: "  CNC Turner " },
+      { chips: [["Fanuc control"], [], "", " Canteen "], onSubmit },
+    );
+    await formOf(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    const input = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input).toMatchObject({
+      title: "CNC Turner",
+      payMin: 18000,
+      payMax: 26000,
+      requirements: ["Fanuc control"],
+      benefits: ["Canteen"],
+      roleKind: "cnc_turner",
+      tradeKey: "cnc_operator",
+    });
+  });
+
+  it('"1.5" years blocks the submit — it is never sent as "not stated"', async () => {
+    const onSubmit = vi.fn(async (_i: unknown) => ({ ok: true as const }));
+    const tree = renderWith(
+      { ...FULL_AGENCY, minExperienceYears: "1.5" },
+      { chips: [["Fanuc control"], ["Canteen"], "", ""], onSubmit },
+    );
+    expect(collect(tree).texts.join(" ")).toContain("Min experience needs a whole number");
+    await formOf(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 });
