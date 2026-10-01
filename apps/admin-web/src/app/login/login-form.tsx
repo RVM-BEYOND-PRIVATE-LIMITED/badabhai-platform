@@ -219,7 +219,7 @@ export function LoginForm() {
                 <code className="enroll__secret">{enrollment.secret}</code>
                 <p className="field__help">
                   This key is shown once and is not recoverable. If you lose your device,
-                  another super admin must reset your second factor.
+                  another super admin must reset your MFA.
                 </p>
               </details>
             </div>

@@ -14,12 +14,12 @@ describe("AdminActionResultBanner", () => {
   it("changed: true renders the success tone", () => {
     const out = html(
       <AdminActionResultBanner
-        outcome={{ ok: true, changed: true, message: "Payer suspended." }}
+        outcome={{ ok: true, changed: true, message: "Account suspended." }}
         eventsLink={TIMELINE}
       />,
     );
     expect(out).toContain("alert--success");
-    expect(out).toContain("Payer suspended.");
+    expect(out).toContain("Account suspended.");
     expect(out).toContain("/companies/p-1/timeline");
   });
 

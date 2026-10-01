@@ -35,7 +35,7 @@ export function AcceptForm({ token }: { token: string }) {
           <p className="alert__title">Your admin account is active</p>
           <p className="alert__body">
             Sign in to finish setting up. You&rsquo;ll get a one-time code by email, then
-            register an authenticator app for your second factor.
+            register an authenticator app for MFA.
           </p>
         </div>
         <button type="button" className="btn btn--primary" onClick={() => router.push("/login")}>

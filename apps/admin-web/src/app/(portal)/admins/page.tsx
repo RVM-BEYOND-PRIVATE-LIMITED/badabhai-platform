@@ -150,9 +150,9 @@ export default async function AdminsPage({
       {/* The two failure modes of a super_admin population, neither visible from a row. */}
       {directory && supers === 1 && (
         <section className="notice notice--warn" role="status">
-          <strong>Only one active super admin.</strong> If that person loses their second
-          factor, nobody can grant <code>manage_admins</code> again without a database-level
-          recovery. Consider a second one.
+          <strong>Only one active super admin.</strong> If that person loses their MFA device,
+          nobody can grant <code>manage_admins</code> again without a database-level recovery.
+          Consider a second one.
         </section>
       )}
       {directory && noMfa > 0 && (
@@ -243,7 +243,6 @@ export default async function AdminsPage({
                 ? "The directory loaded, but nobody holds this combination of role and status. Clear the filters to see everyone."
                 : "The directory loaded and it is genuinely empty. On a running platform that is not a normal state — you are signed in, so at least your own account should be here."}
             </p>
-
           </div>
         ) : (
           <div className="tablewrap">

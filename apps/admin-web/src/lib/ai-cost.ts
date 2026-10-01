@@ -106,8 +106,8 @@ export function describeCapBreachScope(scope: string): string {
   if (scope === CAP_BREACH_SCOPE_PROFILE_EXTRACTION) {
     return (
       "Covers PROFILE EXTRACTION only — it is the one surface that emits this event today. " +
-      "Profiling chat, résumés, embeddings and payer chat have no emitter yet, so a zero here " +
-      "is not an all-clear for them."
+      "Profiling chat, resumes, embeddings and the customer posting chat have no emitter yet, " +
+      "so a zero here is not an all-clear for them."
     );
   }
   return `The server reports a breach scope this portal does not recognise: ${scope}`;
@@ -341,10 +341,10 @@ export function describeCostPerProfile(
         ? "The server named no task types, so this spend cannot be reconciled against " +
           "By task type below."
         : present.length === 0
-          ? "Profiling spend only — résumé generation and every other task type are excluded. " +
+          ? "Profiling spend only — resume generation and every other task type are excluded. " +
             `None of the task types this sums (${label(perProfile.profiling_task_types)}) has ` +
             "a row in By task type below, so there is nothing there to reconcile it against."
-          : "Profiling spend only — résumé generation and every other task type are excluded. " +
+          : "Profiling spend only — resume generation and every other task type are excluded. " +
             `It is exactly these rows of By task type below: ${label(present)}.` +
             (absentTypes.length > 0
               ? ` ${label(absentTypes)} ${
@@ -418,7 +418,7 @@ export function describeCostPerProfile(
     // this is the expected shape whenever the platform spent on something else first.
     sectionBoundSentence: sectionStartsEarlier
       ? `The section's ₹ figures above start earlier (${basis.headline.toLowerCase()}) because ` +
-        "spend that is not profiling — a résumé, a payer-side embedding — accrued first. This " +
+        "spend that is not profiling — a resume, a customer-side embedding — accrued first. This " +
         "block deliberately starts later, at the first profiling call."
       : null,
 

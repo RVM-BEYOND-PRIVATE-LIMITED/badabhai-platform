@@ -115,13 +115,17 @@ describe("resetAdminMfaAction", () => {
     );
     expect(res.ok).toBe(true);
     expect(res).toMatchObject({ changed: true });
+    // "MFA", the word the button, the column and the stat use — not "second factor".
+    expect(res).toMatchObject({
+      message: "MFA reset. They will enrol a new authenticator at their next sign-in.",
+    });
   });
 
   it("no enrolled factor to clear is a SUCCESSFUL no-op", async () => {
     adminFetch.mockResolvedValueOnce({ target_id: "a-2", changed: false });
     const res = await resetAdminMfaAction("a-2");
     expect(res.ok).toBe(true);
-    expect(res).toMatchObject({ changed: false });
+    expect(res).toMatchObject({ changed: false, message: "No MFA was enrolled — nothing to reset." });
   });
 
   it("surfaces the self-reset refusal verbatim (refused even for a super_admin)", async () => {
