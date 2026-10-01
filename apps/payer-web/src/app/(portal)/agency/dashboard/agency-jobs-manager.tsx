@@ -36,7 +36,8 @@ import {
  * second create control. Every posting renders as a DS `Card`: bands + a count + a status
  * `Badge`; no worker identity, no employer name (faceless/coarse). ₹ pay band + counts render
  * in mono tabular (`bb-mono`). A not-found/not-owned action result reads neutrally (no oracle).
- * Tokens only (no raw hex/px).
+ * Like a company row, the TITLE opens the posting's details. (Its applicants have no page yet —
+ * backend issue #1898.) Tokens only (no raw hex/px).
  */
 
 /** The DS Badge tone for a posting's REAL state (reflects `status`, never invented). 4-state now. */
@@ -88,9 +89,19 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
   return (
     <div className="agency-jobs">
       {rows.length === 0 ? (
-        <Card variant="flat" className="agency-jobs__empty">
-          You haven&rsquo;t posted anything yet — use New posting to publish your first one.
-          It&rsquo;s free through launch.
+        // The same empty-state pattern as the company list; what to do next is the page head's
+        // one primary action, "New posting", which the copy names instead of repeating.
+        <Card>
+          <div className="state">
+            <span className="state__icon">
+              <Icon name={ACTION_ICON.posting} />
+            </span>
+            <h2 className="state__title">No postings yet</h2>
+            <p className="state__body">
+              Matched workers can only find your agency once a role is live — use New posting
+              above. Posting is free through launch.
+            </p>
+          </div>
         </Card>
       ) : (
         <div className="agency-jobs__list">
@@ -104,7 +115,9 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
               <Card key={j.id} className="agency-job">
                 <div className="agency-job__main">
                   <div className="agency-job__head">
-                    <span className="agency-job__title">{j.title}</span>
+                    <Link className="agency-job__title" href={`/agency/jobs/${j.id}`}>
+                      {j.title}
+                    </Link>
                     <Badge tone={statusTone(j.status)} upper>
                       {j.status}
                     </Badge>
@@ -127,12 +140,6 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                     <span aria-hidden="true">·</span>
                     <span>
                       Posted <span className="bb-mono">{day(j.createdAt)}</span>
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    <span>
-                      <Link className="postings-link" href={`/agency/jobs/${j.id}`}>
-                        <Icon name={ACTION_ICON.view} /> Details
-                      </Link>
                     </span>
                   </div>
                 </div>

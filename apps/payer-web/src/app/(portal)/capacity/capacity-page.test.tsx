@@ -1,19 +1,13 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { ReactElement, ReactNode } from "react";
-import type { Capacity } from "../../../lib/contracts";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PayerSession } from "../../../lib/auth/types";
 
 /**
- * CAPACITY PAGE render tests — the AT-CAPACITY banner derivation (A2).
+ * /capacity — a REDIRECT, rendered nowhere (2026-10-01).
  *
- * `atCapacity` is page logic: `capacity.activeVacancies >= capacity.activeVacancyAllowance`,
- * where `activeVacancies` is the REAL enforcement-engine count (active_plan_count), NOT the
- * mock posting rows. These tests pin the derivation at/above/below the allowance, plus:
- *  - the "live from the enforcement engine" note (the count drives the banner, not mock rows),
- *  - a load FAILURE degrades to the neutral "Service unavailable" + a RetryButton (no leak),
- *  - GUARDRAILS: no role-named/"forbidden" oracle string; faceless (no PII-looking text).
- *
- * Env is node (no DOM); render the async Server Component to an element tree and walk it.
+ * Hiring capacity lives in ONE place: the section of Plans & capacity this route sends a company
+ * to (`/plans#hiring-capacity`). The route is kept so old links and bookmarks still land there.
+ * Plans & capacity is company-only, so an agent goes to the dashboard instead. The session gate
+ * runs first, and nothing is read here (the page's render cases moved with it — plans-page.test).
  */
 
 const EMPLOYER: PayerSession = {
@@ -24,266 +18,56 @@ const EMPLOYER: PayerSession = {
 };
 
 const requirePayer = vi.fn<() => Promise<PayerSession>>();
-const getCapacity = vi.fn<() => Promise<Capacity>>();
-const hiringCapacityTiers = vi.fn(() => [
-  { code: "growth", priceInr: 4999, maxActiveVacancies: 10 },
-]);
-// The LIVE catalog seam (D-6): default = live (no cached-pricing note); a dedicated test
-// flips it to the fallback. The tier VALUES stay pinned by the pricing-config mock above.
-const getLiveCatalog = vi.fn(async () => ({ products: [], live: true }));
+const redirect = vi.fn((to: string) => {
+  throw new Error(`NEXT_REDIRECT ${to}`);
+});
+// Any read would have to come through these seams; none may be called.
+const getCapacity = vi.fn();
+const getLiveCatalog = vi.fn();
 
 vi.mock("../../../lib/auth", () => ({ requirePayer: () => requirePayer() }));
+vi.mock("next/navigation", () => ({ redirect: (to: string) => redirect(to) }));
 vi.mock("../../../lib/payer-api", () => ({ getCapacity: () => getCapacity() }));
-vi.mock("../../../lib/pricing-config", () => ({ hiringCapacityTiers: () => hiringCapacityTiers() }));
 vi.mock("../../../lib/live-catalog", () => ({ getLiveCatalog: () => getLiveCatalog() }));
-// next/link → plain anchor; the child client components → inert markers (unit-tested elsewhere).
-vi.mock("next/link", () => ({
-  default: ({ children, href }: { children: ReactNode; href: string }) => ({
-    type: "a",
-    props: { href, children },
-  }),
-}));
-const RetryButtonStub = () => null;
-const CapacityPanelStub = () => null;
-vi.mock("../../../components/retry-button", () => ({ RetryButton: RetryButtonStub }));
-vi.mock("./capacity-panel", () => ({ CapacityPanel: CapacityPanelStub }));
 
-const { default: CapacityPage } = await import("./page");
-
-interface Collected {
-  types: string[];
-  components: unknown[];
-  text: string[];
-  /** Every `className` on the tree — the page-spine primitives are asserted through this. */
-  classes: string[];
-}
-
-function walk(node: ReactNode, acc: Collected): void {
-  if (node === null || node === undefined || typeof node === "boolean") return;
-  if (typeof node === "string" || typeof node === "number") {
-    acc.text.push(String(node));
-    return;
-  }
-  if (Array.isArray(node)) {
-    for (const c of node) walk(c, acc);
-    return;
-  }
-  const el = node as ReactElement<{ children?: ReactNode; className?: unknown }>;
-  if (el.props && typeof el.props.className === "string") acc.classes.push(el.props.className);
-  if (typeof el.type === "string") {
-    acc.types.push(el.type);
-    if (el.props && "children" in el.props) walk(el.props.children, acc);
-    return;
-  }
-  // Function component: record it by reference (the RetryButton/CapacityPanel assertions
-  // collect by identity), then EXPAND it ONE LEVEL by invoking it with its props so the DS
-  // primitives' text rendered via non-children props (StatTile's label/value/delta, etc.)
-  // is reachable. The DS primitives + the test stubs are all hookless/presentational, so a
-  // plain call is safe; a stub that returns null simply contributes nothing.
-  acc.components.push(el.type);
-  const Fn = el.type as (props: Record<string, unknown>) => ReactNode;
-  let rendered: ReactNode = null;
-  try {
-    rendered = Fn((el.props ?? {}) as Record<string, unknown>);
-  } catch {
-    rendered = (el.props as { children?: ReactNode } | null)?.children ?? null;
-  }
-  walk(rendered, acc);
-}
-
-function collect(tree: ReactNode): Collected {
-  const acc: Collected = { types: [], components: [], text: [], classes: [] };
-  walk(tree, acc);
-  return acc;
-}
-
-function capacity(over: Partial<Capacity>): Capacity {
-  return {
-    payerId: EMPLOYER.payerId,
-    activeVacancies: 0,
-    activeVacancyAllowance: 10,
-    applicantQuotaTotal: 0,
-    applicantQuotaUsed: 0,
-    postings: [],
-    ...over,
-  };
-}
+const { default: CapacityPage, dynamic } = await import("./page");
 
 beforeEach(() => {
   requirePayer.mockReset().mockResolvedValue(EMPLOYER);
-  getCapacity.mockReset().mockResolvedValue(capacity({}));
-  hiringCapacityTiers.mockClear();
-  getLiveCatalog.mockClear().mockResolvedValue({ products: [], live: true });
+  redirect.mockClear();
+  getCapacity.mockReset();
+  getLiveCatalog.mockReset();
 });
 
-describe("capacity page — AT-CAPACITY banner derives from the REAL count (A2)", () => {
-  it("shows the At-capacity banner when activeVacancies === allowance (at the boundary)", async () => {
-    getCapacity.mockResolvedValueOnce(capacity({ activeVacancies: 10, activeVacancyAllowance: 10 }));
-    const joined = collect(await CapacityPage()).text.join(" ");
-    expect(joined).toContain("At capacity");
-    expect(joined).toContain("will be paused until you add capacity");
+describe("/capacity — a redirect to Plans & capacity's Hiring capacity section", () => {
+  it("is force-dynamic", () => {
+    expect(dynamic).toBe("force-dynamic");
   });
 
-  it("shows the At-capacity banner when activeVacancies EXCEEDS the allowance", async () => {
-    getCapacity.mockResolvedValueOnce(capacity({ activeVacancies: 12, activeVacancyAllowance: 10 }));
-    const joined = collect(await CapacityPage()).text.join(" ");
-    expect(joined).toContain("At capacity");
+  it("a company lands on /plans#hiring-capacity", async () => {
+    await expect(CapacityPage()).rejects.toThrow("NEXT_REDIRECT /plans#hiring-capacity");
+    expect(redirect).toHaveBeenCalledTimes(1);
+    expect(redirect).toHaveBeenCalledWith("/plans#hiring-capacity");
   });
 
-  it("does NOT show the banner when activeVacancies is BELOW the allowance", async () => {
-    getCapacity.mockResolvedValueOnce(capacity({ activeVacancies: 9, activeVacancyAllowance: 10 }));
-    const joined = collect(await CapacityPage()).text.join(" ");
-    expect(joined).not.toContain("At capacity");
+  it("an agent lands on the dashboard (Plans & capacity is a company page)", async () => {
+    requirePayer.mockResolvedValue({ ...EMPLOYER, role: "agent" });
+    await expect(CapacityPage()).rejects.toThrow("NEXT_REDIRECT /dashboard");
+    expect(redirect).toHaveBeenCalledWith("/dashboard");
   });
 
-  it("the count shown is the live active_plan_count (4/10), with the enforcement-engine note", async () => {
-    getCapacity.mockResolvedValueOnce(capacity({ activeVacancies: 4, activeVacancyAllowance: 10 }));
-    const joined = collect(await CapacityPage()).text.join(" ");
-    // The big stat is "<count> / <allowance>".
-    expect(joined.replace(/\s+/g, " ")).toContain("4 / 10");
-    expect(joined).not.toContain("At capacity");
-    // The page states the count is LIVE from the enforcement engine (drives the banner).
-    expect(joined.toLowerCase()).toContain("live from the enforcement engine");
-  });
-});
-
-describe("capacity page — load failure degrades neutrally (no leak)", () => {
-  it("renders the neutral Service-unavailable fallback + a RetryButton, never the error detail", async () => {
-    getCapacity.mockRejectedValueOnce(new Error("payer_id forbidden: secret backend reason"));
-    const { text, components } = collect(await CapacityPage());
-    const joined = text.join(" ");
-    expect(joined).toContain("Service unavailable");
-    expect(components).toContain(RetryButtonStub);
-    // NO-LEAK: the thrown error message (which carries a deny cause) never reaches the screen.
-    expect(joined).not.toContain("secret backend reason");
-    expect(joined).not.toContain("forbidden");
-  });
-});
-
-describe("capacity page — D-6 cached-pricing fallback (live catalog unavailable)", () => {
-  it("renders the subtle cached-pricing note + the tier panel (never a blank pricing section)", async () => {
-    getLiveCatalog.mockResolvedValueOnce({ products: [], live: false });
-    const joined = collect(await CapacityPage()).text.join(" ");
-    expect(joined).toMatch(/cached pricing/i);
-    // The pricing section still renders (fallback tiers, not a blank page).
-    expect(joined).toContain("Add capacity");
+  it("the session gate runs first: no session → its own redirect, never this route's", async () => {
+    requirePayer.mockRejectedValue(new Error("NEXT_REDIRECT /login"));
+    await expect(CapacityPage()).rejects.toThrow("NEXT_REDIRECT /login");
+    expect(redirect).not.toHaveBeenCalled();
   });
 
-  it("does NOT render the cached-pricing note when the catalog is live", async () => {
-    const joined = collect(await CapacityPage()).text.join(" ");
-    expect(joined).not.toMatch(/cached pricing/i);
-  });
-});
-
-/**
- * UI-1 PAGE SPINE — the screen composes onto the shared primitives (page-back / page-head /
- * stat-row / section / panel--table / alert / state) instead of its own `dash-title` /
- * `capacity-section` / `capacity-state` / `capacity-empty` names. The neutral-failure and
- * at-capacity assertions above still hold through the new markup; these pin the markup itself
- * and the per-posting table's real empty state.
- */
-describe("capacity page — UI-1 page spine + a real empty state for the per-posting table", () => {
-  it("renders the spine primitives and none of the retired bespoke class names", async () => {
-    const { classes } = collect(await CapacityPage());
-    expect(classes).toContain("page-back");
-    expect(classes).toContain("page-head");
-    expect(classes).toContain("page-head__title");
-    expect(classes).toContain("page-head__sub");
-    // The tile row is the shared primitive with the opt-in compact phone variant (W3-B).
-    expect(classes).toContain("stat-row stat-row--kpi");
-    expect(classes).toContain("section");
-    expect(classes).toContain("panel panel--table");
-    expect(classes).toContain("alert alert--info");
-    for (const retired of [
-      "dash-title",
-      "dash-sub",
-      "capacity-back",
-      "capacity-section",
-      "capacity-state",
-      "capacity-stats",
-      "capacity-empty",
-      "capacity-table-card",
-      "capacity-nudge",
-    ]) {
-      expect(classes).not.toContain(retired);
+  it("reads nothing, in any branch", async () => {
+    for (const role of ["employer", "agent"] as const) {
+      requirePayer.mockResolvedValue({ ...EMPLOYER, role });
+      await expect(CapacityPage()).rejects.toThrow("NEXT_REDIRECT");
     }
-  });
-
-  it("the at-capacity banner is the DS alert, not an ad-hoc Card + Badge", async () => {
-    getCapacity.mockResolvedValueOnce(capacity({ activeVacancies: 10, activeVacancyAllowance: 10 }));
-    const { classes, text } = collect(await CapacityPage());
-    expect(classes).toContain("alert alert--warning");
-    expect(text.join(" ")).toContain("At capacity"); // intent of the A2 tests preserved
-  });
-
-  it("NO seeded rows renders a real empty state that says what to do next", async () => {
-    const { text, classes } = collect(await CapacityPage()); // default fixture: postings: []
-    const flat = text.join(" ").replace(/\s+/g, " ");
-    expect(flat).toContain("No postings yet");
-    expect(flat).toContain("You haven’t published a posting yet");
-    expect(flat).toContain("New posting"); // the recovery action
-    expect(classes).toContain("state");
-  });
-
-  it("the load-failure fallback is the DS error state (still neutral, still retryable)", async () => {
-    getCapacity.mockRejectedValueOnce(new Error("payer_id forbidden: secret backend reason"));
-    const { classes, components } = collect(await CapacityPage());
-    expect(classes).toContain("state state--error");
-    expect(components).toContain(RetryButtonStub);
-  });
-});
-
-describe("capacity page — guardrails NOT regressed (no-oracle + faceless)", () => {
-  it("carries no role-named / 'forbidden' oracle string in the rendered states", async () => {
-    getCapacity.mockResolvedValueOnce(capacity({ activeVacancies: 10, activeVacancyAllowance: 10 }));
-    const joined = collect(await CapacityPage()).text.join(" ");
-    expect(joined).not.toMatch(/\bforbidden\b/i);
-  });
-
-  it("is faceless — no PII-looking text (name/phone/email/employer-of-a-worker/address)", async () => {
-    getCapacity.mockResolvedValueOnce(
-      capacity({
-        activeVacancies: 1,
-        activeVacancyAllowance: 10,
-        postings: [
-          {
-            postingId: "bbbb2222-0000-4000-8000-000000000001",
-            roleTitle: "CNC Machinist",
-            status: "open",
-            vacancyBand: "6-20",
-            applicantsUsed: 2,
-            applicantQuota: 10,
-          },
-        ],
-      }),
-    );
-    const joined = collect(await CapacityPage()).text.join(" ");
-    expect(joined).not.toMatch(/phone|\bemail\b|\+?\d{7,}/i);
-  });
-});
-
-describe("capacity page — the Hiring-capacity part of Plans & capacity (one entry point)", () => {
-  it("names the part it shows and goes back UP to Plans & capacity (not to the dashboard)", async () => {
-    const tree = await CapacityPage();
-    const { text } = collect(tree);
-    expect(text).toContain("Hiring capacity");
-    const back = (function find(node: ReactNode): ReactElement | null {
-      if (node === null || node === undefined || typeof node !== "object") return null;
-      if (Array.isArray(node)) {
-        for (const c of node) {
-          const hit = find(c);
-          if (hit) return hit;
-        }
-        return null;
-      }
-      const el = node as ReactElement<{ back?: { href: string; label: string }; children?: ReactNode }>;
-      if (el.props?.back) return el;
-      return el.props && "children" in el.props ? find(el.props.children) : null;
-    })(tree);
-    expect(back).not.toBeNull();
-    expect((back!.props as { back: unknown }).back).toEqual({
-      href: "/plans",
-      label: "Plans & capacity",
-    });
+    expect(getCapacity).not.toHaveBeenCalled();
+    expect(getLiveCatalog).not.toHaveBeenCalled();
   });
 });

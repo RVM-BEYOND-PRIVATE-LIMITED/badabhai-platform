@@ -155,3 +155,47 @@ describe("AgencyJobsManager — Posting naming, one create entry point", () => {
     expect(joined).not.toMatch(/vacanc/i);
   });
 });
+
+/** Every element in render order, walking children (DS components are not expanded). */
+function elementsOf(node: ReactNode, out: ReactElement[] = []): ReactElement[] {
+  if (node === null || node === undefined || typeof node !== "object") return out;
+  if (Array.isArray(node)) {
+    for (const c of node) elementsOf(c, out);
+    return out;
+  }
+  const el = node as ReactElement<{ children?: ReactNode }>;
+  out.push(el);
+  if (el.props && "children" in el.props) elementsOf(el.props.children, out);
+  return out;
+}
+const hrefsOf = (tree: ReactNode) =>
+  elementsOf(tree)
+    .map((e) => (e.props as { href?: unknown }).href)
+    .filter((h): h is string => typeof h === "string");
+const classOf = (e: ReactElement) => String((e.props as { className?: unknown }).className ?? "");
+
+describe("AgencyJobsManager — aligned with the company list (2026-10-01)", () => {
+  it("the TITLE opens the posting's details — the row's one link (no separate 'Details')", () => {
+    const tree = render([JOB]);
+    const title = elementsOf(tree).find((e) => classOf(e).split(/\s+/).includes("agency-job__title"))!;
+    expect((title.props as { href?: string }).href).toBe(`/agency/jobs/${JOB.id}`);
+    expect(hrefsOf(tree)).toEqual([`/agency/jobs/${JOB.id}`]);
+    expect(collect(tree).text.join(" ")).not.toMatch(/\bDetails\b/);
+  });
+
+  it("never links an agency posting's applicants (no page for them until backend #1898)", () => {
+    const tree = render([JOB, { ...JOB, id: "00000001-0000-4000-8000-000000000002" }]);
+    expect(hrefsOf(tree).filter((h) => h.includes("applicants"))).toEqual([]);
+  });
+
+  it("the empty list is the shared state block — titled, explained, and with no button", () => {
+    const tree = render([]);
+    const els = elementsOf(tree);
+    expect(els.some((e) => classOf(e) === "state")).toBe(true);
+    expect(els.some((e) => classOf(e) === "state__actions")).toBe(false);
+    expect(hrefsOf(tree)).toEqual([]);
+    const text = collect(tree).text.join(" ");
+    expect(text).toContain("No postings yet");
+    expect(text).toContain("use New posting above");
+  });
+});

@@ -326,12 +326,12 @@ describe("W2-A/W3-A · 1 — a head's subtitle sits under its title, grouped in 
   it("the markup scan is not vacuous (wrapped heads found, incl. both heads WITH actions)", () => {
     const heads = scanHeads();
     const wrapped = heads.filter((h) => h.wrapped && h.problems.length === 0);
-    // 13 heads on the W3-A screens + 9 on the W3-B ones (account 2, capacity 2, plans 4, team 1).
-    expect(wrapped.length).toBeGreaterThanOrEqual(22);
+    // 12 heads on the W3-A screens + 7 on the W3-B ones (account 2, plans 4, team 1). (/capacity
+    // is a redirect to /plans now, and the applicant feed's head is its PageHeader.)
+    expect(wrapped.length).toBeGreaterThanOrEqual(19);
     expect(heads.filter((h) => !h.wrapped)).toEqual([]);
     for (const f of [
       "(portal)/account/page.tsx",
-      "(portal)/capacity/page.tsx",
       "(portal)/plans/page.tsx",
       "(portal)/team/team-manager.tsx",
     ]) {
@@ -343,6 +343,8 @@ describe("W2-A/W3-A · 1 — a head's subtitle sits under its title, grouped in 
     const withActions = wrapped.filter((h) => h.hasActions).map((h) => h.file);
     expect(withActions.some((f) => f.endsWith("payout-panel.tsx"))).toBe(true);
     expect(withActions.some((f) => f.endsWith("dashboard/agent-sections.tsx"))).toBe(true);
+    // /plans' section-level doors (Buy credits, New posting) sit beside the text, not in it.
+    expect(withActions.filter((f) => f.endsWith("plans/page.tsx")).length).toBeGreaterThanOrEqual(2);
     // …and the checker can FAIL: each violation it exists for is reported on a known snippet.
     const H = (inner: string) => `<div className="panel__head">${inner}</div>`;
     const T = `<h2 className="panel__title">T</h2>`;
@@ -681,8 +683,7 @@ describe("W3-A · 2b — the back link clears a 44px hit area on phones AND coar
     expect(withBack).toEqual([
       "(portal)/agency/bulk-upload/page.tsx",
       "(portal)/agency/jobs/[jobId]/page.tsx",
-      "(portal)/capacity/page.tsx",
-      "(portal)/postings/[id]/applicants/applicants-screen.tsx",
+      "(portal)/postings/[id]/applicants/page.tsx",
       "(portal)/postings/[id]/edit/page.tsx",
       "(portal)/postings/[id]/page.tsx",
       "(portal)/postings/ai/new/page.tsx",
@@ -1068,18 +1069,19 @@ describe("W3-A · 6 — the portal reflows to 320px", () => {
     expect(decl(r, "min-width")).toBe("0");
   });
 
-  it("the applicant feed head is a plain shared head: no balance chip beside the role title", () => {
+  it("the applicant feed head is the shared PageHeader: no balance chip beside the title", () => {
     // The ≤420px two-track reflow existed to move a balance chip off a long role title's row.
-    // The balance is now shown ONCE, by the shell header's chip, so the feed head is title + count
-    // in the shared wrapper (which wraps any title at every width) and its reflow is gone.
-    const screen = readFileSync(
-      join(here, "(portal)", "postings", "[id]", "applicants", "applicants-screen.tsx"),
-      "utf8",
-    );
-    const head = screen.slice(screen.indexOf('<div className="section__head">'));
-    expect(offsets(screen, '<div className="section__head">')).toHaveLength(1);
-    expect(head.slice(0, divEnd(head, 0))).not.toContain("section__actions");
-    expect(screen).not.toContain("applicants-feed__head");
+    // The balance is now shown ONCE, by the shell header's chip; the feed's head is the page's
+    // PageHeader (which wraps any title at every width) with the New / Shortlist tabs in its
+    // toolbar row — no second section head under it, and no reflow of its own.
+    const dir = join(here, "(portal)", "postings", "[id]", "applicants");
+    const actions = readFileSync(join(dir, "applicant-actions.tsx"), "utf8");
+    expect(offsets(actions, "<PageHeader ")).toHaveLength(1);
+    expect(actions).toContain("<PageHeader {...header} toolbar={pipeline} />");
+    expect(actions).not.toContain('className="section__head"');
+    const page = readFileSync(join(dir, "page.tsx"), "utf8");
+    expect(page).not.toContain('className="section__head"');
+    for (const src of [actions, page]) expect(src).not.toContain("applicants-feed__head");
     expect(G.some((x) => x.selector.includes("applicants-feed__head"))).toBe(false);
   });
 

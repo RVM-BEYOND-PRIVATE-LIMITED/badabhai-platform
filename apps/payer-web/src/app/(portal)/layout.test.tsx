@@ -267,6 +267,16 @@ describe("portal nav — the agency items follow the agency-portal flag", () => 
     const { hrefs } = await render({ role: "agent", orgRole: "owner" });
     expect(hrefs.filter((h) => h.startsWith("/agency"))).toEqual([]);
     expect(hrefs).toContain("/dashboard");
-    expect(hrefs).toContain("/plans");
+    expect(hrefs).toContain("/credits");
+  });
+
+  it("an agent's rail never offers Plans & capacity (a company page) — whatever the flag", async () => {
+    for (const on of [true, false]) {
+      flags.agencyPortalEnabled = on;
+      for (const orgRole of ["owner", "recruiter"] as const) {
+        const { hrefs } = await render({ role: "agent", orgRole });
+        expect(hrefs, `flag ${on} ${orgRole}`).not.toContain("/plans");
+      }
+    }
   });
 });

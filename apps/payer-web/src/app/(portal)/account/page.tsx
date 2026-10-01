@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requirePayer } from "../../../lib/auth";
+import { agencyFlags } from "../../../lib/config";
 import { getAgencyKyc } from "../../../lib/payer-api";
 import { maskLast4 } from "../../../lib/masking";
 import type { AgencyKyc } from "../../../lib/contracts";
@@ -36,7 +37,9 @@ export const dynamic = "force-dynamic";
  * transient read failure) HIDES the card entirely rather than showing a fake "Pending". A real
  * status drives
  * the tone/label and shows only the masked PAN / bank last-4 the API returns — the agency's
- * OWN data, never a raw document, never worker PII.
+ * OWN data, never a raw document, never worker PII. The card's actions open Referrals, where
+ * KYC is managed — an agency page behind the agency-portal flag — so with that flag off the
+ * card is not shown (and not read): its buttons would lead to a 404.
  */
 export default async function AccountPage() {
   const session = await requirePayer();
@@ -71,7 +74,7 @@ export default async function AccountPage() {
   // transient failure → the KYC card is HIDDEN, never faked. Isolated so a KYC read failure
   // can never blank the account page.
   let agencyKyc: AgencyKyc | null = null;
-  if (session.role === "agent") {
+  if (session.role === "agent" && agencyFlags().agencyPortalEnabled) {
     try {
       agencyKyc = await getAgencyKyc();
     } catch {
@@ -150,7 +153,8 @@ const KYC_PRESENTATION: Record<
  * function component — the caller has already resolved (and non-null-guarded) the KYC read, so
  * this only maps status → appearance. Shows only the masked PAN / bank last-4 the API returns
  * (`••••234F`); the reject reason surfaces verbatim when rejected. Both rows keep their
- * Manage/Add link to the full KYC surface (/agency/referrals).
+ * Manage/Add link to the full KYC surface (/agency/referrals) — and SAY so ("Manage in
+ * Referrals"): two buttons labelled "Manage" side by side did not tell a payer where either went.
  */
 function AgencyKycCard({ kyc }: { kyc: AgencyKyc }) {
   const view = KYC_PRESENTATION[kyc.status];
@@ -193,10 +197,10 @@ function AgencyKycCard({ kyc }: { kyc: AgencyKyc }) {
           <Link
             className="bb-btn bb-btn--secondary bb-btn--sm"
             href="/agency/referrals"
-            aria-label="KYC details — manage"
+            aria-label="Manage in Referrals — KYC details"
           >
             <Icon name={ACTION_ICON.edit} />
-            <span>Manage</span>
+            <span>Manage in Referrals</span>
           </Link>
         </div>
       </div>
@@ -228,10 +232,12 @@ function AgencyKycCard({ kyc }: { kyc: AgencyKyc }) {
           <Link
             className="bb-btn bb-btn--secondary bb-btn--sm"
             href="/agency/referrals"
-            aria-label={bankAdded ? "Bank details — manage" : "Bank details — add"}
+            aria-label={
+              bankAdded ? "Manage in Referrals — bank details" : "Add in Referrals — bank details"
+            }
           >
             <Icon name={bankAdded ? ACTION_ICON.edit : ACTION_ICON.add} />
-            <span>{bankAdded ? "Manage" : "Add"}</span>
+            <span>{bankAdded ? "Manage in Referrals" : "Add in Referrals"}</span>
           </Link>
         </div>
       </div>

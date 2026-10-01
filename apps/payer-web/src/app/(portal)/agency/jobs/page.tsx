@@ -15,7 +15,9 @@ export const dynamic = "force-dynamic";
 /**
  * Agency "Postings" (owner ruling 2026-10-01) — the agency's OWN postings, i.e. rows of the
  * `jobs` table the worker feed reads (ADR-0022), managed in one place: edit, pause, resume,
- * close, and each posting's detail + applicants. "New posting" (`/agency/jobs/new`) creates one.
+ * close, and each posting's details. (An agency posting's applicants have no page yet — the
+ * applicant endpoint does not serve agency jobs correctly; backend issue #1898.) "New posting"
+ * (`/agency/jobs/new`) creates one.
  *
  * An agency posts AGENCY jobs only: the company posting surface (`/postings*`, `job_postings`)
  * is not offered to agents, and an agent who opens it is sent here (see postings/page.tsx).

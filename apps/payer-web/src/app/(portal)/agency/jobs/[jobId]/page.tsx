@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 import { z } from "zod";
-import { ACTION_ICON } from "@badabhai/icons";
 import { getAgencyJob } from "../../../../../lib/payer-api";
 import { requireAgent } from "../../../../../lib/auth/roles";
 import { agencyFlags } from "../../../../../lib/config";
@@ -59,11 +58,6 @@ export default async function AgencyJobDetailPage({
             {job.status}
           </Badge>
         }
-        primaryAction={{
-          href: `/agency/jobs/${job.id}/applicants`,
-          label: "View applicants",
-          icon: ACTION_ICON.users,
-        }}
       />
 
       <div className="posting-layout">

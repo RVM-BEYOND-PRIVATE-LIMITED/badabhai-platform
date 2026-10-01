@@ -78,7 +78,12 @@ function mount(applicants: FacelessApplicant[], balance = 5) {
   cells = [];
   renderFn = () => {
     cursor = 0;
-    currentTree = ApplicantActions({ postingId: POSTING, applicants, balance }) as ReactElement;
+    currentTree = ApplicantActions({
+      header: { back: { href: `/postings/${POSTING}`, label: "VMC Operator" }, title: "Applicants" },
+      postingId: POSTING,
+      applicants,
+      balance,
+    }) as ReactElement;
   };
   renderFn();
 }
@@ -337,6 +342,8 @@ function setActiveStageTo(id: "new" | "shortlist") {
       onChange = el.props.onChange as (id: string) => void;
       return;
     }
+    // The tabs sit in the page head's toolbar row (a prop of PageHeader, not its children).
+    if (el.props && "toolbar" in el.props) walk(el.props.toolbar as ReactNode);
     if (el.props && "children" in el.props) walk(el.props.children as ReactNode);
   })(currentTree);
   onChange!(id);

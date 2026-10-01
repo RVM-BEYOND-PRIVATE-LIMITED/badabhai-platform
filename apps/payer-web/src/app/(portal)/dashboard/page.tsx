@@ -4,6 +4,8 @@ import { getDashboard } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
 import { getOrgRole } from "../../../lib/auth/org-roles";
 import { agencyFlags } from "../../../lib/config";
+import { getLiveCatalog } from "../../../lib/live-catalog";
+import { unlockUnitPriceInr } from "../../../lib/pricing-config";
 import { postingRoutes } from "../../../lib/posting-routes";
 import type { Dashboard } from "../../../lib/contracts";
 import { Badge, Card, MaskedCandidate, StatTile } from "../../../components/ds";
@@ -46,9 +48,16 @@ export const dynamic = "force-dynamic";
  *
  * ONE DOOR PER DESTINATION (owner ruling 2026-10-01). "New posting" is the head's one primary
  * action — for an agency it opens the AGENCY form (`jobs`), never the company one. The Postings
- * list is reached from the "Your postings" panel alone (the counters and unlock rows used to be
- * five more links to it, two of them to a list that shows no unlocks). Credits is linked only
- * for an owner: `/credits` is Owner-only and a recruiter would land on a 404.
+ * list is reached from the "Your postings" panel alone. The counters are counts, the balance
+ * included (the header chip is the balance's door); the unlock rows are rows. A "Needs your
+ * attention" item shows no button of its own when the page already offers that destination
+ * (the head's New posting, the Buy credits card). Credits is linked only for an owner:
+ * `/credits` is Owner-only and a recruiter would land on a 404. Plans & capacity is a company
+ * page (it sells company-posting entitlements), so an agency gets no card for it.
+ *
+ * READS: an agency session never asks for the company postings list (`withPostings: false`) —
+ * it shows none, and the backend gate for it is #1885. The per-unlock price comes from the live
+ * catalog (the same source as Credits), never a literal.
  */
 export default async function DashboardPage() {
   const session = await requirePayer();
@@ -57,11 +66,15 @@ export default async function DashboardPage() {
   // The agency pages (Revenue, Referrals…) sit behind this flag; their tiles follow it.
   const agencyOn = isAgency && agencyFlags().agencyPortalEnabled;
   const posting = postingRoutes(isAgency);
+  // The per-unlock price (the same source as Credits), read BESIDE the dashboard read rather
+  // than after it. It never rejects (a failed read is the compile-time catalog), so an early
+  // return below leaves nothing unhandled.
+  const catalog = getLiveCatalog();
 
   let data: Dashboard | null = null;
   let failed = false;
   try {
-    data = await getDashboard();
+    data = await getDashboard({ withPostings: !isAgency });
   } catch {
     failed = true;
   }
@@ -89,18 +102,16 @@ export default async function DashboardPage() {
   }
 
   const openCount = data.postings.filter((p) => p.status === "open").length;
-  const balanceTile = {
-    label: "Credit balance",
-    value: data.credits.balance,
-    icon: ACTION_ICON.credits,
-    caption: (
-      <>
-        <span className="bb-mono">{formatInr(40)}</span> per unlock
-      </>
-    ),
-  };
+  // No caption when the catalog offers no unlock price.
+  const unitPrice = unlockUnitPriceInr((await catalog).products);
   const recentUnlocks = data.unlocks.slice(0, 5);
   const attention = buildAttentionItems(data, { isAgency, isOwner });
+  const quick = quickActions({ isOwner, isAgency });
+  // The destinations this page already offers: an attention item does not repeat one.
+  const pageDoors = new Set<string>([
+    ...(posting ? [posting.create] : []),
+    ...quick.map((q) => q.href),
+  ]);
 
   return (
     <>
@@ -133,7 +144,7 @@ export default async function DashboardPage() {
                   <p className="attention__title">{item.title}</p>
                   <p className="attention__body">{item.body}</p>
                 </div>
-                {item.actionHref ? (
+                {item.actionHref && !pageDoors.has(item.actionHref) ? (
                   <Link
                     className="bb-btn bb-btn--secondary bb-btn--sm attention__action"
                     href={item.actionHref}
@@ -151,16 +162,20 @@ export default async function DashboardPage() {
       {/* 2 · POSITION — the KPI variant: no hole beside a lone third tile, and a compact
           ledger row per tile on a phone so the counters stay secondary to bands 1 and 3. */}
       <div className="stat-row stat-row--kpi">
-        {/* The balance links to Credits for an OWNER only (a recruiter's /credits is a 404). */}
-        {isOwner ? (
-          <StatTile
-            {...balanceTile}
-            href="/credits"
-            ariaLabel={`Credit balance ${data.credits.balance} credits — open Credits`}
-          />
-        ) : (
-          <StatTile {...balanceTile} />
-        )}
+        {/* A count like its neighbours: the header chip (an owner's link to Credits) and the
+            Buy credits card are this page's doors to Credits. */}
+        <StatTile
+          label="Credit balance"
+          value={data.credits.balance}
+          icon={ACTION_ICON.credits}
+          caption={
+            unitPrice !== null ? (
+              <>
+                <span className="bb-mono">{formatInr(unitPrice)}</span> per unlock
+              </>
+            ) : undefined
+          }
+        />
         {isAgency ? null : (
           <StatTile
             label="Open postings"
@@ -194,23 +209,25 @@ export default async function DashboardPage() {
       </div>
 
       {/* 3 · DO SOMETHING — the handful of things a payer does over and over. These were
-          previously buried as small links inside section headers. */}
-      <section className="quick" aria-labelledby="quick-heading">
-        <h2 className="quick__heading" id="quick-heading">
-          Quick actions
-        </h2>
-        <div className="quick__grid">
-          {quickActions({ isOwner, agencyOn }).map((q) => (
-            <Link className="quick__card" href={q.href} key={q.href}>
-              <span className="quick__icon">
-                <Icon name={q.icon} />
-              </span>
-              <span className="quick__label">{q.label}</span>
-              <span className="quick__desc">{q.description}</span>
-            </Link>
-          ))}
-        </div>
-      </section>
+          previously buried as small links inside section headers. Absent when there are none. */}
+      {quick.length > 0 ? (
+        <section className="quick" aria-labelledby="quick-heading">
+          <h2 className="quick__heading" id="quick-heading">
+            Quick actions
+          </h2>
+          <div className="quick__grid">
+            {quick.map((q) => (
+              <Link className="quick__card" href={q.href} key={q.href}>
+                <span className="quick__icon">
+                  <Icon name={q.icon} />
+                </span>
+                <span className="quick__label">{q.label}</span>
+                <span className="quick__desc">{q.description}</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {/* 4 · YOUR WORK — omitted for agents (different entity; see the header note). */}
       {isAgency ? null : (
@@ -305,12 +322,7 @@ export default async function DashboardPage() {
                 // FACELESS: a row names nobody — no worker id/phone/name reaches the DOM. Not a
                 // link: the postings list it used to open shows no unlocks. The wrapper's own
                 // surface is zeroed so only the inner MaskedCandidate row shows.
-                <Card
-                  key={u.unlockId}
-                  variant="flat"
-                  padding="none"
-                  className="dash-unlock-link"
-                >
+                <Card key={u.unlockId} variant="flat" padding="none" className="dash-unlock-link">
                   <MaskedCandidate
                     masked={false}
                     verified={u.status === "granted"}
@@ -345,28 +357,19 @@ interface QuickAction {
 
 /**
  * The high-frequency actions that are NOT already on this page. "New posting" is the head's
- * primary, and each posting card opens its own applicants, so neither is repeated here. Every
- * card follows its destination's gate: Credits is Owner-only, Invite workers needs the
- * agency-portal flag its page checks.
+ * primary, and each posting card opens its posting, so neither is repeated here; an agency's
+ * invite tools are its own section below (the inline invite panel, QR, batch links), so there is
+ * no second "Invite workers" door to Referrals either. Every card follows its destination's gate:
+ * Credits is Owner-only; Plans & capacity is a COMPANY page.
  */
 function quickActions({
   isOwner,
-  agencyOn,
+  isAgency,
 }: {
   isOwner: boolean;
-  agencyOn: boolean;
+  isAgency: boolean;
 }): QuickAction[] {
   return [
-    ...(agencyOn
-      ? [
-          {
-            href: "/agency/referrals",
-            label: "Invite workers",
-            description: "Mint an invite link or print a QR invite.",
-            icon: "share-network" as const,
-          },
-        ]
-      : []),
     ...(isOwner
       ? [
           {
@@ -377,11 +380,15 @@ function quickActions({
           },
         ]
       : []),
-    {
-      href: "/plans",
-      label: "Plans & capacity",
-      description: "How many postings you can run at once.",
-      icon: "chart-donut",
-    },
+    ...(isAgency
+      ? []
+      : [
+          {
+            href: "/plans",
+            label: "Plans & capacity",
+            description: "How many postings you can run at once.",
+            icon: "chart-donut" as const,
+          },
+        ]),
   ];
 }

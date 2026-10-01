@@ -312,6 +312,18 @@ describe("PR-D2 · /dashboard — quick actions, postings and needs-you on phone
     expect(decl(rule(".dash-posting__cta", "max-width: 560px"), "grid-area")).toBe("cta");
   });
 
+  it("a Recent-unlocks row is not a link, so nothing makes it look like one (no hover lift)", () => {
+    // The row's wrapper zeroes its own surface; the inner row keeps its card look.
+    const wrap = rule(".dash-unlock-link");
+    expect(decl(wrap, "box-shadow")).toBe("none");
+    expect(decl(wrap, "border")).toBe("none");
+    // A hover lift / shadow says "you can click this" — the row opens nothing.
+    const hover = RULES.filter((r) =>
+      r.selector.split(",").some((s) => /\.dash-unlock-link:hover/.test(s)),
+    );
+    expect(hover.map((r) => r.selector)).toEqual([]);
+  });
+
   it("≤375px: a needs-you action wraps under its text (the ≤600px wrap is the precondition)", () => {
     expect(decl(rule(".attention__item", NARROW), "flex-wrap")).toBe("wrap");
     expect(decl(rule(".attention__text", SMALL), "flex-basis")).toBe(

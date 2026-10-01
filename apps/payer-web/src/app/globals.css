@@ -1703,22 +1703,13 @@ textarea.input {
 .dash-posting:hover .dash-view__arrow {
   color: var(--text-accent);
 }
-/* CARDS-1 — wrapper around a Recent-unlock MaskedCandidate that turns the WHOLE row into a
-   stretched link. The wrapper Card carries the link + relative context only, so we zero its
-   own surface (no double border/shadow/pad) and let the inner .bb-candidate render as before.
-   The hover lift/shadow on the wrapper is suppressed; the inner row keeps its own card look. */
+/* The wrapper Card around a Recent-unlock MaskedCandidate: its own surface is zeroed (no double
+   border/shadow/pad) so only the inner .bb-candidate row shows. The row is NOT a link (the list
+   it used to open shows no unlocks), so it has no hover lift — a lift says "you can click this". */
 .dash-unlock-link {
   border: none;
   background: none;
   box-shadow: none;
-}
-.dash-unlock-link:hover {
-  transform: translateY(-2px);
-  box-shadow: none;
-}
-.dash-unlock-link:hover .bb-candidate {
-  box-shadow: var(--shadow-md);
-  border-color: var(--border-default);
 }
 .dash-empty,
 .dash-state {
@@ -2661,12 +2652,6 @@ textarea.input {
   display: grid;
   gap: var(--space-4);
 }
-.agency-jobs__empty {
-  text-align: center;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-}
 .agency-jobs__list {
   display: grid;
   gap: var(--space-4);
@@ -2695,6 +2680,9 @@ textarea.input {
   font-size: var(--text-lg);
   font-weight: var(--weight-bold);
   color: var(--text-primary);
+}
+.agency-job__title:hover {
+  color: var(--text-link);
 }
 .agency-job__meta {
   display: flex;
@@ -3062,7 +3050,8 @@ textarea.input {
  * POSTINGS · PLANS · CAPACITY · ACCOUNT · TEAM (W3-B polish) — page-scoped layout only.
  * ------------------------------------------------------------------
  * Every selector is namespaced to a page wrapper (`.postings-page`, `.plans-page`,
- * `.capacity-page`, `.account-page`, `.team-page`, `.team-accept-page`), so no shared primitive
+ * `.account-page`, `.team-page`, `.team-accept-page`; /capacity is now a redirect to
+ * /plans#hiring-capacity, so it renders no page of its own), so no shared primitive
  * changes anywhere else. Each wrapper adds one class to its selectors, so these win over the
  * single-class shared rules by specificity, wherever they sit in the file. Copy, data and
  * behaviour are untouched; tokens only.
@@ -3162,72 +3151,66 @@ textarea.input {
 /* The "Most capacity" badge is taller than the tier name beside it, so the one flagged tier's
    price sat ~3px lower than its neighbours'. Its block margin is pulled in so the head row is
    the name's height on every tier and the prices line up. */
-.plans-page .capacity-tier__head > .bb-badge,
-.capacity-page .capacity-tier__head > .bb-badge {
+.plans-page .capacity-tier__head > .bb-badge {
   margin-block: calc(-1 * var(--space-1));
 }
 /* The tier row and its result toasts never touch the "Recorded only" note beneath them. */
-.plans-page .capacity-tiers,
-.capacity-page .capacity-tiers {
+.plans-page .capacity-tiers {
   margin-bottom: var(--block-gap);
 }
-.plans-page .capacity-result,
-.capacity-page .capacity-result {
+.plans-page .capacity-result {
   margin-top: 0;
   margin-bottom: var(--block-gap);
 }
 /* A section's last block adds no margin of its own, so the section gap is the one rhythm
    between blocks (it was 40–48px wherever an alert or tile row ended a section). */
-.plans-page .section > :last-child,
-.capacity-page .section > :last-child {
+.plans-page .section > :last-child {
   margin-bottom: 0;
 }
 /* The per-posting table: the role column keeps a readable floor (three quarters of a tile), so
    a long role title wraps across a few lines instead of one word per line and the table scrolls
    inside its region on a phone — while the whole table still fits a 768px tablet. */
-.plans-page .table td:first-child,
-.capacity-page .table td:first-child {
+.plans-page .table td:first-child {
   min-inline-size: calc(var(--stat-min) * 3 / 4);
 }
 @media (max-width: 600px) {
-  /* Phones: every product card becomes a compact price row — name across the top, the price
-     and its line of detail on the left, the one action on the right. Five to seven stacked
-     tiles were ~180px each; a row is about half that. */
+  /* Phones: every product card is a compact block — the name across the top, then the price and
+     its line of detail, on one tight rhythm. Five to seven stacked tiles were ~180px each; a
+     compact card is about half that. A capacity tier is the only card with an action of its own,
+     so it is a price ROW: the action sits right of its price. Credit packs and posting plans have
+     none (each section has ONE door, in its head), so they keep a single track — a second,
+     empty track would still cost its column gap. */
   .plans-page .plan-card,
-  .plans-page .capacity-tier,
-  .capacity-page .capacity-tier {
+  .plans-page .capacity-tier {
     display: grid;
+    align-items: center;
+    row-gap: var(--space-1);
+    padding: var(--space-4);
+  }
+  .plans-page .capacity-tier {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
       "head head"
       "price action"
       "detail action";
-    align-items: center;
     column-gap: var(--space-4);
-    row-gap: var(--space-1);
-    padding: var(--space-4);
   }
-  .plans-page .plan-card__head,
-  .plans-page .capacity-tier__head,
-  .capacity-page .capacity-tier__head {
+  .plans-page .capacity-tier__head {
     grid-area: head;
     flex-wrap: wrap;
   }
   .plans-page .plan-card__price,
-  .plans-page .capacity-tier__price,
-  .capacity-page .capacity-tier__price {
-    grid-area: price;
+  .plans-page .capacity-tier__price {
     font-size: var(--ui-kpi-sm-size);
   }
-  .plans-page .plan-card__detail,
-  .plans-page .capacity-tier__allowance,
-  .capacity-page .capacity-tier__allowance {
+  .plans-page .capacity-tier__price {
+    grid-area: price;
+  }
+  .plans-page .capacity-tier__allowance {
     grid-area: detail;
     margin: 0;
   }
-  .plans-page .plan-card > .bb-btn,
-  .plans-page .capacity-tier > .bb-btn,
-  .capacity-page .capacity-tier > .bb-btn {
+  .plans-page .capacity-tier > .bb-btn {
     grid-area: action;
     width: auto;
     min-inline-size: calc(2 * var(--control-md));
@@ -3268,50 +3251,48 @@ textarea.input {
   }
 }
 
-/* ---- Touch, on all six screens: on a phone and under a coarse pointer, every control these
-   screens own is at least 44px. (The "← Dashboard" back link is shared page furniture, not
-   theirs: it is sized with the other shared targets, not by this block.) The DS small button
-   already has a 44px hit strip at ≤600px (ds-components.css); a coarse pointer ABOVE 600px (a
-   tablet) gets a drawn 44px minimum here, as on /postings/[id]/applicants. Text links outside a
-   sentence get the same 44px below. */
+/* ---- Touch: on a phone and under a coarse pointer, every control these screens own is at least
+   44px. (The back link is shared page furniture: it is sized with the other shared targets, not
+   by this block.) The DS small button already has a 44px hit strip at ≤600px
+   (ds-components.css); a coarse pointer ABOVE 600px (a tablet) gets a drawn 44px minimum here,
+   as on /postings/[id]/applicants — on every W3-B screen and on the agency's Postings list. The
+   two posting lists (company and agency) share the row rules below, scoped to the CONTROLS, not
+   to a page, so a row control is the same target wherever the row renders. */
 @media (pointer: coarse) and (min-width: 601px) {
   .postings-page .bb-btn--sm,
   .plans-page .bb-btn--sm,
-  .capacity-page .bb-btn--sm,
   .account-page .bb-btn--sm,
   .team-page .bb-btn--sm,
-  .team-accept-page .bb-btn--sm {
+  .team-accept-page .bb-btn--sm,
+  .agency-postings-page .bb-btn--sm {
     min-height: var(--control-md);
   }
 }
 @media (max-width: 600px), (pointer: coarse) {
-  /* The posting title heads its card, so it takes a drawn 44px line. */
-  .postings-page .posting-card__title {
+  /* A posting's title heads its card (and opens the posting), so it takes a drawn 44px line. */
+  .posting-card__title,
+  .agency-job__title {
     display: inline-flex;
     align-items: center;
     min-height: var(--control-md);
   }
-  /* A text link in a dense row — a card's Details / Edit, the table's role link, the quota
-     tile's "Top up applicant quota →" caption — gets a 44px HIT STRIP instead: an out-of-flow
+  /* A text link in a dense row — a posting row's Applicants / Edit, the table's role link, the
+     quota tile's "Add applicant slots" caption — gets a 44px HIT STRIP instead: an out-of-flow
      pseudo centred on the link (the DS small-button recipe in ds-components.css). No row grows,
      and the focus ring still hugs the text: a padded 44px box put the role link's ring on its
      cell's edges, under the sticky header on the first row and past the scroller on the last.
      The inline inset is negative only on a link narrower than 44px ("Edit"). inline-block makes
      a link that wraps (a long role, the caption at 320px) ONE box for the strip to centre on. */
-  .postings-page .postings-link,
+  .postings-link,
   .plans-page .capacity-link,
-  .capacity-page .capacity-link,
-  .plans-page .bb-stat__caption a,
-  .capacity-page .bb-stat__caption a {
+  .plans-page .bb-stat__caption a {
     display: inline-block;
     position: relative;
     isolation: isolate;
   }
-  .postings-page .postings-link::before,
+  .postings-link::before,
   .plans-page .capacity-link::before,
-  .capacity-page .capacity-link::before,
-  .plans-page .bb-stat__caption a::before,
-  .capacity-page .bb-stat__caption a::before {
+  .plans-page .bb-stat__caption a::before {
     content: "";
     position: absolute;
     z-index: calc(var(--z-base) - 1);
@@ -3503,7 +3484,7 @@ textarea.input {
 
 /* THE EMPTY STATE IS THE STATE THIS SHIPS IN — no worker can grant the visibility consent yet,
    so this is the page, not a fallback. Which is exactly why it is QUIET: the same centred,
-   muted register as every other portal empty (.postings-empty / .agency-jobs__empty), on the DS
+   muted register as every other portal empty (.postings-empty / the shared .state), on the DS
    Card the markup already renders (`<Card variant="flat">` owns the surface, hairline border,
    radius and padding — this block adds only the internal rhythm). A dashed-green hero frame
    would celebrate the absence of data on the page an agency sees every single day.

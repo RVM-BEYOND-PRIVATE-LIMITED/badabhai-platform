@@ -61,7 +61,9 @@ export default async function CreditsPage() {
   let dashboard: Dashboard | null = null;
   let error: string | null = null;
   try {
-    dashboard = await getDashboard();
+    // The balance + the unlock half of the ledger; this page shows no postings, so it never
+    // asks for the company postings list.
+    dashboard = await getDashboard({ withPostings: false });
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
@@ -191,7 +193,9 @@ export default async function CreditsPage() {
                       <td className="mono">{day(t.at)}</td>
                       <td>
                         {t.kind === "topup" ? (
-                          <Badge tone="success">Top-up</Badge>
+                          // "Purchase": credits are BOUGHT ("Buy credits"); "Top up" also
+                          // named adding applicant slots to a posting.
+                          <Badge tone="success">Purchase</Badge>
                         ) : (
                           <Badge tone="neutral">Unlock</Badge>
                         )}

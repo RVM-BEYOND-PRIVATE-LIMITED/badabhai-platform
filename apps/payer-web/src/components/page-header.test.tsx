@@ -141,11 +141,18 @@ function pageFiles(dir: string): string[] {
 const rel = (f: string) => f.slice(PORTAL.length + 1).split("\\").join("/");
 
 /** Pages that render nothing of their own: a server redirect to another route. */
-const REDIRECT_ONLY = new Set(["profile/page.tsx", "agency/dashboard/page.tsx"]);
-/** Routes that render the shared applicant feed screen (whose head is a PageHeader). */
-const FEED_SCREEN = "applicantsScreen(";
+const REDIRECT_ONLY = new Set([
+  "profile/page.tsx",
+  "agency/dashboard/page.tsx",
+  // Hiring capacity is a section of Plans & capacity (2026-10-01).
+  "capacity/page.tsx",
+]);
 
-/** Every string literal inside each `description=` attribute value of a source. */
+/**
+ * Every string literal inside each `description=` attribute value of a source — and inside each
+ * `description:` property value (a header handed to a component as an object: the applicants
+ * page builds its head once for both of its branches).
+ */
 function descriptionLiterals(src: string): string[] {
   const out: string[] = [];
   for (let at = src.indexOf("description="); at >= 0; at = src.indexOf("description=", at + 1)) {
@@ -164,6 +171,23 @@ function descriptionLiterals(src: string): string[] {
     }
     for (const m of value.matchAll(/"([^"]*)"|`([^`]*)`/g)) out.push(m[1] ?? m[2] ?? "");
   }
+  for (let at = src.indexOf("description:"); at >= 0; at = src.indexOf("description:", at + 1)) {
+    // The property's value runs to the first `,` / `;` / `}` outside a string literal.
+    let value = "";
+    let quote: string | null = null;
+    for (let i = at + "description:".length; i < src.length; i += 1) {
+      const c = src[i]!;
+      if (quote) {
+        if (c === quote) quote = null;
+      } else if (c === '"' || c === "`") {
+        quote = c;
+      } else if (c === "," || c === ";" || c === "}") {
+        break;
+      }
+      value += c;
+    }
+    for (const m of value.matchAll(/"([^"]*)"|`([^`]*)`/g)) out.push(m[1] ?? m[2] ?? "");
+  }
   return out;
 }
 
@@ -177,11 +201,11 @@ describe("every portal page uses PageHeader", () => {
     expect(pages.length).toBeGreaterThanOrEqual(22);
   });
 
-  it("each page renders <PageHeader> (or the shared feed screen), except the pure redirects", () => {
+  it("each page renders <PageHeader>, except the pure redirects", () => {
     const missing = pages
       .map((f) => [rel(f), readFileSync(f, "utf8")] as const)
       .filter(([r]) => !REDIRECT_ONLY.has(r))
-      .filter(([, src]) => !src.includes("<PageHeader") && !src.includes(FEED_SCREEN))
+      .filter(([, src]) => !src.includes("<PageHeader"))
       .map(([r]) => r);
     expect(missing).toEqual([]);
     // …and the redirect-only ones really are just a redirect.
@@ -193,12 +217,15 @@ describe("every portal page uses PageHeader", () => {
   });
 
   it("every literal description is ONE sentence", () => {
-    const sources = [
-      ...pages,
-      join(PORTAL, "postings", "[id]", "applicants", "applicants-screen.tsx"),
-    ].map((f) => [rel(f), readFileSync(f, "utf8")] as const);
+    const sources = pages.map((f) => [rel(f), readFileSync(f, "utf8")] as const);
     const literals = sources.flatMap(([r, src]) => descriptionLiterals(src).map((d) => [r, d]));
     expect(literals.length).toBeGreaterThanOrEqual(15);
+    // The object-property form is scanned too (the applicants head: both of its descriptions).
+    expect(
+      literals.filter(
+        ([r, d]) => r === "postings/[id]/applicants/page.tsx" && d!.startsWith("Everyone who"),
+      ),
+    ).toHaveLength(2);
     expect(literals.filter(([, d]) => multiSentence(d!))).toEqual([]);
     // The checker can fail.
     expect(multiSentence("Describe the role. Applicants appear faceless.")).toBe(true);

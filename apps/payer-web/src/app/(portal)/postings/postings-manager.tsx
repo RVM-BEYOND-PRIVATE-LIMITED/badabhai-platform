@@ -16,9 +16,10 @@ import {
  * Client job-management surface (ADR-0019 Phase 1) — UI-1 skin, LIVE lifecycle.
  *
  * Runs in the BROWSER and sees NO secret. Each posting renders as a DS Card with its
- * real `status` Badge and links to its manage page + faceless applicant feed (XB-A: the
- * Server Actions bind tenancy to the server-held session — the client never passes a
- * payer id, only the posting id).
+ * real `status` Badge. Its TITLE opens the posting's details (as on the agency list); the row's
+ * own links name what they open — "Applicants" (the faceless feed) and "Edit". (XB-A: the
+ * Server Actions bind tenancy to the server-held session — the client never passes a payer id,
+ * only the posting id.)
  *
  * The trio (pause / resume / add applicant slots) + CLOSE are LIVE payer-authed routes
  * (`POST /payer/job-postings/:id/{pause|resume|quota-topup|close}`, #178/#180). Each
@@ -29,8 +30,9 @@ import {
  * band / status / applicant count / created date) — no worker name/phone ever reaches the DOM.
  *
  * READ-ONLY (`readOnly`): an agent's OLDER company postings (see ../page.tsx) render without
- * the lifecycle buttons and without the Edit link — visible, never managed from here. The
- * server actions keep their own gate; hiding the buttons is an affordance, not the control.
+ * the lifecycle buttons and without the row links (no Applicants, no Edit) — visible by direct
+ * link, never managed or worked from here. The server actions keep their own gate; hiding the
+ * controls is an affordance, not the control.
  */
 
 const NONE = "—";
@@ -115,18 +117,12 @@ export function PostingsManager({
             <Icon name={ACTION_ICON.posting} />
           </span>
           <h2 className="state__title">No postings yet</h2>
+          {/* What to do next is the page head's one primary action, "New posting" — the state
+              names it rather than offering a second door to the same form. */}
           <p className="state__body">
-            Matched workers can only find you once a role is live. Posting is free through
-            launch.
+            Matched workers can only find you once a role is live — use New posting above.
+            Posting is free through launch.
           </p>
-          {readOnly ? null : (
-            <div className="state__actions">
-              <Link className="bb-btn bb-btn--primary" href="/postings/new">
-                <Icon name={ACTION_ICON.create} />
-                <span>New posting</span>
-              </Link>
-            </div>
-          )}
         </div>
       </Card>
     );
@@ -140,7 +136,7 @@ export function PostingsManager({
           <Card key={p.id} padding="md" className="posting-card">
             <div className="posting-card__main">
               <div className="posting-card__head">
-                <Link className="posting-card__title" href={`/postings/${p.id}/applicants`}>
+                <Link className="posting-card__title" href={`/postings/${p.id}`}>
                   {p.roleTitle}
                 </Link>
                 <Badge tone={statusTone(p.status)} upper>
@@ -162,20 +158,18 @@ export function PostingsManager({
                 </span>
               </div>
               {/* The row's two page links get their own line: inside the facts row they read
-                  as one "Details Edit" label led by a separator dot. */}
-              <div className="posting-card__links">
-                <Link className="postings-link" href={`/postings/${p.id}`}>
-                  <Icon name={ACTION_ICON.view} /> Details
-                </Link>
-                {readOnly ? null : (
-                  <>
-                    {" "}
-                    <Link className="postings-link" href={`/postings/${p.id}/edit`}>
-                      <Icon name={ACTION_ICON.edit} /> Edit
-                    </Link>
-                  </>
-                )}
-              </div>
+                  as one "Applicants Edit" label led by a separator dot. The title above opens
+                  the posting's details. A read-only row has neither. */}
+              {readOnly ? null : (
+                <div className="posting-card__links">
+                  <Link className="postings-link" href={`/postings/${p.id}/applicants`}>
+                    <Icon name={ACTION_ICON.users} /> Applicants
+                  </Link>{" "}
+                  <Link className="postings-link" href={`/postings/${p.id}/edit`}>
+                    <Icon name={ACTION_ICON.edit} /> Edit
+                  </Link>
+                </div>
+              )}
 
               {/* B8 — the per-row result region is announceable (aria-live): a retryable
                   error OR the success notice (e.g. the paid top-up confirmation). It sits

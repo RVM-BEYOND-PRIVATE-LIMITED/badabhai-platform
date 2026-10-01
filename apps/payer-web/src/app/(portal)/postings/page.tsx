@@ -5,7 +5,11 @@ import { getPostings } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
 import { getLiveCatalog } from "../../../lib/live-catalog";
 import { applicantQuotaStep } from "../../../lib/pricing-config";
-import { agentPostingRedirect, COMPANY_POSTING_ROUTES } from "../../../lib/posting-routes";
+import {
+  agentPostingRedirect,
+  COMPANY_POSTING_ROUTES,
+  postingRoutes,
+} from "../../../lib/posting-routes";
 import type { PostingSummary } from "../../../lib/contracts";
 import { Card } from "../../../components/ds";
 import { CachedPricingNote } from "../../../components/cached-pricing-note";
@@ -16,9 +20,10 @@ import { PostingsManager } from "./postings-manager";
 export const dynamic = "force-dynamic";
 
 /**
- * Postings (ADR-0019 Phase 1) — a COMPANY's own job postings (XB-A: the seam binds to the
+ * Postings (ADR-0019 Phase 1) — a COMPANY's own postings (XB-A: the seam binds to the
  * server-held session id) via the LIVE `GET /payer/job-postings` read. `postings/new` owns
- * CREATE; each row links to its own faceless applicant feed.
+ * CREATE; each row's title opens the posting, and its links open the faceless applicant feed
+ * and the edit form.
  *
  * The PAUSE / RESUME / ADD APPLICANT SLOTS / CLOSE lifecycle is LIVE: the payer-authed
  * `POST /payer/job-postings/:id/{pause|resume|quota-topup|close}` routes (#178/#180),
@@ -29,12 +34,15 @@ export const dynamic = "force-dynamic";
  * AN AGENT (owner ruling 2026-10-01): agencies post AGENCY jobs only, so this company surface
  * is never linked for them. An agent who opens it directly is redirected to their own Postings
  * — UNLESS they own older `job_postings` rows (made here before the ruling). Those are not
- * hidden behind a 404: the agent sees them READ-ONLY (no lifecycle, no edit), with a pointer to
- * their own Postings. The backend role gate for this surface is issue #1885.
+ * hidden behind a 404: the agent sees them READ-ONLY (no lifecycle, no edit, no applicants), by
+ * direct link only — nothing in an agency's portal links here — with a pointer to their own
+ * Postings while the agency surface is on. The backend role gate for this surface is #1885.
  */
 export default async function PostingsPage() {
   const session = await requirePayer();
   const isAgency = session.role === "agent";
+  // An agent's own postings page — null when the agency surface is off (it would 404).
+  const agencyPostings = isAgency ? postingRoutes(true) : null;
   const { products, live } = await getLiveCatalog();
   const quotaStep = applicantQuotaStep(products);
 
@@ -58,7 +66,7 @@ export default async function PostingsPage() {
       {isAgency ? (
         <PageHeader
           title="Older postings"
-          description="Job postings your agency made with the company form before agency postings moved to Postings — view only."
+          description="Postings your agency published with the company form, before agencies had their own Postings page — view only."
         />
       ) : (
         <PageHeader
@@ -73,32 +81,31 @@ export default async function PostingsPage() {
       )}
 
       {isAgency ? (
-        <div className="alert alert--info">
-          <Icon name="info" className="alert__icon" />
-          <div className="alert__text">
-            <p className="alert__title">Your agency&rsquo;s postings are in Postings</p>
-            <p className="alert__body">
-              New postings, edits and applicants for your agency live there. These older ones
-              stay visible here so nothing you made is lost.
-            </p>
+        agencyPostings ? (
+          <div className="alert alert--info">
+            <Icon name="info" className="alert__icon" />
+            <div className="alert__text">
+              <p className="alert__title">Your agency&rsquo;s postings are in Postings</p>
+              <p className="alert__body">
+                New postings and edits for your agency live there. These older ones stay visible
+                here, view only, so nothing you made is lost.
+              </p>
+            </div>
+            <div className="alert__actions">
+              <Link className="bb-btn bb-btn--secondary bb-btn--sm" href={agencyPostings.list}>
+                <span>Go to Postings</span>
+                <Icon name={ACTION_ICON.next} />
+              </Link>
+            </div>
           </div>
-          <div className="alert__actions">
-            <Link
-              className="bb-btn bb-btn--secondary bb-btn--sm"
-              href={agentPostingRedirect("list")}
-            >
-              <span>Go to Postings</span>
-              <Icon name={ACTION_ICON.next} />
-            </Link>
-          </div>
-        </div>
+        ) : null
       ) : (
         <div className="alert alert--info">
           <Icon name="info" className="alert__icon" />
           <div className="alert__text">
             <p className="alert__title">Applicant quota</p>
             <p className="alert__body">
-              Applicant quota is &ldquo;view more &rarr; pay more&rdquo;.{" "}
+              Seeing more of a posting&rsquo;s applicants costs more.{" "}
               {quotaStep !== null
                 ? `Each "Add applicant slots" adds ${quotaStep} more applicant slots (from the pricing config).`
                 : "Slot amounts come from the pricing config."}

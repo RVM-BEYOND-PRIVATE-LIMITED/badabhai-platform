@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requirePayer } from "../../../lib/auth";
 import { getOrgRole } from "../../../lib/auth/org-roles";
 import { getCapacity } from "../../../lib/payer-api";
-import { postingRoutes } from "../../../lib/posting-routes";
+import { COMPANY_POSTING_ROUTES } from "../../../lib/posting-routes";
+import { HIRING_CAPACITY_ANCHOR } from "../../../lib/billing-routes";
 import { getLiveCatalog } from "../../../lib/live-catalog";
 import {
   hiringCapacityTiers,
@@ -24,20 +26,24 @@ export const dynamic = "force-dynamic";
 const QUOTA_TABLE_HEADING_ID = "plans-quota-table-title";
 
 /**
- * Plans & capacity — the billing area: usage, the Hiring capacity tiers, each posting's
+ * Plans & capacity — a COMPANY's billing area: usage, the Hiring capacity tiers, each posting's
  * applicant quota, credit packs and posting plans.
  *
- * Naming (owner ruling 2026-10-01): one word per concept for both personas — "postings",
- * "Hiring capacity" (the concurrent allowance), "Applicant quota" (the per-posting cap),
- * "Credits". Doors follow their gates: a credit pack links to Credits for an OWNER only (a
- * recruiter's /credits is a 404), and an agency is never linked into the company posting
- * surface — its "New posting" opens the agency form.
+ * COMPANY-ONLY (2026-10-01, a consequence of ruling 2): everything sold here is an entitlement
+ * on COMPANY postings (`job_postings`: concurrent capacity, per-posting applicant quota, posting
+ * plans), and an agency posts agency jobs only. An agent is sent to the dashboard before any
+ * read; the agency rail and dashboard do not offer this page. Credits (/credits) stays for both
+ * personas.
+ *
+ * Naming: one word per concept — "postings", "Hiring capacity" (the concurrent allowance),
+ * "Applicant quota" (the per-posting cap), "Credits". One door per destination: the credit packs
+ * share ONE "Buy credits" (Credits does not preselect a pack, so per-card buttons were the same
+ * link N times) — for an OWNER only, since a recruiter's /credits is a 404; and ONE "New posting".
  */
 export default async function PlansPage() {
   const session = await requirePayer();
-  const isAgency = session.role === "agent";
+  if (session.role === "agent") redirect("/dashboard");
   const isOwner = getOrgRole(session) === "owner";
-  const posting = postingRoutes(isAgency);
 
   const { products, live } = await getLiveCatalog();
   const packs = offeredCreditPacks(products);
@@ -109,15 +115,10 @@ export default async function PlansPage() {
                 }
                 icon={ACTION_ICON.users}
                 caption={
-                  // A company adds slots per posting on its Postings page. An agency has no
-                  // slot control to send it to, so its caption is a fact, not a link.
-                  isAgency ? (
-                    "Each posting has its own quota."
-                  ) : (
-                    <Link href="/postings">
-                      Add applicant slots in Postings <Icon name={ACTION_ICON.next} />
-                    </Link>
-                  )
+                  // Slots are added per posting, on the Postings page.
+                  <Link href="/postings">
+                    Add applicant slots in Postings <Icon name={ACTION_ICON.next} />
+                  </Link>
                 }
               />
             </div>
@@ -137,8 +138,8 @@ export default async function PlansPage() {
         ) : null}
       </section>
 
-      {/* ── Capacity tiers ── */}
-      <section className="section">
+      {/* ── Capacity tiers ── (the target of /capacity → /plans#hiring-capacity) */}
+      <section className="section" id={HIRING_CAPACITY_ANCHOR}>
         <div className="section__head">
           <div className="section__text">
             <h2 className="section__title">Hiring capacity</h2>
@@ -213,18 +214,12 @@ export default async function PlansPage() {
                     {capacity.postings.map((p) => (
                       <tr key={p.postingId}>
                         <td>
-                          {/* These rows are company postings; an agency is never linked into
-                              the company posting surface, so for an agent the role is text. */}
-                          {isAgency ? (
-                            p.roleTitle
-                          ) : (
-                            <Link
-                              className="capacity-link"
-                              href={`/postings/${p.postingId}/applicants`}
-                            >
-                              {p.roleTitle}
-                            </Link>
-                          )}
+                          <Link
+                            className="capacity-link"
+                            href={`/postings/${p.postingId}/applicants`}
+                          >
+                            {p.roleTitle}
+                          </Link>
                         </td>
                         <td>
                           <Badge
@@ -254,18 +249,11 @@ export default async function PlansPage() {
                   <Icon name={ACTION_ICON.posting} />
                 </span>
                 <h3 className="state__title">No postings yet</h3>
+                {/* The page's one "New posting" is in Posting plans below. */}
                 <p className="state__body">
                   You haven&rsquo;t published a posting yet. Once you do, its applicant quota
                   shows here.
                 </p>
-                {posting ? (
-                  <div className="state__actions">
-                    <Link className="bb-btn bb-btn--primary" href={posting.create}>
-                      <Icon name={ACTION_ICON.create} />
-                      <span>New posting</span>
-                    </Link>
-                  </div>
-                ) : null}
               </div>
             )}
           </div>
@@ -278,10 +266,20 @@ export default async function PlansPage() {
           <div className="section__text">
             <h2 className="section__title">Credits</h2>
             <p className="section__sub">
-              {isOwner ? "Buy credits" : "An account owner buys credits"} to unlock worker contact
-              details. 1 credit = 1 contact unlock.
+              {isOwner ? "Buy credits" : "Ask your account owner to buy credits"} to unlock
+              worker contact details. 1 credit = 1 contact unlock.
             </p>
           </div>
+          {/* ONE door to Credits for the whole section (Credits does not preselect a pack).
+              Owner-only: Credits is `requireOwner()`, so a recruiter is never sent to its 404. */}
+          {isOwner ? (
+            <div className="section__actions">
+              <Link className="bb-btn bb-btn--secondary" href="/credits">
+                <Icon name={ACTION_ICON.credits} />
+                <span>Buy credits</span>
+              </Link>
+            </div>
+          ) : null}
         </div>
         {packs.length === 0 ? (
           <div className="state">
@@ -305,15 +303,6 @@ export default async function PlansPage() {
                 <p className="plan-card__detail">
                   <span className="bb-mono">{p.credits}</span> credits
                 </p>
-                {/* The action is the LINK itself (`bb-btn` on the anchor), not a <button>
-                    inside an <a> — one control, one accessible role. Owner-only: Credits is
-                    `requireOwner()`, so a recruiter is never sent to its 404. */}
-                {isOwner ? (
-                  <Link className="bb-btn bb-btn--primary bb-btn--block" href="/credits">
-                    <Icon name={ACTION_ICON.credits} />
-                    <span>Buy credits</span>
-                  </Link>
-                ) : null}
               </Card>
             ))}
           </div>
@@ -326,6 +315,13 @@ export default async function PlansPage() {
           <div className="section__text">
             <h2 className="section__title">Posting plans</h2>
             <p className="section__sub">Postings are free through launch.</p>
+          </div>
+          {/* The page's ONE "New posting" (the plan cards used to carry one each). */}
+          <div className="section__actions">
+            <Link className="bb-btn bb-btn--secondary" href={COMPANY_POSTING_ROUTES.create}>
+              <Icon name={ACTION_ICON.create} />
+              <span>New posting</span>
+            </Link>
           </div>
         </div>
         {postingTiers.length === 0 ? (
@@ -348,12 +344,6 @@ export default async function PlansPage() {
                 </div>
                 <div className="plan-card__price bb-mono">Free</div>
                 <p className="plan-card__detail">Valid for {t.validityDays} days</p>
-                {posting ? (
-                  <Link className="bb-btn bb-btn--primary bb-btn--block" href={posting.create}>
-                    <Icon name={ACTION_ICON.create} />
-                    <span>New posting</span>
-                  </Link>
-                ) : null}
               </Card>
             ))}
           </div>

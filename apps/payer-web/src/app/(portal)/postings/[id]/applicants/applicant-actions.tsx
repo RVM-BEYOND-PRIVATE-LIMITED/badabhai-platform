@@ -6,6 +6,7 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { FacelessApplicant } from "../../../../../lib/contracts";
 import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
 import { Avatar, Badge, Button, Card, Tabs } from "../../../../../components/ds";
+import { PageHeader, type PageHeaderProps } from "../../../../../components/page-header";
 import { bandLabel, monthsLabel, opaqueId } from "../../../../../lib/masking";
 import {
   ConfirmSpendDialog,
@@ -38,6 +39,12 @@ import { maskedResumeAction, revealContactAction, unlockAction } from "./actions
  *
  * LOADING: busy / contactBusy / resumeBusy each surface the Button `loading` spinner + `aria-busy`
  * + disabled on their OWN action while it is pending; the error region stays aria-live for SRs.
+ *
+ * PAGE HEAD: this component renders the screen's PageHeader itself, so the New / Shortlist tabs
+ * (state that lives HERE) sit in the head's toolbar row — the header's filter slot — directly
+ * under the posting's name, and the feed starts right below a one-sentence privacy note. The
+ * page passes the head's text (`header`); the states with no feed (not found, read error, no
+ * applicants yet) render their own head in page.tsx.
  *
  * NO-ORACLE (XB-C): an "unavailable" unlock renders ONE neutral "Currently engaged" state —
  * IDENTICAL copy for capped / unknown / no-consent / already-unlocked (the mapper collapses
@@ -85,11 +92,14 @@ function day(ts: string): string {
 }
 
 export function ApplicantActions({
+  header,
   postingId,
   applicants,
   balance,
   canBuyCredits = false,
 }: {
+  /** The screen's head text (back link, H1, description); the tabs are added as its toolbar. */
+  header: Pick<PageHeaderProps, "back" | "title" | "description">;
   postingId: string;
   applicants: FacelessApplicant[];
   balance: number;
@@ -209,8 +219,30 @@ export function ApplicantActions({
     { new: 0, shortlist: 0, passed: 0 } as Record<RowStage, number>,
   );
 
+  // Two-stage pipeline tabs. Keep moves New→Shortlist; Pass dismisses (both LOCAL). They are the
+  // screen's filter, so they sit in the page head's toolbar row.
+  const pipeline = (
+    <div className="applicants-pipeline">
+      <Tabs
+        variant="segmented"
+        aria-label="Applicant pipeline"
+        value={activeStage}
+        onChange={(id) => setActiveStage(id as Stage)}
+        tabs={[
+          { id: "new", label: `New (${counts.new})` },
+          { id: "shortlist", label: `Shortlist (${counts.shortlist})` },
+        ]}
+      />
+      {counts.passed > 0 ? (
+        <span className="applicants-pipeline__note">{counts.passed} passed</span>
+      ) : null}
+    </div>
+  );
+
   return (
     <>
+      <PageHeader {...header} toolbar={pipeline} />
+
       {balance === 0 ? (
         <div className="alert alert--warning">
           <Icon name={ACTION_ICON.credits} className="alert__icon" />
@@ -223,7 +255,10 @@ export function ApplicantActions({
                   contact.
                 </>
               ) : (
-                <>An account owner can buy credits to unlock an applicant&rsquo;s routed contact.</>
+                <>
+                  Ask your account owner to buy credits to unlock an applicant&rsquo;s routed
+                  contact.
+                </>
               )}{" "}
               This is your own balance — not a signal about any applicant.
             </p>
@@ -231,21 +266,18 @@ export function ApplicantActions({
         </div>
       ) : null}
 
-      {/* Two-stage pipeline tabs. Keep moves New→Shortlist; Pass dismisses (both LOCAL). */}
-      <div className="applicants-pipeline">
-        <Tabs
-          variant="segmented"
-          aria-label="Applicant pipeline"
-          value={activeStage}
-          onChange={(id) => setActiveStage(id as Stage)}
-          tabs={[
-            { id: "new", label: `New (${counts.new})` },
-            { id: "shortlist", label: `Shortlist (${counts.shortlist})` },
-          ]}
-        />
-        {counts.passed > 0 ? (
-          <span className="applicants-pipeline__note">· {counts.passed} passed</span>
-        ) : null}
+      {/* THE PRIVACY BOUNDARY, stated once, before the data — one sentence, so the feed starts
+          high on a phone. The row controls (Keep / Pass / Unlock / Call) carry their own
+          labels. */}
+      <div className="alert alert--info">
+        <Icon name="mask-happy" className="alert__icon" />
+        <div className="alert__text">
+          <p className="alert__title">Applicants are faceless</p>
+          <p className="alert__body">
+            Each row is an opaque id and its match signals — who it is stays hidden until you
+            unlock its routed contact for 1 credit.
+          </p>
+        </div>
       </div>
 
       {visible.length === 0 ? (
@@ -560,7 +592,7 @@ export function ApplicantActions({
                         <p className="applicant__hint">
                           {canBuyCredits
                             ? "Buy credits to unlock."
-                            : "An account owner can buy credits."}{" "}
+                            : "Ask your account owner to buy credits."}{" "}
                           Guidance only — this is your own balance, never a signal about this
                           applicant.
                         </p>

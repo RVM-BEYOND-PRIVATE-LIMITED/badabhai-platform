@@ -123,9 +123,8 @@ describe("nav model — which paths light which item up", () => {
       expect(activeHrefs("/agency/workers/abc", agency)).toEqual(["/agency/workers"]);
     });
 
-    it("a posting's detail and applicants light Postings; the create form lights only itself", () => {
+    it("a posting's detail lights Postings; the create form lights only itself", () => {
       expect(activeHrefs("/agency/jobs/2f8c", agency)).toEqual(["/agency/jobs"]);
-      expect(activeHrefs("/agency/jobs/2f8c/applicants", agency)).toEqual(["/agency/jobs"]);
       expect(activeHrefs("/agency/jobs/new", agency)).toEqual(["/agency/jobs/new"]);
     });
 
@@ -190,11 +189,33 @@ describe("nav model — Posting naming, and an agency posts AGENCY jobs only (20
       "Worker activity",
       "Referrals",
       "QR invite",
-      "Plans & capacity",
       "Credits",
       "Team",
       "Revenue",
     ]);
+  });
+
+  it("Plans & capacity is a COMPANY page: never in an agency rail (any role, any flag)", () => {
+    // It sells entitlements on company postings; an agency posts agency jobs only (ruling 2),
+    // and an agent who opens /plans or /capacity is redirected to the dashboard.
+    for (const isOwner of [false, true]) {
+      for (const agencyPortalEnabled of [false, true]) {
+        const items = allItems(navSections({ isAgency: true, isOwner, agencyPortalEnabled }));
+        expect(items.map((i) => i.href), `owner ${isOwner} flag ${agencyPortalEnabled}`).not.toContain(
+          "/plans",
+        );
+      }
+    }
+    // …while a company keeps it, owner or recruiter.
+    for (const isOwner of [false, true]) {
+      const items = allItems(navSections({ isAgency: false, isOwner, ...ON }));
+      expect(items.map((i) => i.href)).toContain("/plans");
+    }
+  });
+
+  it("an agency recruiter's rail has no Billing group at all (Credits is owner-only)", () => {
+    const sections = navSections({ isAgency: true, isOwner: false, ...ON });
+    expect(sections.map((s) => s.title)).not.toContain("Billing");
   });
 
   it("an agency's posting items open the AGENCY surface; nothing in its rail opens /postings*", () => {
@@ -241,7 +262,7 @@ describe("nav model — the nav follows the page gate (agency-portal flag)", () 
   it("flag OFF: none of them is offered (each would 404); the shared surfaces stay", () => {
     const off = hrefs(false);
     for (const h of FLAG_GATED) expect(off, h).not.toContain(h);
-    expect(off).toEqual(["/dashboard", "/plans", "/credits", "/team"]);
+    expect(off).toEqual(["/dashboard", "/credits", "/team"]);
     // …and no empty group heading is left behind.
     const sections = navSections({ isAgency: true, isOwner: true, agencyPortalEnabled: false });
     for (const s of sections) expect(s.items.length, s.title ?? "lead").toBeGreaterThan(0);

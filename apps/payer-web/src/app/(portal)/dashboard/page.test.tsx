@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
+import { DEFAULT_CATALOG } from "@badabhai/pricing";
 import { MaskedCandidate, StatTile } from "../../../components/ds";
+import { unlockUnitPriceInr } from "../../../lib/pricing-config";
 
 /**
  * DASHBOARD (DS1.2) — server component rendered to an element tree in the node env and
@@ -12,11 +14,14 @@ import { MaskedCandidate, StatTile } from "../../../components/ds";
 const requirePayer = vi.fn();
 const getDashboard = vi.fn();
 const getOrgRole = vi.fn();
+const getLiveCatalog = vi.fn();
 const flags = { agencyPortalEnabled: true };
 vi.mock("../../../lib/auth", () => ({ requirePayer: () => requirePayer() }));
 vi.mock("../../../lib/auth/org-roles", () => ({ getOrgRole: (s: unknown) => getOrgRole(s) }));
 vi.mock("../../../lib/config", () => ({ agencyFlags: () => flags }));
-vi.mock("../../../lib/payer-api", () => ({ getDashboard: () => getDashboard() }));
+vi.mock("../../../lib/payer-api", () => ({ getDashboard: (o: unknown) => getDashboard(o) }));
+// The per-unlock price is the LIVE catalog's (the same source as Credits).
+vi.mock("../../../lib/live-catalog", () => ({ getLiveCatalog: () => getLiveCatalog() }));
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: ReactNode; href: string }) => ({
     type: "a",
@@ -123,6 +128,7 @@ beforeEach(() => {
   requirePayer.mockReset();
   getDashboard.mockReset();
   getOrgRole.mockReset();
+  getLiveCatalog.mockReset().mockResolvedValue({ products: DEFAULT_CATALOG.products, live: true });
   flags.agencyPortalEnabled = true;
 });
 
@@ -161,35 +167,130 @@ describe("DS1.2 · StatTiles read live counts (mono tabular)", () => {
     const balance = findAll(tree, StatTile).find((t) => p(t).label === "Credit balance")!;
     const monos = findByClass(p(balance).caption as ReactNode, "bb-mono");
     expect(monos.length).toBeGreaterThan(0);
-    expect(monos.map((m) => textOf(p(m).children as ReactNode)).join("")).toContain("₹40");
+    const unit = unlockUnitPriceInr(DEFAULT_CATALOG.products)!;
+    expect(monos.map((m) => textOf(p(m).children as ReactNode)).join("")).toContain(`₹${unit}`);
+  });
+
+  it("the unlock price is DERIVED from the live catalog (an ops edit shows), never a literal", async () => {
+    // Double every unlock pack's price (as Credits' own test edits it): the figure must follow.
+    const EDITED = DEFAULT_CATALOG.products.map((x) =>
+      x.kind === "credit_pack" && x.code === "contact_unlock"
+        ? { ...x, tiers: x.tiers.map((t) => ({ ...t, priceInr: t.priceInr * 2 })) }
+        : x,
+    );
+    const before = unlockUnitPriceInr(DEFAULT_CATALOG.products)!;
+    const after = unlockUnitPriceInr(EDITED)!;
+    expect(after).not.toBe(before);
+    getLiveCatalog.mockResolvedValue({ products: EDITED, live: true });
+    const tree = await render();
+    const balance = findAll(tree, StatTile).find((t) => p(t).label === "Credit balance")!;
+    expect(textOf(p(balance).caption as ReactNode)).toContain(`₹${after}`);
+    expect(textOf(p(balance).caption as ReactNode)).not.toContain(`₹${before} `);
+  });
+
+  it("no unlock price on offer → no caption (never a made-up figure)", async () => {
+    getLiveCatalog.mockResolvedValue({ products: [], live: true });
+    const tree = await render();
+    const balance = findAll(tree, StatTile).find((t) => p(t).label === "Credit balance")!;
+    expect(p(balance).caption).toBeUndefined();
+  });
+
+  it("an agency session never asks for the company postings list", async () => {
+    await render(undefined, "agent");
+    expect(getDashboard).toHaveBeenCalledWith({ withPostings: false });
+    getDashboard.mockClear();
+    await render();
+    expect(getDashboard).toHaveBeenCalledWith({ withPostings: true });
   });
 });
 
 describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
-  it("only the balance tile is a link (owner → Credits); the counts are counts", async () => {
-    const tree = await render();
-    const tiles = findAll(tree, StatTile);
-    const byLabel = (l: string) => tiles.find((t) => p(t).label === l)!;
-    expect(p(byLabel("Credit balance")).href).toBe("/credits");
-    expect(String(p(byLabel("Credit balance")).ariaLabel ?? "").length).toBeGreaterThan(0);
-    // "Open postings" repeated the panel's link; "Contacts unlocked" opened a list with no
-    // unlocks on it. Neither is a door any more.
-    expect(p(byLabel("Open postings")).href).toBeUndefined();
-    expect(p(byLabel("Contacts unlocked")).href).toBeUndefined();
-    for (const t of tiles) {
-      if (p(t).href !== undefined) expect(String(p(t).ariaLabel ?? "").length).toBeGreaterThan(0);
+  it("every tile is a COUNT — the balance too (the header chip is the balance's door)", async () => {
+    for (const orgRole of ["owner", "recruiter"] as const) {
+      const tiles = findAll(await render(undefined, "employer", orgRole), StatTile);
+      expect(tiles).toHaveLength(3);
+      // "Open postings" repeated the panel's link; "Contacts unlocked" opened a list with no
+      // unlocks on it; the balance repeated the header chip and the Buy credits card.
+      for (const t of tiles) {
+        expect(p(t).href, String(p(t).label)).toBeUndefined();
+        expect(p(t).ariaLabel, String(p(t).label)).toBeUndefined();
+      }
     }
   });
 
   it("a RECRUITER is never linked to /credits (Owner-only — it 404s for them)", async () => {
     const tree = await render({ credits: { payerId: "p", balance: 0 } }, "employer", "recruiter");
-    const balance = findAll(tree, StatTile).find((t) => p(t).label === "Credit balance")!;
-    expect(p(balance).href).toBeUndefined();
-    expect(p(balance).ariaLabel).toBeUndefined();
     expect(hrefsOf(tree)).not.toContain("/credits");
-    // …while an owner on the same data gets the tile link, the quick card and the alert's action.
+    // …while an owner on the same data gets ONE door to it: the Buy credits card.
     const owner = await render({ credits: { payerId: "p", balance: 0 } }, "employer", "owner");
-    expect(hrefsOf(owner).filter((h) => h === "/credits").length).toBeGreaterThanOrEqual(2);
+    expect(hrefsOf(owner).filter((h) => h === "/credits")).toHaveLength(1);
+  });
+
+  it("a needs-you item adds no button when the page already offers that destination", async () => {
+    // An owner at a low balance: the item still SAYS it; the Buy credits card is the door.
+    // (Only the granted unlock, so the low balance is the one item.)
+    const healthy = { unlocks: [DATA.unlocks[0]!] };
+    const tree = await render(
+      { ...healthy, credits: { payerId: "p", balance: 3 } },
+      "employer",
+      "owner",
+    );
+    const items = findByClass(tree, "attention__item");
+    expect(items.map((i) => textOf(i))).toEqual([expect.stringContaining("unlock credits left")]);
+    expect(findByClass(tree, "attention__action")).toEqual([]);
+    expect(hrefsOf(tree).filter((h) => h === "/credits")).toHaveLength(1);
+    // A recruiter is told who can fix it, in words — and gets no button either.
+    const recruiter = await render(
+      { ...healthy, credits: { payerId: "p", balance: 3 } },
+      "employer",
+      "recruiter",
+    );
+    expect(textOf(findByClass(recruiter, "attention__item")[0]!)).toContain(
+      "Ask your account owner to buy credits",
+    );
+    expect(findByClass(recruiter, "attention__action")).toEqual([]);
+  });
+
+  it("all postings closed: the needs-you item says so, and the head's New posting is the door", async () => {
+    const tree = await render({
+      postings: DATA.postings.map((x) => ({ ...x, status: "closed" })),
+      unlocks: [DATA.unlocks[0]!],
+    });
+    expect(textOf(findByClass(tree, "attention")[0]!)).toContain("No open postings");
+    expect(findByClass(tree, "attention__action")).toEqual([]);
+    expect(hrefsOf(tree).filter((h) => h === "/postings/new")).toHaveLength(1);
+  });
+
+  it("'No postings yet' is said ONCE, by the postings panel", async () => {
+    const tree = await render({ postings: [], unlocks: [DATA.unlocks[0]!] });
+    expect(textOf(tree).match(/No postings yet/g)).toHaveLength(1);
+    // Zero postings is not a needs-you item (the panel says it right there).
+    expect(findByClass(tree, "attention")).toEqual([]);
+  });
+
+  it("quick actions follow their destination's gate, and none repeats a door the page has", async () => {
+    const labels = async (role: "employer" | "agent", orgRole: "owner" | "recruiter") =>
+      findByClass(await render(undefined, role, orgRole), "quick__card").map((c) =>
+        textOf(c).trim(),
+      );
+    // Credits is Owner-only; Plans & capacity is a COMPANY page; no "Invite workers" door (the
+    // agency's invite tools are their own section).
+    expect((await labels("employer", "owner")).join(" | ")).toMatch(/^Buy credits.*\| Plans & capacity/);
+    expect(await labels("employer", "owner")).toHaveLength(2);
+    expect((await labels("employer", "recruiter")).join(" ")).toMatch(/^Plans & capacity/);
+    expect(await labels("employer", "recruiter")).toHaveLength(1);
+    expect((await labels("agent", "owner")).join(" ")).toMatch(/^Buy credits/);
+    expect(await labels("agent", "owner")).toHaveLength(1);
+    expect(await labels("agent", "recruiter")).toEqual([]);
+    for (const role of ["employer", "agent"] as const) {
+      expect(textOf(await render(undefined, role, "owner"))).not.toMatch(/Invite workers/);
+    }
+  });
+
+  it("no quick actions at all → no empty 'Quick actions' band", async () => {
+    const tree = await render(undefined, "agent", "recruiter");
+    expect(findByClass(tree, "quick")).toEqual([]);
+    expect(textOf(tree)).not.toContain("Quick actions");
   });
 
   it("ONE link to the Postings list and ONE New posting entry point (the head)", async () => {

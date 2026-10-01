@@ -298,10 +298,11 @@ describe("W2-B · scoping — no shared primitive was restyled globally", () => 
   });
 
   it("every globals rule that sizes a DS small button / tab / toast close is page-scoped", () => {
-    // The page wrappers allowed to size a shared control ON THEIR OWN SCREEN: W2-B's, and the six
-    // W3-B screens' coarse-pointer lift (see w3b-page-polish.css.test.ts).
+    // The page wrappers allowed to size a shared control ON THEIR OWN SCREEN: W2-B's, and the
+    // W3-B screens' coarse-pointer lift — with the agency's Postings list, whose rows share the
+    // company list's controls (see w3b-page-polish.css.test.ts).
     const PAGE_SCOPE =
-      /^\.(applicants-page|login-roletabs|applicants-pipeline|postings-page|plans-page|capacity-page|account-page|team-page|team-accept-page)\s/;
+      /^\.(applicants-page|login-roletabs|applicants-pipeline|postings-page|agency-postings-page|plans-page|account-page|team-page|team-accept-page)\s/;
     const offenders = RULES.filter((r) =>
       r.selector.split(",").some((part) => {
         const p = part.trim();

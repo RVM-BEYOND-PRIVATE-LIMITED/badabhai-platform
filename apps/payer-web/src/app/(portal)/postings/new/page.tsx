@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requirePayer } from "../../../../lib/auth";
 import { agentPostingRedirect } from "../../../../lib/posting-routes";
+import { HIRING_CAPACITY_HREF } from "../../../../lib/billing-routes";
 import { PageHeader } from "../../../../components/page-header";
 import { getLiveCatalog } from "../../../../lib/live-catalog";
 import {
@@ -97,7 +98,7 @@ export default async function NewPostingPage() {
             <p className="alert__title">At capacity</p>
             <p className="alert__body">
               You are at capacity; this posting may be paused until you{" "}
-              <Link href="/capacity">add capacity</Link>.
+              <Link href={HIRING_CAPACITY_HREF}>add capacity</Link>.
             </p>
           </div>
         </div>

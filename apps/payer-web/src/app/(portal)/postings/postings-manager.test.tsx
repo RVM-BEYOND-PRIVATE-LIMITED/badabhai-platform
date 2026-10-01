@@ -273,17 +273,18 @@ describe("PostingsManager — A11Y-OF-FAILURE: per-row error region is aria-live
     expect(ariaLiveCount).toBe(2);
   });
 
-  it("renders a faceless empty state with a recovery action when there are no postings", () => {
-    // UI-1/Phase 16: the empty case is the shared `.state` block (what is empty + why +
-    // what to do), not a bare sentence. The recovery action is still the only way out.
+  it("renders a faceless empty state that NAMES the way forward, without a second door to it", () => {
+    // UI-1/Phase 16: the empty case is the shared `.state` block (what is empty + why + what to
+    // do). What to do is the page head's one primary action, "New posting" — the state names
+    // it rather than repeating it as a button (one door per destination, as on the agency list).
     const tree = render([]);
     const cls = classTokens(tree);
     expect(cls.has("state")).toBe(true);
-    expect(cls.has("state__actions")).toBe(true);
+    expect(cls.has("state__actions")).toBe(false);
     const text = textOf(tree);
     expect(text).toContain("No postings yet");
-    expect(text).toContain("New posting");
-    expect(hrefs(tree)).toContain("/postings/new");
+    expect(text).toContain("use New posting above");
+    expect(hrefs(tree)).toEqual([]);
     // FACELESS: an empty feed names nobody.
     expect(text).not.toMatch(/\b(phone|worker name)\b/i);
   });
@@ -304,7 +305,7 @@ function byClass(node: ReactNode, cls: string, acc: ReactElement[] = []): ReactE
 }
 
 describe("PostingsManager — W3-B card anatomy (facts row / links row / action bar)", () => {
-  it("the facts row holds FACTS only; Details / Edit are their own row with the same targets", () => {
+  it("the facts row holds FACTS only; Applicants / Edit are their own row, each named for its page", () => {
     const tree = render([OPEN]);
     const meta = byClass(tree, "posting-card__meta");
     const links = byClass(tree, "posting-card__links");
@@ -313,8 +314,12 @@ describe("PostingsManager — W3-B card anatomy (facts row / links row / action 
     // No link inside the facts row — its separator slot is clipped (globals.css), so a focusable
     // there could lose its focus ring.
     expect(hrefs(meta[0]!)).toEqual([]);
-    expect(hrefs(links[0]!)).toEqual([`/postings/${OPEN.id}`, `/postings/${OPEN.id}/edit`]);
-    expect(textOf(links[0]!).replace(/\s+/g, " ").trim()).toBe("Details Edit");
+    // The title opens the details, so the row's links are the two OTHER pages, by name.
+    expect(hrefs(links[0]!)).toEqual([
+      `/postings/${OPEN.id}/applicants`,
+      `/postings/${OPEN.id}/edit`,
+    ]);
+    expect(textOf(links[0]!).replace(/\s+/g, " ").trim()).toBe("Applicants Edit");
     // The facts: the headcount is "openings" (the entity is a posting; "vacancies" named both).
     expect(textOf(meta[0]!)).toBe("Pune, MH6-20 openings2 / 10 applicantsPosted 2026-06-22");
   });
@@ -358,24 +363,28 @@ describe("PostingsManager — W3-B card anatomy (facts row / links row / action 
     expect(errored.children.some((c) => typeof c === "object" && c !== null)).toBe(true);
   });
 
-  it("the title still links to the posting's faceless applicant feed", () => {
-    const title = byClass(render([OPEN]), "posting-card__title")[0]!;
-    expect((title.props as { href: string }).href).toBe(`/postings/${OPEN.id}/applicants`);
+  it("the title opens the posting's DETAILS (as on the agency list); one link per destination", () => {
+    const tree = render([OPEN]);
+    const title = byClass(tree, "posting-card__title")[0]!;
+    expect((title.props as { href: string }).href).toBe(`/postings/${OPEN.id}`);
+    // Each of the row's three pages is linked exactly once.
+    const all = hrefs(tree);
+    for (const h of [`/postings/${OPEN.id}`, `/postings/${OPEN.id}/applicants`, `/postings/${OPEN.id}/edit`]) {
+      expect(all.filter((x) => x === h), h).toHaveLength(1);
+    }
   });
 });
 
 describe("PostingsManager — READ-ONLY (an agent's older company postings)", () => {
-  it("shows each posting and its Details link, but no lifecycle button and no Edit link", () => {
+  it("shows each posting (its title opens the view-only details) — no button, no Applicants, no Edit", () => {
     const paused = { ...OPEN, id: "bbbb2222-0000-4000-8000-000000000002", status: "paused" as const };
     const tree = render([OPEN, paused], {}, true);
     expect(collect(tree).buttons).toEqual([]);
     expect(byClass(tree, "posting-card__actions")).toEqual([]);
-    const links = byClass(tree, "posting-card__links");
-    expect(links.length).toBeGreaterThan(0);
-    for (const row of links) {
-      expect(hrefs(row).some((h) => h.endsWith("/edit"))).toBe(false);
-      expect(textOf(row).replace(/\s+/g, " ").trim()).toBe("Details");
-    }
+    expect(byClass(tree, "posting-card__links")).toEqual([]);
+    // The only links are the two titles, to the details.
+    expect(hrefs(tree)).toEqual([`/postings/${OPEN.id}`, `/postings/${paused.id}`]);
+    expect(textOf(tree)).not.toMatch(/Applicants\b|\bEdit\b/);
   });
 
   it("the default (company) list still offers every control — read-only is opt-in", () => {

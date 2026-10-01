@@ -250,8 +250,12 @@ function companySections({ isOwner }: NavModelInput): NavSection[] {
  * Level 1 + 2 + 3 + 4 for an AGENCY (agent) account.
  *
  * Every agency-only destination (Demand, Supply, Revenue) is behind the agency-portal flag on
- * its page, so it is behind the same flag here. With the flag off an agency keeps Dashboard,
- * Billing and (owner) Organisation — the shared surfaces whose pages do not check it.
+ * its page, so it is behind the same flag here. With the flag off an agency keeps Dashboard and
+ * (owner) Credits + Team — the shared surfaces whose pages do not check it.
+ *
+ * NO "Plans & capacity" (2026-10-01, a consequence of ruling 2): that page sells entitlements on
+ * COMPANY postings, and an agency posts agency jobs only — an agent who opens /plans or /capacity
+ * is sent to the dashboard. Billing for an agency is Credits, which only an owner can open.
  */
 function agencySections({ isOwner, agencyPortalEnabled }: NavModelInput): NavSection[] {
   const agencyOnly = (sections: NavSection[]) => (agencyPortalEnabled ? sections : []);
@@ -282,7 +286,7 @@ function agencySections({ isOwner, agencyPortalEnabled }: NavModelInput): NavSec
             href: "/agency/jobs",
             label: "Postings",
             icon: ACTION_ICON.posting,
-            description: "Your agency's postings — edit, pause, close and see applicants.",
+            description: "Your agency's postings — edit, pause, resume and close them.",
             match: AGENCY_POSTINGS_MATCH,
           },
         ],
@@ -314,11 +318,7 @@ function agencySections({ isOwner, agencyPortalEnabled }: NavModelInput): NavSec
         ],
       },
     ]),
-    {
-      title: "Billing",
-      items: [plansItem(), ...(isOwner ? [creditsItem()] : [])],
-    },
-    ...(isOwner ? [organisationSection()] : []),
+    ...(isOwner ? [{ title: "Billing", items: [creditsItem()] }, organisationSection()] : []),
     ...agencyOnly([
       {
         // LEVEL 4 — a real route whose page explains what is not built yet.

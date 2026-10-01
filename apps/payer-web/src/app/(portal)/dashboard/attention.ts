@@ -54,7 +54,7 @@ export function buildAttentionItems(
       title: "You are out of unlock credits",
       body: opts.isOwner
         ? "Applicants stay masked until you buy credits. Existing unlocks are unaffected."
-        : "Applicants stay masked until an account owner buys credits. Existing unlocks are unaffected.",
+        : "Ask your account owner to buy credits — applicants stay masked until then.",
       ...walletAction,
     });
   } else if (data.credits.balance < LOW_BALANCE_THRESHOLD) {
@@ -62,7 +62,9 @@ export function buildAttentionItems(
       id: "credits-low",
       tone: "warning",
       title: `Only ${data.credits.balance} unlock ${data.credits.balance === 1 ? "credit" : "credits"} left`,
-      body: "Buy credits before you run out so shortlisting is never interrupted.",
+      body: opts.isOwner
+        ? "Buy credits before you run out so shortlisting is never interrupted."
+        : "Ask your account owner to buy credits before you run out.",
       ...walletAction,
     });
   }
@@ -79,20 +81,23 @@ export function buildAttentionItems(
     });
   }
 
-  // 3. Nothing open. An employer with no live role is invisible to every matched worker —
-  //    the quietest possible failure, and the one most worth surfacing.
+  // 3. Nothing open. An employer whose postings are all closed is invisible to every matched
+  //    worker — the quietest possible failure, and the one most worth surfacing.
+  //    Zero postings is NOT an item: the dashboard's "Your postings" panel says "No postings
+  //    yet" right there, and one page should say it once.
   //    Agents are excluded: their postings live in a different entity (agency `jobs`) that this
   //    payload does not describe (see the dashboard page's data-coherence note), so a count of 0
   //    here would be a statement about the wrong data set.
-  if (!opts.isAgency && data.postings.every((p) => p.status !== "open")) {
+  if (
+    !opts.isAgency &&
+    data.postings.length > 0 &&
+    data.postings.every((p) => p.status !== "open")
+  ) {
     items.push({
       id: "no-open-postings",
       tone: "warning",
-      title: data.postings.length === 0 ? "No postings yet" : "No open postings",
-      body:
-        data.postings.length === 0
-          ? "Matched workers can only find you once a posting is live."
-          : "Every posting is closed, so no new applicants can arrive.",
+      title: "No open postings",
+      body: "Every posting is closed, so no new applicants can arrive.",
       actionHref: "/postings/new",
       actionLabel: "New posting",
       actionIcon: ACTION_ICON.create,

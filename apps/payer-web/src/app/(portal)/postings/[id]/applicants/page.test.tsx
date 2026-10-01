@@ -19,7 +19,10 @@ import type { ApplicantFeed, FacelessApplicant } from "../../../../../lib/contra
  *    disables it) — the no-oracle server makes the spend decision. The balance is printed ONCE,
  *    by the shell header's credits chip — never again on this page.
  *  - CREDITS IS OWNER-ONLY: a zero balance links to /credits only for an owner.
- *  - HEADER: the back link goes to the posting this feed belongs to.
+ *  - HEADER: the back link goes to the posting this feed belongs to, BY ITS NAME (from the
+ *    postings read the page already makes); the New / Shortlist tabs sit in the head's toolbar
+ *    row; there is no second (section) head under it.
+ *  - COMPANY-ONLY: an agent is sent to the posting's (view-only) details before any read.
  *  - NEUTRAL NOT-FOUND: a null feed (backend 404 for unknown AND not-owned) renders one union
  *    copy with no feed chrome; a failed read is a distinct, retryable error.
  *  - The `.applicants-page` wrapper exists (the screen's touch-target rules are scoped to it).
@@ -30,11 +33,15 @@ const getApplicantFeed = vi.fn<(id: string) => Promise<ApplicantFeed | null>>();
 const getDashboard = vi.fn();
 const requirePayer = vi.fn();
 const getOrgRole = vi.fn();
+const redirect = vi.fn((to: string) => {
+  throw new Error(`NEXT_REDIRECT ${to}`);
+});
 vi.mock("../../../../../lib/auth", () => ({ requirePayer: () => requirePayer() }));
 vi.mock("../../../../../lib/auth/org-roles", () => ({ getOrgRole: (s: unknown) => getOrgRole(s) }));
+vi.mock("next/navigation", () => ({ redirect: (to: string) => redirect(to) }));
 vi.mock("../../../../../lib/payer-api", () => ({
   getApplicantFeed: (id: string) => getApplicantFeed(id),
-  getDashboard: () => getDashboard(),
+  getDashboard: (opts: unknown) => getDashboard(opts),
 }));
 vi.mock("./actions", () => ({
   unlockAction: vi.fn(),
@@ -88,7 +95,19 @@ const B: FacelessApplicant = {
   experienceBand: "1-2 yrs",
   cityLabel: "Nashik",
 };
-const FEED: ApplicantFeed = { postingId: POSTING, roleTitle: "CNC Turner", applicants: [A, B] };
+// The reach feed carries no role title; the page names its posting from the postings read.
+const FEED: ApplicantFeed = { postingId: POSTING, roleTitle: "Applicants", applicants: [A, B] };
+/** The payer's own postings list, as the dashboard read returns it (this posting is in it). */
+const POSTINGS = [
+  { id: "44444444-4444-4444-8444-444444444444", roleTitle: "Fitter", status: "open" },
+  { id: POSTING, roleTitle: "CNC Turner", status: "open" },
+];
+/** The dashboard read: the balance (an affordance) and the postings list (the posting's name). */
+const dash = (balance: number, postings: unknown[] = POSTINGS) => ({
+  credits: { balance },
+  unlocks: [],
+  postings,
+});
 
 async function html(): Promise<string> {
   const tree = (await ApplicantsPage({ params: Promise.resolve({ id: POSTING }) })) as ReactElement;
@@ -108,9 +127,10 @@ function unlockButtonTags(markup: string): string[] {
 
 beforeEach(() => {
   getApplicantFeed.mockReset().mockResolvedValue(FEED);
-  getDashboard.mockReset().mockResolvedValue({ credits: { balance: 5 } });
+  getDashboard.mockReset().mockResolvedValue(dash(5));
   requirePayer.mockReset().mockResolvedValue({ role: "employer" });
   getOrgRole.mockReset().mockReturnValue("owner");
+  redirect.mockClear();
 });
 
 describe("applicants page — FACELESS rendered markup", () => {
@@ -132,8 +152,7 @@ describe("applicants page — FACELESS rendered markup", () => {
     expect(text).not.toMatch(/\d{10,}/);
     expect(text).not.toMatch(/\+\d{7,}/);
     expect(text).not.toMatch(/@/);
-    // The explainer alert NAMES what is withheld ("No name, phone, or employer is shown"); the
-    // candidate list itself must not carry those words at all.
+    // The candidate list itself must not carry identity words at all.
     const list = textOf(out.slice(out.indexOf('class="applicants-list"')));
     expect(list.length).toBeGreaterThan(0);
     expect(list).not.toMatch(/\bname\b|phone|\bemail\b|employer/i);
@@ -150,7 +169,7 @@ describe("applicants page — the balance is an AFFORDANCE, never a gate", () =>
   });
 
   it("only a real zero balance disables Unlock (and shows the own-balance top-up alert)", async () => {
-    getDashboard.mockResolvedValueOnce({ credits: { balance: 0 } });
+    getDashboard.mockResolvedValueOnce(dash(0));
     const out = await html();
     const tags = unlockButtonTags(out);
     expect(tags).toHaveLength(FEED.applicants.length);
@@ -159,7 +178,7 @@ describe("applicants page — the balance is an AFFORDANCE, never a gate", () =>
   });
 
   it("a loaded balance is NOT printed again on the page (the shell header's chip shows it)", async () => {
-    getDashboard.mockResolvedValueOnce({ credits: { balance: 4321 } });
+    getDashboard.mockResolvedValueOnce(dash(4321));
     const out = await html();
     // The read still happened (it drives the Unlock affordance)…
     expect(getDashboard).toHaveBeenCalledTimes(1);
@@ -170,7 +189,7 @@ describe("applicants page — the balance is an AFFORDANCE, never a gate", () =>
   });
 
   it("W3-A: only a REAL zero adds a Top up button beside each disabled Unlock", async () => {
-    getDashboard.mockResolvedValueOnce({ credits: { balance: 0 } });
+    getDashboard.mockResolvedValueOnce(dash(0));
     const zero = await html();
     const rows = zero.split('class="applicant__unlock-actions"').slice(1);
     expect(rows).toHaveLength(FEED.applicants.length);
@@ -196,7 +215,7 @@ describe("applicants page — the balance is an AFFORDANCE, never a gate", () =>
   });
 
   it("W3-A: at a zero balance each card's band has ONE way to /credits — the hint is plain text", async () => {
-    getDashboard.mockResolvedValueOnce({ credits: { balance: 0 } });
+    getDashboard.mockResolvedValueOnce(dash(0));
     const zero = await html();
     const bands = zero.split('class="applicant__unlock"').slice(1);
     expect(bands).toHaveLength(FEED.applicants.length);
@@ -210,28 +229,56 @@ describe("applicants page — the balance is an AFFORDANCE, never a gate", () =>
   });
 });
 
-describe("applicants page — W3-A section head", () => {
-  it("groups the role title + count in `.section__text`, and the head holds nothing else", async () => {
+describe("applicants page — the head names its posting; the tabs are its toolbar", () => {
+  it("the back link and the description name THIS posting, from the postings read already made", async () => {
     const out = await html();
-    const head = out.slice(out.indexOf('<div class="section__head">'));
-    expect(head).toMatch(
-      /^<div class="section__head"><div class="section__text"><h2 class="section__title">CNC Turner<\/h2><p class="section__sub">[^<]*<\/p><\/div><\/div>/,
-    );
+    expect(getDashboard).toHaveBeenCalledTimes(1);
+    expect(getDashboard).toHaveBeenCalledWith({ withPostings: true });
+    const at = out.indexOf('<p class="page-back">');
+    const back = out.slice(at, out.indexOf("</p>", at));
+    expect(textOf(back).trim()).toBe("CNC Turner");
+    expect(textOf(out)).toContain("Everyone who applied to CNC Turner, best match first");
+    // No constant stand-in title, and no second (section) head under the H1.
+    expect(out).not.toContain("Ranked candidates");
+    expect(out).not.toContain('class="section__head"');
+    expect(out.match(/<h[12] /g)).toEqual(["<h1 "]);
+  });
+
+  it("the New / Shortlist tabs sit in the head's toolbar row, right under the title", async () => {
+    const out = await html();
+    const head = out.slice(out.indexOf('<div class="page-head">'));
+    const toolbar = head.slice(head.indexOf('<div class="page-head__toolbar">'));
+    expect(head.indexOf('<div class="page-head__toolbar">')).toBeGreaterThan(0);
+    expect(toolbar.indexOf("applicants-pipeline")).toBeGreaterThan(0);
+    expect(toolbar.indexOf("applicants-pipeline")).toBeLessThan(toolbar.indexOf("Applicants are faceless"));
+    expect(textOf(toolbar)).toMatch(/New \(2\)/);
+  });
+
+  it("falls back to generic words when the posting is not in the list, or the read fails", async () => {
+    getDashboard.mockResolvedValueOnce(dash(5, []));
+    const missing = await html();
+    getDashboard.mockRejectedValueOnce(new Error("dashboard 503"));
+    const failed = await html();
+    for (const out of [missing, failed]) {
+      const at = out.indexOf('<p class="page-back">');
+      expect(textOf(out.slice(at, out.indexOf("</p>", at))).trim()).toBe("Posting details");
+      expect(textOf(out)).toContain("Everyone who applied to this posting");
+    }
   });
 });
 
 describe("applicants page — CREDITS is linked for an owner only", () => {
   it("a recruiter at a zero balance gets no link to /credits (it would 404 for them)", async () => {
     getOrgRole.mockReturnValue("recruiter");
-    getDashboard.mockResolvedValueOnce({ credits: { balance: 0 } });
+    getDashboard.mockResolvedValueOnce(dash(0));
     const out = await html();
     expect(out).not.toContain('href="/credits"');
-    expect(textOf(out)).toContain("An account owner can buy credits");
+    expect(textOf(out)).toContain("Ask your account owner to buy credits");
     for (const t of unlockButtonTags(out)) expect(t).toMatch(/\bdisabled\b/);
   });
 
   it("an owner at a zero balance does get it", async () => {
-    getDashboard.mockResolvedValueOnce({ credits: { balance: 0 } });
+    getDashboard.mockResolvedValueOnce(dash(0));
     expect(await html()).toContain('href="/credits"');
   });
 });
@@ -243,7 +290,7 @@ describe("applicants page — header: back to the posting, one H1, no hand-writt
     expect(at).toBeGreaterThanOrEqual(0);
     const back = out.slice(at, out.indexOf("</p>", at));
     expect(back.startsWith(`<p class="page-back"><a href="/postings/${POSTING}">`)).toBe(true);
-    expect(textOf(back).trim()).toBe("Posting details");
+    expect(textOf(back).trim()).toBe("CNC Turner");
     expect(out.match(/<h1 /g)).toHaveLength(1);
     expect(out).toContain('<h1 class="page-head__title">Applicants</h1>');
   });
@@ -253,6 +300,20 @@ describe("applicants page — header: back to the posting, one H1, no hand-writt
     await expect(html()).rejects.toThrow("NEXT_REDIRECT");
     expect(getApplicantFeed).not.toHaveBeenCalled();
     expect(getDashboard).not.toHaveBeenCalled();
+  });
+
+  it("COMPANY-ONLY: an agent goes to the posting's (view-only) details before any read", async () => {
+    // An agency's older company postings are view-only, and this feed unlocks contacts.
+    requirePayer.mockResolvedValueOnce({ role: "agent" });
+    await expect(html()).rejects.toThrow(`NEXT_REDIRECT /postings/${POSTING}`);
+    expect(redirect).toHaveBeenCalledWith(`/postings/${POSTING}`);
+    expect(getApplicantFeed).not.toHaveBeenCalled();
+    expect(getDashboard).not.toHaveBeenCalled();
+  });
+
+  it("a company is never redirected", async () => {
+    await html();
+    expect(redirect).not.toHaveBeenCalled();
   });
 });
 
@@ -265,6 +326,19 @@ describe("applicants page — NEUTRAL not-found vs a transient error", () => {
     expect(out).not.toContain("Applicants are faceless");
     expect(out).not.toContain("applicants-list");
     expect(out).not.toContain("couldn’t load applicants");
+    // There is no posting to go back to: no back link, and no button in the state.
+    expect(out).not.toContain("page-back");
+    expect(out).not.toMatch(/<a |<button /);
+  });
+
+  it("a posting with no applicants yet is a calm state with nothing to press", async () => {
+    getApplicantFeed.mockResolvedValueOnce({ ...FEED, applicants: [] });
+    const out = await html();
+    expect(out).toContain("No applicants on this posting yet");
+    const state = out.slice(out.indexOf('class="state"'));
+    expect(state).not.toMatch(/<a |<button /);
+    // …and the head still names the posting and goes back to it.
+    expect(out).toContain(`<p class="page-back"><a href="/postings/${POSTING}">`);
   });
 
   it("a failed feed read is a retryable error, never the not-found copy", async () => {

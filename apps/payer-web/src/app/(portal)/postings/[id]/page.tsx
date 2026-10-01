@@ -15,6 +15,10 @@ export const dynamic = "force-dynamic";
  * fields only. Shows the SAME {@link JobCardPreview} the form previews (one mapper), plus the kv
  * facts. A DRAFT's one action is "Edit posting" — a draft reaches nobody until it is published
  * there ("Publish posting").
+ *
+ * An AGENT's older company posting is VIEW-ONLY (owner ruling 2026-10-01): no action at all — not
+ * Edit (its page sends an agent back here) and not Applicants (that feed unlocks contacts; it
+ * sends an agent back here too). The agency's own postings live under /agency/jobs.
  */
 
 function day(ts: string): string {
@@ -51,15 +55,20 @@ export default async function PostingDetailPage({ params }: { params: Promise<{ 
   };
   // ONE action per destination: a draft has no applicants yet, so its one action is to finish
   // it on the edit page (it used to offer "Finish and publish" AND "Edit posting", both → edit).
-  const primary = isDraft ? (readOnly ? undefined : edit) : applicants;
-  const secondaries = isDraft || readOnly ? [] : [edit];
+  // Read-only: none.
+  const primary = readOnly ? undefined : isDraft ? edit : applicants;
+  const secondaries = readOnly || isDraft ? [] : [edit];
 
   return (
     <>
       <PageHeader
         back={{ href: "/postings", label: readOnly ? "Older postings" : "Postings" }}
         title={summary.roleTitle}
-        description="What this posting says and where it stands — applicants stay masked until you unlock them."
+        description={
+          readOnly
+            ? "What this older posting says and where it stands — it is view-only."
+            : "What this posting says and where it stands — applicants stay masked until you unlock them."
+        }
         status={
           <Badge tone={statusTone(summary.status)} upper>
             {summary.status}
@@ -75,7 +84,9 @@ export default async function PostingDetailPage({ params }: { params: Promise<{ 
           <div className="alert__text">
             <p className="alert__title">This posting is a draft</p>
             <p className="alert__body">
-              A draft reaches nobody. Finish the card and publish it so workers can find the job.
+              {readOnly
+                ? "A draft reaches nobody, and older postings are view-only."
+                : "A draft reaches nobody. Finish the card and publish it so workers can find it."}
             </p>
           </div>
         </div>

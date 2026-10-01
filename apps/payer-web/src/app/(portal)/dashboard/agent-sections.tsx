@@ -241,10 +241,11 @@ export async function AgentSections() {
         </div>
       </section>
 
-      {/* c) YOUR POSTINGS — a glance at the agency's OWN postings, the same shape as a company's
-          "Your postings": each card opens that posting's applicants, and the panel's one link
-          opens the Postings page where they are managed. `id` keeps old `#agency-vacancies`
-          deep links landing here. */}
+      {/* c) YOUR POSTINGS — a glance at the agency's OWN postings: each card opens that
+          posting's details, and the panel's one link opens the Postings page where they are
+          managed. (An agency posting's applicants are not reachable in the UI yet — the feed
+          endpoint does not serve agency jobs correctly; backend issue #1898.) `id` keeps old
+          `#agency-vacancies` deep links landing here. */}
       <section id="agency-vacancies" className="panel">
         <div className="panel__head">
           <div className="panel__text">
@@ -287,14 +288,14 @@ export async function AgentSections() {
           ) : (
             <div className="dash-postings">
               {jobs.slice(0, GLANCE_ROWS).map((j) => (
-                // Whole-card link to THIS posting's applicants. The id is the posting's OWN
-                // opaque uuid (never a worker id/phone).
+                // Whole-card link to THIS posting's details. The id is the posting's OWN opaque
+                // uuid (never a worker id/phone).
                 <Card
                   key={j.id}
                   padding="sm"
                   className="dash-posting"
-                  href={`${AGENCY_POSTING_ROUTES.list}/${j.id}/applicants`}
-                  ariaLabel={`${j.title} — view applicants`}
+                  href={`${AGENCY_POSTING_ROUTES.list}/${j.id}`}
+                  ariaLabel={`${j.title} — view posting`}
                 >
                   <div className="dash-posting__main">
                     <div className="dash-posting__title">{j.title}</div>
@@ -308,7 +309,7 @@ export async function AgentSections() {
                       {j.status}
                     </Badge>
                     <span className="dash-posting__cta">
-                      View applicants
+                      View posting
                       <Icon name={ACTION_ICON.next} className="dash-view__arrow" />
                     </span>
                   </div>

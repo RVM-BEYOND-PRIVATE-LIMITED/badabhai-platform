@@ -213,7 +213,7 @@ describe("agent sections — renders identity / demand summary / child modules",
     expect(components).toContain(ParkedModulesStub);
   });
 
-  it("glances at the LIVE jobs (demand summary derives from them; each card → its applicants)", async () => {
+  it("glances at the LIVE jobs (demand summary derives from them; each card → its details)", async () => {
     const tree = await AgentSections();
     const { text } = collect(tree);
     expect(text.join(" ")).toContain("Applicants received");
@@ -221,8 +221,28 @@ describe("agent sections — renders identity / demand summary / child modules",
       String(prop(c).className ?? "").split(/\s+/).includes("dash-posting"),
     );
     expect(cards).toHaveLength(1);
-    expect(prop(cards[0]!).href).toBe(`/agency/jobs/${JOB.id}/applicants`);
-    expect(String(prop(cards[0]!).ariaLabel)).toBe("CNC Operator — view applicants");
+    expect(prop(cards[0]!).href).toBe(`/agency/jobs/${JOB.id}`);
+    expect(String(prop(cards[0]!).ariaLabel)).toBe("CNC Operator — view posting");
+  });
+
+  it("never links an agency posting's applicants (unreachable until backend #1898)", async () => {
+    const tree = await AgentSections();
+    const hrefs = [...findAll(tree, LinkStub), ...findAll(tree, Card)]
+      .map((a) => prop(a).href)
+      .filter((h): h is string => typeof h === "string");
+    expect(hrefs.length).toBeGreaterThan(0);
+    expect(hrefs.filter((h) => /applicants/.test(h))).toEqual([]);
+    expect(collect(tree).text.join(" ")).not.toMatch(/view applicants/i);
+  });
+
+  it("offers ONE way to Referrals (the batch-invites tile), not one per funnel stage", async () => {
+    const tree = await AgentSections();
+    const hrefs = [...findAll(tree, LinkStub), ...findAll(tree, Card)]
+      .map((a) => prop(a).href)
+      .filter((h): h is string => typeof h === "string");
+    expect(hrefs.filter((h) => h.startsWith("/agency/referrals"))).toEqual([
+      "/agency/referrals#batch-invites",
+    ]);
   });
 
   it("the glance holds at most six postings and links to the full list ONCE", async () => {
@@ -373,7 +393,7 @@ describe("CARDS-1 · agent tiles are whole-card links to their REAL routes (face
     const glanceHrefs = cards.filter(isGlance).map((c) => String(prop(c).href));
     expect(glanceHrefs.length).toBeGreaterThan(0);
     for (const h of glanceHrefs) {
-      expect(h).toMatch(/^\/agency\/jobs\/[0-9a-f-]{36}\/applicants$/);
+      expect(h).toMatch(/^\/agency\/jobs\/[0-9a-f-]{36}$/);
       expect(h).not.toMatch(/\b\d{10}\b/);
       expect(h).not.toMatch(/\+91/);
     }
