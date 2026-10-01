@@ -49,6 +49,7 @@ import {
   catalogueEntry,
   displayValue,
   hasPlaceholderToken,
+  isWholeJobDelete,
   normaliseValue,
   opAllowed,
   SECTION_LABELS,
@@ -114,25 +115,32 @@ export interface ProposeResult {
   readonly outcome: CompanionV2Outcome;
 }
 
+/**
+ * Why a model row was dropped — a closed set. `placeholder` and `job_delete` are the drops
+ * rephrasing cannot fix (a masked value; a whole-job delete, which "Never from chat" leaves to the
+ * Profile screen), so they point the worker there when nothing else survives.
+ */
+type DropReason = "invalid" | "placeholder" | "job_delete";
+
 /** One model row through the gates: kept as a card row, or dropped for a closed reason. */
 type RowVerdict =
   | { readonly kind: "kept"; readonly row: StoredEditProposalRow }
-  | { readonly kind: "dropped"; readonly reason: "invalid" | "placeholder" };
+  | { readonly kind: "dropped"; readonly reason: DropReason };
 
 /**
  * THE EDIT PATH (ADR-0046 O4/O5/O6): propose → the worker taps Haan → apply in ONE transaction.
  *
  * THE MODEL NEVER WRITES. `propose` reads every section once (`EditState`), sends the message
  * plus this catalogue and a snapshot of the worker's current values — cut to the contract's cap —
- * to `AiService.companionEditParse`, validates every returned row deterministically (catalogue,
- * op, ref, value, placeholder token, hard identifier, no-op, duplicate, and the section writer's
- * REAL schema) and stores a card of at most `min(EDIT_MAX_ROWS, 3)` rows. `confirm` CLAIMS the
- * card (at most one apply per card), re-reads the state, refuses a stale card, applies every
- * selected row through the section writers on ONE transaction, and only then runs the
- * post-commit side effects and QUEUES the résumé regeneration (a new history entry, trigger
- * `chat_edit`, the daily cap charged up front) — when the worker's consent names
- * `resume_generation`. When none is queued, the LLM-free re-render the form path would have run
- * puts the live-printed edits on the PDF.
+ * to `AiService.companionEditParse`, validates every returned row deterministically (whole-job
+ * delete, catalogue, op, ref, value, placeholder token, hard identifier, no-op, duplicate, and the
+ * section writer's REAL schema) and stores a card of at most `min(EDIT_MAX_ROWS, 3)` rows.
+ * `confirm` CLAIMS the card (at most one apply per card), refuses a ticked whole-job delete,
+ * re-reads the state, refuses a stale card, applies every selected row through the section
+ * writers on ONE transaction, and only then runs the post-commit side effects and QUEUES the
+ * résumé regeneration (a new history entry, trigger `chat_edit`, the daily cap charged up front)
+ * — when the worker's consent names `resume_generation`. When none is queued, the LLM-free
+ * re-render the form path would have run puts the live-printed edits on the PDF.
  *
  * FAIL CLOSED, EVERYWHERE. No parse, no rows or a store failure means no card and no claim; a
  * claim Redis refuses, an unreadable section or a writer failure writes nothing, and the card is
@@ -218,6 +226,7 @@ export class CompanionEditService {
     const byRef = new Map(sent.map((row) => [row.ref, row]));
     const effectiveUnsupported = new Set(unsupported);
     let placeholderDropped = false;
+    let jobDeletesDropped = 0;
     const valid: StoredEditProposalRow[] = [];
     for (const row of parsed.rows) {
       const verdict = this.validateRow(row, byRef);
@@ -226,6 +235,7 @@ export class CompanionEditService {
         continue;
       }
       if (verdict.reason === "placeholder") placeholderDropped = true;
+      if (verdict.reason === "job_delete") jobDeletesDropped += 1;
       // Belt and braces: the AI service already drops a row aimed outside the six sections, so
       // on real traffic `identityAskIn` (in `noCard`) is what serves the identity line. Widened
       // to `string` because the model's output is UNTRUSTED — its type says one of six.
@@ -233,6 +243,12 @@ export class CompanionEditService {
       if (section === "identity" || section === "contact") {
         effectiveUnsupported.add(section as "identity" | "contact");
       }
+    }
+    if (jobDeletesDropped > 0) {
+      // "Never from chat": counts and a closed reason only, never a value (the snapshot_cap rule).
+      this.logger.warn(
+        `companion edit dropped ${jobDeletesDropped} of ${parsed.rows.length} rows for worker ${workerId}: a whole-job delete is never carded (reason=job_delete_from_chat)`,
+      );
     }
 
     // Duplicates and no-op adds off, then every row the writer's own schema would refuse, then
@@ -244,7 +260,8 @@ export class CompanionEditService {
     const dropped = parsed.rows.length - kept.length;
 
     if (kept.length === 0) {
-      return this.noCard(text, [...effectiveUnsupported], placeholderDropped);
+      const profileScreenOnly = placeholderDropped || jobDeletesDropped > 0;
+      return this.noCard(text, [...effectiveUnsupported], profileScreenOnly);
     }
 
     const proposalId = randomUUID();
@@ -289,20 +306,22 @@ export class CompanionEditService {
 
   /**
    * No card. In order: identity/contact — named by the model OR by the worker's own words — is
-   * steered to the Profile screen (O3); a change that only carried a masked value is pointed at
-   * the Profile screen too (O17), because rephrasing cannot unmask it; else the clarify line.
+   * steered to the Profile screen (O3). A change chat cannot make is pointed at the Profile screen
+   * too, because rephrasing cannot help: a row dropped for a masked value (O17) or as a whole-job
+   * delete ("Never from chat", owner 2026-10-01) — `profileScreenOnly` — or anything the model
+   * itself filed as `other` (contracts §2.2: asked, but not editable here). Else the clarify line.
    */
   private noCard(
     text: string,
     unsupported: readonly string[],
-    placeholderDropped: boolean,
+    profileScreenOnly: boolean,
   ): ProposeResult {
     const identity =
       unsupported.includes("identity") ||
       unsupported.includes("contact") ||
       identityAskIn(text) !== null;
     if (identity) return { turn: v2CopyTurn(V2_EDIT_IDENTITY, taskChips(this.config)), outcome: "served" };
-    if (placeholderDropped) {
+    if (profileScreenOnly || unsupported.includes("other")) {
       return { turn: v2CopyTurn(V2_EDIT_PLACEHOLDER, taskChips(this.config)), outcome: "served" };
     }
     return { turn: v2CopyTurn(V2_EDIT_NONE, taskChips(this.config)), outcome: "clarify" };
@@ -311,13 +330,15 @@ export class CompanionEditService {
   /**
    * One model row through every per-row gate (spec §Edit step 3).
    *
-   * The gates, in order: the catalogue names the pair; the op is legal for it; edit/delete
-   * address a row this snapshot actually minted AND showed, whose entry has that field (a
-   * certificate field on a certificate, a scalar preference on `pref`); add carries no ref;
-   * add/edit carry a value that passes the field's own normalisation; a placeholder token drops
-   * the row (O17); a hard identifier drops it too (ADR-0047 G1); and an edit identical to the
-   * current value is a no-op. The row-SET gates — duplicates, adds of what is already there, the
-   * writer's own schema — run after, in `propose`.
+   * The gates, in order: a whole-job delete is dropped as `job_delete` ("Never from chat", owner
+   * 2026-10-01 — named BEFORE the catalogue gate, which would drop it as `invalid`, so `propose`
+   * can count it and point the worker at the Profile screen); the catalogue names the pair; the op
+   * is legal for it; edit/delete address a row this snapshot actually minted AND showed, whose
+   * entry has that field (a certificate field on a certificate, a scalar preference on `pref`);
+   * add carries no ref; add/edit carry a value that passes the field's own normalisation; a
+   * placeholder token drops the row (O17); a hard identifier drops it too (ADR-0047 G1); and an
+   * edit identical to the current value is a no-op. The row-SET gates — duplicates, adds of what
+   * is already there, the writer's own schema — run after, in `propose`.
    *
    * THE HARD-IDENTIFIER DROP READS NO FLAG, and it is the placeholder drop's twin. A confirmed
    * employer name or `work_done` is printed on both résumé PDFs, and neither the employment DTO
@@ -339,6 +360,7 @@ export class CompanionEditService {
     byRef: ReadonlyMap<string, SnapshotRow>,
   ): RowVerdict {
     const invalid: RowVerdict = { kind: "dropped", reason: "invalid" };
+    if (isWholeJobDelete(row)) return { kind: "dropped", reason: "job_delete" };
     const entry = catalogueEntry(row.section, row.field ?? "");
     if (entry === undefined || !opAllowed(entry, row.op as never)) return invalid;
 
@@ -454,6 +476,17 @@ export class CompanionEditService {
     if (claim === "held") return { kind: "not_found" };
     if (claim === "unavailable") return this.failed(proposal);
 
+    // "NEVER FROM CHAT" (owner, 2026-10-01), DEFENCE IN DEPTH. `propose` no longer cards a
+    // whole-job delete, but a card stored before the ruling lives up to its TTL. A TICKED one is
+    // never applied: the card is retired exactly as a stale one is, so nothing is written and the
+    // worker is asked again (and is then pointed at the Profile screen). An unticked one is inert.
+    if (selected.some(isWholeJobDelete)) {
+      this.logger.warn(
+        `companion edit confirm for worker ${workerId} refused a stored whole-job delete; nothing written (reason=job_delete_from_chat)`,
+      );
+      return this.retireStale(workerId, proposalId, ctx);
+    }
+
     // THE STATE THE CHECK AND THE APPLY BOTH READ — one read, so the rows that were verified are
     // exactly the rows that get written. A section that cannot be read is not "stale": nothing is
     // known about it, so nothing is written and the card stays for a retry.
@@ -466,14 +499,7 @@ export class CompanionEditService {
       return this.failed(proposal);
     }
 
-    if (isStale(snapshotRows(fresh), selected)) {
-      await this.proposals.delete(workerId);
-      await this.emit(workerId, ctx, "chat.companion_edit_cancelled", {
-        proposal_id: proposalId,
-        reason: "stale",
-      });
-      return { kind: "stale", turn: v2CopyTurn(V2_EDIT_STALE) };
-    }
+    if (isStale(snapshotRows(fresh), selected)) return this.retireStale(workerId, proposalId, ctx);
 
     try {
       await this.db.transaction(async (tx) => {
@@ -576,6 +602,24 @@ export class CompanionEditService {
       reason: "expired",
     });
     return { kind: "not_found" };
+  }
+
+  /**
+   * A card that must not be applied — the profile moved under it, or it carries a ticked row chat
+   * may no longer make: deleted, recorded `cancelled(stale)`, and the stale line served. Nothing
+   * was written.
+   */
+  private async retireStale(
+    workerId: string,
+    proposalId: string,
+    ctx: RequestContext,
+  ): Promise<{ readonly kind: "stale"; readonly turn: CompanionTurn }> {
+    await this.proposals.delete(workerId);
+    await this.emit(workerId, ctx, "chat.companion_edit_cancelled", {
+      proposal_id: proposalId,
+      reason: "stale",
+    });
+    return { kind: "stale", turn: v2CopyTurn(V2_EDIT_STALE) };
   }
 
   /** Nothing was written: the fallback line, carrying the same card so Haan can be tapped again. */

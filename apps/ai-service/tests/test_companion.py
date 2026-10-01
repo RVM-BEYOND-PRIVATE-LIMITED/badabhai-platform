@@ -356,23 +356,63 @@ def test_the_edit_prompt_requires_a_field_on_every_op() -> None:
     assert '"delete" needs a ref and a field' in EDIT_PARSE_SYSTEM_PROMPT
 
 
+def _edit_prompt_rule(opening: str) -> str:
+    """One bullet of the edit prompt's rules, whitespace-folded so a rewrap cannot move a pin."""
+    rules = " ".join(EDIT_PARSE_SYSTEM_PROMPT.split()).split(" - ")
+    matches = [rule for rule in rules if rule.startswith(opening)]
+    assert len(matches) == 1, f"no single rule opens with {opening!r}"
+    return matches[0]
+
+
 def test_the_delete_anchors_the_prompt_names_are_catalogue_fields_that_allow_delete() -> None:
-    """The prompt names four anchor fields for multi-field rows. A catalogue rename on the API side
-    would leave the prompt pointing at a field that no longer exists; the gold catalogue is pinned
-    to `edit-catalogue.ts` by `test_the_gold_catalogue_matches_the_api_catalogue`, so this closes
-    the loop from the prompt to the API."""
+    """The prompt names three anchor fields for multi-field rows, plus a trade's `role_id`. A
+    catalogue rename on the API side would leave the prompt pointing at a field that no longer
+    exists; the gold catalogue is pinned to `edit-catalogue.ts` by
+    `test_the_gold_catalogue_matches_the_api_catalogue`, so this closes the loop from the prompt to
+    the API."""
     from app.companion import eval_edit_parse_gold as edit_gold
 
     ops = {(section, field): allowed for section, field, allowed in edit_gold.CATALOGUE}
     anchors = {
-        ("employment", "employer_name"),
+        ("occupations", "role_id"),
         ("qualifications", "certificate_name"),
         ("qualifications", "education_field"),
         ("qualifications", "training_name"),
     }
+    delete_rule = _edit_prompt_rule('For "delete"')
     for section, field in anchors:
-        assert f'"{field}"' in EDIT_PARSE_SYSTEM_PROMPT
+        assert f'"{field}"' in delete_rule
         assert "delete" in ops[(section, field)]
+
+
+def test_the_edit_prompt_never_offers_a_job_delete() -> None:
+    """The owner's "Never from chat" ruling (2026-10-01): a whole job is removed only on the
+    Profile screen.
+
+    The old delete rule offered "employer_name" as a job's delete anchor, and with the trade shown
+    only as a job's `role_label`, "welder hata do" came back as a whole-job delete (3/3 on the
+    production primary). Now no employment field offers `delete`, the delete rule names no
+    employment field, and the prompt routes a job delete to "other"."""
+    from app.companion import eval_edit_parse_gold as edit_gold
+
+    employment = [ops for section, _field, ops in edit_gold.CATALOGUE if section == "employment"]
+    assert employment and all(ops == ("edit",) for ops in employment)
+
+    delete_rule = _edit_prompt_rule('For "delete"')
+    for section, field, _ops in edit_gold.CATALOGUE:
+        if section == "employment":
+            assert f'"{field}"' not in delete_rule, f"{field} is offered as a delete anchor"
+    assert "for a job" not in delete_rule
+
+    # Trades and jobs are contrasted, and each request lands on its own section.
+    assert _edit_prompt_rule('"occupations" are the trades').startswith(
+        '"occupations" are the trades the worker does or wants work in: one "role_id" is one trade.'
+    )
+    trade = _edit_prompt_rule("Removing a trade")
+    assert 'is a "delete" of that "occupations" row ONLY' in trade
+    assert 'It never touches an "employment" row.' in trade
+    job = _edit_prompt_rule("A job can only be edited here, never removed.")
+    assert 'propose no row for it and put "other" in "unsupported".' in job
 
 
 def test_the_routes_are_registered() -> None:

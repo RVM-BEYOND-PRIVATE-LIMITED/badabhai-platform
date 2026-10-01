@@ -39,8 +39,8 @@ import { type CareerAnswerFailure, validateCareerAnswer } from "./career-output.
  *
  * FAIL CLOSED. A file that is unreadable, not JSON, not a `--dump-all` document, holds more
  * normal answers than the denominator, or disagrees with its `career.txt` is NOT MEASURED (exit
- * 2), never a number. So is a run the CLI itself marked CONTAMINATED or INCOMPLETE (not evidence),
- * and a flag given twice. Exit 0 is PASS, 1 is FAIL.
+ * 2), never a number. So is a run the CLI itself marked CONTAMINATED, INCOMPLETE or FALLBACK
+ * (not evidence), and a flag given twice. Exit 0 is PASS, 1 is FAIL.
  *
  * SHIPPED ON PURPOSE. This is a `require.main` entry point that no Nest module imports, so it
  * never runs at boot. It ships in the API image so the runbook can `docker exec` it against the
@@ -75,7 +75,7 @@ const CAREER_SUMMARY_COUNT = /\((\d+) of (\d+) normal questions;/g;
 const DUMP_ALL_WRITTEN = /^all answers: wrote (\d+) to /gm;
 
 /** `eval_cli.gate_failures`, printed by `_verdict` — the CLI's own "this run is not evidence". */
-const NOT_EVIDENCE = /^\s*FAIL (CONTAMINATED|INCOMPLETE):/m;
+const NOT_EVIDENCE = /^\s*FAIL (CONTAMINATED|INCOMPLETE|FALLBACK):/m;
 
 /** The two production fallbacks that run before the validator (steps 1 and 2 above). */
 export const OVER_API_TIMEOUT = "over_api_timeout";

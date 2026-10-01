@@ -1,0 +1,38 @@
+rep0 gemini-2.5-flash-lite  real=True exact=False DESTRUCTIVE=True  'welder hata do' -> [["delete", "employment", "e1", "employer_name", null]]
+rep0 gemini-2.5-flash-lite  real=True exact=True  DESTRUCTIVE=False 'mujhe welder ka kaam nahi karna' -> [["delete", "occupations", "o1", "role_id", null]]
+rep0 gemini-2.5-flash-lite  real=True exact=False DESTRUCTIVE=False 'purana employer hata do' -> []
+rep0 gemini-2.5-flash-lite  real=True exact=True  DESTRUCTIVE=False 'Tata wala kaam delete karo' -> [["delete", "employment", "e1", "employer_name", null]]
+rep0 gemini-2.5-flash-lite  real=True exact=True  DESTRUCTIVE=False 'mera title welder nahi, fitter tha' -> [["edit", "employment", "e1", "role_label", "Fitter"]]
+rep0 gemini-2.5-flash-lite  real=True exact=False DESTRUCTIVE=False 'welding bhi karta hoon, add karo' -> [["add", "skills", null, "skill", "welding"]]
+rep0 gemini-2.5-flash-lite  real=True exact=True  DESTRUCTIVE=False 'milling hata do' -> [["delete", "skills", "s1", "skill", null]]
+rep0 gemini-2.5-flash-lite  real=True exact=True  DESTRUCTIVE=False 'CNC operator bhi hoon' -> [["add", "occupations", null, "role_id", "role_cnc_operator"]]
+rep0 gemini-2.5-flash-lite  real=True exact=False DESTRUCTIVE=False 'plumber bhi add karo' -> [["add", "skills", null, "skill", "plumber"]]
+rep1 gemini-2.5-flash-lite  real=True exact=False DESTRUCTIVE=True  'welder hata do' -> [["delete", "employment", "e1", "employer_name", null]]
+rep1 gemini-2.5-flash-lite  real=True exact=True  DESTRUCTIVE=False 'mujhe welder ka kaam nahi karna' -> [["delete", "occupations", "o1", "role_id", null]]
+rep1 gemini-2.5-flash-lite  real=True exact=False DESTRUCTIVE=False 'purana employer hata do' -> []
+rep1 gemini-2.5-flash-lite  real=True exact=True  DESTRUCTIVE=False 'Tata wala kaam delete karo' -> [["delete", "employment", "e1", "employer_name", null]]
+rep1 gemini-2.5-flash-lite  real=True exact=True  DESTRUCTIVE=False 'mera title welder nahi, fitter tha' -> [["edit", "employment", "e1", "role_label", "Fitter"]]
+rep1 gemini-2.5-flash-lite  real=True exact=False DESTRUCTIVE=False 'welding bhi karta hoon, add karo' -> [["add", "skills", null, "skill", "welding"]]
+rep1 gemini-2.5-flash-lite  real=True exact=True  DESTRUCTIVE=False 'milling hata do' -> [["delete", "skills", "s1", "skill", null]]
+rep1 gemini-2.5-flash-lite  real=True exact=True  DESTRUCTIVE=False 'CNC operator bhi hoon' -> [["add", "occupations", null, "role_id", "role_cnc_operator"]]
+rep1 gemini-2.5-flash-lite  real=True exact=False DESTRUCTIVE=False 'plumber bhi add karo' -> [["add", "skills", null, "skill", "plumber"]]
+rep2 gemini-2.5-flash-lite  real=True exact=False DESTRUCTIVE=True  'welder hata do' -> [["delete", "employment", "e1", "employer_name", null]]
+rep2 claude-haiku-4-5       real=True exact=False DESTRUCTIVE=True  'mujhe welder ka kaam nahi karna' -> [["delete", "employment", "e1", "role_label", null], ["delete", "occupations", "o1", "role_id", null]]
+rep2 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'purana employer hata do' -> [["delete", "employment", "e1", "employer_name", null]]
+rep2 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'Tata wala kaam delete karo' -> [["delete", "employment", "e1", "employer_name", null]]
+rep2 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'mera title welder nahi, fitter tha' -> [["edit", "employment", "e1", "role_label", "Fitter"]]
+rep2 claude-haiku-4-5       real=True exact=False DESTRUCTIVE=False 'welding bhi karta hoon, add karo' -> [["add", "skills", null, "skill", "welding"]]
+rep2 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'milling hata do' -> [["delete", "skills", "s1", "skill", null]]
+rep2 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'CNC operator bhi hoon' -> [["add", "occupations", null, "role_id", "role_cnc_operator"]]
+rep2 claude-haiku-4-5       real=True exact=True  DESTRUCTIVE=False 'plumber bhi add karo' -> [["add", "occupations", null, "role_id", "role_plumber"]]
+
+SUMMARY (exact / employment-delete-misroutes / n):
+  0/3 exact, 3 destructive  'welder hata do'
+  2/3 exact, 1 destructive  'mujhe welder ka kaam nahi karna'
+  1/3 exact, 0 destructive  'purana employer hata do'
+  3/3 exact, 0 destructive  'Tata wala kaam delete karo'
+  3/3 exact, 0 destructive  'mera title welder nahi, fitter tha'
+  0/3 exact, 0 destructive  'welding bhi karta hoon, add karo'
+  3/3 exact, 0 destructive  'milling hata do'
+  3/3 exact, 0 destructive  'CNC operator bhi hoon'
+  1/3 exact, 0 destructive  'plumber bhi add karo'
