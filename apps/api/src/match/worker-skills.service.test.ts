@@ -72,8 +72,8 @@ function setup(opts: {
   config?: MatchConfig;
   /** Whether the repo found a `worker_skill` row to flip (false → the service 404s). */
   setWantsUpdated?: boolean;
-  /** Rows the clear-all UPDATE matched. */
-  cleared?: number;
+  /** The skill ids the clear-all switched from ON to OFF (what the repository returns). */
+  switchedOff?: string[];
   /** The worker's own `worker_skill` rows, for the page prefill. */
   skillRows?: {
     skillId: string;
@@ -117,7 +117,7 @@ function setup(opts: {
     }),
     clearAllWantsAndReconcile: vi.fn(async () => {
       order.push("clear");
-      return opts.cleared ?? 0;
+      return opts.switchedOff ?? [];
     }),
     listSkillRows: vi.fn(async () => {
       order.push("listSkills");
@@ -629,23 +629,56 @@ describe("WorkerSkillsService.setWants — the seam is WIRED: it flips the row o
 });
 
 describe("WorkerSkillsService.clearAllWants — one call turns everything off", () => {
-  it("clears through the repository and reports the row count", async () => {
-    const h = setup({ signals: signals(), cleared: 8 });
-    await expect(h.svc.clearAllWants(WORKER)).resolves.toEqual({ cleared: 8 });
+  /** Two match skills he had ON, plus an out-of-vocabulary row that was also on. */
+  const SWITCHED_OFF = ["mskill_cnc_turner", "mskill_vmc_operator", "skill_turning"];
+
+  it("counts ONLY the match skills that were on — the switches the page renders (#1850)", async () => {
+    // `skill_turning` really was switched off, but it is outside the closed `mskill_*` set:
+    // GET /workers/me/match-skills never lists it and no posting can match on it, so counting
+    // it would tell the worker the exit did more than he can see.
+    const h = setup({ signals: signals(), switchedOff: SWITCHED_OFF });
+    await expect(h.svc.clearAllWants(WORKER)).resolves.toEqual({ cleared: 2 });
     expect(h.repo.clearAllWantsAndReconcile).toHaveBeenCalledWith(WORKER, expect.any(Date));
   });
 
-  it("emits with skill_id null — the clear-all, not a skill-scoped change", async () => {
-    const h = setup({ signals: signals(), cleared: 3 });
+  it("logs the SAME honest count it answers with", async () => {
+    const h = setup({ signals: signals(), switchedOff: SWITCHED_OFF });
+    const log = vi.spyOn(h.svc["logger"], "log").mockImplementation(() => undefined);
     await h.svc.clearAllWants(WORKER);
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith(`match skills cleared for worker=${WORKER} cleared=2`);
+  });
+
+  it("a REPEAT call (nothing was on) reports 0, still emits, and logs 0", async () => {
+    const h = setup({ signals: signals(), switchedOff: [] });
+    const log = vi.spyOn(h.svc["logger"], "log").mockImplementation(() => undefined);
+    await expect(h.svc.clearAllWants(WORKER)).resolves.toEqual({ cleared: 0 });
+    expect(h.events.emit).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith(`match skills cleared for worker=${WORKER} cleared=0`);
+  });
+
+  it("only out-of-vocabulary rows switched off is still 0 — none of them was a switch", async () => {
+    const h = setup({ signals: signals(), switchedOff: ["skill_turning", "mskill_invented"] });
+    await expect(h.svc.clearAllWants(WORKER)).resolves.toEqual({ cleared: 0 });
+  });
+
+  it("emits with skill_id null and NO count — the clear-all, not a skill-scoped change", async () => {
+    const h = setup({ signals: signals(), switchedOff: SWITCHED_OFF });
+    await h.svc.clearAllWants(WORKER);
+    // The payload is unchanged by #1850: the count is the response's, never the spine's.
     expect(h.emittedPayload()).toEqual({ worker_id: WORKER, skill_id: null, wants: false });
     expect(WorkerMatchSkillWantsSetPayload.parse(h.emittedPayload())).toEqual(h.emittedPayload());
   });
 
-  it("a 0-row clear still reports honestly and emits (a repeat call is not an error)", async () => {
-    const h = setup({ signals: signals(), cleared: 0 });
-    await expect(h.svc.clearAllWants(WORKER)).resolves.toEqual({ cleared: 0 });
-    expect(h.events.emit).toHaveBeenCalledTimes(1);
+  it("writes BEFORE it emits, and a repository failure emits nothing", async () => {
+    const h = setup({ signals: signals(), switchedOff: SWITCHED_OFF });
+    await h.svc.clearAllWants(WORKER);
+    expect(h.order).toEqual(["clear", "emit"]);
+
+    const failing = setup({ signals: signals() });
+    failing.repo.clearAllWantsAndReconcile.mockRejectedValueOnce(new Error("deadlock detected"));
+    await expect(failing.svc.clearAllWants(WORKER)).rejects.toThrow("deadlock detected");
+    expect(failing.events.emit).not.toHaveBeenCalled();
   });
 });
 

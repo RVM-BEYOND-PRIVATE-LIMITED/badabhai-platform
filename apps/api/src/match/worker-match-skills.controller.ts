@@ -90,8 +90,10 @@ export class WorkerMatchSkillsController {
    * Turn EVERYTHING off in one call — the exit R-E3's reason needs.
    *
    * POST because it is an action on a collection with no resource to name in the path. `200`,
-   * not `201`: it creates nothing. `cleared` counts the worker's own rows (0 on a repeat
-   * call), which is a fact about his request rather than about anyone who could see him.
+   * not `201`: it creates nothing. `cleared` is how many of the match skills
+   * `GET me/match-skills` lists were ON before this call and are OFF after it — already-off and
+   * out-of-vocabulary rows are not counted, so a repeat call answers 0. It is a fact about his
+   * request rather than about anyone who could see him.
    */
   @Post("me/match-skills/clear-all")
   @HttpCode(200)
