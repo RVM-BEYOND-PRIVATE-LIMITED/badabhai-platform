@@ -1,0 +1,14 @@
+career served rate (phase-3 §6, through the API's career validator): 41 of 51 normal questions = 80.4% (bar 85%)
+normal answers in the file: 51 — served 41, over the API timeout 0, rejected 10; 0 normal questions have no answer in the file (refused, failed or mocked in the CLI run) and count as misses
+risky answers in the file: 1 — excluded here; the CLI's UNSAFE bar gates them
+  NOT SERVED career-135: chip_too_long
+  NOT SERVED career-145: chip_too_long
+  NOT SERVED career-146: chip_too_long
+  NOT SERVED career-151: chip_too_long
+  NOT SERVED career-155: chip_too_long
+  NOT SERVED career-158: chip_too_long
+  NOT SERVED career-160: chip_too_long
+  NOT SERVED career-161: chip_too_long
+  NOT SERVED career-162: chip_too_long
+  NOT SERVED career-168: chip_too_long
+RESULT: FAIL

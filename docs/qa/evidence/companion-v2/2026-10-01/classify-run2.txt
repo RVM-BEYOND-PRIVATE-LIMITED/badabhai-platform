@@ -1,0 +1,15 @@
+classifier: 227/234 = 97.0% (bar 90%), edit_resume precision 100.0% (bar 95%) — scored after the API's confidence floor 0.60 (0 answers below it became unclear)
+calls: 234 sent, 234 answered by the model, 0 failed, 0 mock answers, 3 slower than the API timeout; spend INR 8.15 (router estimate)
+latency, round trip to the ai-service: p50 975 ms, p95 1662 ms (bar < 1500 ms); model call only: p50 918 ms, p95 1622 ms (excludes the API hop and validator, and a career turn's classify call)
+  OVER API TIMEOUT 'profile update': 3581 ms
+  OVER API TIMEOUT 'are there vacancies in my city': 3839 ms
+  OVER API TIMEOUT 'kamine': 7315 ms
+  MISS 'hindi hata do': expected edit_resume, got unclear
+  MISS 'profile update': expected edit_resume, got unclear
+  MISS 'आगे क्या करना चाहिए': expected career_talk, got unclear
+  MISS 'are there vacancies in my city': expected jobs_talk, got unclear
+  MISS 'hello hello hello hello': expected faltu, got unclear
+  MISS 'kamine': expected faltu, got unclear
+  MISS 'tum bhi kuch bolo': expected faltu, got unclear
+  FAIL p95 latency 1662 ms >= 1500 ms
+RESULT: FAIL
