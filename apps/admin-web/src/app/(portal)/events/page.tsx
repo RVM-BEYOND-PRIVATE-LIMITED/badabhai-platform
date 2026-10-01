@@ -115,7 +115,7 @@ export default async function EventsPage({
             {/* One "Clear filters" per screen: the results head carries it whenever a filter is
                 set, so this state does not repeat it (owner brief 2026-10-01). */}
             {active.length > 0 ? null : (
-              <RetryActions basePath="/events" cursor={filters.cursor} />
+              <RetryActions href="/events" cursor={filters.cursor} />
             )}
           </div>
         ) : (

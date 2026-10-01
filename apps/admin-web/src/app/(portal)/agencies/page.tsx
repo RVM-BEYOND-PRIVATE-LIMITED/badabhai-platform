@@ -112,7 +112,7 @@ export default async function AgenciesPage({
             </p>
             {/* One "Clear filters" per screen: the results head carries it whenever a filter is
                 set, so this state does not repeat it (owner brief 2026-10-01). */}
-            {status ? null : <RetryActions basePath="/agencies" cursor={cursor} />}
+            {status ? null : <RetryActions href="/agencies" cursor={cursor} />}
           </div>
         ) : (
           <PayerList

@@ -12,6 +12,7 @@ import { formatRelative, formatTimestamp, shortId } from "../../../lib/format";
 import { StatusPill, type Tone } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
+import { RetryActions } from "../../../components/retry-actions";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -156,13 +157,9 @@ export default async function FeedbackPage({
     return s ? `/feedback?${s}` : "/feedback";
   };
 
-  /**
-   * The CURRENT query, rebuilt — so "Retry" repeats what failed instead of quietly
-   * resetting it. `cursor` is included deliberately: an operator three pages into the list
-   * who hits a transient failure should land back where they were, not on an unfiltered
-   * page one that looks like a successful reload.
-   */
-  const retryHref = listHref({ cursor });
+  // A failed read: RetryActions repeats `listHref()` plus the cursor — the CURRENT query, so an
+  // operator three pages in lands back where they were, not on an unfiltered page one that
+  // looks like a successful reload — and offers `listHref()` itself as the first page.
 
   return (
     <div className="page">
@@ -286,15 +283,10 @@ export default async function FeedbackPage({
               filters. Nothing has been lost: submissions are stored as they arrive and will all be
               here once the read succeeds.
             </p>
-            <div className="state__actions">
-              {/* Repeat the SAME query. Pointing a retry at the bare route silently drops
-                  the filter and the cursor, so a transient failure would return an operator
-                  to page one while claiming to have retried. */}
-              <Link className="btn btn--ghost" href={retryHref}>
-                <Icon name={ACTION_ICON.retry} />
-                Retry
-              </Link>
-            </div>
+            {/* Repeat the SAME query. Pointing a retry at the bare route silently drops the
+                filter and the cursor, so a transient failure would return an operator to page
+                one while claiming to have retried. */}
+            <RetryActions href={listHref()} cursor={cursor} />
           </div>
         ) : page && page.items.length > 0 ? (
           <div className="tablewrap">

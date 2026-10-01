@@ -16,6 +16,7 @@ import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { Stat } from "../../../components/stat";
 import { PageHeader } from "../../../components/page-header";
+import { RetryActions } from "../../../components/retry-actions";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -56,12 +57,12 @@ export default async function CreditsPage({
    * was returned, unannounced, to an unfiltered page one that looked like a successful
    * reload. `cursor` is included deliberately — retrying should land you where you were.
    */
-  const retryHref = (() => {
+  const queryHref = (() => {
     const qs = new URLSearchParams({ windowDays: String(windowDays) });
     if (reason) qs.set("reason", reason);
-    if (cursor) qs.set("cursor", cursor);
     return `/credits?${qs.toString()}`;
   })();
+  const retryHref = cursor ? `${queryHref}&cursor=${encodeURIComponent(cursor)}` : queryHref;
 
   // Independent reads: a failing ledger must not blank the position, and vice versa.
   const [summaryRes, ledgerRes] = await Promise.allSettled([
@@ -305,12 +306,9 @@ export default async function CreditsPage({
               The credit movements did not load. The position above is a separate read and
               is unaffected, so a balance shown there is still current.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href={retryHref}>
-                <Icon name={ACTION_ICON.retry} />
-                Retry
-              </Link>
-            </div>
+            {/* The ledger is the paged list on this page: Retry keeps its cursor, and with one
+                in the query the first page is offered too. */}
+            <RetryActions href={queryHref} cursor={cursor} />
           </div>
         ) : ledger.items.length === 0 ? (
           reason ? (

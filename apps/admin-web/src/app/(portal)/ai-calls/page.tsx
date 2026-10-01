@@ -15,6 +15,7 @@ import {
 import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
+import { RetryActions } from "../../../components/retry-actions";
 import { AiCallFilterBar } from "./filter-bar";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
@@ -129,13 +130,9 @@ export default async function AiCallsPage({
     return s ? `/ai-calls?${s}` : "/ai-calls";
   };
 
-  /**
-   * The CURRENT query, rebuilt — so "Retry" repeats what failed instead of quietly resetting
-   * it. The cursor is included on purpose: an operator three pages in who hits a transient
-   * failure should land back where they were, not on an unfiltered page one that looks like a
-   * successful reload.
-   */
-  const retryHref = listHref({ cursor });
+  // A failed read: RetryActions repeats `listHref()` plus the cursor — the CURRENT query, so an
+  // operator three pages in lands back where they were, not on an unfiltered page one that
+  // looks like a successful reload — and offers `listHref()` itself as the first page.
 
   return (
     <div className="page">
@@ -247,14 +244,9 @@ export default async function AiCallsPage({
               filters. Nothing has been lost: AI calls are recorded as they complete and will all
               be here once the read succeeds.
             </p>
-            <div className="state__actions">
-              {/* The SAME query. A retry pointed at the bare route silently drops the filters
-                  and the cursor, returning an operator to page one while claiming to retry. */}
-              <Link className="btn btn--ghost" href={retryHref}>
-                <Icon name={ACTION_ICON.retry} />
-                Retry
-              </Link>
-            </div>
+            {/* The SAME query. A retry pointed at the bare route silently drops the filters and
+                the cursor, returning an operator to page one while claiming to retry. */}
+            <RetryActions href={listHref()} cursor={cursor} />
           </div>
         ) : page && page.items.length > 0 ? (
           <div className="tablewrap">

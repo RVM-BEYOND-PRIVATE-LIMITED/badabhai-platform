@@ -578,6 +578,19 @@ describe("error states", () => {
     expect(out).toContain("The queue is unavailable");
     expect(out).toContain("tradeFamily=Welders");
   });
+
+  it("Retry repeats the WHOLE query, page cursor included; the first page drops only the cursor", async () => {
+    // It was `listHref({})`: every filter kept, the page the read failed on silently dropped.
+    stub.listFailure = new TypeError("network down");
+    const out = await render({ view: "flat", tradeFamily: "Welders", cursor: "Y3Vyc29y" });
+    const retry = /href="([^"]*)"><i [^>]*><\/i>Retry<\/a>/.exec(out)?.[1] ?? "";
+    const first = /href="([^"]*)"><i [^>]*><\/i>Back to the first page<\/a>/.exec(out)?.[1] ?? "";
+    expect(retry).toContain("view=flat");
+    expect(retry).toContain("tradeFamily=Welders");
+    expect(retry).toContain("cursor=Y3Vyc29y");
+    expect(first).toContain("tradeFamily=Welders");
+    expect(first).not.toContain("cursor=");
+  });
 });
 
 describe("grouped rows link to their own decision screen — a group is a lens, never a merge", () => {

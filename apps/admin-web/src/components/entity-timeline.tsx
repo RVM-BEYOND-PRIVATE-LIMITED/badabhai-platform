@@ -67,7 +67,7 @@ export async function EntityTimeline({
               The events read failed. The {subjectLabel} record itself came from a separate
               read and is unaffected.
             </p>
-            <RetryActions basePath={basePath} cursor={cursor} />
+            <RetryActions href={basePath} cursor={cursor} />
           </div>
         ) : (
           <EventTable

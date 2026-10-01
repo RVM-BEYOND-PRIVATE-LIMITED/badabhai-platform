@@ -100,7 +100,7 @@ export default async function JobsPage({
             </p>
             {/* One "Clear filters" per screen: the results head carries it whenever a filter is
                 set, so this state does not repeat it (owner brief 2026-10-01). */}
-            {filtered ? null : <RetryActions basePath="/jobs" cursor={cursor} />}
+            {filtered ? null : <RetryActions href="/jobs" cursor={cursor} />}
           </div>
         ) : page && page.items.length > 0 ? (
           <div className="tablewrap">

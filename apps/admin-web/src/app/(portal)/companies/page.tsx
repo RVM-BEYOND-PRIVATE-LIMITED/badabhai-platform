@@ -111,7 +111,7 @@ export default async function CompaniesPage({
             </p>
             {/* One "Clear filters" per screen: the results head carries it whenever a filter is
                 set, so this state does not repeat it (owner brief 2026-10-01). */}
-            {status ? null : <RetryActions basePath="/companies" cursor={cursor} />}
+            {status ? null : <RetryActions href="/companies" cursor={cursor} />}
           </div>
         ) : (
           <PayerList

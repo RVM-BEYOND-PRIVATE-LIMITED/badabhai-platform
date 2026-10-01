@@ -28,6 +28,7 @@ import { StatusPill } from "../../../../components/status-pill";
 import { Pager } from "../../../../components/pager";
 import { Stat } from "../../../../components/stat";
 import { PageHeader } from "../../../../components/page-header";
+import { RetryActions } from "../../../../components/retry-actions";
 import { SkillDiscoveryFilterBar } from "./filter-bar";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
@@ -249,8 +250,7 @@ export default async function SkillDiscoveryPage({
   };
   const listHref = (over: Record<string, string | undefined> = {}) =>
     `/skills/discovery${queryString(over)}`;
-  // "Retry" repeats the query that failed, its page cursor included (the flat view pages).
-  const retryHref = listHref({ cursor });
+
 
   const tierTabHref = (tier: AdminSkillReviewTier | "all") =>
     listHref({ tier, ack: undefined, cursor: undefined });
@@ -415,12 +415,9 @@ export default async function SkillDiscoveryPage({
             <p className="state__body">
               The read failed — a fault on our side, not the filters.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href={retryHref}>
-                <Icon name={ACTION_ICON.retry} />
-                Retry
-              </Link>
-            </div>
+            {/* "Retry" repeats the query that failed, its page cursor included; only the flat
+                view pages, so only it can carry a cursor to drop. */}
+            <RetryActions href={listHref({})} cursor={view === "flat" ? cursor : undefined} />
           </div>
         ) : itemCount === 0 ? (
           <EmptyQueueState

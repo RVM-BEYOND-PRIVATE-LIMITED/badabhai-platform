@@ -14,6 +14,7 @@ import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { Stat } from "../../../components/stat";
 import { PageHeader } from "../../../components/page-header";
+import { RetryActions } from "../../../components/retry-actions";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -64,15 +65,14 @@ export default async function TransactionsPage({
   const filtered = Boolean(status || payerId);
 
   /**
-   * The CURRENT query, rebuilt — so a "Retry" repeats what failed instead of resetting it.
-   * `cursor` is deliberately included: an operator three pages into a ledger who hits a
-   * transient read failure should land back on the page they were reading, not on page one.
+   * The CURRENT query without its cursor — where "Back to the first page" lands. RetryActions
+   * puts the cursor back for "Retry", so an operator three pages into the orders who hits a
+   * transient failure lands back on the page they were reading, not on page one.
    */
-  const retryHref = (() => {
+  const queryHref = (() => {
     const qs = new URLSearchParams();
     if (status) qs.set("status", status);
     if (payerId) qs.set("payerId", payerId);
-    if (cursor) qs.set("cursor", cursor);
     const q = qs.toString();
     return q ? `/transactions?${q}` : "/transactions";
   })();
@@ -180,16 +180,10 @@ export default async function TransactionsPage({
               The order list did not load. The figures above are a separate read and are
               unaffected.
             </p>
-            <div className="state__actions">
-              {/* Repeat the SAME query. Pointing this at the bare route (which is what
-                  "Clear filters" does) silently dropped status / payerId / cursor, so a
-                  transient failure quietly returned the operator to an unfiltered page one
-                  while claiming to have retried. */}
-              <Link className="btn btn--ghost" href={retryHref}>
-                <Icon name={ACTION_ICON.retry} />
-                Retry
-              </Link>
-            </div>
+            {/* Repeat the SAME query. Pointing this at the bare route (which is what "Clear
+                filters" does) silently dropped status / payerId / cursor, so a transient failure
+                quietly returned the operator to an unfiltered page one while claiming to retry. */}
+            <RetryActions href={queryHref} cursor={cursor} />
           </div>
         ) : orders.items.length === 0 ? (
           filtered ? (
