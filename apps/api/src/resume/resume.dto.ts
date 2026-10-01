@@ -36,6 +36,15 @@ export type SystemResumeTrigger = Extract<
   "profile_confirmed" | "chat_update_accepted" | "chat_edit"
 >;
 
+/**
+ * What `ResumeService.queueChatEditRegeneration` decided on the worker's Haan (ADR-0046 O6) — the
+ * same three values `chat.companion_edit_confirmed.resume_regen` records. `queued`: the slot is
+ * charged and the generation job exists. `capped`: the daily cap (or its fail-closed Redis check)
+ * refused, before anything was spent. `failed`: nothing will be generated — no readable draft, or
+ * the job could not be queued (its slot handed back).
+ */
+export type ChatEditRegeneration = "queued" | "capped" | "failed";
+
 /** One card on the worker's résumé history (`GET /resume/history`, ADR-0043). */
 export interface ResumeHistoryItem {
   resume_id: string;

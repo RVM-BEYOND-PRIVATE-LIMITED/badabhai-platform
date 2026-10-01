@@ -19,8 +19,8 @@ from fastapi.testclient import TestClient
 import app.main as _main_module
 from app.ai import prompt_registry
 from app.contracts import AICallMetadata, LlmTurnInput
+from app.profiling import lexicon
 from app.profiling.interview_prompts import (
-    _banned_words,
     _persona,
     interview_system_prompt,
     skills_interview_system_prompt,
@@ -145,13 +145,25 @@ def test_an_unknown_mode_is_refused_at_the_boundary(monkeypatch) -> None:
 def test_the_skills_prompt_carries_the_persona_rules() -> None:
     prompt = skills_interview_system_prompt()
     p = _persona()
-    for word in _banned_words():
+    for word in lexicon.persona_banned_tokens():
         assert f'"{word}"' in prompt, f"banned word missing: {word}"
     for ack in p["acknowledgements"]:
         assert f'"{ack}"' in prompt
     assert p["guaranteeLine"] in prompt
     assert f"At most {p['maxQuestionMarks']} question mark" in prompt
     assert f"at most {p['maxChips']} short skill examples" in prompt
+
+
+def test_both_interview_prompts_render_the_one_shared_banned_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The interview prompts and the companion career prompt forbid the SAME persona tokens, so
+    they read ONE flattened list (`lexicon.persona_banned_tokens`, pinned to the API's scan by
+    test_lexicon_parity.py). A private re-flattening here would keep the old groups the day the
+    TS side adds one, with nothing turning red."""
+    monkeypatch.setattr(lexicon, "persona_banned_tokens", lambda: ("zz-shared-banned-token",))
+    for prompt in (interview_system_prompt(), skills_interview_system_prompt()):
+        assert '"zz-shared-banned-token"' in prompt
 
 
 def test_the_skills_prompt_asks_for_skills_only() -> None:

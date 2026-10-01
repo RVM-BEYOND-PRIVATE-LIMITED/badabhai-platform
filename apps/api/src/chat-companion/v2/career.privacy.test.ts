@@ -9,7 +9,9 @@ import { FaltuHandler } from "./handlers/faltu.handler";
 import { NewResumeHandler } from "./handlers/new-resume.handler";
 import { JobsDeferredHandler, PhaseOffHandler, UnclearHandler } from "./handlers/fixed-line.handlers";
 import { CompanionHandlerRegistry } from "./handlers/registry";
+import type { Queue } from "bullmq";
 import type { CompanionEditService } from "./companion-edit.service";
+import { CompanionTurnReplayStore } from "./turn-replay.store";
 
 /**
  * ADR-0046 P3 privacy — the career turn's text boundaries:
@@ -73,6 +75,14 @@ function setup(opts: { career?: unknown; classifyThrows?: boolean } = {}) {
     new PhaseOffHandler(config),
     new UnclearHandler(config),
   );
+  // The REAL replay store over a fake Redis, so what it would write is what the tests read.
+  const replayRedis = {
+    get: vi.fn(async (_key: string) => null as string | null),
+    set: vi.fn(async (_key: string, _value: string, _mode: "EX", _seconds: number) => "OK"),
+  };
+  const replays = new CompanionTurnReplayStore({
+    client: Promise.resolve(replayRedis),
+  } as unknown as Queue);
   const orchestrator = new CompanionV2Orchestrator(
     config,
     ai as never,
@@ -81,8 +91,9 @@ function setup(opts: { career?: unknown; classifyThrows?: boolean } = {}) {
     events as never,
     cost as never,
     faltuStore as never,
+    replays,
   );
-  return { orchestrator, ai, memory, events, cost };
+  return { orchestrator, ai, memory, events, cost, replayRedis };
 }
 
 async function withCapturedLogs(run: () => Promise<unknown>): Promise<string> {
@@ -155,5 +166,31 @@ describe("career privacy (ADR-0046 P3)", () => {
     // ...and none of the rejected text rides along.
     expect(logs).not.toContain("25000");
     expect(logs).not.toContain("pakki mil jayegi");
+  });
+});
+
+/**
+ * THE REPLAY CACHE on the career path (contracts §7): what is kept for a retry is the validated
+ * answer the worker was served — never the question, raw or masked.
+ */
+describe("career privacy — the replay cache holds the served answer, never the question", () => {
+  it("the SET value is the served turn and nothing of the question", async () => {
+    const SID = "44444444-4444-4444-8444-444444444444";
+    const h = setup();
+    const turn = await h.orchestrator.handleMessage(
+      WORKER,
+      PROFILE,
+      { text: QUESTION, submission_id: SID },
+      CTX,
+      NOW,
+    );
+    expect(turn.reply).toBe(ANSWER_LINE);
+    expect(h.replayRedis.set).toHaveBeenCalledTimes(1);
+    const [key, value] = h.replayRedis.set.mock.calls[0]!;
+    expect(key).toBe(`companion:v2:turn:${WORKER}:${SID}`);
+    expect(JSON.parse(value)).toEqual(turn);
+    for (const secret of [QUESTION, "Tata Motors", "masked question"]) {
+      expect(value).not.toContain(secret);
+    }
   });
 });

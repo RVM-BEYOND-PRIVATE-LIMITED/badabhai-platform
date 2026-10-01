@@ -484,10 +484,11 @@ describe("ChatCompanionService.confirmEdit / cancelEdit (ADR-0046 T8)", () => {
     expect(h.edits.confirm).toHaveBeenCalledWith(WORKER, PROFILE, PROPOSAL, [PROPOSAL], CTX);
   });
 
-  it("stale → its own result, so the controller can answer 409 {reason:'stale'}", async () => {
+  it("stale → its own result carrying the V2_EDIT_STALE turn, for the 409 body", async () => {
     const h = make({ v2: true, confirm: { kind: "stale", turn: v2CopyTurn(V2_EDIT_STALE) } });
     expect(await h.svc.confirmEdit(WORKER, PROPOSAL, { row_ids: [PROPOSAL] }, CTX)).toEqual({
       mode: "stale",
+      turn: v2CopyTurn(V2_EDIT_STALE),
     });
   });
 

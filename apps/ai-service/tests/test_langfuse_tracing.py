@@ -217,3 +217,14 @@ def test_trace_identity_maps_known_tasks_and_keeps_unknown_ones():
     assert _trace_identity("profile_extraction") == ("extract-worker-profile", "profiling")
     # An unmapped task keeps its own identity instead of vanishing into a bucket.
     assert _trace_identity("some_new_task") == ("some-new-task", "other")
+
+
+def test_every_companion_task_is_traced_under_the_companion_feature():
+    """ADR-0046: all three companion tasks group under `feature:companion`. The career answer
+    was missing from the table and fell back to `feature:other`, so the companion's cost and
+    quality views dropped the one route where the model writes what the worker reads."""
+    from app.routers.companion import CAREER_TASK_TYPE, CLASSIFY_TASK_TYPE, EDIT_PARSE_TASK_TYPE
+
+    assert _trace_identity(CLASSIFY_TASK_TYPE) == ("classify-companion-message", "companion")
+    assert _trace_identity(EDIT_PARSE_TASK_TYPE) == ("parse-companion-edit", "companion")
+    assert _trace_identity(CAREER_TASK_TYPE) == ("answer-companion-career", "companion")

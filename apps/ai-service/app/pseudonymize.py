@@ -36,7 +36,9 @@ Intentionally has NO third-party dependencies so its tests run with only pytest.
 
 from __future__ import annotations
 
+import hashlib
 import re
+import secrets
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -452,6 +454,70 @@ class PseudonymizationResult:
     placeholder_tokens: list[str]
 
 
+class TokenScope:
+    """One request's placeholder numbering, shareable across several ``pseudonymize`` calls.
+
+    THE DEFAULT IS UNCHANGED: ``pseudonymize(text)`` creates a fresh scope per call, so every
+    existing caller gets exactly the per-call numbering it always had. A caller passes ONE scope
+    to several calls only when the model must correlate entities across separately masked
+    strings — the companion edit parser (ADR-0046), which masks the worker's message and each
+    stored value one by one. With a scope per value, "Tata Motors Ltd" and "Bajaj Auto Ltd" both
+    came out ``[EMPLOYER_1]``, and the message's ``[EMPLOYER_1]`` matched every employment row.
+    With one scope, the same original gets the same token everywhere in the request and two
+    different originals never share one. The token grammar (``[PREFIX_n]``) does not change.
+
+    ONLY THE EGRESSED PASS USES IT. ``pseudonymize`` threads the scope into the READER-view pass
+    (the text it returns); the #1738 spaced-view pass is a detector that never egresses and keeps
+    its own private numbering, exactly as before.
+
+    IT HOLDS NO ORIGINAL TEXT. The registry is keyed by a keyed BLAKE2b MAC of the normalised
+    original under a random per-scope key, never by the original itself, so a scope that is
+    logged, captured in a trace or kept alive by accident carries no PII — and the same employer
+    digests differently in two scopes, so nothing correlates across requests. It cannot be
+    pickled or copied, and it has no accessor: the original<->token mapping is still never
+    persisted or returned (design rule above). A scope lives for one request and is discarded.
+    """
+
+    __slots__ = ("_key", "_tokens", "_counters")
+
+    def __init__(self) -> None:
+        self._key: bytes | None = None
+        self._tokens: dict[tuple[str, bytes], str] = {}
+        self._counters: dict[str, int] = {}
+
+    def token_for(self, original: str, prefix: str) -> str:
+        """The placeholder for ``original`` in this scope, minting the next number on first use.
+
+        Equality is on ``original.strip().lower()`` per prefix — byte-for-byte the rule the
+        per-call registry always applied.
+        """
+        if self._key is None:
+            self._key = secrets.token_bytes(32)
+        # Keyed BLAKE2b is a MAC in one native call. This runs on every gateway call, not only
+        # the ones that share a scope. Measured against the plain dict registry it replaced
+        # (2026-09-30, on the #1786 gateway): ~+3 us on a typical 4-token line (~22 -> ~25 us)
+        # and +10-20% on a 1000-token 18.9k-char input; `hmac.new` had cost ~+20 us per line.
+        digest = hashlib.blake2b(
+            original.strip().lower().encode("utf-8"), key=self._key, digest_size=32
+        ).digest()
+        key = (prefix, digest)
+        existing = self._tokens.get(key)
+        if existing is not None:
+            return existing
+        self._counters[prefix] = self._counters.get(prefix, 0) + 1
+        token = f"[{prefix}_{self._counters[prefix]}]"
+        self._tokens[key] = token
+        return token
+
+    def __repr__(self) -> str:
+        return f"TokenScope(tokens={len(self._tokens)})"
+
+    def __reduce__(self):
+        # Pickling and copy/deepcopy all route through here: refused, so a scope can never be
+        # written anywhere or outlive the request by being cloned into longer-lived state.
+        raise TypeError("TokenScope is request-scoped and cannot be serialized or copied")
+
+
 def _mask_money_amount(token_for):
     """Substitution callback for the D-1 money carve-out: mask a 7-8 digit run
     to [AMOUNT_n] ONLY when it is a plausible in-range salary (see the decision
@@ -638,13 +704,17 @@ def _normalised_view(text: str) -> str:
     return _build_views(text)[0]
 
 
-def _mask(view: _View, track: bool = False) -> tuple[PseudonymizationResult, list[set[int]]]:
+def _mask(
+    view: _View, track: bool = False, scope: TokenScope | None = None
+) -> tuple[PseudonymizationResult, list[set[int]]]:
     """Run every identity rule over ``view`` with a PRIVATE registry and token counter.
 
     Pure over ``view``: it owns its registry, counters and token list, so nothing it does
     is visible to another call. That is what lets ``pseudonymize`` run it TWICE (#1738 F1) -
     once on the reader view it returns, once on a view where each removed invisible became a
-    space - without the two passes sharing tokens.
+    space - without the two passes sharing tokens. The one exception is a caller's ``scope``
+    (see :class:`TokenScope`), which ``pseudonymize`` passes to the READER pass only, so the
+    numbering it egresses is shared across the request while the detector pass stays private.
 
     When ``track`` is True, returns a list of masked REGIONS - one per masking match, each the set
     of SOURCE offsets (indices into the original ``text``) that match covered - so ``pseudonymize``
@@ -653,20 +723,21 @@ def _mask(view: _View, track: bool = False) -> tuple[PseudonymizationResult, lis
     output text is byte-identical but no regions are recorded (the fast ``regex.sub`` path, taken
     for the common case where the two views coincide). The original<->token mapping never leaves.
     """
-    registry: dict[tuple[str, str], str] = {}
-    counters: dict[str, int] = {}
+    tokens = scope if scope is not None else TokenScope()
     tokens_used: list[str] = []
+    # A set beside the ordered list: a 20k-char input can carry thousands of tokens, and a
+    # list membership scan per token would make masking quadratic in them.
+    tokens_seen: set[str] = set()
     regions: list[set[int]] = []
 
     def token_for(original: str, prefix: str) -> str:
-        key = (prefix, original.strip().lower())
-        existing = registry.get(key)
-        if existing is not None:
-            return existing
-        counters[prefix] = counters.get(prefix, 0) + 1
-        tok = f"[{prefix}_{counters[prefix]}]"
-        registry[key] = tok
-        tokens_used.append(tok)
+        tok = tokens.token_for(original, prefix)
+        # Per-call bookkeeping. With a fresh scope a token is new exactly when it is not yet
+        # in this list, so this is the old append-on-mint rule; with a shared scope it also
+        # records a token this text REUSED from an earlier call in the same request.
+        if tok not in tokens_seen:
+            tokens_seen.add(tok)
+            tokens_used.append(tok)
         return tok
 
     def replace_group1(match: re.Match[str], prefix: str) -> str:
@@ -775,7 +846,10 @@ def _mask(view: _View, track: bool = False) -> tuple[PseudonymizationResult, lis
         for regex, replace, _masked_group in rules:
             result = regex.sub(replace, result)
 
-    replaced = sum(counters.values())
+    # Distinct entities in THIS text. Equal to the old `sum(counters.values())` under a fresh
+    # scope (one list entry per mint); under a shared scope it excludes entities that only
+    # appeared in other calls of the request.
+    replaced = len(tokens_used)
 
     # Fail-closed safety net: any remaining long digit run is potential un-masked numeric PII.
     if _RESIDUAL_DIGITS_RE.search(result):
@@ -789,11 +863,23 @@ def _mask(view: _View, track: bool = False) -> tuple[PseudonymizationResult, lis
     return PseudonymizationResult(result, False, None, replaced, tokens_used), regions
 
 
-def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> PseudonymizationResult:
+def pseudonymize(
+    text: str,
+    max_length: int = DEFAULT_MAX_LENGTH,
+    *,
+    scope: TokenScope | None = None,
+) -> PseudonymizationResult:
     """Replace likely PII in ``text`` with placeholder tokens.
 
     Returns a :class:`PseudonymizationResult`. When ``blocked`` is True the caller
     MUST NOT send the text to an LLM.
+
+    ``scope`` (keyword-only, default a fresh one per call) shares placeholder numbering
+    across several calls in ONE request — see :class:`TokenScope`. It changes numbering
+    only: every rule, every fail-closed path and the token grammar are identical. The
+    result's ``placeholder_tokens`` / ``replaced_entities`` describe THIS call's text
+    (tokens it minted or reused), never the scope's running total. Only the reader pass
+    (the egressed text) uses it; the spaced detector pass below keeps a private numbering.
 
     TWO VIEWS, ONE OUTPUT (#1738 F1). Every rule reads the text as a READER sees it -
     invisible format characters and Latin combining marks removed (`_normalised_view`). But
@@ -826,9 +912,9 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
         # the reader pass needs no region bookkeeping. ASCII input (the overwhelming majority) and
         # fold-only / visible-separator input take this fast path at exactly the pre-fix cost.
         if spaced_view.text == reader_view.text:
-            return _mask(reader_view)[0]
+            return _mask(reader_view, scope=scope)[0]
 
-        reader_result, reader_regions = _mask(reader_view, track=True)
+        reader_result, reader_regions = _mask(reader_view, track=True, scope=scope)
 
         # The reader view is the OUTPUT; its own fail-closed paths win unchanged (a residual
         # digit run keeps the exact block shape it had before this fix).

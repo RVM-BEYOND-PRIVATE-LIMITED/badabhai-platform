@@ -16,6 +16,15 @@ import type { CompanionV2Handler, HandlerInput, HandlerResult } from "./handler"
 const TRADE_LABEL_MAX = 64;
 
 /**
+ * The career contract's memory bound (contracts §2.3, `CompanionCareerInputSchema.recent_turns`,
+ * and `turns_in_memory` on the career event). `CHAT_COMPANION_V2_MEMORY_TURNS` is a knob with no
+ * ceiling, and above six every career call would be a 422 (the fallback line) and every career
+ * event a validation failure — so the handler sends the NEWEST six, whatever the knob says.
+ * Pinned against the schema in the handler test.
+ */
+export const CAREER_TURNS_MAX = 6;
+
+/**
  * CAREER TALK (ADR-0046 P3, O7/O9/O10) — the one handler whose answer a model writes.
  *
  * THE PIPELINE, and where every safety property lives:
@@ -45,10 +54,11 @@ export class CareerTalkHandler implements CompanionV2Handler {
   ) {}
 
   async handle(input: HandlerInput): Promise<HandlerResult> {
+    const recentTurns = input.recentTurns.slice(-CAREER_TURNS_MAX);
     const out = await this.ai.companionCareer(
       {
         text: input.text,
-        recent_turns: [...input.recentTurns],
+        recent_turns: recentTurns,
         worker_context: workerContextOf(input.profile),
       },
       input.ctx,
@@ -104,7 +114,8 @@ export class CareerTalkHandler implements CompanionV2Handler {
         payload: {
           outcome,
           refusal_topic: refusalTopic,
-          turns_in_memory: input.recentTurns.length,
+          // The turns the model was actually SENT — the same cap `handle` applied.
+          turns_in_memory: Math.min(input.recentTurns.length, CAREER_TURNS_MAX),
         } as never,
         correlationId: input.ctx.correlationId,
         requestId: input.ctx.requestId,

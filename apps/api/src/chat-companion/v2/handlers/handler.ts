@@ -8,13 +8,16 @@ import type { CompanionTurn } from "../../chat-companion.dto";
 export interface HandlerInput {
   readonly workerId: string;
   readonly profile: WorkerProfile;
-  /** The message, ALREADY pseudonymized by the API's gateway (never raw worker text). */
+  /**
+   * The message, ALREADY pseudonymized by the API's gateway (never raw worker text) — or, for a
+   * task-chip tap, the chip's server-authored label (a constant, never the posted bytes).
+   */
   readonly text: string;
   /**
    * The worker's recent pseudonymized turns, oldest first (≤ `MEMORY_TURNS`), read by the
    * orchestrator for the classifier and passed on so a handler that needs more context — the
-   * Phase 3 career answer reads up to six — does not pay a second Redis hop. Empty when the
-   * store is unreadable, which every consumer already treats as "no context".
+   * Phase 3 career answer sends the newest six, whatever the knob — does not pay a second Redis
+   * hop. Empty when the store is unreadable, which every consumer already treats as "no context".
    */
   readonly recentTurns: readonly CompanionRecentTurn[];
   readonly ctx: RequestContext;

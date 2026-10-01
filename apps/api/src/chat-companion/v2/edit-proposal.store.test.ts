@@ -2,7 +2,11 @@ import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
-import { EditProposalStore, type StoredEditProposal } from "./edit-proposal.store";
+import {
+  EditProposalStore,
+  PROPOSAL_EXPIRY_GRACE_SECONDS,
+  type StoredEditProposal,
+} from "./edit-proposal.store";
 
 // ---------------------------------------------------------------------------
 // EditProposalStore (ADR-0046 O4/O5) — the pending edit card.
@@ -13,6 +17,7 @@ import { EditProposalStore, type StoredEditProposal } from "./edit-proposal.stor
 //   - save REPORTS success (false → the caller offers no card, contracts §7), while
 //     load/delete are fail-soft (an unreadable card is an expired card);
 //   - a stored payload that fails the schema is treated as absent, never applied;
+//   - a card is claimed at most once (SET NX), per proposal, until a release hands it back;
 //   - no proposed value ever reaches a log line.
 // ---------------------------------------------------------------------------
 
@@ -49,12 +54,15 @@ function makeRedis(
   const kv = new Map<string, string>();
   const ttls = new Map<string, number>();
 
-  const set = vi.fn(async (key: string, value: string, mode: string, seconds: number) => {
-    if (opts.setThrows) throw new Error("redis SET refused");
-    kv.set(key, value);
-    if (mode === "EX") ttls.set(key, seconds);
-    return "OK";
-  });
+  const set = vi.fn(
+    async (key: string, value: string, mode: string, seconds: number, nx?: string) => {
+      if (opts.setThrows) throw new Error("redis SET refused");
+      if (nx === "NX" && kv.has(key)) return null;
+      kv.set(key, value);
+      if (mode === "EX") ttls.set(key, seconds);
+      return "OK";
+    },
+  );
   const get = vi.fn(async (key: string) => {
     if (opts.getThrows) throw new Error("redis GET refused");
     return kv.get(key) ?? null;
@@ -99,7 +107,7 @@ function captureLogs(): { logged: () => string; restore: () => void } {
 }
 
 describe("EditProposalStore — save (one active card, TTL, reports success)", () => {
-  it("writes the proposal JSON at the worker's key with the TTL", async () => {
+  it("writes the proposal JSON at the worker's key, the record living the TTL plus the expiry grace", async () => {
     const { store, redis } = setup();
     await expect(store.save(WORKER_ID, proposal())).resolves.toBe(true);
 
@@ -107,7 +115,8 @@ describe("EditProposalStore — save (one active card, TTL, reports success)", (
     const [key, value, mode, seconds] = redis.set.mock.calls[0]!;
     expect(key).toBe(KEY);
     expect(mode).toBe("EX");
-    expect(seconds).toBe(TTL);
+    // CON-4d: the record outlives `expires_at` so a late tap is recognisable as `expired`.
+    expect(seconds).toBe(TTL + PROPOSAL_EXPIRY_GRACE_SECONDS);
     expect(JSON.parse(value)).toMatchObject({ proposal_id: PROPOSAL_ID });
   });
 
@@ -162,6 +171,17 @@ describe("EditProposalStore — load (fail-soft; an unreadable card is an expire
     await expect(store.load(WORKER_ID)).resolves.toBeNull();
   });
 
+  it("is null when the card carries more rows than one confirm may tick (O5)", async () => {
+    const { store, redis } = setup();
+    const row = proposal().rows[0]!;
+    const rows = ["1", "2", "3", "4"].map((n) => ({
+      ...row,
+      row_id: `cccccccc-0000-4000-8000-00000000000${n}`,
+    }));
+    redis.kv.set(KEY, JSON.stringify({ ...proposal(), rows }));
+    await expect(store.load(WORKER_ID)).resolves.toBeNull();
+  });
+
   it("is null on a GET outage and on a dead connection", async () => {
     await expect(setup({ redis: { getThrows: true } }).store.load(WORKER_ID)).resolves.toBeNull();
     await expect(setup({ clientThrows: true }).store.load(WORKER_ID)).resolves.toBeNull();
@@ -185,6 +205,51 @@ describe("EditProposalStore — delete (best-effort; the TTL is the backstop)", 
   });
 });
 
+describe("EditProposalStore — claim (at most one Haan/Nahi per card, BUG-DOUBLE-CONFIRM)", () => {
+  const CLAIM_KEY = `companion:v2:proposal-claim:${WORKER_ID}:${PROPOSAL_ID}`;
+
+  it("the first claim takes the card with SET NX; a second one finds it held", async () => {
+    const { store, redis } = setup();
+    await expect(store.claim(WORKER_ID, PROPOSAL_ID)).resolves.toBe("claimed");
+    await expect(store.claim(WORKER_ID, PROPOSAL_ID)).resolves.toBe("held");
+
+    const [key, , mode, seconds, nx] = redis.set.mock.calls[0]!;
+    expect(key).toBe(CLAIM_KEY);
+    expect(mode).toBe("EX");
+    expect(nx).toBe("NX");
+    // It lives as long as the card's record, so it outlives every tap that could reach it.
+    expect(seconds).toBe(TTL + PROPOSAL_EXPIRY_GRACE_SECONDS);
+  });
+
+  it("is per proposal: a NEW card is never blocked by an old card's claim", async () => {
+    const { store } = setup();
+    await store.claim(WORKER_ID, PROPOSAL_ID);
+    await expect(
+      store.claim(WORKER_ID, "eeeeeeee-0000-4000-8000-000000000005"),
+    ).resolves.toBe("claimed");
+  });
+
+  it("a release hands the claim back, so a rolled-back Haan can be tapped again", async () => {
+    const { store, redis } = setup();
+    await store.claim(WORKER_ID, PROPOSAL_ID);
+    await store.release(WORKER_ID, PROPOSAL_ID);
+    expect(redis.kv.has(CLAIM_KEY)).toBe(false);
+    await expect(store.claim(WORKER_ID, PROPOSAL_ID)).resolves.toBe("claimed");
+  });
+
+  it("a Redis failure is `unavailable`, never a throw and never `claimed`", async () => {
+    await expect(
+      setup({ redis: { setThrows: true } }).store.claim(WORKER_ID, PROPOSAL_ID),
+    ).resolves.toBe("unavailable");
+    await expect(setup({ clientThrows: true }).store.claim(WORKER_ID, PROPOSAL_ID)).resolves.toBe(
+      "unavailable",
+    );
+    await expect(
+      setup({ redis: { delThrows: true } }).store.release(WORKER_ID, PROPOSAL_ID),
+    ).resolves.toBeUndefined();
+  });
+});
+
 describe("EditProposalStore — no proposed value ever reaches a log line", () => {
   it("failures log ids/classes only, never the row's before/after values", async () => {
     const logs = captureLogs();
@@ -192,6 +257,8 @@ describe("EditProposalStore — no proposed value ever reaches a log line", () =
       await setup({ redis: { setThrows: true } }).store.save(WORKER_ID, proposal());
       await setup({ redis: { getThrows: true } }).store.load(WORKER_ID);
       await setup({ redis: { delThrows: true } }).store.delete(WORKER_ID);
+      await setup({ redis: { setThrows: true } }).store.claim(WORKER_ID, PROPOSAL_ID);
+      await setup({ redis: { delThrows: true } }).store.release(WORKER_ID, PROPOSAL_ID);
     } finally {
       logs.restore();
     }

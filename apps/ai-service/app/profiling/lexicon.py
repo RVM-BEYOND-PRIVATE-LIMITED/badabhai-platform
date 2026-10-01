@@ -152,6 +152,32 @@ def skill_keywords() -> tuple[str, ...]:
     return tuple(entry["keyword"] for entry in load("skills")["skills"])
 
 
+#: The persona v3.2 banned-token groups, in the order the API's scan reads them
+#: (`bannedTokenGroups()` in packages/profiling-lexicon/src/persona/index.ts, compared with this
+#: tuple by tests/test_lexicon_parity.py). ONE list for every prompt that forbids the tokens —
+#: the interview turn and the companion career answer both render from it — so a group added on
+#: the TypeScript side cannot reach one prompt and quietly miss the other.
+PERSONA_BANNED_GROUPS: tuple[str, ...] = (
+    "bannedVocatives",
+    "bannedInformal",
+    "bannedGush",
+    "bannedPromise",
+    "bannedDeictics",
+)
+
+
+@lru_cache(maxsize=1)
+def persona_banned_tokens() -> tuple[str, ...]:
+    """Every persona v3.2 banned token, group by group, in the lexicon's own order.
+
+    `bannedPromise` is the one that matters most: "guarantee", "pakka job", "job pakki" and
+    "interview" are promises this platform cannot keep, and a worker who is told one has been
+    misled by us, not by a model.
+    """
+    corpus = load("persona")
+    return tuple(token for group in PERSONA_BANNED_GROUPS for token in corpus[group])
+
+
 @lru_cache(maxsize=1)
 def _skill_keyword_alternation() -> str:
     return "|".join(_escape_for_both_engines(kw) for kw in skill_keywords())

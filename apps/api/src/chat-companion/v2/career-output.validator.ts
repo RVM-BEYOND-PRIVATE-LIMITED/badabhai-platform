@@ -8,7 +8,7 @@ import { looksLikeOrgName, looksLikePii } from "@badabhai/validators";
  *
  * WHY THIS IS NOT IN THE PROMPT. The prompt asks the model to obey all of this; the prompt is
  * not what enforces it. A model that drifts, a jailbreak, or a provider swap must not be able
- * to put a salary figure, a company name, a judgement of the worker or a Devanagari line in
+ * to put a salary figure, a company name, a judgement of the worker or a non-Latin line in
  * front of a worker — and the only thing that can promise that is code the model does not
  * control. Same posture as the edit card's row validation.
  *
@@ -18,7 +18,8 @@ import { looksLikeOrgName, looksLikePii } from "@badabhai/validators";
  * heuristic every jobs write path already rejects on, ADR-0024) and `looksLikePii`.
  *
  * THE FAILURE REASONS ARE A CLOSED SET and never contain a line of the answer: they reach a
- * log and an operator, and the answer is exactly what must not.
+ * log and an operator, and the answer is exactly what must not. No event carries them — the
+ * career event says only `fallback` — so the vocabulary can be renamed without a schema change.
  */
 
 /** Every way an answer can fail, as a closed vocabulary for logs and tests. */
@@ -27,10 +28,11 @@ export type CareerAnswerFailure =
   | "too_many_lines"
   | "empty_line"
   | "line_too_long"
-  | "devanagari"
+  | "non_latin"
   | "persona"
   | "exclamation"
   | "emoji"
+  | "format_char"
   | "too_many_questions"
   | "money"
   | "promise"
@@ -47,20 +49,118 @@ const CHIPS_MAX = 3;
 const CHIP_WORDS_MAX = 4;
 const QUESTIONS_MAX = 1;
 
-/** Devanagari is barred outright (O9): the model writes Hinglish in Latin script only. */
-const DEVANAGARI = /[\u0900-\u097F]/;
-/** Pictographs and the emoji presentation selector — the persona ships no emoji. */
-const EMOJI = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]|\u{FE0F}/u;
+/**
+ * LATIN SCRIPT ONLY (O9): the model writes Hinglish in Latin letters, so a character is barred
+ * when ANY other script owns it — Devanagari, and equally Gurmukhi, Urdu (Arabic), Bengali, Tamil,
+ * Cyrillic, Han: letters, vowel signs and native digits alike. Digits, punctuation, `₹` and the
+ * typographic quotes are Unicode's `Common` script and stay legal; `Inherited` combining marks
+ * stay legal so an accented Latin letter is not a failure.
+ *
+ * Two holes a script test alone leaves are closed by name: the mathematical alphabets (𝐒𝐚𝐥𝐚𝐫𝐲)
+ * are LETTERS filed under `Common`, and the danda pair is `Common` punctuation only Indic text
+ * uses — the old Devanagari-block rule barred both, and this one must not regress.
+ *
+ * WHY IT MATTERS BEYOND O9: every O10 pattern below is spelled in Latin, so a line in another
+ * script would also walk past the money, promise, advice and rating checks.
+ */
+const NON_LATIN =
+  /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]|(?!\p{Script=Latin})\p{L}|[\u0964\u0965]/u;
 
 /**
- * MONEY (O10): a money word is only a failure when the SAME line carries a digit — the rule is
- * "digits next to a money word", so "salary apne employer se poochiye" (advice, no figure) is
- * legal while "salary 25000" is not. `mahina`/`mahine` are here because "25 hazaar per mahina"
- * is the commonest phrasing, and `lakh`/`hazaar` catch the Hindi numerals spelled in Latin.
+ * EMOJI — the persona ships none. `Extended_Pictographic` is Unicode's own emoji-capable set
+ * (⌛ ⭐ ⌚ 🀄 🅰 and every face and hand), so a new emoji release needs no range edit; regional
+ * indicators are the halves of a flag (🇮🇳). The components that only ever BUILD an emoji —
+ * skin-tone modifiers, variation selectors, the zero-width joiner, the keycap mark and the tag
+ * characters — are barred on their own, so no sequence passes by dropping its pictograph. The
+ * Misc Symbols and Dingbats blocks stay listed as before: ★ ☆ ✓ ✗ are not pictographic to
+ * Unicode, and no Hinglish sentence needs them.
  */
-const MONEY_WORD =
-  /(?:₹|rs\.?|rupaye|rupaya|salary|tankhwah|tankha|per month|mahina|mahine|lakh|lac|hazaar|hazar)/i;
-const DIGIT = /\d/;
+const EMOJI =
+  /\p{Extended_Pictographic}|\p{Regional_Indicator}|\p{Emoji_Modifier}|\p{Variation_Selector}|\u{200D}|\u{20E3}|[\u{E0020}-\u{E007F}]|[\u{2600}-\u{27BF}]/u;
+
+/**
+ * INVISIBLE FORMAT CHARACTERS (`\p{Cf}`) are barred outright: the zero-width space and non-joiner,
+ * the word joiner, the soft hyphen, the BOM, the bidi controls. They are `Common` or `Inherited`
+ * script, so `NON_LATIN` lets them through, and the fold below keeps them — so `Sal\u200Bary 25000`
+ * walked past every word check while the worker read "Salary 25000", and a phone number split by
+ * one walked past `looksLikePii`. A model writing Hinglish has no use for any of them. Checked
+ * after `EMOJI` only so that the joiner and tag characters inside an emoji keep reporting as
+ * `emoji`; both are rejections.
+ */
+const FORMAT_CHAR = /\p{Cf}/u;
+
+/**
+ * THE FORM EVERY WORD PATTERN READS. The patterns below are spelled in plain ASCII, so a
+ * lookalike would walk past them: fullwidth `Ｓａｌａｒｙ ２５０００` is Latin script and passes
+ * `NON_LATIN`, and `sálary` is one accent away from the word list. NFKD maps the compatibility
+ * forms to ASCII and splits an accent off its letter; dropping the marks leaves the plain word. A
+ * clean ASCII line folds to itself, so the fold adds no false positive.
+ *
+ * `NON_LATIN` and `EMOJI` read the RAW text instead: the fold would turn 𝐒 into S and strip a
+ * keycap's marks — exactly what those two checks exist to see.
+ */
+const scanForm = (text: string): string => text.normalize("NFKD").replace(/\p{M}/gu, "");
+
+/**
+ * MONEY (O10): a money WORD and a FIGURE in the same SENTENCE — "salary 25000", "15000 salary",
+ * "₹ 20,000", "aapki salary shuru mein lagbhag 15000 hogi", "15k per month". The word alone is
+ * advice ("salary apne employer se poochiye") and legal; a figure alone is a count ("2-3 years",
+ * "8 hours") and legal.
+ *
+ * WHOLE WORDS. No LETTER may touch either end of a money word (`₹` is a sign and needs no
+ * anchor): the old substring match failed "years", "hours", "course" and "workers" on `rs`,
+ * "workplace" on `lac` and "hazard" on `hazar`, and every one of those is an ordinary career
+ * answer. The anchors are letter lookarounds rather than `\b` because a digit is a word character
+ * to `\b` — `Rs500`, `500rs` and `salary25000` must still fail.
+ *
+ * THE REACH IS THE SENTENCE, not a word count: a salary claim puts any number of words between
+ * the word and the figure ("welder ki salary experience ke saath 25000 tak jaati hai"). Only a
+ * sentence stop ends it — `.` `?` `!`, the danda, a newline — because text after a stop is what
+ * the model could equally have written as its own line, and a line with a figure and no money
+ * word is legal anyway. A COMMA DOES NOT END IT: "Salary, experience ke hisaab se, 15000 se 25000"
+ * is exactly how a drifting model would phrase a wage, so "salary" and an unrelated count in one
+ * comma-joined sentence fail too — the cost of that false positive is one fallback line. A `.`
+ * between two digits is a decimal or grouping point (`1.5 lakh`), and the `rs.` abbreviation's
+ * dot is part of the word (`Rs. 500`), so neither ends a sentence.
+ *
+ * TWO KINDS OF WORD. A CURRENCY word (₹, rs, rupaye, salary, tankhwah, lakh, hazaar and their
+ * spellings) makes any figure money. A MONTH word (month(s), monthly, mahina, mahine) makes a
+ * figure money only when it is WAGE-SIZED: four digits or more ("15000 mahina", "25000/month"),
+ * or a figure with a thousands suffix ("15k per month", "15 thousand per month"). "6 mahine ka
+ * course" and "har mahine 100 ghante" are a duration and a count, and no monthly wage is written
+ * in three bare digits. (`hazaar` and `lakh` need no suffix rule: they are currency words.)
+ *
+ * BEYOND THE SPEC'S LIST (phase-3 §2 names the minimum, not the ceiling): `thousand`, `kamai`,
+ * `income`, `wage(s)` and `stipend` are currency words too, and a THOUSANDS-SUFFIXED figure is money
+ * on its own ("25k milte hain", "25 thousand milte hain") — in a career answer `15k` is a wage, and
+ * without these a figure walked past with no listed word beside it. `paisa`/`paise` stay off the
+ * list: "paise bachaiye" is ordinary advice and too often shares a sentence with a count.
+ */
+const CURRENCY_WORD =
+  /₹|(?<!\p{L})(?:rs|rupaye|rupaya|rupay|rupees?|salary|salaries|tankhwah|tankha|lakhs?|lacs?|hazaar|hazar|thousands?|kamai|kamaai|kamaayi|income|wages?|stipend)(?!\p{L})/iu;
+/** A figure with a thousands suffix (`15k`, `25 thousand`) — money with no word beside it. */
+const THOUSANDS_FIGURE = /\p{Nd}\s*(?:k|thousand)(?!\p{L})/iu;
+const MONTH_WORD = /(?<!\p{L})(?:months?|monthly|mahina|mahine|maheena|maheene)(?!\p{L})/iu;
+/** Any figure at all. */
+const FIGURE = /\p{Nd}/u;
+/** A wage-sized figure: four digits or more (separators allowed: `8000`, `18,000`), or `15k`. */
+const WAGE_FIGURE = /\p{Nd}(?:[.,]?\p{Nd}){3,}|\p{Nd}\s*(?:k|thousand)(?!\p{L})/iu;
+/** The `rs.` abbreviation: its dot is rewritten to a space before the line is split. */
+const RS_ABBREVIATION = /(?<!\p{L})(rs)\./giu;
+/** A sentence stop — never a comma, and never a `.` between two digits. */
+const SENTENCE_STOP = /[?!\u0964\u0965\n\r]|(?<!\p{Nd})\.|\.(?!\p{Nd})/u;
+
+function statesMoney(scan: string): boolean {
+  return scan
+    .replace(RS_ABBREVIATION, "$1 ")
+    .split(SENTENCE_STOP)
+    .some(
+      (sentence) =>
+        THOUSANDS_FIGURE.test(sentence) ||
+        (CURRENCY_WORD.test(sentence) && FIGURE.test(sentence)) ||
+        (MONTH_WORD.test(sentence) && WAGE_FIGURE.test(sentence)),
+    );
+}
 
 /**
  * PROMISES (O10): a guarantee about a job, however phrased. `zaroor milegi` is matched as a
@@ -93,16 +193,18 @@ const words = (s: string): number => s.trim().split(/\s+/).filter(Boolean).lengt
 function contentFailure(text: string, maxWords: number): CareerAnswerFailure | null {
   if (text.trim().length === 0) return "empty_line";
   if (words(text) > maxWords) return "line_too_long";
-  if (DEVANAGARI.test(text)) return "devanagari";
-  if (text.includes("!")) return "exclamation";
+  if (NON_LATIN.test(text)) return "non_latin";
+  const scan = scanForm(text);
+  if (scan.includes("!")) return "exclamation";
   if (EMOJI.test(text)) return "emoji";
-  if (checkPersonaTokens(text).length > 0) return "persona";
-  if (DIGIT.test(text) && MONEY_WORD.test(text)) return "money";
-  if (PROMISE.test(text)) return "promise";
-  if (SENSITIVE.test(text)) return "sensitive_advice";
-  if (RATING.test(text)) return "worker_rating";
-  if (looksLikeOrgName(text)) return "named_employer";
-  if (looksLikePii(text)) return "pii";
+  if (FORMAT_CHAR.test(text)) return "format_char";
+  if (checkPersonaTokens(scan).length > 0) return "persona";
+  if (statesMoney(scan)) return "money";
+  if (PROMISE.test(scan)) return "promise";
+  if (SENSITIVE.test(scan)) return "sensitive_advice";
+  if (RATING.test(scan)) return "worker_rating";
+  if (looksLikeOrgName(scan)) return "named_employer";
+  if (looksLikePii(scan)) return "pii";
   return null;
 }
 
@@ -132,8 +234,9 @@ export function validateCareerAnswer(answer: {
     if (failure !== null) return failure;
   }
 
+  // Counted on the folded form, so a fullwidth "？" spends the same budget as "?".
   const questions = [...answer.lines, ...answer.followup_chips].reduce(
-    (n, text) => n + (text.match(/\?/g) ?? []).length,
+    (n, text) => n + (scanForm(text).match(/\?/g) ?? []).length,
     0,
   );
   if (questions > QUESTIONS_MAX) return "too_many_questions";

@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 import type { QuestionPack } from "@badabhai/ai-contracts";
 
-import { PackCacheService, REDIS_TIMEOUT_MS } from "./pack-cache.service";
+import { REDIS_TIMEOUT_MS } from "../queue/redis-deadline";
+import { PackCacheService } from "./pack-cache.service";
 import {
   computeContentHash,
   PACK_CACHE_TTL_SECONDS,

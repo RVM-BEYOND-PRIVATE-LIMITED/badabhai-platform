@@ -25,6 +25,7 @@ import { ChatCompanionService } from "./chat-companion.service";
 import { CompanionMemoryStore } from "./v2/companion-memory.store";
 import { EditProposalStore } from "./v2/edit-proposal.store";
 import { FaltuStore } from "./v2/faltu.store";
+import { CompanionTurnReplayStore } from "./v2/turn-replay.store";
 import { CompanionEditService } from "./v2/companion-edit.service";
 import { CompanionV2Orchestrator } from "./v2/companion-v2.orchestrator";
 import { CompanionHandlerRegistry } from "./v2/handlers/registry";
@@ -80,10 +81,12 @@ import {
     ChatCompanionPolicy,
     ChatCompanionRepository,
     // ADR-0046 v2 — Redis-only stores (memory + the pending edit card + the P2 strikes and
-    // cool-down). All are inert until the v2 flags are on and the pipeline calls them.
+    // cool-down + the served-turn replay that makes a retried message idempotent). All are
+    // inert until the v2 flags are on and the pipeline calls them.
     CompanionMemoryStore,
     EditProposalStore,
     FaltuStore,
+    CompanionTurnReplayStore,
     // ADR-0046 T6 — the v2 turn pipeline: the orchestrator, its intent→handler registry and the
     // Phase 1 handlers. Inert while CHAT_COMPANION_V2_ENABLED is off.
     CompanionV2Orchestrator,

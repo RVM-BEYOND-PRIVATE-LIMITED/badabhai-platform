@@ -7,9 +7,15 @@
  * the AI service, so the model is choosing from a closed list rather than guessing field names.
  *
  * `field` is a LOGICAL name (e.g. `expected_salary`, `preferred_cities`); the writer mapping in
- * `CompanionEditService` translates it to its store. Values are validated here — against the same
- * closed vocabularies and bounds the section writers' own DTOs enforce — so a row that reaches a
- * card is already one the writer can accept.
+ * `CompanionEditService` translates it to its store. Values are NORMALISED here — against the same
+ * closed vocabularies and bounds the section writers' own DTOs enforce — and then `propose` parses
+ * every row through the writer's REAL schema (`edit-plan.ts`), so the refinements that span
+ * fields or screen free text (an end month before the start, a phone number in an issuer) drop a
+ * row before a card can show it, rather than failing every Haan.
+ *
+ * It also names what a card row SHOWS (BUG-CARD-LABELS): the field's label (`cardFieldLabel`,
+ * reviewed copy in `companion-replies.ts`) and a closed-set value's display label
+ * (`displayValue`, read from the SAME dictionaries the validation checks against).
  *
  * OWNER RULINGS ENCODED HERE (2026-09-29):
  *   - single-field adds only: `add` exists for skills, languages, occupations and the three list
@@ -23,7 +29,7 @@
  */
 
 import { canonicalCity } from "@badabhai/profiling-lexicon";
-import { ROLES } from "@badabhai/taxonomy";
+import { labelForTaxonomyId, ROLES } from "@badabhai/taxonomy";
 import { looksLikePii } from "@badabhai/validators";
 import type { CompanionV2EditOp, CompanionV2EditSection } from "@badabhai/types";
 import {
@@ -33,8 +39,14 @@ import {
   EDUCATION_QUALIFICATIONS,
   JOB_TYPES,
   LANGUAGES,
+  labelFor,
   SHIFTS,
+  WORK_TYPES,
+  type PreferenceVocabulary,
 } from "../../profiles/worker-preferences.vocabulary";
+import { CREDENTIAL_YEAR_FLOOR, currentYear } from "../../profiles/credential-year";
+import { EDIT_ENTRY_LABELS, EDIT_FIELD_LABELS, EDIT_YES_NO_LABELS } from "../companion-replies";
+import { QUALIFICATION_PREFIX } from "./edit-snapshot";
 
 /** The card's display label per section (reviewed copy, shown on every row of the card). */
 export const SECTION_LABELS: Readonly<Record<CompanionV2EditSection, string>> = {
@@ -141,16 +153,39 @@ export function opAllowed(entry: CatalogueField, op: CompanionV2EditOp): boolean
 const YEAR_MONTH = /^[0-9]{4}-(0[1-9]|1[0-2])$/;
 /** `YYYY-MM-DD` — the availability DTO's own shape. */
 const YEAR_MONTH_DAY = /^\d{4}-\d{2}-\d{2}$/;
-const CURRENT_YEAR = new Date().getUTCFullYear();
 
 const ROLE_IDS = new Set<string>(ROLES.map((role) => role.id));
-const LANGUAGE_SLUGS = new Set(Object.keys(LANGUAGES));
-const SHIFT_SLUGS = new Set(Object.keys(SHIFTS));
-const JOB_TYPE_SLUGS = new Set(Object.keys(JOB_TYPES));
-const DOCUMENT_SLUGS = new Set(Object.keys(DOCUMENTS_READY));
-const AVAILABILITY_SLUGS = new Set(Object.keys(AVAILABILITY_STATUSES));
-const EDUCATION_CREDENTIAL_SLUGS = new Set(Object.keys(EDUCATION_QUALIFICATIONS));
-const EDUCATION_COUNCIL_SLUGS = new Set(Object.keys(EDUCATION_COUNCILS));
+
+/**
+ * THE CLOSED-SET FIELDS AND THE DICTIONARY EACH ONE'S VALUES ARE DRAWN FROM — the same
+ * dictionaries the section writers' DTOs build their enums from, the options endpoint serves as
+ * the form's chip labels, and the résumé prints. ONE TABLE, TWO READERS: `normaliseValue` accepts
+ * only a slug the dictionary holds, and `displayValue` labels it with that dictionary's own words,
+ * so a value a card can carry always has its label.
+ */
+const TOKEN_VOCABULARIES: ReadonlyMap<string, PreferenceVocabulary> = new Map([
+  ["languages:language", LANGUAGES],
+  ["qualifications:education_credential", EDUCATION_QUALIFICATIONS],
+  ["qualifications:education_council", EDUCATION_COUNCILS],
+  ["preferences:shift", SHIFTS],
+  ["preferences:job_type", JOB_TYPES],
+  ["preferences:availability_status", AVAILABILITY_STATUSES],
+  ["preferences:work_types", WORK_TYPES],
+  ["preferences:documents_ready", DOCUMENTS_READY],
+]);
+
+/** The three preference scalars stored as `"true"`/`"false"`. */
+const YES_NO_KEYS: ReadonlySet<string> = new Set([
+  "preferences:willing_to_travel",
+  "preferences:willing_to_relocate",
+  "preferences:accommodation_needed",
+]);
+
+/** A slug the dictionary holds, lower-cased as the stores keep it, or null. */
+function slugIn(vocabulary: PreferenceVocabulary, raw: string): string | null {
+  const value = raw.trim().toLowerCase();
+  return labelFor(vocabulary, value) === null ? null : value;
+}
 
 function trimmed(raw: string, min: number, max: number): string | null {
   const value = raw.trim();
@@ -171,8 +206,13 @@ function intIn(raw: string, min: number, max: number): string | null {
   return n >= min && n <= max ? String(n) : null;
 }
 
+/**
+ * The credential DTO's own bound, read AT CALL TIME (`credential-year.ts`, #1407): a module-level
+ * "this year" would refuse the current year's certificates from 1 January until the next deploy.
+ * The writer's schema still has the last word — `propose` parses every row through it.
+ */
 function credentialYear(raw: string): string | null {
-  return intIn(raw, 1950, CURRENT_YEAR);
+  return intIn(raw, CREDENTIAL_YEAR_FLOOR, currentYear());
 }
 
 /**
@@ -188,6 +228,10 @@ export function normaliseValue(
   raw: string,
 ): string | null {
   const key = `${section}:${field}`;
+  // Languages, the education credential and council, shift, job type, availability status, work
+  // types and documents: a slug of the field's own dictionary.
+  const vocabulary = TOKEN_VOCABULARIES.get(key);
+  if (vocabulary !== undefined) return slugIn(vocabulary, raw);
   switch (key) {
     // ── employment ──
     case "employment:employer_name":
@@ -211,11 +255,6 @@ export function normaliseValue(
       const value = trimmed(raw, 1, 80);
       return value !== null && looksLikePii(value) ? null : value;
     }
-    // ── languages ──
-    case "languages:language": {
-      const value = raw.trim().toLowerCase();
-      return LANGUAGE_SLUGS.has(value) ? value : null;
-    }
     // ── qualifications ──
     case "qualifications:certificate_name":
     case "qualifications:certificate_issuer":
@@ -229,38 +268,18 @@ export function normaliseValue(
       return credentialYear(raw);
     case "qualifications:education_field":
       return trimmed(raw, 1, 80);
-    case "qualifications:education_credential": {
-      const value = raw.trim().toLowerCase();
-      return EDUCATION_CREDENTIAL_SLUGS.has(value) ? value : null;
-    }
-    case "qualifications:education_council": {
-      const value = raw.trim().toLowerCase();
-      return EDUCATION_COUNCIL_SLUGS.has(value) ? value : null;
-    }
     // ── occupations ──
     case "occupations:role_id": {
       const value = raw.trim();
       return ROLE_IDS.has(value) ? value : null;
     }
     // ── preferences: scalars ──
-    case "preferences:shift": {
-      const value = raw.trim().toLowerCase();
-      return SHIFT_SLUGS.has(value) ? value : null;
-    }
-    case "preferences:job_type": {
-      const value = raw.trim().toLowerCase();
-      return JOB_TYPE_SLUGS.has(value) ? value : null;
-    }
     case "preferences:willing_to_travel":
     case "preferences:willing_to_relocate":
     case "preferences:accommodation_needed":
       return bool(raw);
     case "preferences:expected_salary":
       return intIn(raw, 1000, 500_000);
-    case "preferences:availability_status": {
-      const value = raw.trim().toLowerCase();
-      return AVAILABILITY_SLUGS.has(value) ? value : null;
-    }
     case "preferences:availability_available_from": {
       const value = raw.trim();
       return YEAR_MONTH_DAY.test(value) ? value : null;
@@ -272,25 +291,90 @@ export function normaliseValue(
       const city = canonicalCity(raw.trim())?.value ?? null;
       return city === null ? null : trimmed(city, 1, 80);
     }
-    case "preferences:work_types": {
-      const value = raw.trim().toLowerCase();
-      return JOB_TYPE_SLUGS.has(value) ? value : null;
-    }
-    case "preferences:documents_ready": {
-      const value = raw.trim().toLowerCase();
-      return DOCUMENT_SLUGS.has(value) ? value : null;
-    }
     default:
       return null;
   }
 }
 
+// ── the card's labels (BUG-CARD-LABELS) ──────────────────────────────────────────────────────
+
+/**
+ * What a closed-set value SAYS, for the card — or null when there is nothing to translate.
+ *
+ * `before`/`after` stay the stored tokens (the stale check and the shipped app read them); this
+ * is the words beside them. A dictionary slug gets that dictionary's own label — the one the form
+ * showed as a chip and the résumé prints ("hindi" → "Hindi", "uan_pf" → "UAN / PF"); a role id
+ * its taxonomy label, as `GET /workers/me/occupations` serves it; a yes/no "Haan"/"Nahi".
+ *
+ * NULL IS THE SAFE ANSWER, never a guess: a free-text field (a name, a city, a date, a number) is
+ * the worker's own words and is shown as typed, and a value its dictionary does not hold (a
+ * legacy model-written availability, a retired slug) is shown as stored rather than prettified.
+ */
+export function displayValue(
+  section: CompanionV2EditSection,
+  field: string | null,
+  value: string | null,
+): string | null {
+  if (field === null || value === null) return null;
+  const key = `${section}:${field}`;
+  const vocabulary = TOKEN_VOCABULARIES.get(key);
+  if (vocabulary !== undefined) return labelFor(vocabulary, value);
+  if (YES_NO_KEYS.has(key)) {
+    return value === "true" || value === "false" ? EDIT_YES_NO_LABELS[value].latin : null;
+  }
+  if (key === "occupations:role_id") return ROLE_IDS.has(value) ? labelForTaxonomyId(value) : null;
+  return null;
+}
+
+/**
+ * The entry kind a whole-entry delete removes, read from the row's RESOLVED TARGET — the entry the
+ * apply will actually remove (`planQualifications` goes by `target.list`) — never from the anchor
+ * field the model chose (EDIT-ROW-KIND). Null when the target names no list: say nothing rather
+ * than guess.
+ */
+function entryOf(
+  section: CompanionV2EditSection,
+  target: Readonly<Record<string, string | number>> | null,
+): keyof typeof EDIT_ENTRY_LABELS | null {
+  if (section === "employment") return "employment";
+  const list = target?.["list"];
+  return list === "certificates" || list === "educations" || list === "trainings"
+    ? QUALIFICATION_PREFIX[list]
+    : null;
+}
+
+/**
+ * The row's field label (reviewed copy, `companion-replies.ts`), or null for a pair the catalogue
+ * does not hold.
+ *
+ * A DELETE IN EMPLOYMENT OR QUALIFICATIONS NAMES THE ENTRY. Those sections are edit/delete-only
+ * and a delete removes the whole entry — the field is only the model's anchor — so the label
+ * says so ("Yeh poora kaam") instead of naming whichever field the model happened to point at.
+ * The kind comes from `target`, the entry being removed; a qualification delete without one has
+ * NO label (null), never a field's.
+ */
+export function cardFieldLabel(
+  section: CompanionV2EditSection,
+  field: string | null,
+  op: CompanionV2EditOp,
+  target: Readonly<Record<string, string | number>> | null = null,
+): string | null {
+  if (field === null) return null;
+  const entry = catalogueEntry(section, field);
+  if (entry === undefined) return null;
+  if (op === "delete" && (section === "employment" || section === "qualifications")) {
+    const kind = entryOf(section, target);
+    return kind === null ? null : EDIT_ENTRY_LABELS[kind].latin;
+  }
+  return EDIT_FIELD_LABELS[`${section}:${field}`]?.latin ?? null;
+}
+
 /**
  * Whether a value still carries a pseudonymization placeholder (`[EMPLOYER_1]`, …).
  *
- * ADR-0046 O17: v2 builds NO token rehydration, so such a row is DROPPED and the worker is
- * pointed at the Profile screen. When masking is removed platform-wide, no tokens appear and
- * these edits simply work.
+ * ADR-0046 O17: v2 builds NO token rehydration, so such a row is DROPPED — and when no row
+ * survives, the worker is pointed at the Profile screen (`V2_EDIT_PLACEHOLDER`). When masking is
+ * removed platform-wide, no tokens appear and these edits simply work.
  */
 export function hasPlaceholderToken(value: string): boolean {
   return /\[[A-Z]+_\d+\]/.test(value);

@@ -1,7 +1,9 @@
 import "reflect-metadata";
+import { Logger } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { ServerConfig } from "@badabhai/config";
 import type { Queue } from "bullmq";
+import { REDIS_TIMEOUT_MS } from "../../queue/redis-deadline";
 import { FaltuStore } from "./faltu.store";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
@@ -79,5 +81,20 @@ describe("FaltuStore (ADR-0046 O11, contracts §7)", () => {
       }),
     });
     expect(await h.store.cooldownUntil(WORKER, NOW)).toBeNull();
+  });
+
+  it("a Redis that NEVER ANSWERS reads as not cooling — bounded, never a hung read", async () => {
+    // A command against a downed Redis on the shared connection is buffered and never rejects, so
+    // only the deadline turns it into "not cooling". Real timers: the bound is the contract.
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const h = setup({ pttl: vi.fn(() => new Promise<number>(() => undefined)) });
+      const started = Date.now();
+      expect(await h.store.cooldownUntil(WORKER, NOW)).toBeNull();
+      expect(Date.now() - started).toBeLessThan(REDIS_TIMEOUT_MS * 6);
+      expect(String(warn.mock.calls[0]?.[0])).toContain("RedisDeadlineExceededError");
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

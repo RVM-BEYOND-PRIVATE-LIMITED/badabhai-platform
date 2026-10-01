@@ -203,7 +203,8 @@ export class WorkerEmploymentService {
     // change re-renders. failClosed:false: adding history is not a REMOVAL, so a failed render
     // leaves the previous PDF in service rather than 409-ing a résumé he had a second ago.
     //
-    // SKIPPED ON A JOINED TRANSACTION: the companion's confirm regenerates once after commit.
+    // SKIPPED ON A JOINED TRANSACTION: the companion's confirm regenerates once after commit, or
+    // re-renders once itself when no regeneration was queued.
     if (opts.tx === undefined) await this.enqueueRerender(workerId, ctx);
 
     return { worker_id: workerId, employer_count: rows.length };
