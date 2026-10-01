@@ -26,11 +26,32 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
 `fallback`.
 
 1. Schema: 1–4 lines; each ≤ 20 words; Latin script only (no Devanagari, O9).
+   "Latin only" bars a character any OTHER script owns — Devanagari, Gurmukhi, Urdu (Arabic),
+   Bengali, Tamil, Cyrillic, Han…, letters, vowel signs and native digits alike — plus the
+   `Common`-script mathematical alphabets (𝐒𝐚𝐥𝐚𝐫𝐲) and the danda pair. Digits, punctuation, `₹`,
+   typographic quotes and accented Latin letters stay legal. Failure reason `non_latin`
+   (was `devanagari`; the reason reaches a log line only, never an event).
 2. Persona: `checkPersonaTokens` (packages/profiling-lexicon) returns nothing; no "!"; no emoji;
    ≤ 1 "?" in the whole answer; no vocative (ADR-0044 R8).
+   "No emoji" is `\p{Extended_Pictographic}` + regional indicators (flags) + the emoji-building
+   components on their own (skin-tone modifiers, variation selectors, ZWJ, the keycap mark, tag
+   characters) + the Misc Symbols / Dingbats blocks (★ ☆ ✓ ✗ are not pictographic to Unicode).
+   No invisible format character (`\p{Cf}`: zero-width space / non-joiner, word joiner, soft
+   hyphen, BOM, bidi marks) — failure reason `format_char`. They are `Common`/`Inherited` script
+   and survive the fold, so `Sal<ZWSP>ary 25000` and a phone number split by one walked past every
+   word check while the worker read the plain text.
 3. Refusal backstop (O10), deterministic:
    - money: digits next to `₹`, `rs`, `rupaye`, `salary`, `tankhwah`, `per month`, `mahina`, `lakh`,
-     `hazaar` → fail;
+     `hazaar` → fail. Precisely: a whole money word (no letter touching either end, so "years",
+     "hours", "course", "workers", "workplace", "hazard" never match — but `Rs500`, `500rs` do)
+     and a figure in the same SENTENCE, however many words sit between them ("welder ki salary
+     experience ke saath 25000 tak jaati hai"). Only `.` `?` `!`, the danda or a newline end a
+     sentence — never a comma ("Salary, experience ke hisaab se, 15000 se 25000" fails), never a
+     `.` between two digits (`1.5 lakh`), never the dot of `Rs.`. Currency words (`₹`, rs,
+     rupaye/rupaya/rupay/rupee(s), salary/salaries, tankhwah/tankha, lakh(s)/lac(s), hazaar/hazar)
+     fail with any figure; month words (month(s), monthly, per month, mahina, mahine) fail only
+     with a wage-sized figure — ≥ 4 digits, or a thousands suffix (`15k`, `15 thousand`) — so
+     "6 mahine ka course" passes and "mahine ka 18,000", "15k per month", "25000/month" fail;
    - promise words: `pakka`, `guarantee`, `zaroor milegi`, `100%` → fail;
    - legal / medical / financial terms list (court, case, vakil, dawai, ilaaj, loan, EMI, insurance,
      bima, …) → fail;
@@ -39,6 +60,10 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
      jobs (read once, cached) → fail.
 4. `looksLikePii` (packages/validators) false for every line.
 5. Follow-up chips: ≤ 3, each ≤ 4 words, same checks.
+
+The word checks (persona, "!", "?", money, promise, sensitive, rating, employer, PII) read an
+NFKD-folded form with combining marks dropped, so a fullwidth `Ｓａｌａｒｙ ２５０００` or an accented
+`sálary 25000` is scanned as the plain word. The script and emoji checks read the raw text.
 
 ## 3. Prompt rules (ai-service, prompt registry)
 
@@ -100,10 +125,23 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
 
 ### Backend — API
 - [x] **C1** `v2/handlers/career-talk.handler.ts` + `v2/career-output.validator.ts` (§2).
+      2026-09-30: the validator enforces §2 as written — Latin only for EVERY script (it barred
+      Devanagari alone, so Gurmukhi/Urdu/Bengali lines also skipped every O10 check); the money
+      rule anchors whole words (the substring match failed "2-3 years", "8 hours", "course",
+      "workers", "hazard" against the ≥ 85 % bar) and scopes word + figure to one sentence — a
+      two-word reach and a digits-only wage size let "Aapki salary shuru mein lagbhag 15000 hogi"
+      and "15k per month" through, so review moved it to the sentence and added the `k` /
+      `thousand` suffix and `monthly` / `/month`; invisible format characters fail outright; the
+      emoji rule is Unicode's pictographic set plus flags and emoji components (flags, ⭐, ⌛, ⌚
+      and keycaps passed before). Table-driven pass/fail fixtures, plus 16 clean Hinglish answers
+      to normal eval questions that must be served.
 - [x] **C2** `AiService.companionCareer` (timeout 10 s).
 - [x] **C3** Memory: store last `MEMORY_TURNS` pairs (orchestrator already writes; handler reads 6).
       The orchestrator reads memory ONCE and passes the full list on `HandlerInput.recentTurns`
       (the classifier keeps its `slice(-2)`), so the handler pays no second Redis hop.
+      2026-09-30: the handler SLICES to the newest 6 (`CAREER_TURNS_MAX`) whatever the knob says,
+      and `turns_in_memory` reports the count sent — a knob above 6 no longer turns every career
+      call into a 422 and every career event into a validation failure.
 - [x] **C4** Refusal copy `V2_CAREER_REFUSE_*` (reviewed, with twins) + `read_aloud: false` on model turns.
       Five pairs keyed by the closed topics (persona-scanned like every other line);
       `read_aloud: false` is present-and-false on model turns only — refusal turns are fixed
@@ -115,6 +153,9 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
       Registry-gated like the other phases; the chip appears only while the flag is on, and a
       tap routes deterministically (the P2 chip step). The spend is recorded against
       `companion_career_answer` in the SAME change that routes it (the ledger-naming rule).
+      2026-09-30: a tap is recognised only while the flag is on, and it is answered with the fixed
+      `V2_CAREER_ASK` line (draft, contracts §8) — the literal label "Career ki baat" is no longer
+      sent to the model as a question.
 
 ### Frontend — worker app (GitHub issue)
 - [ ] **F1** `read_aloud: false` → no speaker button / no auto-read for that bubble (do **not** fall
@@ -125,8 +166,8 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
 
 | Test | Proves |
 |---|---|
-| `career-output.validator.test.ts` | each check rejects its fixture; a clean answer passes |
-| `career-talk.handler.test.ts` | refuse → fixed copy; invalid → fallback; memory passed (≤ 6) |
+| `career-output.validator.test.ts` | each check rejects its fixture; a clean answer passes; per-rule pass/fail tables (script, money, emoji, format characters); 16 clean answers to normal eval questions are served |
+| `career-talk.handler.test.ts` | refuse → fixed copy; invalid → fallback; memory passed (≤ 6, sliced to the newest 6 when the store holds more) |
 | `career.privacy.test.ts` | worker_context has only trade label + bucket; no text in events/logs |
 | ai-service `test_companion_career*` | contracts; mock mode; red-team gate thresholds |
 

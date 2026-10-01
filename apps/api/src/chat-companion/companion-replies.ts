@@ -378,6 +378,20 @@ export const EDIT_YES_NO_LABELS = {
   false: { latin: "Nahi", dev: "नहीं" },
 } as const satisfies Readonly<Record<"true" | "false", CopyPair>>;
 
+/**
+ * A tap on the "Resume badlo" task chip. The tap names a TASK, not a change, so no model is
+ * asked to parse it: the worker is asked what to change, with two examples. Each quoted example
+ * is a v1 MISS and names a change the edit catalogue can make — a language ADD and a shift EDIT
+ * (both asserted in `companion-v2.orchestrator.test.ts`) — so a worker who types one reaches the
+ * edit router and gets a card, never a v1 menu or "samajh nahi aaya". (A home city is NOT one:
+ * the catalogue has only the employer's city and the preferred-city list.) DRAFT — pending owner
+ * review (contracts §8).
+ */
+export const V2_EDIT_ASK: CopyPair = {
+  latin: "Resume mein kya badalna hai? Jaise: 'Marathi bhasha jod do' ya 'night shift kar do'.",
+  dev: "रिज़्यूमे में क्या बदलना है? जैसे: 'मराठी भाषा जोड़ दो' या 'नाइट शिफ्ट कर दो'।",
+};
+
 // ── Companion v2 — faltu (ADR-0046 P2, O11) ──────────────────────────────────────────────────
 
 /**
@@ -431,6 +445,16 @@ export const V2_CAREER_REFUSE: Readonly<Record<CompanionV2CareerRefusalTopic, Co
   },
 };
 
+/**
+ * A tap on the "Career ki baat" task chip. The label is not a question, so it is never sent to
+ * the career model as one: the worker is asked for their question, with one example that is a
+ * v1 miss (asserted beside `V2_EDIT_ASK`'s). DRAFT — pending owner review (contracts §8).
+ */
+export const V2_CAREER_ASK: CopyPair = {
+  latin: "Career ke baare mein aapka kya sawaal hai? Jaise: 'nayi skill kaun si seekhun'.",
+  dev: "करियर के बारे में आपका क्या सवाल है? जैसे: 'नई स्किल कौन सी सीखूँ'।",
+};
+
 /** Every pair above, for the persona and twin tests. */
 export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPair]> = [
   ["LEAD", LEAD],
@@ -472,6 +496,7 @@ export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPai
   ...Object.entries(EDIT_FIELD_LABELS).map(([key, pair]) => [`EDIT_FIELD_LABELS.${key}`, pair] as const),
   ...Object.entries(EDIT_ENTRY_LABELS).map(([key, pair]) => [`EDIT_ENTRY_LABELS.${key}`, pair] as const),
   ...Object.entries(EDIT_YES_NO_LABELS).map(([key, pair]) => [`EDIT_YES_NO_LABELS.${key}`, pair] as const),
+  ["V2_EDIT_ASK", V2_EDIT_ASK],
   // ADR-0046 P2 — faltu.
   ["V2_FALTU_REDIRECT", V2_FALTU_REDIRECT],
   ["V2_FALTU_COOLDOWN", V2_FALTU_COOLDOWN],
@@ -479,4 +504,5 @@ export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPai
   ...Object.entries(V2_CAREER_REFUSE).map(
     ([topic, pair]) => [`V2_CAREER_REFUSE.${topic}`, pair] as const,
   ),
+  ["V2_CAREER_ASK", V2_CAREER_ASK],
 ];

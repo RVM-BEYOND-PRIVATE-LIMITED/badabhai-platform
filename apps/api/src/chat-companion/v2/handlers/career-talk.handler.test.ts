@@ -1,9 +1,11 @@
 import "reflect-metadata";
 import { describe, expect, it, vi } from "vitest";
 import type { ServerConfig } from "@badabhai/config";
+import { CompanionCareerInputSchema } from "@badabhai/ai-contracts";
 import type { WorkerProfile } from "@badabhai/db";
+import { EVENT_REGISTRY } from "@badabhai/event-schema";
 import { FALLBACK, V2_CAREER_REFUSE } from "../../companion-replies";
-import { CareerTalkHandler, workerContextOf } from "./career-talk.handler";
+import { CAREER_TURNS_MAX, CareerTalkHandler, workerContextOf } from "./career-talk.handler";
 import type { HandlerInput } from "./handler";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
@@ -27,7 +29,7 @@ function input(over: Partial<HandlerInput> = {}): HandlerInput {
 }
 
 function setup(out: unknown) {
-  const ai = { companionCareer: vi.fn(async () => out) };
+  const ai = { companionCareer: vi.fn(async (_input: unknown, _ctx: unknown) => out) };
   const cost = { record: vi.fn(async () => undefined) };
   const events = { emit: vi.fn(async (params: unknown) => params) };
   const config = {
@@ -145,6 +147,38 @@ describe("CareerTalkHandler (ADR-0046 P3) — the one model-written answer", () 
       { correlationId: "c-1", requestId: "r-1" },
     );
     expect(careerEvent(h.events).payload).toMatchObject({ turns_in_memory: 6 });
+  });
+
+  it("CAREER_TURNS_MAX is the contract's own bound (and the event's)", () => {
+    const turns = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ role: "worker" as const, text: `t${i}` }));
+    const body = (n: number) => ({
+      text: "x",
+      recent_turns: turns(n),
+      worker_context: { trade_label: null, experience_bucket: null },
+    });
+    expect(CompanionCareerInputSchema.safeParse(body(CAREER_TURNS_MAX)).success).toBe(true);
+    expect(CompanionCareerInputSchema.safeParse(body(CAREER_TURNS_MAX + 1)).success).toBe(false);
+  });
+
+  it("MEMORY_TURNS above six: only the NEWEST six are sent, and the event reports six", async () => {
+    // The knob has no ceiling; a store holding eight turns must never make the call a 422.
+    const h = setup({ status: "refuse", topic: "unsafe_other", ai_metadata: null });
+    const turns = Array.from({ length: 8 }, (_, i) => ({
+      role: (i % 2 === 0 ? "worker" : "bada_bhai") as "worker" | "bada_bhai",
+      text: `t${i}`,
+    }));
+    await h.handler.handle(input({ recentTurns: turns }));
+
+    const sent = h.ai.companionCareer.mock.calls[0]![0] as { recent_turns: unknown[] };
+    expect(sent.recent_turns).toEqual(turns.slice(2));
+    expect(CompanionCareerInputSchema.safeParse(sent).success).toBe(true);
+    const event = careerEvent(h.events);
+    expect(event.payload).toMatchObject({ turns_in_memory: CAREER_TURNS_MAX });
+    // ...which the registered event contract accepts (it caps `turns_in_memory` at six).
+    expect(
+      EVENT_REGISTRY["chat.companion_career_answered"].payload.safeParse(event.payload).success,
+    ).toBe(true);
   });
 });
 
