@@ -936,6 +936,38 @@ describe("getPostings — LIVE: GETs /payer/job-postings, maps faceless rows, dr
   });
 });
 
+describe("getDashboard — the company postings list is read only when the caller asks for it", () => {
+  /** Answer each dashboard read by URL (credits, unlocks, job-postings). */
+  function answerDashboardReads() {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/payer/credits")) {
+        return jsonResponse({ payer_id: "11111111-1111-4111-8111-111111111111", balance: 7 });
+      }
+      if (url.endsWith("/payer/unlocks")) return jsonResponse({ unlocks: [] });
+      if (url.endsWith("/payer/job-postings")) return jsonResponse([jobPostingRow()]);
+      throw new Error(`unexpected read ${url}`);
+    });
+  }
+  const requested = () => fetchMock.mock.calls.map(([url]) => String(url));
+
+  it("withPostings: false (an AGENCY session) never requests GET /payer/job-postings", async () => {
+    answerDashboardReads();
+    const { getDashboard } = await import("./payer-api");
+    const d = await getDashboard({ withPostings: false });
+    expect(requested().some((u) => u.endsWith("/payer/job-postings"))).toBe(false);
+    expect(d.postings).toEqual([]);
+    expect(d.credits.balance).toBe(7);
+  });
+
+  it("withPostings: true (a COMPANY session) reads the list alongside credits + unlocks", async () => {
+    answerDashboardReads();
+    const { getDashboard } = await import("./payer-api");
+    const d = await getDashboard({ withPostings: true });
+    expect(requested().filter((u) => u.endsWith("/payer/job-postings"))).toHaveLength(1);
+    expect(d.postings.map((p) => p.roleTitle)).toEqual(["CNC Machinist"]);
+  });
+});
+
 describe("getPosting / updatePosting / closePosting — LIVE: faceless, no-oracle 404 → null", () => {
   it("getPosting maps an unknown-or-not-owned 404 to a neutral null (no-oracle)", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ message: "Job posting not found" }, 404));

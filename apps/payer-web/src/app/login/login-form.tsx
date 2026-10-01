@@ -60,15 +60,15 @@ const ROLE_COPY: Record<
   company: {
     tab: "Company",
     icon: "buildings",
-    tagline: "Post jobs and hire.",
-    signupSub: "Create your hiring desk — post jobs, see verified applicants, unlock contacts.",
+    tagline: "Publish postings and hire.",
+    signupSub: "Create your hiring desk — publish postings, see verified applicants, unlock contacts.",
     account: "Company account",
   },
   agency: {
     tab: "Agency",
     icon: "users-three",
-    tagline: "Source candidates for your clients.",
-    signupSub: "Create your agency desk — source candidates and place them with your clients.",
+    tagline: "Source workers for your clients.",
+    signupSub: "Create your agency desk — source workers and place them with your clients.",
     account: "Agency account",
   },
 };

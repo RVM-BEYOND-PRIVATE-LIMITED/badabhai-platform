@@ -5,20 +5,23 @@ import type { PayerSession } from "../../lib/auth/types";
 /**
  * PORTAL SHELL (IA-1) — the chrome is now a levelled left rail, but the
  * AUTHORIZATION model is unchanged and SERVER-DRIVEN:
- *  - product LABELING (Employers vs Agencies) comes from `session.role`, not a client flag;
+ *  - product LABELING (Companies vs Agencies) comes from `session.role`, not a client flag;
  *  - Owner-only affordances (Credits/Team) are driven by `getOrgRole` but are NOT the authz —
  *    the SERVER gate `requireOwner` is what 404s a Recruiter (proven in org-roles.test.ts);
  *  - the shared recruiter surfaces (Dashboard / Post / Manage / Capacity) show for everyone;
- *  - the balance chip is a fail-soft courtesy read (hidden, never fatal, on a credits error).
+ *  - the balance chip is a fail-soft courtesy read (hidden, never fatal, on a credits error);
+ *  - the agency items follow the agency-portal flag their pages check.
  */
 
 const requirePayer = vi.fn<() => Promise<PayerSession>>();
 const getOrgRole = vi.fn();
 const getCredits = vi.fn();
+const flags = { agencyPortalEnabled: true };
 
 vi.mock("../../lib/auth", () => ({ requirePayer: () => requirePayer() }));
 vi.mock("../../lib/auth/org-roles", () => ({ getOrgRole: (s: unknown) => getOrgRole(s) }));
 vi.mock("../../lib/payer-api", () => ({ getCredits: () => getCredits() }));
+vi.mock("../../lib/config", () => ({ agencyFlags: () => flags }));
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: ReactNode; href: string }) => ({
     type: "a",
@@ -41,8 +44,8 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/dashboard" }));
  * `sections` the server computed as plain anchors, plus the brand/header/footer slots
  * verbatim, and the walk sees exactly the hrefs and text the real rail would render.
  *
- * A Coming Soon item is rendered as a NON-anchor here, mirroring sidebar-nav.tsx — that is
- * load-bearing for the assertion that a parked capability is advertised but not navigable.
+ * Every item is rendered as an anchor, as sidebar-nav.tsx does: the model holds only
+ * destinations whose page renders for the session (there is no disabled item any more).
  */
 vi.mock("./app-shell", () => ({
   AppShell: ({
@@ -54,7 +57,7 @@ vi.mock("./app-shell", () => ({
   }: {
     sections: {
       title?: string;
-      items: { href: string; label: string; comingSoon?: boolean }[];
+      items: { href: string; label: string }[];
     }[];
     brand: ReactNode;
     header: ReactNode;
@@ -66,11 +69,7 @@ vi.mock("./app-shell", () => ({
       children: [
         brand,
         ...sections.flatMap((s) =>
-          s.items.map((i) =>
-            i.comingSoon
-              ? { type: "span", key: i.href, props: { children: [i.label, " Soon"] } }
-              : { type: "a", key: i.href, props: { href: i.href, children: i.label } },
-          ),
+          s.items.map((i) => ({ type: "a", key: i.href, props: { href: i.href, children: i.label } })),
         ),
         header,
         footer,
@@ -95,6 +94,16 @@ vi.mock("./account-menu", () => ({
       children: orgName,
     },
   }),
+}));
+
+// The balance chip is a client component (hooks: its tooltip's Escape listener); its own markup
+// is balance-chip.test.tsx. Here the stand-in records what the LAYOUT hands it.
+const chipCalls: Array<{ balance: number; linkToCredits: boolean }> = [];
+vi.mock("./balance-chip", () => ({
+  BalanceChip: (p: { balance: number; linkToCredits: boolean }) => {
+    chipCalls.push(p);
+    return { type: "span", props: { children: `chip:${p.balance}` } };
+  },
 }));
 
 const { default: PortalLayout } = await import("./layout");
@@ -160,6 +169,8 @@ beforeEach(() => {
   requirePayer.mockReset();
   getOrgRole.mockReset();
   getCredits.mockReset();
+  flags.agencyPortalEnabled = true;
+  chipCalls.length = 0;
 });
 
 describe("portal nav — Owner-only links by getOrgRole (affordance, NOT authz)", () => {
@@ -181,24 +192,31 @@ describe("portal nav — Owner-only links by getOrgRole (affordance, NOT authz)"
       expect(hrefs).toContain("/dashboard");
       expect(hrefs).toContain("/postings/new");
       expect(hrefs).toContain("/postings");
-      // Capacity now lives under the combined "Plans & Capacity" entry.
+      // Capacity now lives under the combined "Plans & capacity" entry.
       expect(hrefs).toContain("/plans");
     }
   });
 });
 
 describe("portal labeling — driven by session.role (server-side, not a client flag)", () => {
-  it("employer → 'Employers' wordmark + 'Post a job', no agency links", async () => {
+  it("employer → 'Companies' wordmark + 'New posting' on the company surface, no agency links", async () => {
     const { hrefs, text } = await render({ role: "employer", orgRole: "owner" });
-    expect(text).toContain("Employers");
-    expect(text).toContain("Post a job");
+    expect(text).toContain("Companies");
+    expect(text).not.toMatch(/Employer/);
+    expect(text).toContain("New posting");
+    expect(hrefs).toContain("/postings/new");
     expect(hrefs).not.toContain("/agency/dashboard");
+    expect(hrefs.filter((h) => h.startsWith("/agency"))).toEqual([]);
   });
 
-  it("agent → 'Agencies' wordmark + 'Post a vacancy' + agency referrals link", async () => {
+  it("agent → 'Agencies' wordmark + 'New posting' on the AGENCY surface + referrals link", async () => {
     const { hrefs, text } = await render({ role: "agent", orgRole: "owner" });
     expect(text).toContain("Agencies");
-    expect(text).toContain("Post a vacancy");
+    expect(text).toContain("New posting");
+    // An agency posts AGENCY jobs only: the rail never opens the company posting surface.
+    expect(hrefs).toContain("/agency/jobs/new");
+    expect(hrefs).toContain("/agency/jobs");
+    expect(hrefs.filter((h) => h.startsWith("/postings"))).toEqual([]);
     // MERGE-1: the agency dashboard is now the single /dashboard, so there is NO separate
     // "/agency/dashboard" nav entry for an agent (it would duplicate Dashboard). The referrals
     // deep page stays its own link.
@@ -213,7 +231,7 @@ describe("portal labeling — driven by session.role (server-side, not a client 
       // The wordmark is the brand kit's logotype IMAGE, so the lockup is named by its root
       // aria-label rather than by text; the persona caption stays text.
       expect(labels).toContain("BadaBhai");
-      expect(text).toContain(role === "agent" ? "for Agencies" : "for Employers");
+      expect(text).toContain(role === "agent" ? "for Agencies" : "for Companies");
     }
   });
 });
@@ -228,16 +246,43 @@ describe("portal identity — the compact account menu mounts in the shell", () 
 });
 
 describe("portal balance chip — fail-soft courtesy read", () => {
-  it("shows the live balance when the credits read succeeds", async () => {
+  it("hands the chip the LIVE balance", async () => {
     const { text } = await render({ balance: 247 });
-    expect(text).toContain("247");
-    expect(text).toContain("unlocks");
+    expect(text).toContain("chip:247");
+    expect(chipCalls.map((c) => c.balance)).toEqual([247]);
   });
 
   it("hides the chip (never throws) when the credits read fails", async () => {
     const { hrefs, text } = await render({ creditsThrows: true });
     // shell still renders — nav intact, no balance chip
     expect(hrefs).toContain("/dashboard");
-    expect(text).not.toContain("unlocks");
+    expect(chipCalls).toEqual([]);
+    expect(text).not.toContain("chip:");
+  });
+
+  it("the chip links to Credits for an OWNER only (a recruiter's /credits is a 404)", async () => {
+    await render({ orgRole: "owner", balance: 5 });
+    await render({ orgRole: "recruiter", balance: 5 });
+    expect(chipCalls.map((c) => c.linkToCredits)).toEqual([true, false]);
+  });
+});
+
+describe("portal nav — the agency items follow the agency-portal flag", () => {
+  it("flag OFF: an agent is offered no agency page (each would 404), the shared ones stay", async () => {
+    flags.agencyPortalEnabled = false;
+    const { hrefs } = await render({ role: "agent", orgRole: "owner" });
+    expect(hrefs.filter((h) => h.startsWith("/agency"))).toEqual([]);
+    expect(hrefs).toContain("/dashboard");
+    expect(hrefs).toContain("/credits");
+  });
+
+  it("an agent's rail never offers Plans & capacity (a company page) — whatever the flag", async () => {
+    for (const on of [true, false]) {
+      flags.agencyPortalEnabled = on;
+      for (const orgRole of ["owner", "recruiter"] as const) {
+        const { hrefs } = await render({ role: "agent", orgRole });
+        expect(hrefs, `flag ${on} ${orgRole}`).not.toContain("/plans");
+      }
+    }
   });
 });

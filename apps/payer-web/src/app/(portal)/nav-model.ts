@@ -25,13 +25,15 @@
  * The previous nav was a single flat row of 5–8 links in the header, which had three
  * concrete problems:
  *
- *  1. NO LEVELS. "Post a job" (used many times a day) sat at the same visual weight as
- *     "Plans & Capacity" (used perhaps twice a quarter). Grouping restores the hierarchy.
+ *  1. NO LEVELS. "New posting" (used many times a day) sat at the same visual weight as
+ *     "Plans & capacity" (used perhaps twice a quarter). Grouping restores the hierarchy.
  *
- *  2. ORPHANED SURFACES. `/agency/workers` and `/agency/bulk-upload` existed, were guarded,
- *     and were reachable ONLY from a tile on the agency dashboard — navigate away and the
- *     browser's back button was the only route back. They are now addressable from the nav.
- *     This exposes no new capability: both routes keep `requireAgent()` + their flag gate.
+ *  2. ORPHANED SURFACES. `/agency/workers` existed, was guarded, and was reachable ONLY from a
+ *     tile on the agency dashboard — navigate away and the browser's back button was the only
+ *     route back. It is now addressable from the nav. This exposes no new capability: the
+ *     route keeps `requireAgent()` + its flag gate. (`/agency/bulk-upload` is NOT in the nav:
+ *     it explains a module that will never be built, and the dashboard's Invite tools card is
+ *     its one way in.)
  *
  *  3. DUPLICATES PRESENTED AS PEERS. `/profile` used to render the very same `AccountForm`
  *     as `/account`, so the nav offered two doors onto one screen. `/account` is the
@@ -40,13 +42,21 @@
  *     (see profile/page.tsx) — it KEEPS WORKING for old links/bookmarks, it just no longer
  *     renders its own copy of the form or shows up in the nav.
  *
- * `comingSoon` marks a capability whose server side is real but is not open to this user
- * yet — a parked shell (`/agency/revenue`) or a flag that is OFF by default. Those render
- * greyed and non-interactive rather than being deleted, so the IA stays honest about scope
- * instead of hiding roadmap that already exists in the codebase.
+ * NAV FOLLOWS THE PAGE GATE (2026-10-01). An item is shown only when its page would render for
+ * this session: the agency items carry the SAME `agencyPortalEnabled` flag their pages check, so
+ * a switched-off agency surface leaves the rail instead of offering doors that 404. (The old
+ * `comingSoon` state — a greyed, non-link item for a route that 404s — is gone with its only
+ * user: "Bulk invite upload" is dead by design (ADR-0022 Amendment 3) and is never framed as
+ * coming.) `parked` stays: a reachable page that explains what is not built yet.
+ *
+ * NAMING (owner ruling 2026-10-01): the job entity is a "Posting" for BOTH personas — "New
+ * posting" creates one, "Postings" lists them. An agency posts AGENCY jobs only (the `jobs`
+ * table the worker feed reads), so its Demand items open `/agency/jobs*`; the company posting
+ * surface (`/postings*`, the `job_postings` table) is offered to companies only. Labels only:
+ * no route or API path was renamed to change a label.
  */
 
-import type { IconName } from "@badabhai/icons";
+import { ACTION_ICON, type IconName } from "@badabhai/icons";
 
 /**
  * WHICH PATHS LIGHT AN ITEM UP — as data, so it survives the RSC boundary.
@@ -73,7 +83,7 @@ export interface NavItem {
   label: string;
   /** Glyph (a typed `IconName`, so a typo fails typecheck). Always paired with a text label. */
   icon: IconName;
-  /** One line, shown as a tooltip when the rail is collapsed and under Coming Soon items. */
+  /** One line, shown as the tooltip when the rail is collapsed to icons. */
   description?: string;
   /**
    * Active when the current path is this route or a child of it. Kept as an explicit
@@ -82,20 +92,18 @@ export interface NavItem {
    */
   match: NavMatch;
   /**
-   * NOT REACHABLE yet: the route exists but its gate would answer with a neutral 404 for
-   * this user (a fail-closed flag that defaults OFF). Renders disabled and is never a link,
-   * because sending someone to a 404 is the "broken functionality" a Coming Soon state
-   * exists to prevent. Not a security control — the route's own gate is.
+   * The pages ONE level below this destination carry a back link to it (a posting's details →
+   * Postings; Post with AI → New posting). The header trail then names this destination as
+   * plain text on those pages — the back link is the way up, and one page offers one door per
+   * destination. Deeper pages (a posting's applicants) keep it as a link. Leave unset for a
+   * destination whose children have no back link to it (/team/accept is an invite landing).
    */
-  comingSoon?: boolean;
+  childrenLinkBack?: boolean;
   /**
-   * REACHABLE but parked: the route renders a real page that explains what is coming. It
-   * stays a normal link — the destination is an explanation, not a dead end — and carries
-   * the same SOON badge so the IA is honest about what you will find there.
-   *
-   * The distinction is the whole point. Marking these `comingSoon` too would orphan a page
-   * that exists and reads well; marking the 404-ing ones `parked` would walk users into a
-   * dead end. Which one a route is depends on its gate, so it is recorded per item.
+   * REACHABLE but parked: the route renders a real page that explains what is not built yet.
+   * It stays a normal link — the destination is an explanation, not a dead end — and carries a
+   * SOON badge so the rail sets the right expectation before the click. A route whose gate
+   * would 404 for this session is never parked: it is simply not in the model.
    */
   parked?: boolean;
 }
@@ -120,6 +128,12 @@ export interface NavModelInput {
    * through exactly as the old nav did; fixing the stub is a separate, deliberate change.
    */
   isOwner: boolean;
+  /**
+   * `agencyFlags().agencyPortalEnabled` — the gate EVERY agency page checks before it renders
+   * (off → neutral 404). The agency items follow it so the rail never offers a door that 404s.
+   * Affordance only, like the rest of this model.
+   */
+  agencyPortalEnabled: boolean;
 }
 
 /** True when `pathname` IS `base` or sits underneath it. Never a bare string prefix. */
@@ -141,6 +155,47 @@ export function isNavItemActive(match: NavMatch, pathname: string): boolean {
   return !match.except?.some((base) => isUnder(pathname, base));
 }
 
+/** Where a path sits in the nav: the destination that owns it, its group, and how far below. */
+export interface NavTrail {
+  item: NavItem;
+  /** The rail group the destination sits in (undefined for the lead group). */
+  group: string | undefined;
+  /** Path segments below the destination (0 = the destination itself). */
+  depth: number;
+}
+
+/**
+ * The deepest nav destination that owns `pathname` (the most specific match wins), with its
+ * group and the path's depth below it — what the header trail names, and what the error
+ * boundary offers as the way back up. `null` for a path no destination owns. A path the
+ * destination owns through another base (`/postings/ai/new` under New posting, whose route is
+ * `/postings/new`) counts from that base, where the base itself is one level down. Pure data.
+ */
+export function navTrail(sections: NavSection[], pathname: string): NavTrail | null {
+  let found: { item: NavItem; group: string | undefined } | null = null;
+  for (const section of sections) {
+    for (const item of section.items) {
+      if (!isNavItemActive(item.match, pathname)) continue;
+      if (!found || item.href.length > found.item.href.length) {
+        found = { item, group: section.title };
+      }
+    }
+  }
+  if (!found) return null;
+  return { ...found, depth: depthBelow(found.item, pathname) };
+}
+
+function depthBelow(item: NavItem, pathname: string): number {
+  const segments = (p: string) => p.split("/").filter(Boolean).length;
+  if (pathname === item.href) return 0;
+  if (pathname.startsWith(`${item.href}/`)) return segments(pathname) - segments(item.href);
+  for (const base of item.match.prefix ?? []) {
+    if (pathname === base) return 1;
+    if (pathname.startsWith(`${base}/`)) return segments(pathname) - segments(base);
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
 /** `/postings` owns its subtree except the two routes that carry their own nav entry. */
 const POSTINGS_LIST_MATCH: NavMatch = {
   prefix: ["/postings"],
@@ -148,17 +203,38 @@ const POSTINGS_LIST_MATCH: NavMatch = {
 };
 /** Posting a role and the AI chat that does the same job are ONE destination. */
 const POSTINGS_NEW_MATCH: NavMatch = { exact: ["/postings/new"], prefix: ["/postings/ai"] };
-/** /capacity is a subset of /plans (plans embeds the same CapacityPanel). */
-const PLANS_MATCH: NavMatch = { prefix: ["/plans", "/capacity"] };
+/** The agency's own postings (`jobs`): the list owns its subtree except the create form. */
+const AGENCY_POSTINGS_MATCH: NavMatch = {
+  prefix: ["/agency/jobs"],
+  except: ["/agency/jobs/new"],
+};
+const AGENCY_NEW_POSTING_MATCH: NavMatch = { exact: ["/agency/jobs/new"] };
+/**
+ * Plans & capacity. (/capacity is a redirect to its Hiring capacity section, so it never
+ * renders a page that could light anything.)
+ */
+const PLANS_MATCH: NavMatch = { prefix: ["/plans"] };
+
+const DASHBOARD_MATCH: NavMatch = { exact: ["/dashboard"] };
 
 /** Owner-only billing entry — identical for both account types. */
 function creditsItem(): NavItem {
   return {
     href: "/credits",
     label: "Credits",
-    icon: "wallet",
-    description: "Your unlock balance, top-ups and payment history.",
+    icon: ACTION_ICON.credits,
+    description: "Your credit balance, credit purchases and payment history.",
     match: { prefix: ["/credits"] },
+  };
+}
+
+function plansItem(): NavItem {
+  return {
+    href: "/plans",
+    label: "Plans & capacity",
+    icon: "chart-donut",
+    description: "How many postings you can run at once, and what each costs.",
+    match: PLANS_MATCH,
   };
 }
 
@@ -170,7 +246,7 @@ function organisationSection(): NavSection {
       {
         href: "/team",
         label: "Team",
-        icon: "users-three",
+        icon: ACTION_ICON.users,
         description: "Invite recruiters and manage who can access this account.",
         match: { prefix: ["/team"] },
       },
@@ -188,7 +264,7 @@ function companySections({ isOwner }: NavModelInput): NavSection[] {
           label: "Dashboard",
           icon: "squares-four",
           description: "Everything that needs you today, in one view.",
-          match: { exact: ["/dashboard"] },
+          match: DASHBOARD_MATCH,
         },
       ],
     },
@@ -197,39 +273,43 @@ function companySections({ isOwner }: NavModelInput): NavSection[] {
       items: [
         {
           href: "/postings/new",
-          label: "Post a job",
-          icon: "plus-circle",
+          label: "New posting",
+          icon: ACTION_ICON.create,
           description: "Describe the role and publish it to matched workers.",
           match: POSTINGS_NEW_MATCH,
+          childrenLinkBack: true,
         },
         {
           href: "/postings",
           label: "Postings",
-          icon: "briefcase",
-          description: "Manage open roles and review their applicants.",
+          icon: ACTION_ICON.posting,
+          description: "Manage your postings and review their applicants.",
           match: POSTINGS_LIST_MATCH,
+          childrenLinkBack: true,
         },
       ],
     },
     {
       title: "Billing",
-      items: [
-        {
-          href: "/plans",
-          label: "Plans & capacity",
-          icon: "chart-donut",
-          description: "How many roles you can run at once, and what each costs.",
-          match: PLANS_MATCH,
-        },
-        ...(isOwner ? [creditsItem()] : []),
-      ],
+      items: [plansItem(), ...(isOwner ? [creditsItem()] : [])],
     },
     ...(isOwner ? [organisationSection()] : []),
   ];
 }
 
-/** Level 1 + 2 + 3 + 4 for an AGENCY (agent) account. */
-function agencySections({ isOwner }: NavModelInput): NavSection[] {
+/**
+ * Level 1 + 2 + 3 + 4 for an AGENCY (agent) account.
+ *
+ * Every agency-only destination (Demand, Supply, Revenue) is behind the agency-portal flag on
+ * its page, so it is behind the same flag here. With the flag off an agency keeps Dashboard and
+ * (owner) Credits + Team — the shared surfaces whose pages do not check it.
+ *
+ * NO "Plans & capacity" (2026-10-01, a consequence of ruling 2): that page sells entitlements on
+ * COMPANY postings, and an agency posts agency jobs only — an agent who opens /plans or /capacity
+ * is sent to the dashboard. Billing for an agency is Credits, which only an owner can open.
+ */
+function agencySections({ isOwner, agencyPortalEnabled }: NavModelInput): NavSection[] {
+  const agencyOnly = (sections: NavSection[]) => (agencyPortalEnabled ? sections : []);
   return [
     {
       items: [
@@ -238,101 +318,80 @@ function agencySections({ isOwner }: NavModelInput): NavSection[] {
           label: "Dashboard",
           icon: "squares-four",
           description: "Demand, supply and referrals in one view.",
-          match: { exact: ["/dashboard"] },
+          match: DASHBOARD_MATCH,
         },
       ],
     },
-    {
-      title: "Demand",
-      items: [
-        {
-          href: "/postings/new",
-          label: "Post a vacancy",
-          icon: "plus-circle",
-          description: "Publish a vacancy and reach matched workers.",
-          match: POSTINGS_NEW_MATCH,
-        },
-        {
-          href: "/postings",
-          label: "Vacancies",
-          icon: "briefcase",
-          description: "Manage open vacancies and review their applicants.",
-          match: POSTINGS_LIST_MATCH,
-        },
-      ],
-    },
-    {
-      title: "Supply",
-      items: [
-        {
-          href: "/agency/workers",
-          label: "Workers",
-          icon: "users",
-          description: "Workers who joined through your referrals.",
-          match: { prefix: ["/agency/workers"] },
-        },
-        {
-          href: "/agency/referrals",
-          label: "Referrals",
-          icon: "share-network",
-          description: "Invite links, sign-up funnel and payout status.",
-          match: { prefix: ["/agency/referrals"] },
-        },
-        {
-          href: "/agency/qr",
-          label: "QR poster",
-          icon: "qr-code",
-          description: "A printable invite sheet for a workshop wall or chai stall.",
-          match: { prefix: ["/agency/qr"] },
-        },
-      ],
-    },
-    {
-      title: "Billing",
-      items: [
-        {
-          href: "/plans",
-          label: "Plans & capacity",
-          icon: "chart-donut",
-          description: "How many vacancies you can run at once, and what each costs.",
-          match: PLANS_MATCH,
-        },
-        ...(isOwner ? [creditsItem()] : []),
-      ],
-    },
-    ...(isOwner ? [organisationSection()] : []),
-    {
-      // LEVEL 4 — built on the server, not open yet. Every entry here corresponds to a real
-      // route or a real flag in this repo; none is invented roadmap.
-      title: "Coming soon",
-      items: [
-        {
-          href: "/agency/revenue",
-          label: "Revenue",
-          icon: "currency-inr",
-          // REACHABLE: agencyPortalEnabled defaults ON, so this renders a real parked page
-          // that explains what is coming (agency/revenue/page.tsx). Kept as a link.
-          description: "Earnings, payout history and revenue analytics for your agency.",
-          match: { prefix: ["/agency/revenue"] },
-          parked: true,
-        },
-        {
-          href: "/agency/bulk-upload",
-          label: "Bulk invite upload",
-          icon: "upload-simple",
-          // Route is real and guarded, but gated on agencyBulkUploadEnabled, which is a
-          // fail-closed NEXT_PUBLIC_* flag that defaults OFF.
-          description: "Mint invite codes for many workers from one spreadsheet.",
-          match: { prefix: ["/agency/bulk-upload"] },
-          comingSoon: true,
-        },
-      ],
-    },
+    ...agencyOnly([
+      {
+        title: "Demand",
+        items: [
+          {
+            href: "/agency/jobs/new",
+            label: "New posting",
+            icon: ACTION_ICON.create,
+            description: "Publish a posting for your agency and reach matched workers.",
+            match: AGENCY_NEW_POSTING_MATCH,
+          },
+          {
+            href: "/agency/jobs",
+            label: "Postings",
+            icon: ACTION_ICON.posting,
+            description: "Your agency's postings — edit, pause, resume and close them.",
+            match: AGENCY_POSTINGS_MATCH,
+            childrenLinkBack: true,
+          },
+        ],
+      },
+      {
+        title: "Supply",
+        items: [
+          {
+            href: "/agency/workers",
+            label: "Worker activity",
+            icon: ACTION_ICON.users,
+            description: "How the workers you referred are getting on.",
+            match: { prefix: ["/agency/workers"] },
+          },
+          {
+            href: "/agency/referrals",
+            label: "Referrals",
+            icon: "share-network",
+            description: "Invite links, sign-up funnel and payout status.",
+            match: { prefix: ["/agency/referrals"] },
+          },
+          {
+            href: "/agency/qr",
+            label: "QR invite",
+            icon: "qr-code",
+            description: "A printable invite sheet for a workshop wall or chai stall.",
+            match: { prefix: ["/agency/qr"] },
+          },
+        ],
+      },
+    ]),
+    ...(isOwner ? [{ title: "Billing", items: [creditsItem()] }, organisationSection()] : []),
+    ...agencyOnly([
+      {
+        // LEVEL 4 — a real route whose page explains what is not built yet.
+        title: "Coming soon",
+        items: [
+          {
+            href: "/agency/revenue",
+            label: "Revenue",
+            icon: "currency-inr",
+            description: "Revenue analytics for your agency, once it is built.",
+            match: { prefix: ["/agency/revenue"] },
+            parked: true,
+          },
+        ],
+      },
+    ]),
   ];
 }
 
 /**
- * Build the sections for a session. Pure — takes the two flags the shell already computes
+ * Build the sections for a session. Pure — takes the flags the shell already computes
  * server-side and returns data, so it is trivially unit-testable and holds no session.
  */
 export function navSections(input: NavModelInput): NavSection[] {

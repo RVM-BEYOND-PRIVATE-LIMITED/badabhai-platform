@@ -61,7 +61,7 @@ describe("ReferralFunnel — k-anon: a suppressed stage shows '<minBucket', neve
   });
 });
 
-describe("CARDS-1 · ReferralFunnel — each stage is a whole-card link to /agency/referrals", () => {
+describe("ReferralFunnel — each stage is a COUNT, not a door (one way to Referrals per dashboard)", () => {
   function findCards(node: ReactNode, acc: ReactElement[] = []): ReactElement[] {
     if (node === null || node === undefined || typeof node !== "object") return acc;
     if (Array.isArray(node)) {
@@ -74,16 +74,14 @@ describe("CARDS-1 · ReferralFunnel — each stage is a whole-card link to /agen
     return acc;
   }
 
-  it("links all three stage cards to /agency/referrals (static href, no PII)", () => {
+  it("renders the three stage cards with no link (the Invite tools card is the dashboard's door)", () => {
     const summary: AgencyReferralsSummary = { created: 30, clicked: 12, accepted: 5, minBucket: 5 };
     const cards = findCards(ReferralFunnel({ summary }));
     expect(cards.length).toBe(3);
     for (const c of cards) {
       const props = c.props as Record<string, unknown>;
-      expect(props.href).toBe("/agency/referrals");
-      expect(String(props.ariaLabel ?? "").length).toBeGreaterThan(0);
-      // faceless: the href is a static literal — no id of any kind
-      expect(props.href).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/i);
+      expect(props.href).toBeUndefined();
+      expect(props.ariaLabel).toBeUndefined();
     }
   });
 });

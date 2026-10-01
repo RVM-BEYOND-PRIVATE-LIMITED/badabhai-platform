@@ -68,7 +68,7 @@ export async function topUpAction(input: {
   await requireOwner();
 
   if (!packCodeSchema.safeParse(input.packCode).success) {
-    return { ok: false, error: "Choose a pack to top up." };
+    return { ok: false, error: "Choose a pack to buy." };
   }
   try {
     const result = await topUp({
@@ -96,7 +96,7 @@ export async function topUpAction(input: {
     }
     // Every other failure collapses to ONE retryable line — the caller never learns whether the
     // pack, the org, or the backend was the reason (no-oracle, same posture as the gate).
-    return { ok: false, error: "Top-up failed (service unavailable). Please retry." };
+    return { ok: false, error: "Purchase failed (service unavailable). Please retry." };
   }
 }
 

@@ -3,6 +3,7 @@
 import { useEffect, useId, useState } from "react";
 import type { ReactNode } from "react";
 import { SidebarNav } from "./sidebar-nav";
+import { NavSectionsProvider } from "./nav-context";
 import type { NavSection } from "./nav-model";
 
 /**
@@ -122,7 +123,9 @@ export function AppShell({
         </header>
 
         <main className="pshell__content" id="main">
-          {children}
+          {/* The same sections, for the content column's client pieces (the error boundary's
+              way back up — nav-context.tsx). */}
+          <NavSectionsProvider value={sections}>{children}</NavSectionsProvider>
         </main>
       </div>
     </div>

@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requireAgent } from "../../../lib/auth/roles";
 import { agencyFlags } from "../../../lib/config";
 import {
@@ -7,6 +9,9 @@ import {
 } from "../../../lib/payer-api";
 import { assertNoAgencyPII } from "../../../lib/assert-no-agency-pii";
 import { summarizeAgencyJobs } from "../../../lib/agency-summary";
+import { tradeLabel } from "../../../lib/agency-view";
+import { bandLabel } from "../../../lib/masking";
+import { AGENCY_POSTING_ROUTES } from "../../../lib/posting-routes";
 import type {
   AgencyAccount,
   AgencyJob,
@@ -14,7 +19,6 @@ import type {
 } from "../../../lib/contracts";
 import { Badge, Card } from "../../../components/ds";
 import { RetryButton } from "../../../components/retry-button";
-import { AgencyJobsManager } from "../agency/dashboard/agency-jobs-manager";
 import { AgencyInvitePanel } from "../agency/dashboard/invite-panel";
 import { ReferralFunnel } from "../agency/dashboard/referral-funnel";
 import { AgencyParkedModules } from "../agency/dashboard/parked-modules";
@@ -38,20 +42,24 @@ import { AgencyParkedModules } from "../agency/dashboard/parked-modules";
  * boundary (defence-in-depth; the data seam also wraps it). k-anon flooring is applied inside
  * the referral funnel. NO worker id/phone/name ever enters the DOM or an href.
  *
- * LIVE (honest labelling): the account identity, the agency's OWN vacancies
- * (`/payer/agency/jobs` — list + create + edit + pause + close), the invite mint
+ * LIVE (honest labelling): the account identity, a glance at the agency's OWN postings
+ * (`/payer/agency/jobs`; they are created on `/agency/jobs/new` and managed on `/agency/jobs`),
+ * the invite mint
  * (`POST /payer/agency/invites`), and the referral funnel
  * (`/payer/agency/referrals/summary`, aggregate + k-anon) are ALL LIVE payer-authed,
  * agent-role-gated reads/writes (ADR-0022). DATA-COHERENCE: for an agent these AGENCY
- * vacancies (`jobs.payer_id`) — NOT the employer `job-postings` the shared dashboard top
- * reads — are the source of truth for the vacancy count + listing; the shared top therefore
- * omits its `job-postings`-derived "Open vacancies" tile + "Your vacancies" section for agents
- * so the two never contradict (see dashboard/page.tsx).
+ * postings (`jobs.payer_id`) — NOT the employer `job-postings` the shared dashboard top
+ * reads — are the source of truth for the posting count + listing; the shared top therefore
+ * omits its `job-postings`-derived tile + "Your postings" section for agents so the two never
+ * contradict (see dashboard/page.tsx). Every "New posting" for an agency opens the AGENCY form.
  *
  * The credits + unlocked-count stat tiles are NOT repeated here: they are coherent between
  * the two surfaces (same payer-authed reads) and already render in the shared top, so this
  * section adds only the agency-SPECIFIC identity + demand modules.
  */
+/** How many of the agency's postings the dashboard glances at (the company panel's count). */
+const GLANCE_ROWS = 6;
+
 export async function AgentSections() {
   // 1) SERVER-enforced role gate — employer → neutral 404, before any agency read runs.
   const session = await requireAgent();
@@ -116,7 +124,7 @@ export async function AgentSections() {
           alert's own action slot so a degraded read always offers the way out. */}
       {readError ? (
         <div className="alert alert--warning">
-          <i className="ph-fill ph-warning alert__icon" aria-hidden="true" />
+          <Icon name="warning" className="alert__icon" />
           <div className="alert__text">
             <p className="alert__title">Some signals unavailable</p>
             <p className="alert__body">
@@ -160,23 +168,20 @@ export async function AgentSections() {
       </section>
 
       {/* b) DEMAND SUMMARY — counts derived from the agency's OWN LIVE jobs. This is the
-          AGENT's authoritative vacancy count (NOT the shared top's job-postings tile). */}
+          AGENT's authoritative posting count (NOT the shared top's job-postings tile). */}
       <section>
         <div className="section__head">
           <div className="section__text">
             <h2 className="section__title">Demand summary</h2>
-            <p className="section__sub">Counts across the vacancies your agency has posted.</p>
+            <p className="section__sub">Counts across the postings your agency has published.</p>
           </div>
         </div>
         <div className="stat-row">
-          {/* Whole-card link to the vacancy manager section below (same page now, #-fragment). */}
-          <Card
-            className="agency-stat"
-            href="/dashboard#agency-vacancies"
-            ariaLabel={`Total vacancies ${dash(demand ? demand.total : null)} — manage vacancies`}
-          >
+          {/* A count, not a door: "All postings" on the panel below is this screen's one link
+              to the Postings page. */}
+          <Card className="agency-stat">
             <div className="agency-stat__head">
-              <span className="agency-stat__label">Total vacancies</span>
+              <span className="agency-stat__label">Total postings</span>
             </div>
             <div className="agency-stat__value bb-mono">{dash(demand ? demand.total : null)}</div>
             <div className="agency-stat__foot">
@@ -226,56 +231,90 @@ export async function AgentSections() {
             <div className="agency-stat__value">View activity</div>
             <div className="agency-stat__foot">
               <span className="agency-stat__hint">
-                Referred workers who opted in{" "}
-                <i className="ph-fill ph-arrow-right" aria-hidden="true" />
+                Referred workers who opted in <Icon name={ACTION_ICON.next} />
               </span>
             </div>
           </Card>
-          <Card
-            className="agency-stat"
-            href="/agency/revenue"
-            ariaLabel="View revenue and earnings"
-          >
-            <div className="agency-stat__head">
-              <span className="agency-stat__label">Revenue</span>
-            </div>
-            <div className="agency-stat__value bb-mono">—</div>
-            <div className="agency-stat__foot">
-              <span className="agency-stat__hint">
-                View earnings <i className="ph-fill ph-arrow-right" aria-hidden="true" />
-              </span>
-            </div>
-          </Card>
+          {/* No Revenue card here: the shared top's Revenue tile is the dashboard's one way to
+              that (parked) page — two on one screen, one captioned "View earnings" for a page
+              that has none, was the duplicate. */}
         </div>
       </section>
 
-      {/* c) VACANCY MANAGEMENT — LIVE list + create/edit/pause/close on the agency jobs.
-          `id` is the in-page anchor target for the "Total vacancies" demand tile (#-fragment). */}
-      <section id="agency-vacancies" className="panel">
+      {/* c) YOUR POSTINGS — a glance at the agency's OWN postings: each card opens that
+          posting's details, and the panel's one link opens the Postings page where they are
+          managed. (An agency posting's applicants are not reachable in the UI yet — the feed
+          endpoint does not serve agency jobs correctly; backend issue #1898.) `id` keeps old
+          `#agency-vacancies` deep links landing here. */}
+      <section id="agency-vacancies" className="panel anchor-target">
         <div className="panel__head">
           <div className="panel__text">
-            <h2 className="panel__title">Your vacancies</h2>
-            <p className="panel__sub">
-              The roles your agency has posted — create, edit, pause or close them here.
-            </p>
+            <h2 className="panel__title">Your postings</h2>
+            <p className="panel__sub">The roles your agency has published, newest first.</p>
+          </div>
+          <div className="panel__actions">
+            <Link className="bb-btn bb-btn--secondary bb-btn--sm" href={AGENCY_POSTING_ROUTES.list}>
+              <span>All postings</span>
+              <Icon name={ACTION_ICON.next} />
+            </Link>
           </div>
         </div>
         <div className="panel__body">
-          {jobs ? (
-            <AgencyJobsManager jobs={jobs} />
-          ) : (
+          {jobs === null ? (
             <div className="state state--error">
               <span className="state__icon">
-                <i className="ph-fill ph-warning-circle" aria-hidden="true" />
+                <Icon name="warning-circle" />
               </span>
-              <h3 className="state__title">Vacancies are unavailable right now</h3>
+              <h3 className="state__title">Postings are unavailable right now</h3>
               <p className="state__body">
-                The list could not be read. Nothing has changed — your vacancies are still
-                there. Please retry shortly.
+                The list could not be read. Nothing has changed — your postings are still there.
+                Please retry shortly.
               </p>
               <div className="state__actions">
                 <RetryButton />
               </div>
+            </div>
+          ) : jobs.length === 0 ? (
+            <div className="state">
+              <span className="state__icon">
+                <Icon name={ACTION_ICON.posting} />
+              </span>
+              <h3 className="state__title">No postings yet</h3>
+              <p className="state__body">
+                Matched workers can only find your agency once a role is live — use New posting
+                above. Posting is free through launch.
+              </p>
+            </div>
+          ) : (
+            <div className="dash-postings">
+              {jobs.slice(0, GLANCE_ROWS).map((j) => (
+                // Whole-card link to THIS posting's details. The id is the posting's OWN opaque
+                // uuid (never a worker id/phone).
+                <Card
+                  key={j.id}
+                  padding="sm"
+                  className="dash-posting"
+                  href={`${AGENCY_POSTING_ROUTES.list}/${j.id}`}
+                  ariaLabel={`${j.title} — view posting`}
+                >
+                  <div className="dash-posting__main">
+                    <div className="dash-posting__title">{j.title}</div>
+                    <div className="dash-posting__meta">
+                      {tradeLabel(j.tradeKey)} ·{" "}
+                      {bandLabel([j.city, j.area]) || "Location flexible"}
+                    </div>
+                  </div>
+                  <div className="dash-posting__right">
+                    <Badge tone={j.status === "open" ? "success" : "neutral"} upper>
+                      {j.status}
+                    </Badge>
+                    <span className="dash-posting__cta">
+                      View posting
+                      <Icon name={ACTION_ICON.next} className="dash-view__arrow" />
+                    </span>
+                  </div>
+                </Card>
+              ))}
             </div>
           )}
         </div>
@@ -285,14 +324,15 @@ export async function AgentSections() {
       <AgencyInvitePanel />
 
       {/* d2) INVITE TOOLS — the LIVE ways to hand out invites (QR, batch mint) plus the ONE
-          module that is not available. HONESTY (ADR-0022 Amdt 3): "Bulk Invite Upload"
+          module that is not available. HONESTY (ADR-0022 Amdt 3): "Bulk invite upload"
           (module 2) is DEAD with NO gate — it would have the agency upload real people's
           contacts before consent (invariant #2 + the faceless rails) — so it is NEVER
           advertised as coming. Batch invite MINTING is the shipped answer to the same need
           and is the opposite shape: BadaBhai generates anonymous links that identify nobody.
           The two must stay distinguishable in the copy, not blurred into "bulk unavailable".
           The bulk card still LINKS to /agency/bulk-upload, which explains the reason (the
-          route stays so the tile never 404s). */}
+          route stays so the tile never 404s) — and it is the portal's ONE way there: the rail
+          and the parked-modules list no longer show it. */}
       <section>
         <div className="section__head">
           <div className="section__text">
@@ -307,7 +347,7 @@ export async function AgentSections() {
             ariaLabel="Generate a scannable invite QR code"
           >
             <div className="agency-stat__head">
-              <span className="agency-stat__label">QR Code</span>
+              <span className="agency-stat__label">QR invite</span>
             </div>
             <div className="agency-stat__value">Generate QR</div>
             <div className="agency-stat__foot">
@@ -338,7 +378,7 @@ export async function AgentSections() {
             ariaLabel="Bulk invite upload — not available: consent violation"
           >
             <div className="agency-stat__head">
-              <span className="agency-stat__label">Bulk Upload</span>
+              <span className="agency-stat__label">Bulk invite upload</span>
             </div>
             <div className="agency-stat__value">Not available</div>
             <div className="agency-stat__foot">

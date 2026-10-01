@@ -1,3 +1,4 @@
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { getCreditTopUps, getDashboard } from "../../../lib/payer-api";
 import { requireOwner } from "../../../lib/auth/org-roles";
 import {
@@ -14,6 +15,7 @@ import { opaqueId } from "../../../lib/masking";
 import type { CreditTopUp, Dashboard, UnlockHistoryItem } from "../../../lib/contracts";
 import { Badge, Card, StatTile } from "../../../components/ds";
 import { CachedPricingNote } from "../../../components/cached-pricing-note";
+import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
 import { CreditsPanel } from "./credits-panel";
 
@@ -59,7 +61,9 @@ export default async function CreditsPage() {
   let dashboard: Dashboard | null = null;
   let error: string | null = null;
   try {
-    dashboard = await getDashboard();
+    // The balance + the unlock half of the ledger; this page shows no postings, so it never
+    // asks for the company postings list.
+    dashboard = await getDashboard({ withPostings: false });
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
@@ -83,30 +87,27 @@ export default async function CreditsPage() {
 
   return (
     <>
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">Credits</h1>
-          <p className="page-head__sub">
-            1 credit = 1 contact unlock{unit !== null ? ` (${formatInr(unit)} per unlock)` : ""}.{" "}
-            {realPayments
-              ? "Pay securely via Razorpay — credits are added as soon as the payment is confirmed."
-              : "Mock top-up — no real payment is taken in this staging preview."}
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Credits"
+        description={`1 credit = 1 contact unlock${unit !== null ? ` (${formatInr(unit)} per unlock)` : ""} — ${
+          realPayments
+            ? "pay securely via Razorpay; credits are added as soon as the payment is confirmed."
+            : "mock purchases only; no real payment is taken in this staging preview."
+        }`}
+      />
 
       {!live ? <CachedPricingNote /> : null}
 
       {lowBalance ? (
         <div className="alert alert--warning">
-          <i className="ph-fill ph-warning alert__icon" aria-hidden="true" />
+          <Icon name="warning" className="alert__icon" />
           <div className="alert__text">
             <p className="alert__title">Running low</p>
             <p className="alert__body">
               You&rsquo;re running low — <span className="bb-mono">{balance}</span> credit
-              {balance === 1 ? "" : "s"} left. Top up below to keep unlocking candidates. We nudge
-              below {threshold} credits — this is your own balance, never a signal about any
-              candidate.
+              {balance === 1 ? "" : "s"} left. Buy credits below to keep unlocking applicants. We
+              nudge below {threshold} credits — this is your own balance, never a signal about any
+              applicant.
             </p>
           </div>
         </div>
@@ -116,7 +117,7 @@ export default async function CreditsPage() {
         <Card>
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
+              <Icon name="warning-circle" />
             </span>
             <h2 className="state__title">Service unavailable</h2>
             <p className="state__body">
@@ -135,7 +136,7 @@ export default async function CreditsPage() {
               className="credits-balance"
               label="Credit balance"
               value={dashboard.credits.balance}
-              icon="wallet"
+              icon={ACTION_ICON.credits}
               caption={
                 unit !== null ? (
                   <>
@@ -148,7 +149,7 @@ export default async function CreditsPage() {
           <section className="section">
             <div className="section__head">
               <div className="section__text">
-                <h2 className="section__title">Top up</h2>
+                <h2 className="section__title">Buy credits</h2>
                 <p className="section__sub">
                   Pick a pack — the credits land in the balance above and can be spent on any
                   contact unlock.
@@ -165,8 +166,8 @@ export default async function CreditsPage() {
           <div className="panel__text">
             <h2 className="panel__title">History</h2>
             <p className="panel__sub">
-              Your own credit movements — top-ups and unlock spends. Ids and amounts only; no
-              candidate identity is ever shown.
+              Your own credit movements — purchases and unlock spends. Ids and amounts only; no
+              applicant identity is ever shown.
             </p>
           </div>
         </div>
@@ -192,7 +193,9 @@ export default async function CreditsPage() {
                       <td className="mono">{day(t.at)}</td>
                       <td>
                         {t.kind === "topup" ? (
-                          <Badge tone="success">Top-up</Badge>
+                          // "Purchase": credits are BOUGHT ("Buy credits"); "Top up" also
+                          // named adding applicant slots to a posting.
+                          <Badge tone="success">Purchase</Badge>
                         ) : (
                           <Badge tone="neutral">Unlock</Badge>
                         )}
@@ -214,7 +217,7 @@ export default async function CreditsPage() {
             // say that rather than claiming there were never any movements.
             <div className="state state--error">
               <span className="state__icon">
-                <i className="ph-fill ph-warning-circle" aria-hidden="true" />
+                <Icon name="warning-circle" />
               </span>
               <h3 className="state__title">History unavailable</h3>
               <p className="state__body">
@@ -228,12 +231,12 @@ export default async function CreditsPage() {
           ) : (
             <div className="state">
               <span className="state__icon">
-                <i className="ph-fill ph-receipt" aria-hidden="true" />
+                <Icon name="receipt" />
               </span>
               <h3 className="state__title">No credit movements yet</h3>
               <p className="state__body">
-                Top-ups and unlock spends land here the moment they happen. Buy a pack above to get
-                started.
+                Credit purchases and unlock spends land here the moment they happen. Buy a pack above
+                to get started.
               </p>
             </div>
           )}
@@ -245,7 +248,7 @@ export default async function CreditsPage() {
           <div className="panel__text">
             <h2 className="panel__title">Credit expiry</h2>
             <p className="panel__sub">
-              Purchased credits expire {validityMonths} months after the top-up. Soonest first.
+              Purchased credits expire {validityMonths} months after the purchase. Soonest first.
             </p>
           </div>
         </div>
@@ -274,7 +277,7 @@ export default async function CreditsPage() {
           ) : (
             <div className="state">
               <span className="state__icon">
-                <i className="ph-fill ph-hourglass" aria-hidden="true" />
+                <Icon name="hourglass" />
               </span>
               <h3 className="state__title">Nothing expiring yet</h3>
               <p className="state__body">
@@ -287,7 +290,7 @@ export default async function CreditsPage() {
 
       {realPayments ? (
         <div className="alert alert--info">
-          <i className="ph-fill ph-shield-check alert__icon" aria-hidden="true" />
+          <Icon name="shield-check" className="alert__icon" />
           <div className="alert__text">
             <p className="alert__title">Payments by Razorpay.</p>
             <p className="alert__body">
@@ -298,7 +301,7 @@ export default async function CreditsPage() {
         </div>
       ) : (
         <div className="alert alert--info">
-          <i className="ph-fill ph-info alert__icon" aria-hidden="true" />
+          <Icon name="info" className="alert__icon" />
           <div className="alert__text">
             <p className="alert__title">Mock payments only.</p>
             <p className="alert__body">

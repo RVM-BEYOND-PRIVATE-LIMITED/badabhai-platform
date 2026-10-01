@@ -96,7 +96,7 @@ describe("topUpQuotaAction — the paid action's honesty contracts", () => {
     expect(res.ok).toBe(true);
     if (res.ok) {
       expect(res.posting).toEqual(POSTING);
-      expect(res.notice).toBe("Top-up applied — added 10 applicant views.");
+      expect(res.notice).toBe("Applicant slots added — 10 more applicant views.");
     }
     expect(revalidatePath).toHaveBeenCalledWith("/postings");
   });
@@ -130,7 +130,7 @@ describe("topUpQuotaAction — the paid action's honesty contracts", () => {
     topUpPostingQuota.mockRejectedValue(new Error("network"));
     expect(await topUpQuotaAction({ postingId: ID })).toEqual({
       ok: false,
-      error: "Could not top up the quota right now. Please retry.",
+      error: "Could not add applicant slots right now. Please retry.",
     });
   });
 });

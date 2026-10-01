@@ -8,10 +8,12 @@ import { PayoutPanel } from "./payout-panel";
 import { AgencyInvitePanel } from "../dashboard/invite-panel";
 
 /**
- * AGENCY "Referrals & earnings" page (ADR-0022 Amendment 2) — role gate + LIVE funnel +
- * GATED supply money.
+ * AGENCY "Referrals" page (ADR-0022 Amendment 2) — role gate + LIVE funnel + GATED supply
+ * money.
  *
  *  - `requireAgent()` runs FIRST (an employer never reaches any read);
+ *  - the agency-portal flag gates it like every sibling agency page (off → neutral 404, no
+ *    read) — the nav hides the item on the same flag;
  *  - the referral LINK (invite mint) + the aggregate, k-anon funnel are LIVE regardless
  *    of the payout gate;
  *  - while payouts are OFF (the earnings read 404s → seam `null`) the money surface is a
@@ -31,7 +33,12 @@ const getAgencyEarnings = vi.fn<() => Promise<AgencyEarnings | null>>();
 const getAgencyKyc = vi.fn<() => Promise<AgencyKyc | null>>();
 const listAgencyPayouts = vi.fn();
 
+const notFound = vi.fn(() => {
+  throw new Error("NEXT_NOT_FOUND");
+});
+const flags = { agencyPortalEnabled: true };
 vi.mock("../../../../lib/auth/roles", () => ({ requireAgent: () => requireAgent() }));
+vi.mock("../../../../lib/config", () => ({ agencyFlags: () => flags }));
 vi.mock("../../../../lib/payer-api", () => ({
   getAgencyReferralsSummary: () => getAgencyReferralsSummary(),
   getAgencyEarnings: () => getAgencyEarnings(),
@@ -40,7 +47,10 @@ vi.mock("../../../../lib/payer-api", () => ({
 }));
 vi.mock("../../../../components/retry-button", () => ({ RetryButton: () => null }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+  notFound: () => notFound(),
+}));
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: ReactNode; href: string }) => ({
     type: "a",
@@ -100,6 +110,8 @@ const KYC: AgencyKyc = {
 };
 
 beforeEach(() => {
+  flags.agencyPortalEnabled = true;
+  notFound.mockClear();
   requireAgent.mockReset().mockResolvedValue({ payerId: "p", role: "agent", displayLabel: "A" });
   getAgencyReferralsSummary.mockReset().mockResolvedValue(SUMMARY);
   getAgencyEarnings.mockReset().mockResolvedValue(EARNINGS);
@@ -113,6 +125,21 @@ describe("agency referrals page — role gate", () => {
     await expect(AgencyReferralsPage()).rejects.toThrow("NEXT_NOT_FOUND");
     expect(getAgencyEarnings).not.toHaveBeenCalled();
     expect(getAgencyReferralsSummary).not.toHaveBeenCalled();
+  });
+
+  it("the agency-portal flag OFF is a neutral 404 BEFORE any read (same gate as its siblings)", async () => {
+    flags.agencyPortalEnabled = false;
+    await expect(AgencyReferralsPage()).rejects.toThrow("NEXT_NOT_FOUND");
+    expect(notFound).toHaveBeenCalledTimes(1);
+    expect(getAgencyReferralsSummary).not.toHaveBeenCalled();
+    expect(getAgencyEarnings).not.toHaveBeenCalled();
+    expect(getAgencyKyc).not.toHaveBeenCalled();
+    expect(listAgencyPayouts).not.toHaveBeenCalled();
+  });
+
+  it("the flag ON renders (the gate permits what it must)", async () => {
+    await expect(AgencyReferralsPage()).resolves.toBeTruthy();
+    expect(notFound).not.toHaveBeenCalled();
   });
 });
 

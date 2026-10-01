@@ -261,19 +261,8 @@ body {
     var(--ring-focus);
 }
 
-/* COMING SOON — a <span>, never a link (see sidebar-nav.tsx). Deliberately colourless:
-   any tint would read as a status the user should act on. */
-.pnav__link--soon {
-  color: var(--text-on-ink-disabled);
-  cursor: not-allowed;
-}
-.pnav__link--soon .pnav__icon {
-  color: var(--text-on-ink-disabled);
-}
-.pnav__link--soon:hover {
-  background: transparent;
-  color: var(--text-on-ink-disabled);
-}
+/* The SOON badge on a PARKED item — a live link to a page that explains what is not built (see
+   sidebar-nav.tsx). The rail has no disabled item: a page that would 404 is not in the nav. */
 .pnav__soon {
   margin-left: auto;
   flex: none;
@@ -368,6 +357,16 @@ body {
      card's own border lines up with it. */
   box-shadow: var(--shadow-sticky);
 }
+/* In-page link targets — the element a URL fragment names (`/plans#hiring-capacity`, the
+   `/agency/referrals#batch-invites` tile, the legacy `#agency-vacancies` deep link). The browser
+   (and the router, on an in-app link) scrolls that element to the top of the viewport — UNDER
+   the sticky header above, which hid its title (measured: "Hiring capacity" at y=0-22px behind
+   the 61px header at 375/768/1280). This margin lands it below the header, a block gap clear.
+   Opt-in per target: on every [id] it would also offset an option a listbox scrolls into view
+   inside its own menu. */
+.anchor-target {
+  scroll-margin-top: calc(var(--shell-header-h) + var(--space-4));
+}
 .pshell__menu {
   display: none;
   align-items: center;
@@ -395,8 +394,9 @@ body {
 }
 
 /* Wallet position — the number a payer checks most, and the one that blocks the core loop
-   at zero. Money is green in this system. */
+   at zero. Money is green in this system. Positioned: it is its tooltip's containing block. */
 .pshell__balance {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -435,11 +435,15 @@ body {
 }
 
 /* ---- breadcrumb ---- */
+/* The trail takes the header's free space (`flex: 1 1 0`) and is its own size CONTAINER, so the
+   container query below can stop drawing it when that space is narrower than one 44px target. */
 .pcrumb {
   display: flex;
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
+  flex: 1 1 0;
+  container-type: inline-size;
   flex-wrap: wrap;
   font-size: var(--ui-body-sm-size);
   line-height: var(--leading-snug);
@@ -455,6 +459,8 @@ body {
   white-space: nowrap;
 }
 .pcrumb__link {
+  display: inline-flex;
+  min-width: 0;
   color: var(--text-muted);
   text-decoration: none;
   white-space: nowrap;
@@ -470,12 +476,13 @@ body {
   font-size: var(--ui-caption-size);
   flex: none;
 }
-.pcrumb__here {
-  font-family: var(--font-sans);
-  font-size: var(--ui-h3-size);
-  font-weight: var(--ui-h3-weight);
-  letter-spacing: var(--ui-h3-tracking);
-  color: var(--text-heading);
+/* The trail is SECTION context only — the group, and on a child page the section as a link back
+   up (portal-breadcrumb.tsx). The page's own name is its H1, so no step here is styled as a
+   title. A step that does not fit ellipsizes rather than painting under the header actions. The
+   link ellipsizes through its LABEL, not itself: `overflow: hidden` on the link would clip the
+   link's own out-of-flow hit strip (below) back to its ~18px text box. */
+.pcrumb__group,
+.pcrumb__label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -614,14 +621,23 @@ body {
   }
 }
 
-/* Very narrow phones: the balance chip's word is the first thing that can go. Then the header's
-   own slack: its inline padding and gaps step down one size, and the theme toggle's "System"
-   pill shows only its icon (the button keeps its accessible name, "Follow system theme", and its
-   phone hit strip). The actions group is `flex: none`, so without this it was ~265px wide and the
-   page scrolled sideways at 320–360px while the breadcrumb collapsed to 0px under it. */
-@media (max-width: 420px) {
+/* Narrow phones (≤540px): the balance chip's unit word is the first thing that can go — visually
+   only: it stays in the chip's accessible name ("247 credits"). Then the header's own slack: its
+   inline padding and gaps step down one size, and the theme toggle's "System" pill shows only its
+   icon (the button keeps its accessible name, "Follow system theme", and its phone hit strip).
+   The actions group is `flex: none`, so without this it was ~265px wide and the page scrolled
+   sideways at 320–360px while the breadcrumb collapsed to 0px under it. The step used to stop at
+   420px, and from 421 to 540px the full-width actions left the breadcrumb ~0px (measured at
+   430/480/540px with a 4-digit balance) — so it now covers every phone width that needs it. */
+@media (max-width: 540px) {
   .pshell__balancelabel {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
   }
   .pshell__header {
     gap: var(--space-2);
@@ -631,14 +647,64 @@ body {
     display: none;
   }
 }
-/* Phones: the trail keeps only its CURRENT page (which ellipsizes). Its parent steps are `nowrap`
-   text, so in the 0–80px a phone header leaves the trail (0px at 421–430px with a 4-digit
-   balance) they painted on under the balance chip — the parent link still focusable beneath it.
-   That destination stays in the menu, and a detail page carries it as its back link too. */
+/* …and there the chip's TOOLTIP carries the hidden words ("247 credits", balance-chip.tsx: the
+   shared `.bb-icon-tip`, on hover and keyboard focus, Escape-dismissable). Wider, the words are
+   on the chip itself, so the tooltip never shows. */
+@media (min-width: 541px) {
+  .pshell__balance > .bb-icon-tip {
+    display: none;
+  }
+}
+/* Phones: the trail keeps only its LAST step, which ellipsizes — the group on a top-level page,
+   the section link on a page below it (the page itself is never a step: its H1 names it). The
+   earlier steps are `nowrap` text, so in the little width a phone header leaves the trail they
+   painted on under the balance chip, a link still focusable beneath it. Every hidden step stays
+   in the menu; a child page's real parent is its back link, which is not always the section the
+   trail names (an applicants page goes back to its posting, the trail to Postings). */
 @media (max-width: 600px) {
   .pcrumb > :not(:last-child),
   .pcrumb__step > .pcrumb__sep {
     display: none;
+  }
+}
+
+/* …and that link is a finger target there. Its HIT AREA grows to the md control height with an
+   out-of-flow strip behind its text (the DS strip, vertical only): the header row holds 44px, and
+   a strip that never reaches sideways can never meet the hamburger's strip or the actions. */
+@media (max-width: 600px), (pointer: coarse) {
+  .pcrumb__link {
+    position: relative;
+    isolation: isolate;
+    /* A short label ("Team") is still a 44px-wide target; the strip spans the link's box. */
+    min-width: var(--control-md);
+  }
+  .pcrumb__link::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: 0;
+  }
+}
+/* A trail link is a whole 44px target or it is not drawn. Squeezed between the menu button and
+   the header actions, the trail used to shrink to a few pixels at 320px — a link still focusable
+   as a 3px sliver. When the free space is narrower than one target the trail draws nothing; the
+   page's H1 and back link carry the context there. (The threshold is --control-md: a container
+   query cannot read a custom property.) */
+@container (width < 44px) {
+  .pcrumb > * {
+    display: none;
+  }
+}
+/* The narrowest common phones (360-374px — the most common Android width): the header's inline
+   padding and the balance chip's own padding step down once more, which frees the 16px a 44px
+   trail link needs beside a 5-digit balance (it was 1.4px short at 360px — measured). */
+@media (max-width: 374px) {
+  .pshell__header {
+    padding-inline: var(--space-3);
+  }
+  .pshell__balance {
+    padding-inline: var(--space-2);
   }
 }
 
@@ -1683,22 +1749,13 @@ textarea.input {
 .dash-posting:hover .dash-view__arrow {
   color: var(--text-accent);
 }
-/* CARDS-1 — wrapper around a Recent-unlock MaskedCandidate that turns the WHOLE row into a
-   stretched link. The wrapper Card carries the link + relative context only, so we zero its
-   own surface (no double border/shadow/pad) and let the inner .bb-candidate render as before.
-   The hover lift/shadow on the wrapper is suppressed; the inner row keeps its own card look. */
+/* The wrapper Card around a Recent-unlock MaskedCandidate: its own surface is zeroed (no double
+   border/shadow/pad) so only the inner .bb-candidate row shows. The row is NOT a link (the list
+   it used to open shows no unlocks), so it has no hover lift — a lift says "you can click this". */
 .dash-unlock-link {
   border: none;
   background: none;
   box-shadow: none;
-}
-.dash-unlock-link:hover {
-  transform: translateY(-2px);
-  box-shadow: none;
-}
-.dash-unlock-link:hover .bb-candidate {
-  box-shadow: var(--shadow-md);
-  border-color: var(--border-default);
 }
 .dash-empty,
 .dash-state {
@@ -2225,6 +2282,29 @@ textarea.input {
   color: var(--text-primary);
   font-size: var(--text-sm);
 }
+/* The masked-resume link opens a new tab: its text, then the external-link icon. */
+.reveal-card__ext {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--icon-gap);
+}
+/* …and on a phone or a coarse pointer it is a 44px target: the text-link HIT STRIP recipe the
+   posting rows' links use (`.postings-link`, the W3-B touch block) — an out-of-flow pseudo
+   centred on the link, so the card's line does not grow and the focus ring stays on the text.
+   (It measured 208x21.5px on touch at 375px.) */
+@media (max-width: 600px), (pointer: coarse) {
+  .reveal-card__ext {
+    position: relative;
+    isolation: isolate;
+  }
+  .reveal-card__ext::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0%, calc((100% - var(--control-md)) / 2));
+  }
+}
 
 /* ------------------------------------------------------------------
  * POST A JOB (DS2.1) — the EMPLOYER posting form + page notes re-skinned onto the
@@ -2636,31 +2716,10 @@ textarea.input {
   }
 }
 
-/* Vacancy manager. */
+/* Agency postings manager (the body of /agency/jobs; creating one is its own page). */
 .agency-jobs {
   display: grid;
   gap: var(--space-4);
-}
-.agency-jobs__bar {
-  display: flex;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
-.agency-jobs__createcard {
-  display: grid;
-  gap: var(--space-4);
-}
-.agency-jobs__createtitle {
-  font-family: var(--font-display);
-  font-size: var(--text-md);
-  color: var(--text-primary);
-  margin: 0;
-}
-.agency-jobs__empty {
-  text-align: center;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
 }
 .agency-jobs__list {
   display: grid;
@@ -2690,6 +2749,9 @@ textarea.input {
   font-size: var(--text-lg);
   font-weight: var(--weight-bold);
   color: var(--text-primary);
+}
+.agency-job__title:hover {
+  color: var(--text-link);
 }
 .agency-job__meta {
   display: flex;
@@ -3057,7 +3119,8 @@ textarea.input {
  * POSTINGS · PLANS · CAPACITY · ACCOUNT · TEAM (W3-B polish) — page-scoped layout only.
  * ------------------------------------------------------------------
  * Every selector is namespaced to a page wrapper (`.postings-page`, `.plans-page`,
- * `.capacity-page`, `.account-page`, `.team-page`, `.team-accept-page`), so no shared primitive
+ * `.account-page`, `.team-page`, `.team-accept-page`; /capacity is now a redirect to
+ * /plans#hiring-capacity, so it renders no page of its own), so no shared primitive
  * changes anywhere else. Each wrapper adds one class to its selectors, so these win over the
  * single-class shared rules by specificity, wherever they sit in the file. Copy, data and
  * behaviour are untouched; tokens only.
@@ -3157,72 +3220,66 @@ textarea.input {
 /* The "Most capacity" badge is taller than the tier name beside it, so the one flagged tier's
    price sat ~3px lower than its neighbours'. Its block margin is pulled in so the head row is
    the name's height on every tier and the prices line up. */
-.plans-page .capacity-tier__head > .bb-badge,
-.capacity-page .capacity-tier__head > .bb-badge {
+.plans-page .capacity-tier__head > .bb-badge {
   margin-block: calc(-1 * var(--space-1));
 }
 /* The tier row and its result toasts never touch the "Recorded only" note beneath them. */
-.plans-page .capacity-tiers,
-.capacity-page .capacity-tiers {
+.plans-page .capacity-tiers {
   margin-bottom: var(--block-gap);
 }
-.plans-page .capacity-result,
-.capacity-page .capacity-result {
+.plans-page .capacity-result {
   margin-top: 0;
   margin-bottom: var(--block-gap);
 }
 /* A section's last block adds no margin of its own, so the section gap is the one rhythm
    between blocks (it was 40–48px wherever an alert or tile row ended a section). */
-.plans-page .section > :last-child,
-.capacity-page .section > :last-child {
+.plans-page .section > :last-child {
   margin-bottom: 0;
 }
 /* The per-posting table: the role column keeps a readable floor (three quarters of a tile), so
    a long role title wraps across a few lines instead of one word per line and the table scrolls
    inside its region on a phone — while the whole table still fits a 768px tablet. */
-.plans-page .table td:first-child,
-.capacity-page .table td:first-child {
+.plans-page .table td:first-child {
   min-inline-size: calc(var(--stat-min) * 3 / 4);
 }
 @media (max-width: 600px) {
-  /* Phones: every product card becomes a compact price row — name across the top, the price
-     and its line of detail on the left, the one action on the right. Five to seven stacked
-     tiles were ~180px each; a row is about half that. */
+  /* Phones: every product card is a compact block — the name across the top, then the price and
+     its line of detail, on one tight rhythm. Five to seven stacked tiles were ~180px each; a
+     compact card is about half that. A capacity tier is the only card with an action of its own,
+     so it is a price ROW: the action sits right of its price. Credit packs and posting plans have
+     none (each section has ONE door, in its head), so they keep a single track — a second,
+     empty track would still cost its column gap. */
   .plans-page .plan-card,
-  .plans-page .capacity-tier,
-  .capacity-page .capacity-tier {
+  .plans-page .capacity-tier {
     display: grid;
+    align-items: center;
+    row-gap: var(--space-1);
+    padding: var(--space-4);
+  }
+  .plans-page .capacity-tier {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
       "head head"
       "price action"
       "detail action";
-    align-items: center;
     column-gap: var(--space-4);
-    row-gap: var(--space-1);
-    padding: var(--space-4);
   }
-  .plans-page .plan-card__head,
-  .plans-page .capacity-tier__head,
-  .capacity-page .capacity-tier__head {
+  .plans-page .capacity-tier__head {
     grid-area: head;
     flex-wrap: wrap;
   }
   .plans-page .plan-card__price,
-  .plans-page .capacity-tier__price,
-  .capacity-page .capacity-tier__price {
-    grid-area: price;
+  .plans-page .capacity-tier__price {
     font-size: var(--ui-kpi-sm-size);
   }
-  .plans-page .plan-card__detail,
-  .plans-page .capacity-tier__allowance,
-  .capacity-page .capacity-tier__allowance {
+  .plans-page .capacity-tier__price {
+    grid-area: price;
+  }
+  .plans-page .capacity-tier__allowance {
     grid-area: detail;
     margin: 0;
   }
-  .plans-page .plan-card > .bb-btn,
-  .plans-page .capacity-tier > .bb-btn,
-  .capacity-page .capacity-tier > .bb-btn {
+  .plans-page .capacity-tier > .bb-btn {
     grid-area: action;
     width: auto;
     min-inline-size: calc(2 * var(--control-md));
@@ -3263,50 +3320,48 @@ textarea.input {
   }
 }
 
-/* ---- Touch, on all six screens: on a phone and under a coarse pointer, every control these
-   screens own is at least 44px. (The "← Dashboard" back link is shared page furniture, not
-   theirs: it is sized with the other shared targets, not by this block.) The DS small button
-   already has a 44px hit strip at ≤600px (ds-components.css); a coarse pointer ABOVE 600px (a
-   tablet) gets a drawn 44px minimum here, as on /postings/[id]/applicants. Text links outside a
-   sentence get the same 44px below. */
+/* ---- Touch: on a phone and under a coarse pointer, every control these screens own is at least
+   44px. (The back link is shared page furniture: it is sized with the other shared targets, not
+   by this block.) The DS small button already has a 44px hit strip at ≤600px
+   (ds-components.css); a coarse pointer ABOVE 600px (a tablet) gets a drawn 44px minimum here,
+   as on /postings/[id]/applicants — on every W3-B screen and on the agency's Postings list. The
+   two posting lists (company and agency) share the row rules below, scoped to the CONTROLS, not
+   to a page, so a row control is the same target wherever the row renders. */
 @media (pointer: coarse) and (min-width: 601px) {
   .postings-page .bb-btn--sm,
   .plans-page .bb-btn--sm,
-  .capacity-page .bb-btn--sm,
   .account-page .bb-btn--sm,
   .team-page .bb-btn--sm,
-  .team-accept-page .bb-btn--sm {
+  .team-accept-page .bb-btn--sm,
+  .agency-postings-page .bb-btn--sm {
     min-height: var(--control-md);
   }
 }
 @media (max-width: 600px), (pointer: coarse) {
-  /* The posting title heads its card, so it takes a drawn 44px line. */
-  .postings-page .posting-card__title {
+  /* A posting's title heads its card (and opens the posting), so it takes a drawn 44px line. */
+  .posting-card__title,
+  .agency-job__title {
     display: inline-flex;
     align-items: center;
     min-height: var(--control-md);
   }
-  /* A text link in a dense row — a card's Details / Edit, the table's role link, the quota
-     tile's "Top up applicant quota →" caption — gets a 44px HIT STRIP instead: an out-of-flow
+  /* A text link in a dense row — a posting row's Applicants / Edit, the table's role link, the
+     quota tile's "Add applicant slots" caption — gets a 44px HIT STRIP instead: an out-of-flow
      pseudo centred on the link (the DS small-button recipe in ds-components.css). No row grows,
      and the focus ring still hugs the text: a padded 44px box put the role link's ring on its
      cell's edges, under the sticky header on the first row and past the scroller on the last.
      The inline inset is negative only on a link narrower than 44px ("Edit"). inline-block makes
      a link that wraps (a long role, the caption at 320px) ONE box for the strip to centre on. */
-  .postings-page .postings-link,
+  .postings-link,
   .plans-page .capacity-link,
-  .capacity-page .capacity-link,
-  .plans-page .bb-stat__caption a,
-  .capacity-page .bb-stat__caption a {
+  .plans-page .bb-stat__caption a {
     display: inline-block;
     position: relative;
     isolation: isolate;
   }
-  .postings-page .postings-link::before,
+  .postings-link::before,
   .plans-page .capacity-link::before,
-  .capacity-page .capacity-link::before,
-  .plans-page .bb-stat__caption a::before,
-  .capacity-page .bb-stat__caption a::before {
+  .plans-page .bb-stat__caption a::before {
     content: "";
     position: absolute;
     z-index: calc(var(--z-base) - 1);
@@ -3498,7 +3553,7 @@ textarea.input {
 
 /* THE EMPTY STATE IS THE STATE THIS SHIPS IN — no worker can grant the visibility consent yet,
    so this is the page, not a fallback. Which is exactly why it is QUIET: the same centred,
-   muted register as every other portal empty (.postings-empty / .agency-jobs__empty), on the DS
+   muted register as every other portal empty (.postings-empty / the shared .state), on the DS
    Card the markup already renders (`<Card variant="flat">` owns the surface, hairline border,
    radius and padding — this block adds only the internal rhythm). A dashed-green hero frame
    would celebrate the absence of data on the page an agency sees every single day.
@@ -4960,7 +5015,7 @@ body:has(.invite-landing) .chrome-footer {
   flex-wrap: wrap;
   flex: none;
 }
-/* A back-link above the title, for detail screens one level down. */
+/* A back-link above the title, for a page below a nav destination (PageHeader). */
 .page-back {
   display: inline-flex;
   align-items: center;
@@ -4974,6 +5029,19 @@ body:has(.invite-landing) .chrome-footer {
 .page-back:hover {
   color: var(--text-primary);
   text-decoration: none;
+}
+/* The link is an arrow-left icon + the parent's name (no `←` glyph): one inline box, the icon
+   the icon-gap from its label, inheriting the link colour. */
+.page-back > a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--icon-gap);
+}
+/* PageHeader's optional filter / search row: its own full-width line under the title row, inside
+   the head (so the head's section-gap still separates it from the page). */
+.page-head__toolbar {
+  flex: 1 1 100%;
+  min-width: 0;
 }
 
 /* ---- tile row: ONE fluid grid every KPI/stat/pack/tier row composes onto ----
@@ -6003,9 +6071,9 @@ body:has(.invite-landing) .chrome-footer {
  * W3-A · SHARED FOLLOW-UPS (#1856) — the additive rules of the wave-3 shared pass, in one
  * place. The pass's in-place changes live with the rules they change: the focus-outline
  * tokens (every ring), the Payouts phone head (W2-B block), the applicant relevance span and
- * the KPI row centring + delta area (their own blocks), the shell header's ≤420px reflow, its
- * phone-only breadcrumb and its coarse-pointer hit strips (the shell / theme-toggle blocks), and
- * the segmented active-tab ring (ds-components.css). Tokens only.
+ * the KPI row centring + delta area (their own blocks), the shell header's narrow-phone reflow
+ * (now ≤540px), its phone-only breadcrumb and its coarse-pointer hit strips (the shell /
+ * theme-toggle blocks), and the segmented active-tab ring (ds-components.css). Tokens only.
  * ================================================================== */
 
 /* ---- 1 · TITLE + SUBTITLE, GROUPED. As a sibling of the title the sub sat a whole head
@@ -6039,7 +6107,7 @@ body:has(.invite-landing) .chrome-footer {
   overflow-wrap: anywhere;
 }
 
-/* ---- 3 · THE BACK LINK ("← Dashboard") is a small text link drawn ~20px tall, and on a phone
+/* ---- 3 · THE BACK LINK (PageHeader's `back`) is a small text link drawn ~20px tall, and on a phone
    or any coarse pointer it is a finger target. Its HIT AREA — not its look — grows to the md
    control height with the DS strip maths (see `.bb-btn--sm` in ds-components.css): a
    full-width strip centred on the link, BEHIND its text inside the link's own stacking context.
@@ -6096,37 +6164,6 @@ body:has(.invite-landing) .chrome-footer {
   .page-head__actions {
     flex: 0 1 auto;
     min-width: 0;
-  }
-}
-
-/* ---- 8 · THE APPLICANT FEED HEAD on a narrow phone. The shared wrapper keeps the balance chip
-   on the title row, which at ≤420px left a long role title ~140–240px beside a 4-digit chip
-   (five lines at 320px). Here the head is a two-track grid instead — the Payouts recipe — and
-   the text wrapper steps aside (`display: contents`, a plain div): the title takes the whole
-   first row and the chip moves to the count's row. Measured at 320–420px: a 68-character title
-   is 2 lines (was 3–5), the head 74px (was 90–135px). Two classes, after the shared head. */
-@media (max-width: 420px) {
-  .section__head.applicants-feed__head {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "title title"
-      "sub actions";
-    align-items: center;
-    column-gap: var(--space-4);
-    row-gap: var(--space-1);
-  }
-  .applicants-feed__head > .section__text {
-    display: contents;
-  }
-  .applicants-feed__head .section__title {
-    grid-area: title;
-  }
-  .applicants-feed__head .section__sub {
-    grid-area: sub;
-  }
-  .applicants-feed__head > .section__actions {
-    grid-area: actions;
   }
 }
 

@@ -137,7 +137,7 @@ export function MatchSkillPicker({
           <h2 className="panel__title">Which skill are you hiring for?</h2>
           <p className="panel__sub">
             Pick up to {maxSkills}. Only workers who have one of these — or a closely related skill
-            you keep ticked — will see this job.
+            you keep ticked — will see this posting.
           </p>
         </div>
       </div>
@@ -169,7 +169,7 @@ export function MatchSkillPicker({
               </span>
               <h3 className="state__title">No skill picked yet</h3>
               <p className="state__body">
-                Pick a skill to see how many workers this job would reach.
+                Pick a skill to see how many workers this posting would reach.
               </p>
             </div>
           ) : null}

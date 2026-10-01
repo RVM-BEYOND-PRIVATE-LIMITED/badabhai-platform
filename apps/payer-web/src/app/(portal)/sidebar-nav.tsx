@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Icon } from "@badabhai/icons";
 import { isNavItemActive, type NavSection } from "./nav-model";
 
 /**
@@ -13,11 +14,9 @@ import { isNavItemActive, type NavSection } from "./nav-model";
  * (`requirePayer` / `requireAgent` / `requireOwner`) remain the authorization. An active
  * class is never a permission.
  *
- * COMING SOON items render as a <span>, not a <Link>. That is deliberate: a disabled
- * anchor is still focusable and still navigable by keyboard in most browsers, so a
- * greyed-out link that "does nothing" is a lie to anyone not using a mouse. Rendering a
- * non-anchor removes it from the tab order honestly, and `aria-disabled` plus the visible
- * COMING SOON badge tell assistive tech the same thing the greying tells everyone else.
+ * Every item is a link. The model only contains destinations whose page renders for this
+ * session (nav-model.ts: the nav follows the page gate), so there is no disabled state to draw;
+ * a PARKED item is a real page that explains what is not built, badged "Soon".
  */
 export function SidebarNav({ sections }: { sections: NavSection[] }) {
   const pathname = usePathname();
@@ -29,24 +28,6 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
           {section.title ? <h2 className="pnav__grouptitle">{section.title}</h2> : null}
           <ul className="pnav__list">
             {section.items.map((item) => {
-              if (item.comingSoon) {
-                return (
-                  <li key={item.href}>
-                    <span
-                      className="pnav__link pnav__link--soon"
-                      aria-disabled="true"
-                      /* The tooltip carries the same sentence the expanded rail shows, so a
-                         collapsed rail loses no meaning. */
-                      title={item.description ? `${item.label} — ${item.description}` : item.label}
-                    >
-                      <i className={`ph-fill ph-${item.icon} pnav__icon`} aria-hidden="true" />
-                      <span className="pnav__label">{item.label}</span>
-                      <span className="pnav__soon">Soon</span>
-                    </span>
-                  </li>
-                );
-              }
-
               const active = isNavItemActive(item.match, pathname);
               return (
                 <li key={item.href}>
@@ -56,7 +37,7 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
                     aria-current={active ? "page" : undefined}
                     title={item.description ? `${item.label} — ${item.description}` : item.label}
                   >
-                    <i className={`ph-fill ph-${item.icon} pnav__icon`} aria-hidden="true" />
+                    <Icon name={item.icon} className="pnav__icon" />
                     <span className="pnav__label">{item.label}</span>
                     {/* PARKED — reachable, but the page it opens explains rather than does.
                         Badged so the rail sets the right expectation before the click. */}

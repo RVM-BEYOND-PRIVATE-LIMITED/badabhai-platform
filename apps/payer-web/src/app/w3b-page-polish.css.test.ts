@@ -6,19 +6,21 @@ import { decl, parseRules, stripComments, tokenValue } from "../../test/css-rule
 import type { Rule } from "../../test/css-rules";
 
 /**
- * W3-B — /postings, /plans, /capacity, /account, /team, /team/accept LAYOUT FENCE.
+ * W3-B — /postings, /plans, /account, /team, /team/accept LAYOUT FENCE. (/capacity is a redirect to
+ * /plans' Hiring capacity section now; its tiers render there.)
  *
  * Node env, no layout engine (the approach of w2b-page-polish.css.test.ts): what each fix
  * depends on is DECLARED geometry plus token arithmetic, so this suite pins it —
  *   · /postings: the card's action bar sits under the text; the facts row's separator slot is
  *     clipped at a line start but a wrapped segment's text never is; the idle result region
  *     adds no gap;
- *   · /plans + /capacity: one catalogue track + price size on /plans, the phone price rows,
- *     block spacing around the tier row, the table's role-column floor;
+ *   · /plans: one catalogue track + price size, the compact phone cards (a tier with its action
+ *     is a price row), block spacing around the tier row, the table's role-column floor;
  *   · /account, /team, /team/accept: the phone KYC alert, the result-band spacing/measure;
- *   · touch: every control the six screens own is ≥44px; text links take a hit strip that
+ *   · touch: every control these screens own is ≥44px; text links take a hit strip that
  *     leaves their focus ring on the text;
- *   · every rule of the block is SCOPED to one of the six page wrappers and is tokens-only.
+ *   · every rule of the block is SCOPED to one of the page wrappers (or is a shared posting-row
+ *     control's touch target) and is tokens-only.
  * The layouts were measured in Chromium at 320/375/768/1280px (paper + ink) when built.
  */
 
@@ -250,31 +252,47 @@ describe("W3-B · /plans — one catalogue: one track, one price size", () => {
   });
 });
 
-describe("W3-B · /plans + /capacity — phone price rows", () => {
-  const cards = ".plans-page .plan-card, .plans-page .capacity-tier, .capacity-page .capacity-tier";
+describe("W3-B · /plans — compact product cards on a phone", () => {
+  const cards = ".plans-page .plan-card, .plans-page .capacity-tier";
 
-  it("≤600px each product card is a two-track row: name across, price+detail | action", () => {
+  it("≤600px every product card is a compact grid block on one tight rhythm", () => {
     const card = rule(cards, PHONE);
     expect(decl(card, "display")).toBe("grid");
-    expect(decl(card, "grid-template-columns")).toBe("minmax(0, 1fr) auto");
-    expect(decl(card, "grid-template-areas")?.replace(/\s+/g, " ")).toBe(
-      '"head head" "price action" "detail action"',
-    );
+    expect(decl(card, "row-gap")).toBe("var(--space-1)");
+    expect(decl(card, "padding")).toBe("var(--space-4)");
+    // A credit pack / posting plan has no action, so no second (empty) track — and no gap for it.
+    expect(decl(card, "grid-template-columns")).toBeNull();
+    expect(decl(card, "column-gap")).toBeNull();
   });
 
-  it("the action keeps its own width (not the block button's 100%) and a 2-control minimum", () => {
-    const btn = rule(
-      ".plans-page .plan-card > .bb-btn, .plans-page .capacity-tier > .bb-btn, .capacity-page .capacity-tier > .bb-btn",
-      PHONE,
+  it("≤600px a capacity tier (the one card with an action) is a row: price+detail | action", () => {
+    const tier = rule(".plans-page .capacity-tier", PHONE);
+    expect(decl(tier, "grid-template-columns")).toBe("minmax(0, 1fr) auto");
+    expect(decl(tier, "grid-template-areas")?.replace(/\s+/g, " ")).toBe(
+      '"head head" "price action" "detail action"',
     );
+    expect(decl(tier, "column-gap")).toBe("var(--space-4)");
+    expect(decl(rule(".plans-page .capacity-tier__price", PHONE), "grid-area")).toBe("price");
+    expect(decl(rule(".plans-page .capacity-tier__allowance", PHONE), "grid-area")).toBe("detail");
+  });
+
+  it("the tier's action keeps its own width (not the block button's 100%) and a 2-control minimum", () => {
+    const btn = rule(".plans-page .capacity-tier > .bb-btn", PHONE);
     expect(decl(btn, "grid-area")).toBe("action");
     expect(decl(btn, "width")).toBe("auto");
     expect(decl(btn, "min-inline-size")).toBe("calc(2 * var(--control-md))");
   });
 
-  it("the price steps down to the compact KPI figure so ₹ amounts fit beside the action", () => {
+  it("no rule sizes an action INSIDE a pack or plan card (each section has one door, in its head)", () => {
+    const inCard = RULES.flatMap((r) => r.selector.split(",").map((x) => x.trim())).filter((x) =>
+      /\.plan-card\s*>\s*\.bb-btn/.test(x),
+    );
+    expect(inCard).toEqual([]);
+  });
+
+  it("the price steps down to the compact KPI figure on every product card", () => {
     const price = rule(
-      ".plans-page .plan-card__price, .plans-page .capacity-tier__price, .capacity-page .capacity-tier__price",
+      ".plans-page .plan-card__price, .plans-page .capacity-tier__price",
       PHONE,
     );
     expect(decl(price, "font-size")).toBe("var(--ui-kpi-sm-size)");
@@ -282,12 +300,12 @@ describe("W3-B · /plans + /capacity — phone price rows", () => {
   });
 });
 
-describe("W3-B · /plans + /capacity — block rhythm", () => {
+describe("W3-B · /plans — block rhythm", () => {
   it("the tier row and the result toasts keep a block gap above the 'Recorded only' note", () => {
     expect(
-      decl(rule(".plans-page .capacity-tiers, .capacity-page .capacity-tiers"), "margin-bottom"),
+      decl(rule(".plans-page .capacity-tiers"), "margin-bottom"),
     ).toBe("var(--block-gap)");
-    const result = rule(".plans-page .capacity-result, .capacity-page .capacity-result");
+    const result = rule(".plans-page .capacity-result");
     expect(decl(result, "margin-top")).toBe("0");
     expect(decl(result, "margin-bottom")).toBe("var(--block-gap)");
   });
@@ -295,7 +313,7 @@ describe("W3-B · /plans + /capacity — block rhythm", () => {
   it("a section's last block adds no margin to the section gap", () => {
     expect(
       decl(
-        rule(".plans-page .section > :last-child, .capacity-page .section > :last-child"),
+        rule(".plans-page .section > :last-child"),
         "margin-bottom",
       ),
     ).toBe("0");
@@ -303,17 +321,17 @@ describe("W3-B · /plans + /capacity — block rhythm", () => {
 
   it("the 'Most capacity' badge cannot make its tier's head row taller than the others", () => {
     const badge = rule(
-      ".plans-page .capacity-tier__head > .bb-badge, .capacity-page .capacity-tier__head > .bb-badge",
+      ".plans-page .capacity-tier__head > .bb-badge",
     );
     expect(decl(badge, "margin-block")).toBe("calc(-1 * var(--space-1))");
   });
 });
 
-describe("W3-B · /plans + /capacity — the per-posting table", () => {
+describe("W3-B · /plans — the per-posting table", () => {
   // (That the whole table also fits a 768px tablet is a Chromium measurement, not a declaration.)
   it("the role column keeps a floor of 3/4 of a tile (≥ 150px)", () => {
     const floor = decl(
-      rule(".plans-page .table td:first-child, .capacity-page .table td:first-child"),
+      rule(".plans-page .table td:first-child"),
       "min-inline-size",
     );
     expect(floor).toBe("calc(var(--stat-min) * 3 / 4)");
@@ -362,41 +380,38 @@ describe("W3-B · /team + /team/accept — result bands", () => {
 });
 
 /* ================================================================== *
- * Touch + scoping, all six screens
+ * Touch + scoping: the W3-B screens and the agency's Postings list
  * ================================================================== */
 describe("W3-B · touch — every control ≥44px on phones and coarse pointers", () => {
   const WRAPPERS = [
     "postings-page",
     "plans-page",
-    "capacity-page",
     "account-page",
     "team-page",
     "team-accept-page",
+    // The agency's Postings list carries the same row controls as /postings (2026-10-01).
+    "agency-postings-page",
   ];
 
-  it("a coarse pointer above 600px lifts the DS small button on every W3-B screen", () => {
+  it("a coarse pointer above 600px lifts the DS small button on every W3-B screen + agency list", () => {
     const lift = rule(WRAPPERS.map((w) => `.${w} .bb-btn--sm`).join(", "), TABLET_TOUCH);
     expect(lift.at).toBe(`@media ${TABLET_TOUCH}`);
     expect(decl(lift, "min-height")).toBe("var(--control-md)");
   });
 
-  it("the posting title heads its card with a drawn 44px line on touch", () => {
-    const title = rule(".postings-page .posting-card__title", TOUCH);
+  it("BOTH posting lists' titles head their card with a drawn 44px line on touch", () => {
+    // Scoped to the CONTROL, not a page: the company row title and the agency row title are the
+    // same target wherever the row renders.
+    const title = rule(".posting-card__title, .agency-job__title", TOUCH);
     expect(decl(title, "min-height")).toBe("var(--control-md)");
     expect(decl(title, "display")).toBe("inline-flex");
     expect(px("--control-md")).toBeGreaterThanOrEqual(44);
   });
 
-  /* Text links in a dense row: a card's Details / Edit, the per-posting table's role link, and
-     the quota tile's "Top up applicant quota →" caption link (the one control the first pass
-     missed — 15–18px tall on touch, and made SMALLER by the compact phone tile row). */
-  const TEXT_LINKS = [
-    ".postings-page .postings-link",
-    ".plans-page .capacity-link",
-    ".capacity-page .capacity-link",
-    ".plans-page .bb-stat__caption a",
-    ".capacity-page .bb-stat__caption a",
-  ];
+  /* Text links in a dense row: a posting row's Applicants / Edit, the per-posting table's role
+     link, and the quota tile's "Add applicant slots" caption link (15–18px tall on touch before,
+     and made SMALLER by the compact phone tile row). */
+  const TEXT_LINKS = [".postings-link", ".plans-page .capacity-link", ".plans-page .bb-stat__caption a"];
   const host = () => rule(TEXT_LINKS.join(", "), TOUCH);
   const strip = () => rule(TEXT_LINKS.map((s) => `${s}::before`).join(", "), TOUCH);
 
@@ -459,7 +474,7 @@ describe("W3-B · touch — every control ≥44px on phones and coarse pointers"
   });
 });
 
-describe("W3-B · the three newly focusable scrollers (/plans, /capacity, /team) draw ONE ring", () => {
+describe("W3-B · the newly focusable scrollers (/plans, /team) draw ONE ring", () => {
   it("inside a panel the scroller cancels the base ring + radius; the panel draws the ring", () => {
     // The tokens.css base gives EVERY focused element the ring and a radius…
     const base = parseRules(TOKENS).find((r) => r.selector === ":focus-visible" && r.at === "");
@@ -478,20 +493,36 @@ describe("W3-B · the three newly focusable scrollers (/plans, /capacity, /team)
   });
 });
 
-describe("W3-B · scoping + tokens — the block restyles nothing outside its six screens", () => {
+describe("W3-B · scoping + tokens — the block restyles nothing outside its screens", () => {
   it("the block is non-trivial (the fence below is not vacuous)", () => {
     expect(BLOCK_RULES.length).toBeGreaterThan(30);
   });
 
-  it("every selector in the block starts with one of the six page wrappers", () => {
-    const scoped = /^\.(postings|plans|capacity|account|team|team-accept)-page(\s|$)/;
+  /** The posting-row CONTROLS the two lists share — the only unscoped selectors allowed here. */
+  const ROW_CONTROLS = [
+    ".posting-card__title",
+    ".agency-job__title",
+    ".postings-link",
+    ".postings-link::before",
+  ];
+
+  it("every selector starts with a page wrapper, or is one of the shared posting-row controls", () => {
+    const scoped = /^\.(postings|plans|account|team|team-accept|agency-postings)-page(\s|$)/;
     const offenders = BLOCK_RULES.flatMap((r) =>
       r.selector
         .split(",")
         .map((s) => s.trim())
-        .filter((s) => !scoped.test(s)),
+        .filter((s) => !scoped.test(s) && !ROW_CONTROLS.includes(s)),
     );
     expect(offenders).toEqual([]);
+  });
+
+  it("the unscoped row controls appear ONLY in the touch rules (they size a target, nothing else)", () => {
+    const unscoped = BLOCK_RULES.filter((r) =>
+      r.selector.split(",").some((s) => ROW_CONTROLS.includes(s.trim())),
+    );
+    expect(unscoped.length).toBe(3);
+    for (const r of unscoped) expect(r.at, r.selector).toBe(`@media ${TOUCH}`);
   });
 
   it("the block is tokens-only: no hex, colour function, or raw length (signed or not)", () => {

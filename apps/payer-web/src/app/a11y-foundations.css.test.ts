@@ -326,12 +326,12 @@ describe("W2-A/W3-A · 1 — a head's subtitle sits under its title, grouped in 
   it("the markup scan is not vacuous (wrapped heads found, incl. both heads WITH actions)", () => {
     const heads = scanHeads();
     const wrapped = heads.filter((h) => h.wrapped && h.problems.length === 0);
-    // 13 heads on the W3-A screens + 9 on the W3-B ones (account 2, capacity 2, plans 4, team 1).
-    expect(wrapped.length).toBeGreaterThanOrEqual(22);
+    // 12 heads on the W3-A screens + 7 on the W3-B ones (account 2, plans 4, team 1). (/capacity
+    // is a redirect to /plans now, and the applicant feed's head is its PageHeader.)
+    expect(wrapped.length).toBeGreaterThanOrEqual(19);
     expect(heads.filter((h) => !h.wrapped)).toEqual([]);
     for (const f of [
       "(portal)/account/page.tsx",
-      "(portal)/capacity/page.tsx",
       "(portal)/plans/page.tsx",
       "(portal)/team/team-manager.tsx",
     ]) {
@@ -342,7 +342,9 @@ describe("W2-A/W3-A · 1 — a head's subtitle sits under its title, grouped in 
     }
     const withActions = wrapped.filter((h) => h.hasActions).map((h) => h.file);
     expect(withActions.some((f) => f.endsWith("payout-panel.tsx"))).toBe(true);
-    expect(withActions.some((f) => f.endsWith("applicants/page.tsx"))).toBe(true);
+    expect(withActions.some((f) => f.endsWith("dashboard/agent-sections.tsx"))).toBe(true);
+    // /plans' section-level doors (Buy credits, New posting) sit beside the text, not in it.
+    expect(withActions.filter((f) => f.endsWith("plans/page.tsx")).length).toBeGreaterThanOrEqual(2);
     // …and the checker can FAIL: each violation it exists for is reported on a known snippet.
     const H = (inner: string) => `<div className="panel__head">${inner}</div>`;
     const T = `<h2 className="panel__title">T</h2>`;
@@ -524,21 +526,21 @@ describe("W2-A · 2 — small controls clear a 44px hit area on phones (≤600px
     expect(switchW, "the switch is wider than the strip (no inline extension)").toBeGreaterThan(
       T(),
     );
-    // ≤420px the header's own gap and inline padding step down (W3-A reflow) — the hamburger's
-    // strip still fits both.
-    const narrow = one(G, ".pshell__header", "max-width: 420px");
-    expect(ext, "hamburger strip vs the ≤420 gap").toBeLessThanOrEqual(sumPx(decl(narrow, "gap")!));
-    expect(ext, "hamburger strip vs the ≤420 padding").toBeLessThanOrEqual(
+    // ≤540px the header's own gap and inline padding step down (W3-A reflow, widened from ≤420px)
+    // — the hamburger's strip still fits both.
+    const narrow = one(G, ".pshell__header", "max-width: 540px");
+    expect(ext, "hamburger strip vs the ≤540 gap").toBeLessThanOrEqual(sumPx(decl(narrow, "gap")!));
+    expect(ext, "hamburger strip vs the ≤540 padding").toBeLessThanOrEqual(
       sumPx(decl(narrow, "padding-inline")!),
     );
   });
 
-  it('ARITHMETIC ≤420px: the icon-only "System" pill\'s strip clears the switch and the account menu', () => {
+  it('ARITHMETIC ≤540px: the icon-only "System" pill\'s strip clears the switch and the account menu', () => {
     // The label is hidden IN THE HEADER only (the /login toggle keeps it), and the button keeps
     // its accessible name. Drawn: inline padding + one icon (1em of the pill's font size) + its
     // two hairline borders — ~30px, so its strip reaches (44 − 30) / 2 = 7px into each gap.
     // Measured at 320px: switch …213.5 | System 214.5–258.5 | account 259.5… (1px clear each).
-    const hide = one(G, ".pshell__headeractions .theme-toggle__system-label", "max-width: 420px");
+    const hide = one(G, ".pshell__headeractions .theme-toggle__system-label", "max-width: 540px");
     expect(props(hide)).toEqual(["display"]);
     expect(decl(hide, "display")).toBe("none");
     expect(G.filter((r) => r.selector === ".theme-toggle__system-label" && r.at !== "")).toEqual(
@@ -643,41 +645,67 @@ describe("W3-A · 2b — the back link clears a 44px hit area on phones AND coar
     for (const p of props(dsStrip())) expect(decl(strip, p), p).toBe(decl(dsStrip(), p));
   });
 
-  it('MARKUP: every page\'s back link is `<p className="page-back">` → a direct <Link> (so `> a` matches)', () => {
-    // Measured on all 16 portal pages that render it (320/375/600 + a 1280 coarse pointer): hit
-    // 44–45px tall, drawn box unchanged. The selector is a CHILD combinator, so a wrapper span
-    // or a second link inside the paragraph would silently lose the hit area — pin the shape.
-    const bad: string[] = [];
-    let seen = 0;
-    for (const [file, src] of tsxUnder(here)) {
-      for (const at of offsets(src, 'className="page-back"')) {
-        seen += 1;
-        const open = src.lastIndexOf("<", at);
-        const tagEnd = src.indexOf(">", at);
-        const close = src.indexOf("</p>", tagEnd);
-        const inner = src.slice(tagEnd + 1, close).trim();
-        const ok =
-          src.startsWith("<p ", open) &&
-          inner.startsWith("<Link ") &&
-          inner.endsWith("</Link>") &&
-          offsets(inner, "<Link ").length === 1;
-        if (!ok) bad.push(`${file} @${at}`);
-      }
-    }
-    expect(bad).toEqual([]);
-    expect(seen, "the scan reads every page that renders the back link").toBeGreaterThanOrEqual(16);
+  it('MARKUP: the ONE back link (PageHeader) is `<p className="page-back">` → a direct <Link> (so `> a` matches)', () => {
+    // The selector is a CHILD combinator, so a wrapper span or a second link inside the
+    // paragraph would silently lose the hit area — pin the shape. Every page renders its back
+    // link through PageHeader (2026-10-01), so the shape lives in ONE place and no page may
+    // hand-write another.
+    const COMPONENT = join(here, "..", "components", "page-header.tsx");
+    const component = readFileSync(COMPONENT, "utf8");
+    const sites = offsets(component, 'className="page-back"');
+    expect(sites, "PageHeader renders the back link once").toHaveLength(1);
+    const at = sites[0]!;
+    const open = component.lastIndexOf("<", at);
+    const tagEnd = component.indexOf(">", at);
+    const close = component.indexOf("</p>", tagEnd);
+    const inner = component.slice(tagEnd + 1, close).trim();
+    expect(component.startsWith("<p ", open)).toBe(true);
+    expect(inner.startsWith("<Link ")).toBe(true);
+    expect(inner.endsWith("</Link>")).toBe(true);
+    expect(offsets(inner, "<Link ")).toHaveLength(1);
+    // The arrow is the typed icon, never the `←` glyph.
+    expect(inner).toContain("<Icon name={ACTION_ICON.back} />");
+    expect(inner).not.toContain("←");
+    // No page hand-writes a back link (or a page head) any more… (the route-level loading
+    // skeleton draws the head's SHAPE as placeholder blocks — no title, no link — by design)
+    const SKELETON = "(portal)/loading.tsx";
+    const handWritten = tsxUnder(here)
+      .map(([file, src]) => [file.split("\\").join("/"), src] as const)
+      .filter(([file, src]) => file !== SKELETON && /className="page-(back|head)[" ]/.test(src))
+      .map(([file]) => file);
+    expect(handWritten).toEqual([]);
+    // …and exactly the pages BELOW a nav destination pass one to PageHeader (the scan is not
+    // vacuous; a top-level page — one the rail or the account menu opens — has none).
+    const withBack = tsxUnder(here)
+      .filter(([, src]) => /<PageHeader[^>]*\bback=\{/.test(src))
+      .map(([file]) => file.split("\\").join("/"))
+      .sort();
+    expect(withBack).toEqual([
+      "(portal)/agency/bulk-upload/page.tsx",
+      "(portal)/agency/jobs/[jobId]/page.tsx",
+      "(portal)/postings/[id]/applicants/page.tsx",
+      "(portal)/postings/[id]/edit/page.tsx",
+      "(portal)/postings/[id]/page.tsx",
+      "(portal)/postings/ai/new/page.tsx",
+    ]);
   });
 
-  it("the LOOK is untouched: only the two hit-area rules reach past `.page-back` itself", () => {
+  it("the LOOK: past `.page-back` itself, only the icon row and the two hit-area rules", () => {
     const beyond = G.filter((r) =>
       splitSelectors(r.selector).some(
         (s) => s.startsWith(".page-back") && s !== ".page-back" && s !== ".page-back:hover",
       ),
     );
     expect(beyond.map((r) => `${r.selector} (${r.at})`)).toEqual([
+      `${LINK} ()`,
       `${LINK} (${CTX})`,
       `${LINK}::before (${CTX})`,
     ]);
+    // The icon row lays the arrow beside the label (the icon-gap) and nothing else.
+    const row = one(G, LINK);
+    expect(props(row)).toEqual(["align-items", "display", "gap"]);
+    expect(decl(row, "display")).toBe("inline-flex");
+    expect(decl(row, "gap")).toBe("var(--icon-gap)");
     // …and `.page-back` itself is never re-declared for a phone / touch context.
     expect(G.filter((r) => r.selector === ".page-back").map((r) => r.at)).toEqual(["", ""]);
   });
@@ -941,9 +969,9 @@ describe("W3-A · 3b — no state rule replaces a focus ring at equal or higher 
  *     (was 17/25/41px at 320 for 1/2/4 digits, 67px on /postings/[id]).
  * ================================================================== */
 describe("W3-A · 6 — the portal reflows to 320px", () => {
-  const NARROW = "max-width: 420px";
+  const NARROW = "max-width: 540px";
 
-  it("≤420px: the header's gap + inline padding step down one size, and nothing else changes", () => {
+  it("≤540px: the header's gap + inline padding step down one size, and nothing else changes", () => {
     const h = one(G, ".pshell__header", NARROW);
     expect(props(h)).toEqual(["gap", "padding-inline"]);
     expect(decl(h, "gap")).toBe("var(--space-2)");
@@ -959,22 +987,141 @@ describe("W3-A · 6 — the portal reflows to 320px", () => {
     expect(at(NARROW)).toBeGreaterThan(at("max-width: 1023px"));
   });
 
-  it("phones: the trail shows only its current page — its parent steps never paint under the actions", () => {
+  it("≤540px: the balance chip's unit word is hidden VISUALLY only — it stays in the chip's name", () => {
+    // `display: none` (the ≤420px rule) dropped "credits" from the accessible name too, so the
+    // chip read as a bare number. Clipped instead, it reads "247 credits".
+    const r = one(G, ".pshell__balancelabel", NARROW);
+    expect(decl(r, "display")).toBeNull();
+    expect(decl(r, "position")).toBe("absolute");
+    expect(decl(r, "clip")).toBe("rect(0, 0, 0, 0)");
+    expect(decl(r, "overflow")).toBe("hidden");
+    // …the same recipe as the shared `.sr-only`.
+    for (const p of ["position", "width", "height", "margin", "overflow", "clip", "white-space"]) {
+      expect(decl(r, p), p).toBe(decl(one(G, ".sr-only"), p));
+    }
+    // No other context hides it.
+    expect(G.filter((x) => x.selector === ".pshell__balancelabel").map((x) => x.at)).toEqual([
+      `@media (${NARROW})`,
+    ]);
+  });
+
+  it("phones: the trail shows only its LAST step — earlier steps never paint under the actions", () => {
     // Before: in the 0–80px a phone header leaves it, "Hiring ▸ Postings" overflowed under the
-    // balance chip (the link focusable beneath it) at 320–500px; measured 0 collisions after, at
-    // 320–768px on 9 pages × 3 balances.
+    // balance chip (the link focusable beneath it) at 320–500px.
     const r = one(G, ".pcrumb > :not(:last-child), .pcrumb__step > .pcrumb__sep", PHONE);
     expect(props(r)).toEqual(["display"]);
     expect(decl(r, "display")).toBe("none");
-    // The step that stays is the one that ellipsizes.
-    const current = one(G, ".pcrumb__here");
-    expect(decl(current, "min-width")).toBe("0");
-    expect(decl(current, "overflow")).toBe("hidden");
-    expect(decl(current, "text-overflow")).toBe("ellipsis");
-    // The component's last child is always the current page (a `.pcrumb__here`, or a step
-    // ending in one) — so `:not(:last-child)` is exactly the parents.
+    // Whatever step is last (the group, or the section link's LABEL) ellipsizes.
+    const steps = one(G, ".pcrumb__group, .pcrumb__label");
+    expect(decl(steps, "min-width")).toBe("0");
+    expect(decl(steps, "overflow")).toBe("hidden");
+    expect(decl(steps, "text-overflow")).toBe("ellipsis");
+    expect(decl(steps, "white-space")).toBe("nowrap");
+    // The LINK itself never clips: its phone hit strip is an out-of-flow child, and
+    // `overflow: hidden` on the link cut it back to the ~18px text box (measured: 17.5px).
+    // It shrinks (min-width 0, a flex box) and lets its label do the ellipsis.
+    const link = one(G, ".pcrumb__link");
+    expect(decl(link, "overflow")).toBeNull();
+    expect(decl(link, "display")).toBe("inline-flex");
+    expect(decl(link, "min-width")).toBe("0");
+    expect(
+      G.filter((x) => splitSelectors(x.selector).includes(".pcrumb__link")).every(
+        (x) => decl(x, "overflow") === null,
+      ),
+    ).toBe(true);
+    // The trail is section context: it never claims the current page (the H1 names it, the
+    // rail marks it) and no step is styled as a second title.
     const src = readFileSync(join(here, "(portal)", "portal-breadcrumb.tsx"), "utf8");
-    expect(offsets(src, 'aria-current="page"').length).toBe(2);
+    expect(offsets(src, "aria-current=")).toEqual([]);
+    expect(src).not.toContain("pcrumb__here");
+    expect(G.some((x) => splitSelectors(x.selector).some((s) => s.includes("pcrumb__here")))).toBe(
+      false,
+    );
+  });
+
+  it("phones + touch: the trail's section link is a 44px target (tall AND wide) that never reaches sideways", () => {
+    const CTX = `@media (${PHONE}), (pointer: coarse)`;
+    const host = one(G, ".pcrumb__link", "pointer: coarse");
+    expect(host.at).toBe(CTX);
+    expect(props(host)).toEqual(["isolation", "min-width", "position"]);
+    // A short label ("Team", ~32px) is still a 44px-wide target: the link's own box grows (its
+    // strip spans that box), so the strip never has to reach sideways.
+    expect(decl(host, "min-width")).toBe("var(--control-md)");
+    // …and it comes after the base rule's `min-width: 0` (equal specificity: order decides).
+    const base = G.findIndex((r) => r.selector === ".pcrumb__link" && r.at === "");
+    expect(G.indexOf(host)).toBeGreaterThan(base);
+    const strip = one(G, ".pcrumb__link::before", "pointer: coarse");
+    expect(strip.at).toBe(CTX);
+    expect(props(strip)).toEqual(["content", "inset-block", "inset-inline", "position", "z-index"]);
+    expect(decl(strip, "inset-block")).toBe("calc((100% - var(--control-md)) / 2)");
+    // Vertical only: it can never meet the hamburger's strip or the header actions.
+    expect(decl(strip, "inset-inline")).toBe("0");
+    expect(decl(strip, "z-index")).toBe("calc(var(--z-base) - 1)");
+    // The header row holds the 44px strip.
+    expect(sumPx(decl(one(G, ".pshell__header"), "min-height")!)).toBeGreaterThanOrEqual(
+      tokenPx("--control-md"),
+    );
+  });
+
+  it("a trail link is a whole 44px target or nothing: below one target the trail is not drawn", () => {
+    // Measured at 320px with a 4-digit balance: the trail squeezed to ~3px, its link still
+    // focusable as a sliver. The trail is now a size container taking the header's free space…
+    const base = one(G, ".pcrumb");
+    expect(decl(base, "container-type")).toBe("inline-size");
+    expect(decl(base, "flex")).toBe("1 1 0");
+    expect(decl(base, "min-width")).toBe("0");
+    // …and when that space is narrower than one target, it draws nothing.
+    const hide = one(G, ".pcrumb > *", "@container");
+    expect(hide.at).toBe("@container (width < 44px)");
+    expect(props(hide)).toEqual(["display"]);
+    expect(decl(hide, "display")).toBe("none");
+    // The threshold IS the target (a container query cannot read the token itself).
+    expect(Number(/(\d+)px/.exec(hide.at)![1])).toBe(tokenPx("--control-md"));
+    // No viewport breakpoint hides the trail any more: it is drawn wherever a target fits (360px
+    // with a 5-digit balance — measured).
+    expect(
+      G.filter(
+        (x) => splitSelectors(x.selector).some((s) => s.startsWith(".pcrumb")) && x.at.includes("@media") && decl(x, "display") === "none",
+      ).map((x) => x.selector),
+    ).toEqual([".pcrumb > :not(:last-child), .pcrumb__step > .pcrumb__sep"]);
+  });
+
+  it("360-374px: the header padding and the chip padding step down once more (the trail's 16px)", () => {
+    const at = "max-width: 374px";
+    const h = one(G, ".pshell__header", at);
+    expect(h.at).toBe(`@media (${at})`);
+    expect(props(h)).toEqual(["padding-inline"]);
+    expect(decl(h, "padding-inline")).toBe("var(--space-3)");
+    const chip = one(G, ".pshell__balance", at);
+    expect(props(chip)).toEqual(["padding-inline"]);
+    expect(decl(chip, "padding-inline")).toBe("var(--space-2)");
+    // A real step down from the ≤540px header and the base chip…
+    expect(tokenPx("--space-3")).toBeLessThan(tokenPx("--space-4"));
+    expect(decl(one(G, ".pshell__header", NARROW), "padding-inline")).toBe("var(--space-4)");
+    expect(decl(one(G, ".pshell__balance"), "padding")).toBe("0 var(--space-3)");
+    // …that freed 16px: 2 × (16 − 12) of header padding + 2 × (12 − 8) of chip padding.
+    expect(2 * (tokenPx("--space-4") - tokenPx("--space-3")) + 2 * (tokenPx("--space-3") - tokenPx("--space-2"))).toBe(16);
+    // …and it comes after the ≤540px header rule it refines (equal specificity: order decides).
+    const idx = (ctx: string) =>
+      G.findIndex((r) => r.selector === ".pshell__header" && r.at.includes(ctx));
+    expect(idx(at)).toBeGreaterThan(idx(NARROW));
+  });
+
+  it("≤540px the chip's hidden words are its TOOLTIP too; wider, the tooltip never shows", () => {
+    // The chip is the tooltip's containing block at every width…
+    expect(decl(one(G, ".pshell__balance"), "position")).toBe("relative");
+    // …the tooltip is hidden exactly where the words are visible: from 541px, the complement of
+    // the ≤540px rule that clips the unit word.
+    const wide = one(G, ".pshell__balance > .bb-icon-tip", "min-width");
+    expect(wide.at).toBe("@media (min-width: 541px)");
+    expect(props(wide)).toEqual(["display"]);
+    expect(decl(wide, "display")).toBe("none");
+    expect(Number(wide.at.match(/(\d+)px/)![1])).toBe(Number(NARROW.match(/(\d+)px/)![1]) + 1);
+    // Both chips (the owner's link and the static one) carry the shared tooltip, aria-hidden (the
+    // link's accessible name already says it), with the hidden words.
+    const chip = readFileSync(join(here, "(portal)", "balance-chip.tsx"), "utf8");
+    expect(offsets(chip, 'className="bb-icon-tip bb-icon-tip--bottom-end" aria-hidden="true"')).toHaveLength(1);
+    expect(chip).toContain("aria-label={`${words} — open Credits`}");
   });
 
   it("≤600px: a page head's action group may shrink to its row and wrap its own controls", () => {
@@ -989,32 +1136,20 @@ describe("W3-A · 6 — the portal reflows to 320px", () => {
     expect(decl(r, "min-width")).toBe("0");
   });
 
-  it("≤420px: the applicant feed head gives the role title the whole first row", () => {
-    // A 68-character title beside a 4-digit balance chip was 5 lines / 135px at 320 and 3 / 90px
-    // at 375; on the two-track grid it is 2 lines / 74px at 320–420 (the chip on the count's row).
-    const grid = one(G, ".section__head.applicants-feed__head", NARROW);
-    expect(decl(grid, "display")).toBe("grid");
-    expect(decl(grid, "grid-template-columns")).toBe("minmax(0, 1fr) auto");
-    expect(decl(grid, "grid-template-areas")!.match(/"[^"]*"/g)).toEqual([
-      '"title title"',
-      '"sub actions"',
-    ]);
-    expect(decl(grid, "row-gap")).toBe("var(--space-1)");
-    expect(decl(one(G, ".applicants-feed__head > .section__text", NARROW), "display")).toBe(
-      "contents",
-    );
-    for (const [sel, area] of [
-      [".applicants-feed__head .section__title", "title"],
-      [".applicants-feed__head .section__sub", "sub"],
-      [".applicants-feed__head > .section__actions", "actions"],
-    ] as const) {
-      expect(decl(one(G, sel, NARROW), "grid-area"), sel).toBe(area);
-    }
-    const page = readFileSync(
-      join(here, "(portal)", "postings", "[id]", "applicants", "page.tsx"),
-      "utf8",
-    );
-    expect(offsets(page, 'className="section__head applicants-feed__head"')).toHaveLength(1);
+  it("the applicant feed head is the shared PageHeader: no balance chip beside the title", () => {
+    // The ≤420px two-track reflow existed to move a balance chip off a long role title's row.
+    // The balance is now shown ONCE, by the shell header's chip; the feed's head is the page's
+    // PageHeader (which wraps any title at every width) with the New / Shortlist tabs in its
+    // toolbar row — no second section head under it, and no reflow of its own.
+    const dir = join(here, "(portal)", "postings", "[id]", "applicants");
+    const actions = readFileSync(join(dir, "applicant-actions.tsx"), "utf8");
+    expect(offsets(actions, "<PageHeader ")).toHaveLength(1);
+    expect(actions).toContain("<PageHeader {...header} toolbar={pipeline} />");
+    expect(actions).not.toContain('className="section__head"');
+    const page = readFileSync(join(dir, "page.tsx"), "utf8");
+    expect(page).not.toContain('className="section__head"');
+    for (const src of [actions, page]) expect(src).not.toContain("applicants-feed__head");
+    expect(G.some((x) => x.selector.includes("applicants-feed__head"))).toBe(false);
   });
 
   it("a wrapped title breaks a long word rather than leave its wrapper", () => {
@@ -1148,5 +1283,91 @@ describe("solid badges keep their own label colour in the ink theme", () => {
     const r = find('[data-theme="ink"] .bb-badge--solid.bb-badge--warning');
     expect(r).toBeDefined();
     expect(decl(r!, "color")).toBe("var(--text-inverse)");
+  });
+});
+
+/* ================================================================== *
+ * 7 · ANCHORS — a fragment link's target lands BELOW the sticky header, not under it.
+ *     Measured: following /capacity → /plans#hiring-capacity put "Hiring capacity" at y=0–22px,
+ *     behind the 61px sticky header, at 375 / 768 / 1280px.
+ * ================================================================== */
+describe("W3-A · 7 — in-page link targets clear the sticky header", () => {
+  it("the anchor margin is the header's height plus a block gap", () => {
+    const r = one(G, ".anchor-target");
+    expect(props(r)).toEqual(["scroll-margin-top"]);
+    expect(decl(r, "scroll-margin-top")).toBe("calc(var(--shell-header-h) + var(--space-4))");
+    // …the header it clears is the sticky one sized by that same token.
+    const header = one(G, ".pshell__header");
+    expect(decl(header, "position")).toBe("sticky");
+    expect(decl(header, "top")).toBe("0");
+    expect(decl(header, "min-height")).toBe("var(--shell-header-h)");
+    expect(tokenPx("--space-4")).toBeGreaterThan(0);
+  });
+
+  it("every in-app link to another page's fragment targets an element that carries the margin", () => {
+    const sources = tsxUnder(here).map(([f, src]) => [f.split("\\").join("/"), src] as const);
+    // Fragments linked across pages: literal hrefs, plus the Hiring capacity constant.
+    const fragments = new Set<string>();
+    for (const [, src] of sources) {
+      for (const m of src.matchAll(/href="\/[^"#]*#([\w-]+)"/g)) fragments.add(m[1]!);
+    }
+    const billing = readFileSync(join(here, "..", "lib", "billing-routes.ts"), "utf8");
+    const anchorConst = /HIRING_CAPACITY_ANCHOR = "([\w-]+)"/.exec(billing)?.[1];
+    expect(anchorConst).toBe("hiring-capacity");
+    expect(billing).toContain("`/plans#${HIRING_CAPACITY_ANCHOR}`");
+    fragments.add(anchorConst!);
+    // The legacy /agency/dashboard#agency-vacancies deep link keeps its fragment through the
+    // redirect to /dashboard.
+    fragments.add("agency-vacancies");
+    expect([...fragments].sort()).toEqual(["agency-vacancies", "batch-invites", "hiring-capacity"]);
+
+    for (const frag of fragments) {
+      const idForms = [`id="${frag}"`, ...(frag === anchorConst ? ["id={HIRING_CAPACITY_ANCHOR}"] : [])];
+      const tags = sources.flatMap(([file, src]) =>
+        idForms.flatMap((form) =>
+          offsets(src, form).map((at) => {
+            const open = src.lastIndexOf("<", at);
+            return [file, src.slice(open, src.indexOf(">", at) + 1)] as const;
+          }),
+        ),
+      );
+      expect(tags.length, `#${frag} has one target`).toBe(1);
+      const [file, tag] = tags[0]!;
+      expect(tag, `${file}: #${frag}`).toMatch(/className="[^"]*\banchor-target\b[^"]*"/);
+    }
+  });
+});
+
+/* ================================================================== *
+ * 8 · The masked-résumé link (an applicant's revealed card) is a 44px touch target.
+ *     Measured 208 × 21.5px on touch at 375px before.
+ * ================================================================== */
+describe("W3-A · 8 — the masked-résumé link takes the text-link hit strip on touch", () => {
+  const CTX = `@media (${PHONE}), (pointer: coarse)`;
+
+  it("phone / coarse: positioned + isolated host, and the SAME strip the posting-row links use", () => {
+    const host = one(G, ".reveal-card__ext", "pointer: coarse");
+    expect(host.at).toBe(CTX);
+    expect(props(host)).toEqual(["isolation", "position"]);
+    expect(decl(host, "position")).toBe("relative");
+    const strip = one(G, ".reveal-card__ext::before", "pointer: coarse");
+    expect(strip.at).toBe(CTX);
+    // The recipe, declaration for declaration (it may not drift from the one it copies).
+    const recipe = G.find(
+      (r) => r.at === CTX && splitSelectors(r.selector).includes(".postings-link::before"),
+    )!;
+    expect(recipe).toBeDefined();
+    for (const p of ["content", "position", "z-index", "inset-block", "inset-inline"]) {
+      expect(decl(strip, p), p).toBe(decl(recipe, p));
+    }
+    expect(decl(strip, "inset-block")).toBe("calc((100% - var(--control-md)) / 2)");
+  });
+
+  it("MARKUP: the strip's host is the link itself (an <a> with the class), opening a new tab", () => {
+    const src = readFileSync(join(here, "..", "components", "unlock", "routed-contact-card.tsx"), "utf8");
+    const at = src.indexOf('className="reveal-card__ext"');
+    expect(at).toBeGreaterThan(0);
+    expect(src.lastIndexOf("<a", at)).toBeGreaterThan(src.lastIndexOf(">", at));
+    expect(src.slice(at, src.indexOf(">", at))).toContain('target="_blank"');
   });
 });

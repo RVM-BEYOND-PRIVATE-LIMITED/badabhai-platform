@@ -1,33 +1,48 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { getPostings } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
 import { getLiveCatalog } from "../../../lib/live-catalog";
 import { applicantQuotaStep } from "../../../lib/pricing-config";
+import {
+  agentPostingRedirect,
+  COMPANY_POSTING_ROUTES,
+  postingRoutes,
+} from "../../../lib/posting-routes";
 import type { PostingSummary } from "../../../lib/contracts";
 import { Card } from "../../../components/ds";
 import { CachedPricingNote } from "../../../components/cached-pricing-note";
+import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
 import { PostingsManager } from "./postings-manager";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Manage job postings (ADR-0019 Phase 1) — migrated onto the UI-1 page spine
- * (page-back / page-head / alert / state). Lists the payer's OWN postings (XB-A: the seam
- * binds to the server-held session id) via the LIVE `GET /payer/job-postings` read.
- * `postings/new` owns CREATE; each row links to its own faceless applicant feed.
+ * Postings (ADR-0019 Phase 1) — a COMPANY's own postings (XB-A: the seam binds to the
+ * server-held session id) via the LIVE `GET /payer/job-postings` read. `postings/new` owns
+ * CREATE; each row's title opens the posting, and its links open the faceless applicant feed
+ * and the edit form.
  *
- * The PAUSE / RESUME / quota TOP-UP / CLOSE lifecycle is LIVE: the payer-authed
+ * The PAUSE / RESUME / ADD APPLICANT SLOTS / CLOSE lifecycle is LIVE: the payer-authed
  * `POST /payer/job-postings/:id/{pause|resume|quota-topup|close}` routes (#178/#180),
- * wired in the manager with per-row busy state + inline retryable errors.
+ * wired in the manager with per-row busy state + inline retryable errors. The slot STEP copy is
+ * config-derived from the LIVE catalog (D-6; fetch failure ⇒ compile-time defaults + the
+ * cached-pricing note) — this page never hardcodes a quota number.
  *
- * The quota top-up STEP copy is config-derived from the LIVE catalog (D-6; fetch
- * failure ⇒ compile-time defaults + the cached-pricing note) — this page never
- * hardcodes a quota number.
+ * AN AGENT (owner ruling 2026-10-01): agencies post AGENCY jobs only, so this company surface
+ * is never linked for them. An agent who opens it directly is redirected to their own Postings
+ * — UNLESS they own older `job_postings` rows (made here before the ruling). Those are not
+ * hidden behind a 404: the agent sees them READ-ONLY (no lifecycle, no edit, no applicants), by
+ * direct link only — nothing in an agency's portal links here — with a pointer to their own
+ * Postings while the agency surface is on. The backend role gate for this surface is #1885.
  */
 export default async function PostingsPage() {
   const session = await requirePayer();
   const isAgency = session.role === "agent";
+  // An agent's own postings page — null when the agency surface is off (it would 404).
+  const agencyPostings = isAgency ? postingRoutes(true) : null;
   const { products, live } = await getLiveCatalog();
   const quotaStep = applicantQuotaStep(products);
 
@@ -39,43 +54,67 @@ export default async function PostingsPage() {
     error = e instanceof Error ? e.message : String(e);
   }
 
+  // Outside the try: `redirect()` signals by throwing.
+  if (isAgency && postings !== null && postings.length === 0) {
+    redirect(agentPostingRedirect("list"));
+  }
+
   // `.postings-page` only NAMESPACES this screen's layout rules (the "W3-B" block in
   // globals.css) — it carries no styling of its own.
   return (
     <div className="postings-page">
-      <p className="page-back">
-        <Link href="/dashboard">← Dashboard</Link>
-      </p>
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">Manage {isAgency ? "vacancies" : "postings"}</h1>
-          <p className="page-head__sub">
-            Every {isAgency ? "vacancy" : "posting"} you have opened, its applicant feed, and the
-            controls to pause, resume, top up or close it.
-          </p>
-        </div>
-        <div className="page-head__actions">
-          <Link className="bb-btn bb-btn--primary bb-btn--sm" href="/postings/new">
-            <i className="ph-fill ph-plus" aria-hidden="true" />
-            <span>{isAgency ? "Post a vacancy" : "Post a job"}</span>
-          </Link>
-        </div>
-      </div>
+      {isAgency ? (
+        <PageHeader
+          title="Older postings"
+          description="Postings your agency published with the company form, before agencies had their own Postings page — view only."
+        />
+      ) : (
+        <PageHeader
+          title="Postings"
+          description="Every posting you have opened, its applicant feed, and the controls to pause, resume, add applicant slots or close it."
+          primaryAction={{
+            href: COMPANY_POSTING_ROUTES.create,
+            label: "New posting",
+            icon: ACTION_ICON.create,
+          }}
+        />
+      )}
 
-      <div className="alert alert--info">
-        <i className="ph-fill ph-info alert__icon" aria-hidden="true" />
-        <div className="alert__text">
-          <p className="alert__title">Applicant quota</p>
-          <p className="alert__body">
-            Applicant quota is &ldquo;view more &rarr; pay more&rdquo;.{" "}
-            {quotaStep !== null
-              ? `Each top-up adds ${quotaStep} more applicant slots (from the pricing config).`
-              : "Top-up amounts come from the pricing config."}
-          </p>
+      {isAgency ? (
+        agencyPostings ? (
+          <div className="alert alert--info">
+            <Icon name="info" className="alert__icon" />
+            <div className="alert__text">
+              <p className="alert__title">Your agency&rsquo;s postings are in Postings</p>
+              <p className="alert__body">
+                New postings and edits for your agency live there. These older ones stay visible
+                here, view only, so nothing you made is lost.
+              </p>
+            </div>
+            <div className="alert__actions">
+              <Link className="bb-btn bb-btn--secondary bb-btn--sm" href={agencyPostings.list}>
+                <span>Go to Postings</span>
+                <Icon name={ACTION_ICON.next} />
+              </Link>
+            </div>
+          </div>
+        ) : null
+      ) : (
+        <div className="alert alert--info">
+          <Icon name="info" className="alert__icon" />
+          <div className="alert__text">
+            <p className="alert__title">Applicant quota</p>
+            <p className="alert__body">
+              Seeing more of a posting&rsquo;s applicants costs more.{" "}
+              {quotaStep !== null
+                ? `Each "Add applicant slots" adds ${quotaStep} more applicant slots (from the pricing config).`
+                : "Slot amounts come from the pricing config."}
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
-      {!live ? <CachedPricingNote /> : null}
+      {!live && !isAgency ? <CachedPricingNote /> : null}
 
       {error || !postings ? (
         // B7: the seam either threw (→ `error`) OR returned no postings array (the future
@@ -85,15 +124,12 @@ export default async function PostingsPage() {
         <Card>
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
+              <Icon name="warning-circle" />
             </span>
-            <h2 className="state__title">
-              We couldn&rsquo;t load your {isAgency ? "vacancies" : "postings"}
-            </h2>
+            <h2 className="state__title">We couldn&rsquo;t load your postings</h2>
             <p className="state__body">
-              This is usually temporary and nothing has changed — your{" "}
-              {isAgency ? "vacancies" : "postings"} and their applicants are safe. Retry to run
-              the read again.
+              This is usually temporary and nothing has changed — your postings and their
+              applicants are safe. Retry to run the read again.
             </p>
             <div className="state__actions">
               <RetryButton />
@@ -101,7 +137,7 @@ export default async function PostingsPage() {
           </div>
         </Card>
       ) : (
-        <PostingsManager postings={postings} />
+        <PostingsManager postings={postings} readOnly={isAgency} />
       )}
     </div>
   );

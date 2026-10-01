@@ -10,7 +10,8 @@ import type { AgencyFlags } from "../../../../lib/config";
  * UNCHANGED by the re-skin — the walk records only native string element types and the
  * rendered text in `children`, and a `soon-card` is a plain <div>, so the
  * no-interactive-control + no-commercial-term + re-label guards all still hold. Asserts:
- *  - all four modules render with their gate note,
+ *  - the three parked/deferred modules render with their gate note, and the DEAD one (bulk
+ *    invite upload, ADR-0022 Amdt 3) is NOT among them — it is never framed as parked,
  *  - NO interactive control exists (no button/input/form/select/textarea/anchor —
  *    they are not clickable fake flows),
  *  - NO commercial term is promised (no ₹500 / 25% / 90d),
@@ -53,15 +54,23 @@ function collect(node: ReactNode): Collected {
 }
 
 describe("AgencyParkedModules — informational, non-interactive", () => {
-  it("renders all four parked/dead/deferred modules with their gate note", () => {
+  it("renders the three parked/deferred modules with their gate note", () => {
     const joined = collect(AgencyParkedModules({ flags: OFF })).text.join(" ");
-    expect(joined).toContain("KYC");
+    expect(joined).toContain("Payout details (KYC)");
     expect(joined).toContain("Parked: legal/DPDP sign-off required");
     expect(joined).toContain("Payouts");
-    expect(joined).toContain("Bulk Invite Upload");
-    expect(joined).toContain("Not available: consent violation");
     expect(joined).toContain("Matching / Outcome Tracking");
     expect(joined).toContain("Deferred by product lock");
+  });
+
+  it("never lists bulk invite upload — it is dead, not parked, whatever its flag says", () => {
+    for (const agencyBulkUploadEnabled of [false, true]) {
+      const joined = collect(
+        AgencyParkedModules({ flags: { ...OFF, agencyBulkUploadEnabled } }),
+      ).text.join(" ");
+      expect(joined).not.toMatch(/bulk/i);
+      expect(joined).not.toMatch(/consent violation/i);
+    }
   });
 
   it("has NO interactive control (not clickable fake flows)", () => {

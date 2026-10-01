@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { Avatar, Badge } from "../../components/ds";
 import { logoutAction } from "./logout-action";
 
@@ -33,7 +34,7 @@ export interface AccountMenuProps {
   status: Status;
 }
 
-const ROLE_LABEL: Record<Role, string> = { employer: "Employer", agent: "Agency" };
+const ROLE_LABEL: Record<Role, string> = { employer: "Company", agent: "Agency" };
 
 /** Status → Badge tone (active = go/green, pending = warm, suspended = danger). */
 const STATUS_TONE: Record<Status, "success" | "warning" | "danger"> = {
@@ -130,9 +131,10 @@ export function AccountMenu({ orgName, email, role, status }: AccountMenuProps) 
           </div>
 
           <Link className="account-menu__link" href="/account" role="menuitem" onClick={() => close(false)}>
-            <i className="ph-fill ph-gear" aria-hidden="true" />
-            <span>Account settings</span>
-            <i className="ph-fill ph-arrow-right account-menu__link-arrow" aria-hidden="true" />
+            <Icon name={ACTION_ICON.settings} />
+            {/* The page's own name (its H1 is "Account"), so the menu and the page agree. */}
+            <span>Account</span>
+            <Icon name={ACTION_ICON.next} className="account-menu__link-arrow" />
           </Link>
 
           {/* Sign out — same row affordance, danger-tinted. Closes the menu (no focus return,
@@ -148,7 +150,7 @@ export function AccountMenu({ orgName, email, role, status }: AccountMenuProps) 
               startSignOut(() => logoutAction());
             }}
           >
-            <i className="ph-fill ph-sign-out" aria-hidden="true" />
+            <Icon name="sign-out" />
             <span>{signingOut ? "Signing out…" : "Sign out"}</span>
           </button>
         </div>

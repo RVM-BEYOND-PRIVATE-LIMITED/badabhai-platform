@@ -5,17 +5,21 @@ import type { PayerSession } from "../../lib/auth/types";
 import type { Capacity } from "../../lib/contracts";
 
 /**
- * W3-B — the six polished screens (/postings, /plans, /capacity, /account, /team, /team/accept)
- * keep their SERVER invariants through the re-layout:
+ * W3-B — the polished screens (/postings, /plans, /account, /team, /team/accept) keep their
+ * SERVER invariants through the re-layout (/capacity is now a redirect to /plans — its own test):
  *   · `dynamic = "force-dynamic"` on every page;
  *   · the role gate runs FIRST — when it rejects (redirect / neutral 404) no data seam is read;
- *     /team is gated by `requireOwner` (Owner-only), not merely a signed-in payer;
+ *     /team is gated by `requireOwner` (Owner-only), not merely a signed-in payer; /plans is a
+ *     COMPANY page — an agent is sent to the dashboard before any read;
  *   · every return branch is wrapped in its page's namespacing class and nothing else (the
  *     W3-B CSS block is scoped to these wrappers — see w3b-page-polish.css.test.ts);
- *   · the per-posting tables on /plans + /capacity are focusable scroll regions NAMED BY their
- *     panel heading (aria-labelledby → the heading's id, not a copied aria-label string);
- *   · /plans: every credit pack's action is a LINK to /credits (the purchase happens there),
- *     never an in-card button.
+ *   · the per-posting table on /plans is a focusable scroll region NAMED BY its panel heading
+ *     (aria-labelledby → the heading's id, not a copied aria-label string);
+ *   · /plans: credits are bought on /credits through ONE section-level "Buy credits" (Credits
+ *     does not preselect a pack, so per-pack buttons were one door N times) — for an OWNER only
+ *     (/credits is Owner-only); the pack cards carry no action;
+ *   · /postings for an AGENT: redirected to their own Postings, unless they own older company
+ *     postings, which are shown READ-ONLY (no create action).
  * Env is node: each async Server Component is awaited to an element tree and walked. The
  * client children are stubbed — they are unit-tested in their own suites.
  */
@@ -32,6 +36,10 @@ const AGENCY: PayerSession = { ...EMPLOYER, role: "agent" };
 
 const requirePayer = vi.fn<() => Promise<PayerSession>>();
 const requireOwner = vi.fn<() => Promise<PayerSession>>();
+const getOrgRole = vi.fn<(s: unknown) => "owner" | "recruiter">();
+const redirect = vi.fn((to: string) => {
+  throw new Error(`NEXT_REDIRECT ${to}`);
+});
 const getPostings = vi.fn();
 const getCapacity = vi.fn<() => Promise<Capacity>>();
 const getAgencyKyc = vi.fn();
@@ -39,7 +47,11 @@ const getLiveCatalog = vi.fn();
 const listOrgMembers = vi.fn();
 
 vi.mock("../../lib/auth", () => ({ requirePayer: () => requirePayer() }));
-vi.mock("../../lib/auth/org-roles", () => ({ requireOwner: () => requireOwner() }));
+vi.mock("../../lib/auth/org-roles", () => ({
+  requireOwner: () => requireOwner(),
+  getOrgRole: (s: unknown) => getOrgRole(s),
+}));
+vi.mock("next/navigation", () => ({ redirect: (to: string) => redirect(to) }));
 vi.mock("../../lib/payer-api", () => ({
   getPostings: () => getPostings(),
   getCapacity: () => getCapacity(),
@@ -63,7 +75,6 @@ vi.mock("./team/accept/accept-invite", () => ({ AcceptInvite: () => null }));
 
 const postings = await import("./postings/page");
 const plans = await import("./plans/page");
-const capacityPage = await import("./capacity/page");
 const account = await import("./account/page");
 const team = await import("./team/page");
 const accept = await import("./team/accept/page");
@@ -119,6 +130,8 @@ beforeEach(() => {
   for (const f of [
     requirePayer,
     requireOwner,
+    getOrgRole,
+    redirect,
     getPostings,
     getCapacity,
     getAgencyKyc,
@@ -129,6 +142,10 @@ beforeEach(() => {
   }
   requirePayer.mockResolvedValue(EMPLOYER);
   requireOwner.mockResolvedValue(EMPLOYER);
+  getOrgRole.mockReturnValue("owner");
+  redirect.mockImplementation((to: string) => {
+    throw new Error(`NEXT_REDIRECT ${to}`);
+  });
   getPostings.mockResolvedValue([]);
   getCapacity.mockResolvedValue(cap());
   getAgencyKyc.mockResolvedValue(null);
@@ -139,12 +156,6 @@ beforeEach(() => {
 const PAGES = [
   { name: "/postings", mod: postings, wrapper: "postings-page", run: () => postings.default() },
   { name: "/plans", mod: plans, wrapper: "plans-page", run: () => plans.default() },
-  {
-    name: "/capacity",
-    mod: capacityPage,
-    wrapper: "capacity-page",
-    run: () => capacityPage.default(),
-  },
   { name: "/account", mod: account, wrapper: "account-page", run: () => account.default() },
   { name: "/team", mod: team, wrapper: "team-page", run: () => team.default() },
   {
@@ -193,9 +204,9 @@ describe("W3-B · the role gate runs before any read", () => {
     expect(getCapacity).not.toHaveBeenCalled();
   });
 
-  it("/capacity: no catalog or capacity read when requirePayer rejects", async () => {
-    requirePayer.mockRejectedValue(redirect());
-    await expect(capacityPage.default()).rejects.toThrow("NEXT_REDIRECT");
+  it("/plans is a COMPANY page: an agent goes to the dashboard before any read", async () => {
+    requirePayer.mockResolvedValue(AGENCY);
+    await expect(plans.default()).rejects.toThrow("NEXT_REDIRECT /dashboard");
     expect(getLiveCatalog).not.toHaveBeenCalled();
     expect(getCapacity).not.toHaveBeenCalled();
   });
@@ -222,52 +233,133 @@ describe("W3-B · the role gate runs before any read", () => {
   });
 });
 
-describe("W3-B · per-posting tables are labelled, keyboard-scrollable regions", () => {
-  const cases = [
-    { name: "/plans", run: () => plans.default() },
-    { name: "/capacity", run: () => capacityPage.default() },
-  ];
-  for (const c of cases) {
-    for (const session of [EMPLOYER, AGENCY]) {
-      it(`${c.name} (${session.role}): tabIndex 0 + region, NAMED BY its panel heading (referenced)`, async () => {
-        requirePayer.mockResolvedValue(session);
-        const tree = (await c.run()) as ReactElement;
-        const wraps = byClass(tree, "tablewrap");
-        expect(wraps).toHaveLength(1);
-        const wrap = props(wraps[0]!);
-        expect(wrap).toMatchObject({ tabIndex: 0, role: "region" });
-        // The name is the heading's own text, referenced — not a second hand-kept copy of it.
-        expect(wrap["aria-label"]).toBeUndefined();
-        const panel = byClass(tree, "panel--table");
-        expect(panel).toHaveLength(1);
-        const heading = byClass(panel[0]!, "panel__title");
-        expect(heading).toHaveLength(1);
-        const id = props(heading[0]!).id;
-        expect(typeof id === "string" && id.length > 0).toBe(true);
-        expect(wrap["aria-labelledby"]).toBe(id);
-        expect(textOf(heading[0]!)).toContain(session.role === "agent" ? "vacancy" : "posting");
-      });
-    }
-  }
+describe("W3-B · the per-posting table is a labelled, keyboard-scrollable region", () => {
+  it("/plans: tabIndex 0 + region, NAMED BY its panel heading (referenced)", async () => {
+    const tree = (await plans.default()) as ReactElement;
+    const wraps = byClass(tree, "tablewrap");
+    expect(wraps).toHaveLength(1);
+    const wrap = props(wraps[0]!);
+    expect(wrap).toMatchObject({ tabIndex: 0, role: "region" });
+    // The name is the heading's own text, referenced — not a second hand-kept copy of it.
+    expect(wrap["aria-label"]).toBeUndefined();
+    const panel = byClass(tree, "panel--table");
+    expect(panel).toHaveLength(1);
+    const heading = byClass(panel[0]!, "panel__title");
+    expect(heading).toHaveLength(1);
+    const id = props(heading[0]!).id;
+    expect(typeof id === "string" && id.length > 0).toBe(true);
+    expect(wrap["aria-labelledby"]).toBe(id);
+    // One word for the entity (owner ruling 2026-10-01).
+    expect(textOf(heading[0]!)).toContain("posting");
+    expect(textOf(heading[0]!)).not.toMatch(/vacanc/i);
+  });
 
-  it("the tile rows opt into the compact phone variant of the shared stat row", async () => {
-    for (const run of [() => plans.default(), () => capacityPage.default()]) {
-      const rows = byClass((await run()) as ReactElement, "stat-row");
-      expect(rows).toHaveLength(1);
-      expect(props(rows[0]!).className).toBe("stat-row stat-row--kpi");
-    }
+  it("the tile row opts into the compact phone variant of the shared stat row", async () => {
+    const rows = byClass((await plans.default()) as ReactElement, "stat-row");
+    expect(rows).toHaveLength(1);
+    expect(props(rows[0]!).className).toBe("stat-row stat-row--kpi");
   });
 });
 
-describe("W3-B · /plans — credits are bought on /credits", () => {
-  it("every credit pack's one action is a link to /credits", async () => {
+/** Every href in the tree, expanding nothing (the pages' own links). */
+function hrefs(node: ReactNode, acc: string[] = []): string[] {
+  if (node === null || node === undefined || typeof node !== "object") return acc;
+  if (Array.isArray(node)) {
+    for (const c of node) hrefs(c, acc);
+    return acc;
+  }
+  const el = node as ReactElement<{ href?: unknown; children?: ReactNode }>;
+  if (typeof el.props?.href === "string") acc.push(el.props.href);
+  if (el.props && "children" in el.props) hrefs(el.props.children, acc);
+  return acc;
+}
+
+describe("W3-B · /plans — credits are bought on /credits, through ONE door", () => {
+  const creditPacks = (tree: ReactElement) =>
+    byClass(tree, "plan-card").filter((c) => /\bcredits\b/.test(textOf(c)) && !/Valid for/.test(textOf(c)));
+
+  it("OWNER: one section-level 'Buy credits' → /credits; the pack cards carry no action", async () => {
     const tree = (await plans.default()) as ReactElement;
-    const packs = byClass(tree, "plan-card").filter((c) => textOf(c).includes("credits"));
-    expect(packs.length).toBeGreaterThan(0);
+    const packs = creditPacks(tree);
+    expect(packs.length).toBeGreaterThan(1);
     for (const pack of packs) {
-      const links = byClass(pack, "bb-btn");
-      expect(links).toHaveLength(1);
-      expect(props(links[0]!).href).toBe("/credits");
+      expect(byClass(pack, "bb-btn")).toEqual([]);
+      expect(hrefs(pack)).toEqual([]);
     }
+    expect(hrefs(tree).filter((h) => h === "/credits")).toHaveLength(1);
+    const buy = byClass(tree, "bb-btn").filter((b) => props(b).href === "/credits");
+    expect(buy).toHaveLength(1);
+    expect(textOf(buy[0]!)).toBe("Buy credits");
+  });
+
+  it("RECRUITER: no link to /credits anywhere (it is Owner-only — a 404 for them)", async () => {
+    getOrgRole.mockReturnValue("recruiter");
+    const tree = (await plans.default()) as ReactElement;
+    expect(creditPacks(tree).length).toBeGreaterThan(0);
+    expect(hrefs(tree)).not.toContain("/credits");
+    expect(textOf(tree)).toContain("Ask your account owner to buy credits");
+  });
+});
+
+describe("/plans — one New posting, and the role links open the posting's applicants", () => {
+  it("the page offers ONE 'New posting', to the company form", async () => {
+    const tree = (await plans.default()) as ReactElement;
+    const create = hrefs(tree).filter((h) => h === "/postings/new");
+    expect(create).toHaveLength(1);
+    getCapacity.mockResolvedValue(cap({ postings: [] }));
+    // The empty per-posting table adds no second one.
+    const empty = (await plans.default()) as ReactElement;
+    expect(hrefs(empty).filter((h) => h === "/postings/new")).toHaveLength(1);
+  });
+
+  it("each role in the per-posting table opens that posting's applicants", async () => {
+    const tree = (await plans.default()) as ReactElement;
+    expect(hrefs(tree)).toContain("/postings/bbbb2222-0000-4000-8000-000000000001/applicants");
+  });
+});
+
+describe("/postings for an AGENT — their own Postings, or their older ones read-only", () => {
+  it("an agent with no company postings is redirected to /agency/jobs", async () => {
+    requirePayer.mockResolvedValue(AGENCY);
+    getPostings.mockResolvedValue([]);
+    await expect(postings.default()).rejects.toThrow("NEXT_REDIRECT /agency/jobs");
+    expect(redirect).toHaveBeenCalledWith("/agency/jobs");
+  });
+
+  it("an agent who OWNS older company postings sees them read-only — never a 404, no create", async () => {
+    requirePayer.mockResolvedValue(AGENCY);
+    getPostings.mockResolvedValue([
+      {
+        id: "bbbb2222-0000-4000-8000-000000000001",
+        roleTitle: "CNC Machinist",
+        locationLabel: null,
+        vacancyBand: "1",
+        status: "open",
+        applicantCount: 0,
+        applicantQuota: 10,
+        createdAt: "2026-06-22T00:00:00.000Z",
+      },
+    ]);
+    const root = (await postings.default()) as ReactElement;
+    expect(redirect).not.toHaveBeenCalled();
+    expect(props(root).className).toBe("postings-page");
+    const kids = (props(root).children as ReactNode[]).flat() as ReactElement[];
+    const head = kids.find((k) => k && typeof k === "object" && "title" in (k.props as object))!;
+    expect(props(head).title).toBe("Older postings");
+    expect(props(head).primaryAction).toBeUndefined();
+    const manager = kids.find(
+      (k) => k && typeof k === "object" && (k.props as { readOnly?: unknown }).readOnly !== undefined,
+    )!;
+    expect(props(manager).readOnly).toBe(true);
+  });
+
+  it("a company is never redirected and keeps its New posting action", async () => {
+    getPostings.mockResolvedValue([]);
+    const root = (await postings.default()) as ReactElement;
+    expect(redirect).not.toHaveBeenCalled();
+    const kids = (props(root).children as ReactNode[]).flat() as ReactElement[];
+    const head = kids.find((k) => k && typeof k === "object" && "title" in (k.props as object))!;
+    expect(props(head).title).toBe("Postings");
+    expect(props(head).primaryAction).toMatchObject({ href: "/postings/new", label: "New posting" });
   });
 });

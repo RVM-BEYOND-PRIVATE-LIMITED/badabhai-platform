@@ -1,4 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import { Badge, Button, Input, OtpInput, Tabs, Toast } from "../../components/ds";
@@ -192,6 +195,18 @@ describe("AUTH-1 · role tabs (Company | Agency) — ARIA tablist", () => {
     onChange.mockClear();
     onKeyDown({ ...evt, key: "ArrowLeft" });
     expect(onChange).toHaveBeenCalledWith("agency");
+  });
+
+  it("each tab's tagline uses the product's nouns: a company publishes POSTINGS, an agency sources WORKERS", () => {
+    const tagline = (role: "company" | "agency") =>
+      findAll(render({ step: "entry", role }), "span")
+        .filter((s) => p(s).className === "login-context__tag")
+        .map((s) => textOf(p(s).children as ReactNode).trim());
+    expect(tagline("company")).toEqual(["Publish postings and hire."]);
+    expect(tagline("agency")).toEqual(["Source workers for your clients."]);
+    // …never the retired nouns, anywhere in the form's copy (incl. the unrendered signup line).
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "login-form.tsx"), "utf8");
+    expect(src).not.toMatch(/post jobs|source candidates/i);
   });
 
   it("shows an active-context Badge naming the account type per tab", () => {

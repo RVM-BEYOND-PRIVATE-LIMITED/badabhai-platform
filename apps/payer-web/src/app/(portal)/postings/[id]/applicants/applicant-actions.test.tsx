@@ -55,6 +55,14 @@ vi.mock("react", async () => {
 });
 
 const { ApplicantActions } = await import("./applicant-actions");
+const { PageHeader } = await import("../../../../../components/page-header");
+
+/** The head text the page hands the feed (it names the posting from its own postings read). */
+const HEADER = {
+  back: { href: "/postings/33333333-3333-4333-8333-333333333333", label: "CNC Turner" },
+  title: "Applicants",
+  description: "Everyone who applied to CNC Turner, best match first and faceless until you unlock a contact.",
+};
 
 const WORKER = "55555555-5555-4555-8555-555555555555";
 const APPLICANT: FacelessApplicant = {
@@ -129,8 +137,10 @@ function walk(node: ReactNode, acc: Collected): void {
     });
   }
   if (el.props["aria-live"] === "polite") acc.ariaLiveCount++;
-  // Dialog footer Buttons live in the `footer` prop, not in children.
+  // Dialog footer Buttons live in the `footer` prop, not in children; the pipeline tabs live in
+  // the page head's `toolbar` prop.
   if ("footer" in el.props) walk(el.props.footer as ReactNode, acc);
+  if ("toolbar" in el.props) walk(el.props.toolbar as ReactNode, acc);
   if ("children" in el.props) walk(el.props.children, acc);
 }
 
@@ -148,6 +158,7 @@ function render(opts: {
   confirmWorker?: string | null;
   applicants?: FacelessApplicant[];
   balance?: number;
+  canBuyCredits?: boolean;
 }) {
   // Source order of useState: rows, confirmedUnlock, stages, activeStage, confirmWorker.
   stateQueue = [
@@ -160,9 +171,12 @@ function render(opts: {
   stateCursor = 0;
   setters = [];
   return ApplicantActions({
+    header: HEADER,
     postingId: "33333333-3333-4333-8333-333333333333",
     applicants: opts.applicants ?? [APPLICANT],
     balance: opts.balance ?? 5,
+    // An OWNER by default (the viewer who may open /credits); the recruiter case is explicit.
+    canBuyCredits: opts.canBuyCredits ?? true,
   }) as ReactElement;
 }
 
@@ -258,9 +272,15 @@ describe("ApplicantActions — guardrails: faceless row, no PII / no oracle", ()
       const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode; footer?: ReactNode }>;
       if (isDialogEl(el)) return; // the confirm dialog is chrome, not candidate row data
       if (el.props && "footer" in el.props) gather(el.props.footer as ReactNode);
+      if (el.props && "toolbar" in el.props) gather(el.props.toolbar as ReactNode);
+      // The page head's text props (title / description / back label) are rendered text too.
+      for (const k of ["title", "description"] as const) {
+        if (typeof el.props?.[k] === "string") all.push(el.props[k] as string);
+      }
       if (el.props && "children" in el.props) gather(el.props.children);
     })(tree);
     const joined = all.join(" ");
+    expect(joined).toContain("Applicants are faceless"); // the scan reaches the privacy note
     expect(joined).not.toMatch(/phone|\bemail\b|employer/i);
     // The candidate is shown as a truncated opaque id (8 hex chars), never a phone number:
     // no '+'-prefixed or 10+ digit run (a real Indian phone is 10+ digits).
@@ -291,6 +311,8 @@ function gatherText(tree: ReactNode): string {
     if (Array.isArray(el.props?.tabs)) {
       for (const t of el.props.tabs as Array<{ label?: ReactNode }>) all.push(textOf(t.label));
     }
+    // The pipeline tabs + the passed note are the page head's TOOLBAR (a prop, not children).
+    if (el.props && "toolbar" in el.props) gather(el.props.toolbar as ReactNode);
     if (el.props && "children" in el.props) gather(el.props.children);
   })(tree);
   return all.join(" ");
@@ -636,10 +658,12 @@ describe("ApplicantActions — (b) each stage renders its OWN empty state at zer
     const newEmpty = gatherText(
       render({ applicants: [A], stages: { [A.workerId]: "shortlist" }, activeStage: "new" }),
     );
-    expect(newEmpty).toContain("No candidates in New");
+    expect(newEmpty).toContain("No applicants in New");
     // Nothing kept ⇒ the Shortlist stage is empty; its copy is distinct.
     const shortlistEmpty = gatherText(render({ applicants: [A], activeStage: "shortlist" }));
-    expect(shortlistEmpty).toContain("No shortlisted candidates yet");
+    expect(shortlistEmpty).toContain("No shortlisted applicants yet");
+    // "Applicant" is the feed's one word for the person (owner ruling 2026-10-01).
+    expect(`${newEmpty} ${shortlistEmpty}`).not.toMatch(/candidate/i);
     expect(newEmpty).not.toEqual(shortlistEmpty);
   });
 
@@ -661,7 +685,7 @@ describe("ApplicantActions — (b) each stage renders its OWN empty state at zer
     expect(tokens.has("alert")).toBe(true);
     expect(tokens.has("alert--warning")).toBe(true);
     expect(tokens.has("applicants-warn")).toBe(false);
-    expect(gatherText(render({ balance: 0 }))).toContain("not a signal about any candidate");
+    expect(gatherText(render({ balance: 0 }))).toContain("not a signal about any applicant");
   });
 });
 
@@ -898,14 +922,14 @@ describe("ApplicantActions — W2-B card anatomy: identity → tags → toolbar 
   });
 });
 
-describe("ApplicantActions — W3-A zero balance: an enabled Top up beside the disabled Unlock", () => {
+describe("ApplicantActions — W3-A zero balance: an enabled Buy credits beside the disabled Unlock", () => {
   const topUps = (tree: ReactNode) =>
     elements(tree).filter(
       (e) =>
         e.props.href === "/credits" && hasClass(e, "bb-btn") && hasClass(e, "bb-btn--secondary"),
     );
 
-  it("balance 0: one secondary Top up link to /credits per card, in the band's action row", () => {
+  it("balance 0 (owner): one secondary Buy credits link to /credits per card, in the action row", () => {
     const all = elements(render({ applicants: [A, B], balance: 0 }));
     const rows = all.filter((e) => hasClass(e, "applicant__unlock-actions"));
     expect(rows).toHaveLength(2);
@@ -915,8 +939,8 @@ describe("ApplicantActions — W3-A zero balance: an enabled Top up beside the d
       expect(unlock.props.disabled).toBe(true);
       const link = topUps(row.props.children as ReactNode);
       expect(link).toHaveLength(1);
-      // An icon + the label; the only new copy is "Top up".
-      expect(textOf(link[0]!.props.children as ReactNode).trim()).toBe("Top up");
+      // An icon + the label: "Buy credits" (never "Top up", which also meant applicant slots).
+      expect(textOf(link[0]!.props.children as ReactNode).trim()).toBe("Buy credits");
     }
     const bands = all.filter((e) => hasClass(e, "applicant__contact"));
     for (const band of bands) {
@@ -932,7 +956,7 @@ describe("ApplicantActions — W3-A zero balance: an enabled Top up beside the d
       )!;
       expect(elements(hint.props.children as ReactNode)).toEqual([]);
       expect(textOf(hint.props.children as ReactNode).replace(/\s+/g, " ").trim()).toBe(
-        "Top up to unlock. Guidance only — this is your own balance, never a signal about this candidate.",
+        "Buy credits to unlock. Guidance only — this is your own balance, never a signal about this applicant.",
       );
     }
   });
@@ -948,6 +972,73 @@ describe("ApplicantActions — W3-A zero balance: an enabled Top up beside the d
   it("a granted row has nothing to spend: no Top up even on a zero balance", () => {
     const tree = render({ rows: routedRowState(), balance: 0 });
     expect(topUps(tree)).toEqual([]);
+  });
+
+  it("balance 0 for a RECRUITER: no link to /credits anywhere (it 404s for them), Unlock still disabled", () => {
+    // `/credits` is requireOwner(); a recruiter sent there meets a neutral 404. The band and the
+    // alert still say what is wrong — in words that point at the person who can fix it.
+    const tree = render({ applicants: [A, B], balance: 0, canBuyCredits: false });
+    expect(elements(tree).filter((e) => e.props.href === "/credits")).toEqual([]);
+    expect(buttonInfo(tree, "Unlock contact")!.disabled).toBe(true);
+    const text = gatherText(tree);
+    // The alert and each row's hint say who can fix it — and offer no button (L7).
+    expect(text).toContain("Ask your account owner to buy credits to unlock");
+    expect(text).toContain("Ask your account owner to buy credits.");
+    expect(text).not.toMatch(/\bBuy credits\b/);
+    expect(text).toContain("not a signal about any applicant");
+  });
+
+  it("the alert's own link to /credits exists for an owner only", () => {
+    const alertLinks = (canBuyCredits: boolean) =>
+      elements(render({ balance: 0, canBuyCredits }))
+        .filter((e) => hasClass(e, "alert"))
+        .flatMap((a) => elements(a.props.children as ReactNode))
+        .filter((e) => e.props.href === "/credits");
+    expect(alertLinks(true)).toHaveLength(1);
+    expect(alertLinks(false)).toEqual([]);
+  });
+});
+
+describe("ApplicantActions — the screen's head: ONE PageHeader, the stage tabs in its toolbar", () => {
+  const heads = (tree: ReactNode) => elements(tree).filter((e) => e.type === PageHeader);
+
+  it("renders the page's head text first, with the New / Shortlist tabs as its toolbar", () => {
+    const tree = render({ applicants: [A, B] });
+    const top = (tree.props as { children: ReactNode[] }).children.filter(Boolean) as El[];
+    expect(top[0]!.type).toBe(PageHeader);
+    expect(heads(tree)).toHaveLength(1);
+    const head = heads(tree)[0]!.props as Record<string, unknown>;
+    // The page's own words, untouched: the back link names the posting, the H1 the screen.
+    expect(head.back).toEqual(HEADER.back);
+    expect(head.title).toBe("Applicants");
+    expect(head.description).toBe(HEADER.description);
+    // The toolbar is the pipeline: the segmented tabs, labelled, with their per-stage counts.
+    const toolbar = elements(head.toolbar as ReactNode);
+    const tabs = toolbar.find((e) => Array.isArray((e.props as { tabs?: unknown }).tabs))!;
+    expect((tabs.props as { "aria-label"?: string })["aria-label"]).toBe("Applicant pipeline");
+    expect(gatherText(head.toolbar as ReactNode)).toMatch(/New \(2\)\s+Shortlist \(0\)/);
+  });
+
+  it("no second heading under it: the feed starts after one privacy note, no section head", () => {
+    const tree = render({ applicants: [A, B] });
+    expect(elements(tree).filter((e) => hasClass(e, "section__head"))).toEqual([]);
+    expect(elements(tree).filter((e) => e.type === "h2" || e.type === "h1")).toEqual([]);
+    const notes = elements(tree).filter((e) => hasClass(e, "alert--info"));
+    expect(notes).toHaveLength(1);
+    // One sentence: what a row is, and what unlocking it costs.
+    const body = gatherText(notes[0]!.props.children as ReactNode);
+    expect(body).toContain("Applicants are faceless");
+    expect(body.replace("Applicants are faceless", "")).not.toMatch(/[.!?]\s+[A-Z]/);
+  });
+
+  it("the passed count rides beside the tabs as plain words, only once something was passed", () => {
+    const toolbarText = (tree: ReactNode) =>
+      gatherText((heads(tree)[0]!.props as { toolbar: ReactNode }).toolbar);
+    expect(toolbarText(render({ applicants: [A, B] }))).not.toContain("passed");
+    const text = toolbarText(render({ applicants: [A, B], stages: { [A.workerId]: "passed" } }));
+    expect(text).toMatch(/\b1\s+passed\b/);
+    // Its own words — not a "·" glued onto the tabs.
+    expect(text).not.toContain("·");
   });
 });
 

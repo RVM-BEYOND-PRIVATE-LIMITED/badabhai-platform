@@ -29,7 +29,16 @@ import { workerCardGap } from "../../../../lib/worker-card-gap";
  * FACELESS: no worker identity / employer name is ever an input or output here.
  */
 
-const NOT_FOUND = "That vacancy could not be found.";
+const NOT_FOUND = "That posting could not be found.";
+
+/**
+ * The two screens that render an agency's postings: the Postings list (`/agency/jobs`, where
+ * they are managed) and the dashboard's "Your postings" glance.
+ */
+function revalidateAgencyPostings(): void {
+  revalidatePath("/agency/jobs");
+  revalidatePath("/dashboard");
+}
 
 /** Lifecycle (pause/close) discriminated result — returns the full updated job on success. */
 export type AgencyJobActionResult =
@@ -87,10 +96,10 @@ export async function createAgencyJobAction(input: unknown): Promise<AgencyJobMu
   }
   try {
     const job = await createAgencyJob(parsed.data);
-    revalidatePath("/dashboard"); // MERGE-1: the agency vacancy manager now renders on /dashboard.
+    revalidateAgencyPostings();
     return { ok: true, job };
   } catch {
-    return { ok: false, error: "Could not create the vacancy right now. Please retry." };
+    return { ok: false, error: "Could not create the posting right now. Please retry." };
   }
 }
 
@@ -111,10 +120,10 @@ export async function updateAgencyJobAction(
     // `initial` (the current row) drives the `clear` diff — a card field the payer BLANKED is unset.
     const job = await updateAgencyJob(jobId, parsed.data, initial ?? null);
     if (!job) return { ok: false, error: NOT_FOUND }; // no-oracle: not-found == not-owned.
-    revalidatePath("/dashboard"); // MERGE-1: the agency vacancy manager now renders on /dashboard.
+    revalidateAgencyPostings();
     return { ok: true, job };
   } catch {
-    return { ok: false, error: "Could not update the vacancy right now. Please retry." };
+    return { ok: false, error: "Could not update the posting right now. Please retry." };
   }
 }
 
@@ -133,10 +142,10 @@ export async function resumeAgencyJobAction(input: {
   try {
     const job = await resumeAgencyJob(input.jobId);
     if (!job) return { ok: false, error: NOT_FOUND }; // no-oracle: not-found == not-owned.
-    revalidatePath("/dashboard");
+    revalidateAgencyPostings();
     return { ok: true, job };
   } catch {
-    return { ok: false, error: "Could not resume the vacancy right now. Please retry." };
+    return { ok: false, error: "Could not resume the posting right now. Please retry." };
   }
 }
 
@@ -150,10 +159,10 @@ export async function pauseAgencyJobAction(input: {
   try {
     const job = await pauseAgencyJob(input.jobId);
     if (!job) return { ok: false, error: NOT_FOUND }; // no-oracle: not-found == not-owned.
-    revalidatePath("/dashboard"); // MERGE-1: the agency vacancy manager now renders on /dashboard.
+    revalidateAgencyPostings();
     return { ok: true, job };
   } catch {
-    return { ok: false, error: "Could not pause the vacancy right now. Please retry." };
+    return { ok: false, error: "Could not pause the posting right now. Please retry." };
   }
 }
 
@@ -167,9 +176,9 @@ export async function closeAgencyJobAction(input: {
   try {
     const job = await closeAgencyJob(input.jobId);
     if (!job) return { ok: false, error: NOT_FOUND }; // no-oracle: not-found == not-owned.
-    revalidatePath("/dashboard"); // MERGE-1: the agency vacancy manager now renders on /dashboard.
+    revalidateAgencyPostings();
     return { ok: true, job };
   } catch {
-    return { ok: false, error: "Could not close the vacancy right now. Please retry." };
+    return { ok: false, error: "Could not close the posting right now. Please retry." };
   }
 }
