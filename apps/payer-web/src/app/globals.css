@@ -261,19 +261,8 @@ body {
     var(--ring-focus);
 }
 
-/* COMING SOON — a <span>, never a link (see sidebar-nav.tsx). Deliberately colourless:
-   any tint would read as a status the user should act on. */
-.pnav__link--soon {
-  color: var(--text-on-ink-disabled);
-  cursor: not-allowed;
-}
-.pnav__link--soon .pnav__icon {
-  color: var(--text-on-ink-disabled);
-}
-.pnav__link--soon:hover {
-  background: transparent;
-  color: var(--text-on-ink-disabled);
-}
+/* The SOON badge on a PARKED item — a live link to a page that explains what is not built (see
+   sidebar-nav.tsx). The rail has no disabled item: a page that would 404 is not in the nav. */
 .pnav__soon {
   margin-left: auto;
   flex: none;
@@ -455,6 +444,8 @@ body {
   white-space: nowrap;
 }
 .pcrumb__link {
+  display: inline-flex;
+  min-width: 0;
   color: var(--text-muted);
   text-decoration: none;
   white-space: nowrap;
@@ -470,12 +461,13 @@ body {
   font-size: var(--ui-caption-size);
   flex: none;
 }
-.pcrumb__here {
-  font-family: var(--font-sans);
-  font-size: var(--ui-h3-size);
-  font-weight: var(--ui-h3-weight);
-  letter-spacing: var(--ui-h3-tracking);
-  color: var(--text-heading);
+/* The trail is SECTION context only — the group, and on a child page the section as a link back
+   up (portal-breadcrumb.tsx). The page's own name is its H1, so no step here is styled as a
+   title. A step that does not fit ellipsizes rather than painting under the header actions. The
+   link ellipsizes through its LABEL, not itself: `overflow: hidden` on the link would clip the
+   link's own out-of-flow hit strip (below) back to its ~18px text box. */
+.pcrumb__group,
+.pcrumb__label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -614,14 +606,23 @@ body {
   }
 }
 
-/* Very narrow phones: the balance chip's word is the first thing that can go. Then the header's
-   own slack: its inline padding and gaps step down one size, and the theme toggle's "System"
-   pill shows only its icon (the button keeps its accessible name, "Follow system theme", and its
-   phone hit strip). The actions group is `flex: none`, so without this it was ~265px wide and the
-   page scrolled sideways at 320–360px while the breadcrumb collapsed to 0px under it. */
-@media (max-width: 420px) {
+/* Narrow phones (≤540px): the balance chip's unit word is the first thing that can go — visually
+   only: it stays in the chip's accessible name ("247 credits"). Then the header's own slack: its
+   inline padding and gaps step down one size, and the theme toggle's "System" pill shows only its
+   icon (the button keeps its accessible name, "Follow system theme", and its phone hit strip).
+   The actions group is `flex: none`, so without this it was ~265px wide and the page scrolled
+   sideways at 320–360px while the breadcrumb collapsed to 0px under it. The step used to stop at
+   420px, and from 421 to 540px the full-width actions left the breadcrumb ~0px (measured at
+   430/480/540px with a 4-digit balance) — so it now covers every phone width that needs it. */
+@media (max-width: 540px) {
   .pshell__balancelabel {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
   }
   .pshell__header {
     gap: var(--space-2);
@@ -631,14 +632,33 @@ body {
     display: none;
   }
 }
-/* Phones: the trail keeps only its CURRENT page (which ellipsizes). Its parent steps are `nowrap`
-   text, so in the 0–80px a phone header leaves the trail (0px at 421–430px with a 4-digit
-   balance) they painted on under the balance chip — the parent link still focusable beneath it.
-   That destination stays in the menu, and a detail page carries it as its back link too. */
+/* Phones: the trail keeps only its LAST step, which ellipsizes — the group on a top-level page,
+   the section link on a page below it (the page itself is never a step: its H1 names it). The
+   earlier steps are `nowrap` text, so in the little width a phone header leaves the trail they
+   painted on under the balance chip, a link still focusable beneath it. Every hidden step stays
+   in the menu; a child page's real parent is its back link, which is not always the section the
+   trail names (an applicants page goes back to its posting, the trail to Postings). */
 @media (max-width: 600px) {
   .pcrumb > :not(:last-child),
   .pcrumb__step > .pcrumb__sep {
     display: none;
+  }
+}
+
+/* …and that link is a finger target there. Its HIT AREA grows to the md control height with an
+   out-of-flow strip behind its text (the DS strip, vertical only): the header row holds 44px, and
+   a strip that never reaches sideways can never meet the hamburger's strip or the actions. */
+@media (max-width: 600px), (pointer: coarse) {
+  .pcrumb__link {
+    position: relative;
+    isolation: isolate;
+  }
+  .pcrumb__link::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: 0;
   }
 }
 
@@ -6003,9 +6023,9 @@ body:has(.invite-landing) .chrome-footer {
  * W3-A · SHARED FOLLOW-UPS (#1856) — the additive rules of the wave-3 shared pass, in one
  * place. The pass's in-place changes live with the rules they change: the focus-outline
  * tokens (every ring), the Payouts phone head (W2-B block), the applicant relevance span and
- * the KPI row centring + delta area (their own blocks), the shell header's ≤420px reflow, its
- * phone-only breadcrumb and its coarse-pointer hit strips (the shell / theme-toggle blocks), and
- * the segmented active-tab ring (ds-components.css). Tokens only.
+ * the KPI row centring + delta area (their own blocks), the shell header's narrow-phone reflow
+ * (now ≤540px), its phone-only breadcrumb and its coarse-pointer hit strips (the shell /
+ * theme-toggle blocks), and the segmented active-tab ring (ds-components.css). Tokens only.
  * ================================================================== */
 
 /* ---- 1 · TITLE + SUBTITLE, GROUPED. As a sibling of the title the sub sat a whole head

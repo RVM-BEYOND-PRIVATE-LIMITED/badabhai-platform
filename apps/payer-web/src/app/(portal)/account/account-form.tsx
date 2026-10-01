@@ -42,7 +42,7 @@ import {
 type Role = "employer" | "agent";
 type Status = "pending" | "active" | "suspended";
 
-const ROLE_LABEL: Record<Role, string> = { employer: "Employer", agent: "Agency" };
+const ROLE_LABEL: Record<Role, string> = { employer: "Company", agent: "Agency" };
 const STATUS_TONE: Record<Status, "success" | "warning" | "danger"> = {
   active: "success",
   pending: "warning",

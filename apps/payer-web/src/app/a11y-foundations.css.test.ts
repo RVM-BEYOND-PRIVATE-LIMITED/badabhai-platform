@@ -524,21 +524,21 @@ describe("W2-A · 2 — small controls clear a 44px hit area on phones (≤600px
     expect(switchW, "the switch is wider than the strip (no inline extension)").toBeGreaterThan(
       T(),
     );
-    // ≤420px the header's own gap and inline padding step down (W3-A reflow) — the hamburger's
-    // strip still fits both.
-    const narrow = one(G, ".pshell__header", "max-width: 420px");
-    expect(ext, "hamburger strip vs the ≤420 gap").toBeLessThanOrEqual(sumPx(decl(narrow, "gap")!));
-    expect(ext, "hamburger strip vs the ≤420 padding").toBeLessThanOrEqual(
+    // ≤540px the header's own gap and inline padding step down (W3-A reflow, widened from ≤420px)
+    // — the hamburger's strip still fits both.
+    const narrow = one(G, ".pshell__header", "max-width: 540px");
+    expect(ext, "hamburger strip vs the ≤540 gap").toBeLessThanOrEqual(sumPx(decl(narrow, "gap")!));
+    expect(ext, "hamburger strip vs the ≤540 padding").toBeLessThanOrEqual(
       sumPx(decl(narrow, "padding-inline")!),
     );
   });
 
-  it('ARITHMETIC ≤420px: the icon-only "System" pill\'s strip clears the switch and the account menu', () => {
+  it('ARITHMETIC ≤540px: the icon-only "System" pill\'s strip clears the switch and the account menu', () => {
     // The label is hidden IN THE HEADER only (the /login toggle keeps it), and the button keeps
     // its accessible name. Drawn: inline padding + one icon (1em of the pill's font size) + its
     // two hairline borders — ~30px, so its strip reaches (44 − 30) / 2 = 7px into each gap.
     // Measured at 320px: switch …213.5 | System 214.5–258.5 | account 259.5… (1px clear each).
-    const hide = one(G, ".pshell__headeractions .theme-toggle__system-label", "max-width: 420px");
+    const hide = one(G, ".pshell__headeractions .theme-toggle__system-label", "max-width: 540px");
     expect(props(hide)).toEqual(["display"]);
     expect(decl(hide, "display")).toBe("none");
     expect(G.filter((r) => r.selector === ".theme-toggle__system-label" && r.at !== "")).toEqual(
@@ -941,9 +941,9 @@ describe("W3-A · 3b — no state rule replaces a focus ring at equal or higher 
  *     (was 17/25/41px at 320 for 1/2/4 digits, 67px on /postings/[id]).
  * ================================================================== */
 describe("W3-A · 6 — the portal reflows to 320px", () => {
-  const NARROW = "max-width: 420px";
+  const NARROW = "max-width: 540px";
 
-  it("≤420px: the header's gap + inline padding step down one size, and nothing else changes", () => {
+  it("≤540px: the header's gap + inline padding step down one size, and nothing else changes", () => {
     const h = one(G, ".pshell__header", NARROW);
     expect(props(h)).toEqual(["gap", "padding-inline"]);
     expect(decl(h, "gap")).toBe("var(--space-2)");
@@ -959,22 +959,74 @@ describe("W3-A · 6 — the portal reflows to 320px", () => {
     expect(at(NARROW)).toBeGreaterThan(at("max-width: 1023px"));
   });
 
-  it("phones: the trail shows only its current page — its parent steps never paint under the actions", () => {
+  it("≤540px: the balance chip's unit word is hidden VISUALLY only — it stays in the chip's name", () => {
+    // `display: none` (the ≤420px rule) dropped "credits" from the accessible name too, so the
+    // chip read as a bare number. Clipped instead, it reads "247 credits".
+    const r = one(G, ".pshell__balancelabel", NARROW);
+    expect(decl(r, "display")).toBeNull();
+    expect(decl(r, "position")).toBe("absolute");
+    expect(decl(r, "clip")).toBe("rect(0, 0, 0, 0)");
+    expect(decl(r, "overflow")).toBe("hidden");
+    // …the same recipe as the shared `.sr-only`.
+    for (const p of ["position", "width", "height", "margin", "overflow", "clip", "white-space"]) {
+      expect(decl(r, p), p).toBe(decl(one(G, ".sr-only"), p));
+    }
+    // No other context hides it.
+    expect(G.filter((x) => x.selector === ".pshell__balancelabel").map((x) => x.at)).toEqual([
+      `@media (${NARROW})`,
+    ]);
+  });
+
+  it("phones: the trail shows only its LAST step — earlier steps never paint under the actions", () => {
     // Before: in the 0–80px a phone header leaves it, "Hiring ▸ Postings" overflowed under the
-    // balance chip (the link focusable beneath it) at 320–500px; measured 0 collisions after, at
-    // 320–768px on 9 pages × 3 balances.
+    // balance chip (the link focusable beneath it) at 320–500px.
     const r = one(G, ".pcrumb > :not(:last-child), .pcrumb__step > .pcrumb__sep", PHONE);
     expect(props(r)).toEqual(["display"]);
     expect(decl(r, "display")).toBe("none");
-    // The step that stays is the one that ellipsizes.
-    const current = one(G, ".pcrumb__here");
-    expect(decl(current, "min-width")).toBe("0");
-    expect(decl(current, "overflow")).toBe("hidden");
-    expect(decl(current, "text-overflow")).toBe("ellipsis");
-    // The component's last child is always the current page (a `.pcrumb__here`, or a step
-    // ending in one) — so `:not(:last-child)` is exactly the parents.
+    // Whatever step is last (the group, or the section link's LABEL) ellipsizes.
+    const steps = one(G, ".pcrumb__group, .pcrumb__label");
+    expect(decl(steps, "min-width")).toBe("0");
+    expect(decl(steps, "overflow")).toBe("hidden");
+    expect(decl(steps, "text-overflow")).toBe("ellipsis");
+    expect(decl(steps, "white-space")).toBe("nowrap");
+    // The LINK itself never clips: its phone hit strip is an out-of-flow child, and
+    // `overflow: hidden` on the link cut it back to the ~18px text box (measured: 17.5px).
+    // It shrinks (min-width 0, a flex box) and lets its label do the ellipsis.
+    const link = one(G, ".pcrumb__link");
+    expect(decl(link, "overflow")).toBeNull();
+    expect(decl(link, "display")).toBe("inline-flex");
+    expect(decl(link, "min-width")).toBe("0");
+    expect(
+      G.filter((x) => splitSelectors(x.selector).includes(".pcrumb__link")).every(
+        (x) => decl(x, "overflow") === null,
+      ),
+    ).toBe(true);
+    // The trail is section context: it never claims the current page (the H1 names it, the
+    // rail marks it) and no step is styled as a second title.
     const src = readFileSync(join(here, "(portal)", "portal-breadcrumb.tsx"), "utf8");
-    expect(offsets(src, 'aria-current="page"').length).toBe(2);
+    expect(offsets(src, "aria-current=")).toEqual([]);
+    expect(src).not.toContain("pcrumb__here");
+    expect(G.some((x) => splitSelectors(x.selector).some((s) => s.includes("pcrumb__here")))).toBe(
+      false,
+    );
+  });
+
+  it("phones + touch: the trail's section link is a 44px-tall target that never reaches sideways", () => {
+    const CTX = `@media (${PHONE}), (pointer: coarse)`;
+    const host = one(G, ".pcrumb__link", "pointer: coarse");
+    expect(host.at).toBe(CTX);
+    expect(props(host)).toEqual(["isolation", "position"]);
+    const strip = one(G, ".pcrumb__link::before", "pointer: coarse");
+    expect(strip.at).toBe(CTX);
+    expect(props(strip)).toEqual(["content", "inset-block", "inset-inline", "position", "z-index"]);
+    expect(decl(strip, "inset-block")).toBe("calc((100% - var(--control-md)) / 2)");
+    // Vertical only: it can never meet the hamburger's strip or the header actions.
+    expect(decl(strip, "inset-inline")).toBe("0");
+    expect(decl(strip, "z-index")).toBe("calc(var(--z-base) - 1)");
+    // The header row holds the 44px strip.
+    expect(sumPx(decl(one(G, ".pshell__header"), "min-height")!)).toBeGreaterThanOrEqual(
+      tokenPx("--control-md"),
+    );
   });
 
   it("≤600px: a page head's action group may shrink to its row and wrap its own controls", () => {
@@ -990,9 +1042,11 @@ describe("W3-A · 6 — the portal reflows to 320px", () => {
   });
 
   it("≤420px: the applicant feed head gives the role title the whole first row", () => {
+    // Its own ≤420px step (the shell header's narrow step is ≤540px now).
+    const FEED_NARROW = "max-width: 420px";
     // A 68-character title beside a 4-digit balance chip was 5 lines / 135px at 320 and 3 / 90px
     // at 375; on the two-track grid it is 2 lines / 74px at 320–420 (the chip on the count's row).
-    const grid = one(G, ".section__head.applicants-feed__head", NARROW);
+    const grid = one(G, ".section__head.applicants-feed__head", FEED_NARROW);
     expect(decl(grid, "display")).toBe("grid");
     expect(decl(grid, "grid-template-columns")).toBe("minmax(0, 1fr) auto");
     expect(decl(grid, "grid-template-areas")!.match(/"[^"]*"/g)).toEqual([
@@ -1000,7 +1054,7 @@ describe("W3-A · 6 — the portal reflows to 320px", () => {
       '"sub actions"',
     ]);
     expect(decl(grid, "row-gap")).toBe("var(--space-1)");
-    expect(decl(one(G, ".applicants-feed__head > .section__text", NARROW), "display")).toBe(
+    expect(decl(one(G, ".applicants-feed__head > .section__text", FEED_NARROW), "display")).toBe(
       "contents",
     );
     for (const [sel, area] of [
@@ -1008,7 +1062,7 @@ describe("W3-A · 6 — the portal reflows to 320px", () => {
       [".applicants-feed__head .section__sub", "sub"],
       [".applicants-feed__head > .section__actions", "actions"],
     ] as const) {
-      expect(decl(one(G, sel, NARROW), "grid-area"), sel).toBe(area);
+      expect(decl(one(G, sel, FEED_NARROW), "grid-area"), sel).toBe(area);
     }
     const page = readFileSync(
       join(here, "(portal)", "postings", "[id]", "applicants", "page.tsx"),

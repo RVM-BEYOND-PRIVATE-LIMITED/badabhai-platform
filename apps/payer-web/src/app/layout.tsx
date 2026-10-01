@@ -6,7 +6,7 @@ import { publicConfig, resolvePayerTheme, THEME_COOKIE_NAME } from "../lib/confi
 import { ASYNC_CSS_SCRIPT, ASYNC_STYLESHEETS, THEME_NO_FOUC_SCRIPT } from "../lib/theme";
 
 export const metadata: Metadata = {
-  title: "BadaBhai for Employers",
+  title: "BadaBhai for Business",
   description: "Self-serve hiring portal — post jobs, view faceless applicants, unlock contacts.",
 };
 
@@ -64,7 +64,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       <body>
         {children}
         <div className="chrome-footer">
-          BadaBhai for Employers · {publicConfig.NEXT_PUBLIC_ENVIRONMENT} · Worker identities
+          BadaBhai for Business · {publicConfig.NEXT_PUBLIC_ENVIRONMENT} · Worker identities
           are masked and consent-gated.
         </div>
       </body>

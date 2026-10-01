@@ -1,7 +1,9 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requirePayer } from "../../lib/auth";
 import { getOrgRole } from "../../lib/auth/org-roles";
+import { agencyFlags } from "../../lib/config";
 import { getCredits } from "../../lib/payer-api";
 import { BadaBhaiLogo, Badge, ThemeToggle } from "../../components/ds";
 import { AccountMenu } from "./account-menu";
@@ -17,7 +19,7 @@ export const dynamic = "force-dynamic";
  *
  * ONLY THE VISUAL AND NAVIGATIONAL LAYER CHANGED. The authorization model is byte-for-byte
  * the one that was here before, and is still ROLE-AWARE on two dimensions:
- *  - ACCOUNT role (`session.role` employer|agent) → product LABELING (Employers vs Agencies)
+ *  - ACCOUNT role (`session.role` employer|agent) → product LABELING (Company vs Agency)
  *    and which route group is offered;
  *  - ORG role (`getOrgRole` owner|recruiter) → which Owner-only nav AFFORDANCES show.
  *
@@ -31,8 +33,12 @@ export const dynamic = "force-dynamic";
  * inside that route group, not the missing link. The opaque payer is rendered only as
  * coarse role badges.
  *
+ * The agency items follow the agency-portal flag their pages check (nav-model.ts), so a
+ * switched-off agency surface leaves the rail rather than linking to 404s.
+ *
  * The balance chip is a courtesy read; it FAILS SOFT (hidden on a read error) so a
- * transient credits outage never blanks the whole shell.
+ * transient credits outage never blanks the whole shell. It is the ONE place the shell shows
+ * the balance, in "credits" (the unit every billing surface uses) with the wallet icon.
  */
 export default async function PortalLayout({ children }: { children: ReactNode }) {
   const session = await requirePayer();
@@ -41,7 +47,11 @@ export default async function PortalLayout({ children }: { children: ReactNode }
   // (requireOwner). See nav-model.ts for why this is false in staging/production today.
   const isOwner = getOrgRole(session) === "owner";
 
-  const sections = navSections({ isAgency, isOwner });
+  const sections = navSections({
+    isAgency,
+    isOwner,
+    agencyPortalEnabled: agencyFlags().agencyPortalEnabled,
+  });
 
   let balance: number | null = null;
   try {
@@ -65,7 +75,7 @@ export default async function PortalLayout({ children }: { children: ReactNode }
           <BadaBhaiLogo
             theme="ink"
             size={30}
-            sub={`for ${isAgency ? "Agencies" : "Employers"}`}
+            sub={`for ${isAgency ? "Agencies" : "Companies"}`}
           />
         </Link>
       }
@@ -74,21 +84,23 @@ export default async function PortalLayout({ children }: { children: ReactNode }
           <PortalBreadcrumb sections={sections} />
           <div className="pshell__headeractions">
             {balance != null ? (
-              /* The wallet position is the number a payer checks most often and the one
-                 that blocks the core loop when it hits zero, so it is a LINK to the wallet
-                 rather than a decorative chip. Recruiters have no /credits route, so it
-                 stays display-only for them. */
+              /* The balance is the number a payer checks most often and the one that blocks
+                 the core loop when it hits zero, so for an owner it is a LINK to Credits rather
+                 than a decorative chip. Recruiters have no /credits route, so it stays
+                 display-only for them. Below ~540px the unit word is visually hidden (it
+                 stays in the accessible name, "247 credits" — the space between the two spans
+                 is for that name; the flex row ignores it). */
               isOwner ? (
                 <Link className="pshell__balance" href="/credits">
-                  <i className="ph-fill ph-lock-key-open" aria-hidden="true" />
-                  <span className="ui-num pshell__balancenum">{balance}</span>
-                  <span className="pshell__balancelabel">unlocks</span>
+                  <Icon name={ACTION_ICON.credits} />
+                  <span className="ui-num pshell__balancenum">{balance}</span>{" "}
+                  <span className="pshell__balancelabel">{creditUnit(balance)}</span>
                 </Link>
               ) : (
                 <span className="pshell__balance pshell__balance--static">
-                  <i className="ph-fill ph-lock-key-open" aria-hidden="true" />
-                  <span className="ui-num pshell__balancenum">{balance}</span>
-                  <span className="pshell__balancelabel">unlocks</span>
+                  <Icon name={ACTION_ICON.credits} />
+                  <span className="ui-num pshell__balancenum">{balance}</span>{" "}
+                  <span className="pshell__balancelabel">{creditUnit(balance)}</span>
                 </span>
               )
             ) : null}
@@ -118,4 +130,9 @@ export default async function PortalLayout({ children }: { children: ReactNode }
       {children}
     </AppShell>
   );
+}
+
+/** "1 credit", "0 credits", "247 credits". */
+function creditUnit(balance: number): string {
+  return balance === 1 ? "credit" : "credits";
 }

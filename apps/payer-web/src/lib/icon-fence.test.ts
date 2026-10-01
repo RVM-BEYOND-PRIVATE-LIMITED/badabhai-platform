@@ -20,7 +20,6 @@ import { ALL_ICON_NAMES } from "@badabhai/icons";
  * glyph needs it, whatever way the class string is assembled.
  */
 const RAW_ICON_ALLOWLIST: Readonly<Record<string, number>> = {
-  "app/(portal)/account-menu.tsx": 3,
   "app/(portal)/account/account-form.tsx": 1,
   "app/(portal)/account/page.tsx": 3,
   "app/(portal)/agency/bulk-upload/page.tsx": 2,
@@ -40,9 +39,7 @@ const RAW_ICON_ALLOWLIST: Readonly<Record<string, number>> = {
   "app/(portal)/dashboard/agent-sections.tsx": 4,
   "app/(portal)/dashboard/page.tsx": 12,
   "app/(portal)/error.tsx": 1,
-  "app/(portal)/layout.tsx": 2,
   "app/(portal)/plans/page.tsx": 8,
-  "app/(portal)/portal-breadcrumb.tsx": 2,
   "app/(portal)/postings/[id]/applicants/applicant-actions.tsx": 4,
   "app/(portal)/postings/[id]/applicants/page.tsx": 6,
   "app/(portal)/postings/[id]/edit/edit-posting-form.tsx": 2,
@@ -52,7 +49,6 @@ const RAW_ICON_ALLOWLIST: Readonly<Record<string, number>> = {
   "app/(portal)/postings/new/posting-form.tsx": 2,
   "app/(portal)/postings/page.tsx": 3,
   "app/(portal)/postings/postings-manager.tsx": 3,
-  "app/(portal)/sidebar-nav.tsx": 2,
   "app/(portal)/team/accept/accept-invite.tsx": 4,
   "app/(portal)/team/team-manager.tsx": 2,
   "app/error.tsx": 1,
