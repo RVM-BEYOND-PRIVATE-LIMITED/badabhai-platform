@@ -292,7 +292,6 @@ _WITHHELD_ANY_SCRIPT = [
     "Welding, ரமேஷ்",  # Tamil
     "Welding, রমেশ",  # Bengali
     "Welding, رمیش",  # Urdu
-    "Welding, Ｒａｍｅｓｈ",  # fullwidth Latin
     "Welding, 𝐑𝐚𝐦𝐞𝐬𝐡",  # mathematical bold
     "Welding, grinding\nरमेश",
     "Operator, रमेश सर के अंडर",
@@ -302,8 +301,6 @@ _WITHHELD_ANY_SCRIPT = [
     "Welding, 🅁🄰🄼🄴🅂🄷",  # squared
     "Welding, 🇷🇦🇲🇪🇸🇭",  # regional indicators
     "Welding, ⠗⠁⠍⠑⠎⠓",  # Braille
-    "Welding, grinding\U000e0052\U000e0061\U000e006d",  # invisible TAG characters
-    "Welding, grin\u200bding",  # zero-width space
 ]
 
 
@@ -533,3 +530,219 @@ def test_the_state_strip_fails_closed_when_it_cannot_be_consulted(monkeypatch: p
     monkeypatch.setattr(signals, "without_region_or_state_names", broken)
     assert is_certified_clean("Pune, Maharashtra") is False  # nothing stripped: withheld
     assert is_certified_clean("Pune, Mumbai") is True
+
+
+# --- #1738: the label's start as a READER sees it ---------------------------------------------
+#
+# An invisible format character, a Latin combining mark, fullwidth letters, or a bullet / quote /
+# dash / list number in front of the word switched the no-cue leading-name rule off — and with it
+# the #1730 closed-vocabulary check `is_certified_clean` reads through the same regex. Each of
+# these labels was left unmasked AND certified clean.
+
+_HIDDEN_NAME_LABELS = [
+    "\u200bRamesh, welding",  # zero-width space in front
+    "\ufeffRamesh, welding",  # byte-order mark in front
+    "\u2060Ramesh, welding",  # word joiner
+    "\u200eRamesh, welding",  # left-to-right mark
+    "\u202eRamesh, welding",  # right-to-left override
+    "\u00adRamesh, welding",  # soft hyphen
+    "Ramesh\u0301, welding",  # a combining mark on the name
+    "Ra\u0301mesh, welding",  # ... inside it
+    "Ｒａｍｅｓｈ, welding",  # fullwidth letters
+    "• Ramesh, welding",  # a bullet
+    '"Ramesh", welding',  # quoted
+    "- Ramesh, welding",  # a dash
+    "1. Ramesh, welding",  # a list number
+    "2) Ramesh, welding",
+]
+
+
+@pytest.mark.parametrize("label", _HIDDEN_NAME_LABELS)
+def test_a_name_behind_an_invisible_or_decorated_start_is_masked(label: str):
+    from app.pseudonymize import pseudonymize
+
+    result = pseudonymize(label)
+    assert result.blocked is False
+    assert "[PERSON_1]" in result.text
+    assert "Ramesh" not in result.text
+    assert "Ｒａｍｅｓｈ" not in result.text
+
+
+_HIDDEN_BEHIND_A_RELEASED_WORD = [
+    "\ufeffPune, Ramesh",  # the released city, behind an invisible character
+    "Pu\u200bne, Ramesh",  # ... split by one
+    "Pune\u0301, Ramesh",  # ... with a combining mark
+    "• Pune, Ramesh",  # ... behind a bullet
+    "- Welding, Anil Kumar",  # the released trade word, behind a dash
+    "Welding, Ｒａｍｅｓｈ",  # a fullwidth name after a released word
+    "Welding, grinding\U000e0052\U000e0061\U000e006d",  # invisible TAG characters
+    "Welding, grin\u200bding",  # a zero-width space inside a vocabulary word
+]
+
+
+@pytest.mark.parametrize("label", _HIDDEN_NAME_LABELS + _HIDDEN_BEHIND_A_RELEASED_WORD)
+def test_every_gate_withholds_a_label_whose_start_hides_a_name(label: str):
+    """Through the real gates. FAIL-CLOSED: a label the gateway had to normalise comes back
+    altered, and every certifier withholds an altered label."""
+    from app.pseudonymize import certified_clean_skill_labels, certify_value, is_certified_clean
+
+    assert is_certified_clean(label) is False
+    assert certified_clean_skill_labels([label]) == []
+    blocked, certified = certify_value(label)
+    assert certified != label
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Welding, grinding",
+        "Pune, Mumbai",
+        "• Welding, grinding",  # a bullet in front of a released word still certifies
+        "- Pune, Mumbai",
+        "10 Welders, urgent",  # a count is not a list number: nothing is guessed as a name
+        "वेल्डिंग\u200dकाम",  # a ZWJ inside Devanagari is part of the word and is kept
+        "CNC turning, 5 saal",
+    ],
+)
+def test_an_ordinary_label_is_certified_exactly_as_before(label: str):
+    from app.pseudonymize import certified_clean_skill_labels, is_certified_clean, pseudonymize
+
+    assert pseudonymize(label).text == label
+    assert is_certified_clean(label) is True
+    assert certified_clean_skill_labels([label]) == [label]
+
+
+def test_devanagari_and_hinglish_text_pass_the_gateway_unchanged():
+    from app.pseudonymize import pseudonymize
+
+    for text in (
+        "मैं वेल्डर हूँ, पाँच साल का अनुभव है",
+        "क्\u200dष",  # a ZWJ-shaped conjunct
+        "Main CNC operator hoon, Pune mein kaam karta hoon",
+    ):
+        result = pseudonymize(text)
+        assert (result.blocked, result.text) == (False, text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["my name is Rámesh", "mera naam Ra​mesh hai", "my name is ​Ramesh"],
+)
+def test_the_cue_rule_sees_the_whole_name_too(text: str):
+    """The normalised view is the whole gateway's, not the leading rule's alone."""
+    from app.pseudonymize import pseudonymize
+
+    result = pseudonymize(text)
+    assert "[PERSON_1]" in result.text
+    assert "mesh" not in result.text
+
+
+def test_a_phone_split_by_a_fullwidth_colon_is_still_masked():
+    """The fold is letters and digits only: the phone rule accepts "：" as a separator and
+    deliberately excludes the ASCII ":" it would otherwise have become."""
+    from app.pseudonymize import pseudonymize
+
+    assert "[PHONE_1]" in pseudonymize("98765：43210").text
+
+
+# --- #1738 F1 REGRESSION: an invisible used as the SOLE separator must not smuggle PII ---------
+#
+# Deleting an invisible character also deletes the WORD BOUNDARY it stood for. When an invisible
+# (ZWSP etc.) is the only gap between two tokens, the reader view merges them ("Mera<ZWSP>naam" ->
+# "Meranaam") and a \b-anchored rule stops firing, so a name / credential id / employer that the
+# gateway masked on `main` would EGRESS. `pseudonymize` now also masks a space-separated view and
+# FAILS CLOSED when that view reveals identity the reader view missed.
+#
+# MUTATION BAR (CLAUDE.md §14): each assertion below was verified capable of failing — against the
+# pre-fix reader-only path (`_mask(_build_views(text)[0])`) every one of these returns
+# blocked=False with the concealed token present in `.text`. The fix flips them to blocked=True.
+_F1_INVISIBLE_BYPASS = [
+    ("Mera​naam Ramesh, welding", "Ramesh"),  # the `naam` name cue: ZWSP was the only gap
+    ("mera​naam Ramesh hai", "Ramesh"),
+    ("registration​number MH2019CN4471", "MH2019CN4471"),  # the credential-id cue
+    ("roll​no R2019ABC45", "R2019ABC45"),
+    ("Tata​Steel", "TataSteel"),  # the employer-suffix word boundary
+]
+
+
+@pytest.mark.parametrize("label, concealed", _F1_INVISIBLE_BYPASS)
+def test_an_invisible_sole_separator_that_hides_pii_fails_closed(label: str, concealed: str):
+    from app.pseudonymize import _build_views, _mask, pseudonymize
+
+    # The pre-fix path leaked: this pins that the fix is the thing doing the blocking.
+    pre_fix_result, _originals = _mask(_build_views(label)[0])
+    assert pre_fix_result.blocked is False and concealed in pre_fix_result.text
+
+    result = pseudonymize(label)
+    assert result.blocked is True  # capable of failing: pre-fix returned blocked=False
+    assert result.text == ""  # the block shape: nothing egresses
+    assert concealed not in result.text
+    assert result.replaced_entities == 0
+    assert result.placeholder_tokens == []
+    # The block reason names the CLASS of bypass, never the input (no PII in the reason).
+    assert concealed not in (result.blocked_reason or "")
+
+
+def test_a_re_segmented_token_the_reader_view_already_masked_does_not_over_block():
+    """The re-segmentation rescue, via SOURCE offsets. An invisible INSIDE a cued name
+    ("Ra<ZWSP>mesh") makes the spaced view mask only the fragment "Ra", but those source offsets
+    are a SUBSET of the ones the reader view masked as the whole "Ramesh" -> covered, so this is
+    NOT a new leak and must not fail closed."""
+    from app.pseudonymize import pseudonymize
+
+    result = pseudonymize("mera naam Ra​mesh hai")
+    assert result.blocked is False
+    assert "[PERSON_1]" in result.text and "mesh" not in result.text
+
+
+# --- #1738 F1 LAUNDERING: reconciliation is by SOURCE POSITION, not string content ------------
+#
+# A concealed name can be a substring of a DIFFERENT co-masked token — an employer the same turn
+# names, an email local part, or an earlier (masked) occurrence of the same name. A content-based
+# "is the spaced-masked text covered by some reader-masked text" reconciliation is fooled: it
+# finds the name inside the OTHER token and calls it covered, so the concealed occurrence LEAKS in
+# the returned reader text (where `main` masked it). `pseudonymize` reconciles by SOURCE offset
+# instead — the concealed name sits on offsets NO reader mask covers — so the turn fails closed.
+#
+# MUTATION BAR: each asserts the pre-fix reader-only path LEAKS (name present, blocked=False) AND
+# the fix BLOCKS. A content/substring reconciliation was measured to let all three through.
+_ZWSP = chr(0x200B)  # zero-width space (kept out of the source as a raw invisible)
+_F1_LAUNDERING = [
+    # the concealed trailing "Ramesh" is a substring of the masked employer "Ramesh ... Industries"
+    (f"Ramesh Steel Industries, mera{_ZWSP}naam Ramesh", "Ramesh"),
+    # ... of the masked email local part "ramesh.kumar"
+    (f"ramesh.kumar@tatasteel.co.in mera{_ZWSP}naam Ramesh", "Ramesh"),
+    # ... of the FIRST (masked) occurrence of the same name
+    (f"My name is Ramesh. Mera{_ZWSP}naam Ramesh", "Ramesh"),
+]
+
+
+@pytest.mark.parametrize("label, concealed", _F1_LAUNDERING)
+def test_a_name_laundered_by_a_co_masked_token_fails_closed(label: str, concealed: str):
+    from app.pseudonymize import _build_views, _mask, pseudonymize
+
+    # Pre-fix reader-only path leaks the concealed name (and a content-based check would too).
+    pre_fix_result, _masked = _mask(_build_views(label)[0])
+    assert pre_fix_result.blocked is False and concealed in pre_fix_result.text
+
+    result = pseudonymize(label)
+    assert result.blocked is True  # capable of failing: reader-only + content-based both leaked
+    assert result.text == ""
+    assert result.placeholder_tokens == []
+    assert concealed not in (result.blocked_reason or "")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "welding kaam karta hoon",  # a harmless invisible-free input
+        "my name is Ramesh",  # invisible-free, masks a name, never blocks
+        "​Ramesh, welding",  # invisible at the START (not a separator): reader masks, no block
+        "Ｒａｍｅｓｈ, welding",  # a benign fullwidth name: folds and masks, must not block
+        "98765：43210",  # a benign fullwidth-colon phone: masks, must not block
+    ],
+)
+def test_the_f1_guard_does_not_over_block_a_benign_input(text: str):
+    from app.pseudonymize import pseudonymize
+
+    assert pseudonymize(text).blocked is False

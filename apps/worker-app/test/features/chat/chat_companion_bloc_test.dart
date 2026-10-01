@@ -1194,4 +1194,115 @@ void main() {
     expect(bloc.state.messages.last.canReadAloud, isFalse, reason: 'reply');
     await bloc.close();
   });
+
+  // ── #1862 — THE COOL-DOWN IS NOT THE EDIT CARD'S TO CLEAR ──────────────────
+  test('a GONE card leaves the cool-down deadline standing', () async {
+    final DateTime until = DateTime.now().add(const Duration(minutes: 20));
+    when(() => repo.openCompanion()).thenAnswer((_) async => CompanionOpening(
+          CompanionOpenOutcome.companion,
+          ChatTurn(
+            reply: 'Thodi der ruk jaayein.',
+            companion: true,
+            digestKey: 'k1',
+            cooldownUntil: until,
+            editProposal: EditProposal(
+              proposalId: 'p1',
+              expiresAt: DateTime.now().add(const Duration(minutes: 5)),
+              rows: const <EditProposalRow>[
+                EditProposalRow(
+                  rowId: 'r1',
+                  sectionLabel: 'Skills',
+                  op: 'add',
+                  after: 'Welding',
+                ),
+              ],
+            ),
+          ),
+        ));
+    // The card is dead; the server's faltu wait is not.
+    when(() => repo.confirmCompanionEdit(any(), any()))
+        .thenAnswer((_) async => const CompanionEditResult.gone());
+    when(() => repo.sendCompanionMessage(any(),
+            submissionId: any(named: 'submissionId')))
+        .thenAnswer((_) async => _companion('Theek hai.'));
+
+    final ChatBloc bloc = ChatBloc(repo)..add(const ChatCompanionStarted());
+    await pumpEventQueue();
+    expect(bloc.state.cooldownUntil, until);
+
+    bloc.add(const ChatEditProposalConfirmed(<String>['r1']));
+    await pumpEventQueue();
+
+    expect(bloc.state.editProposal, isNull, reason: 'the dead card goes');
+    expect(bloc.state.cooldownUntil, until,
+        reason: 'a 404 on the card handed the composer back mid-wait — the '
+            'card knows nothing about the faltu cool-down');
+    await bloc.close();
+  });
+
+  // ── #1862 — A FAILED OR GONE EDIT ALWAYS SAYS SOMETHING ────────────────────
+  group('the edit card never fails silently', () {
+    ChatTurn withCard() => ChatTurn(
+          reply: _recap,
+          companion: true,
+          digestKey: 'k1',
+          editProposal: EditProposal(
+            proposalId: 'p1',
+            expiresAt: DateTime.now().add(const Duration(minutes: 5)),
+            rows: const <EditProposalRow>[
+              EditProposalRow(
+                rowId: 'r1',
+                sectionLabel: 'Skills',
+                op: 'add',
+                after: 'Welding',
+              ),
+            ],
+          ),
+        );
+
+    Future<ChatBloc> opened() async {
+      when(() => repo.openCompanion()).thenAnswer((_) async =>
+          CompanionOpening(CompanionOpenOutcome.companion, withCard()));
+      when(() => repo.sendCompanionMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => _companion('Theek hai.'));
+      final ChatBloc bloc = ChatBloc(repo)..add(const ChatCompanionStarted());
+      await pumpEventQueue();
+      return bloc;
+    }
+
+    test('a GONE confirm explains why the card vanished', () async {
+      when(() => repo.confirmCompanionEdit(any(), any()))
+          .thenAnswer((_) async => const CompanionEditResult.gone());
+      final ChatBloc bloc = await opened();
+      bloc.add(const ChatEditProposalConfirmed(<String>['r1']));
+      await pumpEventQueue();
+      expect(bloc.state.editNotice, kCompanionEditGoneNotice);
+      await bloc.close();
+    });
+
+    test('a FAILED confirm keeps the card and gives the real reason', () async {
+      when(() => repo.confirmCompanionEdit(any(), any()))
+          .thenThrow(const NetworkFailure());
+      final ChatBloc bloc = await opened();
+      bloc.add(const ChatEditProposalConfirmed(<String>['r1']));
+      await pumpEventQueue();
+      expect(bloc.state.editNotice, isNotNull);
+      expect(bloc.state.editNotice, isNot(kCompanionEditGoneNotice));
+      expect(bloc.state.editProposal, isNotNull,
+          reason: 'nothing was applied, so re-tapping Haan is the retry');
+      await bloc.close();
+    });
+
+    test('a FAILED cancel says so too', () async {
+      when(() => repo.cancelCompanionEdit(any()))
+          .thenThrow(const NetworkFailure());
+      final ChatBloc bloc = await opened();
+      bloc.add(const ChatEditProposalCancelled());
+      await pumpEventQueue();
+      expect(bloc.state.editNotice, isNotNull);
+      expect(bloc.state.editProposal, isNotNull);
+      await bloc.close();
+    });
+  });
 }

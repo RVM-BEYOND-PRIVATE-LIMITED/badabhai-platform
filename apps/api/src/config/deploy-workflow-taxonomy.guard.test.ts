@@ -167,6 +167,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /CHAT_GENERAL_ROAD_ENABLED:\s*\$\{\{\s*secrets\.CHAT_GENERAL_ROAD_ENABLED\s*\}\}/,
       /envs:[^\n]*\bCHAT_GENERAL_ROAD_ENABLED\b/,
     ],
+    // ADR-0048 (#1858) — the identity intake. A plain boolean flag, turned on in production ONLY
+    // by the environment secret, in the same release that unroutes the app's /name screen.
+    [
+      "CHAT_IDENTITY_INTAKE_ENABLED",
+      /CHAT_IDENTITY_INTAKE_ENABLED:\s*\$\{\{\s*secrets\.CHAT_IDENTITY_INTAKE_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_IDENTITY_INTAKE_ENABLED\b/,
+    ],
     // #1801 — résumé skins. A plain boolean flag, turned on in production ONLY by the
     // environment secret, after migration 0128 is applied — so the bridge is the switch.
     [
@@ -243,6 +250,7 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["WORK_HISTORY_POLISH_ENABLED", "false"],
     ["RESUME_AUTOFILL_ENABLED", "false"],
     ["CHAT_GENERAL_ROAD_ENABLED", "false"],
+    ["CHAT_IDENTITY_INTAKE_ENABLED", "false"],
     ["RESUME_SKINS_ENABLED", "false"],
     ["RESUME_QR_SCAN_ENABLED", "false"],
     // ADR-0046 — the companion v2 phase gates, all five off by default.

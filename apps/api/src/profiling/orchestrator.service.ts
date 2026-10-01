@@ -57,6 +57,7 @@ import { ChatRepository } from "../chat/chat.repository";
 // `UNAVAILABLE_REPLY` is served straight to a worker on the CAS-lost path, so latent is not a
 // comfortable place for it to sit.
 import { CHAT_UNAVAILABLE_REPLY } from "../chat/chat-replies";
+import { logSafeReason } from "../common/db-error";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { catalogVersionForEvent } from "../occupation/occupation.repository";
@@ -102,6 +103,30 @@ import {
   RESUME_UPDATE_OFFER_PROMPT,
   ResumeUpdateOfferPolicy,
 } from "./resume-update-offer";
+import {
+  advanceIntake,
+  INTAKE_ANSWER_TYPE,
+  INTAKE_COPY,
+  INTAKE_HANDOFF_TEXT,
+  INTAKE_QUESTION_KEYS,
+  intakeLineText,
+  openIntake,
+  planIntake,
+  readIntakeAnswer,
+  reservedIntakeLine,
+  type IdentityGaps,
+  type IntakeLine,
+  type IntakeSettlement,
+  type IntakeStep,
+} from "./identity-intake/identity-intake";
+// A VALUE import, not `import type`: the class is a constructor parameter below, and Nest resolves
+// it from the emitted `design:paramtypes` — a type-only import would emit `Object` there and leave
+// the intake silently unwired at boot.
+import {
+  IdentityIntakeService,
+  type IntakeRef,
+  type IntakeWrite,
+} from "./identity-intake/identity-intake.service";
 import { chatServableItems, crossFillItems } from "./facts/worker-fact.ownership";
 import { parseDurationMonths } from "./duration-months";
 import { WorkersRepository } from "../workers/workers.repository";
@@ -460,6 +485,38 @@ export interface OpenTurnInput {
 }
 
 /**
+ * Opening a NEW chat session on the identity intake (ADR-0048). `gaps` is read by the caller off
+ * the `workers` row it already loaded — presence booleans only, never the values.
+ */
+export interface OpenIdentityIntakeInput extends OpenTurnInput {
+  readonly gaps: IdentityGaps;
+}
+
+/**
+ * What an intake turn owes the world besides its reply (ADR-0048): the record write that must
+ * land BEFORE the CAS, and the steps it settled, recorded AFTER it. Carried out of `decide` because
+ * `decide` is re-run on a lost CAS and must stay free of side effects — `takeTurn` performs them.
+ */
+interface IntakeEffects {
+  readonly write: IntakeWrite | null;
+  readonly settled: readonly IntakeSettlement[];
+}
+
+/** The packs one turn runs against, and the pin they imply. See `resolvePacks`. */
+interface ResolvedPacks {
+  readonly engine: EnginePacks;
+  readonly packId: string | null;
+  readonly packVersion: number | null;
+}
+
+/** One decision: the buffer to write, the reply, and — on an intake turn only — its effects. */
+interface Decided {
+  readonly buffer: TranscriptBuffer;
+  readonly result: TurnResult;
+  readonly intake?: IntakeEffects;
+}
+
+/**
  * A FINISHED interview, read from Postgres rather than from Redis.
  *
  * {@link ProfilingOrchestrator.viewSession} cannot serve this. It loads the transcript buffer, and
@@ -555,6 +612,10 @@ export class ProfilingOrchestrator {
     // the two above: a construction without one gets exactly today's interview, because no
     // session can be armed without it.
     private readonly skills?: SkillsTurnService,
+    // ADR-0048 — the identity intake's seal, writes and funnel event. Trailing and optional for
+    // the same reason again: without one `openIdentityIntake` opens nothing, so no session can
+    // carry a pending intake, and every existing construction is today's interview exactly.
+    private readonly identityIntake?: IdentityIntakeService,
   ) {}
 
   /**
@@ -706,6 +767,15 @@ export class ProfilingOrchestrator {
       const decided = await this.decide(buffer, envelope, input, fresh, citySeed);
       if (!decided) return unavailable();
 
+      // ADR-0048 — THE INTAKE'S RECORD WRITE LANDS BEFORE THE CAS, AND FAILS CLOSED. After the
+      // CAS would be worse in the one way that matters: the conversation would already have moved
+      // past the question while the name or city was lost, and nothing would ever ask it again.
+      // Before it, a failed write returns the retryable line with NOTHING advanced, so the worker
+      // is re-asked; a lost CAS re-runs `decide` and re-issues the same idempotent write.
+      if (decided.intake?.write && !(await this.applyIntakeWrite(decided.intake.write, input))) {
+        return unavailable();
+      }
+
       // Stamp the histogram onto the buffer that is about to be written. Done HERE rather than
       // inside `decide` so there is exactly one measurement point covering the whole decision —
       // answer capture, retrieval, pack resolution and question selection together, which is the
@@ -728,6 +798,10 @@ export class ProfilingOrchestrator {
         const settled = measured.profiling?.resumeUpdateOffer;
         if (envelope.resumeUpdateOffer?.state === "pending" && settled?.state === "settled") {
           await this.recordResumeUpdateAnswered(input, settled.accepted === true ? "yes" : "no");
+        }
+        // ADR-0048 — the intake's funnel rows, only for the decision that landed. Never throws.
+        if (decided.intake && decided.intake.settled.length > 0) {
+          await this.identityIntake?.record(decided.intake.settled, intakeRefOf(input));
         }
         return decided.result;
       }
@@ -815,6 +889,27 @@ export class ProfilingOrchestrator {
       const engine = selectableEnginePacks(envelope, packs.engine);
       const answers = answersOf(envelope);
 
+      // ── THE IDENTITY INTAKE, RE-SERVED (ADR-0048) ──────────────────────────────────────
+      //
+      // FIRST, because while it is pending it is the only thing on screen: it opened the session
+      // and nothing else is asked until it settles. RE-SERVE ONLY — no write, no ask spent, the
+      // same rule as every re-serve below. Without it a reopen would fall through to the pack's
+      // first question and the worker's typed name would be captured as his trade.
+      const intake = envelope.identityIntake;
+      if (intake?.state === "pending" && intake.step !== null) {
+        return intakeAskTurn(
+          intake.step,
+          reservedIntakeLine(intake, intake.step),
+          progressOf(progressItems, answers),
+          essentialsOf(items, answers),
+          true,
+        );
+      }
+      // An intake that has run is a conversation, even at `turnCount` 0 (its turns spend none):
+      // the résumé OPENINGS below must not be served beneath it — the intake's own handoff turn
+      // already served whichever of them applied, and the turn path owns every later offer.
+      const opening = buffer.turnCount === 0 && intake === null;
+
       // ── THE RÉSUMÉ-UPDATE OFFER, RE-SERVED (ADR-0043) ──────────────────────────────────
       //
       // FIRST, because it is the LAST thing the interview ever puts on screen: it is served only
@@ -866,22 +961,7 @@ export class ProfilingOrchestrator {
         if (pending && pending.facts.length > 0) {
           // RE-SERVE ONLY — no write, no ask. The turn that served it already persisted the
           // pending state and the assistant line; a reload must not spend a second ask.
-          return {
-            reply: confirmPrompt(pending.facts),
-            kind: "ask",
-            questionKey: null,
-            options: [...RESUME_CONFIRM_OPTIONS],
-            whyText: null,
-            answerType: "single_select",
-            progress: progressOf(progressItems, answers),
-            unansweredEssentials: essentialsOf(items, answers),
-            complete: false,
-            completionReason: null,
-            replayed: true,
-            excludeFromParse: false,
-            unavailable: false,
-            checkpointDue: false,
-          };
+          return this.confirmTurnFields(pending.facts, items, answers, progressItems, true);
         }
       }
 
@@ -899,7 +979,7 @@ export class ProfilingOrchestrator {
       // never saw its summary, and — worse — the new document's autofill never ran. A
       // résumé is a claim about ONE document, so a DIFFERENT import id is a fresh claim
       // that must be asked about again; the same id is never asked twice.
-      if (buffer.turnCount === 0) {
+      if (opening) {
         const line = await this.resolveResumeIdentity(input.workerId);
         const alreadyHandled = line !== null && envelope.resumeIdentity?.importId === line.importId;
         if (line && !alreadyHandled) {
@@ -955,7 +1035,7 @@ export class ProfilingOrchestrator {
       // because the worker's reply must be captured as the confirm's answer (the capture block
       // in `decide` reads `resumeConfirm.state === "pending"`). Without the write, the tap
       // would fall through to ordinary selection and the confirm would be served a second time.
-      if (envelope.resumeConfirm === null && buffer.turnCount === 0) {
+      if (envelope.resumeConfirm === null && opening) {
         const pending = await this.resolveResumeConfirm(input.workerId, items, answers);
         if (pending && pending.facts.length > 0) {
           const reply = confirmPrompt(pending.facts);
@@ -996,22 +1076,7 @@ export class ProfilingOrchestrator {
               voiceNoteId: null,
               ctx: input.ctx,
             });
-            return {
-              reply,
-              kind: "ask",
-              questionKey: null,
-              options: [...RESUME_CONFIRM_OPTIONS],
-              whyText: null,
-              answerType: "single_select",
-              progress: progressOf(progressItems, answers),
-              unansweredEssentials: essentialsOf(items, answers),
-              complete: false,
-              completionReason: null,
-              replayed: false,
-              excludeFromParse: false,
-              unavailable: false,
-              checkpointDue: false,
-            };
+            return this.confirmTurnFields(pending.facts, items, answers, progressItems, false);
           }
           this.logger.log(
             `CAS lost opening session=${input.sessionId} rev=${envelope.rev} ` +
@@ -1261,6 +1326,101 @@ export class ProfilingOrchestrator {
   }
 
   /**
+   * OPEN a NEW chat session on the identity intake (ADR-0048) — or report `null`.
+   *
+   * THE OPENING-WRITE PATTERN, as the résumé identity open in {@link openTurn} uses it: resolve the
+   * packs, write the envelope and ONLY the assistant line under the CAS, and do NOT bump
+   * `turnCount`. The intake spends no turn and no ask at all — not here and not on any of its
+   * answer turns — so the interview behind it runs with exactly the turn numbering, `min_turn`
+   * windows and `MAX_ENGINE_TURNS` budget it has without one.
+   *
+   * WHAT A FRESH ENVELOPE WOULD HAVE DONE, IT DOES HERE (D7). The city seed and the general-road
+   * stamp both run only on a FRESH envelope, and this write makes the session's first real turn
+   * no longer fresh. The seed runs now (the worker may already have a city on file); the stamp is
+   * deferred to the intake's handoff turn, which is where today's interview would have begun — so
+   * a handoff onto the opener arms exactly as a first message does, and a handoff onto a résumé
+   * turn stays unarmed exactly as a session that opens on one does today.
+   *
+   * DEGRADES, NEVER FAILS. Null — nothing to ask, no intake service wired, no pack, a session that
+   * is not new, or a lost CAS — hands the caller back to today's opening: the worker's gaps stay,
+   * and his next new session asks (D9). Only the caller decides whether the flag is on; this
+   * method trusts that it was asked.
+   */
+  async openIdentityIntake(input: OpenIdentityIntakeInput): Promise<TurnResult | null> {
+    if (this.identityIntake === undefined) return null;
+    const opened = openIntake(planIntake(input.gaps));
+    if (opened === null || opened.step === null) return null;
+    const step = opened.step;
+    // See `takeTurn`'s identical declaration for why this lives outside the loop.
+    const citySeed: CitySeedRef = { promise: null };
+
+    for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
+      const loaded = await this.buffer.load(input.sessionId);
+      // A NEW SESSION ONLY. An envelope here means the interview already began — a retried
+      // request whose first attempt landed, or a session that is not new — and it is left alone.
+      if (loaded?.profiling != null) return null;
+      const buffer = loaded ?? ChatTranscriptBuffer.create(input.workerId, "", input.now);
+      const fresh = emptyProfilingEnvelope();
+
+      const packs = await this.resolvePacks(fresh, input.now.getTime());
+      if (!packs) {
+        this.logger.error(
+          `no question pack resolved opening the identity intake for session ${input.sessionId}; ` +
+            `the session opens as it does without one`,
+        );
+        return null;
+      }
+      const items = [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items];
+      const seeded = await this.seedCity(fresh, citySeed, items, input);
+      const next: ProfilingEnvelope = stampUniversalPointer(
+        {
+          ...seeded,
+          packId: packs.packId,
+          packVersion: packs.packVersion,
+          identityIntake: opened,
+          // NO `servedQuestionKey` — the intake question belongs to no pack.
+          servedQuestionKey: null,
+        },
+        packs.engine.universal,
+      );
+      const result = intakeAskTurn(
+        step,
+        "prompt",
+        progressOf(progressItemsOf(next, packs.engine), answersOf(next)),
+        essentialsOf(items, answersOf(next)),
+        false,
+      );
+      // ONLY THE ASSISTANT LINE, flagged as the intake's, exactly like every other opening write.
+      const opening: TranscriptBuffer = {
+        ...buffer,
+        messages: [
+          ...buffer.messages,
+          {
+            role: "assistant" as const,
+            text: result.reply,
+            at: input.now.toISOString(),
+            voiceNoteId: null,
+            intake: true,
+          },
+        ],
+        profiling: next,
+      };
+      if (await this.buffer.saveWithCas(input.sessionId, opening, fresh.rev)) {
+        this.logger.log(
+          `identity intake opened session=${input.sessionId} step=${step} ` +
+            `steps=${[step, ...opened.remaining].join(",")}`,
+        );
+        return result;
+      }
+      this.logger.log(
+        `CAS lost opening the identity intake session=${input.sessionId} ` +
+          `attempt=${attempt + 1}; reloading`,
+      );
+    }
+    return null;
+  }
+
+  /**
    * OPEN the résumé confirm for a session that has not served it yet — or report `null`.
    *
    * ── WHY THIS IS NOT JUST `openTurn` (Task 1 B3; ADR-0042 D8) ────────────────────────────
@@ -1290,6 +1450,11 @@ export class ProfilingOrchestrator {
     const envelope = loaded?.profiling ?? null;
     if (envelope?.resumeConfirm != null) return null;
     if (loaded !== null && loaded.turnCount > 0) return null;
+    // ADR-0048 — AN INTAKE, PENDING OR SETTLED, IS ALREADY A CONVERSATION. Pending, its question
+    // is on screen and the thread redraw shows it; settled, its handoff turn served whichever
+    // résumé turn applied. Either way no opening may appear beneath it — even though the intake's
+    // turns leave `turnCount` at 0, which is the only reason the gate above does not catch it.
+    if (envelope?.identityIntake != null) return null;
 
     // THE IDENTITY GATE NAMES AN IMPORT (fix 2026-09-21). A `pending` marker means the bubble
     // is already on screen and history redraws it — the start path must never duplicate it.
@@ -1336,7 +1501,7 @@ export class ProfilingOrchestrator {
     input: TurnInput,
     fresh: boolean,
     citySeed: CitySeedRef,
-  ): Promise<{ buffer: TranscriptBuffer; result: TurnResult } | null> {
+  ): Promise<Decided | null> {
     const packs = await this.resolvePacks(envelope, input.now.getTime());
     if (!packs) {
       this.logger.error(
@@ -1412,6 +1577,29 @@ export class ProfilingOrchestrator {
     // cap after them would let a worker who only ever triggers those paths run forever. Past the
     // cap every turn class falls through to `nextQuestion`, which closes with `turn_cap`.
     const capped = turn > MAX_ENGINE_TURNS;
+
+    // --- The identity intake, answered (ADR-0048) ----------------------------
+    //
+    // BEFORE EVERY OTHER BRANCH, capture included, and the position is the privacy half of the
+    // design. While the intake is pending the worker is typing his name or his town, and nothing
+    // that reads a message for meaning may see it: not capture or cross-question fill (which would
+    // try "Ramesh" against the pack), not identify (which would spend an attempt on it as a trade
+    // phrase and could queue it to the growth corpus), not the skills lane and not Phase A's
+    // model call. The intake answers its own turn and returns.
+    //
+    // FAILS CLOSED WITHOUT ITS SERVICE. No intake can be opened without one, so a pending intake
+    // here and no service means a build skew; the retryable line is honest, and the alternative —
+    // falling through — would send the worker's name down every path this branch exists to block.
+    if (envelope.identityIntake?.state === "pending") {
+      if (this.identityIntake === undefined) {
+        this.logger.error(
+          `session ${input.sessionId} has a pending identity intake and no intake service; ` +
+            `nothing was written`,
+        );
+        return null;
+      }
+      return this.decideIntake(buffer, envelope, input, packs, items, progressItems);
+    }
 
     // --- The résumé-update offer, answered (ADR-0043, ruling R3) -------------
     //
@@ -2433,27 +2621,12 @@ export class ProfilingOrchestrator {
           servedQuestionKey: null,
           clarifyCount: 0,
         };
-        return this.turn(buffer, next, input, {
-          reply: confirmPrompt(offer.facts),
-          // `ask`, not a new kind. `TURN_KINDS` is pinned as a subset of what shipped clients
-          // know, so a new value would reach a build in the field as an unrenderable turn. This
-          // IS an ask: a question with two chips, answered like any other single-select.
-          kind: "ask",
-          questionKey: null,
-          options: [...RESUME_CONFIRM_OPTIONS],
-          whyText: null,
-          answerType: "single_select",
-          // An ask CAN cross a checkpoint boundary, but this one is the interview's own opening
-          // move and there is nothing yet to checkpoint.
-          checkpointDue: false,
-          progress: progressOf(progressItems, answers),
-          unansweredEssentials: essentialsOf(items, answers),
-          complete: false,
-          completionReason: null,
-          replayed: false,
-          excludeFromParse: false,
-          unavailable: false,
-        });
+        return this.turn(
+          buffer,
+          next,
+          input,
+          this.confirmTurnFields(offer.facts, items, answers, progressItems, false),
+        );
       }
 
       // NOTHING TO OFFER — recorded as settled rather than left null, so this does not re-run a
@@ -2694,6 +2867,26 @@ export class ProfilingOrchestrator {
       ? [...(viewSelectable.occupation?.items ?? []), ...viewSelectable.universal.items]
       : [];
     const answers = answersOf(envelope);
+
+    // A PENDING IDENTITY INTAKE (ADR-0048) OUTRANKS EVERYTHING, as it does in `openTurn`: while it
+    // is pending nothing else has been asked. Its key is the one `openTurn` re-serves, so the voice
+    // form's stale-answer guard accepts an answer to the question actually on screen.
+    const intake = envelope.identityIntake;
+    if (intake?.state === "pending" && intake.step !== null) {
+      return {
+        buffer,
+        envelope,
+        items,
+        served: {
+          questionKey: INTAKE_QUESTION_KEYS[intake.step],
+          promptText: intakeLineText(intake.step, reservedIntakeLine(intake, intake.step)),
+          answerType: INTAKE_ANSWER_TYPE,
+          options: [],
+          whyText: INTAKE_COPY[intake.step].why,
+          progress: progressOf(progressItems, answers),
+        },
+      };
+    }
 
     // THE RÉSUMÉ-UPDATE OFFER OUTRANKS EVERYTHING (ADR-0043) — the same precedence `openTurn`
     // applies, for the same reason: it is the last thing the interview ever serves.
@@ -3236,6 +3429,41 @@ export class ProfilingOrchestrator {
   }
 
   /**
+   * The batch-confirm turn's wire fields — "Resume se ye mila: … Sahi hai?" with its two chips.
+   *
+   * ONE BUILDER FOR FOUR SERVE SITES, for {@link identityTurnFields}'s reason: the open path's
+   * first serve and re-serve, the turn path's offer, and the identity intake's handoff (ADR-0048)
+   * all render the same bubble, and four hand-copied literals are how one of them would one day
+   * drop the chips. `ask`, not a new kind — `TURN_KINDS` is pinned to what shipped clients render,
+   * and this IS an ask: a question with two chips, answered like any other single-select. It
+   * never crosses a checkpoint: it is an opening move, with nothing yet to checkpoint.
+   */
+  private confirmTurnFields(
+    facts: readonly ResumeConfirmFact[],
+    items: readonly QuestionPackItem[],
+    answers: AnswerMap,
+    progressItems: readonly QuestionPackItem[],
+    replayed: boolean,
+  ): TurnResult {
+    return {
+      reply: confirmPrompt(facts),
+      kind: "ask",
+      questionKey: null,
+      options: [...RESUME_CONFIRM_OPTIONS],
+      whyText: null,
+      answerType: "single_select",
+      progress: progressOf(progressItems, answers),
+      unansweredEssentials: essentialsOf(items, answers),
+      complete: false,
+      completionReason: null,
+      replayed,
+      excludeFromParse: false,
+      unavailable: false,
+      checkpointDue: false,
+    };
+  }
+
+  /**
    * Record the worker's answer to "is this you?" — once per import.
    *
    * NEVER FAILS THE TURN, same posture as `recordPrefillApplied`: the answer is already
@@ -3397,6 +3625,235 @@ export class ProfilingOrchestrator {
       checkpointDue: false,
       formOffer: offer,
     });
+  }
+
+  // ===========================================================================
+  // THE IDENTITY INTAKE (ADR-0048)
+  // ===========================================================================
+
+  /**
+   * One intake turn: read the answer, advance the machine, and serve the next intake question —
+   * or, when the intake has just settled, the session's NEXT OPENING (D6).
+   *
+   * NO I/O BUT THE RÉSUMÉ READS AND THE SEAL. The record write is returned as an effect for
+   * `takeTurn` to perform before the CAS, and the funnel rows after it; this method only decides,
+   * so a lost CAS can re-run it against the winner's state with nothing to undo.
+   */
+  private async decideIntake(
+    buffer: TranscriptBuffer,
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    packs: ResolvedPacks,
+    items: readonly QuestionPackItem[],
+    progressItems: readonly QuestionPackItem[],
+  ): Promise<Decided | null> {
+    const service = this.identityIntake;
+    const intake = envelope.identityIntake;
+    if (service === undefined || intake === null || intake.step === null) return null;
+    const step = intake.step;
+
+    const transition = advanceIntake(intake, readIntakeAnswer(step, input.text));
+    const effects: IntakeEffects = {
+      write: service.resolveWrite(transition, intake.firstNameEnc, input.sessionId),
+      settled: transition.settled,
+    };
+    let next: ProfilingEnvelope = stampUniversalPointer(
+      {
+        ...envelope,
+        packId: packs.packId,
+        packVersion: packs.packVersion,
+        identityIntake:
+          transition.holdFirstName === null
+            ? transition.next
+            : { ...transition.next, firstNameEnc: service.seal(transition.holdFirstName) },
+      },
+      packs.engine.universal,
+    );
+    // THE CITY IS ASKED ONCE. The intake's answer settles the universal pack's own `current_city`
+    // exactly as a city from `/name` always has — the same seed, marked prefilled so no
+    // `worker_pack_answer` row claims the pack asked it.
+    const city = transition.location?.city;
+    if (city !== undefined) next = this.seedIntakeCity(next, city, items, input.sessionId);
+
+    this.logger.log(
+      `identity intake turn session=${input.sessionId} step=${step} ` +
+        `settled=${transition.settled.map((s) => `${s.step}:${s.outcome}`).join(",") || "-"} ` +
+        `next=${transition.reply.kind === "ask" ? transition.reply.step : "handoff"}`,
+    );
+
+    if (transition.reply.kind === "ask") {
+      const answers = answersOf(next);
+      const asked = intakeAskTurn(
+        transition.reply.step,
+        transition.reply.line,
+        progressOf(progressItems, answers),
+        essentialsOf(items, answers),
+        false,
+      );
+      return { ...this.intakeTurn(buffer, next, input, asked, true), intake: effects };
+    }
+    return {
+      ...(await this.intakeHandoff(buffer, next, input, items, progressItems)),
+      intake: effects,
+    };
+  }
+
+  /**
+   * The intake is over: serve the session's NEXT OPENING as this turn's reply (D6) — the choice
+   * `openTurn` makes at `turnCount` 0, in its order, through the same resolvers and builders.
+   *
+   *   1. The résumé "is this you?" turn, when a staged line has not been asked about.
+   *   2. Else the résumé batch-confirm, when one is pending with something to confirm.
+   *   3. Else the interview's opener, {@link INTAKE_HANDOFF_TEXT}.
+   *
+   * ONLY THE THIRD ARMS THE GENERAL ROAD (D7), for the reason `openTurn` never arms: a session that
+   * opens on a résumé turn keeps today's interview, while one whose first real message answers the
+   * opener is armed exactly as today's first message arms it. The two résumé turns spend an ask,
+   * as they always do; their line is the résumé turn's, so it is not flagged as the intake's.
+   */
+  private async intakeHandoff(
+    buffer: TranscriptBuffer,
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    items: readonly QuestionPackItem[],
+    progressItems: readonly QuestionPackItem[],
+  ): Promise<{ buffer: TranscriptBuffer; result: TurnResult }> {
+    const answers = answersOf(envelope);
+
+    const line = await this.resolveResumeIdentity(input.workerId);
+    if (line !== null && envelope.resumeIdentity?.importId !== line.importId) {
+      const next: ProfilingEnvelope = {
+        ...envelope,
+        resumeIdentity: { importId: line.importId, state: "pending" },
+        engineAsks: envelope.engineAsks + 1,
+        servedQuestionKey: null,
+        clarifyCount: 0,
+      };
+      const fields = this.identityTurnFields(line, items, answers, progressItems, false);
+      return this.intakeTurn(buffer, next, input, fields, false);
+    }
+
+    if (envelope.resumeConfirm === null) {
+      const pending = await this.resolveResumeConfirm(input.workerId, items, answers);
+      if (pending && pending.facts.length > 0) {
+        const next: ProfilingEnvelope = {
+          ...envelope,
+          resumeConfirm: { importId: pending.importId, state: "pending" },
+          engineAsks: envelope.engineAsks + 1,
+          servedQuestionKey: null,
+          clarifyCount: 0,
+        };
+        const fields = this.confirmTurnFields(pending.facts, items, answers, progressItems, false);
+        return this.intakeTurn(buffer, next, input, fields, false);
+      }
+    }
+
+    return this.intakeTurn(
+      buffer,
+      this.stampGeneralRoad(envelope, input),
+      input,
+      {
+        reply: INTAKE_HANDOFF_TEXT,
+        kind: "ask",
+        // NO KEY: the opener belongs to no pack, exactly like the one-shot opener it mirrors, and
+        // the worker's reply to it is read as a first message is.
+        questionKey: null,
+        options: [],
+        whyText: null,
+        answerType: "text",
+        inputMode: "text",
+        progress: progressOf(progressItems, answers),
+        unansweredEssentials: essentialsOf(items, answers),
+        complete: false,
+        completionReason: null,
+        replayed: false,
+        excludeFromParse: true,
+        unavailable: false,
+        checkpointDue: false,
+      },
+      true,
+    );
+  }
+
+  /**
+   * `takeTurn`'s pre-CAS write, as a verdict: true when it landed. A throw is logged with ids and
+   * the error's class only (`logSafeReason` — a driver message can quote a bound value) and turned
+   * into `false`, which the caller serves as the retryable line with nothing advanced.
+   */
+  private async applyIntakeWrite(write: IntakeWrite, input: TurnInput): Promise<boolean> {
+    try {
+      await this.identityIntake?.apply(write, intakeRefOf(input));
+      return true;
+    } catch (error) {
+      this.logger.warn(
+        `identity intake write failed session=${input.sessionId}; nothing advanced and the ` +
+          `worker is asked again: ${logSafeReason(error, "identity intake write")}`,
+      );
+      return false;
+    }
+  }
+
+  /** The intake's city, seeded into the pack's `current_city` — see `seedFromWorkerRecord`. */
+  private seedIntakeCity(
+    envelope: ProfilingEnvelope,
+    city: string,
+    items: readonly QuestionPackItem[],
+    sessionId: string,
+  ): ProfilingEnvelope {
+    const outcome = seedFromWorkerRecord(envelope, city, items);
+    if (outcome.seeded) {
+      // BOOLEAN ONLY, NEVER THE CITY — the same line `seedCity` writes.
+      this.logger.log(
+        `city-seed applied from the identity intake session=${sessionId} ` +
+          `city_recognized=${outcome.cityRecognized}`,
+      );
+    }
+    return outcome.envelope;
+  }
+
+  /**
+   * {@link turn}'s sibling for an intake turn, and the three differences are the whole design:
+   *
+   *   - `turnCount` IS NOT BUMPED. The intake spends none of the interview's turns, so its
+   *     `min_turn` windows and `MAX_ENGINE_TURNS` budget are exactly what they are without one.
+   *   - BOTH LINES ARE KEPT VERBATIM (D10) — the worker sees his own answers when the thread is
+   *     redrawn — and the worker's is flagged `intake`, which keeps it out of every reader that
+   *     looks for meaning. The assistant line is flagged too, unless it is the résumé turn the
+   *     handoff served, which is that turn's own line and is stored as it always was.
+   *   - `lastTurn` IS STAMPED THE SAME WAY, so a duplicate submit replays the reply unchanged.
+   */
+  private intakeTurn(
+    buffer: TranscriptBuffer,
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    result: TurnResult,
+    replyIsIntake: boolean,
+  ): { buffer: TranscriptBuffer; result: TurnResult } {
+    const at = input.now.toISOString();
+    return {
+      buffer: {
+        ...buffer,
+        messages: [
+          ...buffer.messages,
+          {
+            role: "worker" as const,
+            text: input.text,
+            at,
+            voiceNoteId: input.voiceNoteId,
+            intake: true,
+          },
+          {
+            role: "assistant" as const,
+            text: result.reply,
+            at,
+            voiceNoteId: null,
+            ...(replyIsIntake ? { intake: true as const } : {}),
+          },
+        ],
+        profiling: stampLastTurn(envelope, input, result),
+      },
+      result,
+    };
   }
 
   // ===========================================================================
@@ -4027,7 +4484,7 @@ export class ProfilingOrchestrator {
   private async resolvePacks(
     envelope: ProfilingEnvelope,
     now: number,
-  ): Promise<{ engine: EnginePacks; packId: string | null; packVersion: number | null } | null> {
+  ): Promise<ResolvedPacks | null> {
     const universal = await this.packs.loadUniversal(now);
     if (!universal) return null;
 
@@ -4050,10 +4507,8 @@ export class ProfilingOrchestrator {
   }
 
   /**
-   * Stamp the reply cache and hand back the buffer to write.
-   *
-   * `lastTurn` is recorded against the rev this write PRODUCES, because that is the rev the
-   * retrying reader will load. See the comment on the hash itself.
+   * Stamp the reply cache (see {@link stampLastTurn}), append the turn's two lines, count the
+   * turn, and hand back the buffer to write.
    */
   private turn(
     buffer: TranscriptBuffer,
@@ -4061,47 +4516,7 @@ export class ProfilingOrchestrator {
     input: TurnInput,
     result: TurnResult,
   ): { buffer: TranscriptBuffer; result: TurnResult } {
-    const stamped: ProfilingEnvelope = {
-      ...envelope,
-      lastTurn: {
-        // HASHED AGAINST THE POST-WRITE REV (`rev + 1`), which is what a retry will READ.
-        // Hashing against the rev this writer read instead makes every replay MISS: the write
-        // bumps the rev, so the retrying reader computes a different key and takes a second real
-        // turn on the same words — the exact failure Layer A exists to prevent.
-        inboundHash: inboundHash(input.sessionId, envelope.rev + 1, input.text),
-        // THE SUBMISSION THAT PRODUCED THIS REPLY (#931). Stamped beside the hash rather than
-        // instead of it: the hash still proves the TEXT is identical, and the id decides the
-        // VERDICT — see `replayOf`. `null` when this caller had no client submission behind it
-        // (an old app build, or the finalize re-drive), which is exactly what makes the stamp
-        // fall back to the hash + window path for that turn.
-        submissionId: input.submissionId,
-        reply: result.reply,
-        kind: result.kind,
-        questionKey: result.questionKey,
-        at: input.now.toISOString(),
-        // EVERYTHING THE CLIENT DRAWS, stamped together with the words. Taken off `result` rather
-        // than recomputed, so the replayed response is the SAME response by construction and not
-        // a second derivation that could disagree with the first.
-        options: result.options,
-        progress: result.progress,
-        whyText: result.whyText,
-        answerType: result.answerType,
-        // See `LastTurn.formOffer`: the button is the only way out of a handover turn.
-        formOffer: result.formOffer ?? null,
-        // See `LastTurn.gateKind` / `LastTurn.generalFormOffer` (ADR-0045).
-        gateKind: result.gateKind ?? null,
-        generalFormOffer: result.generalFormOffer ?? null,
-        // #766 item 2 — the prediction rides along, for the reason stated one line up: taken off
-        // `result` so the replay is the SAME response rather than a second derivation. Without it
-        // a retried submit replayed the words and silently dropped the instant next-question
-        // render, on exactly the flaky link that caused the retry.
-        lookahead: result.lookahead ?? null,
-        inputMode: result.inputMode ?? "text",
-        // A FRESH STAMP. This reply has not been served as a replay yet, so it gets the whole
-        // budget — see `LastTurn.replays`.
-        replays: 0,
-      },
-    };
+    const stamped = stampLastTurn(envelope, input, result);
     const at = input.now.toISOString();
     return {
       buffer: {
@@ -4125,6 +4540,61 @@ export class ProfilingOrchestrator {
       result,
     };
   }
+}
+
+/**
+ * The reply cache's stamp for a turn that is about to be written — {@link ProfilingOrchestrator}'s
+ * `turn` and `intakeTurn` both stamp through this, so an intake turn replays exactly as any other.
+ *
+ * `lastTurn` is recorded against the rev this write PRODUCES, because that is the rev the
+ * retrying reader will load. See the comment on the hash itself.
+ */
+function stampLastTurn(
+  envelope: ProfilingEnvelope,
+  input: TurnInput,
+  result: TurnResult,
+): ProfilingEnvelope {
+  return {
+    ...envelope,
+    lastTurn: {
+      // HASHED AGAINST THE POST-WRITE REV (`rev + 1`), which is what a retry will READ.
+      // Hashing against the rev this writer read instead makes every replay MISS: the write
+      // bumps the rev, so the retrying reader computes a different key and takes a second real
+      // turn on the same words — the exact failure Layer A exists to prevent.
+      inboundHash: inboundHash(input.sessionId, envelope.rev + 1, input.text),
+      // THE SUBMISSION THAT PRODUCED THIS REPLY (#931). Stamped beside the hash rather than
+      // instead of it: the hash still proves the TEXT is identical, and the id decides the
+      // VERDICT — see `replayOf`. `null` when this caller had no client submission behind it
+      // (an old app build, or the finalize re-drive), which is exactly what makes the stamp
+      // fall back to the hash + window path for that turn.
+      submissionId: input.submissionId,
+      reply: result.reply,
+      kind: result.kind,
+      questionKey: result.questionKey,
+      at: input.now.toISOString(),
+      // EVERYTHING THE CLIENT DRAWS, stamped together with the words. Taken off `result` rather
+      // than recomputed, so the replayed response is the SAME response by construction and not
+      // a second derivation that could disagree with the first.
+      options: result.options,
+      progress: result.progress,
+      whyText: result.whyText,
+      answerType: result.answerType,
+      // See `LastTurn.formOffer`: the button is the only way out of a handover turn.
+      formOffer: result.formOffer ?? null,
+      // See `LastTurn.gateKind` / `LastTurn.generalFormOffer` (ADR-0045).
+      gateKind: result.gateKind ?? null,
+      generalFormOffer: result.generalFormOffer ?? null,
+      // #766 item 2 — the prediction rides along, for the reason stated one line up: taken off
+      // `result` so the replay is the SAME response rather than a second derivation. Without it
+      // a retried submit replayed the words and silently dropped the instant next-question
+      // render, on exactly the flaky link that caused the retry.
+      lookahead: result.lookahead ?? null,
+      inputMode: result.inputMode ?? "text",
+      // A FRESH STAMP. This reply has not been served as a replay yet, so it gets the whole
+      // budget — see `LastTurn.replays`.
+      replays: 0,
+    },
+  };
 }
 
 /**
@@ -4886,12 +5356,19 @@ function settleFromLlmDraft(
 /**
  * The buffered conversation, as the contract's transcript lines.
  *
- * INDEXED BY POSITION IN THE BUFFER, matching what `/profile/parse` sends — `i` is what an
- * evidence span cites, so the two callers must number the same conversation the same way or a
- * quote verified against line 4 in one call points at line 5 in the other.
+ * INDEXED BY POSITION IN THE BUFFER AFTER THE IDENTITY INTAKE'S LINES ARE DROPPED, matching what
+ * `/profile/parse` sends — `i` is what an evidence span cites, so the two callers must number the
+ * same conversation the same way or a quote verified against line 4 in one call points at line 5
+ * in the other.
  */
 function transcriptOf(buffer: TranscriptBuffer): TranscriptLine[] {
-  return buffer.messages.map((message, i) => ({ i, role: message.role, text: message.text }));
+  // ADR-0048 — THE IDENTITY INTAKE'S LINES NEVER REACH THE MODEL, under either PII policy: a name
+  // or a town typed in answer to a form question tells Phase A and the skills stage nothing about
+  // the worker's work. Dropped BEFORE numbering, so `i` counts the same conversation the
+  // extraction's `/profile/parse` input does — that reader drops the same lines.
+  return buffer.messages
+    .filter((message) => message.intake !== true)
+    .map((message, i) => ({ i, role: message.role, text: message.text }));
 }
 
 /**
@@ -5086,6 +5563,52 @@ function resumeUpdateOfferTurn(
     unavailable: false,
     checkpointDue,
   };
+}
+
+/**
+ * One identity-intake question as a turn (ADR-0048) — the serve, the re-ask and the re-serve all
+ * build it here, so a reopened app draws exactly what the worker was asked.
+ *
+ * `ask` with a `worker_*` question key and `answer_type: "text"`: shipped clients render it as an
+ * ordinary typed question, and the app shows its State and City pickers off the key. The ⓘ
+ * explanation rides as `whyText`. `excludeFromParse`, because the answer is a name or a place and
+ * no reader of the conversation's meaning may see it — the line flag is what enforces that.
+ */
+function intakeAskTurn(
+  step: IntakeStep,
+  line: IntakeLine,
+  progress: { readonly answered: number; readonly total: number },
+  unansweredEssentials: readonly string[],
+  replayed: boolean,
+): TurnResult {
+  return {
+    reply: intakeLineText(step, line),
+    kind: "ask",
+    questionKey: INTAKE_QUESTION_KEYS[step],
+    options: [],
+    whyText: INTAKE_COPY[step].why,
+    answerType: INTAKE_ANSWER_TYPE,
+    inputMode: "text",
+    progress,
+    unansweredEssentials: [...unansweredEssentials],
+    complete: false,
+    completionReason: null,
+    replayed,
+    excludeFromParse: true,
+    unavailable: false,
+    checkpointDue: false,
+  };
+}
+
+/** The rows the worker will actually be asked — the progress denominator `decide` uses. */
+function progressItemsOf(envelope: ProfilingEnvelope, engine: EnginePacks): QuestionPackItem[] {
+  const selectable = selectableEnginePacks(envelope, engine);
+  return [...(selectable.occupation?.items ?? []), ...selectable.universal.items];
+}
+
+/** The attribution one intake turn's writes and events carry. */
+function intakeRefOf(input: TurnInput): IntakeRef {
+  return { workerId: input.workerId, sessionId: input.sessionId, ctx: input.ctx };
 }
 
 function progressOf(items: readonly QuestionPackItem[], answers: AnswerMap) {

@@ -379,6 +379,16 @@ export const StartSessionResponseSchema = z.object({
    * `opening_text` is absent, or when no twin is authored for it.
    */
   opening_tts_text: z.string().optional(),
+  /**
+   * ADR-0048 — the `question_key` of the question `opening_text` asks, when the opening IS a
+   * question with one: today only the identity intake's first step (`worker_first_name`,
+   * `worker_last_name`, `worker_state` or `worker_city`). The same key `asked_question_id` carries
+   * on every later turn, so the client can key its State/City pickers — and tell an intake opening
+   * from a résumé one — without matching on copy. ABSENT otherwise, never null.
+   */
+  opening_question_key: z.string().optional(),
+  /** ADR-0048 — how that opening question is answered (`text` for the intake). ABSENT otherwise. */
+  opening_answer_type: z.enum(ANSWER_TYPES).optional(),
 });
 export type StartSessionResponse = z.infer<typeof StartSessionResponseSchema>;
 

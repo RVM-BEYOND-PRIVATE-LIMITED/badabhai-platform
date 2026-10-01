@@ -426,6 +426,8 @@ class ChatSessionStart extends Equatable {
     this.openingTtsText,
     this.resumePending = false,
     this.openingOptions = const <ChatOption>[],
+    this.openingQuestionKey,
+    this.openingAnswerType,
   });
 
   final String sessionId;
@@ -446,6 +448,14 @@ class ChatSessionStart extends Equatable {
   /// each `{option_key, label_text, ...}`. Empty on every ordinary opener.
   final List<ChatOption> openingOptions;
 
+  /// ADR-0048 — `opening_question_key`: the identity question bubble 0 asks
+  /// (`worker_first_name` | `worker_last_name` | `worker_state` | `worker_city`),
+  /// or null on every other open. See [ChatSessionOpening.questionKey].
+  final String? openingQuestionKey;
+
+  /// ADR-0048 — `opening_answer_type`, `text` for every intake question today.
+  final String? openingAnswerType;
+
   factory ChatSessionStart.fromJson(Map<String, dynamic> json) {
     String? text(Object? raw) =>
         raw is String && raw.trim().isNotEmpty ? raw : null;
@@ -464,12 +474,24 @@ class ChatSessionStart extends Equatable {
       resumePending:
           json['resume_pending'] is bool ? json['resume_pending'] as bool : false,
       openingOptions: options,
+      // ADR-0048 — both absent when there is no identity intake, which is every
+      // open for a worker whose record already has a name, state and city.
+      openingQuestionKey: text(json['opening_question_key']),
+      openingAnswerType: text(json['opening_answer_type']),
     );
   }
 
   @override
   List<Object?> get props =>
-      <Object?>[sessionId, openingText, openingTtsText, resumePending, openingOptions];
+      <Object?>[
+        sessionId,
+        openingText,
+        openingTtsText,
+        resumePending,
+        openingOptions,
+        openingQuestionKey,
+        openingAnswerType,
+      ];
 }
 
 /// How far through the pinned question pack the worker is (`progress`, OIE

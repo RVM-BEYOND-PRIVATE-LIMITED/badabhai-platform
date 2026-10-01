@@ -124,7 +124,11 @@ class RealVoiceTranscriptResolver implements VoiceTranscriptResolver {
   final ApiClient _api;
 
   @override
-  Future<String> resolve(AiJob job, {required String authToken}) async {
+  Future<String> resolve(
+    AiJob job, {
+    required String authToken,
+    bool preferEnglish = false,
+  }) async {
     final String? voiceNoteId = job.voiceNoteId;
     if (voiceNoteId == null || voiceNoteId.isEmpty) {
       throw const VoiceUnavailableFailure(_kTranscriptNotReady);
@@ -133,10 +137,40 @@ class RealVoiceTranscriptResolver implements VoiceTranscriptResolver {
       authToken: authToken,
       voiceNoteId: voiceNoteId,
     );
-    final String text = _firstNonEmpty(note.transcriptText) ??
-        _firstNonEmpty(note.transcriptEnglish) ??
+    final String? source = _firstNonEmpty(note.transcriptText);
+    final String? english = _firstNonEmpty(note.transcriptEnglish);
+    // #1862 — THE COMPOSER CANNOT HOLD DEVANAGARI. Sarvam returns it for Hindi
+    // audio (#1411) and the composer strips it, so preferring the source
+    // transcript there handed the core audience an EMPTY correction box. Only
+    // a mostly-Devanagari source is swapped: a Hindi note already transcribed
+    // in roman script is the worker's own words and is kept as-is.
+    final String? preferred =
+        preferEnglish && source != null && _isMostlyDevanagari(source)
+            ? (english ?? source)
+            : source;
+    final String text = preferred ??
+        english ??
         (throw const VoiceUnavailableFailure(_kTranscriptNotReady));
     return text;
+  }
+
+  /// Whether [text] is mostly Devanagari, so the composer would strip it away.
+  ///
+  /// A MAJORITY TEST, not "contains one". A roman transcript that happens to
+  /// carry a single Devanagari character is still the worker's words; a Hindi
+  /// one is Devanagari nearly throughout. Digits, spaces and punctuation are
+  /// ignored — they are script-neutral and would otherwise dilute the count.
+  static bool _isMostlyDevanagari(String text) {
+    int devanagari = 0;
+    int letters = 0;
+    for (final int rune in text.runes) {
+      final bool isMark = RegExp(r'[\s\d\p{P}\p{S}]', unicode: true)
+          .hasMatch(String.fromCharCode(rune));
+      if (isMark) continue;
+      letters++;
+      if (rune >= 0x0900 && rune <= 0x097F) devanagari++;
+    }
+    return letters > 0 && devanagari * 2 > letters;
   }
 
   static String? _firstNonEmpty(String? value) {
@@ -167,6 +201,6 @@ class MockVoiceTranscriptResolver implements VoiceTranscriptResolver {
       'Main CNC machine par 4 saal se kaam kar raha hoon, Fanuc control aata hai.';
 
   @override
-  Future<String> resolve(AiJob job, {required String authToken}) async =>
+  Future<String> resolve(AiJob job, {required String authToken, bool preferEnglish = false}) async =>
       cannedTranscript;
 }

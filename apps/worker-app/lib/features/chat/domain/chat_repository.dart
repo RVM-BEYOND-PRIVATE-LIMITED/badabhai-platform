@@ -95,6 +95,18 @@ abstract interface class ChatRepository {
   /// and on the lazy re-open inside [sendMessage], where the worker is
   /// mid-conversation and re-greeting them would be wrong. A null keeps the
   /// client's canned `kChatOpeningText` opener.
+  /// The worker's LATEST chat session id, or null when they have none.
+  ///
+  /// READ-ONLY, and that is the whole point (#1862). [ensureSession] CREATES a
+  /// session when none is cached; this only ever looks. The companion's mic
+  /// needs a session id to attach a clip to, but must never mint one — a live
+  /// session started after confirmation is read by `ChatCompanionPolicy` as
+  /// "this worker is interviewing", which would end their companion.
+  ///
+  /// NEVER THROWS: a failed lookup answers null, and the caller then refuses the
+  /// recording honestly rather than falling back to creating one.
+  Future<String?> latestSessionId();
+
   Future<ChatSessionOpening?> ensureSession();
 
   /// Mint a GENUINELY NEW session, bypassing the `GET /session/latest` resume

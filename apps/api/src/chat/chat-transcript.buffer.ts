@@ -72,6 +72,35 @@ export interface BufferedMessage {
    * then the turn that knew which clip produced these words is long gone.
    */
   voiceNoteId: string | null;
+  /**
+   * The line belongs to the identity intake (ADR-0048) — a name, state or city question, or the
+   * worker's answer to one. ABSENT on every other line, never `false`, so a buffer from a session
+   * the intake never opened serializes byte-identically to one written before this field existed.
+   *
+   * WHAT IT DOES: the line is kept verbatim for the worker's own thread redraw (D10) and reaches
+   * `chat_messages` with `metadata.identity_intake`, but it is left out of everything that reads
+   * the conversation for meaning — the model-bound history (`transcriptOf`), the extraction input
+   * and the résumé's quote/veto reader. None of them has any use for a name or a city typed in
+   * answer to a form question, and each would otherwise mistake one for the worker's account of
+   * his work.
+   */
+  intake?: true;
+}
+
+/**
+ * The `chat_messages.metadata` a flushed intake line carries — a closed flag, never text, per the
+ * column's rule that its JSONB must never hold worker-authored words. ONE definition for the
+ * writer (the flush) and every reader that excludes the line (see {@link isIdentityIntakeMetadata}).
+ */
+export const IDENTITY_INTAKE_METADATA = { identity_intake: true } as const;
+
+/** Does a stored row's `metadata` mark it as an identity-intake line? Tolerates any shape. */
+export function isIdentityIntakeMetadata(metadata: unknown): boolean {
+  return (
+    typeof metadata === "object" &&
+    metadata !== null &&
+    (metadata as Record<string, unknown>).identity_intake === true
+  );
 }
 
 /**
@@ -89,6 +118,7 @@ export const BUFFERED_MESSAGE_KEYS = {
   text: true,
   at: true,
   voiceNoteId: true,
+  intake: true,
 } satisfies Record<keyof BufferedMessage, true>;
 
 /** The whole in-flight interview. Serialized to one Redis string per session. */
@@ -414,6 +444,10 @@ export class ChatTranscriptBuffer {
         voiceNoteId: typeof msg.voiceNoteId === "string" && UUID_RE.test(msg.voiceNoteId)
           ? msg.voiceNoteId
           : null,
+        // ADR-0048 — only a literal `true` survives, and the key is otherwise ABSENT, so every
+        // non-intake line round-trips exactly as it did before the field existed. A lost flag
+        // fails toward "an ordinary line", which the extraction redacts by name as it always has.
+        ...(msg.intake === true ? { intake: true as const } : {}),
       });
     }
 

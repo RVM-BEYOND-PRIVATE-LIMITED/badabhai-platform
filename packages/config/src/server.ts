@@ -1506,6 +1506,16 @@ export const serverEnvSchema = z.object({
   // PRODUCTION ON ONLY AFTER the app release that draws the card and the form has shipped (an
   // older app would dead-end at the handover) and the owner has signed ADR-0045.
   CHAT_GENERAL_ROAD_ENABLED: booleanFromString,
+  // ADR-0048 (#1858) — THE IDENTITY INTAKE. On, a NEW chat session for a worker whose record is
+  // missing a name, a state or a city opens by asking for exactly what is missing — first name,
+  // surname, state, city — as deterministic chat turns written through `WorkersService`, before
+  // the résumé "is this you?" turn and before the interview. A worker with no gap is never asked.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S `startSession` / `postMessage` BYTE FOR BYTE. The app's `/name`
+  // screen is what collects these today, so this must be ON by the release that unroutes it: on
+  // with `/name` still routed asks only what `/name` left blank; off with `/name` gone captures
+  // nobody's name at all. booleanFromString so a falsey string stays OFF.
+  CHAT_IDENTITY_INTAKE_ENABLED: booleanFromString,
 
   // ── Agency payout ledger (ADR-0022 module 3+7, Amendment 2, owner-ratified 2026-07-23) ──
   // Master switch for the agency SUPPLY payout surface. Default OFF = inert: the payout

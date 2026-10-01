@@ -199,6 +199,7 @@ export default async function ChatSessionDetailPage({
                 <Stat
                   label={`Spend since ${formatTimestamp(session.ai_cost.first_recorded_at).slice(0, 10)}`}
                   value={formatExactRupees(session.ai_cost.total_cost_inr)}
+                  wide
                 />
                 <Stat label="Calls" value={formatCount(session.ai_cost.call_count)} />
                 <Stat

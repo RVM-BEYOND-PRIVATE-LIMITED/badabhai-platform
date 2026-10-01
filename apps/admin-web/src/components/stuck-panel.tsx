@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { SessionStuck, StuckCandidate } from "../lib/journey";
 import { describeStuck } from "../lib/journey-view";
 import { formatCount } from "../lib/format";
@@ -26,6 +27,35 @@ import { StatusPill } from "./status-pill";
 /** `.notice` has two modifiers; `info`/`muted` are the neutral base. */
 function noticeClass(tone: "warn" | "info" | "muted"): string {
   return tone === "warn" ? "notice notice--warn" : "notice";
+}
+
+/**
+ * The longest run of a key rendered without a break opportunity. The mono face at the 22px
+ * phone step is ~12.65px a character, so 16 characters is a ~236px tile with its 34px of padding
+ * and border — inside the 254px row of a 320px phone. The longest segment of any pack key today
+ * is 16 with its underscore (`troubleshooting_`), so real keys break only at underscores.
+ */
+const MAX_UNBROKEN = 16;
+
+/**
+ * A question key with a line-break opportunity after each `_` (and inside any run longer than
+ * {@link MAX_UNBROKEN}, which no pack key has today).
+ *
+ * The key sits in a stat tile, and a tile never shrinks below its unbroken value (that is what
+ * keeps a count from splitting). Underscores are not break points, so `maintenance_documentation`
+ * was one 25-character word: a 350px tile at the 22px phone step, wider than a 309px row at
+ * 375px, and the page scrolled sideways. `<wbr>` adds no text, so a copied key is intact.
+ */
+function breakableKey(key: string) {
+  const out: ReactNode[] = [];
+  key.split("_").forEach((segment, i, all) => {
+    const text = i < all.length - 1 ? `${segment}_` : segment;
+    for (let at = 0; at < text.length; at += MAX_UNBROKEN) {
+      if (out.length > 0) out.push(<wbr key={out.length} />);
+      out.push(text.slice(at, at + MAX_UNBROKEN));
+    }
+  });
+  return out;
 }
 
 /** How servable the engine judged a candidate — leg 2 of the server's ranking, three-valued. */
@@ -60,7 +90,9 @@ export function StuckPanel({ stuck }: { stuck: SessionStuck }) {
       {view.question ? (
         <div className="stats stats--compact">
           <div className="stat">
-            <span className="stat__value mono">{view.question.question_key}</span>
+            <span className="stat__value mono">
+              {breakableKey(view.question.question_key)}
+            </span>
             <span className="stat__label">The question on screen when it ended</span>
           </div>
           <div className="stat">

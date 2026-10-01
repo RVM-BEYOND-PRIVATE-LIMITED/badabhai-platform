@@ -3128,8 +3128,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 215 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event)", () => {
-    expect(EVENT_NAMES).toHaveLength(215);
+  it("exposes all 216 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step)", () => {
+    expect(EVENT_NAMES).toHaveLength(216);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -5382,5 +5382,69 @@ describe("worker.preferences_recorded — the key-count bound is loose, not the 
     expect(schema.safeParse(payload(32, 32)).success).toBe(true);
     expect(schema.safeParse(payload(33)).success).toBe(false);
     expect(schema.safeParse(payload(0, 33)).success).toBe(false);
+  });
+});
+
+describe("profile.identity_intake_answered (ADR-0048, #1858)", () => {
+  const envelope = (payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name: "profile.identity_intake_answered",
+    event_version: 1,
+    occurred_at: "2026-09-30T10:00:00.000Z",
+    actor: { actor_type: "worker", actor_id: UUID_B },
+    subject: { subject_type: "chat_session", subject_id: UUID_C },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+  const ok = (payload: Record<string, unknown>) => validateEvent(envelope(payload)).success;
+  const answeredCity = {
+    worker_id: UUID_B,
+    session_id: UUID_C,
+    step: "city",
+    outcome: "answered",
+    recognized: true,
+  };
+
+  it("is registered at v1 in the profile domain", () => {
+    expect(isEventName("profile.identity_intake_answered")).toBe(true);
+    expect(EVENT_REGISTRY["profile.identity_intake_answered"].version).toBe(1);
+    expect(EVENT_REGISTRY["profile.identity_intake_answered"].domain).toBe("profile");
+  });
+
+  it("accepts every step answered or skipped, with the gazetteer verdict only where it exists", () => {
+    expect(ok(answeredCity)).toBe(true);
+    expect(ok({ ...answeredCity, recognized: false })).toBe(true);
+    expect(ok({ ...answeredCity, step: "state" })).toBe(true);
+    for (const step of ["first_name", "last_name"]) {
+      expect(ok({ ...answeredCity, step, recognized: null }), step).toBe(true);
+    }
+    for (const step of ["first_name", "last_name", "state", "city"]) {
+      expect(ok({ ...answeredCity, step, outcome: "skipped", recognized: null }), step).toBe(true);
+    }
+  });
+
+  it("ties `recognized` to an answered location step — a name has no gazetteer verdict", () => {
+    expect(ok({ ...answeredCity, recognized: null })).toBe(false);
+    expect(ok({ ...answeredCity, step: "first_name" })).toBe(false);
+    expect(ok({ ...answeredCity, outcome: "skipped" })).toBe(false);
+  });
+
+  it("carries no value — `.strict()` refuses the name or the city riding along", () => {
+    // The worker's answer lives in `workers` (encrypted, for the name) and in the chat thread.
+    // A field that could hold it here would put a name on the audit spine (CLAUDE.md §3).
+    expect(ok({ ...answeredCity, city: "Pune" })).toBe(false);
+    expect(ok({ ...answeredCity, step: "first_name", recognized: null, value: "Ramesh" })).toBe(
+      false,
+    );
+  });
+
+  it("refuses a step or an outcome outside the closed sets", () => {
+    expect(ok({ ...answeredCity, step: "full_name" })).toBe(false);
+    expect(ok({ ...answeredCity, outcome: "declined" })).toBe(false);
+    const { session_id: _dropped, ...withoutSession } = answeredCity;
+    expect(ok(withoutSession)).toBe(false);
   });
 });

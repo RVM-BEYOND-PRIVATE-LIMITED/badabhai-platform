@@ -126,6 +126,15 @@ NestJS boot assertion).
   role → skills and then the offline general form. Needs `CHAT_LLM_INTERVIEW_ENABLED`. Stamped per
   session, so a flip reaches new sessions only. Bridged to staging/production through the GitHub
   secret of the same name; production ON only after the app release with the card and the form.
+- **The identity intake (ADR-0048, #1858)** — `CHAT_IDENTITY_INTAKE_ENABLED` (default off; off is
+  `POST /chat/session` and `POST /chat/message` exactly as before). On, a NEW chat session for a
+  worker whose record lacks a name, a state or a city opens by asking for what is missing (first
+  name, surname, state, city) as deterministic chat turns, written through `WorkersService`; a
+  worker with nothing missing is never asked. Only clients that send `confirm_first: true` are
+  served it. Bridged through the GitHub `production` environment secret of the same name (compose
+  `${CHAT_IDENTITY_INTAKE_ENABLED:-false}`, `ci.yml` `env:` + `envs:`). **It must be on by the
+  release that unroutes the app's `/name` screen** — off with `/name` gone captures nobody's name;
+  on with `/name` still routed asks only what `/name` left blank. No migration.
 - **Chat / profiling** — `CHAT_TRANSCRIPT_TTL_SECONDS`, `CHAT_ABANDON_AFTER_SECONDS`,
   `CHAT_MAX_TURNS` (the authoritative hard cap — the ai-service mirrors it but holds no
   per-session state, so it can only enforce what the API tells it).

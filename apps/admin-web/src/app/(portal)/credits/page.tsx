@@ -14,6 +14,7 @@ import {
 import { PaymentsPostureBanner, MockMoneyTag } from "../../../components/payments-posture";
 import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
+import { Stat } from "../../../components/stat";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Credits" };
@@ -103,34 +104,22 @@ export default async function CreditsPage({
               Credit position
             </h2>
             <div className="stats">
-              <div className="stat">
-                <span className="stat__value">{formatCount(summary.outstanding_credits)}</span>
-                <span className="stat__label">Credits outstanding</span>
-              </div>
-              <div className="stat">
-                <span className="stat__value">{formatCount(summary.payers_with_balance)}</span>
-                <span className="stat__label">Payers holding credits</span>
-              </div>
-              <div className="stat">
-                <span className="stat__value">
-                  {formatRupees(summary.paid_orders.amount_inr)}{" "}
-                  <MockMoneyTag posture={summary.payments} />
-                </span>
-                <span className="stat__label">
-                  Settled in {summary.window_days}d ({formatCount(summary.paid_orders.count)}{" "}
-                  orders)
-                </span>
-              </div>
-              <div
-                className={`stat${summary.unsettled_orders.count > 0 ? " stat--warn" : ""}`}
-              >
-                <span className="stat__value">
-                  {formatCount(summary.unsettled_orders.count)}
-                </span>
-                <span className="stat__label">
-                  Unsettled orders — started, never completed
-                </span>
-              </div>
+              <Stat label="Credits outstanding" value={formatCount(summary.outstanding_credits)} />
+              <Stat
+                label="Payers holding credits"
+                value={formatCount(summary.payers_with_balance)}
+              />
+              <Stat
+                label={`Settled in ${summary.window_days}d (${formatCount(summary.paid_orders.count)} orders)`}
+                value={formatRupees(summary.paid_orders.amount_inr)}
+                adornment={<MockMoneyTag posture={summary.payments} />}
+                wide
+              />
+              <Stat
+                label="Unsettled orders — started, never completed"
+                value={formatCount(summary.unsettled_orders.count)}
+                tone={summary.unsettled_orders.count > 0 ? "warn" : undefined}
+              />
             </div>
           </section>
 

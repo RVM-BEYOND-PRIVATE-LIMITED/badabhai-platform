@@ -52,6 +52,8 @@ import '../../voice_form/presentation/widgets/voice_choice_chips.dart'
 import '../domain/chat_message.dart';
 import '../domain/chat_multi_select.dart';
 import '../domain/chat_companion_keys.dart';
+import '../../name/domain/indian_locations.dart';
+import '../domain/chat_identity_questions.dart';
 import '../domain/companion_edit_value.dart';
 import '../domain/chat_resume_menu.dart';
 import '../../swipe/domain/job_detail.dart';
@@ -362,6 +364,11 @@ class _ChatViewState extends State<_ChatView> {
   /// typed-send path with no `optionKey`. TURN-SCOPED: cleared by the bloc
   /// listener on the next send / reply, never latched across questions.
   bool _customAnswerMode = false;
+
+  /// ADR-0048 — the state the worker chose on the `worker_state` turn, so the
+  /// `worker_city` turn can offer that state's cities. Screen-local and
+  /// deliberately not persisted: it is only needed for the very next turn.
+  String? _identityState;
 
   /// The composer hint while [_customAnswerMode] is on: the profile hint for a
   /// disambiguation list, the question-neutral one for a chip row.
@@ -825,6 +832,16 @@ class _ChatViewState extends State<_ChatView> {
     if (state.initializing || state.messages.isEmpty) return;
     _emptyImportSaid = true;
     if (state.resumePending) return; // the identity turn speaks for itself
+    // ADR-0048 (#1864) — NOR ON AN IDENTITY-INTAKE OPEN. This line infers a
+    // failed import from `resume_pending` being ABSENT, which stopped being a
+    // safe inference once the chat could open on "aapka naam?": there the
+    // absence means the server is asking for the worker's name, not that their
+    // résumé yielded nothing. Telling them their résumé failed while asking
+    // their name is two wrong things at once.
+    if (state.askedQuestionKey != null &&
+        kChatIdentityQuestionKeys.contains(state.askedQuestionKey)) {
+      return;
+    }
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(
@@ -1712,7 +1729,14 @@ class _ChatViewState extends State<_ChatView> {
           _formOfferLockedHint()
         else
           _inputBar(
-            showVoice,
+            // ONE MIC PER SCREEN (#1862). In companion mode the v2 voice button
+            // sits just below this composer, and BOTH were labelled "Bolkar
+            // likhein" — two identical controls, doing different things (this
+            // one dictates locally; that one uploads and transcribes). The v2
+            // button is the surface ADR-0046 F3 specifies, so the composer's own
+            // dictation mic stands down there. The interview keeps it, exactly
+            // as before.
+            showVoice && !state.companion,
             // #1583 — a `number` question opens the number keypad for this
             // turn only; the turn-scoped answerType reverts it on the next.
             numeric: state.answerType == ChatAnswerType.number,
@@ -2168,6 +2192,42 @@ class _ChatViewState extends State<_ChatView> {
   /// [BbAnimatedSwitcher] can cross-fade the swap (#1059). Every branch carries a
   /// ValueKey; the two chip paths share `'chips'` so a question→question chip
   /// change stays instant while typing→chips animates.
+  /// ADR-0048 — the State / City list for an identity-intake turn.
+  ///
+  /// CITY IS FILTERED BY THE STATE THE WORKER JUST ANSWERED, which is why
+  /// [_identityState] is remembered: the intake asks state first, and offering
+  /// all of India's cities after that would be worse than useless. A worker who
+  /// reopened the app mid-intake has no remembered state (the thread redraw
+  /// carries no question key), so the city list falls back to the whole set and
+  /// the composer still accepts anything typed.
+  ///
+  /// A TAP SUBMITS THE LABEL as ordinary chat text — the same path a typed
+  /// answer takes, so nothing here is a special kind of message.
+  Widget _identityLocationPicker(String questionKey) {
+    final bool isState = questionKey == kChatStateQuestionKey;
+    final List<String> options = isState
+        ? kIndianStates
+        : (_identityState == null
+            ? const <String>[]
+            : citiesForIndianState(_identityState!));
+    // No suggestions to offer (an unknown state, or a reopen mid-intake): the
+    // composer alone is the honest affordance rather than an empty list.
+    if (options.isEmpty) return const SizedBox.shrink();
+    return _chipScroller(<Widget>[
+      for (final String option in options) ...<Widget>[
+        _AnswerChip(
+          label: option,
+          onTap: () {
+            // Remember the state so the CITY list can be filtered by it.
+            if (isState) _identityState = option;
+            _sendText(option);
+          },
+        ),
+        const SizedBox(width: AppSpacing.s2),
+      ],
+    ]);
+  }
+
   Widget _answerAffordance(ChatState state) {
     // #761 — while an optimistic predicted turn is on screen
     // (predictedQuestionKey != null), show its chips instead of the typing
@@ -2177,6 +2237,21 @@ class _ChatViewState extends State<_ChatView> {
       return KeyedSubtree(
         key: const ValueKey<String>('typing'),
         child: _typingIndicator(),
+      );
+    }
+    // ADR-0048 (#1864) — THE TWO LOCATION QUESTIONS GET PICKERS, not a bare
+    // text box. `/name` never asked a worker to spell their state, and moving
+    // the question into the chat must not cost them that: the lists are closed
+    // and long, and typing "Maharashtra" correctly is not a test a worker should
+    // have to pass to finish signing up.
+    //
+    // The composer stays live underneath, exactly as `/name` kept free text —
+    // the city lists are suggestions, never a gate, and the server canonicalises
+    // whatever is sent.
+    if (isChatLocationQuestion(state.askedQuestionKey)) {
+      return KeyedSubtree(
+        key: const ValueKey<String>('identity-location'),
+        child: _identityLocationPicker(state.askedQuestionKey!),
       );
     }
     // #761 — when the turn serves `suggested_options` (the LLM chat), render
@@ -3271,11 +3346,15 @@ class _CooldownComposerLockState extends State<_CooldownComposerLock> {
 /// box repeatedly.
 String kCooldownComposerText(DateTime until) {
   final Duration left = until.difference(DateTime.now());
-  if (left.inSeconds <= 0) return 'Bada Bhai abhi vyast hain.';
+  // #1862 — DO NOT BLAME BADA BHAI'S BUSYNESS. The wait is the faltu
+  // cool-down, not the assistant being occupied; saying "vyast hain" invents a
+  // cause and tells the worker nothing they can act on. Say what they can do
+  // and when.
+  if (left.inSeconds <= 0) return 'Ab aap likh sakte hain.';
   if (left.inMinutes >= 1) {
-    return 'Bada Bhai abhi vyast hain. ${left.inMinutes} minute baad likh sakte hain.';
+    return '${left.inMinutes} minute baad aap dobara likh sakte hain.';
   }
-  return 'Bada Bhai abhi vyast hain. ${left.inSeconds} second baad likh sakte hain.';
+  return '${left.inSeconds} second baad aap dobara likh sakte hain.';
 }
 
 /// The companion composer's mic (ADR-0046 F3) — keyed because this screen draws
@@ -3287,6 +3366,10 @@ const Key kCompanionVoiceButtonKey = ValueKey<String>('companion-voice-button');
 /// and removing the very same value.
 const String kEditOpAdd = 'Jodenge:';
 const String kEditOpDelete = 'Hatayenge:';
+
+/// Shown on the edit card once its proposal has expired (#1862 — plain words,
+/// not "samay-seema").
+const String kEditCardExpired = 'Is card ka time khatam ho gaya.';
 
 const int kEditProposalMaxRows = 3;
 
@@ -3395,8 +3478,10 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                 const SizedBox(height: AppSpacing.s2),
                 Text(
                   expired
-                      ? 'Ye prastav ki samay-seema khatam ho gayi.'
-                      : 'Ye prastav ${_formatExpiry(widget.proposal.expiresAt)} tak maany hai.',
+                      // #1862 — everyday Hinglish. "samay-seema" and "maany"
+                      // are bookish Hindi a low-literacy worker does not use.
+                      ? kEditCardExpired
+                      : '${_formatExpiry(widget.proposal.expiresAt)} tak Haan daba sakte hain.',
                   style: OnboardingTypography.bodyMuted(
                     color: OnboardingColors.ink600,
                   ),
@@ -3419,12 +3504,18 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                 Row(
                   children: <Widget>[
                     Expanded(
+                      // NEUTRAL, NOT DESTRUCTIVE (#1862). Nahi only declines the
+                      // proposal — nothing of the worker's is lost by tapping
+                      // it, and red is this app's colour for removal (it is what
+                      // marks the card's own delete rows). Every other Haan/Nahi
+                      // pair in the app is neutral; this was the odd one out,
+                      // and it made the safe answer look like the dangerous one.
                       child: OutlinedButton(
                         onPressed: expired ? null : widget.onCancel,
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: OnboardingColors.errorRed,
+                          foregroundColor: OnboardingColors.ink900,
                           side: const BorderSide(
-                            color: OnboardingColors.errorRed,
+                            color: OnboardingColors.borderCard,
                           ),
                           minimumSize: const Size(double.infinity, 48),
                           shape: RoundedRectangleBorder(
@@ -3435,7 +3526,7 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                         child: Text(
                           kVoiceBooleanNo,
                           style: OnboardingTypography.buttonLabel(
-                            color: OnboardingColors.errorRed,
+                            color: OnboardingColors.ink900,
                           ),
                         ),
                       ),

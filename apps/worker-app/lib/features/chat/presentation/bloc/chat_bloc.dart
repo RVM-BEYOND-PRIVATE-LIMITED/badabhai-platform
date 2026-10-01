@@ -221,6 +221,7 @@ class ChatState extends Equatable {
     this.occupationLabel,
     this.lookahead = const <String, PredictedQuestion?>{},
     this.predictedQuestionKey,
+    this.askedQuestionKey,
     this.formOffer,
     this.resumePending = false,
     this.resumeUpdateQueued = false,
@@ -230,7 +231,6 @@ class ChatState extends Equatable {
     this.generalFormOffer,
     this.editProposal,
     this.cooldownUntil,
-    this.readAloud = false,
     this.editNotice,
   });
 
@@ -333,6 +333,15 @@ class ChatState extends Equatable {
   /// against this to tell whether the prediction was right.
   final String? predictedQuestionKey;
 
+  /// ADR-0048 — the question key the CURRENT bubble is asking, when the server
+  /// named one (`asked_question_id`, or `opening_question_key` on bubble 0).
+  ///
+  /// The screen keys its location pickers on this: `worker_state` shows the
+  /// State list and `worker_city` the cities of the state just answered. Null on
+  /// every turn the server does not name, which is most of them — the pickers
+  /// then never appear and the composer behaves exactly as it always has.
+  final String? askedQuestionKey;
+
   /// THE INTERVIEW HANDED OVER TO A FORM (`form_offer`, #1339/#1340), from the
   /// LATEST turn — null on every turn except the one that hands over.
   ///
@@ -394,23 +403,18 @@ class ChatState extends Equatable {
   /// server detail can ride it.
   final String? editNotice;
 
-  /// ADR-0046 — cooldown timestamp from the companion. While the current time
-  /// is before this, the companion UI shows a wait state. TURN-SCOPED.
+  /// ADR-0046 §5.1 — `cooldown_until`, the faltu cool-down's end.
+  ///
+  /// STICKY, NOT TURN-SCOPED (#1834). The server sends it ONLY on the turn that
+  /// starts the wait, so a state that dropped it whenever a later turn omitted
+  /// it handed the composer straight back mid-wait. It survives until the
+  /// INSTANT passes; see `_withCompanionTurn`.
+  ///
+  /// `read_aloud` is deliberately NOT held here. It is a per-BUBBLE prohibition,
+  /// and it lives on the bubble it applies to ([ChatMessage.canReadAloud]) — a
+  /// screen-wide flag would have to be right about which message it described,
+  /// and nothing ever read it.
   final DateTime? cooldownUntil;
-
-  /// ADR-0046 §5.1 — `read_aloud`, carried but NOT ACTED ON in Phase 1.
-  ///
-  /// The contract marks this **P3**, and marks it `read_aloud?: false` — it is
-  /// only ever sent as FALSE, on model-written replies, and its meaning is a
-  /// prohibition: "the app must NOT fall back to speaking `reply`". So there is
-  /// no Phase 1 behaviour to implement and, in particular, nothing here should
-  /// read it as "true means speak" — that inverts a field that never arrives
-  /// true. It is parsed and carried so the wire stays whole and the day P3 lands
-  /// the value is already here; nothing consumes it yet, deliberately.
-  ///
-  /// TURN-SCOPED, and unlike the old code this is now honoured by [copyWith]:
-  /// an emit that does not mention it KEEPS it, as every other field does.
-  final bool readAloud;
 
   /// ADR-0044 — the tab is in the post-completion COMPANION: sends go to
   /// `/chat/companion/message`, the "build my profile" CTA is hidden (the profile
@@ -451,6 +455,10 @@ class ChatState extends Equatable {
     // reconcile — which `?? this` cannot express — so clearing it takes an
     // explicit flag (the standard copyWith idiom for a clearable nullable).
     bool clearPredictedQuestionKey = false,
+    // ADR-0048 — the same clearable-nullable idiom: turn-scoped, so a turn that
+    // names no question must be able to clear the last key.
+    String? askedQuestionKey,
+    bool clearAskedQuestionKey = false,
     FormOffer? formOffer,
     // Same idiom as [clearPredictedQuestionKey]: formOffer is TURN-SCOPED
     // (field doc), so a new turn without one must be able to CLEAR the
@@ -473,7 +481,6 @@ class ChatState extends Equatable {
     bool clearEditProposal = false,
     DateTime? cooldownUntil,
     bool clearCooldownUntil = false,
-    bool? readAloud,
     String? editNotice,
     bool clearEditNotice = false,
   }) {
@@ -498,6 +505,11 @@ class ChatState extends Equatable {
       predictedQuestionKey: clearPredictedQuestionKey
           ? null
           : (predictedQuestionKey ?? this.predictedQuestionKey),
+      // TURN-SCOPED: every turn passes its own value, so a turn that names no
+      // question clears the last one rather than leaving a stale picker up.
+      askedQuestionKey: clearAskedQuestionKey
+          ? null
+          : (askedQuestionKey ?? this.askedQuestionKey),
       formOffer: clearFormOffer ? null : (formOffer ?? this.formOffer),
       answerType: clearAnswerType ? null : (answerType ?? this.answerType),
       // Sticky: once a résumé-confirm session, always (the opening is applied
@@ -513,10 +525,6 @@ class ChatState extends Equatable {
       // ADR-0046 — TURN-SCOPED: cleared on next turn unless explicitly set.
       editProposal: clearEditProposal ? null : (editProposal ?? this.editProposal),
       cooldownUntil: clearCooldownUntil ? null : (cooldownUntil ?? this.cooldownUntil),
-      // `?? this`, NOT `?? false`: the old form silently RESET the flag on every
-      // emit that did not mention it — a spinner flip, a message append — which
-      // is the one thing no other field on this state does.
-      readAloud: readAloud ?? this.readAloud,
       editNotice: clearEditNotice ? null : (editNotice ?? this.editNotice),
     );
   }
@@ -540,6 +548,7 @@ class ChatState extends Equatable {
         occupationLabel,
         lookahead,
         predictedQuestionKey,
+        askedQuestionKey,
         formOffer,
         resumePending,
         resumeUpdateQueued,
@@ -549,7 +558,6 @@ class ChatState extends Equatable {
         generalFormOffer,
         editProposal,
         cooldownUntil,
-        readAloud,
         editNotice,
       ];
 }
@@ -808,6 +816,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       resumePending: opening?.resumePending ?? false,
       suggestedOptions: opening?.options,
       followups: openingFollowups,
+      // ADR-0048 — when the chat opens ON an identity question, bubble 0 IS the
+      // question. The screen needs its key to offer the State/City pickers, and
+      // `_maybeSayEmptyImport` needs it to know this open is an intake rather
+      // than a résumé import that yielded nothing.
+      askedQuestionKey: opening?.questionKey,
+      clearAskedQuestionKey: opening?.questionKey == null,
       // #1750's retry is over once the interview is open: a later refocus is
       // decided by the interview-tab rule, never by another companion open.
       companionUnreachable: false,
@@ -1141,6 +1155,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // later turn without it clears the previous one.
         answerType: turn.answerType,
         clearAnswerType: turn.answerType == null,
+        // ADR-0048 — the key this turn is asking, so the screen can offer the
+        // right picker. Passed on EVERY turn, so one that names none clears it.
+        askedQuestionKey: turn.askedQuestionId,
+        clearAskedQuestionKey: turn.askedQuestionId == null,
         occupationLabel: turn.occupationLabel,
         // #761 — the fresh predictions for the NEXT tap; the current one is done.
         lookahead: turn.lookahead,
@@ -1772,10 +1790,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // card that can never be applied — AND say so. Dropping it in silence
         // would leave a worker who just tapped Haan on their own profile
         // watching the card disappear with no idea whether it worked.
+        // THE COOL-DOWN IS NOT THE CARD'S TO CLEAR (#1862). A dead card says
+        // nothing about the server's faltu wait, and clearing the deadline here
+        // handed the composer back mid-wait — the #1834 stickiness rule, undone
+        // by an unrelated 404. The forced refresh below cannot restore it
+        // either, because `cooldown_until` is sent only on the turn that starts
+        // the wait.
         emit(state.copyWith(
           sending: _inFlightSends > 0,
           clearEditProposal: true,
-          clearCooldownUntil: true,
           editNotice: kCompanionEditGoneNotice,
         ));
         await _onCompanionRefreshRequested(
@@ -1832,7 +1855,6 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       clearEditProposal: turn.editProposal == null,
       cooldownUntil: cooldown,
       clearCooldownUntil: cooldown == null,
-      readAloud: turn.readAloud ?? false,
       // A NEW TURN ends the one-shot notice: it explained the turn now gone.
       clearEditNotice: true,
     );

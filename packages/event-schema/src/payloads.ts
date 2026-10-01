@@ -4995,3 +4995,47 @@ export const WorkerMatchSkillWantsSetPayload = z
   })
   .strict();
 export type WorkerMatchSkillWantsSetPayload = z.infer<typeof WorkerMatchSkillWantsSetPayload>;
+
+/**
+ * ADR-0048 (#1858) — the four identity questions the onboarding chat asks a worker whose record
+ * has a gap, in the order it asks them. A CLOSED set: the API's intake state machine is typed off
+ * this tuple, so a fifth step cannot be served without widening the event first.
+ */
+export const IDENTITY_INTAKE_STEPS = ["first_name", "last_name", "state", "city"] as const;
+export type IdentityIntakeStep = (typeof IDENTITY_INTAKE_STEPS)[number];
+
+/** How one intake step settled: the worker answered it, or it was given up after two asks (D1). */
+export const IDENTITY_INTAKE_OUTCOMES = ["answered", "skipped"] as const;
+export type IdentityIntakeOutcome = (typeof IDENTITY_INTAKE_OUTCOMES)[number];
+
+/**
+ * ADR-0048 — one identity-intake step settled in the onboarding chat.
+ *
+ * THE PROVENANCE `worker.name_recorded` CANNOT CARRY. That event is `{ worker_id }` at v1 and says
+ * only that a name landed; it cannot say the chat asked for it, which step, or that a worker was
+ * asked twice and gave nothing. Widening it would mutate a shipped schema, so the funnel gets its
+ * own event and the two state-change events are reused unchanged.
+ *
+ * IDS AND CLOSED ENUMS ONLY — never the name, the state or the city, and no free text of any kind.
+ * `recognized` is the gazetteer verdict on a location answer (did the city resolve to a canonical
+ * hub?) — the number that says how often the app's pickers are bypassed — and is null for a name
+ * step and for any skipped step, where there is no value to judge.
+ */
+export const ProfileIdentityIntakeAnsweredPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    step: z.enum(IDENTITY_INTAKE_STEPS),
+    outcome: z.enum(IDENTITY_INTAKE_OUTCOMES),
+    recognized: z.boolean().nullable(),
+  })
+  .strict()
+  .refine(
+    (v) =>
+      (v.recognized !== null) ===
+      (v.outcome === "answered" && (v.step === "state" || v.step === "city")),
+    { message: "recognized is set iff an answered state or city step" },
+  );
+export type ProfileIdentityIntakeAnsweredPayload = z.infer<
+  typeof ProfileIdentityIntakeAnsweredPayload
+>;

@@ -42,7 +42,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { config } from "dotenv";
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, not, sql as sqlExpr } from "drizzle-orm";
 
 import { normalizeOccupationText } from "@badabhai/profiling-lexicon";
 
@@ -50,6 +50,12 @@ import { createDbClient } from "./client";
 import { hasForbiddenAliasChars, resolveJobDomainCorpus } from "./job-domain-corpus";
 import { buildOccupationIndex, resolveOccupation, type OccupationIndex } from "./occupation-retrieval-eval";
 import { chatMessages } from "./schema";
+
+/**
+ * The `chat_messages.metadata` marker the chat identity intake writes on its lines (ADR-0048). A
+ * literal twin of the api's `IDENTITY_INTAKE_METADATA`: this package cannot import from apps/api.
+ */
+const IDENTITY_INTAKE_MARKER = { identity_intake: true } as const;
 
 // THE REPOSITORY-ROOT `.env` FIRST, exactly as the other 55 db runners do. Without it this
 // runner threw `DATABASE_URL is not set` for its entire life: `pnpm db:mine:aliases` runs with
@@ -265,10 +271,22 @@ async function main(): Promise<void> {
     // `inbound` is the worker; outbound is our own question text. Mining our own prompts
     // would manufacture aliases out of the vocabulary we already chose — the same
     // self-confirmation the parse gates reject at role level.
+    //
+    // ADR-0048 §3.6 — the chat identity intake's answers (a first name, a surname, a state, a
+    // town) are inbound rows too, and none ever resolves to an occupation, so without this every
+    // one would be printed as an alias candidate. They carry `metadata.identity_intake`, the same
+    // marker the extraction and transcript readers exclude; `metadata` is NOT NULL (default {}),
+    // so the negation never drops an ordinary row.
     const rows = await db
       .select({ sessionId: chatMessages.sessionId, bodyText: chatMessages.bodyText })
       .from(chatMessages)
-      .where(and(eq(chatMessages.direction, "inbound"), isNotNull(chatMessages.bodyText)))
+      .where(
+        and(
+          eq(chatMessages.direction, "inbound"),
+          isNotNull(chatMessages.bodyText),
+          not(sqlExpr`(${chatMessages.metadata} @> ${JSON.stringify(IDENTITY_INTAKE_MARKER)}::jsonb)`),
+        ),
+      )
       .orderBy(desc(chatMessages.createdAt))
       .limit(limit);
 

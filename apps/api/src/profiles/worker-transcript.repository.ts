@@ -1,8 +1,34 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, not, sql } from "drizzle-orm";
 import { chatMessages, type Database } from "@badabhai/db";
 
+import { IDENTITY_INTAKE_METADATA } from "../chat/chat-transcript.buffer";
 import { DATABASE } from "../database/database.module";
+
+/**
+ * The worker-turn read as a STATEMENT, built without executing it — so the WHERE clause itself can
+ * be pinned against compiled SQL (`worker-transcript.repository.query.test.ts`), the pattern
+ * `resume-import.repository.ts` uses for its own guards.
+ */
+export function workerTurnsStatement(db: Database, workerId: string, limit: number) {
+  return db
+    .select({ bodyText: chatMessages.bodyText })
+    .from(chatMessages)
+    .where(
+      and(
+        eq(chatMessages.workerId, workerId),
+        eq(chatMessages.direction, "inbound"),
+        isNotNull(chatMessages.bodyText),
+        // ADR-0048 (D10) — NOT an identity-intake answer. A name or a town typed in answer to the
+        // chat's first questions is not the worker describing his work, and the quote block would
+        // otherwise print "Ramesh Kumar" or "Pune" as his own words (and the veto would scan them).
+        // Parenthesised so the negation reads as it binds, not as operator precedence decides.
+        not(sql`(${chatMessages.metadata} @> ${JSON.stringify(IDENTITY_INTAKE_METADATA)}::jsonb)`),
+      ),
+    )
+    .orderBy(desc(chatMessages.createdAt))
+    .limit(limit);
+}
 
 /**
  * READS the worker's OWN turns from `chat_messages`, for the résumé's two transcript-backed
@@ -16,7 +42,9 @@ import { DATABASE } from "../database/database.module";
  *
  * INBOUND ONLY. `direction: "outbound"` is what BadaBhai said, and quoting the interviewer back
  * at the reader as the worker's own words would be the exact failure §8 forbids. The filter is
- * in the query rather than in the caller so there is no shape in which it is forgotten.
+ * in the query rather than in the caller so there is no shape in which it is forgotten. The same
+ * holds for the identity intake's answers (ADR-0048), which are inbound but are not his words
+ * about his work — see {@link workerTurnsStatement}.
  *
  * NOT PII-SANITISED, AND THAT IS STATED RATHER THAN IMPLIED. These rows are raw worker text —
  * they can carry his employer, his city, occasionally his own name. Nothing here masks anything.
@@ -37,18 +65,7 @@ export class WorkerTranscriptRepository {
    * pathological session rather than trusting that one cannot exist.
    */
   async loadWorkerTurns(workerId: string, limit = 200): Promise<string[]> {
-    const rows = await this.db
-      .select({ bodyText: chatMessages.bodyText })
-      .from(chatMessages)
-      .where(
-        and(
-          eq(chatMessages.workerId, workerId),
-          eq(chatMessages.direction, "inbound"),
-          isNotNull(chatMessages.bodyText),
-        ),
-      )
-      .orderBy(desc(chatMessages.createdAt))
-      .limit(limit);
+    const rows = await workerTurnsStatement(this.db, workerId, limit);
     return rows
       .map((r) => (r.bodyText ?? "").trim())
       .filter((t) => t.length > 0)
