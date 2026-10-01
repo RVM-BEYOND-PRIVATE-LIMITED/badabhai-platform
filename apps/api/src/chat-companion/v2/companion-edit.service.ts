@@ -2,29 +2,33 @@ import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { Database, WorkerProfile } from "@badabhai/db";
-import { DraftProfileSchema, resumeProfileCarriesValues } from "@badabhai/ai-contracts";
-import { labelForTaxonomyId } from "@badabhai/taxonomy";
+import { DraftProfileSchema } from "@badabhai/ai-contracts";
 import type { CompanionV2EditSection, CompanionV2Outcome } from "@badabhai/types";
 import { SERVER_CONFIG } from "../../config/config.module";
 import { DATABASE } from "../../database/database.module";
 import { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
 import { AiService } from "../../ai/ai.service";
 import type { RequestContext } from "../../common/request-context";
+import { hasActiveConsent } from "../../consent/consent-active";
+// VALUE import: Nest resolves the constructor parameter by this class token (see NewResumeHandler).
+import { ConsentRepository } from "../../consent/consent.repository";
 import { EventsService } from "../../events/events.service";
 import { ProfilesRepository } from "../../profiles/profiles.repository";
 import { WorkerEmploymentService } from "../../profiles/worker-employment.service";
-import { projectEmploymentForPut, SetMyEmploymentSchema } from "../../profiles/worker-employment.dto";
 import { WorkerLanguagesService } from "../../profiles/worker-languages.service";
-import { SetMyLanguagesSchema } from "../../profiles/worker-languages.dto";
 import { WorkerQualificationsService } from "../../profiles/worker-qualifications.service";
-import { SetMyQualificationsSchema } from "../../profiles/worker-qualifications.dto";
 import { WorkerOccupationsService } from "../../profiles/worker-occupations.service";
-import { SetMyOccupationsSchema } from "../../profiles/worker-occupations.dto";
 import { WorkerPreferencesService } from "../../profiles/worker-preferences.service";
-import { SetMyPreferencesSchema } from "../../profiles/worker-preferences.dto";
 import { WorkerSkillsService } from "../../match/worker-skills.service";
 import { ResumeService } from "../../resume/resume.service";
-import type { CompanionTurn, EditProposal, EditProposalRow } from "../chat-companion.dto";
+import { ResumeRerenderService } from "../../resume/resume-rerender.service";
+import type { ChatEditRegeneration } from "../../resume/resume.dto";
+import {
+  EDIT_CARD_ROWS_MAX,
+  type CompanionTurn,
+  type EditProposal,
+  type EditProposalRow,
+} from "../chat-companion.dto";
 import {
   V2_EDIT_CANCELLED,
   V2_EDIT_CARD_INTRO,
@@ -32,6 +36,7 @@ import {
   V2_EDIT_DONE_CAPPED,
   V2_EDIT_IDENTITY,
   V2_EDIT_NONE,
+  V2_EDIT_PLACEHOLDER,
   V2_EDIT_STALE,
   V2_EDIT_UNAVAILABLE,
   FALLBACK,
@@ -39,21 +44,50 @@ import {
 import { EditProposalStore, type StoredEditProposal, type StoredEditProposalRow } from "./edit-proposal.store";
 import {
   buildEditableFields,
+  cardFieldLabel,
   catalogueEntry,
+  displayValue,
   hasPlaceholderToken,
   normaliseValue,
   opAllowed,
   SECTION_LABELS,
 } from "./edit-catalogue";
+import { identityAskIn } from "./edit-identity";
+import { dedupeRows, isNoopAdd, planSection, type SectionPlan } from "./edit-plan";
+import {
+  isStale,
+  rowCarriesField,
+  sectionReadable,
+  snapshotRows,
+  trimSnapshot,
+  type EditState,
+  type SnapshotRow,
+} from "./edit-snapshot";
 import { sectionsOf, taskChips, v2CopyTurn, v2EditCardTurn } from "./companion-v2-compose";
 
-/** One current row, server-side: what the model sees plus the identity the writer needs. */
-interface SnapshotRow {
-  readonly ref: string;
-  readonly section: CompanionV2EditSection;
-  readonly fields: Record<string, string | null>;
-  readonly target: Record<string, string | number> | null;
-}
+/**
+ * The edit-parse contract's own bounds — `CompanionEditParseInputSchema`'s `snapshot.max(64)` and
+ * `max_rows.max(10)` (`packages/ai-contracts/src/companion.ts`), which that package keeps
+ * private. Restated so the API never SENDS a body the AI service must 422 (a 422 reads as "no
+ * rows" and serves the clarify line forever); `companion-edit.contract.test.ts` pins both against
+ * the schema itself, so a contract change fails there rather than in production.
+ */
+export const EDIT_PARSE_SNAPSHOT_MAX = 64;
+export const EDIT_PARSE_MAX_ROWS_MAX = 10;
+
+/**
+ * The sections the résumé render reads LIVE on every render (`ResumeRenderProcessor`: employment,
+ * credentials + languages, secondary occupations, and the preference attributes) — so a re-render
+ * alone puts an edit to them on the PDF. Skills are absent: the render prints the skills stored
+ * with the résumé, which only a regeneration replaces.
+ */
+const RENDERED_LIVE: ReadonlySet<CompanionV2EditSection> = new Set([
+  "employment",
+  "languages",
+  "qualifications",
+  "occupations",
+  "preferences",
+]);
 
 export type ConfirmResult =
   | {
@@ -62,10 +96,11 @@ export type ConfirmResult =
       readonly proposalId: string;
       readonly appliedCount: number;
       readonly sections: CompanionV2EditSection[];
-      readonly resumeRegen: "queued" | "capped" | "failed";
+      readonly resumeRegen: ChatEditRegeneration;
     }
   | { readonly kind: "not_found" }
   | { readonly kind: "stale"; readonly turn: CompanionTurn }
+  /** Nothing was written; the turn carries the SAME card so the worker may tap Haan again. */
   | { readonly kind: "failed"; readonly turn: CompanionTurn };
 
 export type CancelResult =
@@ -78,19 +113,28 @@ export interface ProposeResult {
   readonly outcome: CompanionV2Outcome;
 }
 
+/** One model row through the gates: kept as a card row, or dropped for a closed reason. */
+type RowVerdict =
+  | { readonly kind: "kept"; readonly row: StoredEditProposalRow }
+  | { readonly kind: "dropped"; readonly reason: "invalid" | "placeholder" };
+
 /**
  * THE EDIT PATH (ADR-0046 O4/O5/O6): propose → the worker taps Haan → apply in ONE transaction.
  *
- * THE MODEL NEVER WRITES. `propose` sends the message plus this catalogue and a snapshot of the
- * worker's current values to `AiService.companionEditParse`, validates every returned row
- * deterministically (catalogue, op, ref, value, placeholder token, no-op) and stores a card.
- * `confirm` re-reads the proposal under the WORKER'S key, refuses a stale card, applies every
- * selected row through the section writers on ONE transaction, and only then regenerates the
- * résumé (trigger `chat_edit`, the daily cap applies).
+ * THE MODEL NEVER WRITES. `propose` reads every section once (`EditState`), sends the message
+ * plus this catalogue and a snapshot of the worker's current values — cut to the contract's cap —
+ * to `AiService.companionEditParse`, validates every returned row deterministically (catalogue,
+ * op, ref, value, placeholder token, no-op, duplicate, and the section writer's REAL schema) and
+ * stores a card of at most `min(EDIT_MAX_ROWS, 3)` rows. `confirm` CLAIMS the card (at most one
+ * apply per card), re-reads the state, refuses a stale card, applies every selected row through
+ * the section writers on ONE transaction, and only then runs the post-commit side effects and
+ * QUEUES the résumé regeneration (a new history entry, trigger `chat_edit`, the daily cap charged
+ * up front) — when the worker's consent names `resume_generation`. When none is queued, the
+ * LLM-free re-render the form path would have run puts the live-printed edits on the PDF.
  *
  * FAIL CLOSED, EVERYWHERE. No parse, no rows or a store failure means no card and no claim; a
- * writer failure rolls the whole transaction back and keeps the proposal so the worker may
- * retry; a stale card writes nothing and is deleted.
+ * claim Redis refuses, an unreadable section or a writer failure writes nothing, and the card is
+ * served again so the worker may retry until its TTL; a stale card writes nothing and is deleted.
  *
  * PRIVACY. The message and every current value are masked by the AI service before the model;
  * the proposal lives in Redis for its TTL and never in a log; every event carries ids, counts
@@ -115,6 +159,10 @@ export class CompanionEditService {
     private readonly resumes: ResumeService,
     private readonly events: EventsService,
     private readonly cost: AiCostRecorder,
+    // Read (never written) for the regeneration's fail-closed `resume_generation` gate.
+    private readonly consents: ConsentRepository,
+    // The LLM-free re-render when no regeneration was queued (see `confirm`).
+    private readonly rerender: ResumeRerenderService,
   ) {}
 
   // ── propose ───────────────────────────────────────────────────────────────────────────────
@@ -127,13 +175,22 @@ export class CompanionEditService {
     ctx: RequestContext,
     now: Date = new Date(),
   ): Promise<ProposeResult> {
-    const snapshot = await this.snapshot(workerId, profile);
+    const state = await this.readState(workerId, profile);
+    const snapshot = snapshotRows(state);
+    const sent = trimSnapshot(snapshot, text, EDIT_PARSE_SNAPSHOT_MAX);
+    if (sent.length < snapshot.length) {
+      // BUG-SNAPSHOT-CAP: counts and a closed reason only, never a value.
+      this.logger.warn(
+        `companion edit snapshot trimmed for worker ${workerId}: ${sent.length} of ${snapshot.length} rows sent (reason=snapshot_cap)`,
+      );
+    }
+    const cardRowsMax = this.cardRowsMax();
     const parsed = await this.ai.companionEditParse(
       {
         text,
         catalogue: buildEditableFields(),
-        snapshot: snapshot.map((row) => ({ ref: row.ref, section: row.section, fields: row.fields })),
-        max_rows: this.config.CHAT_COMPANION_V2_EDIT_MAX_ROWS,
+        snapshot: sent.map((row) => ({ ref: row.ref, section: row.section, fields: row.fields })),
+        max_rows: cardRowsMax,
       },
       ctx,
     );
@@ -151,31 +208,39 @@ export class CompanionEditService {
     );
 
     const unsupported = parsed?.unsupported ?? [];
-    if (parsed === null) return this.noCard(unsupported);
+    if (parsed === null) return this.noCard(text, unsupported, false);
 
-    const byRef = new Map(snapshot.map((row) => [row.ref, row]));
-    const kept: StoredEditProposalRow[] = [];
+    // Only the refs the model was SHOWN can be addressed: a trimmed row is not guessable.
+    const byRef = new Map(sent.map((row) => [row.ref, row]));
     const effectiveUnsupported = new Set(unsupported);
-    let dropped = 0;
+    let placeholderDropped = false;
+    const valid: StoredEditProposalRow[] = [];
     for (const row of parsed.rows) {
-      const validated = this.validateRow(row, byRef);
-      if (validated === null) {
-        dropped += 1;
-        // A row the model aimed at identity/contact is the same fact as an `unsupported` hint:
-        // the worker asked for something this surface does not edit (O3). Inferred here so the
-        // right line is served even when the model forgot the hint. Widened to `string` because
-        // the model's output is UNTRUSTED — its type says the section is always one of six.
-        const section: string = row.section;
-        if (section === "identity" || section === "contact") {
-          effectiveUnsupported.add(section as "identity" | "contact");
-        }
+      const verdict = this.validateRow(row, byRef);
+      if (verdict.kind === "kept") {
+        valid.push(verdict.row);
         continue;
       }
-      kept.push(validated);
+      if (verdict.reason === "placeholder") placeholderDropped = true;
+      // Belt and braces: the AI service already drops a row aimed outside the six sections, so
+      // on real traffic `identityAskIn` (in `noCard`) is what serves the identity line. Widened
+      // to `string` because the model's output is UNTRUSTED — its type says one of six.
+      const section: string = row.section;
+      if (section === "identity" || section === "contact") {
+        effectiveUnsupported.add(section as "identity" | "contact");
+      }
     }
 
+    // Duplicates and no-op adds off, then every row the writer's own schema would refuse, then
+    // the card's row cap (O5) — the API's, whatever the model returned.
+    const kept = this.acceptedByWriters(
+      state,
+      dedupeRows(valid).filter((row) => !isNoopAdd(row, snapshot)),
+    ).slice(0, cardRowsMax);
+    const dropped = parsed.rows.length - kept.length;
+
     if (kept.length === 0) {
-      return this.noCard([...effectiveUnsupported], dropped);
+      return this.noCard(text, [...effectiveUnsupported], placeholderDropped);
     }
 
     const proposalId = randomUUID();
@@ -206,22 +271,48 @@ export class CompanionEditService {
     };
   }
 
-  /** No card: identity/contact steered to the Profile screen, else the clarify line. */
-  private noCard(unsupported: readonly string[], _dropped = 0): ProposeResult {
-    const identity = unsupported.includes("identity") || unsupported.includes("contact");
-    return {
-      turn: v2CopyTurn(identity ? V2_EDIT_IDENTITY : V2_EDIT_NONE, taskChips(this.config)),
-      outcome: identity ? "served" : "clarify",
-    };
+  /**
+   * The rows a card may carry: `CHAT_COMPANION_V2_EDIT_MAX_ROWS`, never more than one confirm
+   * may tick, never more than the edit-parse contract accepts (CON-2.2b).
+   */
+  private cardRowsMax(): number {
+    return Math.min(
+      this.config.CHAT_COMPANION_V2_EDIT_MAX_ROWS,
+      EDIT_CARD_ROWS_MAX,
+      EDIT_PARSE_MAX_ROWS_MAX,
+    );
   }
 
   /**
-   * One model row through every deterministic gate (spec §Edit step 3). Null = drop it.
+   * No card. In order: identity/contact — named by the model OR by the worker's own words — is
+   * steered to the Profile screen (O3); a change that only carried a masked value is pointed at
+   * the Profile screen too (O17), because rephrasing cannot unmask it; else the clarify line.
+   */
+  private noCard(
+    text: string,
+    unsupported: readonly string[],
+    placeholderDropped: boolean,
+  ): ProposeResult {
+    const identity =
+      unsupported.includes("identity") ||
+      unsupported.includes("contact") ||
+      identityAskIn(text) !== null;
+    if (identity) return { turn: v2CopyTurn(V2_EDIT_IDENTITY, taskChips(this.config)), outcome: "served" };
+    if (placeholderDropped) {
+      return { turn: v2CopyTurn(V2_EDIT_PLACEHOLDER, taskChips(this.config)), outcome: "served" };
+    }
+    return { turn: v2CopyTurn(V2_EDIT_NONE, taskChips(this.config)), outcome: "clarify" };
+  }
+
+  /**
+   * One model row through every per-row gate (spec §Edit step 3).
    *
    * The gates, in order: the catalogue names the pair; the op is legal for it; edit/delete
-   * address a row this snapshot actually minted; add carries no ref; add/edit carry a value that
-   * passes the field's own validation; a placeholder token drops the row (O17); and a value
-   * identical to the current one is a no-op and is dropped rather than shown as a change.
+   * address a row this snapshot actually minted AND showed, whose entry has that field (a
+   * certificate field on a certificate, a scalar preference on `pref`); add carries no ref;
+   * add/edit carry a value that passes the field's own normalisation; a placeholder token drops
+   * the row (O17); and an edit identical to the current value is a no-op. The row-SET gates —
+   * duplicates, adds of what is already there, the writer's own schema — run after, in `propose`.
    */
   private validateRow(
     row: {
@@ -232,75 +323,135 @@ export class CompanionEditService {
       value: string | null;
     },
     byRef: ReadonlyMap<string, SnapshotRow>,
-  ): StoredEditProposalRow | null {
+  ): RowVerdict {
+    const invalid: RowVerdict = { kind: "dropped", reason: "invalid" };
     const entry = catalogueEntry(row.section, row.field ?? "");
-    if (entry === undefined || !opAllowed(entry, row.op as never)) return null;
+    if (entry === undefined || !opAllowed(entry, row.op as never)) return invalid;
 
     let target: Record<string, string | number> | null = null;
     let before: string | null = null;
     if (row.op !== "add") {
-      if (row.ref === null) return null;
+      if (row.ref === null) return invalid;
       const source = byRef.get(row.ref);
-      if (source === undefined || source.section !== entry.section) return null;
+      if (source === undefined || source.section !== entry.section) return invalid;
+      // EDIT-ROW-KIND: the field must belong to the entry the ref names — an education anchored
+      // on `certificate_name` would be deleted under a card that says "certificate".
+      if (!rowCarriesField(source, entry.field)) return invalid;
       target = source.target;
       before = source.fields[entry.field] ?? null;
     } else if (row.ref !== null) {
-      return null;
+      return invalid;
     }
 
     let value: string | null = null;
     if (row.op !== "delete") {
-      if (row.value === null) return null;
+      if (row.value === null) return invalid;
       value = normaliseValue(entry.section, entry.field, row.value);
-      if (value === null) return null;
-      if (hasPlaceholderToken(value)) return null;
-      if (row.op === "edit" && value === before) return null;
+      if (value === null) return invalid;
+      if (hasPlaceholderToken(value)) return { kind: "dropped", reason: "placeholder" };
+      if (row.op === "edit" && value === before) return invalid;
     }
 
     return {
-      row_id: randomUUID(),
-      section: entry.section,
-      op: row.op as StoredEditProposalRow["op"],
-      field: entry.field,
-      value,
-      before,
-      section_label: SECTION_LABELS[entry.section],
-      target,
+      kind: "kept",
+      row: {
+        row_id: randomUUID(),
+        section: entry.section,
+        op: row.op as StoredEditProposalRow["op"],
+        field: entry.field,
+        value,
+        before,
+        section_label: SECTION_LABELS[entry.section],
+        target,
+      },
     };
   }
 
+  /**
+   * P1-EDIT-DROP-DTO: the rows whose section plan the writer's REAL schema accepts, in order.
+   * Each row is tried together with the rows already accepted for its section, so two rows that
+   * pass alone but not together (an end month before the new start month) keep only the first.
+   */
+  private acceptedByWriters(
+    state: EditState,
+    rows: readonly StoredEditProposalRow[],
+  ): StoredEditProposalRow[] {
+    const accepted: StoredEditProposalRow[] = [];
+    for (const row of rows) {
+      const trial = [...accepted.filter((other) => other.section === row.section), row];
+      try {
+        planSection(row.section, state, trial);
+        accepted.push(row);
+      } catch {
+        // The writer would refuse this row on Haan; a card must never show it.
+      }
+    }
+    return accepted;
+  }
+
+  /**
+   * The card as the app receives it. `before`/`after` are the stored tokens, unchanged for the
+   * shipped app; `field_label` and `before_display`/`after_display` (BUG-CARD-LABELS) are derived
+   * HERE, at wire time, from the stored row's section, field and values — so they are never
+   * stored, and a card saved before they existed is served labelled on a retry.
+   */
   private toWireProposal(proposal: StoredEditProposal): EditProposal {
     return {
       proposal_id: proposal.proposal_id,
       expires_at: proposal.expires_at,
-      rows: proposal.rows.map(
-        (row): EditProposalRow => ({
+      rows: proposal.rows.map((row): EditProposalRow => {
+        const fieldLabel = cardFieldLabel(row.section, row.field, row.op, row.target);
+        return {
           row_id: row.row_id,
           section_label: row.section_label,
+          ...(fieldLabel === null ? {} : { field_label: fieldLabel }),
           op: row.op,
           before: row.before,
           after: row.value,
-        }),
-      ),
+          before_display: displayValue(row.section, row.field, row.before),
+          after_display: displayValue(row.section, row.field, row.value),
+        };
+      }),
     };
   }
 
   // ── confirm ───────────────────────────────────────────────────────────────────────────────
 
-  /** Haan: apply the ticked rows in one transaction, then regenerate. */
+  /** Haan: claim the card, apply the ticked rows in one transaction, then regenerate. */
   async confirm(
     workerId: string,
     profile: WorkerProfile,
     proposalId: string,
     rowIds: readonly string[],
     ctx: RequestContext,
+    now: Date = new Date(),
   ): Promise<ConfirmResult> {
     const proposal = await this.proposals.load(workerId);
     if (proposal === null || proposal.proposal_id !== proposalId) return { kind: "not_found" };
+    if (isExpired(proposal, now)) return this.expired(workerId, proposalId, ctx);
     const selected = proposal.rows.filter((row) => rowIds.includes(row.row_id));
     if (selected.length === 0) return { kind: "not_found" };
 
-    if (await this.isStale(workerId, profile, selected)) {
+    // AT MOST ONCE (BUG-DOUBLE-CONFIRM). A double tap, a retry while this request still works,
+    // or a re-confirm after a failed delete finds the card claimed and gets the "already
+    // confirmed" 404. Redis refusing the claim means once cannot be promised: nothing is applied.
+    const claim = await this.proposals.claim(workerId, proposalId);
+    if (claim === "held") return { kind: "not_found" };
+    if (claim === "unavailable") return this.failed(proposal);
+
+    // THE STATE THE CHECK AND THE APPLY BOTH READ — one read, so the rows that were verified are
+    // exactly the rows that get written. A section that cannot be read is not "stale": nothing is
+    // known about it, so nothing is written and the card stays for a retry.
+    const fresh = await this.readState(workerId, profile);
+    if (!sectionsOf(selected).every((section) => sectionReadable(fresh, section))) {
+      await this.proposals.release(workerId, proposalId);
+      this.logger.warn(
+        `companion edit confirm for worker ${workerId} could not re-read a section; nothing written`,
+      );
+      return this.failed(proposal);
+    }
+
+    if (isStale(snapshotRows(fresh), selected)) {
       await this.proposals.delete(workerId);
       await this.emit(workerId, ctx, "chat.companion_edit_cancelled", {
         proposal_id: proposalId,
@@ -319,26 +470,42 @@ export class CompanionEditService {
           bySection.set(row.section, [...(bySection.get(row.section) ?? []), row]);
         }
         for (const [section, rows] of bySection) {
-          await this.applySection(section, rows, workerId, profile, ctx, executor);
+          await this.write(planSection(section, fresh, rows), workerId, profile, ctx, executor);
         }
       });
     } catch (err) {
-      // ROLLED BACK BY CONSTRUCTION. The proposal is KEPT so the worker can retry until its TTL.
+      // ROLLED BACK BY CONSTRUCTION. The claim is handed back and the proposal KEPT, and the
+      // answer carries the card again, so the worker can tap Haan once more until its TTL.
+      await this.proposals.release(workerId, proposalId);
       this.logger.error(
         `companion edit apply failed for worker ${workerId} proposal ${proposalId}; nothing written (${
           err instanceof Error ? err.name : "UnknownError"
         })`,
       );
-      return { kind: "failed", turn: v2CopyTurn(FALLBACK) };
+      return this.failed(proposal);
     }
 
     await this.proposals.delete(workerId);
 
-    // Post-commit side effects, in order: matching (if occupations changed) then the résumé.
+    // Post-commit side effects, in order: the derived night-shift readiness and matching (if
+    // their inputs changed), then the résumé, which reads both.
+    const shift = selected.find((row) => row.section === "preferences" && row.field === "shift");
+    if (shift?.value) {
+      // BUG-NIGHT-SEED: the form path's own seed, run where the form runs it — after the write
+      // is durable. Best-effort; it never throws.
+      await this.preferences.seedNightShiftReadyFromShift(workerId, shift.value);
+    }
     if (selected.some((row) => row.section === "occupations")) {
       await this.workerSkills.rebuildQuietly(workerId, ctx);
     }
     const resumeRegen = await this.regenerate(workerId, profile, ctx);
+    if (resumeRegen !== "queued" && selected.some((row) => RENDERED_LIVE.has(row.section))) {
+      // EDIT-RERENDER: the writers skipped their own forced re-render on the joined transaction
+      // because a regeneration was to follow; none will. So the form path's re-render runs here —
+      // once, LLM-free, no consent or cap needed (it reprints the stored résumé with the live
+      // tables) — and the PDF shows these edits. Best-effort; it never throws.
+      await this.rerender.enqueueLatest(workerId, ctx);
+    }
 
     await this.emit(workerId, ctx, "chat.companion_edit_confirmed", {
       proposal_id: proposalId,
@@ -362,9 +529,14 @@ export class CompanionEditService {
     workerId: string,
     proposalId: string,
     ctx: RequestContext,
+    now: Date = new Date(),
   ): Promise<CancelResult> {
     const proposal = await this.proposals.load(workerId);
     if (proposal === null || proposal.proposal_id !== proposalId) return { kind: "not_found" };
+    if (isExpired(proposal, now)) return this.expired(workerId, proposalId, ctx);
+    // A Nahi racing a Haan: whichever claimed the card first is the answer. A claim Redis
+    // refused still cancels — a Nahi writes nothing, so there is nothing to apply twice.
+    if ((await this.proposals.claim(workerId, proposalId)) === "held") return { kind: "not_found" };
     await this.proposals.delete(workerId);
     await this.emit(workerId, ctx, "chat.companion_edit_cancelled", {
       proposal_id: proposalId,
@@ -373,390 +545,129 @@ export class CompanionEditService {
     return { kind: "cancelled", turn: v2CopyTurn(V2_EDIT_CANCELLED), proposalId };
   }
 
-  /** A card whose captured values no longer match the profile cannot be applied. */
-  private async isStale(
+  /**
+   * A Haan/Nahi on the worker's OWN card after its `expires_at` (CON-4d): the same 404 as ever,
+   * and now the funnel's `expired`. The id is proven — it is the card stored under this worker's
+   * key, never merely the URL's — and the event dedupes on it, so a second late tap adds nothing.
+   * The record is left to lapse on its own: deleting it could race a newer card saved meanwhile.
+   */
+  private async expired(
     workerId: string,
-    profile: WorkerProfile,
-    rows: readonly StoredEditProposalRow[],
-  ): Promise<boolean> {
-    const fresh = await this.snapshot(workerId, profile);
-    for (const row of rows) {
-      if (row.op === "add") continue;
-      const match = fresh.find(
-        (candidate) =>
-          candidate.section === row.section &&
-          JSON.stringify(candidate.target) === JSON.stringify(row.target),
-      );
-      if (match === undefined) return true;
-      if ((match.fields[row.field ?? ""] ?? null) !== row.before) return true;
-    }
-    return false;
+    proposalId: string,
+    ctx: RequestContext,
+  ): Promise<{ readonly kind: "not_found" }> {
+    await this.emit(workerId, ctx, "chat.companion_edit_cancelled", {
+      proposal_id: proposalId,
+      reason: "expired",
+    });
+    return { kind: "not_found" };
   }
 
-  /** Queue the ADR-0043 regeneration with the `chat_edit` trigger; the daily cap applies. */
+  /** Nothing was written: the fallback line, carrying the same card so Haan can be tapped again. */
+  private failed(proposal: StoredEditProposal): ConfirmResult {
+    return { kind: "failed", turn: v2EditCardTurn(FALLBACK, this.toWireProposal(proposal)) };
+  }
+
+  /**
+   * Ask for the ADR-0043 regeneration with the `chat_edit` trigger (O6) — QUEUED, never run on
+   * this request. `ResumeService.queueChatEditRegeneration` charges the daily cap before anything
+   * is spent, so `queued` / `capped` is known here and the reply can say which.
+   *
+   * CONSENT FIRST, FAIL CLOSED. The generation sends the edited profile to a model, so the
+   * worker's latest consent must be active AND name `resume_generation` (the P2 new-résumé
+   * handler's gate). Anything else asks for nothing — no cap slot, no model call — and records
+   * `failed`: the edits ARE written, the résumé is not regenerated (`confirm` re-renders it
+   * instead), and the reply says so. The event's closed set has no value of its own for this
+   * (contracts §4).
+   */
   private async regenerate(
     workerId: string,
     profile: WorkerProfile,
     ctx: RequestContext,
-  ): Promise<"queued" | "capped" | "failed"> {
-    try {
-      await this.resumes.generate(
-        { worker_id: workerId, profile_id: profile.id },
-        ctx,
-        { systemInitiated: true, trigger: "chat_edit" },
-      );
-      return "queued";
-    } catch (err) {
-      const capped = (err as { status?: number }).status === 429;
+  ): Promise<ChatEditRegeneration> {
+    if (!(await hasActiveConsent(this.consents, workerId, "resume_generation"))) {
       this.logger.warn(
-        `companion edit regeneration ${capped ? "capped" : "failed"} for worker ${workerId} (${
+        `companion edit regeneration not requested for worker ${workerId}: consent is not active`,
+      );
+      return "failed";
+    }
+    try {
+      return await this.resumes.queueChatEditRegeneration(workerId, profile.id, ctx);
+    } catch (err) {
+      // It never throws by contract; a defect in it must still not cost the worker their answer.
+      this.logger.warn(
+        `companion edit regeneration failed for worker ${workerId} (${
           err instanceof Error ? err.name : "UnknownError"
         })`,
       );
-      return capped ? "capped" : "failed";
+      return "failed";
     }
   }
 
   // ── apply (one section, inside the caller's transaction) ─────────────────────────────────
 
-  private async applySection(
-    section: CompanionV2EditSection,
-    rows: readonly StoredEditProposalRow[],
+  /** Hand one section's plan to its writer, on the transaction. */
+  private async write(
+    plan: SectionPlan,
     workerId: string,
     profile: WorkerProfile,
     ctx: RequestContext,
     tx: Database,
   ): Promise<void> {
-    switch (section) {
+    switch (plan.section) {
       case "employment":
-        return this.applyEmployment(workerId, rows, ctx, tx);
+        await this.employment.replaceForWorker(workerId, plan.dto, ctx, { tx });
+        return;
       case "skills":
-        return this.applySkills(profile, rows, tx);
+        await this.profiles.setResumeSkillLabels(profile.id, plan.next, tx);
+        return;
       case "languages":
-        return this.applyLanguages(workerId, rows, ctx, tx);
+        await this.languages.replaceForWorker(workerId, plan.dto, ctx, { tx });
+        return;
       case "qualifications":
-        return this.applyQualifications(workerId, rows, ctx, tx);
+        await this.qualifications.replaceForWorker(workerId, plan.dto, ctx, { tx });
+        return;
       case "occupations":
-        return this.applyOccupations(workerId, rows, ctx, tx);
+        await this.occupations.replaceForWorker(workerId, plan.dto, ctx, { tx });
+        return;
       case "preferences":
-        return this.applyPreferences(workerId, rows, ctx, tx);
+        await this.preferences.setForWorker(workerId, plan.dto, ctx, { tx });
+        return;
     }
   }
 
-  private async applyEmployment(
-    workerId: string,
-    rows: readonly StoredEditProposalRow[],
-    ctx: RequestContext,
-    tx: Database,
-  ): Promise<void> {
-    const current = await this.employment.getForWorker(workerId);
-    let views = current.employments.map((view) => ({
-      ...view,
-      roles: view.roles.map((role) => ({ ...role })),
-    }));
-    for (const row of rows) {
-      const id = row.target?.["employment_id"];
-      if (typeof id !== "string") throw new Error("employment row without a target");
-      const at = views.findIndex((view) => view.employment_id === id);
-      if (at === -1) throw new Error("employment row vanished under the card");
-      if (row.op === "delete") {
-        views = views.filter((_, index) => index !== at);
-        continue;
-      }
-      const view = views[at]!;
-      const field = row.field ?? "";
-      if (field === "employer_name") view.employer_name = row.value!;
-      else if (field === "employer_city") view.employer_city = row.value;
-      else if (field === "employer_state") view.employer_state = row.value;
-      else if (field === "start_ym") view.start_ym = row.value;
-      else if (field === "end_ym") view.end_ym = row.value;
-      else if (field === "role_label") view.roles[0]!.role_label = row.value!;
-      else if (field === "work_done") view.roles[0]!.work_done = row.value;
-      else throw new Error(`unmapped employment field ${field}`);
-    }
+  // ── state ─────────────────────────────────────────────────────────────────────────────────
 
-    const dto = SetMyEmploymentSchema.parse({
-      employments: views.map(projectEmploymentForPut),
-      expected_existing_count: current.employments.length + current.unreadable_count,
-    });
-    await this.employment.replaceForWorker(workerId, dto, ctx, { tx });
-  }
-
-  private async applySkills(
-    profile: WorkerProfile,
-    rows: readonly StoredEditProposalRow[],
-    tx: Database,
-  ): Promise<void> {
-    const draft = DraftProfileSchema.parse(profile.rawProfile ?? {});
-    const adds = rows.filter((row) => row.op === "add").map((row) => row.value!);
-    const deletes = new Set(
-      rows.filter((row) => row.op === "delete").map((row) => String(row.target?.["skill_label"] ?? "")),
+  /** Every section's current values, each read on its own; a failed read leaves it `undefined`. */
+  private async readState(workerId: string, profile: WorkerProfile): Promise<EditState> {
+    const [employment, languages, qualifications, occupations, preferences] = await Promise.all([
+      this.settle("employment", workerId, () => this.employment.getForWorker(workerId)),
+      this.settle("languages", workerId, () => this.languages.getForWorker(workerId)),
+      this.settle("qualifications", workerId, () => this.qualifications.getForWorker(workerId)),
+      this.settle("occupations", workerId, () => this.occupations.getForWorker(workerId)),
+      this.settle("preferences", workerId, () => this.preferences.getForWorker(workerId)),
+    ]);
+    const draft = await this.settle("skills", workerId, async () =>
+      DraftProfileSchema.parse(profile.rawProfile ?? {}),
     );
-
-    const container = draft.resume_profile;
-    if (resumeProfileCarriesValues(container) && container !== null) {
-      const kept = container.skills.filter((label) => !deletes.has(label));
-      await this.profiles.setResumeSkillLabels(
-        profile.id,
-        { resumeProfileSkills: [...kept, ...adds] },
-        tx,
-      );
-      return;
-    }
-
-    const keptLabels = draft.skill_labels.filter((label) => !deletes.has(label));
-    const keptIds = draft.skills.filter((id) => !deletes.has(labelForTaxonomyId(id)));
-    await this.profiles.setResumeSkillLabels(
-      profile.id,
-      { skills: keptIds, skillLabels: [...keptLabels, ...adds] },
-      tx,
-    );
+    return { employment, draft, languages, qualifications, occupations, preferences };
   }
 
-  private async applyLanguages(
+  /** Run one section read; a throw drops that section and is logged with ids only. */
+  private async settle<T>(
+    what: string,
     workerId: string,
-    rows: readonly StoredEditProposalRow[],
-    ctx: RequestContext,
-    tx: Database,
-  ): Promise<void> {
-    const current = await this.languages.getForWorker(workerId);
-    let entries = current.languages.map((entry) => ({ ...entry }));
-    for (const row of rows) {
-      if (row.op === "delete") {
-        const language = String(row.target?.["language"] ?? "");
-        entries = entries.filter((entry) => entry.language !== language);
-      } else if (row.op === "add") {
-        if (entries.some((entry) => entry.language === row.value)) continue;
-        // A newly added language needs at least one ability (the writer's own rule): speaking is
-        // the only honest default — the worker said they know it, not that they read or write it.
-        entries.push({ language: row.value!, can_speak: true, can_read: false, can_write: false });
-      }
-    }
-    const dto = SetMyLanguagesSchema.parse({
-      languages: entries.map((entry) => ({
-        language: entry.language,
-        can_speak: entry.can_speak,
-        can_read: entry.can_read,
-        can_write: entry.can_write,
-      })),
-    });
-    await this.languages.replaceForWorker(workerId, dto, ctx, { tx });
-  }
-
-  private async applyQualifications(
-    workerId: string,
-    rows: readonly StoredEditProposalRow[],
-    ctx: RequestContext,
-    tx: Database,
-  ): Promise<void> {
-    const current = await this.qualifications.getForWorker(workerId);
-    const lists = {
-      certificates: current.certificates.map((entry) => ({ ...entry })),
-      educations: current.educations.map((entry) => ({ ...entry })),
-      trainings: current.trainings.map((entry) => ({ ...entry })),
-    } as Record<string, Record<string, unknown>[]>;
-
-    // Deletes first (descending index) so later indexes stay valid; then edits.
-    for (const row of rows.filter((r) => r.op === "delete").sort((a, b) => indexOf(b) - indexOf(a))) {
-      lists[String(row.target?.["list"] ?? "")]!.splice(indexOf(row), 1);
-    }
-    for (const row of rows.filter((r) => r.op === "edit")) {
-      const list = lists[String(row.target?.["list"] ?? "")];
-      const entry = list?.[indexOf(row)];
-      if (entry === undefined) throw new Error("qualification row vanished under the card");
-      entry[qualificationKey(row.field ?? "")] = numericQualificationField(row.field ?? "")
-        ? Number(row.value)
-        : row.value;
-    }
-
-    const dto = SetMyQualificationsSchema.parse({
-      certificates: lists.certificates,
-      educations: lists.educations,
-      trainings: lists.trainings,
-    });
-    await this.qualifications.replaceForWorker(workerId, dto, ctx, { tx });
-  }
-
-  private async applyOccupations(
-    workerId: string,
-    rows: readonly StoredEditProposalRow[],
-    ctx: RequestContext,
-    tx: Database,
-  ): Promise<void> {
-    const current = await this.occupations.getForWorker(workerId);
-    let ids = current.occupations.map((entry) => entry.role_id as string);
-    for (const row of rows) {
-      if (row.op === "delete") {
-        ids = ids.filter((id) => id !== String(row.target?.["role_id"] ?? ""));
-      } else if (row.op === "add" && !ids.includes(row.value!)) {
-        ids.push(row.value!);
-      }
-    }
-    const dto = SetMyOccupationsSchema.parse({
-      occupations: ids.map((role_id) => ({ role_id })),
-    });
-    await this.occupations.replaceForWorker(workerId, dto, ctx, { tx });
-  }
-
-  private async applyPreferences(
-    workerId: string,
-    rows: readonly StoredEditProposalRow[],
-    ctx: RequestContext,
-    tx: Database,
-  ): Promise<void> {
-    const current = await this.preferences.getForWorker(workerId);
-    const values = current.values;
-    const touched: Record<string, unknown> = {};
-    const availability = { ...(values.availability ?? {}) };
-
-    for (const row of rows) {
-      const field = row.field ?? "";
-      if (field === "expected_salary") {
-        touched.salary_expected_max = Number(row.value);
-        touched.salary_expected_min = null;
-      } else if (field === "willing_to_travel" || field === "willing_to_relocate" || field === "accommodation_needed") {
-        touched[field] = row.value === "true";
-      } else if (field === "availability_status") {
-        availability.status = row.value as never;
-        touched.availability = availability;
-      } else if (field === "availability_available_from") {
-        availability.available_from = row.value;
-        touched.availability = availability;
-      } else if (field === "availability_notice_period_days") {
-        availability.notice_period_days = Number(row.value);
-        touched.availability = availability;
-      } else if (field === "preferred_cities" || field === "work_types" || field === "documents_ready") {
-        touched[field] = applyToList(values[field] ?? [], row);
-      } else {
-        touched[field] = row.value;
-      }
-    }
-
-    const dto = SetMyPreferencesSchema.parse(touched);
-    await this.preferences.setForWorker(workerId, dto, ctx, { tx });
-  }
-
-  // ── snapshot ──────────────────────────────────────────────────────────────────────────────
-
-  /** The worker's current values, refs minted per row. Each section fails soft on its own. */
-  private async snapshot(workerId: string, profile: WorkerProfile): Promise<SnapshotRow[]> {
-    const rows: SnapshotRow[] = [];
-    await this.settle("employment snapshot", workerId, async () => {
-      const current = await this.employment.getForWorker(workerId);
-      current.employments.forEach((view, index) => {
-        const role = view.roles[0];
-        rows.push({
-          ref: `e${index + 1}`,
-          section: "employment",
-          fields: {
-            employer_name: view.employer_name,
-            employer_city: view.employer_city,
-            employer_state: view.employer_state,
-            start_ym: view.start_ym,
-            end_ym: view.end_ym,
-            role_label: role?.role_label ?? null,
-            work_done: role?.work_done ?? null,
-          },
-          target: { employment_id: view.employment_id },
-        });
-      });
-    });
-    await this.settle("skills snapshot", workerId, async () => {
-      const draft = DraftProfileSchema.safeParse(profile.rawProfile ?? {});
-      if (!draft.success) return;
-      const container = draft.data.resume_profile;
-      const labels = resumeProfileCarriesValues(container) && container !== null
-        ? container.skills
-        : [...draft.data.skills.map(labelForTaxonomyId), ...draft.data.skill_labels.map(labelForTaxonomyId)];
-      let index = 0;
-      for (const label of new Set(labels)) {
-        index += 1;
-        rows.push({
-          ref: `s${index}`,
-          section: "skills",
-          fields: { skill: label },
-          target: { skill_label: label },
-        });
-      }
-    });
-    await this.settle("languages snapshot", workerId, async () => {
-      const current = await this.languages.getForWorker(workerId);
-      current.languages.forEach((entry, index) => {
-        rows.push({
-          ref: `l${index + 1}`,
-          section: "languages",
-          fields: { language: entry.language },
-          target: { language: entry.language },
-        });
-      });
-    });
-    await this.settle("qualifications snapshot", workerId, async () => {
-      const current = await this.qualifications.getForWorker(workerId);
-      pushQualificationRows(rows, "certificates", "c", current.certificates);
-      pushQualificationRows(rows, "educations", "q", current.educations);
-      pushQualificationRows(rows, "trainings", "t", current.trainings);
-    });
-    await this.settle("occupations snapshot", workerId, async () => {
-      const current = await this.occupations.getForWorker(workerId);
-      current.occupations.forEach((entry, index) => {
-        rows.push({
-          ref: `o${index + 1}`,
-          section: "occupations",
-          fields: { role_id: entry.role_id },
-          target: { role_id: entry.role_id },
-        });
-      });
-    });
-    await this.settle("preferences snapshot", workerId, async () => {
-      const current = await this.preferences.getForWorker(workerId);
-      const values = current.values;
-      rows.push({
-        ref: "pref",
-        section: "preferences",
-        fields: {
-          shift: values.shift,
-          job_type: values.job_type,
-          willing_to_travel: boolText(values.willing_to_travel),
-          willing_to_relocate: boolText(values.willing_to_relocate),
-          accommodation_needed: boolText(values.accommodation_needed),
-          expected_salary: values.salary_expected_max === null ? null : String(values.salary_expected_max),
-          availability_status: values.availability?.status ?? null,
-          availability_available_from: values.availability?.available_from ?? null,
-          availability_notice_period_days:
-            values.availability?.notice_period_days == null
-              ? null
-              : String(values.availability.notice_period_days),
-        },
-        target: null,
-      });
-      for (const [field, prefix] of [
-        ["preferred_cities", "pc"],
-        ["work_types", "wt"],
-        ["documents_ready", "dr"],
-      ] as const) {
-        (values[field] ?? []).forEach((member, index) => {
-          rows.push({
-            ref: `${prefix}${index + 1}`,
-            section: "preferences",
-            fields: { [field]: member },
-            target: { member },
-          });
-        });
-      }
-    });
-    return rows;
-  }
-
-  /** Run one snapshot read; a throw drops that section and is logged with ids only. */
-  private async settle(what: string, workerId: string, read: () => Promise<void>): Promise<void> {
+    read: () => Promise<T>,
+  ): Promise<T | undefined> {
     try {
-      await read();
+      return await read();
     } catch (err) {
       this.logger.warn(
-        `companion ${what} unreadable for worker ${workerId}; section omitted (${
+        `companion ${what} snapshot unreadable for worker ${workerId}; section omitted (${
           err instanceof Error ? err.name : "UnknownError"
         })`,
       );
+      return undefined;
     }
   }
 
@@ -792,50 +703,7 @@ export class CompanionEditService {
   }
 }
 
-// ── pure helpers ─────────────────────────────────────────────────────────────────────────────
-
-function boolText(value: boolean | null | undefined): string | null {
-  return value === null || value === undefined ? null : value ? "true" : "false";
-}
-
-function indexOf(row: StoredEditProposalRow): number {
-  return Number(row.target?.["index"] ?? -1);
-}
-
-function qualificationKey(field: string): string {
-  return field.replace(/^(certificate|education|training)_/, "");
-}
-
-function numericQualificationField(field: string): boolean {
-  return field.endsWith("_year");
-}
-
-function applyToList(list: readonly string[], row: StoredEditProposalRow): string[] {
-  if (row.op === "delete") {
-    const member = String(row.target?.["member"] ?? "");
-    return list.filter((value) => value !== member);
-  }
-  return list.includes(row.value!) ? [...list] : [...list, row.value!];
-}
-
-function pushQualificationRows(
-  rows: SnapshotRow[],
-  list: "certificates" | "educations" | "trainings",
-  prefix: string,
-  entries: readonly Record<string, unknown>[],
-): void {
-  entries.forEach((entry, index) => {
-    const fields: Record<string, string | null> = {};
-    for (const [key, value] of Object.entries(entry)) {
-      if (key === "licence_number" || key === "licence_expiry") continue; // never carded (O3-adjacent)
-      fields[`${list === "certificates" ? "certificate" : list === "educations" ? "education" : "training"}_${key}`] =
-        value === null || value === undefined ? null : String(value);
-    }
-    rows.push({
-      ref: `${prefix}${index + 1}`,
-      section: "qualifications",
-      fields,
-      target: { list, index },
-    });
-  });
+/** Past the card's own `expires_at` — the record may still be in its grace window. */
+function isExpired(proposal: StoredEditProposal, now: Date): boolean {
+  return Date.parse(proposal.expires_at) <= now.getTime();
 }

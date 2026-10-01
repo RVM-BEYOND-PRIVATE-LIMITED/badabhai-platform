@@ -16,8 +16,8 @@ const JOB: ResumeGenerateJobData = {
   requestId: "r-1",
 };
 
-function makeJob(attemptsMade = 0): Job<ResumeGenerateJobData> {
-  return { data: JOB, attemptsMade } as unknown as Job<ResumeGenerateJobData>;
+function makeJob(attemptsMade = 0, data: ResumeGenerateJobData = JOB): Job<ResumeGenerateJobData> {
+  return { data, attemptsMade } as unknown as Job<ResumeGenerateJobData>;
 }
 
 interface Setup {
@@ -47,14 +47,16 @@ function setup(over: Setup = {}) {
         : { revokedAt: null, purposes: ["profiling", "resume_generation"] },
     ),
   };
+  const rateLimit = { releaseDailyCapSlot: vi.fn(async () => undefined) };
   const proc = new ResumeGenerateProcessor(
     resumeService as unknown as ResumeService,
     workers as unknown as WorkersRepository,
     profiles as unknown as ProfilesRepository,
     resumes as unknown as ResumeRepository,
     consents as never,
+    rateLimit as never,
   );
-  return { proc, resumeService, workers, profiles, resumes };
+  return { proc, resumeService, workers, profiles, resumes, rateLimit };
 }
 
 const ACCEPTED = { workerId: "w-1", resumeUpdateAcceptedAt: new Date("2026-09-24T10:00:00Z") };
@@ -183,5 +185,90 @@ describe("the accepted chat update (ADR-0043) — the ONE bypass of the one-per-
       { correlationId: "c-1", requestId: "r-1" },
       { systemInitiated: true },
     );
+  });
+});
+
+describe("a companion edit card's regeneration (ADR-0046 O6) — its own job, its own rules", () => {
+  const EDIT_JOB: ResumeGenerateJobData = { ...JOB, trigger: "chat_edit" };
+
+  it("generates a pre-charged chat_edit entry for a worker who ALREADY HAS a résumé on this profile", async () => {
+    // Every skip above would fire here: the worker has résumés, the profile has its own, and it
+    // may itself have been an accepted update. None of them may swallow the edit.
+    const { proc, resumeService, resumes, workers } = setup({
+      existingResume: { id: "older", version: 3 },
+      profile: ACCEPTED,
+      profileResume: { id: "profile-v1" },
+    });
+    expect(await proc.process(makeJob(0, EDIT_JOB))).toEqual({ skipped: false });
+    expect(resumeService.generate).toHaveBeenCalledWith(
+      { worker_id: "w-1", profile_id: "p-1" },
+      { correlationId: "c-1", requestId: "r-1" },
+      { systemInitiated: true, trigger: "chat_edit", capCharged: true },
+    );
+    expect(resumes.newestForProfile).not.toHaveBeenCalled();
+    expect(workers.latestResume).not.toHaveBeenCalled();
+  });
+
+  it("consent withdrawn since the Haan: no model call, and the unspent slot is handed back", async () => {
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { proc, resumeService, rateLimit } = setup({
+      consent: { revokedAt: new Date(), purposes: ["resume_generation"] },
+    });
+    expect(await proc.process(makeJob(0, EDIT_JOB))).toEqual({ skipped: true });
+    expect(resumeService.generate).not.toHaveBeenCalled();
+    expect(rateLimit.releaseDailyCapSlot).toHaveBeenCalledWith("w-1");
+  });
+
+  it("a consent refusal on a RETRY keeps the slot — an earlier attempt may have paid a model call", async () => {
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { proc, resumeService, rateLimit } = setup({ consent: null });
+    expect(await proc.process(makeJob(1, EDIT_JOB))).toEqual({ skipped: true });
+    expect(resumeService.generate).not.toHaveBeenCalled();
+    expect(rateLimit.releaseDailyCapSlot).not.toHaveBeenCalled();
+  });
+
+  it("a profile that is not the worker's generates nothing and hands the slot back", async () => {
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { proc, resumeService, rateLimit } = setup({
+      profile: { workerId: "w-2", resumeUpdateAcceptedAt: null },
+    });
+    expect(await proc.process(makeJob(0, EDIT_JOB))).toEqual({ skipped: true });
+    expect(resumeService.generate).not.toHaveBeenCalled();
+    expect(rateLimit.releaseDailyCapSlot).toHaveBeenCalledWith("w-1");
+  });
+
+  it("a CHECK violation (0130 not applied) is terminal — not retried, and the spent slot is kept", async () => {
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const { proc, resumeService, rateLimit } = setup();
+    // drizzle 0.45 wraps the driver error: the SQLSTATE rides `cause`.
+    resumeService.generate.mockRejectedValue(
+      Object.assign(new Error("Failed query"), { cause: { code: "23514" } }),
+    );
+    await expect(proc.process(makeJob(0, EDIT_JOB))).resolves.toEqual({ skipped: true });
+    expect(rateLimit.releaseDailyCapSlot).not.toHaveBeenCalled();
+  });
+
+  it("any other failure is rethrown for BullMQ to retry — with the row's bound parameters stripped", async () => {
+    const { proc, resumeService } = setup();
+    const queryError = Object.assign(
+      new Error('Failed query: insert into "generated_resumes" ...\nparams: Asha Kumari,RESUME'),
+      {
+        query: 'insert into "generated_resumes" ...',
+        params: ["Asha Kumari", "RESUME"],
+        cause: { code: "40P01" },
+      },
+    );
+    resumeService.generate.mockRejectedValue(queryError);
+    const thrown = await proc.process(makeJob(0, EDIT_JOB)).then(
+      () => undefined,
+      (err: unknown) => err as Error,
+    );
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown!.message).toContain("40P01");
+    expect(thrown!.message).not.toContain("Asha Kumari");
+
+    const plain = setup();
+    plain.resumeService.generate.mockRejectedValue(new Error("model timeout"));
+    await expect(plain.proc.process(makeJob(0, EDIT_JOB))).rejects.toThrow("model timeout");
   });
 });

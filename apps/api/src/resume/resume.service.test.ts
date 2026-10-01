@@ -20,7 +20,7 @@ import type { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { fakeAiTraceRecorder } from "../ai/ai-trace-recorder.fake";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import type { StorageService } from "../storage/storage.service";
-import type { ResumeRenderJobData } from "../queue/queue.constants";
+import type { ResumeGenerateJobData, ResumeRenderJobData } from "../queue/queue.constants";
 import type { RequestContext } from "../common/request-context";
 import type { GenerateResumeInput } from "./resume.dto";
 import { resumeRefCode } from "./resume-sheet-footer";
@@ -128,9 +128,18 @@ function setup(
     emit: vi.fn(async (params: { event_name: string; payload: Record<string, unknown> }) => params),
   };
   // Rate-cap is a pass-through here (its own behaviour is covered separately).
-  const rateLimit = { assertWithinDailyCap: vi.fn(async (_workerId: string) => undefined) };
+  const rateLimit = {
+    assertWithinDailyCap: vi.fn(
+      async (_workerId: string, _o?: { perWorker?: boolean }) => undefined,
+    ),
+    releaseDailyCapSlot: vi.fn(async (_workerId: string) => undefined),
+  };
   // The render enqueue must never affect generation; record the call only.
   const renderQueue = {
+    add: vi.fn(async (_name: string, _data: Record<string, unknown>) => undefined),
+  };
+  // ADR-0046 O6 — where a chat edit's generation is queued. Records the call only.
+  const generateQueue = {
     add: vi.fn(async (_name: string, _data: Record<string, unknown>) => undefined),
   };
   const storage = {
@@ -183,6 +192,7 @@ function setup(
     storage as unknown as StorageService,
     config,
     renderQueue as unknown as Queue<ResumeRenderJobData>,
+    generateQueue as unknown as Queue<ResumeGenerateJobData>,
   );
   EVENTS.set(svc, events);
   return {
@@ -195,6 +205,7 @@ function setup(
     resumes,
     rateLimit,
     renderQueue,
+    generateQueue,
     events,
     storage,
     config,
@@ -1013,13 +1024,15 @@ describe("ResumeService — résumé history: which entry a generation becomes (
     expect(auto.rateLimit.assertWithinDailyCap).toHaveBeenCalledWith("w-1", { perWorker: false });
   });
 
-  it("a confirmed companion edit is METERED too, labelled `chat_edit`, and a retry is not (ADR-0046 O6)", async () => {
+  it("a chat_edit generate NOT pre-charged is METERED, labelled `chat_edit`; a retry is not (ADR-0046 O6)", async () => {
     const edit = setup(null);
     await edit.svc.generate(DTO, CTX, { systemInitiated: true, trigger: "chat_edit" });
     expect(edit.rateLimit.assertWithinDailyCap).toHaveBeenCalledWith("w-1", { perWorker: true });
-    // The history card and the funnel read this label off the SAVED row.
+    // The history card and the funnel read this label off the SAVED row — a NEW entry, never the
+    // profile's initial row (see the chat-edit suite below).
+    expect(edit.resumes.createInitial).not.toHaveBeenCalled();
     expect(
-      (edit.resumes.createInitial.mock.calls[0]![0] as Record<string, unknown>).generationTrigger,
+      (edit.resumes.create.mock.calls[0]![0] as Record<string, unknown>).generationTrigger,
     ).toBe("chat_edit");
 
     // A queue retry of the SAME edit must not spend a second generation on one Haan.
@@ -1068,6 +1081,193 @@ describe("ResumeService — résumé history: which entry a generation becomes (
     expect(
       (road.resumes.createInitial.mock.calls[0]![0] as Record<string, unknown>).generationSource,
     ).toBe("form");
+  });
+});
+
+describe("ResumeService — a confirmed companion edit becomes a NEW résumé (ADR-0046 O6)", () => {
+  // THE CASE THE BUG LIVED IN: the edit changed the worker's CURRENT profile, which already has
+  // its initial résumé — rendered, from the profile.confirmed auto-generate.
+  const INITIAL = {
+    id: "initial-v1",
+    version: 1,
+    renderStatus: "rendered",
+    generationTrigger: "profile_confirmed",
+    generatedAt: new Date("2026-01-01T00:00:00.000Z"),
+  };
+  const CHAT_EDIT = { systemInitiated: true, trigger: "chat_edit", capCharged: true } as const;
+
+  it("records a NEW entry after the profile's rendered v1 — never hands the old résumé back", async () => {
+    const { svc, resumes, renderQueue, events, ai } = setup(null, { previousVersion: 1 });
+    resumes.newestForProfile.mockResolvedValue(INITIAL);
+    const out = await svc.generate(DTO, CTX, CHAT_EDIT);
+
+    expect(ai.generateResume).toHaveBeenCalledOnce();
+    expect(resumes.createInitial).not.toHaveBeenCalled();
+    expect(resumes.convergeOnto).not.toHaveBeenCalled();
+    expect(resumes.create).toHaveBeenCalledOnce();
+    const saved = resumes.create.mock.calls[0]![0] as Record<string, unknown>;
+    expect(saved).toMatchObject({ version: 2, generationTrigger: "chat_edit", profileId: "p-1" });
+    expect(out.version).toBe(2);
+    // A brand-new pending row renders the ordinary way; the old row is not re-rendered.
+    expect(renderQueue.add).toHaveBeenCalledOnce();
+    expect(renderQueue.add.mock.calls[0]![1]).toMatchObject({ resumeId: "res-1" });
+    expect(renderQueue.add.mock.calls[0]![1]).not.toHaveProperty("force");
+    const regenerated = events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
+      .find((e) => e.event_name === "resume.regenerated");
+    expect(regenerated?.payload).toMatchObject({
+      version: 2,
+      previous_version: 1,
+      trigger: "chat_edit",
+    });
+  });
+
+  it("a SECOND edit is another new entry — each rendered chat_edit is its own history card", async () => {
+    const { svc, resumes } = setup(null, { previousVersion: 2 });
+    resumes.newestForProfile.mockResolvedValue({
+      id: "edit-1",
+      version: 2,
+      renderStatus: "rendered",
+      generationTrigger: "chat_edit",
+      generatedAt: new Date("2026-01-02T00:00:00.000Z"),
+    });
+    await svc.generate(DTO, CTX, CHAT_EDIT);
+    expect(resumes.convergeOnto).not.toHaveBeenCalled();
+    expect(resumes.create.mock.calls[0]![0]).toMatchObject({
+      version: 3,
+      generationTrigger: "chat_edit",
+    });
+  });
+
+  it("a queue RETRY converges onto the chat_edit entry it already wrote (still pending) — no duplicate", async () => {
+    const { svc, resumes, renderQueue } = setup(null, { previousVersion: 2 });
+    resumes.newestForProfile.mockResolvedValue({
+      id: "edit-pending",
+      version: 2,
+      renderStatus: "pending",
+      generationTrigger: "chat_edit",
+      generatedAt: new Date("2026-01-02T00:00:00.000Z"),
+    });
+    const out = await svc.generate(DTO, CTX, CHAT_EDIT);
+    expect(resumes.convergeOnto).toHaveBeenCalledOnce();
+    expect(resumes.convergeOnto.mock.calls[0]![0]).toBe("edit-pending");
+    // `since` is the DATABASE's clock, read before the model call.
+    expect(resumes.now).toHaveBeenCalledOnce();
+    expect(resumes.create).not.toHaveBeenCalled();
+    expect(out.resume_id).toBe("edit-pending");
+    expect(renderQueue.add.mock.calls[0]![1]).toMatchObject({
+      resumeId: "edit-pending",
+      force: true,
+    });
+  });
+
+  it("never converges onto ANOTHER flow's pending entry — the edit stays its own chat_edit card", async () => {
+    const { svc, resumes } = setup(null, { previousVersion: 1 });
+    resumes.newestForProfile.mockResolvedValue({ ...INITIAL, renderStatus: "pending" });
+    await svc.generate(DTO, CTX, CHAT_EDIT);
+    expect(resumes.convergeOnto).not.toHaveBeenCalled();
+    expect(resumes.create.mock.calls[0]![0]).toMatchObject({ generationTrigger: "chat_edit" });
+  });
+
+  it("a PRE-CHARGED chat edit never charges the cap again — on any attempt", async () => {
+    const { svc, rateLimit } = setup(null);
+    await svc.generate(DTO, CTX, CHAT_EDIT);
+    expect(rateLimit.assertWithinDailyCap).not.toHaveBeenCalled();
+  });
+
+  it("`capCharged` is honoured for chat_edit ONLY — no other path can skip the cap with it", async () => {
+    const accepted = setup(null);
+    await accepted.svc.generate(DTO, CTX, {
+      systemInitiated: true,
+      trigger: "chat_update_accepted",
+      capCharged: true,
+    });
+    expect(accepted.rateLimit.assertWithinDailyCap).toHaveBeenCalledWith("w-1", {
+      perWorker: true,
+    });
+
+    const manual = setup(null);
+    await manual.svc.generate(DTO, CTX, { capCharged: true });
+    expect(manual.rateLimit.assertWithinDailyCap).toHaveBeenCalledWith("w-1", { perWorker: true });
+
+    // A worker's own call cannot label itself a chat edit to reach it either.
+    const labelled = setup(null);
+    await labelled.svc.generate(DTO, CTX, { trigger: "chat_edit", capCharged: true });
+    expect(labelled.rateLimit.assertWithinDailyCap).toHaveBeenCalledWith("w-1", {
+      perWorker: true,
+    });
+  });
+});
+
+describe("ResumeService.queueChatEditRegeneration — decided before anything is spent (ADR-0046 O6)", () => {
+  const capRefusal = () => new HttpException("daily cap", HttpStatus.TOO_MANY_REQUESTS);
+
+  it("charges the worker's cap ON THE REQUEST, then queues a chat_edit job — no model call here", async () => {
+    const { svc, rateLimit, generateQueue, ai, resumes } = setup(null);
+    await expect(svc.queueChatEditRegeneration("w-1", "p-1", CTX)).resolves.toBe("queued");
+    expect(rateLimit.assertWithinDailyCap).toHaveBeenCalledWith("w-1", { perWorker: true });
+    expect(generateQueue.add).toHaveBeenCalledWith("generate", {
+      workerId: "w-1",
+      profileId: "p-1",
+      trigger: "chat_edit",
+      correlationId: "c",
+      requestId: "r",
+    });
+    // The cap is charged before the job exists.
+    expect(rateLimit.assertWithinDailyCap.mock.invocationCallOrder[0]!).toBeLessThan(
+      generateQueue.add.mock.invocationCallOrder[0]!,
+    );
+    expect(ai.generateResume).not.toHaveBeenCalled();
+    expect(resumes.create).not.toHaveBeenCalled();
+    expect(rateLimit.releaseDailyCapSlot).not.toHaveBeenCalled();
+  });
+
+  it("a cap refusal is `capped` — no job, no model call", async () => {
+    const { svc, rateLimit, generateQueue, ai } = setup(null);
+    rateLimit.assertWithinDailyCap.mockRejectedValue(capRefusal());
+    await expect(svc.queueChatEditRegeneration("w-1", "p-1", CTX)).resolves.toBe("capped");
+    expect(generateQueue.add).not.toHaveBeenCalled();
+    expect(ai.generateResume).not.toHaveBeenCalled();
+  });
+
+  it("nothing to generate from is `failed` BEFORE the cap is touched", async () => {
+    const notOwned = setup(null);
+    notOwned.profiles.findById.mockResolvedValue({
+      id: "p-1",
+      workerId: "w-2",
+      profileStatus: "confirmed",
+      rawProfile: {},
+    });
+    await expect(notOwned.svc.queueChatEditRegeneration("w-1", "p-1", CTX)).resolves.toBe("failed");
+    expect(notOwned.rateLimit.assertWithinDailyCap).not.toHaveBeenCalled();
+    expect(notOwned.generateQueue.add).not.toHaveBeenCalled();
+
+    const unreadable = setup(null);
+    unreadable.profiles.findById.mockResolvedValue({
+      id: "p-1",
+      workerId: "w-1",
+      profileStatus: "confirmed",
+      rawProfile: { skills: "not-a-list" },
+    });
+    await expect(unreadable.svc.queueChatEditRegeneration("w-1", "p-1", CTX)).resolves.toBe(
+      "failed",
+    );
+    expect(unreadable.rateLimit.assertWithinDailyCap).not.toHaveBeenCalled();
+
+    const readFails = setup(null);
+    readFails.profiles.findById.mockRejectedValue(new Error("db down"));
+    await expect(readFails.svc.queueChatEditRegeneration("w-1", "p-1", CTX)).resolves.toBe(
+      "failed",
+    );
+    expect(readFails.rateLimit.assertWithinDailyCap).not.toHaveBeenCalled();
+  });
+
+  it("a job that cannot be queued is `failed`, and the slot just taken is HANDED BACK", async () => {
+    const { svc, rateLimit, generateQueue } = setup(null);
+    generateQueue.add.mockRejectedValue(new Error("redis down"));
+    await expect(svc.queueChatEditRegeneration("w-1", "p-1", CTX)).resolves.toBe("failed");
+    expect(rateLimit.assertWithinDailyCap).toHaveBeenCalledOnce();
+    expect(rateLimit.releaseDailyCapSlot).toHaveBeenCalledWith("w-1");
   });
 });
 

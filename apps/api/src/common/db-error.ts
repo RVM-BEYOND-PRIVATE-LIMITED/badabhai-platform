@@ -88,6 +88,9 @@ export function sqlStateOf(err: unknown): string | undefined {
 /** Postgres `unique_violation`. */
 export const PG_UNIQUE_VIOLATION = "23505";
 
+/** Postgres `check_violation` — a closed-vocabulary CHECK the running schema does not widen yet. */
+export const PG_CHECK_VIOLATION = "23514";
+
 /**
  * Whether `err` is a Postgres unique violation, wrapped by drizzle or not (#1811).
  *

@@ -705,10 +705,12 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
   },
   // 0130: THE API writes trigger 'chat_edit' only while CHAT_COMPANION_V2_EDIT_ENABLED is on
   // (ADR-0046 Phase 1), so a deploy ahead of the migration breaks no request. Registered because
-  // the CHECK's absence is LOUD on one surface and silent on the funnel: with the flag on, the
-  // confirm transaction rolls back (the worker gets the fallback line and nothing is written),
-  // and no history entry or resume.generated event is ever recorded for an edit. APPLY BEFORE
-  // THE FLAG (migration header).
+  // the CHECK's absence is SILENT to the worker and to the funnel: with the flag on, the card's
+  // edits COMMIT first (their own transaction), the regeneration is queued after, and only the
+  // queued job's insert fails the CHECK — so the worker is told the résumé is updating while no
+  // history entry or resume.regenerated event is ever recorded for an edit. The migration
+  // header's "the confirm transaction rolls back … nothing is written" is wrong and is left
+  // unedited only because editing it would change the ledger hash. APPLY BEFORE THE FLAG.
   {
     id: "0130-generated-resumes-generation-trigger-chat-edit",
     migration: "0130_resume_generation_trigger_chat_edit",
@@ -716,15 +718,17 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     table: "generated_resumes",
     object: "generated_resumes_generation_trigger_chk",
     requiredBy:
-      "ChatCompanionEditService's confirm path enqueues the regeneration through " +
-      "ResumeService.generate({ trigger: 'chat_edit' }) — the ADR-0043 path (O6) — and only while " +
-      "CHAT_COMPANION_V2_EDIT_ENABLED is on. The constraint is also named by every INSERT into " +
-      "generated_resumes, whatever the trigger",
+      "The companion edit card's regeneration (ADR-0046 O6): CompanionEditService.confirm, after " +
+      "its edits commit, calls ResumeService.queueChatEditRegeneration, and the " +
+      "ResumeGenerateProcessor job it queues inserts a NEW generated_resumes row labelled " +
+      "'chat_edit' — only while CHAT_COMPANION_V2_EDIT_ENABLED is on. The constraint is also " +
+      "named by every INSERT into generated_resumes, whatever the trigger",
     failureMode:
-      "LOUD on the confirm route (the insert fails the CHECK, the transaction rolls back and the " +
-      "worker sees the fallback line; nothing is written) and SILENT in the funnel — no history " +
-      "entry, no resume.generated event, so edit-driven regenerations read as zero rather than " +
-      "erroring",
+      "SILENT to the worker and in the funnel. The edits ARE written (they commit before the " +
+      "regeneration is queued), the daily-cap slot is charged and the worker is told the résumé " +
+      "is updating; the queued job then pays one model call and its insert fails the CHECK " +
+      "(23514), which the processor logs and does not retry — no history entry, no " +
+      "resume.regenerated event, the PDF unchanged. Visible only as that processor error line",
   },
   // 0131: the payer's role pick (ADR-0036 addendum 2026-09-29). Unconditional — no flag — because
   // both tables are read through bare `select()` / `.returning()`, which name every model column.

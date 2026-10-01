@@ -96,11 +96,12 @@ describe("ChatCompanionController — HTTP only", () => {
     expect((err as ConflictException).getResponse()).toEqual({ mode: "interview" });
   });
 
-  it("a STALE card is a 409 {reason:'stale'} — the app drops the card and re-asks", async () => {
+  it("a STALE card is a 409 {reason:'stale', turn} — the reviewed line rides the body (CON-5.2b)", async () => {
+    const turn = { mode: "companion", reply: "Profile beech mein badal gaya." };
     const service = {
       open: vi.fn(),
       message: vi.fn(),
-      confirmEdit: vi.fn(async () => ({ mode: "stale" })),
+      confirmEdit: vi.fn(async () => ({ mode: "stale", turn })),
       cancelEdit: vi.fn(),
     };
     const ctrl = new ChatCompanionController(service as never);
@@ -108,7 +109,8 @@ describe("ChatCompanionController — HTTP only", () => {
       .confirmEdit(WORKER as never, PROPOSAL, { row_ids: [PROPOSAL] }, CTX as never)
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ConflictException);
-    expect((err as ConflictException).getResponse()).toEqual({ reason: "stale" });
+    // `reason` is unchanged (a shipped app routes on it); `turn` is additive.
+    expect((err as ConflictException).getResponse()).toEqual({ reason: "stale", turn });
   });
 
   it("an unknown/expired/other worker's proposal is a 404 — no cross-worker oracle", async () => {

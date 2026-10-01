@@ -47,7 +47,8 @@ export type CompanionMessageResult =
 export type CompanionEditConfirmResult =
   | { readonly mode: "interview" }
   | { readonly mode: "not_found" }
-  | { readonly mode: "stale" }
+  /** The 409 carries the reviewed V2_EDIT_STALE turn, so the app can show (and say) that line. */
+  | { readonly mode: "stale"; readonly turn: CompanionTurn }
   | { readonly mode: "companion"; readonly turn: CompanionTurn };
 
 /** `POST /chat/companion/edits/:id/cancel` — mapped to HTTP by the controller. */
@@ -208,7 +209,7 @@ export class ChatCompanionService {
 
     const result = await this.edits.confirm(workerId, mode.profile, proposalId, dto.row_ids, ctx);
     if (result.kind === "not_found") return { mode: "not_found" };
-    if (result.kind === "stale") return { mode: "stale" };
+    if (result.kind === "stale") return { mode: "stale", turn: this.checkedTurn(result.turn, workerId) };
     return { mode: "companion", turn: this.checkedTurn(result.turn, workerId) };
   }
 

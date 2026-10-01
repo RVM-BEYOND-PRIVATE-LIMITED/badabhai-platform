@@ -12,6 +12,9 @@ import type { WorkerOccupationsService } from "../../profiles/worker-occupations
 import type { WorkerPreferencesService } from "../../profiles/worker-preferences.service";
 import type { WorkerSkillsService } from "../../match/worker-skills.service";
 import type { ResumeService } from "../../resume/resume.service";
+import type { ResumeRerenderService } from "../../resume/resume-rerender.service";
+import type { ChatEditRegeneration } from "../../resume/resume.dto";
+import type { ConsentRepository } from "../../consent/consent.repository";
 import type { EditProposalStore, StoredEditProposal } from "./edit-proposal.store";
 import { CompanionEditService } from "./companion-edit.service";
 
@@ -20,9 +23,26 @@ import { CompanionEditService } from "./companion-edit.service";
  *
  * Every collaborator is a spy with a MINIMAL honest shape, so a test asserts what the service
  * did — which writer it called, with which rows, on which transaction — rather than re-testing
- * the writers (their own suites do that). `db.transaction` runs the callback with a sentinel
- * handle and, when scripted, throws THROUGH it so the rollback path is exercised for real.
+ * the writers (their own suites do that).
+ *
+ * THE TRANSACTION HAS REAL SEMANTICS. A writer handed the transaction's handle STAGES its write
+ * on it; `db.transaction` moves the staged writes to `committed` only when the callback returns,
+ * and drops them when it throws. A writer called WITHOUT the handle autocommits straight to
+ * `committed`, as a real repository would. So a rollback is observed (a write that happened and
+ * then was undone), not inferred from a throw.
  */
+
+/** One writer call, as the harness recorded it. */
+export interface WriteRecord {
+  readonly writer:
+    | "employment"
+    | "skills"
+    | "languages"
+    | "qualifications"
+    | "occupations"
+    | "preferences";
+  readonly args: readonly unknown[];
+}
 
 export interface Harness {
   readonly service: CompanionEditService;
@@ -30,6 +50,8 @@ export interface Harness {
     save: ReturnType<typeof vi.fn>;
     load: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
+    claim: ReturnType<typeof vi.fn>;
+    release: ReturnType<typeof vi.fn>;
   };
   readonly ai: { companionEditParse: ReturnType<typeof vi.fn> };
   readonly profiles: { setResumeSkillLabels: ReturnType<typeof vi.fn> };
@@ -52,13 +74,18 @@ export interface Harness {
   readonly preferences: {
     getForWorker: ReturnType<typeof vi.fn>;
     setForWorker: ReturnType<typeof vi.fn>;
+    seedNightShiftReadyFromShift: ReturnType<typeof vi.fn>;
   };
   readonly workerSkills: { rebuildQuietly: ReturnType<typeof vi.fn> };
-  readonly resumes: { generate: ReturnType<typeof vi.fn> };
+  readonly resumes: { queueChatEditRegeneration: ReturnType<typeof vi.fn> };
+  readonly rerender: { enqueueLatest: ReturnType<typeof vi.fn> };
+  readonly consents: { findLatestByWorker: ReturnType<typeof vi.fn> };
   readonly events: { emit: ReturnType<typeof vi.fn> };
   readonly cost: { record: ReturnType<typeof vi.fn> };
   readonly db: { transaction: ReturnType<typeof vi.fn> };
-  readonly tx: object;
+  readonly tx: { readonly sentinel: "tx"; readonly staged: WriteRecord[] };
+  /** Writes that SURVIVED: committed transactions plus any write made outside one. */
+  readonly committed: WriteRecord[];
 }
 
 export const WORKER_ID = "11111111-1111-4111-8111-111111111111";
@@ -95,26 +122,73 @@ export function setup(
       trainings?: readonly Record<string, unknown>[];
     };
     preferenceValues?: Record<string, unknown>;
-    generateThrows?: { status?: number } | null;
+    /** What the résumé seam decides on Haan (default `queued`). */
+    regen?: ChatEditRegeneration;
+    /** The résumé seam breaks its never-throws contract. */
+    regenThrows?: boolean;
+    /** The worker's latest consent row. Default: active, naming `resume_generation`. */
+    consent?: { revokedAt: Date | null; purposes: string[] } | null;
+    /** Every section writer throws. */
     writerThrows?: boolean;
+    /** Only these section writers throw — the others write (row 1 lands, row 2 fails). */
+    failingWriters?: readonly WriteRecord["writer"][];
+    /** The store's DEL fails silently (best-effort), so the card outlives a successful Haan. */
+    deleteFails?: boolean;
+    /** Redis refuses the SET NX claim. */
+    claimUnavailable?: boolean;
+    /** The qualifications GET's `partial` list (rows it withheld). */
+    qualificationsPartial?: readonly ("certificates" | "educations" | "trainings")[];
+    /** `CHAT_COMPANION_V2_EDIT_MAX_ROWS` (default 3). */
+    maxRows?: number;
   } = {},
 ): Harness {
-  const tx = { sentinel: "tx" };
+  const tx = { sentinel: "tx" as const, staged: [] as WriteRecord[] };
+  const committed: WriteRecord[] = [];
+  const failing = new Set(opts.failingWriters ?? []);
+  /** Stage on the transaction, or autocommit without one; throw when scripted to. */
+  const write = (writer: WriteRecord["writer"], handle: unknown, args: readonly unknown[]) => {
+    if (opts.writerThrows || failing.has(writer)) throw new Error(`${writer} writer boom`);
+    (handle === tx ? tx.staged : committed).push({ writer, args });
+  };
+  const txOf = (options: unknown): unknown => (options as { tx?: unknown } | undefined)?.tx;
+  // THE STORE HAS REAL SEMANTICS TOO: one card per worker that a save replaces and a delete
+  // removes, and a SET NX claim per proposal that only a release hands back.
+  let stored: StoredEditProposal | null = opts.proposal ?? null;
+  const claims = new Set<string>();
   const proposals = {
-    save: vi.fn(async () => opts.storeSave ?? true),
-    load: vi.fn(async () => opts.proposal ?? null),
-    delete: vi.fn(async () => undefined),
+    save: vi.fn(async (_workerId: string, proposal: StoredEditProposal) => {
+      if (opts.storeSave === false) return false;
+      stored = proposal;
+      return true;
+    }),
+    load: vi.fn(async () => stored),
+    delete: vi.fn(async () => {
+      if (!opts.deleteFails) stored = null;
+    }),
+    claim: vi.fn(async (_workerId: string, proposalId: string) => {
+      if (opts.claimUnavailable) return "unavailable";
+      if (claims.has(proposalId)) return "held";
+      claims.add(proposalId);
+      return "claimed";
+    }),
+    release: vi.fn(async (_workerId: string, proposalId: string) => {
+      claims.delete(proposalId);
+    }),
   };
   const ai = { companionEditParse: vi.fn(async () => opts.parse ?? null) };
-  const profiles = { setResumeSkillLabels: vi.fn(async () => undefined) };
+  const profiles = {
+    setResumeSkillLabels: vi.fn(async (...args: unknown[]) => {
+      write("skills", args[2], args);
+    }),
+  };
   const employment = {
     getForWorker: vi.fn(async () => ({
       employments: opts.employmentViews ?? [],
       unreadable_count: 0,
       employment_suggestions: [],
     })),
-    replaceForWorker: vi.fn(async () => {
-      if (opts.writerThrows) throw new Error("employment writer boom");
+    replaceForWorker: vi.fn(async (...args: unknown[]) => {
+      write("employment", txOf(args[3]), args);
       return { worker_id: WORKER_ID, employer_count: 0 };
     }),
   };
@@ -124,8 +198,8 @@ export function setup(
       partial: false,
       dropped_count: 0,
     })),
-    replaceForWorker: vi.fn(async () => {
-      if (opts.writerThrows) throw new Error("languages writer boom");
+    replaceForWorker: vi.fn(async (...args: unknown[]) => {
+      write("languages", txOf(args[3]), args);
       return { worker_id: WORKER_ID, language_count: 0 };
     }),
   };
@@ -134,11 +208,11 @@ export function setup(
       certificates: opts.qualificationLists?.certificates ?? [],
       educations: opts.qualificationLists?.educations ?? [],
       trainings: opts.qualificationLists?.trainings ?? [],
-      partial: [],
-      dropped_count: 0,
+      partial: opts.qualificationsPartial ?? [],
+      dropped_count: opts.qualificationsPartial?.length ?? 0,
     })),
-    replaceForWorker: vi.fn(async () => {
-      if (opts.writerThrows) throw new Error("qualifications writer boom");
+    replaceForWorker: vi.fn(async (...args: unknown[]) => {
+      write("qualifications", txOf(args[3]), args);
       return { worker_id: WORKER_ID, certificate_count: 0, education_count: 0 };
     }),
   };
@@ -148,8 +222,8 @@ export function setup(
       partial: false,
       dropped_count: 0,
     })),
-    replaceForWorker: vi.fn(async () => {
-      if (opts.writerThrows) throw new Error("occupations writer boom");
+    replaceForWorker: vi.fn(async (...args: unknown[]) => {
+      write("occupations", txOf(args[3]), args);
       return { worker_id: WORKER_ID, occupation_count: 0 };
     }),
   };
@@ -173,25 +247,45 @@ export function setup(
       partial: [],
       dropped_count: 0,
     })),
-    setForWorker: vi.fn(async () => {
-      if (opts.writerThrows) throw new Error("preferences writer boom");
+    setForWorker: vi.fn(async (...args: unknown[]) => {
+      write("preferences", txOf(args[3]), args);
       return { worker_id: WORKER_ID, keys_written: 1, keys_cleared: 0 };
     }),
+    seedNightShiftReadyFromShift: vi.fn(async () => undefined),
   };
   const workerSkills = { rebuildQuietly: vi.fn(async () => undefined) };
   const resumes = {
-    generate: vi.fn(async () => {
-      if (opts.generateThrows) throw Object.assign(new Error("cap"), opts.generateThrows);
-      return {};
+    queueChatEditRegeneration: vi.fn(async (): Promise<ChatEditRegeneration> => {
+      if (opts.regenThrows) throw new Error("resume seam boom");
+      return opts.regen ?? "queued";
     }),
   };
+  const consents = {
+    findLatestByWorker: vi.fn(async () =>
+      "consent" in opts
+        ? (opts.consent ?? undefined)
+        : { revokedAt: null, purposes: ["profiling", "resume_generation"] },
+    ),
+  };
+  // Never throws, by contract; resolves to the résumé id queued (null: no résumé yet).
+  const rerender = { enqueueLatest: vi.fn(async () => "55555555-5555-4555-8555-555555555555") };
   const events = { emit: vi.fn(async (params: unknown) => params) };
   const cost = { record: vi.fn(async () => undefined) };
   const db = {
-    transaction: vi.fn(async (cb: (executor: object) => Promise<unknown>) => cb(tx)),
+    // COMMIT on return, ROLLBACK on throw — the staged writes either all land or none do.
+    transaction: vi.fn(async (cb: (executor: object) => Promise<unknown>) => {
+      tx.staged.length = 0;
+      try {
+        const out = await cb(tx);
+        committed.push(...tx.staged);
+        return out;
+      } finally {
+        tx.staged.length = 0;
+      }
+    }),
   };
   const config = {
-    CHAT_COMPANION_V2_EDIT_MAX_ROWS: 3,
+    CHAT_COMPANION_V2_EDIT_MAX_ROWS: opts.maxRows ?? 3,
     CHAT_COMPANION_V2_PROPOSAL_TTL_SECONDS: 600,
     CHAT_COMPANION_V2_EDIT_ENABLED: true,
   } as unknown as ServerConfig;
@@ -211,6 +305,8 @@ export function setup(
     resumes as unknown as ResumeService,
     events as unknown as EventsService,
     cost as unknown as AiCostRecorder,
+    consents as unknown as ConsentRepository,
+    rerender as unknown as ResumeRerenderService,
   );
   return {
     service,
@@ -224,18 +320,24 @@ export function setup(
     preferences,
     workerSkills,
     resumes,
+    rerender,
+    consents,
     events,
     cost,
     db,
     tx,
+    committed,
   };
 }
 
-/** A stored proposal with one row, for the confirm/cancel suites. */
+/**
+ * A stored proposal with one row, for the confirm/cancel suites. It expires far in the future, so
+ * a suite that is not about expiry is not a time bomb; the expiry suite sets its own instant.
+ */
 export function storedProposal(over: Partial<StoredEditProposal> = {}): StoredEditProposal {
   return {
     proposal_id: "33333333-3333-4333-8333-333333333333",
-    expires_at: "2026-09-29T14:00:00.000Z",
+    expires_at: "2999-01-01T00:00:00.000Z",
     rows: [
       {
         row_id: "44444444-4444-4444-8444-444444444444",

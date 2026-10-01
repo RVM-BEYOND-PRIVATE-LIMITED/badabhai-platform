@@ -17,6 +17,7 @@ import { MatchModule } from "../match/match.module";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
 import { ResumeModule } from "../resume/resume.module";
 import { ResumeService } from "../resume/resume.service";
+import { ResumeRerenderService } from "../resume/resume-rerender.service";
 import { WorkersModule } from "../workers/workers.module";
 import { WorkersRepository } from "../workers/workers.repository";
 import { AppModule } from "../app.module";
@@ -87,6 +88,8 @@ describe("ChatCompanionModule wiring", () => {
     expect(imports).toContain(AuthModule); // WorkerAuthGuard + ConsentGuard
     expect(imports).toContain(ResumeModule);
     expect(getMeta("exports", ResumeModule)).toContain(ResumeService);
+    // ADR-0046 O6 — the edit confirm's LLM-free re-render when no regeneration was queued.
+    expect(getMeta("exports", ResumeModule)).toContain(ResumeRerenderService);
     expect(imports).toContain(JobsModule);
     expect(getMeta("exports", JobsModule)).toContain(JobsRepository);
     // ADR-0046 P2/N1 — the new-résumé handler reads the worker's consent through the same

@@ -203,6 +203,14 @@ export interface VoiceTranscriptionJobData {
 export interface ResumeGenerateJobData {
   workerId: string;
   profileId: string;
+  /**
+   * ADR-0046 O6 — the job is a companion edit card's regeneration: a NEW history entry on the
+   * worker's CURRENT profile, whose daily-cap slot `ResumeService.queueChatEditRegeneration`
+   * already took on the worker's request. Absent on every profile.confirmed job, which behaves
+   * exactly as it always did — and a build that predates the field reads such a job as one of
+   * those, whose one-per-worker skip then spends nothing.
+   */
+  trigger?: "chat_edit";
   /** Tracing ids carried from the originating HTTP request. */
   correlationId: string;
   requestId: string;

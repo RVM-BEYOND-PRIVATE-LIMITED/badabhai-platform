@@ -26,20 +26,40 @@ export type CompanionMessageDto = z.infer<typeof CompanionMessageSchema>;
  * that is not declared here is a leak, and the service fails closed on it rather than sending it.
  */
 /**
- * One row of an edit card (ADR-0046 §5.1). `before`/`after` are what the card SHOWS; they are
- * the worker's own values, so the card is `no-store` and the values never ride an event. The app
- * ticks rows and sends their `row_id`s back to the confirm route — never the values.
+ * One row of an edit card (ADR-0046 §5.1). `before`/`after` are the stored values — the worker's
+ * own, so the card is `no-store` and the values never ride an event. The app ticks rows and sends
+ * their `row_id`s back to the confirm route — never the values.
+ *
+ * THE LABELS ARE ADDITIVE (BUG-CARD-LABELS, 2026-09-30) and optional, so the shipped app, which
+ * reads `section_label`/`before`/`after` only, is unchanged:
+ *   - `field_label` — which field the row changes ("Travel kar sakte hain"); on a whole-entry
+ *     delete (employment, qualifications) the entry ("Yeh poora kaam");
+ *   - `before_display`/`after_display` — the worker-facing label of a CLOSED-SET value ("hindi" →
+ *     "Hindi", "true" → "Haan", a role id → its taxonomy label); null when the value is free
+ *     text, a date or a number (shown as typed), absent, or not in its dictionary.
  */
 export const EditProposalRowSchema = z
   .object({
     row_id: uuidSchema,
     section_label: z.string().min(1).max(80),
+    field_label: z.string().min(1).max(80).optional(),
     op: z.enum(COMPANION_V2_EDIT_OPS),
     before: z.string().max(4000).nullable(),
     after: z.string().max(4000).nullable(),
+    before_display: z.string().min(1).max(120).nullable().optional(),
+    after_display: z.string().min(1).max(120).nullable().optional(),
   })
   .strict();
 export type EditProposalRow = z.infer<typeof EditProposalRowSchema>;
+
+/**
+ * The most rows one edit card carries (ADR-0046 O5) — and so the most one confirm may tick.
+ *
+ * ONE NUMBER FOR BOTH ENDS. A card with more rows than the confirm route accepts would show
+ * rows the worker cannot all apply, so the service caps every card at
+ * `min(CHAT_COMPANION_V2_EDIT_MAX_ROWS, this)` and asks the model for no more than that.
+ */
+export const EDIT_CARD_ROWS_MAX = 3;
 
 /**
  * The pending edit card. `expires_at` is the proposal's Redis TTL, mirrored so the app can
@@ -49,7 +69,7 @@ export const EditProposalSchema = z
   .object({
     proposal_id: uuidSchema,
     expires_at: z.string(),
-    rows: z.array(EditProposalRowSchema).min(1),
+    rows: z.array(EditProposalRowSchema).min(1).max(EDIT_CARD_ROWS_MAX),
   })
   .strict();
 export type EditProposal = z.infer<typeof EditProposalSchema>;
@@ -71,7 +91,7 @@ export type CompanionTurn = z.infer<typeof CompanionTurnSchema>;
 /** `POST /chat/companion/edits/:proposalId/confirm` body (ADR-0046 §5.2). */
 export const ConfirmEditSchema = z
   .object({
-    row_ids: z.array(uuidSchema).min(1).max(3),
+    row_ids: z.array(uuidSchema).min(1).max(EDIT_CARD_ROWS_MAX),
     submission_id: uuidSchema.optional(),
   })
   .strict();

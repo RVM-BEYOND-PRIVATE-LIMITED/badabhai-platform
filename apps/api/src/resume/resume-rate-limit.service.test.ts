@@ -21,7 +21,8 @@ function makeRedis(incrResults: Array<number | Error>) {
     return r;
   });
   const expire = vi.fn(async (_key: string, _ttl: number) => 1);
-  return { incr, expire };
+  const decr = vi.fn(async (_key: string) => 0);
+  return { incr, expire, decr };
 }
 
 function setup(opts: {
@@ -110,5 +111,23 @@ describe("ResumeRateLimit.assertWithinDailyCap", () => {
     // perWorker:false but global over cap → 429.
     const { svc } = setup({ incrResults: [5001], dailyCap: 5, globalCap: 5000 });
     await expect429(svc.assertWithinDailyCap(WORKER_ID, { perWorker: false }));
+  });
+});
+
+describe("ResumeRateLimit.releaseDailyCapSlot (ADR-0046 O6 — a pre-charged slot nothing used)", () => {
+  it("DECRs exactly the two keys a per-worker charge INCRs, and re-asserts their TTL", async () => {
+    const { svc, redis } = setup({ incrResults: [1, 1] });
+    await svc.assertWithinDailyCap(WORKER_ID);
+    const charged = redis.incr.mock.calls.map((c) => c[0]);
+    await svc.releaseDailyCapSlot(WORKER_ID);
+    expect(redis.decr.mock.calls.map((c) => c[0])).toEqual(charged);
+    // Every DECR'd key gets its TTL back, so a counter can never outlive its UTC day.
+    const expired = redis.expire.mock.calls.slice(charged.length).map((c) => c[0]);
+    expect(expired).toEqual(charged);
+  });
+
+  it("never throws: a Redis outage keeps the slot spent (the fail-closed direction)", async () => {
+    const { svc } = setup({ clientThrows: true });
+    await expect(svc.releaseDailyCapSlot(WORKER_ID)).resolves.toBeUndefined();
   });
 });
