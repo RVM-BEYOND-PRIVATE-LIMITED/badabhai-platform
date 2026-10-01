@@ -1,5 +1,11 @@
-import { describe, it, expect } from "vitest";
-import { redactKnownName, REDACTED_NAME_PLACEHOLDER } from "./redact-known-name";
+import { describe, it, expect, vi } from "vitest";
+import {
+  knownNameOnce,
+  redactKnownName,
+  redactKnownNameDeep,
+  redactKnownNameLines,
+  REDACTED_NAME_PLACEHOLDER,
+} from "./redact-known-name";
 
 const P = REDACTED_NAME_PLACEHOLDER;
 
@@ -101,5 +107,84 @@ describe("redactKnownName — the R32 known-name redaction", () => {
 
   it("dedupes a repeated token in the stored name", () => {
     expect(redactKnownName("Singh Singh", "Singh Singh")).toBe(P);
+  });
+});
+
+describe("redactKnownNameLines — every line of a conversation", () => {
+  it("redacts each line's text, carries every other field, and never mutates the input", () => {
+    const lines = [
+      { i: 0, role: "worker", text: "Suresh Kumar, fitter" },
+      { i: 1, role: "assistant", text: "Kitne saal se?" },
+    ] as const;
+    const before = JSON.stringify(lines);
+    expect(redactKnownNameLines(lines, "Suresh Kumar")).toEqual([
+      { i: 0, role: "worker", text: `${P}, fitter` },
+      { i: 1, role: "assistant", text: "Kitne saal se?" },
+    ]);
+    expect(JSON.stringify(lines)).toBe(before);
+  });
+
+  it("a null name returns the same lines, as new objects", () => {
+    const lines = [{ text: "Suresh Kumar" }];
+    const out = redactKnownNameLines(lines, null);
+    expect(out).toEqual(lines);
+    expect(out).not.toBe(lines);
+  });
+});
+
+describe("redactKnownNameDeep — every string inside a JSON-shaped value", () => {
+  it("redacts a string, array items and object keys and values at any depth", () => {
+    const value = {
+      tools: ["lathe", "Suresh wala VMC"],
+      note: { "Kumar ka": ["Suresh Kumar"] },
+      years: 7,
+      certified: true,
+      none: null,
+    };
+    const before = JSON.stringify(value);
+    expect(redactKnownNameDeep(value, "Suresh Kumar")).toEqual({
+      tools: ["lathe", `${P} wala VMC`],
+      note: { [`${P} ka`]: [P] },
+      years: 7,
+      certified: true,
+      none: null,
+    });
+    expect(redactKnownNameDeep("Suresh CNC operator", "Suresh Kumar")).toBe(`${P} CNC operator`);
+    // The input is never mutated.
+    expect(JSON.stringify(value)).toBe(before);
+  });
+
+  it("carries numbers, booleans, null and undefined through, and a null name changes nothing", () => {
+    expect(redactKnownNameDeep(7, "Suresh Kumar")).toBe(7);
+    expect(redactKnownNameDeep(false, "Suresh Kumar")).toBe(false);
+    expect(redactKnownNameDeep(null, "Suresh Kumar")).toBeNull();
+    expect(redactKnownNameDeep(undefined, "Suresh Kumar")).toBeUndefined();
+    expect(redactKnownNameDeep(["Suresh"], null)).toEqual(["Suresh"]);
+  });
+});
+
+describe("knownNameOnce — one lookup per request", () => {
+  it("reads at most once however many consumers ask", async () => {
+    const read = vi.fn(async (): Promise<string | null> => "Suresh Kumar");
+    const known = knownNameOnce(read);
+    await expect(known()).resolves.toBe("Suresh Kumar");
+    await expect(known()).resolves.toBe("Suresh Kumar");
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it("never reads until asked — a turn that calls no model decrypts nothing", () => {
+    const read = vi.fn(async (): Promise<string | null> => "Suresh Kumar");
+    knownNameOnce(read);
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it("does not keep a rejection: the next consumer reads again", async () => {
+    const read = vi
+      .fn(async (): Promise<string | null> => "Suresh Kumar")
+      .mockRejectedValueOnce(new Error("connection reset"));
+    const known = knownNameOnce(read);
+    await expect(known()).rejects.toThrow("connection reset");
+    await expect(known()).resolves.toBe("Suresh Kumar");
+    expect(read).toHaveBeenCalledTimes(2);
   });
 });

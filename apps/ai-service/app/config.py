@@ -795,6 +795,64 @@ class Settings(BaseSettings):
     # change plus a test, never a re-plumb.
     resume_parse_raw_text_enabled: bool = False
 
+    # The platform-wide lift of the PII-to-prompt rule "for now" (owner decision 2026-09-30,
+    # docs/decisions/0047-lift-pii-restriction.md): D5's switch above, generalised from one
+    # route to every PROMPT this service builds. ONE variable name read by BOTH services —
+    # apps/api declares `AI_RAW_PII_ENABLED` in packages/config/src/server.ts and, with it on,
+    # stops calling /pseudonymize before the companion tasks. Its `redactKnownName` keeps
+    # running in profile extraction whichever way this is set (ADR-0047 G2).
+    #
+    # OFF BY DEFAULT, AND OFF SENDS EXACTLY WHAT WAS SENT BEFORE THIS FIELD EXISTED: every route
+    # still runs the full gateway over what it sends. ARMED only as a GitHub production-environment
+    # secret bridged by the deploy job into compose's `${AI_RAW_PII_ENABLED:-false}` — `:-false`
+    # rather than `:-` because this bool rejects "" and the service would not boot. Reverting
+    # is the secret set back to false plus a redeploy; nothing already sent is recalled.
+    #
+    # WHAT IT MOVES, and only this: the INPUT side. The route reads it and hands `raw=`
+    # explicitly to `app/llm_input_policy.py`, which passes text through unmasked but KEEPS the
+    # size caps (they bound cost and denial of service, not PII) and still refuses non-string
+    # input. With it on, the Langfuse `mask=` hook and the `ai_call_traces` text pass through
+    # too, so a trace records what the provider was actually sent.
+    #
+    # WHAT IT NEVER TOUCHES: `pseudonymize()` itself, and every wall on what may be STORED or
+    # PRINTED — the certifiers, gate 6, `contains_hard_identifier`, the placeholder refusals.
+    # Nor the at-rest copies that are masked before they are kept (the job-posting draft,
+    # `unresolved_phrase` via the embed path, the corpus), STT, the event schemas or a single
+    # log line. None of those modules may read this field; `tests/test_llm_input_policy.py`
+    # lists the ones that may.
+    #
+    # "THE WALLS DO NOT MOVE" WAS NOT "THE WALLS HOLD", and ADR-0047 G1 closed the difference.
+    # Several walls asked only whether the gateway would BLOCK a value, and the gateway MASKS a
+    # phone, PAN, Aadhaar or email rather than blocking it — safe while the model read
+    # placeholders, not once it reads raw text it can copy into an output. Four such outputs
+    # were measured: Phase C's `_certified*` walls (a stored skill, or `shift`, which reaches the
+    # EMPLOYER PDF), the polish rewrite (printed), the /profiling/turn output (no wall here at
+    # all; apps/api settles `role_label`), and the /profile/parse `evidence.quote` (the value was
+    # certified, the span was not) — plus three found by probing every switched route armed, each
+    # with no wall at all: /profile/extract's stored rich draft, companion v2's edit rows (stored
+    # and printed once the worker confirms the card) and the /resume/generate `summary`. Each now
+    # drops a value that carries a hard identifier, through `app/output_floor.py`, which reads NO
+    # flag; section 6 of that test file pins each one ON, OFF and against a mutation. A bare
+    # person name is not a hard identifier (ruled 2026-09-11); the worker's own name is kept off
+    # the employer copy by G2.
+    ai_raw_pii_enabled: bool = False
+
+    @field_validator("ai_raw_pii_enabled", mode="before")
+    @classmethod
+    def _raw_pii_flag_in_the_apis_grammar(cls, value: object) -> object:
+        """Accept exactly what apps/api's `booleanFromString` boots on: `true`, `false`, `1`, `0`.
+
+        ONE VARIABLE, TWO PARSERS, ONE GRAMMAR. pydantic's own bool also reads `True`, `yes`, `on`,
+        `t` and `y`, which the api refuses at boot — so a secret set to one of them would arm this
+        service and crash-loop the api that the deploy recreates after it (ADR-0047 §5). Refusing
+        them here makes the two services boot or refuse together; the deploy script refuses them
+        before either container moves. `""` stays illegal, as before: compose's `:-false` turns an
+        empty secret into `false` before it arrives.
+        """
+        if isinstance(value, bool) or value in ("true", "false", "1", "0"):
+            return value
+        raise ValueError("AI_RAW_PII_ENABLED must be exactly true, false, 1 or 0")
+
     # Extraction is local and deterministic but NOT instant: a scanned PDF is rasterized
     # and OCR'd page by page, seconds each, before the model is called at all. So this
     # bound covers real CPU work plus one LLM call, which is why it is several times

@@ -43,6 +43,21 @@ for _required in GH_SHA GH_ACTOR GH_REPOSITORY GHCR_TOKEN; do
   fi
 done
 
+# ADR-0047: AI_RAW_PII_ENABLED IS PARSED BY TWO SERVICES, AND ITS SECRET CANNOT BE READ BACK.
+# The api's `booleanFromString` accepts only true/false/1/0/empty and THROWS at boot on anything
+# else. The ai-service matches that grammar (a value like "True" or "yes" stops it booting too),
+# but it is recreated FIRST below and the api `up` has no automatic rollback — so a value either
+# refuses would take down whichever service it reached. Checked here, before any prune, pull or
+# recreate: a bad value fails the job with every running container untouched. The value is never
+# echoed.
+case "${AI_RAW_PII_ENABLED-}" in
+  "" | true | false | 1 | 0) ;;
+  *)
+    echo "::error::AI_RAW_PII_ENABLED must be exactly true, false, 1, 0 or empty (lowercase). Set the production secret to a literal (gh secret set AI_RAW_PII_ENABLED --env production --body true) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+
 # CD-1: never leave a registry credential (even an expired job token)
 # in the box's ~/.docker/config.json — logout on EVERY exit path.
 trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT

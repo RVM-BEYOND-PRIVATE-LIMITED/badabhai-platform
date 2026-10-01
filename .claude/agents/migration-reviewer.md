@@ -16,8 +16,11 @@ production database.
   does not drift from the schema; no hand-edited authority bypass (no `supabase db push`).
 - Check **safety:** backward-compatible, or expand→migrate→contract with a written data plan; no
   in-use column dropped/renamed in one step; referential integrity preserved.
-- Enforce the **PII boundary:** direct PII only in `workers`; events / ai_jobs / audit_logs carry
-  ids/hashes only.
+- Enforce the **PII placement rules** of
+  [ADR-0047](../../docs/decisions/0047-lift-pii-restriction.md): name and phone encrypted at rest;
+  a new column or table holding PII is reachable by account deletion (`ON DELETE cascade` from
+  `workers`) or the gap is written down; events / audit rows carry PII only through a new
+  versioned event schema.
 - Verify **indexes** for every new query/filter/join path, and **RLS** policies + tests for any
   protected table touched.
 - Confirm a **rollback** is written and the change is applied only to non-prod absent sign-off.

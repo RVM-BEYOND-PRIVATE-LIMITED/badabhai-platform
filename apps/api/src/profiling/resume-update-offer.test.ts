@@ -153,6 +153,7 @@ const say = (text: string, now: Date = T0) => ({
   now,
   submissionId: null,
   voiceNoteId: null,
+  knownName: async () => null,
   ctx: CTX as never,
 });
 

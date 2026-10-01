@@ -221,7 +221,7 @@ def test_mask_snapshot_alone_still_numbers_values_apart() -> None:
         CompanionEditSnapshotRow(ref=ref, section="employment", fields={"employer_name": name})
         for ref, name in (("e1", "Tata Motors"), ("e2", "Bajaj Auto"))
     ]
-    masked = edit_parse_logic.mask_snapshot(rows)
+    masked = edit_parse_logic.mask_snapshot(rows, raw=False)
     assert [row.fields["employer_name"] for row in masked] == ["[EMPLOYER_1]", "[EMPLOYER_2]"]
 
 

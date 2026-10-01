@@ -26,11 +26,11 @@
 
 ## Security / privacy impact
 
-<!-- PII handling, secrets, RLS, auth. Confirm: no raw PII in events/logs/LLM input. -->
+<!-- PII handling, secrets, RLS, auth. Privacy policy: docs/decisions/0047-lift-pii-restriction.md. Name any new place PII is written (column, event, log, third party) and whether account deletion reaches it. -->
 
 ## AI / LLM impact
 
-<!-- Changes to pseudonymization, prompts, AI contracts, or the AI_ENABLE_REAL_CALLS path? -->
+<!-- Changes to pseudonymization, the AI_RAW_PII_ENABLED masking switch, prompts, AI contracts, or the AI_ENABLE_REAL_CALLS path? -->
 
 ## Rollback notes
 
@@ -40,7 +40,7 @@
 
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` pass
 - [ ] No secrets or `.env` files committed
-- [ ] No phone/name/address/employer/ID sent to any LLM
+- [ ] Privacy follows ADR-0047: prompt masking changes only through `AI_RAW_PII_ENABLED`; no secret logged; no event schema mutated to carry PII; AI output validated
 - [ ] Every important new endpoint emits a validated event
 - [ ] Docs/README updated where needed
 - [ ] **Design-system adherence** (any `apps/payer-web` UI change): no raw hex/px — values resolve from tokens (the `pnpm lint` adherence rule + `pnpm lint:oxlint` enforce this); ran the `bb-ui-review` skill

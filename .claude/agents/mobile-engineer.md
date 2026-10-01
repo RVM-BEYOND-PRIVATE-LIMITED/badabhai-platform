@@ -44,8 +44,10 @@ tests, and docs.
 - Build to the brand kit (`docs/design/BB - Brand Kit/`, CLAUDE.md UI/UX block) — derive Flutter `ThemeData` from the tokens
   rather than hard-coding values. Frontend Product maintains those tokens; you consume them
   and are consulted before they change.
-- Own **on-device data hygiene**: no PII in logs, no secrets in the bundle, nothing sensitive
-  in insecure local storage, and a session model that behaves on a shared handset.
+- Own **on-device data hygiene**: no PII in device logs, no secrets in the bundle, nothing
+  sensitive in insecure local storage, and a session model that behaves on a shared handset.
+  The device-log rule is on-device hygiene for a shared handset and stays; it is not the
+  platform-sink rule that [ADR-0047](../../docs/decisions/0047-lift-pii-restriction.md) lifted.
 - Respect the **consent gate on the client too** (invariant #6) — but never as the only
   enforcement; the server is the authority.
 - Own app performance and battery: startup time, jank, image and audio handling, background
@@ -107,7 +109,7 @@ When you hand a backend defect back, include the request, the response, and the 
 
 - [ ] Flow survives network loss, app kill, and resume without losing worker input.
 - [ ] Retries are safe against the endpoint's idempotency guarantee (confirmed, not assumed).
-- [ ] No PII in logs; no PII in insecure local storage; nothing sensitive left on a shared device.
+- [ ] No PII in device logs (shared-handset hygiene, not the rule ADR-0047 lifted); no PII in insecure local storage; nothing sensitive left on a shared device.
 - [ ] No secret or API key in the bundle.
 - [ ] Consent respected client-side, and **not** relied on as the only gate.
 - [ ] No server rule re-implemented on the client.

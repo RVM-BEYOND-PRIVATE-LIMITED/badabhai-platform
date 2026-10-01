@@ -26,10 +26,11 @@ import { workers } from "./worker";
  *
  * WHY THIS COULD NOT LIVE ON THE EXISTING SHAPE. `resume_profile.experiences[]` is a role, a
  * duration in the worker's own words, and what they did. It carries NO EMPLOYER by contract:
- * `ExperienceEntrySchema` is `.strict()`, and `pseudonymize.py` masks employers to `[EMPLOYER_n]`
- * before any model sees a transcript. There is no field for one and nothing upstream could fill
- * it. The value arrives instead from a question the WORKER TYPES, written straight to Postgres,
- * never through the AI service — owner ruling 2026-08-28. The gateway mask is unchanged.
+ * `ExperienceEntrySchema` is `.strict()`, so there is no field for one — and while
+ * `AI_RAW_PII_ENABLED` is off, `pseudonymize.py` masks employers to `[EMPLOYER_n]` before any model
+ * sees a transcript, so nothing upstream could fill it either. The value arrives instead from a
+ * question the WORKER TYPES, written straight to Postgres, never through the AI service — owner
+ * ruling 2026-08-28. That write path reads no flag.
  *
  * NARROWED 2026-09-10 BY `docs/decisions/0041-resume-import-and-prefill.md` §3, AND ONLY THERE.
  * A worker may now upload his OWN résumé, and on that one path the employer name does cross the
@@ -37,11 +38,18 @@ import { workers } from "./worker";
  * `RESUME_PARSE_RAW_TEXT_ENABLED` (default false), for the `resume_parse` task and no other.
  * Government identifiers, phone numbers and email addresses stay masked even there.
  *
- * EVERY OTHER PATH IS UNCHANGED, and that is why this note lives here and not only in the ADR.
- * An employer name reaching this table from the interview, the trade form or the finishing form
- * is still worker-typed and still never sees a model. So if you are reading this because you
- * found code handing an employer name to the AI service, check WHICH ROUTE it is on before
- * calling it a defect: exactly one is authorised, and every other one is the bug you suspected.
+ * WIDENED 2026-09-30 BY `docs/decisions/0047-lift-pii-restriction.md`, BEHIND ONE SWITCH. While
+ * `AI_RAW_PII_ENABLED` is armed the prompt-side maskers pass text through, so an employer name the
+ * worker types reaches the model on any route that carries that text — by design. What reaches
+ * THIS table is unchanged either way: worker-typed, written straight to Postgres, never a model's
+ * output.
+ *
+ * WITH THAT FLAG OFF, EVERY OTHER PATH IS UNCHANGED, and that is why this note lives here and not
+ * only in the ADRs. An employer name reaching this table from the interview, the trade form or the
+ * finishing form is still worker-typed and still never sees a model. So if you are reading this
+ * because you found code handing an employer name to the AI service, check WHICH ROUTE it is on,
+ * and whether the flag is armed, before calling it a defect: with it off exactly one route is
+ * authorised, and every other one is the bug you suspected.
  */
 
 /**

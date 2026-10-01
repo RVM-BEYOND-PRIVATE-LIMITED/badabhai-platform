@@ -54,6 +54,8 @@ function setup(
     emitThrows?: boolean;
     classify?: { intent: string; confidence: number; blocked: false };
     replaySetThrows?: boolean;
+    /** `AI_RAW_PII_ENABLED` (ADR-0047). Omitted = the key is absent, which must read as OFF. */
+    rawPii?: boolean;
   } = {},
 ) {
   const ai = {
@@ -68,6 +70,7 @@ function setup(
   const config = {
     CHAT_COMPANION_V2_EDIT_ENABLED: true,
     CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: 0.6,
+    ...(opts.rawPii === undefined ? {} : { AI_RAW_PII_ENABLED: opts.rawPii }),
   } as unknown as ServerConfig;
   const events = {
     emit: vi.fn(async (params: unknown) => {
@@ -270,5 +273,80 @@ describe("the replay cache never holds the message or its PII", () => {
     });
     expect(logs).toContain("companion turn replay not stored");
     for (const secret of SECRETS) expect(logs).not.toContain(secret);
+  });
+});
+
+/**
+ * `AI_RAW_PII_ENABLED` (owner decision 2026-09-30, ADR-0047) lifts the PROMPT half of the
+ * rule above and nothing else: the classifier and the TTL-bound Redis memory get the raw text on
+ * purpose, while the event spine and the log lines stay exactly as text-free as with it off.
+ */
+describe("CompanionV2Orchestrator — AI_RAW_PII_ENABLED lifts the prompt masking, never the spine", () => {
+  it("ON: the raw text reaches the classifier and memory, with no gateway hop", async () => {
+    const h = setup({ rawPii: true });
+    await h.orchestrator.handleMessage(WORKER, PROFILE, { text: RAW }, CTX, NOW);
+    expect(h.ai.pseudonymize).not.toHaveBeenCalled();
+    expect(h.ai.companionClassify).toHaveBeenCalledWith({ text: RAW, recent_turns: [] }, CTX);
+    expect(h.memory.append).toHaveBeenNthCalledWith(1, WORKER, { role: "worker", text: RAW });
+  });
+
+  it("ON: still no event payload carries the text", async () => {
+    const h = setup({ rawPii: true });
+    await h.orchestrator.handleMessage(WORKER, PROFILE, { text: RAW }, CTX, NOW);
+    expect(h.events.emit).toHaveBeenCalled();
+    for (const call of h.events.emit.mock.calls) {
+      const serialized = JSON.stringify((call[0] as { payload: unknown }).payload);
+      expect(serialized).not.toContain("Tata Motors");
+      expect(serialized).not.toContain("9876543210");
+    }
+  });
+
+  // The classifier SUCCEEDS here on purpose. A throwing fake escapes `handleMessage` before the
+  // memory append and the spine are reached, so the emit-failure log line never runs and every
+  // absence check passes on an empty sink (the real `companionClassify` returns null, never
+  // throws). The `toContain` first proves the log path ran; only then do the absences mean much.
+  it.each([
+    ["ON", true],
+    ["OFF", false],
+  ] as const)(
+    "%s: the spine-failure log line runs and carries none of the text",
+    async (_mode, rawPii) => {
+      const logs = await withCapturedLogs(async () => {
+        const h = setup({ rawPii, emitThrows: true });
+        await h.orchestrator.handleMessage(WORKER, PROFILE, { text: RAW }, CTX, NOW);
+        expect(h.memory.append).toHaveBeenCalled();
+      });
+      expect(logs).toContain("chat.companion_turn_served_v2 not recorded for worker");
+      expect(logs).not.toContain(RAW);
+      expect(logs).not.toContain("Tata Motors");
+      expect(logs).not.toContain("9876543210");
+    },
+  );
+
+  it("OFF, explicitly: only the masked text travels — the rule above, unchanged", async () => {
+    const h = setup({ rawPii: false });
+    await h.orchestrator.handleMessage(WORKER, PROFILE, { text: RAW }, CTX, NOW);
+    expect(h.ai.pseudonymize).toHaveBeenCalledWith(RAW, CTX);
+    expect(h.ai.companionClassify).toHaveBeenCalledWith({ text: MASKED, recent_turns: [] }, CTX);
+    for (const call of h.memory.append.mock.calls) {
+      expect(JSON.stringify(call)).not.toContain("9876543210");
+    }
+  });
+
+  it("ON: the replay cache still holds only the served turn — memory is the one raw copy", async () => {
+    const SID = "44444444-4444-4444-8444-444444444444";
+    const h = setup({ rawPii: true });
+    const turn = await h.orchestrator.handleMessage(
+      WORKER,
+      PROFILE,
+      { text: RAW, submission_id: SID },
+      CTX,
+      NOW,
+    );
+    expect(h.ai.pseudonymize).not.toHaveBeenCalled();
+    expect(h.replayRedis.set).toHaveBeenCalledTimes(1);
+    const value = h.replayRedis.set.mock.calls[0]![1];
+    expect(JSON.parse(value)).toEqual(turn);
+    for (const secret of [RAW, "Tata Motors", "9876543210"]) expect(value).not.toContain(secret);
   });
 });

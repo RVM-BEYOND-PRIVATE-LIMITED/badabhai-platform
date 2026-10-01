@@ -24,6 +24,7 @@ from ..contracts import (
     WorkerProfileDraft,
 )
 from ..logging_config import get_logger
+from ..output_floor import carries_hard_identifier, floored_items
 from ..pseudonymize import certified_clean_skill_labels
 from . import signals
 from .canonical_roles import ROLE_TRADE, coerce_json_text, normalize_role_id
@@ -250,6 +251,13 @@ def _as_text(value: object) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
+def _model_text(value: object) -> str | None:
+    """A model-written scalar for ``merge_model_draft``: ``_as_text``, and None when it carries
+    a hard identifier (ADR-0047 G1), so the heuristic value it would have replaced stands."""
+    text = _as_text(value)
+    return None if carries_hard_identifier(text) else text
+
+
 # --- ADR-0030 SG-3: the LLM emits PHRASES, the vector layer assigns ids -----
 #
 # ADR-0030 §SG-3 (docs/decisions/0030-embedding-skill-canonicalization.md:140) is
@@ -367,6 +375,13 @@ def merge_model_draft(base: WorkerProfileDraft, content: str) -> WorkerProfileDr
     ``drop_model_taxonomy_ids`` — the model emits phrases here, never taxonomy ids. See
     the block above ``_is_taxonomy_id_shaped`` for why, and for why the ROLE arm
     (``canonical_role_id``, ADR-0028) is deliberately exempt.
+
+    ADR-0047 G1: every model-written STRING is also passed through the hard-identifier
+    floor (``app/output_floor.py``) before it is overlaid — this draft is stored whole as
+    ``rich_profile_draft``, and with ``AI_RAW_PII_ENABLED`` on the model that wrote it read
+    the worker's phone. An echo is MALFORMED, not an answer: a scalar that carries one is
+    not overlaid and a list entry is dropped, and a list left empty by that is skipped like
+    an all-id list, so an echo never deletes what the heuristic ``base`` read. Reads no flag.
     """
     try:
         data = json.loads(coerce_json_text(content))
@@ -377,14 +392,14 @@ def merge_model_draft(base: WorkerProfileDraft, content: str) -> WorkerProfileDr
 
     out = base.model_copy(deep=True)
 
-    if (role := _as_text(data.get("primary_role"))) is not None:
+    if (role := _model_text(data.get("primary_role"))) is not None:
         out.primary_role = role
 
     # TD-EDU — academic education level/field are free-text scalars, same posture as
     # primary_role: overlay only a well-formed non-null string, else keep base.
-    if (edu_level := _as_text(data.get("education_level"))) is not None:
+    if (edu_level := _model_text(data.get("education_level"))) is not None:
         out.education_level = edu_level
-    if (edu_field := _as_text(data.get("education_field"))) is not None:
+    if (edu_field := _model_text(data.get("education_field"))) is not None:
         out.education_field = edu_field
 
     years = _as_float(data.get("experience_years"))
@@ -416,17 +431,18 @@ def merge_model_draft(base: WorkerProfileDraft, content: str) -> WorkerProfileDr
         # field, and the id-bearing arm (``canonical_role_id``) does not pass through here
         # at all (main.py reads it separately via ``normalize_role_id``). Dropping happens
         # BEFORE the setattr, so an id can never reach the draft, ``skill_labels``, the
-        # persisted profile, or the résumé.
-        kept = drop_model_taxonomy_ids(values, field=field)
+        # persisted profile, or the résumé. The G1 floor runs in the same place and for
+        # the same reason: an entry carrying a hard identifier never reaches the setattr.
+        kept = floored_items(drop_model_taxonomy_ids(values, field=field))
         if values and not kept:
-            # EVERY member was id-shaped. That is not the model saying "the worker
-            # mentioned none" — it is a MALFORMED emission for this field, so it takes
-            # this function's documented posture for a malformed field: skip it and let
-            # the local heuristic ``base`` stand. Writing the empty result instead would
-            # let a model answering purely in ids DELETE labels the deterministic detector
-            # genuinely read off the worker's own text. A real empty ``[]`` from the model
-            # still replaces, exactly as before — only an all-id list is treated as
-            # malformed.
+            # EVERY member was id-shaped (or carried an identifier). That is not the model
+            # saying "the worker mentioned none" — it is a MALFORMED emission for this
+            # field, so it takes this function's documented posture for a malformed field:
+            # skip it and let the local heuristic ``base`` stand. Writing the empty result
+            # instead would let a model answering purely in ids DELETE labels the
+            # deterministic detector genuinely read off the worker's own text. A real empty
+            # ``[]`` from the model still replaces, exactly as before — only a list with
+            # nothing usable left in it is treated as malformed.
             continue
         setattr(out, field, kept)
 

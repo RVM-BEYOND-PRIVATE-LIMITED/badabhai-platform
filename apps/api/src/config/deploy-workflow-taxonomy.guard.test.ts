@@ -216,6 +216,14 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /CHAT_COMPANION_V2_CAREER_ENABLED:\s*\$\{\{\s*secrets\.CHAT_COMPANION_V2_CAREER_ENABLED\s*\}\}/,
       /envs:[^\n]*\bCHAT_COMPANION_V2_CAREER_ENABLED\b/,
     ],
+    // ADR-0047 (owner decision 2026-09-30) — raw text to the model. A plain boolean read by
+    // BOTH services, and the owner chose the environment secret as its one arming path, so the
+    // bridge is the switch: `gh secret set AI_RAW_PII_ENABLED --env production` plus a redeploy.
+    [
+      "AI_RAW_PII_ENABLED",
+      /AI_RAW_PII_ENABLED:\s*\$\{\{\s*secrets\.AI_RAW_PII_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bAI_RAW_PII_ENABLED\b/,
+    ],
   ])("%s is bridged from the environment's secrets", (_name, fromSecrets, inEnvs) => {
     expect(DEPLOY).toMatch(fromSecrets);
     // …and reaches the container: drone-ssh only exports what `envs:` lists, so a job-level
@@ -259,6 +267,9 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["CHAT_COMPANION_V2_NEW_RESUME_ENABLED", "false"],
     ["CHAT_COMPANION_V2_FALTU_ENABLED", "false"],
     ["CHAT_COMPANION_V2_CAREER_ENABLED", "false"],
+    // ADR-0047 — off is the masked prompt path exactly. Declared on BOTH services; the
+    // per-service assertion is ai-raw-pii-flag-compose.guard.test.ts.
+    ["AI_RAW_PII_ENABLED", "false"],
     // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's
     // `/i/<code>`. Undeclared, the stale config default (app.badabhai.in, no `/i/`) won.
     ["REFERRAL_SHORT_LINK_BASE", "https://payer.43-204-36-199.sslip.io"],

@@ -13,6 +13,14 @@ that set is shared by `packages/types`.
 
 THE ROW CAP IS ENFORCED HERE TOO. `max_rows` is the API's product knob; a model that
 returns more rows has ignored the request, and truncating to the cap is deterministic.
+
+A ROW WHOSE VALUE CARRIES A HARD IDENTIFIER IS DROPPED (ADR-0047 G1, `app/output_floor.py`).
+A confirmed row is stored and printed — an employer name or a `work_done` line lands on both
+résumé PDFs — and with `AI_RAW_PII_ENABLED` on the model read the worker's raw message, so it
+can echo the phone he typed into a value. Off it read "[PHONE_1]", and the API's placeholder
+drop (ADR-0046 O17) caught that row; armed, no placeholder is minted and this floor is the
+catch. The API drops the same row again (`containsHardIdentifier` in `companion-edit.service`),
+so this is still belt. Reads no flag.
 """
 
 from __future__ import annotations
@@ -28,8 +36,10 @@ from ..contracts import (
     CompanionEditSnapshotRow,
     UnsupportedEditTarget,
 )
+from ..llm_input_policy import llm_input_gate
+from ..output_floor import carries_hard_identifier
 from ..profiling.canonical_roles import coerce_json_text
-from ..pseudonymize import TokenScope, pseudonymize
+from ..pseudonymize import TokenScope
 
 #: The deterministic mock-posture answer: nothing proposed, nothing refused. An empty
 #: card is the honest mock — no fabricated edit ever reaches a development worker.
@@ -40,6 +50,8 @@ _UNSUPPORTED_VALUES = frozenset(get_args(UnsupportedEditTarget))
 
 def mask_snapshot(
     rows: list[CompanionEditSnapshotRow],
+    *,
+    raw: bool,
     scope: TokenScope | None = None,
 ) -> list[CompanionEditSnapshotRow]:
     """Pseudonymize every current value the model is shown.
@@ -56,6 +68,11 @@ def mask_snapshot(
     ``scope`` (the endpoint passes the one it masked the MESSAGE with), so the same employer
     carries the same token in the message and in the snapshot, and two employers never share
     one. Without a caller's scope the values still share one among themselves.
+
+    ``raw`` is the route's `AI_RAW_PII_ENABLED` (ADR-0047), passed in and never read here.
+    With it on the values go through unmasked — which is what lets an edit to an employer
+    name propose a real value instead of a placeholder row the API drops (ADR-0046 O17) —
+    and a value is nulled only for the size cap.
     """
     tokens = scope if scope is not None else TokenScope()
     masked: list[CompanionEditSnapshotRow] = []
@@ -65,7 +82,7 @@ def mask_snapshot(
             if value is None:
                 fields[key] = None
                 continue
-            result = pseudonymize(value, scope=tokens)
+            result = llm_input_gate(value, raw=raw, scope=tokens)
             fields[key] = None if result.blocked else result.text
         masked.append(row.model_copy(update={"fields": fields}))
     return masked
@@ -75,8 +92,9 @@ def parse_edit_rows(content: str, max_rows: int) -> CompanionEditParseOutput:
     """The edit parser's content as validated rows, or an empty proposal.
 
     ``coerce_json_text`` first, like every other model-JSON parser here. A row that fails
-    the contract is skipped; the cap truncates rather than refuses, so a model that
-    over-delivers still yields the rows the worker asked for first.
+    the contract, or whose value carries a hard identifier, is skipped and does not count
+    toward the cap; the cap truncates rather than refuses, so a model that over-delivers
+    still yields the rows the worker asked for first.
     """
     try:
         raw = json.loads(coerce_json_text(content))
@@ -98,6 +116,9 @@ def parse_edit_rows(content: str, max_rows: int) -> CompanionEditParseOutput:
             # field-less row is one it drops unseen; dropping it here keeps "every drop is a row
             # the API would also have dropped" true, and stops it spending a slot of the cap.
             if row.field is None:
+                continue
+            # G1 (ADR-0047) — a proposed value carrying a hard identifier never reaches the card.
+            if carries_hard_identifier(row.value):
                 continue
             rows.append(row)
             if len(rows) >= max_rows:

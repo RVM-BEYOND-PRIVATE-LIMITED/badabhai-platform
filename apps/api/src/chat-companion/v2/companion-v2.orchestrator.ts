@@ -30,8 +30,9 @@ const MEMORY_REPLY_MAX = 1_000;
  * The classify contract's text bound (contracts §2.1, `CompanionClassifyInputSchema.text`) — and
  * the memory store's per-turn bound, which is the same number. The API accepts a 4000-char
  * message, so the classifier sees its first 1000: a longer text would be a 422, i.e. `unclear`
- * for a message that was perfectly clear. The HANDLER still gets the whole masked text (the
- * edit-parse and career contracts take 4000). Pinned against the schema in the orchestrator test.
+ * for a message that was perfectly clear. The HANDLER still gets the whole text — masked, or raw
+ * while `AI_RAW_PII_ENABLED` is on (the edit-parse and career contracts take 4000). Pinned
+ * against the schema in the orchestrator test.
  */
 export const CLASSIFY_TEXT_MAX = 1_000;
 
@@ -86,13 +87,14 @@ function clipText(text: string, max: number): string {
  *   1. the ABUSE LEXICON (P2, only while the faltu flag is on) — deterministic, local, and
  *      BEFORE the gateway: a message it flags reaches no provider, no model, no memory;
  *   2. pseudonymize the message through the gateway — a blocked or unreachable gateway serves the
- *      clarify line WITHOUT a classifier call and stores nothing;
- *   3. read the (already pseudonymized) memory, last two turns;
+ *      clarify line WITHOUT a classifier call and stores nothing. While `AI_RAW_PII_ENABLED` is
+ *      on this step is skipped and steps 3-6 carry the raw text instead (see `promptTextOf`);
+ *   3. read the memory (pseudonymized; raw for turns stored while the flag was on), last two turns;
  *   4. classify the first `CLASSIFY_TEXT_MAX` chars — null, blocked or a schema miss is
  *      `unclear`; a confidence below the configured floor is `unclear` too;
  *   5. the registry picks the handler from the closed intent set;
- *   6. append the pseudonymized pair to memory — never for a message the classifier called
- *      `faltu` (abuse the lexicon missed is still never stored);
+ *   6. append the pair to memory — the step-2 text, so raw while the flag is on — never for a
+ *      message the classifier called `faltu` (abuse the lexicon missed is still never stored);
  *   7. emit `chat.companion_turn_served_v2` — ids, counts and closed enums only.
  *
  * The model NEVER decides anything but the intent: handlers are deterministic, and the only
@@ -197,7 +199,7 @@ export class CompanionV2Orchestrator {
    * so pinning its clarify line for the replay TTL would answer every retry with the failure after
    * the AI recovered. That path has little to dedupe: no strike, no handler model call, and the
    * event is deduped on the submission id (so the spine keeps the FIRST attempt's `fallback`
-   * row). The one repeat is memory: a classifier failure still stores the masked pair, so a
+   * row). The one repeat is memory: a classifier failure still stores the pair, so a
    * processed retry stores the worker's line twice — context only, capped at `MEMORY_TURNS`.
    */
   async handleMessage(
@@ -247,10 +249,10 @@ export class CompanionV2Orchestrator {
       });
     }
 
-    // 1. THE GATEWAY FIRST. `null` is the AI service being unreachable; `blocked` is the gateway
-    //    refusing. Both serve the clarify line and neither reaches a model or Redis.
-    const pseudo = await this.ai.pseudonymize(dto.text, ctx);
-    if (pseudo === null || pseudo.blocked) {
+    // 1. THE GATEWAY FIRST (see `promptTextOf`). `null` is the AI service being unreachable or
+    //    the gateway refusing. Both serve the clarify line and neither reaches a model or Redis.
+    const promptText = await this.promptTextOf(dto.text, ctx);
+    if (promptText === null) {
       return this.routed(workerId, ctx, dto, now, {
         turn: v2CopyTurn(V2_CLARIFY, taskChips(this.config)),
         intentSource: "fallback",
@@ -261,15 +263,15 @@ export class CompanionV2Orchestrator {
       });
     }
 
-    // 2. MEMORY — already pseudonymized at rest. The classifier sees at most the last two
-    //    turns; the FULL read (up to MEMORY_TURNS) rides the handler input, because the Phase 3
-    //    career answer reads up to six and a second Redis hop would buy nothing.
+    // 2. MEMORY — pseudonymized at rest, raw while `AI_RAW_PII_ENABLED` is on. The classifier sees
+    //    at most the last two turns; the FULL read (up to MEMORY_TURNS) rides the handler input,
+    //    because the Phase 3 career answer reads up to six and a second Redis hop would buy nothing.
     const recent = await this.memory.read(workerId);
 
     // 3. CLASSIFY the contract's first CLASSIFY_TEXT_MAX chars — the same clipped text is what
     //    memory keeps, because the store drops any turn over that bound on read. Every failure
     //    mode lands on the SAME closed answer: `unclear`.
-    const classifyText = clipText(pseudo.pseudonymized_text, CLASSIFY_TEXT_MAX);
+    const classifyText = clipText(promptText, CLASSIFY_TEXT_MAX);
     const classified = await this.ai.companionClassify(
       { text: classifyText, recent_turns: recent.slice(-2) },
       ctx,
@@ -309,7 +311,7 @@ export class CompanionV2Orchestrator {
     const handled = await this.registry.resolve(intent).handle({
       workerId,
       profile,
-      text: pseudo.pseudonymized_text,
+      text: promptText,
       recentTurns: recent,
       ctx,
       now,
@@ -344,6 +346,26 @@ export class CompanionV2Orchestrator {
       turn: await this.finish(workerId, ctx, dto, now, out),
       replayable: out.intentSource !== "fallback",
     };
+  }
+
+  /**
+   * The ONE copy of the worker's message that the classifier, the handlers and memory see, or
+   * `null` when the gateway is unreachable or refused it.
+   *
+   * `AI_RAW_PII_ENABLED` (owner decision 2026-09-30, ADR-0047) is the only thing that
+   * changes this. Off — the default, and today's behaviour exactly — the gateway pseudonymizes
+   * and a blocked or unreachable gateway fails closed. On, the gateway hop is skipped and the
+   * worker's own words go onward UNMASKED, so an unreachable AI service can no longer
+   * short-circuit to the clarify line here — that is intended: the classify call behind it fails
+   * soft to `unclear` on its own. The Redis memory then holds raw text too, bounded by
+   * `CHAT_COMPANION_V2_MEMORY_TTL_SECONDS` — and past a revert, until those turns trim out or
+   * expire (see `CompanionMemoryStore`). The DTO's own 4,000-character cap still bounds the
+   * message, and the event and every log line stay text-free either way.
+   */
+  private async promptTextOf(text: string, ctx: RequestContext): Promise<string | null> {
+    if (this.config.AI_RAW_PII_ENABLED === true) return text;
+    const pseudo = await this.ai.pseudonymize(text, ctx);
+    return pseudo === null || pseudo.blocked ? null : pseudo.pseudonymized_text;
   }
 
   /** Memory append + the v2 event, both best-effort; the turn is served either way. */

@@ -12,7 +12,9 @@ deterministic fail-closed output — an ``unclear`` classification (the API's cl
 line), an empty proposal (the API's "kya badalna hai, samajh nahi aaya" line) or a
 refusal on ``unsafe_other`` (the API's reviewed refusal copy). The memory turns and
 every current value are masked too, so the invariant "every model input passes the
-gateway" holds for the whole request, not just its first field.
+gateway" holds for the whole request, not just its first field. With
+``AI_RAW_PII_ENABLED`` on, all three go through ``app/llm_input_policy.py`` unmasked but
+size-capped, so "blocked" survives as the same fail-closed outcome.
 
 MODEL OUTPUT IS UNTRUSTED AND THE ROUTES RETURN IT AS-IS: the parsers in
 ``app.companion`` validate and drop, the API validates every row again before a card is
@@ -36,6 +38,7 @@ from ..companion.prompts import (
     build_classify_messages,
     build_edit_parse_messages,
 )
+from ..config import get_settings
 from ..contracts import (
     CompanionCareerAnswer,
     CompanionCareerInput,
@@ -45,7 +48,8 @@ from ..contracts import (
     CompanionEditParseInput,
     CompanionEditParseOutput,
 )
-from ..pseudonymize import TokenScope, pseudonymize
+from ..llm_input_policy import llm_input_gate
+from ..pseudonymize import TokenScope
 from ._shared import logger, resolve_prompt, router
 
 api_router = APIRouter()
@@ -61,7 +65,8 @@ CAREER_TASK_TYPE = "companion_career_answer"
 @api_router.post("/companion/classify", response_model=CompanionClassifyOutput)
 async def companion_classify(body: CompanionClassifyInput) -> CompanionClassifyOutput:
     """One message to one intent. ``blocked`` is the pseudonymizer's refusal, never the model's."""
-    result = pseudonymize(body.text)
+    raw_pii = get_settings().ai_raw_pii_enabled
+    result = llm_input_gate(body.text, raw=raw_pii)
     if result.blocked:
         logger.warning(
             "companion classify blocked", extra={"extra": {"reason": result.blocked_reason}}
@@ -79,7 +84,7 @@ async def companion_classify(body: CompanionClassifyInput) -> CompanionClassifyO
     resolved = resolve_prompt(prompt_registry.COMPANION_CLASSIFY)
     system_prompt = resolved.text if resolved is not None else CLASSIFY_SYSTEM_PROMPT
     messages = build_classify_messages(
-        result.text, classify_logic.mask_recent_turns(body.recent_turns), system_prompt
+        result.text, classify_logic.mask_recent_turns(body.recent_turns, raw=raw_pii), system_prompt
     )
     content, meta = await router.run(
         CLASSIFY_TASK_TYPE,
@@ -104,7 +109,8 @@ async def companion_edit_parse(body: CompanionEditParseInput) -> CompanionEditPa
     # Bajaj job" in the message to the right row, which needs the same placeholder on both
     # sides and a different one per employer. Request-scoped; it holds no original text.
     scope = TokenScope()
-    result = pseudonymize(body.text, scope=scope)
+    raw_pii = get_settings().ai_raw_pii_enabled
+    result = llm_input_gate(body.text, raw=raw_pii, scope=scope)
     if result.blocked:
         logger.warning(
             "companion edit-parse blocked", extra={"extra": {"reason": result.blocked_reason}}
@@ -116,7 +122,7 @@ async def companion_edit_parse(body: CompanionEditParseInput) -> CompanionEditPa
     messages = build_edit_parse_messages(
         result.text,
         body.catalogue,
-        edit_parse_logic.mask_snapshot(body.snapshot, scope=scope),
+        edit_parse_logic.mask_snapshot(body.snapshot, raw=raw_pii, scope=scope),
         body.max_rows,
         system_prompt,
     )
@@ -148,7 +154,8 @@ async def companion_career(
     unreadable output to ``refuse/unsafe_other``, and the API re-validates the content
     before serving a line. A blocked message returns that refusal without a provider call.
     """
-    result = pseudonymize(body.text)
+    raw_pii = get_settings().ai_raw_pii_enabled
+    result = llm_input_gate(body.text, raw=raw_pii)
     if result.blocked:
         logger.warning(
             "companion career blocked", extra={"extra": {"reason": result.blocked_reason}}
@@ -160,7 +167,7 @@ async def companion_career(
     system_prompt = resolved.text if resolved is not None else CAREER_SYSTEM_PROMPT
     messages = build_career_messages(
         result.text,
-        classify_logic.mask_recent_turns(body.recent_turns),
+        classify_logic.mask_recent_turns(body.recent_turns, raw=raw_pii),
         body.worker_context,
         system_prompt,
     )

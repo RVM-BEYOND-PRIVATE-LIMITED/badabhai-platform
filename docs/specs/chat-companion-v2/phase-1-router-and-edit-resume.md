@@ -46,6 +46,7 @@ EditResumeHandler
          other field is one of that row's keys (EDIT-ROW-KIND, contracts §3.2) → else drop
        value passes the field's normalisation
        value contains no placeholder token (O17) → else drop
+       value carries no hard identifier (ADR-0047 G1; the ai-service drops it first) → else drop
        skills: phrase → skill_id via ADR-0030 canonicalizer (floor 0.75) → else drop
          (superseded: owner ruling 2026-09-28 made skills résumé-only labels — no canonicalizer)
        identical to current value → drop
@@ -213,14 +214,14 @@ A new edit message while a proposal is open replaces it (one active proposal per
 | `companion-v2.flag-off.test.ts` | v2 off ⇒ every existing v1 test fixture yields the identical turn |
 | `companion-v2.v1-first.test.ts` | every v1 chip / alias / intent resolves without a model call |
 | `companion-v2.orchestrator.test.ts` | each intent → correct handler; null / low-confidence / blocked → clarify |
-| `companion-edit.validate.test.ts` | each drop rule (catalogue, op, ref, a field of another entry kind, DTO, token, skill floor, no-op) — incl. no-op ADDS, duplicates, the writer's real schema, the row cap, the snapshot cap, the O17 Profile-screen line |
+| `companion-edit.validate.test.ts` | each drop rule (catalogue, op, ref, a field of another entry kind, DTO, token, hard identifier (ADR-0047 G1), skill floor, no-op) — incl. no-op ADDS, duplicates, the writer's real schema, the row cap, the snapshot cap, the O17 Profile-screen line |
 | `companion-edit.confirm.test.ts` | ownership 404; stale 409; transaction rollback on a writer failure (row 2 fails → row 1 undone); regenerate queued / capped / failed; consent off → no regeneration; not queued → one re-render (none for skills-only, queued or a rollback); at most one apply per card (concurrent / retried Haan); a rollback serves the card again; expired → cancelled(expired) |
 | `companion-edit.apply.test.ts` | the body each writer receives: preferences `touched_only` + folded lists, qualifications by identity and only the touched lists, skills never duplicated, the night-shift seed after commit |
 | `edit-catalogue.test.ts` | every catalogue field has a `field_label` (distinct within its section, no orphan); a whole-entry delete names the entry, by its target's list; every closed-set value maps to its dictionary's display label; free text, unknown slugs and nulls → null |
 | `resume-chat-edit.db.test.ts` (`RUN_DB_TESTS=1`) | a Haan on a profile that already has its v1 writes a NEW `chat_edit` row from the edited profile; a second edit is another; a queue retry does not duplicate |
 | `companion-edit.no-identity.test.ts` | name / phone / ID requests never produce a row; `V2_EDIT_IDENTITY` served — also when the model gives no hint (the deterministic check, `edit-identity.test.ts`) |
 | `chat-companion.module.boot.test.ts` (extended) | still no chat-table writers reachable from the module — the egress scan walks the whole `v2/` tree, `v2/handlers/` included, and the DI check reads every constructor in a file |
-| `companion-v2.privacy.test.ts` | no worker text in events, logs (spy on Logger) or Redis memory beyond pseudonymized text |
+| `companion-v2.privacy.test.ts` | no worker text in events, logs (spy on Logger) or Redis memory beyond pseudonymized text — the memory half while `AI_RAW_PII_ENABLED` is off; armed, memory holds raw text and events, logs and the replay cache still carry none ([ADR-0047](../../decisions/0047-lift-pii-restriction.md)) |
 | `companion-replies.test.ts` (extended) | every new line passes persona checks and has a matching twin |
 | event-schema tests | new/v2 payloads `.strict()`, reject text fields |
 | ai-service `test_companion_*` | contracts parity; blocked input; mock mode; eval thresholds |

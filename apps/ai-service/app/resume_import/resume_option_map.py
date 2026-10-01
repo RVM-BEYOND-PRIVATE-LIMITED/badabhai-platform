@@ -40,6 +40,7 @@ from ..contracts import (
     ResumeOptionMapping,
     TranscriptLine,
 )
+from ..llm_input_policy import resume_input_raw
 from ..logging_config import get_logger
 from ..profiling import parse_gates
 from ..profiling.canonical_roles import coerce_json_text
@@ -141,8 +142,9 @@ async def map_resume_options(
     # ---- 3. MASK ------------------------------------------------------------
     # ADR-0041 D5 lives in exactly this line — the same posture as the parse and the
     # summary: the input policy may be raw behind a flag, but the OUTPUT wall below
-    # never is.
-    raw_text_enabled = settings.resume_parse_raw_text_enabled
+    # never is. D5's flag or `AI_RAW_PII_ENABLED` selects it
+    # (`llm_input_policy.resume_input_raw`).
+    raw_text_enabled = resume_input_raw(settings)
     masked = mask_resume_lines(extraction.lines, input_masker(raw_text_enabled=raw_text_enabled))
     if raw_text_enabled:
         stage.notes.append("raw_text_policy_active")

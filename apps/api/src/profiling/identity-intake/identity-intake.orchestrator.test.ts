@@ -250,6 +250,7 @@ function makeWorld(opts: WorldOpts = {}) {
       submissionId: extra.submissionId ?? null,
       voiceNoteId: null,
       ...(extra.armGeneralRoad === true ? { armGeneralRoad: true } : {}),
+      knownName: async () => null,
       ctx: CTX as never,
     });
   const saved = () => store.get(SESSION);

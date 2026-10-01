@@ -8,11 +8,14 @@ from fastapi import APIRouter
 
 from ..ai.langfuse_tracing import WORKFLOW_RESUME
 from ..certified_values import certify_resume_single_values
+from ..config import get_settings
 from ..contracts import ResumeGenerationInput, ResumeGenerationOutput
 from ..extraction import build_resume, resolve_taxonomy_ids
+from ..llm_input_policy import llm_input_gate
+from ..output_floor import floored_scalar
 from ..profiling.prompts import RESUME_SYSTEM_PROMPT
 from ..profiling.signals import label_for_id
-from ..pseudonymize import certified_clean_skill_labels, pseudonymize
+from ..pseudonymize import certified_clean_skill_labels
 from ._shared import logger, router, workflow_scope
 
 api_router = APIRouter()
@@ -155,7 +158,11 @@ async def _generate(body: ResumeGenerationInput) -> ResumeGenerationOutput:
     # same ruling four lines below itself (R6). Under the committed
     # default (`AI_ENABLE_REAL_CALLS=false`) nothing changes at all: the router takes
     # its mock path and returns `text`, which is built from the unmasked profile.
-    gate = pseudonymize(payload)
+    #
+    # `AI_RAW_PII_ENABLED` moves this gate only: with it on the payload reaches the model
+    # unmasked (size cap kept). The certification above is a wall on what is PRINTED and does
+    # not read the flag, so the résumé text and `resume_json` are the same under either posture.
+    gate = llm_input_gate(payload, raw=get_settings().ai_raw_pii_enabled)
     if gate.blocked:
         logger.warning(
             "resume generation blocked before the LLM",
@@ -203,7 +210,11 @@ async def _generate(body: ResumeGenerationInput) -> ResumeGenerationOutput:
     # inside a labelled format puts every value back through a generation step that can drop,
     # reorder or invent one — for a field the app parses structurally. §3 says AI may summarize;
     # deterministic code owns the record.
-    summary = resolve_taxonomy_ids(generated).strip() if meta.real_call else None
+    #
+    # FLOORED (ADR-0047 G1) although nothing renders it yet: with `AI_RAW_PII_ENABLED` on the
+    # model read the payload unmasked, and the first consumer that prints this blurb must not
+    # inherit an echoed phone. Reads no flag.
+    summary = floored_scalar(resolve_taxonomy_ids(generated).strip()) if meta.real_call else None
     return ResumeGenerationOutput(
         resume_text=resolve_taxonomy_ids(text),
         summary=summary or None,

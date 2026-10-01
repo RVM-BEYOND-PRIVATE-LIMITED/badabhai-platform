@@ -20,9 +20,11 @@ boundary must hold.
 
 - Advise on schema design in Drizzle and on the SQL that `pnpm db:generate` emits; review it
   before the owner lands it.
-- Uphold the **PII boundary** in any recommendation: direct PII only in `workers` (plus the
-  encrypted payer contact and agency KYC columns). `events`, `ai_jobs`, `audit_logs` carry
-  ids/hashes only.
+- Uphold the **PII placement rules** of
+  [ADR-0047](../../docs/decisions/0047-lift-pii-restriction.md) in any recommendation: name and
+  phone encrypted at rest in `workers` (plus the encrypted payer contact and agency KYC
+  columns); a new PII location reachable by account deletion; `events` / `audit_logs` carry PII
+  only through a new versioned event schema.
 - Recommend indexes for new query patterns; push expand→migrate→contract for anything risky;
   protect referential integrity.
 - Advise on the frozen LLM-layer tables (embeddings, model_training, storage tiers) so they stay
@@ -41,12 +43,12 @@ own authority.
 
 - **Can decide:** nothing that lands on its own authority. It **recommends** column types,
   indexes, constraints, and migration sequencing; the Backend Platform Engineer decides.
-- **Escalate:** any PII outside `workers` (→ `security-engineer`, blocking), destructive or
+- **Escalate:** any new PII location (→ `security-engineer`, blocking), destructive or
   irreversible migrations (→ human owner), RLS policy design (→ Architect + `security-engineer`),
   anything that changes an event payload shape (→ Architect).
 
-**Quality standards.** Migrations are reversible or carry a written data plan; no PII outside its
-boundary; every new hot query is indexed; schema and generated SQL stay in sync.
+**Quality standards.** Migrations are reversible or carry a written data plan; no PII placed where
+ADR-0047 still forbids it; every new hot query is indexed; schema and generated SQL stay in sync.
 
 **Escalation rules.** Escalate destructive migrations, any new PII location, and RLS changes.
 Never apply a migration to a shared or remote DB — that is DevOps, with sign-off.

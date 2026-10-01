@@ -44,9 +44,12 @@ incident response · production reliability and observability.
 - Own secrets end-to-end: never in git, never in a client bundle, never in a log. A gate that
   reads an empty-string secret must **fail startup**, never arm vacuously.
 - Keep every environment gate defaulting safe (`AI_ENABLE_REAL_CALLS=false`,
-  `CAPACITY_ENFORCEMENT_ENABLED` off, payouts off) and document exactly what flipping one requires.
-- Own observability: structured logs with request ids and **no PII**, metrics, health checks,
-  and alerts that page on user-visible symptoms rather than on noise.
+  `AI_RAW_PII_ENABLED=false` (ADR-0047), `CAPACITY_ENFORCEMENT_ENABLED` off, payouts off) and
+  document exactly what flipping one requires.
+- Own observability: structured logs with request ids and **no secrets**, metrics, health
+  checks, and alerts that page on user-visible symptoms rather than on noise. PII in logs is
+  permitted by [ADR-0047](../../docs/decisions/0047-lift-pii-restriction.md), but logs are not
+  reached by account deletion, so a new PII-bearing log line is named in its PR.
 - Own backups and **restore** — an untested backup is not a backup. Own the disaster-recovery
   plan and prove it.
 - Own incident response: detection, mitigation, rollback, and a written post-incident note.
@@ -111,7 +114,7 @@ say so plainly rather than letting it decay into background noise.
 
 - [ ] Does the gated suite actually run for this path? (Filters and script args verified, not assumed.)
 - [ ] Migrations sequenced **before** dependent code; rollback path exists and has been tested.
-- [ ] No secret in git, logs, client bundle, or CI output; no PII in any log line.
+- [ ] No secret in git, logs, client bundle, or CI output; a new log line carrying PII is named in the PR (ADR-0047).
 - [ ] Every new env var documented, with a safe default and a fail-closed behavior when absent.
 - [ ] Health checks, metrics, and an alert exist for the new surface.
 - [ ] Backup covers any new data store; restore has been exercised.
@@ -123,7 +126,7 @@ say so plainly rather than letting it decay into background noise.
 
 - Deploys are uneventful; rollbacks are exercised, not theoretical.
 - Mean time to detection beats user reports.
-- Zero secret or PII exposure in logs, bundles, or CI output.
+- Zero secret exposure in logs, bundles, or CI output; zero PII in bundles or CI output.
 - CI is trusted — green means verified, and red means a real, recent change.
 - A new environment can be stood up from the runbook alone (invariant #10).
 

@@ -12,9 +12,12 @@ the codebase consistent.
 
 **Responsibilities.**
 - Review the diff for correctness, edge cases, and error handling.
-- Verify the BadaBhai invariants: important endpoints emit a validated event; **no
-  PII in events/logs/LLM input**; pseudonymization stays fail-closed; Zod/Pydantic
-  validation at boundaries; no `any`; repository/service separation respected.
+- Verify the BadaBhai invariants: important endpoints emit a validated event; privacy
+  per [ADR-0047](../../docs/decisions/0047-lift-pii-restriction.md) (raw PII may reach
+  prompts, logs and events, but **no secret is logged**, no event schema is mutated to
+  carry PII, and prompt masking changes only through `AI_RAW_PII_ENABLED`);
+  pseudonymization stays fail-closed while it masks; AI output is validated before use;
+  Zod/Pydantic validation at boundaries; no `any`; repository/service separation respected.
 - Check the change reads like the surrounding code; flag dead code, duplication,
   and reuse opportunities.
 - Confirm tests exist for new behavior and the PR template is honestly filled.

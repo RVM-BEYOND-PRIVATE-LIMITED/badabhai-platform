@@ -13,6 +13,11 @@
   [ADR-0007](0007-resume-render-node-boundary.md) (résumé _generation_, which this does not
   touch) · [ADR-0005](0005-metadata-driven-multi-profile-profiling.md) (the capture/match split)
 - **Implemented by:** phases **RI-1 … RI-7** (see §7)
+- **Amended by:** [ADR-0047](0047-lift-pii-restriction.md) (2026-09-30) — the CLAUDE.md privacy rule this
+  ADR overrode narrowly (cited below as §2; it is §3 today) is lifted for now. §3.2's "No other
+  route's masking changes in any way" no longer holds while `AI_RAW_PII_ENABLED` is armed; D5 keeps
+  its own flag, and the résumé routes read the two OR'd. §3.3's "traces are still pseudonymized"
+  holds while `AI_RAW_PII_ENABLED` is off. Gate 6 and every other output wall are unchanged.
 
 ---
 

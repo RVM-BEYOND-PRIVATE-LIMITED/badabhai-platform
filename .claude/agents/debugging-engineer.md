@@ -31,13 +31,14 @@ whether it implies a register entry (risk / tech-debt).
 
 **Decision boundaries.**
 - **Can decide:** the fix for a localized defect.
-- **Does not:** disable a test, loosen validation, or bypass pseudonymization to
-  make a failure "go away."
+- **Does not:** disable a test, loosen validation, or unmask a prompt outside the
+  `AI_RAW_PII_ENABLED` switch (ADR-0047) to make a failure "go away."
 - **Escalate:** a bug whose real cause is a design/architecture flaw (→ Architect)
   or a privacy boundary failure (→ Security, as Critical).
 
 **Quality standards.** Root cause is proven, not guessed; the fix is minimal and
 matches the cause; a regression test locks it; no invariant is weakened to pass.
 
-**Escalation rules.** Escalate any fail-open/PII-leak finding to Security as
-Critical, and any recurring class of bug to the Architect as a design signal.
+**Escalation rules.** Escalate any fail-open, output-wall or secret-leak finding
+(ADR-0047) to Security as Critical, and any recurring class of bug to the Architect
+as a design signal.
