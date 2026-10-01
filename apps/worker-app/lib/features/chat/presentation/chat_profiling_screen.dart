@@ -2851,19 +2851,12 @@ class _ChatViewState extends State<_ChatView>
 
   // ---- ADR-0048 — fly the captured name up to the header -------------------
 
-  /// The piece of the new name to fly: whatever was NOT already on the header,
-  /// so a surname append flies only the surname instead of repeating the first
-  /// name.
-  String _nameDelta(String name) {
-    final String? prev = _headerName;
-    if (prev != null && prev.isNotEmpty && name.startsWith(prev)) {
-      final String rest = name.substring(prev.length).trim();
-      if (rest.isNotEmpty) return rest;
-    }
-    return name;
-  }
-
   /// Fly the name captured on this turn from its bubble to the header action.
+  ///
+  /// THE COMPLETE NAME MOVES. A worker who gives a first name and then a surname
+  /// sees the WHOLE name ("Rishi Ojha") lift off on the surname turn, not just
+  /// the freshly-typed word — the token is always [ChatState.workerName] in
+  /// full, so what flies is exactly what the action will read.
   ///
   /// Fired on the `workerName` change edge. The rects are read AFTER the frame,
   /// because the bubble carrying the name is appended in the same emit and is
@@ -2873,7 +2866,6 @@ class _ChatViewState extends State<_ChatView>
   void _maybeFlyName(ChatState state) {
     final String? name = state.workerName;
     if (name == null || name == _headerName || _flyingName) return;
-    final String flown = _nameDelta(name);
     final bool reduceMotion =
         MediaQuery.maybeDisableAnimationsOf(context) ?? false;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2885,15 +2877,15 @@ class _ChatViewState extends State<_ChatView>
         setState(() => _headerName = name);
         return;
       }
-      _startNameFlight(flown, name, from, to);
+      _startNameFlight(name, from, to);
     });
   }
 
-  void _startNameFlight(String flown, String fullName, Rect from, Rect to) {
+  void _startNameFlight(String name, Rect from, Rect to) {
     _flyingName = true;
     _nameFlightEntry = showFlyingName(
       overlay: Overlay.of(context, rootOverlay: true),
-      text: flown,
+      text: name,
       from: from,
       to: to,
       onLanded: () {
@@ -2901,7 +2893,7 @@ class _ChatViewState extends State<_ChatView>
         setState(() {
           _flyingName = false;
           _nameFlightEntry = null;
-          _headerName = fullName;
+          _headerName = name;
         });
         // Punctuate the landing with the action's settle pop.
         _namePop.forward(from: 0);
