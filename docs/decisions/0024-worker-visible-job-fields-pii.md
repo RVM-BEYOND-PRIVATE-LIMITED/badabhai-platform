@@ -261,3 +261,39 @@ of the same date (display / classification only, never a match or rank input).
   that workers see it: the worker card has no role line today. Whether it should gain one is
   **#1823**, and adding `role_kind` to any worker projection is that decision — not a mapper edit.
 - **No worker-facing trust or urgency signal** follows from it (the #1651 ruling is untouched).
+
+## Addendum (2026-10-01) — company posting cards on the legacy feed (#1823, ADR-0049)
+
+The field ruling above **still stands unchanged**. [ADR-0049](0049-interim-union-feed.md) lets
+open, published `job_postings` reach the legacy `GET /feed` while `MATCH_V1_ENABLED` is off,
+behind `FEED_POSTINGS_UNION_ENABLED`, through the SAME 17-key `FeedItem`. This records how a
+posting fills that item, so the card stays inside the SHOW set.
+
+- **`trade_key` is `""`.** A posting has no trade column, and nothing is derived to fill the
+  slot: not an `mskill_*` id (the client hides those, and they would leak match vocabulary), and
+  not `role_kind` (below). The shipped app draws no trade line for `""`.
+- **`city` is `""` when the posting's city is NULL.** `FeedItem.city` is a string, and the V1
+  card does the same. `title` is `role_title`. Every other SHOW field (`area`, the experience
+  window, the pay band, `pay_type`, `shift`, `description`, `benefits`, `requirements`,
+  `needed_by`) passes through verbatim, with nulls preserved.
+- **`posted_at` is `job_postings.published_at`**, the #1649 "one key on both feed shapes" ruling
+  above. The arm serves only postings whose publish completed (`published_at IS NOT NULL`), so it
+  is never null.
+- **No role line (ADR-0049 O6).** The 2026-09-29 addendum left "should the worker card gain one"
+  to #1823. For this phase the answer is no: `role_kind` stays on no worker read, and the
+  exact-keys pin on `/feed` is unchanged. The posting's role words reach the worker through
+  `title`. A role line later needs a new ruling here.
+- **HIDDEN still holds.** The arm's projection carries none of `org_label`, `payer_id`,
+  `created_by`, `location_label`, `verification_status`, `boosted_until` or `vacancy_band`, and
+  `city` / `area` are never back-filled from `location_label`. No verified pill and no urgency
+  claim (#1651).
+- **Arming precondition: free-text screen parity.** The free-text guard above (the build notes'
+  three heuristics) is met on agency `jobs` writes but not on postings. A posting's `role_title`
+  is unscreened, and its `description` gets `looksLikePii` only; `benefits` and `requirements`
+  already get all three. Search and detail already serve these fields, and the union would put
+  them on the deck. `FEED_POSTINGS_UNION_ENABLED` is not armed until posting `role_title` and
+  `description` are screened at write with `looksLikePii` + `looksLikeOrgName` + `looksLikeUrl`
+  (ADR-0049 O10c) and the existing open postings are reviewed (O10a). That screen is ADR-0049's
+  B3, built in its own PR under #1823 (branch `fix/1823-posting-text-screen`); it also moves the
+  `benefits` / `requirements` chip arrays onto the same screen. Posting `city` / `area` are
+  outside B3 and tracked in #1848.
