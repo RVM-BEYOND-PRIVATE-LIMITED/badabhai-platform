@@ -1,20 +1,20 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { ReactElement } from "react";
-import { TOOLTIP_DISMISSED_ATTRIBUTE } from "@badabhai/icons";
-import { IconButton, type IconButtonProps } from "./icon-button";
+import { IconButton } from "./icon-button";
 
 /**
- * The admin IconButton honours the shared icon-only-control contract (@badabhai/icons):
- * a required label that is the ONLY accessible name, a visible tooltip carrying it (never a
- * `title`), a native button, Escape dismissal that does not swallow the key.
+ * The admin IconButton is the console's SKIN over the shared IconButtonBase
+ * (@badabhai/icons/button) — the same component payer-web's DS IconButton wraps. These tests pin
+ * the class vocabulary and that the shared contract reaches through the wrapper; the behaviour
+ * (Escape on a focus- AND a hover-opened tooltip, listener cleanup on leave and unmount) is tested
+ * once, on IconButtonBase, in packages/icons (button.behaviour.test.tsx).
  */
 describe("IconButton (admin)", () => {
-  it("renders a native button named by its label, with the glyph and a visible tooltip", () => {
+  it("renders the shared control with the console's class root and the shared tooltip", () => {
     expect(renderToStaticMarkup(<IconButton icon="funnel-x" label="Clear filters" />)).toBe(
       '<button type="button" class="iconbtn" aria-label="Clear filters">' +
         '<i class="ph-fill ph-funnel-x" aria-hidden="true"></i>' +
-        '<span class="iconbtn__tip iconbtn__tip--top" aria-hidden="true">Clear filters</span>' +
+        '<span class="bb-icon-tip bb-icon-tip--top" aria-hidden="true">Clear filters</span>' +
         "</button>",
     );
   });
@@ -26,14 +26,14 @@ describe("IconButton (admin)", () => {
         label="Navigation"
         variant="outline"
         size="sm"
-        tooltipPlacement="end"
+        tooltipPlacement="bottom-start"
         className="topbar__menu"
         type="submit"
       />,
     );
     expect(out).toContain('class="iconbtn iconbtn--outline iconbtn--sm topbar__menu"');
     expect(out).toContain('type="submit"');
-    expect(out).toContain("iconbtn__tip--end");
+    expect(out).toContain('<span class="bb-icon-tip bb-icon-tip--bottom-start"');
   });
 
   it("never emits a title (a title-only hint is invisible to keyboard and touch users)", () => {
@@ -49,27 +49,8 @@ describe("IconButton (admin)", () => {
     const relabelled = <IconButton icon="x" label="Close" aria-label="Shut" />;
     // @ts-expect-error — "funel" is not an IconName.
     const typo = <IconButton icon="funel" label="Filter" />;
-    expect([noLabel, titled, relabelled, typo].every(Boolean)).toBe(true);
-  });
-
-  it("Escape marks the tooltip dismissed AND still reaches the caller's handler (the drawer)", () => {
-    const onKeyDown = vi.fn();
-    const el = IconButton({ icon: "list", label: "Navigation", onKeyDown }) as ReactElement<
-      Required<Pick<IconButtonProps, "onKeyDown" | "onBlur" | "onMouseLeave">>
-    >;
-    const attrs = new Map<string, string>();
-    const currentTarget = {
-      setAttribute: (k: string, v: string) => void attrs.set(k, v),
-      removeAttribute: (k: string) => void attrs.delete(k),
-    };
-    el.props.onKeyDown({ key: "Escape", currentTarget } as never);
-    expect(attrs.has(TOOLTIP_DISMISSED_ATTRIBUTE)).toBe(true);
-    expect(onKeyDown).toHaveBeenCalledTimes(1);
-
-    el.props.onBlur({ currentTarget } as never);
-    expect(attrs.has(TOOLTIP_DISMISSED_ATTRIBUTE)).toBe(false);
-    el.props.onKeyDown({ key: "Escape", currentTarget } as never);
-    el.props.onMouseLeave({ currentTarget } as never);
-    expect(attrs.has(TOOLTIP_DISMISSED_ATTRIBUTE)).toBe(false);
+    // @ts-expect-error — payer-web's `solid` variant is not part of the console's vocabulary.
+    const solid = <IconButton icon="x" label="Close" variant="solid" />;
+    expect([noLabel, titled, relabelled, typo, solid].every(Boolean)).toBe(true);
   });
 });

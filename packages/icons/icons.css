@@ -15,6 +15,14 @@
 
    FILL ONLY. The brand allows solid, rounded silhouettes and nothing thinner, so no other
    Phosphor weight is imported anywhere.
+
+   KNOWN COST, TRACKED (follow-up issue to PR #1886 — do not "fix" ad hoc here):
+     - the WHOLE fill sheet (~1,530 glyph rules, 72,948 B minified / 11,816 B gzipped) is
+       render-blocking on every page, including the public /i/<code> install page that paints
+       no glyph (+12.3 KB gzipped there, measured);
+     - the bundler also emits the sheet's three unused font formats per app (svg 2.77 MB, ttf and
+       woff ~449 KB each) — never downloaded by a browser, only shipped in the image.
+   The fix is a generated subset (the IconName union only, woff2 only) with a staleness test.
    ============================================================ */
 @import "@phosphor-icons/web/fill";
 
@@ -39,4 +47,136 @@
 }
 .bb-icon--lg {
   font-size: var(--icon-size-lg);
+}
+
+/* ---- The icon-only control's tooltip (`IconButtonBase`, @badabhai/icons/button) ---------
+   ONE tooltip for both portals: the button skin (`.bb-iconbtn` / `.iconbtn`) is each app's, the
+   tooltip is this. It is the control's label, visible on HOVER (pointer devices only — a tap
+   must not leave a stuck bubble) and on KEYBOARD FOCUS (`:focus-visible`). The control must be
+   positioned (both apps' button skins are `position: relative`).
+
+   - Hidden with `display: none`, so a hidden tooltip neither catches a click nor adds to a
+     scroll container's overflow. It fades in with an animation (a transition cannot run from
+     `display: none`); the token layer zeroes the duration under prefers-reduced-motion.
+   - `pointer-events` stay `none` unless it was opened by HOVER: a hover-opened tooltip is
+     hoverable (a child of the control, so moving onto it keeps `:hover`, and the `::before`
+     bridge spans the gap — WCAG 1.4.13), while a focus-opened one never sits on top of the
+     control underneath it and swallows a click.
+   - Escape sets [data-tooltip-dismissed] (TOOLTIP_DISMISSED_ATTRIBUTE) on the control until blur
+     or pointer leave; that rule is declared after both triggers (same specificity) so it wins.
+   - The hairline border is near-invisible on navy and becomes the system border in forced
+     colours. */
+.bb-icon-tip {
+  display: none;
+  position: absolute;
+  z-index: var(--z-tooltip);
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-hairline) solid var(--border-on-ink);
+  border-radius: var(--radius-sm);
+  background: var(--surface-ink);
+  color: var(--text-on-ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  font-style: normal;
+  line-height: var(--leading-snug);
+  letter-spacing: 0;
+  text-transform: none;
+  text-align: center;
+  white-space: nowrap;
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+  animation: bb-icon-tip-in var(--duration-fast) var(--ease-out);
+}
+@keyframes bb-icon-tip-in {
+  from {
+    opacity: 0;
+  }
+}
+.bb-icon-tip::before {
+  content: "";
+  position: absolute;
+}
+
+/* Placement. Block side first, then the inline alignment; the bridge fills the --space-1 gap. */
+.bb-icon-tip--top,
+.bb-icon-tip--top-start,
+.bb-icon-tip--top-end {
+  bottom: 100%;
+  margin-bottom: var(--space-1);
+}
+.bb-icon-tip--top::before,
+.bb-icon-tip--top-start::before,
+.bb-icon-tip--top-end::before {
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: var(--space-1);
+}
+.bb-icon-tip--bottom,
+.bb-icon-tip--bottom-start,
+.bb-icon-tip--bottom-end {
+  top: 100%;
+  margin-top: var(--space-1);
+}
+.bb-icon-tip--bottom::before,
+.bb-icon-tip--bottom-start::before,
+.bb-icon-tip--bottom-end::before {
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  height: var(--space-1);
+}
+.bb-icon-tip--top,
+.bb-icon-tip--bottom {
+  left: 50%;
+  transform: translateX(-50%);
+}
+/* Edge-aware: aligned with the control's start / end edge, so it grows inward. */
+.bb-icon-tip--top-start,
+.bb-icon-tip--bottom-start {
+  inset-inline-start: 0;
+}
+.bb-icon-tip--top-end,
+.bb-icon-tip--bottom-end {
+  inset-inline-end: 0;
+}
+.bb-icon-tip--end {
+  inset-inline-start: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-inline-start: var(--space-1);
+}
+.bb-icon-tip--end::before {
+  inset-inline-end: 100%;
+  top: 0;
+  bottom: 0;
+  width: var(--space-1);
+}
+.bb-icon-tip--start {
+  inset-inline-end: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-inline-end: var(--space-1);
+}
+.bb-icon-tip--start::before {
+  inset-inline-start: 100%;
+  top: 0;
+  bottom: 0;
+  width: var(--space-1);
+}
+
+/* Triggers. Focus shows it but leaves it click-through; only hover makes it hoverable. */
+:focus-visible > .bb-icon-tip {
+  display: block;
+}
+@media (hover: hover) {
+  :hover > .bb-icon-tip {
+    display: block;
+    pointer-events: auto;
+  }
+}
+/* After both triggers on purpose: same specificity, so source order makes Escape win. */
+[data-tooltip-dismissed] > .bb-icon-tip {
+  display: none;
 }

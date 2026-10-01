@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { TOOLTIP_DISMISSED_ATTRIBUTE } from "@badabhai/icons";
 import { decl, globalsCss, rule, rules } from "../../test/css-rules";
 
 /**
  * The icon system in the admin stylesheet: the shared sheet is imported, button icons size from
- * the shared tokens and inherit colour, and the IconButton's tooltip + hit area hold the
- * contract (@badabhai/icons `IconOnlyControlProps`). Declared rules only — the layout itself was
- * measured in Chromium when this was written.
+ * the shared tokens and inherit colour, and the IconButton SKIN holds its half of the contract
+ * (brand colours, the ≥44px coarse-pointer hit area, a positioned anchor). The tooltip itself is
+ * shared — `.bb-icon-tip`, tested in @badabhai/icons (icons-css.test.ts). Declared rules only —
+ * the layout itself was measured in Chromium.
  */
 const CSS = globalsCss();
 const ALL = rules(CSS, true);
@@ -19,8 +19,6 @@ function body(selector: string): string {
   return b!;
 }
 const topIndex = (selector: string) => TOP.findIndex((r) => r.selector === selector);
-const allIndex = (selector: string, atRules: string[] = []) =>
-  ALL.findIndex((r) => r.selector === selector && r.atRules.join() === atRules.join());
 
 describe("the shared icon sheet", () => {
   it("is imported FIRST — library rules precede the app's, so an app rule wins a tie", () => {
@@ -70,48 +68,13 @@ describe("IconButton — brand colours", () => {
   });
 });
 
-describe("IconButton — the tooltip shows on hover AND keyboard focus, and Escape wins", () => {
-  it("is hidden by default and catches no clicks while hidden", () => {
-    const tip = body(".iconbtn__tip");
-    expect(decl(tip, "opacity")).toBe("0");
-    expect(decl(tip, "visibility")).toBe("hidden");
-    expect(decl(tip, "pointer-events")).toBe("none");
-    expect(decl(tip, "z-index")).toBe("var(--z-tooltip)");
+describe("IconButton — the tooltip is the shared one, not a local copy", () => {
+  it("no `.iconbtn__tip` rules remain here (the tooltip is `.bb-icon-tip` in icons.css)", () => {
+    expect(ALL.filter((r) => r.selector.includes("__tip")).map((r) => r.selector)).toEqual([]);
   });
 
-  it("keyboard focus shows it at every width", () => {
-    const focus = body(".iconbtn:focus-visible .iconbtn__tip");
-    expect(decl(focus, "opacity")).toBe("1");
-    expect(decl(focus, "visibility")).toBe("visible");
-  });
-
-  it("hover shows it only where hover exists (a tap must not leave a stuck bubble)", () => {
-    expect(rule(CSS, ".iconbtn:hover .iconbtn__tip")).toBeNull();
-    const hover = ALL.find(
-      (r) =>
-        r.selector === ".iconbtn:hover .iconbtn__tip" &&
-        r.atRules.join() === "@media (hover: hover)",
-    );
-    expect(hover).toBeDefined();
-    expect(decl(hover!.body, "visibility")).toBe("visible");
-  });
-
-  it("the Escape rule keys on the shared attribute and comes after both triggers", () => {
-    const sel = `.iconbtn[${TOOLTIP_DISMISSED_ATTRIBUTE}] .iconbtn__tip`;
-    const dismissed = body(sel);
-    expect(decl(dismissed, "visibility")).toBe("hidden");
-    expect(allIndex(sel)).toBeGreaterThan(allIndex(".iconbtn:focus-visible .iconbtn__tip"));
-    expect(allIndex(sel)).toBeGreaterThan(
-      allIndex(".iconbtn:hover .iconbtn__tip", ["@media (hover: hover)"]),
-    );
-  });
-
-  it("every placement has a gap bridge so the pointer can move onto the tooltip", () => {
-    for (const side of ["top", "bottom", "start", "end"]) {
-      expect(rule(CSS, `.iconbtn__tip--${side}`), side).not.toBeNull();
-      expect(rule(CSS, `.iconbtn__tip--${side}::before`), side).not.toBeNull();
-    }
-    expect(decl(body(".iconbtn__tip::before"), "content")).toBe('""');
+  it("the skin is the tooltip's positioned anchor", () => {
+    expect(decl(body(".iconbtn"), "position")).toBe("relative");
   });
 });
 

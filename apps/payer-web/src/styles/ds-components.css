@@ -115,8 +115,8 @@
 @keyframes bb-spin { to { transform: rotate(360deg); } }
 
 /* ---------- IconButton ----------
-   The ONE icon-only control (components/ds/icon-button.tsx; the contract is
-   `IconOnlyControlProps` in @badabhai/icons, shared with admin-web's `.iconbtn`).
+   The ONE icon-only control's SKIN (components/ds/icon-button.tsx wraps the shared IconButtonBase
+   from @badabhai/icons/button, which admin-web's `.iconbtn` skin wraps too).
    BRAND COLOUR RULE — structural Shift Blue at rest (--text-heading: navy on light surfaces, light
    on ink). An ACTIVE utility (pressed / expanded) takes the Safety Yellow FILL with a navy glyph
    (--brand + --text-on-brand, 9.39:1): yellow as a glyph colour is 1.63:1 on Ivory. Disabled steps
@@ -146,39 +146,9 @@
    stay discoverable needs the aria-disabled pattern instead (not built yet). */
 .bb-iconbtn:disabled { background: transparent; color: var(--text-disabled); cursor: not-allowed; transform: none; box-shadow: none; }
 
-/* THE TOOLTIP — the label, visible on hover (pointer devices only: a tap must not leave a stuck
-   bubble) and on keyboard focus. Hidden with visibility + no pointer events, so it never catches a
-   click while invisible. Once shown it IS hoverable (a child of the button, so moving onto it keeps
-   :hover), and the `::before` bridge spans the --space-1 gap so the pointer can cross it. Escape
-   sets [data-tooltip-dismissed] (TOOLTIP_DISMISSED_ATTRIBUTE) until blur / pointer leave.
-   The hairline border is invisible on navy and becomes the system border in forced colours. */
-.bb-iconbtn__tip {
-  position: absolute; z-index: var(--z-tooltip);
-  padding: var(--space-1) var(--space-3);
-  border: var(--border-hairline) solid var(--border-on-ink);
-  border-radius: var(--radius-sm);
-  background: var(--surface-ink); color: var(--text-on-ink);
-  font-family: var(--font-sans); font-size: var(--text-sm); font-weight: var(--weight-medium);
-  line-height: var(--leading-snug); letter-spacing: 0; white-space: nowrap;
-  box-shadow: var(--shadow-md);
-  opacity: 0; visibility: hidden; pointer-events: none;
-  transition: opacity var(--duration-fast) var(--ease-out), visibility var(--duration-fast) var(--ease-out);
-}
-.bb-iconbtn__tip::before { content: ""; position: absolute; }
-.bb-iconbtn__tip--top { bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: var(--space-1); }
-.bb-iconbtn__tip--top::before { top: 100%; left: 0; right: 0; height: var(--space-1); }
-.bb-iconbtn__tip--bottom { top: 100%; left: 50%; transform: translateX(-50%); margin-top: var(--space-1); }
-.bb-iconbtn__tip--bottom::before { bottom: 100%; left: 0; right: 0; height: var(--space-1); }
-.bb-iconbtn__tip--end { inset-inline-start: 100%; top: 50%; transform: translateY(-50%); margin-inline-start: var(--space-1); }
-.bb-iconbtn__tip--end::before { inset-inline-end: 100%; top: 0; bottom: 0; width: var(--space-1); }
-.bb-iconbtn__tip--start { inset-inline-end: 100%; top: 50%; transform: translateY(-50%); margin-inline-end: var(--space-1); }
-.bb-iconbtn__tip--start::before { inset-inline-start: 100%; top: 0; bottom: 0; width: var(--space-1); }
-.bb-iconbtn:focus-visible .bb-iconbtn__tip { opacity: 1; visibility: visible; pointer-events: auto; }
-@media (hover: hover) {
-  .bb-iconbtn:hover .bb-iconbtn__tip { opacity: 1; visibility: visible; pointer-events: auto; }
-}
-/* Declared after both triggers on purpose: same specificity, so source order makes Escape win. */
-.bb-iconbtn[data-tooltip-dismissed] .bb-iconbtn__tip { opacity: 0; visibility: hidden; pointer-events: none; }
+/* THE TOOLTIP is not styled here: it is the shared `.bb-icon-tip` (@badabhai/icons/icons.css),
+   rendered by IconButtonBase for both portals. This skin only has to be its positioned anchor
+   (`position: relative` above). */
 
 /* HIT AREA ≥ 44px on a phone OR any coarse pointer (a tablet is touch at 820px too). md is 44 and
    lg 52 already; the dense 36px `sm` grows its HIT AREA, not its drawn size. Percent insets

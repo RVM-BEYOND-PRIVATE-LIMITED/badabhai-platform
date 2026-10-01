@@ -40,9 +40,11 @@ export type { TooltipProps, ProgressBarProps } from "./feedback";
 export { BadaBhaiLogo } from "./logo";
 export type { BadaBhaiLogoProps } from "./logo";
 
-/* ---- Interactive ("use client") ---- */
+/* ---- IconButton (shared skin over @badabhai/icons/button, which carries the client boundary) ---- */
 export { IconButton } from "./icon-button";
 export type { IconButtonProps } from "./icon-button";
+
+/* ---- Interactive ("use client") ---- */
 export { OtpInput } from "./otp-input";
 export type { OtpInputProps } from "./otp-input";
 export { SelectMenu } from "./select-menu";

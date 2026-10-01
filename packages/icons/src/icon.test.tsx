@@ -27,6 +27,14 @@ describe("<Icon>", () => {
     expect(out).not.toContain("aria-hidden");
   });
 
+  it("an empty or blank label is treated as decorative, never an unnamed image", () => {
+    for (const label of ["", "   "]) {
+      const out = renderToStaticMarkup(<Icon name="check" label={label} />);
+      expect(out).toBe('<i class="ph-fill ph-check" aria-hidden="true"></i>');
+      expect(out).not.toContain('role="img"');
+    }
+  });
+
   it("only ever draws the fill weight", () => {
     expect(renderToStaticMarkup(<Icon name="x" />)).not.toMatch(
       /ph-(bold|regular|light|thin|duotone)/,

@@ -20,7 +20,10 @@
    --icon-size-* / --icon-gap tokens. Shared through @badabhai/icons (packages/icons).
    FIRST, as in payer-web: a library's rules precede the app's, so an app rule that ties with
    Phosphor's `.ph-fill` base rule wins; the size tokens are var() aliases of the token layer,
-   which resolve whatever the import order. */
+   which resolve whatever the import order.
+   KNOWN COST, TRACKED (follow-up issue to PR #1886): the whole fill sheet is render-blocking and
+   the build emits three unused font formats; the planned fix is a generated subset. Details at
+   the import in packages/icons/icons.css. */
 @import "@badabhai/icons/icons.css";
 @import "@badabhai/design-tokens/tokens.css";
 
@@ -202,9 +205,10 @@ h3 {
 }
 
 /* ---- IconButton (components/icon-button.tsx) ------------------------------
-   The ONE icon-only control — payer-web's `.bb-iconbtn` contract in this console's vocabulary
-   (`IconOnlyControlProps`, @badabhai/icons). Declared BEFORE `.topbar__menu`, which is an
-   IconButton and must keep its `display: none` above 1024px by source order.
+   The ONE icon-only control's SKIN in this console's vocabulary — components/icon-button.tsx
+   wraps the shared IconButtonBase (@badabhai/icons/button), as payer-web's `.bb-iconbtn` does.
+   Declared BEFORE `.topbar__menu`, which is an IconButton and must keep its `display: none`
+   above 1024px by source order.
    BRAND COLOUR RULE — structural Shift Blue at rest (--text-heading flips to paper on ink). An
    ACTIVE utility (pressed / expanded) takes the Safety Yellow FILL with a navy glyph (--brand +
    --text-on-brand): yellow as a glyph colour is 1.63:1 on Ivory. Disabled steps down to the 40%
@@ -255,103 +259,9 @@ h3 {
   cursor: not-allowed;
 }
 
-/* The tooltip — the label, visible on hover (pointer devices only: a tap must not leave a stuck
-   bubble) and on keyboard focus. Hidden with visibility and no pointer events, so it never
-   catches a click while invisible; once shown it is hoverable (a child of the button), and the
-   `::before` bridge spans the --space-1 gap. Escape sets [data-tooltip-dismissed]
-   (TOOLTIP_DISMISSED_ATTRIBUTE) until blur / pointer leave. The hairline border is near-invisible
-   on navy and becomes the system border in forced colours. */
-.iconbtn__tip {
-  position: absolute;
-  z-index: var(--z-tooltip);
-  padding: var(--space-1) var(--space-3);
-  border: var(--border-hairline) solid var(--border-on-ink);
-  border-radius: var(--radius-sm);
-  background: var(--surface-ink);
-  color: var(--text-on-ink);
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  line-height: var(--leading-snug);
-  white-space: nowrap;
-  box-shadow: var(--shadow-md);
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition:
-    opacity var(--duration-fast) var(--ease-out),
-    visibility var(--duration-fast) var(--ease-out);
-}
-.iconbtn__tip::before {
-  content: "";
-  position: absolute;
-}
-.iconbtn__tip--top {
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-bottom: var(--space-1);
-}
-.iconbtn__tip--top::before {
-  top: 100%;
-  left: 0;
-  right: 0;
-  height: var(--space-1);
-}
-.iconbtn__tip--bottom {
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-top: var(--space-1);
-}
-.iconbtn__tip--bottom::before {
-  bottom: 100%;
-  left: 0;
-  right: 0;
-  height: var(--space-1);
-}
-.iconbtn__tip--end {
-  inset-inline-start: 100%;
-  top: 50%;
-  transform: translateY(-50%);
-  margin-inline-start: var(--space-1);
-}
-.iconbtn__tip--end::before {
-  inset-inline-end: 100%;
-  top: 0;
-  bottom: 0;
-  width: var(--space-1);
-}
-.iconbtn__tip--start {
-  inset-inline-end: 100%;
-  top: 50%;
-  transform: translateY(-50%);
-  margin-inline-end: var(--space-1);
-}
-.iconbtn__tip--start::before {
-  inset-inline-start: 100%;
-  top: 0;
-  bottom: 0;
-  width: var(--space-1);
-}
-.iconbtn:focus-visible .iconbtn__tip {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-}
-@media (hover: hover) {
-  .iconbtn:hover .iconbtn__tip {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-  }
-}
-/* After both triggers on purpose: same specificity, so source order makes Escape win. */
-.iconbtn[data-tooltip-dismissed] .iconbtn__tip {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
+/* The tooltip is not styled here: it is the shared `.bb-icon-tip` (@badabhai/icons/icons.css),
+   rendered by IconButtonBase for both portals. This skin only has to be its positioned anchor
+   (`position: relative` above). */
 
 .field {
   display: flex;
@@ -1515,8 +1425,9 @@ h3 {
 /* ==================================================================
  * UI-1 · ADMIN SHELL REFINEMENT
  * Typography roles, a legible active state, and a topbar that says where you are.
- * No icon font is introduced: this is an internal console, and 250KB of decorative glyph
- * CSS from a third-party origin is not worth a picture beside "Transactions".
+ * (Written when this console loaded no icon font. It now shares payer-web's SELF-HOSTED Phosphor
+ * FILL sheet through @badabhai/icons — same origin, no third party — and renders glyphs only
+ * through `<Icon>` / `IconButton`; the sidebar items are still text-only until the icon pass.)
  * ================================================================== */
 
 /* `sidebar__group` was referenced by nav.tsx but had no rule at all — the groups were held
@@ -1923,7 +1834,8 @@ textarea.field__input {
  * Rendered only when something genuinely needs an operator (see (portal)/attention.ts), so
  * its presence is itself information. Tone rides on a leading spine rather than a full-bleed
  * wash: three saturated banners stacked would out-shout the page they are directing
- * attention within. admin-web ships no icon font, so the spine plus the wording carry it.
+ * attention within. The spine plus the wording carry the tone; the items draw no tone icon yet
+ * (the shared icon font is available through @badabhai/icons — adding one is the icon pass).
  * ================================================================== */
 .attention {
   display: flex;

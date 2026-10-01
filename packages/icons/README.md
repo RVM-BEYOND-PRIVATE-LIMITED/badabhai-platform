@@ -3,8 +3,9 @@
 The one icon system for the BadaBhai web portals: payer-web (Company + Agency) and admin-web.
 
 - **Glyphs:** Phosphor, FILL weight only, self-hosted from each app's own origin.
-- **API:** a typed `IconName` union, the `<Icon>` element, the product-wide `ACTION_ICON` map and
-  the icon-only-control contract that both apps' `IconButton`s implement.
+- **API:** a typed `IconName` union, the `<Icon>` element, the product-wide `ACTION_ICON` map, and
+  `IconButtonBase` (`@badabhai/icons/button`): the one implementation of the icon-only-control
+  contract that both apps' `IconButton`s wrap.
 - **No build step.** The package is TypeScript source; each app compiles it through
   `transpilePackages` in `next.config.mjs`.
 
@@ -18,7 +19,8 @@ the stylesheet once, first, in `src/app/globals.css`:
 @import "@badabhai/design-tokens/tokens.css";
 ```
 
-`icons.css` imports `@phosphor-icons/web/fill` and declares the icon size tokens. The Phosphor
+`icons.css` imports `@phosphor-icons/web/fill` and declares the icon size tokens and the shared
+icon-button tooltip (`.bb-icon-tip`). The Phosphor
 `@font-face` uses relative URLs, so `next build` emits the font under `/_next/static/media` and
 the browser fetches it from the app's origin. Nothing is loaded from a CDN. The face is only
 downloaded by a page that paints a glyph, and only the woff2 is requested.
@@ -42,12 +44,19 @@ the installed version differs from the pin. To upgrade:
 4. `pnpm audit --audit-level high`.
 5. Check a few screens in both apps.
 
+**Known cost, tracked** (follow-up issue to PR #1886): the whole fill sheet is render-blocking on
+every page (+12.3 KB gzipped on the public `/i/<code>` page, which paints no glyph), and the
+bundler emits the sheet's three unused font formats (svg 2.77 MB, ttf and woff about 449 KB each)
+into each app's image. The planned fix is a generated subset (the `IconName` union only, woff2
+only) with a staleness test.
+
 ```tsx
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 <Icon name="plus" />; // <i class="ph-fill ph-plus" aria-hidden="true">
 <Icon name={ACTION_ICON.retry} size="sm" />;
 <Icon name="check" label="Allowed" />; // a standalone status mark: role="img", named
+<Icon name="check" label="" />; // empty or blank label → decorative, never an unnamed image
 ```
 
 - `<Icon>` is decorative by default (`aria-hidden`), because the text beside it carries the meaning.
@@ -64,10 +73,21 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
    - payer-web: `components/ds/icon-button.tsx`
    - admin-web: `components/icon-button.tsx`
 
-   Both implement `IconOnlyControlProps`:
-   - `label` is required. It is the control's accessible name.
-   - The label also shows as a visible tooltip on hover **and** on keyboard focus. Escape
-     dismisses the tooltip. A `title` attribute is not allowed.
+   Both are thin skins over `IconButtonBase` (`@badabhai/icons/button`, a client module kept out
+   of the server-safe index), which implements `IconOnlyControlProps` once. The skin only chooses
+   its class root (`bb-iconbtn` / `iconbtn`) and its typed variants and sizes:
+   - `label` is required. It is the control's only accessible name: `aria-label`,
+     `aria-labelledby` and `title` are typed `never`, and dropped at runtime too.
+   - The label shows as a visible tooltip on hover (hover-capable pointers only) **and** on
+     keyboard focus. A hover-opened tooltip is hoverable; a focus-opened one is click-through, so
+     it never swallows a click meant for what lies under it.
+   - Escape dismisses the tooltip whether it was opened by focus (keydown on the button) or by
+     hover (a keydown listener on the document, added on pointer enter and removed on pointer
+     leave and on unmount). Escape is never swallowed: a drawer or dialog still gets it.
+   - `tooltipPlacement`: `top` (default), `bottom`, `start`, `end`, or an edge-aligned
+     `top-start` / `top-end` / `bottom-start` / `bottom-end` for a control near a viewport edge
+     (`bottom-end` for a dialog ✕ in the top-right corner).
+   - A hidden tooltip is `display: none`: no click target and no scroll overflow.
    - The control is a native `<button>`.
    - The hit area is at least 44×44 px on a phone or any coarse pointer, even at `sm`.
    - A pressed or expanded control (`aria-pressed` / `aria-expanded="true"`) takes the Safety
@@ -171,4 +191,12 @@ per-file count:
   only shrink.
 - Every static name at those call sites must still be an `IconName`.
 
-admin-web's allow-list is empty.
+admin-web's allow-list is empty. Its fence also refuses a hand-drawn SVG **icon** — an inline
+`<svg>` inside a button or link, with an icon class, on Phosphor's 256 grid, or glyph-sized on
+every axis — while content SVG (charts, sparklines, logos) stays allowed; a genuine exception is
+allow-listed with its reason.
+
+payer-web's `icon-system.css.test.ts` also guards the cascade: it reads every glyph element's
+classes with the TypeScript parser and fails on any single-class rule that would override
+Phosphor's base metrics (including any `font` shorthand), and on any glyph element whose
+className it cannot read (a variable, a call, a spread).

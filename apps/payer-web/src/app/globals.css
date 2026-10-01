@@ -6,7 +6,10 @@
  * Phosphor's `.ph-fill` base rule wins (icon-system.css.test.ts pins every such tie); (2) Next
  * then merges the token and component layers into one stylesheet again — imported between them,
  * the sheet split the CSS into five requests on every page, measured on /i/<code>. Its size
- * tokens are var() aliases of the token layer, which resolve whatever the import order. */
+ * tokens are var() aliases of the token layer, which resolve whatever the import order.
+ * KNOWN COST, TRACKED (follow-up issue to PR #1886): the whole fill sheet is render-blocking here
+ * too — +12.3 KB gzipped on /i/<code>, which paints no glyph — and the build emits three unused
+ * font formats; the planned fix is a generated subset. Details at the import in icons.css. */
 @import "@badabhai/icons/icons.css";
 
 /* BadaBhai brand token layer — the foundation (colors / type / spacing / radii /

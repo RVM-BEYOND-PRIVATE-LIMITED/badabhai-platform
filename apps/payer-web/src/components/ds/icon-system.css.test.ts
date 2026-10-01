@@ -1,15 +1,16 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { TOOLTIP_DISMISSED_ATTRIBUTE } from "@badabhai/icons";
+import ts from "typescript";
 import { decl, parseRules, stripComments, type Rule } from "../../../test/css-rules";
 
 /**
  * The icon system in the DS component layer (ds-components.css): button icons size from the
- * shared tokens per control size and inherit colour, and the IconButton's tooltip + hit area hold
- * the icon-only-control contract (@badabhai/icons `IconOnlyControlProps`). Declared rules only —
- * the layout itself was measured in Chromium when this was written.
+ * shared tokens per control size and inherit colour, and the IconButton SKIN holds its half of the
+ * icon-only-control contract (brand colours, the ≥44px coarse-pointer hit area, a positioned
+ * anchor). The tooltip itself is shared — `.bb-icon-tip`, tested in @badabhai/icons
+ * (icons-css.test.ts). Declared rules only — the layout was measured in Chromium.
  */
 const here = dirname(fileURLToPath(import.meta.url));
 const RULES = parseRules(
@@ -75,47 +76,6 @@ describe("IconButton — brand colours", () => {
   });
 });
 
-describe("IconButton — the tooltip shows on hover AND keyboard focus, and Escape wins", () => {
-  it("is hidden by default and catches no clicks while hidden", () => {
-    const tip = find(".bb-iconbtn__tip");
-    expect(decl(tip, "opacity")).toBe("0");
-    expect(decl(tip, "visibility")).toBe("hidden");
-    expect(decl(tip, "pointer-events")).toBe("none");
-    expect(decl(tip, "z-index")).toBe("var(--z-tooltip)");
-  });
-
-  it("keyboard focus shows it at every width", () => {
-    const focus = find(".bb-iconbtn:focus-visible .bb-iconbtn__tip");
-    expect(decl(focus, "opacity")).toBe("1");
-    expect(decl(focus, "visibility")).toBe("visible");
-    expect(decl(focus, "pointer-events")).toBe("auto");
-  });
-
-  it("hover shows it only where hover exists (a tap must not leave a stuck bubble)", () => {
-    expect(indexOf(".bb-iconbtn:hover .bb-iconbtn__tip")).toBe(-1);
-    const hover = find(".bb-iconbtn:hover .bb-iconbtn__tip", "@media (hover: hover)");
-    expect(decl(hover, "visibility")).toBe("visible");
-    expect(decl(hover, "pointer-events")).toBe("auto");
-  });
-
-  it("the Escape rule keys on the shared attribute and comes after both triggers", () => {
-    const sel = `.bb-iconbtn[${TOOLTIP_DISMISSED_ATTRIBUTE}] .bb-iconbtn__tip`;
-    expect(decl(find(sel), "visibility")).toBe("hidden");
-    expect(indexOf(sel)).toBeGreaterThan(indexOf(".bb-iconbtn:focus-visible .bb-iconbtn__tip"));
-    expect(indexOf(sel)).toBeGreaterThan(
-      indexOf(".bb-iconbtn:hover .bb-iconbtn__tip", "@media (hover: hover)"),
-    );
-  });
-
-  it("every placement has a gap bridge so the pointer can move onto the tooltip", () => {
-    for (const side of ["top", "bottom", "start", "end"]) {
-      find(`.bb-iconbtn__tip--${side}`);
-      find(`.bb-iconbtn__tip--${side}::before`);
-    }
-    expect(decl(find(".bb-iconbtn__tip::before"), "content")).toBe('""');
-  });
-});
-
 describe("IconButton — 44px hit area on a phone or coarse pointer", () => {
   it("md is 44×44 and lg 52×52 at every width", () => {
     expect(decl(find(".bb-iconbtn"), "width")).toBe("var(--control-md)");
@@ -142,6 +102,19 @@ describe("IconButton — 44px hit area on a phone or coarse pointer", () => {
  * one of Phosphor's base properties therefore changed behaviour with the move — `.alert__icon`
  * and `.attention__icon` declared `line-height: 1.35`, which had never rendered and would have
  * dropped those glyphs ~4px. This pins every such rule to what Phosphor itself sets.
+ *
+ * WHAT IT READS. Every JSX element in the shipped .tsx sources, parsed with the TypeScript
+ * compiler (not a regex, so `onClick={() => …}` before `className` cannot end a tag early). A
+ * GLYPH element is `<Icon …>` or any element whose className contains the `ph-fill` token. Its
+ * classes are every static token of its className — before or after `ph-fill`, in a plain string,
+ * a template (a `ph-${…}` interpolation is a glyph NAME and is skipped), a conditional, or an
+ * array joined into a string.
+ *
+ * WHAT IT CANNOT SEE, and therefore REFUSES: a glyph element whose className is a variable, a
+ * call, or anything else that is not literal text, and a glyph element with a `{...spread}`.
+ * Those fail the "readable" check below, so the guard never passes on classes it did not read.
+ * (Out of reach entirely: classes added at runtime through the DOM, and elements built without
+ * JSX — neither pattern exists in this app.)
  */
 describe("cascade order — no app rule silently overrides Phosphor's glyph metrics", () => {
   const srcRoot = join(here, "..", "..");
@@ -154,14 +127,90 @@ describe("cascade order — no app rule silently overrides Phosphor's glyph metr
     }
   })(srcRoot);
 
-  /** Classes written on the SAME element as a glyph: raw `ph-fill ph-x …` and `<Icon className>`. */
-  const glyphClasses = new Set<string>();
+  /** Static text pieces of a className expression, or null where some part is not literal. */
+  function staticPieces(expr: ts.Expression): string[] | null {
+    if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) return [expr.text];
+    if (ts.isParenthesizedExpression(expr)) return staticPieces(expr.expression);
+    if (ts.isTemplateExpression(expr)) {
+      const out = [expr.head.text];
+      let prev = expr.head.text;
+      for (const span of expr.templateSpans) {
+        // `ph-${…}` / `ph-caret-${…}` interpolate a GLYPH NAME, not a class: skipped.
+        const nameSlot = /(^|\s)ph-[a-z0-9-]*$/.test(prev);
+        const inner = nameSlot ? [] : staticPieces(span.expression);
+        if (inner === null) return null;
+        out.push(...inner, span.literal.text);
+        prev = span.literal.text;
+      }
+      return out;
+    }
+    if (ts.isConditionalExpression(expr)) {
+      const a = staticPieces(expr.whenTrue);
+      const b = staticPieces(expr.whenFalse);
+      return a && b ? [...a, ...b] : null;
+    }
+    if (ts.isArrayLiteralExpression(expr)) {
+      const out: string[] = [];
+      for (const e of expr.elements) {
+        const p = staticPieces(e);
+        if (p === null) return null;
+        out.push(...p);
+      }
+      return out;
+    }
+    // `[…].join(" ")` / `[…].filter(Boolean).join(" ")`
+    if (ts.isCallExpression(expr) && ts.isPropertyAccessExpression(expr.expression)) {
+      const method = expr.expression.name.text;
+      if (method === "join" || method === "filter") return staticPieces(expr.expression.expression);
+    }
+    if (expr.kind === ts.SyntaxKind.FalseKeyword || expr.kind === ts.SyntaxKind.NullKeyword) {
+      return [];
+    }
+    return null;
+  }
+
+  /** Whole class tokens (a token cut by an interpolation, `ph-` / `ph-caret-`, is dropped). */
+  const tokens = (pieces: string[]) =>
+    pieces.flatMap((p) => p.split(/\s+/)).filter((t) => /^[a-z][\w-]*[a-z0-9]$/i.test(t));
+
+  const glyphClasses = new Set<string>(["ph-fill"]);
+  const unresolved: string[] = [];
   for (const f of tsx) {
-    const code = readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-    for (const m of code.matchAll(/ph-fill ph-[a-z0-9-]*(?:\$\{[^}]*\})?([^"`]*)["`]/g))
-      for (const c of m[1]!.split(/\s+/)) if (/^[a-z][\w-]*$/.test(c)) glyphClasses.add(c);
-    for (const m of code.matchAll(/<Icon\b[^>]*className=["']([^"']+)["']/g))
-      for (const c of m[1]!.split(/\s+/)) if (/^[a-z][\w-]*$/.test(c)) glyphClasses.add(c);
+    const sf = ts.createSourceFile(
+      f,
+      readFileSync(f, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX,
+    );
+    const rel = relative(srcRoot, f).replace(/\\/g, "/");
+    const visit = (node: ts.Node): void => {
+      if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+        const tag = node.tagName.getText(sf);
+        const attrs = node.attributes.properties;
+        const cn = attrs.find(
+          (a): a is ts.JsxAttribute => ts.isJsxAttribute(a) && a.name.getText(sf) === "className",
+        );
+        let pieces: string[] | null = [];
+        if (cn?.initializer) {
+          if (ts.isStringLiteral(cn.initializer)) pieces = [cn.initializer.text];
+          else if (ts.isJsxExpression(cn.initializer) && cn.initializer.expression)
+            pieces = staticPieces(cn.initializer.expression);
+        }
+        // `ph-fill` anywhere in the attribute's source text marks a glyph even when the rest of
+        // the className is unreadable — that is exactly the case that must not pass silently.
+        const isGlyph = tag === "Icon" || (cn?.getText(sf).includes("ph-fill") ?? false);
+        if (isGlyph) {
+          const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+          if (pieces === null) unresolved.push(`${rel}:${line} <${tag}> className is not literal`);
+          if (attrs.some((a) => ts.isJsxSpreadAttribute(a)))
+            unresolved.push(`${rel}:${line} <${tag}> has a {...spread}`);
+          for (const t of tokens(pieces ?? [])) glyphClasses.add(t);
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
   }
 
   /** Phosphor's `.ph-fill` base declarations an app rule could tie with, and their values. */
@@ -172,6 +221,8 @@ describe("cascade order — no app rule silently overrides Phosphor's glyph metr
     "font-weight": "normal",
     "font-variant": "normal",
     "text-transform": "none",
+    "font-feature-settings": '"liga"',
+    "font-variant-ligatures": "discretionary-ligatures",
   };
 
   const appRules = [
@@ -180,8 +231,12 @@ describe("cascade order — no app rule silently overrides Phosphor's glyph metr
   ];
 
   it("finds the glyph-bearing classes (so an empty pass means something)", () => {
-    for (const c of ["alert__icon", "attention__icon", "pnav__icon", "bb-toast__icon"])
+    for (const c of ["ph-fill", "alert__icon", "attention__icon", "pnav__icon", "bb-toast__icon"])
       expect(glyphClasses.has(c), c).toBe(true);
+  });
+
+  it("every glyph element's classes are readable (no variable className, no spread)", () => {
+    expect(unresolved, "make the className literal, or teach this guard the new form").toEqual([]);
   });
 
   it("a single-class rule on a glyph element repeats Phosphor's value or leaves it alone", () => {
@@ -191,6 +246,10 @@ describe("cascade order — no app rule silently overrides Phosphor's glyph metr
         if (!part.startsWith(".") || part.slice(1).includes(".") || /[\s:[>+~#]/.test(part))
           continue;
         if (!glyphClasses.has(part.slice(1))) continue;
+        // The `font` shorthand resets line-height, weight, style and variant at once: a clash
+        // whatever its value.
+        const font = decl(r, "font");
+        if (font !== null) clashes.push(`${r.at} ${part} { font: ${font} }`.trim());
         for (const [prop, phosphor] of Object.entries(PHOSPHOR_BASE)) {
           const v = decl(r, prop);
           if (v !== null && v !== phosphor)

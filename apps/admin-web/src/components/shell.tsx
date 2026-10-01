@@ -81,12 +81,14 @@ export function Shell({
         <header className="topbar">
           {/* The drawer toggle: the solid Phosphor `list` glyph (the ☰ character fell back to a
               thin stroke in the UI face), named "Navigation" — its accessible name AND its visible
-              tooltip, which opens to the right because the toggle sits at the bar's left edge. */}
+              tooltip. The tooltip opens BELOW, aligned to the toggle's start edge
+              (`bottom-start`): centred it would run off the bar's left edge, and beside the
+              toggle it would cover the breadcrumb. */}
           <IconButton
             icon="list"
             label="Navigation"
             variant="outline"
-            tooltipPlacement="end"
+            tooltipPlacement="bottom-start"
             className="topbar__menu"
             onClick={() => setDrawerOpen((v) => !v)}
             aria-expanded={drawerOpen}

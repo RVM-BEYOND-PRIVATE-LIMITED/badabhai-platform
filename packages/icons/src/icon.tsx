@@ -19,7 +19,8 @@ export interface IconProps {
    * mark in a matrix cell). It becomes `role="img"` named by this text. Leave it out everywhere
    * else: an icon next to a label is decorative, and naming it would make a screen reader say
    * the action twice. An icon-only CONTROL is named by the control (see `IconOnlyControlProps`),
-   * never by its glyph.
+   * never by its glyph. An empty or blank label is treated as absent (decorative): a
+   * `role="img"` with no name would be announced as an unlabelled image.
    */
   label?: string;
 }
@@ -35,6 +36,8 @@ export function Icon({ name, size, className, label }: IconProps) {
   const cls = ["ph-fill", `ph-${name}`, size ? `bb-icon--${size}` : "", className ?? ""]
     .filter(Boolean)
     .join(" ");
-  if (label !== undefined) return <i className={cls} role="img" aria-label={label} />;
+  if (label !== undefined && label.trim() !== "") {
+    return <i className={cls} role="img" aria-label={label} />;
+  }
   return <i className={cls} aria-hidden="true" />;
 }

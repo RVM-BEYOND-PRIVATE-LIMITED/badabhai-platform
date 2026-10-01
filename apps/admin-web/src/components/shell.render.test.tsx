@@ -53,10 +53,10 @@ describe("the drawer toggle", () => {
     expect(exposed).toBe("");
   });
 
-  it("shows that name as a visible tooltip, opening to the right of the left-edge toggle — not a title", () => {
+  it("shows that name as a visible tooltip, opening below from the left-edge toggle — not a title", () => {
     const button = toggle(render());
     expect(button).toContain(
-      '<span class="iconbtn__tip iconbtn__tip--end" aria-hidden="true">Navigation</span>',
+      '<span class="bb-icon-tip bb-icon-tip--bottom-start" aria-hidden="true">Navigation</span>',
     );
     expect(button).not.toContain("title=");
   });
