@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { describe, expect, it } from "vitest";
-import { V2_EDIT_IDENTITY, V2_EDIT_NONE } from "../companion-replies";
+import { V2_EDIT_IDENTITY, V2_EDIT_NONE, V2_EDIT_PLACEHOLDER } from "../companion-replies";
 import { profileRow, setup, WORKER_ID } from "./companion-edit.fake";
 
 const CTX = { correlationId: "c-1", requestId: "r-1" } as never;
@@ -52,10 +52,14 @@ describe("CompanionEditService — identity and contact can never become a row",
     expect(turn.edit_proposal).toBeUndefined();
   });
 
-  it("a request that is merely unclear still gets the clarify line, not the identity one", async () => {
+  it("an out-of-scope (`other`) ask gets the Profile-screen line, not the identity one", async () => {
+    // `other` is "asked, but not editable here" (contracts §2.2), so since 2026-10-01 it is told
+    // so (V2_EDIT_PLACEHOLDER) rather than asked to rephrase. A message with NO hint at all still
+    // gets the clarify line — "the worker's own words" below.
     const h = setup({ parse: { rows: [], unsupported: ["other"] } });
     const { turn } = await h.service.propose(WORKER_ID, profileRow(), "kuch samajh nahi aaya", CTX);
-    expect(turn.reply).toBe(V2_EDIT_NONE.latin);
+    expect(turn.reply).toBe(V2_EDIT_PLACEHOLDER.latin);
+    expect(turn.reply).not.toBe(V2_EDIT_IDENTITY.latin);
   });
 });
 

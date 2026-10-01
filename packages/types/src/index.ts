@@ -163,8 +163,10 @@ export const COMPANION_V2_EDIT_SECTIONS = [
 export type CompanionV2EditSection = (typeof COMPANION_V2_EDIT_SECTIONS)[number];
 
 // WHAT A PROPOSED ROW MAY DO. `add` is offered only where ONE field defines the entry (skills,
-// languages, occupations) — owner ruling 2026-09-29 — so an employment or a qualification is
-// edit/delete-only in chat; `edit`/`delete` address an existing snapshot row by `ref`.
+// languages, occupations) — owner ruling 2026-09-29 — so a qualification is edit/delete-only in
+// chat, and an employment is EDIT-only ("Never from chat", owner ruling 2026-10-01: a whole job
+// is deleted only on the Profile screen); `edit`/`delete` address an existing snapshot row by
+// `ref`.
 export const COMPANION_V2_EDIT_OPS = ["add", "edit", "delete"] as const;
 export type CompanionV2EditOp = (typeof COMPANION_V2_EDIT_OPS)[number];
 

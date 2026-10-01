@@ -16,18 +16,23 @@ conversation.
 | Phase | Scope | State |
 |---|---|---|
 | 0 | ADR-0046 written | **Proposed — still unsigned**, although the flags are ON (below) |
-| 1 | Router + Edit résumé | **Built + audit-fixed; flags ON in production, model path dark.** Backend #1816/#1817/#1819/#1820, audit fixes #1869 + #1871; worker-app F1–F6 #1827/#1834/#1867/#1880 |
+| 1 | Router + Edit résumé | **Built + audit-fixed; flags ON in production. Classifier model-live since 2026-10-01; the edit card is dark again** (`companion_edit_parse` off the box list pending the "Never from chat" fix, below). Backend #1816/#1817/#1819/#1820, audit fixes #1869 + #1871; worker-app F1–F6 #1827/#1834/#1867/#1880 |
 | 2 | New résumé + Faltu | **Built + audit-fixed; flags ON in production** (deterministic paths live). Backend #1822, audit fixes #1872; worker-app F1/F2 #1827/#1834/#1867 |
-| 3 | Career talk | **Built + audit-fixed; flags ON in production, model path dark.** Backend #1825, audit fixes #1869 + #1872; worker-app F1/F2 #1827 |
+| 3 | Career talk | **Built + audit-fixed; flags ON in production, model-live since 2026-10-01** (armed over a failing eval gate, below). Backend #1825, audit fixes #1869 + #1872; worker-app F1/F2 #1827 |
 
 Update this table in the PR that finishes each phase.
 
 **Production state (2026-10-01).** `CHAT_COMPANION_ENABLED` (v1) has been on since 2026-09-27. The
 five `CHAT_COMPANION_V2_*` flags were set true on 2026-09-30 07:34 UTC, owner-authorized (#1843).
 The Remote Config levers are true and unconditioned (Android; iOS has no Firebase config). The
-model-written paths (the edit card, typed classification, career answers) are **dark** only because
-the box's `AI_REAL_CALL_TASKS` does not name the companion tasks yet. Until it does, the classifier
-mock answers `unclear` and career gets the refusal. Migration 0130's DDL is applied in production.
+owner armed all three model tasks (`companion_classify`, `companion_edit_parse`,
+`companion_career_answer`) on the box's `AI_REAL_CALL_TASKS` on 2026-10-01 at ~07:04 UTC, over a
+FAILING eval gate (#1877, #1883; step 2 below). The same day the production primary model was
+measured turning "welder hata do" (drop the trade) into a delete of the worker's whole job (3/3,
+`docs/qa/evidence/companion-v2/2026-10-01/`), so the owner
+switched `companion_edit_parse` off the box again pending the "Never from chat" fix (rulings,
+below): the edit card is **dark** (its mock returns no rows), while typed classification and
+career answers are model-written. Migration 0130's DDL is applied in production.
 Its ledger row is not adopted. No `chat.companion_turn_served_v2` row existed as of 2026-09-30.
 
 **Audit (2026-09-30).** A full spec-vs-code audit verified 129 gaps, each independently re-checked.
@@ -58,6 +63,11 @@ What remains is listed below.
    a suffix passes, as ADR-0041 D5 accepts for résumé parsing), and the three P1 behaviours made
    without a recorded ruling: a chat-added language is `can_speak` only; availability is three
    sub-fields; preference lists allow member add/delete.
+   **Ruled 2026-10-01 (owner): "Never from chat"** — chat never deletes a worker's whole job;
+   whole-job deletes happen only on the Profile screen, and every employment field stays editable
+   from chat. Reverses only the employment-delete half of P1-OQ2(b)
+   ([phase-1 §5](phase-1-router-and-edit-resume.md#5-open-questions)); qualification deletes are
+   unchanged and still need their own ruling (TD151).
 6. **Only then** append `companion_classify,companion_edit_parse`, and later `companion_career_answer`,
    to the box's own list, which overrides the compose default (see [`docs/environment-variables.md`](../../environment-variables.md)).
    Append, never replace. Then re-run the Deploy job of the newest `main` CI run.

@@ -131,6 +131,34 @@ def test_every_gold_delete_names_the_anchor_the_prompt_tells_the_model_to_use():
                 )
 
 
+def test_no_gold_message_is_quoted_in_the_edit_prompt():
+    """A gold line in the prompt turns the eval into a memory test: the model can echo that
+    example's rows without applying the rule the example illustrates, and the exact-row bar
+    stops measuring the rule. The prompt's examples ("carpenter nikal do", "Bajaj wali naukri
+    hata do") are deliberately NOT gold lines. Whitespace-folded and case-insensitive, so a
+    rewrap or a capital cannot sneak one in."""
+    from app.companion.prompts import EDIT_PARSE_SYSTEM_PROMPT
+
+    prompt = " ".join(EDIT_PARSE_SYSTEM_PROMPT.split()).casefold()
+    quoted = [
+        text for text, _rows in edit_gold.CASES if " ".join(text.split()).casefold() in prompt
+    ]
+    assert quoted == []
+
+
+def test_a_job_delete_is_never_an_expected_row():
+    """The owner's "Never from chat" ruling (2026-10-01): the job-delete lines expect NO rows,
+    and the trade lines expect the occupations delete — never an employment row."""
+    by_text = dict(edit_gold.CASES)
+    assert by_text["purana employer hata do"] == []
+    assert by_text["Tata wala kaam delete karo"] == []
+    trade_delete = [("delete", "occupations", "o1", "role_id", None)]
+    assert by_text["welder hata do"] == trade_delete
+    assert by_text["mujhe welder ka kaam nahi karna"] == trade_delete
+    rows = [row for _text, expected in edit_gold.CASES for row in expected]
+    assert not [row for row in rows if row[0] == "delete" and row[1] == "employment"]
+
+
 def test_the_gold_catalogue_matches_the_api_catalogue():
     """The eval fixture mirrors `apps/api/.../edit-catalogue.ts` — read from source, not a copy.
 

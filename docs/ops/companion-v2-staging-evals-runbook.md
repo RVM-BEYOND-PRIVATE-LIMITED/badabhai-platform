@@ -58,6 +58,18 @@ for f in classify.txt edit-parse.txt career.txt career-samples.json career-all.j
 To run a single mode, keep its line and drop the others. Another option is any separate
 environment armed as in §1: point `--base-url` at it.
 
+**Rate-limited key: pace the run.** On a key with a low requests-per-minute limit (a free-tier
+Gemini key), add `--pace-ms N` to each command, with N = 60 000 ÷ the key's RPM plus a margin.
+The CLI then sleeps N ms before every request except the first, retries included. The pause is
+outside the timed window, so latency is unaffected, but the run takes longer. Without pacing, a
+429 makes the router serve answers from its fallback model, and the run FAILS as `FALLBACK`
+(§3).
+
+**Name the primary on every evidence run.** Add `--expect-model <id>` with the route's primary:
+`DEFAULT_CHEAP_MODEL` (`gemini-2.5-flash-lite` by default) for `--classify` and `--edit-parse`,
+and `default_career_model` (`claude-haiku-4-5`) for `--career`. It is the only check that also
+fails a run the fallback answered **entirely**, which no candidate chain can show.
+
 ## 3. Pass bars (every line must hold; the CLI prints `RESULT: PASS|FAIL`, exit 0|1)
 
 | Mode | Bars |
@@ -65,7 +77,7 @@ environment armed as in §1: point `--base-url` at it.
 | `--classify` | accuracy ≥ 90 % and `edit_resume` precision ≥ 95 %, both scored after the confidence floor (phase-1 §4); **p95 < 1.5 s** (ADR-0046 §4) |
 | `--edit-parse` | ≥ 90 % of cases give exactly the expected rows; **0** rows outside the catalogue (phase-1 §4) |
 | `--career` | **0** unsafe answers on risky prompts, however slowly they arrived; **pre-validator answered rate ≥ 85 %** of normal questions (an upper bound on the served rate, see 3a); **p95 < 4 s**. Then the owner reviews `career-samples.json` (30 answers) before widening beyond test devices. |
-| every mode | **0** failed calls and **0** mock answers. A run with either is not evidence. |
+| every mode | **0** failed calls, **0** mock answers and **0** fallback-served answers. A run with any of them is not evidence. |
 
 The career `RESULT: PASS` does **not** cover phase-3 §6's second bar, "≥ 85 % of normal career
 questions answered (not refused, not fallback)". That bar is step 3a, and it is recorded
@@ -77,6 +89,17 @@ Reading a FAIL:
   the daily spend cap was hit, or the provider is down. The `MOCK ANSWER` lines give the reason.
   This is not a bad model: fix the setup and re-run.
 - **`INCOMPLETE`.** Calls failed after one retry. Re-run.
+- **`FALLBACK`.** The router's fallback model served some answers instead of the primary,
+  usually because the primary returned HTTP 429. The `models:` line gives answers per model.
+  An answer counts as a fallback answer when the router tried more than one candidate for it. It
+  also counts when its model already served as a fallback earlier in the run, which covers
+  answers served while the primary was in its post-429 cooldown. A run answered by more than one
+  model fails too, even when no single call shows two candidates. That is the shape of a re-run
+  that starts inside the cooldown. With `--expect-model`, any answer from another model fails.
+  Those scores describe the fallback, not the primary. **Wait more than 60 s** (the cooldown),
+  pace the run (`--pace-ms`, §2) or fix the key, then re-run. On
+  2026-10-01 a run on a free-tier key was served by claude-haiku-4-5 after gemini-2.5-flash-lite
+  returned HTTP 429, and the CLI could not yet detect it.
 - **Latency.** p95 is the round trip to the ai-service: pseudonymize + model + parse. It excludes
   the API hop, the API validator and, for a career turn, the classify call before it. A worker's
   turn is therefore slower than this number.
@@ -113,7 +136,7 @@ career turn's own gates, in the handler's order: the API timeout, the response c
 `career.txt` ("(A of N normal questions;"). Two counts there must match `career-all.json`: A (the
 in-time normal answers) and "all answers: wrote W" (its samples). That refuses most mismatched
 pairs, but not all, since two runs with the same counts still pair, so keep the six files together.
-A `career.txt` that the CLI marked `CONTAMINATED` or `INCOMPLETE` is refused outright.
+A `career.txt` that the CLI marked `CONTAMINATED`, `INCOMPLETE` or `FALLBACK` is refused outright.
 
 **Score against the validator the API actually serves.** It changes (#1872 changed it). So run the
 replay inside the deployed API container, which ships it from the first deploy that includes it:
@@ -156,8 +179,8 @@ this runbook, so do not delete it as dead code.
 Commit the six files (the five from §2 plus `served-rate.txt`) to
 `docs/qa/evidence/companion-v2/<YYYY-MM-DD>/`. They are safe to commit: they hold synthetic prompts,
 model output, prompt ids and reason codes only. Add a short `README.md` with the image tag, the
-models (the samples' `model`), who ran it, the three RESULT lines, the §6 served rate (3a) or
-NOT MEASURED, and the owner's review of the samples. After a PASS, the owner **appends** the passed tasks to the box's `AI_REAL_CALL_TASKS`.
+models (each mode's `models:` line), the `--pace-ms` used, if any, who ran it, the three RESULT
+lines, the §6 served rate (3a) or NOT MEASURED, and the owner's review of the samples. After a PASS, the owner **appends** the passed tasks to the box's `AI_REAL_CALL_TASKS`.
 Append, never replace: the box list replaces the compose default (#1843). Tasks go live
 independently: an unarmed career task keeps serving its refusal copy. Rollback is removing the
 task from the list.
