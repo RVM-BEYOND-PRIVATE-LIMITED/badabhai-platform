@@ -11,6 +11,9 @@ import {
 import { formatRelative, formatTimestamp, shortId } from "../../../lib/format";
 import { StatusPill, type Tone } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
+import { PageHeader } from "../../../components/page-header";
+import { RetryActions } from "../../../components/retry-actions";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Feedback" };
@@ -102,6 +105,7 @@ export default async function FeedbackPage({
    * this call for exactly this reason.)
    */
   const mayOpenJourney = can(session.capabilities, "read_entities");
+  const mayReadEvents = can(session.capabilities, "read_events");
 
   let page: FeedbackPage | null = null;
   let rejected = false;
@@ -153,31 +157,33 @@ export default async function FeedbackPage({
     return s ? `/feedback?${s}` : "/feedback";
   };
 
-  /**
-   * The CURRENT query, rebuilt — so "Retry" repeats what failed instead of quietly
-   * resetting it. `cursor` is included deliberately: an operator three pages into the list
-   * who hits a transient failure should land back where they were, not on an unfiltered
-   * page one that looks like a successful reload.
-   */
-  const retryHref = listHref({ cursor });
+  // A failed read: RetryActions repeats `listHref()` plus the cursor — the CURRENT query, so an
+  // operator three pages in lands back where they were, not on an unfiltered page one that
+  // looks like a successful reload — and offers `listHref()` itself as the first page.
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Feedback</h1>
-          <p className="page__sub">
-            What workers typed into the app&apos;s Feedback button, newest first. This is the one
-            screen here that shows a worker&apos;s own words, so a message may contain details they
-            chose to include about themselves — and, since they may attach photos of what they are
-            reporting, so may an image. Nothing else on the row is identifying — no name or
-            number is looked up, and the screen a message is about is recorded by matching what
-            the app sent against the list of screens the app has, so it says where the worker was
-            rather than what they were looking at. Image links expire after a few minutes; reload
-            the page to get working ones.
+      <PageHeader
+        title="Feedback"
+        description="What workers typed into the app's Feedback button, newest first."
+      />
+
+      {/* The mechanics the one-sentence description leaves out. A standing statement about how
+          to read the screen, which is what `.alert--info` is the primitive for. */}
+      <div className="alert alert--info">
+        <div className="alert__text">
+          <p className="alert__title">A worker&apos;s own words</p>
+          <p className="alert__body">
+            This is the one screen here that shows a worker&apos;s own words, so a message may
+            contain details they chose to include about themselves — and, since they may attach
+            photos of what they are reporting, so may an image. Nothing else on the row is
+            identifying — no name or number is looked up, and the screen a message is about is
+            recorded by matching what the app sent against the list of screens the app has, so it
+            says where the worker was rather than what they were looking at. Image links expire
+            after a few minutes; reload the page to get working ones.
           </p>
         </div>
-      </header>
+      </div>
 
       <section className="panel" aria-labelledby="fb-heading" aria-live="polite">
         <div className="panel__head panel__head--row">
@@ -193,7 +199,8 @@ export default async function FeedbackPage({
           </div>
           {filtered && (
             <Link className="btn btn--ghost" href="/feedback">
-              {category && workerId ? "Clear filters" : "Clear filter"}
+              <Icon name={ACTION_ICON.clearFilters} />
+              Clear filters
             </Link>
           )}
         </div>
@@ -224,20 +231,27 @@ export default async function FeedbackPage({
           <p className="field__help">
             Showing only what worker <span className="mono">{shortId(workerId)}</span> sent.{" "}
             <Link className="link" href={`/workers/${encodeURIComponent(workerId)}`}>
-              Open their record
+              Open worker
             </Link>
             {mayOpenJourney ? (
               <>
                 {" · "}
                 <Link className="link" href={`/workers/${encodeURIComponent(workerId)}/journey`}>
-                  See what they did
+                  View journey
                 </Link>
               </>
             ) : null}
-            {" · "}
-            <Link className="link" href={listHref({ workerId: null })}>
-              Show every worker
-            </Link>
+            {/* Drops the worker and keeps the tag. Shown only beside a tag: with the worker as
+                the only filter it would be the results head's "Clear filters" again, and that
+                is how one screen came to hold three links to /feedback. */}
+            {category ? (
+              <>
+                {" · "}
+                <Link className="link" href={listHref({ workerId: null })}>
+                  Clear the worker filter
+                </Link>
+              </>
+            ) : null}
           </p>
         ) : null}
 
@@ -250,14 +264,13 @@ export default async function FeedbackPage({
               cannot be hand-edited — one of them, as it stands in the address bar, is not
               something this list accepts.
             </p>
-            {resettable && (
+            {/* With a filter set, the results head's "Clear filters" is the way out; only a
+                bad cursor on an unfiltered list needs its own. */}
+            {resettable && !filtered && (
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/feedback">
-                  {filtered
-                    ? category && workerId
-                      ? "Clear filters"
-                      : "Clear filter"
-                    : "Back to the first page"}
+                  <Icon name="arrow-line-left" />
+                  Back to the first page
                 </Link>
               </div>
             )}
@@ -270,14 +283,10 @@ export default async function FeedbackPage({
               filters. Nothing has been lost: submissions are stored as they arrive and will all be
               here once the read succeeds.
             </p>
-            <div className="state__actions">
-              {/* Repeat the SAME query. Pointing a retry at the bare route silently drops
-                  the filter and the cursor, so a transient failure would return an operator
-                  to page one while claiming to have retried. */}
-              <Link className="btn btn--ghost" href={retryHref}>
-                Retry
-              </Link>
-            </div>
+            {/* Repeat the SAME query. Pointing a retry at the bare route silently drops the
+                filter and the cursor, so a transient failure would return an operator to page
+                one while claiming to have retried. */}
+            <RetryActions href={listHref()} cursor={cursor} />
           </div>
         ) : page && page.items.length > 0 ? (
           <div className="tablewrap">
@@ -325,7 +334,9 @@ export default async function FeedbackPage({
                             href={`/workers/${f.worker_id}/journey`}
                             title="What this worker completed, and where they stopped"
                           >
-                            Journey
+                            View journey
+                            {/* Every row's link says the same; this names WHOSE journey. */}
+                            <span className="sr-only"> of worker {shortId(f.worker_id)}</span>
                           </Link>
                         </>
                       ) : null}
@@ -469,6 +480,7 @@ export default async function FeedbackPage({
                   and on a worker-narrowed view it would hand the operator everyone else's
                   messages while the copy still said "start again from the newest". */}
               <Link className="btn btn--ghost" href={listHref()}>
+                <Icon name="arrow-line-left" />
                 Back to the newest
               </Link>
             </div>
@@ -490,29 +502,21 @@ export default async function FeedbackPage({
             </h3>
             <p className="state__body">
               {workerId && category
-                ? "They have submitted nothing under the selected tag. Tagging is optional in the app, so a message from them about exactly this may be sitting untagged — drop the tag to see everything they sent."
+                ? "They have submitted nothing under the selected tag. Tagging is optional in the app, so a message from them about exactly this may be sitting untagged — clear the tag filter to see everything they sent."
                 : workerId
                   ? "Nothing has arrived from this worker. Read that as silence and nothing more: most workers never open the Feedback button at all, so this is the ordinary case rather than evidence that anything went well. What they actually did is on their journey."
                   : "Nothing has been submitted under the selected tag. Tagging is optional in the app, so a message about exactly this may well be sitting in the list untagged — clear the filter to see every submission, newest first."}
             </p>
-            <div className="state__actions">
-              {workerId && category ? (
+            {/* Only the recovery nothing else on screen offers. "Clear filters" is in the
+                results head, and "View journey" is on the worker line above. */}
+            {workerId && category ? (
+              <div className="state__actions">
                 <Link className="btn btn--ghost" href={listHref({ category: null })}>
-                  Drop the tag
+                  <Icon name={ACTION_ICON.clearFilters} />
+                  Clear the tag filter
                 </Link>
-              ) : null}
-              {workerId && mayOpenJourney ? (
-                <Link
-                  className="btn btn--ghost"
-                  href={`/workers/${encodeURIComponent(workerId)}/journey`}
-                >
-                  Open their journey
-                </Link>
-              ) : null}
-              <Link className="btn btn--ghost" href="/feedback">
-                {category && workerId ? "Clear filters" : "Clear filter"}
-              </Link>
-            </div>
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="state">
@@ -523,11 +527,15 @@ export default async function FeedbackPage({
               the submit path is running at all — every submission records an event, whether or not
               anyone has read the message.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href="/events?eventName=feedback.submitted">
-                Open the event timeline
-              </Link>
-            </div>
+            {/* `/events` is `read_events`; offered only to a reader who holds it. */}
+            {mayReadEvents ? (
+              <div className="state__actions">
+                <Link className="btn btn--ghost" href="/events?eventName=feedback.submitted">
+                  <Icon name={ACTION_ICON.timeline} />
+                  View events
+                </Link>
+              </div>
+            ) : null}
           </div>
         )}
 

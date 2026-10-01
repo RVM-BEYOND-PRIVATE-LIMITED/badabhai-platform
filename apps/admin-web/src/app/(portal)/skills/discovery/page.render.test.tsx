@@ -44,6 +44,8 @@ const stub = vi.hoisted(() => {
     groupsFailure: null as unknown,
     metrics: null as unknown,
     metricsFailure: null as unknown,
+    /** The props the page handed the (stubbed) filter bar on the last render. */
+    barProps: null as null | { carry: Record<string, string | undefined> },
   };
 });
 
@@ -89,8 +91,10 @@ vi.mock("../../../../lib/skill-discovery", async () => {
 vi.mock("./filter-bar", async () => {
   const { createElement } = await import("react");
   return {
-    SkillDiscoveryFilterBar: () =>
-      createElement("form", { "data-stub": "SkillDiscoveryFilterBar" }),
+    SkillDiscoveryFilterBar: (props: { carry: Record<string, string | undefined> }) => {
+      stub.barProps = props;
+      return createElement("form", { "data-stub": "SkillDiscoveryFilterBar" });
+    },
   };
 });
 
@@ -221,7 +225,7 @@ describe("AC#1 — dashboard tiles render from one metrics request, no client ag
     stub.metricsFailure = new TypeError("network down");
     stub.page = { items: [ROW], nextCursor: null };
     const out = await render({ view: "flat" });
-    expect(out).toContain("Dashboard tiles are unavailable");
+    expect(out).toContain("Queue metrics are unavailable");
     expect(out).toContain("sanitary fixture installation");
   });
 });
@@ -574,6 +578,19 @@ describe("error states", () => {
     expect(out).toContain("The queue is unavailable");
     expect(out).toContain("tradeFamily=Welders");
   });
+
+  it("Retry repeats the WHOLE query, page cursor included; the first page drops only the cursor", async () => {
+    // It was `listHref({})`: every filter kept, the page the read failed on silently dropped.
+    stub.listFailure = new TypeError("network down");
+    const out = await render({ view: "flat", tradeFamily: "Welders", cursor: "Y3Vyc29y" });
+    const retry = /href="([^"]*)"><i [^>]*><\/i>Retry<\/a>/.exec(out)?.[1] ?? "";
+    const first = /href="([^"]*)"><i [^>]*><\/i>Back to the first page<\/a>/.exec(out)?.[1] ?? "";
+    expect(retry).toContain("view=flat");
+    expect(retry).toContain("tradeFamily=Welders");
+    expect(retry).toContain("cursor=Y3Vyc29y");
+    expect(first).toContain("tradeFamily=Welders");
+    expect(first).not.toContain("cursor=");
+  });
 });
 
 describe("grouped rows link to their own decision screen — a group is a lens, never a merge", () => {
@@ -670,7 +687,7 @@ describe("hierarchy and rhythm", () => {
     const out = await render();
     expect(out).toContain(
       '<h2 class="sr-only" id="sd-metrics">Queue metrics</h2><div class="state state--error">' +
-        '<h3 class="state__title">Dashboard tiles are unavailable</h3>',
+        '<h3 class="state__title">Queue metrics are unavailable</h3>',
     );
   });
 
@@ -710,5 +727,46 @@ describe("hierarchy and rhythm", () => {
     stub.groups = { ...stub.groups, groups: [GROUP], total_groups: 1, total_candidates: 2, total_undecided: 1 };
     const out = await render();
     expect(out).toContain('</ul><div class="queue-notes queue-notes--foot"><p class="field__help">1 batches');
+  });
+});
+
+/**
+ * THE FILTER BAR'S CARRY (owner brief 2026-10-01, bug 5). The page used to hand the bar its
+ * WHOLE current query as `carry` — the bar's own fields included — so an emptied field came
+ * back from the URL on Apply and the bar's clear button re-applied everything. The bar now
+ * ignores its own keys in carry (filter-bar.test.tsx), and the page no longer sends them.
+ */
+describe("what the page hands the filter bar to keep", () => {
+  it("carries the controls ABOVE the bar, and none of the bar's own fields", async () => {
+    stub.metrics = METRICS;
+    await render({
+      view: "flat",
+      tier: "ambiguous",
+      statusScope: "held",
+      groupSort: "undecided",
+      band: "high",
+      phrase: "arc",
+      runId: "sdr_1",
+      tradeFamily: "Welders",
+      sort: "oldest",
+      createdFrom: "2026-09-01",
+    });
+    const carry = stub.barProps?.carry ?? {};
+    expect(carry).toMatchObject({ view: "flat", tier: "ambiguous", statusScope: "held" });
+    for (const own of [
+      "band",
+      "proposedAction",
+      "tradeFamily",
+      "sourceType",
+      "runId",
+      "clusterKey",
+      "phrase",
+      "createdFrom",
+      "createdTo",
+      "sort",
+      "cursor",
+    ]) {
+      expect(carry, own).not.toHaveProperty(own);
+    }
   });
 });

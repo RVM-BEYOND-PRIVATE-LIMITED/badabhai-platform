@@ -29,7 +29,7 @@ export async function suspendPayerAction(payerId: string): Promise<AdminActionOu
       ok: true,
       changed: res.changed,
       message: res.changed
-        ? "Payer suspended. Their postings are hidden and their sessions revoked."
+        ? "Account suspended. Its postings are hidden and its sessions revoked."
         : "Already suspended — no change.",
     };
   } catch (err) {
@@ -47,7 +47,7 @@ export async function reinstatePayerAction(payerId: string): Promise<AdminAction
       ok: true,
       changed: res.changed,
       message: res.changed
-        ? "Payer reinstated to their pre-suspension state."
+        ? "Account reinstated to its pre-suspension state."
         : "Not suspended — no change.",
     };
   } catch (err) {

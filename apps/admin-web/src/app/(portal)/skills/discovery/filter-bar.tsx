@@ -10,6 +10,7 @@ import {
   SKILL_CANDIDATE_SOURCE_TYPE_LABELS,
 } from "../../../../lib/skill-discovery-vocabulary";
 import type { AdminSkillDiscoverySort } from "../../../../lib/skill-discovery";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export interface SkillDiscoveryFilterValues {
   band: string;
@@ -22,6 +23,43 @@ export interface SkillDiscoveryFilterValues {
   createdFrom: string;
   createdTo: string;
   sort: AdminSkillDiscoverySort;
+}
+
+/** This bar's own fields, by URL key. A value here always comes from the form, never from carry. */
+const BAR_FIELDS: readonly (keyof SkillDiscoveryFilterValues)[] = [
+  "band",
+  "proposedAction",
+  "tradeFamily",
+  "sourceType",
+  "runId",
+  "clusterKey",
+  "phrase",
+  "createdFrom",
+  "createdTo",
+  "sort",
+];
+
+/**
+ * Where the bar navigates: `carry` (the controls above the bar) plus the bar's own non-empty
+ * fields. Pass `values = null` to clear the bar's fields and keep everything else.
+ *
+ * A carried key that names one of the bar's OWN fields is ignored. The page used to pass its
+ * whole current query as `carry`, bar fields included, and carry was written first while empty
+ * values were skipped — so emptying a field and pressing Apply kept the old value from the URL,
+ * and "Clear" re-applied every field it was meant to clear. The bar owns its fields outright.
+ */
+export function filterBarHref(
+  basePath: string,
+  carry: Record<string, string | undefined>,
+  values: SkillDiscoveryFilterValues | null,
+): string {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(carry)) {
+    if (v && !(BAR_FIELDS as readonly string[]).includes(k)) q.set(k, v);
+  }
+  if (values) for (const k of BAR_FIELDS) if (values[k]) q.set(k, values[k]);
+  const qs = q.toString();
+  return qs ? `${basePath}?${qs}` : basePath;
 }
 
 /**
@@ -42,7 +80,10 @@ export function SkillDiscoveryFilterBar({
   initial,
 }: {
   basePath: string;
-  /** Everything this form must not drop: view, statusScope/status, tier, cursor is dropped. */
+  /**
+   * The controls above this bar that it must not drop — view, statusScope/status, tier, batch
+   * order. Never the bar's own fields (ignored if present); the cursor is never carried.
+   */
   carry: Record<string, string | undefined>;
   initial: SkillDiscoveryFilterValues;
 }) {
@@ -55,18 +96,12 @@ export function SkillDiscoveryFilterBar({
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    const q = new URLSearchParams();
-    for (const [k, v] of Object.entries(carry)) if (v) q.set(k, v);
-    for (const [k, v] of Object.entries(values)) if (v) q.set(k, v);
-    const qs = q.toString();
-    router.push(qs ? `${basePath}?${qs}` : basePath);
+    router.push(filterBarHref(basePath, carry, values));
   }
 
-  function clearAll() {
-    const q = new URLSearchParams();
-    for (const [k, v] of Object.entries(carry)) if (v) q.set(k, v);
-    const qs = q.toString();
-    router.push(qs ? `${basePath}?${qs}` : basePath);
+  /** Empties this bar's fields and keeps the status, tier and view chosen above it. */
+  function clearFields() {
+    router.push(filterBarHref(basePath, carry, null));
   }
 
   return (
@@ -200,10 +235,14 @@ export function SkillDiscoveryFilterBar({
 
       <div className="filters__actions">
         <button className="btn btn--primary" type="submit">
+          <Icon name={ACTION_ICON.filter} />
           Apply
         </button>
-        <button className="btn btn--ghost" type="button" onClick={clearAll}>
-          Clear filters
+        {/* Not "Clear filters": that name goes to the bare route everywhere else in the
+            portal, and this keeps the status, tier and view above. */}
+        <button className="btn btn--ghost" type="button" onClick={clearFields}>
+          <Icon name={ACTION_ICON.clearFilters} />
+          Clear these fields
         </button>
       </div>
     </form>

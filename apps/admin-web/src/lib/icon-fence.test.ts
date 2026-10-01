@@ -242,3 +242,44 @@ describe("icon fence (admin) — no raw glyph and no hand-drawn SVG icon anywher
     expect([...CODE.values()].some((code) => code.includes("PhIcon"))).toBe(false);
   });
 });
+
+/**
+ * GLYPHS AS ICONS (owner brief 2026-10-01; @badabhai/icons README rule 3). An arrow, a tick, a
+ * cross or a hamburger CHARACTER standing in for an icon renders in whatever face the text is
+ * in — thin, unbranded and unlabelled. The roles matrix drew `✓`; back links and CTAs are the
+ * `arrow-left` / `arrow-right` glyphs now. A `·` between two phrases is prose, not an icon, and
+ * stays allowed.
+ */
+const GLYPHS_AS_ICONS = ["\u2190", "\u2192", "\u2713", "\u2714", "\u2715", "\u2717", "\u2630"];
+const glyphsIn = (code: string) => GLYPHS_AS_ICONS.filter((g) => code.includes(g));
+
+/** A `<summary>` must draw the brand caret; the browser's own triangle is hidden in CSS. */
+const summariesWithoutCaret = (code: string): number => {
+  const summaries = code.match(/<summary\b[^>]*>[\s\S]*?<\/summary>/g) ?? [];
+  return summaries.filter((s) => !s.includes("disclosure__caret")).length;
+};
+
+describe("icon fence (admin) — glyph characters and browser markers", () => {
+  it("the detectors catch what they must", () => {
+    expect(glyphsIn("<span>{allowed ? \"\u2713\" : \"\u00b7\"}</span>")).toEqual(["\u2713"]);
+    expect(glyphsIn("<Link>\u2190 Back</Link>")).toEqual(["\u2190"]);
+    expect(glyphsIn("Registered 2d ago \u00b7 2026-09-01")).toEqual([]);
+    expect(summariesWithoutCaret("<summary>Open</summary>")).toBe(1);
+    expect(
+      summariesWithoutCaret('<summary>\n<Icon name="caret-down" className="disclosure__caret" />Open</summary>'),
+    ).toBe(0);
+  });
+
+  it("no source draws an arrow, tick, cross or hamburger character as an icon", () => {
+    const offenders = [...CODE].filter(([, code]) => glyphsIn(code).length > 0).map(([f]) => f);
+    expect(offenders).toEqual([]);
+  });
+
+  it("every <summary> draws the brand caret instead of the browser's triangle", () => {
+    const offenders = [...CODE].filter(([, code]) => summariesWithoutCaret(code) > 0).map(([f]) => f);
+    expect(offenders).toEqual([]);
+    // …and the walk really saw the two disclosures this portal has.
+    const withSummary = [...CODE].filter(([, code]) => code.includes("<summary")).map(([f]) => f);
+    expect(withSummary.length).toBeGreaterThanOrEqual(2);
+  });
+});

@@ -352,6 +352,7 @@ export class WorkerSkillsRepository {
   /**
    * THE CLEAR-ALL EXIT — every `worker_skill` row the worker holds is declined in ONE
    * transaction, and `job_reach` is reconciled once against the resulting (empty) wanted set.
+   * The pre-read, the UPDATE and the reconcile all ride that one transaction.
    *
    * UPDATE, NOT DELETE, and the difference is the whole point. Deleting the rows would let the
    * next profile-write rebuild recreate them `wants: true`, so the exit would silently undo
@@ -360,24 +361,46 @@ export class WorkerSkillsRepository {
    * is as durable as the per-skill one, and his rows (with their months) survive to be turned
    * back on.
    *
-   * Idempotent and honest: a second call matches zero rows, still reconciles (nothing is
-   * wanted, so his stale live reach rows go), and returns 0.
+   * EVERY ROW IS RE-STAMPED, ON OR OFF. The UPDATE's only predicate is the worker: an
+   * already-declined `derived_coarse` row must still become `interview`, or the next
+   * re-derivation could flip it back on. So the UPDATE matches every row he holds on every call,
+   * and its row count says nothing about what this call changed (#1850).
+   *
+   * RETURNS THE SKILL IDS THIS CALL SWITCHED FROM ON TO OFF — the rows that were `wants = true`
+   * when the transaction locked them. Every row is `wants = false` afterwards, so "wanted
+   * before" IS "switched off by this call". A repeat call returns `[]` and still reconciles
+   * (nothing is wanted, so his stale live reach rows go). Ids, not a count: which of them are
+   * match skills is the closed-vocabulary rule, and that is the service's, not a query's.
+   *
+   * THE PRE-READ LOCKS EVERY ROW (`FOR UPDATE`), not just the wanted ones. It is the same lock
+   * set the UPDATE takes anyway, one statement earlier — and it is what stops a concurrent
+   * per-skill toggle landing between the read and the UPDATE: an OFF row turned ON in that gap
+   * would be switched off by this call but missing from what it returns.
+   *
+   * ONE GAP IS LEFT, AND IT ONLY UNDERCOUNTS. A row a concurrent rebuild INSERTS between the
+   * pre-read and the UPDATE was never locked, so it is switched off but not returned. The worker
+   * never saw it in GET, so the count is never higher than what he switched off.
    */
-  async clearAllWantsAndReconcile(workerId: string, now: Date): Promise<number> {
+  async clearAllWantsAndReconcile(workerId: string, now: Date): Promise<string[]> {
     return this.db.transaction(async (tx) => {
       const executor = tx as unknown as Tx;
-      const cleared = await executor
+      const before = await executor
+        .select({ skillId: workerSkills.skillId, wants: workerSkills.wants })
+        .from(workerSkills)
+        .where(eq(workerSkills.workerId, workerId))
+        .for("update");
+
+      await executor
         .update(workerSkills)
         .set({ wants: false, source: "interview", updatedAt: now })
-        .where(eq(workerSkills.workerId, workerId))
-        .returning({ skillId: workerSkills.skillId });
+        .where(eq(workerSkills.workerId, workerId));
 
       await this.reconcileReachWithin(
         executor,
         workerId,
         await this.listWantedSkillIdsWithin(executor, workerId),
       );
-      return cleared.length;
+      return before.filter((row) => row.wants).map((row) => row.skillId);
     });
   }
 

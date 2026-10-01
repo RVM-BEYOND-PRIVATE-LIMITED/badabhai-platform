@@ -55,8 +55,10 @@ class FlyingName extends StatefulWidget {
 
 class _FlyingNameState extends State<FlyingName>
     with SingleTickerProviderStateMixin {
-  /// Long enough to cross the screen and settle without feeling slow.
-  static const Duration _flight = Duration(milliseconds: 620);
+  /// Deliberately unhurried: the name should be SEEN travelling, not blink to
+  /// the header. Longer than the usual long-duration token because this move is
+  /// large and expressive, and it ends on a gentle rest rather than a snap.
+  static const Duration _flight = Duration(milliseconds: 900);
 
   late final AnimationController _controller;
 

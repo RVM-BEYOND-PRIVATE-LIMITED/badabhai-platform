@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { PageHeaderContent } from "../../../../components/page-header";
 
 /**
  * What one worker's DETAIL page renders after the 2026-08-18 name ruling.
@@ -21,6 +22,8 @@ const stub = vi.hoisted(() => {
     RequestError,
     capabilities: ["read_entities", "read_identity"] as string[],
     worker: null as Record<string, unknown> | null,
+    /** The props the page handed the (stubbed) client header on the last render. */
+    headerProps: null as null | { timelineHref: string | null; journeyHref: string | null },
   };
 });
 
@@ -42,11 +45,19 @@ vi.mock("../../../../lib/entities", () => ({
 }));
 
 // The header is a Client Component using `useRouter`, which needs an app-router context this
-// renderer does not provide. Stubbed to render the server-built `title` it is handed — which is
-// the part of it this file is testing.
-vi.mock("./worker-detail-header", () => ({
-  WorkerDetailHeader: ({ title }: { title: unknown }) => title,
-}));
+// renderer does not provide. Stubbed to render the shared PageHeader from the server-built
+// `header` it is handed (back link, title, description) — the part this file is testing.
+vi.mock("./worker-detail-header", async () => {
+  const { PageHeader } = await import("../../../../components/page-header");
+  return {
+    WorkerDetailHeader: (
+      props: { header: PageHeaderContent } & NonNullable<typeof stub.headerProps>,
+    ) => {
+      stub.headerProps = props;
+      return <PageHeader {...props.header} />;
+    },
+  };
+});
 
 const { default: WorkerDetailPage } = await import("./page");
 
@@ -114,7 +125,7 @@ describe("the heading, when the worker never gave us a name", () => {
 
   it("drops the WHO clause instead of claiming an identity it does not have", async () => {
     const out = await render();
-    expect(out).toContain("what they did.");
+    expect(out).toContain("what they did, registered");
     expect(out).not.toContain("who they are");
   });
 
@@ -162,7 +173,7 @@ describe("an analyst", () => {
     // panels are what this asserts — everything the page itself renders.
     expect(out).toContain(`<span class="mono">${WORKER_ID}</span>`);
     expect(out).toContain("Resume generated");
-    expect(out).toContain("Times unlocked");
+    expect(out).toContain("Contact unlocks");
     expect(out).toContain("Night shift ready");
   });
 });
@@ -209,5 +220,29 @@ describe("the deletion banner still wins its own space", () => {
     const out = await render();
     expect(out).toContain("Names are withheld on this page");
     expect(out).toContain("Deletion scheduled.");
+  });
+});
+
+describe("the header (owner ruling 2026-10-01)", () => {
+  it("has a back link to the real parent, named as that page names itself", async () => {
+    const out = await render();
+    expect(out).toContain('<a class="backlink" href="/workers">');
+    expect(out).toContain("<span>Workers</span></a>");
+  });
+});
+
+describe("the event-timeline link follows read_events (an affordance; the route keeps its gate)", () => {
+  it("is offered to a session that may open the timeline", async () => {
+    stub.capabilities = ["read_entities", "read_events"];
+    await render();
+    expect(stub.headerProps?.timelineHref).toBe(`/workers/${WORKER_ID}/timeline`);
+  });
+
+  it("is withheld from one that may not — the route would only redirect them", async () => {
+    stub.capabilities = ["read_entities"];
+    await render();
+    expect(stub.headerProps?.timelineHref).toBeNull();
+    // The journey is a different capability and stays.
+    expect(stub.headerProps?.journeyHref).toBe(`/workers/${WORKER_ID}/journey`);
   });
 });

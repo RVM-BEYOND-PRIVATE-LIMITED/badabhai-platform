@@ -1,7 +1,14 @@
 import Link from "next/link";
 import { requireSession } from "../../../lib/auth";
 import { getCapabilityMatrix } from "../../../lib/entities";
-import { CAPABILITY_LABELS, ROLE_LABELS, isAdminCapability } from "../../../lib/auth/capabilities";
+import {
+  CAPABILITY_LABELS,
+  ROLE_LABELS,
+  can,
+  isAdminCapability,
+} from "../../../lib/auth/capabilities";
+import { PageHeader } from "../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Roles and capabilities" };
@@ -35,15 +42,10 @@ export default async function RolesPage() {
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Roles and capabilities</h1>
-          <p className="page__sub">
-            The authorization model, read live from the server — the same matrix the guards
-            enforce, so this table cannot disagree with what is actually permitted.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Roles and capabilities"
+        description="The authorization model, read live from the server — the same matrix the guards enforce, so this table cannot disagree with what is actually permitted."
+      />
 
       <section className="panel" aria-labelledby="rc-you">
         <div className="panel__head">
@@ -96,6 +98,7 @@ export default async function RolesPage() {
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/roles">
+                <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>
             </div>
@@ -132,12 +135,18 @@ export default async function RolesPage() {
                       const mine = r === session.role;
                       return (
                         <td key={r} className={mine ? "cell--mine" : undefined}>
+                          {/* Solid glyphs from the icon font, each NAMED: `role="img"` + a label,
+                              which the old `aria-label` on a bare span never reliably was. Not
+                              granted is a muted minus rather than a red cross — most cells are
+                              denials by design, and least privilege is not a fault. */}
                           <span
                             className={`mark mark--${allowed ? "yes" : "no"}`}
-                            aria-label={allowed ? "permitted" : "denied"}
-                            title={`${ROLE_LABELS[r] ?? r}: ${allowed ? "permitted" : "denied"}`}
+                            title={`${ROLE_LABELS[r] ?? r}: ${allowed ? "permitted" : "not granted"}`}
                           >
-                            {allowed ? "✓" : "·"}
+                            <Icon
+                              name={allowed ? "check" : "minus"}
+                              label={allowed ? "Permitted" : "Not granted"}
+                            />
                           </span>
                         </td>
                       );
@@ -153,8 +162,16 @@ export default async function RolesPage() {
           <div className="alert__text">
             <p className="alert__title">Your column is highlighted</p>
             <p className="alert__body">
-              Changing a role is a governed action (<code>manage_admins</code>, super admin
-              only) and emits an audited event. It cannot be done from this portal.
+              Changing an admin&apos;s role is a governed action (<code>manage_admins</code>,
+              super admin only) that emits an audited event. It is done with Change role on{" "}
+              {can(session.capabilities, "manage_admins") ? (
+                <Link className="link" href="/admins">
+                  Admin users
+                </Link>
+              ) : (
+                "Admin users"
+              )}
+              .
             </p>
           </div>
         </div>

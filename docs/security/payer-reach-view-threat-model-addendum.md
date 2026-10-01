@@ -26,6 +26,8 @@ payer`). The ONLY deltas from the ops `/reach/*` View A are **ownership scoping*
   explainable `components[]`. **No name / phone / address / employer / worker PII** anywhere.
 - It is **NOT** bound to `job_postings` / `posting_plans` (ADR-0012's "no bridge" stands); the
   monetization↔reach bridge is a separate future ADR (TD37). Reach is over `jobs.payer_id` only.
+  **Superseded for company postings — see §5 (#1823):** the route now also lists the actual
+  applicants of an owned `job_postings` row, ownership-checked on `job_postings.payer_id`.
 
 ## 1. Reused unchanged (must hold against an attacker)
 - **FACELESS rows + events** — `feed.shown` and the response carry opaque ids + ranking signals
@@ -71,7 +73,8 @@ jobs.payer_id == session payer`; **a not-found job AND another payer's job both 
 IDENTICAL neutral 404** (no-oracle, F-3) — a payer learns nothing about jobs they do not own.
 `payer_id` is from the **verified session**, never the route/body (XB-A). **Build-blocker test:**
 payer A ↔ payer B + absent-job all return the same neutral response (`reach.service.test.ts`,
-`payer-reach.controller.test.ts`, `guard-contract.test.ts`).
+`payer-reach.controller.test.ts`, `guard-contract.test.ts`). Since #1823 the no-oracle matrix
+lives in `payer-applicants.service.test.ts`; see §5 for the posting read and every test location.
 
 ### RV4 — `payer_id` / worker PII leakage into events/logs
 **Controls (INV #2):** `jobs.payer_id` is consumed **only** in the ownership WHERE predicate; the
@@ -122,3 +125,48 @@ real worker identity remains the separate consented + capped disclosure chokepoi
 this read. **Open external GA remains human-gated** (XL-A/XL-E/LC-7). This addendum is the
 **ADR-0019 E-R1 pre-build gate** for the reach surface; a `bb-security-review` PASS against the
 built surface is required before merge.
+
+## 5. Amendment — company postings on this route (#1823, 2026-10-01)
+
+Owner decision O8 (#1823): with `MATCH_V1_ENABLED` off, an id that is not an owned `jobs` row
+but IS an owned `job_postings` row now returns that posting's **actual applicants** (the V1
+candidate shape), ungated by `FEED_POSTINGS_UNION_ENABLED`. With V1 on, only the posting branch
+runs, as before. The source selection moved out of the controller into
+`PayerApplicantsService.listForOwned`; the controller is HTTP-only (cap, then delegate).
+
+- **Second ownership read (RV3 / RB-A).** The id is resolved in order: an owned `jobs` row
+  (`ReachRepository.findOwnedJobSignalRowById`, `jobs.id = $1 AND jobs.payer_id = $2`), then an
+  owned posting (`JobPostingsRepository.findByIdAndPayer` via `JobPostingsService.getOneForPayer`,
+  `job_postings.id = $1 AND job_postings.payer_id = $2`). Both bind the **session** payer only and
+  consume it only in the WHERE; neither projects `payer_id`. RV-R4 (app-layer tenancy only)
+  now covers `job_postings` as well as `jobs`.
+- **No-oracle across three miss cases.** An unknown id, another payer's job and another payer's
+  posting return the identical `404` `error` object (`message: "Job not found"`). The posting
+  seam's own "Job posting not found" is re-thrown as the neutral message, so the table an id
+  lives in cannot be learned from the body. Only the per-request `path`/`requestId`/`timestamp`
+  differ, as on every response. RV-R3 (timing) is unchanged: every miss costs the same two
+  ownership reads.
+- **Fail closed.** Only `NotFoundException` becomes the neutral 404. A DB error on either
+  ownership read or on the candidate read is a **5xx**. The V1 branch this replaced swallowed
+  every error into the 404 (`.catch(() => undefined)`), reporting an outage as "you own nothing".
+- **Faceless (RB-B).** The posting rows carry an opaque `workerId` and `applicationId`, the frozen
+  snapshot integers, a match-skill label and the engine version. No worker PII, no employer.
+- **No `feed.shown` on the posting branch** (the V1 precedent: people who already applied are
+  not a feed impression). RB-D (actor binding) therefore applies to the legacy `jobs` branch
+  only. **New residual RV-R5:** a posting-list read is rate-limited (RB-C, a Redis counter that
+  expires hourly) but **not durably audited**; no event or access log records it. A durable
+  read trail, if wanted, is a new versioned event, never a reused `feed.shown`.
+- **ADR-0031 ruling (b) freeze.** Neither source lists a worker pending deletion: the legacy pool
+  through `ReachRepository.listSignalRows`, the posting list through
+  `MatchFeedRepository.listCandidates` (`JOIN workers` + `deletion_scheduled_at IS NULL`, added in
+  #1823 because the V1 query lacked it and this change makes it a live surface).
+- **Identity path unchanged.** Unlocking an applicant from a posting list still goes through the
+  `/payer/unlocks` chokepoint. Its posting-id job context is fixed by #1903, which must be on
+  `main` before this branch merges.
+
+**Tests (RB-A and the above):** `payer-applicants.service.test.ts` (source matrix; the no-oracle
+and IDOR cases run through the real `AllExceptionsFilter`; fail-closed 5xx),
+`job-postings.repository.test.ts` (`findByIdAndPayer` SQL pin), `reach.repository.test.ts`
+(`findOwnedJobSignalRowById` SQL pin), `payer-reach.controller.test.ts` (cap before delegation,
+no data-access dependency), `match-feed.repository.test.ts` and `rank-parity.test.ts`
+(pending-deletion exclusion; the latter on real Postgres under `RUN_DB_TESTS=1`).

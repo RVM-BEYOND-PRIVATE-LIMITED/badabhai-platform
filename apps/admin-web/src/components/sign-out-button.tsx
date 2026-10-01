@@ -1,6 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
+import { Icon } from "@badabhai/icons";
 import { logoutAction } from "../app/logout/actions";
 
 /**
@@ -20,7 +21,8 @@ export function SignOutButton() {
       disabled={pending}
       onClick={() => startTransition(() => void logoutAction())}
     >
-      {pending ? "Signing out…" : "Sign out"}
+      <Icon name="sign-out" />
+      <span>{pending ? "Signing out…" : "Sign out"}</span>
     </button>
   );
 }

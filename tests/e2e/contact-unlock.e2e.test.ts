@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createDbClient,
   events,
+  jobs,
   payerCredits,
   creditLedger,
   unlocks,
@@ -10,6 +11,7 @@ import {
   type EventRow,
 } from "@badabhai/db";
 import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 
 /**
  * Contact Unlock + Reveal (ADR-0010, Stream A) end-to-end against a LIVE API + DB.
@@ -24,6 +26,10 @@ import { randomUUID } from "node:crypto";
  *   - F-6: retry → exactly one debit + one grant; balance never negative; payment.*
  *     carry real_call:false.
  *   - happy path: purchase → request (grant) → reveal emits the right PII-free events.
+ *   - #1903: a `job_id` that names no `jobs` row (payer-web sends a company posting's id)
+ *     grants with the job context stored and evented as NULL — on the REAL
+ *     `unlocks.job_id → jobs.id` FK, which a mocked repository cannot exercise — while a
+ *     `jobs` id is kept.
  *
  * Opt-in (same harness as swipe-to-apply.e2e.test.ts):
  *   1. docker compose up -d postgres redis     # or point at Supabase
@@ -241,6 +247,99 @@ describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)",
     const evts = await allEvents();
     const payments = evts.filter((e) => e.eventName.startsWith("payment."));
     for (const p of payments) expect((p.payload as { real_call?: boolean }).real_call).toBe(false);
+  });
+
+  /** The committed unlock row's job context, read straight off the table. */
+  async function storedJobContext(unlockId: string): Promise<string | null> {
+    const rows = await client.db
+      .select({ jobId: unlocks.jobId })
+      .from(unlocks)
+      .where(eq(unlocks.id, unlockId));
+    expect(rows, "the granted unlock row must be committed").toHaveLength(1);
+    return rows[0]!.jobId;
+  }
+
+  /** The once-only event an unlock emitted, located by its idempotency key. */
+  async function eventByKey(key: string): Promise<EventRow> {
+    const evt = (await allEvents()).find((e) => e.idempotencyKey === key);
+    expect(evt, `${key} must be emitted`).toBeDefined();
+    return evt!;
+  }
+
+  it("#1903: a job_id that is NOT a jobs row grants with job context NULL (no FK 500, debited once)", async () => {
+    // Before #1903 this id reached `unlocks.job_id`, an FK to `jobs.id`: the INSERT failed,
+    // the request 500'd and the debit rolled back. Any uuid with no `jobs` row exercises the
+    // identical FK path a company `job_postings.id` takes.
+    const payer = randomUUID();
+    const w = await loginWorker();
+    await consent(w.token, ["employer_sharing"]);
+    await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
+
+    const notAJob = randomUUID();
+    const grant = await req("POST", "/unlocks", {
+      ops: true,
+      body: { payer_id: payer, worker_id: w.workerId, job_id: notAJob },
+    });
+    expect(grant.status).toBe(200);
+    expect(grant.json).toMatchObject({ ok: true, status: "granted" });
+    const unlockId = grant.json.unlock_id as string;
+
+    expect(await storedJobContext(unlockId)).toBeNull();
+    const credits = await req("GET", `/payers/${payer}/credits`, { ops: true });
+    expect(credits.json.balance).toBe(9);
+
+    const granted = await eventByKey(`unlock.granted:${unlockId}`);
+    expect((granted.payload as { job_id?: unknown }).job_id).toBeNull();
+    // profile.viewed_v2 OMITS the key for a null context, never null.
+    const viewed = await eventByKey(`profile.viewed_v2:${unlockId}`);
+    expect(viewed.payload).not.toHaveProperty("job_id");
+    // The entry audit is unkeyed (one per attempt): locate it by this payer.
+    const mine = (await allEvents()).filter((e) => e.actorId === payer);
+    const requested = mine.filter((e) => e.eventName === "unlock.requested");
+    expect(requested).toHaveLength(1);
+    expect((requested[0]!.payload as { job_id?: unknown }).job_id).toBeNull();
+    // The raw id reaches no event this payer caused.
+    expect(JSON.stringify(mine.map((e) => e.payload))).not.toContain(notAJob);
+  });
+
+  it("#1903: a job_id that IS a jobs row is kept on the row and the events — existence, not openness", async () => {
+    // A CLOSED row: it satisfies the FK (all the context needs) and stays off every worker
+    // feed, so the shared e2e database's open-jobs deck is untouched by this case.
+    const [job] = await client.db
+      .insert(jobs)
+      .values({
+        tradeKey: "cnc_operator",
+        title: "E2E unlock-context job (closed)",
+        city: "Pune",
+        status: "closed",
+      })
+      .returning({ id: jobs.id });
+    const payer = randomUUID();
+    const w = await loginWorker();
+    await consent(w.token, ["employer_sharing"]);
+    await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
+
+    const grant = await req("POST", "/unlocks", {
+      ops: true,
+      body: { payer_id: payer, worker_id: w.workerId, job_id: job!.id },
+    });
+    expect(grant.status).toBe(200);
+    expect(grant.json).toMatchObject({ ok: true, status: "granted" });
+    const unlockId = grant.json.unlock_id as string;
+
+    expect(await storedJobContext(unlockId)).toBe(job!.id);
+    const credits = await req("GET", `/payers/${payer}/credits`, { ops: true });
+    expect(credits.json.balance).toBe(9);
+
+    const requested = (await allEvents()).filter(
+      (e) => e.actorId === payer && e.eventName === "unlock.requested",
+    );
+    expect(requested).toHaveLength(1);
+    expect((requested[0]!.payload as { job_id?: unknown }).job_id).toBe(job!.id);
+    const granted = await eventByKey(`unlock.granted:${unlockId}`);
+    expect((granted.payload as { job_id?: unknown }).job_id).toBe(job!.id);
+    const viewed = await eventByKey(`profile.viewed_v2:${unlockId}`);
+    expect((viewed.payload as { job_id?: unknown }).job_id).toBe(job!.id);
   });
 
   it("F-6: a retried unlock returns the SAME grant and debits only once", async () => {

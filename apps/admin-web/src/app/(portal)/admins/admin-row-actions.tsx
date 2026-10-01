@@ -7,6 +7,7 @@ import { AdminActionResultBanner } from "../../../components/admin-action-result
 import { changeAdminRoleAction, resetAdminMfaAction, suspendAdminAction } from "./actions";
 import { ADMIN_ROLES, ROLE_LABELS, type AdminRole } from "../../../lib/auth/capabilities";
 import type { AdminActionOutcome } from "../../../lib/admin-action-result";
+import { ACTION_ICON } from "@badabhai/icons";
 
 /**
  * A minimal, client-safe row shape — deliberately NOT `AdminRow` from `lib/entities.ts`,
@@ -31,7 +32,14 @@ export interface AdminActionRow {
  * fire, and if it somehow still did, `describeAdminActionError` would show the server's exact
  * rejection text, never a guess.
  */
-export function AdminRowActions({ admin }: { admin: AdminActionRow }) {
+export function AdminRowActions({
+  admin,
+  mayReadEvents,
+}: {
+  admin: AdminActionRow;
+  /** Whether the session may open `/events` (`read_events`) — the result banner's link. */
+  mayReadEvents: boolean;
+}) {
   const router = useRouter();
   const [role, setRole] = useState<AdminRole>(admin.role);
   const [outcome, setOutcome] = useState<AdminActionOutcome | null>(null);
@@ -43,8 +51,14 @@ export function AdminRowActions({ admin }: { admin: AdminActionRow }) {
   // action's own `admin.action_performed` lands there (subject_type `admin_session`, newest
   // first), just not filtered to this row. Carrying a `subjectId` here would be worse than
   // useless — `EventFilters` has no such field, so it would promise a per-admin slice and
-  // silently render every admin's events.
-  const timelineHref = "/events?subjectType=admin_session";
+  // silently render every admin's events. So it is the global log, and is called that.
+  const eventsLink = mayReadEvents
+    ? { href: "/events?subjectType=admin_session", label: "View events" }
+    : null;
+
+  // Every row's controls share their visible names, so each one also names its row for
+  // assistive tech ("Suspend admin aaaaaaaa…"). The id is the handle the row shows.
+  const subject = `admin ${admin.id.slice(0, 8)}…`;
 
   if (admin.is_self) {
     return <span className="table__meta">Your own account</span>;
@@ -59,7 +73,7 @@ export function AdminRowActions({ admin }: { admin: AdminActionRow }) {
     <div className="row-actions">
       <div className="admin-action">
         <label className="field" htmlFor={roleId}>
-          <span className="sr-only">New role</span>
+          <span className="sr-only">New role for {subject}</span>
           <select
             id={roleId}
             className="field__input"
@@ -75,6 +89,8 @@ export function AdminRowActions({ admin }: { admin: AdminActionRow }) {
         </label>
         <AdminActionButton
           label="Change role"
+          icon="user-switch"
+          subject={subject}
           confirmLabel={`Confirm ${ROLE_LABELS[role]}?`}
           variant="primary"
           disabled={role === admin.role}
@@ -84,6 +100,8 @@ export function AdminRowActions({ admin }: { admin: AdminActionRow }) {
       </div>
       <AdminActionButton
         label="Reset MFA"
+        icon="key"
+        subject={subject}
         confirmLabel="Confirm MFA reset?"
         variant="danger"
         action={() => resetAdminMfaAction(admin.id)}
@@ -91,13 +109,15 @@ export function AdminRowActions({ admin }: { admin: AdminActionRow }) {
       />
       <AdminActionButton
         label="Suspend"
+        icon={ACTION_ICON.suspend}
+        subject={subject}
         confirmLabel="Confirm suspend?"
         variant="danger"
         disabled={admin.status === "suspended"}
         action={() => suspendAdminAction(admin.id)}
         onSettled={handleSettled}
       />
-      {outcome && <AdminActionResultBanner outcome={outcome} timelineHref={timelineHref} />}
+      {outcome && <AdminActionResultBanner outcome={outcome} eventsLink={eventsLink} />}
     </div>
   );
 }

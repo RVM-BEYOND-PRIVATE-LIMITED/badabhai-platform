@@ -273,6 +273,14 @@ export class MatchFeedRepository {
    *
    * ONLY `action='applied'` ROWS. A skip is never ranked, and the partial index
    * `applications_rank_idx` is defined on exactly that predicate.
+   *
+   * NO PENDING-DELETION APPLICANT (ADR-0031 ruling (b), "freeze all payer surfaces"). The
+   * `workers` JOIN + `deletion_scheduled_at IS NULL` is a MEMBERSHIP exclusion: a worker
+   * inside the deletion grace window has asked to leave, so he stops surfacing to the
+   * company exactly as a hard-deleted worker's (cascaded) application already does. It is
+   * the same predicate the legacy pool applies (`ReachRepository.listSignalRows`), it reads
+   * nothing the ORDER BY uses, and a cancelled deletion puts him back in his frozen place.
+   * Since #1823 this list is served with V1 off too, for a company's owned posting.
    */
   async listCandidates(
     jobPostingId: string,
@@ -294,6 +302,8 @@ export class MatchFeedRepository {
              a.last_worked_at, a.created_at, a.engine_version,
              jr.matched_skill_id
       FROM applications a
+      -- ELIGIBILITY, NOT RANK (ADR-0031 (b)): the applicant must not be pending deletion.
+      INNER JOIN workers w ON w.id = a.worker_id
       -- DISPLAY ONLY (the E18 badge). LEFT so a candidate whose reach row was pruned
       -- (skills re-derived, posting edited) still appears on the list he applied to —
       -- "Ranking never removes anyone" (Policy 6). It contributes NOTHING to the
@@ -302,6 +312,7 @@ export class MatchFeedRepository {
         ON jr.job_posting_id = a.job_posting_id AND jr.worker_id = a.worker_id
       WHERE a.job_posting_id = ${jobPostingId}::uuid
         AND a.action = 'applied'
+        AND w.deletion_scheduled_at IS NULL
       ORDER BY CASE
                  WHEN a.match_tier > 1 AND COALESCE(a.skill_months, 0) >= ${tierFloorMonths}::int
                    THEN 1

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AI_TRACE_TASK_TYPES } from "../../../lib/ai-trace-view";
 import { taskTypeLabel } from "../../../lib/ai-cost";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
  * AI-call filters — three narrowings, and one that is deliberately absent.
@@ -98,6 +99,7 @@ export function AiCallFilterBar({
 
       <div className="filters__actions">
         <button className="btn btn--primary" type="submit">
+          <Icon name={ACTION_ICON.filter} />
           Apply
         </button>
       </div>
