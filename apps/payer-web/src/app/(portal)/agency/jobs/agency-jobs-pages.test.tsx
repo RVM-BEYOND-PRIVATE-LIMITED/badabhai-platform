@@ -162,6 +162,31 @@ describe("/agency/jobs/<id> — the id is checked before it reaches the API", ()
   });
 });
 
+describe("/agency/jobs — FACELESS: a payload that regressed to carry worker PII never renders", () => {
+  it("a row with a forbidden key trips the page's guard: the error state renders, the value never does", async () => {
+    // A regressed list payload (the guard's job): assertNoAgencyPII throws on the forbidden keys
+    // (dev / test), the page degrades to its neutral retry state, and neither the manager nor
+    // the markup ever receives the values.
+    listAgencyJobs.mockResolvedValue([
+      JOB,
+      { ...JOB, id: "00000001-0000-4000-8000-000000000002", name: "Ramesh Kumar", phone: "+919812345678" } as AgencyJob,
+    ]);
+    const tree = await list.default();
+    const s = JSON.stringify(tree);
+    expect(s).toContain("Postings are unavailable right now");
+    expect(s).not.toContain("Ramesh Kumar");
+    expect(s).not.toContain("+919812345678");
+    // …and the manager (which would receive the rows as props) is not rendered at all.
+    expect(s).not.toContain("CNC Operator");
+  });
+
+  it("the guard does not fire on a faceless payload (the manager renders it)", async () => {
+    const s = JSON.stringify(await list.default());
+    expect(s).not.toContain("Postings are unavailable right now");
+    expect(s).toContain("CNC Operator");
+  });
+});
+
 describe("/agency/jobs — a failed read is a retryable state, never an empty list", () => {
   it("the manager is not rendered; the error state is", async () => {
     listAgencyJobs.mockRejectedValue(new Error("upstream 502"));
