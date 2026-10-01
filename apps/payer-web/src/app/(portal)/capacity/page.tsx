@@ -11,6 +11,9 @@ import { CapacityPanel } from "./capacity-panel";
 
 export const dynamic = "force-dynamic";
 
+/** The per-posting table's heading — also the NAME of its scroll region (aria-labelledby). */
+const POSTINGS_TABLE_HEADING_ID = "capacity-postings-table-title";
+
 /**
  * Capacity view (ADR-0019 Phase 1) + the QUOTA-PAUSE "Stream A" upgrade leg — composed onto
  * the UI-1 page spine (`page-back` / `page-head` / `stat-row` / `section` / `panel--table` /
@@ -53,8 +56,10 @@ export default async function CapacityPage() {
   const atCapacity =
     capacity !== null && capacity.activeVacancies >= capacity.activeVacancyAllowance;
 
+  // `.capacity-page` only NAMESPACES this screen's layout rules (the "W3-B" block in
+  // globals.css) — it carries no styling of its own.
   return (
-    <>
+    <div className="capacity-page">
       <p className="page-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
@@ -84,7 +89,7 @@ export default async function CapacityPage() {
         </Card>
       ) : capacity ? (
         <>
-          <div className="stat-row">
+          <div className="stat-row stat-row--kpi">
             <StatTile
               label={`Active ${unit}`}
               value={
@@ -146,7 +151,9 @@ export default async function CapacityPage() {
 
           <section className="panel panel--table">
             <div className="panel__head">
-              <h2 className="panel__title">Per {unitOne}</h2>
+              <h2 className="panel__title" id={POSTINGS_TABLE_HEADING_ID}>
+                Per {unitOne}
+              </h2>
               <p className="panel__sub">
                 Your concurrent allowance and active count above are <strong>live</strong> from
                 the backend enforcement engine. The per-{unitOne} rows below reflect{" "}
@@ -172,7 +179,12 @@ export default async function CapacityPage() {
                   </div>
                 </div>
               ) : (
-                <div className="tablewrap">
+                <div
+                  className="tablewrap"
+                  tabIndex={0}
+                  role="region"
+                  aria-labelledby={POSTINGS_TABLE_HEADING_ID}
+                >
                   <table className="table">
                     <thead>
                       <tr>
@@ -221,6 +233,6 @@ export default async function CapacityPage() {
           </section>
         </>
       ) : null}
-    </>
+    </div>
   );
 }

@@ -16,6 +16,9 @@ import { CapacityPanel } from "../capacity/capacity-panel";
 
 export const dynamic = "force-dynamic";
 
+/** The per-posting table's heading — also the NAME of its scroll region (aria-labelledby). */
+const QUOTA_TABLE_HEADING_ID = "plans-quota-table-title";
+
 export default async function PlansPage() {
   const session = await requirePayer();
   const isAgency = session.role === "agent";
@@ -38,8 +41,10 @@ export default async function PlansPage() {
   const atCapacity =
     capacity !== null && capacity.activeVacancies >= capacity.activeVacancyAllowance;
 
+  // `.plans-page` only NAMESPACES this screen's layout rules (the "W3-B" block in
+  // globals.css) — it carries no styling of its own.
   return (
-    <>
+    <div className="plans-page">
       <p className="page-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
@@ -77,7 +82,7 @@ export default async function PlansPage() {
           </Card>
         ) : capacity ? (
           <>
-            <div className="stat-row">
+            <div className="stat-row stat-row--kpi">
               <StatTile
                 label={`Active ${unit}`}
                 value={
@@ -156,7 +161,9 @@ export default async function PlansPage() {
       {capacity ? (
         <section className="panel panel--table">
           <div className="panel__head">
-            <h2 className="panel__title">Per {unitOne} applicant quota</h2>
+            <h2 className="panel__title" id={QUOTA_TABLE_HEADING_ID}>
+              Per {unitOne} applicant quota
+            </h2>
             <p className="panel__sub">
               Your concurrent allowance and active count above are <strong>live</strong> from the
               backend enforcement engine. The per-{unitOne} rows reflect backend-seeded plans
@@ -165,7 +172,12 @@ export default async function PlansPage() {
           </div>
           <div className="panel__body">
             {capacity.postings.length > 0 ? (
-              <div className="tablewrap">
+              <div
+                className="tablewrap"
+                tabIndex={0}
+                role="region"
+                aria-labelledby={QUOTA_TABLE_HEADING_ID}
+              >
                 <table className="table">
                   <thead>
                     <tr>
@@ -318,6 +330,6 @@ export default async function PlansPage() {
           </p>
         </div>
       </div>
-    </>
+    </div>
   );
 }

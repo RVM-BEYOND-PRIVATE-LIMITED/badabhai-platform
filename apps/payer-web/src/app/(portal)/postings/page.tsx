@@ -39,8 +39,10 @@ export default async function PostingsPage() {
     error = e instanceof Error ? e.message : String(e);
   }
 
+  // `.postings-page` only NAMESPACES this screen's layout rules (the "W3-B" block in
+  // globals.css) — it carries no styling of its own.
   return (
-    <>
+    <div className="postings-page">
       <p className="page-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
@@ -101,6 +103,6 @@ export default async function PostingsPage() {
       ) : (
         <PostingsManager postings={postings} />
       )}
-    </>
+    </div>
   );
 }

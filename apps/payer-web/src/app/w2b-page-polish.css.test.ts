@@ -262,13 +262,15 @@ describe("W2-B · scoping — no shared primitive was restyled globally", () => 
   });
 
   it("every globals rule that sizes a DS small button / tab / toast close is page-scoped", () => {
+    // The page wrappers allowed to size a shared control ON THEIR OWN SCREEN: W2-B's, and the six
+    // W3-B screens' coarse-pointer lift (see w3b-page-polish.css.test.ts).
+    const PAGE_SCOPE =
+      /^\.(applicants-page|login-roletabs|applicants-pipeline|postings-page|plans-page|capacity-page|account-page|team-page|team-accept-page)\s/;
     const offenders = RULES.filter((r) =>
       r.selector.split(",").some((part) => {
         const p = part.trim();
         const touchesShared = /\.bb-btn--sm|\.bb-toast__close|\.bb-tab(?![\w-])/.test(p);
-        return (
-          touchesShared && !/^\.(applicants-page|login-roletabs|applicants-pipeline)\s/.test(p)
-        );
+        return touchesShared && !PAGE_SCOPE.test(p);
       }),
     ).map((r) => r.selector);
     expect(offenders).toEqual([]);

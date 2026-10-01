@@ -2996,6 +2996,268 @@ textarea.input {
 }
 
 /* ==================================================================
+ * POSTINGS · PLANS · CAPACITY · ACCOUNT · TEAM (W3-B polish) — page-scoped layout only.
+ * ------------------------------------------------------------------
+ * Every selector is namespaced to a page wrapper (`.postings-page`, `.plans-page`,
+ * `.capacity-page`, `.account-page`, `.team-page`, `.team-accept-page`), so no shared primitive
+ * changes anywhere else. Each wrapper adds one class to its selectors, so these win over the
+ * single-class shared rules by specificity, wherever they sit in the file. Copy, data and
+ * behaviour are untouched; tokens only.
+ * ================================================================== */
+
+/* ---- /postings — each card reads: role + status -> facts -> page links -> the row's result,
+   then ONE action bar under a divider. The actions used to sit beside the text, which squeezed
+   a long role title into a narrow column on desktop and stacked the buttons ragged-right on a
+   phone. Under the text they have the full width at every size. */
+.postings-page .posting-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+.postings-page .posting-card__actions {
+  justify-items: start;
+  text-align: start;
+  padding-top: var(--space-4);
+  border-top: var(--border-hairline) solid var(--border-subtle);
+}
+.postings-page .posting-card__btns {
+  justify-content: flex-start;
+}
+/* The row's error / success band sits inside the card, whose padding is the spacing. */
+.postings-page .posting-card .alert {
+  margin-bottom: 0;
+}
+/* The facts row. EVERY segment now starts with a fixed-width slot (its own start padding) and
+   the separator dot hangs in that slot; the row is shifted left by exactly one slot and clipped
+   by it — so the dot of whichever segment starts a line is cut away and no line begins with a
+   stray "·". A segment that wraps inside itself (a long location) continues AFTER its slot, so
+   no letter is ever clipped. The row holds text only (the links moved out to their own line),
+   so the clip can never hide a focus ring. The slot is no wider than the card's smallest
+   (phone) padding, so the shifted row never leaves the card's box. */
+.postings-page .posting-card__meta {
+  --posting-meta-sep: var(--space-4);
+  gap: var(--space-1) 0;
+  margin-inline-start: calc(-1 * var(--posting-meta-sep));
+  clip-path: inset(0 0 0 var(--posting-meta-sep));
+}
+.postings-page .posting-card__meta > span {
+  padding-inline-start: var(--posting-meta-sep);
+  overflow-wrap: anywhere;
+}
+.postings-page .posting-card .posting-card__meta > span::before {
+  content: "·";
+  display: inline-block;
+  inline-size: var(--posting-meta-sep);
+  margin-inline-start: calc(-1 * var(--posting-meta-sep));
+  margin-right: 0;
+  text-align: center;
+}
+.postings-page .posting-card__links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-5);
+  row-gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+/* The row's result region (aria-live) is EMPTY until an action reports. Empty, it was still an
+   item of the text column's grid, so the column gap hung under the page links and pushed them
+   away from the divider (~2x the divider-to-buttons space). Out of flow while empty it takes no
+   track and no gap, yet it is still rendered — so it stays in the accessibility tree and still
+   announces; its first message puts it back in flow. (display:none would silence it.) */
+.postings-page .posting-card__main > [aria-live]:empty {
+  position: absolute;
+}
+@media (max-width: 600px) {
+  .postings-page .posting-card {
+    padding: var(--space-4);
+  }
+  /* Each lifecycle button grows to fill its line: an even column of full-width targets
+     instead of a ragged right-aligned stack. DOM order (and so focus order) is unchanged. */
+  .postings-page .posting-card__btns > .bb-btn {
+    flex: 1 1 auto;
+  }
+}
+
+/* ---- /plans + /capacity ---- */
+/* /plans shows three product runs (capacity tiers, credit packs, posting plans). They now share
+   ONE column track and ONE price size, so the page reads as one catalogue instead of three
+   differently sized grids. The track floor is the stat-tile floor plus one step — the 240px the
+   packs grid already used. */
+.plans-page {
+  --plans-card-min: calc(var(--stat-min) + var(--space-6));
+}
+.plans-page .plans-grid,
+.plans-page .capacity-tiers {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--plans-card-min)), 1fr));
+  margin-top: 0;
+}
+.plans-page .capacity-tier__price {
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+}
+/* The "Most capacity" badge is taller than the tier name beside it, so the one flagged tier's
+   price sat ~3px lower than its neighbours'. Its block margin is pulled in so the head row is
+   the name's height on every tier and the prices line up. */
+.plans-page .capacity-tier__head > .bb-badge,
+.capacity-page .capacity-tier__head > .bb-badge {
+  margin-block: calc(-1 * var(--space-1));
+}
+/* The tier row and its result toasts never touch the "Recorded only" note beneath them. */
+.plans-page .capacity-tiers,
+.capacity-page .capacity-tiers {
+  margin-bottom: var(--block-gap);
+}
+.plans-page .capacity-result,
+.capacity-page .capacity-result {
+  margin-top: 0;
+  margin-bottom: var(--block-gap);
+}
+/* A section's last block adds no margin of its own, so the section gap is the one rhythm
+   between blocks (it was 40–48px wherever an alert or tile row ended a section). */
+.plans-page .section > :last-child,
+.capacity-page .section > :last-child {
+  margin-bottom: 0;
+}
+/* The per-posting table: the role column keeps a readable floor (three quarters of a tile), so
+   a long role title wraps across a few lines instead of one word per line and the table scrolls
+   inside its region on a phone — while the whole table still fits a 768px tablet. */
+.plans-page .table td:first-child,
+.capacity-page .table td:first-child {
+  min-inline-size: calc(var(--stat-min) * 3 / 4);
+}
+@media (max-width: 600px) {
+  /* Phones: every product card becomes a compact price row — name across the top, the price
+     and its line of detail on the left, the one action on the right. Five to seven stacked
+     tiles were ~180px each; a row is about half that. */
+  .plans-page .plan-card,
+  .plans-page .capacity-tier,
+  .capacity-page .capacity-tier {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "head head"
+      "price action"
+      "detail action";
+    align-items: center;
+    column-gap: var(--space-4);
+    row-gap: var(--space-1);
+    padding: var(--space-4);
+  }
+  .plans-page .plan-card__head,
+  .plans-page .capacity-tier__head,
+  .capacity-page .capacity-tier__head {
+    grid-area: head;
+    flex-wrap: wrap;
+  }
+  .plans-page .plan-card__price,
+  .plans-page .capacity-tier__price,
+  .capacity-page .capacity-tier__price {
+    grid-area: price;
+    font-size: var(--ui-kpi-sm-size);
+  }
+  .plans-page .plan-card__detail,
+  .plans-page .capacity-tier__allowance,
+  .capacity-page .capacity-tier__allowance {
+    grid-area: detail;
+    margin: 0;
+  }
+  .plans-page .plan-card > .bb-btn,
+  .plans-page .capacity-tier > .bb-btn,
+  .capacity-page .capacity-tier > .bb-btn {
+    grid-area: action;
+    width: auto;
+    min-inline-size: calc(2 * var(--control-md));
+  }
+}
+/* (The table's role link and the tiles' caption link take their 44px touch target in the
+   touch section at the end of this block.) */
+
+/* ---- /account — on a phone a KYC / bank action drops UNDER its text (aligned with it by the
+   shared ≤600px alert rule) instead of squeezing the status and reason into a ~150px column
+   beside the button. The /dashboard "needs you" band does the same at ≤375px. */
+@media (max-width: 600px) {
+  .account-page .section .alert__text {
+    flex-basis: calc(100% - var(--text-lg) - var(--space-3));
+  }
+}
+
+/* ---- /team + /team/accept — an action's result band sits one block below the action (it
+   touched the button), at the form's reading measure rather than the full panel width. */
+.team-page .form-status,
+.team-accept-page .form-status {
+  margin-top: var(--block-gap);
+  max-width: var(--reading-max);
+}
+.team-page .form-status .alert,
+.team-accept-page .form-status .alert {
+  margin-bottom: 0;
+}
+/* The accepted band carries its own next step — kept at the reading measure so the action
+   sits beside the message instead of ~900px from it. */
+.team-accept-page .alert {
+  max-width: var(--reading-max);
+}
+@media (max-width: 600px) {
+  /* The page's single action is a full-width thumb target. */
+  .team-accept-page .form-actions > .bb-btn {
+    flex: 1 1 auto;
+  }
+}
+
+/* ---- Touch, on all six screens: on a phone and under a coarse pointer, every control these
+   screens own is at least 44px. (The "← Dashboard" back link is shared page furniture, not
+   theirs: it is sized with the other shared targets, not by this block.) The DS small button
+   already has a 44px hit strip at ≤600px (ds-components.css); a coarse pointer ABOVE 600px (a
+   tablet) gets a drawn 44px minimum here, as on /postings/[id]/applicants. Text links outside a
+   sentence get the same 44px below. */
+@media (pointer: coarse) and (min-width: 601px) {
+  .postings-page .bb-btn--sm,
+  .plans-page .bb-btn--sm,
+  .capacity-page .bb-btn--sm,
+  .account-page .bb-btn--sm,
+  .team-page .bb-btn--sm,
+  .team-accept-page .bb-btn--sm {
+    min-height: var(--control-md);
+  }
+}
+@media (max-width: 600px), (pointer: coarse) {
+  /* The posting title heads its card, so it takes a drawn 44px line. */
+  .postings-page .posting-card__title {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--control-md);
+  }
+  /* A text link in a dense row — a card's Details / Edit, the table's role link, the quota
+     tile's "Top up applicant quota →" caption — gets a 44px HIT STRIP instead: an out-of-flow
+     pseudo centred on the link (the DS small-button recipe in ds-components.css). No row grows,
+     and the focus ring still hugs the text: a padded 44px box put the role link's ring on its
+     cell's edges, under the sticky header on the first row and past the scroller on the last.
+     The inline inset is negative only on a link narrower than 44px ("Edit"). inline-block makes
+     a link that wraps (a long role, the caption at 320px) ONE box for the strip to centre on. */
+  .postings-page .postings-link,
+  .plans-page .capacity-link,
+  .capacity-page .capacity-link,
+  .plans-page .bb-stat__caption a,
+  .capacity-page .bb-stat__caption a {
+    display: inline-block;
+    position: relative;
+    isolation: isolate;
+  }
+  .postings-page .postings-link::before,
+  .plans-page .capacity-link::before,
+  .capacity-page .capacity-link::before,
+  .plans-page .bb-stat__caption a::before,
+  .capacity-page .bb-stat__caption a::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0%, calc((100% - var(--control-md)) / 2));
+  }
+}
+
+/* ==================================================================
  * AGENCY SUPPLY — WORKER ENGAGEMENT · BATCH INVITE MINT · PRINTABLE QR (B5)
  * ------------------------------------------------------------------
  * Three new agency surfaces, styled in the SAME visual language as the agency dashboard
@@ -4694,7 +4956,7 @@ body:has(.invite-landing) .chrome-footer {
      · on a phone the three tiles stacked to 474px — the whole first screen was counters,
        above the actions the band exists to support. Below 600px each tile becomes a compact
        ledger row (icon · label/caption · figure), ~65px tall.
-   Opt-in so the other `.stat-row` consumers (capacity / plans / agency) are unchanged. */
+   Opt-in: a row takes it by adding `stat-row--kpi`; a plain `.stat-row` keeps the base grid. */
 .stat-row--kpi {
   display: flex;
   flex-wrap: wrap;
@@ -4832,8 +5094,13 @@ body:has(.invite-landing) .chrome-footer {
 .panel:has(.tablewrap:focus-visible) {
   box-shadow: var(--ring-focus);
 }
+/* …and the scroller draws nothing else: the tokens.css base `:focus-visible` still gave it the
+   box-shadow ring (a second navy stroke along the table's top edge, under the panel head) and a
+   radius that clipped the sticky header's top corners the moment it took focus. */
 .panel:has(.tablewrap:focus-visible) .tablewrap:focus-visible {
   outline-color: transparent;
+  box-shadow: none;
+  border-radius: 0;
 }
 .table {
   width: 100%;
