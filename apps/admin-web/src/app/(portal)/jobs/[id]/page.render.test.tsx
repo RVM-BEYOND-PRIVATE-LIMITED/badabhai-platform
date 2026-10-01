@@ -24,6 +24,9 @@ const stub = vi.hoisted(() => {
   return {
     RequestError,
     job: null as Record<string, unknown> | null,
+    capabilities: ["read_entities"] as string[],
+    /** The props the page handed the (stubbed) client header on the last render. */
+    headerProps: null as null | { timelineHref: string | null; canForceClose: boolean },
   };
 });
 
@@ -31,12 +34,14 @@ vi.mock("../../../../lib/auth", () => ({
   requireCapability: async () => ({
     adminId: "a-1",
     role: "ops_admin",
-    capabilities: ["read_entities"],
+    capabilities: stub.capabilities,
   }),
 }));
 
+// The real rule (a capability is held iff it is listed), over the stubbed session — so a page
+// decision taken from `can(...)` is exercised for both answers, not pinned to one.
 vi.mock("../../../../lib/auth/capabilities", () => ({
-  can: () => false,
+  can: (held: readonly string[], capability: string) => held.includes(capability),
 }));
 
 vi.mock("../../../../lib/admin-http", () => ({
@@ -54,7 +59,12 @@ vi.mock("../../../../lib/entities", () => ({
 vi.mock("./job-detail-header", async () => {
   const { PageHeader } = await import("../../../../components/page-header");
   return {
-    JobDetailHeader: ({ header }: { header: PageHeaderContent }) => <PageHeader {...header} />,
+    JobDetailHeader: (
+      props: { header: PageHeaderContent } & NonNullable<typeof stub.headerProps>,
+    ) => {
+      stub.headerProps = props;
+      return <PageHeader {...props.header} />;
+    },
   };
 });
 
@@ -97,6 +107,8 @@ const BASE = {
 
 beforeEach(() => {
   stub.job = { ...BASE };
+  stub.capabilities = ["read_entities"];
+  stub.headerProps = null;
 });
 
 const render = async () =>
@@ -286,5 +298,35 @@ describe("the header (owner ruling 2026-10-01)", () => {
     const out = await render();
     expect(out).toContain('<a class="backlink" href="/jobs">');
     expect(out).toContain("<span>Postings</span></a>");
+  });
+});
+
+describe("the event-timeline link (header and result banner) follows read_events", () => {
+  // The header renders "View event timeline" from `timelineHref`, and the action-result banner
+  // links the same href through `timelineLink(timelineHref)` — so null withholds both.
+  it("is handed to the header with read_events", async () => {
+    stub.capabilities = ["read_entities", "read_events"];
+    await render();
+    expect(stub.headerProps?.timelineHref).toBe(`/jobs/${JOB_ID}/timeline`);
+  });
+
+  it("is withheld without it — the route would only redirect this reader", async () => {
+    stub.capabilities = ["read_entities"];
+    await render();
+    expect(stub.headerProps?.timelineHref).toBeNull();
+  });
+
+  it("is not repeated in the no-decisions state — the header carries it", async () => {
+    stub.capabilities = ["read_entities", "read_events"];
+    const out = await render();
+    expect(out).toContain("No job decisions yet");
+    expect(out).not.toContain("/timeline");
+  });
+
+  it("offers the owner once, in the record row, not again in the header", async () => {
+    stub.capabilities = ["read_entities", "read_events"];
+    const out = await render();
+    expect(out.split(`href="/companies/${BASE.payer_id}"`).length - 1).toBe(1);
+    expect(stub.headerProps).not.toHaveProperty("payerHref");
   });
 });

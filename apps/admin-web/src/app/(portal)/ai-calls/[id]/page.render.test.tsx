@@ -381,3 +381,18 @@ describe("the code block really does wrap", () => {
     expect(rule).toMatch(/overflow-y:\s*auto/);
   });
 });
+
+describe("the correlation id links into /events only for a session holding read_events", () => {
+  it("links it with read_events", async () => {
+    stub.capabilities = ["read_entities", "read_ai_traces", "read_events"];
+    const out = await render();
+    expect(out).toContain('href="/events?correlationId=req-9fd0b09"');
+  });
+
+  it("shows it as plain text without — the id stays on the page, the dead link does not", async () => {
+    stub.capabilities = ["read_entities", "read_ai_traces"];
+    const out = await render();
+    expect(out).not.toContain("/events?correlationId=");
+    expect(out).toContain('<span class="mono">req-9fd0b09</span>');
+  });
+});

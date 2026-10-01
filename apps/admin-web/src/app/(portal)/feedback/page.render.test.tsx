@@ -483,6 +483,14 @@ describe("the empty states, which are four different claims", () => {
     expect(out).not.toContain("Clear filter");
   });
 
+  it("unfiltered and empty, without read_events: no link into a log the session cannot open", async () => {
+    stub.capabilities = ["read_entities"];
+    const out = await render();
+    expect(out).toContain("No feedback submitted yet");
+    expect(out).not.toContain("/events?eventName=feedback.submitted");
+    expect(out).not.toContain("View events");
+  });
+
   it("filtered and empty: the tag is empty, and clearing it is the way out", async () => {
     const out = await render({ category: "other" });
     expect(out).toContain("No feedback carries this tag");

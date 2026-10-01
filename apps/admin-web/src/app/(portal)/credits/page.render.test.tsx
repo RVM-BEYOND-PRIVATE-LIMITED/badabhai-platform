@@ -150,3 +150,37 @@ describe("credits — simulated money is marked on the page", () => {
     expect(out.indexOf(MOCK_POSTURE_BANNER)).toBeLessThan(ledgerTable);
   });
 });
+
+/**
+ * The two chip rows are two filters on one URL (owner brief 2026-10-01): picking a window kept
+ * no reason, and picking a reason reset the window — each row silently undid the other.
+ */
+describe("the window and reason chips keep each other", () => {
+  const renderWith = async (sp: Record<string, string>) =>
+    renderToStaticMarkup(await CreditsPage({ searchParams: Promise.resolve(sp) }));
+
+  it("a window chip keeps the ledger's reason", async () => {
+    const out = await renderWith({ windowDays: "7", reason: "grant" });
+    expect(out).toContain('href="/credits?windowDays=30&amp;reason=grant"');
+    expect(out).toContain('href="/credits?windowDays=90&amp;reason=grant"');
+  });
+
+  it("a reason chip keeps the window", async () => {
+    const out = await renderWith({ windowDays: "7", reason: "grant" });
+    expect(out).toContain('href="/credits?windowDays=7&amp;reason=unlock_debit"');
+    expect(out).toContain('href="/credits?windowDays=7&amp;reason=refund"');
+  });
+
+  it("marks the active chip in each row for assistive tech", async () => {
+    const out = await renderWith({ windowDays: "7", reason: "grant" });
+    expect(out).toMatch(/aria-current="true"[^>]*href="\/credits\?windowDays=7&amp;reason=grant"/);
+    const current = out.match(/aria-current="true"/g) ?? [];
+    expect(current.length).toBe(2);
+  });
+
+  it("clearing the reason keeps the window, and says it clears that one filter", async () => {
+    const out = await renderWith({ windowDays: "7", reason: "grant" });
+    expect(out).toMatch(/href="\/credits\?windowDays=7">(<i [^>]*><\/i>)?Clear the reason filter<\/a>/);
+    expect(out).not.toContain(">Clear filters<");
+  });
+});

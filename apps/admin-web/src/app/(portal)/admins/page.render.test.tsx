@@ -208,3 +208,17 @@ describe("the header (owner ruling 2026-10-01)", () => {
     expect(out).not.toContain(">ops admin<");
   });
 });
+
+describe("the role chips keep a status narrowing (owner brief 2026-10-01)", () => {
+  it("a chip carries ?status= — it used to drop it", async () => {
+    const out = await render({ role: "analyst", status: "active" });
+    expect(out).toContain('href="/admins?role=ops_admin&amp;status=active"');
+    expect(out).toContain('href="/admins?role=super_admin&amp;status=active"');
+  });
+
+  it("marks the active role chip, and only it", async () => {
+    const out = await render({ role: "analyst" });
+    expect(out).toMatch(/aria-current="true"[^>]*href="\/admins\?role=analyst"/);
+    expect((out.match(/aria-current="true"/g) ?? []).length).toBe(1);
+  });
+});

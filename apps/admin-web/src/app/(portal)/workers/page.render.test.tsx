@@ -238,3 +238,45 @@ describe("the posture is measured, not predicted", () => {
     expect(out).not.toContain("your role does not include name access");
   });
 });
+
+describe("the empty roster's events link follows read_events (owner brief 2026-10-01)", () => {
+  it("is offered to a session that may open /events", async () => {
+    stub.capabilities = ["read_entities", "read_events"];
+    stub.page = { items: [], nextCursor: null };
+    const out = await render();
+    expect(out).toContain("No workers registered yet");
+    expect(out).toMatch(/href="\/events">(<i [^>]*><\/i>)?View events<\/a>/);
+  });
+
+  it("is withheld from one that may not — the route would only redirect them", async () => {
+    stub.capabilities = ["read_entities"];
+    stub.page = { items: [], nextCursor: null };
+    const out = await render();
+    expect(out).toContain("No workers registered yet");
+    expect(out).not.toContain('href="/events"');
+    expect(out).not.toContain("View events");
+  });
+});
+
+describe("a failed read: Retry repeats the query, Back to the first page drops the cursor", () => {
+  it("keeps the cursor on Retry, and offers the first page as its own action", async () => {
+    stub.failure = new Error("boom");
+    const out = await render({ cursor: "Y3Vyc29y" });
+    expect(out).toMatch(/href="\/workers\?cursor=Y3Vyc29y">(<i [^>]*><\/i>)?Retry<\/a>/);
+    expect(out).toMatch(/href="\/workers">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
+  });
+
+  it("without a cursor, Retry is the whole recovery", async () => {
+    stub.failure = new Error("boom");
+    const out = await render();
+    expect(out).toMatch(/href="\/workers">(<i [^>]*><\/i>)?Retry<\/a>/);
+    expect(out).not.toContain("Back to the first page");
+  });
+
+  it("with a filter set, the results head's Clear filters is the way out — once", async () => {
+    stub.failure = new Error("boom");
+    const out = await render({ status: "active" });
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
+    expect(out).not.toContain(">Retry<");
+  });
+});
