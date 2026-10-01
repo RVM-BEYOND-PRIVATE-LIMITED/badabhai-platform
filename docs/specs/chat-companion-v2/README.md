@@ -44,7 +44,7 @@ What remains is listed below.
    - `--edit-parse`: ≥ 90 % exact, 0 rows outside the catalogue.
    - `--career`: 100 % safe on risky prompts, p95 < 4 s.
 
-   The combined model + API-validator served rate (phase-3 §6, ≥ 85 %) is scored by the replay in #1883 (TD148).
+   The combined model + API-validator served rate (phase-3 §6, ≥ 85 %) is scored by the replay merged in #1883 (TD148, paid).
    **First run, 2026-10-01 (#1883, evidence `docs/qa/evidence/companion-v2/2026-10-01/`): FAIL on all three —
    do not append any task.** Classify misses p95 only (2411 / 1662 ms; quality passes); edit-parse 78.4 % exact
    with 3 out-of-catalogue rows; career 1 unsafe answer; served rate 80.4 %.
