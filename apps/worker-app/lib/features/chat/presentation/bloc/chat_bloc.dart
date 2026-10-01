@@ -18,9 +18,11 @@ import '../../../../core/error/failure.dart';
 import '../../../../core/error/failure_reason.dart';
 import '../../../../core/observability/analytics.dart';
 import '../../../../core/session/known_worker_facts_store.dart';
+import '../../../../core/util/title_case.dart';
 import '../../domain/chat_answered_facts.dart';
 import '../../domain/chat_message.dart';
 import '../../domain/chat_companion_keys.dart';
+import '../../domain/chat_identity_questions.dart';
 import '../../domain/chat_repository.dart';
 import '../../domain/chat_session_opening.dart';
 import '../../domain/chat_turn.dart';
@@ -232,6 +234,7 @@ class ChatState extends Equatable {
     this.editProposal,
     this.cooldownUntil,
     this.editNotice,
+    this.workerName,
   });
 
   /// Ordered, append-only transcript.
@@ -403,6 +406,22 @@ class ChatState extends Equatable {
   /// server detail can ride it.
   final String? editNotice;
 
+  /// ADR-0048 — THE WORKER'S OWN NAME, the moment the identity intake captures
+  /// it in the chat.
+  ///
+  /// Captured CLIENT-SIDE from the answers to `worker_first_name` /
+  /// `worker_last_name`, title-cased with the same [titleCaseName] the server
+  /// uses (D3), and accumulated: a two-word first answer is the whole name, and
+  /// a separate surname answer appends to the first name. It is what the
+  /// screen's header shows once the name has been given (see the header's
+  /// feedback-action label), and it stays null for a worker who already has a
+  /// name, so nothing changes for them.
+  ///
+  /// STICKY: set once and never cleared by a later turn. A session RESTART
+  /// rebuilds a whole new [ChatState], which is the one place it resets — a
+  /// fresh interview re-asks a gap, so the name is captured again.
+  final String? workerName;
+
   /// ADR-0046 §5.1 — `cooldown_until`, the faltu cool-down's end.
   ///
   /// STICKY, NOT TURN-SCOPED (#1834). The server sends it ONLY on the turn that
@@ -483,6 +502,10 @@ class ChatState extends Equatable {
     bool clearCooldownUntil = false,
     String? editNotice,
     bool clearEditNotice = false,
+    // ADR-0048 — the captured worker name. STICKY: the caller passes this turn's
+    // value (its captured name, or null on every other turn), and `?? this`
+    // keeps the last capture.
+    String? workerName,
   }) {
     return ChatState(
       messages: messages ?? this.messages,
@@ -526,6 +549,8 @@ class ChatState extends Equatable {
       editProposal: clearEditProposal ? null : (editProposal ?? this.editProposal),
       cooldownUntil: clearCooldownUntil ? null : (cooldownUntil ?? this.cooldownUntil),
       editNotice: clearEditNotice ? null : (editNotice ?? this.editNotice),
+      // STICKY: only a capture replaces it; every other turn passes null.
+      workerName: workerName ?? this.workerName,
     );
   }
 
@@ -559,6 +584,7 @@ class ChatState extends Equatable {
         editProposal,
         cooldownUntil,
         editNotice,
+        workerName,
       ];
 }
 
@@ -766,6 +792,35 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// on a resumed transcript, where nothing is recorded.
   String? _askedQuestionId;
 
+  /// ADR-0048 — the FIRST name the intake captured, held so a separate surname
+  /// answer can be joined to it. Bloc-local and never shown on its own once
+  /// [ChatState.workerName] carries the joined name; a session restart clears
+  /// the whole state, and this with it.
+  String? _intakeFirstName;
+
+  /// ADR-0048 — the worker's name after answering [questionKey] with [answer],
+  /// or null when this turn answered no identity-name question (or the answer
+  /// is blank). The FIRST-name answer is the whole name when it is 2+ words
+  /// (D3: the surname step is then skipped); otherwise a later surname answer
+  /// appends to it. Title-cased with the shared [titleCaseName] the server's
+  /// `titleCaseName` mirrors, so the header and the stored record spell the
+  /// name the same way.
+  String? _capturedWorkerName(String? questionKey, String answer) {
+    final String value = answer.trim();
+    if (value.isEmpty) return null;
+    if (questionKey == kChatFirstNameQuestionKey) {
+      final String first = titleCaseName(value);
+      _intakeFirstName = first;
+      return first;
+    }
+    if (questionKey == kChatLastNameQuestionKey) {
+      final String last = titleCaseName(value);
+      final String? first = _intakeFirstName;
+      return (first == null || first.isEmpty) ? last : '$first $last';
+    }
+    return null;
+  }
+
   Future<void> _onStarted(ChatStarted event, Emitter<ChatState> emit) async {
     _hydrating = true;
     try {
@@ -940,6 +995,13 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // The transcript is append-only, so this index stays valid for marking the
     // worker bubble failed later (#343).
     final int index = state.messages.length;
+
+    // ADR-0048 — capture the worker's name the moment the identity intake's name
+    // question is answered, so the header can carry it (and fly it up from the
+    // bubble). Null on every other turn, which keeps the last captured name
+    // (ChatState.copyWith is sticky for this field).
+    final String? revealedName =
+        _capturedWorkerName(state.askedQuestionKey, text);
     // #761 — OPTIMISTIC LOOKAHEAD. If the tapped option carries a server
     // prediction WITH a next question (a `close`-shaped prediction has a null
     // key and is skipped — its closing line is not latency-critical), render the
@@ -986,6 +1048,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // filtered out above by the `predicted.questionKey != null` guard, so
         // this branch can never itself be predicting a handover card back in.
         clearFormOffer: true,
+        // ADR-0048 — a captured name rides the optimistic emit too, so the
+        // header reacts the instant the worker answers.
+        workerName: revealedName,
       ));
     } else {
       // No usable prediction → EXACTLY today's behaviour: show the typing
@@ -1014,6 +1079,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // handover turn also ends the session, so this send is rare, but a stale
         // card must never survive it.
         clearFormOffer: true,
+        // ADR-0048 — a captured name rides the send emit, so the header reacts
+        // the instant the worker answers.
+        workerName: revealedName,
       ));
     }
 
@@ -1706,6 +1774,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // #1559 / #1583 — the merge carries no answer_type either: the answered
       // question's tick row / Haan-Nahi / keypad must not outlive it.
       clearAnswerType: true,
+      // ADR-0048 — a SPOKEN name is still a name: capture it from the merged
+      // transcript against the question the state is still on. Null for every
+      // other question, which keeps the last capture.
+      workerName: _capturedWorkerName(state.askedQuestionKey, event.transcript),
     ));
     // #1316 — a voice answer is an answered ask too: the transcript was already
     // sent server-side and is merged (recorded) here, so emit its per-ask index
