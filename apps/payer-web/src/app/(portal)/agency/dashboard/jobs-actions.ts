@@ -41,7 +41,6 @@ function revalidateAgencyPostings(): void {
 }
 
 /** Lifecycle (pause/close) discriminated result — returns the full updated job on success. */
-
 export type AgencyJobActionResult =
   | { ok: true; job: AgencyJob }
   | { ok: false; error: string };

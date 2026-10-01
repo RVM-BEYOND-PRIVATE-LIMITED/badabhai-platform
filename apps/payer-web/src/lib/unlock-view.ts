@@ -10,15 +10,15 @@ import type { MaskedResumeResult, RevealResult, UnlockResult } from "./contracts
 
 /** The single neutral unlock message — identical for EVERY deny cause (XB-C). */
 export const NEUTRAL_UNLOCK_MESSAGE =
-  "Unavailable — this candidate can't be unlocked right now. The reason is intentionally not disclosed (no consent, capped, no credits, and already-unlocked all look identical).";
+  "Unavailable — this applicant can't be unlocked right now. The reason is intentionally not disclosed (no consent, capped, no credits, and already-unlocked all look identical).";
 
 /** The single neutral routed-contact-reveal message. */
 export const NEUTRAL_CONTACT_MESSAGE =
-  "Unavailable — a routed contact can't be opened for this candidate right now. The reason is intentionally not disclosed (no consent, expired, capped all look identical).";
+  "Unavailable — a routed contact can't be opened for this applicant right now. The reason is intentionally not disclosed (no consent, expired, capped all look identical).";
 
 /** The single neutral masked-reveal message (WAITING masked-resume shim). */
 export const NEUTRAL_REVEAL_MESSAGE =
-  "Unavailable — this candidate's masked resume can't be shown right now. The reason is intentionally not disclosed.";
+  "Unavailable — this applicant's masked resume can't be shown right now. The reason is intentionally not disclosed.";
 
 /**
  * The LIVE reveal view — a ROUTED contact handle ONLY. There is deliberately NO

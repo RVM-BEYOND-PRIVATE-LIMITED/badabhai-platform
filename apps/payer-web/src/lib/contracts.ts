@@ -1591,7 +1591,7 @@ export const jobPostingChatMessageInputSchema = z.object({
     .min(1, "Type an answer first.")
     .max(2000, "That message is too long — keep it under 2000 characters.")
     .refine((t) => !looksLikePii(t), {
-      message: "Remove contact details (phone/email) — share those only after you unlock a candidate.",
+      message: "Remove contact details (phone/email) — share those only after you unlock an applicant.",
     }),
 });
 export type JobPostingChatMessageInput = z.infer<typeof jobPostingChatMessageInputSchema>;

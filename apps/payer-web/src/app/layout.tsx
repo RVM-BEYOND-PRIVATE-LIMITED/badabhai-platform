@@ -7,7 +7,7 @@ import { ASYNC_CSS_SCRIPT, ASYNC_STYLESHEETS, THEME_NO_FOUC_SCRIPT } from "../li
 
 export const metadata: Metadata = {
   title: "BadaBhai for Business",
-  description: "Self-serve hiring portal — post jobs, view faceless applicants, unlock contacts.",
+  description: "Self-serve hiring portal — publish postings, view faceless applicants, unlock contacts.",
 };
 
 /**

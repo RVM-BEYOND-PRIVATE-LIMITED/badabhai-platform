@@ -92,7 +92,7 @@ export default async function AgencyWorkersPage() {
           <p className="alert__title">Every row is a private handle, not a person.</p>
           <p className="alert__body">
             BadaBhai never shows an agency a worker&rsquo;s name, phone number or employer, which
-            job they applied to, or who unlocked them. What you get is the funnel: whether they
+            posting they applied to, or who unlocked them. What you get is the funnel: whether they
             finished their profile, how many times they applied, how many times a company unlocked
             them, and the last day they were active.
           </p>

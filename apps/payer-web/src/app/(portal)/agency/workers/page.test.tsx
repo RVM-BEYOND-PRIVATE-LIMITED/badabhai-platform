@@ -215,6 +215,9 @@ describe("/agency/workers — W2-B: the privacy boundary is an alert that preced
     expect(textIn(alert!)).toMatch(
       /never shows an agency a worker.s name, phone number or employer/,
     );
+    // The job entity is a Posting everywhere (owner ruling 2026-10-01).
+    expect(textIn(alert!)).toMatch(/which\s+posting they applied to/);
+    expect(textIn(alert!)).not.toMatch(/\bjobs?\b/);
     // Reading order: the boundary is stated before any row is shown.
     const top = childrenOf(tree).map((k) => String(k.props.className ?? ""));
     expect(top.indexOf("alert alert--info")).toBeLessThan(top.indexOf("panel panel--table"));

@@ -2256,6 +2256,12 @@ textarea.input {
   color: var(--text-primary);
   font-size: var(--text-sm);
 }
+/* The masked-resume link opens a new tab: its text, then the external-link icon. */
+.reveal-card__ext {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--icon-gap);
+}
 
 /* ------------------------------------------------------------------
  * POST A JOB (DS2.1) — the EMPLOYER posting form + page notes re-skinned onto the

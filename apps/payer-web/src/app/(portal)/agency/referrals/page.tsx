@@ -172,7 +172,7 @@ export default async function AgencyReferralsPage() {
 
             <ProgressBar
               tone="success"
-              label="Created → clicked conversion"
+              label="Created-to-clicked conversion"
               value={pct ?? 0}
               showValue={pct !== null}
             />
