@@ -17,8 +17,10 @@ export default async function TeamPage() {
   await requireOwner();
   const members = await listOrgMembers();
 
+  // `.team-page` only NAMESPACES this screen's layout rules (the "W3-B" block in globals.css)
+  // — it carries no styling of its own.
   return (
-    <>
+    <div className="team-page">
       <p className="page-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
@@ -33,6 +35,6 @@ export default async function TeamPage() {
       </div>
 
       <TeamManager members={members} />
-    </>
+    </div>
   );
 }

@@ -39,7 +39,7 @@ export default async function AccountPage() {
   // /payer/me read hasn't populated this session yet — show a neutral retry, never a blank page.
   if (!session.email) {
     return (
-      <>
+      <div className="account-page">
         <div className="page-head">
           <div className="page-head__text">
             <h1 className="page-head__title">Account</h1>
@@ -62,7 +62,7 @@ export default async function AccountPage() {
             </div>
           </div>
         </Card>
-      </>
+      </div>
     );
   }
 
@@ -78,8 +78,10 @@ export default async function AccountPage() {
     }
   }
 
+  // `.account-page` only NAMESPACES this screen's layout rules (the "W3-B" block in
+  // globals.css) — it carries no styling of its own.
   return (
-    <>
+    <div className="account-page">
       <p className="page-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
@@ -126,7 +128,7 @@ export default async function AccountPage() {
       </section>
 
       {session.role === "agent" && agencyKyc ? <AgencyKycCard kyc={agencyKyc} /> : null}
-    </>
+    </div>
   );
 }
 

@@ -19,8 +19,10 @@ export default async function AcceptInvitePage({
   await requirePayer();
   const { token } = await searchParams;
 
+  // `.team-accept-page` only NAMESPACES this screen's layout rules (the "W3-B" block in
+  // globals.css) — it carries no styling of its own.
   return (
-    <>
+    <div className="team-accept-page">
       <div className="page-head">
         <div className="page-head__text">
           <h1 className="page-head__title">Join a team</h1>
@@ -30,6 +32,6 @@ export default async function AcceptInvitePage({
         </div>
       </div>
       <AcceptInvite token={typeof token === "string" ? token : ""} />
-    </>
+    </div>
   );
 }

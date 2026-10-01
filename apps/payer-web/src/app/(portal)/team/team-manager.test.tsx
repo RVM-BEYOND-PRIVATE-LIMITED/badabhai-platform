@@ -140,3 +140,34 @@ describe("TeamManager — invite affordance + masked members list, PII-free", ()
     expect(gatherText(tree)).toContain("You");
   });
 });
+
+describe("TeamManager — W3-B: the directory is a labelled, keyboard-scrollable region", () => {
+  it("the table scroller is focusable, a region, and NAMED BY the Members heading (referenced)", () => {
+    const tree = TeamManager({ members: [recruiter, self] }) as ReactElement;
+    const wrap = findByClass(tree, "tablewrap");
+    expect(wrap).toHaveLength(1);
+    const props = wrap[0]!.props as Record<string, unknown>;
+    expect(props).toMatchObject({ tabIndex: 0, role: "region" });
+    // The name is the heading's own text, referenced — not a second hand-kept copy of it.
+    expect(props["aria-label"]).toBeUndefined();
+    const heading = findByClass(tree, "panel__title").find(
+      (h) => gatherText(h).trim() === "Members",
+    );
+    expect(heading).toBeDefined();
+    const id = (heading!.props as { id?: unknown }).id;
+    expect(typeof id === "string" && id.length > 0).toBe(true);
+    expect(props["aria-labelledby"]).toBe(id);
+  });
+
+  it("the table keeps wrapping (not `table--nowrap`): a long masked email must not push role/status off a phone", () => {
+    const table = findByClass(TeamManager({ members: [recruiter] }) as ReactElement, "table");
+    expect((table[0]!.props as { className: string }).className).toBe("table");
+  });
+
+  it("renders ONLY the server-masked email — a stray raw address on the row object never reaches the DOM", () => {
+    const leaky = { ...recruiter, email: "harish.kumar@acme.example" } as OrgMemberView;
+    const text = gatherText(TeamManager({ members: [leaky] }) as ReactElement);
+    expect(text).toContain("h•••@acme.example");
+    expect(text).not.toContain("harish");
+  });
+});

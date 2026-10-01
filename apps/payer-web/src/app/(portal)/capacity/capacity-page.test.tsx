@@ -189,7 +189,8 @@ describe("capacity page — UI-1 page spine + a real empty state for the per-pos
     expect(classes).toContain("page-head");
     expect(classes).toContain("page-head__title");
     expect(classes).toContain("page-head__sub");
-    expect(classes).toContain("stat-row");
+    // The tile row is the shared primitive with the opt-in compact phone variant (W3-B).
+    expect(classes).toContain("stat-row stat-row--kpi");
     expect(classes).toContain("section");
     expect(classes).toContain("panel panel--table");
     expect(classes).toContain("alert alert--info");
