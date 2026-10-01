@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { sql, type SQL } from "drizzle-orm";
-import { jobs, jobPostings } from "@badabhai/db";
+import { jobs, jobPostings, type Database } from "@badabhai/db";
+import { MatchFeedRepository } from "../match/match-feed.repository";
 import { feedPayFloorPredicate, feedShiftPredicate } from "./feed-filter.predicates";
 
 /**
@@ -73,5 +74,37 @@ describe("feedPayFloorPredicate", () => {
   it("applies the IDENTICAL rule to `job_postings` (the #1823 postings arm)", () => {
     const { sql: text } = compile(feedPayFloorPredicate(jobPostings.payMax, 15000));
     expect(text).toBe('("job_postings"."pay_max" is null or "job_postings"."pay_max" >= $1)');
+  });
+});
+
+describe("parity with the V1 arm (MatchFeedRepository.listFeed)", () => {
+  // The rule is written twice: here (Drizzle) and in V1's raw SQL. Reduce both to a
+  // table-agnostic shape — no quotes, no table qualifier, `?` for every bound value and
+  // cast — so a change to either side's NULL arm, column or operator fails this test.
+  const shape = (text: string) =>
+    text
+      .toLowerCase()
+      .replace(/"/g, "")
+      .replace(/\b(?:jp|jobs|job_postings)\./g, "")
+      .replace(/\$\d+(?:::\w+)?/g, "?")
+      .replace(/\s+/g, " ");
+
+  it("V1 states the same NULL-tolerant shift and pay-floor rule these helpers build", async () => {
+    const statements: string[] = [];
+    const v1 = new MatchFeedRepository({
+      execute: (stmt: SQL) => {
+        statements.push(compile(stmt).sql);
+        return Promise.resolve([]);
+      },
+    } as unknown as Database);
+    await v1.listFeed("11111111-1111-4111-8111-111111111111", 10, { shift: "night", payMin: 20000 });
+    const v1Sql = shape(statements.join(" "));
+
+    const shiftRule = "shift is null or shift = ?";
+    const payRule = "pay_max is null or pay_max >= ?";
+    expect(shape(compile(feedShiftPredicate(jobPostings.shift, "night")).sql)).toContain(shiftRule);
+    expect(shape(compile(feedPayFloorPredicate(jobPostings.payMax, 20000)).sql)).toContain(payRule);
+    expect(v1Sql).toContain(shiftRule);
+    expect(v1Sql).toContain(payRule);
   });
 });

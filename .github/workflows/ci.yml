@@ -1626,6 +1626,8 @@ jobs:
           set -eo pipefail
           node apps/api/dist/main.js > api-match-v1.log 2>&1 &
           API_PID=$!
+          # Every exit path (health timeout, a failed check) stops the armed API, not just the happy one.
+          trap 'kill "$API_PID" 2>/dev/null || true' EXIT
           echo "MATCH_V1 API started (pid $API_PID) — waiting for /health…"
           for i in $(seq 1 60); do
             if curl -sf "$E2E_API_URL/health" >/dev/null 2>&1; then

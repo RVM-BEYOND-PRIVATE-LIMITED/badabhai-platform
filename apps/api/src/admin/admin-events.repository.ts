@@ -283,10 +283,11 @@ export class AdminEventsRepository {
    * latter is the k-anon witness (how many distinct workers/subjects a funnel stage covers).
    * Uses events_event_name_idx + events_occurred_at_idx.
    *
-   * ONE statement over `event_name IN (...)`, never a sum of per-name reads: every row carries
-   * exactly one name, so `count(*)` is the exact total, and `count(distinct subject_id)` counts
-   * a subject once even if it appears under more than one name. Summing per-name distinct
-   * counts would double count that subject.
+   * ONE statement over `event_name IN (...)`: every row carries exactly one name, so `count(*)`
+   * is the exact total and `count(distinct subject_id)` is the stage's distinct subjects. (Today
+   * the funnel's merged names carry different subject types — `feed.shown` a job or, from payer
+   * Reach, a worker; `feed.shown_v2` a posting — so no subject spans names; one read keeps it
+   * exact if that ever changes.)
    */
   async eventNameStats(
     eventNames: readonly [string, ...string[]],

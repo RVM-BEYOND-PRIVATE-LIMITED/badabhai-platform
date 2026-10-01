@@ -102,7 +102,9 @@ export class AdminEventsService {
    * impressions the moment `MATCH_V1_ENABLED` flips. No impression is counted twice: the worker
    * `/feed` branches ONCE per request on the flag (`ApplicationsService.getFeed`), emitting
    * `feed.shown` on the legacy path or `feed.shown_v2` via `MatchFeedService`, never both. The
-   * stage is still reported as `feed.shown`, because the admin UI keys and labels on it.
+   * stage is still reported as `feed.shown`, because the admin UI keys and labels on it. Its
+   * `distinct_subjects` spans mixed subject types (worker-feed jobs, payer-Reach workers, V1
+   * postings) — the pre-existing k-anon witness for this stage, unchanged here.
    */
   static readonly FUNNEL_STAGES: readonly FunnelStageDefinition[] = [
     { stage: "feed.shown", events: ["feed.shown", "feed.shown_v2"] },
