@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { BrandLockup } from "./brand-lockup";
+import { PhIcon } from "./ph-icon";
 import { SidebarNav } from "./nav";
 import { TopbarCrumb } from "./topbar-crumb";
 import type { NavSection } from "./nav-model";
@@ -85,7 +86,9 @@ export function Shell({
             aria-expanded={drawerOpen}
             aria-controls="portal-sidebar"
           >
-            <span aria-hidden="true">☰</span>
+            {/* A solid Phosphor `list` glyph. The ☰ character fell back to a thin stroke in
+                the UI face; the name is the sr-only label, never the glyph. */}
+            <PhIcon name="list" />
             <span className="sr-only">Navigation</span>
           </button>
           {/* The topbar used to be a hamburger and a spacer. It now says where you are —
