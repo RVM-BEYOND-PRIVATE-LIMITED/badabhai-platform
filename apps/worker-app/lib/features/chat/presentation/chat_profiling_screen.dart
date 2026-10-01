@@ -52,8 +52,8 @@ import '../../voice_form/presentation/widgets/voice_choice_chips.dart'
 import '../domain/chat_message.dart';
 import '../domain/chat_multi_select.dart';
 import '../domain/chat_companion_keys.dart';
-import '../../name/domain/indian_locations.dart';
 import '../domain/chat_identity_questions.dart';
+import 'widgets/chat_location_card.dart';
 import '../domain/companion_edit_value.dart';
 import '../domain/chat_resume_menu.dart';
 import '../../swipe/domain/job_detail.dart';
@@ -1489,8 +1489,12 @@ class _ChatViewState extends State<_ChatView> {
             curr.resumeUpdateQueued != prev.resumeUpdateQueued ||
             // ADR-0046 §5.2 — the edit card's one-shot notice. On the CHANGE
             // edge only, so it is shown once and never re-shown on a rebuild.
-            curr.editNotice != prev.editNotice,
+            curr.editNotice != prev.editNotice ||
+            // ADR-0048 — the identity turn moved on, so a held city may now be
+            // due (see [_maybeAnswerHeldCity]).
+            curr.askedQuestionKey != prev.askedQuestionKey,
         listener: (BuildContext context, ChatState state) {
+          _maybeAnswerHeldCity(state);
           _showEditNotice(state);
           _maybeSayEmptyImport(state);
           _maybeLeaveForResumeUpdate(state);
@@ -2192,41 +2196,56 @@ class _ChatViewState extends State<_ChatView> {
   /// [BbAnimatedSwitcher] can cross-fade the swap (#1059). Every branch carries a
   /// ValueKey; the two chip paths share `'chips'` so a question→question chip
   /// change stays instant while typing→chips animates.
-  /// ADR-0048 — the State / City list for an identity-intake turn.
+  /// ADR-0048 — send the city the worker already gave, the moment the server
+  /// asks for it.
   ///
-  /// CITY IS FILTERED BY THE STATE THE WORKER JUST ANSWERED, which is why
-  /// [_identityState] is remembered: the intake asks state first, and offering
-  /// all of India's cities after that would be worse than useless. A worker who
-  /// reopened the app mid-intake has no remembered state (the thread redraw
-  /// carries no question key), so the city list falls back to the whole set and
-  /// the composer still accepts anything typed.
+  /// The location card collects state AND city, but the server asks them as two
+  /// turns. This closes the gap: the state answer goes on "Theek hai", the
+  /// server replies with the city question, and this answers it immediately from
+  /// what the worker already chose. They are never asked twice for one thing.
   ///
-  /// A TAP SUBMITS THE LABEL as ordinary chat text — the same path a typed
-  /// answer takes, so nothing here is a special kind of message.
-  Widget _identityLocationPicker(String questionKey) {
-    final bool isState = questionKey == kChatStateQuestionKey;
-    final List<String> options = isState
-        ? kIndianStates
-        : (_identityState == null
-            ? const <String>[]
-            : citiesForIndianState(_identityState!));
-    // No suggestions to offer (an unknown state, or a reopen mid-intake): the
-    // composer alone is the honest affordance rather than an empty list.
-    if (options.isEmpty) return const SizedBox.shrink();
-    return _chipScroller(<Widget>[
-      for (final String option in options) ...<Widget>[
-        _AnswerChip(
-          label: option,
-          onTap: () {
-            // Remember the state so the CITY list can be filtered by it.
-            if (isState) _identityState = option;
-            _sendText(option);
-          },
-        ),
-        const SizedBox(width: AppSpacing.s2),
-      ],
-    ]);
+  /// GUARDED ON `sending` so the auto-answer cannot race the turn that is still
+  /// in flight, and the held value is cleared BEFORE the send so a rebuild
+  /// cannot fire it a second time.
+  void _maybeAnswerHeldCity(ChatState state) {
+    final String? city = _heldCity;
+    if (city == null) return;
+    if (state.sending) return;
+    if (state.askedQuestionKey != kChatCityQuestionKey) return;
+    _heldCity = null;
+    _sendText(city);
   }
+
+  /// ADR-0048 — the worker pressed "Theek hai" on the location card.
+  ///
+  /// ONE PRESS, TWO WIRE ANSWERS, because the server still asks two questions:
+  /// it HOLDS the state and writes `current_state`/`current_city` together when
+  /// the city lands (`identity-intake.ts`). So the state goes now and the city
+  /// is held here until the server asks for it, which it does on the very next
+  /// turn. The worker sees one question and answers it once.
+  ///
+  /// When only the city was asked (the record already had a state) there is
+  /// nothing to hold and the city goes straight out.
+  void _submitIdentityLocation({String? state, String? city}) {
+    final String? chosenState = state?.trim();
+    final String? chosenCity = city?.trim();
+    if (chosenState != null && chosenState.isNotEmpty) {
+      _identityState = chosenState;
+      // Held for the city turn that follows this answer.
+      _heldCity = (chosenCity != null && chosenCity.isNotEmpty) ? chosenCity : null;
+      _sendText(chosenState);
+      return;
+    }
+    if (chosenCity != null && chosenCity.isNotEmpty) {
+      _heldCity = null;
+      _sendText(chosenCity);
+    }
+  }
+
+  /// The city the worker chose on the STATE card, waiting for the server to ask
+  /// for it. Null whenever there is nothing waiting — which is every turn but
+  /// the one immediately after a two-field card.
+  String? _heldCity;
 
   Widget _answerAffordance(ChatState state) {
     // #761 — while an optimistic predicted turn is on screen
@@ -2249,9 +2268,25 @@ class _ChatViewState extends State<_ChatView> {
     // the city lists are suggestions, never a gate, and the server canonicalises
     // whatever is sent.
     if (isChatLocationQuestion(state.askedQuestionKey)) {
+      // THE CITY TURN IS ANSWERED BEFORE IT IS DRAWN when the worker already
+      // gave the city on the state card — see [_heldCity]. Nothing renders in
+      // that gap, so the pair reads as the single question it was.
+      if (state.askedQuestionKey == kChatCityQuestionKey && _heldCity != null) {
+        return const SizedBox.shrink();
+      }
       return KeyedSubtree(
         key: const ValueKey<String>('identity-location'),
-        child: _identityLocationPicker(state.askedQuestionKey!),
+        child: ChatLocationCard(
+          // On the STATE turn the card collects both, because the server holds
+          // the state and writes the pair together — so answering them in one
+          // breath lands exactly as `/name`'s single PATCH did.
+          askState: state.askedQuestionKey == kChatStateQuestionKey,
+          askCity: true,
+          knownState: state.askedQuestionKey == kChatCityQuestionKey
+              ? _identityState
+              : null,
+          onSubmit: _submitIdentityLocation,
+        ),
       );
     }
     // #761 — when the turn serves `suggested_options` (the LLM chat), render
