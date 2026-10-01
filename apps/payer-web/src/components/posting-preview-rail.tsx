@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { toJobCardView, type CardFields, type JobCardDraft } from "../lib/job-card-view";
 import type { PostingFact } from "../lib/posting-facts";
 import { observeRailScroll } from "../lib/rail-scroll";
+import { observeDockHeight } from "../lib/dock-reserve";
 import { Button, Dialog } from "./ds";
 import { JobCardPreview } from "./job-card-preview";
 
@@ -128,6 +129,12 @@ export interface PostingPreviewRailProps {
   status?: ReactNode;
   /** The same outcome the rail footer announces, for the phone dock. Announced (polite). */
   outcome?: ReactNode;
+  /**
+   * A publish/save is in flight: the dock's "Preview the card" waits. A sheet opened now would
+   * make the dock — and its live slot — inert exactly when the server's answer lands there, and
+   * that answer would never be announced.
+   */
+  busy?: boolean;
 }
 
 export function PostingPreviewRail({
@@ -138,6 +145,7 @@ export function PostingPreviewRail({
   primary,
   status,
   outcome,
+  busy = false,
 }: PostingPreviewRailProps) {
   // APPENDED-ONLY state for the positional useState mocks in the form tests: this is the only one.
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -169,7 +177,8 @@ export function PostingPreviewRail({
         <div className="posting-preview__foot">{actions}</div>
       </aside>
 
-      <div className="posting-dock">
+      {/* Its measured height is the room the page keeps for it (dock-reserve.ts). */}
+      <div className="posting-dock" ref={observeDockHeight}>
         <div className="posting-dock__status">{status}</div>
         <div className="posting-dock__live" aria-live="polite">
           {outcome}
@@ -179,6 +188,7 @@ export function PostingPreviewRail({
             type="button"
             className="posting-dock__summary"
             aria-haspopup="dialog"
+            disabled={busy}
             onClick={() => setSheetOpen(true)}
           >
             <span className="posting-dock__title">

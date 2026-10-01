@@ -2299,8 +2299,10 @@ textarea.input {
   /* The rail's sticky line: below the sticky shell header (its token + its hairline). On :root so
      the agency hosts can scroll to the same line when an inline editor opens. */
   --posting-rail-top: calc(var(--shell-header-h) + var(--border-hairline) + var(--space-4));
-  /* The room the phone dock needs: one row (≈4rem) plus a two-line status above it. */
-  --posting-dock-h: 7rem;
+  /* The room the phone dock needs: its MEASURED height (lib/dock-reserve.ts publishes it on the
+     root while a dock is on the page) plus its bottom offset — never less than one row plus a
+     two-line status (7rem), which is also all there is before the first measurement. */
+  --posting-dock-h: max(7rem, calc(var(--posting-dock-measured, 0) * 1px + var(--space-2)));
 }
 .posting-layout {
   --posting-rail-w: 24rem;
@@ -2324,6 +2326,8 @@ textarea.input {
 .posting-preview {
   order: -1;
   min-width: 0;
+  /* What the rail's "More below" fade ends in (below): the page it sits on. */
+  --posting-cue-bg: var(--surface-page);
 }
 .posting-preview__scroll {
   display: flex;
@@ -2345,12 +2349,17 @@ textarea.input {
 .posting-preview__scroll[data-more="true"] > .posting-preview__more {
   display: block;
 }
-/* A bar across the region's bottom edge: the content fades under it, the words say why. */
+/* A bar across the region's bottom edge: the content fades under it, the words say why. It fades
+   into whatever the rail sits on — the page (`--posting-cue-bg`, set with `.posting-preview`), or
+   the card an agency editor lives in (a page-coloured fade there drew a grey band on the white). */
+:is(.bb-card, .panel) .posting-preview {
+  --posting-cue-bg: var(--surface-card);
+}
 .posting-preview__more > span {
   display: block;
   transform: translateY(-100%);
   padding: var(--space-5) 0 var(--space-1);
-  background: linear-gradient(transparent, var(--surface-page) 55%);
+  background: linear-gradient(transparent, var(--posting-cue-bg) 55%);
   text-align: center;
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
@@ -2361,6 +2370,8 @@ textarea.input {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /* Its own width decides whether its row fits side by side (the @container rule below). */
+  container: posting-dock / inline-size;
   padding: var(--space-2) var(--space-3);
   padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
   background: var(--surface-card);
@@ -2443,6 +2454,26 @@ textarea.input {
   flex: 0 1 auto;
   min-width: 0;
   max-width: 60%;
+}
+/* A NARROW dock stacks its summary over the button. An agency editor's card leaves the dock only
+   ~170px at 320 (≈225px at 375): side by side, the summary was squeezed to 60px — "CN…",
+   "₹18,0…", "Preview / the / card" — and a company dock at 320 (254px) left it 94px, the title
+   cut. The page keeps room for the taller dock (its measured height, lib/dock-reserve.ts); from
+   375 a company dock (309px) keeps its one row. */
+@container posting-dock (width < 17rem) {
+  .posting-dock__row {
+    flex-wrap: wrap;
+  }
+  .posting-dock__summary {
+    flex-basis: 100%;
+  }
+  .posting-dock__primary {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+  .posting-dock__primary .bb-btn {
+    width: 100%;
+  }
 }
 /* An action's label wraps inside its button (the dock's, and the rows of buttons) instead of
    widening the page: "Publish anyway — reaches nobody yet" was a 371px nowrap button. */
@@ -2705,6 +2736,14 @@ textarea.input {
   flex-wrap: wrap;
   margin-bottom: var(--space-5);
 }
+/* In the form column the header's text keeps a readable measure: unless the column holds 24rem of
+   it BESIDE the 315px buttons, the buttons wrap UNDER it (every measured editor column, 403–686px,
+   stacks). With the row's `flex: 1` — a zero basis — the buttons stayed beside it and crushed it
+   (68px wide at 1024: 16 lines of meta); an 18rem basis still left long data 6–7 lines at 768 and
+   at 1600+, where the column fits 18rem beside the buttons but not much more. */
+.agency-job__lead > .agency-job__main {
+  flex: 1 1 24rem;
+}
 /* The chip editor's refused-publish reason sits under its row (so Add stays level with the box),
    and a long unbroken chip wraps inside its pill instead of widening the page. */
 .chip-editor__error {
@@ -2736,6 +2775,8 @@ textarea.input {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+  /* The row bounds each remove button's tooltip (its `100cqi`, ds-components.css). */
+  container-type: inline-size;
 }
 
 /* ------------------------------------------------------------------

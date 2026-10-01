@@ -18,6 +18,7 @@
 import type { ButtonHTMLAttributes, MouseEvent, ReactNode } from "react";
 import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import { IconButtonBase } from "@badabhai/icons/button";
+import { keepTipInRow } from "./chip-tip";
 
 interface ChipLook {
   /** Selected (brand) state. On a selectable chip it is also `aria-pressed`. */
@@ -51,6 +52,9 @@ export interface RemovableChipProps extends ChipLook {
 
 export type ChipProps = SelectableChipProps | RemovableChipProps;
 
+/** Measure the remove button's tooltip as it shows (focus / hover) and keep it inside the row. */
+const placeTip = (e: { currentTarget: HTMLButtonElement }) => keepTipInRow(e.currentTarget);
+
 const chipClass = (selected: boolean, className: string, removable: boolean) =>
   [
     "bb-chip",
@@ -78,8 +82,11 @@ function RemovableChip({
         classBase="bb-chip__remove"
         icon={ACTION_ICON.dismiss}
         label={removeLabel}
-        // Grows inward from the chip's end, so a long name can never push the page sideways.
+        // Grows inward from the chip's end, so a long name can never push the page sideways — and
+        // slides back inside the row when it would cross the row's start (./chip-tip.ts).
         tooltipPlacement="top-end"
+        onFocus={placeTip}
+        onPointerEnter={placeTip}
         disabled={disabled}
         onClick={onRemove}
       />

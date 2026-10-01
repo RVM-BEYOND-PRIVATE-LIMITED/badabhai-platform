@@ -101,6 +101,23 @@ describe("PostingPreviewRail", () => {
     );
   });
 
+  it("while a publish/save is in flight the dock's preview waits (the answer must land live)", () => {
+    const idle = rail(CARD);
+    expect(idle).toMatch(/<button type="button" class="posting-dock__summary" aria-haspopup="dialog">/);
+    const busy = renderToStaticMarkup(
+      <PostingPreviewRail
+        fields={CARD}
+        facts={[]}
+        actions={<PostingActions>{<button type="submit">Publish posting</button>}</PostingActions>}
+        primary={<button type="submit">Publish posting</button>}
+        busy
+      />,
+    );
+    expect(busy).toMatch(
+      /<button type="button" class="posting-dock__summary" aria-haspopup="dialog" disabled="">/,
+    );
+  });
+
   it("the live slots are ALWAYS drawn, even empty — a region must exist before its text lands", () => {
     const out = rail(CARD);
     expect(out).toContain('<div class="posting-dock__live" aria-live="polite"></div>');

@@ -90,6 +90,14 @@ interface FormFields {
 type FieldKey = "title" | "city";
 type FieldErrors = Partial<Record<FieldKey, string>>;
 
+/**
+ * DOM ids that differ from their field's name. The agent dashboard draws this form beside the
+ * invite panel, which has its own `#city`: two `#city`s gave the job form's label, its description
+ * and a refused create's focus to the wrong box. Focus (`controlId`) goes by these ids.
+ */
+const CONTROL_ID: Readonly<Partial<Record<string, string>>> = { city: "job-city" };
+const controlId = (field: string): string => CONTROL_ID[field] ?? field;
+
 function fromJob(job: AgencyJob): FormFields {
   return {
     tradeKey: job.tradeKey,
@@ -225,7 +233,7 @@ export function AgencyJobForm({
     const firstBad =
       (Object.keys(errs) as FieldKey[])[0] ?? CARD_NUMBER_FIELDS.find((f) => read.issues[f]);
     if (firstBad !== undefined) {
-      focusControl(firstBad);
+      focusControl(controlId(firstBad));
       return;
     }
 
@@ -235,7 +243,7 @@ export function AgencyJobForm({
       const cardGap = workerCardGap(gapInputFromValues(read.values, fields.description));
       if (cardGap !== null) {
         setGap(cardGap);
-        focusControl(cardGap.field);
+        focusControl(controlId(cardGap.field));
         return;
       }
     }
@@ -338,7 +346,7 @@ export function AgencyJobForm({
           <Input id="title" label="Role title" placeholder="CNC Operator — Night Shift" value={fields.title} error={fieldErrors.title} aria-invalid={fieldErrors.title ? true : undefined} hint="The heading of the worker's card — a generic role title, never an employer name or contact details." onChange={(e) => set("title", e.target.value)} />
 
           <div className="agency-job-form__pair">
-            <Input id="city" label="City" placeholder="Pune" value={fields.city} error={errorOf("city", fieldErrors.city)} aria-invalid={errorOf("city", fieldErrors.city) ? true : undefined} onChange={(e) => set("city", e.target.value)} />
+            <Input id={controlId("city")} label="City" placeholder="Pune" value={fields.city} error={errorOf("city", fieldErrors.city)} aria-invalid={errorOf("city", fieldErrors.city) ? true : undefined} onChange={(e) => set("city", e.target.value)} />
             <Input id="area" label="Area / locality" optional placeholder="Pimpri-Chinchwad" value={fields.area} onChange={(e) => set("area", e.target.value)} />
           </div>
 
@@ -427,6 +435,7 @@ export function AgencyJobForm({
         primary={primary}
         status={statusLine}
         outcome={outcomeLine}
+        busy={pending}
       />
     </div>
   );

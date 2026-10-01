@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
+import { IconButtonBase } from "@badabhai/icons/button";
 
 /**
  * EditPostingForm tests (PR-B) — the BAND-DOWNGRADE GUARD still lives here: an UNTOUCHED vacancies
@@ -265,6 +266,12 @@ function hosts(node: ReactNode, out: Array<ReactElement<Record<string, unknown>>
     return out;
   }
   const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  // The shared icon-only control (a chip's remove button) is the one HOOKED primitive: record it
+  // as the native button it renders, named by its label, instead of calling it outside React.
+  if (el.type === IconButtonBase) {
+    out.push({ type: "button", props: { "aria-label": el.props.label, onClick: el.props.onClick } } as never);
+    return out;
+  }
   if (typeof el.type === "function") return hosts((el.type as (p: unknown) => ReactNode)(el.props), out);
   out.push(el);
   if ("children" in el.props) hosts(el.props.children, out);
@@ -358,6 +365,58 @@ describe("EditPostingForm — M3: a refused save's reason is announced ONCE", ()
     const tree = render({}, "open", {}, undefined, { error: "The posting changed elsewhere." });
     const live = liveTexts(tree).filter((t) => t.includes("The posting changed elsewhere."));
     expect(live).toHaveLength(2); // rail footer + dock — one per breakpoint
+  });
+});
+
+describe("EditPostingForm — a refusal ENDS when the payer fixes its field (never re-announced)", () => {
+  const REASON = "Role title must be at least 2 characters.";
+  // Every card field filled, so the form shows no "Still to fill" summary of its own.
+  const FULL = {
+    roleTitle: "x",
+    roleKind: "cnc_turner",
+    city: "Pune",
+    payMin: "18000",
+    payMax: "26000",
+    payType: "in_hand",
+    minExperienceYears: "1",
+    maxExperienceYears: "5",
+    shift: "day",
+    neededBy: "soon",
+    description: "Run two lathes.",
+  };
+  const CHIPS = { requirements: ["Fanuc"], benefits: ["PF"] };
+  const refused = (control: string) => ({ error: REASON, problem: { control, message: REASON } });
+
+  it("editing the flagged field clears the refusal's mark AND its message (index 10 + index 5)", () => {
+    const tree = render(FULL, "open", CHIPS, undefined, refused("roleTitle"));
+    const box = hosts(tree).find((e) => e.props.id === "roleTitle")!;
+    (box.props.onChange as (e: unknown) => void)({ target: { value: "xy" } });
+    expect(setters[10]).toHaveBeenCalledWith(null);
+    // Without this the message outlives its mark, reads as a refusal no field owns, and falls
+    // into the live slot — "Your changes were not saved…" announced again after one keystroke.
+    expect(setters[5]).toHaveBeenCalledWith(null);
+  });
+
+  it("…so the state it leaves behind announces nothing: every live region is empty", () => {
+    const after = render({ ...FULL, roleTitle: "xy" }, "open", CHIPS, undefined, {});
+    expect(liveTexts(after).length).toBeGreaterThan(0);
+    expect(liveTexts(after).filter((t) => t.trim() !== "")).toEqual([]);
+  });
+
+  it("adding a chip to the flagged chip list ends that refusal the same way", () => {
+    const tree = render(FULL, "open", { requirements: [], benefits: ["PF"], reqDraft: "Fanuc" }, undefined, refused("requirements"));
+    const editor = hosts(tree).find((e) => e.props.id === "requirements")!;
+    (editor.props.onKeyDown as (e: unknown) => void)({ key: "Enter", preventDefault: () => undefined });
+    expect(setters[10]).toHaveBeenCalledWith(null);
+    expect(setters[5]).toHaveBeenCalledWith(null);
+  });
+
+  it("editing ANOTHER field leaves the refusal (mark and message) in place", () => {
+    const tree = render(FULL, "open", CHIPS, undefined, refused("roleTitle"));
+    const city = hosts(tree).find((e) => e.props.id === "city")!;
+    (city.props.onChange as (e: unknown) => void)({ target: { value: "Nashik" } });
+    expect(setters[10]).not.toHaveBeenCalled();
+    expect(setters[5]).not.toHaveBeenCalled();
   });
 });
 

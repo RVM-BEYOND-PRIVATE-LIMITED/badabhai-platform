@@ -75,20 +75,40 @@ describe("inertOutside — everything outside the dialog, up to <body>", () => {
     expect(p.header.inert).toBe(false);
   });
 
-  it("nests: an inner dialog isolates the outer one too, and hands back only its own", () => {
+  /** Whether `node` or any ancestor is inert (an inert subtree cannot be used). */
+  const insideInert = (node: FakeEl | null): boolean =>
+    node !== null && (node.inert || insideInert(node.parentElement));
+
+  it("nests when the second dialog opens from INSIDE the first: the outer's content goes behind it", () => {
     const p = page();
+    const outerBody = el("outerBody");
     const inner = el("inner");
     const innerScrim = el("innerScrim", [inner]);
-    p.layout.children.push(innerScrim);
-    innerScrim.parentElement = p.layout;
+    p.dialog.children.push(outerBody, innerScrim);
+    outerBody.parentElement = p.dialog;
+    innerScrim.parentElement = p.dialog;
     const releaseOuter = inertOutside(p.dialog, p.body);
     const releaseInner = inertOutside(inner, p.body);
-    expect(p.scrim.inert).toBe(true); // the outer dialog is behind the inner one
+    expect(insideInert(inner)).toBe(false); // the inner dialog is usable…
+    expect(outerBody.inert).toBe(true); // …and the outer one's content is behind it
     releaseInner();
-    expect(p.scrim.inert).toBe(false);
+    expect(outerBody.inert).toBe(false);
     expect(p.header.inert).toBe(true); // still behind the outer dialog
     releaseOuter();
     expect(inertNames(p)).toEqual([]);
+  });
+
+  it("THE LIMIT (documented): a second dialog rendered ELSEWHERE in the page lands in an inert subtree", () => {
+    const p = page();
+    const releaseOuter = inertOutside(p.dialog, p.body);
+    // e.g. a confirm rendered inside the form, opened while the sheet is up
+    const stray = el("stray");
+    const strayScrim = el("strayScrim", [stray]);
+    p.form.children.push(strayScrim);
+    strayScrim.parentElement = p.form;
+    inertOutside(stray, p.body);
+    expect(insideInert(stray)).toBe(true);
+    releaseOuter();
   });
 
   it("skips a node that cannot be inert (an SVG sprite, an old engine)", () => {

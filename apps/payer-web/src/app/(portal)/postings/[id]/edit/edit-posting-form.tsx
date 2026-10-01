@@ -147,7 +147,18 @@ export function EditPostingForm({
     setFields((prev) => ({ ...prev, [key]: value }));
     const pair = numberPairOf(key);
     if (pair !== null) setRevealed((prev) => revealNumberPair(prev, pair, false));
-    if (problem !== null && problem.control === key) setProblem(null);
+    clearRefusalAt(key);
+  }
+
+  /**
+   * The payer is fixing the control a refused save pointed at: that refusal is over. Drop its
+   * message WITH its field mark — a message left without its field would read as a refusal no
+   * field owns and fall into the live slot, re-announced mid-fix.
+   */
+  function clearRefusalAt(control: string) {
+    if (problem === null || problem.control !== control) return;
+    setProblem(null);
+    setError(null);
   }
 
   /** Leaving one end of a min/max pair shows that pair's order error (typing never flashes it). */
@@ -257,8 +268,7 @@ export function EditPostingForm({
   }
 
   function addChip(kind: "req" | "ben") {
-    const control = kind === "req" ? "requirements" : "benefits";
-    if (problem !== null && problem.control === control) setProblem(null);
+    clearRefusalAt(kind === "req" ? "requirements" : "benefits");
     if (kind === "req") {
       setRequirements((prev) => withChipDraft(prev, reqDraft).list);
       setReqDraft("");
@@ -569,6 +579,7 @@ export function EditPostingForm({
         primary={primary}
         status={statusLine}
         outcome={outcomeLine}
+        busy={busy}
       />
     </div>
   );

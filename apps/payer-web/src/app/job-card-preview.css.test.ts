@@ -288,6 +288,16 @@ describe("phones: no rail above the form — a sticky dock and a sheet", () => {
     expect(declaring("--posting-dock-h").selector).toBe(":root");
   });
 
+  it("the room kept for the dock is its MEASURED height + its bottom offset, never below 7rem", () => {
+    // Two status lines after a refused save made the dock 153–168px against a fixed 7rem (fields
+    // sat up to 24px under it). lib/dock-reserve.ts publishes the real height on the root.
+    expect(decl(declaring("--posting-dock-h"), "--posting-dock-h")).toBe(
+      "max(7rem, calc(var(--posting-dock-measured, 0) * 1px + var(--space-2)))",
+    );
+    // …and the offset it adds is the dock's own sticky bottom.
+    expect(decl(g(".posting-dock", PHONE), "bottom")).toBe("var(--space-2)");
+  });
+
   it("focus scrolling keeps a field clear of the header and of the dock (the root reserves its room)", () => {
     expect(decl(g(".posting-dock__summary"), "min-height")).toBe("var(--control-md)");
     const fields = g(".posting-layout--editor :is(input, select, textarea)");
@@ -419,13 +429,17 @@ describe("CR-L1 — a removable chip's remove is a real, sized, named button", (
     expect(decl(d(".bb-chip__remove:focus-visible"), "box-shadow")).toBe("var(--ring-focus)");
   });
 
-  it("its tooltip (the item's name) wraps inside a bounded box instead of running off the page", () => {
+  it("its tooltip (the item's name) wraps inside a box no wider than 20rem, the page or the ROW", () => {
     const tip = d(".bb-chip__remove > .bb-icon-tip");
     // An absolutely positioned tip inside a 24px button would shrink to one word per line: its
     // width is its content's, capped (the shared tip is `nowrap` — this one may wrap).
     expect(decl(tip, "white-space")).toBe("normal");
     expect(decl(tip, "width")).toBe("max-content");
-    expect(decl(tip, "max-width")).toBe("min(20rem, calc(100vw - 2 * var(--space-4)))");
+    expect(decl(tip, "max-width")).toBe("min(20rem, 100cqi, calc(100vw - 2 * var(--space-4)))");
+    // …and it slides right by the overrun chip-tip.ts measures (0 until measured).
+    expect(decl(tip, "translate")).toBe("calc(var(--bb-tip-shift, 0) * 1px) 0");
+    // The row is the container its `100cqi` reads.
+    expect(decl(g(".chip-editor__chips"), "container-type")).toBe("inline-size");
   });
 
   it("a removable chip is static content: no pointer, and hover/press belong to BUTTON chips only", () => {
@@ -442,5 +456,51 @@ describe("L4/L5 — focusing the sticky dock never scrolls the page", () => {
     const margin = decl(g(".posting-dock button", PHONE), "scroll-margin-bottom")!;
     const inner = /^calc\((.+)\)$/.exec(pad)![1]!;
     expect(margin).toBe(`calc(-1 * (${inner}))`);
+  });
+});
+
+describe("an agency row's header keeps a readable measure while it leads the editor", () => {
+  it("the header text has a 24rem basis in the lead, so the buttons wrap under it (not crush it)", () => {
+    expect(decl(g(".agency-job__lead"), "flex-wrap")).toBe("wrap");
+    expect(decl(g(".agency-job__lead > .agency-job__main"), "flex")).toBe("1 1 24rem");
+    // The plain row keeps its zero-basis text (full-width row: the buttons always fit beside it).
+    expect(decl(g(".agency-job__main"), "flex")).toBe("1");
+  });
+});
+
+describe("the rail's More-below fade ends in the colour of what the rail sits on", () => {
+  it("the page by default, the card when an agency editor's card hosts the rail", () => {
+    expect(decl(g(".posting-preview"), "--posting-cue-bg")).toBe("var(--surface-page)");
+    expect(decl(g(":is(.bb-card, .panel) .posting-preview"), "--posting-cue-bg")).toBe(
+      "var(--surface-card)",
+    );
+    expect(decl(g(".posting-preview__more > span"), "background")).toBe(
+      "linear-gradient(transparent, var(--posting-cue-bg) 55%)",
+    );
+  });
+});
+
+describe("a NARROW phone dock stacks its summary over its button", () => {
+  const NARROW = "@container posting-dock (width < 17rem)";
+  const c = (selector: string) => {
+    const hits = G.filter((r) => r.selector === selector && r.at === NARROW);
+    expect(hits, `${selector} in ${NARROW}`).toHaveLength(1);
+    return hits[0]!;
+  };
+
+  it("the dock is the container its own width is read from", () => {
+    expect(decl(g(".posting-dock"), "container")).toBe("posting-dock / inline-size");
+  });
+
+  it("below 17rem the row wraps: the summary takes the full width, the button a full row under it", () => {
+    expect(decl(c(".posting-dock__row"), "flex-wrap")).toBe("wrap");
+    expect(decl(c(".posting-dock__summary"), "flex-basis")).toBe("100%");
+    expect(decl(c(".posting-dock__primary"), "flex")).toBe("1 1 100%");
+    expect(decl(c(".posting-dock__primary"), "max-width")).toBe("none");
+    expect(decl(c(".posting-dock__primary .bb-btn"), "width")).toBe("100%");
+    // Measured dock content widths: agency 170 (320) / 225 (375), company 254 (320) stack; a
+    // company dock from 375 (309) keeps its one row.
+    expect(px("17rem")).toBeGreaterThan(254);
+    expect(px("17rem")).toBeLessThan(309);
   });
 });

@@ -68,6 +68,8 @@ export function Dialog({
 
     // ISOLATE THE PAGE behind the dialog: inert (no click, focus, find or virtual cursor reaches
     // it) and still (no scroll under the scrim). After saving the trigger — inert blurs it.
+    // NESTING: open a second Dialog only from INSIDE this one — anywhere else in the page is
+    // inert while this is open (see page-isolation.ts).
     const releaseInert = inertOutside(dialogEl, document.body);
     const releaseScroll = lockPageScroll(document.documentElement, window.innerWidth);
 

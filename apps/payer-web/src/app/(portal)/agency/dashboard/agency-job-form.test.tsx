@@ -109,6 +109,13 @@ const useState = vi.fn((initial: unknown) => {
 });
 const useTransition = vi.fn((): [boolean, (cb: () => void) => void] => [false, (cb) => cb()]);
 
+// Focus moves are DOM work; record where the form sends them.
+const focusControl = vi.fn();
+vi.mock("../../../../lib/form-focus", () => ({
+  focusControl: (id: string) => focusControl(id),
+  revealWholeControl: () => undefined,
+}));
+
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
   return {
@@ -262,8 +269,15 @@ describe("AgencyJobForm render — aria-invalid + visible DS error on an invalid
 
   it("leaves aria-invalid UNSET on a valid field (no false error wiring)", () => {
     const { aria } = collect(render({ fields: VALID_FIELDS, fieldErrors: {} }));
-    const city = aria.find((a) => a.id === "city");
+    const city = aria.find((a) => a.id === "job-city");
     expect(city!.ariaInvalid).toBeUndefined();
+  });
+
+  it("its City box is #job-city — the dashboard's invite panel owns #city (one id, one box)", () => {
+    const { aria, ids } = collect(render({ fields: VALID_FIELDS, fieldErrors: {} }));
+    expect(aria.find((a) => a.id === "job-city")).toBeDefined();
+    expect(ids).not.toContain("city");
+    expect(ids).not.toContain("city-msg");
   });
 });
 
@@ -415,6 +429,23 @@ function liveTexts(tree: ReactNode): string[] {
   })(tree);
   return out;
 }
+
+describe("AgencyJobForm — a refused create takes focus to ITS City box (#job-city)", () => {
+  it("an empty city refuses the create and focuses #job-city, not the invite panel's #city", async () => {
+    focusControl.mockClear();
+    const tree = renderWith({ ...FULL_AGENCY, city: "" }, { chips: [["Fanuc control"], ["Canteen"], "", ""] });
+    await formOf(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    expect(focusControl).toHaveBeenCalledWith("job-city");
+    expect(focusControl).not.toHaveBeenCalledWith("city");
+  });
+
+  it("a card GAP on any other field still goes to that field's own id (payType)", async () => {
+    focusControl.mockClear();
+    const tree = renderWith({ ...FULL_AGENCY, payType: "" }, { chips: [["Fanuc control"], ["Canteen"], "", ""] });
+    await formOf(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    expect(focusControl.mock.calls.flat()).toEqual(["payType"]);
+  });
+});
 
 describe("AgencyJobForm — the editor's lead, the refused create's reason, and the number gate", () => {
   it("the lead (the create heading / the row's header) heads the FORM column, above the form", () => {

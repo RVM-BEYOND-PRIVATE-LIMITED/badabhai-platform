@@ -569,6 +569,7 @@ export function PostingForm({
         primary={primary}
         status={statusLine}
         outcome={outcomeLine}
+        busy={busy}
       />
     </div>
   );

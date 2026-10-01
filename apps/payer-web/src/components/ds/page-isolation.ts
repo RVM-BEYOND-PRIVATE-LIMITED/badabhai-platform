@@ -8,9 +8,17 @@
  *   - STILL: the page's own scroller (the root) stops scrolling, so a wheel, a swipe or a scroll
  *     key over the scrim no longer moves the page under a sheet (measured: y=900 → 1300).
  *
- * Both are undone EXACTLY on close and they nest: an inner dialog isolates the outer one too, and
- * its close hands back only what it took. Structural types, so the rules are testable without a
- * browser (`page-isolation.test.ts`); a real `HTMLElement` fits them.
+ * Both are undone EXACTLY on close, and they nest for a dialog opened from INSIDE another (a
+ * descendant of the outer `.bb-dialog`): it isolates the outer one too, and its close hands back
+ * only what it took.
+ *
+ * THE LIMIT: a second dialog rendered anywhere ELSE in the page sits in a subtree the first one
+ * already made inert — and an inert dialog cannot be used. No call site does that today (each
+ * Dialog opens from the page, one at a time). Rendering every dialog through a portal on <body>
+ * would lift the limit; until then, open a second dialog only from inside the first.
+ *
+ * Structural types, so the rules are testable without a browser (`page-isolation.test.ts`); a
+ * real `HTMLElement` fits them.
  */
 
 /** A node of the tree being walked — a real element fits. */

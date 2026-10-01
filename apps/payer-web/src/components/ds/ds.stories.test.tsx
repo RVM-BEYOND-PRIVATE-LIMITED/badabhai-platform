@@ -165,6 +165,28 @@ describe("DS0.2 · primitives render with their design-system classes", () => {
     expect(out).toContain("ph-x");
   });
 
+  it("Chip — the remove tooltip is placed as it shows (focus AND hover), kept inside the chip's row", () => {
+    const el = Chip({ removeLabel: "Remove CNC", onRemove: () => {}, children: "CNC" }) as ReactElement<
+      Record<string, unknown>
+    >;
+    // The removable chip's own tree: <span class="bb-chip …">…<IconButtonBase …/></span>
+    const tree = (el.type as (p: unknown) => ReactElement<{ children: ReactElement[] }>)(el.props);
+    const remove = (tree.props.children as ReactElement<Record<string, unknown>>[]).find(
+      (c) => c && typeof c === "object" && (c.props as { classBase?: string }).classBase === "bb-chip__remove",
+    )!;
+    const writes: string[] = [];
+    const target = {
+      style: { setProperty: (k: string, v: string) => writes.push(`${k}=${v}`), removeProperty: () => "" },
+      querySelector: () => ({ getClientRects: () => [{}], getBoundingClientRect: () => ({ left: -10 }) }),
+      closest: () => ({ parentElement: { getBoundingClientRect: () => ({ left: 20 }) } }),
+    };
+    for (const handler of ["onFocus", "onPointerEnter"]) {
+      writes.length = 0;
+      (remove.props[handler] as (e: unknown) => void)({ currentTarget: target });
+      expect(writes, handler).toEqual(["--bb-tip-shift=30"]);
+    }
+  });
+
   it("StatTile — mono value, label, delta direction", () => {
     const out = html(<StatTile label="Balance" value="₹40" icon="wallet" delta="+2 this week" deltaDir="up" />);
     expect(out).toContain("bb-stat__value");

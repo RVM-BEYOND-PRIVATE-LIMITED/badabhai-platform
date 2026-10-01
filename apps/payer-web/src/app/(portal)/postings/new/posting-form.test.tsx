@@ -141,6 +141,7 @@ vi.mock("./match-skill-picker", () => ({
 }));
 
 const { PostingForm } = await import("./posting-form");
+const { observeDockHeight } = await import("../../../../lib/dock-reserve");
 
 const MSKILL = {
   skill_id: "mskill_cnc_turning",
@@ -590,6 +591,38 @@ describe("PostingForm — M3: a refused publish's reason is announced ONCE", () 
     const tree = render({ fields: { ...FULL_FIELDS, payMin: "21k" }, fieldErrors: {} });
     expect(byId(tree, "payMin").props["aria-describedby"]).toBe("payMin-msg");
     expect(byId(tree, "payMin").props["aria-invalid"]).toBe(true);
+  });
+});
+
+describe("PostingForm — the rail knows when a publish is in flight", () => {
+  const railOf = (tree: ReactElement) =>
+    (tree.props as { children: ReactElement[] }).children.find(
+      (c) => typeof c?.type === "function" && (c.type as { name?: string }).name === "PostingPreviewRail",
+    ) as ReactElement<{ busy?: boolean }>;
+
+  it("busy while publishing/navigating (the dock's preview waits), idle otherwise", () => {
+    expect(railOf(render({ fields: FULL_FIELDS, fieldErrors: {} })).props.busy).toBe(false);
+    expect(railOf(render({ fields: FULL_FIELDS, fieldErrors: {}, navigating: true })).props.busy).toBe(true);
+  });
+});
+
+describe("PostingForm — the phone dock publishes its real height (the page's reserve for it)", () => {
+  it("the dock element is observed by observeDockHeight", () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {} });
+    let dock: ReactElement<{ ref?: unknown }> | null = null;
+    (function visit(node: ReactNode): void {
+      if (dock || node === null || node === undefined || typeof node !== "object") return;
+      if (Array.isArray(node)) return node.forEach(visit);
+      const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+      if (typeof el.type === "function") return visit((el.type as (p: unknown) => ReactNode)(el.props));
+      if (el.props.className === "posting-dock") {
+        dock = el as ReactElement<{ ref?: unknown }>;
+        return;
+      }
+      if ("children" in el.props) visit(el.props.children);
+    })(tree);
+    expect(dock).not.toBeNull();
+    expect(dock!.props.ref).toBe(observeDockHeight);
   });
 });
 
