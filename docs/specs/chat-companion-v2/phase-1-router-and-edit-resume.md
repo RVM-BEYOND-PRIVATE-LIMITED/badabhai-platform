@@ -176,18 +176,23 @@ A new edit message while a proposal is open replaces it (one active proposal per
 
 ### Frontend — worker app (GitHub issue for Frontend Platform)
 
-- [ ] **F1** Render `edit_proposal` as a card: rows with checkboxes (all ticked), Haan / Nahi,
+- [x] **F1** Render `edit_proposal` as a card: rows with checkboxes (all ticked), Haan / Nahi,
       disabled after `expires_at`. Haan → confirm route with ticked `row_ids`; Nahi → cancel route.
-- [ ] **F2** Task chips (`companion_task:*`) rendered from `options`; tapping sends the chip label as text.
-- [ ] **F3** Voice button on the companion composer: existing voice upload + transcribe flow; the
+      Shipped: #1827, #1834; the card no longer styles Nahi as destructive (#1867).
+- [x] **F2** Task chips (`companion_task:*`) rendered from `options`; tapping sends the chip label as text.
+      Shipped: #1827.
+- [x] **F3** Voice button on the companion composer: existing voice upload + transcribe flow; the
       transcript is placed in the composer for the worker to review and send (consent
       `voice_processing` as today).
-- [ ] **F4** Remote Config `worker_chat_companion_v2_enabled` gates F1–F3.
-- [ ] **F5** Keys parity: `chat_companion_keys.dart` += task chip keys (parity test).
+      Shipped: #1827; #1867 — compose mode never mints a chat session, and a Hindi note prefers `transcript_english`.
+- [x] **F4** Remote Config `worker_chat_companion_v2_enabled` gates F1–F3.
+      Shipped: #1827 (+ #1833 debug override).
+- [x] **F5** Keys parity: `chat_companion_keys.dart` += task chip keys (parity test).
+      Shipped: #1827, CI path filter #1830.
 - [ ] **F6** (2026-09-30, lane a3 — BUG-CARD-LABELS) Show each row's `field_label` beside
       `section_label`, and prefer `before_display` / `after_display` over `companionEditValue`
       when non-null (contracts §5.1). The API sends them on every card; the humaniser stays as
-      the fallback for an older server. Frontend issue needed.
+      the fallback for an older server. Open — #1876 (raised 2026-10-01 after #1871/#1872 landed).
 
 ### DevOps
 

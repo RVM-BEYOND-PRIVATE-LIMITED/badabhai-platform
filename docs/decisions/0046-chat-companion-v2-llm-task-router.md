@@ -1,6 +1,6 @@
 # ADR-0046: Bada Bhai companion v2 — an LLM task router on the chat tab
 
-- **Status:** **Proposed.** Owner rulings O1–O16 were taken on 2026-09-28 in the design session.
+- **Status:** **Proposed.** Owner rulings O1–O17 were taken on 2026-09-28 in the design session.
   Build may start behind flags that default off. **Turning any v2 flag on in production requires
   the owner's signature at the foot, and requires companion v1 (ADR-0044) to be live first.**
 - **Date:** 2026-09-28
@@ -112,7 +112,7 @@ POST /chat/companion/message
 ## 4. Consequences
 
 - **Cost.** Model calls happen only on a v1 miss. No per-worker cap (O12); cost is recorded per call
-  in `ai_jobs` and alerted on. Faltu cool-down bounds abusive loops.
+  on the cost ledger (`ai.cost_recorded` + `platform_ai_cost_totals`; an inline call has no `ai_jobs` row, #745) and shown on the admin dashboard; the per-call `cost_alert` flag rides each event, but no push alert exists (TD149). Faltu cool-down bounds abusive loops.
 - **Latency.** One classifier call (p95 target < 1.5 s) on a miss; edit extraction adds one more.
 - **Schema.** One additive migration: widen `generated_resumes_generation_trigger_chk` with
   `chat_edit` (reserved as `0130`).
@@ -121,6 +121,6 @@ POST /chat/companion/message
 - **Deferred:** jobs in chat (semantic search), read-aloud for model text, per-worker cost caps.
 
 ```
-Owner rulings O1–O16 taken 2026-09-28 in the design session; production flag-ON requires this signature.
+Owner rulings O1–O17 taken 2026-09-28 in the design session; production flag-ON requires this signature.
 Signed (CEO / Prakash): ______________________          Date: __________
 ```

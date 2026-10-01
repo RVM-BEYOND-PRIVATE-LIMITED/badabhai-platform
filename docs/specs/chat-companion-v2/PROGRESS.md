@@ -716,3 +716,60 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
   nameable on the spine), so both were updated in the change that added the route.
 - **Next:** the Frontend items F1/F2 (issue #1824); the staging `eval_cli --career` run is the
   release gate before any flag-ON, alongside owner review of 30 sampled answers (§6).
+
+---
+
+## Audit + completion — 2026-09-30 → 2026-10-01
+
+- **Why:** the checklists said "complete", but nobody had seen v2 on a device (#1843), and the
+  five v2 flags went ON in production on 2026-09-30 07:34 UTC (owner-authorized) before any of
+  the release gates ran.
+- **Audit:** six slice auditors checked this spec against the actual code on `origin/main`
+  (`967d2719`): API P1, API P2+P3, contracts/privacy, ai-service, worker app, rollout. Every
+  not-done item then went to an independent skeptic told to refute it, and a completeness critic
+  hunted for requirements nobody had covered. 129 gaps survived (99 confirmed, 30 partly
+  confirmed). None was refuted. The PROGRESS/checklist claims were NOT taken as evidence.
+- **The headline defect:** a confirmed edit never produced a résumé. `ResumeService.generate` sent
+  every system call to `createInitial(overwrite:false)`, `ON CONFLICT DO NOTHING` handed back the
+  existing v1, and the render was skipped as "already rendered". Meanwhile the worker was told
+  "update ho raha hai", a cap slot was spent and a paid call was thrown away. The tests mocked
+  `ResumeService`, so nothing caught it.
+- **Fixed (all merged to `main`, verified on `origin/main`):**
+  - **#1869 ai-service:**
+    - `field` on every edit-parse row;
+    - one token scope for the message and snapshot (two employers no longer share a placeholder);
+    - career prompt names the persona tokens;
+    - career traces filed under `companion`;
+    - `eval_cli` scores production routing, survives a failed call, and gates p95 latency;
+    - `--dump-samples` for the 30-answer review;
+    - runbook `docs/ops/companion-v2-staging-evals-runbook.md`.
+  - **#1871 edit path:**
+    - a `chat_edit` is a NEW history entry, queued, with the cap decided before spend, behind `resume_generation` consent;
+    - preferences false/empty applied; several rows on one list; qualification targeting; at-most-once confirm (atomic claim);
+    - only the touched lists re-saved; no-op adds dropped; the writers' real DTO schemas;
+    - night-shift seed; stale check robust to reorder;
+    - API-side row and snapshot caps; card kept on a rolled-back confirm;
+    - deterministic identity check; `V2_EDIT_PLACEHOLDER`; `cancelled(expired)`;
+    - `field_label` / `before_display` / `after_display` on card rows;
+    - the stale 409 carries the reviewed turn.
+  - **#1872 router + career validator:**
+    - a chip is intercepted only while its phase flag is on (rule 6);
+    - "Resume badlo" / "Career ki baat" taps serve `V2_EDIT_ASK` / `V2_CAREER_ASK` instead of a billed model call on their own label;
+    - classifier-detected faltu is never stored in memory;
+    - 1,000-char classify bound; career ≤ 6 turns;
+    - the boot egress test covers `v2/handlers/**`;
+    - `submission_id` replay (no second strike, call or memory pair);
+    - `cooldown_until` on the open turn; Redis reads bounded on the open path;
+    - validator: Latin-only (renamed from the "Devanagari bar" of C1), whole-word money within a sentence plus bare `15k`/`thousand`/`kamai`/`income`/`wage`/`stipend`, full emoji set.
+  - **#1878 TD145:** a re-driven general-handover flush keeps `general_form_completed_at`.
+  - **Worker app:**
+    - **#1867 (Rishi), for #1862:** the companion mic never mints a session; a Hindi note prefers `transcript_english`; one mic; the cool-down survives a gone card; Nahi neutral; plain Hinglish; dead `readAloud` state removed.
+    - **#1874:** demo mode.
+- **Production facts measured (read-only, 2026-09-30):** 0130's CHECK lists `chat_edit`. Its
+  ledger row is not adopted, and neither are 0128, 0129 or 0131. No `chat_edit` rows exist yet.
+  No `chat.companion_turn_served_v2` row existed.
+- **Raised:** #1876 (worker-app F6: render the row labels, the stale turn, and the card kept on a
+  failed confirm) and #1875 (gateway does not mask an ALL-CAPS employer; pre-existing, every
+  caller).
+- **Remaining:** the owner checklist in the README Status section (signatures, staging evals,
+  30-answer review, copy review, rulings, then the box append), and TD146–TD150.
