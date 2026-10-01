@@ -165,6 +165,14 @@ describe("nav, matrix and disclosure glyphs", () => {
   });
 });
 
+describe("the header's title block shares its row with the actions when they fit", () => {
+  it("grows into the row, with a floor that still lets a long action cluster wrap below", () => {
+    const heading = body(".page__heading");
+    expect(decl(heading, "flex")).toBe("1 1 18rem");
+    expect(decl(heading, "min-inline-size")).toBe("0");
+  });
+});
+
 describe("44px targets on a phone or coarse pointer (and only there)", () => {
   const touch = (selector: string) => {
     const r = ALL.find((x) => x.selector === selector && x.atRules.join() === TOUCH);
@@ -204,6 +212,13 @@ describe("44px targets on a phone or coarse pointer (and only there)", () => {
         "content",
       ),
     ).toBe("none");
+  });
+
+  it("a record row's link takes the height itself (no strip: rows sit 12px apart)", () => {
+    const kv = touch(".kv__v > .link");
+    expect(decl(kv, "display")).toBe("inline-flex");
+    expect(decl(kv, "min-block-size")).toBe("var(--control-md)");
+    expect(ALL.filter((r) => r.selector.includes(".kv__v > .link::before"))).toEqual([]);
   });
 
   it("back links, id chips, the crumb's section link and disclosure rows reach 44px", () => {

@@ -21,9 +21,14 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
           <ul className="sidebar__list">
             {section.items.map((item) => {
               // Exact match for the dashboard, prefix elsewhere, so /workers/123 still
-              // highlights "Workers".
+              // highlights "Workers". Only the EXACT page is `aria-current="page"`; on a page
+              // below it the item is the current SECTION, which is `"true"` — a screen reader
+              // must not hear "current page" on the Workers link while reading one worker.
+              const here = pathname === item.href;
               const active =
-                item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+                item.href === "/"
+                  ? here
+                  : here || pathname.startsWith(`${item.href}/`);
 
               if (item.upcoming) {
                 return (
@@ -42,7 +47,7 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
                   <Link
                     href={item.href}
                     className={`sidebar__link${active ? " is-active" : ""}`}
-                    aria-current={active ? "page" : undefined}
+                    aria-current={here ? "page" : active ? "true" : undefined}
                   >
                     {/* Decorative: the label names the destination. The glyph inherits the
                         link colour, so the active row's is Safety Yellow on the navy band. */}

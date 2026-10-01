@@ -10,7 +10,7 @@ import { NAV } from "./nav-model";
 const nav = vi.hoisted(() => ({ pathname: "/" }));
 vi.mock("next/navigation", () => ({ usePathname: () => nav.pathname }));
 
-const { TopbarCrumb, crumbTrail, isOpaqueId } = await import("./topbar-crumb");
+const { TopbarCrumb, crumbTrail, SEGMENT_LABELS } = await import("./topbar-crumb");
 
 const WORKER = "5eeded00-0001-4a00-8000-000000000001";
 const SESSION = "c0ffee00-0002-4b00-8000-000000000002";
@@ -65,11 +65,18 @@ describe("crumbTrail — ancestors only", () => {
     }
   });
 
-  it("recognises an opaque id, and only that", () => {
-    expect(isOpaqueId(WORKER)).toBe(true);
-    expect(isOpaqueId("abcdef0123456789abcd")).toBe(true);
-    expect(isOpaqueId("journey")).toBe(false);
-    expect(isOpaqueId("discovery")).toBe(false);
+  it("never names an id as a step — a uuid OR any other key", () => {
+    // A record's key need not look like a uuid: `/workers/abc/timeline` once read
+    // "Workers / Abc". Only a known view of the record above is a step.
+    expect(crumbTrail("/workers/abc/timeline")?.steps).toEqual([]);
+    expect(crumbTrail("/workers/abc/journey/def")?.steps).toEqual(["Journey"]);
+    expect(crumbTrail("/workers/12345/journey/x")?.steps).toEqual(["Journey"]);
+    expect(crumbTrail("/workers/constructor/journey/x")?.steps).toEqual(["Journey"]);
+    expect(crumbTrail("/workers/toString/x")?.steps).toEqual([]);
+  });
+
+  it("names only the views it knows, by the name the screen uses", () => {
+    expect(SEGMENT_LABELS).toEqual({ journey: "Journey", timeline: "Event timeline" });
   });
 });
 
@@ -80,6 +87,12 @@ describe("TopbarCrumb — markup", () => {
     expect(out).toContain('<a class="crumb crumb__link" href="/workers">Workers</a>');
     expect(out).toContain('<i class="ph-fill ph-caret-right crumb__sep" aria-hidden="true"></i>');
     expect(out).toContain('<span class="crumb">Journey</span>');
+    // An ordered list of crumbs: group, section, step — the separator inside the step it opens.
+    expect(out).toContain('<nav class="crumbs" aria-label="Breadcrumb"><ol class="crumbs__list">');
+    expect(out).toContain(
+      '<li class="crumb__step"><i class="ph-fill ph-caret-right crumb__sep" aria-hidden="true"></i><a class="crumb crumb__link" href="/workers">Workers</a></li>',
+    );
+    expect((out.match(/<li[ >]/g) ?? []).length).toBe(3);
     expect(out).not.toContain("5eeded00");
     expect(out).not.toContain("c0ffee00");
     expect(out).not.toContain(">/<");
@@ -88,7 +101,8 @@ describe("TopbarCrumb — markup", () => {
   it("on a top-level page the group is the whole crumb, unlinked", () => {
     nav.pathname = "/workers";
     const out = renderToStaticMarkup(<TopbarCrumb sections={NAV} />);
-    expect(out).toContain('<span class="crumb crumb--group">Operations</span>');
+    expect(out).toContain('<li class="crumb crumb--group">Operations</li>');
+    expect((out.match(/<li[ >]/g) ?? []).length).toBe(1);
     expect(out).not.toContain("<a ");
     expect(out).not.toContain(">Workers<");
   });

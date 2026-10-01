@@ -49,8 +49,8 @@ export default async function EventDetailPage({
         title={humanizeEventName(event.event_name)}
         description={
           <>
-            One audit record in full — its envelope, its verbatim payload, and the causal
-            chain it belongs to. Recorded{" "}
+            One audit record in full — its envelope, verbatim payload and causal chain —
+            recorded{" "}
             <time dateTime={event.occurred_at}>{formatTimestamp(event.occurred_at)}</time>.
           </>
         }

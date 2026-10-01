@@ -119,8 +119,8 @@ export default async function AiCallDetailPage({
         title={taskTypeLabel(trace.task_type)}
         description={
           <>
-            One AI call in full — what this API sent to the AI service, and what came back.
-            Recorded <time dateTime={trace.created_at}>{formatTimestamp(trace.created_at)}</time>.
+            One AI call in full — what this API sent to the AI service and what came back —
+            recorded <time dateTime={trace.created_at}>{formatTimestamp(trace.created_at)}</time>.
           </>
         }
       />

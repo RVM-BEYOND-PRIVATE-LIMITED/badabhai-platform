@@ -103,3 +103,25 @@ describe("the link to what this worker told us", () => {
     expect(stub.gates).toEqual(["read_entities"]);
   });
 });
+
+describe("the session status chips (owner brief 2026-10-01)", () => {
+  const renderWith = async (status?: string) =>
+    renderToStaticMarkup(
+      await WorkerJourneyPage({
+        params: Promise.resolve({ id: WORKER_ID }),
+        searchParams: Promise.resolve(status ? { status } : {}),
+      }),
+    );
+
+  it('mark the active chip aria-current="true", like every other chip set — not "page"', async () => {
+    const out = await renderWith("ended");
+    expect(out).toMatch(/aria-current="true" class="btn btn--sm btn--primary"[^>]*>Ended</);
+    expect((out.match(/aria-current="true"/g) ?? []).length).toBe(1);
+    expect(out).not.toContain('aria-current="page"');
+  });
+
+  it("with no status, All is the current chip", async () => {
+    const out = await renderWith();
+    expect(out).toMatch(/aria-current="true" class="btn btn--sm btn--primary"[^>]*>All</);
+  });
+});

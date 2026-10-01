@@ -12,11 +12,12 @@ import { NAV, type NavSection } from "./nav-model";
  * never repeats it:
  *   - a top-level page (`/workers`) shows its sidebar group: `Operations`;
  *   - a page below a section (`/workers/<id>`) adds the section, LINKED: `Operations / Workers`;
- *   - a deeper page adds each readable step between the section and itself
+ *   - a deeper page adds each NAMED step between the section and itself
  *     (`/workers/<id>/journey/<sid>` reads `Operations / Workers / Journey`).
- * Opaque ids are left out at every level. A truncated uuid in a breadcrumb names nothing a
- * reader can use, and on a session route it read like the worker's id. The page's back link is
- * where the parent is named, and linked, exactly.
+ * A step is shown only when it is a known view of the record above it (`SEGMENT_LABELS`). Every
+ * other segment is a record's id — a uuid, or any other key — and an id in a breadcrumb names
+ * nothing a reader can use (on a session route it read like the worker's id). The page's back
+ * link is where the parent is named, and linked, exactly.
  *
  * Derived from the SAME nav the sidebar renders, so a section is never called one thing on the
  * left and another on top. It reads the URL and the reader's already-filtered sections only: no
@@ -26,6 +27,9 @@ import { NAV, type NavSection } from "./nav-model";
  * reader's capabilities. A page can sit below a section its reader cannot open (an analyst on an
  * AI call's denied screen sits under AI calls, which is `read_ai_traces`); there the section is
  * named, not linked, rather than linked to a redirect.
+ *
+ * Markup: an ordered list in a labelled `nav`, one `li` per crumb, the caret separator inside
+ * the step it introduces (decorative, hidden from assistive tech).
  */
 export function TopbarCrumb({ sections }: { sections: NavSection[] }) {
   const pathname = usePathname();
@@ -34,37 +38,33 @@ export function TopbarCrumb({ sections }: { sections: NavSection[] }) {
   const linkable =
     sectionHref !== undefined && sections.some((s) => s.items.some((i) => i.href === sectionHref));
 
-  if (!trail) {
-    return (
-      <nav className="crumbs" aria-label="Breadcrumb">
-        <span className="crumb crumb--group">Admin</span>
-      </nav>
-    );
-  }
-
   return (
     <nav className="crumbs" aria-label="Breadcrumb">
-      {/* `crumb--group` lets the phone tier drop the group name once a section follows it: the
-          open drawer already shows it, and at 375px keeping it truncates the rest. */}
-      <span className="crumb crumb--group">{trail.group}</span>
-      {trail.section ? (
-        <>
-          <Separator />
-          {linkable ? (
-            <Link className="crumb crumb__link" href={trail.section.href}>
-              {trail.section.label}
-            </Link>
-          ) : (
-            <span className="crumb">{trail.section.label}</span>
-          )}
-          {trail.steps.map((step, i) => (
-            <span className="crumb__step" key={`${step}-${i}`}>
+      <ol className="crumbs__list">
+        {/* `crumb--group` lets the phone tier drop the group name once a section follows it:
+            the open drawer already shows it, and at 375px keeping it truncates the rest. */}
+        <li className="crumb crumb--group">{trail ? trail.group : "Admin"}</li>
+        {trail?.section ? (
+          <>
+            <li className="crumb__step">
               <Separator />
-              <span className="crumb">{step}</span>
-            </span>
-          ))}
-        </>
-      ) : null}
+              {linkable ? (
+                <Link className="crumb crumb__link" href={trail.section.href}>
+                  {trail.section.label}
+                </Link>
+              ) : (
+                <span className="crumb">{trail.section.label}</span>
+              )}
+            </li>
+            {trail.steps.map((step, i) => (
+              <li className="crumb__step" key={`${step}-${i}`}>
+                <Separator />
+                <span className="crumb">{step}</span>
+              </li>
+            ))}
+          </>
+        ) : null}
+      </ol>
     </nav>
   );
 }
@@ -73,26 +73,20 @@ function Separator() {
   return <Icon name="caret-right" className="crumb__sep" />;
 }
 
-/** Path segments that are a view of the record above them, by the name the screen uses. */
-const SEGMENT_LABELS: Record<string, string> = {
+/**
+ * The path segments that are a VIEW of the record above them, by the name the screen uses. The
+ * ONLY segments a crumb shows below the section; add a route's view here to name it.
+ */
+export const SEGMENT_LABELS: Readonly<Record<string, string>> = {
   journey: "Journey",
   timeline: "Event timeline",
 };
-
-/** A uuid or a long hex handle. Never shown as a crumb. */
-export function isOpaqueId(segment: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(segment) || /^[0-9a-f]{16,}$/i.test(segment);
-}
-
-function segmentLabel(segment: string): string {
-  return SEGMENT_LABELS[segment] ?? segment.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
-}
 
 export interface CrumbTrail {
   group: string;
   /** The nav section, present only when the page sits BELOW it (so it never repeats the h1). */
   section: { href: string; label: string } | null;
-  /** Readable steps between the section and this page; this page and every opaque id excluded. */
+  /** Named views between the section and this page; this page and every id excluded. */
   steps: string[];
 }
 
@@ -121,10 +115,11 @@ export function crumbTrail(pathname: string): CrumbTrail | null {
     .filter(Boolean);
   if (below.length === 0) return { group, section: null, steps: [] };
 
-  // The last segment is this page — its h1 names it. Everything before it is an ancestor.
+  // The last segment is this page — its h1 names it. Of the ancestors before it, only a known
+  // view is named; anything else is an id.
   const steps = below
     .slice(0, -1)
-    .filter((s) => !isOpaqueId(s))
-    .map(segmentLabel);
+    .filter((s) => Object.hasOwn(SEGMENT_LABELS, s))
+    .map((s) => SEGMENT_LABELS[s]!);
   return { group, section: matched, steps };
 }

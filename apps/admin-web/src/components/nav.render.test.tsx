@@ -31,10 +31,17 @@ describe("SidebarNav", () => {
     );
   });
 
-  it("marks the section of a detail route active, glyph included", () => {
+  it("marks the section of a detail route active — as the current section, not the page", () => {
     const active = out.slice(out.indexOf('href="/jobs"') - 40, out.indexOf("Postings") + 20);
-    expect(active).toContain('aria-current="page"');
+    expect(active).toContain('aria-current="true"');
+    expect(active).not.toContain('aria-current="page"');
     expect(active).toContain("is-active");
     expect(active).toContain("ph-briefcase");
+  });
+
+  it("an item that is not this route's section is not current at all", () => {
+    const other = out.slice(out.indexOf('href="/workers"') - 40, out.indexOf("Workers</span>"));
+    expect(other).not.toContain("aria-current");
+    expect(other).not.toContain("is-active");
   });
 });

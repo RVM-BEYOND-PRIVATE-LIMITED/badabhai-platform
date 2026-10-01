@@ -125,7 +125,7 @@ describe("the heading, when the worker never gave us a name", () => {
 
   it("drops the WHO clause instead of claiming an identity it does not have", async () => {
     const out = await render();
-    expect(out).toContain("what they did.");
+    expect(out).toContain("what they did, registered");
     expect(out).not.toContain("who they are");
   });
 

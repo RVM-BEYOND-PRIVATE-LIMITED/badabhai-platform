@@ -58,7 +58,7 @@ export function PageHeader({
   return (
     <>
       <header className="page__head">
-        <div>
+        <div className="page__heading">
           {back ? <BackLink {...back} /> : null}
           <h1 className={titleMono ? "page__title mono" : "page__title"}>{title}</h1>
           {description ? <p className="page__sub">{description}</p> : null}

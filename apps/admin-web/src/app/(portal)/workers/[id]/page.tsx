@@ -83,9 +83,9 @@ export default async function WorkerDetailPage({
     description: (
       <>
         {name === null
-          ? "One worker account as this portal sees it — what they did."
-          : "One worker account as this portal sees it — what they did, and who they are."}{" "}
-        Registered {formatRelative(worker.created_at)} · {formatTimestamp(worker.created_at)}.
+          ? "One worker account as this portal sees it — what they did"
+          : "One worker account as this portal sees it — what they did, and who they are"}
+        , registered {formatRelative(worker.created_at)} ({formatTimestamp(worker.created_at)}).
       </>
     ),
   };

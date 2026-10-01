@@ -173,20 +173,20 @@ export default async function WorkerJourneyPage({
           </div>
           {/* Status filter as plain links, not a client form: the filter belongs in the URL
               (shareable mid-incident) and this screen needs no JavaScript to apply it.
-              `aria-current` marks the active one — a class alone would be invisible to a
-              screen reader. */}
+              `aria-current="true"` marks the active one — a class alone would be invisible to a
+              screen reader — and it takes the primary fill, like every other chip set here. */}
           <nav aria-label="Filter sessions by status" className="page__actions">
             <Link
-              aria-current={status ? undefined : "page"}
-              className="btn btn--ghost btn--sm"
+              aria-current={status ? undefined : "true"}
+              className={`btn btn--sm ${status ? "btn--ghost" : "btn--primary"}`}
               href={`/workers/${id}/journey`}
             >
               All
             </Link>
             {SESSION_STATUS_FILTERS.map((s) => (
               <Link
-                aria-current={status === s ? "page" : undefined}
-                className="btn btn--ghost btn--sm"
+                aria-current={status === s ? "true" : undefined}
+                className={`btn btn--sm ${status === s ? "btn--primary" : "btn--ghost"}`}
                 href={`/workers/${id}/journey?status=${s}`}
                 key={s}
               >

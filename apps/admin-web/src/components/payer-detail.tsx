@@ -62,15 +62,15 @@ export function PayerDetailView({
     description: (
       <>
         One {kind === "Company" ? "company" : "agency"} account — what it has posted and
-        spent{orgName === null ? ", not who registered it" : ""}.{" "}
+        spent{orgName === null ? ", not who registered it" : ""} —{" "}
         {labels.length > 0 ? (
           <>
-            Publishes as <strong>{labels.slice(0, 3).join(", ")}</strong>
-            {labels.length > 3 && ` and ${labels.length - 3} more`} — self-declared on their
-            postings, not a verified name.
+            publishing as <strong>{labels.slice(0, 3).join(", ")}</strong>
+            {labels.length > 3 && ` and ${labels.length - 3} more`}, self-declared on its
+            postings and not a verified name.
           </>
         ) : (
-          <>No postings yet, so there is no self-declared label to identify this account by.</>
+          <>with no postings yet, so no self-declared label identifies it.</>
         )}
       </>
     ),

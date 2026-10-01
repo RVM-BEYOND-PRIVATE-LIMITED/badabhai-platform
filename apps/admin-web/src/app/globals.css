@@ -655,6 +655,17 @@ details[open] > summary > .disclosure__caret {
   gap: var(--space-4);
   flex-wrap: wrap;
 }
+/* The title block (PageHeader). It GROWS into the row and may shrink to 18rem, so a header's
+   actions share the title's row whenever the two fit. Sized only by its content, a long
+   description made the title block as wide as its text, and the actions wrapped under it
+   (company detail at 1280: 162px tall, measured; 102px with this). The 18rem floor is what a
+   zero basis lacked: with `flex: 1 1 0` the row never wrapped, and a long action cluster
+   squeezed the title to 106-149px — a three-line h1 on a phone, a 259px worker header at 1280
+   (measured). Below 18rem beside the actions, the row wraps as before. */
+.page__heading {
+  flex: 1 1 18rem;
+  min-inline-size: 0;
+}
 .page__title {
   font-size: var(--text-xl);
 }
@@ -1585,11 +1596,19 @@ details[open] > summary > .disclosure__caret {
 
 .crumbs {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
   min-width: 0;
   font-size: var(--ui-body-sm-size);
   color: var(--text-muted);
+}
+/* The trail is an ordered list (one `li` per crumb), laid out as one row. */
+.crumbs__list {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 .crumb {
   white-space: nowrap;
@@ -2169,14 +2188,6 @@ textarea.field__input {
 }
 
 /* ==================================================================
- * PHASE 6 · A LINK THAT IS THE CURRENT VIEW
- * The worker-journey session filter is plain links, not a client form — the filter belongs
- * in the URL so it survives being pasted into an incident thread. `aria-current="page"`
- * marks the active one for assistive tech; with no rule behind it the state would be
- * announced and invisible, which is the mirror of the usual bug. Reuses the brand tokens
- * `.btn--primary` already carries — no new colour is introduced.
- * ================================================================== */
-/* ==================================================================
  * #1260 · SKILL DISCOVERY — the grouped queue's review-group cards.
  * A group is a LENS over one page of the queue, never a merge (there is no group id in any
  * table) — `<details>` is the native disclosure widget, so expand/collapse needs no client JS
@@ -2253,12 +2264,6 @@ textarea.field__input {
 /* Captions under the batch list sit off it by the pager's own step (`.pager` in the flat view). */
 .queue-notes--foot {
   margin-block-start: var(--space-5);
-}
-
-.btn[aria-current="page"] {
-  background: var(--brand-tint);
-  color: var(--text-primary);
-  border-color: var(--brand-border);
 }
 
 /* ==================================================================
@@ -2370,6 +2375,16 @@ textarea.field__input {
     content: none;
   }
 
+  /* A record row's link — a posting's Owner account, an AI call's worker, session and
+     correlation id. On those pages it is the only route to that record (the posting header no
+     longer repeats the owner), so it needs the full target. Detail-list rows sit --space-3
+     apart, so a 44px strip would reach into the next row; the link takes the height itself. */
+  .kv__v > .link {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: var(--control-md);
+  }
+
   /* A candidate-id chip in a review group, and the crumb's section link: the target takes the
      height itself (chips wrap in rows a strip would overlap; the crumb sits in a bar with room). */
   .chip > .link {
@@ -2444,7 +2459,7 @@ textarea.field__input {
      goes first once a section follows it — the drawer names it — so the linked section stays
      readable. On a top-level page the group is the whole crumb, and it stays. */
   .crumb--group:not(:last-child),
-  .crumb--group:not(:last-child) + .crumb__sep {
+  .crumb--group:not(:last-child) + .crumb__step > .crumb__sep {
     display: none;
   }
 

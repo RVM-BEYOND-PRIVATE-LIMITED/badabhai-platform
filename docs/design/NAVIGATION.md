@@ -63,28 +63,52 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
    parent's name: a list by its nav label, an entity as "{Entity} {short id}". Top-level pages
    have none (a fence in `page-header.render.test.tsx` enforces this). It is the `arrow-left`
    glyph plus text, and 44px tall on touch.
-2. **Title**, then a **one-sentence description**. Mechanics and privacy notes go in an alert
-   or notice below the header, not in the description.
+2. **Title**, then a **one-sentence description** — on detail pages too, the record's own
+   timestamp folded into that sentence. Mechanics and privacy notes go in an alert or notice
+   below the header. `components/page-description.test.ts` holds every description, in every
+   branch it can render, to one sentence.
 3. **Actions.** The page's own action first (Flag, Suspend / Reinstate, Force-close, Invite an
    admin, Record a decision), then related views (View journey, View event timeline). Only
-   page-relevant actions, each offered once on the screen.
+   page-relevant actions, each offered once on the screen. The title block grows into the row
+   with an 18rem floor, so the actions sit beside the title whenever both fit and wrap below
+   it otherwise.
 4. **Filters** directly below the header (`filters` slot), never in the actions slot.
-5. **Topbar crumb** (`topbar-crumb.tsx`): the group, then the linked section once the page sits
-   below it, then readable intermediate steps ("Journey"). It never repeats the h1, and it never
-   shows an opaque id.
-6. **Tab title.** `metadata.title` names the page. The root template adds " · BadaBhai Admin",
+5. **Topbar crumb** (`topbar-crumb.tsx`): an ordered list — the group, then the section once
+   the page sits below it, then the named views between the section and the page ("Journey").
+   It never repeats the h1, and it never shows a record's id (only the views listed in
+   `SEGMENT_LABELS` are named). The section is linked only when the reader's sidebar holds it,
+   so a reader is never offered a link that redirects them.
+6. **Current location.** The sidebar marks the exact page `aria-current="page"`; on a page
+   below it, the item is the current section (`aria-current="true"`). Chip filters mark the
+   active chip `aria-current="true"` and give it the primary fill.
+7. **Tab title.** `metadata.title` names the page. The root template adds " · BadaBhai Admin",
    so a page never includes it itself.
 
 ### Link and label conventions
 
-- **One "Clear filters" per list**, in the results head, shown whenever a filter is set. Empty
-  and error states offer only a recovery that nothing else on screen offers.
+- **One "Clear filters" per list**, in the results head, shown whenever a filter is set. It
+  clears every filter (the bare route). A clear that removes one filter and keeps the rest is
+  named for that filter: "Clear the worker filter", "Clear the tag filter", "Clear the reason
+  filter" (the credit ledger, which keeps the reporting window). Empty and error states offer
+  only a recovery that nothing else on screen offers.
 - **"View events"** opens the global log (`/events`). **"View event timeline"** opens one
   record's timeline. Both are offered only to a session holding `read_events`; this is an
   affordance, and each route keeps its own gate.
-- **"Retry"** reloads the same query, including its cursor.
+- **"Retry"** repeats exactly the current query, page cursor included. **"Back to the first
+  page"** drops the cursor, and appears only when there is one. A failed read of an unfiltered
+  list offers both when a cursor is present (`components/retry-actions.tsx`).
+- **One instruction per failure.** Where a Retry button sits under an error, the copy does not
+  also say "reload". A failure with no button (a secondary read on a detail page) says
+  "Reload this page".
 - **Per-row controls** that share a visible name ("Suspend", "View") add the row's subject for
   assistive tech, after the visible label.
+- **Touch targets.** On a phone or any coarse pointer, every small text link reaches 44px:
+  table links through a row-high hit strip; stacked cell links, record-row links (a posting's
+  owner, an AI call's worker, session and correlation id), id chips, the back link and the
+  crumb's section link by taking the height themselves.
+- **Names.** "Resume" (one spelling), "MFA" (never "second factor"), "account" / "Customers"
+  for Company and Agency together (never "Payer" on screen). `lib/terminology-fence.test.ts`
+  keeps the retired names out of the console's visible text.
 - **Icons** come from `@badabhai/icons` only (`<Icon>`, `ACTION_ICON`). Key actions show icon
   and text. Icon-only controls use the admin `IconButton`. No arrow, tick or cross characters
   stand in for icons, and every `<summary>` draws the brand caret.

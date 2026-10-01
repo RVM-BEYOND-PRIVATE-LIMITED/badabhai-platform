@@ -170,7 +170,7 @@ describe("an analyst", () => {
   it("keeps the posting-label identification path, which is their whole way in", () => {
     const out = render(FACELESS, ANALYST);
     expect(out).toContain("Acme Works Pune");
-    expect(out).toContain("Publishes as");
+    expect(out).toContain("publishing as");
   });
 });
 
