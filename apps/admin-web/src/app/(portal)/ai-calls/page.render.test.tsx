@@ -112,7 +112,8 @@ beforeEach(() => {
   // page and the API route sat on the read floor; the owner ruling puts the whole
   // `/admin/ai-traces` surface on `read_ai_traces`, and the default session here moves with it
   // or every case below would exercise a page that redirects.
-  stub.capabilities = ["read_ai_traces"];
+  // A session that reaches this page is a super_admin in practice, which holds read_events too.
+  stub.capabilities = ["read_ai_traces", "read_events"];
 });
 
 const render = async (searchParams: Record<string, string | string[] | undefined> = {}) =>
@@ -332,6 +333,18 @@ describe("the Text column moves with the session, not with the page gate", () =>
   });
 });
 
+describe("links into the events log follow read_events (an affordance; the route keeps its gate)", () => {
+  it("drops the empty state's View events for a session without read_events", async () => {
+    stub.capabilities = ["read_ai_traces"];
+    stub.page = { items: [], nextCursor: null };
+    const out = await render();
+    expect(out).not.toContain("/events?eventName=ai.cost_recorded");
+    expect(out).not.toContain(">View events<");
+    // …and keeps the recovery that IS open to them.
+    expect(out).toContain(">View provider switches<");
+  });
+});
+
 describe("what this screen refuses to offer", () => {
   it("never renders the text of a call, whatever the session holds", async () => {
     // The list projection carries no prompt at all, so this is a guard against a future row
@@ -407,7 +420,24 @@ describe("the worker narrowing", () => {
     const out = await render({ workerId: WORKER_ID });
     expect(out).toContain("Showing only the calls made for worker");
     expect(out).toContain("5eeded00…");
-    expect(out).toContain("Show every worker");
+    // With the worker as the ONLY filter, the way out is the results head's one Clear filters.
+    expect(out).toContain('href="/ai-calls">Clear filters</a>');
+    expect(out).not.toContain("Show every worker");
+    expect(out).not.toContain("Clear the worker filter");
+  });
+
+  it("beside another filter, clears ONLY the worker — and says so (it used to drop them all)", async () => {
+    stub.page = { items: [OTHERS_ROW], nextCursor: null };
+    const out = await render({ workerId: WORKER_ID, taskType: "chat_extract", success: "false" });
+    expect(out).toContain(">Clear the worker filter<");
+    expect(out).toContain('href="/ai-calls?taskType=chat_extract&amp;success=false"');
+    expect(out).not.toContain("Show every worker");
+  });
+
+  it("offers ONE Clear filters on a filtered empty page — the head's, not a second in the state", async () => {
+    stub.page = { items: [], nextCursor: null };
+    const out = await render({ taskType: "chat_extract" });
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
   });
 
   it("does NOT claim to be showing a worker's calls when nothing was fetched", async () => {

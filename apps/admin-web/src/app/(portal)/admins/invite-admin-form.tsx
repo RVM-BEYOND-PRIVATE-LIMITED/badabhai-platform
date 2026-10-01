@@ -9,7 +9,12 @@ import { ADMIN_ROLES, ROLE_LABELS, type AdminRole } from "../../../lib/auth/capa
 import type { AdminActionOutcome } from "../../../lib/admin-action-result";
 
 /** Invite a new admin by work email + role (`manage_admins`). Status defaults to `pending`. */
-export function InviteAdminForm() {
+export function InviteAdminForm({
+  mayReadEvents,
+}: {
+  /** Whether the session may open `/events` (`read_events`) — the result banner's link. */
+  mayReadEvents: boolean;
+}) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<AdminRole>("analyst");
@@ -88,7 +93,11 @@ export function InviteAdminForm() {
       {outcome && (
         <AdminActionResultBanner
           outcome={outcome}
-          timelineHref="/events?eventName=admin.action_performed"
+          eventsLink={
+            mayReadEvents
+              ? { href: "/events?eventName=admin.action_performed", label: "View events" }
+              : null
+          }
         />
       )}
       {outcome?.ok && outcome.acceptUrl ? (

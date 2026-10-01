@@ -44,7 +44,10 @@ export function PayerDetailView({
   const labels = postings ? [...new Set(postings.map((p) => p.org_label))] : [];
   // Phase 1's per-entity timeline route. `backHref` is /companies or /agencies, so this
   // resolves to the section's own timeline page rather than the subject-type-wide feed.
-  const timelineHref = `${backHref}/${payer.id}/timeline`;
+  // Offered only to a reader who may open it: the timeline route is `read_events`.
+  const timelineHref = can(capabilities, "read_events")
+    ? `${backHref}/${payer.id}/timeline`
+    : null;
 
   // One record, so the posture is read off this single row.
   const posture = identityPosture([payer], "org_name", can(capabilities, "read_identity"));
@@ -213,13 +216,8 @@ export function PayerDetailView({
             <p className="state__body">
               This account has never created one, so it has published nothing to workers and
               carries no self-declared label. A registered account that never posts is the
-              normal shape of an abandoned signup — the event timeline shows how far it got.
+              normal shape of an abandoned signup — its event timeline shows how far it got.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href={`${backHref}/${payer.id}/timeline`}>
-                View event timeline
-              </Link>
-            </div>
           </div>
         ) : (
           <div className="tablewrap">

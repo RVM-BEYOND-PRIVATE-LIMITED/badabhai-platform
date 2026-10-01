@@ -60,7 +60,10 @@ export default async function WorkerDetailPage({
   // Their decisions. Non-fatal: a failure here must not blank the whole worker page.
   const apps = await listApplications({ workerId: id, limit: 10 }).catch(() => null);
 
-  const timelineHref = `/workers/${worker.id}/timeline`;
+  // Offered only to a reader who may open it: the timeline route is `read_events`.
+  const timelineHref = can(session.capabilities, "read_events")
+    ? `/workers/${worker.id}/timeline`
+    : null;
   const journeyHref = `/workers/${worker.id}/journey`;
 
   // A single record, so the posture is read off this one row — `[worker]`, not a page.

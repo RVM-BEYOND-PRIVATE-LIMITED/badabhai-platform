@@ -17,10 +17,20 @@ import type { AdminCapability } from "../lib/auth/capabilities";
 // Both interactive children are Client Components using `useRouter`/`useState`. The header is
 // stubbed to render the shared PageHeader from the server-built `header` it is handed (back
 // link, title, description), which is what this file asserts on.
+const seen = vi.hoisted(() => ({ timelineHref: undefined as string | null | undefined }));
 vi.mock("./payer-detail-header", async () => {
   const { PageHeader } = await import("./page-header");
   return {
-    PayerDetailHeader: ({ header }: { header: PageHeaderContent }) => <PageHeader {...header} />,
+    PayerDetailHeader: ({
+      header,
+      timelineHref,
+    }: {
+      header: PageHeaderContent;
+      timelineHref: string | null;
+    }) => {
+      seen.timelineHref = timelineHref;
+      return <PageHeader {...header} />;
+    },
   };
 });
 vi.mock("./payer-credits-panel", () => ({ PayerCreditsPanel: () => null }));
@@ -196,5 +206,20 @@ describe("the header (owner ruling 2026-10-01)", () => {
     const out = render(FACELESS, ENTITLED);
     expect(out).toContain('<a class="backlink" href="/companies">');
     expect(out).toContain("<span>Companies</span></a>");
+  });
+});
+
+describe("the event-timeline link follows read_events (an affordance; the route keeps its gate)", () => {
+  it("is offered with read_events, and only then", () => {
+    render(FACELESS, ["read_entities", "read_events"]);
+    expect(seen.timelineHref).toBe(`/companies/${PAYER_ID}/timeline`);
+    render(FACELESS, ["read_entities"]);
+    expect(seen.timelineHref).toBeNull();
+  });
+
+  it("is not repeated in the no-postings state — the header already carries it", () => {
+    const out = render(FACELESS, ["read_entities", "read_events"], []);
+    expect(out).toContain("No postings yet");
+    expect(out).not.toContain("/timeline");
   });
 });

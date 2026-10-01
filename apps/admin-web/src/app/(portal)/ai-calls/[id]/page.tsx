@@ -74,6 +74,8 @@ export default async function AiCallDetailPage({
   const { id } = await params;
 
   const mayReadText = can(session.capabilities, "read_ai_traces");
+  /** `/events` is `read_events`: the correlation id links into it only for a session with it. */
+  const mayReadEvents = can(session.capabilities, "read_events");
 
   /**
    * NO REQUEST AT ALL WITHOUT THE CAPABILITY. Not merely a hidden control: a fetch here would
@@ -235,13 +237,17 @@ export default async function AiCallDetailPage({
             {
               label: "Correlation id",
               value: trace.correlation_id ? (
-                <Link
-                  className="link mono"
-                  href={`/events?correlationId=${encodeURIComponent(trace.correlation_id)}`}
-                  title="Everything recorded under this correlation id"
-                >
-                  {trace.correlation_id}
-                </Link>
+                mayReadEvents ? (
+                  <Link
+                    className="link mono"
+                    href={`/events?correlationId=${encodeURIComponent(trace.correlation_id)}`}
+                    title="Everything recorded under this correlation id"
+                  >
+                    {trace.correlation_id}
+                  </Link>
+                ) : (
+                  <span className="mono">{trace.correlation_id}</span>
+                )
               ) : (
                 <NotRecorded>no correlation id was recorded</NotRecorded>
               ),
@@ -341,11 +347,15 @@ function NotRecorded({ children }: { children: ReactNode }) {
   );
 }
 
-/** The page frame every non-success screen shares: the same eyebrow, the same way back. */
-function Frame({ children }: { children: ReactNode }) {
+/**
+ * The page frame every non-success screen shares. `back` is the list — except on the Denied
+ * screen, whose reader cannot open the list (it is `read_ai_traces` too), so that screen has no
+ * back link rather than one that bounces them to the dashboard.
+ */
+function Frame({ children, back = true }: { children: ReactNode; back?: boolean }) {
   return (
     <div className="page">
-      <PageHeader back={{ href: "/ai-calls", label: "AI calls" }} title="AI call" />
+      <PageHeader back={back ? { href: "/ai-calls", label: "AI calls" } : undefined} title="AI call" />
       {children}
     </div>
   );
@@ -361,21 +371,22 @@ function Frame({ children }: { children: ReactNode }) {
  */
 function Denied() {
   return (
-    <Frame>
+    <Frame back={false}>
       <section className="state">
-        <h3 className="state__title">Your role cannot read the text of an AI call</h3>
+        <h3 className="state__title">Your role cannot read AI calls</h3>
         <p className="state__body">
-          The list of calls is open to you in full — what each one was for, which model answered,
-          whether it succeeded, and how long the request and the reply were. Nothing on it has
-          been withheld. Turning one of those lengths back into the words themselves is a
-          separate capability, and this account does not hold it, so nothing was requested.
+          Reading AI calls — the list of them and the text of each one — needs the{" "}
+          <code className="code">read_ai_traces</code> capability, and this account does not
+          hold it, so nothing was requested. The roles page shows which roles do.
         </p>
+        {/* No "Back to AI calls": the list sits behind the same capability, so for exactly
+            this reader that link only ever redirected to the dashboard. */}
         <div className="state__actions">
-          <Link className="btn btn--ghost" href="/ai-calls">
-            Back to AI calls
-          </Link>
           <Link className="btn btn--ghost" href="/roles">
             Roles and capabilities
+          </Link>
+          <Link className="btn btn--ghost" href="/">
+            Back to dashboard
           </Link>
         </div>
       </section>

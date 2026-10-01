@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AdminActionButton } from "./admin-action-button";
-import { AdminActionResultBanner } from "./admin-action-result-banner";
+import { AdminActionResultBanner, timelineLink } from "./admin-action-result-banner";
 import { PageHeader, type PageHeaderContent } from "./page-header";
 import { reinstatePayerAction, suspendPayerAction } from "./payer-actions";
 import type { AdminActionOutcome } from "../lib/admin-action-result";
@@ -34,7 +34,8 @@ export function PayerDetailHeader({
   payerId: string;
   status: "pending" | "active" | "suspended";
   canSuspend: boolean;
-  timelineHref: string;
+  /** This account's event timeline, or null for a reader without `read_events`. */
+  timelineHref: string | null;
 }) {
   const router = useRouter();
   const [outcome, setOutcome] = useState<AdminActionOutcome | null>(null);
@@ -70,12 +71,16 @@ export function PayerDetailHeader({
           ) : null
         }
         secondaryActions={
-          <Link className="btn btn--ghost" href={timelineHref}>
-            View event timeline
-          </Link>
+          timelineHref ? (
+            <Link className="btn btn--ghost" href={timelineHref}>
+              View event timeline
+            </Link>
+          ) : null
         }
       />
-      {outcome && <AdminActionResultBanner outcome={outcome} timelineHref={timelineHref} />}
+      {outcome && (
+        <AdminActionResultBanner outcome={outcome} eventsLink={timelineLink(timelineHref)} />
+      )}
     </>
   );
 }

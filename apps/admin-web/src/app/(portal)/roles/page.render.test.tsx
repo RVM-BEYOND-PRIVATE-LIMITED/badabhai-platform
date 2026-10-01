@@ -76,3 +76,16 @@ describe("the capability matrix", () => {
     expect(out).not.toContain("table--matrix");
   });
 });
+
+describe("the copy says where a role is changed (owner brief 2026-10-01)", () => {
+  it("no longer claims it cannot be done here — Change role exists on Admin users", async () => {
+    stub.failure = null;
+    stub.matrix = MATRIX;
+    const out = await render();
+    expect(out).not.toContain("cannot be done from this portal");
+    expect(out).toContain("Change role");
+    expect(out).toContain("Admin users");
+    // An ops admin cannot open /admins (manage_admins), so it is named, not linked.
+    expect(out).not.toContain('href="/admins"');
+  });
+});

@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { requireSession } from "../../../lib/auth";
 import { getCapabilityMatrix } from "../../../lib/entities";
-import { CAPABILITY_LABELS, ROLE_LABELS, isAdminCapability } from "../../../lib/auth/capabilities";
+import {
+  CAPABILITY_LABELS,
+  ROLE_LABELS,
+  can,
+  isAdminCapability,
+} from "../../../lib/auth/capabilities";
 import { PageHeader } from "../../../components/page-header";
 
 export const dynamic = "force-dynamic";
@@ -149,8 +154,16 @@ export default async function RolesPage() {
           <div className="alert__text">
             <p className="alert__title">Your column is highlighted</p>
             <p className="alert__body">
-              Changing a role is a governed action (<code>manage_admins</code>, super admin
-              only) and emits an audited event. It cannot be done from this portal.
+              Changing an admin&apos;s role is a governed action (<code>manage_admins</code>,
+              super admin only) that emits an audited event. It is done with Change role on{" "}
+              {can(session.capabilities, "manage_admins") ? (
+                <Link className="link" href="/admins">
+                  Admin users
+                </Link>
+              ) : (
+                "Admin users"
+              )}
+              .
             </p>
           </div>
         </div>

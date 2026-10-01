@@ -100,6 +100,12 @@ export default async function AdminsPage({
   const supers = directory?.active_super_admins ?? 0;
 
   const posture = identityPosture(admins, "name", can(session.capabilities, "read_identity"));
+  /**
+   * `/events` is `read_events`. Every role holds it today, but `manage_admins` does not imply
+   * it, so the links into the log are offered only to a session that holds it — an
+   * affordance; the route keeps its own gate.
+   */
+  const mayReadEvents = can(session.capabilities, "read_events");
 
   return (
     <div className="page">
@@ -125,9 +131,11 @@ export default async function AdminsPage({
            `admin.action_performed`, and without this the page states that fact and then
            offers no way to go and read them. */
         secondaryActions={
-          <Link className="btn btn--ghost" href="/events?eventName=admin.action_performed">
-            View all admin actions
-          </Link>
+          mayReadEvents ? (
+            <Link className="btn btn--ghost" href="/events?eventName=admin.action_performed">
+              View all admin actions
+            </Link>
+          ) : null
         }
       />
 
@@ -199,8 +207,10 @@ export default async function AdminsPage({
         <div className="filters filters--inline">
           {ADMIN_ROLES.map((r) => (
             <Link
+              aria-current={r === role ? "true" : undefined}
               className={`btn btn--sm ${r === role ? "btn--primary" : "btn--ghost"}`}
-              href={`/admins?role=${r}`}
+              /* Keeps a status narrowing (`?status=`); a chip used to drop it. */
+              href={`/admins?role=${r}${status ? `&status=${encodeURIComponent(status)}` : ""}`}
               key={r}
             >
               {ROLE_LABELS[r]}
@@ -232,13 +242,7 @@ export default async function AdminsPage({
                 ? "The directory loaded, but nobody holds this combination of role and status. Clear the filters to see everyone."
                 : "The directory loaded and it is genuinely empty. On a running platform that is not a normal state — you are signed in, so at least your own account should be here."}
             </p>
-            {(role || status) && (
-              <div className="state__actions">
-                <Link className="btn btn--ghost" href="/admins">
-                  Clear filters
-                </Link>
-              </div>
-            )}
+
           </div>
         ) : (
           <div className="tablewrap">
@@ -271,22 +275,16 @@ export default async function AdminsPage({
                       </td>
                     )}
                     <td>
-                      {/* Every OTHER entity now has a per-entity timeline route; admins do
-                          not, and deliberately so — `admin_session` is absent from
-                          ADMIN_TIMELINE_SUBJECT_TYPES (mirrored verbatim from the server in
-                          `lib/events.ts`), so a per-admin timeline would be a server-side
-                          400. This link is therefore subject-type-wide, and it says so: the
-                          id is the visible label, so without the title it would read as a
-                          promise of THIS admin's history. A `subjectId` param is not carried
-                          — `EventFilters` has no such field, so it would make that false
-                          promise and then quietly show every admin's events. */}
-                      <Link
-                        className="mono link"
-                        href="/events?subjectType=admin_session"
-                        title={`${a.id} — opens every admin_session event, not only this admin's`}
-                      >
+                      {/* The id is TEXT, not a link. It used to link every row to the same
+                          `/events?subjectType=admin_session` — every admin's sessions, not this
+                          one's — because there is no per-admin timeline (`admin_session` is not
+                          in ADMIN_TIMELINE_SUBJECT_TYPES, so one would be a server 400) and
+                          `EventFilters` has no subject-id filter. A link whose label is THIS
+                          admin's id and whose target is everyone's is a false promise; the
+                          header's "View all admin actions" is the honest way into the log. */}
+                      <span className="mono" title={a.id}>
                         {shortId(a.id)}
-                      </Link>
+                      </span>
                       {a.is_self && posture !== "named" && (
                         <span className="table__meta">you</span>
                       )}
@@ -340,6 +338,7 @@ export default async function AdminsPage({
                     </td>
                     <td>
                       <AdminRowActions
+                        mayReadEvents={mayReadEvents}
                         admin={{
                           id: a.id,
                           role: a.role,
@@ -356,7 +355,7 @@ export default async function AdminsPage({
         )}
       </section>
 
-      <InviteAdminForm />
+      <InviteAdminForm mayReadEvents={mayReadEvents} />
     </div>
   );
 }

@@ -112,7 +112,8 @@ beforeEach(() => {
   stub.requests.length = 0;
   stub.page = { items: [], nextCursor: null };
   stub.failure = null;
-  stub.capabilities = ["read_entities"];
+  // Every role holds read_events today, so the realistic session carries it.
+  stub.capabilities = ["read_entities", "read_events"];
 });
 
 const render = async (searchParams: Record<string, string | string[] | undefined> = {}) =>
@@ -401,7 +402,11 @@ describe("the worker narrowing", () => {
     const out = await render({ workerId: WORKER_ID });
     expect(out).toContain("Showing only what worker");
     expect(out).toContain("5eeded00…");
-    expect(out).toContain("Show every worker");
+    // With the worker as the ONLY filter, the way out is the results head's one Clear filters —
+    // not a second and third link to /feedback beside it.
+    expect(out.split('href="/feedback"').length - 1).toBe(1);
+    expect(out).toContain('href="/feedback">Clear filters</a>');
+    expect(out).not.toContain("Show every worker");
     // …and it names the FILTERED worker, not whoever happens to be in the first row.
     expect(out).not.toContain("Showing only what worker <span class=\"mono\">abcde000…");
   });

@@ -8,13 +8,14 @@ import { AdminActionResultBanner } from "./admin-action-result-banner";
  * neutral/success family as `changed: true`, never the danger tone reserved for `ok: false`.
  */
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
+const TIMELINE = { href: "/companies/p-1/timeline", label: "View event timeline" };
 
 describe("AdminActionResultBanner", () => {
   it("changed: true renders the success tone", () => {
     const out = html(
       <AdminActionResultBanner
         outcome={{ ok: true, changed: true, message: "Payer suspended." }}
-        timelineHref="/companies/p-1/timeline"
+        eventsLink={TIMELINE}
       />,
     );
     expect(out).toContain("alert--success");
@@ -26,7 +27,7 @@ describe("AdminActionResultBanner", () => {
     const out = html(
       <AdminActionResultBanner
         outcome={{ ok: true, changed: false, message: "Already suspended — no change." }}
-        timelineHref="/companies/p-1/timeline"
+        eventsLink={TIMELINE}
       />,
     );
     expect(out).toContain("alert--info");
@@ -39,7 +40,7 @@ describe("AdminActionResultBanner", () => {
     const out = html(
       <AdminActionResultBanner
         outcome={{ ok: false, error: "Cannot demote the last active super_admin" }}
-        timelineHref="/events?subjectType=admin_session"
+        eventsLink={{ href: "/events?subjectType=admin_session", label: "View events" }}
       />,
     );
     expect(out).toContain("alert--danger");
@@ -47,13 +48,37 @@ describe("AdminActionResultBanner", () => {
     expect(out).not.toContain("alert__actions");
   });
 
-  it("always links to the timeline href it was given on success", () => {
+  it("links to the href it was given on success, under the name it was given", () => {
+    const one = html(
+      <AdminActionResultBanner
+        outcome={{ ok: true, changed: true, message: "Worker flagged." }}
+        eventsLink={{ href: "/workers/w-9/timeline", label: "View event timeline" }}
+      />,
+    );
+    expect(one).toContain('href="/workers/w-9/timeline"');
+    expect(one).toContain(">View event timeline<");
+
+    // An admin-directory action has no per-admin timeline: it is the global log, so it is
+    // never called a timeline.
+    const all = html(
+      <AdminActionResultBanner
+        outcome={{ ok: true, changed: true, message: "Role changed." }}
+        eventsLink={{ href: "/events?subjectType=admin_session", label: "View events" }}
+      />,
+    );
+    expect(all).toContain(">View events<");
+    expect(all).not.toContain("timeline");
+  });
+
+  it("offers no link at all to a reader who cannot read events (eventsLink null)", () => {
     const out = html(
       <AdminActionResultBanner
         outcome={{ ok: true, changed: true, message: "Worker flagged." }}
-        timelineHref="/workers/w-9/timeline"
+        eventsLink={null}
       />,
     );
-    expect(out).toContain('href="/workers/w-9/timeline"');
+    expect(out).toContain("alert--success");
+    expect(out).not.toContain("alert__actions");
+    expect(out).not.toContain("<a ");
   });
 });

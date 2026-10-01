@@ -32,7 +32,7 @@ const PAGE_SIZE = 25;
 /**
  * AI calls — every provider call the platform made for a worker, newest first.
  *
- * ── WHAT IS ON THIS PAGE, AND WHY IT IS SAFE ON THE ORDINARY READ FLOOR ─────────────────
+ * ── WHAT IS ON THIS PAGE ────────────────────────────────────────────────────────────────
  * Scalars only: when, what the call was for, which model answered, whether a provider was
  * really called, whether it succeeded, the closed-set failure code, and the two character
  * COUNTS. No prompt, no reply, no ciphertext — the server's list projection does not select
@@ -90,6 +90,8 @@ export default async function AiCallsPage({
    * closed on a malformed `/admin/me`.
    */
   const mayReadText = can(session.capabilities, "read_ai_traces");
+  /** `/events` is `read_events`; its link is offered only to a session holding it. */
+  const mayReadEvents = can(session.capabilities, "read_events");
 
   let page: AiTracePage | null = null;
   let rejected = false;
@@ -116,11 +118,11 @@ export default async function AiCallsPage({
    * `cursor` is dropped unless asked for: a cursor from one query applied to another returns an
    * arbitrary slice of it, which looks like data rather than an error.
    */
-  const listHref = (over: { cursor?: string } = {}) => {
+  const listHref = (over: { cursor?: string; workerId?: null } = {}) => {
     const q = new URLSearchParams();
     if (taskType) q.set("taskType", taskType);
     if (success) q.set("success", success);
-    if (workerId) q.set("workerId", workerId);
+    if (workerId && over.workerId !== null) q.set("workerId", workerId);
     if (over.cursor) q.set("cursor", over.cursor);
     const s = q.toString();
     return s ? `/ai-calls?${s}` : "/ai-calls";
@@ -199,10 +201,19 @@ export default async function AiCallsPage({
             <Link className="link" href={`/workers/${encodeURIComponent(workerId)}`}>
               Open worker
             </Link>
-            {" · "}
-            <Link className="link" href="/ai-calls">
-              Show every worker
-            </Link>
+            {/* Drops the worker and KEEPS the task and outcome filters. Shown only beside another
+                filter: with the worker as the only one, it would be the results head's "Clear
+                filters" a second time. It used to be labelled "Show every worker" and go to the
+                bare route, dropping every filter — the same label did something else on
+                Feedback. */}
+            {taskType || success ? (
+              <>
+                {" · "}
+                <Link className="link" href={listHref({ workerId: null })}>
+                  Clear the worker filter
+                </Link>
+              </>
+            ) : null}
           </p>
         ) : null}
 
@@ -215,10 +226,12 @@ export default async function AiCallsPage({
               cursor is an opaque value that cannot be hand-edited — one of them, as it stands in
               the address bar, is not something this list accepts.
             </p>
-            {resettable && (
+            {/* With a filter set, the results head's "Clear filters" is the way out; only a
+                bad cursor on an unfiltered list needs its own. */}
+            {resettable && !filtered && (
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/ai-calls">
-                  {filtered ? "Clear filters" : "Back to the first page"}
+                  Back to the first page
                 </Link>
               </div>
             )}
@@ -387,11 +400,6 @@ export default async function AiCallsPage({
               result carefully here: a task type that has never run in this environment and a task
               type that ran without a single failure produce exactly the same empty screen.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href="/ai-calls">
-                Clear filters
-              </Link>
-            </div>
           </div>
         ) : (
           /* ── THE EMPTY STATE THAT MUST NOT READ AS A FAULT ───────────────────────────────
@@ -412,9 +420,11 @@ export default async function AiCallsPage({
               <Link className="btn btn--ghost" href="/system">
                 View provider switches
               </Link>
-              <Link className="btn btn--ghost" href="/events?eventName=ai.cost_recorded">
-                View events
-              </Link>
+              {mayReadEvents ? (
+                <Link className="btn btn--ghost" href="/events?eventName=ai.cost_recorded">
+                  View events
+                </Link>
+              ) : null}
             </div>
           </div>
         )}

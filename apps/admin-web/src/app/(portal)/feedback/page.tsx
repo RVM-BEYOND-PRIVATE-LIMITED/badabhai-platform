@@ -103,6 +103,7 @@ export default async function FeedbackPage({
    * this call for exactly this reason.)
    */
   const mayOpenJourney = can(session.capabilities, "read_entities");
+  const mayReadEvents = can(session.capabilities, "read_events");
 
   let page: FeedbackPage | null = null;
   let rejected = false;
@@ -241,10 +242,17 @@ export default async function FeedbackPage({
                 </Link>
               </>
             ) : null}
-            {" · "}
-            <Link className="link" href={listHref({ workerId: null })}>
-              Show every worker
-            </Link>
+            {/* Drops the worker and keeps the tag. Shown only beside a tag: with the worker as
+                the only filter it would be the results head's "Clear filters" again, and that
+                is how one screen came to hold three links to /feedback. */}
+            {category ? (
+              <>
+                {" · "}
+                <Link className="link" href={listHref({ workerId: null })}>
+                  Clear the worker filter
+                </Link>
+              </>
+            ) : null}
           </p>
         ) : null}
 
@@ -257,14 +265,12 @@ export default async function FeedbackPage({
               cannot be hand-edited — one of them, as it stands in the address bar, is not
               something this list accepts.
             </p>
-            {resettable && (
+            {/* With a filter set, the results head's "Clear filters" is the way out; only a
+                bad cursor on an unfiltered list needs its own. */}
+            {resettable && !filtered && (
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/feedback">
-                  {filtered
-                    ? category && workerId
-                      ? "Clear filters"
-                      : "Clear filter"
-                    : "Back to the first page"}
+                  Back to the first page
                 </Link>
               </div>
             )}
@@ -502,24 +508,15 @@ export default async function FeedbackPage({
                   ? "Nothing has arrived from this worker. Read that as silence and nothing more: most workers never open the Feedback button at all, so this is the ordinary case rather than evidence that anything went well. What they actually did is on their journey."
                   : "Nothing has been submitted under the selected tag. Tagging is optional in the app, so a message about exactly this may well be sitting in the list untagged — clear the filter to see every submission, newest first."}
             </p>
-            <div className="state__actions">
-              {workerId && category ? (
+            {/* Only the recovery nothing else on screen offers. "Clear filters" is in the
+                results head, and "View journey" is on the worker line above. */}
+            {workerId && category ? (
+              <div className="state__actions">
                 <Link className="btn btn--ghost" href={listHref({ category: null })}>
                   Clear the tag filter
                 </Link>
-              ) : null}
-              {workerId && mayOpenJourney ? (
-                <Link
-                  className="btn btn--ghost"
-                  href={`/workers/${encodeURIComponent(workerId)}/journey`}
-                >
-                  View journey
-                </Link>
-              ) : null}
-              <Link className="btn btn--ghost" href="/feedback">
-                {category && workerId ? "Clear filters" : "Clear filter"}
-              </Link>
-            </div>
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="state">
@@ -530,11 +527,14 @@ export default async function FeedbackPage({
               the submit path is running at all — every submission records an event, whether or not
               anyone has read the message.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href="/events?eventName=feedback.submitted">
-                View events
-              </Link>
-            </div>
+            {/* `/events` is `read_events`; offered only to a reader who holds it. */}
+            {mayReadEvents ? (
+              <div className="state__actions">
+                <Link className="btn btn--ghost" href="/events?eventName=feedback.submitted">
+                  View events
+                </Link>
+              </div>
+            ) : null}
           </div>
         )}
 

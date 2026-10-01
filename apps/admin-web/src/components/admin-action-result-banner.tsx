@@ -1,13 +1,29 @@
 import Link from "next/link";
 import type { AdminActionOutcome } from "../lib/admin-action-result";
 
+/** Where a success sends the operator to see the audit event it wrote, and what that is called. */
+export interface ResultEventsLink {
+  href: string;
+  /**
+   * "View event timeline" for ONE record's timeline; "View events" for the global log (an
+   * admin-directory action has no per-admin timeline, so it lands on a filtered /events).
+   */
+  label: string;
+}
+
+/** One record's event timeline as a result link, or none when the reader may not open it. */
+export function timelineLink(href: string | null): ResultEventsLink | null {
+  return href ? { href, label: "View event timeline" } : null;
+}
+
 /**
  * The post-action result banner (Step 3 of the admin write-action plan).
  *
  * `changed: false` is a SUCCESSFUL no-op (e.g. "already suspended") and renders with the same
- * neutral/success tone as `changed: true` — only `ok: false` gets the danger treatment. Every
- * success links to the entity's event timeline so the operator can see the resulting audit
- * event immediately, without leaving the page.
+ * neutral/success tone as `changed: true` — only `ok: false` gets the danger treatment. A
+ * success links to where the resulting audit event can be read — when the reader may read
+ * events at all. `eventsLink` is null for a session without `read_events`: the page it would
+ * open redirects them away, so it is not offered (an affordance, never the gate).
  *
  * Reuses the existing `.alert` primitive (`apps/admin-web/src/app/globals.css`) rather than
  * inventing a banner of its own — the same block already used for the admins page's
@@ -15,10 +31,10 @@ import type { AdminActionOutcome } from "../lib/admin-action-result";
  */
 export function AdminActionResultBanner({
   outcome,
-  timelineHref,
+  eventsLink,
 }: {
   outcome: AdminActionOutcome;
-  timelineHref: string;
+  eventsLink: ResultEventsLink | null;
 }) {
   if (!outcome.ok) {
     return (
@@ -37,11 +53,13 @@ export function AdminActionResultBanner({
         <p className="alert__title">{outcome.changed ? "Done" : "No change"}</p>
         <p className="alert__body">{outcome.message}</p>
       </div>
-      <div className="alert__actions">
-        <Link className="btn btn--ghost btn--sm" href={timelineHref}>
-          View event timeline
-        </Link>
-      </div>
+      {eventsLink ? (
+        <div className="alert__actions">
+          <Link className="btn btn--ghost btn--sm" href={eventsLink.href}>
+            {eventsLink.label}
+          </Link>
+        </div>
+      ) : null}
     </div>
   );
 }

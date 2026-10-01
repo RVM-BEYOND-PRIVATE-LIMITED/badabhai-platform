@@ -74,12 +74,19 @@ function firstRowCells(html: string): string[] {
 }
 
 describe("a super_admin, who holds read_identity", () => {
-  it("renders the name column first, and keeps the id link behind it", async () => {
+  it("renders the name column first, and keeps the id behind it", async () => {
     const out = await render();
     expect(out).toContain('<th scope="col">Name</th>');
     expect(out).toContain("Divyanshu Sharma");
-    expect(out).toContain('href="/events?subjectType=admin_session"');
-    expect(out).toContain("aaaaaaaa…");
+    expect(out).toContain(`<span class="mono" title="${ADMIN_ID}">aaaaaaaa…</span>`);
+  });
+
+  it("does not link a row's id to EVERY admin's events (owner brief 2026-10-01)", async () => {
+    // Every row linked to the same /events?subjectType=admin_session: a label naming THIS admin
+    // over a target holding everyone's sessions. There is no per-admin timeline to link instead.
+    stub.directory = { admins: [NAMED, UNNAMED], active_super_admins: 2 };
+    const out = await render();
+    expect(out).not.toContain('href="/events?subjectType=admin_session"');
   });
 
   it("dashes an account nobody has named — the invite flow never asks", async () => {
@@ -169,5 +176,34 @@ describe("a directory read that failed", () => {
     const out = await render();
     expect(out).toContain("The admin directory could not be loaded");
     expect(out).not.toContain("Names are withheld on this page");
+  });
+});
+
+describe("the header (owner ruling 2026-10-01)", () => {
+  it("puts the page's own action first: Invite an admin, to the form at the foot", async () => {
+    stub.capabilities = ["manage_admins", "read_events"];
+    const out = await render();
+    const actions = out.slice(out.indexOf('<div class="page__actions">'));
+    expect(actions).toContain('href="#ad-invite"');
+    expect(actions.indexOf("Invite an admin")).toBeLessThan(
+      actions.indexOf("View all admin actions"),
+    );
+  });
+
+  it("offers the admin-actions log only to a session that may open /events", async () => {
+    stub.capabilities = ["manage_admins", "read_events"];
+    expect(await render()).toContain('href="/events?eventName=admin.action_performed"');
+    stub.capabilities = ["manage_admins"];
+    const without = await render();
+    expect(without).not.toContain("/events?");
+    expect(without).toContain("Invite an admin");
+  });
+
+  it("names role chips and pills from ROLE_LABELS, never the raw key", async () => {
+    const out = await render();
+    expect(out).toContain(">Super admin<");
+    expect(out).toContain(">Ops admin<");
+    expect(out).not.toContain(">super admin<");
+    expect(out).not.toContain(">ops admin<");
   });
 });

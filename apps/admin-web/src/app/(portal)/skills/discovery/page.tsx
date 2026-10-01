@@ -237,6 +237,15 @@ export default async function SkillDiscoveryPage({
     const s = q.toString();
     return s ? `?${s}` : "";
   };
+  /** What the filter bar keeps when it navigates: the view, tier and status chosen above it. */
+  const barCarry: Record<string, string | undefined> = {
+    view: carry.view,
+    tier: carry.tier,
+    ack: carry.ack,
+    statusScope: carry.statusScope,
+    status: carry.status,
+    groupSort: carry.groupSort,
+  };
   const listHref = (over: Record<string, string | undefined> = {}) =>
     `/skills/discovery${queryString(over)}`;
   const retryHref = listHref({});
@@ -363,7 +372,9 @@ export default async function SkillDiscoveryPage({
 
           <SkillDiscoveryFilterBar
             basePath="/skills/discovery"
-            carry={carry}
+            /* ONLY the controls above the bar. The full `carry` holds the bar's own fields too,
+               and passing it made an emptied field come back on Apply and "Clear" a no-op. */
+            carry={barCarry}
             initial={{
               band: band ?? "",
               proposedAction: proposedAction ?? "",

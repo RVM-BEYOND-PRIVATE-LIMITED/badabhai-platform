@@ -47,7 +47,8 @@ const { default: WorkerJourneyPage } = await import("./page");
 const WORKER_ID = "5eeded00-0001-4a00-8000-000000000001";
 
 beforeEach(() => {
-  stub.capabilities = ["read_entities"];
+  // Every role holds read_events today, so the realistic session carries it.
+  stub.capabilities = ["read_entities", "read_events"];
   stub.gates.length = 0;
 });
 
@@ -72,12 +73,21 @@ describe("the link to what this worker told us", () => {
   it("gates on read_entities, and does not offer the link without it", async () => {
     // Derived from the session rather than hardcoded: the day `GET /admin/feedback` narrows
     // its capability, this control disappears instead of becoming a link to a redirect.
-    stub.capabilities = [];
+    stub.capabilities = ["read_events"];
     const out = await render();
     expect(out).not.toContain("/feedback");
     expect(out).not.toContain("What they told us");
     // The rest of the header is untouched — this removes one action, not the page.
     expect(out).toContain(`href="/workers/${WORKER_ID}/timeline"`);
+  });
+
+  it("offers the event timeline only with read_events, the timeline route's own gate", async () => {
+    stub.capabilities = ["read_entities"];
+    const out = await render();
+    expect(out).not.toContain(`href="/workers/${WORKER_ID}/timeline"`);
+    expect(out).not.toContain("View event timeline");
+    // The feedback link is a different capability and stays.
+    expect(out).toContain("What they told us");
   });
 
   it("percent-encodes the id into the query rather than pasting it raw", async () => {

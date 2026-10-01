@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
+import { can } from "../../../lib/auth/capabilities";
 import { listJobPostings } from "../../../lib/entities";
 import { formatPayBand, formatRelative, formatTimestamp, shortId } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
@@ -24,7 +25,8 @@ export default async function JobsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireCapability("read_entities");
+  const session = await requireCapability("read_entities");
+  const mayReadEvents = can(session.capabilities, "read_events");
 
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) =>
@@ -93,11 +95,15 @@ export default async function JobsPage({
               copied from a table cell will not do. Correct the value above, or clear the
               filters and start again.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href="/jobs">
-                Clear filters
-              </Link>
-            </div>
+            {/* One "Clear filters" per screen: the results head carries it whenever a filter is
+                set, so this state does not repeat it (owner brief 2026-10-01). */}
+            {filtered ? null : (
+              <div className="state__actions">
+                <Link className="btn btn--ghost" href="/jobs">
+                  Retry
+                </Link>
+              </div>
+            )}
           </div>
         ) : page && page.items.length > 0 ? (
           <div className="tablewrap">
@@ -161,11 +167,6 @@ export default async function JobsPage({
               Nothing matches the filters currently applied. Widen them, or clear them to
               see every posting on the platform.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href="/jobs">
-                Clear filters
-              </Link>
-            </div>
           </div>
         ) : (
           <div className="state">
@@ -174,11 +175,14 @@ export default async function JobsPage({
               Postings appear here the moment a company, an agency or an operator publishes one.
               Until then there is nothing in the feed workers see either.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href="/events">
-                View events
-              </Link>
-            </div>
+            {/* `/events` is `read_events`; offered only to a reader who holds it. */}
+            {mayReadEvents ? (
+              <div className="state__actions">
+                <Link className="btn btn--ghost" href="/events">
+                  View events
+                </Link>
+              </div>
+            ) : null}
           </div>
         )}
 

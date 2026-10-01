@@ -160,8 +160,10 @@ export default async function TransactionsPage({
         <div className="filters filters--inline">
           {STATUSES.map((s) => (
             <Link
+              aria-current={s === status ? "true" : undefined}
               className={`btn btn--sm ${s === status ? "btn--primary" : "btn--ghost"}`}
-              href={`/transactions?status=${s}`}
+              /* Keeps an account narrowing (`?payerId=`); a chip used to drop it. */
+              href={`/transactions?status=${s}${payerId ? `&payerId=${encodeURIComponent(payerId)}` : ""}`}
               key={s}
             >
               {s === "created" ? "Unsettled" : s === "paid" ? "Settled" : "Failed"}
@@ -194,11 +196,6 @@ export default async function TransactionsPage({
                 Nothing matches the filters currently applied. Clear them to see every
                 order, newest first.
               </p>
-              <div className="state__actions">
-                <Link className="btn btn--ghost" href="/transactions">
-                  Clear filters
-                </Link>
-              </div>
             </div>
           ) : posture?.mode === "mock" ? (
             // The honest empty state. "No payment orders recorded yet" is TRUE and

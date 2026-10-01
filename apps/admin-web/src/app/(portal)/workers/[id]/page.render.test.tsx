@@ -22,6 +22,8 @@ const stub = vi.hoisted(() => {
     RequestError,
     capabilities: ["read_entities", "read_identity"] as string[],
     worker: null as Record<string, unknown> | null,
+    /** The props the page handed the (stubbed) client header on the last render. */
+    headerProps: null as null | { timelineHref: string | null; journeyHref: string | null },
   };
 });
 
@@ -48,7 +50,12 @@ vi.mock("../../../../lib/entities", () => ({
 vi.mock("./worker-detail-header", async () => {
   const { PageHeader } = await import("../../../../components/page-header");
   return {
-    WorkerDetailHeader: ({ header }: { header: PageHeaderContent }) => <PageHeader {...header} />,
+    WorkerDetailHeader: (
+      props: { header: PageHeaderContent } & NonNullable<typeof stub.headerProps>,
+    ) => {
+      stub.headerProps = props;
+      return <PageHeader {...props.header} />;
+    },
   };
 });
 
@@ -221,5 +228,21 @@ describe("the header (owner ruling 2026-10-01)", () => {
     const out = await render();
     expect(out).toContain('<a class="backlink" href="/workers">');
     expect(out).toContain("<span>Workers</span></a>");
+  });
+});
+
+describe("the event-timeline link follows read_events (an affordance; the route keeps its gate)", () => {
+  it("is offered to a session that may open the timeline", async () => {
+    stub.capabilities = ["read_entities", "read_events"];
+    await render();
+    expect(stub.headerProps?.timelineHref).toBe(`/workers/${WORKER_ID}/timeline`);
+  });
+
+  it("is withheld from one that may not — the route would only redirect them", async () => {
+    stub.capabilities = ["read_entities"];
+    await render();
+    expect(stub.headerProps?.timelineHref).toBeNull();
+    // The journey is a different capability and stays.
+    expect(stub.headerProps?.journeyHref).toBe(`/workers/${WORKER_ID}/journey`);
   });
 });

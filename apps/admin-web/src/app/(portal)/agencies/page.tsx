@@ -95,7 +95,7 @@ export default async function AgenciesPage({
           </div>
           {status && (
             <Link className="btn btn--ghost" href="/agencies">
-              Clear filter
+              Clear filters
             </Link>
           )}
         </div>
@@ -107,11 +107,15 @@ export default async function AgenciesPage({
               That is not an account status this portal recognises, so nothing was fetched.
               Pick a status from the list above, or clear the filter and start again.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href="/agencies">
-                Clear filter
-              </Link>
-            </div>
+            {/* One "Clear filters" per screen: the results head carries it whenever a filter is
+                set, so this state does not repeat it (owner brief 2026-10-01). */}
+            {status ? null : (
+              <div className="state__actions">
+                <Link className="btn btn--ghost" href="/agencies">
+                  Retry
+                </Link>
+              </div>
+            )}
           </div>
         ) : (
           <PayerList

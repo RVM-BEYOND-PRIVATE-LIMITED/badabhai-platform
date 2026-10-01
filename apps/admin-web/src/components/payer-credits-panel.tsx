@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AdminActionButton } from "./admin-action-button";
-import { AdminActionResultBanner } from "./admin-action-result-banner";
+import { AdminActionResultBanner, timelineLink } from "./admin-action-result-banner";
 import { grantCreditsAction } from "./payer-actions";
 import {
   CREDIT_GRANT_REASONS,
@@ -39,7 +39,8 @@ export function PayerCreditsPanel({
 }: {
   payerId: string;
   suspended: boolean;
-  timelineHref: string;
+  /** This account's event timeline, or null for a reader without `read_events`. */
+  timelineHref: string | null;
 }) {
   const router = useRouter();
   const [idempotencyKey, setIdempotencyKey] = useState(mintIdempotencyKey);
@@ -134,7 +135,9 @@ export function PayerCreditsPanel({
         </form>
       )}
 
-      {outcome && <AdminActionResultBanner outcome={outcome} timelineHref={timelineHref} />}
+      {outcome && (
+        <AdminActionResultBanner outcome={outcome} eventsLink={timelineLink(timelineHref)} />
+      )}
     </section>
   );
 }

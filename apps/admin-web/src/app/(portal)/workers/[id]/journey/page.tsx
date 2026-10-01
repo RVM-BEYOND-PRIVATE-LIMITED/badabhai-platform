@@ -61,6 +61,8 @@ export default async function WorkerJourneyPage({
    * control disappears with it instead of becoming a link to a redirect.
    */
   const mayReadFeedback = can(session.capabilities, "read_entities");
+  /** The worker's event timeline is `read_events`; its link is offered only with it. */
+  const mayReadEvents = can(session.capabilities, "read_events");
 
   const { id } = await params;
   const sp = await searchParams;
@@ -114,9 +116,11 @@ export default async function WorkerJourneyPage({
                 What they told us
               </Link>
             ) : null}
-            <Link className="btn btn--ghost" href={`/workers/${id}/timeline`}>
-              View event timeline
-            </Link>
+            {mayReadEvents ? (
+              <Link className="btn btn--ghost" href={`/workers/${id}/timeline`}>
+                View event timeline
+              </Link>
+            ) : null}
           </>
         }
       />
@@ -205,16 +209,10 @@ export default async function WorkerJourneyPage({
             </h3>
             <p className="state__body">
               {status
-                ? "This worker has sessions in other states. Clear the filter to see them."
+                ? "This worker has sessions in other states. Choose All above to see them."
                 : "This worker has never started the AI profiling interview. Nothing is broken — but it also means there is no profile to extract and no resume to generate for them yet."}
             </p>
-            {status ? (
-              <div className="state__actions">
-                <Link className="btn btn--ghost" href={`/workers/${id}/journey`}>
-                  Clear filter
-                </Link>
-              </div>
-            ) : null}
+            {/* No clear link: the "All" chip just above is that control. */}
           </div>
         ) : (
           <div className="tablewrap">

@@ -4,7 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AdminActionButton } from "../../../../components/admin-action-button";
-import { AdminActionResultBanner } from "../../../../components/admin-action-result-banner";
+import {
+  AdminActionResultBanner,
+  timelineLink,
+} from "../../../../components/admin-action-result-banner";
 import { PageHeader, type PageHeaderContent } from "../../../../components/page-header";
 import { flagWorkerAction, unflagWorkerAction } from "./actions";
 import {
@@ -36,7 +39,11 @@ export function WorkerDetailHeader({
   header: PageHeaderContent;
   workerId: string;
   canFlag: boolean;
-  timelineHref: string;
+  /**
+   * This worker's event timeline, or null for a reader without `read_events` — the route would
+   * redirect them, so the link is not offered. An affordance; the route keeps its own gate.
+   */
+  timelineHref: string | null;
   /**
    * The 7-step funnel + interview sessions for this worker. Rendered only when the operator
    * has `read_entities` — the same capability the journey API declares — so a control that
@@ -103,13 +110,17 @@ export function WorkerDetailHeader({
                 View journey
               </Link>
             )}
-            <Link className="btn btn--ghost" href={timelineHref}>
-              View event timeline
-            </Link>
+            {timelineHref && (
+              <Link className="btn btn--ghost" href={timelineHref}>
+                View event timeline
+              </Link>
+            )}
           </>
         }
       />
-      {outcome && <AdminActionResultBanner outcome={outcome} timelineHref={timelineHref} />}
+      {outcome && (
+        <AdminActionResultBanner outcome={outcome} eventsLink={timelineLink(timelineHref)} />
+      )}
     </>
   );
 }

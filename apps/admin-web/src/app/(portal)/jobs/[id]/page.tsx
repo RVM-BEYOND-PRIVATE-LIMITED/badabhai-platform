@@ -66,7 +66,10 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   // Only meaningful once anyone has seen it; 0/0 would render NaN%.
   const applyRate = total > 0 ? Math.round((job.applied_count / total) * 100) : null;
 
-  const timelineHref = `/jobs/${job.id}/timeline`;
+  // Offered only to a reader who may open it: the timeline route is `read_events`.
+  const timelineHref = can(session.capabilities, "read_events")
+    ? `/jobs/${job.id}/timeline`
+    : null;
 
   // The display role the payer picked (migration 0131). Labelled for a human; an unknown or
   // absent value never renders raw as a friendly label. `null` means no role was picked; a
@@ -101,7 +104,6 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         header={header}
         jobId={job.id}
         status={job.status}
-        payerHref={job.payer_id ? `/companies/${job.payer_id}` : null}
         canForceClose={can(session.capabilities, "force_close_posting")}
         timelineHref={timelineHref}
       />
@@ -284,11 +286,6 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
                 ? "It is open, so it is in the feed and waiting on matching to surface it to somebody."
                 : `It is ${job.status}, so it is out of the worker feed and cannot collect decisions in this state.`}
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href={`/jobs/${job.id}/timeline`}>
-                View event timeline
-              </Link>
-            </div>
           </div>
         ) : (
           <div className="tablewrap">

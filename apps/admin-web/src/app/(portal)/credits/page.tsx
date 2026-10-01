@@ -87,7 +87,8 @@ export default async function CreditsPage({
               <Link
                 aria-current={w === windowDays ? "true" : undefined}
                 className={`btn ${w === windowDays ? "btn--primary" : "btn--ghost"}`}
-                href={`/credits?windowDays=${w}`}
+                /* Keeps the ledger's reason filter; the two rows used to reset each other. */
+                href={`/credits?windowDays=${w}${reason ? `&reason=${encodeURIComponent(reason)}` : ""}`}
                 key={w}
               >
                 {w}d
@@ -270,8 +271,9 @@ export default async function CreditsPage({
             </p>
           </div>
           {reason && (
-            <Link className="btn btn--ghost" href="/credits">
-              Clear filter
+            /* Clears the ledger's reason and keeps the reporting window above. */
+            <Link className="btn btn--ghost" href={`/credits?windowDays=${windowDays}`}>
+              Clear filters
             </Link>
           )}
         </div>
@@ -279,8 +281,9 @@ export default async function CreditsPage({
         <div className="filters filters--inline">
           {["pack_purchase", "grant", "unlock_debit", "refund"].map((r) => (
             <Link
+              aria-current={r === reason ? "true" : undefined}
               className={`btn btn--sm ${r === reason ? "btn--primary" : "btn--ghost"}`}
-              href={`/credits?reason=${r}`}
+              href={`/credits?windowDays=${windowDays}&reason=${r}`}
               key={r}
             >
               {creditReasonLabel(r)}
@@ -312,11 +315,6 @@ export default async function CreditsPage({
                 Nothing has been recorded under the selected reason. Clear it to see every
                 movement, newest first.
               </p>
-              <div className="state__actions">
-                <Link className="btn btn--ghost" href="/credits">
-                  Clear filter
-                </Link>
-              </div>
             </div>
           ) : (
             <div className="state">

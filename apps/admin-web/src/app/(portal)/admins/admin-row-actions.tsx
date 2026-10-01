@@ -31,7 +31,14 @@ export interface AdminActionRow {
  * fire, and if it somehow still did, `describeAdminActionError` would show the server's exact
  * rejection text, never a guess.
  */
-export function AdminRowActions({ admin }: { admin: AdminActionRow }) {
+export function AdminRowActions({
+  admin,
+  mayReadEvents,
+}: {
+  admin: AdminActionRow;
+  /** Whether the session may open `/events` (`read_events`) — the result banner's link. */
+  mayReadEvents: boolean;
+}) {
   const router = useRouter();
   const [role, setRole] = useState<AdminRole>(admin.role);
   const [outcome, setOutcome] = useState<AdminActionOutcome | null>(null);
@@ -43,8 +50,10 @@ export function AdminRowActions({ admin }: { admin: AdminActionRow }) {
   // action's own `admin.action_performed` lands there (subject_type `admin_session`, newest
   // first), just not filtered to this row. Carrying a `subjectId` here would be worse than
   // useless — `EventFilters` has no such field, so it would promise a per-admin slice and
-  // silently render every admin's events.
-  const timelineHref = "/events?subjectType=admin_session";
+  // silently render every admin's events. So it is the global log, and is called that.
+  const eventsLink = mayReadEvents
+    ? { href: "/events?subjectType=admin_session", label: "View events" }
+    : null;
 
   if (admin.is_self) {
     return <span className="table__meta">Your own account</span>;
@@ -97,7 +106,7 @@ export function AdminRowActions({ admin }: { admin: AdminActionRow }) {
         action={() => suspendAdminAction(admin.id)}
         onSettled={handleSettled}
       />
-      {outcome && <AdminActionResultBanner outcome={outcome} timelineHref={timelineHref} />}
+      {outcome && <AdminActionResultBanner outcome={outcome} eventsLink={eventsLink} />}
     </div>
   );
 }

@@ -6,7 +6,8 @@ import { MISSING_TOKEN_ERROR } from "./messages";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Accept invite · BadaBhai Admin",
+  // The root template appends the suffix — see login/page.tsx.
+  title: "Accept invite",
   // Never indexed — and an invite URL in a search result would be a leaked credential.
   robots: { index: false, follow: false },
 };

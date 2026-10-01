@@ -61,6 +61,7 @@ export default async function WorkersPage({
   }
 
   const filtered = Boolean(status) || pendingDeletion;
+  const mayReadEvents = can(session.capabilities, "read_events");
 
   const posture = identityPosture(
     page?.items ?? [],
@@ -125,11 +126,15 @@ export default async function WorkersPage({
               fetched. Check the values in the filter bar above, or clear them and start
               again.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href="/workers">
-                Clear filters
-              </Link>
-            </div>
+            {/* One "Clear filters" per screen: the results head carries it whenever a filter is
+                set, so this state does not repeat it (owner brief 2026-10-01). */}
+            {filtered ? null : (
+              <div className="state__actions">
+                <Link className="btn btn--ghost" href="/workers">
+                  Retry
+                </Link>
+              </div>
+            )}
           </div>
         ) : page && page.items.length > 0 ? (
           <div className="tablewrap">
@@ -203,11 +208,6 @@ export default async function WorkersPage({
               Nobody on the roster is in this state right now. Widen the filter, or clear it
               to see every registered worker.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href="/workers">
-                Clear filters
-              </Link>
-            </div>
           </div>
         ) : (
           <div className="state">
@@ -216,11 +216,15 @@ export default async function WorkersPage({
               Workers appear here as soon as they finish signing up in the app. Until one
               does, the events log is where you confirm the sign-up path is running at all.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href="/events">
-                View events
-              </Link>
-            </div>
+            {/* Only for a reader who may open the events log — /events is `read_events`, and
+                this page is `read_entities`. An affordance; the route keeps its own gate. */}
+            {mayReadEvents ? (
+              <div className="state__actions">
+                <Link className="btn btn--ghost" href="/events">
+                  View events
+                </Link>
+              </div>
+            ) : null}
           </div>
         )}
 
