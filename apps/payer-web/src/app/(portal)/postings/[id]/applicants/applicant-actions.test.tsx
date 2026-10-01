@@ -919,7 +919,22 @@ describe("ApplicantActions — W3-A zero balance: an enabled Top up beside the d
       expect(textOf(link[0]!.props.children as ReactNode).trim()).toBe("Top up");
     }
     const bands = all.filter((e) => hasClass(e, "applicant__contact"));
-    for (const band of bands) expect(topUps(band.props.children as ReactNode)).toHaveLength(1);
+    for (const band of bands) {
+      expect(topUps(band.props.children as ReactNode)).toHaveLength(1);
+      // …and it is the band's ONLY way to /credits: the hint under it is plain text (two
+      // adjacent links to one page were a redundant tab stop on every card).
+      const toCredits = elements(band.props.children as ReactNode).filter(
+        (e) => e.props.href === "/credits",
+      );
+      expect(toCredits).toHaveLength(1);
+      const hint = elements(band.props.children as ReactNode).find((e) =>
+        hasClass(e, "applicant__hint"),
+      )!;
+      expect(elements(hint.props.children as ReactNode)).toEqual([]);
+      expect(textOf(hint.props.children as ReactNode).replace(/\s+/g, " ").trim()).toBe(
+        "Top up to unlock. Guidance only — this is your own balance, never a signal about this candidate.",
+      );
+    }
   });
 
   it("any positive balance (incl. the page's 1 for an UNREAD balance): no Top up, Unlock enabled", () => {

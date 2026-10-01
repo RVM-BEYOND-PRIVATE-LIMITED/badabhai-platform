@@ -11,9 +11,9 @@
 /* ============================================================
    FOCUS IN FORCED COLORS — every ring in this layer is a box-shadow (--ring-focus), and
    Windows forced-colors mode DROPS box-shadows, so a keyboard user in High Contrast lost the
-   focus indicator on every DS control. Each ring therefore also declares a TRANSPARENT
-   outline: invisible in normal mode (the look is unchanged), repainted in the system colour
-   under forced colors. It is offset one ring-width so it sits where the ring's outer band
+   focus indicator on every DS control. Each ring therefore also declares an outline that is
+   TRANSPARENT in normal mode (the look is unchanged) and the system colour under forced
+   colors (below). It is offset one ring-width so it sits where the ring's outer band
    does, clear of the control's own (also system-coloured) border.
    The pair is declared ONCE, here, as payer-web custom properties, and every ring in this
    file and in globals.css spends them — `outline: var(--focus-outline)` +
@@ -516,6 +516,10 @@
 .bb-tabs--segmented .bb-tab { padding: 8px 16px; color: var(--text-secondary); }
 .bb-tabs--segmented .bb-tab:hover { background: transparent; color: var(--text-primary); }
 .bb-tabs--segmented .bb-tab--active { background: var(--surface-card); color: var(--text-primary); box-shadow: var(--shadow-xs); }
+/* The active segment's lift shadow (above) has `.bb-tab:focus-visible`'s specificity and comes
+   later, so it REPLACED the ring — on the very tab keyboard focus lands on (roving tabindex).
+   One class more puts the ring back; the forced-colors outline pair is restated with it. */
+.bb-tabs--segmented .bb-tab--active:focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); }
 
 /* ---------- BottomNav (worker app) ---------- */
 .bb-bottomnav {

@@ -11,16 +11,18 @@ import type { Rule } from "../../test/css-rules";
  * Node env, no layout engine (the repo's `*.css.test.ts` approach): each fix below depends on
  * DECLARED geometry or cascade, so this suite pins it. The layouts were measured in Chromium at
  * 1280/375px (and under emulated forced-colors) when built; the W3-A follow-ups at
- * 320/375/768/1280px, in both themes and under forced colors.
+ * 320–1280px (incl. a coarse pointer at 768/1024px), in both themes and under forced colors.
  *   1 · SUBTITLE   — a head's sub sits under its title, grouped with it in `.panel__text` /
- *                    `.section__text` (W3-A: 4px apart, the actions kept on the title row);
+ *                    `.section__text` in EVERY file (W3-A: 4px apart, actions after the text);
  *   2 · TAP        — the small phone controls (sm button, chip, theme toggle, hamburger, balance)
- *                    clear a 44px hit area on phones without their hit areas meeting; 2b adds
- *                    the shared back link, on phones and coarse pointers (W3-A);
+ *                    clear a 44px hit area on phones without their hit areas meeting — the
+ *                    header's also on a coarse pointer; 2b adds the shared back link (W3-A);
  *   3 · FORCED     — every box-shadow focus ring carries a transparent-outline fallback, spent
- *                    as the `--focus-outline` / `--focus-outline-offset` pair (W3-A);
+ *                    as the `--focus-outline` / `--focus-outline-offset` pair (W3-A); 3b: no
+ *                    state rule (the active segmented tab) replaces a ring;
  *   4 · KEYBOARD   — a linked card/tile rings on keyboard focus only, not on a mouse click;
- *   5 · LISTBOX    — the select menu's active option stays visible in forced colors.
+ *   5 · LISTBOX    — the select menu's active option stays visible in forced colors;
+ *   6 · REFLOW     — nothing scrolls sideways at 320px, and the header never paints under itself.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -211,18 +213,6 @@ function offsets(src: string, needle: string, from = 0, to = src.length): number
   return out;
 }
 
-/**
- * The files whose heads are NOT migrated onto the wrapper yet: another in-flight branch owns
- * those screens (W3-B). Their bare subs keep the pre-W3-A geometry through the unchanged base
- * rules. An entry must still hold an unwrapped head — migrate a file, then delete its line.
- */
-const PENDING_WRAP = new Set([
-  "(portal)/account/page.tsx",
-  "(portal)/capacity/page.tsx",
-  "(portal)/plans/page.tsx",
-  "(portal)/team/team-manager.tsx",
-]);
-
 interface HeadScan {
   file: string;
   wrapped: boolean;
@@ -327,28 +317,29 @@ describe("W2-A/W3-A · 1 — a head's subtitle sits under its title, grouped in 
     },
   );
 
-  it("MARKUP: every head with a sub groups title + sub in its wrapper; actions follow it", () => {
-    const problems = scanHeads()
-      .filter((h) => !PENDING_WRAP.has(h.file))
-      .flatMap((h) => h.problems);
-    expect(problems).toEqual([]);
-  });
-
-  it("MARKUP: each PENDING file still holds an unwrapped head (delete its entry once migrated)", () => {
-    const heads = scanHeads();
-    for (const pending of PENDING_WRAP) {
-      const mine = heads.filter((h) => h.file === pending);
-      expect(mine.length, `${pending} must be scanned`).toBeGreaterThan(0);
-      expect(
-        mine.some((h) => !h.wrapped),
-        `${pending} is fully migrated — remove it from PENDING_WRAP`,
-      ).toBe(true);
-    }
+  it("MARKUP: EVERY head with a sub, in every file, groups title + sub in its wrapper; actions follow it", () => {
+    // No exemption list: a bare head anywhere is a problem, and so is an action that opens
+    // before (or inside) the wrapper — the head's actions always come after its prose.
+    expect(scanHeads().flatMap((h) => h.problems)).toEqual([]);
   });
 
   it("the markup scan is not vacuous (wrapped heads found, incl. both heads WITH actions)", () => {
-    const wrapped = scanHeads().filter((h) => h.wrapped && h.problems.length === 0);
-    expect(wrapped.length).toBeGreaterThanOrEqual(13);
+    const heads = scanHeads();
+    const wrapped = heads.filter((h) => h.wrapped && h.problems.length === 0);
+    // 13 heads on the W3-A screens + 9 on the W3-B ones (account 2, capacity 2, plans 4, team 1).
+    expect(wrapped.length).toBeGreaterThanOrEqual(22);
+    expect(heads.filter((h) => !h.wrapped)).toEqual([]);
+    for (const f of [
+      "(portal)/account/page.tsx",
+      "(portal)/capacity/page.tsx",
+      "(portal)/plans/page.tsx",
+      "(portal)/team/team-manager.tsx",
+    ]) {
+      expect(
+        wrapped.some((h) => h.file === f),
+        `${f} is scanned`,
+      ).toBe(true);
+    }
     const withActions = wrapped.filter((h) => h.hasActions).map((h) => h.file);
     expect(withActions.some((f) => f.endsWith("payout-panel.tsx"))).toBe(true);
     expect(withActions.some((f) => f.endsWith("applicants/page.tsx"))).toBe(true);
@@ -390,14 +381,22 @@ describe("W2-A · 2 — small controls clear a 44px hit area on phones (≤600px
   const T_BLOCK = "calc((100% - var(--control-md)) / 2)";
   const T_INLINE = "min(0px, calc((100% - var(--control-md)) / 2))";
   const BEHIND = "calc(var(--z-base) - 1)";
-  /** [file, host selector (as written), its base class, that file's rules]. */
-  const HOSTS: [string, string, string, Rule[]][] = [
-    ["ds-components.css", ".bb-btn--sm", "bb-btn--sm", D],
-    ["ds-components.css", ".bb-chip", "bb-chip", D],
-    ["globals.css", ".theme-toggle__switch", "theme-toggle__switch", G],
-    ["globals.css", ".theme-toggle__system", "theme-toggle__system", G],
-    ["globals.css", ".pshell__menu", "pshell__menu", G],
-    ["globals.css", ".pshell__balance:not(.pshell__balance--static)", "pshell__balance", G],
+  /** The shell header's controls are finger targets on ANY coarse pointer, not only phones. */
+  const PHONE_OR_TOUCH = `@media (${PHONE}), (pointer: coarse)`;
+  /** [file, host selector (as written), its base class, that file's rules, its hit-area context]. */
+  const HOSTS: [string, string, string, Rule[], string][] = [
+    ["ds-components.css", ".bb-btn--sm", "bb-btn--sm", D, `@media (${PHONE})`],
+    ["ds-components.css", ".bb-chip", "bb-chip", D, `@media (${PHONE})`],
+    ["globals.css", ".theme-toggle__switch", "theme-toggle__switch", G, PHONE_OR_TOUCH],
+    ["globals.css", ".theme-toggle__system", "theme-toggle__system", G, PHONE_OR_TOUCH],
+    ["globals.css", ".pshell__menu", "pshell__menu", G, PHONE_OR_TOUCH],
+    [
+      "globals.css",
+      ".pshell__balance:not(.pshell__balance--static)",
+      "pshell__balance",
+      G,
+      PHONE_OR_TOUCH,
+    ],
   ];
   /** The one ≤600px rule whose selector list contains `sel` exactly. */
   function phoneRuleWith(rules: Rule[], sel: string): Rule {
@@ -457,8 +456,8 @@ describe("W2-A · 2 — small controls clear a 44px hit area on phones (≤600px
   );
 
   it.each(HOSTS)(
-    "%s `%s`: the pseudo is the hit area's alone, and there is none on desktop",
-    (_f, host, cls) => {
+    "%s `%s`: the pseudo is the hit area's alone, and there is none on a fine-pointer desktop",
+    (_f, host, cls, _r, ctx) => {
       for (const [rules, file] of [
         [D, "ds-components.css"],
         [G, "globals.css"],
@@ -470,12 +469,27 @@ describe("W2-A · 2 — small controls clear a 44px hit area on phones (≤600px
         );
         for (const c of claims) {
           expect(`${file}: ${c.s} (${c.at || "top level"})`).toBe(
-            `${file}: ${host}::before (@media (${PHONE}))`,
+            `${file}: ${host}::before (${ctx})`,
           );
         }
       }
     },
   );
+
+  it("W3-A: the header's controls take their strips on a coarse pointer too (a 768/1024px tablet)", () => {
+    // Measured under a coarse pointer at 768/1024/1280px: menu, balance, switch and "System"
+    // went from 36.5 / 35.5 / 32.5 / 22.5px tall to a 44.5px hit area; a fine pointer at
+    // 768/1280px keeps the drawn sizes. The DS small button and chip stay phone-only (their
+    // coarse-pointer lift is per screen, a drawn min-height).
+    const header = HOSTS.filter(([, , , , ctx]) => ctx === PHONE_OR_TOUCH).map(([, h]) => h);
+    expect(header).toHaveLength(4);
+    for (const host of header) {
+      expect(phoneRuleWith(G, host).at, host).toBe(PHONE_OR_TOUCH);
+      expect(phoneRuleWith(G, `${host}::before`).at, host).toBe(PHONE_OR_TOUCH);
+    }
+    // …the same context as the shared back link's strip (2b below).
+    expect(one(G, ".page-back > a", "pointer: coarse").at).toBe(PHONE_OR_TOUCH);
+  });
 
   it("desktop sizing is unchanged: the drawn controls keep their base heights", () => {
     expect(decl(one(D, ".bb-btn--sm"), "height")).toBe("var(--control-sm)");
@@ -509,6 +523,44 @@ describe("W2-A · 2 — small controls clear a 44px hit area on phones (≤600px
       2 * sumPx(decl(one(G, ".theme-toggle__switch"), "padding")!);
     expect(switchW, "the switch is wider than the strip (no inline extension)").toBeGreaterThan(
       T(),
+    );
+    // ≤420px the header's own gap and inline padding step down (W3-A reflow) — the hamburger's
+    // strip still fits both.
+    const narrow = one(G, ".pshell__header", "max-width: 420px");
+    expect(ext, "hamburger strip vs the ≤420 gap").toBeLessThanOrEqual(sumPx(decl(narrow, "gap")!));
+    expect(ext, "hamburger strip vs the ≤420 padding").toBeLessThanOrEqual(
+      sumPx(decl(narrow, "padding-inline")!),
+    );
+  });
+
+  it('ARITHMETIC ≤420px: the icon-only "System" pill\'s strip clears the switch and the account menu', () => {
+    // The label is hidden IN THE HEADER only (the /login toggle keeps it), and the button keeps
+    // its accessible name. Drawn: inline padding + one icon (1em of the pill's font size) + its
+    // two hairline borders — ~30px, so its strip reaches (44 − 30) / 2 = 7px into each gap.
+    // Measured at 320px: switch …213.5 | System 214.5–258.5 | account 259.5… (1px clear each).
+    const hide = one(G, ".pshell__headeractions .theme-toggle__system-label", "max-width: 420px");
+    expect(props(hide)).toEqual(["display"]);
+    expect(decl(hide, "display")).toBe("none");
+    expect(G.filter((r) => r.selector === ".theme-toggle__system-label" && r.at !== "")).toEqual(
+      [],
+    );
+    const toggle = readFileSync(join(here, "..", "components", "ds", "theme-toggle.tsx"), "utf8");
+    const cls = toggle.indexOf('className="theme-toggle__system"');
+    const btn = toggle.slice(toggle.lastIndexOf("<button", cls), toggle.indexOf("</button>", cls));
+    expect(btn).toContain('aria-label="Follow system theme"');
+    expect(btn).toContain('<span className="theme-toggle__system-label">System</span>');
+    const sys = one(G, ".theme-toggle__system");
+    const [, padInline] = decl(sys, "padding")!.split(/\s+/);
+    expect(decl(sys, "font-size")).toBe("var(--text-xs)");
+    const drawnW =
+      2 * sumPx(padInline!) + tokenPx("--text-xs") + 2 * sumPx(decl(sys, "border")!.split(" ")[0]!);
+    const reach = (T() - drawnW) / 2;
+    expect(reach).toBeGreaterThan(0);
+    expect(reach, "vs the gap to the switch").toBeLessThan(
+      sumPx(decl(one(G, ".theme-toggle"), "gap")!),
+    );
+    expect(reach, "vs the gap to the account menu").toBeLessThan(
+      sumPx(decl(one(G, ".pshell__headeractions"), "gap")!),
     );
   });
 
@@ -592,7 +644,7 @@ describe("W3-A · 2b — the back link clears a 44px hit area on phones AND coar
   });
 
   it('MARKUP: every page\'s back link is `<p className="page-back">` → a direct <Link> (so `> a` matches)', () => {
-    // Measured on all 15 portal pages that render it (320/375/600 + a 1280 coarse pointer): hit
+    // Measured on all 16 portal pages that render it (320/375/600 + a 1280 coarse pointer): hit
     // 44–45px tall, drawn box unchanged. The selector is a CHILD combinator, so a wrapper span
     // or a second link inside the paragraph would silently lose the hit area — pin the shape.
     const bad: string[] = [];
@@ -613,7 +665,7 @@ describe("W3-A · 2b — the back link clears a 44px hit area on phones AND coar
       }
     }
     expect(bad).toEqual([]);
-    expect(seen, "the scan reads every page that renders the back link").toBeGreaterThanOrEqual(15);
+    expect(seen, "the scan reads every page that renders the back link").toBeGreaterThanOrEqual(16);
   });
 
   it("the LOOK is untouched: only the two hit-area rules reach past `.page-back` itself", () => {
@@ -776,6 +828,202 @@ describe("W2-A · 3 — every focus ring has a forced-colors outline fallback", 
     expect(hostIsFocused(".bb-card--link:focus-within")).toBe(false);
     expect(hostIsFocused(".bb-card--link:has(> .bb-stretched-link:focus-visible)")).toBe(false);
     expect(hostIsFocused(".bb-choice input:focus-visible + .bb-choice__box")).toBe(false);
+  });
+});
+
+/* ================================================================== *
+ * 3b · NO STATE RULE ERASES A RING (W3-A) — a persistent state (`--active`, …) that sets its own
+ *      box-shadow at the ring's specificity, later in the cascade, replaces the ring on exactly
+ *      the element keyboard focus lands on.
+ * ================================================================== */
+
+/** Specificity as one number (a·100 + b·10 + c) — enough for these class-based selectors. */
+function specificity(sel: string): number {
+  let score = 0;
+  // :not()/:is()/:has() count their most specific argument; :where() counts nothing.
+  for (const m of sel.matchAll(/:(not|is|has|where)\(/g)) {
+    let depth = 1;
+    let i = m.index! + m[0].length;
+    const start = i;
+    for (; i < sel.length && depth > 0; i += 1) {
+      if (sel[i] === "(") depth += 1;
+      else if (sel[i] === ")") depth -= 1;
+    }
+    if (m[1] !== "where") {
+      score += Math.max(...splitSelectors(sel.slice(start, i - 1)).map(specificity));
+    }
+  }
+  const outer = outerOnly(sel).replace(/:(not|is|has|where)/g, "");
+  score += 100 * (outer.match(/#[\w-]+/g) ?? []).length;
+  score += 10 * (outer.match(/\.[\w-]+|\[[^\]]*\]|:(?!:)[\w-]+/g) ?? []).length;
+  score +=
+    (outer.match(/(^|[\s>+~])[a-z][\w-]*/g) ?? []).length + (outer.match(/::[\w-]+/g) ?? []).length;
+  return score;
+}
+
+describe("W3-A · 3b — no state rule replaces a focus ring at equal or higher specificity", () => {
+  /** Every rule of both sheets, in CASCADE order (globals.css @imports ds-components.css first). */
+  const ALL = [
+    ...D.map((r) => ({ r, file: "ds-components.css" })),
+    ...G.map((r) => ({ r, file: "globals.css" })),
+  ].map((x, order) => ({ ...x, order }));
+  /** A ring host: a top-level `.X:focus` / `.X:focus-visible` rule that draws --ring-focus. */
+  const HOSTS = ALL.flatMap(({ r, order }) =>
+    r.at === "" && (decl(r, "box-shadow") ?? "").includes("--ring-focus")
+      ? splitSelectors(r.selector).flatMap((s) => {
+          const m = s.match(/^\.([\w-]+):(focus|focus-visible)$/);
+          return m ? [{ cls: m[1]!, pseudo: m[2]!, spec: specificity(s), order }] : [];
+        })
+      : [],
+  );
+  /** The subject compound of a selector (outside any :has()/:not() argument). */
+  const subject = (s: string) =>
+    outerOnly(s)
+      .split(/\s*[>+~]\s*|\s+/)
+      .pop() ?? "";
+  /** Pointer-held states are transient (the ring returns when the pointer leaves). */
+  const POINTER = /:(hover|active)\b|:disabled|\[disabled\]/;
+
+  /** Rules that set a box-shadow on a ring host (or a BEM modifier of it) and would win. */
+  function overriders() {
+    return ALL.flatMap(({ r, file, order }) => {
+      if (decl(r, "box-shadow") === null || /:focus/.test(r.selector)) return [];
+      return splitSelectors(r.selector).flatMap((s) => {
+        if (POINTER.test(s)) return [];
+        const subj = subject(s);
+        return HOSTS.filter(
+          (h) =>
+            (hasClass(subj, h.cls) || subj.includes(`.${h.cls}--`)) &&
+            (specificity(s) > h.spec || (specificity(s) === h.spec && order > h.order)),
+        ).map((h) => ({ s, file, host: h }));
+      });
+    });
+  }
+
+  it("the specificity helper is not vacuous", () => {
+    expect(specificity(".bb-tab:focus-visible")).toBe(20);
+    expect(specificity(".bb-tabs--segmented .bb-tab--active")).toBe(20);
+    expect(specificity(".bb-tabs--segmented .bb-tab--active:focus-visible")).toBe(30);
+    expect(specificity(".pshell__balance:not(.pshell__balance--static)")).toBe(20);
+    expect(specificity(".a:where(.b, .c)")).toBe(10);
+    expect(specificity('[data-theme="ink"] .bb-badge')).toBe(20);
+  });
+
+  it("the scan finds the hosts and the segmented active tab (the ring it used to erase)", () => {
+    expect(HOSTS.map((h) => h.cls)).toEqual(
+      expect.arrayContaining(["bb-tab", "bb-btn", "bb-chip"]),
+    );
+    expect(overriders().map((o) => o.s)).toContain(".bb-tabs--segmented .bb-tab--active");
+  });
+
+  it("every such rule has a `:focus-visible` twin that puts the ring (and the outline pair) back", () => {
+    // Measured, keyboard Tab onto the segmented control (applicants pipeline, /login roles): the
+    // active tab showed only its lift shadow in both themes; with the twin it shows the ring.
+    const missing = overriders().filter(({ s, host }) => {
+      const twin = ALL.find(({ r }) => splitSelectors(r.selector).includes(`${s}:${host.pseudo}`));
+      return !(
+        twin &&
+        decl(twin.r, "box-shadow") === "var(--ring-focus)" &&
+        decl(twin.r, "outline") === FOCUS_OUTLINE &&
+        decl(twin.r, "outline-offset") === FOCUS_OFFSET
+      );
+    });
+    expect(
+      missing.map(({ s, file, host }) => `${file}: ${s} (erases .${host.cls}:${host.pseudo})`),
+    ).toEqual([]);
+  });
+});
+
+/* ================================================================== *
+ * 6 · REFLOW (W3-A, WCAG 1.4.10) — nothing on a 320px screen scrolls sideways, and nothing in the
+ *     header paints under its controls. Measured in Chromium on every portal page at
+ *     320/340/360/375/768/1280px, light + ink, with 1-, 2- and 4-digit balances: 0px everywhere
+ *     (was 17/25/41px at 320 for 1/2/4 digits, 67px on /postings/[id]).
+ * ================================================================== */
+describe("W3-A · 6 — the portal reflows to 320px", () => {
+  const NARROW = "max-width: 420px";
+
+  it("≤420px: the header's gap + inline padding step down one size, and nothing else changes", () => {
+    const h = one(G, ".pshell__header", NARROW);
+    expect(props(h)).toEqual(["gap", "padding-inline"]);
+    expect(decl(h, "gap")).toBe("var(--space-2)");
+    expect(decl(h, "padding-inline")).toBe("var(--space-4)");
+    // A real step down from the base gap and the ≤1023px gutter.
+    expect(tokenPx("--space-2")).toBeLessThan(sumPx(decl(one(G, ".pshell__header"), "gap")!));
+    expect(decl(one(G, ".pshell__header", "max-width: 1023px"), "padding-inline")).toBe(
+      "var(--gutter)",
+    );
+    // …and it comes AFTER the ≤1023px rule, which it beats at equal specificity.
+    const at = (ctx: string) =>
+      G.findIndex((r) => r.selector === ".pshell__header" && r.at.includes(ctx));
+    expect(at(NARROW)).toBeGreaterThan(at("max-width: 1023px"));
+  });
+
+  it("phones: the trail shows only its current page — its parent steps never paint under the actions", () => {
+    // Before: in the 0–80px a phone header leaves it, "Hiring ▸ Postings" overflowed under the
+    // balance chip (the link focusable beneath it) at 320–500px; measured 0 collisions after, at
+    // 320–768px on 9 pages × 3 balances.
+    const r = one(G, ".pcrumb > :not(:last-child), .pcrumb__step > .pcrumb__sep", PHONE);
+    expect(props(r)).toEqual(["display"]);
+    expect(decl(r, "display")).toBe("none");
+    // The step that stays is the one that ellipsizes.
+    const current = one(G, ".pcrumb__here");
+    expect(decl(current, "min-width")).toBe("0");
+    expect(decl(current, "overflow")).toBe("hidden");
+    expect(decl(current, "text-overflow")).toBe("ellipsis");
+    // The component's last child is always the current page (a `.pcrumb__here`, or a step
+    // ending in one) — so `:not(:last-child)` is exactly the parents.
+    const src = readFileSync(join(here, "(portal)", "portal-breadcrumb.tsx"), "utf8");
+    expect(offsets(src, 'aria-current="page"').length).toBe(2);
+  });
+
+  it("≤600px: a page head's action group may shrink to its row and wrap its own controls", () => {
+    // /postings/[id]'s status + two buttons are ~367px: `flex: none` scrolled the page 12px at
+    // 375 and 67px at 320. Shrinkable, the group wraps inside the column; a group that fits keeps
+    // its width and place (/dashboard's actions still sit beside the title at 600px).
+    expect(decl(one(G, ".page-head__actions"), "flex")).toBe("none");
+    expect(decl(one(G, ".page-head__actions"), "flex-wrap")).toBe("wrap");
+    const r = one(G, ".page-head__actions", PHONE);
+    expect(props(r)).toEqual(["flex", "min-width"]);
+    expect(decl(r, "flex")).toBe("0 1 auto");
+    expect(decl(r, "min-width")).toBe("0");
+  });
+
+  it("≤420px: the applicant feed head gives the role title the whole first row", () => {
+    // A 68-character title beside a 4-digit balance chip was 5 lines / 135px at 320 and 3 / 90px
+    // at 375; on the two-track grid it is 2 lines / 74px at 320–420 (the chip on the count's row).
+    const grid = one(G, ".section__head.applicants-feed__head", NARROW);
+    expect(decl(grid, "display")).toBe("grid");
+    expect(decl(grid, "grid-template-columns")).toBe("minmax(0, 1fr) auto");
+    expect(decl(grid, "grid-template-areas")!.match(/"[^"]*"/g)).toEqual([
+      '"title title"',
+      '"sub actions"',
+    ]);
+    expect(decl(grid, "row-gap")).toBe("var(--space-1)");
+    expect(decl(one(G, ".applicants-feed__head > .section__text", NARROW), "display")).toBe(
+      "contents",
+    );
+    for (const [sel, area] of [
+      [".applicants-feed__head .section__title", "title"],
+      [".applicants-feed__head .section__sub", "sub"],
+      [".applicants-feed__head > .section__actions", "actions"],
+    ] as const) {
+      expect(decl(one(G, sel, NARROW), "grid-area"), sel).toBe(area);
+    }
+    const page = readFileSync(
+      join(here, "(portal)", "postings", "[id]", "applicants", "page.tsx"),
+      "utf8",
+    );
+    expect(offsets(page, 'className="section__head applicants-feed__head"')).toHaveLength(1);
+  });
+
+  it("a wrapped title breaks a long word rather than leave its wrapper", () => {
+    expect(
+      decl(
+        one(G, ".panel__text > .panel__title, .section__text > .section__title"),
+        "overflow-wrap",
+      ),
+    ).toBe("anywhere");
   });
 });
 

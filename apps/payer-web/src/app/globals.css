@@ -44,11 +44,12 @@
 
 /* FOCUS IN FORCED COLORS. The base `:focus-visible` in tokens.css is `outline: none` + a
    box-shadow ring, and Windows forced-colors mode DROPS box-shadows — a keyboard user in High
-   Contrast had no focus indicator anywhere in the portal. A TRANSPARENT outline is invisible in
-   normal mode (the look is unchanged) but forced colors repaint it (as `Highlight`). Offset
-   one ring-width so it sits where the ring's outer band does. The pair is the
+   Contrast had no focus indicator anywhere in the portal. So this rule also spends the
    `--focus-outline` / `--focus-outline-offset` custom properties (declared at the top of
-   ds-components.css); every component ring that overrides this spends the same two, and a
+   ds-components.css): `--focus-outline` is a TRANSPARENT outline in normal mode (the look is
+   unchanged) and the token itself switches to the system `Highlight` colour under
+   `@media (forced-colors: active)`. Offset one ring-width so it sits where the ring's outer
+   band does. Every component ring that overrides this spends the same two, and a
    ring drawn on a NON-focused host (:has / :focus-within / a sibling box) declares them itself.
    (tokens.css is the shared package admin-web also imports; this override is payer-web's.) */
 :focus-visible {
@@ -599,9 +600,30 @@ body {
   }
 }
 
-/* Very narrow phones: the balance chip's word is the first thing that can go. */
+/* Very narrow phones: the balance chip's word is the first thing that can go. Then the header's
+   own slack: its inline padding and gaps step down one size, and the theme toggle's "System"
+   pill shows only its icon (the button keeps its accessible name, "Follow system theme", and its
+   phone hit strip). The actions group is `flex: none`, so without this it was ~265px wide and the
+   page scrolled sideways at 320–360px while the breadcrumb collapsed to 0px under it. */
 @media (max-width: 420px) {
   .pshell__balancelabel {
+    display: none;
+  }
+  .pshell__header {
+    gap: var(--space-2);
+    padding-inline: var(--space-4);
+  }
+  .pshell__headeractions .theme-toggle__system-label {
+    display: none;
+  }
+}
+/* Phones: the trail keeps only its CURRENT page (which ellipsizes). Its parent steps are `nowrap`
+   text, so in the 0–80px a phone header leaves the trail (0px at 421–430px with a 4-digit
+   balance) they painted on under the balance chip — the parent link still focusable beneath it.
+   That destination stays in the menu, and a detail page carries it as its back link too. */
+@media (max-width: 600px) {
+  .pcrumb > :not(:last-child),
+  .pcrumb__step > .pcrumb__sep {
     display: none;
   }
 }
@@ -4262,8 +4284,9 @@ img.agency-qr__code,
 }
 /* The active (aria-activedescendant) option is the keyboard position while focus sits on the
    list, and a background alone shows it — forced colors drop backgrounds, and the list's own
-   `outline: none` defeats the global :focus-visible fallback. A transparent outline is repainted
-   in the system colour there (invisible otherwise); inset, because the list is a scroller. */
+   `outline: none` defeats the global :focus-visible fallback. So the option spends
+   `--focus-outline`: transparent in normal mode, and the token itself becomes the system
+   `Highlight` under forced colors. Inset, because the list is a scroller. */
 .bb-selectmenu__option--active {
   background: var(--surface-sunken);
   outline: var(--focus-outline);
@@ -4377,19 +4400,21 @@ img.agency-qr__code,
 .theme-toggle__system-label {
   line-height: 1;
 }
-/* PHONE HIT AREAS (≤600px) for the shell's small controls: the theme switch (32px) and
-   "System" (~22px), the header's hamburger (36px) and balance chip (36px). Same technique and
-   maths as the DS `.bb-btn--sm` / `.bb-chip` (see ds-components.css): a full-width 44px strip
-   BEHIND the control's content, drawn size unchanged. Measured at 375px: the header row keeps
-   its height (60px holds a 44px strip), and neighbours sit --space-2/--space-3 apart, so no
-   two hit areas overlap. The static (recruiter) balance is not a control and gets none.
+/* PHONE + TOUCH HIT AREAS (≤600px, and any coarse pointer — a tablet at 768/1024px is a finger
+   target too, like the shared back link) for the shell's small controls: the theme switch
+   (32px) and "System" (~22px), the header's hamburger (36px) and balance chip (36px). Same
+   technique and maths as the DS `.bb-btn--sm` / `.bb-chip` (see ds-components.css): a
+   full-width 44px strip BEHIND the control's content, drawn size unchanged. Measured at
+   320/375px and at 768/1024px under a coarse pointer: the header row keeps its height (60px
+   holds a 44px strip), and neighbours sit --space-2/--space-3 apart, so no two hit areas
+   overlap. The static (recruiter) balance is not a control and gets none.
    /login: at ≤480px the toggle is absolute and `.login-wrap--auth` reserves its row, which the
    strip still clears. From 481–600px there is NO reserved row — the toggle is fixed over a
    vertically centred card, as it was before this change. At rest the card only reaches the
    toggle on a short viewport, and then the switch and its strip (6px more) overlap only the
    card's non-interactive navy brand band; scrolled, the fixed toggle can float over the form
-   either way. */
-@media (max-width: 600px) {
+   either way. A coarse pointer above 600px is the same fixed-toggle case. */
+@media (max-width: 600px), (pointer: coarse) {
   .theme-toggle__switch,
   .theme-toggle__system,
   .pshell__menu,
@@ -4998,15 +5023,18 @@ body:has(.invite-landing) .chrome-footer {
      the tile exactly like the icon and the figure beside it. With only the two content rows, a
      tile WITHOUT a caption (the referral funnel, the earnings tiles) left its label at the
      bottom of row 1 — above the centre line the figure sits on. An absent caption's row now
-     collapses to 0 and the label alone is centred. */
+     collapses to 0 and the label alone is centred. The spacer cells are EMPTY grid cells, which
+     auto-placement fills — so every child the tile can render has a named area of its own
+     (incl. the trend `delta`, under the caption; an absent one's row is 0 too). */
   .stat-row--kpi .bb-stat {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-rows: 1fr auto auto 1fr;
+    grid-template-rows: 1fr auto auto auto 1fr;
     grid-template-areas:
       "icon . value"
       "icon label value"
       "icon caption value"
+      "icon delta value"
       "icon . value";
     align-items: center;
     column-gap: var(--space-3);
@@ -5026,6 +5054,10 @@ body:has(.invite-landing) .chrome-footer {
     grid-area: caption;
     margin-top: 0;
     font-size: var(--ui-caption-size);
+  }
+  .stat-row--kpi .bb-stat__delta {
+    grid-area: delta;
+    margin-top: 0;
   }
   .stat-row--kpi .bb-stat__value {
     grid-area: value;
@@ -5947,7 +5979,9 @@ body:has(.invite-landing) .chrome-footer {
  * W3-A · SHARED FOLLOW-UPS (#1856) — the additive rules of the wave-3 shared pass, in one
  * place. The pass's in-place changes live with the rules they change: the focus-outline
  * tokens (every ring), the Payouts phone head (W2-B block), the applicant relevance span and
- * the KPI row centring (their own blocks). Tokens only.
+ * the KPI row centring + delta area (their own blocks), the shell header's ≤420px reflow, its
+ * phone-only breadcrumb and its coarse-pointer hit strips (the shell / theme-toggle blocks), and
+ * the segmented active-tab ring (ds-components.css). Tokens only.
  * ================================================================== */
 
 /* ---- 1 · TITLE + SUBTITLE, GROUPED. As a sibling of the title the sub sat a whole head
@@ -5972,6 +6006,13 @@ body:has(.invite-landing) .chrome-footer {
   margin: 0;
   padding-inline-end: 0;
   max-width: var(--reading-max);
+}
+/* The wrapper's single grid track is as wide as its widest unbreakable run, so a long role word
+   in a title ("Electromechanical") beside the head's actions could push past the wrapper's edge
+   on a phone. The title breaks inside a word only when nothing else fits. */
+.panel__text > .panel__title,
+.section__text > .section__title {
+  overflow-wrap: anywhere;
 }
 
 /* ---- 3 · THE BACK LINK ("← Dashboard") is a small text link drawn ~20px tall, and on a phone
@@ -6020,6 +6061,49 @@ body:has(.invite-landing) .chrome-footer {
 }
 .state--prose .state__actions {
   justify-content: flex-start;
+}
+
+/* ---- 7 · PAGE-HEAD ACTIONS on a phone. The group is `flex: none` (its max-content width), so a
+   group wider than the content column — /postings/[id]'s status + "View applicants" + "Edit
+   posting", ~367px — scrolled the whole page sideways at ≤375px. On a phone it may now SHRINK
+   to the row it is on and wrap its own controls. A group that fits is untouched: it still
+   wraps under (or sits beside) the title exactly as before, at its own width. */
+@media (max-width: 600px) {
+  .page-head__actions {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+}
+
+/* ---- 8 · THE APPLICANT FEED HEAD on a narrow phone. The shared wrapper keeps the balance chip
+   on the title row, which at ≤420px left a long role title ~140–240px beside a 4-digit chip
+   (five lines at 320px). Here the head is a two-track grid instead — the Payouts recipe — and
+   the text wrapper steps aside (`display: contents`, a plain div): the title takes the whole
+   first row and the chip moves to the count's row. Measured at 320–420px: a 68-character title
+   is 2 lines (was 3–5), the head 74px (was 90–135px). Two classes, after the shared head. */
+@media (max-width: 420px) {
+  .section__head.applicants-feed__head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title title"
+      "sub actions";
+    align-items: center;
+    column-gap: var(--space-4);
+    row-gap: var(--space-1);
+  }
+  .applicants-feed__head > .section__text {
+    display: contents;
+  }
+  .applicants-feed__head .section__title {
+    grid-area: title;
+  }
+  .applicants-feed__head .section__sub {
+    grid-area: sub;
+  }
+  .applicants-feed__head > .section__actions {
+    grid-area: actions;
+  }
 }
 
 /* ==================================================================

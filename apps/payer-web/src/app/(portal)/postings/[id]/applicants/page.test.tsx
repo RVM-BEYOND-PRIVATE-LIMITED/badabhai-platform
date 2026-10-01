@@ -169,18 +169,39 @@ describe("applicants page — the balance is an AFFORDANCE, never a gate", () =>
   });
 
   it("W3-A: a failed balance read (Unlock enabled) and a positive one show NO Top up button", async () => {
+    // The same prefix for both renders: a /credits link styled as ANY DS button (whatever
+    // variant or extra class it carries) is a Top up.
+    const TOP_UP = '<a href="/credits" class="bb-btn';
     getDashboard.mockRejectedValueOnce(new Error("dashboard 503"));
-    expect(await html()).not.toContain('class="bb-btn bb-btn--secondary">');
-    expect(await html()).not.toContain('<a href="/credits" class="bb-btn');
+    const unread = await html();
+    expect(unlockButtonTags(unread)).toHaveLength(FEED.applicants.length);
+    expect(unread).not.toContain(TOP_UP);
+    const positive = await html();
+    expect(unlockButtonTags(positive)).toHaveLength(FEED.applicants.length);
+    expect(positive).not.toContain(TOP_UP);
+  });
+
+  it("W3-A: at a zero balance each card's band has ONE way to /credits — the hint is plain text", async () => {
+    getDashboard.mockResolvedValueOnce({ credits: { balance: 0 } });
+    const zero = await html();
+    const bands = zero.split('class="applicant__unlock"').slice(1);
+    expect(bands).toHaveLength(FEED.applicants.length);
+    for (const band of bands) {
+      const own = band.slice(0, band.indexOf('aria-live="polite"'));
+      expect(own.match(/href="\/credits"/g)).toHaveLength(1);
+      expect(textOf(own)).toContain(
+        "Top up to unlock. Guidance only — this is your own balance, never a signal about this candidate.",
+      );
+    }
   });
 });
 
 describe("applicants page — W3-A section head", () => {
   it("groups the role title + count in `.section__text`; the balance chip follows on the title row", async () => {
     const out = await html();
-    const head = out.slice(out.indexOf('<div class="section__head">'));
+    const head = out.slice(out.indexOf('<div class="section__head applicants-feed__head">'));
     expect(head).toMatch(
-      /^<div class="section__head"><div class="section__text"><h2 class="section__title">CNC Turner<\/h2><p class="section__sub">[^<]*<\/p><\/div><div class="section__actions">/,
+      /^<div class="section__head applicants-feed__head"><div class="section__text"><h2 class="section__title">CNC Turner<\/h2><p class="section__sub">[^<]*<\/p><\/div><div class="section__actions">/,
     );
   });
 });

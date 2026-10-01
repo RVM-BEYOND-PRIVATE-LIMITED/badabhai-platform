@@ -540,10 +540,13 @@ export function ApplicantActions({
                           </Link>
                         ) : null}
                       </div>
+                      {/* Plain text, not a link: the "Top up" button right above is this band's
+                          one way to /credits (a second link to the same page was a redundant tab
+                          stop on every card). */}
                       {balance === 0 ? (
                         <p className="applicant__hint">
-                          <Link href="/credits">Top up to unlock</Link>. Guidance only — this is
-                          your own balance, never a signal about this candidate.
+                          Top up to unlock. Guidance only — this is your own balance, never a
+                          signal about this candidate.
                         </p>
                       ) : null}
                       {/* Transient unlock failure: retryable inline error (the Unlock button

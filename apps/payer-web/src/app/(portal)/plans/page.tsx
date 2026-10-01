@@ -123,12 +123,14 @@ export default async function PlansPage() {
       {/* ── Capacity tiers ── */}
       <section className="section">
         <div className="section__head">
-          <h2 className="section__title">Hiring Capacity</h2>
-          <p className="section__sub">
-            Increase how many concurrent {unitOne}s you can run at once. Your active count above
-            is <strong>live from the enforcement engine</strong>. Prices are <strong>mock</strong>{" "}
-            — no real payment is taken.
-          </p>
+          <div className="section__text">
+            <h2 className="section__title">Hiring Capacity</h2>
+            <p className="section__sub">
+              Increase how many concurrent {unitOne}s you can run at once. Your active count above
+              is <strong>live from the enforcement engine</strong>. Prices are{" "}
+              <strong>mock</strong> — no real payment is taken.
+            </p>
+          </div>
         </div>
         {tiers.length === 0 ? (
           <div className="state">
@@ -161,14 +163,16 @@ export default async function PlansPage() {
       {capacity ? (
         <section className="panel panel--table">
           <div className="panel__head">
-            <h2 className="panel__title" id={QUOTA_TABLE_HEADING_ID}>
-              Per {unitOne} applicant quota
-            </h2>
-            <p className="panel__sub">
-              Your concurrent allowance and active count above are <strong>live</strong> from the
-              backend enforcement engine. The per-{unitOne} rows reflect backend-seeded plans
-              only.
-            </p>
+            <div className="panel__text">
+              <h2 className="panel__title" id={QUOTA_TABLE_HEADING_ID}>
+                Per {unitOne} applicant quota
+              </h2>
+              <p className="panel__sub">
+                Your concurrent allowance and active count above are <strong>live</strong> from
+                the backend enforcement engine. The per-{unitOne} rows reflect backend-seeded
+                plans only.
+              </p>
+            </div>
           </div>
           <div className="panel__body">
             {capacity.postings.length > 0 ? (
@@ -245,10 +249,12 @@ export default async function PlansPage() {
       {/* ── Credit packs ── */}
       <section className="section">
         <div className="section__head">
-          <h2 className="section__title">Contact Unlock Credits</h2>
-          <p className="section__sub">
-            Buy credits to unlock worker contact details. 1 credit = 1 contact unlock.
-          </p>
+          <div className="section__text">
+            <h2 className="section__title">Contact Unlock Credits</h2>
+            <p className="section__sub">
+              Buy credits to unlock worker contact details. 1 credit = 1 contact unlock.
+            </p>
+          </div>
         </div>
         {packs.length === 0 ? (
           <div className="state">
@@ -286,10 +292,12 @@ export default async function PlansPage() {
       {/* ── Posting plans ── */}
       <section className="section">
         <div className="section__head">
-          <h2 className="section__title">{isAgency ? "Vacancy" : "Job"} Posting Plans</h2>
-          <p className="section__sub">
-            {isAgency ? "Vacancies" : "Postings"} are free through launch.
-          </p>
+          <div className="section__text">
+            <h2 className="section__title">{isAgency ? "Vacancy" : "Job"} Posting Plans</h2>
+            <p className="section__sub">
+              {isAgency ? "Vacancies" : "Postings"} are free through launch.
+            </p>
+          </div>
         </div>
         {postingTiers.length === 0 ? (
           <div className="state">

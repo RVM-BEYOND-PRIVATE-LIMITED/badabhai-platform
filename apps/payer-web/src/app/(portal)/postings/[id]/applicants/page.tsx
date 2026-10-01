@@ -114,9 +114,11 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
           {/* The feed itself is a run of cards that carry their own surface, so it is a
               `.section` (a titled block) rather than a `.panel` — a panel around them would
               be a box inside a box. The role title is the section heading; the balance is an
-              affordance chip beside it, never a statement about any candidate. */}
+              affordance chip beside it, never a statement about any candidate. The head
+              modifier only re-lays it on narrow phones (the chip moves to the count's row, so
+              a long role title gets the full width). */}
           <section className="section">
-            <div className="section__head">
+            <div className="section__head applicants-feed__head">
               <div className="section__text">
                 <h2 className="section__title">{feed.roleTitle}</h2>
                 <p className="section__sub">
