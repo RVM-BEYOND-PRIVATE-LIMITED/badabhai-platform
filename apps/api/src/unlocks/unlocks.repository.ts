@@ -17,6 +17,7 @@ import {
   creditLedger,
   paymentOrders,
   workers,
+  jobs,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { OPS_LIST_CAP } from "../common/pagination";
@@ -123,6 +124,25 @@ export class UnlocksRepository {
       .where(eq(workers.id, workerId))
       .limit(1);
     return rows[0];
+  }
+
+  /**
+   * Whether `jobId` names a row in the legacy `jobs` table — a NON-tx read on the global
+   * pool, by primary key, projecting the id ONLY.
+   *
+   * #1903 (#1823 decision O9): `unlocks.job_id` is an FK to `jobs.id`, so only a `jobs` id can be
+   * stored as an unlock's job context. The service calls this BEFORE the advisory-locked
+   * transaction (a global-pool read inside it would recreate the pool-vs-lock deadlock —
+   * see the {@link UnlockService} class doc). No status filter: the FK needs the row to
+   * exist, not to be open.
+   */
+  async legacyJobExists(jobId: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(eq(jobs.id, jobId))
+      .limit(1);
+    return rows.length > 0;
   }
 
   /** The existing unlock for (payer, worker), or undefined. Tx-scoped read. */
