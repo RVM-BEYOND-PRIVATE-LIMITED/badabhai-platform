@@ -39,6 +39,14 @@ export type AiTraceAttribution =
  * — "those strings pass the pseudonymization boundary before they are minted" — TRUE of what
  * this class actually stores.
  *
+ * EXCEPT WHILE `AI_RAW_PII_ENABLED` IS ON (owner decision 2026-09-30, ADR-0047). The ai-service
+ * then hands `masked_trace_text` `raw=True` and both strings come back UNMASKED, so a trace
+ * written in that window holds the worker's own words. Nothing here changes: the text still
+ * arrives only when `AI_CALL_TRACE_TEXT_ENABLED` is on, is still encrypted into `prompt_enc` /
+ * `response_enc`, and is still read by a super-admin only — but the claim above is false for
+ * those rows (the schema header now says so), and stays false after the flag is turned off:
+ * traces have no TTL, so they go only on erasure.
+ *
  * ── THE ALTERNATIVE THAT WAS BUILT FIRST, AND WHY IT WAS WRONG ──────────────────────────
  * The first cut took the text from a thunk at each call site: `serializeForTrace(request)`,
  * i.e. the REQUEST this app sent. That request is assembled HERE, on the near side of the hop,

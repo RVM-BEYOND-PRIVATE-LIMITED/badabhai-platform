@@ -64,9 +64,11 @@ def passthrough_masker(text: str) -> tuple[bool, str]:
 
     EVERY OTHER ROUTE IS UNCHANGED. The synthetic-persona routes still require
     ``AI_SYNTHETIC_PERSONA_MODE`` and are still registered only when it is set; every
-    real-worker route other than the résumé parse still names ``default_masker`` directly and
-    still cannot be pointed at this one. Two callers, one of them flag-gated and signed for —
-    not an open door.
+    real-worker route other than the résumé parse still cannot be pointed at this one. Since
+    2026-09-30 those routes select ``default_masker`` through ``app/llm_input_policy.py``, whose
+    ``AI_RAW_PII_ENABLED`` posture is ``raw_line_masker`` — unmasked but still capped at
+    ``PARSE_MESSAGE_MAX_CHARS``, never this uncapped one. Two callers, one of them flag-gated
+    and signed for — not an open door.
 
     WHAT THE RULING DID NOT MOVE, because this is the paragraph a reader will use to justify
     the next widening: it moved what may reach the MODEL. Gate 6 still decides what may be

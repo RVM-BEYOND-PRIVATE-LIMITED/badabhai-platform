@@ -220,7 +220,9 @@ worst-case cost exceeds `AI_MAX_CALL_COST_INR`.
 
 ## Invariants that still hold (do not bypass)
 
-- No raw PII to the LLM — pseudonymization runs first and fails closed.
+- Pseudonymization runs first and fails closed while `AI_RAW_PII_ENABLED` is off (the default);
+  arming that switch is a separate owner step
+  ([ADR-0047](../decisions/0047-lift-pii-restriction.md)), never a side effect of enabling real calls.
 - LLM **assists**, never decides — extraction canonicalizes; it does not rank/match.
 - Keys are backend/staging-only — never in `NEXT_PUBLIC_*`, web, or the worker app.
 - Test data only until a DPDP/spend sign-off for production.

@@ -71,14 +71,14 @@
 
 - **`job_posting.*` (ops/payer vacancy register, banded) ≠ `job.*` (faceless feed jobs)** — two entities by design (TD37); never conflate.
 - **RANK weights CEO-locked 2026-06-19: 35/20/15/15/10/5 (Trade/Loc/Skills/Exp/Salary/Avail)** — code reconciliation pending (add Skills, drop Activity); supersedes the 06-12 "implemented weights authoritative" register row. Money never ranks; no demographics.
-- Unlock ₹40 flat; workers free; masking payer-only; **§2 own-session name ruling (2026-07-14): worker may read back their OWN decrypted full_name — settled, don't re-escalate.**
+- Unlock ₹40 flat; workers free; disclosure masking payer-only (model-prompt masking is a separate switch, `AI_RAW_PII_ENABLED` — ADR-0047); **§2 own-session name ruling (2026-07-14): worker may read back their OWN decrypted full_name — settled, don't re-escalate.**
 - Consent: profiling and disclosure are separate purposes; both needed for unlock.
 - Backward compat: version events/columns, never mutate; expand→migrate→contract.
 
 # Coordination Notes
 
 - **Merge-conflict hotspots:** `app.module.ts`, migration numbers, event registry + enums, `docs/registers/*` IDs, `docs/tracker/*` (synced by dedicated PRs — last #220).
-- **Talk first:** event-schema, ai-contracts parity, RLS/migrations, pseudonymization path, auth guards, anything §7 (real keys, gate flips, destructive migrations, production data).
+- **Talk first:** event-schema, ai-contracts parity, RLS/migrations, pseudonymization path and the ADR-0047 switch (`AI_RAW_PII_ENABLED` and its flag-independent G1/G2 floors), auth guards, anything needing human sign-off (real keys, gate flips, destructive migrations, production data).
 - **Before any PR:** rebase onto origin/main (fast-merging repo), resolve event-count/migration collisions, re-run gates, `--force-with-lease` push. Include QA evidence (`docs/qa/evidence/`) where relevant.
 
 # Do Not Rediscover

@@ -63,6 +63,13 @@ Rules:
 
 #: The edit parser's system prompt. It renders the CATALOGUE rule rather than a field list:
 #: the actual fields arrive in the user message, per request, from the API.
+#:
+#: TRADES ARE NOT JOBS. The snapshot shows a trade both as an occupations slug ("role_welder")
+#: and as a job's "role_label" ("Welder"), and without the contrast below a model read "welder
+#: hata do" as a whole-job delete (gemini-2.5-flash-lite, 3/3, 2026-10-01). A job is edit-only
+#: here — "Never from chat" (owner, 2026-10-01) — so a job delete is routed to "other". The
+#: examples are deliberately NOT gold-set messages, pinned by a test, so the eval keeps
+#: measuring the rule rather than a memorised line.
 EDIT_PARSE_SYSTEM_PROMPT = """\
 You extract typed edits from ONE BadaBhai worker message for a resume/profile edit card.
 You never write anything: you only propose rows that the worker will review and confirm.
@@ -80,9 +87,18 @@ Rules:
 - "add" has no ref and needs a field and a value. "edit" needs a ref, a field and a value.
   "delete" needs a ref and a field, and its value is null.
 - For "delete", "field" is the field that names the row being removed: the row's only field
-  (a skill, a language, a role, one preferred city, work type or document), or "employer_name"
-  for a job, "certificate_name" for a certificate, "education_field" for an education and
-  "training_name" for a training.
+  (a skill, a language, a trade's "role_id", one preferred city, work type or document), or
+  "certificate_name" for a certificate, "education_field" for an education and "training_name"
+  for a training.
+- "occupations" are the trades the worker does or wants work in: one "role_id" is one trade.
+  "employment" is the worker's jobs, one row per employer; a job's "role_label" is only that
+  job's title.
+- Removing a trade, or saying the worker no longer wants that work, is a "delete" of that
+  "occupations" row ONLY (for example "carpenter nikal do" or "mujhe VMC operator ka kaam ab
+  nahi chahiye"). It never touches an "employment" row.
+- A job can only be edited here, never removed. If the worker asks to remove a job or an
+  employer (for example "Bajaj wali naukri hata do"), propose no row for it and put "other" in
+  "unsupported".
 - Propose at most the number of rows given as "max_rows". Keep the most important changes.
 - If the worker asks to change a name, a phone number, a photo or an ID document, propose no row;
   put "identity" or "contact" in "unsupported" instead.

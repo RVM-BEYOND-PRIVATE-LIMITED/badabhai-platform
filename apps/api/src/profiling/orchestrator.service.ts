@@ -130,6 +130,7 @@ import {
 import { chatServableItems, crossFillItems } from "./facts/worker-fact.ownership";
 import { parseDurationMonths } from "./duration-months";
 import { WorkersRepository } from "../workers/workers.repository";
+import type { KnownNameSource } from "../common/redact-known-name";
 import { seedFromWorkerRecord } from "./worker-record-seed";
 import { captureAnswer, hasFieldNormalizer, matchOptions, mayCommit } from "./answer-capture";
 import {
@@ -441,6 +442,17 @@ export interface TurnInput {
    * `ProfilingSessionService` never passes it, and every test construction compiles unchanged.
    */
   readonly armGeneralRoad?: boolean;
+  /**
+   * The worker's own name, for the interview models' egress to redact out of what they read
+   * (`redactedTurnText`, R32 / ADR-0047 G2). A THUNK, read only by a turn that actually calls a
+   * model — `ChatService.runTurn` builds it once per request and shares it with the reply's
+   * vocative, so the name is looked up and decrypted at most once.
+   *
+   * REQUIRED, never optional, for {@link submissionId}'s reason: forgetting it at a new call site
+   * would send the worker's name to a provider with nothing anywhere saying so. Required makes the
+   * omission a BUILD failure.
+   */
+  readonly knownName: KnownNameSource;
   /**
    * Correlation for the two occupation events this turn may emit. Threaded through rather than
    * synthesised so a placement can be traced back to the HTTP request that produced it.
@@ -1009,16 +1021,7 @@ export class ProfilingOrchestrator {
             profiling: next,
           };
           if (await this.buffer.saveWithCas(input.sessionId, opened, envelope.rev)) {
-            await this.persistPin(envelope, next, {
-              sessionId: input.sessionId,
-              workerId: input.workerId,
-              text: "",
-              now: input.now,
-              // No submission, no clip — nothing was sent or spoken to open the screen.
-              submissionId: null,
-              voiceNoteId: null,
-              ctx: input.ctx,
-            });
+            await this.persistPin(envelope, next, input);
             return this.identityTurnFields(line, items, answers, progressItems, false);
           }
           this.logger.log(
@@ -1066,16 +1069,7 @@ export class ProfilingOrchestrator {
             profiling: next,
           };
           if (await this.buffer.saveWithCas(input.sessionId, opened, envelope.rev)) {
-            await this.persistPin(envelope, next, {
-              sessionId: input.sessionId,
-              workerId: input.workerId,
-              text: "",
-              now: input.now,
-              // No submission, no clip — nothing was sent or spoken to open the screen.
-              submissionId: null,
-              voiceNoteId: null,
-              ctx: input.ctx,
-            });
+            await this.persistPin(envelope, next, input);
             return this.confirmTurnFields(pending.facts, items, answers, progressItems, false);
           }
           this.logger.log(
@@ -1261,19 +1255,7 @@ export class ProfilingOrchestrator {
       };
 
       if (await this.buffer.saveWithCas(input.sessionId, opened, envelope.rev)) {
-        await this.persistPin(envelope, next, {
-          sessionId: input.sessionId,
-          workerId: input.workerId,
-          text: "",
-          now: input.now,
-          // NO SUBMISSION BEHIND THIS ONE (#931). `openTurn` puts the first question on screen
-          // without a worker having sent anything, so there is no client id to carry and
-          // inventing one would stamp a submission that never happened.
-          submissionId: null,
-          // And no clip either, for the same reason: nothing was spoken to open the screen.
-          voiceNoteId: null,
-          ctx: input.ctx,
-        });
+        await this.persistPin(envelope, next, input);
         return {
           reply,
           // Opening the screen never disambiguates: retrieval has not run, because the worker has
@@ -2116,7 +2098,7 @@ export class ProfilingOrchestrator {
         next,
         input.text,
         transcriptOf(buffer),
-        skillsCtxOf(input),
+        modelTurnCtxOf(input),
         { entering: false },
       );
       return this.applySkillsTurn(
@@ -2279,14 +2261,12 @@ export class ProfilingOrchestrator {
     // `next` is passed rather than `envelope`: the draft this turn's patch is folded into must be
     // the one carrying this turn's answers, or a fallback would lose them.
     if (this.llm.leads(next)) {
-      const led = await this.llm.take(next, input.text, transcriptOf(buffer), {
-        workerId: input.workerId,
-        // The turn's spend is attributed to THIS session — the same `chat_sessions.id` the
-        // extraction job records — so per-interview cost is one indexed row, not a scan.
-        sessionId: input.sessionId,
-        correlationId: input.ctx.correlationId,
-        requestId: input.ctx.requestId,
-      });
+      const led = await this.llm.take(
+        next,
+        input.text,
+        transcriptOf(buffer),
+        modelTurnCtxOf(input),
+      );
 
       if (led === null) {
         // THE MODEL WENT AWAY. Sticky from here, and the gate is closed on the way out — leaving
@@ -3961,7 +3941,7 @@ export class ProfilingOrchestrator {
       next,
       input.text,
       transcriptOf(buffer),
-      skillsCtxOf(input),
+      modelTurnCtxOf(input),
       { entering: true },
     );
     return this.applySkillsTurn(
@@ -4430,10 +4410,15 @@ export class ProfilingOrchestrator {
     }
   }
 
+  /**
+   * NARROWED TO THE IDS AND THE CONTEXT, which is all a pin reads — so `openTurn`, which has no
+   * worker message, no submission and no model call behind it, passes its own input rather than
+   * synthesising a `TurnInput` it would have to fill with placeholders.
+   */
   private async persistPin(
     before: ProfilingEnvelope,
     after: ProfilingEnvelope | null | undefined,
-    input: TurnInput,
+    input: Pick<TurnInput, "sessionId" | "workerId" | "ctx">,
   ): Promise<void> {
     if (before.packId !== null || !after?.packId || !after.packVersion) return;
     const occupation = after.occupation;
@@ -5385,18 +5370,27 @@ function laneUndecided(envelope: ProfilingEnvelope): boolean {
   return envelope.generalRoad?.armed === true && envelope.generalRoad.lane === null;
 }
 
-/** The attribution every skills-stage model call carries — the Phase A turn's, exactly. */
-function skillsCtxOf(input: TurnInput): {
+/**
+ * What every interview model call carries — Phase A's and the skills stage's alike, built in ONE
+ * place so neither can drift from the other.
+ *
+ * The spend is attributed to THIS session — the same `chat_sessions.id` the extraction job
+ * records — so per-interview cost is one indexed row, not a scan. `knownName` is the worker's own
+ * name for the call's egress to redact out (R32 / ADR-0047 G2).
+ */
+function modelTurnCtxOf(input: TurnInput): {
   workerId: string;
   sessionId: string;
   correlationId: string;
   requestId: string;
+  knownName: KnownNameSource;
 } {
   return {
     workerId: input.workerId,
     sessionId: input.sessionId,
     correlationId: input.ctx.correlationId,
     requestId: input.ctx.requestId,
+    knownName: input.knownName,
   };
 }
 

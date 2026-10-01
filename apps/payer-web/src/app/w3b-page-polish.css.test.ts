@@ -50,7 +50,12 @@ const RAW_LENGTH =
 
 /** Properties whose value can carry a colour. */
 const COLOUR_PROP =
-  /^(color|background(-color)?|border(-(top|right|bottom|left|block|inline)(-(start|end))?)?(-color)?|outline(-color)?|box-shadow|text-shadow|fill|stroke|caret-color|accent-color|text-decoration(-color)?|column-rule(-color)?)$/;
+  /^(color|background(-color)?|border(-(top|right|bottom|left|block|inline)(-(start|end))?)?(-color)?|outline(-color)?|box-shadow|text-shadow|fill|stroke|caret-color|accent-color|text-decoration(-color)?|column-rule(-color)?|-webkit-text-fill-color|-webkit-text-stroke(-color)?|text-emphasis(-color)?|scrollbar-color|flood-color|lighting-color|stop-color)$/;
+/**
+ * Does this declaration's value need the colour check? Every colour property, and EVERY custom
+ * property: `--x: red` is a raw colour the moment any rule spends `var(--x)` on a colour.
+ */
+const carriesColour = (prop: string) => COLOUR_PROP.test(prop) || prop.startsWith("--");
 /** The only bare words a colour-bearing value may keep once its `var(--token)`s are removed. */
 const NON_COLOUR_WORDS = new Set([
   "solid",
@@ -526,11 +531,14 @@ describe("W3-B · scoping + tokens — the block restyles nothing outside its si
   it("every colour-bearing value in the block is a token (a named colour cannot slip through)", () => {
     const coloured = BLOCK_RULES.flatMap((r) =>
       declarations(r)
-        .filter(([prop]) => COLOUR_PROP.test(prop))
+        .filter(([prop]) => carriesColour(prop))
         .map(([prop, value]) => ({ where: `${r.selector} { ${prop} }`, value })),
     );
-    // Not vacuous: the action bar's hairline divider is a colour-bearing declaration.
+    // Not vacuous: the action bar's hairline divider is a colour-bearing declaration, and the
+    // block's own custom properties (the facts-row slot, the card floor) are scanned too.
     expect(coloured.length).toBeGreaterThan(0);
+    expect(coloured.some((c) => c.where.includes("{ --posting-meta-sep }"))).toBe(true);
+    expect(coloured.some((c) => c.where.includes("{ --plans-card-min }"))).toBe(true);
     const offenders = coloured.filter((c) => nonTokenWords(c.value).length > 0);
     expect(offenders).toEqual([]);
   });
@@ -543,6 +551,24 @@ describe("W3-B · scoping + tokens — the block restyles nothing outside its si
     expect(nonTokenWords("0 0 0 2px Navy")).toEqual(["navy"]);
     // A fallback literal hides a raw colour behind a token — it is not a token.
     expect(nonTokenWords("var(--brand, gold)")).toContain("gold");
+  });
+
+  it("the colour check covers custom properties and the -webkit- text paint (the #1863 gap)", () => {
+    // A named colour in a custom property or in `-webkit-text-fill-color` passed the fence.
+    for (const prop of ["--posting-meta-sep", "--anything", "-webkit-text-fill-color"]) {
+      expect(carriesColour(prop), prop).toBe(true);
+    }
+    for (const prop of ["-webkit-text-stroke-color", "scrollbar-color", "text-emphasis-color"]) {
+      expect(carriesColour(prop), prop).toBe(true);
+    }
+    // …while the block's real token arithmetic still passes.
+    expect(nonTokenWords("calc(var(--stat-min) + var(--space-6))")).toEqual([]);
+    expect(nonTokenWords("var(--space-4)")).toEqual([]);
+    expect(nonTokenWords("white")).toEqual(["white"]);
+    // Geometry is not colour: the length fence owns those properties.
+    for (const prop of ["margin-top", "flex", "grid-template-columns"]) {
+      expect(carriesColour(prop), prop).toBe(false);
+    }
   });
 
   it("the shared primitives these screens compose are untouched at the top level", () => {

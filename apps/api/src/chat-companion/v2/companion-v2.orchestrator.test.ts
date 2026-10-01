@@ -55,6 +55,8 @@ function setup(
     careerEnabled?: boolean;
     faltuEnabled?: boolean;
     propose?: unknown;
+    /** `AI_RAW_PII_ENABLED` (ADR-0047). Omitted = the key is absent, which must read as OFF. */
+    rawPii?: boolean;
   } = {},
 ) {
   const ai = {
@@ -84,6 +86,7 @@ function setup(
     CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: 0.6,
     CHAT_COMPANION_V2_FALTU_STRIKES: 3,
     CHAT_COMPANION_V2_FALTU_COOLDOWN_MINUTES: 30,
+    ...(opts.rawPii === undefined ? {} : { AI_RAW_PII_ENABLED: opts.rawPii }),
   } as unknown as ServerConfig;
   const consents = {
     findLatestByWorker: vi.fn(async () => ({ revokedAt: null, purposes: ["resume_generation"] })),
@@ -597,5 +600,82 @@ describe("a RETRIED submission (same submission_id) is answered once", () => {
     await h.orchestrator.handleMessage(WORKER, PROFILE, { text: "x" }, CTX, NOW);
     expect(h.replays.read).not.toHaveBeenCalled();
     expect(h.replays.remember).not.toHaveBeenCalled();
+  });
+});
+
+describe("CompanionV2Orchestrator — AI_RAW_PII_ENABLED (owner decision 2026-09-30, ADR-0047)", () => {
+  const RAW = "Tata Motors mein welder tha";
+
+  it("ON: no gateway hop — the classifier, the handler and memory get the worker's own words", async () => {
+    const h = setup({ rawPii: true });
+    const turn = await h.orchestrator.handleMessage(WORKER, PROFILE, { text: RAW }, CTX, NOW);
+    expect(turn).toBe(CARD);
+    expect(h.ai.pseudonymize).not.toHaveBeenCalled();
+    expect(h.ai.companionClassify).toHaveBeenCalledWith({ text: RAW, recent_turns: [] }, CTX);
+    expect(h.edits.propose).toHaveBeenCalledWith(WORKER, PROFILE, RAW, CTX, NOW);
+    expect(h.memory.append).toHaveBeenNthCalledWith(1, WORKER, { role: "worker", text: RAW });
+    expect(emitted(h.events).payload).toMatchObject({ intent_source: "llm", outcome: "proposed" });
+  });
+
+  it("ON: a gateway that would refuse or is down cannot short-circuit — it is never asked", async () => {
+    for (const pseudo of [null, { pseudonymized_text: "", blocked: true }]) {
+      const h = setup({ rawPii: true, pseudo });
+      await h.orchestrator.handleMessage(WORKER, PROFILE, { text: RAW }, CTX, NOW);
+      expect(h.ai.pseudonymize).not.toHaveBeenCalled();
+      expect(h.ai.companionClassify).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("ON: an unreachable classifier still fails closed to the clarify line", async () => {
+    const h = setup({ rawPii: true, classify: null });
+    const turn = await h.orchestrator.handleMessage(WORKER, PROFILE, { text: RAW }, CTX, NOW);
+    expect(turn.reply).toBe(V2_CLARIFY.latin);
+    expect(h.edits.propose).not.toHaveBeenCalled();
+    expect(emitted(h.events).payload).toMatchObject({
+      intent_source: "fallback",
+      outcome: "clarify",
+    });
+  });
+
+  it("OFF, explicitly: the gateway runs and only its output travels — the default path exactly", async () => {
+    for (const h of [setup({ rawPii: false }), setup()]) {
+      await h.orchestrator.handleMessage(WORKER, PROFILE, { text: RAW }, CTX, NOW);
+      expect(h.ai.pseudonymize).toHaveBeenCalledWith(RAW, CTX);
+      expect(h.ai.companionClassify).toHaveBeenCalledWith(
+        { text: "masked text", recent_turns: [] },
+        CTX,
+      );
+      expect(h.edits.propose).toHaveBeenCalledWith(WORKER, PROFILE, "masked text", CTX, NOW);
+      expect(h.memory.append).toHaveBeenNthCalledWith(1, WORKER, {
+        role: "worker",
+        text: "masked text",
+      });
+    }
+    const blocked = setup({ rawPii: false, pseudo: { pseudonymized_text: "", blocked: true } });
+    const turn = await blocked.orchestrator.handleMessage(WORKER, PROFILE, { text: RAW }, CTX, NOW);
+    expect(turn.reply).toBe(V2_CLARIFY.latin);
+    expect(blocked.ai.companionClassify).not.toHaveBeenCalled();
+  });
+
+  it("ON: the classify bound still holds — the classifier and memory get the first 1000 raw chars, the handler all", async () => {
+    const long = `${RAW} `.repeat(200).slice(0, 4000);
+    expect(long.length).toBe(4000);
+    const h = setup({ rawPii: true });
+    await h.orchestrator.handleMessage(WORKER, PROFILE, { text: long }, CTX, NOW);
+    expect(h.ai.pseudonymize).not.toHaveBeenCalled();
+    const sent = h.ai.companionClassify.mock.calls[0]![0] as { text: string };
+    expect(sent.text).toBe(long.slice(0, CLASSIFY_TEXT_MAX));
+    expect(h.edits.propose).toHaveBeenCalledWith(WORKER, PROFILE, long, CTX, NOW);
+    expect(h.memory.append).toHaveBeenNthCalledWith(1, WORKER, {
+      role: "worker",
+      text: long.slice(0, CLASSIFY_TEXT_MAX),
+    });
+  });
+
+  it("ON: a message the classifier calls faltu is still never stored", async () => {
+    const h = setup({ rawPii: true, classify: { intent: "faltu", confidence: 0.9, blocked: false } });
+    await h.orchestrator.handleMessage(WORKER, PROFILE, { text: RAW }, CTX, NOW);
+    expect(h.ai.companionClassify).toHaveBeenCalledWith({ text: RAW, recent_turns: [] }, CTX);
+    expect(h.memory.append).not.toHaveBeenCalled();
   });
 });

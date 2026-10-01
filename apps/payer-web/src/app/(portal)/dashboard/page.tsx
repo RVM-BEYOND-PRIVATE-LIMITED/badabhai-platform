@@ -313,10 +313,12 @@ export default async function DashboardPage() {
       {/* 5 · RECENT — the quietest band. */}
       <section className="panel">
         <div className="panel__head">
-          <h2 className="panel__title">Recent unlocks</h2>
-          <p className="panel__sub">
-            Contacts you have revealed. Identities stay masked until you unlock them.
-          </p>
+          <div className="panel__text">
+            <h2 className="panel__title">Recent unlocks</h2>
+            <p className="panel__sub">
+              Contacts you have revealed. Identities stay masked until you unlock them.
+            </p>
+          </div>
         </div>
         <div className="panel__body">
           {recentUnlocks.length === 0 ? (

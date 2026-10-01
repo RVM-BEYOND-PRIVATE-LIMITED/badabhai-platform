@@ -29,13 +29,15 @@ export function EarningsPanel({ earnings }: { earnings: AgencyEarnings }) {
     // surface, so a bordered frame around them would be a box inside a box.
     <section className="section">
       <div className="section__head">
-        <h2 className="section__title">Your earnings</h2>
-        {/* Accrual basis — read from config values the API returns, never hard-coded. */}
-        <p className="section__sub">
-          {accrualBasisLabel(rateBps, basisInr, windowDays)}. Accrued across{" "}
-          <span className="bb-mono">{accrualCount}</span>{" "}
-          {accrualCount === 1 ? "unlock" : "unlocks"} of workers you referred.
-        </p>
+        <div className="section__text">
+          <h2 className="section__title">Your earnings</h2>
+          {/* Accrual basis — read from config values the API returns, never hard-coded. */}
+          <p className="section__sub">
+            {accrualBasisLabel(rateBps, basisInr, windowDays)}. Accrued across{" "}
+            <span className="bb-mono">{accrualCount}</span>{" "}
+            {accrualCount === 1 ? "unlock" : "unlocks"} of workers you referred.
+          </p>
+        </div>
       </div>
 
       {/* Mock-money disclosure — always visible where money is shown. */}

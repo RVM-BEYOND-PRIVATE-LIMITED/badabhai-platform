@@ -39,6 +39,11 @@ or classifier null/blocked.
 Zod in `packages/ai-contracts`, mirrored in Pydantic in `apps/ai-service/app/contracts.py`
 (the existing mirror convention; a parity test must cover the new models).
 
+"Pseudonymized by the endpoint" below holds while `AI_RAW_PII_ENABLED` is off. Armed
+([ADR-0047](../../decisions/0047-lift-pii-restriction.md)), each endpoint passes the text through
+`llm_input_policy` unmasked (size caps kept) and the orchestrator skips its `/pseudonymize` hop;
+`blocked` then means only an oversize or non-string input. The wire shapes do not change.
+
 ### 2.1 `POST /companion/classify` (P1) — task `companion_classify`, Gemini Flash, json_mode
 
 ```ts
@@ -88,10 +93,12 @@ CompanionEditParseOutput = {
 `field` is the LOGICAL name the model should use (e.g. `expected_salary`); the API maps it to its
 writer's DTO key itself. `ops` is the legal subset for that field, and the only place the code and
 the model both learn that **`add` exists only where ONE field defines the entry** — skills,
-languages, occupations. Employment and qualifications are **edit/delete-only in chat** (an "add"
-request gets the profile-screen line), because a new employment or credential is inherently
-multi-field and the card carries one `value` per row (O5 caps a message at 3 rows). The catalogue
-is API-authored constants; it never carries worker text.
+languages, occupations. Qualifications are **edit/delete-only in chat** and employment is
+**edit-only** (an "add" request gets the profile-screen line), because a new employment or
+credential is inherently multi-field and the card carries one `value` per row (O5 caps a message
+at 3 rows). Employment offers no `delete` either — **"Never from chat"** (owner ruling,
+2026-10-01): chat never deletes a worker's whole job; that happens only on the Profile screen
+(§3.2). The catalogue is API-authored constants; it never carries worker text.
 
 **`field` on every row (audit fix, 2026-09-30).** The API resolves each row through its
 `(section, field)` catalogue entry before any op-specific check, so a row with `field: null` is
@@ -99,8 +106,10 @@ dropped whatever its op. The prompt therefore requires a catalogue `field` on ad
 delete, and the ai-service parser drops a field-less row itself (a row the API would drop anyway,
 so the observable contract is unchanged; the wire type stays `string | null` for Zod parity). For a
 delete, `field` is the row's anchor: its only field (skill, language, role, one list-preference
-member), else `employer_name` / `certificate_name` / `education_field` / `training_name`. The API
-ignores it for the apply and shows that field's current value as the card's `before`.
+member), else `certificate_name` / `education_field` / `training_name`. The API ignores it for the
+apply and shows that field's current value as the card's `before`. There is no employment anchor:
+since 2026-10-01 no employment field offers `delete` ("Never from chat", §3.2), and a request to
+remove a job gets no row and `other` in `unsupported`.
 
 **One token scope per edit-parse request (audit fix, 2026-09-30).** The endpoint pseudonymizes the
 message and every snapshot value with ONE request-scoped numbering (`pseudonymize(..., scope=)`),
@@ -148,7 +157,7 @@ existing writer. Identity and contact are absent by construction (O3).
 
 | `EditSection` | Ops | Writer (existing) | Notes | Verified (T0, 2026-09-28) |
 |---|---|---|---|---|
-| `employment` | edit / delete *(chat; `add` deferred by the 2026-09-29 single-field-adds ruling)* | `WorkerEmploymentService` (`PUT /workers/me/employment`) | fields: employer, role, city, start/end or years | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (§3.1). Emits `worker.employment_recorded` v1. |
+| `employment` | edit *(chat; `add` deferred by the 2026-09-29 single-field-adds ruling; `delete` removed by the 2026-10-01 "Never from chat" ruling — a whole job is deleted only on the Profile screen, §3.2)* | `WorkerEmploymentService` (`PUT /workers/me/employment`) | fields: employer, role, city, start/end or years | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (§3.1). Emits `worker.employment_recorded` v1. |
 | `skills` | add / delete | **RÉSUMÉ-ONLY writer (new, T7)** — owner ruling 2026-09-28 | worker-side/profile only: append/remove labels on the confirmed profile's résumé snapshot; NO `worker_skill` / `job_reach` writes, NO ADR-0030/job-domain canonicalization; matching untouched | **RULED (owner, 2026-09-28), resolving P1-OQ1.** The named `setWants` writer is an unwired seam that THROWS (`worker-skills.service.ts:187`). T7 builds a deterministic résumé-only skills writer that edits the profile snapshot the renderer prints (`raw_profile.resume_profile.skills` when the container carries values, else `raw_profile.skills` / `raw_profile.skill_labels`). The canonical column `worker_profiles.skills` and everything downstream of matching are deliberately NOT touched. |
 | `languages` | add / delete | `WorkerLanguagesService` | closed language list | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (whole-list replace, §3.1). Emits `worker.languages_recorded` v1. |
 | `qualifications` | edit / delete *(chat; `add` deferred by the 2026-09-29 single-field-adds ruling)* | `WorkerQualificationsService` | closed options endpoint | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (whole-list replace, 3 lists, §3.1). Emits `worker.qualifications_recorded` v1. |
@@ -194,8 +203,8 @@ One pure module (`v2/edit-plan.ts`) turns a section's rows plus its current stat
 writer's input, parsed by the writer's REAL schema (`SetMy*Schema`). It runs twice:
 
 - **At propose**, per row, after the per-row gates (catalogue, op, ref, the field belongs to the
-  ref's entry, value, token, edit no-op) and the row-set gates — a second delete of one entry (the
-  field is only a delete's anchor), an
+  ref's entry, value, token, hard identifier (ADR-0047 G1), edit no-op) and the row-set gates — a
+  second delete of one entry (the field is only a delete's anchor), an
   edit of an entry the same card deletes, a second edit of one field, a second add of one value
   (case-insensitive), and an ADD OF SOMETHING ALREADY STORED (case-insensitive; skills included)
   are all dropped. Each surviving row is tried together with the rows already accepted for its
@@ -223,6 +232,23 @@ on `pref`, a list member only on its own `pcN` / `wtN` / `drN`). Enforced three 
 per-row gate at propose (the row is dropped, counted in `dropped_count`); the stale check (a
 stored row whose field its entry lacks is `stale`, never read as a matching `before: null`); and
 `edit-plan.ts`, which refuses a qualification row whose field names another list.
+
+**"Never from chat" — no whole-job delete (owner ruling, 2026-10-01).** The production primary
+model (`gemini-2.5-flash-lite`) read "welder hata do" (drop the TRADE `role_welder`) as
+`delete employment e1` in 3 of 3 measured repeats (`docs/qa/evidence/companion-v2/2026-10-01/`),
+which the API carded as "Kaam · Yeh poora kaam" with the row pre-ticked, so one Haan would remove
+the worker's whole job. Chat may still EDIT every employment field;
+it never deletes one. Enforced twice in the API, whatever the model returns:
+
+- **At propose.** No employment field offers `delete` (§3), and `(section = employment, op =
+  delete)` is dropped as its own closed reason (`job_delete`) BEFORE the catalogue gate, whatever
+  field it anchors on. It counts in `dropped_count` when a card survives; when nothing survives the
+  worker gets `V2_EDIT_PLACEHOLDER` (§8). Each propose that drops one logs ONE line with counts, the
+  worker id and `reason=job_delete_from_chat` — never a value.
+- **At confirm** (a card stored before the deploy lives up to its 600 s TTL). A TICKED stored
+  employment delete is never applied: right after the claim the card is retired exactly as a stale
+  one — deleted, `cancelled(stale)`, 409 `{reason:"stale", turn}` — with nothing written, and the
+  same closed-reason log line. An unticked one is inert.
 
 The stale check matches a qualification row by `list` + `fp`, never by index, so a reordered list
 still finds the entry and an entry edited elsewhere does not; a stored row without `fp` (none exist
@@ -336,10 +362,12 @@ names only the section, so two rows of one section could not be told apart ("Pas
 reached the card as typed tokens. Each row now also carries, ADDITIVELY:
 
 - `field_label` — the field the row changes, as reviewed copy (`EDIT_FIELD_LABELS` in
-  `companion-replies.ts`, §8). Present on every row the server builds. A **delete in employment
-  or qualifications** removes the whole entry (the field is only the model's anchor), so its
-  label names the entry instead (`EDIT_ENTRY_LABELS`: "Yeh poora kaam", "Yeh poora certificate",
-  "Yeh poori padhai", "Yeh poori training"). The qualification kind is read from the row's
+  `companion-replies.ts`, §8). Present on every row the server builds. A **delete in
+  qualifications** removes the whole entry (the field is only the model's anchor), so its label
+  names the entry instead (`EDIT_ENTRY_LABELS`: "Yeh poora certificate", "Yeh poori padhai",
+  "Yeh poori training"). `EDIT_ENTRY_LABELS.employment` ("Yeh poora kaam") is unreachable from a
+  new proposal since 2026-10-01 ("Never from chat", §3.2); it labels only a card stored before
+  that ruling, which the confirm never applies. The qualification kind is read from the row's
   resolved target (`target.list` — the entry the apply removes), never from the anchor field; a
   qualification delete whose target names no list gets NO `field_label` rather than a guess.
 - `before_display` / `after_display` — the worker-facing label of a CLOSED-SET value, read from
@@ -382,6 +410,8 @@ Confirm behaviour (2026-09-30, lane a2 — all additive on the wire):
   hands its claim back.
 - **Stale → 409 `{reason:"stale", turn}`.** `reason` is unchanged; `turn` is the reviewed
   `V2_EDIT_STALE` turn (`reply` + `tts_text`), for the app to show in place of a line of its own.
+  A card stored before 2026-10-01 with a ticked whole-job delete takes this path too, nothing
+  written ("Never from chat", §3.2).
   Like every error it sits under `error` in the `AllExceptionsFilter` envelope.
 - A card carries at most `EDIT_CARD_ROWS_MAX` (3) rows — the confirm DTO's own bound — and the
   outbound schema says so.
@@ -459,11 +489,14 @@ message cannot hang on Redis. NOT yet bounded: the `strikes` INCR and the `coold
 abandoned write still lands later, as a strike or cool-down the strike event never reported) and
 `proposal:*` — a Redis outage still stalls a faltu turn and the edit path.
 
-Memory stores the **pseudonymized** text the AI service returned, never the raw text — clipped to
-1000 chars (the store drops longer turns on read), and **never** for a message the lexicon OR the
-classifier called `faltu` (any confidence, faltu phase on or off): pseudonymizing masks PII, not
-abuse. The replay key holds only what the worker was already sent (fixed copy, a validated career
-answer, or an edit card whose values `proposal:{workerId}` already holds); never the message.
+Memory stores the **pseudonymized** text the AI service returned, never the raw text — while
+`AI_RAW_PII_ENABLED` is off. Armed (ADR-0047), it stores the worker's own words: still Redis only,
+still trimmed to `MEMORY_TURNS`, still expiring on `MEMORY_TTL_SECONDS`. Either way each worker
+turn is clipped to 1000 chars (the store drops longer turns on read), and **never** stored for a
+message the lexicon OR the classifier called `faltu` (any confidence, faltu phase on or off):
+pseudonymizing masks PII, not abuse. The replay key holds only what the worker was already sent
+(fixed copy, a validated career answer, or an edit card whose values `proposal:{workerId}` already
+holds); never the message, raw or masked, whichever way the flag is set.
 
 ## 8. Copy
 
@@ -476,9 +509,9 @@ All fixed lines live in `companion-replies.ts` (v1 file, extended) with a Devana
 | `V2_JOBS_DEFERRED` | Chat se jobs dhoondhna abhi aana baaki hai. Aap kisi aur baare mein baat kar sakte hain. |
 | `V2_CLARIFY` | Samajh nahi aaya. Aap inme se kya karna chahte hain? |
 | `V2_EDIT_CARD_INTRO` | Yeh badlav karne hain? Dekh kar Haan dabaiye. |
-| `V2_EDIT_NONE` | Kya badalna hai, samajh nahi aaya. Thoda aur batayiye. |
+| `V2_EDIT_NONE` | Kya badalna hai, samajh nahi aaya. Thoda aur batayiye. — Served when no row survives and neither line below applies. |
 | `V2_EDIT_IDENTITY` | Naam aur phone Profile mein jaa kar badliye. — Served when no row survives and the model's `unsupported` names identity/contact OR the message itself names the worker's own name / phone / ID number (`v2/edit-identity.ts`, deterministic, 2026-09-30). |
-| `V2_EDIT_PLACEHOLDER` | Yeh badlav chat se nahi ho sakta. Profile mein jaa kar badliye. — **DRAFT (2026-09-30), pending owner review.** Served when no row survives and at least one was dropped for a placeholder token (O17: a masked company or person name chat can never write back). |
+| `V2_EDIT_PLACEHOLDER` | Yeh badlav chat se nahi ho sakta. Profile mein jaa kar badliye. — **DRAFT (2026-09-30), pending owner review.** Served when no row survives, the identity line does not apply, and (a) at least one row was dropped for a placeholder token (O17: a masked company or person name chat can never write back), or (b) at least one was dropped as a whole-job delete ("Never from chat", 2026-10-01, §3.2), or (c) the model's `unsupported` names `other` — "things asked that cannot be edited here" (§2.2), so "not from chat, use Profile" is the true answer and rephrasing cannot help (2026-10-01; it used to get `V2_EDIT_NONE`). |
 | `V2_EDIT_DONE` | Badlav ho gaya. Aapka resume update ho raha hai. |
 | `V2_EDIT_DONE_CAPPED` | Badlav ho gaya. Resume abhi update nahi hua, baad mein Resume tab se update karein. — **DRAFT (2026-09-30), pending owner review.** Served for `capped` and `failed` (incl. no `resume_generation` consent). Replaces "Resume aaj update nahi ho sakta, kal ho jayega": nothing regenerates later on its own, so the line promises no time. **Owner question (2026-09-30, EDIT-RERENDER):** when this line is served the confirm now also re-renders the PDF with the live tables (§3.2), so an edit to work history, languages, qualifications, occupations or preferences DOES reach the PDF once that render runs; the line under-states that (only skills wait for a regeneration). Copy unchanged pending that review. |
 | `V2_EDIT_CANCELLED` | Theek hai, kuch nahi badla. |
@@ -534,7 +567,7 @@ tests scan it.
 | `EDIT_FIELD_LABELS["preferences:preferred_cities"]` | Kahan kaam karna chahte hain |
 | `EDIT_FIELD_LABELS["preferences:work_types"]` | Kaun si naukri chalegi |
 | `EDIT_FIELD_LABELS["preferences:documents_ready"]` | Taiyaar document |
-| `EDIT_ENTRY_LABELS.employment` | Yeh poora kaam *(a whole-entry delete)* |
+| `EDIT_ENTRY_LABELS.employment` | Yeh poora kaam *(a whole-entry delete — unreachable from a new proposal since the 2026-10-01 "Never from chat" ruling; kept only for a card stored before it)* |
 | `EDIT_ENTRY_LABELS.certificate` | Yeh poora certificate |
 | `EDIT_ENTRY_LABELS.education` | Yeh poori padhai |
 | `EDIT_ENTRY_LABELS.training` | Yeh poori training |

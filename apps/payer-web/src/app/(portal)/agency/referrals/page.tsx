@@ -135,14 +135,16 @@ export default async function AgencyReferralsPage() {
       */}
       <section className="section">
         <div className="section__head">
-          <h2 className="section__title">Referral funnel</h2>
-          {summary && !funnelError ? (
-            <p className="section__sub">
-              Aggregate only — counts below {summary.minBucket} show as &ldquo;&lt;
-              {summary.minBucket}&rdquo; to protect a single worker&rsquo;s privacy. There is
-              no per-worker breakdown.
-            </p>
-          ) : null}
+          <div className="section__text">
+            <h2 className="section__title">Referral funnel</h2>
+            {summary && !funnelError ? (
+              <p className="section__sub">
+                Aggregate only — counts below {summary.minBucket} show as &ldquo;&lt;
+                {summary.minBucket}&rdquo; to protect a single worker&rsquo;s privacy. There is no
+                per-worker breakdown.
+              </p>
+            ) : null}
+          </div>
         </div>
         {summary && !funnelError ? (
           <>

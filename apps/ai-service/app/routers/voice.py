@@ -15,8 +15,9 @@ from ..ai.langfuse_tracing import (
     Observation,
     get_tracer,
 )
+from ..config import get_settings
 from ..contracts import TranscriptionInput, TranscriptionOutput
-from ..pseudonymize import pseudonymize
+from ..llm_input_policy import llm_input_gate
 from ..spoken_digits import redact_spoken_digits
 from ..stt import STT_TASK_TYPE
 from ._shared import logger, settings, stt_adapter, translate_adapter, workflow_scope
@@ -35,7 +36,10 @@ api_router = APIRouter()
 # or output text is traced, only shape (duration, chunks, confidence, lengths, the
 # closed-set error code). The translate hop sends `translate_gate.text`, which the
 # gate above it has already masked, so THAT is traced verbatim — it is exactly what
-# left the process, which is the whole point of having a trace.
+# left the process, which is the whole point of having a trace. With
+# `AI_RAW_PII_ENABLED` on, that payload is the unmasked transcript and the tracer's
+# `mask=` hook passes it through as well (`langfuse_tracing.trace_mask`): the flag moves
+# the provider and the trace together, so the trace still records what was sent.
 
 
 @api_router.post("/voice/transcribe", response_model=TranscriptionOutput)
@@ -185,9 +189,14 @@ async def _transcribe(
     # are unchanged. `transcript_text` returned below is the RAW transcript exactly as
     # before: this route's job is to give the worker their own words back, and those
     # words go to `voice_notes` inside our own boundary, not to a provider.
+    #
+    # `AI_RAW_PII_ENABLED` moves THIS gate and nothing else in the handler: with it on the
+    # transcript reaches the translate provider unmasked (size cap kept), while the STT hop,
+    # the spoken-digit redaction above and the counts-only log line below are untouched.
     english_text = ""
     if body.translate_to_english and result.transcript_text.strip():
-        translate_gate = pseudonymize(result.transcript_text)
+        raw_pii = get_settings().ai_raw_pii_enabled
+        translate_gate = llm_input_gate(result.transcript_text, raw=raw_pii)
         if translate_gate.blocked:
             logger.warning(
                 "voice translation blocked before the provider",
@@ -204,7 +213,11 @@ async def _transcribe(
                 model=settings.sarvam_translate_model,
                 # SAFE TO RECORD, and the only text in this handler that is: the gate
                 # above masked it, and this is byte-for-byte what Sarvam receives.
+                # (Unmasked on both sides while `AI_RAW_PII_ENABLED` is on — see the top.)
                 input=translate_gate.text,
+                # The posture this payload was gated under, as `AIRouter.run` records it for
+                # every routed call; this hop bypasses the router. A closed boolean.
+                metadata={"ai_raw_pii_enabled": raw_pii},
             ) as translate_obs:
                 translation = await translate_adapter.translate(
                     text=translate_gate.text,

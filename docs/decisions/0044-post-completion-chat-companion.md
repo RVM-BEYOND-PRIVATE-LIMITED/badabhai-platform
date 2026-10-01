@@ -5,6 +5,7 @@
   plan. **Production flag-ON is gated on the owner's signature** at the foot.
 - **Date:** 2026-09-26
 - **Owner:** CEO / Prakash
+- **Amended by:** [ADR-0046](0046-chat-companion-v2-llm-task-router.md) (Proposed, unsigned) widens **R7** ("No LLM in V1") in three named ways — a classifier on a v1 miss, a confirm-card edit parser, and Claude-written career answers inside hard refusals.
 - **Relates:** [ADR-0043](0043-resume-history-and-chat-update.md) (R3 required its own ADR for post-interview Bada
   Bhai behaviour — this is it) · [ADR-0042](0042-profile-road-separation.md) (the roads) ·
   [ADR-0024](0024-worker-visible-job-fields-pii.md) (worker-visible job fields) ·

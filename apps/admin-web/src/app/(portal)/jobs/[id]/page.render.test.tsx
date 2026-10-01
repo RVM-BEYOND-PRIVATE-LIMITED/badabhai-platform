@@ -182,6 +182,40 @@ describe("a poster who set none of the card content", () => {
   });
 });
 
+describe("the apply-rate tile", () => {
+  /** The whole `.stat` tile whose label is `label`, or null. */
+  const tile = (out: string, label: string) => {
+    const end = out.indexOf(`<span class="stat__label">${label}</span></div>`);
+    if (end < 0) return null;
+    return out.slice(out.lastIndexOf('<div class="stat', end), end);
+  };
+
+  it("keeps its label and states the absence in the VALUE before anyone has seen the posting", async () => {
+    stub.job = { ...BASE, applied_count: 0, skipped_count: 0 };
+    const out = await render();
+    // The Stat component's absent value: a statement in the sans face, not a KPI figure.
+    expect(tile(out, "Apply rate")).toBe(
+      '<div class="stat"><span class="stat__value stat__value--absent">Not seen yet</span>',
+    );
+    // The label no longer swaps: there is no tile NAMED "Not seen yet", and no dash figure.
+    expect(out).not.toContain('<span class="stat__label">Not seen yet</span>');
+    expect(out).not.toContain('<span class="stat__value">—</span>');
+  });
+
+  it("shows the measured rate as an ordinary figure under the same label", async () => {
+    // BASE: 4 applied, 1 skipped → 80%.
+    const out = await render();
+    expect(tile(out, "Apply rate")).toBe('<div class="stat"><span class="stat__value">80%</span>');
+    expect(out).not.toContain("Not seen yet");
+  });
+
+  it("does not call a posting unseen once any decision exists, even with zero applies", async () => {
+    stub.job = { ...BASE, applied_count: 0, skipped_count: 3 };
+    const out = await render();
+    expect(tile(out, "Apply rate")).toBe('<div class="stat"><span class="stat__value">0%</span>');
+  });
+});
+
 describe("the copy no longer over-claims worker visibility", () => {
   it("drops the false 'workers see' claim and names the role classification as internal", async () => {
     const out = await render();

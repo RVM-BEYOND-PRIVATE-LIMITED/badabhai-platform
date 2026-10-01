@@ -561,3 +561,82 @@ describe("CompanionEditService — a tap on an EXPIRED card is recorded as expir
     expect(h.events.emit).not.toHaveBeenCalled();
   });
 });
+
+describe("CompanionEditService.confirm — a stored whole-job delete is never applied ('Never from chat')", () => {
+  // Defence in depth for the owner's 2026-10-01 ruling: `propose` no longer cards a whole-job
+  // delete, but a card stored before the deploy lives up to its TTL (600 s) and the app shows its
+  // rows pre-ticked.
+  const JOB_ROW_ID = "77777777-7777-4777-8777-777777777777";
+  const EMPLOYMENT_ID = "66666666-6666-4666-8666-666666666666";
+  const DELETE_JOB: StoredEditProposalRow = {
+    row_id: JOB_ROW_ID,
+    section: "employment",
+    op: "delete",
+    field: "employer_name",
+    value: null,
+    before: "Tata Motors",
+    section_label: "Kaam",
+    target: { employment_id: EMPLOYMENT_ID },
+  };
+  const TATA = {
+    employment_id: EMPLOYMENT_ID,
+    employer_name: "Tata Motors",
+    employer_city: "Pune",
+    employer_state: null,
+    start_ym: "2019-01",
+    end_ym: null,
+    roles: [
+      {
+        role_label: "Welder",
+        start_ym: "2019-01",
+        end_ym: null,
+        work_done: null,
+        work_done_voice_note_id: null,
+        description_source: null,
+      },
+    ],
+  };
+
+  it("a TICKED job delete: retired as stale — nothing written, card deleted, cancelled(stale)", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    warn.mockClear();
+    const h = setup({
+      proposal: storedProposal({ rows: [DELETE_JOB, DELETE_HINDI] }),
+      employmentViews: [TATA],
+      languageEntries: [LANGUAGE_HINDI],
+    });
+    const result = await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [JOB_ROW_ID, ROW_ID], CTX);
+
+    expect(result.kind).toBe("stale");
+    if (result.kind === "stale") expect(result.turn.reply).toBe(V2_EDIT_STALE.latin);
+    // Nothing at all is written — not even the language row ticked beside it.
+    expect(h.db.transaction).not.toHaveBeenCalled();
+    expect(h.employment.replaceForWorker).not.toHaveBeenCalled();
+    expect(h.languages.replaceForWorker).not.toHaveBeenCalled();
+    expect(h.committed).toEqual([]);
+    expect(h.resumes.queueChatEditRegeneration).not.toHaveBeenCalled();
+    expect(h.proposals.delete).toHaveBeenCalledTimes(1);
+    expect(confirmedPayload(h)).toBeUndefined();
+    const cancelled = h.events.emit.mock.calls.find(
+      (c) => (c[0] as { event_name: string }).event_name === "chat.companion_edit_cancelled",
+    )![0] as { payload: unknown };
+    expect(cancelled.payload).toEqual({ proposal_id: PROPOSAL_ID, reason: "stale" });
+    // Observable with a closed reason, ids only — never the employer.
+    const lines = warn.mock.calls.map((c) => String(c[0]));
+    expect(lines.filter((line) => line.includes("reason=job_delete_from_chat"))).toHaveLength(1);
+    expect(lines.join("\n")).not.toContain("Tata");
+    warn.mockRestore();
+  });
+
+  it("an UNTICKED job delete is inert: the other ticked row applies", async () => {
+    const h = setup({
+      proposal: storedProposal({ rows: [DELETE_JOB, DELETE_HINDI] }),
+      employmentViews: [TATA],
+      languageEntries: [LANGUAGE_HINDI],
+    });
+    const result = await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID], CTX);
+    expect(result.kind).toBe("applied");
+    expect(h.employment.replaceForWorker).not.toHaveBeenCalled();
+    expect(h.committed.map((w) => w.writer)).toEqual(["languages"]);
+  });
+});

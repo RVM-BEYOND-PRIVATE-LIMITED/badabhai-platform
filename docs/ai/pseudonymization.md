@@ -1,7 +1,10 @@
 # AI Safety — Pseudonymization Gateway
 
 The single most important AI-safety control in Phase 1. It lives in the FastAPI
-service (`apps/ai-service/app/pseudonymize.py`) and runs **before any LLM call**.
+service (`apps/ai-service/app/pseudonymize.py`) and runs **before any LLM call**
+while `AI_RAW_PII_ENABLED` is off — see
+[Input policy switch (ADR-0047)](#input-policy-switch-adr-0047) for what the switch
+moves and what it never touches.
 
 ## Contract
 
@@ -134,6 +137,46 @@ and, through the real routes and gates, `tests/test_leading_name_vocabulary.py`
 (payer job-posting chat, worker turn, `certified_clean_skill_labels`,
 `POST /resume/generate`, the work-history polish `<role>`).
 
+## Input policy switch (ADR-0047)
+
+[ADR-0047](../decisions/0047-lift-pii-restriction.md) lifts, for now, the ban on raw PII in
+model prompts. In code that is ONE switch, `AI_RAW_PII_ENABLED`, read by both services and
+**off by default**. Off, everything in this document holds exactly as written.
+
+- **What it moves: the INPUT side only.** Every prompt-side call site goes through
+  `apps/ai-service/app/llm_input_policy.py`, whose gate and per-line masker take a
+  keyword-only `raw` argument the ROUTE passes from its settings. `raw=False` is
+  `pseudonymize()` and nothing else. `raw=True` returns the text unchanged but keeps the
+  size caps (20,000 characters per message, `PARSE_MESSAGE_MAX_CHARS` = 4,000 per transcript
+  line) and the non-string refusal — those bound cost and denial of service, not PII.
+- **The résumé import routes** take `raw` from `RESUME_PARSE_RAW_TEXT_ENABLED` OR
+  `AI_RAW_PII_ENABLED` and keep ADR-0041 D5's own pass-through; the two flags roll back
+  independently.
+- **The traces follow it.** The Langfuse `mask=` hook and the `ai_call_traces` text pass
+  values through while it is on, so a trace records what the provider was actually sent.
+- **The api's half.** Companion v2 skips its `/pseudonymize` hop (its Redis memory then holds
+  raw text, TTL-bound). The worker's own name does not move: `redactKnownName` runs whatever
+  the flag says in profile extraction and on both `/profiling/turn` callers, the classic
+  interview turn and the skills stage (ADR-0047 §6, G2).
+- **What it never touches.** `pseudonymize()` itself — it also certifies stored values,
+  masks the at-rest growth queue and de-identifies the training corpus, so a switch inside it
+  would disable all three. Every output wall (`certify*`, `certified_*`,
+  `contains_hard_identifier`, gate 6, `resume_value_certifier`, the placeholder refusals):
+  model output stays untrusted under both postures. The at-rest masked copies (the payer
+  job-posting draft, `unresolved_phrase` through the embed path, the corpus). STT, event
+  schemas and log lines.
+- **The hard-identifier output floor** (ADR-0047 §6, G1). Phase C's `_certified*` walls and
+  the work-history polish wall (`pseudonymize(polished).blocked`) refuse only what this
+  gateway would BLOCK, and a phone is masked, not blocked — safe while the model read masked
+  text, not once it reads raw. So a model-produced value that contains a hard identifier
+  (`contains_hard_identifier` / `HARD_IDENTIFIER_CLASSES`) is dropped at the four measured
+  gaps: Phase C's stored values, the polished line, the classic `/profiling/turn` labels and
+  `/profile/parse`'s `evidence.quote` — and at three outputs found by probing armed:
+  `/profile/extract`'s stored rich draft, companion v2's edit rows (the api drops the same row
+  again) and the `/resume/generate` summary. Inside an experience it works per field, so an
+  honest dashed year range costs `duration_text`, not the job. The floor reads no flag; off it
+  is a near no-op. Section 6 of `tests/test_llm_input_policy.py` pins each output.
+
 ## Example
 
 ```
@@ -148,13 +191,17 @@ out: "[PERSON_1], phone [PHONE_1], worked at [EMPLOYER_1] in Faridabad"
 - **Names:** rely on cue phrases + a leading-name heuristic (`"<Word>, ..."`),
   which does not mask a leading known city or a 4+ letter curated trade word (see
   the two ruling sections above); will improve with NER.
-- **Gateway:** `_pseudonymized_history()` in `apps/ai-service/app/main.py`
-  pseudonymizes **every prior turn** (not just the current message) before it
-  enters `messages`; any turn that can't be safely pseudonymized is dropped
-  (fail closed).
+- **Gateway:** the interview turn route (`/profiling/turn`,
+  `apps/ai-service/app/routers/profiling.py`) masks the current message (a blocked
+  message returns an empty, silent turn) and **every prior turn** through
+  `parse_masking.mask_transcript_lines`, one line at a time, before either enters
+  `messages`; a line the gateway refuses is dropped (fail closed). With
+  `AI_RAW_PII_ENABLED` armed both go through the input policy switch above.
 - **LLM Adapter / Router:** The `LlmAdapter` / `AIRouter` seam (
-  `apps/ai-service/app/ai/router.py`) calls pseudonymization **before** any
-  provider dispatch. Real calls require `AI_ENABLE_REAL_CALLS=true` **and**
+  `apps/ai-service/app/ai/router.py`) receives messages the endpoint has already
+  passed through the input policy in force (ADR-0047); it masks nothing itself.
+  Only its trace sinks re-mask, through `langfuse_tracing.trace_mask`, which follows
+  the same switch. Real calls require `AI_ENABLE_REAL_CALLS=true` **and**
   `GEMINI_FLASH_API_KEY` (master) / optional `ANTHROPIC_API_KEY` (fallback).
   The LiteLLM adapter was never wired and is retired ([ADR-0008](../decisions/0008-litellm-to-direct-providers.md)).
 - **Providers (direct, behind the router):**
@@ -178,3 +225,4 @@ out: "[PERSON_1], phone [PHONE_1], worked at [EMPLOYER_1] in Faridabad"
   - **R30 — STILL OPEN.** Separator-split phones bypassed the residual-digit net (narrowed 2026-07-17, PR #392: digit-count rule 9–13 digits joined by any separator run; 13/13 shapes covered). Two residuals remain and are **unchanged by the 2026-07-31 city ruling**, which touched no numeric path: (1) a 9–13 digit phone split by a WORD ("98765 aur 43210") is not detected — a proximity net would false-fire on "salary 15000 se 18000"; (2) an ASCII `/`- or `:`-split phone ("98765/43210") is excluded by the stated separator boundary. Both are recorded in `pseudonymize.py` beside the rule they qualify.
   - **R32:** Names without cue words can leak (e.g., "Chandrashekhar bol raha hu" — 3/4 natural forms unmasked on main). Narrowed, not closed — the gazetteer approach measured dead (487 probes / 348 leaks); known-name redaction shipped in `apps/api` instead (PR #524, ADR-0035).
   - Both tracked in [risks-register.md](../registers/risks-register.md) as Critical-if-live and both **still gate `AI_ENABLE_REAL_CALLS`**; invariant #5 holds today.
+  - **Both are moot while `AI_RAW_PII_ENABLED` is armed** (ADR-0047): each describes PII slipping past a masker that is then deliberately not masking. With the switch off they stand as recorded.

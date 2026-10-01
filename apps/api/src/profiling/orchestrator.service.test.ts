@@ -315,6 +315,7 @@ const say = (
   submissionId,
   // Defaults to TYPED, which is what all but the spoken-provenance tests mean.
   voiceNoteId,
+  knownName: async () => null,
   ctx: CTX as never,
 });
 

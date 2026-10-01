@@ -10,6 +10,7 @@
 import "reflect-metadata";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Logger } from "@nestjs/common";
+import type { TranscriptLine } from "@badabhai/ai-contracts";
 
 import {
   LlmTurnService,
@@ -26,6 +27,8 @@ const CTX = {
   sessionId: "22222222-2222-4222-8222-222222222222",
   correlationId: "44444444-4444-4444-8444-444444444444",
   requestId: "req_1",
+  // No name on record — the known-name redaction is pinned in its own describe below.
+  knownName: async (): Promise<string | null> => null,
 };
 
 const TURN = (over: Record<string, unknown> = {}) => ({
@@ -52,7 +55,7 @@ const ENTRY = {
   work_done: "naan, roti",
 };
 
-function make(over: { turn?: unknown; enabled?: boolean } = {}) {
+function make(over: { turn?: unknown; enabled?: boolean; rawPii?: boolean } = {}) {
   // Typed to TAKE its arguments, so a test can assert on what was sent — `vi.fn(async () => …)`
   // infers a zero-arg signature and `mock.calls[0][0]` is then a compile error. The second
   // parameter is BL-19's optional trace ctx, asserted on below.
@@ -61,7 +64,11 @@ function make(over: { turn?: unknown; enabled?: boolean } = {}) {
       "turn" in over ? over.turn : TURN(),
     ),
   };
-  const config = { CHAT_LLM_INTERVIEW_ENABLED: over.enabled ?? true };
+  const config = {
+    CHAT_LLM_INTERVIEW_ENABLED: over.enabled ?? true,
+    // ADR-0047 — set only by the known-name tests, which prove the redaction never reads it.
+    ...(over.rawPii === undefined ? {} : { AI_RAW_PII_ENABLED: over.rawPii }),
+  };
   const cost = { record: vi.fn(async () => undefined) };
   // 0083: the SHARED trace fake. A profiling turn HAS a worker and a session, so this is
   // one of the surfaces that actually stores — `traces.stored` is the assertion surface.
@@ -779,5 +786,86 @@ describe("#1016 — the engine asks the gate before it accepts a close", () => {
     // Not cleared: it records that the question WAS asked, which stays true afterwards. Clearing
     // it would let a later `phase_a_done` re-open the gate on a worker who already said no.
     expect(out?.patch.llmGateAsked).toBeUndefined();
+  });
+});
+
+// R32 / ADR-0047 G2 — the classic interview turn is the chat's egress to `/profiling/turn`, and a
+// name the model reads it can write into `role_label`, which settles as the worker's trade and
+// reaches the employer copy (initials only until an unlock). The worker's OWN known name is
+// redacted out of the message and every history line, whichever way AI_RAW_PII_ENABLED is set.
+describe("the worker's own name never reaches the model (R32, ADR-0047 G2)", () => {
+  const HISTORY: readonly TranscriptLine[] = [
+    { i: 0, role: "assistant", text: "Aap kaunsa kaam karte hain?" },
+    { i: 1, role: "worker", text: "Main Suresh Kumar, tandoor cook hoon" },
+    { i: 2, role: "assistant", text: "Kitne saal se?" },
+  ];
+  const MESSAGE = "suresh bol raha hoon, 3 saal tandoor pe";
+  const withName = (name: string | null) => ({
+    ...CTX,
+    knownName: vi.fn(async (): Promise<string | null> => name),
+  });
+  type Sent = { message_text: string; history: TranscriptLine[] };
+  const sentOf = (ai: ReturnType<typeof make>["ai"]) => ai.llmTurn.mock.calls[0]?.[0] as Sent;
+
+  it.each([true, false])(
+    "sends [NAME] in place of the name in the message and every history line (AI_RAW_PII_ENABLED=%s)",
+    async (rawPii) => {
+      const { svc, ai } = make({ rawPii });
+      const out = await svc.take(env(), MESSAGE, HISTORY, withName("Suresh Kumar"));
+
+      const sent = sentOf(ai);
+      expect(sent.message_text).toBe("[NAME] bol raha hoon, 3 saal tandoor pe");
+      expect(sent.history).toEqual([
+        { i: 0, role: "assistant", text: "Aap kaunsa kaam karte hain?" },
+        { i: 1, role: "worker", text: "Main [NAME], tandoor cook hoon" },
+        { i: 2, role: "assistant", text: "Kitne saal se?" },
+      ]);
+      expect(JSON.stringify(sent)).not.toMatch(/suresh|kumar/i);
+      // The turn itself is unchanged: the model's question is served as it always was.
+      expect(out?.kind).toBe("ask");
+    },
+  );
+
+  it("redacts the request's copy only — the caller's lines are never rewritten", async () => {
+    // The buffer (and `chat_messages` after the flush) keeps what the worker typed.
+    const history = HISTORY.map((line) => ({ ...line }));
+    const { svc } = make();
+    await svc.take(env(), MESSAGE, history, withName("Suresh Kumar"));
+    expect(history).toEqual(HISTORY);
+  });
+
+  it("no name on record → the message and history go out exactly as typed", async () => {
+    const { svc, ai } = make();
+    await svc.take(env(), MESSAGE, HISTORY, withName(null));
+    expect(sentOf(ai).message_text).toBe(MESSAGE);
+    expect(sentOf(ai).history).toEqual(HISTORY);
+  });
+
+  it("a lookup that throws never fails the turn: sent as typed, warned with ids only", async () => {
+    const warn = vi.mocked(Logger.prototype.warn);
+    warn.mockClear();
+    const { svc, ai } = make();
+    const out = await svc.take(env(), MESSAGE, HISTORY, {
+      ...CTX,
+      knownName: async () => {
+        throw new Error("connection reset while reading Suresh Kumar");
+      },
+    });
+
+    expect(out?.kind).toBe("ask");
+    expect(sentOf(ai).message_text).toBe(MESSAGE);
+    const logged = warn.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(logged).toContain(`worker=${CTX.workerId}`);
+    expect(logged).toContain(`session=${CTX.sessionId}`);
+    expect(logged).not.toMatch(/suresh|kumar|connection reset/i);
+  });
+
+  it("reads no name on a turn that makes no model call", async () => {
+    // The lookup is a decrypt; a turn the gate or a cap answers has nothing to redact.
+    const known = withName("Suresh Kumar");
+    await make({ enabled: false }).svc.take(env(), MESSAGE, HISTORY, known);
+    await make().svc.take(env({ llmGateOpen: true }), "Nahi", HISTORY, known);
+    await make().svc.take(env({ llmAsks: MAX_LLM_ASKS }), MESSAGE, HISTORY, known);
+    expect(known.knownName).not.toHaveBeenCalled();
   });
 });

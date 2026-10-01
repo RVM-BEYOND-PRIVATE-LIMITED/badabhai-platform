@@ -46,6 +46,11 @@ PRIVACY (CLAUDE.md §3) — two independent guarantees, in this order:
    wholesale by :data:`REDACTED`: fail closed, because an unmaskable payload must
    not leave the process just to buy us a prettier trace.
 
+   BOTH GUARANTEES LAPSE TOGETHER while ``AI_RAW_PII_ENABLED`` is on (owner decision
+   2026-09-30): the endpoints send unmasked text and :func:`trace_mask` hands the SDK a
+   pass-through hook, so a trace records what the provider was actually sent. Off is the
+   default and is exactly the behaviour described above.
+
    The hook is ``mask=`` and not the newer ``mask_otel_spans=`` deliberately.
    ``mask`` runs synchronously as attributes are created, so raw text never enters
    the OTel span buffer at all, where ``mask_otel_spans`` only runs at export time.
@@ -74,7 +79,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import sys
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -228,7 +233,24 @@ def _mask(*, data: Any, **_kwargs: Any) -> Any:
         return REDACTED
 
 
-def masked_trace_text(value: Any) -> str:
+def _passthrough_mask(*, data: Any, **_kwargs: Any) -> Any:
+    """The ``mask=`` hook while ``AI_RAW_PII_ENABLED`` is on: the value exactly as it was sent."""
+    return data
+
+
+def trace_mask(*, raw: bool) -> Callable[..., Any]:
+    """The hook both sinks — the Langfuse export and ``ai_call_traces`` — mask through.
+
+    ``raw`` is ``AI_RAW_PII_ENABLED``, read by whoever BUILDS a sink (the tracer's constructor,
+    the router's trace-text writer) and never read here. With it on the provider was handed
+    unmasked text, so masking only the trace would make the trace disagree with the call it
+    records; the flag therefore moves both, together. With it off this is :func:`_mask`, the
+    REDACTED-on-block behaviour unchanged.
+    """
+    return _passthrough_mask if raw else _mask
+
+
+def masked_trace_text(value: Any, *, raw: bool = False) -> str:
     """One traced value — a messages list or an output string — as the masked TEXT.
 
     THE REASON THIS IS HERE, in the tracing module, and not next to its only caller:
@@ -254,8 +276,10 @@ def masked_trace_text(value: Any) -> str:
 
     Total by construction: every path returns a ``str``, and a shape this function does
     not recognise yields ``""`` rather than a repr of an object nobody vetted.
+
+    ``raw`` selects the hook through :func:`trace_mask`, so this and the SDK still share one.
     """
-    masked = _mask(data=value)
+    masked = trace_mask(raw=raw)(data=value)
     if isinstance(masked, str):
         return masked
     if isinstance(masked, Sequence):
@@ -331,7 +355,7 @@ class LangfuseTracer:
                 # Keeps staging/CI traces out of the production dashboards and
                 # evaluators instead of silently polluting them.
                 environment=settings.langfuse_tracing_environment,
-                mask=_mask,
+                mask=trace_mask(raw=settings.ai_raw_pii_enabled),
             )
             self._propagate = propagate_attributes
             self._enabled = True

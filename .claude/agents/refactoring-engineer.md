@@ -34,7 +34,8 @@ tech-debt entries — no behavior change smuggled in.
 **Decision boundaries.**
 - **Can decide:** internal structure, naming, extraction, type tightening.
 - **Cannot:** change public contracts, event payloads, or behavior under the guise
-  of refactoring; touch the pseudonymization boundary without Security.
+  of refactoring; touch the pseudonymization boundary or the `AI_RAW_PII_ENABLED` switch
+  (ADR-0047) without Security.
 - **Escalate:** a refactor that wants to change a contract or an architectural seam
   (→ Architect).
 

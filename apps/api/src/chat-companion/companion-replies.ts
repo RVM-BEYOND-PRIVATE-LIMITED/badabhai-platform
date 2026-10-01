@@ -361,9 +361,13 @@ export const EDIT_FIELD_LABELS: Readonly<Record<string, CopyPair>> = {
 };
 
 /**
- * A DELETE in employment or qualifications removes the WHOLE entry — the field is only the anchor
- * the model pointed at — so its row is labelled as the entry, never as that field ("Kab shuru
- * kiya — Hatayenge: 2019-01" would read as clearing a date). Keyed by entry kind.
+ * A DELETE in qualifications removes the WHOLE entry — the field is only the anchor the model
+ * pointed at — so its row is labelled as the entry, never as that field ("Certificate ka saal —
+ * Hatayenge: 2018" would read as clearing a year). Keyed by entry kind.
+ *
+ * `employment` is UNREACHABLE FROM A NEW PROPOSAL: "Never from chat" (owner, 2026-10-01) makes
+ * employment edit-only in chat (`edit-catalogue.ts`). It stays only so a card stored before the
+ * ruling still renders; `confirm` never applies such a row.
  */
 export const EDIT_ENTRY_LABELS = {
   employment: { latin: "Yeh poora kaam", dev: "यह पूरा काम" },

@@ -33,9 +33,11 @@ import type { ServerConfig } from "@badabhai/config";
 import { AiService } from "../ai/ai.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
+import type { KnownNameSource } from "../common/redact-known-name";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { ProfilingEnvelope } from "./conversation-state";
 import { classifyLlmReply, EXPERIENCE_GATE_PROMPT } from "./llm-reply-guard";
+import { redactedTurnText } from "./redacted-turn-text";
 
 /**
  * RE-EXPORTED, NOT REDECLARED: `llm-reply-guard.ts` owns this string now — its `repeatsHistory`
@@ -165,6 +167,12 @@ export class LlmTurnService {
       readonly sessionId: string;
       readonly correlationId: string;
       readonly requestId: string;
+      /**
+       * The worker's own name, read only if a call goes out, and redacted out of everything the
+       * model reads (`redactedTurnText`, ADR-0047 G2). REQUIRED for the same reason `sessionId`
+       * is: an optional one would let a caller drop it and send the name without a sound.
+       */
+      readonly knownName: KnownNameSource;
     },
   ): Promise<LlmTurnResult | null> {
     if (!this.leads(envelope)) return null;
@@ -194,12 +202,17 @@ export class LlmTurnService {
       return { kind: "done", patch: { ...closeGate, llmStage: "done" } };
     }
 
+    // THE WORKER'S OWN NAME NEVER REACHES THE MODEL, whatever `AI_RAW_PII_ENABLED` says (R32,
+    // ADR-0047 G2): a name it reads it can write into `role_label`, which becomes the trade on the
+    // employer copy. The request's copy only — `text` and `history` stay as typed for the rest of
+    // this turn, and nothing stored changes.
+    const outbound = await redactedTurnText(text, history, ctx, this.logger);
     const request = {
       schema_version: "oie.v1" as const,
       worker_ref: ctx.workerId,
       stage: envelope.llmStage,
-      message_text: text,
-      history: [...history],
+      message_text: outbound.messageText,
+      history: outbound.history,
       draft: envelope.llmDraft,
       experience_count: entries,
       // THE LAST ASK, not a cap already hit: a hit cap returned above without calling at all.

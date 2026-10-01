@@ -1,15 +1,16 @@
 # ADR-0048: The chat identity intake — first name, surname, state and city asked in the onboarding chat
 
-- **Status:** **Accepted — owner rulings 2026-09-30; signatures pending** (see the foot). The backend ships
-  OFF behind `CHAT_IDENTITY_INTAKE_ENABLED`; production flag-ON is coupled to the worker-app release that unroutes
-  `/name` (§7).
+- **Status:** **Accepted — signed 2026-10-01** (see the foot). Owner rulings 2026-09-30. The backend (#1865)
+  ships behind `CHAT_IDENTITY_INTAKE_ENABLED`, which is ON in production since 2026-09-30; the worker-app release
+  that unroutes `/name` is #1868, with the in-chat location card in #1882 (§7).
 - **Date:** 2026-09-30
 - **Owner:** product owner (rulings relayed by Divyanshu, 2026-09-30); raised by Rishi as #1858
 - **Supersedes:** the rule in the worker app's `name_screen.dart` docstring — the name "is never asked for again in
   the chat flow, which stays identity-free". The chat now asks it.
 - **Relates:** [ADR-0041](0041-resume-import-and-prefill.md) (the résumé "is this you?" turn now follows the
-  intake) · [ADR-0045](0045-general-road.md) (general-road arming is preserved exactly) · ADR-0047 (the owner's
-  PII-in-prompts policy lift — this design is correct under both settings, §4.5)
+  intake) · [ADR-0045](0045-general-road.md) (general-road arming is preserved exactly) ·
+  [ADR-0047](0047-lift-pii-restriction.md) (the owner's PII-in-prompts policy lift — this design is correct under both
+  settings, §4.5)
 - **Flag:** `CHAT_IDENTITY_INTAKE_ENABLED` (default off; production-environment secret)
 
 ---
@@ -196,9 +197,10 @@ operator's console and review file as alias candidates.
    - Two different answers racing one step: the loser's write can land before its CAS is lost; the winner's
      decision stands in the conversation, and the record holds whichever UPDATE landed last.
 
-5. **Under ADR-0047 (the PII-in-prompts lift).** With masking on, this design keeps the name out of every prompt,
-   event and log by construction; with it lifted, nothing changes — the exclusions are kept for correctness, since
-   neither the model nor the résumé quote block has any use for a name or a town typed into a form question.
+5. **Under [ADR-0047](0047-lift-pii-restriction.md) (the PII-in-prompts lift).** With masking on, this design keeps
+   the name out of every prompt, event and log by construction; with it lifted, nothing changes — the exclusions are
+   kept for correctness, since neither the model nor the résumé quote block has any use for a name or a town typed
+   into a form question.
 6. **Payer-side masking is untouched.** The disclosure masker reads the same encrypted `workers.full_name`,
    whichever surface wrote it.
 
@@ -238,7 +240,6 @@ the extraction and transcript-reader filters, and the event schema tests.
 ---
 
 ```
-Owner rulings D1–D10 taken 2026-09-30; production flag-ON requires these signatures and a ruling on each §4.4 open item.
-Signed (CEO / Prakash): ______________________          Date: __________
-Signed: Divyanshu (Backend Platform; relayed the owner's rulings)          Date: __________
+Owner rulings D1–D10 taken 2026-09-30; the flag went on the same day. The §4.4 items remain follow-ups.
+Signed: Divyanshu (Backend Platform; relayed the owner's rulings)          Date: 2026-10-01
 ```

@@ -54,7 +54,9 @@ land. Removing LiteLLM breaks no runtime behavior.
 **upstream** of every provider call (gateway untouched); `AI_ENABLE_REAL_CALLS=false`
 is the committed default and real calls additionally require `GEMINI_FLASH_API_KEY`;
 LLMs assist (profile/canonicalize/explain) and never decide; no raw PII reaches any
-provider, event, `ai_jobs`, `audit_logs`, or logs.
+provider, event, `ai_jobs`, `audit_logs`, or logs. _(The last clause is amended by
+[ADR-0047](0047-lift-pii-restriction.md), 2026-09-30: lifted for now; prompt masking
+follows `AI_RAW_PII_ENABLED`, default off. The rest of this paragraph stands.)_
 
 ## Consequences
 

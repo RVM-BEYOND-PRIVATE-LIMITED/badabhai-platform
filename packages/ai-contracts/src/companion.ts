@@ -56,9 +56,10 @@ export type CompanionRecentTurn = z.infer<typeof CompanionRecentTurnSchema>;
  *
  * `field` is a LOGICAL name (e.g. `expected_salary`); the API maps it to its writer's DTO key
  * itself. `ops` is the legal subset for this field — `add` is offered only where one field
- * defines the entry (skills, languages, occupations), so employment and qualifications are
- * edit/delete-only in chat. The catalogue is API-authored constants; no worker text is ever
- * in it.
+ * defines the entry (skills, languages, occupations), so qualifications are edit/delete-only in
+ * chat, and employment is EDIT-only ("Never from chat", owner ruling 2026-10-01: a whole job is
+ * deleted only on the Profile screen). The catalogue is API-authored constants; no worker text is
+ * ever in it.
  */
 export const EditableFieldSchema = z.object({
   section: z.enum(COMPANION_V2_EDIT_SECTIONS),

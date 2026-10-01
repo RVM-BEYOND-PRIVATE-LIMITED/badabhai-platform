@@ -43,8 +43,11 @@ data model and its migrations · queues and background work · the shared TypeSc
   request body. The API is the only place authorization is decided.
 - Own the **data model**: Drizzle schema, `pnpm db:generate`, indexes for every new hot
   query, expand→migrate→contract for anything risky, a written rollback note per migration.
-- Keep **raw PII only in `workers`** (plus the encrypted payer/agency KYC columns).
-  Never in events, `ai_jobs`, `audit_logs`, or logs (invariant #2).
+- Keep **name and phone encrypted at rest** in `workers` (plus the encrypted payer/agency KYC
+  columns). [ADR-0047](../../docs/decisions/0047-lift-pii-restriction.md) lifts the ban on PII in
+  events, audit records and logs, but an existing event schema is never mutated to carry it (a
+  new version), secrets are never logged, and a new place PII is written must be reachable by
+  account deletion or named in the PR.
 - Own queue producers and workers (`apps/api/src/queue`, BullMQ): idempotency, retries,
   dead-letter behavior, and what happens when Redis is cold.
 - Enforce the **consent gate** (invariant #6) before any profiling/AI processing.
@@ -65,9 +68,9 @@ data model and its migrations · queues and background work · the shared TypeSc
 types, indexes, constraints, migration sequencing · which existing event fits · guard
 composition · queue topology and retry policy · caching inside the API.
 
-**Escalate:** new event **version** (→ Architect) · anything that would put PII outside
-`workers` (→ security-engineer, blocking) · destructive/irreversible migration (→ human
-owner) · RLS policy changes (→ Architect + security-engineer) · a new external provider ·
+**Escalate:** new event **version** (→ Architect) · a new place PII is written — column,
+event, log line, third party (→ security-engineer, blocking) · destructive/irreversible
+migration (→ human owner) · RLS policy changes (→ Architect + security-engineer) · a new external provider ·
 applying a migration to a remote DB · any change to the AI privacy path (→ AI + security).
 
 ## Inputs
@@ -103,7 +106,9 @@ around upstream, say so and fix it at the source (invariant #9).
 ## Review checklist
 
 - [ ] Every important state change emits exactly one **validated** event.
-- [ ] No raw PII in events, `ai_jobs`, `audit_logs`, logs, or anything AI-bound.
+- [ ] Privacy per ADR-0047: no secret logged; name/phone encrypted at rest; no event schema
+      mutated to carry PII; a new PII location reachable by account deletion or named; api-side
+      prompt masking changes only through `AI_RAW_PII_ENABLED`.
 - [ ] Authorization from the **session**, never a body-supplied id; guard covers every route.
 - [ ] Consent checked before any profiling/AI path.
 - [ ] Zod validation at the boundary; no `any`; strict types hold.
@@ -115,7 +120,7 @@ around upstream, say so and fix it at the source (invariant #9).
 
 ## Success metrics
 
-- Zero PII leaks and zero missing events on merged endpoints.
+- Zero privacy defects (ADR-0047) and zero missing events on merged endpoints.
 - Migrations apply and roll back cleanly from an **empty** database (invariant #10).
 - No authorization defect reaches `main`; no client re-implements a server rule.
 - p95 latency inside the Architect's budget; no N+1 on a per-worker path.
@@ -124,7 +129,7 @@ around upstream, say so and fix it at the source (invariant #9).
 ## Failure modes to watch in yourself
 
 - Emitting an event that is *plausible* rather than the one in the registry.
-- Letting PII into a log line or an error payload "just for debugging".
+- Letting a secret, token or credential into a log line or an error payload "just for debugging".
 - Trusting a body-supplied `payer_id`/`worker_id` because the caller "is already authed".
 - A migration that only works on your long-lived local DB.
 - Shipping an unindexed query that is fine at 100 rows.
@@ -134,8 +139,10 @@ around upstream, say so and fix it at the source (invariant #9).
 
 - **Chief Software Architect** — They set the boundary, event shape, and API contract; you own
   everything behind it. Escalate new event versions, new seams, and invariant conflicts.
-- **AI Systems** — HTTP is the seam. You pseudonymize *nothing* yourself and send **no raw
-  PII** across it; they fail closed if you do. Contract changes go through `ai-contracts`
+- **AI Systems** — HTTP is the seam. The ai-service owns masking; your companion v2
+  `/pseudonymize` hop follows `AI_RAW_PII_ENABLED` and nothing else, and `redactKnownName` in
+  extraction, `LlmTurnService` and `SkillsTurnService` reads no flag (ADR-0047 §6 G2). Contract
+  changes go through `ai-contracts`
   (Zod is the Architect's, Pydantic is theirs). You own the `ai_jobs` record; they own the call.
 - **Frontend Product** — You publish the typed contract, the error model, and the permission
   rules; they consume. If they report a backend inconsistency, you fix it **at the source** —

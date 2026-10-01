@@ -22,9 +22,11 @@
  * asks its own "aur koi skill?" is replaced by the real gate (`classifySkillsReply`), so the loop
  * is always exactly two chips with the keyboard locked, and termination is deterministic.
  *
- * PRIVACY. Every model-returned skill passes `certifySkills` (the API's second wall, after the
- * ai-service's) before it is shown or stored; the gate is built only from certified skills; and
- * nothing here logs a skill, a chip or a worker's words — counts only.
+ * PRIVACY. The worker's own known name is redacted out of the message and every history line
+ * before the call, whatever `AI_RAW_PII_ENABLED` says (`redactedTurnText`, ADR-0047 G2); every
+ * model-returned skill passes `certifySkills` (the API's second wall, after the ai-service's)
+ * before it is shown or stored; the gate is built only from certified skills; and nothing here
+ * logs a skill, a chip or a worker's words — counts only.
  */
 
 import { Inject, Injectable, Logger } from "@nestjs/common";
@@ -35,9 +37,11 @@ import type { SkillsGateReply, SkillsStageOutcome } from "@badabhai/types";
 import { AiService } from "../ai/ai.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
+import type { KnownNameSource } from "../common/redact-known-name";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { GeneralRoadState, ProfilingEnvelope } from "./conversation-state";
 import { classifySkillsReply } from "./llm-reply-guard";
+import { redactedTurnText } from "./redacted-turn-text";
 import { certifySkillLabel, certifySkills, MAX_SKILLS, skillKey } from "./skill-certifier";
 import {
   isSkillsStageStop,
@@ -136,6 +140,8 @@ export class SkillsTurnService {
       readonly sessionId: string;
       readonly correlationId: string;
       readonly requestId: string;
+      /** Redacted out of what the model reads — see `LlmTurnService.take`'s identical field. */
+      readonly knownName: KnownNameSource;
     },
     opts: { readonly entering: boolean },
   ): Promise<SkillsTurnResult> {
@@ -181,12 +187,16 @@ export class SkillsTurnService {
     }
 
     const forceClose = road.skillsAsks + 1 >= MAX_SKILLS_ASKS;
+    // THE WORKER'S OWN NAME NEVER REACHES THE MODEL (R32, ADR-0047 G2), armed or not — the
+    // request's copy only. Grounding below still reads the worker's own `text`: a model that
+    // never saw the name cannot return it, and a `[NAME]` it copies back fails the certifier.
+    const outbound = await redactedTurnText(text, history, ctx, this.logger);
     const request: LlmTurnInput = {
       schema_version: "oie.v1",
       worker_ref: ctx.workerId,
       stage: "skills",
-      message_text: text,
-      history: [...history],
+      message_text: outbound.messageText,
+      history: outbound.history,
       // ONLY what this stage may echo: the settled, certified role and the certified skills. No
       // experiences — the stage never asks about them (the ai-service drops them anyway).
       draft: {

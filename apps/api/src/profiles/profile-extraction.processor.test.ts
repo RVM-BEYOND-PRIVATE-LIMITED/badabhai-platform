@@ -119,6 +119,8 @@ function make(
     employments?: WorkerEmploymentRecord[];
     /** ADR-0045 §3.4 — the employment read fails. */
     employmentsThrow?: boolean;
+    /** `AI_RAW_PII_ENABLED` (ADR-0047). OFF by default; the name redaction runs either way (G2). */
+    rawPii?: boolean;
   } = {},
 ) {
   const draft = opts.profile ?? DraftProfileSchema.parse({});
@@ -298,7 +300,10 @@ function make(
     // opposite in form — the trace assertions are about which of the four call sites stores
     // and which deliberately does not, which is what the fake makes visible.
     traces.recorder,
-    { CHAT_LLM_INTERVIEW_ENABLED: opts.llmInterview ?? false } as never,
+    {
+      CHAT_LLM_INTERVIEW_ENABLED: opts.llmInterview ?? false,
+      AI_RAW_PII_ENABLED: opts.rawPii ?? false,
+    } as never,
     opts.profilesService as never,
     {
       findLatestByWorker: vi.fn(async () =>
@@ -995,6 +1000,59 @@ describe("ProfileExtractionProcessor — R32 known-name redaction on the transcr
     await proc.process(makeJob());
     const sent = ai.extractProfile.mock.calls[0]![0] as { transcript: string };
     expect(sent.transcript).toBe("Worker: Wire EDM, Jyoti CNC, ITI fitter 2018-2020");
+  });
+});
+
+// AI_RAW_PII_ENABLED (ADR-0047) lifts the ai-service's prompt masking, but NOT this redaction
+// (ruling G2): the extraction model never needs the worker's own name, and one it reads it can
+// echo onto the employer copy, where the name shows as initials until an unlock. The R32
+// redaction above runs identically whichever way the flag is set.
+describe("ProfileExtractionProcessor — AI_RAW_PII_ENABLED never skips the known-name redaction", () => {
+  const CONVO = [
+    { direction: "inbound", bodyText: "Suresh Kumar, CNC operator" },
+    { direction: "outbound", bodyText: "Theek hai. Kaunsi machine?" },
+    { direction: "inbound", bodyText: "VMC. Suresh yahin se bol raha hun" },
+  ];
+  const REDACTED_TRANSCRIPT =
+    "Worker: [NAME], CNC operator\n" +
+    "Bada Bhai: Theek hai. Kaunsi machine?\n" +
+    "Worker: VMC. [NAME] yahin se bol raha hun";
+
+  type Sent = { transcript: string; messages: { role: string; text: string }[] };
+
+  it("ON: both shapes are name-redacted exactly as with the flag off", async () => {
+    const on = make({ messages: CONVO, workerName: "Suresh Kumar", rawPii: true });
+    const off = make({ messages: CONVO, workerName: "Suresh Kumar", rawPii: false });
+    await on.proc.process(makeJob());
+    await off.proc.process(makeJob());
+
+    const sentOn = on.ai.extractProfile.mock.calls[0]![0] as Sent;
+    const sentOff = off.ai.extractProfile.mock.calls[0]![0] as Sent;
+    expect(sentOn.transcript).toBe(REDACTED_TRANSCRIPT);
+    expect(sentOn.messages.map((m) => m.text)).toEqual([
+      "[NAME], CNC operator",
+      "Theek hai. Kaunsi machine?",
+      "VMC. [NAME] yahin se bol raha hun",
+    ]);
+    expect(sentOn.messages.map((m) => m.role)).toEqual(["worker", "assistant", "worker"]);
+    expect(sentOn).toEqual(sentOff);
+    // The name is looked up and decrypted for the redaction, armed or not.
+    expect(on.workers.findById).toHaveBeenCalledOnce();
+    expect(on.pii.decrypt).toHaveBeenCalledOnce();
+  });
+
+  it("OFF: the redaction runs exactly as it does with the flag absent", async () => {
+    const off = make({ messages: CONVO, workerName: "Suresh Kumar", rawPii: false });
+    const absent = make({ messages: CONVO, workerName: "Suresh Kumar" });
+    await off.proc.process(makeJob());
+    await absent.proc.process(makeJob());
+
+    const sentOff = off.ai.extractProfile.mock.calls[0]![0] as Sent;
+    const sentAbsent = absent.ai.extractProfile.mock.calls[0]![0] as Sent;
+    expect(sentOff.transcript).not.toContain("Suresh");
+    expect(sentOff.transcript).toBe(sentAbsent.transcript);
+    expect(sentOff.messages).toEqual(sentAbsent.messages);
+    expect(off.pii.decrypt).toHaveBeenCalledOnce();
   });
 });
 
@@ -1926,6 +1984,143 @@ describe("the answer map is the profile, and the LLM is an overlay on it", () =>
     await proc.process(makeJob());
     const names = events.emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
     expect(names).not.toContain("profile.parse_disagreement");
+  });
+});
+
+// ADR-0047 G2 on the OIE branch. `/profile/parse` reads the answer map beside the transcript, and
+// its records hold the worker's words: `value_raw` is the whole message an answer came from, a
+// trade settled from the worker's own words is stored verbatim as `value_normalized`, and a
+// correction keeps the old value in `history`. The ai-service renders the record into the prompt
+// (`answered "…"`, `already typed as …`), so the name comes out of the record as well as the
+// transcript — whichever way the flag is set.
+describe("ProfileExtractionProcessor — G2 on the parse call's answer map", () => {
+  const NAME = "Suresh Kumar";
+  const namedMap = () => ({
+    conversationState: {
+      answer_map: [
+        record({
+          value_raw: "main Suresh Kumar hoon, CNC operator",
+          value_normalized: "Suresh CNC operator",
+          evidence: { message_index: 0, quote: "Suresh Kumar hoon" },
+          history: [
+            {
+              value_raw: "Kumar bol raha hun, turner",
+              value_normalized: "Kumar turner",
+              status: "superseded",
+              evidence: { message_index: 0, quote: "Kumar bol raha hun" },
+              turn: 1,
+            },
+          ],
+        }),
+        record({
+          question_key: "tools_equipment",
+          target_field: "tools_equipment",
+          value_raw: "lathe aur Suresh wala VMC",
+          value_normalized: ["lathe", "Suresh wala VMC"],
+        }),
+        record({
+          question_key: "experience_years",
+          target_field: "experience_years",
+          value_raw: "7 saal",
+          value_normalized: 7,
+        }),
+      ],
+      occupation: PIN,
+    },
+    messages: [{ direction: "inbound", bodyText: "main Suresh Kumar hoon, CNC operator" }],
+  });
+
+  type SentRecord = {
+    question_key: string;
+    value_raw: string | null;
+    value_normalized: unknown;
+    evidence: { message_index: number; quote: string } | null;
+    history: { value_raw: string | null; value_normalized: unknown }[];
+  };
+  const sentMap = (ai: { parseProfile: { mock: { calls: unknown[][] } } }) =>
+    (ai.parseProfile.mock.calls[0]![0] as { answer_map: SentRecord[] }).answer_map;
+
+  it.each([
+    ["ON", true],
+    ["OFF", false],
+  ])("flag %s: no part of the name reaches /profile/parse", async (_label, rawPii) => {
+    const { proc, ai } = make({ ...namedMap(), workerName: NAME, rawPii });
+    await proc.process(makeJob());
+
+    expect(ai.parseProfile).toHaveBeenCalledOnce();
+    const everything = JSON.stringify(ai.parseProfile.mock.calls).toLowerCase();
+    expect(everything).not.toContain("suresh");
+    expect(everything).not.toContain("kumar");
+
+    const [trade, tools, years] = sentMap(ai);
+    expect(trade).toMatchObject({
+      question_key: "trade",
+      value_raw: "main [NAME] hoon, CNC operator",
+      value_normalized: "[NAME] CNC operator",
+      evidence: { message_index: 0, quote: "[NAME] hoon" },
+      history: [
+        {
+          value_raw: "[NAME] bol raha hun, turner",
+          value_normalized: "[NAME] turner",
+          evidence: { message_index: 0, quote: "[NAME] bol raha hun" },
+        },
+      ],
+    });
+    expect(tools!.value_normalized).toEqual(["lathe", "[NAME] wala VMC"]);
+    // Only the worker's words move: a number, the slugs and the statuses go out as captured.
+    expect(years).toMatchObject({
+      question_key: "experience_years",
+      value_raw: "7 saal",
+      value_normalized: 7,
+      status: "answered",
+    });
+  });
+
+  it("the second wall reads the UNREDACTED map: an echo of the redacted value never reaches the profile", async () => {
+    const { proc, profiles, events } = make({
+      ...namedMap(),
+      workerName: NAME,
+      rawPii: true,
+      parsed: {
+        fields: {
+          // What the model can do at most: echo the typed value it was shown, citing a real span
+          // of the (redacted) transcript it was sent. Gates 1-3 pass it; gate 4 must not.
+          trade: {
+            value: "[NAME] CNC operator",
+            evidence: { message_index: 0, quote: "[NAME] hoon, CNC operator" },
+            source: "answer_map",
+            normalization: "verbatim",
+            confidence: 0.9,
+          },
+        },
+        unparsed_field_ids: [],
+        notes: [],
+      },
+    });
+    await proc.process(makeJob());
+
+    // The deterministic value stands — captured from the worker, not written by the model.
+    const rich = (profiles.create.mock.calls[0]![0] as Record<string, unknown>)
+      .richProfileDraft as Record<string, unknown>;
+    expect(rich.primary_role).toBe("Suresh CNC operator");
+    const disagreement = events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
+      .find((e) => e.event_name === "profile.parse_disagreement");
+    expect(disagreement!.payload.field_ids).toEqual(["trade"]);
+  });
+
+  it.each([
+    ["no name is stored", { workerName: null }],
+    ["the name cannot be decrypted", { workerName: NAME, decryptThrows: true }],
+  ])("fails SAFE when %s: the answer map goes out as captured", async (_label, over) => {
+    const { proc, ai, aiJobs } = make({ ...namedMap(), ...over, rawPii: true });
+    await proc.process(makeJob());
+
+    expect(aiJobs.markCompleted).toHaveBeenCalledOnce();
+    const [trade, tools] = sentMap(ai);
+    expect(trade!.value_raw).toBe("main Suresh Kumar hoon, CNC operator");
+    expect(trade!.history[0]!.value_raw).toBe("Kumar bol raha hun, turner");
+    expect(tools!.value_normalized).toEqual(["lathe", "Suresh wala VMC"]);
   });
 });
 

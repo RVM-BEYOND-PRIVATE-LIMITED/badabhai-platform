@@ -33,7 +33,10 @@
 - **Retains (PII-free, lawful):** the `events` + `audit_logs` spine (opaque ids, no FK to
   `workers`) and the three billing/intent rows whose worker FK is `SET NULL` on delete —
   `unlocks` (paid contact-unlock), `resume_disclosures`, `invites.inviter_worker_id`. These
-  carry no PII once the worker join is nulled.
+  carry no PII once the worker join is nulled. **That retention is lawful because the spine is
+  PII-free.** [ADR-0047](decisions/0047-lift-pii-restriction.md) permits PII in an event or an
+  audit record only through a NEW versioned schema; such a version must ship with an erasure step
+  for it here, or be named as retained PII in its PR.
 
 ## 2. Preconditions (before this runs in any non-local env)
 - [ ] Migration **0031** (3 billing FKs `cascade → SET NULL` + nullable) **signed off (Prakash/Akshit) and

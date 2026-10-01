@@ -1,7 +1,5 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { decl, globalsCss, rule, rules } from "../../test/css-rules";
 
 /**
  * The stat-row and dense-table rules the PR-D1 review fixes depend on. The node env has no
@@ -18,8 +16,7 @@ import { describe, expect, it } from "vitest";
  *  - A warn tile's label on the amber fill needs the secondary text step to clear 4.5:1.
  *  - Phone table cells tighten INLINE padding only, so rows keep their 44px touch height.
  */
-const here = dirname(fileURLToPath(import.meta.url));
-const CSS = readFileSync(join(here, "globals.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+const CSS = globalsCss();
 
 /** The body of every `@media (max-width: 600px)` block, braces balanced. */
 function phoneBlocks(): string[] {
@@ -56,49 +53,6 @@ function topLevel(): string {
     i = j + 1;
   }
   return out;
-}
-
-type Rule = { selector: string; body: string; atRules: string[] };
-
-/**
- * Flat `{ selector, body }` pairs of the style rules in `css`. With `nested`, every at-rule body
- * (`@media`, `@container`, `@supports`, nested to any depth) is walked too, and each rule carries
- * the chain of at-rule preludes it sits in; without it, at-rule blocks are skipped.
- */
-function rules(css: string, nested = false, atRules: string[] = []): Rule[] {
-  const out: Rule[] = [];
-  let prelude = "";
-  let i = 0;
-  while (i < css.length) {
-    const ch = css[i]!;
-    if (ch === "{") {
-      let depth = 1;
-      let j = i + 1;
-      for (; j < css.length && depth > 0; j++) {
-        if (css[j] === "{") depth++;
-        else if (css[j] === "}") depth--;
-      }
-      const selector = prelude.trim().replace(/\s+/g, " ");
-      const body = css.slice(i + 1, j - 1);
-      if (!selector.startsWith("@")) out.push({ selector, body, atRules });
-      else if (nested) out.push(...rules(body, true, [...atRules, selector]));
-      prelude = "";
-      i = j;
-      continue;
-    }
-    if (ch === "}" || ch === ";") prelude = "";
-    else prelude += ch;
-    i++;
-  }
-  return out;
-}
-
-/**
- * The declarations of the first rule in `css` whose selector list is EXACTLY `selector`
- * (whitespace-normalised). A string match, not a RegExp built from the selector.
- */
-function rule(css: string, selector: string): string | null {
-  return rules(css).find((r) => r.selector === selector)?.body ?? null;
 }
 
 /**
@@ -218,6 +172,75 @@ describe("stat tiles", () => {
       )
       .map((r) => [...r.atRules, r.selector].join(" > "));
     expect(placed).toEqual([]);
+  });
+});
+
+describe("the simulated tag inside a stat value", () => {
+  // `MockMoneyTag` is a Stat adornment rendered INSIDE `.stat__value`, so every inherited type
+  // property of the KPI figure reached it: measured in Chrome it was Roboto Mono at -0.55px
+  // tracking and a 12.6px line (17.8px tall) against the 22.6px of every other pill.
+  const TAG = ".stat__value .pill";
+
+  it("takes back its own UI sans type, at every width", () => {
+    const body = rule(topLevel(), TAG);
+    expect(body).not.toBeNull();
+    expect(decl(body!, "font-family")).toBe("var(--font-sans)");
+    expect(decl(body!, "letter-spacing")).toBe("normal");
+    expect(decl(body!, "line-height")).toBe("var(--ui-caption-leading)");
+    expect(decl(body!, "font-variant-numeric")).toBe("normal");
+    // An absent value is italic; a pill inside one is still upright.
+    expect(decl(body!, "font-style")).toBe("normal");
+  });
+
+  it("leaves size and weight to `.pill`, which sets both on the element (never inherited)", () => {
+    // A copy here would do nothing today and would pin this one pill if `.pill` changed — the
+    // same drift away from every other pill that the reset exists to undo.
+    const pill = rule(topLevel(), ".pill");
+    expect(pill).not.toBeNull();
+    for (const prop of ["font-size", "font-weight"]) {
+      expect(decl(pill!, prop), `.pill ${prop}`).not.toBeNull();
+      expect(decl(rule(topLevel(), TAG)!, prop), `${TAG} ${prop}`).toBeNull();
+    }
+  });
+
+  it("no rule, in ANY at-rule, takes the reset back or re-pins the pill's own type", () => {
+    // The PR-D1 phone tier is declared AFTER the reset at equal specificity, so a phone-tier
+    // `.stat__value .pill { font-family: var(--font-mono) }` would bring the mono tag back on
+    // every phone while every top-level check above stayed green.
+    const reset = rule(topLevel(), TAG)!;
+    const TYPE = [
+      "font",
+      "font-family",
+      "font-style",
+      "font-weight",
+      "font-size",
+      "letter-spacing",
+      "line-height",
+      "font-variant-numeric",
+    ];
+    // Any stat selector with the tag in it — a later `.stat .pill` or `.stat--warn .pill` has
+    // the reset's weight and would override it just as surely as a `.stat__value .pill`.
+    const targetsTag = (selector: string) =>
+      selector.split(",").some((part) => part.includes(".stat") && part.includes(".pill"));
+    const drift = rules(CSS, true)
+      .filter((r) => targetsTag(r.selector))
+      .flatMap((r) =>
+        TYPE.filter((p) => {
+          const value = decl(r.body, p);
+          return value !== null && value !== decl(reset, p);
+        }).map((p) => `${[...r.atRules, r.selector].join(" > ")} { ${p} }`),
+      );
+    expect(drift).toEqual([]);
+  });
+
+  it("resets TYPE only — the value row's layout stays the wide rule's", () => {
+    // The flex/wrap/nowrap guarantees above belong to `.stat--wide .stat__value`; the tag rule
+    // must not add layout of its own (a nowrap or a width here would pin the tag beside the
+    // figure and push it out of the tile again).
+    const body = rule(topLevel(), TAG)!;
+    for (const prop of ["display", "white-space", "width", "min-width", "max-width", "flex", "margin"]) {
+      expect(decl(body, prop), prop).toBeNull();
+    }
   });
 });
 

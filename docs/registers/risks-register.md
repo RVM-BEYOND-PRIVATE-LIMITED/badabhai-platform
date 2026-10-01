@@ -254,6 +254,11 @@ before `AI_ENABLE_REAL_CALLS`.
 `LlmTurnService.take` to `message_text` and every history leg. It is the same shipped helper, on
 the sibling path, and it would make the comment true rather than making it go away.
 
+**2026-09-30 — applied** (owner, [ADR-0047](../decisions/0047-lift-pii-restriction.md) §6, G2):
+`LlmTurnService.take` and the general road's skills stage (`SkillsTurnService`, the other
+`/profiling/turn` caller) now redact the known name from the message and history, whatever
+`AI_RAW_PII_ENABLED` says. The table above is the record of its date.
+
 ---
 
 ## R25 addendum — 2026-09-08: PIN entropy is now entirely worker-chosen (#1462)
@@ -338,3 +343,69 @@ recorded as `pay_min` / `pay_max`. Bounds: two integers, never text; only on the
 never on the first turn; shown to the payer on their own draft card before publishing. It gives
 a payer who wants to publish a number nothing that R30's word-split gap does not already give.
 Owner: ai-service. Code: `apps/ai-service/app/job_posting_chat/answers.py` (`pay_text_for`).
+
+## 2026-09-30 — R30, R32 and R47 under ADR-0047 (the PII restriction lifted)
+
+**Owner decision 2026-09-30, relayed by Divyanshu Pant (Backend Platform);**
+[ADR-0047](../decisions/0047-lift-pii-restriction.md), merged directly on the owner's instruction,
+with the signatures recorded after the merge. The ban on raw PII in
+LLM prompts, logs, events, audit records and analytics is lifted for now. In code it is one
+switch, `AI_RAW_PII_ENABLED`, default off. The rows above are not reworded.
+
+- **R30 and R32 are moot while `AI_RAW_PII_ENABLED` is armed.** Each records PII slipping past
+  the gateway's input masking; armed, prompt-side input is deliberately not masked, so there is
+  nothing for either to slip past. **With the switch off, both stand as recorded**
+  (Accepted-not-fixed, not closed), R32 narrowed by G2's interview-turn redaction below. Neither
+  is marked Paid: the gateway still runs whenever the switch is off, and still certifies model
+  output either way.
+- **R47 changes in kind while armed, and its severity is High.** `ai_call_traces` stores the
+  text the trace hook returns, and armed that hook passes text through, so the store holds raw
+  prompts rather than post-R32 text whenever `AI_CALL_TRACE_TEXT_ENABLED` is also on. That is
+  exactly the condition R47's own severity cell names ("High if the text were ever stored
+  pre-boundary"), so **R47 is High while both flags are on** and Medium otherwise. The
+  containment is unchanged — encrypted at rest, `super_admin` only, cascade-deleted with the
+  worker, so erasure still reaches it. R47's item (2), whether indefinite retention is still the
+  intent, now asks about raw text.
+- **Closed in the same change: echoes past the output walls** (ADR-0047 §6, owner 2026-09-30).
+  **G1:** Phase C's `_certified*` walls and the work-history polish wall refused only what the
+  gateway would block, the classic `/profiling/turn` labels passed no ai-service wall, and
+  `/profile/parse` left `evidence.quote` uncertified — armed, a phone or PAN the worker typed
+  could be stored, settled into the answer map or printed on the employer's sheet. Closed by a
+  hard-identifier output floor that reads no flag; the four strict xfails in
+  `apps/ai-service/tests/test_llm_input_policy.py` §6 are now passing tests. The same floor
+  covers three outputs found by probing armed: `/profile/extract`'s stored rich draft, companion
+  v2's edit rows (dropped by the ai-service and again by the api, since a confirmed employer name
+  or `work_done` prints on both PDFs and armed no placeholder is minted for O17's drop) and the
+  `/resume/generate` summary. Inside an experience it floors per field, because an honest dashed
+  year range reads as a phone; a blanked `duration_text` with no `duration_months` leaves that
+  entry's years unsettled. **G2:** extraction keeps `redactKnownName` under the flag — on the
+  transcript and on the `/profile/parse` call's copy of the answer map, whose records carry the
+  worker's words (`value_raw`, `value_normalized`, history, evidence quotes) — so it cannot write
+  the worker's own name onto the initials-only employer copy. The same day the
+  owner extended it to both `/profiling/turn` callers: the classic interview turn
+  (`LlmTurnService.take`, whose `role_label` settles as `trade` and is projected onto
+  `primary_role`) and the skills stage (`SkillsTurnService`) redact the known name from the
+  message and history whatever the flag says — the recommendation of R32 residual (2) above.
+- **Residual, while armed: a bare name in other model output.** Beyond those three paths and the
+  `knownNamePattern` screens on the résumé and general-form briefs, no wall detects a bare
+  person name in model output (the certifiers refuse hard identifiers only, ruled 2026-09-11),
+  and armed, the other routes send the model names the gateway would have masked by cue. G2
+  does not reach them. Recorded so it is not rediscovered as a leak; not ruled on.
+- **Residual, flag on or off: a name inside a captured value.** No model is involved: a trade
+  settled from the worker's own sentence (`settleWorkerTrade`) is stored verbatim, so "main
+  Ramesh hoon, CNC operator" is projected onto `primary_role` as typed and reaches the employer
+  copy with the name in it. Predates ADR-0047 and does not move with the flag; not ruled on.
+- **Deploy: a secret value only one service accepts.** Closed in the same change: the ai-service
+  narrows `AI_RAW_PII_ENABLED` to the api's grammar (`true`/`false`/`1`/`0`), and
+  `scripts/deploy/staging-deploy.sh` refuses any other value before a container moves, so a
+  mis-typed secret fails the deploy rather than crash-looping the api (ADR-0047 §5).
+- **Rollback residue.** Setting the secret back leaves companion v2's Redis memory
+  (`companion:v2:mem:*`, until trimmed or expired; delete the keys for an immediate revert) and
+  the `ai_call_traces` rows written while armed, which are kept indefinitely until the worker's
+  erasure (ADR-0047 §5).
+- **New, while armed: Langfuse Cloud receives raw prompts.** Its `mask=` hook follows the same
+  switch. Tracing is live in production, the compose default host is US-hosted, no ADR records
+  Langfuse as a processor, and account deletion does not reach its traces. Accepted by the owner
+  in ADR-0047 §6; recorded here so it is not rediscovered as a leak. **Abort lever:** set the
+  secret back to `false` and redeploy (masking resumes from the next call; nothing already sent
+  is recalled), or `AI_REAL_CALLS_KILL_SWITCH=true` to stop all provider traffic.

@@ -20,8 +20,8 @@ import json
 from pydantic import ValidationError
 
 from ..contracts import CompanionClassifyOutput, CompanionRecentTurn
+from ..llm_input_policy import llm_input_gate
 from ..profiling.canonical_roles import coerce_json_text
-from ..pseudonymize import pseudonymize
 
 #: The deterministic mock-posture answer: no intent, no confidence. Honest — a mock
 #: model did not classify anything, and the API's treatment of an unclear turn is the
@@ -33,7 +33,7 @@ MOCK_RESPONSE = '{"intent": "unclear", "confidence": 0.0}'
 UNCLEAR = CompanionClassifyOutput(intent="unclear", confidence=0.0, blocked=False)
 
 
-def mask_recent_turns(turns: list[CompanionRecentTurn]) -> list[CompanionRecentTurn]:
+def mask_recent_turns(turns: list[CompanionRecentTurn], *, raw: bool) -> list[CompanionRecentTurn]:
     """Pseudonymize the memory turns, or drop the ones that will not pass.
 
     THE MEMORY IS ALREADY PSEUDONYMIZED AT REST (O13: Redis holds what the AI service
@@ -41,10 +41,14 @@ def mask_recent_turns(turns: list[CompanionRecentTurn]) -> list[CompanionRecentT
     gateway, so the one path that could grow a bug — a caller sending raw text into
     ``recent_turns`` — is closed here rather than trusted. A turn the gateway refuses is
     DROPPED, not sent: fail closed, and the classifier still gets the current message.
+
+    ``raw`` is the route's `AI_RAW_PII_ENABLED`, passed in and never read here. With it on
+    the turns go through unmasked — apps/api then keeps raw text in that memory too, inside
+    its 30-minute TTL — and a turn is dropped only for the size cap.
     """
     masked: list[CompanionRecentTurn] = []
     for turn in turns:
-        result = pseudonymize(turn.text)
+        result = llm_input_gate(turn.text, raw=raw)
         if result.blocked:
             continue
         masked.append(turn.model_copy(update={"text": result.text}))

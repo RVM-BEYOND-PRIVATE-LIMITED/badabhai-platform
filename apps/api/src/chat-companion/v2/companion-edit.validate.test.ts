@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 import { CompanionEditParseInputSchema } from "@badabhai/ai-contracts";
 import { CompanionTurnSchema } from "../chat-companion.dto";
@@ -64,9 +64,10 @@ describe("CompanionEditService.propose — every drop rule (spec §Edit step 3)"
     );
   });
 
-  it("a DELETE is legal on employment and qualifications — edit/delete-only sections", async () => {
-    // The A4 eval caught the opposite: with `delete` allowed on no field, every employment and
-    // qualification delete was silently dropped. The field is only the row's ANCHOR here.
+  it("a qualification DELETE is carded; an employment DELETE never is ('Never from chat')", async () => {
+    // The A4 eval caught `delete` allowed on no field, so every qualification delete was silently
+    // dropped; the field is only the row's ANCHOR. Employment is the opposite on purpose since
+    // the owner's 2026-10-01 ruling: a whole job is deleted only on the Profile screen.
     const h = setup({
       parse: parse([
         row({ op: "delete", section: "employment", ref: "e1", field: "employer_name", value: null }),
@@ -87,9 +88,16 @@ describe("CompanionEditService.propose — every drop rule (spec §Edit step 3)"
         certificates: [{ name: "ITI Machinist", issuer: "NCVT", year: 2018, licence_number: null, licence_expiry: null }],
       },
     });
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     const { turn } = await h.service.propose(WORKER_ID, profileRow(), "purana kaam hata do", CTX);
-    expect(turn.edit_proposal?.rows).toHaveLength(2);
-    expect(turn.edit_proposal?.rows.map((r) => r.op)).toEqual(["delete", "delete"]);
+    expect(turn.edit_proposal?.rows).toHaveLength(1);
+    expect(turn.edit_proposal?.rows[0]).toMatchObject({
+      section_label: "Certificate aur padhai",
+      field_label: "Yeh poora certificate",
+      op: "delete",
+    });
+    expect(savedRows(h).map((r) => r.op)).toEqual(["delete"]);
+    expect(proposedPayload(h)).toMatchObject({ row_count: 1, dropped_count: 1 });
   });
 
   it("sends the catalogue, the snapshot and max_rows to the AI service", async () => {
@@ -110,7 +118,9 @@ describe("CompanionEditService.propose — every drop rule (spec §Edit step 3)"
   });
 
   it.each([
-    ["an unknown field", row({ section: "employment", field: "salary", ref: "e1" })],
+    // An EDIT: the row helper defaults to `delete`, and an employment delete is the `job_delete`
+    // drop (its own line, below) before the catalogue is ever consulted.
+    ["an unknown field", row({ op: "edit", section: "employment", field: "salary", ref: "e1", value: "15000" })],
     ["an op the catalogue forbids", row({ op: "add", section: "employment", ref: null, field: "employer_name", value: "Tata" })],
     ["edit/delete with an unknown ref", row({ ref: "nope" })],
     ["add carrying a ref", row({ op: "add", section: "skills", ref: "s1", field: "skill", value: "welding" })],
@@ -122,6 +132,76 @@ describe("CompanionEditService.propose — every drop rule (spec §Edit step 3)"
     expect(turn.reply).toBe(V2_EDIT_NONE.latin);
     expect(turn.edit_proposal).toBeUndefined();
     expect(h.proposals.save).not.toHaveBeenCalled();
+  });
+
+  // ADR-0047 G1. With AI_RAW_PII_ENABLED on the model reads the worker's raw message and no
+  // placeholder is minted, so an echoed identifier arrives as plain text; a confirmed employer
+  // name or work line prints on both résumé PDFs. The clean edit in each case is the control.
+  describe("a value carrying a hard identifier (ADR-0047 G1)", () => {
+    // ONE ROLE, on purpose: every row is also parsed through the employment writer's real schema
+    // (P1-EDIT-DROP-DTO), which refuses an employment with no role — so with `roles: []` each
+    // row below would be dropped by the writer, never reaching the gate this block is about.
+    const TATA = {
+      employment_id: "66666666-6666-4666-8666-666666666666",
+      employer_name: "Tata Motors",
+      employer_city: "Pune",
+      employer_state: null,
+      start_ym: "2019-01",
+      end_ym: null,
+      roles: [
+        {
+          role_label: "Welder",
+          start_ym: "2019-01",
+          end_ym: null,
+          work_done: null,
+          work_done_voice_note_id: null,
+          description_source: null,
+        },
+      ],
+    };
+    const edit = (field: string, value: string) =>
+      row({ op: "edit", section: "employment", ref: "e1", field, value });
+
+    it.each([
+      ["a phone in employer_name", "employer_name", "Tata Motors, call 98765 43210"],
+      ["a PAN in work_done", "work_done", "PAN ABCDE1234F, lathe pe shaft"],
+      ["an email in role_label", "role_label", "ramesh.k@example.com"],
+    ])("drops %s", async (_what, field, value) => {
+      const h = setup({ parse: parse([edit(field, value)]), employmentViews: [TATA] });
+      const { turn } = await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+      expect(turn.reply).toBe(V2_EDIT_NONE.latin);
+      expect(turn.edit_proposal).toBeUndefined();
+      expect(h.proposals.save).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["employer_name", "Tata Motors Ltd"],
+      ["work_done", "lathe pe shaft"],
+      ["role_label", "Senior Welder"],
+    ])("control: a clean %s edit on the same entry IS carded", async (field, value) => {
+      const h = setup({ parse: parse([edit(field, value)]), employmentViews: [TATA] });
+      const { turn } = await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+      expect(turn.edit_proposal?.rows).toHaveLength(1);
+      expect(turn.edit_proposal?.rows[0]?.after).toBe(value);
+    });
+
+    it("keeps the clean edit beside it — one card, the echo counted as dropped", async () => {
+      const h = setup({
+        parse: parse([
+          edit("employer_name", "Tata Motors Ltd"),
+          edit("work_done", "call 98765 43210"),
+        ]),
+        employmentViews: [TATA],
+      });
+      const { turn } = await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+      expect(turn.edit_proposal?.rows).toHaveLength(1);
+      expect(turn.edit_proposal?.rows[0]?.after).toBe("Tata Motors Ltd");
+      expect(JSON.stringify(h.proposals.save.mock.calls)).not.toContain("98765");
+      const proposed = h.events.emit.mock.calls.find(
+        (c) => (c[0] as { event_name: string }).event_name === "chat.companion_edit_proposed",
+      )![0] as { payload: { dropped_count: number } };
+      expect(proposed.payload.dropped_count).toBe(1);
+    });
   });
 
   it("drops a no-op — an edit whose value already equals the current one", async () => {
@@ -460,18 +540,35 @@ describe("every card row explains itself (BUG-CARD-LABELS, POLISH-language-slugs
 
   it("a whole-entry delete is labelled as the entry, whatever field the model anchored on", async () => {
     const h = setup({
-      parse: parse([row({ op: "delete", section: "employment", ref: "e1", field: "start_ym", value: null })]),
-      employmentViews: [EMPLOYMENT],
+      parse: parse([
+        row({ op: "delete", section: "qualifications", ref: "c1", field: "certificate_year", value: null }),
+      ]),
+      qualificationLists: { certificates: [CERT_A] },
     });
-    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "Tata wala kaam hatao", CTX);
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "ITI wala certificate hatao", CTX);
     expect(turn.edit_proposal?.rows[0]).toMatchObject({
-      section_label: "Kaam",
-      field_label: "Yeh poora kaam",
+      section_label: "Certificate aur padhai",
+      field_label: "Yeh poora certificate",
       op: "delete",
-      before: "2019-01",
+      before: "2016",
       before_display: null,
     });
   });
+
+  it.each(["employer_name", "employer_city", "employer_state", "start_ym", "end_ym", "role_label", "work_done"])(
+    "a whole-JOB delete anchored on %s is never carded — no 'Yeh poora kaam' row ('Never from chat')",
+    async (field) => {
+      vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+      const h = setup({
+        parse: parse([row({ op: "delete", section: "employment", ref: "e1", field, value: null })]),
+        employmentViews: [EMPLOYMENT],
+      });
+      const { turn } = await h.service.propose(WORKER_ID, profileRow(), "Tata wala kaam hatao", CTX);
+      expect(turn.edit_proposal).toBeUndefined();
+      expect(turn.reply).toBe(V2_EDIT_PLACEHOLDER.latin);
+      expect(h.proposals.save).not.toHaveBeenCalled();
+    },
+  );
 
   it("an occupation add shows the role's taxonomy label beside its id", async () => {
     const h = setup({
@@ -628,5 +725,168 @@ describe("a row's field must belong to the entry its ref names (EDIT-ROW-KIND)",
     await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
     expect(savedRows(h).map((r) => [r.op, r.field])).toEqual([["edit", "shift"]]);
     expect(proposedPayload(h)).toMatchObject({ row_count: 1, dropped_count: 1 });
+  });
+});
+
+describe("'Never from chat' — chat never deletes a whole job (owner ruling, 2026-10-01)", () => {
+  // The production primary model (gemini-2.5-flash-lite), measured 3/3: "welder hata do" (drop the
+  // TRADE) came back as `delete employment e1`, because the snapshot shows "Welder" only as the
+  // job's role_label. The card said "Kaam · Yeh poora kaam", pre-ticked, so one Haan would remove
+  // the worker's whole job.
+  const WELDER = { role_id: "role_welder", label: "Welder" };
+  let warn: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    warn.mockClear();
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  const warnLines = (): string[] => warn.mock.calls.map((c) => String(c[0]));
+  const emittedNames = (h: ReturnType<typeof setup>): string[] =>
+    h.events.emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
+
+  it("'welder hata do' read as a job delete: no card, the Profile-screen line, nothing saved", async () => {
+    const h = setup({
+      parse: parse([
+        row({ op: "delete", section: "employment", ref: "e1", field: "employer_name", value: null }),
+      ]),
+      employmentViews: [EMPLOYMENT],
+      occupationEntries: [WELDER],
+    });
+    const result = await h.service.propose(WORKER_ID, profileRow(), "welder hata do", CTX);
+
+    expect(result.turn.reply).toBe(V2_EDIT_PLACEHOLDER.latin);
+    expect(result.turn.tts_text).toBe(V2_EDIT_PLACEHOLDER.dev);
+    expect(result.outcome).toBe("served");
+    expect(result.turn.edit_proposal).toBeUndefined();
+    expect(h.proposals.save).not.toHaveBeenCalled();
+    expect(emittedNames(h)).not.toContain("chat.companion_edit_proposed");
+    expect(h.db.transaction).not.toHaveBeenCalled();
+
+    // ONE counts-only line with the closed reason — the worker id, never a value.
+    const lines = warnLines().filter((line) => line.includes("reason=job_delete_from_chat"));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(WORKER_ID);
+    expect(lines[0]).toContain("1 of 1 rows");
+    for (const line of warnLines()) {
+      expect(line).not.toContain("Tata");
+      expect(line).not.toContain("Welder");
+      expect(line).not.toContain("welder");
+    }
+  });
+
+  it("'mujhe welder ka kaam nahi karna': the trade delete is carded, the job delete beside it is not", async () => {
+    const h = setup({
+      parse: parse([
+        row({ op: "delete", section: "employment", ref: "e1", field: "role_label", value: null }),
+        row({ op: "delete", section: "occupations", ref: "o1", field: "role_id", value: null }),
+      ]),
+      employmentViews: [EMPLOYMENT],
+      occupationEntries: [WELDER],
+    });
+    const { turn, outcome } = await h.service.propose(
+      WORKER_ID,
+      profileRow(),
+      "mujhe welder ka kaam nahi karna",
+      CTX,
+    );
+
+    expect(outcome).toBe("proposed");
+    expect(turn.reply).toBe(V2_EDIT_CARD_INTRO.latin);
+    expect(turn.edit_proposal?.rows.map(({ row_id: _id, ...rest }) => rest)).toEqual([
+      {
+        section_label: "Aur kaam",
+        field_label: "Role",
+        op: "delete",
+        before: "role_welder",
+        after: null,
+        before_display: "Welder",
+        after_display: null,
+      },
+    ]);
+    expect(savedRows(h).map((r) => [r.op, r.field])).toEqual([["delete", "role_id"]]);
+    expect(proposedPayload(h)).toMatchObject({ row_count: 1, dropped_count: 1 });
+    expect(warnLines().filter((line) => line.includes("reason=job_delete_from_chat"))).toHaveLength(1);
+  });
+
+  it("an employment EDIT still works: 'Tata ki jagah Mahindra likho' is carded", async () => {
+    const h = setup({
+      parse: parse([
+        row({ op: "edit", section: "employment", ref: "e1", field: "employer_name", value: "Mahindra" }),
+      ]),
+      employmentViews: [EMPLOYMENT],
+    });
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "Tata ki jagah Mahindra likho", CTX);
+    expect(turn.edit_proposal?.rows).toHaveLength(1);
+    expect(turn.edit_proposal?.rows[0]).toMatchObject({
+      section_label: "Kaam",
+      field_label: "Kahan kaam kiya",
+      op: "edit",
+      before: "Tata Motors",
+      after: "Mahindra",
+    });
+    expect(warnLines().some((line) => line.includes("reason=job_delete_from_chat"))).toBe(false);
+  });
+
+  it.each([
+    ["purana employer hata do", "employer_name"],
+    ["Tata wala kaam delete karo", "start_ym"],
+  ])("%j: whatever the model proposes, the worker is pointed at the Profile screen", async (text, field) => {
+    // The prompt now asks for NO row and `other` (the gold expects []); a model that still
+    // proposes the job delete meets the API's own wall. Both serve the same line.
+    const followed = setup({ parse: parse([], ["other"]), employmentViews: [EMPLOYMENT] });
+    const ignored = setup({
+      parse: parse([row({ op: "delete", section: "employment", ref: "e1", field, value: null })]),
+      employmentViews: [EMPLOYMENT],
+    });
+    for (const h of [followed, ignored]) {
+      const result = await h.service.propose(WORKER_ID, profileRow(), text, CTX);
+      expect(result.turn.reply).toBe(V2_EDIT_PLACEHOLDER.latin);
+      expect(result.outcome).toBe("served");
+      expect(h.proposals.save).not.toHaveBeenCalled();
+    }
+  });
+
+  it("no rows and unsupported ['other'] → the Profile-screen line, not 'samajh nahi aaya'", async () => {
+    // contracts §2.2: `other` is "things asked that cannot be edited here" — rephrasing cannot help.
+    const h = setup({ parse: parse([], ["other"]) });
+    const result = await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+    expect(result.turn.reply).toBe(V2_EDIT_PLACEHOLDER.latin);
+    expect(result.outcome).toBe("served");
+    expect(warnLines().some((line) => line.includes("reason=job_delete_from_chat"))).toBe(false);
+  });
+
+  it("no rows and nothing unsupported → still the clarify line (unchanged)", async () => {
+    const h = setup({ parse: parse([]) });
+    const result = await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+    expect(result.turn.reply).toBe(V2_EDIT_NONE.latin);
+    expect(result.outcome).toBe("clarify");
+  });
+
+  it("identity still wins: a job delete beside an identity ask gets the identity line", async () => {
+    const h = setup({
+      parse: parse(
+        [row({ op: "delete", section: "employment", ref: "e1", field: "employer_name", value: null })],
+        ["identity"],
+      ),
+      employmentViews: [EMPLOYMENT],
+    });
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+    expect(turn.reply).toBe(V2_EDIT_IDENTITY.latin);
+  });
+
+  it("the AI service is offered no employment delete at all", async () => {
+    const h = setup({ parse: parse([]) });
+    await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+    const input = h.ai.companionEditParse.mock.calls[0]![0] as {
+      catalogue: { section: string; field: string; ops: string[] }[];
+    };
+    const employment = input.catalogue.filter((f) => f.section === "employment");
+    expect(employment).toHaveLength(7);
+    for (const entry of employment) expect(entry.ops).toEqual(["edit"]);
   });
 });

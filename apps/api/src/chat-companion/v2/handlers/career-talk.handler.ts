@@ -30,8 +30,9 @@ export const CAREER_TURNS_MAX = 6;
  * THE PIPELINE, and where every safety property lives:
  *   1. the closed worker context is built from the CONFIRMED PROFILE (canonical trade label,
  *      coarse experience bucket) — no name, no phone, no employer, no city (O13);
- *   2. `AiService.companionCareer` sends the question, the recent pseudonymized turns and that
- *      context; the far side pseudonymizes fail-closed and answers in Hinglish or refuses;
+ *   2. `AiService.companionCareer` sends the question, the recent turns and that context; the
+ *      far side pseudonymizes fail-closed (unless `AI_RAW_PII_ENABLED` is on, when question and
+ *      turns reach the model raw) and answers in Hinglish or refuses;
  *   3. the spend is recorded against `companion_career_answer` (O12) — before any branch, the
  *      `ResumeParseService.parse` rule;
  *   4. a NULL (unreachable, timeout, schema miss) serves the fallback line;

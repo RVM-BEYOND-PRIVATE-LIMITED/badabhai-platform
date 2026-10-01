@@ -1,0 +1,22 @@
+classifier: 225/234 = 96.2% (bar 90%), edit_resume precision 100.0% (bar 95%) — scored after the API's confidence floor 0.60 (0 answers below it became unclear)
+calls: 234 sent, 234 answered by the model, 0 failed, 0 mock answers, 8 slower than the API timeout; spend INR 7.47 (router estimate)
+latency, round trip to the ai-service: p50 1036 ms, p95 2411 ms (bar < 1500 ms); model call only: p50 967 ms, p95 2374 ms (excludes the API hop and validator, and a career turn's classify call)
+  OVER API TIMEOUT 'mera resume update kar do': 4023 ms
+  OVER API TIMEOUT 'profile update': 5526 ms
+  OVER API TIMEOUT 'english language add kar do': 4161 ms
+  OVER API TIMEOUT 'मुझे पुणे में काम करना है, शहर बदलो': 8114 ms
+  OVER API TIMEOUT 'when is my interview': 4257 ms
+  OVER API TIMEOUT 'please create a new resume': 10876 ms
+  OVER API TIMEOUT 'generate my resume again': 5918 ms
+  OVER API TIMEOUT 'create my resume from scratch': 11028 ms
+  MISS 'mera resume update kar do': expected edit_resume, got unclear
+  MISS 'profile update': expected edit_resume, got unclear
+  MISS 'english language add kar do': expected edit_resume, got unclear
+  MISS 'मुझे पुणे में काम करना है, शहर बदलो': expected edit_resume, got unclear
+  MISS 'when is my interview': expected jobs_talk, got unclear
+  MISS 'please create a new resume': expected new_resume, got unclear
+  MISS 'generate my resume again': expected new_resume, got unclear
+  MISS 'create my resume from scratch': expected new_resume, got unclear
+  MISS 'hello hello hello hello': expected faltu, got unclear
+  FAIL p95 latency 2411 ms >= 1500 ms
+RESULT: FAIL

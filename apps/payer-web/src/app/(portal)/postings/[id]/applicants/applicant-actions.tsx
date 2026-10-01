@@ -314,13 +314,15 @@ export function ApplicantActions({
                       into tier-1 ORDERING by the 36-month floor is still shown as
                       "related" — the company opted into that breadth and should see
                       plainly what it is looking at before spending ₹40 to unlock him.
+                      Info tone, not brand: Safety Yellow is the Unlock CTA's colour, and a
+                      yellow label on every related card competed with it (W3-A).
                     */}
                     {a.matchTier !== undefined ? (
                       <>
                         {a.matchTier === 1 ? (
                           <Badge tone="success">Has the skill</Badge>
                         ) : (
-                          <Badge tone="brand">
+                          <Badge tone="info">
                             {a.matchedSkillLabel
                               ? `Related · ${a.matchedSkillLabel}`
                               : "Related skill"}
@@ -433,14 +435,11 @@ export function ApplicantActions({
                 <div className="applicant__contact">
                   {granted ? (
                     <div className="applicant__granted">
+                      {/* The UNLOCK status only. "Contacted" is a pipeline stage and shows once,
+                          in the toolbar where "Mark as contacted" was (W3-A: it was repeated
+                          here as a second solid badge); the unlock itself stays true. */}
                       <div className="applicant__granted-head">
-                        {row.contacted ? (
-                          <Badge tone="brand" variant="solid">
-                            Contacted
-                          </Badge>
-                        ) : (
-                          <Badge tone="success">Unlocked</Badge>
-                        )}
+                        <Badge tone="success">Unlocked</Badge>
                         <span className="applicant__until">
                           until <span className="bb-mono">{day(granted.expiresAt)}</span>
                         </span>
@@ -514,25 +513,40 @@ export function ApplicantActions({
                     </div>
                   ) : (
                     <div className="applicant__unlock">
-                      <Button
-                        variant="primary"
-                        size="md"
-                        disabled={row.busy || balance === 0}
-                        loading={row.busy}
-                        aria-busy={row.busy}
-                        title={balance === 0 ? "Top up to unlock" : undefined}
-                        onClick={() => onUnlock(a.workerId)}
-                      >
-                        {row.busy
-                          ? "Unlocking…"
-                          : row.unlockError
-                            ? "Retry unlock (1 credit)"
-                            : "Unlock contact (1 credit)"}
-                      </Button>
+                      <div className="applicant__unlock-actions">
+                        <Button
+                          variant="primary"
+                          size="md"
+                          disabled={row.busy || balance === 0}
+                          loading={row.busy}
+                          aria-busy={row.busy}
+                          title={balance === 0 ? "Top up to unlock" : undefined}
+                          onClick={() => onUnlock(a.workerId)}
+                        >
+                          {row.busy
+                            ? "Unlocking…"
+                            : row.unlockError
+                              ? "Retry unlock (1 credit)"
+                              : "Unlock contact (1 credit)"}
+                        </Button>
+                        {/* A REAL zero balance only — an unread balance arrives here as 1 (the
+                            page's affordance default), so Unlock stays enabled and this never
+                            shows. The disabled Unlock gets an enabled next step beside it; it is
+                            about the payer's own balance, never a signal about this candidate. */}
+                        {balance === 0 ? (
+                          <Link className="bb-btn bb-btn--secondary" href="/credits">
+                            <i className="ph-fill ph-coins" aria-hidden="true" />
+                            <span>Top up</span>
+                          </Link>
+                        ) : null}
+                      </div>
+                      {/* Plain text, not a link: the "Top up" button right above is this band's
+                          one way to /credits (a second link to the same page was a redundant tab
+                          stop on every card). */}
                       {balance === 0 ? (
                         <p className="applicant__hint">
-                          <Link href="/credits">Top up to unlock</Link>. Guidance only — this is
-                          your own balance, never a signal about this candidate.
+                          Top up to unlock. Guidance only — this is your own balance, never a
+                          signal about this candidate.
                         </p>
                       ) : null}
                       {/* Transient unlock failure: retryable inline error (the Unlock button

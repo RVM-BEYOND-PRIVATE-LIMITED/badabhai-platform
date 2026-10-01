@@ -1,0 +1,22 @@
+edit-parse: 58/74 exact = 78.4% (bar 90%)
+calls: 74 sent, 74 answered by the model, 0 failed, 0 mock answers, 0 slower than the API timeout; spend INR 12.18 (router estimate)
+latency, round trip to the ai-service: p50 1383 ms, p95 2062 ms; model call only: p50 1298 ms, p95 2027 ms (excludes the API hop and validator, and a career turn's classify call)
+  MISS 'city Pune se Nashik kar do': expected [('edit', 'employment', 'e1', 'employer_city', 'Nashik')], got [('edit', 'preferences', 'pc1', 'preferred_cities', 'Nashik')]
+  MISS 'मेरा शहर नासिक है': expected [('edit', 'employment', 'e1', 'employer_city', 'Nashik')], got [('edit', 'preferences', 'pc1', 'preferred_cities', 'Nasik')]
+  MISS 'job 2023 me chhod diya': expected [('edit', 'employment', 'e1', 'end_ym', '2023-12')], got [('edit', 'employment', 'e1', 'end_ym', '2023-01')]
+  MISS 'MIG welding bhi aata hai': expected [('add', 'skills', None, 'skill', 'MIG welding')], got []
+  MISS 'वेल्डिंग जोड़ दो': expected [('add', 'skills', None, 'skill', 'welding')], got [('add', 'skills', None, 'skill', 'वेल्डिंग')]
+  MISS 'certificate ka naam ITI Turner kar do': expected [('edit', 'qualifications', 'c1', 'certificate_name', 'ITI Turner')], got [('edit', 'qualifications', 'c1', 'certificate_name', '[PERSON_1]')]
+  MISS 'mera field mechanical tha': expected [('edit', 'qualifications', 'q1', 'education_field', 'Mechanical')], got [('edit', 'qualifications', 'q1', 'education_field', 'mechanical')]
+  MISS 'institute Govt ITI Faridabad tha': expected [('edit', 'qualifications', 'q1', 'education_institute', 'Govt ITI Faridabad')], got []
+  MISS 'training ka naam safety kar do': expected [('edit', 'qualifications', 't1', 'training_name', 'Safety')], got [('edit', 'qualifications', 't1', 'training_name', 'safety')]
+  MISS 'welding bhi karta hoon, add karo': expected [('add', 'occupations', None, 'role_id', 'role_welder')], got [('add', 'skills', None, 'skill', 'welding')]
+  MISS 'welder hata do': expected [('delete', 'occupations', 'o1', 'role_id', None)], got [('delete', 'employment', 'e1', 'employer_name', None)]
+  MISS 'mujhe welder ka kaam nahi karna': expected [('delete', 'occupations', 'o1', 'role_id', None)], got [('delete', 'employment', 'e1', 'role_label', None), ('delete', 'occupations', 'o1', 'role_id', None)]
+  MISS 'day shift chahiye': expected [('edit', 'preferences', 'pref', 'shift', 'day')], got []
+  MISS 'rehna-padna chahiye': expected [('edit', 'preferences', 'pref', 'accommodation_needed', 'true')], got []
+  MISS '15 din ka notice hai': expected [('edit', 'preferences', 'pref', 'availability_notice_period_days', '15')], got []
+  MISS 'daily wage bhi theek hai': expected [('add', 'preferences', None, 'work_types', 'daily_wage')], got [('edit', 'preferences', 'wt1', 'work_types', 'daily_wage')]
+  FAIL exact-row accuracy 78.4% < 90%
+  FAIL rows outside the catalogue: ['preferences:preferred_cities: op edit not allowed', 'preferences:preferred_cities: op edit not allowed', 'preferences:work_types: op edit not allowed']
+RESULT: FAIL

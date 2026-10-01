@@ -9,15 +9,20 @@ export interface HandlerInput {
   readonly workerId: string;
   readonly profile: WorkerProfile;
   /**
-   * The message, ALREADY pseudonymized by the API's gateway (never raw worker text) — or, for a
-   * task-chip tap, the chip's server-authored label (a constant, never the posted bytes).
+   * The message, pseudonymized by the API's gateway while `AI_RAW_PII_ENABLED` is off and the
+   * worker's RAW words while it is on (the orchestrator's `promptTextOf`) — or, for a task-chip
+   * tap, the chip's server-authored label (a constant, never the posted bytes). So a handler must
+   * treat it as raw either way: it may go to a model call, and it is NEVER logged, evented or
+   * persisted by a handler.
    */
   readonly text: string;
   /**
-   * The worker's recent pseudonymized turns, oldest first (≤ `MEMORY_TURNS`), read by the
-   * orchestrator for the classifier and passed on so a handler that needs more context — the
-   * Phase 3 career answer sends the newest six, whatever the knob — does not pay a second Redis
-   * hop. Empty when the store is unreadable, which every consumer already treats as "no context".
+   * The worker's recent turns, oldest first (≤ `MEMORY_TURNS`) — pseudonymized, or raw for the
+   * turns stored while `AI_RAW_PII_ENABLED` was on; the same never-log rule as `text` applies.
+   * Read by the orchestrator for the classifier and passed on so a handler that needs more
+   * context — the Phase 3 career answer sends the newest six, whatever the knob — does not pay a
+   * second Redis hop. Empty when the store is unreadable, which every consumer already treats as
+   * "no context".
    */
   readonly recentTurns: readonly CompanionRecentTurn[];
   readonly ctx: RequestContext;

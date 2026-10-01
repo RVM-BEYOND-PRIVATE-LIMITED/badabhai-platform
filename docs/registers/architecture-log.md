@@ -8,6 +8,45 @@ boundary moved).
 
 ---
 
+## 2026-09-30 — ADR-0047: the PII restriction is lifted; model-prompt masking becomes one switch
+
+- **The decision.** Owner, 2026-09-30 (relayed by Divyanshu, Backend Platform; merged directly on
+  the owner's instruction, signatures recorded after the merge): raw PII may appear in LLM prompts,
+  logs, events, audit records and analytics, for now
+  ([ADR-0047](../decisions/0047-lift-pii-restriction.md)). CLAUDE.md §3 is rewritten to match.
+- **The seam.** Only the AI path ever masked, so the code half is ONE switch, `AI_RAW_PII_ENABLED`,
+  read by both services and default off (off masks every prompt as before). In the ai-service every
+  prompt-side call site now goes through `apps/ai-service/app/llm_input_policy.py`, with a
+  keyword-only `raw` the route passes from settings; on, text passes through with the size caps
+  and the non-string refusal kept, and the Langfuse `mask=` hook and `ai_call_traces` text follow.
+  In the api, companion v2 skips its `/pseudonymize` hop.
+- **What did not move.** `pseudonymize()` itself, every output wall (AI output stays untrusted),
+  `redactKnownName` (G2 below), the at-rest masked copies (job-posting draft, growth queue,
+  corpus), PII encryption at rest, employer-side disclosure masking, consent, STT, event schemas
+  and loggers. Logs, events, audit and analytics are lifted as policy only — no masking code
+  existed there to switch.
+- **Two floors that read no flag (G1, G2 — owner, 2026-09-30).** The output walls were written
+  against masked input, and the change measured four echoes past them once the model reads raw
+  text. G1: a model-produced value carrying a hard identifier (`contains_hard_identifier`) is
+  dropped at Phase C's `_certified*`, the polish wall, the classic `/profiling/turn` labels and
+  `/profile/parse`'s `evidence.quote`; the four strict xfails became passing tests. Probing every
+  switched route armed found three more outputs, floored the same way: `/profile/extract`'s rich
+  draft (inside `merge_model_draft`), companion v2's edit rows (ai-service and api both) and the
+  `/resume/generate` summary. Inside an experience the floor works per field. G2: extraction keeps
+  `redactKnownName` under the flag — the transcript and the `/profile/parse` call's copy of the
+  answer map, whose records hold the worker's words — so it cannot put the worker's name on the
+  initials-only employer copy, and both `/profiling/turn` callers — the classic interview turn
+  (`LlmTurnService`), whose `role_label` becomes `primary_role`, and the skills stage
+  (`SkillsTurnService`) — now redact it too, whatever the flag says (ADR-0047 §6).
+- **Arming.** A GitHub `production`-environment secret bridged by `ci.yml` into compose's
+  `${AI_RAW_PII_ENABLED:-false}` on `api` and `ai-service`, plus a redeploy; rollback is the
+  secret set back to false plus a redeploy, leaving companion Redis memory and `ai_call_traces`
+  rows written while armed behind (ADR-0047 §5). The secret already reads `true`, so the merge's
+  own deploy arms production; a `security-engineer` review ran before that merge (ADR-0047 §8).
+  Both services parse the value with one grammar (`true`/`false`/`1`/`0`), and the deploy script
+  refuses any other before a container moves. `RESUME_PARSE_RAW_TEXT_ENABLED` (ADR-0041 D5) stays
+  a separate flag.
+
 ## 2026-09-28 — #1811: unique violations are read through drizzle's wrapper; the admin invite no longer catches one
 - **The defect.** drizzle-orm 0.45 throws `DrizzleQueryError`, whose own `code` is undefined; the
   Postgres SQLSTATE is on `cause`. Three services compared `err.code === "23505"` and so never

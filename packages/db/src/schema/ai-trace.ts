@@ -10,11 +10,18 @@
  *
  * ── PRIVACY CLASS: THE HIGHEST ON THE SPINE, AND THE MOST NARROWLY GUARDED ──
  *
- * `prompt_enc` / `response_enc` hold the FINAL prompt and completion of one AI call. Those strings
- * pass the pseudonymization boundary before they are minted (`apps/ai-service/app/pseudonymize.py`)
- * and are pseudonymized by contract — but a pseudonymizer is a best-effort transform over free
- * text, and R32 measured the name gazetteer DEAD at 348 leaks in 487 probes. So this schema does
- * NOT assume the text is clean. It assumes the opposite and contains it:
+ * `prompt_enc` / `response_enc` hold the FINAL prompt and completion of one AI call. While
+ * `AI_RAW_PII_ENABLED` is off those strings pass the pseudonymization boundary before they are
+ * minted (`apps/ai-service/app/pseudonymize.py`) and are pseudonymized by contract — but a
+ * pseudonymizer is a best-effort transform over free text, and R32 measured the name gazetteer
+ * DEAD at 348 leaks in 487 probes.
+ *
+ * ⚠ A ROW WRITTEN WHILE `AI_RAW_PII_ENABLED` AND `AI_CALL_TRACE_TEXT_ENABLED` ARE BOTH ON HOLDS RAW
+ * TEXT (ADR-0047): the ai-service then mints both strings UNMASKED, so the worker's own words — a
+ * name, a phone — sit inside the ciphertext. Turning the flag off does not rewrite those rows, and
+ * rows are kept indefinitely (RETENTION below), so they leave only by the DSAR cascade.
+ *
+ * So this schema does NOT assume the text is clean. It assumes the opposite and contains it:
  *
  *   1. CIPHERTEXT AT REST, ENFORCED BY THE DATABASE. Both columns carry the `@badabhai/db`
  *      AES-256-GCM token (`v1.<iv>.<tag>.<ct>` / `v2.<kid>.<iv>.<tag>.<ct>`), and the
@@ -26,8 +33,9 @@
  *      ⚠ WHAT THAT CHECK DOES **NOT** SAY, stated plainly so no reader infers more (the
  *      `screen_context` lesson): it enforces "this column holds an AES-GCM token, not prose". It
  *      cannot and does not enforce that the PLAINTEXT INSIDE was pseudonymized. That property is
- *      the producer's, held at the ai-service boundary, and it is the reason the read path below
- *      is gated the way it is rather than opened to everyone who can read a cost figure.
+ *      the producer's, held at the ai-service boundary only while `AI_RAW_PII_ENABLED` is off, and
+ *      it is the reason the read path below is gated the way it is rather than opened to everyone
+ *      who can read a cost figure.
  *
  *   2. THE READ IS A DIFFERENT PRIVILEGE FROM THE LIST. Decrypting is gated on the new
  *      `read_ai_traces` capability (super_admin only), behind a default-OFF

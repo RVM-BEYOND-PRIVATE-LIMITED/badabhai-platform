@@ -8,6 +8,11 @@ privacy gate having run on it.
 
 **Verdict: PASS** (after one High-severity fix, applied in this change).
 
+> **Read against [ADR-0047](../decisions/0047-lift-pii-restriction.md) (2026-09-30).** Invariants 1–3
+> below held on the review date and still hold while `AI_RAW_PII_ENABLED` is off; armed, prompts and
+> traces carry raw text by the owner's decision. This review is the record of its date and is not
+> rewritten.
+
 ---
 
 ## Invariants checked (CLAUDE.md §2)

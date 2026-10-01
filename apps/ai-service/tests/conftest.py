@@ -113,6 +113,11 @@ def _force_mock_only_env() -> None:
     # on a path that was never meant to have any — and would silently widen every
     # endpoint's response body for the whole suite.
     os.environ["AI_CALL_TRACE_TEXT_ENABLED"] = "false"
+    # The platform raw-PII switch, pinned for the same reason: it decides which masker every
+    # prompt-building route selects, and every masking test in the suite asserts against a bare
+    # ``Settings()``. A developer .env turning it on would make them fail — or, worse, pass
+    # vacuously wherever a test only checks that the router was reached.
+    os.environ["AI_RAW_PII_ENABLED"] = "false"
     # Supabase storage (voice-note object downloads).
     os.environ["SUPABASE_URL"] = ""
     os.environ["SUPABASE_SERVICE_ROLE_KEY"] = ""
