@@ -105,9 +105,26 @@ export class ReachService {
     payerId: string,
     ctx: RequestContext,
   ): Promise<ApplicantListResponseDto> {
-    const ownedRow = await this.repo.findOwnedJobSignalRowById(jobId, payerId);
+    const list = await this.tryApplicantsForOwnedJob(jobId, payerId, ctx);
     // Not-found AND not-owned both land here with the IDENTICAL body (no-oracle, F-3).
-    if (!ownedRow) throw new NotFoundException("Job not found");
+    if (!list) throw new NotFoundException("Job not found");
+    return list;
+  }
+
+  /**
+   * {@link applicantsForOwnedJob} without the 404: `undefined` when `jobId` is not a `jobs`
+   * row the session payer owns (unknown and another payer's job alike), the ranked list
+   * otherwise. The payer applicant list (#1823) uses it to tell an agency job from a company
+   * posting in ONE ownership read, with no exception as control flow. A DB error propagates;
+   * it is never folded into `undefined`, so it can never become a 404.
+   */
+  async tryApplicantsForOwnedJob(
+    jobId: string,
+    payerId: string,
+    ctx: RequestContext,
+  ): Promise<ApplicantListResponseDto | undefined> {
+    const ownedRow = await this.repo.findOwnedJobSignalRowById(jobId, payerId);
+    if (!ownedRow) return undefined;
     const jobSpec = jobSignalRowToJobSpec(ownedRow);
 
     // Full pool, signal columns only, NO relevance WHERE (sort-never-block, D8).

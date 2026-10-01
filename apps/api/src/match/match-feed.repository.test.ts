@@ -435,6 +435,30 @@ describe("listCandidates — the ORDER BY *is* the ratified rank key (ADR-0036 �
     // outside the frozen snapshot — E16/Policy 7 breakage.
     expect(orderByOf(statements[0]!.sql)).not.toContain("matched_skill_id");
   });
+
+  it("never lists a pending-deletion applicant — ADR-0031 (b) membership, not a rank key", async () => {
+    const { repo, statements } = makeDb();
+    await repo.listCandidates(POSTING, 36, 500);
+    const { sql, params } = statements[0]!;
+
+    // Since #1823 this list is a live payer surface with V1 off. A worker inside the 7-day
+    // deletion grace window has asked to leave; the owner's ruling is "freeze all payer
+    // surfaces", so he must drop off the company's list, not merely be refused at unlock.
+    // INNER, so the exclusion cannot quietly become an outer join that keeps every row.
+    expect([...sql.matchAll(/(\w+)\s+JOIN\s+workers/g)].map((m) => m[1])).toEqual(["INNER"]);
+    expect(sql).toContain("JOIN workers w ON w.id = a.worker_id");
+    // In the WHERE, beside the applied-only predicate...
+    const where = sql.indexOf("WHERE a.job_posting_id");
+    const freeze = sql.indexOf("w.deletion_scheduled_at IS NULL");
+    expect(where, "statement has the posting WHERE").toBeGreaterThan(-1);
+    expect(freeze, "the pending-deletion predicate must follow the WHERE").toBeGreaterThan(where);
+    expect(freeze).toBeLessThan(sql.lastIndexOf("ORDER BY"));
+    // ...and NOT in the ORDER BY: it decides who is listed, never who comes first, so the
+    // rank-parity pin with `rankKeyCompare` is untouched.
+    expect(orderByOf(sql)).not.toContain("deletion_scheduled_at");
+    // A literal predicate: no new bind, the posting/floor/limit binds are unchanged.
+    expect(params).toEqual([POSTING, 36, 500]);
+  });
 });
 
 describe("listCandidates — row mapping", () => {
