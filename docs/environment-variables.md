@@ -157,6 +157,21 @@ NestJS boot assertion).
   `${CHAT_IDENTITY_INTAKE_ENABLED:-false}`, `ci.yml` `env:` + `envs:`). **It must be on by the
   release that unroutes the app's `/name` screen** — off with `/name` gone captures nobody's name;
   on with `/name` still routed asks only what `/name` left blank. No migration.
+- **Matching V1 cutover gate (ADR-0036 §8, #1904)** — `MATCH_V1_ENABLED`, api only
+  (`booleanFromString`, default off). Off is the legacy source for the worker feed, apply and the
+  payer candidate list (`jobs` + the weighted engine); on is `job_reach` + `job_postings` + the V1
+  rank key. It is the only matching env var: every tunable lives in the `match_config` row.
+  Bridged through the GitHub `production` environment secret of the same name (compose
+  `${MATCH_V1_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`). **Absent = off**: no secret
+  exists today, so the bridge exports an empty value, compose resolves it to `false`, and the
+  parser reads `""` as `false` as well. A box-level `export` no longer survives a deploy.
+  **Do not create the secret before P1 + P3 of `docs/ops/production-release-runbook.md`** —
+  production's `job_reach` and `worker_skill` are empty, so `true` serves every worker an empty
+  deck. The flip is that runbook's P4 #12. Arming is the secret set to `true` plus a redeploy; off
+  again is the secret set to `false` (or deleted) plus a redeploy. Values: lowercase `true`/`false`/
+  `1`/`0`/empty only; anything else stops the api booting, and unlike `AI_RAW_PII_ENABLED` the
+  deploy script has no preflight for this name. In CI only the `e2e` job's Matching V1 journey step
+  sets it, on its own API process (port 3002).
 - **Chat / profiling** — `CHAT_TRANSCRIPT_TTL_SECONDS`, `CHAT_ABANDON_AFTER_SECONDS`,
   `CHAT_MAX_TURNS` (the authoritative hard cap — the ai-service mirrors it but holds no
   per-session state, so it can only enforce what the API tells it).

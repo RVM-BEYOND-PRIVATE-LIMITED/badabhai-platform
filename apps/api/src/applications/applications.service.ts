@@ -381,9 +381,10 @@ export class ApplicationsService {
    * V1 apply. `jobId` is a `job_postings.id` here (the feed serves postings).
    *
    * THE REACH ROW IS THE GATE AND THE ORACLE IS CLOSED: `buildSnapshot` 404s with the
-   * identical neutral body when the worker has no `job_reach` row — he can only apply
-   * to what the gate showed him, and a missing row is indistinguishable from a missing
-   * posting. That is stronger than the legacy path's existence check, deliberately.
+   * identical neutral body when the worker has no `job_reach` row on an OPEN posting —
+   * he can only apply to what the gate showed him, and a missing row is indistinguishable
+   * from a missing or no-longer-open posting. That is stronger than the legacy path's
+   * open-job check (`findJobById`), deliberately.
    *
    * The snapshot is written on insert and on a skip→apply flip only. E16.
    */

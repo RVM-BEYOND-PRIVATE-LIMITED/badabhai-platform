@@ -46,7 +46,9 @@ export interface MatchDecisionResult {
  *
  * THE REACH ROW IS THE GATE. He can only apply to what the gate showed him: no
  * `job_reach` row means the posting never reached him, and the apply 404s with the same
- * neutral body as an unknown posting (no existence oracle).
+ * neutral body as an unknown posting (no existence oracle). The read only counts a row
+ * whose posting is still OPEN (the feed's predicate), so a paused/closed/suspended
+ * posting takes that same 404 — the status lives in the read, not a second check here.
  */
 @Injectable()
 export class MatchApplyService {
@@ -58,7 +60,7 @@ export class MatchApplyService {
 
   /**
    * Compute the frozen rank inputs for (worker, posting), or throw 404 when the worker
-   * has no reach row for it.
+   * has no reach row for it, or the posting is no longer open.
    *
    * `skillMonthsFor` decides WHICH skill's months count:
    *  - E5 tier 1, multi-skill posting → the MAX across the posted skills he holds;
@@ -70,7 +72,8 @@ export class MatchApplyService {
   async buildSnapshot(workerId: string, jobPostingId: string): Promise<RankSnapshot> {
     const reach = await this.skills.findReachRow(workerId, jobPostingId);
     // NO ORACLE: identical to the "posting does not exist" 404. A worker must not be
-    // able to enumerate postings by watching which ids answer differently.
+    // able to enumerate postings by watching which ids answer differently. A posting that
+    // is no longer open lands here too: `findReachRow` reads open postings only (#1904).
     if (!reach) throw new NotFoundException("Job not found");
 
     const posting = await this.skills.findPostingSkillSets(jobPostingId);

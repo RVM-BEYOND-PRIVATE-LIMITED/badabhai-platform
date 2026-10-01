@@ -10,6 +10,7 @@ import {
   workerSkills,
 } from "@badabhai/db";
 import type { Database } from "@badabhai/db";
+import { MatchFeedRepository } from "./match-feed.repository";
 import { WorkerSkillsRepository } from "./worker-skills.repository";
 
 /**
@@ -749,6 +750,41 @@ describe("findReachRow — the apply gate", () => {
     const { repo, captured } = makeDb({ exec: [[]] });
     await repo.findReachRow(WORKER, POSTING);
     expect(captured.statements[0]!.params).toEqual([WORKER, POSTING]);
+  });
+
+  it("counts a reach row ONLY on an OPEN posting (#1904)", async () => {
+    const { repo, captured } = makeDb({ exec: [[]] });
+    await repo.findReachRow(WORKER, POSTING);
+    const { sql } = captured.statements[0]!;
+    // `job_reach` rows survive a pause, a close and the suspension cascade. Without this join
+    // and predicate a worker holding an id could apply to a posting no feed would serve him.
+    expect(sql).toContain("JOIN job_postings jp ON jp.id = jr.job_posting_id");
+    expect(sql).toContain("jp.status = 'open'");
+    // NOT the reconcile's ('open', 'paused') scope: a paused posting is on no feed.
+    expect(sql).not.toContain("paused");
+  });
+
+  it("uses the V1 FEED's open-status predicate verbatim — the gate and the feed cannot drift", async () => {
+    const statusPredicates = (sql: string) =>
+      sql.match(/jp\.status\s*(?:=\s*'[^']*'|IN\s*\([^)]*\))/g) ?? [];
+
+    const feedStatements: string[] = [];
+    const feed = new MatchFeedRepository({
+      execute: (stmt: unknown) => {
+        feedStatements.push(compile(stmt).sql);
+        return Promise.resolve([]);
+      },
+    } as unknown as Database);
+    await feed.listFeed(WORKER, 10, {});
+
+    const { repo, captured } = makeDb({ exec: [[]] });
+    await repo.findReachRow(WORKER, POSTING);
+
+    // What a worker can SEE and what he can APPLY TO are one rule. If either side widens
+    // (say, to `IN ('open','paused')`) without the other, this fails.
+    const gate = statusPredicates(captured.statements[0]!.sql);
+    expect(gate).toEqual(["jp.status = 'open'"]);
+    expect(statusPredicates(feedStatements[0]!)).toEqual(gate);
   });
 
   it("normalises the tier to the closed set {1,2} — only an exact 1 is tier 1", async () => {
