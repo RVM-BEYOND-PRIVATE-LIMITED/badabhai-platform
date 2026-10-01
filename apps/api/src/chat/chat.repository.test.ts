@@ -113,12 +113,30 @@ describe("ChatRepository.endSession — the duplicate-transcript guard", () => {
 
     // "ended" is the EXISTING CHAT_SESSION_STATUSES value — no new status, so no
     // migration and no client change.
-    expect(captured.set).toMatchObject({
-      status: "ended",
-      endedAt: at,
-      lastMessageAt: at,
-      conversationState: { turn_count: 4 },
-    });
+    expect(captured.set).toMatchObject({ status: "ended", endedAt: at, lastMessageAt: at });
+    // The flush's state is the statement's one bound JSON value (the rest is the TD145 carry).
+    expect(renderQuery(captured.set!.conversationState).params).toEqual([
+      JSON.stringify({ turn_count: 4 }),
+    ]);
+  });
+
+  it("TD145: carries an existing general_form_completed_at over the state it replaces, in the same UPDATE", async () => {
+    const { db, captured } = makeCapturingDb();
+    const state = { turn_count: 4, general_road: { handed_over: true } };
+    await new ChatRepository(db as never).endSession(db as never, SESSION, state, new Date());
+
+    // A failed general-handover flush leaves the session `active`; the worker can finish the form
+    // (the mark lands) before the re-drive closes it here. A plain replace erased the mark and the
+    // companion's rule 4 then held the worker in the interview. The merge is in SQL, not a
+    // read-then-write, so a mark committed while this UPDATE waited on the row lock is kept too.
+    // The existing key goes on the RIGHT of `||`, so the durable mark wins; `jsonb_strip_nulls`
+    // keeps the key ABSENT (never JSON null) when there is no mark, or the mark's write-once
+    // `IS NULL` guard would refuse every later write.
+    const q = renderQuery(captured.set!.conversationState);
+    expect(q.sql).toMatch(
+      /^\$1::jsonb \|\| jsonb_strip_nulls\(jsonb_build_object\('general_form_completed_at', (?:"chat_sessions"\.)?"conversation_state" -> 'general_form_completed_at'\)\)$/,
+    );
+    expect(q.params).toEqual([JSON.stringify(state)]);
   });
 });
 
