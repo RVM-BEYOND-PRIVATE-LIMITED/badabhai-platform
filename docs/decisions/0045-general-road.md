@@ -135,7 +135,8 @@ their dated jobs only (R5). An undated job makes the total unknown, exactly as t
     stamp. From then on that session serves the résumé menu, and `GET /profiling/general-form` reports `complete` from
     the same mark, per handover, so a chat redo that hands the form over again starts incomplete. Residual: a handover
     whose flush failed is still active, and a later re-flush replaces the whole column and drops the mark; the card
-    then returns until the brief is saved again.
+    then returns until the brief is saved again. **Residual closed 2026-10-01 (TD145):** the re-flush
+    (`ChatRepository.endSession`) merges an existing mark back over its state in the same UPDATE.
   - ~~The voice form can re-attach to an ACTIVE chat session. If that session is armed and on the skills lane, the
     voice surface runs the skills stage and its handover has no card on that surface.~~ **Closed:** the voice form's
     `start` no longer re-attaches to a live session that is armed for the general road and not settled on the classic
