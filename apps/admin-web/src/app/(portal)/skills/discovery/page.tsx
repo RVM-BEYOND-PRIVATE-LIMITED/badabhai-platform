@@ -290,94 +290,100 @@ export default async function SkillDiscoveryPage({
           </div>
         </div>
 
-        {/* ── status scope chips ──────────────────────────────────────────────────────── */}
-        <div className="filters--inline" role="group" aria-label="Status">
-          {(["awaiting", "held", "decided", "all"] as const).map((s) => (
-            <Link
-              key={s}
-              aria-current={statusScope === s ? "true" : undefined}
-              className={`btn btn--sm ${statusScope === s ? "btn--primary" : "btn--ghost"}`}
-              href={listHref({ statusScope: s, cursor: undefined })}
-            >
-              {STATUS_SCOPE_LABELS[s]}
-            </Link>
-          ))}
-        </div>
-
-        {/* ── tier tabs — sequencing is VISIBLE, never a silent default filter ──────────── */}
-        <div className="filters--inline" role="group" aria-label="Review tier">
-          <Link
-            aria-current={activeTier === "all" ? "true" : undefined}
-            className={`btn btn--sm ${activeTier === "all" ? "btn--primary" : "btn--ghost"}`}
-            href={tierTabHref("all")}
-          >
-            All tiers
-          </Link>
-          <Link
-            aria-current={activeTier === "direct" ? "true" : undefined}
-            className={`btn btn--sm ${activeTier === "direct" ? "btn--primary" : "btn--ghost"}`}
-            href={tierTabHref("direct")}
-          >
-            Direct (default)
-          </Link>
-          <Link
-            aria-current={activeTier === "ambiguous" ? "true" : undefined}
-            className={`btn btn--sm ${activeTier === "ambiguous" ? "btn--primary" : "btn--ghost"}`}
-            href={tierTabHref("ambiguous")}
-          >
-            Ambiguous
-          </Link>
-          {activeTier === "derived" && derivedAck ? (
-            <Link aria-current="true" className="btn btn--sm btn--primary" href={tierTabHref("derived")}>
-              Derived
-            </Link>
-          ) : (
-            <Link className="btn btn--sm btn--ghost" href={derivedViewAnywayHref}>
-              Derived (sequenced behind Direct) — view anyway
-            </Link>
-          )}
-        </div>
-        <p className="field__help">{DERIVED_TIER_SEQUENCING_REASON}</p>
-
-        {/* ── group sort — an explicit, labelled client re-order, never a silent one ──────
-            The server's real order (`candidates` descending) is the default; `undecided`-first
-            is offered because the issue's own rationale argued for it, but that argument is not
-            settled — see the page header. Only meaningful in the grouped view. */}
-        {view === "grouped" && (
-          <div className="filters--inline" role="group" aria-label="Batch order">
-            <Link
-              aria-current={groupSort === "candidates" ? "true" : undefined}
-              className={`btn btn--sm ${groupSort === "candidates" ? "btn--primary" : "btn--ghost"}`}
-              href={listHref({ groupSort: undefined })}
-            >
-              Biggest batch first (server order)
-            </Link>
-            <Link
-              aria-current={groupSort === "undecided" ? "true" : undefined}
-              className={`btn btn--sm ${groupSort === "undecided" ? "btn--primary" : "btn--ghost"}`}
-              href={listHref({ groupSort: "undecided" })}
-            >
-              Most work remaining first
-            </Link>
+        {/* Every control above the results, as ONE stack with one gap — see `.queue-controls`. */}
+        <div className="queue-controls">
+          {/* ── status scope chips ────────────────────────────────────────────────────── */}
+          <div className="filters--inline" role="group" aria-label="Status">
+            {(["awaiting", "held", "decided", "all"] as const).map((s) => (
+              <Link
+                key={s}
+                aria-current={statusScope === s ? "true" : undefined}
+                className={`btn btn--sm ${statusScope === s ? "btn--primary" : "btn--ghost"}`}
+                href={listHref({ statusScope: s, cursor: undefined })}
+              >
+                {STATUS_SCOPE_LABELS[s]}
+              </Link>
+            ))}
           </div>
-        )}
 
-        <SkillDiscoveryFilterBar
-          basePath="/skills/discovery"
-          carry={carry}
-          initial={{
-            band: band ?? "",
-            proposedAction: proposedAction ?? "",
-            tradeFamily: tradeFamily ?? "",
-            sourceType: sourceType ?? "",
-            runId: runId ?? "",
-            clusterKey: clusterKey ?? "",
-            phrase: phrase ?? "",
-            createdFrom: createdFrom ?? "",
-            createdTo: createdTo ?? "",
-            sort,
-          }}
-        />
+          {/* ── tier tabs — sequencing is VISIBLE, never a silent default filter ──────────
+              The caption explains the tabs, so it sits with them rather than at the stack gap. */}
+          <div className="queue-controls__group">
+            <div className="filters--inline" role="group" aria-label="Review tier">
+              <Link
+                aria-current={activeTier === "all" ? "true" : undefined}
+                className={`btn btn--sm ${activeTier === "all" ? "btn--primary" : "btn--ghost"}`}
+                href={tierTabHref("all")}
+              >
+                All tiers
+              </Link>
+              <Link
+                aria-current={activeTier === "direct" ? "true" : undefined}
+                className={`btn btn--sm ${activeTier === "direct" ? "btn--primary" : "btn--ghost"}`}
+                href={tierTabHref("direct")}
+              >
+                Direct (default)
+              </Link>
+              <Link
+                aria-current={activeTier === "ambiguous" ? "true" : undefined}
+                className={`btn btn--sm ${activeTier === "ambiguous" ? "btn--primary" : "btn--ghost"}`}
+                href={tierTabHref("ambiguous")}
+              >
+                Ambiguous
+              </Link>
+              {activeTier === "derived" && derivedAck ? (
+                <Link aria-current="true" className="btn btn--sm btn--primary" href={tierTabHref("derived")}>
+                  Derived
+                </Link>
+              ) : (
+                <Link className="btn btn--sm btn--ghost" href={derivedViewAnywayHref}>
+                  Derived (sequenced behind Direct) — view anyway
+                </Link>
+              )}
+            </div>
+            <p className="field__help">{DERIVED_TIER_SEQUENCING_REASON}</p>
+          </div>
+
+          {/* ── group sort — an explicit, labelled client re-order, never a silent one ────
+              The server's real order (`candidates` descending) is the default; `undecided`-first
+              is offered because the issue's own rationale argued for it, but that argument is not
+              settled — see the page header. Only meaningful in the grouped view. */}
+          {view === "grouped" && (
+            <div className="filters--inline" role="group" aria-label="Batch order">
+              <Link
+                aria-current={groupSort === "candidates" ? "true" : undefined}
+                className={`btn btn--sm ${groupSort === "candidates" ? "btn--primary" : "btn--ghost"}`}
+                href={listHref({ groupSort: undefined })}
+              >
+                Biggest batch first (server order)
+              </Link>
+              <Link
+                aria-current={groupSort === "undecided" ? "true" : undefined}
+                className={`btn btn--sm ${groupSort === "undecided" ? "btn--primary" : "btn--ghost"}`}
+                href={listHref({ groupSort: "undecided" })}
+              >
+                Most work remaining first
+              </Link>
+            </div>
+          )}
+
+          <SkillDiscoveryFilterBar
+            basePath="/skills/discovery"
+            carry={carry}
+            initial={{
+              band: band ?? "",
+              proposedAction: proposedAction ?? "",
+              tradeFamily: tradeFamily ?? "",
+              sourceType: sourceType ?? "",
+              runId: runId ?? "",
+              clusterKey: clusterKey ?? "",
+              phrase: phrase ?? "",
+              createdFrom: createdFrom ?? "",
+              createdTo: createdTo ?? "",
+              sort,
+            }}
+          />
+        </div>
 
         {badRequest ? (
           <div className="state state--error">
@@ -427,7 +433,7 @@ export default async function SkillDiscoveryPage({
         )}
 
         {view === "grouped" && groupsResult && (
-          <>
+          <div className="queue-notes queue-notes--foot">
             <p className="field__help">
               {formatCount(groupsResult.total_groups)} batches over {formatCount(groupsResult.total_candidates)}{" "}
               candidates, {formatCount(groupsResult.total_undecided)} still undecided — exhaustive for
@@ -440,7 +446,7 @@ export default async function SkillDiscoveryPage({
              * that otherwise looks like a list of records.
              */}
             <p className="field__help">{basisMarkerLabel(groupsResult.grouping_basis)}</p>
-          </>
+          </div>
         )}
       </section>
     </div>
@@ -487,18 +493,32 @@ function resolveStatusScope(
 // dashboard tiles — AC#1: one request, no client-side aggregation
 // ---------------------------------------------------------------------------
 
+/**
+ * One section, named for assistive tech the way the credits and transactions stat blocks are:
+ * the two tile rows and their captions are ONE block with its own tighter rhythm, not four loose
+ * page children each a full page gap apart (and the error state's h3 now sits under an h2).
+ */
 function MetricsTiles({ metrics }: { metrics: SkillDiscoveryMetrics | null }) {
-  if (metrics === null) {
-    return (
-      <div className="state state--error">
-        <h3 className="state__title">Dashboard tiles are unavailable</h3>
-        <p className="state__body">
-          The metrics read failed. The queue below is a separate read and may still work.
-        </p>
-      </div>
-    );
-  }
+  return (
+    <section className="queue-metrics" aria-labelledby="sd-metrics">
+      <h2 className="sr-only" id="sd-metrics">
+        Queue metrics
+      </h2>
+      {metrics === null ? (
+        <div className="state state--error">
+          <h3 className="state__title">Dashboard tiles are unavailable</h3>
+          <p className="state__body">
+            The metrics read failed. The queue below is a separate read and may still work.
+          </p>
+        </div>
+      ) : (
+        <MetricsBody metrics={metrics} />
+      )}
+    </section>
+  );
+}
 
+function MetricsBody({ metrics }: { metrics: SkillDiscoveryMetrics }) {
   const byStatus = (key: string) => metrics.by_status.find((b) => b.key === key)?.count ?? 0;
   const byTier = (key: string) => metrics.by_tier.find((b) => b.key === key)?.count ?? 0;
 
@@ -523,18 +543,20 @@ function MetricsTiles({ metrics }: { metrics: SkillDiscoveryMetrics | null }) {
         <Stat label="Rejected" value={formatCount(byStatus("rejected"))} />
         <Stat label="Held" value={formatCount(metrics.deferred)} />
       </div>
-      <p className="field__help">
-        {formatCount(metrics.total)} candidates in total.{" "}
-        {metrics.oldest_awaiting_created_at
-          ? `Oldest still awaiting a decision: ${formatRelative(metrics.oldest_awaiting_created_at)} (${formatTimestamp(metrics.oldest_awaiting_created_at)}).`
-          : "Nothing is currently awaiting a decision."}
-      </p>
-      {/*
-       * `tier_basis`, rendered beside the three tier counts it qualifies (#1280, correction 3).
-       * The tiles look like counts of a stored column and are not — the tier is recomputed on
-       * every read from the phrase class and whether a strong match exists.
-       */}
-      <p className="field__help">{basisMarkerLabel(metrics.tier_basis)}</p>
+      <div className="queue-notes">
+        <p className="field__help">
+          {formatCount(metrics.total)} candidates in total.{" "}
+          {metrics.oldest_awaiting_created_at
+            ? `Oldest still awaiting a decision: ${formatRelative(metrics.oldest_awaiting_created_at)} (${formatTimestamp(metrics.oldest_awaiting_created_at)}).`
+            : "Nothing is currently awaiting a decision."}
+        </p>
+        {/*
+         * `tier_basis`, rendered beside the three tier counts it qualifies (#1280, correction 3).
+         * The tiles look like counts of a stored column and are not — the tier is recomputed on
+         * every read from the phrase class and whether a strong match exists.
+         */}
+        <p className="field__help">{basisMarkerLabel(metrics.tier_basis)}</p>
+      </div>
     </>
   );
 }

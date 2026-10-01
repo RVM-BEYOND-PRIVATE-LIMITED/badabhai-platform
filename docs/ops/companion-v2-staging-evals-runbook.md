@@ -98,18 +98,64 @@ is taken before the API validator, so it can PASS while the served rate misses. 
 holds every answer the model gave, each with `prompt_id`, `expected`, `lines`, `followup_chips`
 and `within_api_timeout`. The served rate is:
 
-> normal samples (`expected: "answer"`) with `within_api_timeout: true` **and** no failure from
-> `validateCareerAnswer` (`apps/api/src/chat-companion/v2/career-output.validator.ts`), divided by
-> the number of normal prompts in the set (`career.txt` prints both counts).
+> normal samples (`expected: "answer"`) with `within_api_timeout: true`, an answer that passes the
+> response contract (`CompanionCareerAnswerSchema`) **and** no failure from `validateCareerAnswer`
+> (`apps/api/src/chat-companion/v2/career-output.validator.ts`), divided by the number of normal
+> prompts in the set (`career.txt` prints both counts).
 
-**Bar: ≥ 85 %.** No replay script exists yet. It belongs with the validator, in `apps/api`
-(Backend). Until one exists, write the served rate as **NOT MEASURED** in the evidence README.
-Do not copy the CLI's pre-validator number into that line.
+The contract clause matches production, where a body that fails the schema is null, and null is
+the fallback line.
+
+**Bar: ≥ 85 %.** Measure it with the API's replay,
+`apps/api/src/chat-companion/v2/career-served-rate.ts`. It puts each normal answer through the
+career turn's own gates, in the handler's order: the API timeout, the response contract, then
+`validateCareerAnswer`. The denominator is never typed by hand: the replay reads it from the run's
+`career.txt` ("(A of N normal questions;"). Two counts there must match `career-all.json`: A (the
+in-time normal answers) and "all answers: wrote W" (its samples). That refuses most mismatched
+pairs, but not all, since two runs with the same counts still pair, so keep the six files together.
+A `career.txt` that the CLI marked `CONTAMINATED` or `INCOMPLETE` is refused outright.
+
+**Score against the validator the API actually serves.** It changes (#1872 changed it). So run the
+replay inside the deployed API container, which ships it from the first deploy that includes it:
+
+```bash
+A=badabhai-api
+docker cp companion-evals/career-all.json "$A:/tmp/" && docker cp companion-evals/career.txt "$A:/tmp/"
+docker exec "$A" node apps/api/dist/chat-companion/v2/career-served-rate.js \
+  --file /tmp/career-all.json --career-txt /tmp/career.txt > companion-evals/served-rate.txt
+```
+
+The other route is a repo checkout at the deployed API's commit (`/health` `build`): run
+`pnpm turbo run build --filter=@badabhai/api` and then the same `node` command with local paths.
+Record that commit in the README.
+
+It prints the served rate, lists each normal answer that was not served by `prompt_id` and reason
+(never its text), and ends with `RESULT: PASS|FAIL` (exit 0|1). Exit 2 means the replay refused to
+score:
+- a missing or repeated flag
+- a file that is not the `--dump-all` output (`career-samples.json` is refused)
+- a `career.txt` without exactly one count line and one "all answers" line. A capture made with
+  Windows PowerShell 5.1's `>` is UTF-16 and reads as neither, so capture it on the box.
+- counts that disagree with the file
+- a run the CLI marked as not evidence
+
+Then write the served rate as **NOT MEASURED** in the evidence README. Do not copy the CLI's
+pre-validator number into that line.
+
+The rate leans slightly optimistic, for two reasons:
+- The CLI retries a failed call once and production does not, so an answer rescued by that retry
+  counts as served here.
+- The dump does not keep `ai_metadata`, so the replay cannot catch a drift in its shape. Production
+  parses the whole body, and a drift there would turn every answer into the fallback.
+
+The script is a `require.main` entry point that no module imports. It ships in the API image for
+this runbook, so do not delete it as dead code.
 
 ## 4. Record
 
-Commit the five files to `docs/qa/evidence/companion-v2/<YYYY-MM-DD>/`. They are safe to commit:
-they hold synthetic prompts and model output only. Add a short `README.md` with the image tag, the
+Commit the six files (the five from §2 plus `served-rate.txt`) to
+`docs/qa/evidence/companion-v2/<YYYY-MM-DD>/`. They are safe to commit: they hold synthetic prompts,
+model output, prompt ids and reason codes only. Add a short `README.md` with the image tag, the
 models (the samples' `model`), who ran it, the three RESULT lines, the §6 served rate (3a) or
 NOT MEASURED, and the owner's review of the samples. After a PASS, the owner **appends** the passed tasks to the box's `AI_REAL_CALL_TASKS`.
 Append, never replace: the box list replaces the compose default (#1843). Tasks go live

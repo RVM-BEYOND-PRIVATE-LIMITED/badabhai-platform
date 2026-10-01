@@ -115,8 +115,10 @@ Two consequences stated rather than discovered:
 
 ### Frontend — worker app (GitHub issue)
 
-- [ ] **F1** Honour `cooldown_until`: composer disabled with a countdown; chips stay tappable.
-- [ ] **F2** Render the `companion_task:new_resume` chip.
+- [x] **F1** Honour `cooldown_until`: composer disabled with a countdown; chips stay tappable.
+      Shipped: #1827, sticky across turns #1834, survives a gone card #1867; the open turn now carries `cooldown_until` (#1872).
+- [x] **F2** Render the `companion_task:new_resume` chip.
+      Shipped: #1827.
 
 ## 4. Tests
 

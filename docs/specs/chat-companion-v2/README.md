@@ -15,12 +15,53 @@ conversation.
 
 | Phase | Scope | State |
 |---|---|---|
-| 0 | ADR-0046 written | Proposed — awaiting owner signature before any flag-ON |
-| 1 | Router + Edit résumé | **Built, flags off** — every checklist item ticked; worker-app F1–F5 (#1818) and the DevOps items are other owners; staging gate = `python -m app.companion.eval_cli` |
-| 2 | New résumé + Faltu | **Built, flags off** — Backend/AI checklist complete; worker-app F1/F2 (#1821) outstanding |
-| 3 | Career talk | **Built, flags off** — Backend/AI checklist complete; worker-app F1/F2 (#1824) outstanding |
+| 0 | ADR-0046 written | **Proposed — still unsigned**, although the flags are ON (below) |
+| 1 | Router + Edit résumé | **Built + audit-fixed; flags ON in production, model path dark.** Backend #1816/#1817/#1819/#1820, audit fixes #1869 + #1871; worker-app F1–F6 #1827/#1834/#1867/#1880 |
+| 2 | New résumé + Faltu | **Built + audit-fixed; flags ON in production** (deterministic paths live). Backend #1822, audit fixes #1872; worker-app F1/F2 #1827/#1834/#1867 |
+| 3 | Career talk | **Built + audit-fixed; flags ON in production, model path dark.** Backend #1825, audit fixes #1869 + #1872; worker-app F1/F2 #1827 |
 
 Update this table in the PR that finishes each phase.
+
+**Production state (2026-10-01).** `CHAT_COMPANION_ENABLED` (v1) has been on since 2026-09-27. The
+five `CHAT_COMPANION_V2_*` flags were set true on 2026-09-30 07:34 UTC, owner-authorized (#1843).
+The Remote Config levers are true and unconditioned (Android; iOS has no Firebase config). The
+model-written paths (the edit card, typed classification, career answers) are **dark** only because
+the box's `AI_REAL_CALL_TASKS` does not name the companion tasks yet. Until it does, the classifier
+mock answers `unclear` and career gets the refusal. Migration 0130's DDL is applied in production.
+Its ledger row is not adopted. No `chat.companion_turn_served_v2` row existed as of 2026-09-30.
+
+**Audit (2026-09-30).** A full spec-vs-code audit verified 129 gaps, each independently re-checked.
+The code gaps are fixed in #1869 (ai-service), #1871 (edit path: a confirmed edit now writes a real
+`chat_edit` résumé version), #1872 (router + career validator) and TD145, plus worker-app #1867.
+What remains is listed below.
+
+### Before the owner arms `AI_REAL_CALL_TASKS` (in this order)
+
+1. **Sign** ADR-0046 and ADR-0044, or record a written waiver. Both are unsigned, and the flags are already on.
+2. **Run the staging evals** per [`docs/ops/companion-v2-staging-evals-runbook.md`](../../ops/companion-v2-staging-evals-runbook.md).
+   Record the results in `docs/qa/evidence/companion-v2/`. The bars:
+   - `--classify`: ≥ 90 % accuracy, ≥ 95 % `edit_resume` precision, p95 < 1.5 s.
+   - `--edit-parse`: ≥ 90 % exact, 0 rows outside the catalogue.
+   - `--career`: 100 % safe on risky prompts, p95 < 4 s.
+
+   The combined model + API-validator served rate (phase-3 §6, ≥ 85 %) is scored by the replay merged in #1883 (TD148, paid).
+   **First run, 2026-10-01 (#1883, evidence `docs/qa/evidence/companion-v2/2026-10-01/`): FAIL on all three —
+   do not append any task.** Classify misses p95 only (2411 / 1662 ms; quality passes); edit-parse 78.4 % exact
+   with 3 out-of-catalogue rows; career 1 unsafe answer; served rate 80.4 %.
+3. **Review 30 career answers** (`eval_cli --career --dump-samples 30`).
+4. **Review the draft copy** in `contracts.md` §8: every `V2_*` line, the ask lines and the 39 card
+   field labels. These drafts are already live where their flag is on. Fix `V2_CAREER_REFUSE.legal_medical_financial`,
+   which sends a health question to "a lawyer or a bank".
+5. **Rule on** the open decisions: TD146 (v1 keyword resolver catches edit/career phrasings),
+   TD147 (career validator: employer names, `SENSITIVE` over-blocking), TD149 (cost alert), the
+   privacy go-ahead for stored employer values reaching edit-parse (masked once; an employer without
+   a suffix passes, as ADR-0041 D5 accepts for résumé parsing), and the three P1 behaviours made
+   without a recorded ruling: a chat-added language is `can_speak` only; availability is three
+   sub-fields; preference lists allow member add/delete.
+6. **Only then** append `companion_classify,companion_edit_parse`, and later `companion_career_answer`,
+   to the box's own list, which overrides the compose default (see [`docs/environment-variables.md`](../../environment-variables.md)).
+   Append, never replace. Then re-run the Deploy job of the newest `main` CI run.
+7. Adopt the 0130 ledger row (`adopt-migrations.ts --only 0130_resume_generation_trigger_chat_edit`).
 
 ## Architecture at a glance
 
@@ -92,3 +133,10 @@ Read before writing code: `CLAUDE.md`, ADR-0044, ADR-0046, this folder, and the 
    TD145 fixed.
 2. ADR-0046 signed.
 3. Staging first (Remote Config conditioned to test devices), then widen.
+
+Status 2026-10-01:
+- (1) v1 is live, but ADR-0044 is unsigned. The builds are rolled out, and TD145 is fixed.
+- (2) ADR-0046 is unsigned.
+- (3) This step was skipped. The Remote Config levers are unconditioned, and the server flags have
+  no per-worker cohort, so a server flag flips v2 for every companion worker at once. The
+  checklist under "Status" is the remaining path.

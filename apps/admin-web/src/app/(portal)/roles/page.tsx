@@ -102,7 +102,9 @@ export default async function RolesPage() {
           </div>
         ) : (
           <div className="tablewrap">
-            <table className="table">
+            {/* `table--matrix` pins the capability column while the role columns scroll
+                sideways on a phone — the row header is what every mark in its row means. */}
+            <table className="table table--matrix">
               <caption className="sr-only">Capability by role</caption>
               <thead>
                 <tr>

@@ -61,6 +61,21 @@ h3 {
   margin: 0;
 }
 
+/* FOCUS IN FORCED COLORS. The token layer's base `:focus-visible` is `outline: none` + a
+   box-shadow ring, and Windows forced-colors mode DROPS box-shadows. The admin ring below takes
+   over for every element in its list, but not for anything outside it — and Chrome now makes a
+   scroller with nothing focusable inside (the roles matrix, an event payload) a tab stop of its
+   own. Focused in forced colors, that scroller showed no indicator at all (0 changed pixels,
+   measured). A TRANSPARENT outline is invisible in normal mode, so nothing changes there, and
+   forced colors repaint it in the system colour. Same fallback as payer-web's global
+   `:focus-visible`.
+   It MUST stay BEFORE the admin ring: both are (0,1,0), and source order is what lets the
+   visible ring win wherever both apply. */
+:focus-visible {
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
+}
+
 /* One visible focus treatment for everything. Never remove it: the portal is designed to
    be driven from the keyboard, and an invisible focus ring makes that impossible.
 
@@ -483,6 +498,10 @@ h3 {
   top: 0;
   z-index: var(--z-sticky);
 }
+/* The toggle's only visible content is its glyph (`PhIcon name="list"`), sized by the button's
+   font-size exactly as payer-web sizes its `ph-fill ph-list` hamburger (--text-lg). A structural
+   navigation glyph takes Shift Blue per the brand kit: --text-heading is navy-900 on light
+   surfaces and flips to paper on ink, where the raw brand colour would vanish. */
 .topbar__menu {
   display: none;
   min-height: var(--control-sm);
@@ -490,8 +509,19 @@ h3 {
   border-radius: var(--radius-sm);
   border: var(--border-hairline) solid var(--divider);
   background: transparent;
-  color: var(--text-primary);
+  color: var(--text-heading);
+  font-size: var(--text-lg);
   cursor: pointer;
+}
+/* A Phosphor FILL glyph inlined as SVG (components/ph-icon.tsx): a one-em square painted in the
+   current text colour — the box payer-web's `ph-fill` webfont glyph occupies, without loading
+   the third-party icon sheet this console deliberately does not ship. Solid by construction;
+   the brand allows no outline weights. */
+.ph-icon {
+  inline-size: 1em;
+  block-size: 1em;
+  flex: none;
+  fill: currentColor;
 }
 .topbar__spacer {
   flex: 1;
@@ -1177,6 +1207,14 @@ h3 {
   color: var(--ink-800);
   border-color: var(--warning);
 }
+/* --ink-800 is dark text for the LIGHT amber tint. Under `[data-theme="ink"]` the tint becomes a
+   22% amber wash over the navy card and that text measured 1.13:1 (1.40:1 on a warn tile, the
+   `simulated` tag's usual home) — the word vanished. Light amber on the dark wash instead: the
+   payer-web `.bb-badge--warning` ink pairing (#1103). Latent while admin sets no theme; the
+   pairing is computed from the tokens in a11y-foundations.css.test.ts. */
+[data-theme="ink"] .pill--warn {
+  color: var(--amber-200);
+}
 .pill--bad {
   background: var(--danger-tint);
   color: var(--danger-press);
@@ -1281,6 +1319,49 @@ h3 {
    red would read as a wall of problems rather than as least-privilege working. */
 .mark--no {
   color: var(--text-faint);
+}
+/* The roles matrix (`.table--matrix`) — its row headers ARE the table: scrolled sideways on a
+   phone, every mark lost the capability it grants (0 of 14 labels on screen at 320/375/768,
+   measured). So in THIS table only the row header is pinned to the scroller's inline start.
+   Everywhere else a row header stays static (`.table tbody th`, above); pinning row headers
+   globally is what once covered the column headers. `.table--matrix .table__rowhead` is (0,2,0),
+   so it outranks that (0,1,2) rule wherever it sits.
+   - Pinned on the INLINE axis only. `.table th` gives every header `top: 0`; the static rule
+     leaves that inert, but making the cell sticky re-arms it, and each label then pinned to the
+     scroller's top edge and left its row behind (up to 471px off its row at 375x600, measured).
+     `inset-block-start: auto` hands the block axis back: a label scrolls vertically with its row.
+   - It wraps, with a 9rem floor. Unwrapped it was 439px — wider than the whole 307px scroller
+     at 375 — and pinned it would have hidden every role column. At 600-1024px the wrapped
+     matrix now fits without scrolling; at 1280 there is room and nothing wraps.
+   - Opaque card fill, so cells sliding underneath never show through; the row-hover fill is
+     repeated on it because a sticky cell paints its own background over the row's.
+   - A hairline on its inline end, drawn by the cell itself: a sticky cell leaves the collapsed
+     border grid (the column header's bottom rule does the same). Drawn at EVERY width, also
+     where nothing scrolls: at 1280 it is the one visible change, a rule after the Capability
+     column. CSS cannot tell a stuck cell from a resting one without scroll-state container
+     queries (Chromium-only), and the label column reads as its own column either way.
+   - No z-index: a positioned z-auto cell paints over the static cells but UNDER the column
+     header (z-index 1), so a vertical scroll passes rows beneath the header. The corner cell
+     keeps `top: 0`, is pinned on both axes and sits above both (z-index 2).
+   - The scroller is the table's only focus stop (nothing inside it is a control), and its
+     ring is drawn OUTSIDE the scroller, where no pinned cell can cover it. */
+.table--matrix .table__rowhead {
+  position: sticky;
+  inset-inline-start: 0;
+  inset-block-start: auto;
+  white-space: normal;
+  min-inline-size: 9rem;
+  background: var(--surface-card);
+  box-shadow: inset calc(-1 * var(--border-hairline)) 0 0 var(--divider);
+}
+.table--matrix tbody tr:hover .table__rowhead {
+  background: var(--surface-sunken);
+}
+.table--matrix thead th:first-child {
+  inset-inline-start: 0;
+  z-index: 2;
+  box-shadow: inset calc(-1 * var(--border-hairline)) calc(-1 * var(--border-hairline)) 0
+    var(--divider);
 }
 
 /* ==================================================================
@@ -1474,6 +1555,21 @@ h3 {
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--space-1) var(--space-3);
+}
+/* The `simulated` tag (`MockMoneyTag`, a Stat adornment) sits INSIDE the value span so it travels
+   with a screenshot of the tile — but it is a PILL, not part of the figure. It inherited the
+   figure's type: Roboto Mono, the KPI tracking and leading, tabular slashed-zero numerals, so it
+   read as a squeezed fragment of the number and stood 17.8px tall beside every other pill's
+   22.6px (measured). `.pill` declares its own size and weight on the element, so neither is
+   inherited and neither is restated here (a copy would pin this one pill if `.pill` changed);
+   this returns only what the pill inherits. Type only: the value row's layout (flex, wrap, the
+   nowrap figure) is the rule above and is untouched. */
+.stat__value .pill {
+  font-family: var(--font-sans);
+  font-style: normal;
+  letter-spacing: normal;
+  line-height: var(--ui-caption-leading);
+  font-variant-numeric: normal;
 }
 .table {
   font-size: var(--ui-td-size);
@@ -1962,6 +2058,56 @@ textarea.field__input {
 .reviewgroup[open] > summary {
   margin-block-end: var(--space-3);
 }
+/* A batch card is a panel INSIDE the queue panel. At the outer panel's pad a one-line summary
+   sat in a 72px box, so the queue read as a stack of pages; the small pad (the phone step every
+   panel already takes) keeps it a list. */
+.reviewgroups > .panel {
+  padding: var(--panel-pad-sm);
+}
+
+/* #1856 — the discovery page's rhythm. Its metrics are two tile rows plus two captions, and its
+   queue panel stacks four control rows above the results; each piece used to float on whatever
+   margin it happened to carry — 0px between the tier caption and the batch-order row, 0px
+   between the filter form and the first result, 0px above the trailing captions (measured). Now
+   each block is one stack with one gap: the tile rows keep their own tile gap (`.stats`, and the
+   phone step below), the control rows the chip rows' old margin, and a caption sits closer to
+   what it explains than to the next block. */
+.queue-metrics,
+.queue-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.queue-controls {
+  margin-block-end: var(--space-5);
+}
+/* The stack's gap replaces a chip row's own trailing margin; (0,2,0) beats `.filters--inline`. */
+.queue-controls .filters--inline {
+  margin-bottom: 0;
+}
+/* This filter bar is the console's only one with TWO actions (Apply, Clear filters), and the pair
+   does not fit one 13rem grid track: at 1280 "Clear filters" broke onto two lines inside its own
+   button, and wrapping the pair instead stacked Apply 56px above the last field row at 768-1280
+   (measured). So the actions take a full row of their own under the fields: both buttons on one
+   line at every width, at the same place on every screen. A label never breaks, and the pair
+   still wraps on a row too narrow for both. */
+.queue-controls .filters__actions {
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+}
+.queue-controls .filters__actions .btn {
+  white-space: nowrap;
+}
+.queue-controls__group,
+.queue-notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+/* Captions under the batch list sit off it by the pager's own step (`.pager` in the flat view). */
+.queue-notes--foot {
+  margin-block-start: var(--space-5);
+}
 
 .btn[aria-current="page"] {
   background: var(--brand-tint);
@@ -1988,6 +2134,42 @@ textarea.field__input {
 .panel__title,
 .state__title {
   text-wrap: balance;
+}
+
+/* ==================================================================
+ * #1856 · TOUCH TARGETS — 44px (--control-md) on a phone or any touch screen.
+ * ------------------------------------------------------------------
+ * The dense 36px controls (--control-sm) suit a mouse and are too small for a finger. Same
+ * query as the `.tablewrap` touch rule: this is about touch, not width, so a coarse pointer gets
+ * it at any size and a desktop mouse keeps the console exactly as dense as it was.
+ *
+ * `.btn--sm` — payer-web's technique (#1860, `.bb-btn--sm`): the HIT AREA grows, not the drawn
+ * button. A full-width strip centred on it reaches past its edges (negative block inset; inline
+ * inset negative only for a button narrower than 44px), BEHIND the label, inside the button's own
+ * isolated stacking context. Chip rows and action stacks sit --space-2 apart, so two neighbouring
+ * 4px extensions meet but never overlap, and no layout measured around a button moves.
+ *
+ * `.sidebar__link` — the drawer rows take the height itself. They stack --space-1 apart (a 40px
+ * pitch), so an invisible 44px strip would overlap the next row and a tap between two would land
+ * on whichever painted last. The drawer is a scrolling column; 8px more per row costs nothing.
+ *
+ * Declared after both classes' own rules, which are single-class selectors too.
+ * ================================================================== */
+@media (max-width: 600px), (pointer: coarse) {
+  .sidebar__link {
+    min-height: var(--control-md);
+  }
+  .btn--sm {
+    position: relative;
+    isolation: isolate;
+  }
+  .btn--sm::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0px, calc((100% - var(--control-md)) / 2));
+  }
 }
 
 /* ==================================================================
@@ -2065,6 +2247,10 @@ textarea.field__input {
      "₹2,145.382716" or "₹1,23,45,678", so its unbroken figure (the tile's minimum width)
      already gives it a row of its own — no placement rule is needed for that. */
   .stats {
+    gap: var(--space-3);
+  }
+  /* The discovery metrics' two tile rows stay one grid: row gap = tile gap. */
+  .queue-metrics {
     gap: var(--space-3);
   }
   .stats > .stat {

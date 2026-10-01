@@ -194,9 +194,13 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
           <div className="stats stats--compact">
             <Stat label="Applied" value={formatCount(job.applied_count)} />
             <Stat label="Skipped" value={formatCount(job.skipped_count)} />
+            {/* The tile is ALWAYS the apply rate; before anyone has seen the posting that rate
+                does not exist, and the value says so as an absent statement rather than a dash
+                under a label that changed name. */}
             <Stat
-              label={applyRate === null ? "Not seen yet" : "Apply rate"}
-              value={applyRate === null ? "—" : `${applyRate}%`}
+              label="Apply rate"
+              value={applyRate === null ? "Not seen yet" : `${applyRate}%`}
+              absent={applyRate === null}
             />
           </div>
 
