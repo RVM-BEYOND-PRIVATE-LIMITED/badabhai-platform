@@ -54,7 +54,7 @@ export default async function JobsPage({
     <div className="page">
       <PageHeader
         title="Postings"
-        description="Every posting on the platform. Company and role text is what the poster typed — the same text workers see in the feed."
+        description="Every posting on the platform, with company and role text exactly as the poster typed it — the text workers see in the feed."
         filters={
           <section className="panel" aria-labelledby="jf-heading">
             <h2 className="sr-only" id="jf-heading">

@@ -91,7 +91,7 @@ export default async function DashboardPage({
         title="Dashboard"
         description={
           <>
-            Event activity over the last {metrics?.window_days ?? "—"} days. AI spend and
+            Event activity over the last {metrics?.window_days ?? "—"} days; AI spend and
             volume below carry their own periods.
           </>
         }

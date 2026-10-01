@@ -96,7 +96,7 @@ export default async function WorkerJourneyPage({
       <PageHeader
         back={{ href: `/workers/${id}`, label: `Worker ${shortId(id)}` }}
         title="Journey"
-        description="What this worker completed, and where they stopped. Question keys and outcomes only — none of their words are served to this portal."
+        description="What this worker completed and where they stopped — question keys and outcomes only; none of their words are served to this portal."
         secondaryActions={
           <>
             {mayReadFeedback ? (

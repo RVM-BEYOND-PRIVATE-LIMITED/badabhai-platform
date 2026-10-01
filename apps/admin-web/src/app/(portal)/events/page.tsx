@@ -67,7 +67,7 @@ export default async function EventsPage({
     <div className="page">
       <PageHeader
         title="Events"
-        description="The audit spine. Every important state change on the platform is recorded here."
+        description="The audit spine: every important state change on the platform is recorded here."
         filters={
           <section className="panel" aria-labelledby="filters-heading">
             <h2 className="sr-only" id="filters-heading">

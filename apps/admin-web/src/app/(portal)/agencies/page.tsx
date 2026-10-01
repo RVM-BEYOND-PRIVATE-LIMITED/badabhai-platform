@@ -60,9 +60,9 @@ export default async function AgenciesPage({
         description={
           <>
             {posture === "faceless"
-              ? "Agency accounts, identified by id — your role does not include name access, so find an account through its postings."
-              : "Agency accounts, named by the organisation they registered as — self-declared at signup, not a verified legal name."}{" "}
-            Email, phone and KYC details stay encrypted at rest and are served to no one.
+              ? "Agency accounts, identified by id — your role does not include name access, so find an account through its postings"
+              : "Agency accounts, named by the organisation they registered as — self-declared at signup, not a verified legal name"}
+            ; email, phone and KYC details stay encrypted at rest and are served to no one.
           </>
         }
         filters={

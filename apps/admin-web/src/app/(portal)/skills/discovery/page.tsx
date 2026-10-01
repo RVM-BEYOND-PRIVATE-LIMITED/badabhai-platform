@@ -259,7 +259,7 @@ export default async function SkillDiscoveryPage({
     <div className="page">
       <PageHeader
         title="Skill discovery"
-        description="AI-surfaced claims that the canonical skill taxonomy may be missing something. Each row is a claim, never a skill — an approval only records a decision; the corpus write stays in the offline, gated chain."
+        description="AI-surfaced claims that the skill taxonomy may be missing something — each a claim, never a skill: an approval only records a decision, and the corpus write stays in the offline, gated chain."
       />
 
       <MetricsTiles metrics={metrics} />

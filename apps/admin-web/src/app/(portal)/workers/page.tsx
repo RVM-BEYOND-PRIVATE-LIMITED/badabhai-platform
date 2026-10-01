@@ -77,9 +77,9 @@ export default async function WorkersPage({
         description={
           <>
             {posture === "faceless"
-              ? "Workers are identified by id here — your role does not include name access."
-              : "Names are shown to your role, and each name read is capped and audited."}{" "}
-            Contact details are never listed — revealing one worker&apos;s contact is a
+              ? "Workers are identified by id here — your role does not include name access"
+              : "Names are shown to your role, and each name read is capped and audited"}
+            ; contact details are never listed, and revealing one worker&apos;s contact is a
             separate, reason-gated action.
           </>
         }
