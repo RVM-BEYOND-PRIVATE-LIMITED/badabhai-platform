@@ -9,6 +9,7 @@ import {
   creditLedger,
   paymentOrders,
   workers,
+  jobs,
   type Database,
 } from "@badabhai/db";
 import { UnlocksRepository, RAZORPAY_PROVIDER } from "./unlocks.repository";
@@ -183,6 +184,24 @@ describe("UnlocksRepository.lockWorker — per-worker advisory xact lock", () =>
     const { sql, params: p } = captured.executed[0]!;
     expect(sql).toBe("select pg_advisory_xact_lock(hashtextextended($1, 0))");
     expect(p).toEqual([WORKER_ID]);
+  });
+});
+
+describe("UnlocksRepository.legacyJobExists — #1903, reads jobs by id only", () => {
+  it("selects ONLY jobs.id, by primary key, limit 1 — no status filter, no other table", async () => {
+    const { db, captured } = makeDb({ rows: [{ id: JOB_ID }] });
+    const out = await new UnlocksRepository(db).legacyJobExists(JOB_ID);
+    expect(captured.selectTable).toBe(jobs);
+    expect(Object.keys(captured.selection!)).toEqual(["id"]);
+    expect(text(captured.where)).toBe('"jobs"."id" = $1');
+    expect(params(captured.where)).toEqual([JOB_ID]);
+    expect(captured.limit).toBe(1);
+    expect(out).toBe(true);
+  });
+
+  it("is false when no jobs row has that id (e.g. a job_postings id)", async () => {
+    const { db } = makeDb({ rows: [] });
+    expect(await new UnlocksRepository(db).legacyJobExists(JOB_ID)).toBe(false);
   });
 });
 
