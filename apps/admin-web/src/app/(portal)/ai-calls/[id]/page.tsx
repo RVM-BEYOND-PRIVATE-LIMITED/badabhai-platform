@@ -377,7 +377,7 @@ function Denied() {
         <h3 className="state__title">Your role cannot read AI calls</h3>
         <p className="state__body">
           Reading AI calls — the list of them and the text of each one — needs the{" "}
-          <code className="code">read_ai_traces</code> capability, and this account does not
+          <code>read_ai_traces</code> capability, and this account does not
           hold it, so nothing was requested. The roles page shows which roles do.
         </p>
         {/* No "Back to AI calls": the list sits behind the same capability, so for exactly

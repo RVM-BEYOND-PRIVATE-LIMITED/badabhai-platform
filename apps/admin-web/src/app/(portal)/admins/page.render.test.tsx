@@ -114,7 +114,8 @@ describe("a super_admin, who holds read_identity", () => {
 
   it("says names are audited and emails still reach nobody", async () => {
     const out = await render();
-    expect(out).toContain("Names are shown to your role");
+    // One sentence now (owner ruling 2026-10-01), so the clause is lower-case mid-sentence.
+    expect(out).toContain("names are shown to your role and every read of one is audited");
     expect(out).toContain("emails stay encrypted and are served to no role at all");
   });
 

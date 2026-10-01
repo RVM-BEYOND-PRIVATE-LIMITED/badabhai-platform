@@ -113,13 +113,9 @@ export default async function AdminsPage({
       <PageHeader
         title="Admin users"
         description={
-          <>
-            Who holds access to this portal.{" "}
-            {posture === "faceless"
-              ? "Names are not served to your role and emails are served to no role at all"
-              : "Names are shown to your role and every read of one is audited; emails stay encrypted and are served to no role at all"}{" "}
-            — the id is the handle, and it appears on every audit event.
-          </>
+          posture === "faceless"
+            ? "Who holds access to this portal, by id — the handle on every audit event; names are not served to your role, and emails stay encrypted and are served to no role at all."
+            : "Who holds access to this portal — names are shown to your role and every read of one is audited, emails stay encrypted and are served to no role at all, and the id is the handle on every audit event."
         }
         /* The page's own action, first, as on every other page. The form itself stays at the
            foot of the page, under the directory it adds to; this is the way to it. */

@@ -76,7 +76,7 @@ describe("crumbTrail — ancestors only", () => {
 describe("TopbarCrumb — markup", () => {
   it("links the section with a caret glyph separator — no `/` character, no id", () => {
     nav.pathname = `/workers/${WORKER}/journey/${SESSION}`;
-    const out = renderToStaticMarkup(<TopbarCrumb />);
+    const out = renderToStaticMarkup(<TopbarCrumb sections={NAV} />);
     expect(out).toContain('<a class="crumb crumb__link" href="/workers">Workers</a>');
     expect(out).toContain('<i class="ph-fill ph-caret-right crumb__sep" aria-hidden="true"></i>');
     expect(out).toContain('<span class="crumb">Journey</span>');
@@ -87,9 +87,30 @@ describe("TopbarCrumb — markup", () => {
 
   it("on a top-level page the group is the whole crumb, unlinked", () => {
     nav.pathname = "/workers";
-    const out = renderToStaticMarkup(<TopbarCrumb />);
+    const out = renderToStaticMarkup(<TopbarCrumb sections={NAV} />);
     expect(out).toContain('<span class="crumb crumb--group">Operations</span>');
     expect(out).not.toContain("<a ");
     expect(out).not.toContain(">Workers<");
+  });
+});
+
+describe("TopbarCrumb — never links a section the reader cannot open", () => {
+  it("names it instead, when the reader's filtered sidebar does not hold it", () => {
+    // An analyst on an AI call's denied screen: /ai-calls is read_ai_traces, so the server
+    // dropped it from their sidebar, and a crumb link there would only redirect them.
+    nav.pathname = "/ai-calls/aa000000-0001-4a00-8000-000000000001";
+    const withoutAiCalls = NAV.map((s) => ({
+      ...s,
+      items: s.items.filter((i) => i.href !== "/ai-calls"),
+    }));
+    const out = renderToStaticMarkup(<TopbarCrumb sections={withoutAiCalls} />);
+    expect(out).toContain('<span class="crumb">AI calls</span>');
+    expect(out).not.toContain('href="/ai-calls"');
+  });
+
+  it("links it when the reader may open it", () => {
+    nav.pathname = "/ai-calls/aa000000-0001-4a00-8000-000000000001";
+    const out = renderToStaticMarkup(<TopbarCrumb sections={NAV} />);
+    expect(out).toContain('<a class="crumb crumb__link" href="/ai-calls">AI calls</a>');
   });
 });

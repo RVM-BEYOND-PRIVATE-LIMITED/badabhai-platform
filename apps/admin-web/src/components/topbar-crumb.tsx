@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@badabhai/icons";
-import { NAV } from "./nav-model";
+import { NAV, type NavSection } from "./nav-model";
 
 /**
  * The topbar's section context: where this page sits, never what it is called.
@@ -19,12 +19,20 @@ import { NAV } from "./nav-model";
  * where the parent is named, and linked, exactly.
  *
  * Derived from the SAME nav the sidebar renders, so a section is never called one thing on the
- * left and another on top. It reads the URL only: no session, no capability and no entity data
- * is resolved here.
+ * left and another on top. It reads the URL and the reader's already-filtered sections only: no
+ * session and no entity data is resolved here.
+ *
+ * The section is LINKED only when it is in `sections` — the sidebar the server filtered by this
+ * reader's capabilities. A page can sit below a section its reader cannot open (an analyst on an
+ * AI call's denied screen sits under AI calls, which is `read_ai_traces`); there the section is
+ * named, not linked, rather than linked to a redirect.
  */
-export function TopbarCrumb() {
+export function TopbarCrumb({ sections }: { sections: NavSection[] }) {
   const pathname = usePathname();
   const trail = crumbTrail(pathname);
+  const sectionHref = trail?.section?.href;
+  const linkable =
+    sectionHref !== undefined && sections.some((s) => s.items.some((i) => i.href === sectionHref));
 
   if (!trail) {
     return (
@@ -42,9 +50,13 @@ export function TopbarCrumb() {
       {trail.section ? (
         <>
           <Separator />
-          <Link className="crumb crumb__link" href={trail.section.href}>
-            {trail.section.label}
-          </Link>
+          {linkable ? (
+            <Link className="crumb crumb__link" href={trail.section.href}>
+              {trail.section.label}
+            </Link>
+          ) : (
+            <span className="crumb">{trail.section.label}</span>
+          )}
           {trail.steps.map((step, i) => (
             <span className="crumb__step" key={`${step}-${i}`}>
               <Separator />
