@@ -48,19 +48,12 @@ export interface IconOnlyControlProps {
  * - `start` / `end` put it beside the control, vertically centred.
  *
  * `start` and `end` follow the writing direction (left and right in LTR).
+ *
+ * The type is derived from this one tuple, so a new placement cannot be added to the type
+ * without also reaching the tests and tooling that iterate the list (the CSS test checks a
+ * rule exists for every entry).
  */
-export type TooltipPlacement =
-  | "top"
-  | "top-start"
-  | "top-end"
-  | "bottom"
-  | "bottom-start"
-  | "bottom-end"
-  | "start"
-  | "end";
-
-/** Every placement, for tests and tooling. */
-export const TOOLTIP_PLACEMENTS: readonly TooltipPlacement[] = [
+export const TOOLTIP_PLACEMENTS = [
   "top",
   "top-start",
   "top-end",
@@ -69,7 +62,9 @@ export const TOOLTIP_PLACEMENTS: readonly TooltipPlacement[] = [
   "bottom-end",
   "start",
   "end",
-];
+] as const;
+
+export type TooltipPlacement = (typeof TOOLTIP_PLACEMENTS)[number];
 
 /**
  * The attribute the tooltip CSS (`icons.css`) keys the Escape dismissal on. Set on the control by
@@ -103,6 +98,10 @@ export interface HoverEscapeTarget {
   setAttribute(name: string, value: string): void;
 }
 
+// The options-object form, not the boolean `true`: equivalent in browsers, but some EventTarget
+// implementations (Node's) fail to match a boolean capture flag on removal — a silent leak.
+const CAPTURE: AddEventListenerOptions = { capture: true };
+
 /**
  * Escape for a HOVER-opened tooltip. A control the pointer is merely resting on is usually not
  * focused, so its own keydown never fires; this listens on the control's DOCUMENT instead, in
@@ -113,10 +112,6 @@ export interface HoverEscapeTarget {
  * `stop` is idempotent. As a second line of defence the listener also removes itself the first
  * time it fires after the control has left the document.
  */
-// The options-object form, not the boolean `true`: equivalent in browsers, but some EventTarget
-// implementations (Node's) fail to match a boolean capture flag on removal — a silent leak.
-const CAPTURE: AddEventListenerOptions = { capture: true };
-
 export function watchEscapeWhileHovered(control: HoverEscapeTarget): () => void {
   const doc = control.ownerDocument;
   let active = true;

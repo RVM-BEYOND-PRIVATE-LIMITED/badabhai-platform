@@ -16,7 +16,7 @@
    FILL ONLY. The brand allows solid, rounded silhouettes and nothing thinner, so no other
    Phosphor weight is imported anywhere.
 
-   KNOWN COST, TRACKED (follow-up issue to PR #1886 — do not "fix" ad hoc here):
+   KNOWN COST, TRACKED (issue #1893, follow-up to PR #1886 — do not "fix" ad hoc here):
      - the WHOLE fill sheet (~1,530 glyph rules, 72,948 B minified / 11,816 B gzipped) is
        render-blocking on every page, including the public /i/<code> install page that paints
        no glyph (+12.3 KB gzipped there, measured);

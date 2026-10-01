@@ -105,6 +105,24 @@ describe("icon fence — the counter catches what it must (so a pass below means
   });
 });
 
+describe("icon fence — the typed element keeps its name", () => {
+  // The cascade-tie guard (components/ds/icon-system.css.test.ts) finds glyph classes by the
+  // JSX tag `Icon`; `import { Icon as Glyph }` would hide every `<Glyph className>` from it.
+  const ALIASED =
+    /import\s+(?:type\s+)?\{[^}]*\bIcon\s+as\s+\w+[^}]*\}\s*from\s*["']@badabhai\/icons["']/;
+
+  it("the probe sees an aliased import and allows the plain one", () => {
+    expect(ALIASED.test('import { Icon as Glyph } from "@badabhai/icons";')).toBe(true);
+    expect(ALIASED.test('import { ACTION_ICON, Icon as G } from "@badabhai/icons";')).toBe(true);
+    expect(ALIASED.test('import { Icon, type IconName } from "@badabhai/icons";')).toBe(false);
+  });
+
+  it("no source imports Icon under another name", () => {
+    const aliased = [...CODE].filter(([, code]) => ALIASED.test(code)).map(([f]) => f);
+    expect(aliased, 'import { Icon } from "@badabhai/icons" — never rename it').toEqual([]);
+  });
+});
+
 describe("icon fence — no NEW raw `ph-fill` glyph outside @badabhai/icons", () => {
   const actual = new Map(
     [...CODE].map(([f, code]) => [f, countRawIcons(code)] as const).filter(([, n]) => n > 0),

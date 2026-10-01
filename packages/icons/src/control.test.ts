@@ -82,6 +82,10 @@ describe("watchEscapeWhileHovered — Escape for a HOVER-opened tooltip (focus i
     const event = doc.pressKey("Escape");
     expect(drawerSaw).toBe(true);
     expect(event.defaultPrevented).toBe(false);
+    // The fake dispatches on the document itself, where a capture listener's stopPropagation()
+    // cannot block a sibling listener — so check the flag directly: in a real page it would keep
+    // the key from the drawer's `window` listener.
+    expect(event.cancelBubble).toBe(false);
     stop();
   });
 

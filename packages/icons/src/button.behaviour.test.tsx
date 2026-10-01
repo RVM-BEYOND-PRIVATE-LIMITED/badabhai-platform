@@ -67,8 +67,11 @@ describe("Escape on a HOVER-opened tooltip (the button is not focused)", () => {
     on.onPointerEnter(ev());
     let drawerClosed = false;
     doc.addEventListener("keydown", () => (drawerClosed = true));
-    doc.pressKey("Escape");
+    const event = doc.pressKey("Escape");
     expect(drawerClosed).toBe(true);
+    // A stopPropagation() would still let the same-node listener above run, so pin the flag:
+    // on a real page it would starve the drawer's `window` listener.
+    expect(event.cancelBubble).toBe(false);
   });
 
   it("pointer leave removes the listener and re-arms the tooltip", () => {

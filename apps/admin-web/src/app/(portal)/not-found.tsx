@@ -4,8 +4,8 @@ import Link from "next/link";
  * Not found, inside the portal chrome — so an operator who mistypes an id keeps their
  * navigation and can carry on, rather than being dropped onto a bare page.
  *
- * DS: the shared `.state` block with the recovery action in `.state__actions`. No icon —
- * admin-web ships no icon font, so the title and body carry the whole meaning.
+ * DS: the shared `.state` block with the recovery action in `.state__actions`. No icon: the
+ * title and body carry the whole meaning (a glyph would only decorate it).
  */
 export default function PortalNotFound() {
   return (

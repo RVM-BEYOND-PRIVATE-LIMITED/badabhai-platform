@@ -89,6 +89,7 @@ describe("icons.css self-hosts Phosphor FILL", () => {
     const header = RAW.slice(0, at);
     expect(header).toContain("KNOWN COST, TRACKED");
     expect(header).toContain("#1886");
+    expect(header).toContain("#1893");
   });
 });
 

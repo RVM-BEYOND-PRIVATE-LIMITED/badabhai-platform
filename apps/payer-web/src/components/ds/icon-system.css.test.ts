@@ -51,6 +51,51 @@ describe("button icons — one size per control size, centred, colour inherited"
   });
 });
 
+describe("nothing re-shows a hidden tooltip", () => {
+  /**
+   * The shared tooltip is a `<span class="bb-icon-tip">` hidden with `display: none` in
+   * icons.css, which loads FIRST. Any app rule that reaches a NESTED span (a descendant `span`
+   * type selector) and sets `display` outranks that class on specificity and leaves the tooltip
+   * permanently visible wherever an IconButton sits inside the matched element — measured with
+   * `.bb-candidate__meta span { display: inline-flex }`. Child combinators (`> span`) cannot
+   * reach the tooltip, which always sits inside the button.
+   */
+  const reachesNestedSpan = (selector: string) =>
+    selector
+      .split(",")
+      .map((part) => part.trim().replace(/\s*([>+~])\s*/g, "$1"))
+      .some((part) => /(^|\s)span(?![\w-])/.test(part));
+
+  it("no rule in either payer stylesheet sets display on a descendant span", () => {
+    const sheets = [
+      ["ds-components.css", RULES],
+      [
+        "globals.css",
+        parseRules(stripComments(readFileSync(join(here, "..", "..", "app", "globals.css"), "utf8"))),
+      ],
+    ] as const;
+    const offenders = sheets.flatMap(([sheet, rules]) =>
+      rules
+        .filter((r) => reachesNestedSpan(r.selector))
+        .filter((r) => {
+          const display = decl(r, "display");
+          return display !== null && display !== "none";
+        })
+        .map((r) => `${sheet}: ${r.at} ${r.selector}`.trim()),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("the probe sees the measured case and allows a child-combinator span", () => {
+    expect(reachesNestedSpan(".bb-candidate__meta span")).toBe(true);
+    expect(reachesNestedSpan(".a, .b span:first-child")).toBe(true);
+    expect(reachesNestedSpan("span")).toBe(true);
+    expect(reachesNestedSpan(".bb-candidate__meta > span")).toBe(false);
+    expect(reachesNestedSpan(".bb-candidate__meta>span::before")).toBe(false);
+    expect(reachesNestedSpan(".bb-spanner .x")).toBe(false);
+  });
+});
+
 describe("IconButton — brand colours", () => {
   it("rests in structural Shift Blue (--text-heading flips to paper on ink)", () => {
     expect(decl(find(".bb-iconbtn"), "color")).toBe("var(--text-heading)");

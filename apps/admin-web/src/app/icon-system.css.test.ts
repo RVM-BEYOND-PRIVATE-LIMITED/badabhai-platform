@@ -51,6 +51,33 @@ describe("button icons — one size per control size, colour inherited", () => {
   });
 });
 
+describe("nothing re-shows a hidden tooltip", () => {
+  // The shared `<span class="bb-icon-tip">` is hidden with `display: none` in icons.css, which
+  // loads first; a rule reaching a NESTED span (descendant `span` type selector) that sets
+  // `display` outranks it and leaves the tooltip visible (measured in payer-web). A child
+  // combinator (`> span`) cannot reach it — the tooltip always sits inside its button.
+  const reachesNestedSpan = (selector: string) =>
+    selector
+      .split(",")
+      .map((part) => part.trim().replace(/\s*([>+~])\s*/g, "$1"))
+      .some((part) => /(^|\s)span(?![\w-])/.test(part));
+
+  it("no rule, in any at-rule, sets display on a descendant span", () => {
+    const offenders = ALL.filter((r) => reachesNestedSpan(r.selector))
+      .filter((r) => {
+        const display = decl(r.body, "display");
+        return display !== null && display !== "none";
+      })
+      .map((r) => [...r.atRules, r.selector].join(" > "));
+    expect(offenders).toEqual([]);
+  });
+
+  it("the probe sees a descendant span and allows a child-combinator one", () => {
+    expect(reachesNestedSpan(".row span")).toBe(true);
+    expect(reachesNestedSpan(".row > span")).toBe(false);
+  });
+});
+
 describe("IconButton — brand colours", () => {
   it("rests in structural Shift Blue (--text-heading flips to paper on ink)", () => {
     expect(decl(body(".iconbtn"), "color")).toBe("var(--text-heading)");

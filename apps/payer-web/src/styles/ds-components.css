@@ -688,7 +688,7 @@
 .bb-candidate__name { font-family: var(--font-sans); font-weight: var(--weight-bold); font-size: var(--text-md); color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
 .bb-candidate--masked .bb-candidate__name-text { filter: blur(5px); user-select: none; }
 .bb-candidate__meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--text-sm); color: var(--text-muted); margin-top: 5px; }
-.bb-candidate__meta span { display: inline-flex; align-items: center; gap: 4px; }
+.bb-candidate__meta > span { display: inline-flex; align-items: center; gap: 4px; }
 .bb-candidate__meta .ph-fill { font-size: var(--text-sm); color: var(--text-faint); }
 .bb-candidate__action { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
 .bb-candidate__unlocked { display: inline-flex; align-items: center; gap: 5px; font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--success); }

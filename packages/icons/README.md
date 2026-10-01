@@ -44,7 +44,7 @@ the installed version differs from the pin. To upgrade:
 4. `pnpm audit --audit-level high`.
 5. Check a few screens in both apps.
 
-**Known cost, tracked** (follow-up issue to PR #1886): the whole fill sheet is render-blocking on
+**Known cost, tracked** (issue #1893, follow-up to PR #1886): the whole fill sheet is render-blocking on
 every page (+12.3 KB gzipped on the public `/i/<code>` page, which paints no glyph), and the
 bundler emits the sheet's three unused font formats (svg 2.77 MB, ttf and woff about 449 KB each)
 into each app's image. The planned fix is a generated subset (the `IconName` union only, woff2
