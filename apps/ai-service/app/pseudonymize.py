@@ -129,10 +129,15 @@ _COMPANY_SUFFIX = (
 #     pseudonymize("main TATA MOTORS LTD mein tha").text  -> unchanged             (0 masked)
 #
 # ("Tata MOTORS Pvt Ltd" was already masked: the title-case "Pvt"/"Ltd" carry it.) Workers type in
-# capitals and an OCR'd résumé prints the company that way. With `AI_RAW_PII_ENABLED` off the
-# employer reached the prompt; under either posture it reached the at-rest masked copies (the
-# growth queue, the training corpus, the job-posting draft) and the clean-or-withhold certifiers,
-# which certified "TATA MOTORS LTD" as clean.
+# capitals and an OCR'd résumé prints the company that way. WHO READ IT RAW, by posture:
+#   - WHATEVER THE FLAG — every consumer that calls `pseudonymize()` directly: the at-rest masked
+#     copies (the growth queue, the training corpus, the job-posting draft), the embedding input
+#     (`app/ai/embeddings.py`, SG-2; ADR-0047 §4 keeps it masked), and the clean-or-withhold
+#     certifiers, which certified "TATA MOTORS LTD" as clean.
+#   - ONLY WITH `AI_RAW_PII_ENABLED` OFF — the prompt (through `llm_input_policy`) and the trace
+#     sinks. `trace_mask(raw=settings.ai_raw_pii_enabled)` FOLLOWS the flag: off, the Langfuse
+#     export and `ai_call_traces` re-mask through this function; on, they pass the raw text the
+#     provider was sent, so this rule does not reach them.
 #
 # WHY NOT make `_COMPANY_SUFFIX` case-insensitive (the issue's first suggestion). Seventeen of its
 # twenty-eight words are trade vocabulary (Steel, Tools, Auto, Tech, Works, Engineering, Engineers,
@@ -163,11 +168,15 @@ _COMPANY_SUFFIX = (
 #     (INDIA) [EMPLOYER_1]".
 #
 # FIVE DETAILS, each load-bearing and pinned by a test that fails without it:
-#   1. A SEPARATE rule that runs AFTER `_EMPLOYER_RE`, on its output — never an alternation inside
-#      `_COMPANY_SUFFIX`. So it can only mask text the title-case rule left raw: every title-case
-#      match keeps its exact span. An alternation can SHORTEN one — in a run of six capitalised
-#      words whose fifth is "LTD", "Om Sai Ram Krishna LTD Steel", main masks "Sai … Steel" and an
-#      alternation would mask "Om … LTD" and leave "Steel" raw.
+#   1. A SEPARATE rule that runs AFTER `_EMPLOYER_RE`, `_NAME_CUE_RE` and `_LEADING_NAME_RE`, on
+#      their output (rule 4b in `_mask`) — never an alternation inside `_COMPANY_SUFFIX`, and never
+#      ahead of a name rule. Every rule that could compete with it so reads exactly main's input
+#      and keeps main's exact span, and this rule can only mask what they left raw. An alternation
+#      can SHORTEN a title-case match — in a run of six capitalised words whose fifth is "LTD",
+#      "Om Sai Ram Krishna LTD Steel", main masks "Sai … Steel" and an alternation would mask
+#      "Om … LTD" and leave "Steel" raw. Ahead of the name rules it ATE THE CUE (security review
+#      F2): "MY NAME IS CO Ramesh" -> "[EMPLOYER_1] Ramesh", where main gives "MY NAME IS
+#      [PERSON_1]"; so did "MERA NAAM PVT RAMESH" and "I AM LIMITED Ramesh Kumar".
 #   2. A dash after PRIVATE, COMPANY, INDUSTRY or CO makes a compound, not a legal form ("PRIVATE-
 #      SECTOR", "INDUSTRY-READY", "QUALITY CO-ORDINATOR" stay raw; title case masks "Quality
 #      Co-ordinator" to "[EMPLOYER_1]-ordinator" and is left as it is). The other forms never
@@ -194,18 +203,36 @@ _COMPANY_SUFFIX = (
 # MILTA THA" masked to "[EMPLOYER_1] MILTA THA", "CTC 3 LPA INC. PF" lost the unit. An Indian
 # blue-collar employer is practically never an "Inc", and title case has no "Inc" either.
 #
-# TITLE CASE IS UNTOUCHED. `_COMPANY_SUFFIX` and `_EMPLOYER_RE` are byte-identical to main. On the
-# corpus above taken AS WRITTEN this rule changes 6 of 31,907 strings, each because it holds a
-# capitals corporate form: five NCO descriptions naming public bodies ("MUNICIPAL CORPORATION",
-# "LIFE INSURANCE CORPORATION") and the TokenScope fixture "…, TATA MOTORS LTD". In neither view
-# does a string leave raw a word main masked, or stop blocking where main blocked; no outcome of the
-# three certifiers moves over 4,765 lexicon labels (as written, UPPER and Title). The cost of not
-# touching title case, stated: "Acme Llp", "Sharma & Co." and "Xyz (P) Ltd" still do not mask, and
-# "Tata Motors LTD" still leaves the trailing "LTD" raw beside its [EMPLOYER_1].
+# TITLE CASE IS UNTOUCHED. `_COMPANY_SUFFIX` and `_EMPLOYER_RE` are byte-identical to main, and so
+# is the input of every rule ahead of this one (detail 1). On the corpus above taken AS WRITTEN this
+# rule changes 6 of 31,907 strings, each because it holds a capitals corporate form: five NCO
+# descriptions naming public bodies ("MUNICIPAL CORPORATION", "LIFE INSURANCE CORPORATION") and the
+# TokenScope fixture "…, TATA MOTORS LTD". In neither view does a string leave raw a word main
+# masked, or stop blocking where main blocked; no outcome of the three certifiers moves over 4,765
+# lexicon labels (as written, UPPER and Title). Re-measured after the detail-1 reorder: the same
+# counts, and no corpus string's output moved. The cost of not touching title case, stated: "Acme
+# Llp", "Sharma & Co." and "Xyz (P) Ltd" still do not mask, and "Tata Motors LTD" still leaves the
+# trailing "LTD" raw beside its [EMPLOYER_1].
 #
-# STATED BOUNDARY, both directions. UNDER — raw, each pinned by a `test_KNOWN_RESIDUAL_*`:
-#   - no corporate form: "MAIN TATA MOTORS MEIN THA", "BAJAJ AUTO", "GUPTA & SONS" — the price of
-#     not masking "MAIN STEEL PLANT";
+# ONE EXCEPTION, PRE-EXISTING (risks-register R49, #1890). Within a view this rule only ADDS
+# masking, by construction. The #1738 two-view check in `pseudonymize` is the one place where more
+# masking can mean LESS protection: it counts a spaced-view region as covered when it merely
+# OVERLAPS a reader-masked region. "my name is<ZWSP>Ramesh Kumar CO": the reader view merges
+# "isRamesh", so the cue misses and this rule masks "Kumar CO"; the spaced view masks "Ramesh Kumar"
+# as a name; the two overlap on "Kumar", so the turn passes as "my name isRamesh [EMPLOYER_1]" where
+# main BLOCKED it. Main already passes the title-case twin ("…Ramesh Kumar Steel"); this rule
+# extends the shape to the capitals forms. Pinned by
+# `test_KNOWN_RESIDUAL_a_name_hidden_by_an_invisible_beside_a_capitals_form_egresses`. The fix —
+# covered only when every kept offset is reader-masked — touches the two-view check and is #1890.
+# The check also stops blocking in a SAFE way: when the reader view now masks every kept offset the
+# spaced view masked, nothing either view found egresses, so it passes as designed. Over the
+# property test's 4,000 seeded samples (invisible separators, name cues) main blocks 28 turns this
+# rule passes: 18 of that full-cover kind, 10 of the R49 kind (11 with the rule ahead of the names).
+#
+# STATED BOUNDARY, both directions. UNDER — raw, each pinned by a `test_KNOWN_RESIDUAL_*`; the
+# lower-case, title-case-twin, M/S and 5+ word residuals are tracked as #1892:
+#   - no corporate form: "MAIN TATA MOTORS MEIN THA", "BAJAJ AUTO", "GUPTA & SONS", an M/S firm
+#     ("M/S SHARMA TRADERS") — the price of not masking "MAIN STEEL PLANT";
 #   - lower case: "tata motors ltd", "TATA MOTORS ltd" — the same case-sensitivity one level down,
 #     which needs its own over-mask measurement before any rule;
 #   - a form not on the list ("ACME INC", the Gulf "EST."), or a dash after a guarded one
@@ -229,7 +256,7 @@ _COMPANY_SUFFIX = (
 # this rule alone, 327 dotted 60-character words, costs 42 ms (112 ms before detail 5's possessive);
 # "A." * 10000 costs 18 ms, where the unbounded first cut cost 1,575 ms and took `pseudonymize` from
 # 1,576 to 3,131 ms. The 1,576 ms that remains is `_EMPLOYER_RE`'s own unbounded `[\w&.]*` — the
-# same bound would fix it, but that touches title case and is not done here.
+# same bound would fix it, but that touches title case and is not done here (#1891).
 #
 #: The dash family, for a regex class: ASCII hyphen; hyphen, non-breaking hyphen, figure dash, en
 #: dash, em dash, horizontal bar (U+2010-U+2015); minus sign; small and fullwidth hyphen. Inside a
@@ -439,8 +466,9 @@ _EMAIL_RE = re.compile(
     r"(?<![A-Za-z0-9._%+\-])[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}"
 )
 _EMPLOYER_RE = re.compile(r"\b(?:[A-Z][\w&.]*\s+){1,4}" + _COMPANY_SUFFIX + r"\b")
-#: Issue #1875 — see `_CORPORATE_FORM_CAPS`. Runs AFTER `_EMPLOYER_RE`, on its output. A name word
-#: opens the span; at most one joiner follows each name word and none counts toward the window.
+#: Issue #1875 — see `_CORPORATE_FORM_CAPS`. Runs AFTER `_EMPLOYER_RE` and both name rules, on their
+#: output (rule 4b in `_mask`, detail 1). A name word opens the span; at most one joiner follows
+#: each name word and none counts toward the window.
 _CAPS_NAME_WORD_THEN_JOINER = _CAPS_NAME_WORD + r"(?:\s+" + _CAPS_JOINER + r")?"
 _EMPLOYER_CAPS_RE = re.compile(
     r"\b"
@@ -966,7 +994,8 @@ def _mask(
     # for the whole-match rules, group 1 for the cue/leading/credential rules that keep a cue
     # and tokenise only the value. `_apply` runs them exactly like `regex.sub`, in this order,
     # while recording the SOURCE offsets each mask actually covered. The ORDER is load-bearing
-    # and unchanged (email first; ids before phone; phone before money — see the module notes).
+    # (email first; ids before phone; phone before money; the capitals employer rule after both
+    # name rules — see the module notes and `_CORPORATE_FORM_CAPS` detail 1).
     rules: list[tuple[re.Pattern[str], Callable[[re.Match[str]], str], int]] = [
         # 0. EMAIL FIRST — the only COMPOSITE pattern (name in the local part, employer in the
         #    domain, sometimes a phone). A rule ahead of it fragments the address. See `_EMAIL_RE`.
@@ -978,14 +1007,19 @@ def _mask(
         (_CREDENTIAL_ID_RE, replace_credential, 1),
         # 2. Phone numbers.
         (_PHONE_RE, lambda m: token_for(m.group(0), "PHONE"), 0),
-        # 3. Employers / companies. The capitals rule (#1875) runs SECOND, on the title-case
-        #    rule's output, so it can only add masking — never shorten a title-case match.
+        # 3. Employers / companies (title case; the capitals rule is 4b below).
         (_EMPLOYER_RE, lambda m: token_for(m.group(0), "EMPLOYER"), 0),
-        (_EMPLOYER_CAPS_RE, lambda m: token_for(m.group(0), "EMPLOYER"), 0),
         # 4. Person names (cue-based, then the leading-name heuristic); both keep the cue / prefix
         #    and tokenise group 1.
         (_NAME_CUE_RE, lambda m: replace_group1(m, "PERSON"), 1),
         (_LEADING_NAME_RE, replace_leading_name, 1),
+        # 4b. Employers written in CAPITALS (#1875). Runs AFTER the title-case rule and both name
+        #    rules, on their output, so each of them reads exactly main's input: it never shortens
+        #    a title-case match, never eats a name cue ("MY NAME IS CO Ramesh" stays "MY NAME IS
+        #    [PERSON_1]"), and within this view only masks what they left raw. It never takes a 7+
+        #    digit run (detail 4), so money and the residual net below see main's digits. Across
+        #    the two views of `pseudonymize` there is one pre-existing exception: R49, #1890.
+        (_EMPLOYER_CAPS_RE, lambda m: token_for(m.group(0), "EMPLOYER"), 0),
         # 5. (removed) CITY / STATE masking — owner ruling 2026-07-31, Master Context DEAD LIST:
         #    "✗ cities as PII (→ a 20-point matching input; never redact)". Every IDENTITY class
         #    above and every fail-closed path below is untouched; this narrowed the DEFINITION of

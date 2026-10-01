@@ -9,14 +9,14 @@ THE RULE (`pseudonymize._EMPLOYER_CAPS_RE`, documented above `_CORPORATE_FORM_CA
 span is an employer only when it ENDS in a corporate form (LTD, LIMITED, PVT, CORP, CORPORATION,
 INDUSTRIES, ENTERPRISES, LLP, LLC, W.L.L, and — guarded — PRIVATE, COMPANY, INDUSTRY, CO). A trade
 word (STEEL, AUTO, PRECISION …) never ends one, because in capitals it is ordinary shouted speech
-("MAIN STEEL PLANT MEIN THA"). It runs AFTER the title-case rule, on its output, so title-case
-behaviour is byte-identical to main.
+("MAIN STEEL PLANT MEIN THA"). It runs AFTER the title-case rule and both name rules, on their
+output (rule 4b in `_mask`), so title-case and name-rule behaviour is byte-identical to main.
 
 Each section below was seen to FAIL against at least one mutation of the rule: the rule removed;
 the dash guard on every form, or on none; the CO compound list removed; trade words allowed to end
 a span; the rule folded into `_COMPANY_SUFFIX` as an alternation; joiners removed; the 7-digit
-refusal removed; the word unbounded; INC put back; a six-word window. Stdlib + pytest only, like
-`test_pseudonymize.py`. All inputs are fabricated.
+refusal removed; the word unbounded; INC put back; a six-word window; the rule moved back ahead of
+the name rules. Stdlib + pytest only, like `test_pseudonymize.py`. All inputs are fabricated.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ import random
 import re
 import time
 from collections import Counter
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -47,8 +48,9 @@ _NEVER = re.compile(r"(?!x)x")
 def main_gateway(monkeypatch):
     """The gateway exactly as on main: the capitals rule switched off, nothing else touched.
 
-    Sound because the capitals rule is a SEPARATE pass that runs after the title-case rule — with
-    it matching nothing, every other rule sees byte-identical input."""
+    Sound because the capitals rule is a SEPARATE pass that runs after the title-case rule and both
+    name rules — with it matching nothing, every other rule sees byte-identical input. Measured
+    against the real main module over the 31,907-string corpus: 0 outputs differ."""
 
     def run(fn, *args):
         with monkeypatch.context() as patch:
@@ -346,6 +348,55 @@ def test_title_case_masking_is_byte_identical_to_main(text, expected, main_gatew
     assert pseudonymize(text) == main_gateway(pseudonymize, text)
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # Security review F2. Ahead of the name rules the capitals rule ATE THE CUE and the name
+        # egressed: "[EMPLOYER_1] Ramesh", "[EMPLOYER_1] RAMESH", "[EMPLOYER_1] Ramesh Kumar".
+        ("MY NAME IS CO Ramesh", "MY NAME IS [PERSON_1]"),
+        ("MERA NAAM PVT RAMESH", "MERA NAAM [PERSON_1]"),
+        # The cue takes two words, so main leaves "Kumar" raw here; the pin is "exactly main".
+        ("I AM LIMITED Ramesh Kumar", "I AM [PERSON_1] Kumar"),
+    ],
+)
+def test_a_name_cue_before_a_capitals_form_masks_the_name_exactly_as_on_main(
+    text, expected, main_gateway
+):
+    result = pseudonymize(text)
+    assert (result.text, result.blocked) == (expected, False)
+    assert result == main_gateway(pseudonymize, text)
+    assert "Ramesh" not in result.text and "RAMESH" not in result.text
+
+
+@pytest.mark.parametrize(
+    ("text", "main_text", "expected"),
+    [
+        # Main masks the name and leaves the employer; the branch masks both. Before the reorder
+        # the first gave "MERA NAAM [EMPLOYER_1]" — RAMESH swallowed into the employer span.
+        (
+            "MERA NAAM RAMESH HAI TATA MOTORS LTD",
+            "MERA NAAM [PERSON_1] TATA MOTORS LTD",
+            "MERA NAAM [PERSON_1] [EMPLOYER_1]",
+        ),
+        (
+            "NAAM Ramesh TATA MOTORS LTD",
+            "NAAM [PERSON_1] MOTORS LTD",
+            "NAAM [PERSON_1] [EMPLOYER_1]",
+        ),
+        (
+            "MY NAME IS Ramesh, TATA MOTORS LTD",
+            "MY NAME IS [PERSON_1], TATA MOTORS LTD",
+            "MY NAME IS [PERSON_1], [EMPLOYER_1]",
+        ),
+    ],
+)
+def test_a_name_cue_and_a_capitals_employer_both_mask(text, main_text, expected, main_gateway):
+    assert main_gateway(pseudonymize, text).text == main_text
+    result = pseudonymize(text)
+    assert (result.text, result.blocked) == (expected, False)
+    assert sorted(result.placeholder_tokens) == ["[EMPLOYER_1]", "[PERSON_1]"]
+
+
 _TITLE = ["Tata", "Bharat", "Om", "Sai", "Shree", "Ganesh", "Main", "Xyz", "Ramesh"]
 _CAPS = [w.upper() for w in _TITLE]
 _SUFFIX_WORDS = sorted(set(re.findall(r"[A-Za-z]+", gateway._COMPANY_SUFFIX)))
@@ -357,6 +408,12 @@ _JOINED = ["&", "(P)", "(I)", "3M", "TATA-MOTORS", "J.K."]
 #: Words that make main BLOCK (7-8 digits out of salary range) or mask money (in range).
 _DIGITS = ["X12345678", "TM12345678", "AB1234567", "12345678"]
 _LOWER = ["mein", "tha", "aur", "se", "ke", "baad", ",", "5", "ORDINATOR", "OP", "2", "WELDING"]
+#: Every cue `_NAME_CUE_RE` reads that a worker types in capitals, and the same in lower case.
+_CUES = ["MY NAME IS", "MERA NAAM", "MYSELF", "I AM", "NAAM"]
+#: Characters the reader view DELETES and the spaced view turns into a space (#1738): zero-width
+#: space, zero-width non-joiner, word joiner, soft hyphen. `_sample` glues each to its neighbours,
+#: so it is the SOLE separator between two words — the shape where the two views disagree.
+_INVISIBLES = ["​", "‌", "⁠", "­"]
 _POOLS = [
     _TITLE,
     _CAPS,
@@ -366,35 +423,114 @@ _POOLS = [
     _JOINED,
     _DIGITS,
     _LOWER,
+    _CUES + [c.lower() for c in _CUES],
+    _INVISIBLES,
 ]
 _ANY_CAPITALS_FORM = re.compile(r"\b" + gateway._CORPORATE_FORM_CAPS + r"\b")
 
 
 def _sample(rng: random.Random) -> str:
-    return " ".join(rng.choice(rng.choice(_POOLS)) for _ in range(rng.randint(1, 9)))
+    parts = [rng.choice(rng.choice(_POOLS)) for _ in range(rng.randint(1, 9))]
+    text = parts[0]
+    for previous, part in pairwise(parts):
+        text += ("" if previous in _INVISIBLES or part in _INVISIBLES else " ") + part
+    return text
 
 
 def _raw_words(text: str) -> Counter[str]:
     return Counter(re.findall(r"[^\W_]+", re.sub(r"\[[A-Z]+_\d+\]", " ", text)))
 
 
+def _two_view_verdict(text: str) -> str:
+    """How #1738's two-view check in `pseudonymize` treats ``text`` on the module as it stands.
+
+    "blocks"  — a view's residual guard trips, or a spaced-view region overlaps no reader mask.
+    "full"    — it passes, and every offset of every spaced-view region that the reader view KEPT
+                (did not delete) is reader-masked: nothing the spaced view found egresses raw.
+    "partial" — it passes although a spaced-view region holds a kept offset the reader view left
+                raw; the region merely OVERLAPS a reader mask. That is R49 (#1890): under its
+                mitigation (covered only if every kept offset is reader-masked) it would block.
+    """
+    reader_view, spaced_view = gateway._build_views(text)
+    reader, reader_regions = gateway._mask(reader_view, True)
+    spaced, spaced_regions = gateway._mask(spaced_view, True)
+    reader_masked: set[int] = set().union(*reader_regions)
+    if (
+        reader.blocked
+        or spaced.blocked
+        or any(not (region & reader_masked) for region in spaced_regions)
+    ):
+        return "blocks"
+    kept = set(reader_view.src)
+    if any((region & kept) - reader_masked for region in spaced_regions):
+        return "partial"
+    return "full"
+
+
 def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway):
-    # 4,000 seeded mixed-case runs of names, trade words, corporate forms, joiners, digit words
-    # that make main block, and Hinglish fillers. Over THIS generator's pools: every word main
-    # masked is still masked, and every turn main blocked still blocks (detail 4). A fixed
-    # generator, NOT a proof over all inputs — the construction (a separate pass on the
-    # title-case rule's output) is the argument; this would catch it being undone.
+    """What this PROVES, exactly — over 4,000 samples of THIS seeded generator, not over all inputs.
+
+    The pools: title-case and capitals names, every `_COMPANY_SUFFIX` word in both cases, the
+    capitals forms and their compounds, joiners, digit words main blocks on or masks as money,
+    Hinglish fillers, the five name cues (MY NAME IS, MERA NAAM, MYSELF, I AM, NAAM) in capitals
+    and lower case, and four invisible characters (U+200B, U+200C, U+2060, U+00AD) glued in as the
+    SOLE separator between two words.
+
+    1. IN EACH VIEW (#1738's reader and spaced view, through `_mask`): every region main masked is
+       masked over exactly the same source offsets — so the rule never shortens a title-case match
+       and never eats a name cue — no word main masked is left raw, every residual-digit block
+       main raised is still raised, and with no capitals corporate form in the view the result and
+       its regions are byte-identical to main's. No exception.
+    2. END TO END (`pseudonymize`): the same — no word main masked is left raw, every block main
+       raised is still raised, no form in either view means byte-identical — EXCEPT where main
+       blocked on the two-view check and the branch passes. That happens two ways, and each such
+       turn is asserted to be one of them (`_two_view_verdict`):
+       a. "full": the branch's reader view now masks every kept offset its spaced view masked, so
+          the check, as designed, has nothing to block on and nothing either view found egresses
+          raw. Main refused the whole turn; the branch releases it with every found span masked,
+          and each word it releases was raw in main's reader view too (by 1). Measured 2026-10-01:
+          18 of the 4,000.
+       b. "partial": a spaced-view region merely OVERLAPS a reader mask and a kept offset of it
+          egresses raw. That is R49 (#1890), pre-existing on main with title-case suffixes.
+          Measured 2026-10-01: 10 of the 4,000 (11 with the rule ahead of the name rules). Pinned
+          on its own by
+          `test_KNOWN_RESIDUAL_a_name_hidden_by_an_invisible_beside_a_capitals_form_egresses`.
+
+    What it does NOT prove: anything outside these pools (other cues, other invisibles, other
+    scripts), or that the masking is CORRECT — only how it compares with main's. The construction
+    (rule 4b runs after every rule that could compete with it, and refuses a 7+ digit run) is the
+    argument; this catches it being undone. The floors at the end show each part was exercised."""
     rng = random.Random(1875)
-    blocked_by_main = 0
+    seen: Counter[str] = Counter()
     for _ in range(4_000):
         text = _sample(rng)
+        for view in gateway._build_views(text):
+            new_view, new_regions = gateway._mask(view, True)
+            old_view, old_regions = main_gateway(gateway._mask, view, True)
+            assert old_view.blocked <= new_view.blocked, text
+            assert all(region in new_regions for region in old_regions), (text, view.text)
+            assert not (_raw_words(new_view.text) - _raw_words(old_view.text)), (text, view.text)
+            if not _ANY_CAPITALS_FORM.search(view.text):
+                assert (new_view, new_regions) == (old_view, old_regions), text
         new, old = pseudonymize(text), main_gateway(pseudonymize, text)
-        blocked_by_main += old.blocked
+        seen["main blocked"] += old.blocked
+        seen["main two-view block"] += old.blocked_reason == gateway._INVISIBLE_BYPASS_REASON
+        seen["cue beside a capitals form"] += bool(
+            "[PERSON_" in old.text and _ANY_CAPITALS_FORM.search(text)
+        )
+        if old.blocked and not new.blocked:
+            assert old.blocked_reason == gateway._INVISIBLE_BYPASS_REASON, text
+            verdict = _two_view_verdict(text)
+            assert verdict in ("full", "partial"), (text, verdict)
+            seen[f"unblocked, {verdict}"] += 1
+            continue
         assert old.blocked <= new.blocked, text
         assert not (_raw_words(new.text) - _raw_words(old.text)), (text, old.text, new.text)
-        if not _ANY_CAPITALS_FORM.search(text):
-            assert new == old, text  # no capitals corporate form -> byte-identical
-    assert blocked_by_main > 100  # the block-preservation half is actually exercised
+        if not any(_ANY_CAPITALS_FORM.search(v.text) for v in gateway._build_views(text)):
+            assert new == old, text  # no capitals corporate form in either view -> byte-identical
+    assert seen["main blocked"] > 600, seen
+    assert seen["main two-view block"] > 70, seen
+    assert seen["cue beside a capitals form"] > 200, seen
 
 
 # --- 4. the stated boundary, both directions --------------------------------------------------
@@ -427,12 +563,14 @@ def test_ACCEPTED_a_shouted_corporate_word_over_masks_exactly_like_its_title_cas
         "BAJAJ AUTO",
         "JYOTI CNC",
         "GUPTA & SONS",
+        "M/S SHARMA TRADERS",  # an M/S firm with no corporate form — tracked in #1892
     ],
 )
 def test_KNOWN_RESIDUAL_an_all_caps_employer_without_a_corporate_form_is_not_masked(text):
     # The price of not masking "MAIN STEEL PLANT MEIN THA": with no corporate form, a capitals
     # employer is indistinguishable from shouted trade speech. If this starts masking, the
-    # boundary moved — re-run the over-mask measurement and update the register (R48).
+    # boundary moved — re-run the over-mask measurement and update the register (R48; the M/S
+    # firm is #1892).
     result = pseudonymize(text)
     assert result.text == text
     assert result.replaced_entities == 0
@@ -457,9 +595,45 @@ def test_KNOWN_RESIDUAL_an_all_caps_employer_without_a_corporate_form_is_not_mas
     ],
 )
 def test_KNOWN_RESIDUAL_stated_under_masking(text, expected, why):
-    # Each is recorded as a residual in risks-register R48 and docs/ai/pseudonymization.md. If one
-    # of these starts masking, the boundary moved: re-measure and update both.
+    # Each is recorded as a residual in risks-register R48 and docs/ai/pseudonymization.md; the
+    # lower-case, 5+ word and title-case-twin rows are tracked in #1892. If one of these starts
+    # masking, the boundary moved: re-measure and update both.
     assert pseudonymize(text).text == expected, why
+
+
+@pytest.mark.parametrize(
+    ("text", "leaked"),
+    [
+        ("my name is​Ramesh Kumar CO", "my name isRamesh [EMPLOYER_1]"),
+        ("my name is​Ramesh Kumar LTD", "my name isRamesh [EMPLOYER_1]"),
+        ("mera naam​Ramesh Kumar PVT LTD", "mera naamRamesh [EMPLOYER_1]"),
+    ],
+)
+def test_KNOWN_RESIDUAL_a_name_hidden_by_an_invisible_beside_a_capitals_form_egresses(
+    text, leaked, main_gateway
+):
+    """R49 / #1890 — pre-existing in #1738's two-view check, NOT fixed here (security review F1).
+
+    The reader view deletes the U+200B and merges "isRamesh", so the cue misses and the capitals
+    rule masks "Kumar CO". The spaced view masks "Ramesh Kumar" as a name. `pseudonymize` counts
+    the spaced region as covered because it OVERLAPS the reader mask on "Kumar", so the turn
+    passes with "Ramesh" raw. Main BLOCKED it: no reader mask to overlap. If this starts blocking,
+    R49 is fixed — turn this into a blocking pin and close R49 / #1890."""
+    assert main_gateway(pseudonymize, text).blocked_reason == gateway._INVISIBLE_BYPASS_REASON
+    result = pseudonymize(text)
+    assert (result.text, result.blocked) == (leaked, False)
+    assert _two_view_verdict(text) == "partial"
+
+
+def test_KNOWN_RESIDUAL_r49_predates_the_capitals_rule(main_gateway):
+    # Main passes the title-case twin the same way: "Kumar Steel" is the reader mask "Ramesh
+    # Kumar" overlaps. The capitals rule extends the shape to the capitals forms; it did not
+    # create it (R49, #1890).
+    text = "my name is​Ramesh Kumar Steel"
+    result = main_gateway(pseudonymize, text)
+    assert (result.text, result.blocked) == ("my name isRamesh [EMPLOYER_1]", False)
+    assert main_gateway(_two_view_verdict, text) == "partial"
+    assert pseudonymize(text) == result
 
 
 # --- 5. fail-closed and the certifiers --------------------------------------------------------
@@ -567,10 +741,11 @@ def test_no_certifier_outcome_moves_on_the_lexicon_vocabulary(main_gateway):
 
 # --- 6. the work per character is bounded (detail 5) ------------------------------------------
 
-# Generous ceiling, the `test_egress_gates` precedent: the worst input measured costs 42 ms for this
-# rule alone and the unbounded first cut cost 1,575 ms on "A." * 10000. 250 ms fails loudly on a
-# reintroduced quadratic scan and leaves headroom for a slow CI box.
-_REDOS_BUDGET_MS = 250
+# Generous ceiling, after the `test_egress_gates` precedent. The structural test below is the real
+# guard; this one is the backstop. The worst input measured costs 42 ms for this rule alone, but
+# 265-330 ms on a loaded laptop — `test_egress_gates`' 250 ms flaked on it. The unbounded first cut
+# cost 1,575 ms on "A." * 10000, so 750 ms still fails loudly on a reintroduced quadratic scan.
+_REDOS_BUDGET_MS = 750
 
 
 def test_the_capitals_name_word_is_bounded_and_possessive():
@@ -592,7 +767,8 @@ def test_the_capitals_name_word_is_bounded_and_possessive():
 )
 def test_the_capitals_rule_is_not_quadratic(text):
     # The rule alone: `pseudonymize` on "A." * 10000 is still ~1.5 s because of title case's own
-    # unbounded `[\w&.]*` — recorded in R48, not fixed here (it would touch title case).
+    # unbounded `[\w&.]*` — recorded in R48 and tracked as #1891, not fixed here (it would touch
+    # title case).
     text = text[: gateway.DEFAULT_MAX_LENGTH]
     start = time.perf_counter()
     gateway._EMPLOYER_CAPS_RE.sub("X", text)
