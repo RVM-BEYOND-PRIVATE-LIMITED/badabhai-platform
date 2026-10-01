@@ -44,9 +44,12 @@ export interface MatchDecisionResult {
  * skip→apply FLIP — the two moments where a NEW decision is being taken — and never on
  * a repeat of a decision already recorded.
  *
- * THE REACH ROW IS THE GATE. He can only apply to what the gate showed him: no
- * `job_reach` row means the posting never reached him, and the apply 404s with the same
- * neutral body as an unknown posting (no existence oracle).
+ * ON THE V1 PATH, THE REACH ROW IS THE GATE ({@link buildSnapshot}). He can only apply to
+ * what the gate showed him: no `job_reach` row means the posting never reached him, and the
+ * apply 404s with the same neutral body as an unknown posting (no existence oracle).
+ * The interim union (#1823, ADR-0049 S3) is the one exception: its caller gates on the
+ * posting being OPEN and uses {@link trySnapshot}, which writes a NULL snapshot when there is
+ * no reach row instead of refusing the apply.
  */
 @Injectable()
 export class MatchApplyService {
@@ -68,13 +71,30 @@ export class MatchApplyService {
    * The engine owns that rule; this method only supplies its inputs.
    */
   async buildSnapshot(workerId: string, jobPostingId: string): Promise<RankSnapshot> {
+    const snapshot = await this.trySnapshot(workerId, jobPostingId);
+    // NO ORACLE: "no reach row" and "no such posting" are the identical 404. A worker must
+    // not be able to enumerate postings by watching which ids answer differently.
+    if (!snapshot) throw new NotFoundException("Job not found");
+    return snapshot;
+  }
+
+  /**
+   * {@link buildSnapshot} without the gate: the frozen rank inputs when the worker has a
+   * reach row for the posting, else NULL.
+   *
+   * WHY A NULL IS HONEST HERE (#1823, ADR-0049 S3). The interim union feed serves postings
+   * to workers by the #1240 skill-overlap rule, not by `job_reach`, and its apply path checks
+   * the posting is OPEN itself. A reach row then exists only when publish or reconciliation
+   * materialized one, and ADR-0036 §5 says history not captured is gone permanently — so the
+   * snapshot is taken whenever it CAN be, and the row is written without one otherwise.
+   * The applicant list already sorts NULL snapshots last. Never a fabricated tier.
+   */
+  async trySnapshot(workerId: string, jobPostingId: string): Promise<RankSnapshot | null> {
     const reach = await this.skills.findReachRow(workerId, jobPostingId);
-    // NO ORACLE: identical to the "posting does not exist" 404. A worker must not be
-    // able to enumerate postings by watching which ids answer differently.
-    if (!reach) throw new NotFoundException("Job not found");
+    if (!reach) return null;
 
     const posting = await this.skills.findPostingSkillSets(jobPostingId);
-    if (!posting) throw new NotFoundException("Job not found");
+    if (!posting) return null;
 
     const cfg = await this.config.get();
     const rows = await this.skills.listSkillRows(workerId);

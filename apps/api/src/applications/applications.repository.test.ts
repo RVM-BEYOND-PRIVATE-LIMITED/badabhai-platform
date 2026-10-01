@@ -370,3 +370,231 @@ describe("migration 0131 — findOpenJobs (the legacy worker feed) never selects
     expect(projection).not.toContain("role_kind");
   });
 });
+
+// =============================================================================================
+// #1823 (ADR-0049) — THE INTERIM UNION'S READS. Every service test mocks these, so the
+// predicates, the projection and the binding are provable only here (and, evaluated, in
+// feed-union.db.test.ts). `compile` keeps the bound params, which `render` drops.
+// =============================================================================================
+const compile = (node: unknown) => {
+  const c = dialect.sqlToQuery(sql`${node}` as SQL);
+  return { sql: c.sql.replace(/\s+/g, " "), params: c.params };
+};
+
+/** The card columns plus the id and the sort key — and nothing else. */
+const POSTING_FEED_PROJECTION = [
+  "area",
+  "benefits",
+  "city",
+  "description",
+  "id",
+  "maxExperienceYears",
+  "minExperienceYears",
+  "neededBy",
+  "payMax",
+  "payMin",
+  "payType",
+  "publishedAt",
+  "requirements",
+  "roleTitle",
+  "shift",
+];
+
+const MSKILL_A = "mskill_vmc_operator";
+const MSKILL_B = "mskill_cnc_turner";
+
+describe("#1823 findOpenPostingsForFeed — the projection is the card, and only the card", () => {
+  it("projects EXACTLY the card columns plus id and published_at", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findOpenPostingsForFeed(WORKER, 50, { wantedSkillIds: [] });
+    // Vacuity guard: an explicit selection was passed at all (a bare select() is `undefined`).
+    expect(captured.selection).toBeDefined();
+    expect(Object.keys(captured.selection!).sort()).toEqual(POSTING_FEED_PROJECTION);
+    expect(render(captured.from)).toContain('"job_postings"');
+  });
+
+  it.each([
+    "org_label",
+    "payer_id",
+    "created_by",
+    "location_label",
+    "verification_status",
+    "role_kind",
+    "boosted_until",
+    '"state"',
+    "vacancy_band",
+    "skill_ids",
+    "skill_phrases",
+    "match_skill_ids",
+    "reach_skill_ids",
+    "source_job_id",
+  ])("never projects %s (ADR-0024 HIDDEN, or not a card field)", async (column) => {
+    const { repo, captured } = makeDb();
+    await repo.findOpenPostingsForFeed(WORKER, 50, { wantedSkillIds: [MSKILL_A], city: "Pune" });
+    const projection = Object.values(captured.selection!).map(render).join(" | ");
+    expect(projection).toContain('"role_title"'); // vacuity: the projection renders columns
+    expect(projection).not.toContain(column);
+  });
+});
+
+describe("#1823 findOpenPostingsForFeed — the §2.1 predicates, each separate", () => {
+  async function whereOf(filters: { city?: string; wantedSkillIds: string[] }) {
+    const { repo, captured } = makeDb();
+    await repo.findOpenPostingsForFeed(WORKER, 50, filters);
+    return compile(captured.where);
+  }
+
+  it("(1)+(2) open AND published — status is bound, published_at must be non-null", async () => {
+    const { sql: text, params } = await whereOf({ wantedSkillIds: [] });
+    expect(text).toMatch(/"job_postings"\."status" = \$\d/);
+    expect(params).toContain("open");
+    expect(text).toMatch(/"job_postings"\."published_at" is not null/i);
+  });
+
+  it("(3a)(3b)(4) are THREE separate NOT EXISTS — the applied anti-joins and the twin guard", async () => {
+    const { sql: text, params } = await whereOf({ wantedSkillIds: [] });
+    // Split at each NOT EXISTS: [prefix, (3a), (3b), (4)].
+    const [, a3 = "", b3 = "", twin = ""] = text.split(/not exists/i);
+    expect(text.match(/not exists/gi)).toHaveLength(3);
+
+    // (3a) applied on THIS posting.
+    expect(a3).toContain('"applications"."job_posting_id" = "job_postings"."id"');
+    expect(a3).toContain("'applied'");
+    expect(a3).not.toContain("source_job_id");
+    // (3b) applied on its D4 SOURCE job.
+    expect(b3).toContain('"applications"."job_id" = "job_postings"."source_job_id"');
+    expect(b3).toContain("'applied'");
+    // (4) the twin guard reads `jobs`, not `applications`, and only an OPEN source hides it.
+    expect(twin).toMatch(/from "jobs"/i);
+    expect(twin).toContain('"jobs"."id" = "job_postings"."source_job_id"');
+    expect(twin).toContain(`"jobs"."status" = 'open'`);
+    expect(twin).not.toContain('"applications"');
+
+    // Both anti-joins scope to THIS worker, bound — never interpolated.
+    expect(a3).toMatch(/"applications"\."worker_id" = \$\d/);
+    expect(b3).toMatch(/"applications"\."worker_id" = \$\d/);
+    expect(params.filter((p) => p === WORKER)).toHaveLength(2);
+  });
+
+  it("excludes only APPLIED — a skipped posting is re-served (TD73, O4)", async () => {
+    const { sql: text } = await whereOf({ wantedSkillIds: [] });
+    expect(text).toContain("'applied'");
+    expect(text).not.toContain("'skipped'");
+  });
+
+  it("(5) the #1240 `?|` gate binds the wanted ids as ONE text[] parameter", async () => {
+    const { sql: text, params } = await whereOf({ wantedSkillIds: [MSKILL_A, MSKILL_B] });
+    expect(text).toMatch(/"job_postings"\."reach_skill_ids" \?\| \$\d+::text\[\]/);
+    // ONE array param — a bare JS array would expand to a RECORD and 42846 at runtime.
+    expect(params).toContainEqual([MSKILL_A, MSKILL_B]);
+    expect(params).not.toContain(MSKILL_A);
+    expect(text).not.toContain(MSKILL_A);
+    // ANY overlap, never ALL.
+    expect(text).not.toContain("?&");
+  });
+
+  it("(5) with NO wanted skills there is no `?|` at all — every posting passes (#1240)", async () => {
+    const { sql: text } = await whereOf({ wantedSkillIds: [] });
+    expect(text).not.toContain("?|");
+    expect(text).not.toContain("reach_skill_ids");
+  });
+
+  it("(6) city is NULL-tolerant and case-insensitive, and only when supplied", async () => {
+    const withCity = await whereOf({ wantedSkillIds: [], city: "Pune" });
+    expect(withCity.sql).toMatch(
+      /\(\s*"job_postings"\."city" is null or lower\("job_postings"\."city"\) = lower\(\$\d+::text\)\s*\)/i,
+    );
+    expect(withCity.params).toContain("Pune");
+    expect(withCity.sql).not.toContain("'Pune'");
+
+    const without = await whereOf({ wantedSkillIds: [] });
+    expect(without.sql).not.toContain("lower(");
+    expect(without.sql).not.toContain('"job_postings"."city"');
+  });
+
+  it("never filters by trade, role, shift or pay — the jobs arm keeps those (O7, #1905)", async () => {
+    const { sql: text } = await whereOf({ wantedSkillIds: [MSKILL_A], city: "Pune" });
+    for (const column of ["trade_key", "role_kind", '"shift"', "pay_min", "pay_max"]) {
+      expect(text).not.toContain(column);
+    }
+  });
+
+  it("orders published_at DESC, then id ASC, and pages by `limit`", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findOpenPostingsForFeed(WORKER, 37, { wantedSkillIds: [] });
+    const order = (captured.orderBy ?? []).map(render);
+    expect(order).toHaveLength(2);
+    expect(order[0]).toMatch(/"published_at" desc/i);
+    expect(order[1]).toMatch(/"job_postings"\."id" asc/i);
+    expect(captured.limit).toBe(37);
+  });
+});
+
+describe("#1823 findOpenPostingRef — existence of an OPEN posting, id only", () => {
+  it("projects the id alone and requires status = 'open'", async () => {
+    const { repo, captured } = makeDb([{ id: "p-1" }]);
+    const out = await repo.findOpenPostingRef("p-1");
+
+    expect(out).toEqual({ id: "p-1" });
+    expect(Object.keys(captured.selection ?? {})).toEqual(["id"]);
+    expect(render(captured.from)).toContain('"job_postings"');
+    const { sql: text, params } = compile(captured.where);
+    expect(text).toMatch(/"job_postings"\."id" = \$\d/);
+    expect(text).toMatch(/"job_postings"\."status" = \$\d/);
+    expect(params).toEqual(["p-1", "open"]);
+    expect(captured.limit).toBe(1);
+  });
+
+  it("returns undefined on a miss", async () => {
+    const { repo } = makeDb([]);
+    await expect(repo.findOpenPostingRef("p-404")).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * #1823 — the ops applicants read covers both id spaces as TWO single-column reads the
+ * service chooses between, never one `job_id = $1 OR job_posting_id = $1`: the OR cannot be
+ * served by `applications_job_id_idx` alone, so it would move every legacy read off its
+ * index. Each WHERE is pinned to exactly one column.
+ */
+describe("#1823 the ops applicants reads — one id space each, never an OR", () => {
+  it("findApplicantsByJob matches job_id ONLY, with the cap kept", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findApplicantsByJob("id-1");
+    const { sql: text, params } = compile(captured.where);
+    expect(text).toMatch(/^"applications"\."job_id" = \$1$/);
+    expect(text).not.toContain("job_posting_id");
+    expect(text).not.toMatch(/ or /i);
+    expect(params).toEqual(["id-1"]);
+    expect(captured.limit).toBeGreaterThan(0);
+  });
+
+  it("findApplicantsByPosting matches job_posting_id ONLY, same order and cap", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findApplicantsByPosting("p-1");
+    const { sql: text, params } = compile(captured.where);
+    expect(text).toMatch(/^"applications"\."job_posting_id" = \$1$/);
+    expect(text).not.toMatch(/"job_id"/);
+    expect(params).toEqual(["p-1"]);
+    expect(render(captured.orderBy![0])).toMatch(/"applications"\."created_at" asc/i);
+
+    const legacy = makeDb();
+    await legacy.repo.findApplicantsByJob("id-1");
+    expect(captured.limit).toBe(legacy.captured.limit);
+  });
+
+  it("legacyJobExists reads `jobs` by id ONLY — no status predicate (a closed job has applicants), id-only projection", async () => {
+    const hit = makeDb([{ id: "j-1" }]);
+    await expect(hit.repo.legacyJobExists("j-1")).resolves.toBe(true);
+    expect(Object.keys(hit.captured.selection!)).toEqual(["id"]);
+    expect(render(hit.captured.from)).toContain('"jobs"');
+    const { sql: text, params } = compile(hit.captured.where);
+    expect(text).toMatch(/^"jobs"\."id" = \$1$/);
+    expect(text).not.toContain("status");
+    expect(params).toEqual(["j-1"]);
+    expect(hit.captured.limit).toBe(1);
+
+    const miss = makeDb([]);
+    await expect(miss.repo.legacyJobExists("j-404")).resolves.toBe(false);
+  });
+});

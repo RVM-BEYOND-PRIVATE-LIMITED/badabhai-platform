@@ -1497,6 +1497,12 @@ jobs:
       #                    fully-profiled worker as unprofiled. Both are properties of a
       #                    `FROM` clause and an `ORDER BY` EVALUATING, which a stubbed drizzle
       #                    handle cannot show.
+      #   * feed-union.db — #1823 (ADR-0049), the interim union's posting arm and its apply.
+      #                    Status/published, suspension, both applied anti-joins, the D4 twin
+      #                    guard, the #1240 `?|` overlap (a bare-array bind is a RUNTIME 42846),
+      #                    the cross-table merge order, and a posting apply landing on
+      #                    `job_posting_id` with a snapshot only when a reach row exists — all
+      #                    properties of the SQL evaluating, which the structural tests cannot see.
       #
       # They need nothing but a MIGRATED Postgres, which the steps above already built:
       # this job's service container gets the whole chain (journal-driven, 0000 → head —
@@ -1510,7 +1516,7 @@ jobs:
       # with no database and must keep skipping these files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
       # `node` job, and a six-file run cannot meet them.
-      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + unique violations)
+      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + unique violations + feed union)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -1522,9 +1528,10 @@ jobs:
           #
           # `--no-file-parallelism` IS LOAD-BEARING, and it is the one flag on this line
           # that is about correctness rather than plumbing. Vitest gives each FILE its own
-          # worker and runs them concurrently; these eight share ONE Postgres, and five of
-          # them INSERT INTO `workers` (current-profile-order, ai-cost-totals.db,
-          # jobs-search-sql, applied-subtitle.db, and admin-dashboard.db itself). `admin-dashboard.db` reads a
+          # worker and runs them concurrently; every gate file on the command below shares ONE
+          # Postgres, and several INSERT INTO `workers` (current-profile-order,
+          # ai-cost-totals.db, jobs-search-sql, applied-subtitle.db, feed-union.db, and
+          # admin-dashboard.db itself). `admin-dashboard.db` reads a
           # summary, inserts one row, reads again and asserts the delta is exactly 1 — an
           # assertion about a GLOBAL count that any concurrent insert falsifies.
           #
@@ -1537,7 +1544,7 @@ jobs:
           # Serialising costs nothing here (the whole step runs in ~4s) and is scoped to
           # THIS step on purpose: `apps/api/vitest.config.ts` stays parallel, because the
           # 2820-test `node` suite is database-free and has no shared state to race on.
-          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db unique-violation.db 2>&1 | tee db-gates-raw.log
+          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db unique-violation.db feed-union.db 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
@@ -1546,12 +1553,12 @@ jobs:
           #     suite-wide "some test passed" check is satisfied by unrelated tests.
           # The directory alternation must list EVERY directory a gate file lives in:
           # `ai-cost-totals.db` sits under src/ai, `jobs-search-sql` under src/jobs and
-          # `admin-dashboard.db` under src/admin and `applied-subtitle.db` under
+          # `admin-dashboard.db` under src/admin and `applied-subtitle.db` + `feed-union.db` under
           # src/applications and `turner-reach.db` under src/resume and `unique-violation.db`
           # under src/common, and against a regex missing any one of them
           # this loop reports "did not run at all" on a perfectly good run. Widen it whenever a
           # gate lands in a new directory.
-          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db unique-violation.db; do
+          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db unique-violation.db feed-union.db; do
             line=$(grep -E "src/(ai|admin|applications|common|match|profiles|jobs|resume)/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
@@ -1569,8 +1576,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +10 passed \(10\)' db-gates.log; then
-            echo "::error::Expected exactly the 10 gate files to run — the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +11 passed \(11\)' db-gates.log; then
+            echo "::error::Expected exactly the 11 gate files to run — the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi
@@ -1600,6 +1607,70 @@ jobs:
           echo "----- API log (tail) -----"; tail -n 80 api.log || true
           kill "$API_PID" 2>/dev/null || true
           exit $E2E_EXIT
+
+      # #1823 / ADR-0049 — THE INTERIM UNION, ARMED, IN ITS OWN PASS.
+      #
+      # The step above runs every suite against the API exactly as production runs it today:
+      # FEED_POSTINGS_UNION_ENABLED unset, i.e. OFF. It stays that way on purpose, so prod's
+      # default path keeps its coverage. This step restarts the API with the flag ON and runs
+      # ONLY feed-postings-union.e2e, which refuses to run unless the runner is armed too.
+      #
+      # A VACUOUS PASS IS A DEFECT. `describe.skipIf` makes an unarmed run exit 0, so the step
+      # asserts the file was found AND was not skipped, the same per-file doctrine as the
+      # DB-backed gates above.
+      - name: Restart API with FEED_POSTINGS_UNION_ENABLED and run the union E2E suite
+        env:
+          FEED_POSTINGS_UNION_ENABLED: "true"
+          E2E_FEED_POSTINGS_UNION: "1"
+        run: |
+          # The previous step's API was sent SIGTERM; wait until the port is free so the
+          # health probe below can only ever see the ARMED process.
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3001/health >/dev/null 2>&1 || break
+            sleep 1
+          done
+          node apps/api/dist/main.js > api-union.log 2>&1 &
+          API_PID=$!
+          echo "API (union armed) started (pid $API_PID) — waiting for /health…"
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3001/health >/dev/null 2>&1; then
+              echo "API healthy after ${i}s"; break
+            fi
+            if ! kill -0 "$API_PID" 2>/dev/null; then
+              echo "::error::API process exited during startup"; cat api-union.log; exit 1
+            fi
+            sleep 1
+          done
+          curl -sf http://localhost:3001/health >/dev/null \
+            || { echo "::error::API never became healthy"; cat api-union.log; exit 1; }
+
+          set +e
+          # NO `--` before the filter (see the DB-backed gates step): pnpm would forward it.
+          pnpm --filter @badabhai/e2e test feed-postings-union 2>&1 | tee e2e-union-raw.log
+          E2E_EXIT=${PIPESTATUS[0]}
+          set -e
+
+          echo "----- API log (tail) -----"; tail -n 80 api-union.log || true
+          kill "$API_PID" 2>/dev/null || true
+          if [ "$E2E_EXIT" -ne 0 ]; then exit "$E2E_EXIT"; fi
+
+          sed -e 's/\x1b\[[0-9;]*m//g' e2e-union-raw.log > e2e-union.log
+          line=$(grep -E "feed-postings-union\.e2e\.test\.ts" e2e-union.log | head -1 || true)
+          if [ -z "$line" ]; then
+            echo "::error::feed-postings-union.e2e.test.ts did not run at all — the vitest file filter matched nothing."
+            exit 1
+          fi
+          case "$line" in
+            *skipped*)
+              echo "::error::feed-postings-union.e2e.test.ts SKIPPED — the runner is not armed, so this gate would have passed vacuously."
+              exit 1
+              ;;
+          esac
+          if ! grep -qE 'Test Files +1 passed \(1\)' e2e-union.log; then
+            echo "::error::Expected exactly the one union suite to run and pass."
+            grep -E 'Test Files|      Tests ' e2e-union.log || true
+            exit 1
+          fi
 
   # ---- CI-2 aggregator: branch protection requires THIS job, not individual ones ----
   # Always runs (if: always()), needs every PR-stage job. Passes only when every needed
@@ -2095,6 +2166,10 @@ jobs:
           # `:-false`, which is today's masked behaviour. Any value but true/false/1/0/empty fails
           # the deploy before a container moves (scripts/deploy/staging-deploy.sh's preflight).
           AI_RAW_PII_ENABLED: ${{ secrets.AI_RAW_PII_ENABLED }}
+          # Company postings on the legacy worker feed (#1823, ADR-0049 — the interim union).
+          # Unset/empty resolves to off through compose's `:-false`, which is today's feed.
+          # Any value but true/false/1/0/empty fails the deploy before a container moves.
+          FEED_POSTINGS_UNION_ENABLED: ${{ secrets.FEED_POSTINGS_UNION_ENABLED }}
 
           # Payer OTP email (ADR-0019) — the ZeptoMail analogue of the FAST2SMS_* trio
           # above. EMAIL_PROVIDER/ZEPTOMAIL_SANDBOX_MODE are NOT here: they now default
@@ -2245,7 +2320,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,PROFILING_TIERS_ENABLED,RESUME_SKINS_ENABLED,RESUME_QR_SCAN_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_COMPANION_V2_ENABLED,CHAT_COMPANION_V2_EDIT_ENABLED,CHAT_COMPANION_V2_NEW_RESUME_ENABLED,CHAT_COMPANION_V2_FALTU_ENABLED,CHAT_COMPANION_V2_CAREER_ENABLED,CHAT_GENERAL_ROAD_ENABLED,CHAT_IDENTITY_INTAKE_ENABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS,AI_RAW_PII_ENABLED
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,PROFILING_TIERS_ENABLED,RESUME_SKINS_ENABLED,RESUME_QR_SCAN_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_COMPANION_V2_ENABLED,CHAT_COMPANION_V2_EDIT_ENABLED,CHAT_COMPANION_V2_NEW_RESUME_ENABLED,CHAT_COMPANION_V2_FALTU_ENABLED,CHAT_COMPANION_V2_CAREER_ENABLED,CHAT_GENERAL_ROAD_ENABLED,CHAT_IDENTITY_INTAKE_ENABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS,AI_RAW_PII_ENABLED,FEED_POSTINGS_UNION_ENABLED
           #
           # ⚠ FIVE LINKS, AND A SECRET ONLY BUYS THE FIRST. A value reaches a container by:
           #   1. existing as a GitHub environment secret

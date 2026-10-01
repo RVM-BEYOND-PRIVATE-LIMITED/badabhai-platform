@@ -56,6 +56,16 @@
  * only when the `MATCH_V1_ENABLED` flip is happening NOW — D5 `db:materialize:reach --apply`
  * must follow in the same window, per the runbook order D4 → D5.
  *
+ * WITH `FEED_POSTINGS_UNION_ENABLED` ARMED (#1823, ADR-0049) the drain above no longer
+ * happens for SEED rows: the flag-off feed also serves open, published `job_postings`, so a
+ * converted row stays on the deck as its posting twin — in the same position
+ * (`published_at = jobs.created_at`) and with the worker's applied state kept (the feed's
+ * source-job anti-join). One change in kind: the twin is gated by the #1240 skill-overlap
+ * rule, so a profiled worker sees it only if he wants one of its reach skills (ADR-0049 R15).
+ * The flag above is still required. AGENCY rows are a different matter: this script converts
+ * EVERY open `jobs` row, and the #1885 ruling keeps agency vacancies on `jobs` — do not run
+ * it against live agency inventory before the agency-at-cutover path is decided (#1904).
+ *
  *   pnpm db:convert:seed-jobs --ops-actor=<uuid> --org-label="Hiring Employer"
  *   pnpm db:convert:seed-jobs --ops-actor=<uuid> --org-label="Hiring Employer" --apply --feed-cutover-now
  */
