@@ -1,9 +1,8 @@
-import Link from "next/link";
 import { getEntityTimeline, type AdminTimelineSubjectType } from "../lib/events";
 import { EventTable } from "./event-table";
 import { PageHeader, type PageBack } from "./page-header";
 import { Pager } from "./pager";
-import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { RetryActions } from "./retry-actions";
 
 /**
  * The per-entity event timeline — every event recorded for ONE worker, payer or job
@@ -66,14 +65,9 @@ export async function EntityTimeline({
             <h3 className="state__title">The event timeline is unavailable</h3>
             <p className="state__body">
               The events read failed. The {subjectLabel} record itself came from a separate
-              read and is unaffected. Reload this page to try again.
+              read and is unaffected.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href={basePath}>
-                <Icon name={ACTION_ICON.retry} />
-                Retry
-              </Link>
-            </div>
+            <RetryActions basePath={basePath} cursor={cursor} />
           </div>
         ) : (
           <EventTable

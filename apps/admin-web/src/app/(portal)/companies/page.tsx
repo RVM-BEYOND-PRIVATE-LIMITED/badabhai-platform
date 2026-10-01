@@ -9,6 +9,7 @@ import { Pager } from "../../../components/pager";
 import { PayerFilterBar } from "../../../components/payer-filter-bar";
 import { PageHeader } from "../../../components/page-header";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { RetryActions } from "../../../components/retry-actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Companies" };
@@ -110,14 +111,7 @@ export default async function CompaniesPage({
             </p>
             {/* One "Clear filters" per screen: the results head carries it whenever a filter is
                 set, so this state does not repeat it (owner brief 2026-10-01). */}
-            {status ? null : (
-              <div className="state__actions">
-                <Link className="btn btn--ghost" href="/companies">
-                  <Icon name={ACTION_ICON.retry} />
-                  Retry
-                </Link>
-              </div>
-            )}
+            {status ? null : <RetryActions basePath="/companies" cursor={cursor} />}
           </div>
         ) : (
           <PayerList

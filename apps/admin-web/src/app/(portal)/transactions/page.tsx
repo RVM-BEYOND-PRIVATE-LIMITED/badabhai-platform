@@ -178,7 +178,7 @@ export default async function TransactionsPage({
             <h3 className="state__title">Payment orders are unavailable</h3>
             <p className="state__body">
               The order list did not load. The figures above are a separate read and are
-              unaffected. Reload to try again.
+              unaffected.
             </p>
             <div className="state__actions">
               {/* Repeat the SAME query. Pointing this at the bare route (which is what

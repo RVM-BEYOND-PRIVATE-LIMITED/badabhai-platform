@@ -249,7 +249,8 @@ export default async function SkillDiscoveryPage({
   };
   const listHref = (over: Record<string, string | undefined> = {}) =>
     `/skills/discovery${queryString(over)}`;
-  const retryHref = listHref({});
+  // "Retry" repeats the query that failed, its page cursor included (the flat view pages).
+  const retryHref = listHref({ cursor });
 
   const tierTabHref = (tier: AdminSkillReviewTier | "all") =>
     listHref({ tier, ack: undefined, cursor: undefined });
@@ -412,7 +413,7 @@ export default async function SkillDiscoveryPage({
           <div className="state state--error">
             <h3 className="state__title">The queue is unavailable</h3>
             <p className="state__body">
-              The read failed — a fault on our side, not the filters. Reload to try again.
+              The read failed — a fault on our side, not the filters.
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={retryHref}>

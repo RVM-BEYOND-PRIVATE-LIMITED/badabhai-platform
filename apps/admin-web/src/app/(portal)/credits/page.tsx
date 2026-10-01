@@ -253,7 +253,7 @@ export default async function CreditsPage({
             <p className="state__body">
               The finance summary did not load, so the outstanding balance and the movement
               breakdown are missing. The credit ledger below is a separate read and is
-              unaffected. Reload to try again.
+              unaffected.
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={retryHref}>
@@ -276,10 +276,11 @@ export default async function CreditsPage({
             </p>
           </div>
           {reason && (
-            /* Clears the ledger's reason and keeps the reporting window above. */
+            /* Clears the ledger's reason and KEEPS the reporting window above — one filter, so it
+               is named for it ("Clear filters" means every filter, the bare route). */
             <Link className="btn btn--ghost" href={`/credits?windowDays=${windowDays}`}>
               <Icon name={ACTION_ICON.clearFilters} />
-              Clear filters
+              Clear the reason filter
             </Link>
           )}
         </div>
@@ -302,7 +303,7 @@ export default async function CreditsPage({
             <h3 className="state__title">The ledger is unavailable</h3>
             <p className="state__body">
               The credit movements did not load. The position above is a separate read and
-              is unaffected, so a balance shown there is still current. Reload to try again.
+              is unaffected, so a balance shown there is still current.
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={retryHref}>

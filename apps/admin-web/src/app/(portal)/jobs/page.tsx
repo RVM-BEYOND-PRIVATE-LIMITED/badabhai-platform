@@ -8,6 +8,7 @@ import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
 import { JobFilterBar } from "./filter-bar";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { RetryActions } from "../../../components/retry-actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Postings" };
@@ -99,14 +100,7 @@ export default async function JobsPage({
             </p>
             {/* One "Clear filters" per screen: the results head carries it whenever a filter is
                 set, so this state does not repeat it (owner brief 2026-10-01). */}
-            {filtered ? null : (
-              <div className="state__actions">
-                <Link className="btn btn--ghost" href="/jobs">
-                  <Icon name={ACTION_ICON.retry} />
-                  Retry
-                </Link>
-              </div>
-            )}
+            {filtered ? null : <RetryActions basePath="/jobs" cursor={cursor} />}
           </div>
         ) : page && page.items.length > 0 ? (
           <div className="tablewrap">

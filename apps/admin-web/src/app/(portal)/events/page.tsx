@@ -6,6 +6,7 @@ import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
 import { EventFilterBar } from "./filter-bar";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { RetryActions } from "../../../components/retry-actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Events" };
@@ -114,12 +115,7 @@ export default async function EventsPage({
             {/* One "Clear filters" per screen: the results head carries it whenever a filter is
                 set, so this state does not repeat it (owner brief 2026-10-01). */}
             {active.length > 0 ? null : (
-              <div className="state__actions">
-                <Link className="btn btn--ghost" href="/events">
-                  <Icon name={ACTION_ICON.retry} />
-                  Retry
-                </Link>
-              </div>
+              <RetryActions basePath="/events" cursor={filters.cursor} />
             )}
           </div>
         ) : (

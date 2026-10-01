@@ -29,10 +29,13 @@ const LIST_SCREENS = [
   "agencies/page.tsx",
   "ai-calls/page.tsx",
   "feedback/page.tsx",
-  "credits/page.tsx",
   "transactions/page.tsx",
   "admins/page.tsx",
 ];
+
+/** "Clear the reason filter", "Clear the worker filter": a clear that removes ONE filter. */
+const clearOneLabels = (src: string): string[] =>
+  src.match(/Clear the [a-z]+ filter/g) ?? [];
 
 describe("the detector", () => {
   it("counts JSX text and string literals, singular and plural, and nothing else", () => {
@@ -54,5 +57,23 @@ describe("one Clear filters per list screen", () => {
     for (const screen of LIST_SCREENS) {
       expect(code(screen), screen).not.toMatch(/(>\s*|")Clear filter(\s*<|")/);
     }
+  });
+});
+
+/**
+ * "Clear filters" means EVERY filter — the bare route. A clear that keeps something is named
+ * for the one filter it removes. Credits is the case: the ledger's clear keeps the reporting
+ * window above it, so it is "Clear the reason filter", and the screen has no "Clear filters".
+ */
+describe("a clear that keeps a filter is named for the one it removes", () => {
+  it("credits: the ledger clears its reason and keeps the window", () => {
+    const credits = code("credits/page.tsx");
+    expect(clearLabels(credits)).toBe(0);
+    expect(clearOneLabels(credits)).toEqual(["Clear the reason filter"]);
+  });
+
+  it("the detector reads the one-filter form and only that", () => {
+    expect(clearOneLabels("<Link>Clear the tag filter</Link>")).toEqual(["Clear the tag filter"]);
+    expect(clearOneLabels("<Link>Clear filters</Link>")).toEqual([]);
   });
 });
