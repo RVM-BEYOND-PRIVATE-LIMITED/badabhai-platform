@@ -1,9 +1,10 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql, type SQL } from "drizzle-orm";
 import {
   type Database,
   type Application,
   type Job,
+  type JobShift,
   type ApplicationAction,
   type SkipReason,
   type SourceSurface,
@@ -12,8 +13,26 @@ import {
   jobPostings,
   jobReach,
 } from "@badabhai/db";
+import type { TradeKey } from "@badabhai/taxonomy";
 import { DATABASE } from "../database/database.module";
 import { OPS_LIST_CAP } from "../common/pagination";
+import { feedPayFloorPredicate, feedShiftPredicate } from "./feed-filter.predicates";
+
+/**
+ * The legacy `/feed` filters {@link ApplicationsRepository.findOpenJobs} applies. Every one is
+ * OPTIONAL and absent means "not filtered".
+ *
+ * `tradeKey` is typed {@link TradeKey}, not `string`: the service resolves the raw query value
+ * against `TRADE_KEYS` and drops an unknown one BEFORE it gets here (#1905), so this layer
+ * never compares `jobs.trade_key` to a chip label that cannot match.
+ */
+export interface OpenJobsFilters {
+  tradeKey?: TradeKey;
+  city?: string;
+  shift?: JobShift;
+  /** The worker's pay FLOOR (₹/month). Compared to the band's TOP — see feed-filter.predicates. */
+  payMin?: number;
+}
 
 /** Coarse, PII-free job fields surfaced in the feed + ops reads. */
 export interface FeedJob {
@@ -132,9 +151,9 @@ export class ApplicationsRepository {
   async findOpenJobs(
     workerId: string,
     limit: number,
-    filters?: { tradeKey?: string; city?: string },
+    filters: OpenJobsFilters = {},
   ): Promise<FeedJob[]> {
-    const conditions = [
+    const conditions: (SQL | undefined)[] = [
       eq(jobs.status, "open"),
       sql`NOT EXISTS (
         SELECT 1 FROM ${applications}
@@ -143,8 +162,15 @@ export class ApplicationsRepository {
           AND ${applications.action} = 'applied'
       )`,
     ];
-    if (filters?.tradeKey) conditions.push(eq(jobs.tradeKey, filters.tradeKey as any));
-    if (filters?.city) conditions.push(eq(jobs.city, filters.city));
+    if (filters.tradeKey) conditions.push(eq(jobs.tradeKey, filters.tradeKey));
+    if (filters.city) conditions.push(eq(jobs.city, filters.city));
+    // #1905 — shift + pay floor were accepted by the DTO and then silently DROPPED here. Same
+    // NULL-tolerant rule as the V1 arm, from the one place the postings arm (#1823) will
+    // share; each is `undefined` (skipped by `and`) unless the worker sent that filter.
+    conditions.push(
+      feedShiftPredicate(jobs.shift, filters.shift),
+      feedPayFloorPredicate(jobs.payMax, filters.payMin),
+    );
 
     return this.db
       .select({

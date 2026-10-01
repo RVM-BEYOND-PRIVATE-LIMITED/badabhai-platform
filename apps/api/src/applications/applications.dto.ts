@@ -17,6 +17,12 @@ import { z } from "zod";
 export const FeedQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(50),
   // TD66: Server-side feed filtering
+  //
+  // `trade_key` is deliberately NOT `z.enum(TRADE_KEYS)` here (#1905, owner ruling): an
+  // unknown value must be IGNORED, not rejected with a 400. The worker app has sent a chip
+  // LABEL (`'CNC'`) where the slug belongs, and a 400 would turn "the trade filter does
+  // nothing" into "the Jobs tab is broken". The legacy-arm service resolves it against
+  // `TRADE_KEYS` and drops (and logs) anything else. Single-valued: a repeated param is a 400.
   trade_key: z.string().optional(),
   city: z.string().optional(),
   // ── ADR-0036 / spec Part 3 — "Filters belong to the worker" ────────────────

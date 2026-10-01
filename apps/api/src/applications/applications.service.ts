@@ -1,7 +1,8 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import { isMatchV1Enabled, type ServerConfig } from "@badabhai/config";
-import { matchSkillLabel } from "@badabhai/taxonomy";
+import type { JobShift } from "@badabhai/db";
+import { isTradeKey, matchSkillLabel, type TradeKey } from "@badabhai/taxonomy";
 import type { RequestContext } from "../common/request-context";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService, type EmitParams } from "../events/events.service";
@@ -68,6 +69,24 @@ export interface FeedItem {
 }
 
 /**
+ * The worker's own `GET /feed` filters, as the controller hands them over. Every one is
+ * OPTIONAL; absent means "not filtered" and nothing here fills one in from his profile
+ * (ADR-0036 Part 3).
+ */
+export interface FeedFilters {
+  /**
+   * RAW query value, NOT yet known to be a trade slug. The worker app has sent a chip
+   * display label (`'CNC'`, `'Welder'`) here, which can never equal `jobs.trade_key`; see
+   * `resolveLegacyTradeKey` below for what happens to it (#1905).
+   */
+  tradeKey?: string;
+  city?: string;
+  shift?: JobShift;
+  /** The worker's pay FLOOR (₹/month). Compared to the TOP of a job's band. */
+  payMin?: number;
+}
+
+/**
  * Alpha swipe-to-apply business logic + event emission (ADR-0009 Stream B).
  *
  * Pure CRUD + PII-free behavioural events — NO LLM, NO ranking (`score`/`hot`
@@ -77,6 +96,8 @@ export interface FeedItem {
  */
 @Injectable()
 export class ApplicationsService {
+  private readonly logger = new Logger(ApplicationsService.name);
+
   constructor(
     private readonly repo: ApplicationsRepository,
     private readonly events: EventsService,
@@ -95,7 +116,12 @@ export class ApplicationsService {
    * impressions, so the emits are intentionally UNKEYED (always insert), batched
    * into a single DB round-trip via `emitMany`.
    */
-  async getFeed(workerId: string, limit: number, filters: { tradeKey?: string; city?: string; shift?: string; payMin?: number }, ctx: RequestContext): Promise<{ jobs: FeedItem[] | MatchFeedItem[] }> {
+  async getFeed(
+    workerId: string,
+    limit: number,
+    filters: FeedFilters,
+    ctx: RequestContext,
+  ): Promise<{ jobs: FeedItem[] | MatchFeedItem[] }> {
     // ── ADR-0036 MOMENT ④ ─────────────────────────────────────────────────────
     // The route, the guards, the `{ jobs: [...] }` envelope and the Flutter client are
     // UNCHANGED. Only the SOURCE moves: `job_reach ⋈ job_postings` instead of the
@@ -116,7 +142,15 @@ export class ApplicationsService {
       );
     }
 
-    const openJobs = await this.repo.findOpenJobs(workerId, limit, filters);
+    // #1905: every filter the worker sent now reaches the legacy query. `shift` and `pay_min`
+    // used to stop at the repository (it took only trade/city). The trade key is resolved
+    // against the taxonomy first, so a chip label cannot zero the arm.
+    const openJobs = await this.repo.findOpenJobs(workerId, limit, {
+      tradeKey: this.resolveLegacyTradeKey(filters.tradeKey, ctx),
+      city: filters.city,
+      shift: filters.shift,
+      payMin: filters.payMin,
+    });
     const items: FeedItem[] = openJobs.map((job: FeedJob, index) => ({
       job_id: job.id,
       trade_key: job.tradeKey,
@@ -306,6 +340,33 @@ export class ApplicationsService {
           a.matchedSkillId === null ? null : (matchSkillLabel(a.matchedSkillId) ?? null),
       })),
     };
+  }
+
+  /**
+   * The legacy arm's TRADE filter, or `undefined` for "no trade filter" (#1905).
+   *
+   * Only a slug in `TRADE_KEYS` filters. Anything else is IGNORED (the request is served as if
+   * no trade filter had been sent), not 400'd. That is the owner ruling. Every `jobs` row
+   * carries one of those 15 slugs (the agency DTO and the seed both enforce it), so an unknown
+   * value matches no row at all, and filtering on it returns an EMPTY deck. That is what a
+   * one-chip refetch did while the app sent its chip LABEL (`'CNC'`) instead of the slug.
+   * Ignoring it restores the full arm; a valid slug filters exactly as before.
+   *
+   * Single-valued by contract: `trade_key` is `z.string()` in the DTO, so a repeated query
+   * param is a 400 at the boundary and never reaches here as a list.
+   *
+   * The drop is LOGGED so the app-side bug stays observable rather than silently healed. The
+   * value itself is NOT logged: it is unconstrained client input with no length cap, so it
+   * could carry anything. Its length and the request id are enough to find and correlate it.
+   * An empty value (`?trade_key=`) is "no filter", exactly as before, not a dropped value.
+   */
+  private resolveLegacyTradeKey(raw: string | undefined, ctx: RequestContext): TradeKey | undefined {
+    if (raw === undefined || raw === "") return undefined;
+    if (isTradeKey(raw)) return raw;
+    this.logger.warn(
+      `feed trade_key ignored: not a known trade slug (length=${raw.length}) request_id=${ctx.requestId}`,
+    );
+    return undefined;
   }
 
   /** 404 (no oracle) if the job id does not resolve to an OPEN row. */
