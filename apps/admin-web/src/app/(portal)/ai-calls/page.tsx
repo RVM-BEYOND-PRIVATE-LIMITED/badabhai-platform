@@ -197,7 +197,7 @@ export default async function AiCallsPage({
             Showing only the calls made for worker{" "}
             <span className="mono">{shortId(workerId)}</span>.{" "}
             <Link className="link" href={`/workers/${encodeURIComponent(workerId)}`}>
-              Open their record
+              Open worker
             </Link>
             {" · "}
             <Link className="link" href="/ai-calls">
@@ -228,8 +228,8 @@ export default async function AiCallsPage({
             <h3 className="state__title">AI calls are unavailable</h3>
             <p className="state__body">
               The list did not load, and that is a fault on our side rather than anything in the
-              filters. Nothing has been lost: traces are written as calls complete and will all be
-              here once the read succeeds.
+              filters. Nothing has been lost: AI calls are recorded as they complete and will all
+              be here once the read succeeds.
             </p>
             <div className="state__actions">
               {/* The SAME query. A retry pointed at the bare route silently drops the filters
@@ -402,18 +402,18 @@ export default async function AiCallsPage({
           <div className="state">
             <h3 className="state__title">No AI calls recorded yet</h3>
             <p className="state__body">
-              A trace is written only when a call actually reaches a provider. If this environment
+              An AI call is recorded only when it actually reaches a provider. If this environment
               is still answering AI calls from the mock adapter, nothing reaches one, nothing is
               recorded, and an empty table here is the expected result rather than a broken
-              writer. Check the posture on the System screen before reading this as a fault; the
-              event timeline is where you confirm AI calls are happening at all.
+              writer. Check the provider switches on the System screen before reading this as a
+              fault; the events log is where you confirm AI calls are happening at all.
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/system">
-                Check the AI posture
+                View provider switches
               </Link>
               <Link className="btn btn--ghost" href="/events?eventName=ai.cost_recorded">
-                Open the event timeline
+                View events
               </Link>
             </div>
           </div>
@@ -439,7 +439,7 @@ export default async function AiCallsPage({
             <p className="alert__body">
               A call that never reached a provider — the mock adapter, a spend cap, an unreachable
               AI service — leaves nothing here, because there was no provider call to record. And
-              a call with no worker behind it is dropped on purpose: the payer job-posting chat and
+              a call with no worker behind it is dropped on purpose: the customer posting chat and
               the skill embedding run on a posting write are both traced nowhere, because a record
               that cannot be attributed to a worker also cannot be erased with them.
             </p>

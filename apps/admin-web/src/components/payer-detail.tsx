@@ -57,16 +57,16 @@ export function PayerDetailView({
     titleMono: orgName === null,
     description: (
       <>
-        One {kind === "Company" ? "employer" : "agency"} account — what it has posted and
+        One {kind === "Company" ? "company" : "agency"} account — what it has posted and
         spent{orgName === null ? ", not who registered it" : ""}.{" "}
         {labels.length > 0 ? (
           <>
             Publishes as <strong>{labels.slice(0, 3).join(", ")}</strong>
             {labels.length > 3 && ` and ${labels.length - 3} more`} — self-declared on their
-            job postings, not a verified name.
+            postings, not a verified name.
           </>
         ) : (
-          <>No job postings yet, so there is no self-declared label to identify this account by.</>
+          <>No postings yet, so there is no self-declared label to identify this account by.</>
         )}
       </>
     ),
@@ -128,7 +128,7 @@ export function PayerDetailView({
                   ]
                 : []),
               { label: `${kind} id`, value: <span className="mono">{payer.id}</span> },
-              { label: "Role", value: payer.role === "agent" ? "Agency" : "Employer" },
+              { label: "Account type", value: payer.role === "agent" ? "Agency" : "Company" },
               { label: "Status", value: <StatusPill value={payer.status} /> },
               {
                 label: "Status before suspension",
@@ -143,7 +143,7 @@ export function PayerDetailView({
                 ),
               },
               {
-                label: "Last change",
+                label: "Last updated",
                 value: (
                   <time dateTime={payer.updated_at} title={formatTimestamp(payer.updated_at)}>
                     {formatRelative(payer.updated_at)}
@@ -164,7 +164,7 @@ export function PayerDetailView({
           <div className="stats stats--compact">
             <Stat label="Open postings" value={formatCount(payer.open_posting_count)} />
             <Stat label="Postings, all time" value={formatCount(payer.posting_count)} />
-            <Stat label="Contacts unlocked" value={formatCount(payer.unlock_count)} />
+            <Stat label="Contact unlocks" value={formatCount(payer.unlock_count)} />
             <Stat label="Credit balance" value={formatCount(payer.credit_balance)} />
           </div>
         </section>
@@ -182,7 +182,7 @@ export function PayerDetailView({
         <div className="panel__head panel__head--row">
           <div>
             <h2 className="panel__title" id="p-postings">
-              Job postings
+              Postings
             </h2>
             <p className="panel__sub">The most recent postings this account has created.</p>
           </div>
@@ -203,13 +203,13 @@ export function PayerDetailView({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={`${backHref}/${payer.id}`}>
-                Reload this account
+                Retry
               </Link>
             </div>
           </div>
         ) : postings.length === 0 ? (
           <div className="state">
-            <h3 className="state__title">No job postings yet</h3>
+            <h3 className="state__title">No postings yet</h3>
             <p className="state__body">
               This account has never created one, so it has published nothing to workers and
               carries no self-declared label. A registered account that never posts is the
@@ -224,10 +224,10 @@ export function PayerDetailView({
         ) : (
           <div className="tablewrap">
             <table className="table">
-              <caption className="sr-only">Job postings for this account</caption>
+              <caption className="sr-only">Postings for this account</caption>
               <thead>
                 <tr>
-                  <th scope="col">Role</th>
+                  <th scope="col">Role title</th>
                   <th scope="col">Published as</th>
                   <th scope="col">Location</th>
                   <th scope="col">Status</th>

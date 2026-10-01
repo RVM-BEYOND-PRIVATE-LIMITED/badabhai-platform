@@ -64,7 +64,7 @@ export function JobDetailHeader({
               </Link>
             )}
             <Link className="btn btn--ghost" href={timelineHref}>
-              Event timeline
+              View event timeline
             </Link>
           </>
         }

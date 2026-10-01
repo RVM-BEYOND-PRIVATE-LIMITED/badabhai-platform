@@ -69,18 +69,18 @@ export const ROLE_LABELS: Record<AdminRole, string> = {
 
 export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   read_events: "Read events",
-  read_entities: "Read workers, companies, agencies and jobs",
+  read_entities: "Read workers, companies, agencies and postings",
   read_identity: "See names on worker, company, agency and admin records",
   // Says what it DISCLOSES, not what it unlocks. "Read AI traces" would read as telemetry to
   // an operator scanning the Roles screen; what the capability actually permits is reading the
   // text of a call, which for a worker surface is the worker speaking.
   read_ai_traces: "Read the text of an AI call — what was sent and what came back",
   export: "Export data",
-  suspend_payer: "Suspend payers",
+  suspend_payer: "Suspend customers",
   grant_credits: "Grant credits",
   force_close_posting: "Force-close postings",
   flag_worker: "Flag workers",
-  review_skill_candidates: "Decide skill-discovery candidates",
+  review_skill_candidates: "Decide skill candidates",
   toggle_kill_switch: "Toggle kill switch",
   reveal_pii: "Reveal contact details",
   manage_admins: "Manage admins",

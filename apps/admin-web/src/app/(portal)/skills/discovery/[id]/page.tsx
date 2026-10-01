@@ -30,7 +30,7 @@ import { PageHeader } from "../../../../../components/page-header";
 import { SkillDecisionPanel } from "./decision-panel";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Skill Candidate" };
+export const metadata = { title: "Skill candidate" };
 
 /**
  * One skill candidate, in full — the review screen (#1260, extended #1280).
@@ -108,7 +108,7 @@ export default async function SkillDiscoveryDetailPage({
   return (
     <div className="page">
       <PageHeader
-        back={{ href: "/skills/discovery", label: "Skill Discovery" }}
+        back={{ href: "/skills/discovery", label: "Skill discovery" }}
         title={candidate.normalized_phrase}
         description={candidate.phrase_class_label}
         primaryAction={
@@ -349,7 +349,7 @@ function AuditTrailPanel({ audit }: { audit: SkillCandidateAudit | null }) {
     <section className="panel" aria-labelledby="sd-audit">
       <div className="panel__head">
         <h2 className="panel__title" id="sd-audit">
-          Audit trail
+          Decision history
         </h2>
         <p className="panel__sub">
           The immutable event spine, oldest first, plus the decision as this row holds it right
@@ -358,7 +358,7 @@ function AuditTrailPanel({ audit }: { audit: SkillCandidateAudit | null }) {
       </div>
       {audit === null ? (
         <p className="field__help">
-          The audit trail is unavailable right now — a fault on our side, not a decision problem.
+          The decision history is unavailable right now — a fault on our side, not a decision problem.
         </p>
       ) : (
         <>

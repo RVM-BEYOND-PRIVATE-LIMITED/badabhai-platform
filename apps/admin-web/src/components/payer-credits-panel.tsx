@@ -80,7 +80,7 @@ export function PayerCreditsPanel({
 
       {suspended ? (
         <p className="field__help">
-          This payer is suspended. Reinstate the account before granting credits.
+          This account is suspended. Reinstate it before granting credits.
         </p>
       ) : (
         <form className="form" onSubmit={(e) => e.preventDefault()}>

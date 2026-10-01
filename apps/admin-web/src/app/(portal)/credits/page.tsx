@@ -108,7 +108,7 @@ export default async function CreditsPage({
             <div className="stats">
               <Stat label="Credits outstanding" value={formatCount(summary.outstanding_credits)} />
               <Stat
-                label="Payers holding credits"
+                label="Customers holding credits"
                 value={formatCount(summary.payers_with_balance)}
               />
               <Stat
@@ -191,14 +191,14 @@ export default async function CreditsPage({
               </div>
               {summary.top_balances.length === 0 ? (
                 <div className="state">
-                  <h3 className="state__title">No payer holds a credit balance yet</h3>
+                  <h3 className="state__title">No customer holds a credit balance yet</h3>
                   <p className="state__body">
                     Nothing has been granted or purchased, so no account has credits to
                     spend on an unlock. The ledger below is the place to confirm that.
                   </p>
                   <div className="state__actions">
                     <Link className="btn btn--ghost" href="/transactions">
-                      Open transactions
+                      Open payment orders
                     </Link>
                   </div>
                 </div>
@@ -327,7 +327,7 @@ export default async function CreditsPage({
               </p>
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/transactions">
-                  Open transactions
+                  Open payment orders
                 </Link>
               </div>
             </div>

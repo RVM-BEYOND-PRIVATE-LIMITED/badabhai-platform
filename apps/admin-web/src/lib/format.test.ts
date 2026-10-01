@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { formatInr } from "@badabhai/pricing";
 import {
   creditReasonLabel,
+  matchTierLabel,
   formatCount,
   formatDelta,
   formatDuration,
@@ -277,7 +278,7 @@ describe("creditReasonLabel", () => {
     expect(creditReasonLabel("pack_purchase")).toBe("Pack purchase");
     expect(creditReasonLabel("unlock_debit")).toBe("Contact unlock");
     expect(creditReasonLabel("refund")).toBe("Refund");
-    expect(creditReasonLabel("grant")).toBe("Ops grant");
+    expect(creditReasonLabel("grant")).toBe("Credit grant");
   });
 
   it("an UNKNOWN reason is shown raw, never blank", () => {
@@ -299,5 +300,18 @@ describe("packCodeLabel", () => {
   it("an UNKNOWN pack code is shown raw, never blank — mirrors creditReasonLabel's fallback", () => {
     expect(packCodeLabel("pack_legacy_bulk")).toBe("pack legacy bulk");
     expect(packCodeLabel("pack_legacy_bulk")).not.toBe("");
+  });
+});
+
+describe("matchTierLabel — one rendering on the worker page and the posting page", () => {
+  it("names the two tiers the matcher writes", () => {
+    expect(matchTierLabel(1)).toBe("1 — asked-for skill");
+    expect(matchTierLabel(2)).toBe("2 — related skill");
+  });
+
+  it("is a dash for no tier, and for a tier this portal has not been taught", () => {
+    expect(matchTierLabel(null)).toBe("—");
+    expect(matchTierLabel(undefined)).toBe("—");
+    expect(matchTierLabel(3)).toBe("—");
   });
 });

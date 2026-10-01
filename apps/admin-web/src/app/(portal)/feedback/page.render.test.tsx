@@ -504,7 +504,7 @@ describe("the empty states, which are four different claims", () => {
     // in untagged, so the way out offered first is dropping the tag rather than the worker.
     const out = await render({ workerId: WORKER_ID, category: "problem" });
     expect(out).toContain("Nothing from this worker carries this tag");
-    expect(out).toContain("Drop the tag");
+    expect(out).toContain("Clear the tag filter");
     expect(out).toContain(`href="/feedback?workerId=${WORKER_ID}"`);
     expect(out).not.toContain("This worker has sent no feedback");
   });

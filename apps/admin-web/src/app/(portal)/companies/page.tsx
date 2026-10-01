@@ -58,8 +58,8 @@ export default async function CompaniesPage({
         description={
           <>
             {posture === "faceless"
-              ? "Employer accounts, identified by id — your role does not include name access, so find an account through its job postings."
-              : "Employer accounts, named by the organisation they registered as — self-declared at signup, not a verified legal name."}{" "}
+              ? "Company accounts, identified by id — your role does not include name access, so find an account through its postings."
+              : "Company accounts, named by the organisation they registered as — self-declared at signup, not a verified legal name."}{" "}
             Email and phone stay encrypted at rest and are served to no one.
           </>
         }

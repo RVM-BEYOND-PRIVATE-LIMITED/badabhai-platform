@@ -49,7 +49,7 @@ export function PayerList({
         </p>
         <div className="state__actions">
           <Link className="btn btn--ghost" href="/jobs">
-            Browse job postings
+            Browse postings
           </Link>
         </div>
       </div>
@@ -68,7 +68,7 @@ export function PayerList({
             <th scope="col">Account</th>
             <th scope="col">Status</th>
             <th scope="col">Registered</th>
-            <th scope="col">Last change</th>
+            <th scope="col">Last updated</th>
           </tr>
         </thead>
         <tbody>

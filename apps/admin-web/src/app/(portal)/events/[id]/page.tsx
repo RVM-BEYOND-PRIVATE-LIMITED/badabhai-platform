@@ -8,6 +8,7 @@ import { formatTimestamp, humanizeEventName } from "../../../../lib/format";
 import { PageHeader } from "../../../../components/page-header";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Event details" };
 
 /**
  * Event detail — the envelope, the payload, and the causal chain it belongs to.
@@ -126,7 +127,7 @@ export default async function EventDetailPage({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={`/events/${event.id}`}>
-                Reload this event
+                Retry
               </Link>
             </div>
           </div>

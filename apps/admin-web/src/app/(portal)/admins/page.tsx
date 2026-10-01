@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
-import { can } from "../../../lib/auth/capabilities";
+import { ADMIN_ROLES, ROLE_LABELS, can } from "../../../lib/auth/capabilities";
 import { listAdmins } from "../../../lib/entities";
 import { identityPosture } from "../../../lib/identity";
 import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../lib/format";
@@ -151,7 +151,7 @@ export default async function AdminsPage({
       {directory && noMfa > 0 && (
         <section className="notice notice--bad" role="status">
           <strong>
-            {formatCount(noMfa)} active admin{noMfa === 1 ? "" : "s"} without a second factor.
+            {formatCount(noMfa)} active admin{noMfa === 1 ? "" : "s"} without MFA.
           </strong>{" "}
           An admin session is the most privileged credential on the platform; a password-only
           path to it is the weakest link in the whole model.
@@ -197,13 +197,13 @@ export default async function AdminsPage({
         </div>
 
         <div className="filters filters--inline">
-          {["super_admin", "ops_admin", "support", "analyst"].map((r) => (
+          {ADMIN_ROLES.map((r) => (
             <Link
               className={`btn btn--sm ${r === role ? "btn--primary" : "btn--ghost"}`}
               href={`/admins?role=${r}`}
               key={r}
             >
-              {r.replace(/_/g, " ")}
+              {ROLE_LABELS[r]}
             </Link>
           ))}
         </div>
@@ -251,9 +251,9 @@ export default async function AdminsPage({
                       made to mean "withheld from you". */}
                   {posture === "named" && <th scope="col">Name</th>}
                   <th scope="col">Admin</th>
-                  <th scope="col">Role</th>
+                  <th scope="col">Admin role</th>
                   <th scope="col">Status</th>
-                  <th scope="col">Second factor</th>
+                  <th scope="col">MFA</th>
                   <th scope="col">Last sign-in</th>
                   <th scope="col">Added</th>
                   <th scope="col">Actions</th>
@@ -296,7 +296,7 @@ export default async function AdminsPage({
                           privileged one, and it should read as something to notice. */}
                       <StatusPill
                         value={a.role}
-                        label={a.role.replace(/_/g, " ")}
+                        label={ROLE_LABELS[a.role]}
                         tone={a.role === "super_admin" ? "warn" : "muted"}
                         title={
                           a.role === "super_admin"

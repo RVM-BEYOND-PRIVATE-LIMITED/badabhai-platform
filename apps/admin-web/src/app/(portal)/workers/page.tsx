@@ -145,7 +145,7 @@ export default async function WorkersPage({
                   <th scope="col">Language</th>
                   <th scope="col">Resume prefs</th>
                   <th scope="col">Deletion</th>
-                  <th scope="col">Joined</th>
+                  <th scope="col">Registered</th>
                 </tr>
               </thead>
               <tbody>
@@ -214,12 +214,11 @@ export default async function WorkersPage({
             <h3 className="state__title">No workers registered yet</h3>
             <p className="state__body">
               Workers appear here as soon as they finish signing up in the app. Until one
-              does, the event timeline is where you confirm the sign-up path is running at
-              all.
+              does, the events log is where you confirm the sign-up path is running at all.
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/events">
-                Open the event timeline
+                View events
               </Link>
             </div>
           </div>

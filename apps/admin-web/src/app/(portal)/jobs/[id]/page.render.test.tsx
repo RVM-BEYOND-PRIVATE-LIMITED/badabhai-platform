@@ -112,9 +112,14 @@ describe("the full projection renders every new card field", () => {
 
   it("renders each of the seven fields' rows", async () => {
     const out = await render();
-    // `>Role<` exact so it is not the pre-existing "Role title" row matching loosely.
-    expect(out).toContain('<dt class="kv__k">Role</dt>');
-    expect(out).toContain('<dt class="kv__k">Area</dt>');
+    // Exact `<dt>` text, so the classification row is not the "Role title" row matching loosely
+    // — the two are different fields and carry different labels (owner ruling 2026-10-01).
+    expect(out).toContain('<dt class="kv__k">Role classification</dt>');
+    expect(out).toContain('<dt class="kv__k">Role title</dt>');
+    expect(out).not.toContain('<dt class="kv__k">Role</dt>');
+    expect(out).toContain('<dt class="kv__k">Area / locality</dt>');
+    expect(out).toContain('<dt class="kv__k">Openings</dt>');
+    expect(out).not.toContain('<dt class="kv__k">Vacancies</dt>');
     expect(out).toContain('<dt class="kv__k">Pay type</dt>');
     expect(out).toContain('<dt class="kv__k">Experience</dt>');
     expect(out).toContain('<dt class="kv__k">Requirements</dt>');
@@ -169,7 +174,9 @@ describe("a poster who set none of the card content", () => {
   it("reads as honest absence, not empty cells, and never crashes", async () => {
     const out = await render();
     // Role has no dash convention behind it — a missing role is "not set", not "—".
-    expect(out).toContain('<dt class="kv__k">Role</dt><dd class="kv__v">not set</dd>');
+    expect(out).toContain(
+      '<dt class="kv__k">Role classification</dt><dd class="kv__v">not set</dd>',
+    );
     // The list fields say so in words rather than rendering an empty <ul>.
     expect(out).toContain('<dt class="kv__k">Requirements</dt><dd class="kv__v">none listed</dd>');
     expect(out).toContain('<dt class="kv__k">Benefits</dt><dd class="kv__v">none listed</dd>');
@@ -278,6 +285,6 @@ describe("the header (owner ruling 2026-10-01)", () => {
   it("has a back link to the posting list", async () => {
     const out = await render();
     expect(out).toContain('<a class="backlink" href="/jobs">');
-    expect(out).toContain("<span>Jobs</span></a>");
+    expect(out).toContain("<span>Postings</span></a>");
   });
 });

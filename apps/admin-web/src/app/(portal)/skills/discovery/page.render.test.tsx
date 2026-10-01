@@ -221,7 +221,7 @@ describe("AC#1 — dashboard tiles render from one metrics request, no client ag
     stub.metricsFailure = new TypeError("network down");
     stub.page = { items: [ROW], nextCursor: null };
     const out = await render({ view: "flat" });
-    expect(out).toContain("Dashboard tiles are unavailable");
+    expect(out).toContain("Queue metrics are unavailable");
     expect(out).toContain("sanitary fixture installation");
   });
 });
@@ -670,7 +670,7 @@ describe("hierarchy and rhythm", () => {
     const out = await render();
     expect(out).toContain(
       '<h2 class="sr-only" id="sd-metrics">Queue metrics</h2><div class="state state--error">' +
-        '<h3 class="state__title">Dashboard tiles are unavailable</h3>',
+        '<h3 class="state__title">Queue metrics are unavailable</h3>',
     );
   });
 

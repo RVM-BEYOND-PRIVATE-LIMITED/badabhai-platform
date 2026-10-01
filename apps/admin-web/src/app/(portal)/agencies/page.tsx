@@ -59,8 +59,8 @@ export default async function AgenciesPage({
         description={
           <>
             {posture === "faceless"
-              ? "Supply-side partner accounts, identified by id — your role does not include name access."
-              : "Supply-side partner accounts, named by the organisation they registered as — self-declared at signup, not a verified legal name."}{" "}
+              ? "Agency accounts, identified by id — your role does not include name access, so find an account through its postings."
+              : "Agency accounts, named by the organisation they registered as — self-declared at signup, not a verified legal name."}{" "}
             Email, phone and KYC details stay encrypted at rest and are served to no one.
           </>
         }

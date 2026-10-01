@@ -39,7 +39,7 @@ export function AdminActionResultBanner({
       </div>
       <div className="alert__actions">
         <Link className="btn btn--ghost btn--sm" href={timelineHref}>
-          View in event timeline
+          View event timeline
         </Link>
       </div>
     </div>

@@ -8,10 +8,10 @@ import { PageHeader } from "../../../components/page-header";
 import { JobFilterBar } from "./filter-bar";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Jobs" };
+export const metadata = { title: "Postings" };
 
 /**
- * Job postings — and, in practice, the entry point for most operational work.
+ * Postings — and, in practice, the entry point for most operational work.
  *
  * This is the only entity list with human-readable text on it (`org_label`, `role_title`,
  * `location_label`), because those are poster-typed fields already shown to every worker
@@ -50,12 +50,12 @@ export default async function JobsPage({
   return (
     <div className="page">
       <PageHeader
-        title="Jobs"
-        description="Every job posting on the platform. Company and role text is what the poster typed — the same text workers see in the feed."
+        title="Postings"
+        description="Every posting on the platform. Company and role text is what the poster typed — the same text workers see in the feed."
         filters={
           <section className="panel" aria-labelledby="jf-heading">
             <h2 className="sr-only" id="jf-heading">
-              Filter job postings
+              Filter postings
             </h2>
             <JobFilterBar
               status={status ?? ""}
@@ -102,16 +102,16 @@ export default async function JobsPage({
         ) : page && page.items.length > 0 ? (
           <div className="tablewrap">
             <table className="table">
-              <caption className="sr-only">Job postings, newest first</caption>
+              <caption className="sr-only">Postings, newest first</caption>
               <thead>
                 <tr>
-                  <th scope="col">Role</th>
+                  <th scope="col">Role title</th>
                   <th scope="col">Published as</th>
                   <th scope="col">Location</th>
                   <th scope="col">Pay</th>
                   <th scope="col">Status</th>
-                  <th scope="col">Trust</th>
-                  <th scope="col">Owner</th>
+                  <th scope="col">Trust review</th>
+                  <th scope="col">Owner account</th>
                   <th scope="col">Created</th>
                 </tr>
               </thead>
@@ -122,7 +122,7 @@ export default async function JobsPage({
                       <Link className="link" href={`/jobs/${j.id}`}>
                         {j.role_title}
                       </Link>
-                      <span className="table__meta">{j.vacancy_band} vacancies</span>
+                      <span className="table__meta">{j.vacancy_band} openings</span>
                     </td>
                     <td>{j.org_label}</td>
                     <td className="table__meta">{j.city ?? j.location_label ?? "—"}</td>
@@ -169,14 +169,14 @@ export default async function JobsPage({
           </div>
         ) : (
           <div className="state">
-            <h3 className="state__title">No job postings created yet</h3>
+            <h3 className="state__title">No postings created yet</h3>
             <p className="state__body">
-              Postings appear here the moment an employer or an operator publishes one.
+              Postings appear here the moment a company, an agency or an operator publishes one.
               Until then there is nothing in the feed workers see either.
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/events">
-                Open the event timeline
+                View events
               </Link>
             </div>
           </div>

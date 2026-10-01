@@ -74,7 +74,7 @@ export default async function SystemPage() {
       <section className="panel" aria-labelledby="sy-health">
         <div className="panel__head">
           <h2 className="panel__title" id="sy-health">
-            Dependency health
+            System health
           </h2>
           <p className="panel__sub">Live from the API health probe.</p>
         </div>
@@ -89,7 +89,7 @@ export default async function SystemPage() {
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/system">
-                Retry the probe
+                Retry
               </Link>
             </div>
           </div>
@@ -138,7 +138,7 @@ export default async function SystemPage() {
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/roles">
-                See the capability matrix
+                Roles and capabilities
               </Link>
             </div>
           </div>

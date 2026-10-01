@@ -200,7 +200,7 @@ export default async function FeedbackPage({
           </div>
           {filtered && (
             <Link className="btn btn--ghost" href="/feedback">
-              {category && workerId ? "Clear filters" : "Clear filter"}
+              Clear filters
             </Link>
           )}
         </div>
@@ -231,13 +231,13 @@ export default async function FeedbackPage({
           <p className="field__help">
             Showing only what worker <span className="mono">{shortId(workerId)}</span> sent.{" "}
             <Link className="link" href={`/workers/${encodeURIComponent(workerId)}`}>
-              Open their record
+              Open worker
             </Link>
             {mayOpenJourney ? (
               <>
                 {" · "}
                 <Link className="link" href={`/workers/${encodeURIComponent(workerId)}/journey`}>
-                  See what they did
+                  View journey
                 </Link>
               </>
             ) : null}
@@ -332,7 +332,7 @@ export default async function FeedbackPage({
                             href={`/workers/${f.worker_id}/journey`}
                             title="What this worker completed, and where they stopped"
                           >
-                            Journey
+                            View journey
                           </Link>
                         </>
                       ) : null}
@@ -497,7 +497,7 @@ export default async function FeedbackPage({
             </h3>
             <p className="state__body">
               {workerId && category
-                ? "They have submitted nothing under the selected tag. Tagging is optional in the app, so a message from them about exactly this may be sitting untagged — drop the tag to see everything they sent."
+                ? "They have submitted nothing under the selected tag. Tagging is optional in the app, so a message from them about exactly this may be sitting untagged — clear the tag filter to see everything they sent."
                 : workerId
                   ? "Nothing has arrived from this worker. Read that as silence and nothing more: most workers never open the Feedback button at all, so this is the ordinary case rather than evidence that anything went well. What they actually did is on their journey."
                   : "Nothing has been submitted under the selected tag. Tagging is optional in the app, so a message about exactly this may well be sitting in the list untagged — clear the filter to see every submission, newest first."}
@@ -505,7 +505,7 @@ export default async function FeedbackPage({
             <div className="state__actions">
               {workerId && category ? (
                 <Link className="btn btn--ghost" href={listHref({ category: null })}>
-                  Drop the tag
+                  Clear the tag filter
                 </Link>
               ) : null}
               {workerId && mayOpenJourney ? (
@@ -513,7 +513,7 @@ export default async function FeedbackPage({
                   className="btn btn--ghost"
                   href={`/workers/${encodeURIComponent(workerId)}/journey`}
                 >
-                  Open their journey
+                  View journey
                 </Link>
               ) : null}
               <Link className="btn btn--ghost" href="/feedback">
@@ -532,7 +532,7 @@ export default async function FeedbackPage({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/events?eventName=feedback.submitted">
-                Open the event timeline
+                View events
               </Link>
             </div>
           </div>

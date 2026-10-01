@@ -277,7 +277,7 @@ export default async function DashboardPage({
               <p className="panel__sub">The newest entries on the audit spine.</p>
             </div>
             <Link className="btn btn--ghost" href="/events">
-              View all events
+              View events
             </Link>
           </div>
 

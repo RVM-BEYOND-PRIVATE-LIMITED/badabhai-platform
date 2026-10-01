@@ -42,6 +42,17 @@ export function shortId(id: string | null, chars = 8): string {
   return id.length <= chars ? id : `${id.slice(0, chars)}…`;
 }
 
+/**
+ * A job decision's match tier, the same words on the worker page and the posting page: 1 is a
+ * match on a skill the posting asked for, 2 on a related one. Anything else (no tier recorded,
+ * or a tier this portal has not been taught) is a dash rather than a bare number.
+ */
+export function matchTierLabel(tier: number | null | undefined): string {
+  if (tier === 1) return "1 — asked-for skill";
+  if (tier === 2) return "2 — related skill";
+  return "—";
+}
+
 /** `worker.profile_confirmed` → `Worker · profile confirmed`. */
 export function humanizeEventName(name: string): string {
   const [domain, ...rest] = name.split(".");
@@ -247,7 +258,7 @@ export function creditReasonLabel(reason: string): string {
     case "refund":
       return "Refund";
     case "grant":
-      return "Ops grant";
+      return "Credit grant";
     default:
       // An unmapped reason is shown RAW rather than hidden — a code nobody recognises is a
       // reason to look, not to render a blank cell.

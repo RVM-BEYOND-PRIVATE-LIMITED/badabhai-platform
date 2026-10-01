@@ -166,7 +166,7 @@ describe("an analyst", () => {
     // panels are what this asserts — everything the page itself renders.
     expect(out).toContain(`<span class="mono">${WORKER_ID}</span>`);
     expect(out).toContain("Resume generated");
-    expect(out).toContain("Times unlocked");
+    expect(out).toContain("Contact unlocks");
     expect(out).toContain("Night shift ready");
   });
 });

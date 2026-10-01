@@ -16,12 +16,12 @@ import { Stat } from "../../../components/stat";
 import { PageHeader } from "../../../components/page-header";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Transactions" };
+export const metadata = { title: "Payment orders" };
 
 const STATUSES = ["created", "paid", "failed"] as const;
 
 /**
- * Transactions — credit-pack payment orders.
+ * Payment orders — credit-pack checkouts.
  *
  * ── WHAT AN ORDER IS, AND IS NOT ────────────────────────────────────────────────────────
  * A `created` order is a checkout that STARTED. It is not revenue, not a pending payment,
@@ -79,8 +79,8 @@ export default async function TransactionsPage({
   return (
     <div className="page">
       <PageHeader
-        title="Transactions"
-        description="Credit-pack payment orders, with amounts and credits stamped at order creation so a later price change never rewrites a past order."
+        title="Payment orders"
+        description="Credit-pack checkouts, with amounts and credits stamped at order creation so a later price change never rewrites a past order."
       />
 
       {posture && <PaymentsPostureBanner posture={posture} />}
@@ -229,7 +229,7 @@ export default async function TransactionsPage({
               {/* Deliberately not "real payments are on": this branch is also reached when
                   the posture itself is unknown, and asserting the mode would be a guess. */}
               <p className="state__body">
-                No checkout has been started. An order row appears the moment a payer opens
+                No checkout has been started. An order row appears the moment a customer opens
                 the pack checkout with the payment provider.
               </p>
               <div className="state__actions">

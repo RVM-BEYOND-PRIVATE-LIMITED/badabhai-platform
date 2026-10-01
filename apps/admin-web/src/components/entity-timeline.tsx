@@ -69,7 +69,7 @@ export async function EntityTimeline({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={basePath}>
-                Reload
+                Retry
               </Link>
             </div>
           </div>

@@ -31,7 +31,7 @@ import { PageHeader } from "../../../../components/page-header";
 import { SkillDiscoveryFilterBar } from "./filter-bar";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Skill Discovery" };
+export const metadata = { title: "Skill discovery" };
 
 /**
  * Skill Discovery — the review queue (#1260, extended #1280).
@@ -248,7 +248,7 @@ export default async function SkillDiscoveryPage({
   return (
     <div className="page">
       <PageHeader
-        title="Skill Discovery"
+        title="Skill discovery"
         description="AI-surfaced claims that the canonical skill taxonomy may be missing something. Each row is a claim, never a skill — an approval only records a decision; the corpus write stays in the offline, gated chain."
       />
 
@@ -389,7 +389,7 @@ export default async function SkillDiscoveryPage({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/skills/discovery">
-                Reset filters
+                Clear filters
               </Link>
             </div>
           </div>
@@ -455,7 +455,7 @@ const FLAT_LIMIT = 50; // ADMIN_SKILL_DISCOVERY_PAGE_DEFAULT
 
 const STATUS_SCOPE_LABELS: Record<"awaiting" | "held" | "decided" | "all", string> = {
   awaiting: "Awaiting decision",
-  held: "Held",
+  held: "On hold",
   decided: "Decided",
   all: "All statuses",
 };
@@ -500,7 +500,7 @@ function MetricsTiles({ metrics }: { metrics: SkillDiscoveryMetrics | null }) {
       </h2>
       {metrics === null ? (
         <div className="state state--error">
-          <h3 className="state__title">Dashboard tiles are unavailable</h3>
+          <h3 className="state__title">Queue metrics are unavailable</h3>
           <p className="state__body">
             The metrics read failed. The queue below is a separate read and may still work.
           </p>
@@ -519,7 +519,7 @@ function MetricsBody({ metrics }: { metrics: SkillDiscoveryMetrics }) {
   return (
     <>
       <div className="stats">
-        <Stat label="Pending review" value={formatCount(metrics.awaiting_decision)} />
+        <Stat label="Awaiting decision" value={formatCount(metrics.awaiting_decision)} />
         <Stat label={ADMIN_SKILL_REVIEW_TIER_LABELS.direct} value={formatCount(byTier("direct"))} />
         <Stat
           label={ADMIN_SKILL_REVIEW_TIER_LABELS.ambiguous}
@@ -531,11 +531,11 @@ function MetricsBody({ metrics }: { metrics: SkillDiscoveryMetrics }) {
         />
       </div>
       <div className="stats stats--compact">
-        <Stat label="Created" value={formatCount(byStatus("approved_create"))} />
-        <Stat label="Mapped" value={formatCount(byStatus("approved_map"))} />
+        <Stat label="New skill" value={formatCount(byStatus("approved_create"))} />
+        <Stat label="Added as alias" value={formatCount(byStatus("approved_map"))} />
         <Stat label="Merged" value={formatCount(byStatus("approved_merge"))} />
         <Stat label="Rejected" value={formatCount(byStatus("rejected"))} />
-        <Stat label="Held" value={formatCount(metrics.deferred)} />
+        <Stat label="On hold" value={formatCount(metrics.deferred)} />
       </div>
       <div className="queue-notes">
         <p className="field__help">
@@ -585,7 +585,7 @@ function EmptyQueueState({
       <div className="state">
         <h3 className="state__title">Nothing is awaiting a decision right now</h3>
         <p className="state__body">
-          Every candidate has either been decided or is on hold. Check the Held or Decided
+          Every candidate has either been decided or is on hold. Check the On hold or Decided
           scopes above to see them.
         </p>
       </div>
@@ -600,7 +600,7 @@ function EmptyQueueState({
       </p>
       <div className="state__actions">
         <Link className="btn btn--ghost" href="/skills/discovery">
-          Reset filters
+          Clear filters
         </Link>
       </div>
     </div>

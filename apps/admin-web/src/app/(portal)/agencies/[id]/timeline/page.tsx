@@ -1,7 +1,7 @@
 import { PayerTimelineRoute } from "../../../../../components/payer-timeline-route";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Agency timeline" };
+export const metadata = { title: "Agency event timeline" };
 
 export default async function AgencyTimelinePage({
   params,

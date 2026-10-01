@@ -65,7 +65,7 @@ export function buildAdminAttention(input: AttentionInput): AttentionItem[] {
       title: `${down.length === 1 ? "A dependency is" : `${down.length} dependencies are`} down`,
       body: `${down.join(", ")} — platform paths that rely on ${down.length === 1 ? "it" : "them"} will be failing.`,
       href: "/system",
-      linkLabel: "Open system",
+      linkLabel: "View system health",
     });
   }
 
@@ -95,7 +95,7 @@ export function buildAdminAttention(input: AttentionInput): AttentionItem[] {
       title: `${mocked.length} ${mocked.length === 1 ? "dependency is" : "dependencies are"} simulated`,
       body: `${mocked.join(", ")} — up, but not exercising the real provider in ${input.health?.environment ?? "this environment"}.`,
       href: "/system",
-      linkLabel: "Open system",
+      linkLabel: "View system health",
     });
   }
 

@@ -76,7 +76,7 @@ export default async function ChatSessionDetailPage({
         }
         secondaryActions={
           <Link className="btn btn--ghost" href={`/workers/${session.worker_id}`}>
-            Worker record
+            Open worker
           </Link>
         }
       />
@@ -101,7 +101,7 @@ export default async function ChatSessionDetailPage({
         <section className="panel" aria-labelledby="session-facts">
           <div className="panel__head">
             <h2 className="panel__title" id="session-facts">
-              Session
+              Interview session
             </h2>
             <p className="panel__sub">
               &ldquo;Abandoned&rdquo; is written by the idle sweep, not by the worker.
@@ -243,7 +243,7 @@ export default async function ChatSessionDetailPage({
                 <caption className="sr-only">Extraction jobs for this session</caption>
                 <thead>
                   <tr>
-                    <th scope="col">Job</th>
+                    <th scope="col">Extraction job</th>
                     <th scope="col">Status</th>
                     <th scope="col">Model</th>
                     <th scope="col">Tokens</th>

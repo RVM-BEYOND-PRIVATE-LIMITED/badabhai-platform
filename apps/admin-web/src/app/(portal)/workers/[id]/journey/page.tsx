@@ -12,10 +12,17 @@ import { StatusPill } from "../../../../../components/status-pill";
 import { PageHeader } from "../../../../../components/page-header";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Worker journey" };
+export const metadata = { title: "Journey" };
 
 /** The three `chat_sessions.status` values the API's list filter accepts. */
 const SESSION_STATUS_FILTERS = ["active", "ended", "abandoned"] as const;
+
+/** How each filter reads on its chip — sentence case, like every other label here. */
+const SESSION_STATUS_LABELS: Record<(typeof SESSION_STATUS_FILTERS)[number], string> = {
+  active: "Active",
+  ended: "Ended",
+  abandoned: "Abandoned",
+};
 
 /**
  * ONE worker's journey — the 7-step funnel, and their interview sessions.
@@ -176,7 +183,7 @@ export default async function WorkerJourneyPage({
                 href={`/workers/${id}/journey?status=${s}`}
                 key={s}
               >
-                {s}
+                {SESSION_STATUS_LABELS[s]}
               </Link>
             ))}
           </nav>
@@ -186,7 +193,7 @@ export default async function WorkerJourneyPage({
           <div className="state state--error">
             <h3 className="state__title">The session list could not be loaded</h3>
             <p className="state__body">
-              The chat-sessions read failed. The funnel above came from a separate read and is
+              The interview-sessions read failed. The funnel above came from a separate read and is
               unaffected — but the interview count it shows has no list beside it right now.
               Reload this page to try again.
             </p>
@@ -199,7 +206,7 @@ export default async function WorkerJourneyPage({
             <p className="state__body">
               {status
                 ? "This worker has sessions in other states. Clear the filter to see them."
-                : "This worker has never started the AI profiling interview. Nothing is broken — but it also means there is no profile to extract and no résumé to generate for them yet."}
+                : "This worker has never started the AI profiling interview. Nothing is broken — but it also means there is no profile to extract and no resume to generate for them yet."}
             </p>
             {status ? (
               <div className="state__actions">
