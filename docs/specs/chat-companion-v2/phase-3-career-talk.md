@@ -160,9 +160,11 @@ NFKD-folded form with combining marks dropped, so a fullwidth `Ｓａｌａｒ�
       sent to the model as a question.
 
 ### Frontend — worker app (GitHub issue)
-- [ ] **F1** `read_aloud: false` → no speaker button / no auto-read for that bubble (do **not** fall
+- [x] **F1** `read_aloud: false` → no speaker button / no auto-read for that bubble (do **not** fall
       back to speaking `reply`).
-- [ ] **F2** Render up to 4 lines and follow-up chips.
+      Shipped: #1827 (per-bubble `canReadAloud`).
+- [x] **F2** Render up to 4 lines and follow-up chips.
+      Shipped: #1827.
 
 ## 5. Tests
 
