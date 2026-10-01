@@ -156,7 +156,7 @@ users today. No link to an O route is rendered for a non-owner.
 | Agency  | Supply       | Worker activity  | `/agency/workers`   | `agency/workers/page.tsx`   | Faceless funnel of the workers the agency referred         | A + F; nav-F                                   |
 | Agency  | Supply       | Referrals        | `/agency/referrals` | `agency/referrals/page.tsx` | Invite link, batch links, funnel, earnings / KYC / payouts | A + F; nav-F                                   |
 | Agency  | Supply       | QR invite        | `/agency/qr`        | `agency/qr/page.tsx`        | Printable QR invite sheet                                  | A + F; nav-F                                   |
-| Both    | Billing      | Plans & capacity | `/plans`            | `plans/page.tsx`            | Usage, Hiring capacity, applicant quota, credits, plans    | P                                              |
+| Company | Billing      | Plans & capacity | `/plans`            | `plans/page.tsx`            | Usage, Hiring capacity, applicant quota, credits, plans    | P; agent → redirected to `/dashboard`          |
 | Both    | Billing      | Credits          | `/credits`          | `credits/page.tsx`          | Credit balance, buy credits, history, expiry               | O; nav-O                                       |
 | Both    | Organisation | Team             | `/team`             | `team/page.tsx`             | Members, invite a recruiter                                | O; nav-O                                       |
 | Agency  | Coming soon  | Revenue (Soon)   | `/agency/revenue`   | `agency/revenue/page.tsx`   | Parked explainer (no data)                                 | A + F; nav-F                                   |
@@ -165,18 +165,46 @@ Not in the rail, on purpose: **Bulk invite upload** (`/agency/bulk-upload`). It 
 violation that will never be built (ADR-0022 Amendment 3) — and is never framed as coming. Its one
 way in is the dashboard's Invite tools card, which says why it is not available.
 
+**Plans & capacity is a Company page** (2026-10-01, a consequence of ruling 2): everything it sells
+is an entitlement on company postings (`job_postings`) — concurrent capacity, per-posting applicant
+quota, posting plans — and an agency posts agency jobs only. The agency rail and dashboard do not
+offer it, and an agent who opens `/plans` or `/capacity` is redirected to `/dashboard` before any
+read. Credits stays for both personas (Owner-only). An agency recruiter therefore has no Billing
+group at all.
+
 ### Header (every portal page)
 
 | Element      | Label                                     | Route / action | Purpose                                                                    | Permission / flag                                         |
 | ------------ | ----------------------------------------- | -------------- | -------------------------------------------------------------------------- | --------------------------------------------------------- |
 | Brand lockup | "BadaBhai for Companies" / "for Agencies" | `/dashboard`   | Home                                                                       | P                                                         |
-| Breadcrumb   | group, then the section as a link         | the section    | Section context only: never the page itself (its H1 names it), never an id | derived from the rail                                     |
+| Breadcrumb   | group, then the section                   | the section    | Section context only: never the page itself (its H1 names it), never an id | derived from the rail                                     |
 | Credits chip | wallet icon + "{n} credits"               | `/credits`     | The balance — shown once per screen                                        | link for O only; static otherwise; hidden on a read error |
 | Account menu | "Account"                                 | `/account`     | The payer's own settings page                                              | P                                                         |
 | Account menu | "Sign out"                                | server action  | Sign out                                                                   | P                                                         |
 
-Breadcrumb examples: `/postings` → "Hiring"; `/postings/<id>/applicants` → "Hiring › Postings";
-`/postings/ai/new` → "Hiring › New posting"; `/dashboard`, `/account` → no trail.
+The breadcrumb is a section path, and **one door per destination** decides whether its section step
+is a link: on a page ONE level below a destination, whose back link already opens it
+(`NavItem.childrenLinkBack`), the step is plain text; on a deeper page (whose back link goes to a
+nearer parent) it stays a link. A trail with no link is plain text, not a `<nav>` landmark. Below
+375px the trail is not drawn at all (no room for a 44px target beside the actions; the H1 and back
+link carry the context); from 375px a trail link is at least 44px wide and tall on a phone or
+touch screen. `crumb-back.test.tsx` renders the shell around every page, both personas, and fails if
+a trail link and a back link ever open the same page.
+
+| Route                        | Trail                            | Back link                 |
+| ---------------------------- | -------------------------------- | ------------------------- |
+| `/postings`, `/postings/new` | "Hiring" (text)                  | —                         |
+| `/postings/<id>`             | "Hiring › Postings" (text)       | Postings                  |
+| `/postings/ai/new`           | "Hiring › New posting" (text)    | New posting               |
+| `/postings/<id>/edit`        | "Hiring › **Postings**" (link)   | Posting details           |
+| `/postings/<id>/applicants`  | "Hiring › **Postings**" (link)   | the posting, by its title |
+| `/agency/jobs/<id>`          | "Demand › Postings" (text)       | Postings                  |
+| `/team/accept` (owner)       | "Organisation › **Team**" (link) | —                         |
+| `/dashboard`, `/account`     | none                             | —                         |
+
+The credits chip below 540px shows the number only: the unit word is visually hidden but stays in
+its accessible name ("1234 credits — open Credits" for an owner's link), and the shared icon
+tooltip shows "1234 credits" on hover and keyboard focus.
 
 ### Pages below a nav destination (back link = the real parent)
 
@@ -184,33 +212,43 @@ Every page renders one `PageHeader` (`src/components/page-header.tsx`): back lin
 only) · H1 + one-sentence description · status · one primary action · secondaries · optional
 toolbar. Top-level pages (rail or account menu) have no back link.
 
-| Persona | Route                          | H1                 | Back link        | Header actions                                                     | Permission / flag                                      |
-| ------- | ------------------------------ | ------------------ | ---------------- | ------------------------------------------------------------------ | ------------------------------------------------------ |
-| Company | `/postings/ai/new`             | Post with AI       | New posting      | —                                                                  | P; agent → `/agency/jobs/new`                          |
-| Company | `/postings/<id>`               | the role title     | Postings         | status · View applicants · Edit posting (draft: Edit posting only) | P (owned posting)                                      |
-| Company | `/postings/<id>/edit`          | Edit posting       | Posting details  | — (Save / Publish posting in the form)                             | P; agent → `/postings/<id>`                            |
-| Company | `/postings/<id>/applicants`    | Applicants         | Posting details  | —                                                                  | P                                                      |
-| Agency  | `/agency/jobs/<id>`            | the posting title  | Postings         | status · View applicants                                           | A + F                                                  |
-| Agency  | `/agency/jobs/<id>/applicants` | Applicants         | Posting details  | —                                                                  | A + F                                                  |
-| Both    | `/capacity`                    | Hiring capacity    | Plans & capacity | —                                                                  | P (one entry point: the New posting at-capacity alert) |
-| Agency  | `/agency/bulk-upload`          | Bulk invite upload | Dashboard        | —                                                                  | A + F                                                  |
+| Persona | Route                       | H1                 | Back link                                               | Header actions                                                     | Permission / flag             |
+| ------- | --------------------------- | ------------------ | ------------------------------------------------------- | ------------------------------------------------------------------ | ----------------------------- |
+| Company | `/postings/ai/new`          | Post with AI       | New posting                                             | —                                                                  | P; agent → `/agency/jobs/new` |
+| Company | `/postings/<id>`            | the role title     | Postings                                                | status · View applicants · Edit posting (draft: Edit posting only) | P (owned posting)             |
+| Company | `/postings/<id>/edit`       | Edit posting       | Posting details                                         | — (Save / Publish posting in the form)                             | P; agent → `/postings/<id>`   |
+| Company | `/postings/<id>/applicants` | Applicants         | the posting, by its title ("Posting details" if unread) | toolbar: New / Shortlist tabs                                      | P; agent → `/postings/<id>`   |
+| Agency  | `/agency/jobs/<id>`         | the posting title  | Postings                                                | status                                                             | A + F                         |
+| Agency  | `/agency/bulk-upload`       | Bulk invite upload | Dashboard                                               | —                                                                  | A + F                         |
+
+**An agency posting's applicants are not reachable in the UI** (D1, 2026-10-01). The applicant
+endpoint behind the feed (`GET /payer/reach/jobs/:jobId/applicants`) does not serve agency `jobs`
+rows correctly yet — backend issue #1898. Until it does there is no `/agency/jobs/<id>/applicants`
+route and nothing links to one; an agency posting's details show its applicant COUNT only.
 
 Top-level pages outside the rail (no back link): `/account` (H1 "Account", the account menu's
 item; P) and `/team/accept` (H1 "Join a team", the invite email's link; P — its trail is
 "Organisation › Team" for an owner, none for a recruiter).
 
 Redirects (kept so old links resolve): `/` → `/dashboard` or `/login`; `/profile` → `/account`;
-`/agency/dashboard` → `/dashboard`.
+`/agency/dashboard` → `/dashboard`; `/capacity` → `/plans#hiring-capacity` (the Hiring capacity
+section of Plans & capacity — ONE place for it; an agent goes to `/dashboard`). Links inside the
+app point at `/plans#hiring-capacity` directly (the New posting at-capacity alert).
 
 ### Agency on the company surface
 
 Agencies post agency jobs only. The company posting surface is never linked for an agent:
 
 - `/postings/new`, `/postings/ai/new` → redirect to `/agency/jobs/new` (or `/dashboard` when F is off).
-- `/postings` → redirect to `/agency/jobs`, unless the agent owns older company postings; those
-  are shown read-only under the H1 "Older postings" (no create, edit or lifecycle controls), with a
-  link to Postings.
-- `/postings/<id>` → read-only (no Edit posting); `/postings/<id>/edit` → redirect to `/postings/<id>`.
+- `/postings` → redirect to `/agency/jobs` (or `/dashboard` when F is off), unless the agent owns
+  older company postings. **Older postings — read-only, by direct link**: nothing in an agency's
+  portal links to them. They are listed under the H1 "Older postings" (no create, edit, lifecycle
+  or applicants link — each title opens its details), with one link to the agency's Postings while
+  F is on.
+- `/postings/<id>` → read-only: no action at all (no View applicants, no Edit posting).
+- `/postings/<id>/edit` and `/postings/<id>/applicants` → redirect to `/postings/<id>` before any
+  read (the feed unlocks contacts; a read-only posting offers no such action).
+- `/plans`, `/capacity` → redirect to `/dashboard` (a company page — see the rail).
 - The backend role gate for this surface is issue #1885.
 
 ### Vocabulary (labels only — no route or API path was renamed)
@@ -223,6 +261,7 @@ Agencies post agency jobs only. The company posting surface is never linked for 
 | Person an agency referred      | Worker                                                                             |
 | The balance                    | Credits (wallet icon everywhere)                                                   |
 | Buying the balance             | Buy credits                                                                        |
+| A bought pack (credit history) | Purchase                                                                           |
 | Buying a posting more views    | Add applicant slots (stack-plus icon)                                              |
 | Billing area / tier / cap      | Plans & capacity · Hiring capacity · Applicant quota                               |
 | Agency KYC                     | Payout details (KYC)                                                               |
