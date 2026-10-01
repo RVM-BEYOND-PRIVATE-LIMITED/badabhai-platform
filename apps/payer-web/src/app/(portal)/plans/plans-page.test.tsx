@@ -188,7 +188,12 @@ describe("/plans — degraded reads", () => {
 describe("/plans — Hiring capacity is ONE section, the target of /capacity", () => {
   it("the section carries the anchor id and holds the capacity panel", async () => {
     const out = await html();
-    const section = between(out, '<section class="section" id="hiring-capacity">', "</section>");
+    // (`anchor-target`: the fragment lands below the sticky header — a11y-foundations · 7.)
+    const section = between(
+      out,
+      '<section class="section anchor-target" id="hiring-capacity">',
+      "</section>",
+    );
     expect(textOf(section)).toContain("Hiring capacity");
     expect(section).toContain('data-stub="capacity-panel"');
     // …exactly one capacity panel on the page.

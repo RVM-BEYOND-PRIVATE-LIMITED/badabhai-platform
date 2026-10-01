@@ -1063,17 +1063,48 @@ describe("W3-A · 6 — the portal reflows to 320px", () => {
     );
   });
 
-  it("<375px: the trail is not drawn at all — no room for a 44px link beside the actions", () => {
+  it("a trail link is a whole 44px target or nothing: below one target the trail is not drawn", () => {
     // Measured at 320px with a 4-digit balance: the trail squeezed to ~3px, its link still
-    // focusable as a sliver. From 375px it keeps ≥44px (measured with a 5-digit balance).
-    const r = one(G, ".pcrumb", "max-width: 374px");
-    expect(r.at).toBe("@media (max-width: 374px)");
-    expect(props(r)).toEqual(["display"]);
-    expect(decl(r, "display")).toBe("none");
-    // No other context hides the whole trail.
+    // focusable as a sliver. The trail is now a size container taking the header's free space…
+    const base = one(G, ".pcrumb");
+    expect(decl(base, "container-type")).toBe("inline-size");
+    expect(decl(base, "flex")).toBe("1 1 0");
+    expect(decl(base, "min-width")).toBe("0");
+    // …and when that space is narrower than one target, it draws nothing.
+    const hide = one(G, ".pcrumb > *", "@container");
+    expect(hide.at).toBe("@container (width < 44px)");
+    expect(props(hide)).toEqual(["display"]);
+    expect(decl(hide, "display")).toBe("none");
+    // The threshold IS the target (a container query cannot read the token itself).
+    expect(Number(/(\d+)px/.exec(hide.at)![1])).toBe(tokenPx("--control-md"));
+    // No viewport breakpoint hides the trail any more: it is drawn wherever a target fits (360px
+    // with a 5-digit balance — measured).
     expect(
-      G.filter((x) => x.selector === ".pcrumb" && decl(x, "display") === "none").map((x) => x.at),
-    ).toEqual(["@media (max-width: 374px)"]);
+      G.filter(
+        (x) => splitSelectors(x.selector).some((s) => s.startsWith(".pcrumb")) && x.at.includes("@media") && decl(x, "display") === "none",
+      ).map((x) => x.selector),
+    ).toEqual([".pcrumb > :not(:last-child), .pcrumb__step > .pcrumb__sep"]);
+  });
+
+  it("360-374px: the header padding and the chip padding step down once more (the trail's 16px)", () => {
+    const at = "max-width: 374px";
+    const h = one(G, ".pshell__header", at);
+    expect(h.at).toBe(`@media (${at})`);
+    expect(props(h)).toEqual(["padding-inline"]);
+    expect(decl(h, "padding-inline")).toBe("var(--space-3)");
+    const chip = one(G, ".pshell__balance", at);
+    expect(props(chip)).toEqual(["padding-inline"]);
+    expect(decl(chip, "padding-inline")).toBe("var(--space-2)");
+    // A real step down from the ≤540px header and the base chip…
+    expect(tokenPx("--space-3")).toBeLessThan(tokenPx("--space-4"));
+    expect(decl(one(G, ".pshell__header", NARROW), "padding-inline")).toBe("var(--space-4)");
+    expect(decl(one(G, ".pshell__balance"), "padding")).toBe("0 var(--space-3)");
+    // …that freed 16px: 2 × (16 − 12) of header padding + 2 × (12 − 8) of chip padding.
+    expect(2 * (tokenPx("--space-4") - tokenPx("--space-3")) + 2 * (tokenPx("--space-3") - tokenPx("--space-2"))).toBe(16);
+    // …and it comes after the ≤540px header rule it refines (equal specificity: order decides).
+    const idx = (ctx: string) =>
+      G.findIndex((r) => r.selector === ".pshell__header" && r.at.includes(ctx));
+    expect(idx(at)).toBeGreaterThan(idx(NARROW));
   });
 
   it("≤540px the chip's hidden words are its TOOLTIP too; wider, the tooltip never shows", () => {
@@ -1252,5 +1283,91 @@ describe("solid badges keep their own label colour in the ink theme", () => {
     const r = find('[data-theme="ink"] .bb-badge--solid.bb-badge--warning');
     expect(r).toBeDefined();
     expect(decl(r!, "color")).toBe("var(--text-inverse)");
+  });
+});
+
+/* ================================================================== *
+ * 7 · ANCHORS — a fragment link's target lands BELOW the sticky header, not under it.
+ *     Measured: following /capacity → /plans#hiring-capacity put "Hiring capacity" at y=0–22px,
+ *     behind the 61px sticky header, at 375 / 768 / 1280px.
+ * ================================================================== */
+describe("W3-A · 7 — in-page link targets clear the sticky header", () => {
+  it("the anchor margin is the header's height plus a block gap", () => {
+    const r = one(G, ".anchor-target");
+    expect(props(r)).toEqual(["scroll-margin-top"]);
+    expect(decl(r, "scroll-margin-top")).toBe("calc(var(--shell-header-h) + var(--space-4))");
+    // …the header it clears is the sticky one sized by that same token.
+    const header = one(G, ".pshell__header");
+    expect(decl(header, "position")).toBe("sticky");
+    expect(decl(header, "top")).toBe("0");
+    expect(decl(header, "min-height")).toBe("var(--shell-header-h)");
+    expect(tokenPx("--space-4")).toBeGreaterThan(0);
+  });
+
+  it("every in-app link to another page's fragment targets an element that carries the margin", () => {
+    const sources = tsxUnder(here).map(([f, src]) => [f.split("\\").join("/"), src] as const);
+    // Fragments linked across pages: literal hrefs, plus the Hiring capacity constant.
+    const fragments = new Set<string>();
+    for (const [, src] of sources) {
+      for (const m of src.matchAll(/href="\/[^"#]*#([\w-]+)"/g)) fragments.add(m[1]!);
+    }
+    const billing = readFileSync(join(here, "..", "lib", "billing-routes.ts"), "utf8");
+    const anchorConst = /HIRING_CAPACITY_ANCHOR = "([\w-]+)"/.exec(billing)?.[1];
+    expect(anchorConst).toBe("hiring-capacity");
+    expect(billing).toContain("`/plans#${HIRING_CAPACITY_ANCHOR}`");
+    fragments.add(anchorConst!);
+    // The legacy /agency/dashboard#agency-vacancies deep link keeps its fragment through the
+    // redirect to /dashboard.
+    fragments.add("agency-vacancies");
+    expect([...fragments].sort()).toEqual(["agency-vacancies", "batch-invites", "hiring-capacity"]);
+
+    for (const frag of fragments) {
+      const idForms = [`id="${frag}"`, ...(frag === anchorConst ? ["id={HIRING_CAPACITY_ANCHOR}"] : [])];
+      const tags = sources.flatMap(([file, src]) =>
+        idForms.flatMap((form) =>
+          offsets(src, form).map((at) => {
+            const open = src.lastIndexOf("<", at);
+            return [file, src.slice(open, src.indexOf(">", at) + 1)] as const;
+          }),
+        ),
+      );
+      expect(tags.length, `#${frag} has one target`).toBe(1);
+      const [file, tag] = tags[0]!;
+      expect(tag, `${file}: #${frag}`).toMatch(/className="[^"]*\banchor-target\b[^"]*"/);
+    }
+  });
+});
+
+/* ================================================================== *
+ * 8 · The masked-résumé link (an applicant's revealed card) is a 44px touch target.
+ *     Measured 208 × 21.5px on touch at 375px before.
+ * ================================================================== */
+describe("W3-A · 8 — the masked-résumé link takes the text-link hit strip on touch", () => {
+  const CTX = `@media (${PHONE}), (pointer: coarse)`;
+
+  it("phone / coarse: positioned + isolated host, and the SAME strip the posting-row links use", () => {
+    const host = one(G, ".reveal-card__ext", "pointer: coarse");
+    expect(host.at).toBe(CTX);
+    expect(props(host)).toEqual(["isolation", "position"]);
+    expect(decl(host, "position")).toBe("relative");
+    const strip = one(G, ".reveal-card__ext::before", "pointer: coarse");
+    expect(strip.at).toBe(CTX);
+    // The recipe, declaration for declaration (it may not drift from the one it copies).
+    const recipe = G.find(
+      (r) => r.at === CTX && splitSelectors(r.selector).includes(".postings-link::before"),
+    )!;
+    expect(recipe).toBeDefined();
+    for (const p of ["content", "position", "z-index", "inset-block", "inset-inline"]) {
+      expect(decl(strip, p), p).toBe(decl(recipe, p));
+    }
+    expect(decl(strip, "inset-block")).toBe("calc((100% - var(--control-md)) / 2)");
+  });
+
+  it("MARKUP: the strip's host is the link itself (an <a> with the class), opening a new tab", () => {
+    const src = readFileSync(join(here, "..", "components", "unlock", "routed-contact-card.tsx"), "utf8");
+    const at = src.indexOf('className="reveal-card__ext"');
+    expect(at).toBeGreaterThan(0);
+    expect(src.lastIndexOf("<a", at)).toBeGreaterThan(src.lastIndexOf(">", at));
+    expect(src.slice(at, src.indexOf(">", at))).toContain('target="_blank"');
   });
 });

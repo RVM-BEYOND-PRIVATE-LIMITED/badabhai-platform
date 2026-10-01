@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
+import { navSections, type NavSection } from "./(portal)/nav-model";
 
 // global-error.tsx is a client component (THEME-1 added useState/useEffect so the error screen
 // re-applies the saved theme on its own <html>). Stub the hooks so it can be invoked as a plain
@@ -35,6 +36,15 @@ vi.mock("react", async () => {
  */
 
 vi.mock("./globals.css", () => ({}));
+
+// The portal boundary reads WHERE it is (the path + the shell's nav sections) to offer the way
+// back up. The real nav model, for a company owner unless a test says otherwise.
+let pathname = "/postings/33333333-3333-4333-8333-333333333333";
+let sections: NavSection[] = [];
+vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
+vi.mock("./(portal)/nav-context", () => ({ useNavSections: () => sections }));
+
+sections = navSections({ isAgency: false, isOwner: true, agencyPortalEnabled: true });
 
 const { default: RootError } = await import("./error");
 const { default: GlobalError } = await import("./global-error");
@@ -151,5 +161,62 @@ describe("global-error.tsx — renders no glyph (yet)", () => {
       // Every glyph is the solid (fill) weight — the only Phosphor sheet @badabhai/icons ships.
       expect(tokens).toContain("ph-fill");
     }
+  });
+});
+
+/* ------------------------------------------------------------------------------------------ *
+ * A WAY OUT: the portal boundary replaced the page — and its back link — so it offers the way
+ * back up (the section the path sits under, from the SAME nav model) and the Dashboard.
+ * ------------------------------------------------------------------------------------------ */
+describe("PortalError — a way out when an error replaced the page", () => {
+  const COMPANY = navSections({ isAgency: false, isOwner: true, agencyPortalEnabled: true });
+  const AGENCY = navSections({ isAgency: true, isOwner: true, agencyPortalEnabled: true });
+  const ID = "33333333-3333-4333-8333-333333333333";
+
+  /** Every link the boundary renders: [href, its visible label]. */
+  function links(path: string, s: NavSection[]): Array<[string, string]> {
+    pathname = path;
+    sections = s;
+    const out: Array<[string, string]> = [];
+    (function w(node: ReactNode): void {
+      if (node === null || node === undefined || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        node.forEach(w);
+        return;
+      }
+      const el = node as ReactElement<{ href?: unknown; children?: ReactNode }>;
+      if (typeof el.props?.href === "string") {
+        out.push([el.props.href, collect(el.props.children).text.join(" ").trim()]);
+      }
+      if (el.props && "children" in el.props) w(el.props.children);
+    })(PortalError({ error: secretError(), reset: vi.fn() }));
+    return out;
+  }
+
+  it.each([
+    [`/postings/${ID}`, COMPANY, "/postings", "Postings"],
+    [`/postings/${ID}/applicants`, COMPANY, "/postings", "Postings"],
+    [`/postings/${ID}/edit`, COMPANY, "/postings", "Postings"],
+    ["/postings/ai/new", COMPANY, "/postings/new", "New posting"],
+    [`/agency/jobs/${ID}`, AGENCY, "/agency/jobs", "Postings"],
+  ] as const)("%s → back up to its section (%s %s), and the Dashboard", (path, s, href, label) => {
+    expect(links(path, [...s])).toEqual([
+      [href, label],
+      ["/dashboard", "Dashboard"],
+    ]);
+  });
+
+  it("ON a destination (or a page no destination owns): the Dashboard only — Try again reopens it", () => {
+    for (const path of ["/postings", "/plans", "/account", "/nowhere"]) {
+      expect(links(path, COMPANY), path).toEqual([["/dashboard", "Dashboard"]]);
+    }
+  });
+
+  it("on the Dashboard itself: no link to the page it is (Try again is the way)", () => {
+    expect(links("/dashboard", COMPANY)).toEqual([]);
+  });
+
+  it("outside the shell (no sections): still the Dashboard", () => {
+    expect(links(`/postings/${ID}`, [])).toEqual([["/dashboard", "Dashboard"]]);
   });
 });

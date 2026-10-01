@@ -246,7 +246,7 @@ export async function AgentSections() {
           managed. (An agency posting's applicants are not reachable in the UI yet — the feed
           endpoint does not serve agency jobs correctly; backend issue #1898.) `id` keeps old
           `#agency-vacancies` deep links landing here. */}
-      <section id="agency-vacancies" className="panel">
+      <section id="agency-vacancies" className="panel anchor-target">
         <div className="panel__head">
           <div className="panel__text">
             <h2 className="panel__title">Your postings</h2>

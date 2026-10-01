@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requirePayer } from "../../../../../lib/auth";
 import { getOrgRole } from "../../../../../lib/auth/org-roles";
 import { getApplicantFeed, getDashboard } from "../../../../../lib/payer-api";
 import type { ApplicantFeed } from "../../../../../lib/contracts";
+import { COMPANY_POSTING_ROUTES } from "../../../../../lib/posting-routes";
 import { Card } from "../../../../../components/ds";
 import { PageHeader } from "../../../../../components/page-header";
 import { RetryButton } from "../../../../../components/retry-button";
@@ -93,8 +95,8 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
 
   return (
     <div className="applicants-page">
-      {/* Not found: there is no posting to go back to, so no back link — the header's trail
-          (Postings) and the rail are the way out. */}
+      {/* Not found: there is no posting to go back to, so no back link; the state's own link to
+          Postings is the way out (the header trail is not drawn on the narrowest phones). */}
       <PageHeader {...header} back={notFound ? undefined : header.back} />
 
       {notFound ? (
@@ -107,6 +109,12 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
             </span>
             <h2 className="state__title">No posting found here</h2>
             <p className="state__body">It may not exist, or it isn&rsquo;t one of your postings.</p>
+            <div className="state__actions">
+              <Link className="bb-btn bb-btn--secondary" href={COMPANY_POSTING_ROUTES.list}>
+                <Icon name={ACTION_ICON.posting} />
+                <span>Postings</span>
+              </Link>
+            </div>
           </div>
         </Card>
       ) : feedError || !feed ? (

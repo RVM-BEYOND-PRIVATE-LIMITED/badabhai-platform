@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@badabhai/icons";
-import { isNavItemActive, type NavItem, type NavSection } from "./nav-model";
+import { navTrail, type NavSection } from "./nav-model";
 
 /**
  * The header's SECTION CONTEXT (IA-1; header model 2026-10-01).
@@ -31,46 +31,13 @@ import { isNavItemActive, type NavItem, type NavSection } from "./nav-model";
  * current page is the rail's `aria-current` item; nothing here claims it.
  */
 
-/** The deepest nav destination that owns `pathname`, with the group it sits in. */
-function owningItem(
-  sections: NavSection[],
-  pathname: string,
-): { item: NavItem; group: string | undefined } | null {
-  let found: { item: NavItem; group: string | undefined } | null = null;
-  for (const section of sections) {
-    for (const item of section.items) {
-      if (!isNavItemActive(item.match, pathname)) continue;
-      // Prefer the most specific match when two items both claim the path.
-      if (!found || item.href.length > found.item.href.length) {
-        found = { item, group: section.title };
-      }
-    }
-  }
-  return found;
-}
-
-/**
- * How many path segments `pathname` sits below `item` (0 = the destination itself). A path the
- * item owns through another base (`/postings/ai/new` under New posting, whose route is
- * `/postings/new`) counts from that base, where the base itself is one level down.
- */
-function depthBelow(item: NavItem, pathname: string): number {
-  const segments = (p: string) => p.split("/").filter(Boolean).length;
-  if (pathname === item.href) return 0;
-  if (pathname.startsWith(`${item.href}/`)) return segments(pathname) - segments(item.href);
-  for (const base of item.match.prefix ?? []) {
-    if (pathname === base) return 1;
-    if (pathname.startsWith(`${base}/`)) return segments(pathname) - segments(base);
-  }
-  return Number.POSITIVE_INFINITY;
-}
-
 export function PortalBreadcrumb({ sections }: { sections: NavSection[] }) {
   const pathname = usePathname();
-  const owner = owningItem(sections, pathname);
+  // The destination that owns this path, its group and the depth below it (nav-model.ts).
+  const owner = navTrail(sections, pathname);
   if (!owner) return null;
 
-  const depth = depthBelow(owner.item, pathname);
+  const { depth } = owner;
   // ON the destination itself, the H1 is its name: only the group is context.
   if (depth === 0 && !owner.group) return null;
   const showSection = depth > 0;

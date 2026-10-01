@@ -3,7 +3,8 @@
  *
  * The vitest env is `node` — there is no layout engine — so a layout regression fence asserts
  * the DECLARED geometry instead: it flattens a stylesheet into rules (keeping the enclosing
- * `@media`/`@supports` prelude, so a phone rule is distinguishable from its desktop base) and
+ * `@media`/`@supports`/`@container` prelude, so a phone rule is distinguishable from its desktop
+ * base) and
  * reads declarations out of them. Shared so each fence does not carry its own parser.
  */
 
@@ -19,7 +20,10 @@ export interface Rule {
 /** Drop `/* … *\/` comments so commented-out declarations never count. */
 export const stripComments = (css: string): string => css.replace(/\/\*[\s\S]*?\*\//g, "");
 
-/** Flatten a stylesheet into rules, descending through @media/@supports and keeping the prelude. */
+/**
+ * Flatten a stylesheet into rules, descending through @media/@supports/@container and keeping
+ * the prelude.
+ */
 export function parseRules(css: string, at = ""): Rule[] {
   const out: Rule[] = [];
   let prelude = "";
@@ -36,7 +40,7 @@ export function parseRules(css: string, at = ""): Rule[] {
       }
       const body = css.slice(i + 1, j - 1);
       const selector = prelude.trim().replace(/\s+/g, " ");
-      if (/^@(media|supports)\b/.test(selector)) out.push(...parseRules(body, selector));
+      if (/^@(media|supports|container)\b/.test(selector)) out.push(...parseRules(body, selector));
       else out.push({ selector, body, at });
       prelude = "";
       i = j;

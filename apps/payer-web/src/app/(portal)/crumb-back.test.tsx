@@ -206,48 +206,74 @@ beforeEach(() => {
 });
 
 type Persona = "company" | "agency";
+type PageModule = { default: (props: never) => unknown };
 interface Route {
   persona: Persona;
   /** The URL the payer is on. */
   path: string;
   /** The page file under (portal)/ (the coverage check matches on it). */
   file: string;
-  load: () => Promise<{ default: (props: never) => unknown }>;
+  mod: PageModule;
   props?: unknown;
 }
 const params = (p: Record<string, string>) => ({ params: Promise.resolve(p) });
 
+// Every page module is imported ONCE, here at the top level — module loading is collection, not a
+// test: imported inside the first test, a cold run spent its 5s timeout on the imports.
+const PAGE = {
+  dashboard: (await import("./dashboard/page")) as PageModule,
+  postings: (await import("./postings/page")) as PageModule,
+  postingsNew: (await import("./postings/new/page")) as PageModule,
+  postingsAi: (await import("./postings/ai/new/page")) as PageModule,
+  posting: (await import("./postings/[id]/page")) as PageModule,
+  postingEdit: (await import("./postings/[id]/edit/page")) as PageModule,
+  applicants: (await import("./postings/[id]/applicants/page")) as PageModule,
+  plans: (await import("./plans/page")) as PageModule,
+  credits: (await import("./credits/page")) as PageModule,
+  account: (await import("./account/page")) as PageModule,
+  team: (await import("./team/page")) as PageModule,
+  teamAccept: (await import("./team/accept/page")) as PageModule,
+  agencyJobs: (await import("./agency/jobs/page")) as PageModule,
+  agencyJobsNew: (await import("./agency/jobs/new/page")) as PageModule,
+  agencyJob: (await import("./agency/jobs/[jobId]/page")) as PageModule,
+  agencyWorkers: (await import("./agency/workers/page")) as PageModule,
+  agencyReferrals: (await import("./agency/referrals/page")) as PageModule,
+  agencyQr: (await import("./agency/qr/page")) as PageModule,
+  agencyRevenue: (await import("./agency/revenue/page")) as PageModule,
+  agencyBulk: (await import("./agency/bulk-upload/page")) as PageModule,
+};
+
 /** Every portal page, for each persona that can open it. */
 const ROUTES: Route[] = [
   // ── a company ──
-  { persona: "company", path: "/dashboard", file: "dashboard/page.tsx", load: () => import("./dashboard/page") },
-  { persona: "company", path: "/postings", file: "postings/page.tsx", load: () => import("./postings/page") },
-  { persona: "company", path: "/postings/new", file: "postings/new/page.tsx", load: () => import("./postings/new/page") },
-  { persona: "company", path: "/postings/ai/new", file: "postings/ai/new/page.tsx", load: () => import("./postings/ai/new/page") },
-  { persona: "company", path: `/postings/${POSTING}`, file: "postings/[id]/page.tsx", load: () => import("./postings/[id]/page"), props: params({ id: POSTING }) },
-  { persona: "company", path: `/postings/${POSTING}/edit`, file: "postings/[id]/edit/page.tsx", load: () => import("./postings/[id]/edit/page"), props: params({ id: POSTING }) },
-  { persona: "company", path: `/postings/${POSTING}/applicants`, file: "postings/[id]/applicants/page.tsx", load: () => import("./postings/[id]/applicants/page"), props: params({ id: POSTING }) },
-  { persona: "company", path: "/plans", file: "plans/page.tsx", load: () => import("./plans/page") },
-  { persona: "company", path: "/credits", file: "credits/page.tsx", load: () => import("./credits/page") },
-  { persona: "company", path: "/account", file: "account/page.tsx", load: () => import("./account/page") },
-  { persona: "company", path: "/team", file: "team/page.tsx", load: () => import("./team/page") },
-  { persona: "company", path: "/team/accept", file: "team/accept/page.tsx", load: () => import("./team/accept/page"), props: { searchParams: Promise.resolve({ token: "tok" }) } },
+  { persona: "company", path: "/dashboard", file: "dashboard/page.tsx", mod: PAGE.dashboard },
+  { persona: "company", path: "/postings", file: "postings/page.tsx", mod: PAGE.postings },
+  { persona: "company", path: "/postings/new", file: "postings/new/page.tsx", mod: PAGE.postingsNew },
+  { persona: "company", path: "/postings/ai/new", file: "postings/ai/new/page.tsx", mod: PAGE.postingsAi },
+  { persona: "company", path: `/postings/${POSTING}`, file: "postings/[id]/page.tsx", mod: PAGE.posting, props: params({ id: POSTING }) },
+  { persona: "company", path: `/postings/${POSTING}/edit`, file: "postings/[id]/edit/page.tsx", mod: PAGE.postingEdit, props: params({ id: POSTING }) },
+  { persona: "company", path: `/postings/${POSTING}/applicants`, file: "postings/[id]/applicants/page.tsx", mod: PAGE.applicants, props: params({ id: POSTING }) },
+  { persona: "company", path: "/plans", file: "plans/page.tsx", mod: PAGE.plans },
+  { persona: "company", path: "/credits", file: "credits/page.tsx", mod: PAGE.credits },
+  { persona: "company", path: "/account", file: "account/page.tsx", mod: PAGE.account },
+  { persona: "company", path: "/team", file: "team/page.tsx", mod: PAGE.team },
+  { persona: "company", path: "/team/accept", file: "team/accept/page.tsx", mod: PAGE.teamAccept, props: { searchParams: Promise.resolve({ token: "tok" }) } },
   // ── an agency ──
-  { persona: "agency", path: "/dashboard", file: "dashboard/page.tsx", load: () => import("./dashboard/page") },
-  { persona: "agency", path: "/agency/jobs", file: "agency/jobs/page.tsx", load: () => import("./agency/jobs/page") },
-  { persona: "agency", path: "/agency/jobs/new", file: "agency/jobs/new/page.tsx", load: () => import("./agency/jobs/new/page") },
-  { persona: "agency", path: `/agency/jobs/${JOB}`, file: "agency/jobs/[jobId]/page.tsx", load: () => import("./agency/jobs/[jobId]/page"), props: params({ jobId: JOB }) },
-  { persona: "agency", path: "/agency/workers", file: "agency/workers/page.tsx", load: () => import("./agency/workers/page") },
-  { persona: "agency", path: "/agency/referrals", file: "agency/referrals/page.tsx", load: () => import("./agency/referrals/page") },
-  { persona: "agency", path: "/agency/qr", file: "agency/qr/page.tsx", load: () => import("./agency/qr/page") },
-  { persona: "agency", path: "/agency/revenue", file: "agency/revenue/page.tsx", load: () => import("./agency/revenue/page") },
-  { persona: "agency", path: "/agency/bulk-upload", file: "agency/bulk-upload/page.tsx", load: () => import("./agency/bulk-upload/page") },
+  { persona: "agency", path: "/dashboard", file: "dashboard/page.tsx", mod: PAGE.dashboard },
+  { persona: "agency", path: "/agency/jobs", file: "agency/jobs/page.tsx", mod: PAGE.agencyJobs },
+  { persona: "agency", path: "/agency/jobs/new", file: "agency/jobs/new/page.tsx", mod: PAGE.agencyJobsNew },
+  { persona: "agency", path: `/agency/jobs/${JOB}`, file: "agency/jobs/[jobId]/page.tsx", mod: PAGE.agencyJob, props: params({ jobId: JOB }) },
+  { persona: "agency", path: "/agency/workers", file: "agency/workers/page.tsx", mod: PAGE.agencyWorkers },
+  { persona: "agency", path: "/agency/referrals", file: "agency/referrals/page.tsx", mod: PAGE.agencyReferrals },
+  { persona: "agency", path: "/agency/qr", file: "agency/qr/page.tsx", mod: PAGE.agencyQr },
+  { persona: "agency", path: "/agency/revenue", file: "agency/revenue/page.tsx", mod: PAGE.agencyRevenue },
+  { persona: "agency", path: "/agency/bulk-upload", file: "agency/bulk-upload/page.tsx", mod: PAGE.agencyBulk },
   // An agency's OLDER company postings: view-only, by direct link.
-  { persona: "agency", path: "/postings", file: "postings/page.tsx", load: () => import("./postings/page") },
-  { persona: "agency", path: `/postings/${POSTING}`, file: "postings/[id]/page.tsx", load: () => import("./postings/[id]/page"), props: params({ id: POSTING }) },
-  { persona: "agency", path: "/credits", file: "credits/page.tsx", load: () => import("./credits/page") },
-  { persona: "agency", path: "/account", file: "account/page.tsx", load: () => import("./account/page") },
-  { persona: "agency", path: "/team", file: "team/page.tsx", load: () => import("./team/page") },
+  { persona: "agency", path: "/postings", file: "postings/page.tsx", mod: PAGE.postings },
+  { persona: "agency", path: `/postings/${POSTING}`, file: "postings/[id]/page.tsx", mod: PAGE.posting, props: params({ id: POSTING }) },
+  { persona: "agency", path: "/credits", file: "credits/page.tsx", mod: PAGE.credits },
+  { persona: "agency", path: "/account", file: "account/page.tsx", mod: PAGE.account },
+  { persona: "agency", path: "/team", file: "team/page.tsx", mod: PAGE.team },
 ];
 /** Pages that render nothing of their own (a server redirect) — no head, no trail to compare. */
 const REDIRECT_ONLY = new Set(["profile/page.tsx", "agency/dashboard/page.tsx", "capacity/page.tsx"]);
@@ -264,8 +290,7 @@ interface Rendered {
 async function renderRoute(route: Route): Promise<Rendered> {
   session = route.persona === "agency" ? AGENCY : COMPANY;
   pathname = route.path;
-  const mod = await route.load();
-  const page = (await mod.default((route.props ?? {}) as never)) as ReactNode;
+  const page = (await route.mod.default((route.props ?? {}) as never)) as ReactNode;
   const html = renderToStaticMarkup((await PortalLayout({ children: page })) as ReactElement);
   const crumb = /<(nav|div) class="pcrumb"[^>]*>([\s\S]*?)<\/\1>/.exec(html);
   return {
@@ -339,5 +364,52 @@ describe("the shell's trail and the page's back link never open the same page (e
       expect(r.crumbIsLandmark, route.path).toBe(false);
       expect(r.back, route.path).not.toBeNull();
     }
+  });
+});
+
+/* ------------------------------------------------------------------------------------------ *
+ * When an error REPLACES a page, its back link goes with it — and on a page one level below a
+ * destination the trail names that destination as text. The error boundary, rendered inside the
+ * REAL shell (which hands it the nav sections), must offer the way back up instead.
+ * ------------------------------------------------------------------------------------------ */
+const { default: PortalError } = await import("./error");
+const { navSections, navTrail } = await import("./nav-model");
+
+describe("an error in place of a page still offers the way back up (every route)", () => {
+  function renderError(route: Route) {
+    session = route.persona === "agency" ? AGENCY : COMPANY;
+    pathname = route.path;
+    return PortalLayout({
+      children: <PortalError error={new Error("boom")} reset={() => {}} />,
+    }).then((tree) => renderToStaticMarkup(tree as ReactElement));
+  }
+
+  it.each(ROUTES.map((r) => [`${r.persona} ${r.path}`, r] as const))(
+    "%s: the state links the section the path sits under (when below one) and the Dashboard",
+    async (_name, route) => {
+      const html = await renderError(route);
+      const state = html.slice(html.indexOf('class="state state--error"'));
+      const ways = Array.from(state.matchAll(/<a href="([^"]*)"/g), (m) => m[1]!);
+      // The SAME nav model the shell rendered, for this persona (an owner, the portal on).
+      const sections = navSections({
+        isAgency: route.persona === "agency",
+        isOwner: true,
+        agencyPortalEnabled: true,
+      });
+      const trail = navTrail(sections, route.path);
+      const expected = [
+        ...(trail && trail.depth > 0 ? [trail.item.href] : []),
+        ...(route.path === "/dashboard" ? [] : ["/dashboard"]),
+      ];
+      expect(ways).toEqual(expected);
+    },
+  );
+
+  it("the scan is not vacuous: pages one level below a destination get their section", async () => {
+    const posting = ROUTES.find((r) => r.persona === "company" && r.path === `/postings/${POSTING}`)!;
+    const html = await renderError(posting);
+    expect(html).toContain('<div class="pcrumb">'); // the trail names Postings as TEXT here…
+    const state = html.slice(html.indexOf('class="state state--error"'));
+    expect(state).toContain('<a href="/postings"'); // …so the error state links it.
   });
 });

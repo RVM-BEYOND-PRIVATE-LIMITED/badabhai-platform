@@ -60,13 +60,16 @@ beforeEach(() => {
 
 describe("the trail on a top-level page — the group only (the H1 names the page)", () => {
   it.each([
-    ["/postings", "Hiring", "Postings"],
-    ["/postings/new", "Hiring", "New posting"],
-    ["/plans", "Billing", "Plans & capacity"],
-    ["/credits", "Billing", "Credits"],
-    ["/team", "Organisation", "Team"],
-  ])("%s → '%s' (never the page's own name, %s), and not a landmark", (path, group, page) => {
-    const out = crumb(path);
+    ["/postings", "Hiring", "Postings", COMPANY],
+    ["/postings/new", "Hiring", "New posting", COMPANY],
+    ["/plans", "Billing", "Plans & capacity", COMPANY],
+    ["/credits", "Billing", "Credits", COMPANY],
+    ["/team", "Organisation", "Team", COMPANY],
+    // The agency's own posting surface sits in its Demand group.
+    ["/agency/jobs", "Demand", "Postings", AGENCY],
+    ["/agency/jobs/new", "Demand", "New posting", AGENCY],
+  ] as const)("%s → '%s' (never the page's own name, %s), and not a landmark", (path, group, page, sections) => {
+    const out = crumb(path, sections);
     expect(words(out)).toBe(group);
     expect(words(out)).not.toContain(page);
     expect(links(out)).toEqual([]);

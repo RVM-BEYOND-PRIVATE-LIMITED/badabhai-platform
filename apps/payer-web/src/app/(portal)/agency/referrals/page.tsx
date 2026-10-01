@@ -123,7 +123,7 @@ export default async function AgencyReferralsPage() {
         `id` is the in-page anchor target for the dashboard's "Batch invites" tile
         (/agency/referrals#batch-invites) — the batch mint's entry point from "Invite tools".
       */}
-      <div id="batch-invites">
+      <div id="batch-invites" className="anchor-target">
         <AgencyBatchInvitePanel />
       </div>
 

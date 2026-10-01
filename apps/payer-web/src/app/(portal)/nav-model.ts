@@ -155,6 +155,47 @@ export function isNavItemActive(match: NavMatch, pathname: string): boolean {
   return !match.except?.some((base) => isUnder(pathname, base));
 }
 
+/** Where a path sits in the nav: the destination that owns it, its group, and how far below. */
+export interface NavTrail {
+  item: NavItem;
+  /** The rail group the destination sits in (undefined for the lead group). */
+  group: string | undefined;
+  /** Path segments below the destination (0 = the destination itself). */
+  depth: number;
+}
+
+/**
+ * The deepest nav destination that owns `pathname` (the most specific match wins), with its
+ * group and the path's depth below it — what the header trail names, and what the error
+ * boundary offers as the way back up. `null` for a path no destination owns. A path the
+ * destination owns through another base (`/postings/ai/new` under New posting, whose route is
+ * `/postings/new`) counts from that base, where the base itself is one level down. Pure data.
+ */
+export function navTrail(sections: NavSection[], pathname: string): NavTrail | null {
+  let found: { item: NavItem; group: string | undefined } | null = null;
+  for (const section of sections) {
+    for (const item of section.items) {
+      if (!isNavItemActive(item.match, pathname)) continue;
+      if (!found || item.href.length > found.item.href.length) {
+        found = { item, group: section.title };
+      }
+    }
+  }
+  if (!found) return null;
+  return { ...found, depth: depthBelow(found.item, pathname) };
+}
+
+function depthBelow(item: NavItem, pathname: string): number {
+  const segments = (p: string) => p.split("/").filter(Boolean).length;
+  if (pathname === item.href) return 0;
+  if (pathname.startsWith(`${item.href}/`)) return segments(pathname) - segments(item.href);
+  for (const base of item.match.prefix ?? []) {
+    if (pathname === base) return 1;
+    if (pathname.startsWith(`${base}/`)) return segments(pathname) - segments(base);
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
 /** `/postings` owns its subtree except the two routes that carry their own nav entry. */
 const POSTINGS_LIST_MATCH: NavMatch = {
   prefix: ["/postings"],

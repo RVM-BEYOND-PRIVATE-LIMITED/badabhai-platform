@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isNavItemActive, navSections, type NavItem, type NavSection } from "./nav-model";
+import { isNavItemActive, navSections, navTrail, type NavItem, type NavSection } from "./nav-model";
 
 /**
  * THE PORTAL NAV MODEL — serializability + the activation table.
@@ -289,5 +289,37 @@ describe("nav model — the nav follows the page gate (agency-portal flag)", () 
         }
       }
     }
+  });
+});
+
+describe("navTrail — where a path sits (the header trail and the error boundary both read it)", () => {
+  const company = navSections({ isAgency: false, isOwner: true, ...ON });
+  const agency = navSections({ isAgency: true, isOwner: true, ...ON });
+  const at = (path: string, sections = company) => {
+    const t = navTrail(sections, path);
+    return t ? [t.group ?? "-", t.item.href, t.depth] : null;
+  };
+
+  it.each([
+    ["/postings", ["Hiring", "/postings", 0]],
+    ["/postings/2f8c", ["Hiring", "/postings", 1]],
+    ["/postings/2f8c/applicants", ["Hiring", "/postings", 2]],
+    ["/postings/new", ["Hiring", "/postings/new", 0]],
+    // Owned through another base: /postings/ai is one level below New posting (the base itself
+    // too — it is not the destination's own route).
+    ["/postings/ai", ["Hiring", "/postings/new", 1]],
+    ["/postings/ai/new", ["Hiring", "/postings/new", 1]],
+    ["/dashboard", ["-", "/dashboard", 0]],
+    ["/team/accept", ["Organisation", "/team", 1]],
+  ] as const)("%s → %j", (path, expected) => {
+    expect(at(path)).toEqual(expected);
+  });
+
+  it("the agency's postings, and paths no destination owns", () => {
+    expect(at("/agency/jobs/2f8c", agency)).toEqual(["Demand", "/agency/jobs", 1]);
+    expect(at("/agency/jobs/new", agency)).toEqual(["Demand", "/agency/jobs/new", 0]);
+    for (const path of ["/account", "/nowhere", "/postings-archive"]) expect(at(path), path).toBeNull();
+    // A company's posting path is not an agency's (no agency destination owns it).
+    expect(at("/postings/2f8c", agency)).toBeNull();
   });
 });

@@ -326,9 +326,12 @@ describe("applicants page — NEUTRAL not-found vs a transient error", () => {
     expect(out).not.toContain("Applicants are faceless");
     expect(out).not.toContain("applicants-list");
     expect(out).not.toContain("couldn’t load applicants");
-    // There is no posting to go back to: no back link, and no button in the state.
+    // There is no posting to go back to: no back link — the state's ONE way out is Postings.
     expect(out).not.toContain("page-back");
-    expect(out).not.toMatch(/<a |<button /);
+    const state = out.slice(out.indexOf('class="state"'));
+    expect(Array.from(state.matchAll(/<a href="([^"]*)"/g), (m) => m[1])).toEqual(["/postings"]);
+    expect(textOf(state.slice(state.indexOf("<a "))).trim().startsWith("Postings")).toBe(true);
+    expect(state).not.toContain("<button ");
   });
 
   it("a posting with no applicants yet is a calm state with nothing to press", async () => {

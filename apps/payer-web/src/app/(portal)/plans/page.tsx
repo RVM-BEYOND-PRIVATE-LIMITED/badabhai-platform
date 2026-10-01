@@ -139,7 +139,7 @@ export default async function PlansPage() {
       </section>
 
       {/* ── Capacity tiers ── (the target of /capacity → /plans#hiring-capacity) */}
-      <section className="section" id={HIRING_CAPACITY_ANCHOR}>
+      <section className="section anchor-target" id={HIRING_CAPACITY_ANCHOR}>
         <div className="section__head">
           <div className="section__text">
             <h2 className="section__title">Hiring capacity</h2>
