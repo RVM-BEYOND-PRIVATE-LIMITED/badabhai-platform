@@ -185,11 +185,18 @@ group at all.
 The breadcrumb is a section path, and **one door per destination** decides whether its section step
 is a link: on a page ONE level below a destination, whose back link already opens it
 (`NavItem.childrenLinkBack`), the step is plain text; on a deeper page (whose back link goes to a
-nearer parent) it stays a link. A trail with no link is plain text, not a `<nav>` landmark. Below
-375px the trail is not drawn at all (no room for a 44px target beside the actions; the H1 and back
-link carry the context); from 375px a trail link is at least 44px wide and tall on a phone or
-touch screen. `crumb-back.test.tsx` renders the shell around every page, both personas, and fails if
-a trail link and a back link ever open the same page.
+nearer parent) it stays a link. A trail with no link is plain text, not a `<nav>` landmark. A trail
+link is at least 44px wide and tall on a phone or touch screen, and the trail is either that whole
+target or not drawn: it takes the header's free space as a size container and draws nothing when
+that is narrower than 44px (the H1 and back link carry the context there). From 360px to 374px the
+header and the balance chip pad one step tighter, so the trail is drawn at 360px with a 5-digit
+balance (measured). `crumb-back.test.tsx` renders the shell around every page, both personas, and
+fails if a trail link and a back link ever open the same page.
+
+When an error replaces a page (`(portal)/error.tsx`), the page's back link goes with it, so the error
+state offers the way back up: the section the path sits under (the trail's destination, from the
+same nav model — `navTrail`) and the Dashboard, beside Try again; neither on the page it would
+reopen. The applicants page's "No posting found here" state links to Postings.
 
 | Route                        | Trail                            | Back link                 |
 | ---------------------------- | -------------------------------- | ------------------------- |
@@ -234,6 +241,10 @@ Redirects (kept so old links resolve): `/` → `/dashboard` or `/login`; `/profi
 `/agency/dashboard` → `/dashboard`; `/capacity` → `/plans#hiring-capacity` (the Hiring capacity
 section of Plans & capacity — ONE place for it; an agent goes to `/dashboard`). Links inside the
 app point at `/plans#hiring-capacity` directly (the New posting at-capacity alert).
+
+Fragment targets (`#hiring-capacity`, `#batch-invites`, the legacy `#agency-vacancies`) carry
+`.anchor-target`, which keeps them below the sticky header when a link lands on them; a test fails
+if an in-app link to another page's fragment targets an element without it.
 
 ### Agency on the company surface
 
