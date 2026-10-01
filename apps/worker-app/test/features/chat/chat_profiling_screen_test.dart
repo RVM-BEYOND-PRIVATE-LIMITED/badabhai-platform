@@ -1282,12 +1282,14 @@ void main() {
 
       await pumpScreen(tester);
 
-      // First name.
+      // First name: the server still wants the surname, so NO flight fires and
+      // the action stays 'Feedback' — one animation, after BOTH names.
       await tester.enterText(find.byType(TextField), 'rishi');
       await tester.testTextInput.receiveAction(TextInputAction.send);
       await tester.pump();
       await tester.pumpAndSettle();
-      expect(find.text('Rishi'), findsOneWidget);
+      expect(find.byType(FlyingName), findsNothing);
+      expect(find.text('Feedback'), findsOneWidget);
 
       // Surname — the WHOLE name lifts off, not just the freshly-typed word.
       await tester.enterText(find.byType(TextField), 'ojha');

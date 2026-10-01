@@ -149,7 +149,8 @@ void main() {
       await bloc.close();
     });
 
-    test('first name then surname ACCUMULATE to the full name', () async {
+    test('a single-word first name stays UNREVEALED until the surname arrives',
+        () async {
       final List<ChatTurn> replies = <ChatTurn>[
         const ChatTurn(
           reply: 'Aur aapka surname?',
@@ -163,10 +164,13 @@ void main() {
       final ChatBloc bloc = blocOpening(kChatFirstNameQuestionKey);
       await pumpEventQueue();
 
+      // First name: the server still wants the surname, so NOTHING is revealed
+      // (and no flight fires) yet — the whole point of the single reveal.
       bloc.add(const ChatMessageSent('ramesh'));
       await pumpEventQueue();
-      expect(bloc.state.workerName, 'Ramesh');
+      expect(bloc.state.workerName, isNull);
 
+      // Surname: the server moves on, and the COMPLETE name is revealed ONCE.
       bloc.add(const ChatMessageSent('kumar'));
       await pumpEventQueue();
       expect(bloc.state.workerName, 'Ramesh Kumar');
