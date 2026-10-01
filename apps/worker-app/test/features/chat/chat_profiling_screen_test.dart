@@ -1260,5 +1260,48 @@ void main() {
       // The bubble remains — the name was copied to the header, not moved out.
       expect(find.text('ramesh kumar'), findsOneWidget);
     });
+
+    testWidgets('a later surname flies the COMPLETE name, not just the surname',
+        (WidgetTester tester) async {
+      when(() => repo.ensureSession()).thenAnswer(
+        (_) async => const ChatSessionOpening(
+          text: 'Aapka naam kya hai?',
+          questionKey: kChatFirstNameQuestionKey,
+        ),
+      );
+      final List<ChatTurn> replies = <ChatTurn>[
+        const ChatTurn(
+          reply: 'Aur aapka surname?',
+          askedQuestionId: kChatLastNameQuestionKey,
+        ),
+        const ChatTurn(reply: 'Shukriya.', askedQuestionId: null),
+      ];
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => replies.removeAt(0));
+
+      await pumpScreen(tester);
+
+      // First name.
+      await tester.enterText(find.byType(TextField), 'rishi');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(find.text('Rishi'), findsOneWidget);
+
+      // Surname — the WHOLE name lifts off, not just the freshly-typed word.
+      await tester.enterText(find.byType(TextField), 'ojha');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+
+      final FlyingName flight =
+          tester.widget<FlyingName>(find.byType(FlyingName));
+      expect(flight.text, 'Rishi Ojha',
+          reason: 'only the surname flew — the complete name must move');
+
+      await tester.pumpAndSettle();
+      expect(find.text('Rishi Ojha'), findsOneWidget);
+    });
   });
 }
