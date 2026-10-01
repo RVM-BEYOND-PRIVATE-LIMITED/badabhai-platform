@@ -15,7 +15,9 @@ const { Shell } = await import("./shell");
 const render = () =>
   renderToStaticMarkup(
     <Shell
-      sections={[{ title: "Operations", items: [{ href: "/jobs", label: "Jobs" }] }]}
+      sections={[
+        { title: "Operations", items: [{ href: "/jobs", label: "Postings", icon: "briefcase" }] },
+      ]}
       roleLabel="Ops admin"
       adminId="a1b2c3d4-0000-4000-8000-000000000001"
       onSignOut={null}

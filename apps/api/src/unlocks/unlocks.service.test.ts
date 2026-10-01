@@ -44,7 +44,7 @@ interface SetupOpts {
   reveals?: number; // countRevealsSince
   payers?: number; // countDistinctPayersSince
   debitOk?: boolean;
-  /** #1903 — whether the request's job context is a `jobs` row (false = a posting id). */
+  /** #1903: whether the request's job context names a `jobs` row (legacyJobExists). */
   jobRowExists?: boolean;
 }
 
@@ -91,7 +91,9 @@ function setup(opts: SetupOpts = {}) {
   const repo = {
     withTransaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work(txMethods)),
     getBalance: vi.fn(async () => balance),
-    jobExists: vi.fn(async () => opts.jobRowExists ?? true),
+    // #1903: a global-pool read, so it lives on the repo only — NOT in txMethods, where a
+    // call through the locked `tx` handle would be the pool-vs-lock deadlock shape.
+    legacyJobExists: vi.fn(async (_jobId: string) => opts.jobRowExists ?? true),
     listByPayer: vi.fn(async () => []),
     // reveal() reads the projection (tx-external) BEFORE the lock to run the consent
     // gate; return a worker_id-bearing projection whenever an unlock exists so that
@@ -369,9 +371,13 @@ describe("UnlockService — happy path (apply→grant) emits the right PII-free 
     expect(JSON.stringify(evt)).not.toContain(SENTINEL_PHONE);
   });
 
-  it("carries job_id when the unlock's job context is a jobs row (search-found unlocks omit it)", async () => {
+  it("carries job_id when the unlock's context is a jobs row (search-found unlocks omit it)", async () => {
     const JOB = "55555555-5555-4555-8555-555555555555";
-    const { svc, events } = setup({ balance: 5, consentPurposes: ["employer_sharing"] });
+    const { svc, events } = setup({
+      balance: 5,
+      consentPurposes: ["employer_sharing"],
+      jobRowExists: true,
+    });
     await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: JOB }, CTX);
     const viewed = events.emit.mock.calls.find(
       (c) => (c[0] as { event_name: string }).event_name === "profile.viewed_v2",
@@ -438,89 +444,139 @@ describe("UnlockService — happy path (apply→grant) emits the right PII-free 
   });
 });
 
-describe("UnlockService — #1903 job context resolution (O9: a posting id is recorded as null)", () => {
-  const JOB = "55555555-5555-4555-8555-555555555555";
-  const POSTING = "66666666-6666-4666-8666-666666666666";
+describe("UnlockService — #1903 job context is normalised before the lock (FK to jobs)", () => {
+  // `unlocks.job_id` references `jobs.id`. payer-web sends a company POSTING id as the job
+  // context; storing it violated the FK (500, debit rolled back). Owner ruling O9: store
+  // null for any id that is not a `jobs` row — on the row AND on every emitter.
+  const POSTING = "66666666-6666-4666-8666-666666666666"; // a job_postings id: no jobs row
+  const JOB = "77777777-7777-4777-8777-777777777777"; // a legacy jobs row
+  const withJob = (jobId: string | null) => ({ payerId: PAYER, workerId: WORKER, jobId });
 
-  function payloadOf(events: { emit: { mock: { calls: unknown[][] } } }, name: string) {
-    const call = events.emit.mock.calls.find((c) => (c[0] as { event_name: string }).event_name === name);
+  function payloadOf(t: ReturnType<typeof setup>, name: string): Record<string, unknown> {
+    const call = t.events.emit.mock.calls.find(
+      (c) => (c[0] as { event_name: string }).event_name === name,
+    );
     expect(call, `${name} must be emitted`).toBeDefined();
     return (call![0] as { payload: Record<string, unknown> }).payload;
   }
 
-  it("a company posting id GRANTS (no FK 500): the row and every event carry null, never the posting id", async () => {
-    const { svc, repo, txMethods, events } = setup({ jobRowExists: false });
-    const out = await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: POSTING }, CTX);
+  it("a posting id GRANTS — debit + grant commit, job context null on the row and every event", async () => {
+    const t = setup({ balance: 5, consentPurposes: ["employer_sharing"], jobRowExists: false });
+    const out = await t.svc.requestUnlock(withJob(POSTING), CTX);
 
     expect(out).toMatchObject({ ok: true, unlock_id: "unlock-1", status: "granted" });
-    expect(repo.jobExists).toHaveBeenCalledWith(POSTING);
-    expect(txMethods.upsertGrant).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ jobId: null }));
-    expect(payloadOf(events, "unlock.requested").job_id).toBeNull();
-    expect(payloadOf(events, "unlock.granted").job_id).toBeNull();
-    // profile.viewed_v2 omits the key when there is no job context.
-    expect(payloadOf(events, "profile.viewed_v2")).not.toHaveProperty("job_id");
-    // The posting id reaches NO event — not in a payload, subject, or idempotency key.
-    expect(JSON.stringify(events.emit.mock.calls)).not.toContain(POSTING);
+    expect(t.repo.legacyJobExists).toHaveBeenCalledTimes(1);
+    expect(t.repo.legacyJobExists).toHaveBeenCalledWith(POSTING);
+    expect(t.txMethods.tryDebit).toHaveBeenCalledTimes(1);
+    expect(t.txMethods.upsertGrant).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ jobId: null }),
+    );
+    expect(payloadOf(t, "unlock.requested").job_id).toBeNull();
+    expect(payloadOf(t, "unlock.granted").job_id).toBeNull();
+    // v2 OMITS the key, never null — the payload's job_id is optional by design.
+    expect(payloadOf(t, "profile.viewed_v2")).toEqual({
+      worker_id: WORKER,
+      viewer_payer_id: PAYER,
+    });
+    // The posting id reaches no write and no event.
+    expect(JSON.stringify(t.txMethods.upsertGrant.mock.calls)).not.toContain(POSTING);
+    expect(JSON.stringify(t.events.emit.mock.calls)).not.toContain(POSTING);
   });
 
-  it("a real jobs id passes through untouched to the row and the events", async () => {
-    const { svc, txMethods, events } = setup({ jobRowExists: true });
-    await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: JOB }, CTX);
+  it("a jobs id is KEPT on the row and every event (profile.viewed_v2 carries it)", async () => {
+    const t = setup({ balance: 5, consentPurposes: ["employer_sharing"], jobRowExists: true });
+    await t.svc.requestUnlock(withJob(JOB), CTX);
 
-    expect(txMethods.upsertGrant).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ jobId: JOB }));
-    expect(payloadOf(events, "unlock.requested").job_id).toBe(JOB);
-    expect(payloadOf(events, "unlock.granted").job_id).toBe(JOB);
-    expect(payloadOf(events, "profile.viewed_v2").job_id).toBe(JOB);
+    expect(t.repo.legacyJobExists).toHaveBeenCalledWith(JOB);
+    expect(t.txMethods.upsertGrant).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ jobId: JOB }),
+    );
+    expect(payloadOf(t, "unlock.requested").job_id).toBe(JOB);
+    expect(payloadOf(t, "unlock.granted").job_id).toBe(JOB);
+    expect(payloadOf(t, "profile.viewed_v2")).toEqual({
+      worker_id: WORKER,
+      viewer_payer_id: PAYER,
+      job_id: JOB,
+    });
   });
 
-  it("no job context → no jobs read, null recorded", async () => {
-    const { svc, repo, txMethods } = setup();
-    await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+  it("null stays null and is never looked up", async () => {
+    const t = setup({ balance: 5, consentPurposes: ["employer_sharing"] });
+    await t.svc.requestUnlock(withJob(null), CTX);
 
-    expect(repo.jobExists).not.toHaveBeenCalled();
-    expect(txMethods.upsertGrant).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ jobId: null }));
+    expect(t.repo.legacyJobExists).not.toHaveBeenCalled();
+    expect(t.txMethods.upsertGrant).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ jobId: null }),
+    );
+    expect(payloadOf(t, "unlock.requested").job_id).toBeNull();
+    expect(payloadOf(t, "unlock.granted").job_id).toBeNull();
+    expect(payloadOf(t, "profile.viewed_v2")).not.toHaveProperty("job_id");
   });
 
-  it.each([
-    { branch: "no_consent", opts: { consentPurposes: ["profiling"] }, writesRow: true },
-    { branch: "unknown_worker", opts: { consentPurposes: null, workerExists: false }, writesRow: false },
-    { branch: "capped", opts: { reveals: 5 }, writesRow: true },
-  ] satisfies { branch: string; opts: SetupOpts; writesRow: boolean }[])(
-    "$branch deny: the row and unlock.denied carry the resolved null, never the posting id",
-    async ({ branch, opts, writesRow }) => {
-      const { svc, txMethods, events } = setup({ ...opts, jobRowExists: false });
-      const out = await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: POSTING }, CTX);
+  it("resolves the context BEFORE the entry audit and BEFORE the advisory-locked tx", async () => {
+    const t = setup({ balance: 5, consentPurposes: ["employer_sharing"], jobRowExists: false });
+    await t.svc.requestUnlock(withJob(POSTING), CTX);
+
+    const lookup = t.repo.legacyJobExists.mock.invocationCallOrder[0]!;
+    expect(lookup).toBeLessThan(t.events.emit.mock.invocationCallOrder[0]!);
+    expect(lookup).toBeLessThan(t.repo.withTransaction.mock.invocationCallOrder[0]!);
+    expect(lookup).toBeLessThan(t.txMethods.lockWorker.mock.invocationCallOrder[0]!);
+  });
+
+  const NO_CONSENT: SetupOpts = { consentPurposes: ["profiling"] };
+  const CAPPED: SetupOpts = { consentPurposes: ["employer_sharing"], reveals: 5 };
+  const UNKNOWN: SetupOpts = { consentPurposes: null, workerExists: false };
+  const denyCases: { reason: string; opts: SetupOpts; writesRow: boolean }[] = [
+    { reason: "no_consent", opts: NO_CONSENT, writesRow: true },
+    { reason: "capped", opts: CAPPED, writesRow: true },
+    { reason: "unknown_worker", opts: UNKNOWN, writesRow: false },
+  ];
+
+  it.each(denyCases)(
+    "$reason deny: a posting id is stored and evented as null",
+    async ({ reason, opts, writesRow }) => {
+      const t = setup({ balance: 5, ...opts, jobRowExists: false });
+      const out = await t.svc.requestUnlock(withJob(POSTING), CTX);
 
       expect(out).toEqual(neutralUnavailable());
-      expect(payloadOf(events, "unlock.denied")).toMatchObject({ reason: branch, job_id: null });
       if (writesRow) {
-        expect(txMethods.recordDeny).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ jobId: null }));
+        expect(t.txMethods.recordDeny).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ jobId: null, denyReason: reason }),
+        );
       } else {
-        expect(txMethods.recordDeny).not.toHaveBeenCalled();
+        // F-A: no row for an unknown worker — the row-less audit event still normalises.
+        expect(t.txMethods.recordDeny).not.toHaveBeenCalled();
       }
-      expect(JSON.stringify([events.emit.mock.calls, txMethods.recordDeny.mock.calls])).not.toContain(POSTING);
+      expect(payloadOf(t, "unlock.requested").job_id).toBeNull();
+      expect(payloadOf(t, "unlock.denied")).toMatchObject({ job_id: null, reason });
+      expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
+      expect(JSON.stringify(t.events.emit.mock.calls)).not.toContain(POSTING);
     },
   );
 
-  it("resolves BEFORE the first emit and before the locked transaction", async () => {
-    const { svc, repo, events } = setup({ jobRowExists: false });
-    await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: POSTING }, CTX);
+  it("a deny keeps a jobs id on the row and on unlock.denied", async () => {
+    const t = setup({ balance: 5, consentPurposes: ["profiling"], jobRowExists: true });
+    await t.svc.requestUnlock(withJob(JOB), CTX);
 
-    const resolvedAt = repo.jobExists.mock.invocationCallOrder[0]!;
-    expect(resolvedAt).toBeLessThan(events.emit.mock.invocationCallOrder[0]!);
-    expect(resolvedAt).toBeLessThan(repo.withTransaction.mock.invocationCallOrder[0]!);
+    expect(t.txMethods.recordDeny).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ jobId: JOB, denyReason: "no_consent" }),
+    );
+    expect(payloadOf(t, "unlock.denied")).toMatchObject({ job_id: JOB, reason: "no_consent" });
   });
 
-  it("fails closed when the jobs read errors: nothing emitted, no transaction, no debit", async () => {
-    const { svc, repo, txMethods, events } = setup();
-    repo.jobExists.mockRejectedValueOnce(new Error("db down"));
+  it("a failed jobs lookup fails the request before any emit, lock or debit (fail closed)", async () => {
+    const t = setup({ balance: 5, consentPurposes: ["employer_sharing"] });
+    t.repo.legacyJobExists.mockRejectedValueOnce(new Error("db down"));
 
-    await expect(
-      svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: POSTING }, CTX),
-    ).rejects.toThrow("db down");
-    expect(events.emit).not.toHaveBeenCalled();
-    expect(repo.withTransaction).not.toHaveBeenCalled();
-    expect(txMethods.tryDebit).not.toHaveBeenCalled();
+    await expect(t.svc.requestUnlock(withJob(POSTING), CTX)).rejects.toThrow("db down");
+    expect(t.events.emit).not.toHaveBeenCalled();
+    expect(t.repo.withTransaction).not.toHaveBeenCalled();
+    expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
   });
 });
 

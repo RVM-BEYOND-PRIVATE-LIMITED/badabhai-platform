@@ -7,6 +7,9 @@ import { PayerList } from "../../../components/payer-list";
 import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Pager } from "../../../components/pager";
 import { PayerFilterBar } from "../../../components/payer-filter-bar";
+import { PageHeader } from "../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { RetryActions } from "../../../components/retry-actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Companies" };
@@ -52,17 +55,25 @@ export default async function CompaniesPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Companies</h1>
-          <p className="page__sub">
+      <PageHeader
+        title="Companies"
+        description={
+          <>
             {posture === "faceless"
-              ? "Employer accounts, identified by id — your role does not include name access, so find an account through its job postings."
-              : "Employer accounts, named by the organisation they registered as — self-declared at signup, not a verified legal name."}{" "}
-            Email and phone stay encrypted at rest and are served to no one.
-          </p>
-        </div>
-      </header>
+              ? "Company accounts, identified by id — your role does not include name access, so find an account through its postings"
+              : "Company accounts, named by the organisation they registered as — self-declared at signup, not a verified legal name"}
+            ; email and phone stay encrypted at rest and are served to no one.
+          </>
+        }
+        filters={
+          <section className="panel" aria-labelledby="cf-heading">
+            <h2 className="sr-only" id="cf-heading">
+              Filter companies
+            </h2>
+            <PayerFilterBar basePath="/companies" status={status ?? ""} />
+          </section>
+        }
+      />
 
       {posture === "capped" && (
         <IdentityCapNotice>
@@ -70,13 +81,6 @@ export default async function CompaniesPage({
           its hourly name budget.
         </IdentityCapNotice>
       )}
-
-      <section className="panel" aria-labelledby="cf-heading">
-        <h2 className="sr-only" id="cf-heading">
-          Filter companies
-        </h2>
-        <PayerFilterBar basePath="/companies" status={status ?? ""} />
-      </section>
 
       <section className="panel" aria-labelledby="cr-heading" aria-live="polite">
         <div className="panel__head panel__head--row">
@@ -92,7 +96,8 @@ export default async function CompaniesPage({
           </div>
           {status && (
             <Link className="btn btn--ghost" href="/companies">
-              Clear filter
+              <Icon name={ACTION_ICON.clearFilters} />
+              Clear filters
             </Link>
           )}
         </div>
@@ -104,11 +109,9 @@ export default async function CompaniesPage({
               That is not an account status this portal recognises, so nothing was fetched.
               Pick a status from the list above, or clear the filter and start again.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href="/companies">
-                Clear filter
-              </Link>
-            </div>
+            {/* One "Clear filters" per screen: the results head carries it whenever a filter is
+                set, so this state does not repeat it (owner brief 2026-10-01). */}
+            {status ? null : <RetryActions href="/companies" cursor={cursor} />}
           </div>
         ) : (
           <PayerList

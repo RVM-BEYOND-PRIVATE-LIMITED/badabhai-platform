@@ -319,10 +319,12 @@ GROUP BY 1;   -- fitting-assembly 19/8, cnc-programming 14/7
 | worker + job → reachability | `reach-engine` | `job_reach` | exact `skill_id` equality | **NO** — 6 rows | — |
 | reachability → ranking | `reach-engine/scoring.ts` | — | deterministic, no model | **NO** | unit tests |
 | **jobs → what the worker sees** | **`applications.repository.ts` `findOpenJobs`** | **`jobs`, `applications`** | **none** | **YES** | **`score: 0`** |
+| company postings → what the worker sees _(row added 2026-10-01)_ | `findOpenPostingsForFeed`, merged newest-first with `findOpenJobs` — **NOT BUILT** at `150468ff`; designed in [ADR-0049](../decisions/0049-interim-union-feed.md) (#1823) | `job_postings`, `applications`, `jobs` (twin guard), `worker_skill` (#1240 gate) | none | **NO** — dark behind `FEED_POSTINGS_UNION_ENABLED` (default off; ignored when `MATCH_V1_ENABLED` is on). Until it is armed, a company posting never reaches a worker card | — |
 | feed → application | `applications.service.ts` | `applications` | — | **YES** | verified |
 
 **How a worker gets jobs today, exactly.** Every OPEN job the worker has not already applied to,
-ordered by `created_at ASC, id ASC`, optionally filtered by `trade_key` and `city`. That is all.
+ordered by `created_at ASC, id ASC` (_`created_at DESC, id ASC` since #1649, 2026-09-22_),
+optionally filtered by `trade_key` and `city`. That is all.
 
 **How irrelevant jobs are prevented today.** They are not, beyond the trade/city filter. There is
 no relevance gate on the feed.

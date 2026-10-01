@@ -53,6 +53,15 @@ interface Captured {
   updateReturning?: unknown;
   /** The UPDATE's WHERE, kept apart from `where` (which a later SELECT would overwrite). */
   updateWhere?: unknown;
+  /** Every fluent SELECT, in order, with its executor, WHERE and row-lock mode. */
+  selects: {
+    on: "db" | "tx";
+    selection: Record<string, unknown>;
+    where?: unknown;
+    lock?: string;
+  }[];
+  /** `select:tx` / `update:tx` / `execute:tx` …, in call order — statement ORDER is a property. */
+  ops: string[];
   /** Every raw statement executed, in order, with the executor that ran it. */
   statements: { on: "db" | "tx"; sql: string; params: unknown[] }[];
   inserts: { on: "db" | "tx"; table: unknown; values: unknown; conflict?: unknown }[];
@@ -65,12 +74,33 @@ interface Captured {
   transactions: number;
 }
 
-function makeDb(opts: { rows?: unknown[]; exec?: unknown[][]; updateRows?: unknown[][] } = {}) {
-  const captured: Captured = { statements: [], inserts: [], deletes: [], transactions: 0 };
+function makeDb(
+  opts: {
+    rows?: unknown[];
+    /** Per-SELECT results, consumed in call order; `rows` answers once the queue is empty. */
+    selectRows?: unknown[][];
+    exec?: unknown[][];
+    /**
+     * What each UPDATE matched — handed back by `.returning()` AND by awaiting `.where()`.
+     * Model Postgres faithfully: an UPDATE scoped only to the worker matches EVERY row he
+     * holds, on every call, whatever `wants` already was.
+     */
+    updateRows?: unknown[][];
+  } = {},
+) {
+  const captured: Captured = {
+    statements: [],
+    inserts: [],
+    deletes: [],
+    transactions: 0,
+    selects: [],
+    ops: [],
+  };
   const execQueue = [...(opts.exec ?? [])];
   const updateQueue = [...(opts.updateRows ?? [])];
+  const selectQueue = [...(opts.selectRows ?? [])];
 
-  const selectNode = (rows: unknown[]) => {
+  const selectNode = (rows: unknown[], entry: Captured["selects"][number]) => {
     const node: Record<string, unknown> = {
       from: (t: unknown) => {
         captured.from = t;
@@ -78,6 +108,11 @@ function makeDb(opts: { rows?: unknown[]; exec?: unknown[][]; updateRows?: unkno
       },
       where: (c: unknown) => {
         captured.where = c;
+        entry.where = c;
+        return node;
+      },
+      for: (mode: string) => {
+        entry.lock = mode;
         return node;
       },
       orderBy: (...o: unknown[]) => {
@@ -97,11 +132,15 @@ function makeDb(opts: { rows?: unknown[]; exec?: unknown[][]; updateRows?: unkno
   const executor = (on: "db" | "tx") => ({
     select: (selection: Record<string, unknown>) => {
       captured.selection = selection;
-      return selectNode(opts.rows ?? []);
+      captured.ops.push(`select:${on}`);
+      const entry: Captured["selects"][number] = { on, selection };
+      captured.selects.push(entry);
+      return selectNode(selectQueue.shift() ?? opts.rows ?? [], entry);
     },
     execute: (stmt: unknown) => {
       const q = compile(stmt);
       captured.statements.push({ on, sql: q.sql, params: q.params });
+      captured.ops.push(`execute:${on}`);
       return Promise.resolve(execQueue.shift() ?? []);
     },
     insert: (table: unknown) => ({
@@ -127,6 +166,7 @@ function makeDb(opts: { rows?: unknown[]; exec?: unknown[][]; updateRows?: unkno
       set: (values: Record<string, unknown>) => {
         captured.updateTable = table;
         captured.updateSet = values;
+        captured.ops.push(`update:${on}`);
         const node = {
           where: (c: unknown) => {
             captured.where = c;
@@ -137,6 +177,9 @@ function makeDb(opts: { rows?: unknown[]; exec?: unknown[][]; updateRows?: unkno
             captured.updateReturning = selection;
             return Promise.resolve(updateQueue.shift() ?? []);
           },
+          // Awaiting the UPDATE without `.returning()` still runs it against the same rows.
+          then: (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) =>
+            Promise.resolve(updateQueue.shift() ?? []).then(res, rej),
         };
         return node;
       },
@@ -542,37 +585,94 @@ describe("setWantsAndReconcile — the flip and the reach reconcile commit toget
 describe("clearAllWantsAndReconcile — one call, every row off, one reconcile", () => {
   const NOW = new Date("2026-09-29T10:00:00.000Z");
 
-  it("updates EVERY row of THIS worker, sets wants=false, and stamps interview", async () => {
-    const { repo, captured } = makeDb({ updateRows: [[{ skillId: "a" }, { skillId: "b" }]] });
-    const cleared = await repo.clearAllWantsAndReconcile(WORKER, NOW);
+  // ONE worker, three rows, modelled the way Postgres actually holds them (#1850): a match skill
+  // he wants, a match skill he already turned off, and a row outside the closed `mskill_*`
+  // vocabulary that is still `wants = true`.
+  const ON_MSKILL = "mskill_cnc_turner";
+  const OFF_MSKILL = "mskill_vmc_operator";
+  const ON_OUT_OF_VOCAB = "skill_turning";
+  /** The UPDATE has no `wants` predicate, so it matches ALL of them — on EVERY call. */
+  const EVERY_ROW = [{ skillId: ON_MSKILL }, { skillId: OFF_MSKILL }, { skillId: ON_OUT_OF_VOCAB }];
+  const FIRST_CALL_STATE = [
+    { skillId: ON_MSKILL, wants: true },
+    { skillId: OFF_MSKILL, wants: false },
+    { skillId: ON_OUT_OF_VOCAB, wants: true },
+  ];
+  const AFTER_CLEAR_STATE = FIRST_CALL_STATE.map((row) => ({ ...row, wants: false }));
+
+  /** A DB whose pre-read sees `state`, whose UPDATE matches every row, and wants nothing after. */
+  const dbHolding = (state: { skillId: string; wants: boolean }[]) =>
+    makeDb({ selectRows: [state, []], updateRows: [state.map(({ skillId }) => ({ skillId }))] });
+
+  it("returns exactly the ids that were ON — not every row the UPDATE matched", async () => {
+    const { repo } = makeDb({ selectRows: [FIRST_CALL_STATE, []], updateRows: [EVERY_ROW] });
+    // The already-off row is NOT in it: this call did not switch it off. The out-of-vocabulary
+    // row IS — it really was on — and dropping it is the service's closed-set rule, not a query's.
+    expect(await repo.clearAllWantsAndReconcile(WORKER, NOW)).toEqual([ON_MSKILL, ON_OUT_OF_VOCAB]);
+  });
+
+  it("a REPEAT call returns [] even though the UPDATE still matches every row", async () => {
+    // The pre-#1850 defect: the count came from the UPDATE's RETURNING, which real Postgres
+    // fills with every row he holds on every call, so a second tap reported the same N.
+    const { repo, captured } = makeDb({
+      selectRows: [AFTER_CLEAR_STATE, []],
+      updateRows: [EVERY_ROW],
+    });
+    expect(await repo.clearAllWantsAndReconcile(WORKER, NOW)).toEqual([]);
+    // …and the repeat STILL re-stamps and STILL reconciles: a worker already cleared must lose
+    // any stale reach rows, so returning early on "nothing was on" would be the wrong fix.
+    expect(captured.ops).toContain("update:tx");
+    expect(captured.statements).toHaveLength(1);
+    expect(captured.statements[0]!.sql).toContain("DELETE FROM job_reach");
+  });
+
+  it("a worker with NO rows gets [] and still reconciles", async () => {
+    const { repo, captured } = dbHolding([]);
+    expect(await repo.clearAllWantsAndReconcile(WORKER, NOW)).toEqual([]);
+    expect(captured.statements).toHaveLength(1);
+    expect(captured.statements[0]!.sql).toContain("DELETE FROM job_reach");
+  });
+
+  it("re-stamps EVERY row of THIS worker — wants=false, source interview, no wants predicate", async () => {
+    const { repo, captured } = dbHolding(FIRST_CALL_STATE);
+    await repo.clearAllWantsAndReconcile(WORKER, NOW);
     expect(captured.updateTable).toBe(workerSkills);
     expect(captured.updateSet).toEqual({ wants: false, source: "interview", updatedAt: NOW });
-    // The scope is the worker and NOTHING else — no source predicate, because an
-    // `interview` row he already declined must be re-stamped rather than skipped.
+    // The scope is the worker and NOTHING else. No `wants` predicate: an already-declined
+    // `derived_coarse` row must still become `interview`, or a re-derivation could turn it back
+    // on. No source predicate either, for the same reason. The honest count must come from the
+    // pre-read, never from narrowing this statement.
     expect(text(captured.updateWhere)).toBe('"worker_skill"."worker_id" = $1');
+    expect(text(captured.updateWhere)).not.toContain("wants");
     expect(params(captured.updateWhere)).toEqual([WORKER]);
-    expect(cleared).toBe(2);
+  });
+
+  it("pre-reads EVERY row of this worker FOR UPDATE, on the transaction, BEFORE the UPDATE", async () => {
+    const { repo, captured } = dbHolding(FIRST_CALL_STATE);
+    await repo.clearAllWantsAndReconcile(WORKER, NOW);
+    const pre = captured.selects[0]!;
+    expect(pre.on).toBe("tx");
+    expect(Object.keys(pre.selection).sort()).toEqual(["skillId", "wants"]);
+    // Every row, not only the wanted ones: an OFF row a concurrent toggle turns ON between the
+    // read and the UPDATE would otherwise be switched off by this call and missing from its answer.
+    expect(text(pre.where)).toBe('"worker_skill"."worker_id" = $1');
+    expect(params(pre.where)).toEqual([WORKER]);
+    expect(pre.lock).toBe("update");
+    // Read → write → read-back → reconcile. A pre-read AFTER the UPDATE would see nothing on.
+    expect(captured.ops).toEqual(["select:tx", "update:tx", "select:tx", "execute:tx"]);
   });
 
   it("reconciles ONCE, with the empty set read back, in the SAME transaction", async () => {
-    const { repo, captured } = makeDb({
-      updateRows: [[{ skillId: "a" }, { skillId: "b" }]],
-      rows: [],
-    });
+    const { repo, captured } = dbHolding(FIRST_CALL_STATE);
     await repo.clearAllWantsAndReconcile(WORKER, NOW);
     expect(captured.transactions).toBe(1);
+    // The read-back (second SELECT) is the wanted set AFTER the UPDATE — `wants` scoped.
+    const readBack = compile(captured.selects[1]!.where);
+    expect(readBack.sql).toContain('"worker_skill"."wants" = $2');
+    expect(readBack.params).toEqual([WORKER, true]);
     expect(captured.statements).toHaveLength(1);
     expect(captured.statements[0]!.sql).toContain("DELETE FROM job_reach");
     expect(captured.statements[0]!.on).toBe("tx");
-  });
-
-  it("is idempotent: a second call clears 0 rows and STILL reconciles (nothing is wanted)", async () => {
-    // The stale reach rows of a worker already cleared must still go; returning early on a
-    // zero-row UPDATE would leave reach rows for a worker who wants nothing.
-    const { repo, captured } = makeDb({ updateRows: [[]], rows: [] });
-    expect(await repo.clearAllWantsAndReconcile(WORKER, NOW)).toBe(0);
-    expect(captured.statements).toHaveLength(1);
-    expect(captured.statements[0]!.sql).toContain("DELETE FROM job_reach");
   });
 });
 

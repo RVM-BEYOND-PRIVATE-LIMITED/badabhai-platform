@@ -55,6 +55,8 @@ function makeDb(rows: unknown[]) {
                 captured.orderBy = order;
                 return { limit: () => Promise.resolve(rows) };
               },
+              // The `jobs` reads (`findOwnedJobSignalRowById` & co.) go straight to LIMIT.
+              limit: () => Promise.resolve(rows),
             };
           },
         }),
@@ -188,5 +190,34 @@ describe("ReachRepository.listSignalRows — ADR-0031 pending-deletion pool excl
     ]) {
       expect(captured.selection).not.toHaveProperty(banned);
     }
+  });
+});
+
+describe("ReachRepository.findOwnedJobSignalRowById — payer ownership lives in the WHERE (XB-A)", () => {
+  const JOB = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+  const PAYER = "aaaaaaaa-0000-4000-8000-00000000000a";
+
+  it("reads jobs by id AND the session payer, binding exactly those two values", async () => {
+    // The payer applicant list (#1823) branches on this read: a foreign job must miss here,
+    // or another payer's weighted pool is one request away.
+    const { db, captured } = makeDb([]);
+    await new ReachRepository(db).findOwnedJobSignalRowById(JOB, PAYER);
+    const q = dialect.sqlToQuery(captured.where as SQL);
+    expect(q.sql).toBe('("jobs"."id" = $1 and "jobs"."payer_id" = $2)');
+    expect(q.params).toEqual([JOB, PAYER]);
+  });
+
+  it("payer_id is consumed in the WHERE only — never projected", async () => {
+    const { db, captured } = makeDb([]);
+    await new ReachRepository(db).findOwnedJobSignalRowById(JOB, PAYER);
+    expect(captured.selection).not.toHaveProperty("payerId");
+    expect(captured.selection).not.toHaveProperty("title");
+  });
+
+  it("no row (unknown OR another payer's job) → undefined", async () => {
+    const { db } = makeDb([]);
+    await expect(
+      new ReachRepository(db).findOwnedJobSignalRowById(JOB, PAYER),
+    ).resolves.toBeUndefined();
   });
 });

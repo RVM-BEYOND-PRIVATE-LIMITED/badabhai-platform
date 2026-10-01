@@ -97,7 +97,7 @@ export function Shell({
           {/* The topbar used to be a hamburger and a spacer. It now says where you are —
               the only such signal on a detail route, where the sidebar can name the section
               but not the row. */}
-          <TopbarCrumb />
+          <TopbarCrumb sections={sections} />
           <div className="topbar__spacer" />
           <span className="topbar__env">{roleLabel}</span>
         </header>

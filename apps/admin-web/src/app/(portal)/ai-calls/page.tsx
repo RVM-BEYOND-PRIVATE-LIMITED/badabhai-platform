@@ -14,7 +14,10 @@ import {
 } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
+import { PageHeader } from "../../../components/page-header";
+import { RetryActions } from "../../../components/retry-actions";
 import { AiCallFilterBar } from "./filter-bar";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "AI calls" };
@@ -31,7 +34,7 @@ const PAGE_SIZE = 25;
 /**
  * AI calls — every provider call the platform made for a worker, newest first.
  *
- * ── WHAT IS ON THIS PAGE, AND WHY IT IS SAFE ON THE ORDINARY READ FLOOR ─────────────────
+ * ── WHAT IS ON THIS PAGE ────────────────────────────────────────────────────────────────
  * Scalars only: when, what the call was for, which model answered, whether a provider was
  * really called, whether it succeeded, the closed-set failure code, and the two character
  * COUNTS. No prompt, no reply, no ciphertext — the server's list projection does not select
@@ -89,6 +92,8 @@ export default async function AiCallsPage({
    * closed on a malformed `/admin/me`.
    */
   const mayReadText = can(session.capabilities, "read_ai_traces");
+  /** `/events` is `read_events`; its link is offered only to a session holding it. */
+  const mayReadEvents = can(session.capabilities, "read_events");
 
   let page: AiTracePage | null = null;
   let rejected = false;
@@ -115,51 +120,54 @@ export default async function AiCallsPage({
    * `cursor` is dropped unless asked for: a cursor from one query applied to another returns an
    * arbitrary slice of it, which looks like data rather than an error.
    */
-  const listHref = (over: { cursor?: string } = {}) => {
+  const listHref = (over: { cursor?: string; workerId?: null } = {}) => {
     const q = new URLSearchParams();
     if (taskType) q.set("taskType", taskType);
     if (success) q.set("success", success);
-    if (workerId) q.set("workerId", workerId);
+    if (workerId && over.workerId !== null) q.set("workerId", workerId);
     if (over.cursor) q.set("cursor", over.cursor);
     const s = q.toString();
     return s ? `/ai-calls?${s}` : "/ai-calls";
   };
 
-  /**
-   * The CURRENT query, rebuilt — so "Retry" repeats what failed instead of quietly resetting
-   * it. The cursor is included on purpose: an operator three pages in who hits a transient
-   * failure should land back where they were, not on an unfiltered page one that looks like a
-   * successful reload.
-   */
-  const retryHref = listHref({ cursor });
+  // A failed read: RetryActions repeats `listHref()` plus the cursor — the CURRENT query, so an
+  // operator three pages in lands back where they were, not on an unfiltered page one that
+  // looks like a successful reload — and offers `listHref()` itself as the first page.
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">AI calls</h1>
-          <p className="page__sub">
-            Every AI call the platform made on a worker&apos;s behalf, newest first — what it was
-            for, which model answered, whether a provider was really called, and how long the
-            request and the reply were. The two counts are characters, not the characters
-            themselves.{" "}
+      <PageHeader
+        title="AI calls"
+        description="Every AI call the platform made on a worker's behalf, newest first."
+        filters={
+          <section className="panel" aria-labelledby="ac-filters">
+            <h2 className="sr-only" id="ac-filters">
+              Filter AI calls
+            </h2>
+            <AiCallFilterBar
+              taskType={taskType ?? ""}
+              success={success ?? ""}
+              workerId={workerId ?? ""}
+            />
+          </section>
+        }
+      />
+
+      {/* What a row is, and what it is not — the mechanics the one-sentence description leaves
+          out, posture-conditional on whether this session may open a call's text. */}
+      <div className="alert alert--info">
+        <div className="alert__text">
+          <p className="alert__title">Measurements, not text</p>
+          <p className="alert__body">
+            Each row says what the call was for, which model answered, whether a provider was
+            really called, and how long the request and the reply were. The two counts are
+            characters, not the characters themselves.{" "}
             {mayReadText
               ? "The text of each call is stored encrypted; opening one is a separate read, capped and recorded."
               : "The text of each call is stored encrypted and cannot be read from your role — what is on this page are its measurements."}
           </p>
         </div>
-      </header>
-
-      <section className="panel" aria-labelledby="ac-filters">
-        <h2 className="sr-only" id="ac-filters">
-          Filter AI calls
-        </h2>
-        <AiCallFilterBar
-          taskType={taskType ?? ""}
-          success={success ?? ""}
-          workerId={workerId ?? ""}
-        />
-      </section>
+      </div>
 
       <section className="panel" aria-labelledby="ac-heading" aria-live="polite">
         <div className="panel__head panel__head--row">
@@ -175,6 +183,7 @@ export default async function AiCallsPage({
           </div>
           {filtered && (
             <Link className="btn btn--ghost" href="/ai-calls">
+              <Icon name={ACTION_ICON.clearFilters} />
               Clear filters
             </Link>
           )}
@@ -189,12 +198,21 @@ export default async function AiCallsPage({
             Showing only the calls made for worker{" "}
             <span className="mono">{shortId(workerId)}</span>.{" "}
             <Link className="link" href={`/workers/${encodeURIComponent(workerId)}`}>
-              Open their record
+              Open worker
             </Link>
-            {" · "}
-            <Link className="link" href="/ai-calls">
-              Show every worker
-            </Link>
+            {/* Drops the worker and KEEPS the task and outcome filters. Shown only beside another
+                filter: with the worker as the only one, it would be the results head's "Clear
+                filters" a second time. It used to be labelled "Show every worker" and go to the
+                bare route, dropping every filter — the same label did something else on
+                Feedback. */}
+            {taskType || success ? (
+              <>
+                {" · "}
+                <Link className="link" href={listHref({ workerId: null })}>
+                  Clear the worker filter
+                </Link>
+              </>
+            ) : null}
           </p>
         ) : null}
 
@@ -207,10 +225,13 @@ export default async function AiCallsPage({
               cursor is an opaque value that cannot be hand-edited — one of them, as it stands in
               the address bar, is not something this list accepts.
             </p>
-            {resettable && (
+            {/* With a filter set, the results head's "Clear filters" is the way out; only a
+                bad cursor on an unfiltered list needs its own. */}
+            {resettable && !filtered && (
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/ai-calls">
-                  {filtered ? "Clear filters" : "Back to the first page"}
+                  <Icon name="arrow-line-left" />
+                  Back to the first page
                 </Link>
               </div>
             )}
@@ -220,16 +241,12 @@ export default async function AiCallsPage({
             <h3 className="state__title">AI calls are unavailable</h3>
             <p className="state__body">
               The list did not load, and that is a fault on our side rather than anything in the
-              filters. Nothing has been lost: traces are written as calls complete and will all be
-              here once the read succeeds.
+              filters. Nothing has been lost: AI calls are recorded as they complete and will all
+              be here once the read succeeds.
             </p>
-            <div className="state__actions">
-              {/* The SAME query. A retry pointed at the bare route silently drops the filters
-                  and the cursor, returning an operator to page one while claiming to retry. */}
-              <Link className="btn btn--ghost" href={retryHref}>
-                Retry
-              </Link>
-            </div>
+            {/* The SAME query. A retry pointed at the bare route silently drops the filters and
+                the cursor, returning an operator to page one while claiming to retry. */}
+            <RetryActions href={listHref()} cursor={cursor} />
           </div>
         ) : page && page.items.length > 0 ? (
           <div className="tablewrap">
@@ -323,6 +340,8 @@ export default async function AiCallsPage({
                             title={`Interview session ${t.session_id}`}
                           >
                             Session
+                            {/* Every row's link says "Session"; this names WHICH one. */}
+                            <span className="sr-only"> {shortId(t.session_id)}</span>
                           </Link>
                         </>
                       ) : (
@@ -339,8 +358,14 @@ export default async function AiCallsPage({
                     </td>
                     {mayReadText && (
                       <td>
-                        <Link className="link" href={`/ai-calls/${t.id}`}>
-                          Read
+                        <Link className="link link--icon" href={`/ai-calls/${t.id}`}>
+                          <Icon name={ACTION_ICON.view} />
+                          <span>View</span>
+                          {/* Every row's link says "View"; this names WHICH call. */}
+                          <span className="sr-only">
+                            {" "}
+                            call {shortId(t.id)}, {taskTypeLabel(t.task_type)}
+                          </span>
                         </Link>
                       </td>
                     )}
@@ -367,6 +392,7 @@ export default async function AiCallsPage({
               {/* KEEPS every active filter and drops only the cursor. Widening the query on the
                   way back would answer a different question than the one being paged. */}
               <Link className="btn btn--ghost" href={listHref()}>
+                <Icon name="arrow-line-left" />
                 Back to the newest
               </Link>
             </div>
@@ -379,11 +405,6 @@ export default async function AiCallsPage({
               result carefully here: a task type that has never run in this environment and a task
               type that ran without a single failure produce exactly the same empty screen.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href="/ai-calls">
-                Clear filters
-              </Link>
-            </div>
           </div>
         ) : (
           /* ── THE EMPTY STATE THAT MUST NOT READ AS A FAULT ───────────────────────────────
@@ -394,19 +415,23 @@ export default async function AiCallsPage({
           <div className="state">
             <h3 className="state__title">No AI calls recorded yet</h3>
             <p className="state__body">
-              A trace is written only when a call actually reaches a provider. If this environment
+              An AI call is recorded only when it actually reaches a provider. If this environment
               is still answering AI calls from the mock adapter, nothing reaches one, nothing is
               recorded, and an empty table here is the expected result rather than a broken
-              writer. Check the posture on the System screen before reading this as a fault; the
-              event timeline is where you confirm AI calls are happening at all.
+              writer. Check the provider switches on the System screen before reading this as a
+              fault; the events log is where you confirm AI calls are happening at all.
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/system">
-                Check the AI posture
+                <Icon name="gauge" />
+                View provider switches
               </Link>
-              <Link className="btn btn--ghost" href="/events?eventName=ai.cost_recorded">
-                Open the event timeline
-              </Link>
+              {mayReadEvents ? (
+                <Link className="btn btn--ghost" href="/events?eventName=ai.cost_recorded">
+                  <Icon name={ACTION_ICON.timeline} />
+                  View events
+                </Link>
+              ) : null}
             </div>
           </div>
         )}
@@ -431,7 +456,7 @@ export default async function AiCallsPage({
             <p className="alert__body">
               A call that never reached a provider — the mock adapter, a spend cap, an unreachable
               AI service — leaves nothing here, because there was no provider call to record. And
-              a call with no worker behind it is dropped on purpose: the payer job-posting chat and
+              a call with no worker behind it is dropped on purpose: the customer posting chat and
               the skill embedding run on a posting write are both traced nowhere, because a record
               that cannot be attributed to a worker also cannot be erased with them.
             </p>

@@ -41,15 +41,6 @@ export const RAZORPAY_PROVIDER = "razorpay";
  */
 export type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
-/**
- * A job context proven to name a `jobs` row (#1903) — the ONLY job id the unlock writes and
- * events accept. `unlocks.job_id` is an FK to `jobs`, and a payer may send a `job_postings` id,
- * so a raw request id must never reach a write. Minted in exactly one place,
- * `UnlockService.resolveJobContext`; the brand makes the compiler reject a raw id (including
- * one spread in from the request input).
- */
-export type ResolvedJobId = string & { readonly __brand: "ResolvedJobId" };
-
 /** PII-free projection of a credit_ledger movement (amounts + opaque ids only). */
 export interface CreditLedgerItem {
   id: string;
@@ -135,6 +126,25 @@ export class UnlocksRepository {
     return rows[0];
   }
 
+  /**
+   * Whether `jobId` names a row in the legacy `jobs` table — a NON-tx read on the global
+   * pool, by primary key, projecting the id ONLY.
+   *
+   * #1903 (#1823 decision O9): `unlocks.job_id` is an FK to `jobs.id`, so only a `jobs` id can be
+   * stored as an unlock's job context. The service calls this BEFORE the advisory-locked
+   * transaction (a global-pool read inside it would recreate the pool-vs-lock deadlock —
+   * see the {@link UnlockService} class doc). No status filter: the FK needs the row to
+   * exist, not to be open.
+   */
+  async legacyJobExists(jobId: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(eq(jobs.id, jobId))
+      .limit(1);
+    return rows.length > 0;
+  }
+
   /** The existing unlock for (payer, worker), or undefined. Tx-scoped read. */
   async findByPayerWorker(tx: Tx, payerId: string, workerId: string): Promise<Unlock | undefined> {
     const rows = await tx
@@ -195,7 +205,7 @@ export class UnlocksRepository {
     input: {
       payerId: string;
       workerId: string;
-      jobId: ResolvedJobId | null;
+      jobId: string | null;
       routingTokenRef: string;
       grantedAt: Date;
       expiresAt: Date;
@@ -241,7 +251,7 @@ export class UnlocksRepository {
     input: {
       payerId: string;
       workerId: string;
-      jobId: ResolvedJobId | null;
+      jobId: string | null;
       denyReason: UnlockDenyReason;
     },
   ): Promise<Unlock> {
@@ -386,20 +396,6 @@ export class UnlocksRepository {
       .limit(1)
       .for("update");
     return rows[0];
-  }
-
-  /**
-   * True when a `jobs` row has this id (#1903). The existence probe behind the unlock's
-   * job-context resolution: `unlocks.job_id` is an FK to `jobs`, so the service records only
-   * an id this returns true for. Tx-EXTERNAL (global pool) — read before the advisory lock.
-   */
-  async jobExists(jobId: string): Promise<boolean> {
-    const rows = await this.db
-      .select({ id: jobs.id })
-      .from(jobs)
-      .where(eq(jobs.id, jobId))
-      .limit(1);
-    return rows.length > 0;
   }
 
   /** The payer's current balance (non-tx read), or 0 if no row. Ops read. */

@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireCapability } from "../../../../../lib/auth";
 import { can } from "../../../../../lib/auth/capabilities";
@@ -27,10 +26,12 @@ import {
 import { formatRelative, formatTimestamp, shortId } from "../../../../../lib/format";
 import { StatusPill } from "../../../../../components/status-pill";
 import { DetailList } from "../../../../../components/detail-list";
+import { PageHeader } from "../../../../../components/page-header";
 import { SkillDecisionPanel } from "./decision-panel";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Skill Candidate" };
+export const metadata = { title: "Skill candidate" };
 
 /**
  * One skill candidate, in full — the review screen (#1260, extended #1280).
@@ -107,17 +108,22 @@ export default async function SkillDiscoveryDetailPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <p className="page__eyebrow">
-            <Link className="link" href="/skills/discovery">
-              Skill Discovery
-            </Link>
-          </p>
-          <h1 className="page__title">{candidate.normalized_phrase}</h1>
-          <p className="page__sub">{candidate.phrase_class_label}</p>
-        </div>
-      </header>
+      <PageHeader
+        back={{ href: "/skills/discovery", label: "Skill discovery" }}
+        title={candidate.normalized_phrase}
+        description={candidate.phrase_class_label}
+        primaryAction={
+          /* The decision itself lives in its panel at the foot of the page, beneath the
+             evidence a reviewer is meant to read first. The header offers the way to it, so
+             the page's primary action is where every other page puts its own. */
+          mayDecide && !terminal ? (
+            <a className="btn btn--primary" href="#sd-decision">
+              <Icon name={ACTION_ICON.approve} />
+              Record a decision
+            </a>
+          ) : null
+        }
+      />
 
       <div className="cols">
         <section className="panel" aria-labelledby="sd-summary">
@@ -345,7 +351,7 @@ function AuditTrailPanel({ audit }: { audit: SkillCandidateAudit | null }) {
     <section className="panel" aria-labelledby="sd-audit">
       <div className="panel__head">
         <h2 className="panel__title" id="sd-audit">
-          Audit trail
+          Decision history
         </h2>
         <p className="panel__sub">
           The immutable event spine, oldest first, plus the decision as this row holds it right
@@ -354,7 +360,7 @@ function AuditTrailPanel({ audit }: { audit: SkillCandidateAudit | null }) {
       </div>
       {audit === null ? (
         <p className="field__help">
-          The audit trail is unavailable right now — a fault on our side, not a decision problem.
+          The decision history is unavailable right now — a fault on our side, not a decision problem.
         </p>
       ) : (
         <>

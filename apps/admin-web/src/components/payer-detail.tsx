@@ -10,6 +10,7 @@ import { DetailList } from "./detail-list";
 import { Stat } from "./stat";
 import { PayerDetailHeader } from "./payer-detail-header";
 import { PayerCreditsPanel } from "./payer-credits-panel";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
  * One payer account — shared by Companies and Agencies, which differ only by `role`.
@@ -44,43 +45,45 @@ export function PayerDetailView({
   const labels = postings ? [...new Set(postings.map((p) => p.org_label))] : [];
   // Phase 1's per-entity timeline route. `backHref` is /companies or /agencies, so this
   // resolves to the section's own timeline page rather than the subject-type-wide feed.
-  const timelineHref = `${backHref}/${payer.id}/timeline`;
+  // Offered only to a reader who may open it: the timeline route is `read_events`.
+  const timelineHref = can(capabilities, "read_events")
+    ? `${backHref}/${payer.id}/timeline`
+    : null;
 
   // One record, so the posture is read off this single row.
   const posture = identityPosture([payer], "org_name", can(capabilities, "read_identity"));
   const orgName = displayName(payer.org_name);
 
-  const title = (
-    <div>
-      <p className="page__eyebrow">
-        <Link className="link" href={backHref}>
-          {kind === "Company" ? "Companies" : "Agencies"}
-        </Link>
-      </p>
-      {/* The id keeps its `mono` treatment; an organisation name does not get one. */}
-      <h1 className={orgName === null ? "page__title mono" : "page__title"}>
-        {orgName ?? shortId(payer.id)}
-      </h1>
-      <p className="page__sub">
-        One {kind === "Company" ? "employer" : "agency"} account — what it has posted and
-        spent{orgName === null ? ", not who registered it" : ""}.{" "}
-        {labels.length > 0 ? (
+  // The id keeps its `mono` treatment; an organisation name does not get one.
+  const header = {
+    back: { href: backHref, label: kind === "Company" ? "Companies" : "Agencies" },
+    title: orgName ?? shortId(payer.id),
+    titleMono: orgName === null,
+    description: (
+      <>
+        One {kind === "Company" ? "company" : "agency"} account — what it has posted and
+        spent{orgName === null ? ", not who registered it" : ""} —{" "}
+        {postings === null ? (
+          /* The postings read FAILED (the panel below says so). "No postings yet" would be a
+             claim about the account made from a read that never arrived. */
+          <>its postings could not be loaded, so no self-declared label is shown.</>
+        ) : labels.length > 0 ? (
           <>
-            Publishes as <strong>{labels.slice(0, 3).join(", ")}</strong>
-            {labels.length > 3 && ` and ${labels.length - 3} more`} — self-declared on their
-            job postings, not a verified name.
+            publishing as <strong>{labels.slice(0, 3).join(", ")}</strong>
+            {labels.length > 3 && ` and ${labels.length - 3} more`}, self-declared on its
+            postings and not a verified name.
           </>
         ) : (
-          <>No job postings yet, so there is no self-declared label to identify this account by.</>
+          <>with no postings yet, so no self-declared label identifies it.</>
         )}
-      </p>
-    </div>
-  );
+      </>
+    ),
+  };
 
   return (
     <div className="page">
       <PayerDetailHeader
-        title={title}
+        header={header}
         payerId={payer.id}
         status={payer.status}
         canSuspend={can(capabilities, "suspend_payer")}
@@ -133,7 +136,7 @@ export function PayerDetailView({
                   ]
                 : []),
               { label: `${kind} id`, value: <span className="mono">{payer.id}</span> },
-              { label: "Role", value: payer.role === "agent" ? "Agency" : "Employer" },
+              { label: "Account type", value: payer.role === "agent" ? "Agency" : "Company" },
               { label: "Status", value: <StatusPill value={payer.status} /> },
               {
                 label: "Status before suspension",
@@ -148,7 +151,7 @@ export function PayerDetailView({
                 ),
               },
               {
-                label: "Last change",
+                label: "Last updated",
                 value: (
                   <time dateTime={payer.updated_at} title={formatTimestamp(payer.updated_at)}>
                     {formatRelative(payer.updated_at)}
@@ -169,7 +172,7 @@ export function PayerDetailView({
           <div className="stats stats--compact">
             <Stat label="Open postings" value={formatCount(payer.open_posting_count)} />
             <Stat label="Postings, all time" value={formatCount(payer.posting_count)} />
-            <Stat label="Contacts unlocked" value={formatCount(payer.unlock_count)} />
+            <Stat label="Contact unlocks" value={formatCount(payer.unlock_count)} />
             <Stat label="Credit balance" value={formatCount(payer.credit_balance)} />
           </div>
         </section>
@@ -187,12 +190,13 @@ export function PayerDetailView({
         <div className="panel__head panel__head--row">
           <div>
             <h2 className="panel__title" id="p-postings">
-              Job postings
+              Postings
             </h2>
             <p className="panel__sub">The most recent postings this account has created.</p>
           </div>
           {payer.posting_count > 0 && (
             <Link className="btn btn--ghost" href={`/jobs?payerId=${payer.id}`}>
+              <Icon name={ACTION_ICON.posting} />
               All their postings
             </Link>
           )}
@@ -208,31 +212,27 @@ export function PayerDetailView({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={`${backHref}/${payer.id}`}>
-                Reload this account
+                <Icon name={ACTION_ICON.retry} />
+                Retry
               </Link>
             </div>
           </div>
         ) : postings.length === 0 ? (
           <div className="state">
-            <h3 className="state__title">No job postings yet</h3>
+            <h3 className="state__title">No postings yet</h3>
             <p className="state__body">
               This account has never created one, so it has published nothing to workers and
               carries no self-declared label. A registered account that never posts is the
-              normal shape of an abandoned signup — the event timeline shows how far it got.
+              normal shape of an abandoned signup — its event timeline shows how far it got.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href={`${backHref}/${payer.id}/timeline`}>
-                View event timeline
-              </Link>
-            </div>
           </div>
         ) : (
           <div className="tablewrap">
             <table className="table">
-              <caption className="sr-only">Job postings for this account</caption>
+              <caption className="sr-only">Postings for this account</caption>
               <thead>
                 <tr>
-                  <th scope="col">Role</th>
+                  <th scope="col">Role title</th>
                   <th scope="col">Published as</th>
                   <th scope="col">Location</th>
                   <th scope="col">Status</th>

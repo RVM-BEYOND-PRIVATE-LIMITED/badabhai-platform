@@ -12,6 +12,7 @@ import {
   formatPayBand,
   formatRelative,
   formatTimestamp,
+  matchTierLabel,
   payTypeLabel,
   shortId,
 } from "../../../../lib/format";
@@ -19,6 +20,7 @@ import { StatusPill } from "../../../../components/status-pill";
 import { DetailList } from "../../../../components/detail-list";
 import { Stat } from "../../../../components/stat";
 import { JobDetailHeader } from "./job-detail-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
  * A poster-set list (requirements / benefits) as chips, or a plain fallback phrase when the
@@ -39,10 +41,10 @@ function chipList(items: readonly string[] | null | undefined, empty: string): R
 }
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Job posting" };
+export const metadata = { title: "Posting details" };
 
 /**
- * One job posting — the full poster-typed content plus its reach.
+ * One posting — the full poster-typed content plus its reach.
  *
  * The description is shown in full and verbatim, because reviewing a posting for spam or a
  * misleading claim is one of the main reasons an operator opens this page, and a truncated
@@ -65,7 +67,10 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   // Only meaningful once anyone has seen it; 0/0 would render NaN%.
   const applyRate = total > 0 ? Math.round((job.applied_count / total) * 100) : null;
 
-  const timelineHref = `/jobs/${job.id}/timeline`;
+  // Offered only to a reader who may open it: the timeline route is `read_events`.
+  const timelineHref = can(session.capabilities, "read_events")
+    ? `/jobs/${job.id}/timeline`
+    : null;
 
   // The display role the payer picked (migration 0131). Labelled for a human; an unknown or
   // absent value never renders raw as a friendly label. `null` means no role was picked; a
@@ -81,30 +86,25 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
       <span className="mono">{job.role_kind}</span>
     );
 
-  const title = (
-    <div>
-      <p className="page__eyebrow">
-        <Link className="link" href="/jobs">
-          Jobs
-        </Link>
-      </p>
-      <h1 className="page__title">{job.role_title}</h1>
-      <p className="page__sub">
-        One posting&rsquo;s full content, with its reach and its trust review. Published as{" "}
+  const header = {
+    back: { href: "/jobs", label: "Postings" },
+    title: job.role_title,
+    description: (
+      <>
+        One posting&rsquo;s full content, reach and trust review — published as{" "}
         <strong>{job.org_label}</strong>
         {job.city || job.location_label ? ` · ${job.city ?? job.location_label}` : ""} · created{" "}
         {formatRelative(job.created_at)}.
-      </p>
-    </div>
-  );
+      </>
+    ),
+  };
 
   return (
     <div className="page">
       <JobDetailHeader
-        title={title}
+        header={header}
         jobId={job.id}
         status={job.status}
-        payerHref={job.payer_id ? `/companies/${job.payer_id}` : null}
         canForceClose={can(session.capabilities, "force_close_posting")}
         timelineHref={timelineHref}
       />
@@ -114,7 +114,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
           <strong>Hidden by a suspension.</strong> The owning account is suspended, so this
           posting is out of the worker feed. Reinstating the account restores it to{" "}
           <strong>{job.previous_status ?? "its previous state"}</strong> rather than forcing
-          it open — a posting the payer had paused stays paused.
+          it open — a posting the customer had paused stays paused.
         </section>
       )}
 
@@ -132,19 +132,19 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               Posting content
             </h2>
             <p className="panel__sub">
-              What the poster set for this job. The role classification is internal and is not
-              shown to workers.
+              What the poster set for this posting. The role classification is internal and is
+              not shown to workers.
             </p>
           </div>
           <DetailList
             items={[
               { label: "Role title", value: job.role_title },
-              { label: "Role", value: roleValue },
+              { label: "Role classification", value: roleValue },
               { label: "Published as", value: job.org_label },
-              { label: "Location", value: job.location_label ?? "not stated" },
+              { label: "Location note", value: job.location_label ?? "not stated" },
               { label: "Match city", value: job.city ?? "not set" },
-              { label: "Area", value: job.area ?? "not stated" },
-              { label: "Vacancies", value: job.vacancy_band },
+              { label: "Area / locality", value: job.area ?? "not stated" },
+              { label: "Openings", value: job.vacancy_band },
               { label: "Monthly pay", value: formatPayBand(job.pay_min, job.pay_max) },
               {
                 label: "Pay type",
@@ -174,7 +174,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               <div className="state">
                 <h4 className="state__title">No description</h4>
                 <p className="state__body">
-                  The poster published this job without one, so workers judge it on the role
+                  The poster published this posting without one, so workers judge it on the role
                   title, pay band and location alone. There is nothing here to review for a
                   misleading claim — an empty description is a quality signal, not a fault.
                 </p>
@@ -257,7 +257,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
       <section className="panel" aria-labelledby="j-decisions">
         <div className="panel__head">
           <h2 className="panel__title" id="j-decisions">
-            Recent worker decisions
+            Recent job decisions
           </h2>
           <p className="panel__sub">
             The ten most recent. Workers are opaque ids — no contact detail is served here.
@@ -266,37 +266,33 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
 
         {decisions === null ? (
           <div className="state state--error">
-            <h3 className="state__title">Worker decisions could not be loaded</h3>
+            <h3 className="state__title">Job decisions could not be loaded</h3>
             <p className="state__body">
-              The posting above loaded, but the applications read failed — so this table is
+              The posting above loaded, but the job-decisions read failed — so this table is
               missing, not empty. The Applied and Skipped tiles come from the posting record
               and are still the true totals.
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={`/jobs/${job.id}`}>
-                Reload this posting
+                <Icon name={ACTION_ICON.retry} />
+                Retry
               </Link>
             </div>
           </div>
         ) : decisions.items.length === 0 ? (
           <div className="state">
-            <h3 className="state__title">No worker decisions yet</h3>
+            <h3 className="state__title">No job decisions yet</h3>
             <p className="state__body">
               No worker has applied to this posting or skipped it.{" "}
               {job.status === "open"
                 ? "It is open, so it is in the feed and waiting on matching to surface it to somebody."
                 : `It is ${job.status}, so it is out of the worker feed and cannot collect decisions in this state.`}
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href={`/jobs/${job.id}/timeline`}>
-                Event timeline
-              </Link>
-            </div>
           </div>
         ) : (
           <div className="tablewrap">
             <table className="table">
-              <caption className="sr-only">Recent worker decisions on this posting</caption>
+              <caption className="sr-only">Recent job decisions on this posting</caption>
               <thead>
                 <tr>
                   <th scope="col">When</th>
@@ -324,13 +320,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
                       <StatusPill value={a.action} />
                     </td>
                     <td className="table__meta">{a.reason?.replace(/_/g, " ") ?? "—"}</td>
-                    <td className="table__meta">
-                      {a.match_tier === 1
-                        ? "1 — asked-for skill"
-                        : a.match_tier === 2
-                          ? "2 — related skill"
-                          : "—"}
-                    </td>
+                    <td className="table__meta">{matchTierLabel(a.match_tier)}</td>
                     <td className="table__meta">{a.source_surface}</td>
                   </tr>
                 ))}

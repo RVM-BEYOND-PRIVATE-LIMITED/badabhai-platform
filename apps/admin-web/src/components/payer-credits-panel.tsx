@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AdminActionButton } from "./admin-action-button";
-import { AdminActionResultBanner } from "./admin-action-result-banner";
+import { AdminActionResultBanner, timelineLink } from "./admin-action-result-banner";
 import { grantCreditsAction } from "./payer-actions";
 import {
   CREDIT_GRANT_REASONS,
@@ -39,7 +39,8 @@ export function PayerCreditsPanel({
 }: {
   payerId: string;
   suspended: boolean;
-  timelineHref: string;
+  /** This account's event timeline, or null for a reader without `read_events`. */
+  timelineHref: string | null;
 }) {
   const router = useRouter();
   const [idempotencyKey, setIdempotencyKey] = useState(mintIdempotencyKey);
@@ -80,7 +81,7 @@ export function PayerCreditsPanel({
 
       {suspended ? (
         <p className="field__help">
-          This payer is suspended. Reinstate the account before granting credits.
+          This account is suspended. Reinstate it before granting credits.
         </p>
       ) : (
         <form className="form" onSubmit={(e) => e.preventDefault()}>
@@ -122,6 +123,7 @@ export function PayerCreditsPanel({
           <div className="form-actions">
             <AdminActionButton
               label="Grant credits"
+              icon="hand-coins"
               confirmLabel={`Confirm grant of ${amount || "0"}?`}
               variant="primary"
               disabled={!amountValid}
@@ -134,7 +136,9 @@ export function PayerCreditsPanel({
         </form>
       )}
 
-      {outcome && <AdminActionResultBanner outcome={outcome} timelineHref={timelineHref} />}
+      {outcome && (
+        <AdminActionResultBanner outcome={outcome} eventsLink={timelineLink(timelineHref)} />
+      )}
     </section>
   );
 }

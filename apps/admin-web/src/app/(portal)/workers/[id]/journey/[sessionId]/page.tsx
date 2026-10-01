@@ -17,6 +17,8 @@ import { Stat } from "../../../../../../components/stat";
 import { StatusPill } from "../../../../../../components/status-pill";
 import { StuckPanel } from "../../../../../../components/stuck-panel";
 import { VoiceAttempts } from "../../../../../../components/voice-attempts";
+import { PageHeader } from "../../../../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Interview session" };
@@ -63,26 +65,23 @@ export default async function ChatSessionDetailPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <p className="page__eyebrow">
-            <Link className="link" href={journeyHref}>
-              Journey · worker {shortId(id)}
-            </Link>
-          </p>
-          <h1 className="page__title mono">{shortId(session.id, 12)}</h1>
-          <p className="page__sub">
-            One AI profiling interview — what was asked, what settled, and where it stopped.
-            Started {formatRelative(session.started_at)} ·{" "}
-            {formatTimestamp(session.started_at)}.
-          </p>
-        </div>
-        <div className="page__actions">
+      <PageHeader
+        back={{ href: journeyHref, label: "Journey" }}
+        title={shortId(session.id, 12)}
+        titleMono
+        description={
+          <>
+            One AI profiling interview — what was asked, what settled and where it stopped —
+            started {formatRelative(session.started_at)} ({formatTimestamp(session.started_at)}).
+          </>
+        }
+        secondaryActions={
           <Link className="btn btn--ghost" href={`/workers/${session.worker_id}`}>
-            Worker record
+            <Icon name={ACTION_ICON.candidate} />
+            Open worker
           </Link>
-        </div>
-      </header>
+        }
+      />
 
       {mismatched ? (
         <p className="notice notice--warn" role="status">
@@ -104,7 +103,7 @@ export default async function ChatSessionDetailPage({
         <section className="panel" aria-labelledby="session-facts">
           <div className="panel__head">
             <h2 className="panel__title" id="session-facts">
-              Session
+              Interview session
             </h2>
             <p className="panel__sub">
               &ldquo;Abandoned&rdquo; is written by the idle sweep, not by the worker.
@@ -246,7 +245,7 @@ export default async function ChatSessionDetailPage({
                 <caption className="sr-only">Extraction jobs for this session</caption>
                 <thead>
                   <tr>
-                    <th scope="col">Job</th>
+                    <th scope="col">Extraction job</th>
                     <th scope="col">Status</th>
                     <th scope="col">Model</th>
                     <th scope="col">Tokens</th>

@@ -3,7 +3,10 @@ import { requireCapability } from "../../../lib/auth";
 import { listEvents, type EventFilters } from "../../../lib/events";
 import { EventTable } from "../../../components/event-table";
 import { Pager } from "../../../components/pager";
+import { PageHeader } from "../../../components/page-header";
 import { EventFilterBar } from "./filter-bar";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { RetryActions } from "../../../components/retry-actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Events" };
@@ -63,26 +66,23 @@ export default async function EventsPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Events</h1>
-          <p className="page__sub">
-            The audit spine. Every important state change on the platform is recorded here.
-          </p>
-        </div>
-      </header>
-
-      <section className="panel" aria-labelledby="filters-heading">
-        <h2 className="sr-only" id="filters-heading">
-          Filter events
-        </h2>
-        <EventFilterBar
-          eventName={filters.eventName ?? ""}
-          actorType={filters.actorType ?? ""}
-          subjectType={filters.subjectType ?? ""}
-          correlationId={filters.correlationId ?? ""}
-        />
-      </section>
+      <PageHeader
+        title="Events"
+        description="The audit spine: every important state change on the platform is recorded here."
+        filters={
+          <section className="panel" aria-labelledby="filters-heading">
+            <h2 className="sr-only" id="filters-heading">
+              Filter events
+            </h2>
+            <EventFilterBar
+              eventName={filters.eventName ?? ""}
+              actorType={filters.actorType ?? ""}
+              subjectType={filters.subjectType ?? ""}
+              correlationId={filters.correlationId ?? ""}
+            />
+          </section>
+        }
+      />
 
       <section className="panel" aria-labelledby="results-heading" aria-live="polite">
         <div className="panel__head panel__head--row">
@@ -98,6 +98,7 @@ export default async function EventsPage({
           </div>
           {active.length > 0 && (
             <Link className="btn btn--ghost" href="/events">
+              <Icon name={ACTION_ICON.clearFilters} />
               Clear filters
             </Link>
           )}
@@ -111,11 +112,11 @@ export default async function EventsPage({
               in the table is only the first segment. Correct the value above, or clear the
               filters and start again.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href="/events">
-                Clear filters
-              </Link>
-            </div>
+            {/* One "Clear filters" per screen: the results head carries it whenever a filter is
+                set, so this state does not repeat it (owner brief 2026-10-01). */}
+            {active.length > 0 ? null : (
+              <RetryActions href="/events" cursor={filters.cursor} />
+            )}
           </div>
         ) : (
           <EventTable
@@ -126,19 +127,12 @@ export default async function EventsPage({
             /* Truthful per case: a filtered view CAN be hidden by a narrow filter; an
                unfiltered one genuinely has nothing on the spine, and telling that operator
                to "widen the filters" would send them looking for a control they have not
-               used. The clear-filters action is likewise offered only when there is
-               something to clear — it previously pointed at /events from /events. */
+               used. No action here: the results head already offers "Clear filters"
+               whenever there is something to clear. */
             emptyBody={
               active.length > 0
                 ? "A narrow filter can hide a busy day. Widen it, or clear it to see the whole timeline."
                 : "The audit spine fills as the platform is used. Events will appear here as they are emitted."
-            }
-            emptyAction={
-              active.length > 0 ? (
-                <Link className="btn btn--ghost" href="/events">
-                  Clear filters
-                </Link>
-              ) : null
             }
           />
         )}

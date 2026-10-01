@@ -95,3 +95,51 @@ describe("AdminActionButton — initial render", () => {
     expect(out).toContain('aria-live="polite"');
   });
 });
+
+describe("AdminActionButton — icon and per-row name (owner brief 2026-10-01)", () => {
+  const ok = async () => ({ ok: true as const, changed: true, message: "" });
+
+  it("draws its glyph before the label, decorative, from the shared icon font", () => {
+    const out = html(
+      <AdminActionButton label="Suspend" confirmLabel="Confirm suspend?" icon="prohibit" action={ok} />,
+    );
+    expect(out).toContain(
+      '<i class="ph-fill ph-prohibit" aria-hidden="true"></i><span>Suspend</span>',
+    );
+  });
+
+  it("keeps the glyph when disabled — the button recolours it, nothing else", () => {
+    const out = html(
+      <AdminActionButton
+        label="Suspend"
+        confirmLabel="Confirm suspend?"
+        icon="prohibit"
+        disabled
+        action={ok}
+      />,
+    );
+    expect(out).toContain('disabled=""');
+    expect(out).toContain("ph-prohibit");
+  });
+
+  it("names the row's subject to assistive tech, after the visible label", () => {
+    const out = html(
+      <AdminActionButton
+        label="Suspend"
+        confirmLabel="Confirm suspend?"
+        subject="admin aaaaaaaa…"
+        action={ok}
+      />,
+    );
+    // The accessible name is the button's text: "Suspend admin aaaaaaaa…" — it starts with the
+    // visible label (WCAG 2.5.3, label in name).
+    expect(out).toContain('<span>Suspend</span><span class="sr-only"> admin aaaaaaaa…</span>');
+    expect(out).not.toContain("aria-label");
+  });
+
+  it("renders no icon and no hidden text when given neither", () => {
+    const out = html(<AdminActionButton label="Suspend" confirmLabel="Confirm suspend?" action={ok} />);
+    expect(out).not.toContain("ph-fill");
+    expect(out).not.toContain("sr-only");
+  });
+});

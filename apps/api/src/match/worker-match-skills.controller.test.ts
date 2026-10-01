@@ -96,5 +96,12 @@ describe("WorkerMatchSkillsController — delegation and the wire shape", () => 
       cleared: 2,
     });
     expect(skills.clearAllWants).toHaveBeenCalledWith(WORKER.id, CTX);
+
+    // The count is the service's (#1850); the controller passes a repeat call's 0 through as-is.
+    skills.clearAllWants.mockResolvedValueOnce({ cleared: 0 });
+    await expect(ctrl.clearAllMyMatchSkills(WORKER, CTX)).resolves.toEqual({
+      ok: true,
+      cleared: 0,
+    });
   });
 });

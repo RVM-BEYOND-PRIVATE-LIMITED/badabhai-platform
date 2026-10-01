@@ -221,13 +221,20 @@ export class WorkerSkillsService {
    *
    * UPDATE, NOT DELETE, and the difference is durability: deleting the rows would let the next
    * profile write recreate them `wants: true`, so the exit would silently undo itself.
-   * Idempotent — a second call clears 0 rows and is still reported honestly. It emits, because
-   * the worker's request is itself the fact being recorded.
+   *
+   * `cleared` IS THE NUMBER OF HIS MATCH SKILLS THIS CALL SWITCHED FROM ON TO OFF (#1850): rows
+   * that were `wants = true` before it AND sit in the closed `mskill_*` vocabulary — exactly the
+   * set `listMatchSkillsForWorker` renders as switches. Every row is still re-stamped (see the
+   * repository), but an already-off row was not cleared by this call, and an out-of-vocabulary
+   * row can never be matched on, so counting either over-reports what the exit did. A repeat
+   * call therefore reports 0. It emits regardless, because the worker's request is itself the
+   * fact being recorded.
    */
   async clearAllWants(workerId: string, ctx?: RequestContext): Promise<{ cleared: number }> {
-    const cleared = await this.repo.clearAllWantsAndReconcile(workerId, new Date());
+    const switchedOff = await this.repo.clearAllWantsAndReconcile(workerId, new Date());
+    const cleared = switchedOff.filter(isMatchSkillId).length;
     await this.emitWantsSet(workerId, null, false, ctx);
-    this.logger.log(`match skills cleared for worker=${workerId} rows=${cleared}`);
+    this.logger.log(`match skills cleared for worker=${workerId} cleared=${cleared}`);
     return { cleared };
   }
 

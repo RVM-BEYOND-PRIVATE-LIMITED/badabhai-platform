@@ -24,7 +24,6 @@ import {
   type Tx,
   type UnlockProjection,
   type CreditLedgerItem,
-  type ResolvedJobId,
 } from "./unlocks.repository";
 import { PaymentGateway, type RealOrderHandoff, type SettleResult } from "./payment-gateway";
 import { verifyCheckoutSignature } from "./razorpay-signature";
@@ -88,8 +87,6 @@ interface TxResult<R> {
  *
  * FAIL-CLOSED ORDERING for POST /unlocks (every gate denies + discloses nothing on
  * failure):
- *   [0]   job-context resolution (#1903) — tx-external, worker-state INDEPENDENT, pre-lock:
- *         a job id that is not a `jobs` row is recorded as null (never reaches the FK).
  *   [F-1] credit precondition (worker-state INDEPENDENT) FIRST — a zero-credit payer
  *         gets the SAME neutral body regardless of any worker's state (closes the
  *         payment_required consent oracle, BC-1).
@@ -157,19 +154,16 @@ export class UnlockService {
     const _r21_start = Date.now();
     try {
 
-    // #1903 (#1823 decision O9, 2026-10-01) — `unlocks.job_id` is an FK to `jobs`, but a
-    // company unlocking from a posting sends the `job_postings` id. Resolve the job context
-    // ONCE, here, before the first emit and before the advisory lock (a tx-external read,
-    // same deadlock rule as the consent read below). Every row write and every event below
-    // uses ONLY this resolved value, so neither the FK nor an event's `jobs`-id field ever
-    // receives a posting id. Lossy by design: the posting linkage is dropped (O9 rejected an
-    // additive `unlocks.job_posting_id` for now).
-    const jobId = await this.resolveJobContext(input.jobId, ctx);
+    // #1903 — normalise the caller's job context ONCE, before anything is written or
+    // emitted: every row and event below carries `jobContext`, never the raw input. It is
+    // resolved here, BEFORE the advisory lock, because it is a global-pool read (the
+    // deadlock rule above the consent read below). See resolveJobContext.
+    const jobContext = await this.resolveJobContext(input.jobId);
 
     // Audit the attempt at entry (PII-free). We do NOT yet have an unlock_id, so this
     // is keyed on (payer, worker) so a retry is one logical request in the spine. The
     // *granted* row id (if any) is carried by unlock.granted below.
-    await this.emitRequested(payerId, workerId, jobId, ctx);
+    await this.emitRequested(payerId, workerId, jobContext, ctx);
 
     // ---- [F-1] worker-state-INDEPENDENT credit precondition (BC-1) -----------
     // Checked BEFORE consent/caps/worker existence. A zero-balance payer can never
@@ -238,15 +232,20 @@ export class UnlockService {
           // distinguishable from non-consent at the HTTP layer.
           const reason: UnlockDenyReason = workerPresent ? "no_consent" : "unknown_worker";
           if (workerPresent) {
-            const row = await this.repo.recordDeny(tx, { payerId, workerId, jobId, denyReason: reason });
-            events.push(() => this.emitDenied(row.id, payerId, workerId, jobId, reason, ctx));
+            const row = await this.repo.recordDeny(tx, {
+              payerId,
+              workerId,
+              jobId: jobContext,
+              denyReason: reason,
+            });
+            events.push(() => this.emitDenied(row.id, payerId, workerId, jobContext, reason, ctx));
           } else {
             // F-A (no-oracle): a non-existent worker_id would violate the
             // unlocks.worker_id FK on INSERT and surface as a 500 — distinguishable from
             // the 200 neutral body, i.e. a worker-enumeration oracle. Do NOT write a row
             // for an unknown worker; emit the internal audit event WITHOUT one (unlock_id
             // null, subject = worker) and return the identical neutral body.
-            events.push(() => this.emitDenied(null, payerId, workerId, jobId, reason, ctx));
+            events.push(() => this.emitDenied(null, payerId, workerId, jobContext, reason, ctx));
           }
           return { response: neutralUnavailable(), events };
         }
@@ -266,10 +265,15 @@ export class UnlockService {
         // ---- [2] worker CAPS (atomic, before payment) -------------------------
         const cap = await this.checkCaps(tx, workerId);
         if (cap) {
-          const row = await this.repo.recordDeny(tx, { payerId, workerId, jobId, denyReason: "capped" });
+          const row = await this.repo.recordDeny(tx, {
+            payerId,
+            workerId,
+            jobId: jobContext,
+            denyReason: "capped",
+          });
           // Order preserved: cap_exceeded THEN denied (unchanged from emit-in-tx).
           events.push(() => this.emitCapExceeded(payerId, workerId, cap, ctx));
-          events.push(() => this.emitDenied(row.id, payerId, workerId, jobId, "capped", ctx));
+          events.push(() => this.emitDenied(row.id, payerId, workerId, jobContext, "capped", ctx));
           return { response: neutralUnavailable(), events };
         }
 
@@ -289,7 +293,7 @@ export class UnlockService {
         const granted = await this.repo.upsertGrant(tx, {
           payerId,
           workerId,
-          jobId,
+          jobId: jobContext,
           routingTokenRef,
           grantedAt: now,
           expiresAt,
@@ -305,14 +309,16 @@ export class UnlockService {
         // Order preserved: payment.authorized → payment.captured → unlock.granted.
         events.push(() => this.emitPaymentAuthorized(granted.id, payerId, ctx));
         events.push(() => this.emitPaymentCaptured(granted.id, payerId, ctx));
-        events.push(() => this.emitGranted(granted.id, payerId, workerId, jobId, expiresAt, ctx));
+        events.push(() =>
+          this.emitGranted(granted.id, payerId, workerId, jobContext, expiresAt, ctx),
+        );
         // E0 C-1 (owner ruling 2026-09-21, route ii-v2) — THE WORKER IS TOLD HE WAS UNLOCKED.
         // Deferred like its siblings so an emit failure costs a notification, never the grant:
         // the grant is committed, the event is the audit trail (F-4). Idempotency-keyed on the
         // unlock, so an at-least-once flush records it once. Only on a NEW grant — the early
         // idempotent-replay branch above returns before this, so a payer re-requesting a live
         // unlock cannot re-notify the worker.
-        events.push(() => this.emitProfileViewedV2(granted.id, payerId, workerId, jobId, ctx));
+        events.push(() => this.emitProfileViewedV2(granted.id, payerId, workerId, jobContext, ctx));
         // §X.6 — a granted unlock is LEG 2 of the ₹20 activation-bonus rule (the leg a
         // fraudster cannot fake, because it costs a paying party money). Deferred like the
         // emits above, so it runs POST-COMMIT and inherits flushEvents' log-and-continue:
@@ -967,26 +973,22 @@ export class UnlockService {
   }
 
   /**
-   * #1903 (#1823 decision O9) — the job context an unlock may RECORD: `null` → null; the
-   * id of an existing `jobs` row → that id; anything else (a company `job_postings` id, an
-   * unknown id) → null. Keeps the `unlocks.job_id → jobs` FK satisfiable, so a posting-id
-   * unlock grants instead of rolling back with a 500. Tx-EXTERNAL read, called before the
-   * advisory lock (deadlock rule). A read error propagates: it happens before any emit or
-   * state change, so the request fails closed with nothing written. The ONE place a
-   * {@link ResolvedJobId} is minted.
+   * #1903 (#1823 decision O9, owner ruling 2026-10-01) — the job context an unlock may store.
+   *
+   * `unlocks.job_id` is an FK to `jobs.id`, but the payer's `job_id` is any uuid the client
+   * holds: payer-web sends a company posting's `job_postings.id`, and that insert violated
+   * the FK — a 500 with the debit rolled back. So: null stays null, an existing `jobs` row
+   * is kept, and ANY other id is stored (and evented) as null. A posting id therefore never
+   * lands in a `jobs`-id field on the row or on the spine. No migration — the rejected
+   * alternative was an additive `unlocks.job_posting_id`.
+   *
+   * Existence, not openness: a closed `jobs` row still satisfies the FK and is still the
+   * context the payer unlocked from. A read error PROPAGATES — the request fails before
+   * anything is emitted, locked or debited, rather than guessing a context (fail closed).
    */
-  private async resolveJobContext(
-    jobId: string | null,
-    ctx: RequestContext,
-  ): Promise<ResolvedJobId | null> {
+  private async resolveJobContext(jobId: string | null): Promise<string | null> {
     if (jobId === null) return null;
-    if (await this.repo.jobExists(jobId)) return jobId as ResolvedJobId;
-    // PII-free (opaque ids). Unlock events no longer carry the posting linkage, so this
-    // line is where it survives.
-    this.logger.log(
-      `unlock job context ${jobId} is not a jobs row; recorded as null (correlation=${ctx.correlationId})`,
-    );
-    return null;
+    return (await this.repo.legacyJobExists(jobId)) ? jobId : null;
   }
 
   /**
@@ -1063,7 +1065,7 @@ export class UnlockService {
   private async emitRequested(
     payerId: string,
     workerId: string,
-    jobId: ResolvedJobId | null,
+    jobId: string | null,
     ctx: RequestContext,
   ): Promise<void> {
     const payload: PayloadInputOf<"unlock.requested"> = {
@@ -1103,7 +1105,7 @@ export class UnlockService {
     unlockId: string,
     payerId: string,
     workerId: string,
-    jobId: ResolvedJobId | null,
+    jobId: string | null,
     expiresAt: Date,
     ctx: RequestContext,
   ): Promise<void> {
@@ -1140,14 +1142,15 @@ export class UnlockService {
    * rejects the latter on purpose (notifications.service.test.ts), and naming this field
    * the v1 way is what keeps this event allowlistable at all.
    *
-   * `job_id` IS OMITTED, never null: an unlock found by search carries no posting, and the
+   * `job_id` IS OMITTED, never null: an unlock found by search carries no job context, nor
+   * does one whose context was not a `jobs` row (#1903, {@link resolveJobContext}), and the
    * payload's optional field means the key simply does not appear.
    */
   private async emitProfileViewedV2(
     unlockId: string,
     payerId: string,
     workerId: string,
-    jobId: ResolvedJobId | null,
+    jobId: string | null,
     ctx: RequestContext,
   ): Promise<void> {
     const payload: PayloadInputOf<"profile.viewed_v2"> = {
@@ -1172,7 +1175,7 @@ export class UnlockService {
     unlockId: string | null,
     payerId: string,
     workerId: string,
-    jobId: ResolvedJobId | null,
+    jobId: string | null,
     reason: UnlockDenyReason,
     ctx: RequestContext,
   ): Promise<void> {

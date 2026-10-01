@@ -153,3 +153,16 @@ What this addendum pins, so §3 above stays true:
 
 Labels live in `JOB_ROLE_LABELS` (`@badabhai/types`), copied from each role descriptor's
 `displayName`/`cluster` and pinned by `apps/api/src/profiling/roles/job-role-labels.parity.test.ts`.
+
+## Addendum (2026-10-01) — an owner-signed interim deviation from §6 and §8 (ADR-0049)
+
+[ADR-0049](0049-interim-union-feed.md) (#1823) lets company `job_postings` reach the **legacy**
+worker feed while `MATCH_V1_ENABLED` is off. They are merged with the `jobs` arm, behind a second
+feed-source env var, `FEED_POSTINGS_UNION_ENABLED`. For an interim, that departs from §6 (the
+legacy `jobs` table retires from the worker path) and §8 (one env var gates the feed source).
+The decisions were taken and ADR-0049 signed on 2026-10-01 by Divyanshu (Backend Platform).
+
+It does not change V1. The flag is ignored when `MATCH_V1_ENABLED` is on. The arm's visibility
+reads match inputs only (`reach_skill_ids`, never `role_kind`; the 2026-09-29 addendum holds).
+The arm, its apply/skip branch and the flag are deleted by this ADR's retirement change
+(ADR-0049 §8, TD152, #1904). The text above is not rewritten.

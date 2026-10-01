@@ -13,14 +13,17 @@ import { PaymentsPostureBanner, MockMoneyTag } from "../../../components/payment
 import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { Stat } from "../../../components/stat";
+import { PageHeader } from "../../../components/page-header";
+import { RetryActions } from "../../../components/retry-actions";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Transactions" };
+export const metadata = { title: "Payment orders" };
 
 const STATUSES = ["created", "paid", "failed"] as const;
 
 /**
- * Transactions — credit-pack payment orders.
+ * Payment orders — credit-pack checkouts.
  *
  * ── WHAT AN ORDER IS, AND IS NOT ────────────────────────────────────────────────────────
  * A `created` order is a checkout that STARTED. It is not revenue, not a pending payment,
@@ -62,30 +65,24 @@ export default async function TransactionsPage({
   const filtered = Boolean(status || payerId);
 
   /**
-   * The CURRENT query, rebuilt — so a "Retry" repeats what failed instead of resetting it.
-   * `cursor` is deliberately included: an operator three pages into a ledger who hits a
-   * transient read failure should land back on the page they were reading, not on page one.
+   * The CURRENT query without its cursor — where "Back to the first page" lands. RetryActions
+   * puts the cursor back for "Retry", so an operator three pages into the orders who hits a
+   * transient failure lands back on the page they were reading, not on page one.
    */
-  const retryHref = (() => {
+  const queryHref = (() => {
     const qs = new URLSearchParams();
     if (status) qs.set("status", status);
     if (payerId) qs.set("payerId", payerId);
-    if (cursor) qs.set("cursor", cursor);
     const q = qs.toString();
     return q ? `/transactions?${q}` : "/transactions";
   })();
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Transactions</h1>
-          <p className="page__sub">
-            Credit-pack payment orders. Amounts and credits are stamped at order creation, so
-            a later price change never rewrites a past order.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Payment orders"
+        description="Credit-pack checkouts, with amounts and credits stamped at order creation so a later price change never rewrites a past order."
+      />
 
       {posture && <PaymentsPostureBanner posture={posture} />}
 
@@ -156,6 +153,7 @@ export default async function TransactionsPage({
           </div>
           {filtered && (
             <Link className="btn btn--ghost" href="/transactions">
+              <Icon name={ACTION_ICON.clearFilters} />
               Clear filters
             </Link>
           )}
@@ -164,8 +162,10 @@ export default async function TransactionsPage({
         <div className="filters filters--inline">
           {STATUSES.map((s) => (
             <Link
+              aria-current={s === status ? "true" : undefined}
               className={`btn btn--sm ${s === status ? "btn--primary" : "btn--ghost"}`}
-              href={`/transactions?status=${s}`}
+              /* Keeps an account narrowing (`?payerId=`); a chip used to drop it. */
+              href={`/transactions?status=${s}${payerId ? `&payerId=${encodeURIComponent(payerId)}` : ""}`}
               key={s}
             >
               {s === "created" ? "Unsettled" : s === "paid" ? "Settled" : "Failed"}
@@ -178,17 +178,12 @@ export default async function TransactionsPage({
             <h3 className="state__title">Payment orders are unavailable</h3>
             <p className="state__body">
               The order list did not load. The figures above are a separate read and are
-              unaffected. Reload to try again.
+              unaffected.
             </p>
-            <div className="state__actions">
-              {/* Repeat the SAME query. Pointing this at the bare route (which is what
-                  "Clear filters" does) silently dropped status / payerId / cursor, so a
-                  transient failure quietly returned the operator to an unfiltered page one
-                  while claiming to have retried. */}
-              <Link className="btn btn--ghost" href={retryHref}>
-                Retry
-              </Link>
-            </div>
+            {/* Repeat the SAME query. Pointing this at the bare route (which is what "Clear
+                filters" does) silently dropped status / payerId / cursor, so a transient failure
+                quietly returned the operator to an unfiltered page one while claiming to retry. */}
+            <RetryActions href={queryHref} cursor={cursor} />
           </div>
         ) : orders.items.length === 0 ? (
           filtered ? (
@@ -198,11 +193,6 @@ export default async function TransactionsPage({
                 Nothing matches the filters currently applied. Clear them to see every
                 order, newest first.
               </p>
-              <div className="state__actions">
-                <Link className="btn btn--ghost" href="/transactions">
-                  Clear filters
-                </Link>
-              </div>
             </div>
           ) : posture?.mode === "mock" ? (
             // The honest empty state. "No payment orders recorded yet" is TRUE and
@@ -223,6 +213,7 @@ export default async function TransactionsPage({
               </p>
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/credits?reason=pack_purchase">
+                  <Icon name={ACTION_ICON.credits} />
                   Open the credit ledger
                 </Link>
               </div>
@@ -233,11 +224,12 @@ export default async function TransactionsPage({
               {/* Deliberately not "real payments are on": this branch is also reached when
                   the posture itself is unknown, and asserting the mode would be a guess. */}
               <p className="state__body">
-                No checkout has been started. An order row appears the moment a payer opens
+                No checkout has been started. An order row appears the moment a customer opens
                 the pack checkout with the payment provider.
               </p>
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/credits">
+                  <Icon name={ACTION_ICON.credits} />
                   Open the credit ledger
                 </Link>
               </div>

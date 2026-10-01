@@ -308,7 +308,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 
 #### `POST /payer/unlocks`
 - **Auth:** `PayerAuthGuard` (Bearer). Per-payer hourly disclosure cap.
-- **Body:** `{ worker_id: UUID, job_id: UUID|null }` — no `payer_id`. `job_id` is optional context: an id that is not a `jobs` row (e.g. a company `job_postings` id) is accepted and recorded as `null` on the unlock row and in every unlock event (#1903; #1823 decision O9).
+- **Body:** `{ worker_id: UUID, job_id: UUID|null }` — no `payer_id`. `job_id` is optional context: a `jobs` id (agency/seed vacancy) is stored; any other id (e.g. a company posting's id) is accepted and stored as `null` (#1903).
 - **Response:** SUCCESS `{ ok: true, unlock_id, status: 'granted', expires_at }` **OR** NEUTRAL `{ status: 'unavailable' }` (HTTP `200` in both cases).
 - **Events:** on success `unlock.requested` + `unlock.granted` + `payment.authorized` + `payment.captured`; on deny `unlock.denied` (plus `unlock.cap_exceeded` if a per-worker cap is hit, or `payment.failed` if no credit). The deny **reason is internal-only**, never echoed in the response.
 - **Mobile gotchas:** Spends 1 credit on grant. All denials (no credit / capped / no consent / protected) return the **same** neutral `unavailable` — never infer why. Fail-closed ordering (credit precondition → consent → cap → grant). Branch on the `ok` field, not the HTTP status.
@@ -334,9 +334,15 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 ### 4.5 Applicant Feed (Faceless Reach)
 
 #### `GET /payer/reach/jobs/:jobId/applicants`
-- **Auth:** `PayerAuthGuard` (Bearer). Per-payer hourly reach cap (default 60). `jobId` must be a job the session payer owns.
+- **Auth:** `PayerAuthGuard` (Bearer). Per-payer hourly reach cap (default 60), checked before any read. `jobId` must be a `jobs` row or a `job_postings` row the session payer owns.
 - **Request:** path `jobId` (UUID); no query/body; **no pagination**.
-- **Response:**
+- **Source selection** (`PayerApplicantsService.listForOwned`, #1823; first owner-scoped hit wins):
+  1. `MATCH_V1_ENABLED` on → an owned posting's actual applicants (the V1 shape below).
+  2. Otherwise an owned agency/seed `jobs` row → the weighted full-pool list (the legacy shape below).
+  3. Otherwise an owned company posting → that posting's **actual applicants** (the V1 shape). Not gated by `FEED_POSTINGS_UNION_ENABLED`, so disarming the worker-feed union never hides people who already applied. Applications without a rank snapshot sort last.
+  4. Otherwise → neutral `404` in the §3.2 envelope with `error.message = "Job not found"`. The `error` object is identical for an unknown id, another payer's job and another payer's posting (no existence oracle); only the per-request `path`, `requestId` and `timestamp` differ.
+- **Membership:** neither list ever includes a worker inside the account-deletion grace window (ADR-0031 ruling (b)); a cancelled deletion puts him back.
+- **Response (legacy `jobs` row):**
   ```
   { jobId, applicants: [ {
       workerId,            // opaque UUID
@@ -350,10 +356,21 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
       cityLabel            // coarse slug e.g. 'pune' | null
   } ] }
   ```
-- **Events:** `feed.shown` (one per rendered applicant, actor `payer`, batch all-or-nothing; payload `worker_id`/`job_id`/`rank`/`score`/`hot` — PII-free).
+- **Response (posting — V1 on, or V1 off with an owned posting):**
+  ```
+  { jobId, applicants: [ {
+      workerId, applicationId, rank,
+      matchTier, effectiveTier,            // number | null (null when no rank snapshot)
+      skillMonths, industryMonths,         // number | null
+      lastWorkedAt, matchedSkillLabel, engineVersion   // string | null
+  } ] }
+  ```
+- **Events:** legacy `jobs` list only: `feed.shown` (one per rendered applicant, actor `payer`, batch all-or-nothing; payload `worker_id`/`job_id`/`rank`/`score`/`hot` — PII-free). The posting list emits nothing (people who already applied are not a feed impression), so a posting-list read is rate-limited (Redis, hourly) but **not durably audited**.
+- **Errors:** `404` as above. `429` on the reach cap. A DB failure is a `5xx`, never folded into the `404`.
 - **Mobile gotchas:**
   - **FREE — no credit debit.** Spending happens only on unlock/reveal.
-  - Full pool returned (sort-never-block), no limit/offset — virtualize the list.
+  - Legacy `jobs` list: full pool returned (sort-never-block), no limit/offset — virtualize the list. Posting list: actual applicants, capped server-side.
+  - Branch on the row shape (`score` vs `applicationId`), never on the id — both lists share the route.
   - Faceless: opaque `workerId` + banded chips only — **never** display/expect names/phones/employers.
   - Neutral `404` for unknown-or-not-owned job. `429` on reach cap. `5xx` → retry with backoff.
   - Safe to cache client-side briefly (≤1h, information-only), but ranks/scores may shift — don't serve stale long.

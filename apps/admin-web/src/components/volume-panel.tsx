@@ -38,8 +38,8 @@ export function VolumePanel({ volume }: { volume: VolumeSummary }) {
           label="Workers with a profile"
           value={formatCount(volume.worker_profiles.workers_with_profile)}
         />
-        <Stat label="Job postings" value={formatCount(volume.job_postings.total)} />
-        <Stat label="Payers" value={formatCount(volume.payers.total)} />
+        <Stat label="Postings" value={formatCount(volume.job_postings.total)} />
+        <Stat label="Customers" value={formatCount(volume.payers.total)} />
       </div>
 
       <div className="stats stats--compact">
@@ -48,8 +48,8 @@ export function VolumePanel({ volume }: { volume: VolumeSummary }) {
           label="Job decisions (applies + skips)"
           value={formatCount(volume.applications.total)}
         />
-        <Stat label="Contact unlocks issued" value={formatCount(volume.unlocks.issued)} />
-        <Stat label="Résumés generated" value={formatCount(volume.resumes.total)} />
+        <Stat label="Contact unlocks" value={formatCount(volume.unlocks.issued)} />
+        <Stat label="Resumes generated" value={formatCount(volume.resumes.total)} />
         <Stat
           label="Deletions scheduled"
           value={formatCount(volume.workers.pending_deletion)}
@@ -80,19 +80,19 @@ export function VolumePanel({ volume }: { volume: VolumeSummary }) {
       <div className="cols">
         <div>
           <h3 className="panel__title" id="volume-postings">
-            Job postings by status
+            Postings by status
           </h3>
           <BucketList buckets={volume.job_postings.by_status} labelledBy="volume-postings" />
         </div>
         <div>
           <h3 className="panel__title" id="volume-payers-role">
-            Payers by role
+            Customers by account type
           </h3>
-          <p className="panel__sub">Employer = company, agent = agency.</p>
+          <p className="panel__sub">employer = Company, agent = Agency.</p>
           <BucketList buckets={volume.payers.by_role} labelledBy="volume-payers-role" />
 
           <h3 className="panel__title" id="volume-payers-status">
-            Payers by status
+            Customers by status
           </h3>
           <BucketList buckets={volume.payers.by_status} labelledBy="volume-payers-status" />
         </div>

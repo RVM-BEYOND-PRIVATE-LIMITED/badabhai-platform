@@ -27,10 +27,13 @@ import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../
 import { StatusPill } from "../../../../components/status-pill";
 import { Pager } from "../../../../components/pager";
 import { Stat } from "../../../../components/stat";
+import { PageHeader } from "../../../../components/page-header";
+import { RetryActions } from "../../../../components/retry-actions";
 import { SkillDiscoveryFilterBar } from "./filter-bar";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Skill Discovery" };
+export const metadata = { title: "Skill discovery" };
 
 /**
  * Skill Discovery — the review queue (#1260, extended #1280).
@@ -236,9 +239,18 @@ export default async function SkillDiscoveryPage({
     const s = q.toString();
     return s ? `?${s}` : "";
   };
+  /** What the filter bar keeps when it navigates: the view, tier and status chosen above it. */
+  const barCarry: Record<string, string | undefined> = {
+    view: carry.view,
+    tier: carry.tier,
+    ack: carry.ack,
+    statusScope: carry.statusScope,
+    status: carry.status,
+    groupSort: carry.groupSort,
+  };
   const listHref = (over: Record<string, string | undefined> = {}) =>
     `/skills/discovery${queryString(over)}`;
-  const retryHref = listHref({});
+
 
   const tierTabHref = (tier: AdminSkillReviewTier | "all") =>
     listHref({ tier, ack: undefined, cursor: undefined });
@@ -246,17 +258,10 @@ export default async function SkillDiscoveryPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <p className="page__eyebrow">Skills</p>
-          <h1 className="page__title">Skill Discovery</h1>
-          <p className="page__sub">
-            AI-surfaced claims that the canonical skill taxonomy may be missing something. Each
-            row is a claim, never a skill — an approval only records a decision; the corpus write
-            stays in the offline, gated chain.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Skill discovery"
+        description="AI-surfaced claims that the skill taxonomy may be missing something — each a claim, never a skill: an approval only records a decision, and the corpus write stays in the offline, gated chain."
+      />
 
       <MetricsTiles metrics={metrics} />
 
@@ -278,6 +283,7 @@ export default async function SkillDiscoveryPage({
               className={`btn btn--sm ${view === "grouped" ? "btn--primary" : "btn--ghost"}`}
               href={listHref({ view: undefined, cursor: undefined })}
             >
+              <Icon name="rows" />
               Grouped
             </Link>
             <Link
@@ -285,6 +291,7 @@ export default async function SkillDiscoveryPage({
               className={`btn btn--sm ${view === "flat" ? "btn--primary" : "btn--ghost"}`}
               href={listHref({ view: "flat", cursor: undefined })}
             >
+              <Icon name="list-bullets" />
               Flat
             </Link>
           </div>
@@ -369,7 +376,9 @@ export default async function SkillDiscoveryPage({
 
           <SkillDiscoveryFilterBar
             basePath="/skills/discovery"
-            carry={carry}
+            /* ONLY the controls above the bar. The full `carry` holds the bar's own fields too,
+               and passing it made an emptied field come back on Apply and "Clear" a no-op. */
+            carry={barCarry}
             initial={{
               band: band ?? "",
               proposedAction: proposedAction ?? "",
@@ -395,7 +404,8 @@ export default async function SkillDiscoveryPage({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/skills/discovery">
-                Reset filters
+                <Icon name={ACTION_ICON.clearFilters} />
+                Clear filters
               </Link>
             </div>
           </div>
@@ -403,13 +413,11 @@ export default async function SkillDiscoveryPage({
           <div className="state state--error">
             <h3 className="state__title">The queue is unavailable</h3>
             <p className="state__body">
-              The read failed — a fault on our side, not the filters. Reload to try again.
+              The read failed — a fault on our side, not the filters.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href={retryHref}>
-                Retry
-              </Link>
-            </div>
+            {/* "Retry" repeats the query that failed, its page cursor included; only the flat
+                view pages, so only it can carry a cursor to drop. */}
+            <RetryActions href={listHref({})} cursor={view === "flat" ? cursor : undefined} />
           </div>
         ) : itemCount === 0 ? (
           <EmptyQueueState
@@ -461,7 +469,7 @@ const FLAT_LIMIT = 50; // ADMIN_SKILL_DISCOVERY_PAGE_DEFAULT
 
 const STATUS_SCOPE_LABELS: Record<"awaiting" | "held" | "decided" | "all", string> = {
   awaiting: "Awaiting decision",
-  held: "Held",
+  held: "On hold",
   decided: "Decided",
   all: "All statuses",
 };
@@ -506,7 +514,7 @@ function MetricsTiles({ metrics }: { metrics: SkillDiscoveryMetrics | null }) {
       </h2>
       {metrics === null ? (
         <div className="state state--error">
-          <h3 className="state__title">Dashboard tiles are unavailable</h3>
+          <h3 className="state__title">Queue metrics are unavailable</h3>
           <p className="state__body">
             The metrics read failed. The queue below is a separate read and may still work.
           </p>
@@ -525,7 +533,7 @@ function MetricsBody({ metrics }: { metrics: SkillDiscoveryMetrics }) {
   return (
     <>
       <div className="stats">
-        <Stat label="Pending review" value={formatCount(metrics.awaiting_decision)} />
+        <Stat label="Awaiting decision" value={formatCount(metrics.awaiting_decision)} />
         <Stat label={ADMIN_SKILL_REVIEW_TIER_LABELS.direct} value={formatCount(byTier("direct"))} />
         <Stat
           label={ADMIN_SKILL_REVIEW_TIER_LABELS.ambiguous}
@@ -537,11 +545,11 @@ function MetricsBody({ metrics }: { metrics: SkillDiscoveryMetrics }) {
         />
       </div>
       <div className="stats stats--compact">
-        <Stat label="Created" value={formatCount(byStatus("approved_create"))} />
-        <Stat label="Mapped" value={formatCount(byStatus("approved_map"))} />
+        <Stat label="New skill" value={formatCount(byStatus("approved_create"))} />
+        <Stat label="Added as alias" value={formatCount(byStatus("approved_map"))} />
         <Stat label="Merged" value={formatCount(byStatus("approved_merge"))} />
         <Stat label="Rejected" value={formatCount(byStatus("rejected"))} />
-        <Stat label="Held" value={formatCount(metrics.deferred)} />
+        <Stat label="On hold" value={formatCount(metrics.deferred)} />
       </div>
       <div className="queue-notes">
         <p className="field__help">
@@ -591,7 +599,7 @@ function EmptyQueueState({
       <div className="state">
         <h3 className="state__title">Nothing is awaiting a decision right now</h3>
         <p className="state__body">
-          Every candidate has either been decided or is on hold. Check the Held or Decided
+          Every candidate has either been decided or is on hold. Check the On hold or Decided
           scopes above to see them.
         </p>
       </div>
@@ -606,7 +614,8 @@ function EmptyQueueState({
       </p>
       <div className="state__actions">
         <Link className="btn btn--ghost" href="/skills/discovery">
-          Reset filters
+          <Icon name={ACTION_ICON.clearFilters} />
+          Clear filters
         </Link>
       </div>
     </div>
@@ -672,6 +681,9 @@ function GroupedQueue({
         <li key={g.key} className="panel">
           <details className="reviewgroup">
             <summary>
+              {/* The brand caret replaces the browser's own triangle (hidden in CSS); it turns
+                  to point down when the group is open. */}
+              <Icon name={ACTION_ICON.disclosure} className="disclosure__caret" />
               <strong>{g.label}</strong> · {formatCount(g.candidates)}{" "}
               {g.candidates === 1 ? "candidate" : "candidates"} · {formatCount(g.undecided)} undecided
               {g.trade_family && <> · {g.trade_family}</>}

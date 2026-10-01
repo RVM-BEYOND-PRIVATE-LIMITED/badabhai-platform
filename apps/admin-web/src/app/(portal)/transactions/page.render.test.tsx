@@ -147,3 +147,26 @@ describe("transactions — simulated money is marked on the page", () => {
     expect(out.indexOf(MOCK_POSTURE_BANNER)).toBeLessThan(table);
   });
 });
+
+describe("the status chips keep an account narrowing (owner brief 2026-10-01)", () => {
+  const renderWith = async (sp: Record<string, string>) =>
+    renderToStaticMarkup(await TransactionsPage({ searchParams: Promise.resolve(sp) }));
+  const PAYER = "6155050c-c91b-4c6e-96a7-8da023f1d2d2";
+
+  it("a chip carries ?payerId= — it used to drop it and widen to every account", async () => {
+    const out = await renderWith({ status: "paid", payerId: PAYER });
+    expect(out).toContain(`href="/transactions?status=failed&amp;payerId=${PAYER}"`);
+    expect(out).toContain(`href="/transactions?status=created&amp;payerId=${PAYER}"`);
+  });
+
+  it("marks the active chip, and only it", async () => {
+    const out = await renderWith({ status: "paid", payerId: PAYER });
+    expect(out).toMatch(/aria-current="true"[^>]*href="\/transactions\?status=paid&amp;payerId=/);
+    expect((out.match(/aria-current="true"/g) ?? []).length).toBe(1);
+  });
+
+  it("without a narrowing, a chip is just the status", async () => {
+    const out = await renderWith({});
+    expect(out).toContain('href="/transactions?status=paid"');
+  });
+});
