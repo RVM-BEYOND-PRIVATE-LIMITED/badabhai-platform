@@ -5,6 +5,9 @@ what the page is for and the capability that gates it, plus the header rules eve
 Each portal keeps its own section. Update the section in the same change as the navigation it
 describes.
 
+The nav is an **affordance**. Every route keeps its own server gate; an item is shown only when
+its page would render for that session.
+
 ## Admin
 
 `apps/admin-web` — the internal operations console. Owner rulings 2026-10-01: the job entity is
@@ -119,3 +122,108 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
 - **Icons** come from `@badabhai/icons` only (`<Icon>`, `ACTION_ICON`). Key actions show icon
   and text. Icon-only controls use the admin `IconButton`. No arrow, tick or cross characters
   stand in for icons, and every `<summary>` draws the brand caret.
+
+## Payer (Company + Agency)
+
+App: `apps/payer-web`. Personas: **Company** (`session.role === "employer"`) and **Agency**
+(`session.role === "agent"`). The rail is one model, `src/app/(portal)/nav-model.ts`; its order and
+labels are pinned by `nav-model.test.ts`.
+
+### Gates
+
+| Key   | Gate                                                                 | Fails as             |
+| ----- | -------------------------------------------------------------------- | -------------------- |
+| P     | `requirePayer()` — every portal route (the portal layout runs it)    | redirect to `/login` |
+| A     | `requireAgent()` — agency-only routes                                | neutral 404          |
+| O     | `requireOwner()` — Owner-only routes                                 | neutral 404          |
+| F     | `agencyFlags().agencyPortalEnabled` (default on) — every agency page | neutral 404          |
+| nav-O | item shown only when `getOrgRole(session) === "owner"`               | item hidden          |
+| nav-F | item shown only when F is on (the same flag the page checks)         | item hidden          |
+
+`getOrgRole()` is a stub that returns `recruiter` for every session outside dev/test
+(GAP-FE-01, `docs/payer-agent/GAP_REGISTER.md`), so O routes and nav-O items are absent for real
+users today. No link to an O route is rendered for a non-owner.
+
+### Rail (desktop ≥1024px; the same list is the drawer below 1024px)
+
+| Persona | Group        | Nav item         | Route               | Page                        | Purpose                                                    | Permission / flag                              |
+| ------- | ------------ | ---------------- | ------------------- | --------------------------- | ---------------------------------------------------------- | ---------------------------------------------- |
+| Both    | —            | Dashboard        | `/dashboard`        | `dashboard/page.tsx`        | What needs you, position, quick actions, recent work       | P                                              |
+| Company | Hiring       | New posting      | `/postings/new`     | `postings/new/page.tsx`     | Create a company posting (`job_postings`)                  | P; agent → redirected to `/agency/jobs/new`    |
+| Company | Hiring       | Postings         | `/postings`         | `postings/page.tsx`         | List + pause / resume / add applicant slots / close        | P; agent → see "Agency on the company surface" |
+| Agency  | Demand       | New posting      | `/agency/jobs/new`  | `agency/jobs/new/page.tsx`  | Create an agency posting (`jobs`, the worker feed's table) | A + F; nav-F                                   |
+| Agency  | Demand       | Postings         | `/agency/jobs`      | `agency/jobs/page.tsx`      | List + edit / pause / resume / close the agency's postings | A + F; nav-F                                   |
+| Agency  | Supply       | Worker activity  | `/agency/workers`   | `agency/workers/page.tsx`   | Faceless funnel of the workers the agency referred         | A + F; nav-F                                   |
+| Agency  | Supply       | Referrals        | `/agency/referrals` | `agency/referrals/page.tsx` | Invite link, batch links, funnel, earnings / KYC / payouts | A + F; nav-F                                   |
+| Agency  | Supply       | QR invite        | `/agency/qr`        | `agency/qr/page.tsx`        | Printable QR invite sheet                                  | A + F; nav-F                                   |
+| Both    | Billing      | Plans & capacity | `/plans`            | `plans/page.tsx`            | Usage, Hiring capacity, applicant quota, credits, plans    | P                                              |
+| Both    | Billing      | Credits          | `/credits`          | `credits/page.tsx`          | Credit balance, buy credits, history, expiry               | O; nav-O                                       |
+| Both    | Organisation | Team             | `/team`             | `team/page.tsx`             | Members, invite a recruiter                                | O; nav-O                                       |
+| Agency  | Coming soon  | Revenue (Soon)   | `/agency/revenue`   | `agency/revenue/page.tsx`   | Parked explainer (no data)                                 | A + F; nav-F                                   |
+
+Not in the rail, on purpose: **Bulk invite upload** (`/agency/bulk-upload`). It is dead — a consent
+violation that will never be built (ADR-0022 Amendment 3) — and is never framed as coming. Its one
+way in is the dashboard's Invite tools card, which says why it is not available.
+
+### Header (every portal page)
+
+| Element      | Label                                     | Route / action | Purpose                                                                    | Permission / flag                                         |
+| ------------ | ----------------------------------------- | -------------- | -------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Brand lockup | "BadaBhai for Companies" / "for Agencies" | `/dashboard`   | Home                                                                       | P                                                         |
+| Breadcrumb   | group, then the section as a link         | the section    | Section context only: never the page itself (its H1 names it), never an id | derived from the rail                                     |
+| Credits chip | wallet icon + "{n} credits"               | `/credits`     | The balance — shown once per screen                                        | link for O only; static otherwise; hidden on a read error |
+| Account menu | "Account"                                 | `/account`     | The payer's own settings page                                              | P                                                         |
+| Account menu | "Sign out"                                | server action  | Sign out                                                                   | P                                                         |
+
+Breadcrumb examples: `/postings` → "Hiring"; `/postings/<id>/applicants` → "Hiring › Postings";
+`/postings/ai/new` → "Hiring › New posting"; `/dashboard`, `/account` → no trail.
+
+### Pages below a nav destination (back link = the real parent)
+
+Every page renders one `PageHeader` (`src/components/page-header.tsx`): back link (these pages
+only) · H1 + one-sentence description · status · one primary action · secondaries · optional
+toolbar. Top-level pages (rail or account menu) have no back link.
+
+| Persona | Route                          | H1                 | Back link        | Header actions                                                     | Permission / flag                                      |
+| ------- | ------------------------------ | ------------------ | ---------------- | ------------------------------------------------------------------ | ------------------------------------------------------ |
+| Company | `/postings/ai/new`             | Post with AI       | New posting      | —                                                                  | P; agent → `/agency/jobs/new`                          |
+| Company | `/postings/<id>`               | the role title     | Postings         | status · View applicants · Edit posting (draft: Edit posting only) | P (owned posting)                                      |
+| Company | `/postings/<id>/edit`          | Edit posting       | Posting details  | — (Save / Publish posting in the form)                             | P; agent → `/postings/<id>`                            |
+| Company | `/postings/<id>/applicants`    | Applicants         | Posting details  | —                                                                  | P                                                      |
+| Agency  | `/agency/jobs/<id>`            | the posting title  | Postings         | status · View applicants                                           | A + F                                                  |
+| Agency  | `/agency/jobs/<id>/applicants` | Applicants         | Posting details  | —                                                                  | A + F                                                  |
+| Both    | `/capacity`                    | Hiring capacity    | Plans & capacity | —                                                                  | P (one entry point: the New posting at-capacity alert) |
+| Agency  | `/agency/bulk-upload`          | Bulk invite upload | Dashboard        | —                                                                  | A + F                                                  |
+
+Top-level pages outside the rail (no back link): `/account` (H1 "Account", the account menu's
+item; P) and `/team/accept` (H1 "Join a team", the invite email's link; P — its trail is
+"Organisation › Team" for an owner, none for a recruiter).
+
+Redirects (kept so old links resolve): `/` → `/dashboard` or `/login`; `/profile` → `/account`;
+`/agency/dashboard` → `/dashboard`.
+
+### Agency on the company surface
+
+Agencies post agency jobs only. The company posting surface is never linked for an agent:
+
+- `/postings/new`, `/postings/ai/new` → redirect to `/agency/jobs/new` (or `/dashboard` when F is off).
+- `/postings` → redirect to `/agency/jobs`, unless the agent owns older company postings; those
+  are shown read-only under the H1 "Older postings" (no create, edit or lifecycle controls), with a
+  link to Postings.
+- `/postings/<id>` → read-only (no Edit posting); `/postings/<id>/edit` → redirect to `/postings/<id>`.
+- The backend role gate for this surface is issue #1885.
+
+### Vocabulary (labels only — no route or API path was renamed)
+
+| Concept                        | Label                                                                              |
+| ------------------------------ | ---------------------------------------------------------------------------------- |
+| The job entity (both personas) | Posting: New posting · Postings · Posting details · Edit posting · Publish posting |
+| Headcount on a posting         | Openings                                                                           |
+| Person in a posting's feed     | Applicant                                                                          |
+| Person an agency referred      | Worker                                                                             |
+| The balance                    | Credits (wallet icon everywhere)                                                   |
+| Buying the balance             | Buy credits                                                                        |
+| Buying a posting more views    | Add applicant slots (stack-plus icon)                                              |
+| Billing area / tier / cap      | Plans & capacity · Hiring capacity · Applicant quota                               |
+| Agency KYC                     | Payout details (KYC)                                                               |
+| Personas                       | Company · Agency (browser title "BadaBhai for Business")                           |
