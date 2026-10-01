@@ -17,6 +17,7 @@ import {
   creditLedger,
   paymentOrders,
   workers,
+  jobs,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { OPS_LIST_CAP } from "../common/pagination";
@@ -39,6 +40,15 @@ export const RAZORPAY_PROVIDER = "razorpay";
  * (Phase-0 F-2 / F-6). `Tx` is the first argument of a `db.transaction` callback.
  */
 export type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+/**
+ * A job context proven to name a `jobs` row (#1903) — the ONLY job id the unlock writes and
+ * events accept. `unlocks.job_id` is an FK to `jobs`, and a payer may send a `job_postings` id,
+ * so a raw request id must never reach a write. Minted in exactly one place,
+ * `UnlockService.resolveJobContext`; the brand makes the compiler reject a raw id (including
+ * one spread in from the request input).
+ */
+export type ResolvedJobId = string & { readonly __brand: "ResolvedJobId" };
 
 /** PII-free projection of a credit_ledger movement (amounts + opaque ids only). */
 export interface CreditLedgerItem {
@@ -185,7 +195,7 @@ export class UnlocksRepository {
     input: {
       payerId: string;
       workerId: string;
-      jobId: string | null;
+      jobId: ResolvedJobId | null;
       routingTokenRef: string;
       grantedAt: Date;
       expiresAt: Date;
@@ -231,7 +241,7 @@ export class UnlocksRepository {
     input: {
       payerId: string;
       workerId: string;
-      jobId: string | null;
+      jobId: ResolvedJobId | null;
       denyReason: UnlockDenyReason;
     },
   ): Promise<Unlock> {
@@ -376,6 +386,20 @@ export class UnlocksRepository {
       .limit(1)
       .for("update");
     return rows[0];
+  }
+
+  /**
+   * True when a `jobs` row has this id (#1903). The existence probe behind the unlock's
+   * job-context resolution: `unlocks.job_id` is an FK to `jobs`, so the service records only
+   * an id this returns true for. Tx-EXTERNAL (global pool) — read before the advisory lock.
+   */
+  async jobExists(jobId: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(eq(jobs.id, jobId))
+      .limit(1);
+    return rows.length > 0;
   }
 
   /** The payer's current balance (non-tx read), or 0 if no row. Ops read. */

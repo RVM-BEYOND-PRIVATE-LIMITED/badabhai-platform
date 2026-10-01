@@ -24,6 +24,7 @@ import {
   type Tx,
   type UnlockProjection,
   type CreditLedgerItem,
+  type ResolvedJobId,
 } from "./unlocks.repository";
 import { PaymentGateway, type RealOrderHandoff, type SettleResult } from "./payment-gateway";
 import { verifyCheckoutSignature } from "./razorpay-signature";
@@ -87,6 +88,8 @@ interface TxResult<R> {
  *
  * FAIL-CLOSED ORDERING for POST /unlocks (every gate denies + discloses nothing on
  * failure):
+ *   [0]   job-context resolution (#1903) — tx-external, worker-state INDEPENDENT, pre-lock:
+ *         a job id that is not a `jobs` row is recorded as null (never reaches the FK).
  *   [F-1] credit precondition (worker-state INDEPENDENT) FIRST — a zero-credit payer
  *         gets the SAME neutral body regardless of any worker's state (closes the
  *         payment_required consent oracle, BC-1).
@@ -150,9 +153,18 @@ export class UnlockService {
     input: { payerId: string; workerId: string; jobId: string | null },
     ctx: RequestContext,
   ): Promise<UnlockOutcome> {
-    const { payerId, workerId, jobId } = input;
+    const { payerId, workerId } = input;
     const _r21_start = Date.now();
     try {
+
+    // #1903 (#1823 decision O9, 2026-10-01) — `unlocks.job_id` is an FK to `jobs`, but a
+    // company unlocking from a posting sends the `job_postings` id. Resolve the job context
+    // ONCE, here, before the first emit and before the advisory lock (a tx-external read,
+    // same deadlock rule as the consent read below). Every row write and every event below
+    // uses ONLY this resolved value, so neither the FK nor an event's `jobs`-id field ever
+    // receives a posting id. Lossy by design: the posting linkage is dropped (O9 rejected an
+    // additive `unlocks.job_posting_id` for now).
+    const jobId = await this.resolveJobContext(input.jobId, ctx);
 
     // Audit the attempt at entry (PII-free). We do NOT yet have an unlock_id, so this
     // is keyed on (payer, worker) so a retry is one logical request in the spine. The
@@ -955,6 +967,29 @@ export class UnlockService {
   }
 
   /**
+   * #1903 (#1823 decision O9) — the job context an unlock may RECORD: `null` → null; the
+   * id of an existing `jobs` row → that id; anything else (a company `job_postings` id, an
+   * unknown id) → null. Keeps the `unlocks.job_id → jobs` FK satisfiable, so a posting-id
+   * unlock grants instead of rolling back with a 500. Tx-EXTERNAL read, called before the
+   * advisory lock (deadlock rule). A read error propagates: it happens before any emit or
+   * state change, so the request fails closed with nothing written. The ONE place a
+   * {@link ResolvedJobId} is minted.
+   */
+  private async resolveJobContext(
+    jobId: string | null,
+    ctx: RequestContext,
+  ): Promise<ResolvedJobId | null> {
+    if (jobId === null) return null;
+    if (await this.repo.jobExists(jobId)) return jobId as ResolvedJobId;
+    // PII-free (opaque ids). Unlock events no longer carry the posting linkage, so this
+    // line is where it survives.
+    this.logger.log(
+      `unlock job context ${jobId} is not a jobs row; recorded as null (correlation=${ctx.correlationId})`,
+    );
+    return null;
+  }
+
+  /**
    * ADR-0031 payer-surface freeze (ruling (b)): true when the worker has a PENDING
    * scheduled deletion (`deletion_scheduled_at` set). A leaving worker must stop
    * surfacing to payers — every caller denies with the byte-identical neutral body
@@ -1028,7 +1063,7 @@ export class UnlockService {
   private async emitRequested(
     payerId: string,
     workerId: string,
-    jobId: string | null,
+    jobId: ResolvedJobId | null,
     ctx: RequestContext,
   ): Promise<void> {
     const payload: PayloadInputOf<"unlock.requested"> = {
@@ -1068,7 +1103,7 @@ export class UnlockService {
     unlockId: string,
     payerId: string,
     workerId: string,
-    jobId: string | null,
+    jobId: ResolvedJobId | null,
     expiresAt: Date,
     ctx: RequestContext,
   ): Promise<void> {
@@ -1112,7 +1147,7 @@ export class UnlockService {
     unlockId: string,
     payerId: string,
     workerId: string,
-    jobId: string | null,
+    jobId: ResolvedJobId | null,
     ctx: RequestContext,
   ): Promise<void> {
     const payload: PayloadInputOf<"profile.viewed_v2"> = {
@@ -1137,7 +1172,7 @@ export class UnlockService {
     unlockId: string | null,
     payerId: string,
     workerId: string,
-    jobId: string | null,
+    jobId: ResolvedJobId | null,
     reason: UnlockDenyReason,
     ctx: RequestContext,
   ): Promise<void> {

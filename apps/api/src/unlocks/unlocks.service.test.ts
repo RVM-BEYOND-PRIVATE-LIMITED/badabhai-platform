@@ -44,6 +44,8 @@ interface SetupOpts {
   reveals?: number; // countRevealsSince
   payers?: number; // countDistinctPayersSince
   debitOk?: boolean;
+  /** #1903 — whether the request's job context is a `jobs` row (false = a posting id). */
+  jobRowExists?: boolean;
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -89,6 +91,7 @@ function setup(opts: SetupOpts = {}) {
   const repo = {
     withTransaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work(txMethods)),
     getBalance: vi.fn(async () => balance),
+    jobExists: vi.fn(async () => opts.jobRowExists ?? true),
     listByPayer: vi.fn(async () => []),
     // reveal() reads the projection (tx-external) BEFORE the lock to run the consent
     // gate; return a worker_id-bearing projection whenever an unlock exists so that
@@ -366,7 +369,7 @@ describe("UnlockService — happy path (apply→grant) emits the right PII-free 
     expect(JSON.stringify(evt)).not.toContain(SENTINEL_PHONE);
   });
 
-  it("carries job_id when the unlock has a posting (search-found unlocks omit it)", async () => {
+  it("carries job_id when the unlock's job context is a jobs row (search-found unlocks omit it)", async () => {
     const JOB = "55555555-5555-4555-8555-555555555555";
     const { svc, events } = setup({ balance: 5, consentPurposes: ["employer_sharing"] });
     await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: JOB }, CTX);
@@ -432,6 +435,92 @@ describe("UnlockService — happy path (apply→grant) emits the right PII-free 
     const out = await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
     // The grant is already committed; flushEvents swallows a failed deferred thunk.
     expect(out).toMatchObject({ ok: true, status: "granted" });
+  });
+});
+
+describe("UnlockService — #1903 job context resolution (O9: a posting id is recorded as null)", () => {
+  const JOB = "55555555-5555-4555-8555-555555555555";
+  const POSTING = "66666666-6666-4666-8666-666666666666";
+
+  function payloadOf(events: { emit: { mock: { calls: unknown[][] } } }, name: string) {
+    const call = events.emit.mock.calls.find((c) => (c[0] as { event_name: string }).event_name === name);
+    expect(call, `${name} must be emitted`).toBeDefined();
+    return (call![0] as { payload: Record<string, unknown> }).payload;
+  }
+
+  it("a company posting id GRANTS (no FK 500): the row and every event carry null, never the posting id", async () => {
+    const { svc, repo, txMethods, events } = setup({ jobRowExists: false });
+    const out = await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: POSTING }, CTX);
+
+    expect(out).toMatchObject({ ok: true, unlock_id: "unlock-1", status: "granted" });
+    expect(repo.jobExists).toHaveBeenCalledWith(POSTING);
+    expect(txMethods.upsertGrant).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ jobId: null }));
+    expect(payloadOf(events, "unlock.requested").job_id).toBeNull();
+    expect(payloadOf(events, "unlock.granted").job_id).toBeNull();
+    // profile.viewed_v2 omits the key when there is no job context.
+    expect(payloadOf(events, "profile.viewed_v2")).not.toHaveProperty("job_id");
+    // The posting id reaches NO event — not in a payload, subject, or idempotency key.
+    expect(JSON.stringify(events.emit.mock.calls)).not.toContain(POSTING);
+  });
+
+  it("a real jobs id passes through untouched to the row and the events", async () => {
+    const { svc, txMethods, events } = setup({ jobRowExists: true });
+    await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: JOB }, CTX);
+
+    expect(txMethods.upsertGrant).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ jobId: JOB }));
+    expect(payloadOf(events, "unlock.requested").job_id).toBe(JOB);
+    expect(payloadOf(events, "unlock.granted").job_id).toBe(JOB);
+    expect(payloadOf(events, "profile.viewed_v2").job_id).toBe(JOB);
+  });
+
+  it("no job context → no jobs read, null recorded", async () => {
+    const { svc, repo, txMethods } = setup();
+    await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+
+    expect(repo.jobExists).not.toHaveBeenCalled();
+    expect(txMethods.upsertGrant).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ jobId: null }));
+  });
+
+  it.each([
+    { branch: "no_consent", opts: { consentPurposes: ["profiling"] }, writesRow: true },
+    { branch: "unknown_worker", opts: { consentPurposes: null, workerExists: false }, writesRow: false },
+    { branch: "capped", opts: { reveals: 5 }, writesRow: true },
+  ] satisfies { branch: string; opts: SetupOpts; writesRow: boolean }[])(
+    "$branch deny: the row and unlock.denied carry the resolved null, never the posting id",
+    async ({ branch, opts, writesRow }) => {
+      const { svc, txMethods, events } = setup({ ...opts, jobRowExists: false });
+      const out = await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: POSTING }, CTX);
+
+      expect(out).toEqual(neutralUnavailable());
+      expect(payloadOf(events, "unlock.denied")).toMatchObject({ reason: branch, job_id: null });
+      if (writesRow) {
+        expect(txMethods.recordDeny).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ jobId: null }));
+      } else {
+        expect(txMethods.recordDeny).not.toHaveBeenCalled();
+      }
+      expect(JSON.stringify([events.emit.mock.calls, txMethods.recordDeny.mock.calls])).not.toContain(POSTING);
+    },
+  );
+
+  it("resolves BEFORE the first emit and before the locked transaction", async () => {
+    const { svc, repo, events } = setup({ jobRowExists: false });
+    await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: POSTING }, CTX);
+
+    const resolvedAt = repo.jobExists.mock.invocationCallOrder[0]!;
+    expect(resolvedAt).toBeLessThan(events.emit.mock.invocationCallOrder[0]!);
+    expect(resolvedAt).toBeLessThan(repo.withTransaction.mock.invocationCallOrder[0]!);
+  });
+
+  it("fails closed when the jobs read errors: nothing emitted, no transaction, no debit", async () => {
+    const { svc, repo, txMethods, events } = setup();
+    repo.jobExists.mockRejectedValueOnce(new Error("db down"));
+
+    await expect(
+      svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: POSTING }, CTX),
+    ).rejects.toThrow("db down");
+    expect(events.emit).not.toHaveBeenCalled();
+    expect(repo.withTransaction).not.toHaveBeenCalled();
+    expect(txMethods.tryDebit).not.toHaveBeenCalled();
   });
 });
 

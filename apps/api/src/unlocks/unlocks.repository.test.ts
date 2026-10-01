@@ -9,9 +9,10 @@ import {
   creditLedger,
   paymentOrders,
   workers,
+  jobs,
   type Database,
 } from "@badabhai/db";
-import { UnlocksRepository, RAZORPAY_PROVIDER } from "./unlocks.repository";
+import { UnlocksRepository, RAZORPAY_PROVIDER, type ResolvedJobId, type Tx } from "./unlocks.repository";
 
 /**
  * STRUCTURAL tests for the Contact Unlock + Reveal repository (ADR-0010 Stream A), the
@@ -33,7 +34,8 @@ const params = (cond: unknown) => compile(cond).params;
 
 const PAYER_ID = "aaaaaaaa-0000-4000-8000-000000000001";
 const WORKER_ID = "bbbbbbbb-0000-4000-8000-000000000002";
-const JOB_ID = "cccccccc-0000-4000-8000-000000000003";
+// A job id the service has already resolved to a `jobs` row (#1903) — the only kind the writes take.
+const JOB_ID = "cccccccc-0000-4000-8000-000000000003" as ResolvedJobId;
 const UNLOCK_ID = "dddddddd-0000-4000-8000-000000000004";
 
 interface InsertCall {
@@ -414,6 +416,47 @@ describe("UnlocksRepository.findCreditsForUpdate — locked balance read", () =>
     expect(params(captured.where)).toEqual([PAYER_ID]);
     expect(captured.limit).toBe(1);
     expect(captured.forMode).toBe("update");
+  });
+});
+
+describe("UnlocksRepository.jobExists — the unlock job-context FK probe (#1903)", () => {
+  it("probes jobs by primary key, projecting only the id, one row", async () => {
+    const { db, captured } = makeDb({ rows: [{ id: JOB_ID }] });
+    const out = await new UnlocksRepository(db).jobExists(JOB_ID);
+    expect(captured.selectTable).toBe(jobs);
+    expect(Object.keys(captured.selection!)).toEqual(["id"]);
+    expect(text(captured.where)).toBe('"jobs"."id" = $1');
+    expect(params(captured.where)).toEqual([JOB_ID]);
+    expect(captured.limit).toBe(1);
+    expect(out).toBe(true);
+  });
+
+  it("is false when no jobs row has the id (e.g. a job_postings id)", async () => {
+    const { db } = makeDb({ rows: [] });
+    expect(await new UnlocksRepository(db).jobExists(JOB_ID)).toBe(false);
+  });
+
+  it("the unlock writes refuse an UNRESOLVED job id at compile time (typecheck-enforced)", () => {
+    // `tsc` covers this file: if `ResolvedJobId` is ever loosened back to `string`, these
+    // directives become unused and the typecheck fails. Never invoked at runtime.
+    const raw: string = "66666666-6666-4666-8666-666666666666";
+    const repo = new UnlocksRepository(makeDb().db);
+    const tx = {} as Tx;
+    const base = { payerId: PAYER_ID, workerId: WORKER_ID };
+    const unused = [
+      // @ts-expect-error a raw request id is not a ResolvedJobId (#1903)
+      () => repo.recordDeny(tx, { ...base, jobId: raw, denyReason: "capped" }),
+      () =>
+        repo.upsertGrant(tx, {
+          ...base,
+          // @ts-expect-error a raw request id is not a ResolvedJobId (#1903)
+          jobId: raw,
+          routingTokenRef: UNLOCK_ID,
+          grantedAt: new Date(),
+          expiresAt: new Date(),
+        }),
+    ];
+    expect(unused).toHaveLength(2);
   });
 });
 

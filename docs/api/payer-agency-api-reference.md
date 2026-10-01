@@ -308,7 +308,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 
 #### `POST /payer/unlocks`
 - **Auth:** `PayerAuthGuard` (Bearer). Per-payer hourly disclosure cap.
-- **Body:** `{ worker_id: UUID, job_id: UUID|null }` — no `payer_id`.
+- **Body:** `{ worker_id: UUID, job_id: UUID|null }` — no `payer_id`. `job_id` is optional context: an id that is not a `jobs` row (e.g. a company `job_postings` id) is accepted and recorded as `null` on the unlock row and in every unlock event (#1903; #1823 decision O9).
 - **Response:** SUCCESS `{ ok: true, unlock_id, status: 'granted', expires_at }` **OR** NEUTRAL `{ status: 'unavailable' }` (HTTP `200` in both cases).
 - **Events:** on success `unlock.requested` + `unlock.granted` + `payment.authorized` + `payment.captured`; on deny `unlock.denied` (plus `unlock.cap_exceeded` if a per-worker cap is hit, or `payment.failed` if no credit). The deny **reason is internal-only**, never echoed in the response.
 - **Mobile gotchas:** Spends 1 credit on grant. All denials (no credit / capped / no consent / protected) return the **same** neutral `unavailable` — never infer why. Fail-closed ordering (credit precondition → consent → cap → grant). Branch on the `ok` field, not the HTTP status.
