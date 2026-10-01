@@ -15,8 +15,11 @@ import type { ApplicantFeed, FacelessApplicant } from "../../../../../lib/contra
  *  - FACELESS: the explainer alert stays; every card is a masked avatar + an 8-char opaque id;
  *    no phone/email-shaped run, no identity vocabulary in the list, and the VISIBLE text never
  *    shows the full worker id.
- *  - BALANCE IS AN AFFORDANCE: a failed balance read drops the chip but leaves Unlock ENABLED
- *    (only a real 0 disables it) — the no-oracle server makes the spend decision.
+ *  - BALANCE IS AN AFFORDANCE: a failed balance read leaves Unlock ENABLED (only a real 0
+ *    disables it) — the no-oracle server makes the spend decision. The balance is printed ONCE,
+ *    by the shell header's credits chip — never again on this page.
+ *  - CREDITS IS OWNER-ONLY: a zero balance links to /credits only for an owner.
+ *  - HEADER: the back link goes to the posting this feed belongs to.
  *  - NEUTRAL NOT-FOUND: a null feed (backend 404 for unknown AND not-owned) renders one union
  *    copy with no feed chrome; a failed read is a distinct, retryable error.
  *  - The `.applicants-page` wrapper exists (the screen's touch-target rules are scoped to it).
@@ -25,6 +28,10 @@ import type { ApplicantFeed, FacelessApplicant } from "../../../../../lib/contra
 
 const getApplicantFeed = vi.fn<(id: string) => Promise<ApplicantFeed | null>>();
 const getDashboard = vi.fn();
+const requirePayer = vi.fn();
+const getOrgRole = vi.fn();
+vi.mock("../../../../../lib/auth", () => ({ requirePayer: () => requirePayer() }));
+vi.mock("../../../../../lib/auth/org-roles", () => ({ getOrgRole: (s: unknown) => getOrgRole(s) }));
 vi.mock("../../../../../lib/payer-api", () => ({
   getApplicantFeed: (id: string) => getApplicantFeed(id),
   getDashboard: () => getDashboard(),
@@ -102,6 +109,8 @@ function unlockButtonTags(markup: string): string[] {
 beforeEach(() => {
   getApplicantFeed.mockReset().mockResolvedValue(FEED);
   getDashboard.mockReset().mockResolvedValue({ credits: { balance: 5 } });
+  requirePayer.mockReset().mockResolvedValue({ role: "employer" });
+  getOrgRole.mockReset().mockReturnValue("owner");
 });
 
 describe("applicants page — FACELESS rendered markup", () => {
@@ -132,10 +141,9 @@ describe("applicants page — FACELESS rendered markup", () => {
 });
 
 describe("applicants page — the balance is an AFFORDANCE, never a gate", () => {
-  it("a failed balance read drops the chip but leaves every Unlock ENABLED", async () => {
+  it("a failed balance read leaves every Unlock ENABLED", async () => {
     getDashboard.mockRejectedValueOnce(new Error("dashboard 503"));
     const out = await html();
-    expect(out).not.toContain("Balance:");
     const tags = unlockButtonTags(out);
     expect(tags).toHaveLength(FEED.applicants.length);
     for (const t of tags) expect(t).not.toMatch(/\bdisabled\b/);
@@ -147,12 +155,18 @@ describe("applicants page — the balance is an AFFORDANCE, never a gate", () =>
     const tags = unlockButtonTags(out);
     expect(tags).toHaveLength(FEED.applicants.length);
     for (const t of tags) expect(t).toMatch(/\bdisabled\b/);
-    expect(out).toContain("not a signal about any candidate");
+    expect(out).toContain("not a signal about any applicant");
   });
 
-  it("a loaded balance renders the chip beside the role title", async () => {
+  it("a loaded balance is NOT printed again on the page (the shell header's chip shows it)", async () => {
+    getDashboard.mockResolvedValueOnce({ credits: { balance: 4321 } });
     const out = await html();
-    expect(textOf(out)).toMatch(/Balance:\s+5/);
+    // The read still happened (it drives the Unlock affordance)…
+    expect(getDashboard).toHaveBeenCalledTimes(1);
+    // …but the number appears nowhere in the page markup, and no balance chip/badge renders.
+    expect(textOf(out)).not.toContain("4321");
+    expect(out).not.toMatch(/Balance:/);
+    expect(out).not.toContain("section__actions");
   });
 
   it("W3-A: only a REAL zero adds a Top up button beside each disabled Unlock", async () => {
@@ -164,7 +178,7 @@ describe("applicants page — the balance is an AFFORDANCE, never a gate", () =>
       const actions = row.slice(0, row.indexOf("</div>"));
       expect(actions).toMatch(/<button[^>]*\bdisabled\b[^>]*>[\s\S]*Unlock contact \(1 credit\)/);
       expect(actions).toContain('<a href="/credits" class="bb-btn bb-btn--secondary">');
-      expect(textOf(actions)).toMatch(/\bTop up\b/);
+      expect(textOf(actions)).toMatch(/\bBuy credits\b/);
     }
   });
 
@@ -190,19 +204,55 @@ describe("applicants page — the balance is an AFFORDANCE, never a gate", () =>
       const own = band.slice(0, band.indexOf('aria-live="polite"'));
       expect(own.match(/href="\/credits"/g)).toHaveLength(1);
       expect(textOf(own)).toContain(
-        "Top up to unlock. Guidance only — this is your own balance, never a signal about this candidate.",
+        "Buy credits to unlock. Guidance only — this is your own balance, never a signal about this applicant.",
       );
     }
   });
 });
 
 describe("applicants page — W3-A section head", () => {
-  it("groups the role title + count in `.section__text`; the balance chip follows on the title row", async () => {
+  it("groups the role title + count in `.section__text`, and the head holds nothing else", async () => {
     const out = await html();
-    const head = out.slice(out.indexOf('<div class="section__head applicants-feed__head">'));
+    const head = out.slice(out.indexOf('<div class="section__head">'));
     expect(head).toMatch(
-      /^<div class="section__head applicants-feed__head"><div class="section__text"><h2 class="section__title">CNC Turner<\/h2><p class="section__sub">[^<]*<\/p><\/div><div class="section__actions">/,
+      /^<div class="section__head"><div class="section__text"><h2 class="section__title">CNC Turner<\/h2><p class="section__sub">[^<]*<\/p><\/div><\/div>/,
     );
+  });
+});
+
+describe("applicants page — CREDITS is linked for an owner only", () => {
+  it("a recruiter at a zero balance gets no link to /credits (it would 404 for them)", async () => {
+    getOrgRole.mockReturnValue("recruiter");
+    getDashboard.mockResolvedValueOnce({ credits: { balance: 0 } });
+    const out = await html();
+    expect(out).not.toContain('href="/credits"');
+    expect(textOf(out)).toContain("An account owner can buy credits");
+    for (const t of unlockButtonTags(out)) expect(t).toMatch(/\bdisabled\b/);
+  });
+
+  it("an owner at a zero balance does get it", async () => {
+    getDashboard.mockResolvedValueOnce({ credits: { balance: 0 } });
+    expect(await html()).toContain('href="/credits"');
+  });
+});
+
+describe("applicants page — header: back to the posting, one H1, no hand-written head", () => {
+  it("renders the shared head with a back link to THIS posting's details", async () => {
+    const out = await html();
+    const at = out.indexOf('<p class="page-back">');
+    expect(at).toBeGreaterThanOrEqual(0);
+    const back = out.slice(at, out.indexOf("</p>", at));
+    expect(back.startsWith(`<p class="page-back"><a href="/postings/${POSTING}">`)).toBe(true);
+    expect(textOf(back).trim()).toBe("Posting details");
+    expect(out.match(/<h1 /g)).toHaveLength(1);
+    expect(out).toContain('<h1 class="page-head__title">Applicants</h1>');
+  });
+
+  it("the gate runs first: no feed or balance read when requirePayer rejects", async () => {
+    requirePayer.mockRejectedValueOnce(new Error("NEXT_REDIRECT"));
+    await expect(html()).rejects.toThrow("NEXT_REDIRECT");
+    expect(getApplicantFeed).not.toHaveBeenCalled();
+    expect(getDashboard).not.toHaveBeenCalled();
   });
 });
 

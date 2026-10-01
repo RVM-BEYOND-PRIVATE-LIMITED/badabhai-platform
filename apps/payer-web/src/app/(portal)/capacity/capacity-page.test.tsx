@@ -220,8 +220,8 @@ describe("capacity page — UI-1 page spine + a real empty state for the per-pos
     const { text, classes } = collect(await CapacityPage()); // default fixture: postings: []
     const flat = text.join(" ").replace(/\s+/g, " ");
     expect(flat).toContain("No postings yet");
-    expect(flat).toContain("You haven’t posted a job yet");
-    expect(flat).toContain("Post your first job"); // the recovery action
+    expect(flat).toContain("You haven’t published a posting yet");
+    expect(flat).toContain("New posting"); // the recovery action
     expect(classes).toContain("state");
   });
 
@@ -259,5 +259,31 @@ describe("capacity page — guardrails NOT regressed (no-oracle + faceless)", ()
     );
     const joined = collect(await CapacityPage()).text.join(" ");
     expect(joined).not.toMatch(/phone|\bemail\b|\+?\d{7,}/i);
+  });
+});
+
+describe("capacity page — the Hiring-capacity part of Plans & capacity (one entry point)", () => {
+  it("names the part it shows and goes back UP to Plans & capacity (not to the dashboard)", async () => {
+    const tree = await CapacityPage();
+    const { text } = collect(tree);
+    expect(text).toContain("Hiring capacity");
+    const back = (function find(node: ReactNode): ReactElement | null {
+      if (node === null || node === undefined || typeof node !== "object") return null;
+      if (Array.isArray(node)) {
+        for (const c of node) {
+          const hit = find(c);
+          if (hit) return hit;
+        }
+        return null;
+      }
+      const el = node as ReactElement<{ back?: { href: string; label: string }; children?: ReactNode }>;
+      if (el.props?.back) return el;
+      return el.props && "children" in el.props ? find(el.props.children) : null;
+    })(tree);
+    expect(back).not.toBeNull();
+    expect((back!.props as { back: unknown }).back).toEqual({
+      href: "/plans",
+      label: "Plans & capacity",
+    });
   });
 });

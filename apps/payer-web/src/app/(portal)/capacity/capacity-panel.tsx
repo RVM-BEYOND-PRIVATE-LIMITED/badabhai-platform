@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Icon } from "@badabhai/icons";
 import { Badge, Button, Card, Dialog, Toast } from "../../../components/ds";
 import { formatInr } from "../../../lib/format";
 import { upgradeCapacityAction } from "./actions";
@@ -90,7 +91,7 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
         // the payment/coupon spine (the exact regression #1178 fixed).
         setNotice(
           typeof res.allowance === "number"
-            ? `Purchase is still processing. Your allowance shows ${res.allowance} concurrent vacancies for now — check again in a moment.`
+            ? `Purchase is still processing. Your allowance shows ${res.allowance} concurrent postings for now — check again in a moment.`
             : "Purchase is still processing — check your allowance in a moment.",
         );
         router.refresh();
@@ -106,7 +107,7 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
       {tiers.length === 0 ? (
         <div className="state">
           <span className="state__icon">
-            <i className="ph-fill ph-stack" aria-hidden="true" />
+            <Icon name="stack" />
           </span>
           <h3 className="state__title">No capacity tiers on offer</h3>
           <p className="state__body">
@@ -128,7 +129,7 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
               </div>
               <div className="capacity-tier__price bb-mono">{formatInr(t.priceInr)}</div>
               <p className="capacity-tier__allowance">
-                <span className="bb-mono">{t.maxActiveVacancies}</span> concurrent vacancies
+                <span className="bb-mono">{t.maxActiveVacancies}</span> concurrent postings
               </p>
               <Button
                 variant="primary"
@@ -170,7 +171,7 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
         {pendingConfirm ? (
           <>
             Upgrade to the <span className="bb-mono">{pendingConfirm.maxActiveVacancies}</span>
-            -vacancy tier for{" "}
+            -posting tier for{" "}
             <span className="bb-mono">{formatInr(pendingConfirm.priceInr)}</span>? This is a mock
             upgrade — no real payment is taken.
           </>

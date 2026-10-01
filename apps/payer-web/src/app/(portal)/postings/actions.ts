@@ -84,8 +84,8 @@ export async function topUpQuotaAction(input: {
     // failure (never invite a retry that would double-purchase); tell the user to refresh.
     const notice =
       outcome.posting !== null
-        ? `Top-up applied — added ${outcome.addedViews} applicant views.`
-        : `Top-up applied (added ${outcome.addedViews} applicant views) — refresh to see it.`;
+        ? `Applicant slots added — ${outcome.addedViews} more applicant views.`
+        : `Applicant slots added (${outcome.addedViews} more applicant views) — refresh to see it.`;
     return { ok: true, posting: outcome.posting, notice };
   } catch (e) {
     // The ONE distinguishable business deny (409, no active plan): actionable copy.
@@ -93,7 +93,7 @@ export async function topUpQuotaAction(input: {
     if (e instanceof QuotaTopUpNoPlanError) {
       return { ok: false, error: "This posting has no active plan yet — buy a plan first." };
     }
-    return { ok: false, error: "Could not top up the quota right now. Please retry." };
+    return { ok: false, error: "Could not add applicant slots right now. Please retry." };
   }
 }
 

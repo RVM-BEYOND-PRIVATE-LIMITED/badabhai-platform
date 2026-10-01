@@ -15,7 +15,9 @@ import type { Capacity } from "../../lib/contracts";
  *   · the per-posting tables on /plans + /capacity are focusable scroll regions NAMED BY their
  *     panel heading (aria-labelledby → the heading's id, not a copied aria-label string);
  *   · /plans: every credit pack's action is a LINK to /credits (the purchase happens there),
- *     never an in-card button.
+ *     never an in-card button — and only for an OWNER (/credits is Owner-only);
+ *   · /postings for an AGENT: redirected to their own Postings, unless they own older company
+ *     postings, which are shown READ-ONLY (no create action).
  * Env is node: each async Server Component is awaited to an element tree and walked. The
  * client children are stubbed — they are unit-tested in their own suites.
  */
@@ -32,6 +34,10 @@ const AGENCY: PayerSession = { ...EMPLOYER, role: "agent" };
 
 const requirePayer = vi.fn<() => Promise<PayerSession>>();
 const requireOwner = vi.fn<() => Promise<PayerSession>>();
+const getOrgRole = vi.fn<(s: unknown) => "owner" | "recruiter">();
+const redirect = vi.fn((to: string) => {
+  throw new Error(`NEXT_REDIRECT ${to}`);
+});
 const getPostings = vi.fn();
 const getCapacity = vi.fn<() => Promise<Capacity>>();
 const getAgencyKyc = vi.fn();
@@ -39,7 +45,11 @@ const getLiveCatalog = vi.fn();
 const listOrgMembers = vi.fn();
 
 vi.mock("../../lib/auth", () => ({ requirePayer: () => requirePayer() }));
-vi.mock("../../lib/auth/org-roles", () => ({ requireOwner: () => requireOwner() }));
+vi.mock("../../lib/auth/org-roles", () => ({
+  requireOwner: () => requireOwner(),
+  getOrgRole: (s: unknown) => getOrgRole(s),
+}));
+vi.mock("next/navigation", () => ({ redirect: (to: string) => redirect(to) }));
 vi.mock("../../lib/payer-api", () => ({
   getPostings: () => getPostings(),
   getCapacity: () => getCapacity(),
@@ -119,6 +129,8 @@ beforeEach(() => {
   for (const f of [
     requirePayer,
     requireOwner,
+    getOrgRole,
+    redirect,
     getPostings,
     getCapacity,
     getAgencyKyc,
@@ -129,6 +141,10 @@ beforeEach(() => {
   }
   requirePayer.mockResolvedValue(EMPLOYER);
   requireOwner.mockResolvedValue(EMPLOYER);
+  getOrgRole.mockReturnValue("owner");
+  redirect.mockImplementation((to: string) => {
+    throw new Error(`NEXT_REDIRECT ${to}`);
+  });
   getPostings.mockResolvedValue([]);
   getCapacity.mockResolvedValue(cap());
   getAgencyKyc.mockResolvedValue(null);
@@ -245,7 +261,9 @@ describe("W3-B · per-posting tables are labelled, keyboard-scrollable regions",
         const id = props(heading[0]!).id;
         expect(typeof id === "string" && id.length > 0).toBe(true);
         expect(wrap["aria-labelledby"]).toBe(id);
-        expect(textOf(heading[0]!)).toContain(session.role === "agent" ? "vacancy" : "posting");
+        // One word for the entity, both personas (owner ruling 2026-10-01).
+        expect(textOf(heading[0]!)).toContain("posting");
+        expect(textOf(heading[0]!)).not.toMatch(/vacanc/i);
       });
     }
   }
@@ -260,14 +278,108 @@ describe("W3-B · per-posting tables are labelled, keyboard-scrollable regions",
 });
 
 describe("W3-B · /plans — credits are bought on /credits", () => {
-  it("every credit pack's one action is a link to /credits", async () => {
+  const creditPacks = (tree: ReactElement) =>
+    byClass(tree, "plan-card").filter((c) => /\bcredits\b/.test(textOf(c)) && !/Valid for/.test(textOf(c)));
+
+  it("OWNER: every credit pack's one action is a link to /credits", async () => {
     const tree = (await plans.default()) as ReactElement;
-    const packs = byClass(tree, "plan-card").filter((c) => textOf(c).includes("credits"));
+    const packs = creditPacks(tree);
     expect(packs.length).toBeGreaterThan(0);
     for (const pack of packs) {
       const links = byClass(pack, "bb-btn");
       expect(links).toHaveLength(1);
       expect(props(links[0]!).href).toBe("/credits");
+      expect(textOf(links[0]!)).toContain("Buy credits");
     }
+  });
+
+  it("RECRUITER: no pack links to /credits (it is Owner-only — a 404 for them)", async () => {
+    getOrgRole.mockReturnValue("recruiter");
+    const tree = (await plans.default()) as ReactElement;
+    const packs = creditPacks(tree);
+    expect(packs.length).toBeGreaterThan(0);
+    for (const pack of packs) expect(byClass(pack, "bb-btn")).toEqual([]);
+    expect(textOf(tree)).toContain("An account owner buys credits");
+  });
+});
+
+describe("/plans + /capacity — an agency is never linked into the company posting surface", () => {
+  /** Every href in the tree, expanding nothing (the pages' own links). */
+  function hrefs(node: ReactNode, acc: string[] = []): string[] {
+    if (node === null || node === undefined || typeof node !== "object") return acc;
+    if (Array.isArray(node)) {
+      for (const c of node) hrefs(c, acc);
+      return acc;
+    }
+    const el = node as ReactElement<{ href?: unknown; children?: ReactNode }>;
+    if (typeof el.props?.href === "string") acc.push(el.props.href);
+    if (el.props && "children" in el.props) hrefs(el.props.children, acc);
+    return acc;
+  }
+
+  for (const [name, run] of [
+    ["/plans", () => plans.default()],
+    ["/capacity", () => capacityPage.default()],
+  ] as const) {
+    it(`${name} (agent): no /postings link; New posting opens the agency form`, async () => {
+      requirePayer.mockResolvedValue(AGENCY);
+      const tree = (await run()) as ReactElement;
+      expect(hrefs(tree).filter((h) => h.startsWith("/postings"))).toEqual([]);
+      getCapacity.mockResolvedValue(cap({ postings: [] }));
+      const empty = (await run()) as ReactElement;
+      expect(hrefs(empty)).toContain("/agency/jobs/new");
+      expect(hrefs(empty).filter((h) => h.startsWith("/postings"))).toEqual([]);
+    });
+
+    it(`${name} (company): the role links still open the posting's applicants`, async () => {
+      const tree = (await run()) as ReactElement;
+      expect(hrefs(tree)).toContain("/postings/bbbb2222-0000-4000-8000-000000000001/applicants");
+    });
+  }
+});
+
+describe("/postings for an AGENT — their own Postings, or their older ones read-only", () => {
+  it("an agent with no company postings is redirected to /agency/jobs", async () => {
+    requirePayer.mockResolvedValue(AGENCY);
+    getPostings.mockResolvedValue([]);
+    await expect(postings.default()).rejects.toThrow("NEXT_REDIRECT /agency/jobs");
+    expect(redirect).toHaveBeenCalledWith("/agency/jobs");
+  });
+
+  it("an agent who OWNS older company postings sees them read-only — never a 404, no create", async () => {
+    requirePayer.mockResolvedValue(AGENCY);
+    getPostings.mockResolvedValue([
+      {
+        id: "bbbb2222-0000-4000-8000-000000000001",
+        roleTitle: "CNC Machinist",
+        locationLabel: null,
+        vacancyBand: "1",
+        status: "open",
+        applicantCount: 0,
+        applicantQuota: 10,
+        createdAt: "2026-06-22T00:00:00.000Z",
+      },
+    ]);
+    const root = (await postings.default()) as ReactElement;
+    expect(redirect).not.toHaveBeenCalled();
+    expect(props(root).className).toBe("postings-page");
+    const kids = (props(root).children as ReactNode[]).flat() as ReactElement[];
+    const head = kids.find((k) => k && typeof k === "object" && "title" in (k.props as object))!;
+    expect(props(head).title).toBe("Older postings");
+    expect(props(head).primaryAction).toBeUndefined();
+    const manager = kids.find(
+      (k) => k && typeof k === "object" && (k.props as { readOnly?: unknown }).readOnly !== undefined,
+    )!;
+    expect(props(manager).readOnly).toBe(true);
+  });
+
+  it("a company is never redirected and keeps its New posting action", async () => {
+    getPostings.mockResolvedValue([]);
+    const root = (await postings.default()) as ReactElement;
+    expect(redirect).not.toHaveBeenCalled();
+    const kids = (props(root).children as ReactNode[]).flat() as ReactElement[];
+    const head = kids.find((k) => k && typeof k === "object" && "title" in (k.props as object))!;
+    expect(props(head).title).toBe("Postings");
+    expect(props(head).primaryAction).toMatchObject({ href: "/postings/new", label: "New posting" });
   });
 });

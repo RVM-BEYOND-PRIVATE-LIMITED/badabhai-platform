@@ -2656,25 +2656,10 @@ textarea.input {
   }
 }
 
-/* Vacancy manager. */
+/* Agency postings manager (the body of /agency/jobs; creating one is its own page). */
 .agency-jobs {
   display: grid;
   gap: var(--space-4);
-}
-.agency-jobs__bar {
-  display: flex;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
-.agency-jobs__createcard {
-  display: grid;
-  gap: var(--space-4);
-}
-.agency-jobs__createtitle {
-  font-family: var(--font-display);
-  font-size: var(--text-md);
-  color: var(--text-primary);
-  margin: 0;
 }
 .agency-jobs__empty {
   text-align: center;
@@ -4980,7 +4965,7 @@ body:has(.invite-landing) .chrome-footer {
   flex-wrap: wrap;
   flex: none;
 }
-/* A back-link above the title, for detail screens one level down. */
+/* A back-link above the title, for a page below a nav destination (PageHeader). */
 .page-back {
   display: inline-flex;
   align-items: center;
@@ -4994,6 +4979,19 @@ body:has(.invite-landing) .chrome-footer {
 .page-back:hover {
   color: var(--text-primary);
   text-decoration: none;
+}
+/* The link is an arrow-left icon + the parent's name (no `←` glyph): one inline box, the icon
+   the icon-gap from its label, inheriting the link colour. */
+.page-back > a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--icon-gap);
+}
+/* PageHeader's optional filter / search row: its own full-width line under the title row, inside
+   the head (so the head's section-gap still separates it from the page). */
+.page-head__toolbar {
+  flex: 1 1 100%;
+  min-width: 0;
 }
 
 /* ---- tile row: ONE fluid grid every KPI/stat/pack/tier row composes onto ----
@@ -6059,7 +6057,7 @@ body:has(.invite-landing) .chrome-footer {
   overflow-wrap: anywhere;
 }
 
-/* ---- 3 · THE BACK LINK ("← Dashboard") is a small text link drawn ~20px tall, and on a phone
+/* ---- 3 · THE BACK LINK (PageHeader's `back`) is a small text link drawn ~20px tall, and on a phone
    or any coarse pointer it is a finger target. Its HIT AREA — not its look — grows to the md
    control height with the DS strip maths (see `.bb-btn--sm` in ds-components.css): a
    full-width strip centred on the link, BEHIND its text inside the link's own stacking context.
@@ -6116,37 +6114,6 @@ body:has(.invite-landing) .chrome-footer {
   .page-head__actions {
     flex: 0 1 auto;
     min-width: 0;
-  }
-}
-
-/* ---- 8 · THE APPLICANT FEED HEAD on a narrow phone. The shared wrapper keeps the balance chip
-   on the title row, which at ≤420px left a long role title ~140–240px beside a 4-digit chip
-   (five lines at 320px). Here the head is a two-track grid instead — the Payouts recipe — and
-   the text wrapper steps aside (`display: contents`, a plain div): the title takes the whole
-   first row and the chip moves to the count's row. Measured at 320–420px: a 68-character title
-   is 2 lines (was 3–5), the head 74px (was 90–135px). Two classes, after the shared head. */
-@media (max-width: 420px) {
-  .section__head.applicants-feed__head {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "title title"
-      "sub actions";
-    align-items: center;
-    column-gap: var(--space-4);
-    row-gap: var(--space-1);
-  }
-  .applicants-feed__head > .section__text {
-    display: contents;
-  }
-  .applicants-feed__head .section__title {
-    grid-area: title;
-  }
-  .applicants-feed__head .section__sub {
-    grid-area: sub;
-  }
-  .applicants-feed__head > .section__actions {
-    grid-area: actions;
   }
 }
 

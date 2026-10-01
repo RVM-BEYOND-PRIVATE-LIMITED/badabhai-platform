@@ -30,7 +30,7 @@ const FIELD_LABELS: Record<string, string> = {
   trade_key: "Trade",
   skill_phrases: "Skills",
   location_label: "Location",
-  vacancy_band: "Vacancies",
+  vacancy_band: "Openings",
   pay_min: "Pay (min)",
   pay_max: "Pay (max)",
   shift: "Shift",
@@ -177,7 +177,7 @@ export function DraftPreview({ draft, draftReady }: DraftPreviewProps) {
                 rather than instead of it: only this one reaches a worker. */}
             <Row label="City" value={draft.city ?? NONE} />
             {/* BANDED, never a raw count (ADR-0012 / rule B). */}
-            <Row label="Vacancies" value={draft.vacancyBand ?? NONE} />
+            <Row label="Openings" value={draft.vacancyBand ?? NONE} />
             <Row label="Pay" value={payLabel(draft.payMin, draft.payMax)} />
             <Row label="Pay type" value={payTypeLabel(draft.payType)} />
             <Row

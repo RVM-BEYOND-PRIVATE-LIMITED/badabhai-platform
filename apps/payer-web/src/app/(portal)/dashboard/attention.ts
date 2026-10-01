@@ -1,3 +1,4 @@
+import { ACTION_ICON, type IconName } from "@badabhai/icons";
 import type { Dashboard } from "../../../lib/contracts";
 
 /**
@@ -23,6 +24,8 @@ export interface AttentionItem {
   /** Omitted when the payer has no route to act — e.g. a Recruiter cannot reach /credits. */
   actionHref?: string;
   actionLabel?: string;
+  /** The action's glyph (from ACTION_ICON) — a key action is icon + text. */
+  actionIcon?: IconName;
 }
 
 /**
@@ -36,12 +39,11 @@ export function buildAttentionItems(
   opts: { isAgency: boolean; isOwner: boolean },
 ): AttentionItem[] {
   const items: AttentionItem[] = [];
-  const unit = opts.isAgency ? "vacancy" : "posting";
-  const units = opts.isAgency ? "vacancies" : "postings";
 
   // Billing is Owner-only, so a Recruiter is pointed at the fact, not at a door that 404s.
+  // "Buy credits" — never "Top up", which also named adding applicant slots to a posting.
   const walletAction = opts.isOwner
-    ? { actionHref: "/credits", actionLabel: "Top up" }
+    ? { actionHref: "/credits", actionLabel: "Buy credits", actionIcon: ACTION_ICON.credits }
     : {};
 
   // 1. The wallet — an empty one stops the core loop outright, so it outranks everything.
@@ -51,8 +53,8 @@ export function buildAttentionItems(
       tone: "critical",
       title: "You are out of unlock credits",
       body: opts.isOwner
-        ? "Applicants stay masked until you top up. Existing unlocks are unaffected."
-        : "Applicants stay masked until an account owner tops up. Existing unlocks are unaffected.",
+        ? "Applicants stay masked until you buy credits. Existing unlocks are unaffected."
+        : "Applicants stay masked until an account owner buys credits. Existing unlocks are unaffected.",
       ...walletAction,
     });
   } else if (data.credits.balance < LOW_BALANCE_THRESHOLD) {
@@ -60,7 +62,7 @@ export function buildAttentionItems(
       id: "credits-low",
       tone: "warning",
       title: `Only ${data.credits.balance} unlock ${data.credits.balance === 1 ? "credit" : "credits"} left`,
-      body: "Top up before you run out so shortlisting is never interrupted.",
+      body: "Buy credits before you run out so shortlisting is never interrupted.",
       ...walletAction,
     });
   }
@@ -79,20 +81,21 @@ export function buildAttentionItems(
 
   // 3. Nothing open. An employer with no live role is invisible to every matched worker —
   //    the quietest possible failure, and the one most worth surfacing.
-  //    Agents are excluded: their vacancies live in a different entity that this payload does
-  //    not describe (see the dashboard page's data-coherence note), so a count of 0 here would
-  //    be a statement about the wrong data set.
+  //    Agents are excluded: their postings live in a different entity (agency `jobs`) that this
+  //    payload does not describe (see the dashboard page's data-coherence note), so a count of 0
+  //    here would be a statement about the wrong data set.
   if (!opts.isAgency && data.postings.every((p) => p.status !== "open")) {
     items.push({
       id: "no-open-postings",
       tone: "warning",
-      title: data.postings.length === 0 ? `No ${units} yet` : `No open ${units}`,
+      title: data.postings.length === 0 ? "No postings yet" : "No open postings",
       body:
         data.postings.length === 0
-          ? `Matched workers can only find you once a ${unit} is live.`
-          : `Every ${unit} is closed, so no new applicants can arrive.`,
+          ? "Matched workers can only find you once a posting is live."
+          : "Every posting is closed, so no new applicants can arrive.",
       actionHref: "/postings/new",
-      actionLabel: data.postings.length === 0 ? "Post a job" : "Post another",
+      actionLabel: "New posting",
+      actionIcon: ACTION_ICON.create,
     });
   }
 

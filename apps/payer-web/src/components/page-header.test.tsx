@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { PageHeader, type PageHeaderProps } from "./page-header";
 
 /**
@@ -120,5 +123,85 @@ describe("PageHeader — one destination is one action (dev guard)", () => {
     });
     html({ title: "Only status", status: <span>open</span> });
     expect(err).not.toHaveBeenCalled();
+  });
+});
+
+/* ------------------------------------------------------------------------------------------ *
+ * Every portal page renders its header through PageHeader, with a one-sentence description.
+ * ------------------------------------------------------------------------------------------ */
+const PORTAL = join(dirname(fileURLToPath(import.meta.url)), "..", "app", "(portal)");
+
+function pageFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const full = join(dir, e.name);
+    if (e.isDirectory()) return pageFiles(full);
+    return e.name === "page.tsx" ? [full] : [];
+  });
+}
+const rel = (f: string) => f.slice(PORTAL.length + 1).split("\\").join("/");
+
+/** Pages that render nothing of their own: a server redirect to another route. */
+const REDIRECT_ONLY = new Set(["profile/page.tsx", "agency/dashboard/page.tsx"]);
+/** Routes that render the shared applicant feed screen (whose head is a PageHeader). */
+const FEED_SCREEN = "applicantsScreen(";
+
+/** Every string literal inside each `description=` attribute value of a source. */
+function descriptionLiterals(src: string): string[] {
+  const out: string[] = [];
+  for (let at = src.indexOf("description="); at >= 0; at = src.indexOf("description=", at + 1)) {
+    let i = at + "description=".length;
+    let value = "";
+    if (src[i] === '"') {
+      value = src.slice(i, src.indexOf('"', i + 1) + 1);
+    } else if (src[i] === "{") {
+      let depth = 0;
+      for (; i < src.length; i += 1) {
+        if (src[i] === "{") depth += 1;
+        else if (src[i] === "}") depth -= 1;
+        value += src[i];
+        if (depth === 0) break;
+      }
+    }
+    for (const m of value.matchAll(/"([^"]*)"|`([^`]*)`/g)) out.push(m[1] ?? m[2] ?? "");
+  }
+  return out;
+}
+
+/** More than one sentence: a terminator followed by a new capitalised sentence. */
+const multiSentence = (s: string) => /[.!?]\s+[A-Z]/.test(s);
+
+describe("every portal page uses PageHeader", () => {
+  const pages = pageFiles(PORTAL);
+
+  it("finds the portal pages (the scan is not vacuous)", () => {
+    expect(pages.length).toBeGreaterThanOrEqual(22);
+  });
+
+  it("each page renders <PageHeader> (or the shared feed screen), except the pure redirects", () => {
+    const missing = pages
+      .map((f) => [rel(f), readFileSync(f, "utf8")] as const)
+      .filter(([r]) => !REDIRECT_ONLY.has(r))
+      .filter(([, src]) => !src.includes("<PageHeader") && !src.includes(FEED_SCREEN))
+      .map(([r]) => r);
+    expect(missing).toEqual([]);
+    // …and the redirect-only ones really are just a redirect.
+    for (const r of REDIRECT_ONLY) {
+      const src = readFileSync(join(PORTAL, r), "utf8");
+      expect(src, r).toMatch(/redirect\(/);
+      expect(src, r).not.toMatch(/<[a-z]/);
+    }
+  });
+
+  it("every literal description is ONE sentence", () => {
+    const sources = [
+      ...pages,
+      join(PORTAL, "postings", "[id]", "applicants", "applicants-screen.tsx"),
+    ].map((f) => [rel(f), readFileSync(f, "utf8")] as const);
+    const literals = sources.flatMap(([r, src]) => descriptionLiterals(src).map((d) => [r, d]));
+    expect(literals.length).toBeGreaterThanOrEqual(15);
+    expect(literals.filter(([, d]) => multiSentence(d!))).toEqual([]);
+    // The checker can fail.
+    expect(multiSentence("Describe the role. Applicants appear faceless.")).toBe(true);
+    expect(multiSentence("Describe the role — applicants appear faceless.")).toBe(false);
   });
 });

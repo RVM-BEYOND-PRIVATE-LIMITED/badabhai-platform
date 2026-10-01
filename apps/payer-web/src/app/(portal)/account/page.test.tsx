@@ -34,6 +34,9 @@ vi.mock("./account-form", () => ({ AccountForm: (props: Record<string, unknown>)
 const { default: AccountPage } = await import("./page");
 const { AccountForm: MockedAccountForm } = await import("./account-form");
 
+const { PageHeader } = await import("../../../components/page-header");
+type PageHeaderProps = Parameters<typeof PageHeader>[0];
+
 function textOf(node: ReactNode): string {
   if (node === null || node === undefined || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return String(node);
@@ -104,11 +107,16 @@ describe("AccountPage — identity header + edit form wiring", () => {
   });
 
   it("titles the screen with the shared page-head primitive + a one-line purpose", async () => {
-    const tree = await render();
-    const titles = findByClass(tree, "page-head__title");
+    // The head is the shared PageHeader; render it to assert the markup it emits.
+    const heads = findAll(await render(), PageHeader);
+    expect(heads.length).toBe(1);
+    const head = PageHeader(heads[0]!.props as PageHeaderProps);
+    const titles = findByClass(head, "page-head__title");
     expect(titles.length).toBe(1);
     expect(textOf(titles[0]!)).toBe("Account");
-    expect(findByClass(tree, "page-head__sub").length).toBe(1);
+    expect(findByClass(head, "page-head__sub").length).toBe(1);
+    // A top-level page (the account menu opens it): no back link.
+    expect(findByClass(head, "page-back")).toEqual([]);
   });
 
   it("forwards the session's OWN fields into the AccountForm (org/email/phoneLast4/role/status)", async () => {

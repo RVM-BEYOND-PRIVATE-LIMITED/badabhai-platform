@@ -1,10 +1,11 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Icon } from "@badabhai/icons";
 import { requireAgent } from "../../../../lib/auth/roles";
 import { agencyFlags } from "../../../../lib/config";
 import { listAgencyWorkers } from "../../../../lib/payer-api";
 import { assertNoAgencyPII } from "../../../../lib/assert-no-agency-pii";
 import type { AgencyWorker } from "../../../../lib/contracts";
+import { PageHeader } from "../../../../components/page-header";
 import { RetryButton } from "../../../../components/retry-button";
 import { REFERRED_WORKERS_HEADING_ID, WorkerActivityList } from "./worker-activity-list";
 
@@ -76,24 +77,17 @@ export default async function AgencyWorkersPage() {
     // `.agency-workers`: that is the retired B5 wrapper, whose grid rules are still fenced by
     // agency-b5-layout.css.test.
     <div className="agency-workers-page">
-      <p className="page-back">
-        <Link href="/dashboard">← Dashboard</Link>
-      </p>
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">Worker activity</h1>
-          <p className="page-head__sub">
-            How the workers you referred are getting on — as a funnel, not as a contact list.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Worker activity"
+        description="How the workers you referred are getting on — as a funnel, not as a contact list."
+      />
 
       {/* THE PRIVACY BOUNDARY, stated once, before the data — the same icon-led `.alert` the
           applicant feed uses for "Applicants are faceless". Its first sentence is the headline;
           the rest of the copy is unchanged, only moved out of the panel head. The
           handle-uniqueness line is still shown only alongside a populated list. */}
       <div className="alert alert--info">
-        <i className="ph-fill ph-mask-happy alert__icon" aria-hidden="true" />
+        <Icon name="mask-happy" className="alert__icon" />
         <div className="alert__text">
           <p className="alert__title">Every row is a private handle, not a person.</p>
           <p className="alert__body">
@@ -127,7 +121,7 @@ export default async function AgencyWorkersPage() {
           {workers === null ? (
             <div className="state state--error">
               <span className="state__icon">
-                <i className="ph-fill ph-warning-circle" aria-hidden="true" />
+                <Icon name="warning-circle" />
               </span>
               <h3 className="state__title">Worker activity is unavailable</h3>
               <p className="state__body">

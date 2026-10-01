@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { FacelessApplicant } from "../../../../../lib/contracts";
 import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
 import { Avatar, Badge, Button, Card, Tabs } from "../../../../../components/ds";
@@ -87,10 +88,17 @@ export function ApplicantActions({
   postingId,
   applicants,
   balance,
+  canBuyCredits = false,
 }: {
   postingId: string;
   applicants: FacelessApplicant[];
   balance: number;
+  /**
+   * Owner-only AFFORDANCE: a zero balance links to the Credits page only for a viewer who can
+   * open it (`/credits` is `requireOwner()`; a recruiter would land on a 404). Default false —
+   * a caller that cannot say who is looking never links anyone to a page that may 404.
+   */
+  canBuyCredits?: boolean;
 }) {
   const [rows, setRows] = useState<Record<string, RowState>>({});
   // Confirm-on-spend (C11): confirm only the FIRST unlock per row this session — a retry
@@ -205,12 +213,19 @@ export function ApplicantActions({
     <>
       {balance === 0 ? (
         <div className="alert alert--warning">
-          <i className="ph-fill ph-coins alert__icon" aria-hidden="true" />
+          <Icon name={ACTION_ICON.credits} className="alert__icon" />
           <div className="alert__text">
             <p className="alert__title">0 credits</p>
             <p className="alert__body">
-              <Link href="/credits">Top up</Link> to unlock a candidate&rsquo;s routed contact.
-              This is your own balance — not a signal about any candidate.
+              {canBuyCredits ? (
+                <>
+                  <Link href="/credits">Buy credits</Link> to unlock an applicant&rsquo;s routed
+                  contact.
+                </>
+              ) : (
+                <>An account owner can buy credits to unlock an applicant&rsquo;s routed contact.</>
+              )}{" "}
+              This is your own balance — not a signal about any applicant.
             </p>
           </div>
         </div>
@@ -241,14 +256,11 @@ export function ApplicantActions({
         <Card>
           <div className="state">
             <span className="state__icon">
-              <i
-                className={activeStage === "new" ? "ph-fill ph-tray" : "ph-fill ph-bookmark-simple"}
-                aria-hidden="true"
-              />
+              <Icon name={activeStage === "new" ? "tray" : "bookmark-simple"} />
             </span>
             {activeStage === "new" ? (
               <>
-                <h3 className="state__title">No candidates in New</h3>
+                <h3 className="state__title">No applicants in New</h3>
                 <p className="state__body">
                   Anything you Kept is under Shortlist; anything you Passed is hidden.
                 </p>
@@ -264,9 +276,9 @@ export function ApplicantActions({
               </>
             ) : (
               <>
-                <h3 className="state__title">No shortlisted candidates yet</h3>
+                <h3 className="state__title">No shortlisted applicants yet</h3>
                 <p className="state__body">
-                  Use Keep on a New candidate to move them here.
+                  Use Keep on a New applicant to move them here.
                 </p>
                 <div className="state__actions">
                   <Button variant="secondary" size="sm" onClick={() => setActiveStage("new")}>
@@ -420,7 +432,7 @@ export function ApplicantActions({
                     </Button>
                     {routed && row.reach ? (
                       <p className="applicant__hint">
-                        {row.reach === "call" ? "Voice" : "Chat"} relay ready — reach this candidate
+                        {row.reach === "call" ? "Voice" : "Chat"} relay ready — reach this applicant
                         through the <strong>routed relay</strong> shown below. It&rsquo;s an opaque
                         in-app relay, <strong>never a phone number</strong>.
                       </p>
@@ -520,7 +532,7 @@ export function ApplicantActions({
                           disabled={row.busy || balance === 0}
                           loading={row.busy}
                           aria-busy={row.busy}
-                          title={balance === 0 ? "Top up to unlock" : undefined}
+                          title={balance === 0 ? "No credits left" : undefined}
                           onClick={() => onUnlock(a.workerId)}
                         >
                           {row.busy
@@ -531,22 +543,26 @@ export function ApplicantActions({
                         </Button>
                         {/* A REAL zero balance only — an unread balance arrives here as 1 (the
                             page's affordance default), so Unlock stays enabled and this never
-                            shows. The disabled Unlock gets an enabled next step beside it; it is
-                            about the payer's own balance, never a signal about this candidate. */}
-                        {balance === 0 ? (
+                            shows. For a viewer who can open Credits, the disabled Unlock gets an
+                            enabled next step beside it; it is about the payer's own balance,
+                            never a signal about this applicant. */}
+                        {balance === 0 && canBuyCredits ? (
                           <Link className="bb-btn bb-btn--secondary" href="/credits">
-                            <i className="ph-fill ph-coins" aria-hidden="true" />
-                            <span>Top up</span>
+                            <Icon name={ACTION_ICON.credits} />
+                            <span>Buy credits</span>
                           </Link>
                         ) : null}
                       </div>
-                      {/* Plain text, not a link: the "Top up" button right above is this band's
-                          one way to /credits (a second link to the same page was a redundant tab
-                          stop on every card). */}
+                      {/* Plain text, not a link: the "Buy credits" button right above is this
+                          band's one way to /credits (a second link to the same page was a
+                          redundant tab stop on every card). */}
                       {balance === 0 ? (
                         <p className="applicant__hint">
-                          Top up to unlock. Guidance only — this is your own balance, never a
-                          signal about this candidate.
+                          {canBuyCredits
+                            ? "Buy credits to unlock."
+                            : "An account owner can buy credits."}{" "}
+                          Guidance only — this is your own balance, never a signal about this
+                          applicant.
                         </p>
                       ) : null}
                       {/* Transient unlock failure: retryable inline error (the Unlock button

@@ -149,13 +149,17 @@ function collect(tree: ReactNode): Collected {
   return acc;
 }
 
-function render(postings: PostingSummary[], rowState: Record<string, unknown> = {}) {
+function render(
+  postings: PostingSummary[],
+  rowState: Record<string, unknown> = {},
+  readOnly?: boolean,
+) {
   // Seed the two useState slots for this render — source order in the component:
   // (1) freshRows overlay (Record<id, PostingSummary>), (2) per-row action state.
   // Rows themselves render FROM PROPS (the freshRows overlay only patches by id).
   stateQueue = [{}, rowState];
   stateCursor = 0;
-  return PostingsManager({ postings }) as ReactElement;
+  return PostingsManager({ postings, readOnly }) as ReactElement;
 }
 
 beforeEach(() => {
@@ -192,11 +196,11 @@ describe("PostingsManager — STATUS RENDERING reflects the real status", () => 
 });
 
 describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycle)", () => {
-  it("an OPEN posting offers ENABLED Pause / Top up / Close; clicking Pause fires the action with ONLY the posting id", () => {
+  it("an OPEN posting offers ENABLED Pause / Add applicant slots / Close posting; clicking Pause fires the action with ONLY the posting id", () => {
     const { buttons } = collect(render([OPEN]));
     const pause = buttons.find((b) => b.text === "Pause");
-    const topUp = buttons.find((b) => b.text.includes("Top up applicant quota"));
-    const close = buttons.find((b) => b.text === "Close");
+    const topUp = buttons.find((b) => b.text === "Add applicant slots");
+    const close = buttons.find((b) => b.text === "Close posting");
     expect(pause?.disabled).toBe(false);
     expect(topUp?.disabled).toBe(false);
     expect(close?.disabled).toBe(false);
@@ -211,16 +215,16 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
     const { buttons } = collect(render([{ ...OPEN, status: "paused" }]));
     const resume = buttons.find((b) => b.text === "Resume");
     expect(resume?.disabled).toBe(false);
-    expect(buttons.find((b) => b.text === "Close")).toBeUndefined();
+    expect(buttons.find((b) => b.text === "Close posting")).toBeUndefined();
     resume!.onClick!();
     expect(resumePostingAction).toHaveBeenCalledWith({ postingId: OPEN.id });
   });
 
-  it("a CLOSED posting disables Pause + Top up and offers no Close (terminal)", () => {
+  it("a CLOSED posting disables Pause + Add applicant slots and offers no Close posting (terminal)", () => {
     const { buttons } = collect(render([{ ...OPEN, status: "closed" }]));
     expect(buttons.find((b) => b.text === "Pause")?.disabled).toBe(true);
-    expect(buttons.find((b) => b.text.includes("Top up applicant quota"))?.disabled).toBe(true);
-    expect(buttons.find((b) => b.text === "Close")).toBeUndefined();
+    expect(buttons.find((b) => b.text === "Add applicant slots")?.disabled).toBe(true);
+    expect(buttons.find((b) => b.text === "Close posting")).toBeUndefined();
   });
 
   it("a busy row disables its buttons (no double-fire while an action is pending)", () => {
@@ -228,9 +232,9 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
     expect(buttons.every((b) => b.disabled)).toBe(true);
   });
 
-  it("clicking Top up fires ITS action; a seeded row error renders in the row", () => {
+  it("clicking Add applicant slots fires ITS action; a seeded row error renders in the row", () => {
     const first = collect(render([OPEN]));
-    first.buttons.find((b) => b.text.includes("Top up applicant quota"))!.onClick!();
+    first.buttons.find((b) => b.text === "Add applicant slots")!.onClick!();
     expect(topUpQuotaAction).toHaveBeenCalledWith({ postingId: OPEN.id });
 
     const errored = render([OPEN], {
@@ -239,9 +243,9 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
     expect(textOf(errored)).toContain("no active plan");
   });
 
-  it("a DRAFT posting offers ENABLED Close (Pause disabled); clicking Close fires ITS action", () => {
+  it("a DRAFT posting offers ENABLED Close posting (Pause disabled); clicking it fires ITS action", () => {
     const { buttons } = collect(render([{ ...OPEN, status: "draft" }]));
-    const close = buttons.find((b) => b.text === "Close");
+    const close = buttons.find((b) => b.text === "Close posting");
     expect(close?.disabled).toBe(false);
     // Pause requires an OPEN posting — a draft renders it disabled, never a fake action.
     expect(buttons.find((b) => b.text === "Pause")?.disabled).toBe(true);
@@ -249,11 +253,11 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
     expect(closePostingAction).toHaveBeenCalledWith({ postingId: OPEN.id });
   });
 
-  it("a seeded SUCCESS notice (the paid top-up confirmation) renders in the aria-live row region", () => {
+  it("a seeded SUCCESS notice (the paid slots confirmation) renders in the aria-live row region", () => {
     const tree = render([OPEN], {
-      [OPEN.id]: { busy: false, error: null, notice: "Top-up applied — added 10 applicant views." },
+      [OPEN.id]: { busy: false, error: null, notice: "Applicant slots added — 10 more applicant views." },
     });
-    expect(textOf(tree)).toContain("added 10 applicant views");
+    expect(textOf(tree)).toContain("Applicant slots added — 10 more applicant views.");
   });
 });
 
@@ -278,7 +282,7 @@ describe("PostingsManager — A11Y-OF-FAILURE: per-row error region is aria-live
     expect(cls.has("state__actions")).toBe(true);
     const text = textOf(tree);
     expect(text).toContain("No postings yet");
-    expect(text).toContain("Post your first job");
+    expect(text).toContain("New posting");
     expect(hrefs(tree)).toContain("/postings/new");
     // FACELESS: an empty feed names nobody.
     expect(text).not.toMatch(/\b(phone|worker name)\b/i);
@@ -311,8 +315,8 @@ describe("PostingsManager — W3-B card anatomy (facts row / links row / action 
     expect(hrefs(meta[0]!)).toEqual([]);
     expect(hrefs(links[0]!)).toEqual([`/postings/${OPEN.id}`, `/postings/${OPEN.id}/edit`]);
     expect(textOf(links[0]!).replace(/\s+/g, " ").trim()).toBe("Details Edit");
-    // The facts themselves are unchanged (copy invariant).
-    expect(textOf(meta[0]!)).toBe("Pune, MH6-20 vacancies2 / 10 applicantsPosted 2026-06-22");
+    // The facts: the headcount is "openings" (the entity is a posting; "vacancies" named both).
+    expect(textOf(meta[0]!)).toBe("Pune, MH6-20 openings2 / 10 applicantsPosted 2026-06-22");
   });
 
   it("the links row sits in the text column, BEFORE the row's aria-live result region", () => {
@@ -357,5 +361,35 @@ describe("PostingsManager — W3-B card anatomy (facts row / links row / action 
   it("the title still links to the posting's faceless applicant feed", () => {
     const title = byClass(render([OPEN]), "posting-card__title")[0]!;
     expect((title.props as { href: string }).href).toBe(`/postings/${OPEN.id}/applicants`);
+  });
+});
+
+describe("PostingsManager — READ-ONLY (an agent's older company postings)", () => {
+  it("shows each posting and its Details link, but no lifecycle button and no Edit link", () => {
+    const paused = { ...OPEN, id: "bbbb2222-0000-4000-8000-000000000002", status: "paused" as const };
+    const tree = render([OPEN, paused], {}, true);
+    expect(collect(tree).buttons).toEqual([]);
+    expect(byClass(tree, "posting-card__actions")).toEqual([]);
+    const links = byClass(tree, "posting-card__links");
+    expect(links.length).toBeGreaterThan(0);
+    for (const row of links) {
+      expect(hrefs(row).some((h) => h.endsWith("/edit"))).toBe(false);
+      expect(textOf(row).replace(/\s+/g, " ").trim()).toBe("Details");
+    }
+  });
+
+  it("the default (company) list still offers every control — read-only is opt-in", () => {
+    const tree = render([OPEN]);
+    expect(collect(tree).buttons.map((b) => b.text)).toEqual([
+      "Pause",
+      "Add applicant slots",
+      "Close posting",
+    ]);
+    expect(hrefs(byClass(tree, "posting-card__links")[0]!)).toContain(`/postings/${OPEN.id}/edit`);
+  });
+
+  it("a read-only empty list offers no create action", () => {
+    const tree = render([], {}, true);
+    expect(hrefs(tree)).not.toContain("/postings/new");
   });
 });

@@ -1,9 +1,9 @@
-import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 import { getPostingDetail, listMatchSkills } from "../../../../../lib/payer-api";
 import { requirePayer } from "../../../../../lib/auth";
 import type { MatchSkillWire } from "../../../../../lib/contracts";
+import { PageHeader } from "../../../../../components/page-header";
 import { EditPostingForm } from "./edit-posting-form";
 
 export const dynamic = "force-dynamic";
@@ -27,10 +27,12 @@ function bandRepresentativeCount(band: string): number {
 }
 
 export default async function EditPostingPage({ params }: { params: Promise<{ id: string }> }) {
-  await requirePayer();
+  const session = await requirePayer();
   const { id } = await params;
   // Fail closed on a non-uuid segment BEFORE it reaches the authed API path.
   if (!z.string().uuid().safeParse(id).success) notFound();
+  // Company-only: an agent's older posting is view-only (owner ruling 2026-10-01) → its details.
+  if (session.role === "agent") redirect(`/postings/${id}`);
   const detail = await getPostingDetail(id);
   if (!detail) notFound();
 
@@ -47,18 +49,11 @@ export default async function EditPostingPage({ params }: { params: Promise<{ id
 
   return (
     <>
-      <p className="page-back">
-        <Link href={`/postings/${id}`}>← Posting details</Link>
-      </p>
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">Edit posting</h1>
-          <p className="page-head__sub">
-            Change the role, location, pay, timing, chips or description for {summary.roleTitle}. The
-            preview shows the worker&rsquo;s card as you edit.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        back={{ href: `/postings/${id}`, label: "Posting details" }}
+        title="Edit posting"
+        description={`Change the role, location, pay, timing, chips or description for ${summary.roleTitle} — the preview shows the worker’s card as you edit.`}
+      />
       <EditPostingForm
         postingId={id}
         status={summary.status}

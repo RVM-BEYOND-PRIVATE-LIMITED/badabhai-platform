@@ -1,3 +1,4 @@
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { AgencyFlags } from "../../../../lib/config";
 import { Badge } from "../../../../components/ds";
 
@@ -8,8 +9,13 @@ import { Badge } from "../../../../components/ds";
  * These are NOT clickable fake flows — they explain WHY a module is unavailable and
  * tie to the respective public flag (all default OFF). Building any of them is a
  * STOP+escalate (CLAUDE.md §8 + the agency ADRs): KYC needs legal/DPDP sign-off;
- * payouts need TD34 real payments + product-ratified params; bulk invite upload is a
- * consent violation (DEAD, never built); matching/outcome tracking is product-locked.
+ * payouts need TD34 real payments + product-ratified params; matching/outcome tracking is
+ * product-locked.
+ *
+ * NOT LISTED: bulk invite upload. It is DEAD — a consent violation that will never be built
+ * (ADR-0022 Amendment 3) — so it does not belong in a list of modules "not in this release",
+ * where a "Parked" badge would frame it as coming. The dashboard's Invite tools card is its one
+ * place, and it says why it is not available.
  *
  * NEVER promise payouts / ₹500 / 25% / 90d / any commercial term. The cards name the
  * module + its gate ONLY. A flag being ON would still build NOTHING — it only changes
@@ -18,8 +24,8 @@ import { Badge } from "../../../../components/ds";
  * Each card is the UI-1 `soon-card` primitive marked `aria-disabled` — the one visual
  * language for "not open yet": a dashed, colourless placeholder, never broken and never
  * interactive (no DS Button, no link). The status pill stays a DS `Badge` rather than the
- * `soon-badge`, because "Soon" is precisely the promise these cards must NEVER make: three
- * of the four are gated on legal/money/consent decisions and one will not be built at all.
+ * `soon-badge`, because "Soon" is precisely the promise these cards must NEVER make: each is
+ * gated on a legal, money or product decision, not on engineering readiness.
  * Tokens only (no raw hex/px).
  */
 
@@ -33,7 +39,7 @@ interface ParkedCard {
 export function AgencyParkedModules({ flags }: { flags: AgencyFlags }) {
   const cards: ParkedCard[] = [
     {
-      title: "KYC",
+      title: "Payout details (KYC)",
       note: "Parked: legal/DPDP sign-off required",
       flaggedOn: flags.agencyKycEnabled,
     },
@@ -41,11 +47,6 @@ export function AgencyParkedModules({ flags }: { flags: AgencyFlags }) {
       title: "Payouts",
       note: "Parked: real payments + product-ratified params required",
       flaggedOn: flags.agencyPayoutsEnabled,
-    },
-    {
-      title: "Bulk Invite Upload",
-      note: "Not available: consent violation",
-      flaggedOn: flags.agencyBulkUploadEnabled,
     },
     {
       title: "Matching / Outcome Tracking",
@@ -65,11 +66,11 @@ export function AgencyParkedModules({ flags }: { flags: AgencyFlags }) {
     <details className="agency-parked-disclosure" open>
       <summary className="agency-parked-disclosure__summary">
         <span className="section__title">Not in this release</span>
-        <i className="ph-fill ph-caret-down agency-parked-disclosure__caret" aria-hidden="true" />
+        <Icon name={ACTION_ICON.disclosure} className="agency-parked-disclosure__caret" />
       </summary>
       <p className="section__sub">
-        These modules are deliberately not built. They are gated on legal, money, consent, or
-        product decisions — not engineering readiness.
+        These modules are deliberately not built. They are gated on legal, money or product
+        decisions — not engineering readiness.
       </p>
       <div className="stat-row">
         {cards.map((c) => (

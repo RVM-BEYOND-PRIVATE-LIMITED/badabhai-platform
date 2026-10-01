@@ -148,6 +148,7 @@ function render(opts: {
   confirmWorker?: string | null;
   applicants?: FacelessApplicant[];
   balance?: number;
+  canBuyCredits?: boolean;
 }) {
   // Source order of useState: rows, confirmedUnlock, stages, activeStage, confirmWorker.
   stateQueue = [
@@ -163,6 +164,8 @@ function render(opts: {
     postingId: "33333333-3333-4333-8333-333333333333",
     applicants: opts.applicants ?? [APPLICANT],
     balance: opts.balance ?? 5,
+    // An OWNER by default (the viewer who may open /credits); the recruiter case is explicit.
+    canBuyCredits: opts.canBuyCredits ?? true,
   }) as ReactElement;
 }
 
@@ -636,10 +639,12 @@ describe("ApplicantActions — (b) each stage renders its OWN empty state at zer
     const newEmpty = gatherText(
       render({ applicants: [A], stages: { [A.workerId]: "shortlist" }, activeStage: "new" }),
     );
-    expect(newEmpty).toContain("No candidates in New");
+    expect(newEmpty).toContain("No applicants in New");
     // Nothing kept ⇒ the Shortlist stage is empty; its copy is distinct.
     const shortlistEmpty = gatherText(render({ applicants: [A], activeStage: "shortlist" }));
-    expect(shortlistEmpty).toContain("No shortlisted candidates yet");
+    expect(shortlistEmpty).toContain("No shortlisted applicants yet");
+    // "Applicant" is the feed's one word for the person (owner ruling 2026-10-01).
+    expect(`${newEmpty} ${shortlistEmpty}`).not.toMatch(/candidate/i);
     expect(newEmpty).not.toEqual(shortlistEmpty);
   });
 
@@ -661,7 +666,7 @@ describe("ApplicantActions — (b) each stage renders its OWN empty state at zer
     expect(tokens.has("alert")).toBe(true);
     expect(tokens.has("alert--warning")).toBe(true);
     expect(tokens.has("applicants-warn")).toBe(false);
-    expect(gatherText(render({ balance: 0 }))).toContain("not a signal about any candidate");
+    expect(gatherText(render({ balance: 0 }))).toContain("not a signal about any applicant");
   });
 });
 
@@ -898,14 +903,14 @@ describe("ApplicantActions — W2-B card anatomy: identity → tags → toolbar 
   });
 });
 
-describe("ApplicantActions — W3-A zero balance: an enabled Top up beside the disabled Unlock", () => {
+describe("ApplicantActions — W3-A zero balance: an enabled Buy credits beside the disabled Unlock", () => {
   const topUps = (tree: ReactNode) =>
     elements(tree).filter(
       (e) =>
         e.props.href === "/credits" && hasClass(e, "bb-btn") && hasClass(e, "bb-btn--secondary"),
     );
 
-  it("balance 0: one secondary Top up link to /credits per card, in the band's action row", () => {
+  it("balance 0 (owner): one secondary Buy credits link to /credits per card, in the action row", () => {
     const all = elements(render({ applicants: [A, B], balance: 0 }));
     const rows = all.filter((e) => hasClass(e, "applicant__unlock-actions"));
     expect(rows).toHaveLength(2);
@@ -915,8 +920,8 @@ describe("ApplicantActions — W3-A zero balance: an enabled Top up beside the d
       expect(unlock.props.disabled).toBe(true);
       const link = topUps(row.props.children as ReactNode);
       expect(link).toHaveLength(1);
-      // An icon + the label; the only new copy is "Top up".
-      expect(textOf(link[0]!.props.children as ReactNode).trim()).toBe("Top up");
+      // An icon + the label: "Buy credits" (never "Top up", which also meant applicant slots).
+      expect(textOf(link[0]!.props.children as ReactNode).trim()).toBe("Buy credits");
     }
     const bands = all.filter((e) => hasClass(e, "applicant__contact"));
     for (const band of bands) {
@@ -932,7 +937,7 @@ describe("ApplicantActions — W3-A zero balance: an enabled Top up beside the d
       )!;
       expect(elements(hint.props.children as ReactNode)).toEqual([]);
       expect(textOf(hint.props.children as ReactNode).replace(/\s+/g, " ").trim()).toBe(
-        "Top up to unlock. Guidance only — this is your own balance, never a signal about this candidate.",
+        "Buy credits to unlock. Guidance only — this is your own balance, never a signal about this applicant.",
       );
     }
   });
@@ -948,6 +953,27 @@ describe("ApplicantActions — W3-A zero balance: an enabled Top up beside the d
   it("a granted row has nothing to spend: no Top up even on a zero balance", () => {
     const tree = render({ rows: routedRowState(), balance: 0 });
     expect(topUps(tree)).toEqual([]);
+  });
+
+  it("balance 0 for a RECRUITER: no link to /credits anywhere (it 404s for them), Unlock still disabled", () => {
+    // `/credits` is requireOwner(); a recruiter sent there meets a neutral 404. The band and the
+    // alert still say what is wrong — in words that point at the person who can fix it.
+    const tree = render({ applicants: [A, B], balance: 0, canBuyCredits: false });
+    expect(elements(tree).filter((e) => e.props.href === "/credits")).toEqual([]);
+    expect(buttonInfo(tree, "Unlock contact")!.disabled).toBe(true);
+    const text = gatherText(tree);
+    expect(text).toContain("An account owner can buy credits");
+    expect(text).toContain("not a signal about any applicant");
+  });
+
+  it("the alert's own link to /credits exists for an owner only", () => {
+    const alertLinks = (canBuyCredits: boolean) =>
+      elements(render({ balance: 0, canBuyCredits }))
+        .filter((e) => hasClass(e, "alert"))
+        .flatMap((a) => elements(a.props.children as ReactNode))
+        .filter((e) => e.props.href === "/credits");
+    expect(alertLinks(true)).toHaveLength(1);
+    expect(alertLinks(false)).toEqual([]);
   });
 });
 

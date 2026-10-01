@@ -18,12 +18,12 @@ import type { AgencyJob } from "../../../../lib/contracts";
  * counts) — no worker name/phone/email/employer, and no role-named "forbidden" oracle string.
  *
  * Env is node (no DOM); React state is injected via a mocked `useState` (source order:
- * rows, creating, editingId, busyId, errorById). `useTransition` → [false, run-immediately].
+ * rows, editingId, busyId, errorById — the inline `creating` toggle left with the inline create
+ * form, which is now its own page). `useTransition` → [false, run-immediately].
  */
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("./jobs-actions", () => ({
-  createAgencyJobAction: vi.fn(),
   updateAgencyJobAction: vi.fn(),
   pauseAgencyJobAction: vi.fn(),
   closeAgencyJobAction: vi.fn(),
@@ -93,9 +93,13 @@ function collect(tree: ReactNode): Collected {
   return acc;
 }
 
-function render(jobs: AgencyJob[], errorById: Record<string, string | null> = {}) {
-  // useState order: rows, creating, editingId, busyId, errorById.
-  stateQueue = [jobs, false, null, null, errorById];
+function render(
+  jobs: AgencyJob[],
+  errorById: Record<string, string | null> = {},
+  editingId: string | null = null,
+) {
+  // useState order: rows, editingId, busyId, errorById.
+  stateQueue = [jobs, editingId, null, errorById];
   stateCursor = 0;
   return AgencyJobsManager({ jobs }) as ReactElement;
 }
@@ -123,9 +127,31 @@ describe("AgencyJobsManager — guardrails: faceless cells, no oracle", () => {
   });
 
   it("a row error renders inside the aria-live region without leaking a role-named oracle", () => {
-    const { text } = collect(render([JOB], { [JOB.id]: "That vacancy could not be found." }));
+    const { text } = collect(render([JOB], { [JOB.id]: "That posting could not be found." }));
     const joined = text.join(" ");
-    expect(joined).toContain("That vacancy could not be found.");
+    expect(joined).toContain("That posting could not be found.");
     expect(joined).not.toMatch(/\bforbidden\b|employer|consent/i);
+  });
+});
+
+describe("AgencyJobsManager — Posting naming, one create entry point", () => {
+  it("offers no inline create: New posting is its own page, so the list has no second door", () => {
+    const joined = collect(render([JOB])).text.join(" ");
+    expect(joined).not.toMatch(/Post a vacancy|Post vacancy|Close form|New posting/);
+  });
+
+  it("the terminal action says what it ends, and the edit toggle cancels rather than 'closes'", () => {
+    const idle = collect(render([JOB])).text.join(" ");
+    expect(idle).toContain("Close posting");
+    expect(idle).toContain("Edit");
+    const editing = collect(render([JOB], {}, JOB.id)).text.join(" ");
+    expect(editing).toContain("Cancel");
+    expect(editing).not.toContain("Close edit");
+  });
+
+  it("an empty list points at New posting in words (no vacancy vocabulary)", () => {
+    const joined = collect(render([])).text.join(" ");
+    expect(joined).toContain("New posting");
+    expect(joined).not.toMatch(/vacanc/i);
   });
 });

@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requirePayer } from "../../../lib/auth";
 import { getAgencyKyc } from "../../../lib/payer-api";
 import { maskLast4 } from "../../../lib/masking";
 import type { AgencyKyc } from "../../../lib/contracts";
 import { Avatar, Badge, Card } from "../../../components/ds";
+import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
 import { AccountForm } from "./account-form";
 
@@ -26,9 +28,13 @@ export const dynamic = "force-dynamic";
  * state). The identity block has no bespoke card of its own any more — it is a `panel` whose
  * head carries the avatar and whose body is the `kv` description list.
  *
- * AGENCY KYC (agent role only): the KYC & Bank card reads the caller's OWN masked status via
- * {@link getAgencyKyc}. `null` (supply payouts not switched on → 404, or a transient read
- * failure) HIDES the card entirely rather than showing a fake "Pending". A real status drives
+ * The account menu's item and this page's H1 are both "Account" (a top-level page reached from
+ * that menu, so its header has no back link).
+ *
+ * AGENCY KYC (agent role only): the Payout details (KYC) card reads the caller's OWN masked
+ * status via {@link getAgencyKyc}. `null` (supply payouts not switched on → 404, or a
+ * transient read failure) HIDES the card entirely rather than showing a fake "Pending". A real
+ * status drives
  * the tone/label and shows only the masked PAN / bank last-4 the API returns — the agency's
  * OWN data, never a raw document, never worker PII.
  */
@@ -40,16 +46,11 @@ export default async function AccountPage() {
   if (!session.email) {
     return (
       <div className="account-page">
-        <div className="page-head">
-          <div className="page-head__text">
-            <h1 className="page-head__title">Account</h1>
-            <p className="page-head__sub">Your organisation&rsquo;s details on BadaBhai.</p>
-          </div>
-        </div>
+        <PageHeader title="Account" description={ACCOUNT_DESCRIPTION} />
         <Card>
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
+              <Icon name="warning-circle" />
             </span>
             {/* Neutral, account-state-independent copy: it never says WHY the read failed. */}
             <h2 className="state__title">Service unavailable</h2>
@@ -82,15 +83,7 @@ export default async function AccountPage() {
   // globals.css) — it carries no styling of its own.
   return (
     <div className="account-page">
-      <p className="page-back">
-        <Link href="/dashboard">← Dashboard</Link>
-      </p>
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">Account</h1>
-          <p className="page-head__sub">Your organisation&rsquo;s details on BadaBhai.</p>
-        </div>
-      </div>
+      <PageHeader title="Account" description={ACCOUNT_DESCRIPTION} />
 
       <section className="panel">
         <div className="panel__head">
@@ -134,6 +127,8 @@ export default async function AccountPage() {
   );
 }
 
+const ACCOUNT_DESCRIPTION = "Your organisation’s details on BadaBhai.";
+
 /**
  * Per-status presentation for the KYC/PAN row: the alert tone modifier + the status Badge
  * tone + its short label. Kept as a closed map (never a computed class) so every status has a
@@ -151,9 +146,9 @@ const KYC_PRESENTATION: Record<
 };
 
 /**
- * The agency KYC & Bank card, driven by the REAL masked status. A plain (non-async) function
- * component — the caller has already resolved (and non-null-guarded) the KYC read, so this
- * only maps status → appearance. Shows only the masked PAN / bank last-4 the API returns
+ * The agency Payout details (KYC) card, driven by the REAL masked status. A plain (non-async)
+ * function component — the caller has already resolved (and non-null-guarded) the KYC read, so
+ * this only maps status → appearance. Shows only the masked PAN / bank last-4 the API returns
  * (`••••234F`); the reject reason surfaces verbatim when rejected. Both rows keep their
  * Manage/Add link to the full KYC surface (/agency/referrals).
  */
@@ -174,7 +169,7 @@ function AgencyKycCard({ kyc }: { kyc: AgencyKyc }) {
     <section className="section">
       <div className="section__head">
         <div className="section__text">
-          <h2 className="section__title">KYC &amp; Bank Details</h2>
+          <h2 className="section__title">Payout details (KYC)</h2>
           <p className="section__sub">
             Identity verification and payout banking information for your agency.
           </p>
@@ -184,7 +179,7 @@ function AgencyKycCard({ kyc }: { kyc: AgencyKyc }) {
       {/* Both rows keep a visible, named action (not an invisible stretched link) to the full
           KYC surface. The status Badge + masked last-4 come straight from the API. */}
       <div className={view.alert}>
-        <i className="ph-fill ph-identification-card alert__icon" aria-hidden="true" />
+        <Icon name="identification-card" className="alert__icon" />
         <div className="alert__text">
           <p className="alert__title">
             KYC &mdash; PAN &amp; Identity{" "}
@@ -200,16 +195,17 @@ function AgencyKycCard({ kyc }: { kyc: AgencyKyc }) {
             href="/agency/referrals"
             aria-label="KYC details — manage"
           >
-            Manage
+            <Icon name={ACTION_ICON.edit} />
+            <span>Manage</span>
           </Link>
         </div>
       </div>
 
       <div className={bankAdded ? "alert alert--success" : "alert"}>
-        <i className="ph-fill ph-bank alert__icon" aria-hidden="true" />
+        <Icon name="bank" className="alert__icon" />
         <div className="alert__text">
           <p className="alert__title">
-            Bank Account{" "}
+            Bank account{" "}
             {bankAdded ? (
               <Badge tone="success" upper>
                 Added
@@ -234,7 +230,8 @@ function AgencyKycCard({ kyc }: { kyc: AgencyKyc }) {
             href="/agency/referrals"
             aria-label={bankAdded ? "Bank details — manage" : "Bank details — add"}
           >
-            {bankAdded ? "Manage" : "Add"}
+            <Icon name={bankAdded ? ACTION_ICON.edit : ACTION_ICON.add} />
+            <span>{bankAdded ? "Manage" : "Add"}</span>
           </Link>
         </div>
       </div>

@@ -1,8 +1,9 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
+import { ACTION_ICON } from "@badabhai/icons";
 import { getAgencyJob } from "../../../../../lib/payer-api";
 import { requireAgent } from "../../../../../lib/auth/roles";
+import { agencyFlags } from "../../../../../lib/config";
 import {
   day,
   experienceBandLabel,
@@ -14,6 +15,7 @@ import { bandLabel } from "../../../../../lib/masking";
 import { cardFieldsFromAgencyJob } from "../../../../../lib/job-card-view";
 import { Badge } from "../../../../../components/ds";
 import { JobCardPreview } from "../../../../../components/job-card-preview";
+import { PageHeader } from "../../../../../components/page-header";
 
 /** The DS Badge tone for a vacancy's REAL 4-state status (open|paused|suspended|closed). */
 function statusTone(status: string): "success" | "warning" | "neutral" {
@@ -38,6 +40,8 @@ export default async function AgencyJobDetailPage({
   params: Promise<{ jobId: string }>;
 }) {
   await requireAgent();
+  // Same flag gate as every sibling agency page (it was the one agency page without it).
+  if (!agencyFlags().agencyPortalEnabled) notFound();
   const { jobId } = await params;
   // Fail closed on a non-uuid segment BEFORE it reaches the authed API path.
   if (!z.string().uuid().safeParse(jobId).success) notFound();
@@ -46,23 +50,21 @@ export default async function AgencyJobDetailPage({
 
   return (
     <>
-      <p className="page-back">
-        <Link href="/dashboard">← Dashboard</Link>
-      </p>
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">{job.title}</h1>
-          <p className="page-head__sub">
-            One of your agency&rsquo;s own vacancies — what you asked for and how many people
-            have applied. No worker identities are shown here.
-          </p>
-        </div>
-        <div className="page-head__actions">
+      <PageHeader
+        back={{ href: "/agency/jobs", label: "Postings" }}
+        title={job.title}
+        description="What this posting asks for and how many people have applied — no worker identities are shown."
+        status={
           <Badge tone={statusTone(job.status)} upper>
             {job.status}
           </Badge>
-        </div>
-      </div>
+        }
+        primaryAction={{
+          href: `/agency/jobs/${job.id}/applicants`,
+          label: "View applicants",
+          icon: ACTION_ICON.users,
+        }}
+      />
 
       <div className="posting-layout">
         <section className="panel">

@@ -1,11 +1,14 @@
 import Link from "next/link";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { getCapacity } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
+import { postingRoutes } from "../../../lib/posting-routes";
 import { getLiveCatalog } from "../../../lib/live-catalog";
 import { hiringCapacityTiers } from "../../../lib/pricing-config";
 import type { Capacity } from "../../../lib/contracts";
 import { Badge, Card, StatTile } from "../../../components/ds";
 import { CachedPricingNote } from "../../../components/cached-pricing-note";
+import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
 import { CapacityPanel } from "./capacity-panel";
 
@@ -32,12 +35,16 @@ const POSTINGS_TABLE_HEADING_ID = "capacity-postings-table-title";
  * enforcement INERT by default (behind CAPACITY_ENFORCEMENT_ENABLED). Buying capacity is
  * RECORDED only — it does not yet block any posting. The copy below says so; it never implies
  * real enforcement or real money.
+ *
+ * ONE ENTRY POINT (owner ruling 2026-10-01): this route is KEPT (the at-capacity alert on New
+ * posting links here) but it is the Hiring-capacity part of Plans & capacity, not a peer of it:
+ * it has no nav entry (the rail lights "Plans & capacity" here), its header goes back up to
+ * /plans, and its title names the part it shows.
  */
 export default async function CapacityPage() {
   const session = await requirePayer();
   const isAgency = session.role === "agent";
-  const unit = isAgency ? "vacancies" : "postings";
-  const unitOne = isAgency ? "vacancy" : "posting";
+  const posting = postingRoutes(isAgency);
   // LIVE catalog (D-6): the upgrade tiers/prices come from the API's active catalog —
   // an ops edit shows without a rebuild. Fetch failure ⇒ compile-time defaults + the
   // cached-pricing note (display-only; the tier is priced server-side at purchase, XT5).
@@ -60,23 +67,17 @@ export default async function CapacityPage() {
   // globals.css) — it carries no styling of its own.
   return (
     <div className="capacity-page">
-      <p className="page-back">
-        <Link href="/dashboard">← Dashboard</Link>
-      </p>
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">Capacity</h1>
-          <p className="page-head__sub">
-            How many {unit} you can run at once, and how many applicants each may disclose.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        back={{ href: "/plans", label: "Plans & capacity" }}
+        title="Hiring capacity"
+        description="How many postings you can run at once, and how many applicants each may disclose."
+      />
 
       {error ? (
         <Card>
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
+              <Icon name="warning-circle" />
             </span>
             <h2 className="state__title">Service unavailable</h2>
             <p className="state__body">
@@ -91,7 +92,7 @@ export default async function CapacityPage() {
         <>
           <div className="stat-row stat-row--kpi">
             <StatTile
-              label={`Active ${unit}`}
+              label="Active postings"
               value={
                 <span className="bb-mono">
                   {capacity.activeVacancies} / {capacity.activeVacancyAllowance}
@@ -107,18 +108,28 @@ export default async function CapacityPage() {
                   {capacity.applicantQuotaUsed} / {capacity.applicantQuotaTotal}
                 </span>
               }
-              icon="users-three"
-              caption={<Link href="/postings">Top up applicant quota →</Link>}
+              icon={ACTION_ICON.users}
+              caption={
+                // A company adds slots per posting on its Postings page. An agency has no
+                // slot control to send it to, so its caption is a fact, not a link.
+                isAgency ? (
+                  "Each posting has its own quota."
+                ) : (
+                  <Link href="/postings">
+                    Add applicant slots in Postings <Icon name={ACTION_ICON.next} />
+                  </Link>
+                )
+              }
             />
           </div>
 
           {atCapacity ? (
             <div className="alert alert--warning">
-              <i className="ph-fill ph-warning alert__icon" aria-hidden="true" />
+              <Icon name="warning" className="alert__icon" />
               <div className="alert__text">
                 <p className="alert__title">At capacity</p>
                 <p className="alert__body">
-                  You are at capacity — new {unit} will be paused until you add capacity.
+                  You are at capacity — new postings will be paused until you add capacity.
                 </p>
               </div>
             </div>
@@ -129,22 +140,22 @@ export default async function CapacityPage() {
               <div className="section__text">
                 <h2 className="section__title">Add capacity</h2>
                 <p className="section__sub">
-                  Your active-{unitOne} count above is{" "}
+                  Your active-posting count above is{" "}
                   <strong>live from the enforcement engine</strong> — it drives whether you are at
                   capacity. Adding capacity raises your concurrent allowance and resumes any
-                  paused {unit}. Prices are <strong>mock</strong> — no real payment is taken.
+                  paused postings. Prices are <strong>mock</strong> — no real payment is taken.
                 </p>
               </div>
             </div>
             {!live ? <CachedPricingNote /> : null}
             <CapacityPanel tiers={tiers} />
             <div className="alert alert--info">
-              <i className="ph-fill ph-info alert__icon" aria-hidden="true" />
+              <Icon name="info" className="alert__icon" />
               <div className="alert__text">
                 <p className="alert__title">Recorded only — nothing is blocked yet.</p>
                 <p className="alert__body">
-                  Buying capacity is stored against your account; the concurrent-vacancy cap is
-                  not yet enforced, so it does not pause or block any {unitOne} today. Mock
+                  Buying capacity is stored against your account; the concurrent-posting cap is
+                  not yet enforced, so it does not pause or block any posting today. Mock
                   payments only — no money moves.
                 </p>
               </div>
@@ -155,11 +166,11 @@ export default async function CapacityPage() {
             <div className="panel__head">
               <div className="panel__text">
                 <h2 className="panel__title" id={POSTINGS_TABLE_HEADING_ID}>
-                  Per {unitOne}
+                  Applicant quota per posting
                 </h2>
                 <p className="panel__sub">
                   Your concurrent allowance and active count above are <strong>live</strong> from
-                  the backend enforcement engine. The per-{unitOne} rows below reflect{" "}
+                  the backend enforcement engine. The per-posting rows below reflect{" "}
                   <strong>backend-seeded plans only</strong> and do <strong>not</strong> drive
                   that count — they will become live once the create-posting backend endpoint
                   lands.
@@ -170,18 +181,21 @@ export default async function CapacityPage() {
               {capacity.postings.length === 0 ? (
                 <div className="state">
                   <span className="state__icon">
-                    <i className="ph-fill ph-briefcase" aria-hidden="true" />
+                    <Icon name={ACTION_ICON.posting} />
                   </span>
-                  <h3 className="state__title">No {unit} yet</h3>
+                  <h3 className="state__title">No postings yet</h3>
                   <p className="state__body">
-                    You haven&rsquo;t posted {isAgency ? "a vacancy" : "a job"} yet. Once you do,
-                    its applicant quota shows here.
+                    You haven&rsquo;t published a posting yet. Once you do, its applicant quota
+                    shows here.
                   </p>
-                  <div className="state__actions">
-                    <Link className="bb-btn bb-btn--primary bb-btn--sm" href="/postings/new">
-                      {isAgency ? "Post your first vacancy" : "Post your first job"}
-                    </Link>
-                  </div>
+                  {posting ? (
+                    <div className="state__actions">
+                      <Link className="bb-btn bb-btn--primary" href={posting.create}>
+                        <Icon name={ACTION_ICON.create} />
+                        <span>New posting</span>
+                      </Link>
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <div
@@ -195,7 +209,7 @@ export default async function CapacityPage() {
                       <tr>
                         <th>Role</th>
                         <th>Status</th>
-                        <th>Vacancies</th>
+                        <th>Openings</th>
                         <th className="num">Applicants seen</th>
                         <th className="num">Applicant quota</th>
                       </tr>
@@ -204,12 +218,18 @@ export default async function CapacityPage() {
                       {capacity.postings.map((p) => (
                         <tr key={p.postingId}>
                           <td>
-                            <Link
-                              className="capacity-link"
-                              href={`/postings/${p.postingId}/applicants`}
-                            >
-                              {p.roleTitle}
-                            </Link>
+                            {/* Company postings; an agency is never linked into the company
+                                posting surface, so for an agent the role is text. */}
+                            {isAgency ? (
+                              p.roleTitle
+                            ) : (
+                              <Link
+                                className="capacity-link"
+                                href={`/postings/${p.postingId}/applicants`}
+                              >
+                                {p.roleTitle}
+                              </Link>
+                            )}
                           </td>
                           <td>
                             <Badge

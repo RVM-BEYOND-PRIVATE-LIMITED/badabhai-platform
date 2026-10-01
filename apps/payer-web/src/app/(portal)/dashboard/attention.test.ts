@@ -53,6 +53,9 @@ describe("buildAttentionItems", () => {
     expect(out[0]!.id).toBe("credits-empty");
     expect(out[0]!.tone).toBe("critical");
     expect(out[0]!.actionHref).toBe("/credits");
+    // "Buy credits" with the ONE balance icon — never "Top up" (which also meant quota).
+    expect(out[0]!.actionLabel).toBe("Buy credits");
+    expect(out[0]!.actionIcon).toBe("wallet");
   });
 
   it("warns BEFORE the wallet empties, not after", () => {
@@ -109,6 +112,8 @@ describe("buildAttentionItems", () => {
     const item = out.find((i) => i.id === "no-open-postings")!;
     expect(item.title).toBe("No open postings");
     expect(item.actionHref).toBe("/postings/new");
+    expect(item.actionLabel).toBe("New posting");
+    expect(item.actionIcon).toBe("plus");
   });
 
   it("distinguishes 'none yet' from 'all closed'", () => {
@@ -141,7 +146,7 @@ describe("buildAttentionItems", () => {
     ]);
   });
 
-  it("uses the agency's vocabulary for an agent", () => {
+  it("an agent gets only the wallet item (no posting item, whatever the job-postings read says)", () => {
     const out = buildAttentionItems(
       { ...HEALTHY, credits: { payerId: "p", balance: 0 } },
       { isAgency: true, isOwner: true },

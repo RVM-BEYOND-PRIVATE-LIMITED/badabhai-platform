@@ -57,8 +57,8 @@ export function MaskedResumeCard({ view }: { view: Extract<RevealView, { kind: "
         <strong>no phone, no full name</strong> is shown.
       </p>
       <dl className="reveal-card__dl">
-        <dt>Candidate</dt>
-        <dd className="bb-mono">{view.displayInitials ?? "Masked candidate"}</dd>
+        <dt>Applicant</dt>
+        <dd className="bb-mono">{view.displayInitials ?? "Masked applicant"}</dd>
         <dt>Resume</dt>
         <dd>
           <a href={view.resumeUrl} target="_blank" rel="noopener noreferrer">

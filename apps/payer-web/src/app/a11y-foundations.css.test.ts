@@ -342,7 +342,7 @@ describe("W2-A/W3-A · 1 — a head's subtitle sits under its title, grouped in 
     }
     const withActions = wrapped.filter((h) => h.hasActions).map((h) => h.file);
     expect(withActions.some((f) => f.endsWith("payout-panel.tsx"))).toBe(true);
-    expect(withActions.some((f) => f.endsWith("applicants/page.tsx"))).toBe(true);
+    expect(withActions.some((f) => f.endsWith("dashboard/agent-sections.tsx"))).toBe(true);
     // …and the checker can FAIL: each violation it exists for is reported on a known snippet.
     const H = (inner: string) => `<div className="panel__head">${inner}</div>`;
     const T = `<h2 className="panel__title">T</h2>`;
@@ -643,41 +643,68 @@ describe("W3-A · 2b — the back link clears a 44px hit area on phones AND coar
     for (const p of props(dsStrip())) expect(decl(strip, p), p).toBe(decl(dsStrip(), p));
   });
 
-  it('MARKUP: every page\'s back link is `<p className="page-back">` → a direct <Link> (so `> a` matches)', () => {
-    // Measured on all 16 portal pages that render it (320/375/600 + a 1280 coarse pointer): hit
-    // 44–45px tall, drawn box unchanged. The selector is a CHILD combinator, so a wrapper span
-    // or a second link inside the paragraph would silently lose the hit area — pin the shape.
-    const bad: string[] = [];
-    let seen = 0;
-    for (const [file, src] of tsxUnder(here)) {
-      for (const at of offsets(src, 'className="page-back"')) {
-        seen += 1;
-        const open = src.lastIndexOf("<", at);
-        const tagEnd = src.indexOf(">", at);
-        const close = src.indexOf("</p>", tagEnd);
-        const inner = src.slice(tagEnd + 1, close).trim();
-        const ok =
-          src.startsWith("<p ", open) &&
-          inner.startsWith("<Link ") &&
-          inner.endsWith("</Link>") &&
-          offsets(inner, "<Link ").length === 1;
-        if (!ok) bad.push(`${file} @${at}`);
-      }
-    }
-    expect(bad).toEqual([]);
-    expect(seen, "the scan reads every page that renders the back link").toBeGreaterThanOrEqual(16);
+  it('MARKUP: the ONE back link (PageHeader) is `<p className="page-back">` → a direct <Link> (so `> a` matches)', () => {
+    // The selector is a CHILD combinator, so a wrapper span or a second link inside the
+    // paragraph would silently lose the hit area — pin the shape. Every page renders its back
+    // link through PageHeader (2026-10-01), so the shape lives in ONE place and no page may
+    // hand-write another.
+    const COMPONENT = join(here, "..", "components", "page-header.tsx");
+    const component = readFileSync(COMPONENT, "utf8");
+    const sites = offsets(component, 'className="page-back"');
+    expect(sites, "PageHeader renders the back link once").toHaveLength(1);
+    const at = sites[0]!;
+    const open = component.lastIndexOf("<", at);
+    const tagEnd = component.indexOf(">", at);
+    const close = component.indexOf("</p>", tagEnd);
+    const inner = component.slice(tagEnd + 1, close).trim();
+    expect(component.startsWith("<p ", open)).toBe(true);
+    expect(inner.startsWith("<Link ")).toBe(true);
+    expect(inner.endsWith("</Link>")).toBe(true);
+    expect(offsets(inner, "<Link ")).toHaveLength(1);
+    // The arrow is the typed icon, never the `←` glyph.
+    expect(inner).toContain("<Icon name={ACTION_ICON.back} />");
+    expect(inner).not.toContain("←");
+    // No page hand-writes a back link (or a page head) any more… (the route-level loading
+    // skeleton draws the head's SHAPE as placeholder blocks — no title, no link — by design)
+    const SKELETON = "(portal)/loading.tsx";
+    const handWritten = tsxUnder(here)
+      .map(([file, src]) => [file.split("\\").join("/"), src] as const)
+      .filter(([file, src]) => file !== SKELETON && /className="page-(back|head)[" ]/.test(src))
+      .map(([file]) => file);
+    expect(handWritten).toEqual([]);
+    // …and exactly the pages BELOW a nav destination pass one to PageHeader (the scan is not
+    // vacuous; a top-level page — one the rail or the account menu opens — has none).
+    const withBack = tsxUnder(here)
+      .filter(([, src]) => /<PageHeader[^>]*\bback=\{/.test(src))
+      .map(([file]) => file.split("\\").join("/"))
+      .sort();
+    expect(withBack).toEqual([
+      "(portal)/agency/bulk-upload/page.tsx",
+      "(portal)/agency/jobs/[jobId]/page.tsx",
+      "(portal)/capacity/page.tsx",
+      "(portal)/postings/[id]/applicants/applicants-screen.tsx",
+      "(portal)/postings/[id]/edit/page.tsx",
+      "(portal)/postings/[id]/page.tsx",
+      "(portal)/postings/ai/new/page.tsx",
+    ]);
   });
 
-  it("the LOOK is untouched: only the two hit-area rules reach past `.page-back` itself", () => {
+  it("the LOOK: past `.page-back` itself, only the icon row and the two hit-area rules", () => {
     const beyond = G.filter((r) =>
       splitSelectors(r.selector).some(
         (s) => s.startsWith(".page-back") && s !== ".page-back" && s !== ".page-back:hover",
       ),
     );
     expect(beyond.map((r) => `${r.selector} (${r.at})`)).toEqual([
+      `${LINK} ()`,
       `${LINK} (${CTX})`,
       `${LINK}::before (${CTX})`,
     ]);
+    // The icon row lays the arrow beside the label (the icon-gap) and nothing else.
+    const row = one(G, LINK);
+    expect(props(row)).toEqual(["align-items", "display", "gap"]);
+    expect(decl(row, "display")).toBe("inline-flex");
+    expect(decl(row, "gap")).toBe("var(--icon-gap)");
     // …and `.page-back` itself is never re-declared for a phone / touch context.
     expect(G.filter((r) => r.selector === ".page-back").map((r) => r.at)).toEqual(["", ""]);
   });
@@ -1041,34 +1068,19 @@ describe("W3-A · 6 — the portal reflows to 320px", () => {
     expect(decl(r, "min-width")).toBe("0");
   });
 
-  it("≤420px: the applicant feed head gives the role title the whole first row", () => {
-    // Its own ≤420px step (the shell header's narrow step is ≤540px now).
-    const FEED_NARROW = "max-width: 420px";
-    // A 68-character title beside a 4-digit balance chip was 5 lines / 135px at 320 and 3 / 90px
-    // at 375; on the two-track grid it is 2 lines / 74px at 320–420 (the chip on the count's row).
-    const grid = one(G, ".section__head.applicants-feed__head", FEED_NARROW);
-    expect(decl(grid, "display")).toBe("grid");
-    expect(decl(grid, "grid-template-columns")).toBe("minmax(0, 1fr) auto");
-    expect(decl(grid, "grid-template-areas")!.match(/"[^"]*"/g)).toEqual([
-      '"title title"',
-      '"sub actions"',
-    ]);
-    expect(decl(grid, "row-gap")).toBe("var(--space-1)");
-    expect(decl(one(G, ".applicants-feed__head > .section__text", FEED_NARROW), "display")).toBe(
-      "contents",
-    );
-    for (const [sel, area] of [
-      [".applicants-feed__head .section__title", "title"],
-      [".applicants-feed__head .section__sub", "sub"],
-      [".applicants-feed__head > .section__actions", "actions"],
-    ] as const) {
-      expect(decl(one(G, sel, FEED_NARROW), "grid-area"), sel).toBe(area);
-    }
-    const page = readFileSync(
-      join(here, "(portal)", "postings", "[id]", "applicants", "page.tsx"),
+  it("the applicant feed head is a plain shared head: no balance chip beside the role title", () => {
+    // The ≤420px two-track reflow existed to move a balance chip off a long role title's row.
+    // The balance is now shown ONCE, by the shell header's chip, so the feed head is title + count
+    // in the shared wrapper (which wraps any title at every width) and its reflow is gone.
+    const screen = readFileSync(
+      join(here, "(portal)", "postings", "[id]", "applicants", "applicants-screen.tsx"),
       "utf8",
     );
-    expect(offsets(page, 'className="section__head applicants-feed__head"')).toHaveLength(1);
+    const head = screen.slice(screen.indexOf('<div className="section__head">'));
+    expect(offsets(screen, '<div className="section__head">')).toHaveLength(1);
+    expect(head.slice(0, divEnd(head, 0))).not.toContain("section__actions");
+    expect(screen).not.toContain("applicants-feed__head");
+    expect(G.some((x) => x.selector.includes("applicants-feed__head"))).toBe(false);
   });
 
   it("a wrapped title breaks a long word rather than leave its wrapper", () => {

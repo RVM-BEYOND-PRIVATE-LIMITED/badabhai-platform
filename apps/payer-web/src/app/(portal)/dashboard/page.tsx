@@ -1,9 +1,13 @@
 import Link from "next/link";
+import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import { getDashboard } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
 import { getOrgRole } from "../../../lib/auth/org-roles";
+import { agencyFlags } from "../../../lib/config";
+import { postingRoutes } from "../../../lib/posting-routes";
 import type { Dashboard } from "../../../lib/contracts";
 import { Badge, Card, MaskedCandidate, StatTile } from "../../../components/ds";
+import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
 import { formatInr } from "../../../lib/format";
 import { AgentSections } from "./agent-sections";
@@ -21,7 +25,7 @@ export const dynamic = "force-dynamic";
  *   1. NEEDS YOU     — only rendered when something genuinely does (see attention.ts).
  *   2. POSITION      — the counters, now secondary to the alerts above them.
  *   3. DO SOMETHING  — the high-frequency actions, as first-class targets.
- *   4. YOUR WORK     — the postings/vacancies themselves.
+ *   4. YOUR WORK     — the postings themselves.
  *   5. RECENT        — unlock history, quietest of the five.
  *
  * Nothing here invents data: every alert is a statement about a field that is in the
@@ -37,13 +41,22 @@ export const dynamic = "force-dynamic";
  *
  * DATA-COHERENCE (the agent case): the shared top reads the EMPLOYER `job-postings` entity
  * while the agency modules read the `jobs.payer_id` entity — DIFFERENT data sets for an
- * agent. The agency data is the source of truth for their vacancies, so the shared top OMITS
+ * agent. The agency data is the source of truth for their postings, so the shared top OMITS
  * its `job-postings`-derived tile and section for agents.
+ *
+ * ONE DOOR PER DESTINATION (owner ruling 2026-10-01). "New posting" is the head's one primary
+ * action — for an agency it opens the AGENCY form (`jobs`), never the company one. The Postings
+ * list is reached from the "Your postings" panel alone (the counters and unlock rows used to be
+ * five more links to it, two of them to a list that shows no unlocks). Credits is linked only
+ * for an owner: `/credits` is Owner-only and a recruiter would land on a 404.
  */
 export default async function DashboardPage() {
   const session = await requirePayer();
   const isAgency = session.role === "agent";
   const isOwner = getOrgRole(session) === "owner";
+  // The agency pages (Revenue, Referrals…) sit behind this flag; their tiles follow it.
+  const agencyOn = isAgency && agencyFlags().agencyPortalEnabled;
+  const posting = postingRoutes(isAgency);
 
   let data: Dashboard | null = null;
   let failed = false;
@@ -56,15 +69,11 @@ export default async function DashboardPage() {
   if (failed || !data) {
     return (
       <>
-        <div className="page-head">
-          <div className="page-head__text">
-            <h1 className="page-head__title">Dashboard</h1>
-          </div>
-        </div>
+        <PageHeader title="Dashboard" />
         <Card>
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
+              <Icon name="warning-circle" />
             </span>
             <h2 className="state__title">We could not load your account</h2>
             <p className="state__body">
@@ -80,27 +89,34 @@ export default async function DashboardPage() {
   }
 
   const openCount = data.postings.filter((p) => p.status === "open").length;
+  const balanceTile = {
+    label: "Credit balance",
+    value: data.credits.balance,
+    icon: ACTION_ICON.credits,
+    caption: (
+      <>
+        <span className="bb-mono">{formatInr(40)}</span> per unlock
+      </>
+    ),
+  };
   const recentUnlocks = data.unlocks.slice(0, 5);
   const attention = buildAttentionItems(data, { isAgency, isOwner });
 
   return (
     <>
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">Dashboard</h1>
-          <p className="page-head__sub">
-            {isAgency
-              ? "Your vacancies, referred workers and unlocked contacts."
-              : "Your postings, credits and unlocked contacts — and anything that needs you."}
-          </p>
-        </div>
-        <div className="page-head__actions">
-          <Link className="bb-btn bb-btn--primary bb-btn--sm" href="/postings/new">
-            <i className="ph-fill ph-plus" aria-hidden="true" />
-            <span>{isAgency ? "Post a vacancy" : "Post a job"}</span>
-          </Link>
-        </div>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        description={
+          isAgency
+            ? "Your postings, referred workers and unlocked contacts."
+            : "Your postings, credits and unlocked contacts — and anything that needs you."
+        }
+        primaryAction={
+          posting
+            ? { href: posting.create, label: "New posting", icon: ACTION_ICON.create }
+            : undefined
+        }
+      />
 
       {/* 1 · NEEDS YOU — absent entirely when nothing does, so its presence always means
           something. A permanent "all clear" panel trains people to stop reading it. */}
@@ -112,16 +128,7 @@ export default async function DashboardPage() {
           <ul className="attention__list">
             {attention.map((item) => (
               <li className={`attention__item attention__item--${item.tone}`} key={item.id}>
-                <i
-                  className={`ph-fill ph-${
-                    item.tone === "critical"
-                      ? "warning-octagon"
-                      : item.tone === "warning"
-                        ? "warning"
-                        : "info"
-                  } attention__icon`}
-                  aria-hidden="true"
-                />
+                <Icon name={TONE_ICON[item.tone]} className="attention__icon" />
                 <div className="attention__text">
                   <p className="attention__title">{item.title}</p>
                   <p className="attention__body">{item.body}</p>
@@ -131,7 +138,8 @@ export default async function DashboardPage() {
                     className="bb-btn bb-btn--secondary bb-btn--sm attention__action"
                     href={item.actionHref}
                   >
-                    {item.actionLabel}
+                    {item.actionIcon ? <Icon name={item.actionIcon} /> : null}
+                    <span>{item.actionLabel}</span>
                   </Link>
                 ) : null}
               </li>
@@ -143,32 +151,30 @@ export default async function DashboardPage() {
       {/* 2 · POSITION — the KPI variant: no hole beside a lone third tile, and a compact
           ledger row per tile on a phone so the counters stay secondary to bands 1 and 3. */}
       <div className="stat-row stat-row--kpi">
-        <StatTile
-          label="Credit balance"
-          value={data.credits.balance}
-          icon="wallet"
-          href="/credits"
-          ariaLabel={`Credit balance ${data.credits.balance} credits — open wallet`}
-          caption={
-            <>
-              <span className="bb-mono">{formatInr(40)}</span> per unlock
-            </>
-          }
-        />
+        {/* The balance links to Credits for an OWNER only (a recruiter's /credits is a 404). */}
+        {isOwner ? (
+          <StatTile
+            {...balanceTile}
+            href="/credits"
+            ariaLabel={`Credit balance ${data.credits.balance} credits — open Credits`}
+          />
+        ) : (
+          <StatTile {...balanceTile} />
+        )}
         {isAgency ? null : (
           <StatTile
             label="Open postings"
             value={openCount}
-            icon="briefcase"
-            href="/postings"
-            ariaLabel={`Open postings ${openCount} — manage postings`}
+            icon={ACTION_ICON.posting}
             caption={`${data.postings.length} total`}
           />
         )}
         {/* PARKED, not removed. /agency/revenue renders a real page explaining what is
             coming, so the tile stays a link to that explanation rather than vanishing —
-            an agent looking for earnings should find an answer, not silence. */}
-        {isAgency ? (
+            an agent looking for earnings should find an answer, not silence. It follows the
+            agency-portal flag its page checks (off → that page 404s, so no tile). This is the
+            dashboard's ONE way to Revenue. */}
+        {agencyOn ? (
           <StatTile
             label="Revenue"
             value="—"
@@ -178,12 +184,11 @@ export default async function DashboardPage() {
             caption="Coming soon"
           />
         ) : null}
+        {/* A count, not a door: the postings list it used to open shows no unlocks. */}
         <StatTile
           label="Contacts unlocked"
           value={data.unlocks.length}
-          icon="lock-key-open"
-          href="/postings"
-          ariaLabel={`Contacts unlocked ${data.unlocks.length} — manage postings`}
+          icon={ACTION_ICON.unlock}
           caption="1 credit each"
         />
       </div>
@@ -195,49 +200,15 @@ export default async function DashboardPage() {
           Quick actions
         </h2>
         <div className="quick__grid">
-          <Link className="quick__card" href="/postings/new">
-            <span className="quick__icon">
-              <i className="ph-fill ph-plus-circle" aria-hidden="true" />
-            </span>
-            <span className="quick__label">{isAgency ? "Post a vacancy" : "Post a job"}</span>
-            <span className="quick__desc">Describe the role and reach matched workers.</span>
-          </Link>
-          <Link className="quick__card" href="/postings">
-            <span className="quick__icon">
-              <i className="ph-fill ph-users-three" aria-hidden="true" />
-            </span>
-            <span className="quick__label">Review applicants</span>
-            <span className="quick__desc">
-              Open a {isAgency ? "vacancy" : "posting"} and work through its feed.
-            </span>
-          </Link>
-          {isAgency ? (
-            <Link className="quick__card" href="/agency/referrals">
+          {quickActions({ isOwner, agencyOn }).map((q) => (
+            <Link className="quick__card" href={q.href} key={q.href}>
               <span className="quick__icon">
-                <i className="ph-fill ph-share-network" aria-hidden="true" />
+                <Icon name={q.icon} />
               </span>
-              <span className="quick__label">Invite workers</span>
-              <span className="quick__desc">Mint an invite link or print a QR poster.</span>
+              <span className="quick__label">{q.label}</span>
+              <span className="quick__desc">{q.description}</span>
             </Link>
-          ) : null}
-          {isOwner ? (
-            <Link className="quick__card" href="/credits">
-              <span className="quick__icon">
-                <i className="ph-fill ph-wallet" aria-hidden="true" />
-              </span>
-              <span className="quick__label">Top up credits</span>
-              <span className="quick__desc">Add unlocks so shortlisting never stalls.</span>
-            </Link>
-          ) : null}
-          <Link className="quick__card" href="/plans">
-            <span className="quick__icon">
-              <i className="ph-fill ph-chart-donut" aria-hidden="true" />
-            </span>
-            <span className="quick__label">Plans &amp; capacity</span>
-            <span className="quick__desc">
-              How many {isAgency ? "vacancies" : "roles"} you can run at once.
-            </span>
-          </Link>
+          ))}
         </div>
       </section>
 
@@ -247,9 +218,10 @@ export default async function DashboardPage() {
           <div className="panel__head">
             <h2 className="panel__title">Your postings</h2>
             <div className="panel__actions">
+              {/* The dashboard's ONE link to the Postings list. */}
               <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/postings">
-                <span>Manage all</span>
-                <i className="ph-fill ph-arrow-right" aria-hidden="true" />
+                <span>All postings</span>
+                <Icon name={ACTION_ICON.next} />
               </Link>
             </div>
           </div>
@@ -257,18 +229,14 @@ export default async function DashboardPage() {
             {data.postings.length === 0 ? (
               <div className="state">
                 <span className="state__icon">
-                  <i className="ph-fill ph-briefcase" aria-hidden="true" />
+                  <Icon name={ACTION_ICON.posting} />
                 </span>
                 <h3 className="state__title">No postings yet</h3>
+                {/* What to do next is the page's one primary action, "New posting", above. */}
                 <p className="state__body">
-                  Matched workers can only find you once a role is live. Posting is free through
-                  launch.
+                  Matched workers can only find you once a role is live — use New posting above.
+                  Posting is free through launch.
                 </p>
-                <div className="state__actions">
-                  <Link className="bb-btn bb-btn--primary bb-btn--sm" href="/postings/new">
-                    Post a job
-                  </Link>
-                </div>
               </div>
             ) : (
               <div className="dash-postings">
@@ -290,7 +258,7 @@ export default async function DashboardPage() {
                           employer they had none when they may have had many. Until the count
                           is on the wire, the row offers the feed instead of a false figure. */}
                       <div className="dash-posting__meta">
-                        {post.locationLabel ?? "Location flexible"} · {post.vacancyBand}
+                        {post.locationLabel ?? "Location flexible"} · {post.vacancyBand} openings
                       </div>
                     </div>
                     <div className="dash-posting__right">
@@ -299,7 +267,7 @@ export default async function DashboardPage() {
                       </Badge>
                       <span className="dash-posting__cta">
                         View applicants
-                        <i className="ph-fill ph-arrow-right dash-view__arrow" aria-hidden="true" />
+                        <Icon name={ACTION_ICON.next} className="dash-view__arrow" />
                       </span>
                     </div>
                   </Card>
@@ -324,32 +292,24 @@ export default async function DashboardPage() {
           {recentUnlocks.length === 0 ? (
             <div className="state">
               <span className="state__icon">
-                <i className="ph-fill ph-lock-key-open" aria-hidden="true" />
+                <Icon name={ACTION_ICON.unlock} />
               </span>
               <h3 className="state__title">No contacts unlocked yet</h3>
               <p className="state__body">
-                Open a {isAgency ? "vacancy" : "posting"}&rsquo;s applicants and unlock a candidate
-                to see their routed contact here.
+                Open a posting&rsquo;s applicants and unlock one to see their routed contact here.
               </p>
-              <div className="state__actions">
-                <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/postings">
-                  Browse applicants
-                </Link>
-              </div>
             </div>
           ) : (
             <div className="dash-candlist">
               {recentUnlocks.map((u) => (
-                // FACELESS: the href is a static literal — NO worker id/phone/name ever
-                // enters it. The wrapper Card supplies the stretched link; its own surface is
-                // zeroed so only the inner MaskedCandidate row shows.
+                // FACELESS: a row names nobody — no worker id/phone/name reaches the DOM. Not a
+                // link: the postings list it used to open shows no unlocks. The wrapper's own
+                // surface is zeroed so only the inner MaskedCandidate row shows.
                 <Card
                   key={u.unlockId}
                   variant="flat"
                   padding="none"
                   className="dash-unlock-link"
-                  href="/postings"
-                  ariaLabel="Unlocked contact — manage"
                 >
                   <MaskedCandidate
                     masked={false}
@@ -368,4 +328,60 @@ export default async function DashboardPage() {
       {isAgency ? <AgentSections /> : null}
     </>
   );
+}
+
+const TONE_ICON: Record<"critical" | "warning" | "info", IconName> = {
+  critical: "warning-octagon",
+  warning: "warning",
+  info: "info",
+};
+
+interface QuickAction {
+  href: string;
+  label: string;
+  description: string;
+  icon: IconName;
+}
+
+/**
+ * The high-frequency actions that are NOT already on this page. "New posting" is the head's
+ * primary, and each posting card opens its own applicants, so neither is repeated here. Every
+ * card follows its destination's gate: Credits is Owner-only, Invite workers needs the
+ * agency-portal flag its page checks.
+ */
+function quickActions({
+  isOwner,
+  agencyOn,
+}: {
+  isOwner: boolean;
+  agencyOn: boolean;
+}): QuickAction[] {
+  return [
+    ...(agencyOn
+      ? [
+          {
+            href: "/agency/referrals",
+            label: "Invite workers",
+            description: "Mint an invite link or print a QR invite.",
+            icon: "share-network" as const,
+          },
+        ]
+      : []),
+    ...(isOwner
+      ? [
+          {
+            href: "/credits",
+            label: "Buy credits",
+            description: "Add credits so shortlisting never stalls.",
+            icon: ACTION_ICON.credits,
+          },
+        ]
+      : []),
+    {
+      href: "/plans",
+      label: "Plans & capacity",
+      description: "How many postings you can run at once.",
+      icon: "chart-donut",
+    },
+  ];
 }

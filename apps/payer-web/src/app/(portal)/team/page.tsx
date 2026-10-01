@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { requireOwner } from "../../../lib/auth/org-roles";
 import { listOrgMembers } from "../../../lib/org-members";
+import { PageHeader } from "../../../components/page-header";
 import { TeamManager } from "./team-manager";
 
 export const dynamic = "force-dynamic";
@@ -21,18 +21,10 @@ export default async function TeamPage() {
   // — it carries no styling of its own.
   return (
     <div className="team-page">
-      <p className="page-back">
-        <Link href="/dashboard">← Dashboard</Link>
-      </p>
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">Team</h1>
-          <p className="page-head__sub">
-            Invite recruiters to your hiring desk and manage who can post, search, and unlock.
-            Billing &amp; wallet stay with owners.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Team"
+        description="Invite recruiters to your hiring desk and manage who can post, search and unlock — billing and credits stay with owners."
+      />
 
       <TeamManager members={members} />
     </div>

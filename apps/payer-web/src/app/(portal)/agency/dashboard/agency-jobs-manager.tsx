@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { AgencyJob } from "../../../../lib/contracts";
 import {
   day,
@@ -18,7 +19,6 @@ import { Badge, Button, Card } from "../../../../components/ds";
 import { AgencyJobForm } from "./agency-job-form";
 import {
   closeAgencyJobAction,
-  createAgencyJobAction,
   pauseAgencyJobAction,
   resumeAgencyJobAction,
   updateAgencyJobAction,
@@ -26,21 +26,20 @@ import {
 } from "./jobs-actions";
 
 /**
- * Client vacancy-management surface for the agency dashboard (ADR-0022, LIVE) — DS3.1
- * re-skin onto the BadaBhai Design System (VISUAL layer only).
+ * Client management surface for an agency's OWN postings (ADR-0022, LIVE) — the body of the
+ * Postings page (`/agency/jobs`). DS3.1 skin.
  *
  * Runs in the BROWSER and sees NO secret. It calls the Server Actions, which bind to the
  * server-held payer (the payer JWT, XB-A) — the client passes ONLY a job id + coarse,
- * non-PII demand fields, NEVER a payer id. Create + edit happen INLINE (no separate
- * route). Every vacancy renders as a DS `Card`: opaque id + bands + a count + a status
- * `Badge`; no worker identity, no employer name (faceless/coarse). ₹ pay band + counts
- * render in mono tabular (`bb-mono`). A not-found/not-owned action result reads neutrally
- * (no oracle). The post/edit/pause/close are DS `Button`s wired to the SAME live actions
- * as before — the re-skin changes presentation only; pause + close stay LIVE (the agency
- * status is `open|closed`, pause == close). Tokens only (no raw hex/px).
+ * non-PII demand fields, NEVER a payer id. EDIT happens inline; CREATE is its own page
+ * (`/agency/jobs/new`, the "New posting" entry point everywhere), so this list carries no
+ * second create control. Every posting renders as a DS `Card`: bands + a count + a status
+ * `Badge`; no worker identity, no employer name (faceless/coarse). ₹ pay band + counts render
+ * in mono tabular (`bb-mono`). A not-found/not-owned action result reads neutrally (no oracle).
+ * Tokens only (no raw hex/px).
  */
 
-/** The DS Badge tone for a vacancy's REAL state (reflects `status`, never invented). 4-state now. */
+/** The DS Badge tone for a posting's REAL state (reflects `status`, never invented). 4-state now. */
 function statusTone(status: string): "success" | "warning" | "neutral" {
   if (status === "open") return "success";
   if (status === "paused" || status === "suspended") return "warning";
@@ -49,10 +48,9 @@ function statusTone(status: string): "success" | "warning" | "neutral" {
 
 export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
   const router = useRouter();
-  // useState call order (mirrored by agency-jobs-manager.test.tsx): rows, creating, editingId,
-  // busyId, errorById.
+  // useState call order (mirrored by agency-jobs-manager.test.tsx): rows, editingId, busyId,
+  // errorById.
   const [rows, setRows] = useState<AgencyJob[]>(jobs);
-  const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [errorById, setErrorById] = useState<Record<string, string | null>>({});
@@ -89,44 +87,10 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
 
   return (
     <div className="agency-jobs">
-      <div className="agency-jobs__bar">
-        <Button
-          variant={creating ? "secondary" : "primary"}
-          iconLeft={creating ? "x" : "plus-circle"}
-          onClick={() => {
-            setEditingId(null);
-            setCreating((v) => !v);
-          }}
-        >
-          {creating ? "Close form" : "Post a vacancy"}
-        </Button>
-      </div>
-
-      {creating ? (
-        <Card className="agency-jobs__createcard">
-          <h3 className="agency-jobs__createtitle">Post a vacancy</h3>
-          <AgencyJobForm
-            mode="create"
-            submitLabel="Post vacancy"
-            onCancel={() => setCreating(false)}
-            onSubmit={async (input) => {
-              const res = await createAgencyJobAction(input);
-              if (res.ok) {
-                upsertRow(res.job);
-                setCreating(false);
-                router.refresh();
-                return { ok: true };
-              }
-              return { ok: false, error: res.error };
-            }}
-          />
-        </Card>
-      ) : null}
-
       {rows.length === 0 ? (
         <Card variant="flat" className="agency-jobs__empty">
-          You haven&rsquo;t posted a vacancy yet — post your first one above. It&rsquo;s free
-          through launch.
+          You haven&rsquo;t posted anything yet — use New posting to publish your first one.
+          It&rsquo;s free through launch.
         </Card>
       ) : (
         <div className="agency-jobs__list">
@@ -167,7 +131,7 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                     <span aria-hidden="true">·</span>
                     <span>
                       <Link className="postings-link" href={`/agency/jobs/${j.id}`}>
-                        Details
+                        <Icon name={ACTION_ICON.view} /> Details
                       </Link>
                     </span>
                   </div>
@@ -180,13 +144,11 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                         variant="secondary"
                         size="sm"
                         disabled={busy}
-                        iconLeft="pencil-simple"
-                        onClick={() => {
-                          setCreating(false);
-                          setEditingId((cur) => (cur === j.id ? null : j.id));
-                        }}
+                        iconLeft={ACTION_ICON.edit}
+                        onClick={() => setEditingId((cur) => (cur === j.id ? null : j.id))}
                       >
-                        {editing ? "Close edit" : "Edit"}
+                        {/* "Cancel", not "Close edit": "Close" is this row's terminal action. */}
+                        {editing ? "Cancel" : "Edit"}
                       </Button>
                       {active ? (
                         <Button
@@ -216,10 +178,10 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                         size="sm"
                         disabled={busy}
                         loading={busy}
-                        iconLeft="x-circle"
+                        iconLeft={ACTION_ICON.reject}
                         onClick={() => runLifecycle(j.id, () => closeAgencyJobAction({ jobId: j.id }))}
                       >
-                        {busy ? "Working…" : "Close"}
+                        {busy ? "Working…" : "Close posting"}
                       </Button>
                     </div>
                   ) : (

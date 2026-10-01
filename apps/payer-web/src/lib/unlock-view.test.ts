@@ -112,7 +112,7 @@ describe("mapRevealResult — the LIVE wire shape (no initials field)", () => {
     }
   });
 
-  it("MaskedResumeCard renders the neutral 'Masked candidate' fallback (no name/phone)", async () => {
+  it("MaskedResumeCard renders the neutral 'Masked applicant' fallback (no name/phone)", async () => {
     const { MaskedResumeCard } = await import("../components/unlock/routed-contact-card");
     const tree = MaskedResumeCard({
       view: {
@@ -123,7 +123,7 @@ describe("mapRevealResult — the LIVE wire shape (no initials field)", () => {
       },
     });
     const text = JSON.stringify(tree);
-    expect(text).toContain("Masked candidate");
+    expect(text).toContain("Masked applicant");
     expect(text).not.toMatch(/\+?\d{7,}/); // never a phone-like run
   });
 });
@@ -153,7 +153,7 @@ describe("withheld-vs-missing display contract (#1581)", () => {
     // the client must not add differences. The ONLY legal delta is the
     // candidate line the server itself labels.
     const normalize = (s: string): string =>
-      s.replace(/R\*\*\*\*\* K\.|Masked candidate/g, "CAND");
+      s.replace(/R\*\*\*\*\* K\.|Masked applicant/g, "CAND");
     const withInitials = normalize(
       await rendered({ ...base, displayInitials: "R***** K." }),
     );

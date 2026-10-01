@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { requireAgent } from "../../../../lib/auth/roles";
 import { agencyFlags } from "../../../../lib/config";
 import { notFound } from "next/navigation";
+import { PageHeader } from "../../../../components/page-header";
 
 export const dynamic = "force-dynamic";
 
@@ -13,17 +13,10 @@ export default async function RevenuePage() {
 
   return (
     <>
-      <p className="page-back">
-        <Link href="/dashboard">← Dashboard</Link>
-      </p>
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">Revenue</h1>
-          <p className="page-head__sub">
-            Earnings, payouts, and revenue analytics for your agency.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Revenue"
+        description="Earnings, payouts, and revenue analytics for your agency."
+      />
 
       {/* The UI-1 `soon-card` — the ONE visual language for a surface that is not open yet.
           Deliberately colourless (a tint would read as a status to act on) and still

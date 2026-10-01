@@ -1,4 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { requirePayer } from "../../../../lib/auth";
+import { agentPostingRedirect } from "../../../../lib/posting-routes";
+import { PageHeader } from "../../../../components/page-header";
 import { getLiveCatalog } from "../../../../lib/live-catalog";
 import {
   applicantQuotaStep,
@@ -29,6 +33,8 @@ export const dynamic = "force-dynamic";
  * swallowed (the warning simply doesn't show) — it must never block posting.
  */
 export default async function NewPostingPage() {
+  // Company-only surface: an agency posts AGENCY jobs (owner ruling 2026-10-01) → its own form.
+  if ((await requirePayer()).role === "agent") redirect(agentPostingRedirect("create"));
   const free = postingIsFreeThroughLaunch();
   const { products, live } = await getLiveCatalog();
   const paidTiers = postingPaidTiers(products);
@@ -58,17 +64,10 @@ export default async function NewPostingPage() {
 
   return (
     <>
-      <p className="page-back">
-        <Link href="/postings">← Manage postings</Link>
-      </p>
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">Post a job</h1>
-          <p className="page-head__sub">
-            Describe the role. Applicants appear faceless until you unlock them.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="New posting"
+        description="Describe the role — applicants appear faceless until you unlock them."
+      />
 
       {/* ADR-0035 entry point: the AI chat is an ALTERNATIVE INPUT SURFACE onto this same
           create path — the manual form below is unchanged and remains the default. Both

@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { CreditPack } from "../../../lib/contracts";
 import { Badge, Button, Card, Dialog, Toast } from "../../../components/ds";
 import { formatInr } from "../../../lib/format";
@@ -184,7 +185,7 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
       {packs.length === 0 ? (
         <div className="state">
           <span className="state__icon">
-            <i className="ph-fill ph-wallet" aria-hidden="true" />
+            <Icon name={ACTION_ICON.credits} />
           </span>
           <h3 className="state__title">No credit packs on offer</h3>
           <p className="state__body">
@@ -258,7 +259,7 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
           <>
             Add <span className="bb-mono">{pendingConfirm.credits}</span> credits for{" "}
             <span className="bb-mono">{formatInr(pendingConfirm.priceInr)}</span>? This is a mock
-            top-up — no real payment is taken.
+            purchase — no real payment is taken.
           </>
         ) : null}
       </Dialog>

@@ -1,5 +1,7 @@
-import Link from "next/link";
+import { notFound } from "next/navigation";
+import { Icon } from "@badabhai/icons";
 import { requireAgent } from "../../../../lib/auth/roles";
+import { agencyFlags } from "../../../../lib/config";
 import {
   getAgencyEarnings,
   getAgencyKyc,
@@ -15,6 +17,7 @@ import type {
   AgencyReferralsSummary,
 } from "../../../../lib/contracts";
 import { ProgressBar, StatTile } from "../../../../components/ds";
+import { PageHeader } from "../../../../components/page-header";
 import { RetryButton } from "../../../../components/retry-button";
 import { AgencyBatchInvitePanel } from "../dashboard/batch-invite-panel";
 import { AgencyInvitePanel } from "../dashboard/invite-panel";
@@ -25,13 +28,19 @@ import { PayoutPanel } from "./payout-panel";
 export const dynamic = "force-dynamic";
 
 /**
- * Agency-only "Referrals & earnings" (ADR-0022 Amendment 2) — the agency SUPPLY-money
+ * Agency-only "Referrals" (ADR-0022 Amendment 2; the rail item and the H1 share the name) — the
+ * agency SUPPLY-money
  * surface: a shareable referral link, the aggregate referral funnel, referral EARNINGS,
  * payout KYC, and payout requests. MOCK money (no real disbursement).
  *
  * SECURITY (role authz / XB-A): `requireAgent()` is the FIRST statement — an employer
  * session gets a NEUTRAL 404 (no oracle, no client hide) before any read runs. Every
  * server action re-asserts the gate itself. Tenancy is the SESSION (no body payer_id).
+ *
+ * PORTAL FLAG (2026-10-01, a behaviour change): like every sibling agency page (Worker activity,
+ * QR invite, Revenue, Bulk invite upload, Postings), this page now 404s when the agency-portal
+ * flag is off — it was the one Supply page that ignored it, so with the flag off the rail hid
+ * its siblings while this one stayed open.
  *
  * FACELESS (CLAUDE.md §2 #2 / B-R2): the funnel is AGGREGATE-ONLY with the k-anon floor
  * applied server-side; the earnings/KYC/payout reads are amounts/counts/status + the
@@ -45,6 +54,8 @@ export const dynamic = "force-dynamic";
 export default async function AgencyReferralsPage() {
   // 1) SERVER-enforced role gate — an `employer` session 404s here before any read runs.
   await requireAgent();
+  // 1b) Public flag fail-close, as on every sibling agency page: off → the route does not exist.
+  if (!agencyFlags().agencyPortalEnabled) notFound();
 
   // 2) LIVE aggregate funnel read (ungated), k-anon floored server-side. Isolated so a
   //    failure degrades to a neutral retry Card rather than blanking the page.
@@ -95,19 +106,10 @@ export default async function AgencyReferralsPage() {
   // tools are framed like the panels below them, and every block heading shares one size.
   return (
     <div className="agency-referrals-page">
-      <p className="page-back">
-        <Link href="/dashboard">← Dashboard</Link>
-      </p>
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">Referrals &amp; earnings</h1>
-          <p className="page-head__sub">
-            Share your referral link, track your consent-safe funnel, and — where enabled —
-            earn a mock rev-share when workers you referred get contacted. BadaBhai protects
-            worker privacy: agencies see aggregate counts, never a per-worker breakdown.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Referrals"
+        description="Share your referral link, track your consent-safe funnel (aggregate counts, never a per-worker breakdown) and, where enabled, your mock referral earnings."
+      />
 
       {/* a) REFERRAL LINK — LIVE faceless mint (opaque code/link + copy; consent-first). */}
       <AgencyInvitePanel />
@@ -184,7 +186,7 @@ export default async function AgencyReferralsPage() {
         ) : (
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
+              <Icon name="warning-circle" />
             </span>
             <h3 className="state__title">Referral funnel unavailable</h3>
             <p className="state__body">
@@ -206,7 +208,7 @@ export default async function AgencyReferralsPage() {
           </div>
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
+              <Icon name="warning-circle" />
             </span>
             <h3 className="state__title">Earnings unavailable</h3>
             <p className="state__body">

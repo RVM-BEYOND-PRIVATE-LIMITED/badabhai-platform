@@ -1,5 +1,7 @@
-import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requirePayer } from "../../../../../lib/auth";
+import { agentPostingRedirect, COMPANY_POSTING_ROUTES } from "../../../../../lib/posting-routes";
+import { PageHeader } from "../../../../../components/page-header";
 import { getJobPostingChatSessions } from "../../../../../lib/payer-api";
 import type { JobPostingChatSessionSummary } from "../../../../../lib/contracts";
 import { JobPostingChat } from "./job-posting-chat";
@@ -18,10 +20,13 @@ export const dynamic = "force-dynamic";
  * The list read is best-effort: a failure degrades to the start-fresh path with an honest
  * note (`loadFailed`), never to fabricated sessions and never to a blocked page. Starting
  * or resuming is an explicit payer action, so merely opening this page creates no session row.
+ *
+ * Company-only (owner ruling 2026-10-01): it creates a company `job_postings` row, and an agency
+ * posts AGENCY jobs only — an agent who opens it is sent to their own New posting form.
  */
 export default async function AiPostingChatPage() {
   const session = await requirePayer();
-  const isAgency = session.role === "agent";
+  if (session.role === "agent") redirect(agentPostingRedirect("create"));
 
   let sessions: JobPostingChatSessionSummary[] = [];
   let loadFailed = false;
@@ -38,18 +43,12 @@ export default async function AiPostingChatPage() {
 
   return (
     <>
-      <p className="page-back">
-        <Link href="/postings/new">← Post a {isAgency ? "vacancy" : "job"}</Link>
-      </p>
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">Post with AI</h1>
-          <p className="page-head__sub">
-            Have a short conversation instead of filling a form. Applicants stay faceless
-            until you unlock them.
-          </p>
-        </div>
-      </div>
+      {/* A child of New posting (the same destination, by conversation): back to the form. */}
+      <PageHeader
+        back={{ href: COMPANY_POSTING_ROUTES.create, label: "New posting" }}
+        title="Post with AI"
+        description="Have a short conversation instead of filling a form — applicants stay faceless until you unlock them."
+      />
 
       <JobPostingChat resumable={resumable} loadFailed={loadFailed} />
     </>
