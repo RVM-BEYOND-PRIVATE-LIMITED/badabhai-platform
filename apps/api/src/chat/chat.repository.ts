@@ -323,6 +323,10 @@ export class ChatRepository {
    *
    * Mirrors {@link endSession}, deliberately — same guard, same shape, different terminal
    * status — so the two cannot drift into disagreeing about what closing a session means.
+   * One difference: this does not merge back the general form's completion mark the way
+   * {@link endSession} does (TD145). A general handover with its buffer alive is re-driven through
+   * the flush, never abandoned; with the buffer gone, `state` is the checkpoint the sweep read,
+   * mark included.
    *
    * ⚠ DOES NOT TOUCH `last_message_at`, unlike {@link endSession}. That column means "when
    * the worker last spoke", and the sweep is not the worker. Stamping it here would (a)
@@ -402,6 +406,19 @@ export class ChatRepository {
    * The UPDATE is CONDITIONAL on the session still being active, and that is the actual
    * race guard: two concurrent flushes both pass a prior read, but only one wins the
    * write. `endSession` returns whether it won, and the loser aborts its transaction.
+   *
+   * THE GENERAL FORM'S COMPLETION MARK IS CARRIED, NOT REPLACED (TD145). The flush owns the
+   * interview's state and replaces it whole — except `general_form_completed_at`, which
+   * {@link markGeneralFormCompleted} writes beside it and the flush's buffer never holds. A
+   * general handover whose flush failed stays `active`, the worker can finish the form against
+   * it, and the re-driven flush lands here afterwards; replacing the column would erase the
+   * mark, and the companion's rule 4 would then read an unfinished handover that closed after
+   * his confirmation and keep him in the interview. So the existing key is merged back over the
+   * flush's state IN THIS STATEMENT: Postgres re-evaluates the SET against the row it locks, so a
+   * mark committed while the flush waited is kept too — a read-then-write in the service would
+   * lose it. `jsonb_strip_nulls` keeps the key ABSENT when there is no mark, never `null`: the
+   * mark's own write-once guard tests `-> 'general_form_completed_at' IS NULL`, which a JSON
+   * `null` value would fail forever.
    */
   async endSession(
     tx: Tx,
@@ -411,7 +428,12 @@ export class ChatRepository {
   ): Promise<boolean> {
     const updated = await tx
       .update(chatSessions)
-      .set({ conversationState: state, lastMessageAt: at, status: "ended", endedAt: at })
+      .set({
+        conversationState: sql`${JSON.stringify(state)}::jsonb || jsonb_strip_nulls(jsonb_build_object('general_form_completed_at', ${chatSessions.conversationState} -> 'general_form_completed_at'))`,
+        lastMessageAt: at,
+        status: "ended",
+        endedAt: at,
+      })
       .where(and(eq(chatSessions.id, sessionId), eq(chatSessions.status, "active")))
       .returning({ id: chatSessions.id });
     return updated.length > 0;
@@ -474,7 +496,7 @@ export class ChatRepository {
    * A JSONB MERGE (`||`), NOT A REPLACE. Every other writer of this column replaces it whole
    * (`saveConversationState`, `endSession`, `abandonSession`), which is right for them — they own
    * the interview's state — and wrong here, where one key is added beside state this method did
-   * not read.
+   * not read. {@link endSession} carries THIS key across its replace (TD145, below).
    *
    * `last_message_at` IS NOT TOUCHED, and that is deliberate rather than an omission:
    * {@link findLatestSessionByWorker} ranks sessions by it, and the worker did not speak in this
@@ -485,11 +507,12 @@ export class ChatRepository {
    * says it handed over, and only while the key is ABSENT — so the FIRST completion time is kept
    * and a re-submitted brief is a no-op here. Returns whether it wrote.
    *
-   * KNOWN LIMIT: a handover whose flush FAILED is still `active`, and a later re-driven flush
-   * replaces the whole column through `endSession` — erasing this key, so the card returns until
-   * the worker settles the brief again (which re-marks). That window needs a failed flush AND a
-   * completed form before the next message; it is recorded rather than closed here, because the
-   * fix is in the flush's state projection, not in this write.
+   * A FAILED FLUSH DOES NOT ERASE IT (TD145, fixed 2026-10-01). A handover whose flush FAILED is
+   * still `active`, so the form can be completed — and this key written — before the re-driven
+   * flush closes the session. {@link endSession} merges an existing mark back over the state it
+   * replaces, in the same UPDATE, so the card does not return and the companion's rule 4 reads
+   * the form as finished. Until then the re-drive erased the key and stamped an `ended_at` after
+   * the worker's confirmation, which kept him in the interview.
    */
   async markGeneralFormCompleted(sessionId: string, workerId: string, at: Date): Promise<boolean> {
     const updated = await this.db
