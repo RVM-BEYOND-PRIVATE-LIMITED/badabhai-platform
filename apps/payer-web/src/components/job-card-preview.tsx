@@ -57,6 +57,7 @@ export interface JobCardPreviewProps {
 export function JobCardPreview({ fields, draft }: JobCardPreviewProps) {
   const view = toJobCardView(fields, draft);
   const hasTitle = view.title !== "";
+  const hasPlace = view.place !== "";
   const salary = view.salary;
 
   return (
@@ -65,30 +66,34 @@ export function JobCardPreview({ fields, draft }: JobCardPreviewProps) {
         <div className="jcp__content" ref={observeChipFold}>
           <div className="jcp__flow">
             <div className="jcp__titlerow">
+              {/* An empty slot keeps the worker's (empty) text; its placeholder is drawn by CSS
+                  from data-placeholder, so the card's own text is always the phone's. */}
               <h3
                 className={hasTitle ? "jcp__title" : "jcp__title jcp__title--empty"}
                 data-slot="title"
                 data-clamp={JOB_CARD_CLAMPS.title}
+                data-placeholder={hasTitle ? undefined : "Your role title"}
                 title={hasTitle ? view.title : undefined}
               >
-                {hasTitle ? view.title : "Your role title"}
+                {view.title}
               </h3>
               <span className="jcp__chevron" aria-hidden="true" />
             </div>
 
-            {view.place !== null ? (
-              <p className="jcp__place">
-                <i className="ph-fill ph-map-pin" aria-hidden="true" />
-                <span
-                  className="jcp__place-text"
-                  data-slot="place"
-                  data-clamp={JOB_CARD_CLAMPS.place}
-                  title={view.place}
-                >
-                  {view.place}
-                </span>
-              </p>
-            ) : null}
+            {/* Always drawn, like the phone's row — even with no place (a pin with nothing beside
+                it is exactly what the worker would get). */}
+            <p className="jcp__place">
+              <i className="ph-fill ph-map-pin" aria-hidden="true" />
+              <span
+                className={hasPlace ? "jcp__place-text" : "jcp__place-text jcp__place-text--empty"}
+                data-slot="place"
+                data-clamp={JOB_CARD_CLAMPS.place}
+                data-placeholder={hasPlace ? undefined : "Area, City"}
+                title={hasPlace ? view.place : undefined}
+              >
+                {view.place}
+              </span>
+            </p>
 
             {salary !== null ? (
               <div
@@ -170,13 +175,12 @@ export function JobCardPreview({ fields, draft }: JobCardPreviewProps) {
         </div>
       </div>
       <details className="jcp__fold" data-fold="">
+        {/* The space is its own text node BETWEEN the spans: inside a span it was dropped from
+            the accessible name ("17 chipscut off…"). */}
         <summary className="jcp__fold-summary">
-          <span data-fold-count="" />
-          <span className="jcp__fold-closed"> cut off on a typical phone — show all</span>
-          <span className="jcp__fold-open">
-            {" "}
-            cut off on a typical phone — below the dashed line
-          </span>
+          <span data-fold-count="" />{" "}
+          <span className="jcp__fold-closed">cut off on a typical phone — show all</span>
+          <span className="jcp__fold-open">cut off on a typical phone — below the dashed line</span>
         </summary>
       </details>
       <figcaption className="jcp__caption">Card preview — built from what you entered</figcaption>

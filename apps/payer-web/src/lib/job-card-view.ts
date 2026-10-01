@@ -107,8 +107,11 @@ export type JobCardSalary =
 export interface JobCardView {
   /** The role title the payer typed (the card heading). Empty string when not yet entered. */
   title: string;
-  /** "Area, City" as one line (the worker's order), or null when neither is set (row hidden). */
-  place: string | null;
+  /**
+   * The place line exactly as the worker's card builds it ("Area, City"). Always drawn, like the
+   * phone's row — "" when neither is set (the phone shows a pin with nothing beside it).
+   */
+  place: string;
   /** The salary box, or null when no band is stated and nothing needs fixing (box hidden). */
   salary: JobCardSalary | null;
   /** The "Duty & Suvidhayein" chips, in card order: shift, experience, needed-by, requirements, benefits. */
@@ -241,16 +244,17 @@ export function neededByLabel(neededBy: string | null): string | null {
 }
 
 /**
- * The place line in the WORKER's order — "Area, City" — exactly `_cardData`'s
- * `(area == null || area.isEmpty) ? city : '${area}, ${city}'` (swipe_jobs_screen.dart). A posting
- * always has a city by the time a worker sees it (the gap rule + the feed); on a half-filled form
- * an area with no city yet reads as just the area rather than "Chakan, " — and with neither, the
- * row is hidden (the gap rule names "Add the city").
+ * The place line exactly as the worker's `_cardData` builds it (swipe_jobs_screen.dart):
+ * `(area == null || area.isEmpty) ? city : '${area}, ${city}'` — area first, and mirrored to the
+ * letter even where a published posting should never go: with no city the phone still draws the
+ * row ("Chakan, " beside the pin), and with neither it draws the pin with NOTHING beside it — the
+ * hole "Add the city" warns about. The preview keeps the row too, so the payer sees the hole the
+ * worker would; the empty row's placeholder lives in CSS only, so the card's text stays the
+ * worker's (pinned by the cross-language fixture).
  */
-export function placeLabel(city: string | null, area: string | null): string | null {
+export function placeLabel(city: string | null, area: string | null): string {
   const c = (city ?? "").trim();
   const a = (area ?? "").trim();
-  if (c === "") return a === "" ? null : a;
   return a === "" ? c : `${a}, ${c}`;
 }
 

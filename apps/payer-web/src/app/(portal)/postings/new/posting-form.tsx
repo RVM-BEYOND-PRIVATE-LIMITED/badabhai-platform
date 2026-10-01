@@ -27,12 +27,13 @@ import {
   type CardNumberPair,
   type RevealedNumbers,
 } from "../../../../lib/job-card-form";
+import { focusControl, revealWholeControl } from "../../../../lib/form-focus";
 import { companyPostingFacts } from "../../../../lib/posting-facts";
-import { workerCardGap } from "../../../../lib/worker-card-gap";
+import { workerCardGap, type WorkerCardGap } from "../../../../lib/worker-card-gap";
 import { bandForVacancies, baseApplicantQuotaForBand } from "../../../../lib/pricing-config";
 import { Badge, Button, Input, Select, Textarea } from "../../../../components/ds";
 import { ChipEditor } from "../../../../components/chip-editor";
-import { PostingActions, PostingPreviewRail } from "../../../../components/posting-preview-rail";
+import { PostingActions, PostingPreviewRail, zeroReachLabel } from "../../../../components/posting-preview-rail";
 import { createPostingAction } from "./actions";
 import { MatchSkillPicker, type MatchSelection } from "./match-skill-picker";
 
@@ -109,12 +110,6 @@ function validate(fields: FormFields): FieldErrors {
   return errs;
 }
 
-/** Moves focus (and so the scroll) to a control the payer has to fix. A no-op outside a browser. */
-function focusControl(id: string) {
-  if (typeof document === "undefined") return;
-  document.getElementById(id)?.focus();
-}
-
 export function PostingForm({
   quotaStep = null,
   matchSkills = [],
@@ -142,7 +137,7 @@ export function PostingForm({
   const [benefits, setBenefits] = useState<string[]>([]);
   const [reqDraft, setReqDraft] = useState("");
   const [benDraft, setBenDraft] = useState("");
-  const [gap, setGap] = useState<{ title: string; message: string } | null>(null);
+  const [gap, setGap] = useState<WorkerCardGap | null>(null);
   const [revealed, setRevealed] = useState<RevealedNumbers>({});
   const [pending, startTransition] = useTransition();
 
@@ -162,6 +157,7 @@ export function PostingForm({
     const pair = numberPairOf(key);
     if (pair !== null) setRevealed((prev) => revealNumberPair(prev, pair, false));
     if (key in fieldErrors) setFieldErrors((p) => ({ ...p, [key]: undefined }));
+    if (gap !== null && gap.field === key) setGap(null);
   }
 
   /** Leaving one end of a min/max pair shows that pair's order error (typing never flashes it). */
@@ -172,7 +168,14 @@ export function PostingForm({
   const numberError = (key: CardNumberField) =>
     liveCardFieldError(read.issues, key, revealed[key] === true);
 
+  /** The gap that refused the last publish, shown AT its control — where focus lands. */
+  const gapError = (control: string) =>
+    gap !== null && gap.field === control ? gap.message : undefined;
+  /** A control's error: its own validation first, then the refused-publish gap. */
+  const errorOf = (control: string, own?: string) => own ?? gapError(control);
+
   function addChip(kind: "req" | "ben") {
+    if (gap !== null && gap.field === (kind === "req" ? "requirements" : "benefits")) setGap(null);
     if (kind === "req") {
       setRequirements((prev) => withChipDraft(prev, reqDraft).list);
       setReqDraft("");
@@ -264,25 +267,21 @@ export function PostingForm({
       {busy
         ? "Publishing…"
         : preview?.zero_reach
-          ? "Publish anyway — reaches nobody yet"
+          ? zeroReachLabel
           : "Publish posting"}
     </Button>
   );
-  const actions = (
-    <PostingActions
-      status={
-        <>
-          {gap !== null ? (
-            <p className="posting-actions__msg posting-actions__msg--warning" role="alert">
-              <strong>{gap.title}.</strong> {gap.message}
-            </p>
-          ) : null}
-          {error ? <p className="posting-actions__msg posting-actions__msg--danger">{error}</p> : null}
-        </>
-      }
-    >
-      {primary}
-    </PostingActions>
+  // ONE status: the rail footer shows it on desktop, the dock below 1024px (the form's own end
+  // repeats only the buttons) — so the reason always sits by the button the payer pressed.
+  const statusLine = (
+    <>
+      {gap !== null ? (
+        <p className="posting-actions__msg posting-actions__msg--warning" role="alert">
+          <strong>{gap.title}.</strong> {gap.message}
+        </p>
+      ) : null}
+      {error ? <p className="posting-actions__msg posting-actions__msg--danger">{error}</p> : null}
+    </>
   );
 
   return (
@@ -297,6 +296,8 @@ export function PostingForm({
               id="roleKind"
               label="Role"
               value={fields.roleKind}
+              error={errorOf("roleKind")}
+              aria-invalid={errorOf("roleKind") ? true : undefined}
               onChange={(e) => set("roleKind", e.target.value)}
             >
               <option value="">— pick the role —</option>
@@ -338,6 +339,8 @@ export function PostingForm({
                 label="City"
                 placeholder="Pune"
                 value={fields.city}
+                error={errorOf("city")}
+                aria-invalid={errorOf("city") ? true : undefined}
                 hint="Shown on the worker's card as “Area, City”."
                 onChange={(e) => set("city", e.target.value)}
               />
@@ -386,8 +389,8 @@ export function PostingForm({
                 inputMode="numeric"
                 placeholder="20000"
                 value={fields.payMin}
-                error={numberError("payMin")}
-                aria-invalid={numberError("payMin") ? true : undefined}
+                error={errorOf("payMin", numberError("payMin"))}
+                aria-invalid={errorOf("payMin", numberError("payMin")) ? true : undefined}
                 onChange={(e) => set("payMin", e.target.value)}
                 onBlur={() => reveal("pay")}
               />
@@ -397,8 +400,8 @@ export function PostingForm({
                 inputMode="numeric"
                 placeholder="35000"
                 value={fields.payMax}
-                error={numberError("payMax")}
-                aria-invalid={numberError("payMax") ? true : undefined}
+                error={errorOf("payMax", numberError("payMax"))}
+                aria-invalid={errorOf("payMax", numberError("payMax")) ? true : undefined}
                 onChange={(e) => set("payMax", e.target.value)}
                 onBlur={() => reveal("pay")}
               />
@@ -408,6 +411,8 @@ export function PostingForm({
               id="payType"
               label="Pay type"
               value={fields.payType}
+              error={errorOf("payType")}
+              aria-invalid={errorOf("payType") ? true : undefined}
               hint="What the band means. We never guess net-vs-gross."
               onChange={(e) => set("payType", e.target.value)}
             >
@@ -426,8 +431,8 @@ export function PostingForm({
                 inputMode="numeric"
                 placeholder="1"
                 value={fields.minExperienceYears}
-                error={numberError("minExperienceYears")}
-                aria-invalid={numberError("minExperienceYears") ? true : undefined}
+                error={errorOf("minExperienceYears", numberError("minExperienceYears"))}
+                aria-invalid={errorOf("minExperienceYears", numberError("minExperienceYears")) ? true : undefined}
                 onChange={(e) => set("minExperienceYears", e.target.value)}
                 onBlur={() => reveal("experience")}
               />
@@ -437,8 +442,8 @@ export function PostingForm({
                 inputMode="numeric"
                 placeholder="5"
                 value={fields.maxExperienceYears}
-                error={numberError("maxExperienceYears")}
-                aria-invalid={numberError("maxExperienceYears") ? true : undefined}
+                error={errorOf("maxExperienceYears", numberError("maxExperienceYears"))}
+                aria-invalid={errorOf("maxExperienceYears", numberError("maxExperienceYears")) ? true : undefined}
                 onChange={(e) => set("maxExperienceYears", e.target.value)}
                 onBlur={() => reveal("experience")}
               />
@@ -449,6 +454,8 @@ export function PostingForm({
                 id="shift"
                 label="Shift"
                 value={fields.shift}
+                error={errorOf("shift")}
+                aria-invalid={errorOf("shift") ? true : undefined}
                 onChange={(e) => set("shift", e.target.value)}
               >
                 <option value="">— pick the shift —</option>
@@ -462,6 +469,8 @@ export function PostingForm({
                 id="neededBy"
                 label="Needed by"
                 value={fields.neededBy}
+                error={errorOf("neededBy")}
+                aria-invalid={errorOf("neededBy") ? true : undefined}
                 onChange={(e) => set("neededBy", e.target.value)}
               >
                 <option value="">— pick joining time —</option>
@@ -482,6 +491,7 @@ export function PostingForm({
               placeholder="e.g. Fanuc control"
               draft={reqDraft}
               items={requirements}
+              error={errorOf("requirements")}
               onDraft={setReqDraft}
               onAdd={() => addChip("req")}
               onRemove={(i) => setRequirements((prev) => prev.filter((_, j) => j !== i))}
@@ -492,6 +502,7 @@ export function PostingForm({
               placeholder="e.g. PF + ESI"
               draft={benDraft}
               items={benefits}
+              error={errorOf("benefits")}
               onDraft={setBenDraft}
               onAdd={() => addChip("ben")}
               onRemove={(i) => setBenefits((prev) => prev.filter((_, j) => j !== i))}
@@ -522,16 +533,19 @@ export function PostingForm({
             <Textarea
               id="description"
               label="Description"
+              onFocus={revealWholeControl}
               placeholder="Shift timings, machines, location notes…"
               value={fields.description}
-              error={fieldErrors.description}
-              aria-invalid={fieldErrors.description ? true : undefined}
+              error={errorOf("description", fieldErrors.description)}
+              aria-invalid={errorOf("description", fieldErrors.description) ? true : undefined}
               hint="Workers read this when they open the job. Never include a phone number or email — share contact only after you unlock a candidate."
               onChange={(e) => set("description", e.target.value)}
             />
           </div>
 
-          <div className="posting-layout__end">{actions}</div>
+          <div className="posting-layout__end">
+            <PostingActions>{primary}</PostingActions>
+          </div>
         </form>
       </div>
 
@@ -545,8 +559,9 @@ export function PostingForm({
           matchSkills: { ids: selection.matchSkillIds, vocabulary: matchSkills },
           description: fields.description,
         })}
-        actions={actions}
+        actions={<PostingActions status={statusLine}>{primary}</PostingActions>}
         primary={primary}
+        status={statusLine}
       />
     </div>
   );

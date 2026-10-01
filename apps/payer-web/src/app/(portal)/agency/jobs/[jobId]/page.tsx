@@ -80,7 +80,7 @@ export default async function AgencyJobDetailPage({
               <dt className="kv__k">Trade</dt>
               <dd className="kv__v">{tradeLabel(job.tradeKey)}</dd>
               <dt className="kv__k">Location</dt>
-              <dd className="kv__v">{view.place ?? "—"}</dd>
+              <dd className="kv__v">{view.place || "—"}</dd>
               <dt className="kv__k">Pay band</dt>
               <dd className="kv__v bb-mono">{view.salary?.band ?? "—"}</dd>
               <dt className="kv__k">Experience</dt>

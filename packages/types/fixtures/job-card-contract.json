@@ -52,6 +52,30 @@
       ]
     },
     {
+      "name": "no city: the phone still draws the row — 'Area, ' beside the pin (FeedItem city defaults to '')",
+      "input": { "title": "Fitter", "area": "Chakan" },
+      "expected": [
+        { "slot": "title", "text": "Fitter" },
+        { "slot": "place", "text": "Chakan, " }
+      ]
+    },
+    {
+      "name": "no city and no area: the phone draws the pin with nothing beside it",
+      "input": { "title": "Helper" },
+      "expected": [
+        { "slot": "title", "text": "Helper" },
+        { "slot": "place", "text": "" }
+      ]
+    },
+    {
+      "name": "no title: the phone draws an empty title (FeedItem title defaults to '')",
+      "input": { "city": "Pune" },
+      "expected": [
+        { "slot": "title", "text": "" },
+        { "slot": "place", "text": "Pune" }
+      ]
+    },
+    {
       "name": "min pay only, no pay type — no pill",
       "input": { "title": "Welder", "city": "Pune", "area": "Bhosari", "pay_min": 16000 },
       "expected": [

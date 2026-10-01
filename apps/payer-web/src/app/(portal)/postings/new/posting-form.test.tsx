@@ -103,10 +103,14 @@ describe("createPostingInputSchema — the PR-B card-lineage validation authorit
 
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
+// Setters are kept by state index so a test can see what an input handler set.
+let setters: Array<ReturnType<typeof vi.fn>> = [];
 const useState = vi.fn((initial: unknown) => {
   const i = stateCursor++;
   const seeded = i < stateQueue.length ? stateQueue[i] : initial;
-  return [seeded, vi.fn()] as [unknown, (v: unknown) => void];
+  const setter = vi.fn();
+  setters[i] = setter;
+  return [seeded, setter] as [unknown, (v: unknown) => void];
 });
 const useTransition = vi.fn((): [boolean, (cb: () => void) => void] => [false, (cb) => cb()]);
 
@@ -163,6 +167,7 @@ function render(seed: {
   reqDraft?: string;
   benDraft?: string;
   revealed?: Record<string, true>;
+  gap?: { title: string; message: string; field: string } | null;
   matchSkills?: Array<Record<string, unknown>>;
 }) {
   stateQueue = [
@@ -176,9 +181,10 @@ function render(seed: {
     seed.benefits ?? [],
     seed.reqDraft ?? "",
     seed.benDraft ?? "",
-    null,
+    seed.gap ?? null,
     seed.revealed ?? {},
   ];
+  setters = [];
   stateCursor = 0;
   return PostingForm({
     quotaStep: seed.quotaStep ?? null,
@@ -187,6 +193,7 @@ function render(seed: {
 }
 
 interface Collected {
+  classes: string[];
   buttons: Array<{ type?: string; disabled?: boolean; text: string }>;
   aria: Array<{ id?: string; ariaInvalid?: unknown }>;
   tagById: Record<string, string>;
@@ -228,9 +235,10 @@ function walk(node: ReactNode, acc: Collected): void {
       text: textOf(el.props.children).trim(),
     });
   }
-  if (el.type === "input") {
+  if (el.type === "input" || el.type === "select" || el.type === "textarea") {
     acc.aria.push({ id: el.props.id as string | undefined, ariaInvalid: el.props["aria-invalid"] });
   }
+  if (typeof el.props.className === "string") acc.classes.push(el.props.className);
   if (typeof el.props.id === "string" && typeof el.type === "string") {
     acc.tagById[el.props.id] = el.type;
   }
@@ -238,7 +246,7 @@ function walk(node: ReactNode, acc: Collected): void {
 }
 
 function collect(tree: ReactNode): Collected {
-  const acc: Collected = { buttons: [], aria: [], tagById: {}, texts: [] };
+  const acc: Collected = { classes: [], buttons: [], aria: [], tagById: {}, texts: [] };
   walk(tree, acc);
   return acc;
 }
@@ -470,5 +478,91 @@ describe("PostingForm — the preview rail is the worker card, built from the sh
     const tree = render({ fields: FULL_FIELDS, fieldErrors: {}, requirements: ["Fanuc control"] });
     await findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
     expect(createPostingAction).not.toHaveBeenCalled();
+  });
+});
+
+/** The DOM-level element with this id in the (function-expanded) tree, with its handlers. */
+function byId(tree: ReactNode, id: string): ReactElement<Record<string, unknown>> {
+  let found: ReactElement<Record<string, unknown>> | null = null;
+  (function visit(node: ReactNode): void {
+    if (found || node === null || node === undefined || typeof node !== "object") return;
+    if (Array.isArray(node)) return node.forEach(visit);
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    if (typeof el.type === "function") return visit((el.type as (p: unknown) => ReactNode)(el.props));
+    if (el.props.id === id && typeof el.type === "string") {
+      found = el;
+      return;
+    }
+    if ("children" in el.props) visit(el.props.children);
+  })(tree);
+  if (found === null) throw new Error(`no #${id}`);
+  return found;
+}
+
+describe("PostingForm — a refused publish says why AT the field focus moves to (M2)", () => {
+  const GAP = {
+    title: "Pick the pay type",
+    message: "Say what the band means — in-hand, gross or CTC. We never guess it for you.",
+    field: "payType",
+  };
+
+  it("the gap's message is the target control's own error (aria-invalid), not only a far-off status", () => {
+    const { aria, texts } = collect(render({ fields: FULL_FIELDS, fieldErrors: {}, gap: GAP }));
+    expect(aria.find((a) => a.id === "payType")!.ariaInvalid).toBe(true);
+    expect(texts).toContain(GAP.message);
+    // Only the target is marked: the other controls stay clean.
+    expect(aria.filter((a) => a.ariaInvalid === true).map((a) => a.id)).toEqual(["payType"]);
+  });
+
+  it("a pay-band gap points at the end that is empty (payMax here), and so does its error", () => {
+    const { aria } = collect(
+      render({
+        fields: { ...FULL_FIELDS, payMax: "" },
+        fieldErrors: {},
+        gap: { title: "Add the pay band", message: "Both ends of the band.", field: "payMax" },
+      }),
+    );
+    expect(aria.find((a) => a.id === "payMax")!.ariaInvalid).toBe(true);
+    expect(aria.find((a) => a.id === "payMin")!.ariaInvalid).toBeUndefined();
+  });
+
+  it("changing the flagged control clears the gap (index 10); changing another does not", () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {}, gap: GAP });
+    (byId(tree, "city").props.onChange as (e: unknown) => void)({ target: { value: "Nashik" } });
+    expect(setters[10]).not.toHaveBeenCalled();
+    (byId(tree, "payType").props.onChange as (e: unknown) => void)({ target: { value: "gross" } });
+    expect(setters[10]).toHaveBeenCalledWith(null);
+  });
+
+  it("ONE status per breakpoint: the rail footer and the dock carry it; the form's end does not", () => {
+    const { classes } = collect(render({ fields: FULL_FIELDS, fieldErrors: {}, gap: GAP }));
+    expect(classes.filter((c) => c === "posting-actions__status")).toHaveLength(1); // rail footer
+    expect(classes.filter((c) => c === "posting-dock__status")).toHaveLength(1); // phone dock
+    expect(classes.filter((c) => c === "posting-actions")).toHaveLength(2); // footer + form end
+  });
+});
+
+describe("PostingForm — typing in a pay box stands its order error down again (reward early)", () => {
+  it("onChange of payMax conceals the revealed pay pair (index 11); a non-number field does not", () => {
+    const tree = render({
+      fields: { ...FULL_FIELDS, payMax: "1800" },
+      fieldErrors: {},
+      revealed: { payMin: true, payMax: true },
+    });
+    (byId(tree, "payMax").props.onChange as (e: unknown) => void)({ target: { value: "18" } });
+    const conceal = setters[11]!.mock.calls[0]![0] as (prev: Record<string, true>) => Record<string, true>;
+    expect(conceal({ payMin: true, payMax: true, minExperienceYears: true })).toEqual({
+      minExperienceYears: true,
+    });
+    setters[11]!.mockClear();
+    (byId(tree, "city").props.onChange as (e: unknown) => void)({ target: { value: "Pune" } });
+    expect(setters[11]).not.toHaveBeenCalled();
+  });
+
+  it("leaving a pay box reveals the pair (onBlur)", () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {} });
+    (byId(tree, "payMin").props.onBlur as () => void)();
+    const reveal = setters[11]!.mock.calls[0]![0] as (prev: Record<string, true>) => Record<string, true>;
+    expect(reveal({})).toEqual({ payMin: true, payMax: true });
   });
 });

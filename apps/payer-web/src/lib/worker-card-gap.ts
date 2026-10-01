@@ -30,8 +30,10 @@ export type WorkerCardGapField =
   | "roleKind"
   | "city"
   | "payMin"
+  | "payMax"
   | "payType"
   | "minExperienceYears"
+  | "maxExperienceYears"
   | "shift"
   | "neededBy"
   | "description"
@@ -62,14 +64,18 @@ export interface WorkerCardGapInput {
   benefits: string[];
 }
 
-interface GapCheck extends WorkerCardGap {
+interface GapCheck {
+  title: string;
+  message: string;
+  /** The control to take the payer to — for a min/max pair, the end that is actually empty. */
+  field: (input: WorkerCardGapInput) => WorkerCardGapField;
   missing: (input: WorkerCardGapInput) => boolean;
 }
 
 /** Top to bottom, as the forms are read — so a message names the field nearest the payer's eye. */
 const CHECKS: readonly GapCheck[] = [
   {
-    field: "roleKind",
+    field: () => "roleKind",
     title: "Pick the role",
     message:
       "Pick the role from the list. It files your posting under the right trade — workers see " +
@@ -77,7 +83,7 @@ const CHECKS: readonly GapCheck[] = [
     missing: (i) => i.roleKind === null,
   },
   {
-    field: "city",
+    field: () => "city",
     title: "Add the city",
     message:
       "The city is the place shown on the worker's card. Without it the card shows a location " +
@@ -85,7 +91,7 @@ const CHECKS: readonly GapCheck[] = [
     missing: (i) => i.city.trim() === "",
   },
   {
-    field: "payMin",
+    field: (i) => (i.payMin === null ? "payMin" : "payMax"),
     title: "Add the pay band",
     message:
       'Both ends of the ₹ band are shown on the card — "kitna milega" is the first thing a ' +
@@ -93,51 +99,55 @@ const CHECKS: readonly GapCheck[] = [
     missing: (i) => i.payMin === null || i.payMax === null,
   },
   {
-    field: "payType",
+    field: () => "payType",
     title: "Pick the pay type",
     message: "Say what the band means — in-hand, gross or CTC. We never guess it for you.",
     missing: (i) => i.payType === null,
   },
   {
-    field: "minExperienceYears",
+    field: (i) => (i.expMin === null ? "minExperienceYears" : "maxExperienceYears"),
     title: "Add the experience",
     message: "The card shows an experience window. Fill both the min and the max years.",
     missing: (i) => i.expMin === null || i.expMax === null,
   },
   {
-    field: "shift",
+    field: () => "shift",
     title: "Pick the shift",
     message: "Day, night or rotational — the card shows it as a chip.",
     missing: (i) => i.shift === null,
   },
   {
-    field: "neededBy",
+    field: () => "neededBy",
     title: "Pick needed by",
     message: "When you need someone. The card shows it as a chip.",
     missing: (i) => i.neededBy === null,
   },
   {
-    field: "description",
+    field: () => "description",
     title: "Add the description",
     message:
       "Workers read it when they open the job — it is not on the swipe card. Say what the work is.",
     missing: (i) => i.description.trim() === "",
   },
   {
-    field: "requirements",
+    field: () => "requirements",
     title: "Add a requirement",
     message: "At least one requirement chip — the card has a row for them.",
     missing: (i) => i.requirements.length === 0,
   },
   {
-    field: "benefits",
+    field: () => "benefits",
     title: "Add a benefit",
     message: "At least one benefit chip — the card has a row for them.",
     missing: (i) => i.benefits.length === 0,
   },
 ];
 
-const toGap = ({ field, title, message }: GapCheck): WorkerCardGap => ({ title, message, field });
+const toGap = (check: GapCheck, input: WorkerCardGapInput): WorkerCardGap => ({
+  title: check.title,
+  message: check.message,
+  field: check.field(input),
+});
 
 /**
  * The FIRST field the posting needs and the form does not have, or null when it is complete.
@@ -146,7 +156,7 @@ const toGap = ({ field, title, message }: GapCheck): WorkerCardGap => ({ title, 
  */
 export function workerCardGap(input: WorkerCardGapInput): WorkerCardGap | null {
   const check = CHECKS.find((c) => c.missing(input));
-  return check === undefined ? null : toGap(check);
+  return check === undefined ? null : toGap(check, input);
 }
 
 /**
@@ -155,5 +165,5 @@ export function workerCardGap(input: WorkerCardGapInput): WorkerCardGap | null {
  * payer discover the next only after fixing the first.
  */
 export function workerCardGaps(input: WorkerCardGapInput): WorkerCardGap[] {
-  return CHECKS.filter((c) => c.missing(input)).map(toGap);
+  return CHECKS.filter((c) => c.missing(input)).map((c) => toGap(c, input));
 }

@@ -98,7 +98,7 @@ export default async function PostingDetailPage({ params }: { params: Promise<{ 
                 (`toJobCardView`), so the two can never disagree about one posting. */}
             <dl className="kv">
               <dt className="kv__k">Location</dt>
-              <dd className="kv__v">{view.place ?? "—"}</dd>
+              <dd className="kv__v">{view.place || "—"}</dd>
               <dt className="kv__k">Location note</dt>
               <dd className="kv__v">{summary.locationLabel ?? "—"}</dd>
               <dt className="kv__k">Role</dt>

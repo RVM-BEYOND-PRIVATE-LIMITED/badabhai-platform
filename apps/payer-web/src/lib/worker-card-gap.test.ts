@@ -65,13 +65,21 @@ describe("workerCardGap — order + copy", () => {
       "city",
       "payMin",
       "payType",
-      "minExperienceYears",
+      "maxExperienceYears", // FULL has a min; the max is the end that is missing
       "shift",
       "neededBy",
       "description",
       "requirements",
       "benefits",
     ]);
+  });
+
+  it("for a min/max pair, points at the end that is actually empty", () => {
+    expect(workerCardGap({ ...FULL, payMin: null })!.field).toBe("payMin");
+    expect(workerCardGap({ ...FULL, payMax: null })!.field).toBe("payMax");
+    expect(workerCardGap({ ...FULL, payMin: null, payMax: null })!.field).toBe("payMin");
+    expect(workerCardGap({ ...FULL, expMin: null })!.field).toBe("minExperienceYears");
+    expect(workerCardGap({ ...FULL, expMax: null })!.field).toBe("maxExperienceYears");
   });
 
   it("surfaces the FIRST open field in top-to-bottom order", () => {

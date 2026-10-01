@@ -151,10 +151,19 @@ describe("the card is the reference phone's card", () => {
   });
 });
 
+/** The ONE rule that declares custom property `name` (several `:root` blocks exist). */
+function declaring(name: string): Rule {
+  const hits = G.filter((r) => decl(r, name) !== null);
+  expect(hits, `exactly one rule declares ${name}`).toHaveLength(1);
+  return hits[0]!;
+}
+
 describe("desktop: the rail sticks BELOW the header, capped to the viewport, actions pinned", () => {
   it("the offset is built from the header's own token and clears it (≥ header + hairline)", () => {
     expect(decl(g(".pshell__header"), "min-height")).toBe("var(--shell-header-h)");
-    const top = decl(g(".posting-layout"), "--posting-rail-top")!;
+    const root = declaring("--posting-rail-top");
+    expect(root.selector).toBe(":root"); // shared: the agency hosts scroll to the same line
+    const top = decl(root, "--posting-rail-top")!;
     expect(top).toBe("calc(var(--shell-header-h) + var(--border-hairline) + var(--space-4))");
     expect(px(top)).toBeGreaterThanOrEqual(
       px("var(--shell-header-h)") + px("var(--border-hairline)"),
@@ -170,12 +179,37 @@ describe("desktop: the rail sticks BELOW the header, capped to the viewport, act
     expect(decl(rail, "flex-direction")).toBe("column");
   });
 
+  it("an agency editor's rail leaves room for its host card's padding (it starts one padding low)", () => {
+    const agency = g(
+      ".agency-jobs__createcard .posting-preview, .agency-job--editing .posting-preview",
+      DESKTOP,
+    );
+    expect(decl(agency, "max-height")).toBe(
+      "calc(100dvh - var(--posting-rail-top) - var(--space-4) - var(--space-5))",
+    );
+    // …and the host lands on the sticky line when the editor opens (revealEditor).
+    expect(decl(g(".agency-jobs__createcard, .agency-job--editing"), "scroll-margin-top")).toBe(
+      "var(--posting-rail-top)",
+    );
+  });
+
   it("the card + facts scroll inside the rail only when they must; the actions are a pinned footer", () => {
     const scroll = g(".posting-preview__scroll", DESKTOP);
     expect(decl(scroll, "overflow-y")).toBe("auto");
     expect(decl(scroll, "min-height")).toBe("0");
     expect(decl(scroll, "flex")).toBe("0 1 auto");
     expect(decl(g(".posting-preview__foot", DESKTOP), "flex")).toBe("none");
+  });
+
+  it("while the region overflows, a 'More below' bar sits on its bottom edge (zero height, no shift)", () => {
+    const cue = g(".posting-preview__more");
+    expect(decl(cue, "display")).toBe("none");
+    expect(decl(cue, "position")).toBe("sticky");
+    expect(decl(cue, "bottom")).toBe("0");
+    expect(decl(cue, "height")).toBe("0");
+    expect(
+      decl(g('.posting-preview__scroll[data-more="true"] > .posting-preview__more'), "display"),
+    ).toBe("block");
   });
 
   it("the form keeps its measure and the rail sits right beside it (no dead gap at 1920)", () => {
@@ -193,8 +227,27 @@ describe("desktop: the rail sticks BELOW the header, capped to the viewport, act
     expect(scale).toBeLessThanOrEqual(1.2);
   });
 
+  it("the desktop pay-type pill is floored at the 12px text token (the phone sheet keeps 10dp)", () => {
+    expect(decl(g(".posting-preview .jcp__paytype", DESKTOP), "font-size")).toBe(
+      "max(var(--text-xs), calc(10 * var(--jcp-u)))",
+    );
+    expect(px("var(--text-xs)")).toBeGreaterThanOrEqual(12);
+    expect(decl(d(".jcp__paytype"), "font-size")).toBe(dp(10));
+  });
+
+  it("END-ROOM: the form column runs ~half a viewport past its last field (Chrome centres focus)", () => {
+    expect(
+      decl(g(".posting-layout--editor > .posting-layout__main", DESKTOP), "padding-bottom"),
+    ).toBe("calc(50vh - var(--space-7))");
+    // No bottom scroll-margin on the fields: on desktop it parked the last field 128px up and
+    // pushed the rail past its grid row (agency forms: the title under the header, 8/21 stops).
+    expect(
+      decl(g(".posting-layout--editor :is(input, select, textarea)"), "scroll-margin-bottom"),
+    ).toBeNull();
+  });
+
   it("a company editor may run into the shell's bottom padding — by exactly that padding", () => {
-    const padding = decl(g(".pshell__content"), "padding")!.split(/\s+/);
+    const padding = (decl(g(".pshell__content"), "padding") ?? "").split(" ");
     const bottom = padding[2]!;
     expect(bottom).toBe("var(--space-10)");
     expect(
@@ -205,7 +258,7 @@ describe("desktop: the rail sticks BELOW the header, capped to the viewport, act
         g(".pshell__content > .posting-layout--editor:last-child > .posting-layout__main", DESKTOP),
         "padding-bottom",
       ),
-    ).toBe(bottom);
+    ).toBe(`calc(50vh - var(--space-7) + ${bottom})`);
   });
 
   it("the breakpoints are the shell's own desktop line (rail ≥1024px, dock below)", () => {
@@ -232,15 +285,35 @@ describe("phones: no rail above the form — a sticky dock and a sheet", () => {
     const main = g(".posting-layout--editor > .posting-layout__main", PHONE);
     expect(decl(main, "grid-row")).toBe("1");
     expect(decl(main, "padding-bottom")).toBe("calc(var(--posting-dock-h) + var(--space-4))");
+    expect(declaring("--posting-dock-h").selector).toBe(":root");
   });
 
-  it("the dock's controls clear the tap floor; a focused field lands clear of header and dock", () => {
+  it("focus scrolling keeps a field clear of the header and of the dock (the root reserves its room)", () => {
     expect(decl(g(".posting-dock__summary"), "min-height")).toBe("var(--control-md)");
     const fields = g(".posting-layout--editor :is(input, select, textarea)");
     expect(decl(fields, "scroll-margin-top")).toBe("var(--posting-rail-top)");
-    expect(decl(fields, "scroll-margin-bottom")).toBe(
-      "calc(var(--posting-dock-h) + var(--space-4))",
+    expect(decl(g("html:has(.posting-dock)", PHONE), "scroll-padding-bottom")).toBe(
+      "calc(var(--posting-dock-h) + var(--space-8))",
     );
+    // Phone-only: on desktop the dock exists (hidden) and must not reserve anything.
+    expect(G.filter((r) => r.selector === "html:has(.posting-dock)").map((r) => r.at)).toEqual([
+      "@media (max-width: 1023px)",
+    ]);
+  });
+
+  it("the dock is ONE unwrapped row whose primary shrinks and wraps its label (no sideways scroll)", () => {
+    expect(decl(g(".posting-dock"), "flex-direction")).toBe("column");
+    expect(decl(g(".posting-dock__row"), "flex-wrap")).toBe("nowrap");
+    expect(decl(g(".posting-dock__summary"), "flex")).toBe("1 1 0");
+    const primary = g(".posting-dock__primary");
+    expect(decl(primary, "flex")).toBe("0 1 auto");
+    expect(decl(primary, "min-width")).toBe("0");
+    const label = g(".posting-dock__primary .bb-btn, .posting-actions__buttons .bb-btn");
+    expect(decl(label, "white-space")).toBe("normal");
+    expect(decl(label, "max-width")).toBe("100%");
+    expect(decl(label, "height")).toBe("auto");
+    // In the dock the zero-reach detail is visually hidden (it stays in the accessible name).
+    expect(decl(g(".posting-dock .posting-cta__detail"), "clip")).toBe("rect(0, 0, 0, 0)");
   });
 
   it("a detail page's card still leads on a phone (only the EDITOR's rail is replaced)", () => {
@@ -263,9 +336,9 @@ describe("nothing between the rail and the page turns the sticky off", () => {
       ".posting-layout--editor",
       ".agency-job-form",
       ".agency-jobs__createcard",
-      ".agency-job__editform",
       ".agency-job",
-      ".agency-job__actions",
+      ".agency-job--editing",
+      ".agency-job__lead",
     ];
     for (const r of G) {
       if (!wrappers.includes(r.selector)) continue;
@@ -277,9 +350,14 @@ describe("nothing between the rail and the page turns the sticky off", () => {
     }
   });
 
-  it("an agency vacancy's edit form spans its row and reads left to right", () => {
-    expect(decl(g(".agency-job__actions:has(> .agency-job__editform)"), "flex")).toBe("1 1 100%");
-    expect(decl(g(".agency-job__editform"), "text-align")).toBe("start");
-    expect(decl(g(".agency-job__editform"), "justify-self")).toBe("stretch");
+  it("an agency vacancy being edited IS the editor: block row, header leading the form column", () => {
+    expect(decl(g(".agency-job--editing"), "display")).toBe("block");
+    expect(decl(g(".agency-job__lead"), "display")).toBe("flex");
+  });
+
+  it("a long unbroken chip wraps inside its pill (it widened the page by up to 698px)", () => {
+    expect(decl(g(".chip-editor__chips .bb-chip"), "max-width")).toBe("100%");
+    expect(decl(g(".chip-editor__chips .bb-chip > span"), "min-width")).toBe("0");
+    expect(decl(g(".chip-editor__text"), "overflow-wrap")).toBe("anywhere");
   });
 });

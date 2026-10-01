@@ -183,7 +183,7 @@ function walk(node: ReactNode, acc: Collected): void {
       text: textOf(el.props.children).trim(),
     });
   }
-  if (el.type === "input") {
+  if (el.type === "input" || el.type === "select" || el.type === "textarea") {
     acc.aria.push({
       id: el.props.id as string | undefined,
       ariaInvalid: el.props["aria-invalid"],
@@ -299,16 +299,23 @@ const FULL_AGENCY = {
 
 function renderWith(
   fields: Record<string, string>,
-  opts: { mode?: "create" | "edit"; chips?: unknown[]; onSubmit?: (i: unknown) => Promise<{ ok: true }> } = {},
+  opts: {
+    mode?: "create" | "edit";
+    chips?: unknown[];
+    onSubmit?: (i: unknown) => Promise<{ ok: true }>;
+    gap?: { title: string; message: string; field: string } | null;
+    lead?: ReactNode;
+  } = {},
 ) {
-  // fields, fieldErrors, error, requirements, benefits, reqDraft, benDraft
-  stateQueue = [fields, {}, null, ...(opts.chips ?? [[], [], "", ""])];
+  // fields, fieldErrors, error, requirements, benefits, reqDraft, benDraft, gap
+  stateQueue = [fields, {}, null, ...(opts.chips ?? [[], [], "", ""]), opts.gap ?? null];
   stateCursor = 0;
   return AgencyJobForm({
     mode: opts.mode ?? "create",
     job: opts.mode === "edit" ? (JOB as never) : undefined,
     submitLabel: opts.mode === "edit" ? "Save changes" : "Post vacancy",
     onSubmit: (opts.onSubmit ?? (async () => ({ ok: true }))) as never,
+    lead: opts.lead,
   }) as ReactElement;
 }
 
@@ -376,5 +383,34 @@ describe("AgencyJobForm — the preview rail + the shared read", () => {
     expect(collect(tree).texts.join(" ")).toContain("Min experience needs a whole number");
     await formOf(tree)!.props.onSubmit({ preventDefault: () => undefined });
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+});
+
+describe("AgencyJobForm — the editor's lead, the refused create's reason, and the number gate", () => {
+  it("the lead (the create heading / the row's header) heads the FORM column, above the form", () => {
+    const tree = renderWith(FULL_AGENCY, { lead: <h3 className="lead-probe">Post a vacancy</h3> });
+    const main = (tree.props as { children: ReactElement[] }).children[0] as ReactElement<{
+      className: string;
+      children: ReactNode[];
+    }>;
+    expect(main.props.className).toBe("posting-layout__main");
+    const [lead, form] = main.props.children as ReactElement[];
+    expect((lead as ReactElement<{ className: string }>).props.className).toBe("lead-probe");
+    expect(form!.type).toBe("form");
+  });
+
+  it("a refused create's gap is the TARGET control's own error (aria-invalid + message)", () => {
+    const gap = { title: "Pick the shift", message: "Day, night or rotational — the card shows it as a chip.", field: "shift" };
+    const { aria, texts } = collect(renderWith({ ...FULL_AGENCY, shift: "" }, { gap }));
+    expect(aria.find((a) => a.id === "shift")!.ariaInvalid).toBe(true);
+    expect(texts).toContain(gap.message);
+    expect(aria.filter((a) => a.ariaInvalid === true).map((a) => a.id)).toEqual(["shift"]);
+  });
+
+  it("a number that is not a whole number keeps the submit DISABLED (isValid reads the issues)", () => {
+    const ok = collect(renderWith(FULL_AGENCY)).buttons.find((b) => b.type === "submit");
+    expect(ok!.disabled).toBe(false);
+    const bad = collect(renderWith({ ...FULL_AGENCY, payMin: "21k" })).buttons.find((b) => b.type === "submit");
+    expect(bad!.disabled).toBe(true);
   });
 });

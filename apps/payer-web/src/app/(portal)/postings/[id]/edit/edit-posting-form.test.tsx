@@ -101,6 +101,7 @@ function render(
   status = "open",
   chips: { requirements?: string[]; benefits?: string[]; reqDraft?: string; benDraft?: string } = {},
   selection = { matchSkillIds: [] as string[], untickedRelatedIds: [] as string[] },
+  appended: { navigating?: boolean; problem?: { control: string; message: string } | null } = {},
 ) {
   stateQueue = [
     { ...BLANK_FIELDS, ...overrides }, // fields
@@ -111,7 +112,9 @@ function render(
     null, // error
     selection, // selection
     null, // preview
-    // revealed (index 8) is APPENDED — left to its initial value.
+    {}, // revealed (8)
+    appended.navigating ?? false, // navigating (9)
+    appended.problem ?? null, // problem (10)
   ];
   stateCursor = 0;
   setters = [];
@@ -245,5 +248,78 @@ describe("EditPostingForm — what is saved is what the preview showed (readCard
     const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
     expect(input.roleKind).toBe("welder");
     expect(input.vacancies).toBe(1000);
+  });
+});
+
+/** Every DOM-level element in the (function-expanded) tree, in order. */
+function hosts(node: ReactNode, out: Array<ReactElement<Record<string, unknown>>> = []) {
+  if (node === null || node === undefined || typeof node !== "object") return out;
+  if (Array.isArray(node)) {
+    for (const c of node) hosts(c, out);
+    return out;
+  }
+  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  if (typeof el.type === "function") return hosts((el.type as (p: unknown) => ReactNode)(el.props), out);
+  out.push(el);
+  if ("children" in el.props) hosts(el.props.children, out);
+  return out;
+}
+const textOf = (els: Array<ReactElement<Record<string, unknown>>>) =>
+  els.map((e) => (typeof e.props.children === "string" ? e.props.children : "")).join(" ");
+
+/** The rail element the form renders (its props carry the primary button). */
+function railOf(tree: ReactElement) {
+  const layout = tree as ReactElement<{ children: ReactNode[] }>;
+  const rail = (layout.props.children as ReactElement[]).find(
+    (c) => typeof c?.type === "function" && (c.type as { name?: string }).name === "PostingPreviewRail",
+  ) as ReactElement<{ primary: ReactElement<{ onClick?: () => void; disabled?: boolean }> }>;
+  expect(rail).toBeDefined();
+  return rail;
+}
+
+describe("EditPostingForm — a refused save says why AT the field focus moves to (M2)", () => {
+  it("a client-side refusal records the control + reason (index 10) as well as the status (5)", async () => {
+    await submit(render({ roleTitle: "x" }));
+    expect(setters[10]).toHaveBeenCalledWith({
+      control: "roleTitle",
+      message: "Role title must be at least 2 characters.",
+    });
+  });
+
+  it("the recorded reason is that control's own error (aria-invalid + the message)", () => {
+    const tree = render({ roleTitle: "x" }, "open", {}, undefined, {
+      problem: { control: "roleTitle", message: "Role title must be at least 2 characters." },
+    });
+    const els = hosts(tree);
+    const title = els.find((e) => e.props.id === "roleTitle")!;
+    expect(title.props["aria-invalid"]).toBe(true);
+    expect(els.some((e) => e.props.className === "bb-field__error")).toBe(true);
+    // Only that control is marked.
+    expect(els.filter((e) => e.props["aria-invalid"] === true).map((e) => e.props.id)).toEqual(["roleTitle"]);
+  });
+
+  it("PUBLISH refused by the gap rule never calls the action and points at the missing control", async () => {
+    const tree = render({}, "draft", {}, { matchSkillIds: ["mskill_x"], untickedRelatedIds: [] });
+    railOf(tree).props.primary.props.onClick!();
+    await Promise.resolve();
+    expect(updatePostingAction).not.toHaveBeenCalled();
+    expect(setters[10]).toHaveBeenCalledWith({ control: "roleKind", message: expect.stringContaining("Pick the role") });
+    expect(setters[5]).toHaveBeenCalledWith(expect.stringContaining("Pick the role:"));
+  });
+});
+
+describe("EditPostingForm — the navigating latch (I2: no double save during the remount)", () => {
+  it("a successful save latches navigating (index 9) before navigating", async () => {
+    await submit(render({}));
+    expect(setters[9]).toHaveBeenCalledWith(true);
+    expect(push).toHaveBeenCalledTimes(1);
+  });
+
+  it("while navigating, every save/publish button is disabled", () => {
+    const tree = render({}, "draft", {}, { matchSkillIds: ["mskill_x"], untickedRelatedIds: [] }, { navigating: true });
+    const buttons = hosts(tree).filter((e) => e.type === "button");
+    const actionButtons = buttons.filter((b) => /Save|Publish/.test(textOf(hosts(b.props.children as ReactNode))));
+    expect(actionButtons.length).toBeGreaterThan(0);
+    expect(actionButtons.every((b) => b.props.disabled === true)).toBe(true);
   });
 });

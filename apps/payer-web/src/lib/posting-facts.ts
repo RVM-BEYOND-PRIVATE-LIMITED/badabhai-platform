@@ -1,5 +1,6 @@
 import type { MatchSkillWire } from "./contracts";
 import { tradeLabel } from "./agency-view";
+import { parseWholeNumber } from "./job-card-form";
 import { jobRoleLabel } from "./job-roles";
 
 /**
@@ -28,6 +29,12 @@ function skillLabels(ids: readonly string[], vocabulary: readonly MatchSkillWire
   return labels.length > 0 ? labels.join(", ") : null;
 }
 
+/** The openings box as the count the form will send — "Not set" for anything that is not one (≥ 1). */
+function openingsLabel(raw: string): string | null {
+  const n = parseWholeNumber(raw);
+  return n.kind === "ok" && n.value >= 1 ? String(n.value) : null;
+}
+
 const orNull = (text: string | null | undefined) =>
   text === null || text === undefined || text.trim() === "" ? null : text.trim();
 
@@ -41,7 +48,7 @@ export function companyPostingFacts(input: {
 }): PostingFact[] {
   const facts: PostingFact[] = [
     { label: "Role", value: jobRoleLabel(input.roleKind) },
-    { label: "Openings", value: orNull(input.openings) },
+    { label: "Openings", value: openingsLabel(input.openings) },
   ];
   if (input.matchSkills !== null) {
     facts.push({

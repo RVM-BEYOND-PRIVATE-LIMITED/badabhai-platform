@@ -49,6 +49,7 @@ vi.mock("react", async () => {
 });
 
 const { AgencyJobsManager } = await import("./agency-jobs-manager");
+const { AgencyJobForm: AgencyJobFormMock } = await import("./agency-job-form");
 
 const JOB: AgencyJob = {
   id: "00000001-0000-4000-8000-000000000001",
@@ -93,9 +94,13 @@ function collect(tree: ReactNode): Collected {
   return acc;
 }
 
-function render(jobs: AgencyJob[], errorById: Record<string, string | null> = {}) {
+function render(
+  jobs: AgencyJob[],
+  errorById: Record<string, string | null> = {},
+  open: { creating?: boolean; editingId?: string | null } = {},
+) {
   // useState order: rows, creating, editingId, busyId, errorById.
-  stateQueue = [jobs, false, null, null, errorById];
+  stateQueue = [jobs, open.creating ?? false, open.editingId ?? null, null, errorById];
   stateCursor = 0;
   return AgencyJobsManager({ jobs }) as ReactElement;
 }
@@ -127,5 +132,52 @@ describe("AgencyJobsManager — guardrails: faceless cells, no oracle", () => {
     const joined = text.join(" ");
     expect(joined).toContain("That vacancy could not be found.");
     expect(joined).not.toMatch(/\bforbidden\b|employer|consent/i);
+  });
+});
+
+/** Elements (host or component) matching `pred`, walking children AND the `lead` prop. */
+function find(node: ReactNode, pred: (el: ReactElement<Record<string, unknown>>) => boolean) {
+  const out: Array<ReactElement<Record<string, unknown>>> = [];
+  (function visit(n: ReactNode): void {
+    if (n === null || n === undefined || typeof n !== "object") return;
+    if (Array.isArray(n)) return n.forEach(visit);
+    const el = n as ReactElement<Record<string, unknown> & { children?: ReactNode; lead?: ReactNode }>;
+    if (pred(el)) out.push(el);
+    if ("children" in el.props) visit(el.props.children);
+    if ("lead" in el.props) visit(el.props.lead);
+  })(node);
+  return out;
+}
+
+describe("AgencyJobsManager — the inline editors start level with their host (M1)", () => {
+  it("CREATE: the heading is the form's lead (the rail starts at the card's top), and the card is the scroll target", () => {
+    const tree = render([JOB], {}, { creating: true });
+    const [card] = find(tree, (el) => el.props.id === "agency-create");
+    expect(card).toBeDefined();
+    const [form] = find(card!, (el) => el.type === AgencyJobFormMock);
+    expect(form!.props.mode).toBe("create");
+    const lead = form!.props.lead as ReactElement<{ className: string; children: ReactNode }>;
+    expect(lead.props.className).toBe("agency-jobs__createtitle");
+    // No second heading outside the form.
+    expect(find(card!, (el) => el.type === "h3")).toHaveLength(1);
+  });
+
+  it("EDIT: the row IS the editor — its header (title, actions, the aria-live error) leads the form column", () => {
+    const tree = render([JOB], { [JOB.id]: "That vacancy could not be found." }, { editingId: JOB.id });
+    const [row] = find(tree, (el) => el.props.id === `agency-job-${JOB.id}`);
+    expect(row!.props.className).toBe("agency-job agency-job--editing");
+    const [form] = find(row!, (el) => el.type === AgencyJobFormMock);
+    expect(form!.props.mode).toBe("edit");
+    const lead = form!.props.lead as ReactNode;
+    expect(find(lead, (el) => el.props.className === "agency-job__lead")).toHaveLength(1);
+    expect(find(lead, (el) => el.props["aria-live"] === "polite")).toHaveLength(1);
+    expect(collect(lead).text.join(" ")).toContain("That vacancy could not be found.");
+  });
+
+  it("not editing: the row is the plain row (no editor, no editing class)", () => {
+    const tree = render([JOB]);
+    const [row] = find(tree, (el) => el.props.id === `agency-job-${JOB.id}`);
+    expect(row!.props.className).toBe("agency-job");
+    expect(find(row!, (el) => el.type === AgencyJobFormMock)).toHaveLength(0);
   });
 });

@@ -47,6 +47,22 @@ function statusTone(status: string): "success" | "warning" | "neutral" {
   return "neutral";
 }
 
+/** The card that hosts an inline editor: the create card, or the vacancy's own row. */
+const CREATE_HOST_ID = "agency-create";
+const rowHostId = (jobId: string) => `agency-job-${jobId}`;
+
+/**
+ * Opening an inline editor brings its host card to the preview rail's sticky line (CSS
+ * `scroll-margin-top`), so the worker card and the form's actions are on screen from the first
+ * field — not 300px down the dashboard. Runs after React has committed the opened form.
+ */
+function revealEditor(hostId: string) {
+  if (typeof window === "undefined") return;
+  window.requestAnimationFrame(() => {
+    document.getElementById(hostId)?.scrollIntoView({ block: "start" });
+  });
+}
+
 export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
   const router = useRouter();
   // useState call order (mirrored by agency-jobs-manager.test.tsx): rows, creating, editingId,
@@ -94,8 +110,10 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
           variant={creating ? "secondary" : "primary"}
           iconLeft={creating ? "x" : "plus-circle"}
           onClick={() => {
+            const opening = !creating;
             setEditingId(null);
-            setCreating((v) => !v);
+            setCreating(opening);
+            if (opening) revealEditor(CREATE_HOST_ID);
           }}
         >
           {creating ? "Close form" : "Post a vacancy"}
@@ -103,9 +121,9 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
       </div>
 
       {creating ? (
-        <Card className="agency-jobs__createcard">
-          <h3 className="agency-jobs__createtitle">Post a vacancy</h3>
+        <Card id={CREATE_HOST_ID} className="agency-jobs__createcard">
           <AgencyJobForm
+            lead={<h3 className="agency-jobs__createtitle">Post a vacancy</h3>}
             mode="create"
             submitLabel="Post vacancy"
             onCancel={() => setCreating(false)}
@@ -136,8 +154,8 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
             const active = isActiveJob(j);
             const paused = isPausedJob(j);
             const editing = editingId === j.id;
-            return (
-              <Card key={j.id} className="agency-job">
+            const header = (
+              <>
                 <div className="agency-job__main">
                   <div className="agency-job__head">
                     <span className="agency-job__title">{j.title}</span>
@@ -182,8 +200,10 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                         disabled={busy}
                         iconLeft="pencil-simple"
                         onClick={() => {
+                          const opening = !editing;
                           setCreating(false);
-                          setEditingId((cur) => (cur === j.id ? null : j.id));
+                          setEditingId(opening ? j.id : null);
+                          if (opening) revealEditor(rowHostId(j.id));
                         }}
                       >
                         {editing ? "Close edit" : "Edit"}
@@ -230,28 +250,39 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                   <div aria-live="polite" className="agency-job__status">
                     {err ? <p className="agency-job__error">{err}</p> : null}
                   </div>
-                  {editing ? (
-                    <div className="agency-job__editform">
-                      <AgencyJobForm
-                        mode="edit"
-                        job={j}
-                        submitLabel="Save changes"
-                        onCancel={() => setEditingId(null)}
-                        onSubmit={async (input) => {
-                          // Pass the current row as `initial` so the seam computes the clear diff.
-                          const res = await updateAgencyJobAction(j.id, input, j);
-                          if (res.ok) {
-                            upsertRow(res.job);
-                            setEditingId(null);
-                            router.refresh();
-                            return { ok: true };
-                          }
-                          return { ok: false, error: res.error };
-                        }}
-                      />
-                    </div>
-                  ) : null}
                 </div>
+              </>
+            );
+            return (
+              <Card
+                key={j.id}
+                id={rowHostId(j.id)}
+                className={editing ? "agency-job agency-job--editing" : "agency-job"}
+              >
+                {editing ? (
+                  // EDIT: the row's own header leads the form column, so the preview rail starts
+                  // at the top of the row — level with the header, not below it.
+                  <AgencyJobForm
+                    lead={<div className="agency-job__lead">{header}</div>}
+                    mode="edit"
+                    job={j}
+                    submitLabel="Save changes"
+                    onCancel={() => setEditingId(null)}
+                    onSubmit={async (input) => {
+                      // Pass the current row as `initial` so the seam computes the clear diff.
+                      const res = await updateAgencyJobAction(j.id, input, j);
+                      if (res.ok) {
+                        upsertRow(res.job);
+                        setEditingId(null);
+                        router.refresh();
+                        return { ok: true };
+                      }
+                      return { ok: false, error: res.error };
+                    }}
+                  />
+                ) : (
+                  header
+                )}
               </Card>
             );
           })}

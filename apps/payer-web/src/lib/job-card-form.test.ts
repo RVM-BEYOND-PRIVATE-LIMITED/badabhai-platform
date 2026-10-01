@@ -132,7 +132,8 @@ describe("readCardForm — values, card and issues", () => {
     ]);
     expect(r.issues).toEqual({});
     const view = toJobCardView(r.card, r.draft);
-    expect(view).toEqual({ title: "", place: null, salary: null, chips: [] });
+    // The place row is always drawn, like the phone's (empty here); nothing else is.
+    expect(view).toEqual({ title: "", place: "", salary: null, chips: [] });
   });
 
   it('"21,000" is ₹21,000 — the band is the one the payer meant (was "Up to ₹30,000/mah")', () => {
@@ -192,6 +193,19 @@ describe("readCardForm — values, card and issues", () => {
     expect(read({ payMax: "10000001" }).issues).toEqual({ payMax: "too_large" });
     expect(read({ maxExperienceYears: "61" }).issues).toEqual({ maxExperienceYears: "too_large" });
     expect(read({ maxExperienceYears: "60" }).issues).toEqual({});
+  });
+
+  it("a value with an issue is NEVER sent: over the ceiling or below the min reads as undefined", () => {
+    expect(read({ payMax: "10000001" }).values.payMax).toBeUndefined();
+    expect(read({ maxExperienceYears: "61" }).values.maxExperienceYears).toBeUndefined();
+    const inverted = read({ payMin: "26000", payMax: "18000" });
+    expect(inverted.values.payMax).toBeUndefined();
+    expect(inverted.values.payMin).toBe(26000); // the valid end is kept; the issue blocks the submit
+    expect(
+      read({ minExperienceYears: "5", maxExperienceYears: "2" }).values.maxExperienceYears,
+    ).toBeUndefined();
+    // …and the card shows neither a band nor a window built from the surviving end.
+    expect(toJobCardView(inverted.card, inverted.draft).salary?.band).toBeNull();
   });
 
   it("an order issue waits for both ends to be valid (a format issue is reported first)", () => {

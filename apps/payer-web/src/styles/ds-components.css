@@ -669,6 +669,9 @@
   overflow: hidden;
 }
 .jcp__title--empty { color: var(--text-muted); }
+/* An empty slot keeps the worker's empty text; the placeholder is drawn here, never in the DOM. */
+.jcp__title--empty::before,
+.jcp__place-text--empty::before { content: attr(data-placeholder); color: var(--text-muted); }
 /* chevron_right_rounded, 26dp, Safety Yellow — drawn, not a glyph (decorative, aria-hidden). */
 .jcp__chevron { flex: none; position: relative; width: calc(26 * var(--jcp-u)); height: calc(26 * var(--jcp-u)); }
 .jcp__chevron::before {
@@ -707,6 +710,9 @@
   color: var(--text-brand);
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
+/* 10dp, the phone's own pill size (`design1_job_card.dart`): kept at true scale in the phone sheet
+   (phone parity — 10px there is what the worker reads); the desktop rail floors it at the 12px
+   text token (globals.css, `.posting-preview .jcp__paytype`) so it stays readable on a laptop. */
 .jcp__paytype {
   flex: none;
   padding: calc(3 * var(--jcp-u)) calc(8 * var(--jcp-u));

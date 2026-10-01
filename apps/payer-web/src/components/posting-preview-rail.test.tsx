@@ -1,6 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { PostingActions, PostingFacts, PostingPreviewRail } from "./posting-preview-rail";
+import {
+  PostingActions,
+  PostingFacts,
+  PostingPreviewRail,
+  zeroReachLabel,
+} from "./posting-preview-rail";
+import { railScrollState } from "../lib/rail-scroll";
+import { focusControl, revealWholeControl } from "../lib/form-focus";
 import type { CardFields } from "../lib/job-card-view";
 import { agencyPostingFacts, companyPostingFacts } from "../lib/posting-facts";
 import { countClippedChips, clippedChipsLabel } from "../lib/job-card-fold";
@@ -28,18 +36,23 @@ const CARD: CardFields = {
   benefits: ["PF + ESI"],
 };
 
-const rail = (fields: CardFields, draft = {}) =>
+const rail = (fields: CardFields, draft = {}, status: ReactNode = null) =>
   renderToStaticMarkup(
     <PostingPreviewRail
       fields={fields}
       draft={draft}
       facts={[{ label: "Role", value: "CNC Turner" }]}
       actions={
-        <PostingActions status={null}>
+        <PostingActions status={status}>
           {<button type="submit">Publish posting</button>}
         </PostingActions>
       }
-      primary={<button type="submit">Publish posting</button>}
+      primary={
+        <button type="submit" id="the-primary">
+          Publish posting
+        </button>
+      }
+      status={status}
     />,
   );
 
@@ -56,6 +69,38 @@ describe("PostingPreviewRail", () => {
     expect(out).not.toContain('role="dialog"'); // closed until the dock is tapped
     // ONE card (the rail's) until the sheet opens.
     expect(out.match(/class="jcp"/g)).toHaveLength(1);
+  });
+
+  it("the dock carries the primary button itself, and the status ABOVE its row (phones)", () => {
+    const out = rail(CARD, {}, <p className="posting-actions__msg">Pick the pay type.</p>);
+    const dock = out.slice(out.indexOf('<div class="posting-dock">'));
+    expect(dock).toContain(
+      '<div class="posting-dock__primary"><button type="submit" id="the-primary">',
+    );
+    // status, then the row: the reason sits right above the button the payer pressed.
+    expect(dock.indexOf("posting-dock__status")).toBeLessThan(dock.indexOf("posting-dock__row"));
+    expect(dock).toContain(
+      '<div class="posting-dock__status" aria-live="polite"><p class="posting-actions__msg">Pick the pay type.</p></div>',
+    );
+  });
+
+  it("the scroll region is a labelled region with a hidden-until-needed 'More below' cue", () => {
+    const out = rail(CARD);
+    expect(out).toContain(
+      '<div class="posting-preview__scroll" role="region" aria-label="Card preview and the rest of your posting">',
+    );
+    expect(out).toContain(
+      '<p class="posting-preview__more" aria-hidden="true"><span>More below ↓</span></p>',
+    );
+    // Not a Tab stop by markup — only the browser's overflow check (rail-scroll.ts) makes it one.
+    expect(out).not.toContain("tabindex");
+  });
+
+  it("the zero-reach label keeps its whole text in the button (the dock hides the detail visually)", () => {
+    const out = renderToStaticMarkup(<button type="button">{zeroReachLabel}</button>);
+    expect(out).toBe(
+      '<button type="button">Publish anyway <span class="posting-cta__detail">— reaches nobody yet</span></button>',
+    );
   });
 
   it("the dock's summary is the SAME card: title · band · Area, City", () => {
@@ -80,6 +125,17 @@ describe("PostingPreviewRail", () => {
     });
     expect(empty).toContain("Your role title");
     expect(empty).toContain("Pay and place not set yet");
+  });
+
+  it("the form's end repeats the BUTTONS only — no second live status region", () => {
+    const out = renderToStaticMarkup(
+      <PostingActions>
+        <button type="button">Save</button>
+      </PostingActions>,
+    );
+    expect(out).toBe(
+      '<div class="posting-actions"><div class="posting-actions__buttons"><button type="button">Save</button></div></div>',
+    );
   });
 
   it("the actions block keeps an (empty) live region above the buttons", () => {
@@ -132,6 +188,22 @@ describe("Also in your posting — not on the worker's card", () => {
     expect(out).toContain('title="Two machines."');
   });
 
+  it("Openings shows the count the form will SEND — never the raw box ('21k' is 'Not set')", () => {
+    const openings = (raw: string) =>
+      companyPostingFacts({
+        roleKind: null,
+        openings: raw,
+        locationNote: "",
+        matchSkills: null,
+        description: "",
+      }).find((f) => f.label === "Openings")!.value;
+    expect(openings("21k")).toBeNull();
+    expect(openings("1.5")).toBeNull();
+    expect(openings("0")).toBeNull();
+    expect(openings("1,000")).toBe("1000");
+    expect(openings(" 12 ")).toBe("12");
+  });
+
   it("an unknown role kind is never echoed; the skills row is omitted when there is no vocabulary", () => {
     const facts = companyPostingFacts({
       roleKind: "not_a_role",
@@ -152,6 +224,27 @@ describe("Also in your posting — not on the worker's card", () => {
       { label: "Trade (matching)", value: "CNC Operator" },
       { label: "Description", value: null, note: "Workers read this when they open the job." },
     ]);
+  });
+});
+
+describe("the rail's scroll region — focusable and cued only while it overflows", () => {
+  it("overflows / has more below, from its scroll geometry", () => {
+    expect(railScrollState(0, 558, 702)).toEqual({ overflows: true, more: true });
+    expect(railScrollState(144, 558, 702)).toEqual({ overflows: true, more: false });
+    expect(railScrollState(0, 769, 769)).toEqual({ overflows: false, more: false });
+    expect(railScrollState(0, 769, 770)).toEqual({ overflows: false, more: false }); // sub-pixel
+  });
+});
+
+describe("focus helpers", () => {
+  it("revealWholeControl scrolls the whole control into view, minimally", () => {
+    const scrollIntoView = vi.fn();
+    revealWholeControl({ currentTarget: { scrollIntoView } as unknown as Element });
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+  });
+
+  it("focusControl is a no-op outside a browser", () => {
+    expect(() => focusControl("payType")).not.toThrow();
   });
 });
 

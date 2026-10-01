@@ -72,8 +72,10 @@ describe("JobCardPreview — the worker card's rows, never a trust/identity clai
     ]) {
       expect(out, banned).not.toContain(banned);
     }
-    // role_kind "cnc_turner" → "CNC Turner" is NOT a card row (the title here is "CNC Machinist").
+    // role_kind "cnc_turner" → "CNC Turner" is NOT a card row (the title here is "CNC Machinist"),
+    // and neither is the raw id.
     expect(out).not.toContain("cnc turner");
+    expect(out).not.toContain("cnc_turner");
     expect(out).not.toContain("ph-briefcase");
   });
 
@@ -106,8 +108,29 @@ describe("JobCardPreview — the worker card's rows, never a trust/identity clai
     expect(out).toContain("cut off on a typical phone — show all");
   });
 
-  it("an empty title shows the placeholder, not an empty heading", () => {
-    expect(html({ ...FULL, role_title: null })).toContain("Your role title");
+  it("an empty title keeps the worker's empty text; the placeholder lives in CSS (data-placeholder)", () => {
+    const out = html({ ...FULL, role_title: null });
+    expect(out).toContain(
+      'class="jcp__title jcp__title--empty" data-slot="title" data-clamp="2" data-placeholder="Your role title"></h3>',
+    );
+  });
+
+  it("the place row is ALWAYS drawn, like the phone's: an empty pin row with a CSS-only placeholder", () => {
+    const none = html({ ...FULL, city: null, area: null });
+    expect(none).toContain("ph-map-pin");
+    expect(none).toContain(
+      'class="jcp__place-text jcp__place-text--empty" data-slot="place" data-clamp="1" data-placeholder="Area, City"></span>',
+    );
+    // No city: the phone's own "Area, " — drawn, not hidden and not tidied.
+    expect(html({ ...FULL, city: "" })).toContain('title="Chakan, ">Chakan, </span>');
+  });
+
+  it("the fold summary's words are one accessible name ('17 chips cut off…', never 'chipscut')", () => {
+    const out = html(FULL);
+    // The space is its own text node BETWEEN the count and the words, outside both spans.
+    expect(out).toContain(
+      '<span data-fold-count=""></span> <span class="jcp__fold-closed">cut off on a typical phone — show all</span>',
+    );
   });
 
   it("a live form's issues replace their rows; a pending chip is dashed and announced", () => {

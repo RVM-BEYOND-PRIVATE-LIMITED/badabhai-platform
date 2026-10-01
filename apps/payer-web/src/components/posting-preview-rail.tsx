@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { toJobCardView, type CardFields, type JobCardDraft } from "../lib/job-card-view";
 import type { PostingFact } from "../lib/posting-facts";
+import { observeRailScroll } from "../lib/rail-scroll";
 import { Button, Dialog } from "./ds";
 import { JobCardPreview } from "./job-card-preview";
 
@@ -64,20 +65,34 @@ export function PostingFacts({ facts }: { facts: readonly PostingFact[] }) {
 
 /**
  * The actions block — a live status line (the gap that blocked a publish, a server error) above
- * the buttons. A form renders the SAME node twice: in the rail's pinned footer (desktop) and at
- * the end of the form (below 64rem); CSS shows exactly one, so a message always sits next to the
- * button that produced it.
+ * the buttons. On desktop it is the rail's pinned footer, status included. Below 1024px the form
+ * repeats the BUTTONS at its end (no status there) and the dock carries the status, so exactly one
+ * status is ever on screen — next to the button the payer can see.
  */
 export function PostingActions({ status, children }: { status?: ReactNode; children: ReactNode }) {
   return (
     <div className="posting-actions">
-      <div className="posting-actions__status" aria-live="polite">
-        {status}
-      </div>
+      {status === undefined ? null : (
+        <div className="posting-actions__status" aria-live="polite">
+          {status}
+        </div>
+      )}
       <div className="posting-actions__buttons">{children}</div>
     </div>
   );
 }
+
+/**
+ * The publish label when the picked skills reach nobody yet. The phone dock shows only "Publish
+ * anyway" (the detail is visually hidden there — still in the button's accessible name), so the
+ * long label can never widen a 320px page; the rail and the form's end show it whole. The space is
+ * its own text node so the accessible name keeps it.
+ */
+export const zeroReachLabel = (
+  <>
+    Publish anyway <span className="posting-cta__detail">— reaches nobody yet</span>
+  </>
+);
 
 export interface PostingPreviewRailProps {
   /** The card fields, from `readCardForm(...).card`. */
@@ -90,6 +105,8 @@ export interface PostingPreviewRailProps {
   actions: ReactNode;
   /** The ONE primary button, repeated in the phone dock. */
   primary: ReactNode;
+  /** The same status the rail footer shows, for the phone dock (where the buttons are there). */
+  status?: ReactNode;
 }
 
 export function PostingPreviewRail({
@@ -98,40 +115,59 @@ export function PostingPreviewRail({
   facts,
   actions,
   primary,
+  status,
 }: PostingPreviewRailProps) {
   // APPENDED-ONLY state for the positional useState mocks in the form tests: this is the only one.
   const [sheetOpen, setSheetOpen] = useState(false);
   const view = toJobCardView(fields, draft);
   const pay = view.salary === null ? null : (view.salary.band ?? view.salary.issue);
-  const meta = [pay, view.place].filter((part): part is string => part !== null && part !== "");
+  const meta = [pay, view.place].filter(
+    (part): part is string => part !== null && part.trim() !== "",
+  );
   const close = () => setSheetOpen(false);
 
   return (
     <>
       <aside className="posting-preview posting-preview--rail" aria-label="Live card preview">
-        <div className="posting-preview__scroll">
+        {/* Focusable (and so keyboard-scrollable) only while it overflows — see rail-scroll.ts. */}
+        <div
+          className="posting-preview__scroll"
+          role="region"
+          aria-label="Card preview and the rest of your posting"
+          ref={observeRailScroll}
+        >
           <JobCardPreview fields={fields} draft={draft} />
           <PostingFacts facts={facts} />
+          {/* A visual cue only (the region itself is the keyboard path): shown while content
+              remains below the region's fold. Zero height, so it never shifts the content. */}
+          <p className="posting-preview__more" aria-hidden="true">
+            <span>More below ↓</span>
+          </p>
         </div>
         <div className="posting-preview__foot">{actions}</div>
       </aside>
 
       <div className="posting-dock">
-        <button
-          type="button"
-          className="posting-dock__summary"
-          aria-haspopup="dialog"
-          onClick={() => setSheetOpen(true)}
-        >
-          <span className="posting-dock__title">
-            {view.title !== "" ? view.title : "Your role title"}
-          </span>
-          <span className="posting-dock__meta">
-            {meta.length > 0 ? meta.join(" · ") : "Pay and place not set yet"}
-          </span>
-          <span className="posting-dock__cue">Preview the card</span>
-        </button>
-        <div className="posting-dock__primary">{primary}</div>
+        <div className="posting-dock__status" aria-live="polite">
+          {status}
+        </div>
+        <div className="posting-dock__row">
+          <button
+            type="button"
+            className="posting-dock__summary"
+            aria-haspopup="dialog"
+            onClick={() => setSheetOpen(true)}
+          >
+            <span className="posting-dock__title">
+              {view.title !== "" ? view.title : "Your role title"}
+            </span>
+            <span className="posting-dock__meta">
+              {meta.length > 0 ? meta.join(" · ") : "Pay and place not set yet"}
+            </span>
+            <span className="posting-dock__cue">Preview the card</span>
+          </button>
+          <div className="posting-dock__primary">{primary}</div>
+        </div>
       </div>
 
       {sheetOpen ? (

@@ -111,15 +111,20 @@ describe("toJobCardView — the ONE mapper, in the worker card's order", () => {
   });
 });
 
-describe("placeLabel — the worker's `_cardData` order", () => {
-  it("area first, then city; area blank → city; city blank → the area alone; neither → hidden", () => {
+describe("placeLabel — the worker's `_cardData`, to the letter", () => {
+  it("area first, then city; area blank → city alone", () => {
     expect(placeLabel("Pune", "Chakan MIDC")).toBe("Chakan MIDC, Pune");
     expect(placeLabel("Pune", "")).toBe("Pune");
     expect(placeLabel("Pune", "  ")).toBe("Pune");
     expect(placeLabel("Pune", null)).toBe("Pune");
     expect(placeLabel(" Pune ", " Chakan ")).toBe("Chakan, Pune");
-    expect(placeLabel("", "Chakan")).toBe("Chakan");
-    expect(placeLabel(null, null)).toBeNull();
+  });
+
+  it("mirrors the phone where a posting should never go: no city → 'Area, '; neither → '' (the row stays)", () => {
+    // `(area == null || area.isEmpty) ? city : '${area}, ${city}'` with city "" (FeedItem's default).
+    expect(placeLabel("", "Chakan")).toBe("Chakan, ");
+    expect(placeLabel(null, null)).toBe("");
+    expect(toJobCardView({ ...FULL_CARD, city: null, area: null }).place).toBe("");
   });
 });
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import type { ReactNode } from "react";
 import {
   NEEDED_BY,
   PAY_TYPES,
@@ -25,8 +26,13 @@ import {
   type CardNumberPair,
   type RevealedNumbers,
 } from "../../../../lib/job-card-form";
+import { focusControl, revealWholeControl } from "../../../../lib/form-focus";
 import { agencyPostingFacts } from "../../../../lib/posting-facts";
-import { workerCardGap, workerCardGaps } from "../../../../lib/worker-card-gap";
+import {
+  workerCardGap,
+  workerCardGaps,
+  type WorkerCardGap,
+} from "../../../../lib/worker-card-gap";
 import { Button, Input, Select, Textarea } from "../../../../components/ds";
 import { ChipEditor } from "../../../../components/chip-editor";
 import { PostingActions, PostingPreviewRail } from "../../../../components/posting-preview-rail";
@@ -126,24 +132,24 @@ function validate(fields: FormFields): FieldErrors {
   return errs;
 }
 
-/** Moves focus (and so the scroll) to a control the payer has to fix. A no-op outside a browser. */
-function focusControl(id: string) {
-  if (typeof document === "undefined") return;
-  document.getElementById(id)?.focus();
-}
-
 export function AgencyJobForm({
   mode,
   job,
   onSubmit,
   onCancel,
   submitLabel,
+  lead,
 }: {
   mode: "create" | "edit";
   job?: AgencyJob;
   onSubmit: (input: AgencyJobInputValues) => Promise<AgencyJobFormSubmitResult>;
   onCancel?: () => void;
   submitLabel: string;
+  /**
+   * What heads the form column — the create card's heading, or the vacancy row's own header on
+   * edit — so the preview rail starts level with the top of the host, not below it.
+   */
+  lead?: ReactNode;
 }) {
   // useState call order (mirrored by agency-job-form.test.tsx): fields, fieldErrors, error,
   // requirements, benefits, reqDraft, benDraft, gap, revealed. APPEND new state only.
@@ -154,7 +160,7 @@ export function AgencyJobForm({
   const [benefits, setBenefits] = useState<string[]>(job?.benefits ?? []);
   const [reqDraft, setReqDraft] = useState("");
   const [benDraft, setBenDraft] = useState("");
-  const [gap, setGap] = useState<{ title: string; message: string } | null>(null);
+  const [gap, setGap] = useState<WorkerCardGap | null>(null);
   const [revealed, setRevealed] = useState<RevealedNumbers>({});
   const [pending, startTransition] = useTransition();
 
@@ -172,6 +178,7 @@ export function AgencyJobForm({
     const pair = numberPairOf(key);
     if (pair !== null) setRevealed((prev) => revealNumberPair(prev, pair, false));
     if (key in fieldErrors) setFieldErrors((p) => ({ ...p, [key]: undefined }));
+    if (gap !== null && gap.field === key) setGap(null);
   }
 
   /** Leaving one end of a min/max pair shows that pair's order error (typing never flashes it). */
@@ -182,7 +189,12 @@ export function AgencyJobForm({
   const numberError = (key: CardNumberField) =>
     liveCardFieldError(read.issues, key, revealed[key] === true);
 
+  /** A control's error: its own validation first, then the refused-create gap — where focus lands. */
+  const errorOf = (control: string, own?: string) =>
+    own ?? (gap !== null && gap.field === control ? gap.message : undefined);
+
   function addChip(kind: "req" | "ben") {
+    if (gap !== null && gap.field === (kind === "req" ? "requirements" : "benefits")) setGap(null);
     if (kind === "req") {
       setRequirements((prev) => withChipDraft(prev, reqDraft).list);
       setReqDraft("");
@@ -264,39 +276,41 @@ export function AgencyJobForm({
       {pending ? "Saving…" : submitLabel}
     </Button>
   );
-  const actions = (
-    <PostingActions
-      status={
-        <>
-          {gap !== null ? (
-            <p className="posting-actions__msg posting-actions__msg--warning" role="alert">
-              <strong>{gap.title}.</strong> {gap.message}
-            </p>
-          ) : null}
-          {editGaps.length > 0 ? (
-            <p className="posting-actions__msg posting-actions__msg--warning" role="status">
-              <strong>Still to fill:</strong> {editGaps.map((g) => g.title.toLowerCase()).join(", ")}.
-              {" You can save now and finish later."}
-            </p>
-          ) : null}
-          {error ? <p className="posting-actions__msg posting-actions__msg--danger">{error}</p> : null}
-        </>
-      }
-    >
+  // ONE status: the rail footer on desktop, the dock below 1024px (the form's end repeats only
+  // the buttons) — the reason a create was refused sits by the button the payer pressed.
+  const statusLine = (
+    <>
+      {gap !== null ? (
+        <p className="posting-actions__msg posting-actions__msg--warning" role="alert">
+          <strong>{gap.title}.</strong> {gap.message}
+        </p>
+      ) : null}
+      {editGaps.length > 0 ? (
+        <p className="posting-actions__msg posting-actions__msg--warning" role="status">
+          <strong>Still to fill:</strong> {editGaps.map((g) => g.title.toLowerCase()).join(", ")}.
+          {" You can save now and finish later."}
+        </p>
+      ) : null}
+      {error ? <p className="posting-actions__msg posting-actions__msg--danger">{error}</p> : null}
+    </>
+  );
+  const buttons = (
+    <>
       {primary}
       {onCancel ? (
         <Button variant="secondary" type="button" disabled={pending} onClick={onCancel}>
           Cancel
         </Button>
       ) : null}
-    </PostingActions>
+    </>
   );
 
   return (
     <div className="posting-layout posting-layout--editor">
       <div className="posting-layout__main">
+        {lead}
         <form id={formId} className="agency-job-form" onSubmit={handleSubmit}>
-          <Select id="roleKind" label="Role" value={fields.roleKind} onChange={(e) => set("roleKind", e.target.value)}>
+          <Select id="roleKind" label="Role" value={fields.roleKind} error={errorOf("roleKind")} aria-invalid={errorOf("roleKind") ? true : undefined} onChange={(e) => set("roleKind", e.target.value)}>
             <option value="">— pick the role —</option>
             {ROLE_GROUPS.map((group) => (
               <optgroup key={group.family} label={group.label}>
@@ -320,16 +334,16 @@ export function AgencyJobForm({
           <Input id="title" label="Role title" placeholder="CNC Operator — Night Shift" value={fields.title} error={fieldErrors.title} aria-invalid={fieldErrors.title ? true : undefined} hint="The heading of the worker's card — a generic role title, never an employer name or contact details." onChange={(e) => set("title", e.target.value)} />
 
           <div className="agency-job-form__pair">
-            <Input id="city" label="City" placeholder="Pune" value={fields.city} error={fieldErrors.city} aria-invalid={fieldErrors.city ? true : undefined} onChange={(e) => set("city", e.target.value)} />
+            <Input id="city" label="City" placeholder="Pune" value={fields.city} error={errorOf("city", fieldErrors.city)} aria-invalid={errorOf("city", fieldErrors.city) ? true : undefined} onChange={(e) => set("city", e.target.value)} />
             <Input id="area" label="Area / locality" optional placeholder="Pimpri-Chinchwad" value={fields.area} onChange={(e) => set("area", e.target.value)} />
           </div>
 
           <div className="agency-job-form__pair">
-            <Input id="payMin" label="Pay band — min (₹ / month)" inputMode="numeric" placeholder="20000" value={fields.payMin} error={numberError("payMin")} aria-invalid={numberError("payMin") ? true : undefined} onChange={(e) => set("payMin", e.target.value)} onBlur={() => reveal("pay")} />
-            <Input id="payMax" label="Pay band — max (₹ / month)" inputMode="numeric" placeholder="35000" value={fields.payMax} error={numberError("payMax")} aria-invalid={numberError("payMax") ? true : undefined} onChange={(e) => set("payMax", e.target.value)} onBlur={() => reveal("pay")} />
+            <Input id="payMin" label="Pay band — min (₹ / month)" inputMode="numeric" placeholder="20000" value={fields.payMin} error={errorOf("payMin", numberError("payMin"))} aria-invalid={errorOf("payMin", numberError("payMin")) ? true : undefined} onChange={(e) => set("payMin", e.target.value)} onBlur={() => reveal("pay")} />
+            <Input id="payMax" label="Pay band — max (₹ / month)" inputMode="numeric" placeholder="35000" value={fields.payMax} error={errorOf("payMax", numberError("payMax"))} aria-invalid={errorOf("payMax", numberError("payMax")) ? true : undefined} onChange={(e) => set("payMax", e.target.value)} onBlur={() => reveal("pay")} />
           </div>
 
-          <Select id="payType" label="Pay type" value={fields.payType} onChange={(e) => set("payType", e.target.value)}>
+          <Select id="payType" label="Pay type" value={fields.payType} error={errorOf("payType")} aria-invalid={errorOf("payType") ? true : undefined} onChange={(e) => set("payType", e.target.value)}>
             <option value="">— pick the pay type —</option>
             {PAY_TYPES.map((p) => (
               <option key={p} value={p}>
@@ -339,12 +353,12 @@ export function AgencyJobForm({
           </Select>
 
           <div className="agency-job-form__pair">
-            <Input id="minExperienceYears" label="Experience — min (years)" inputMode="numeric" placeholder="1" value={fields.minExperienceYears} error={numberError("minExperienceYears")} aria-invalid={numberError("minExperienceYears") ? true : undefined} onChange={(e) => set("minExperienceYears", e.target.value)} onBlur={() => reveal("experience")} />
-            <Input id="maxExperienceYears" label="Experience — max (years)" inputMode="numeric" placeholder="5" value={fields.maxExperienceYears} error={numberError("maxExperienceYears")} aria-invalid={numberError("maxExperienceYears") ? true : undefined} onChange={(e) => set("maxExperienceYears", e.target.value)} onBlur={() => reveal("experience")} />
+            <Input id="minExperienceYears" label="Experience — min (years)" inputMode="numeric" placeholder="1" value={fields.minExperienceYears} error={errorOf("minExperienceYears", numberError("minExperienceYears"))} aria-invalid={errorOf("minExperienceYears", numberError("minExperienceYears")) ? true : undefined} onChange={(e) => set("minExperienceYears", e.target.value)} onBlur={() => reveal("experience")} />
+            <Input id="maxExperienceYears" label="Experience — max (years)" inputMode="numeric" placeholder="5" value={fields.maxExperienceYears} error={errorOf("maxExperienceYears", numberError("maxExperienceYears"))} aria-invalid={errorOf("maxExperienceYears", numberError("maxExperienceYears")) ? true : undefined} onChange={(e) => set("maxExperienceYears", e.target.value)} onBlur={() => reveal("experience")} />
           </div>
 
           <div className="agency-job-form__pair">
-            <Select id="shift" label="Shift" value={fields.shift} onChange={(e) => set("shift", e.target.value)}>
+            <Select id="shift" label="Shift" value={fields.shift} error={errorOf("shift")} aria-invalid={errorOf("shift") ? true : undefined} onChange={(e) => set("shift", e.target.value)}>
               <option value="">— pick the shift —</option>
               {SHIFTS.map((s) => (
                 <option key={s} value={s}>
@@ -352,7 +366,7 @@ export function AgencyJobForm({
                 </option>
               ))}
             </Select>
-            <Select id="neededBy" label="Needed by" value={fields.neededBy} onChange={(e) => set("neededBy", e.target.value)}>
+            <Select id="neededBy" label="Needed by" value={fields.neededBy} error={errorOf("neededBy")} aria-invalid={errorOf("neededBy") ? true : undefined} onChange={(e) => set("neededBy", e.target.value)}>
               <option value="">— pick joining time —</option>
               {NEEDED_BY.map((n) => (
                 <option key={n} value={n}>
@@ -362,7 +376,7 @@ export function AgencyJobForm({
             </Select>
           </div>
 
-          <Textarea id="description" label="Description" value={fields.description} rows={3} hint="What the work is — workers read it when they open the job. Never a phone/email or a company name." onChange={(e) => set("description", e.target.value)} />
+          <Textarea id="description" label="Description" value={fields.description} rows={3} onFocus={revealWholeControl} error={errorOf("description")} aria-invalid={errorOf("description") ? true : undefined} hint="What the work is — workers read it when they open the job. Never a phone/email or a company name." onChange={(e) => set("description", e.target.value)} />
 
           <ChipEditor
             id="requirements"
@@ -370,6 +384,7 @@ export function AgencyJobForm({
             placeholder="e.g. Fanuc control"
             draft={reqDraft}
             items={requirements}
+            error={errorOf("requirements")}
             onDraft={setReqDraft}
             onAdd={() => addChip("req")}
             onRemove={(i) => setRequirements((p) => p.filter((_, j) => j !== i))}
@@ -380,12 +395,15 @@ export function AgencyJobForm({
             placeholder="e.g. PF + ESI"
             draft={benDraft}
             items={benefits}
+            error={errorOf("benefits")}
             onDraft={setBenDraft}
             onAdd={() => addChip("ben")}
             onRemove={(i) => setBenefits((p) => p.filter((_, j) => j !== i))}
           />
 
-          <div className="posting-layout__end">{actions}</div>
+          <div className="posting-layout__end">
+            <PostingActions>{buttons}</PostingActions>
+          </div>
         </form>
       </div>
 
@@ -397,8 +415,9 @@ export function AgencyJobForm({
           tradeKey: fields.tradeKey,
           description: fields.description,
         })}
-        actions={actions}
+        actions={<PostingActions status={statusLine}>{buttons}</PostingActions>}
         primary={primary}
+        status={statusLine}
       />
     </div>
   );
