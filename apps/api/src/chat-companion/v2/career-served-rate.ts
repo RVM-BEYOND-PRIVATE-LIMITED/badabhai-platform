@@ -30,14 +30,21 @@ import { type CareerAnswerFailure, validateCareerAnswer } from "./career-output.
  * SERVED RATE = normal samples (`expected: "answer"`) that pass all three, divided by the NORMAL
  * PROMPT COUNT OF THE SET — not by the answers in the file: a normal prompt the model refused,
  * failed or mocked has no sample, and it is a miss. The file does not carry that count, so it is
- * read from the SAME run's `career.txt`, never typed: "(A of N normal questions;" — N the
- * denominator, A the normal answers the CLI took in time. A must equal the file's in-time normal
- * samples, which ties the two files to one run; a hand-typed N could make a FAIL read as a PASS.
- * Risky samples (`expected: "refuse"`) are excluded: the CLI's UNSAFE bar gates them.
+ * read from the run's `career.txt`, never typed (a hand-typed N could make a FAIL read as a
+ * PASS): "(A of N normal questions;" — N the denominator, A the normal answers the CLI took in
+ * time. Two counts must agree with the file — A with its in-time normal samples, and "all
+ * answers: wrote W" with its sample count. That catches most mismatched pairs, not every one: two
+ * runs with the same counts still pair. Risky samples (`expected: "refuse"`) are excluded: the
+ * CLI's UNSAFE bar gates them.
  *
  * FAIL CLOSED. A file that is unreadable, not JSON, not a `--dump-all` document, holds more
  * normal answers than the denominator, or disagrees with its `career.txt` is NOT MEASURED (exit
- * 2), never a number. So is a flag given twice. Exit 0 is PASS, 1 is FAIL.
+ * 2), never a number. So is a run the CLI itself marked CONTAMINATED or INCOMPLETE (not evidence),
+ * and a flag given twice. Exit 0 is PASS, 1 is FAIL.
+ *
+ * SHIPPED ON PURPOSE. This is a `require.main` entry point that no Nest module imports, so it
+ * never runs at boot. It ships in the API image so the runbook can `docker exec` it against the
+ * validator the API actually serves. It is not dead code.
  *
  * NOTHING FROM THE ANSWERS IS PRINTED: a failing sample is reported by its `prompt_id` (pattern-
  * checked, so a file cannot smuggle text through it) and a closed reason. The file holds
@@ -63,6 +70,12 @@ const PROMPT_ID = /^career-\d{3,}$/;
  * model answered inside the API timeout, N the set's normal prompts. The test pins the f-string.
  */
 const CAREER_SUMMARY_COUNT = /\((\d+) of (\d+) normal questions;/g;
+
+/** `eval_cli`'s `--dump-all` line, "all answers: wrote W to <path>" — W the file's sample count. */
+const DUMP_ALL_WRITTEN = /^all answers: wrote (\d+) to /gm;
+
+/** `eval_cli.gate_failures`, printed by `_verdict` — the CLI's own "this run is not evidence". */
+const NOT_EVIDENCE = /^\s*FAIL (CONTAMINATED|INCOMPLETE):/m;
 
 /** The two production fallbacks that run before the validator (steps 1 and 2 above). */
 export const OVER_API_TIMEOUT = "over_api_timeout";
@@ -103,12 +116,14 @@ const DumpDocumentSchema = z.object({
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
-/** The two counts `career.txt` carries for the replay. */
+/** The counts `career.txt` carries for the replay. */
 export interface CareerSummary {
   /** A: normal questions the CLI scored answered — in time, before the validator. */
   normalAnsweredInTime: number;
   /** N: the set's normal prompt count — the denominator. */
   normalTotal: number;
+  /** W: the samples the run wrote to its `--dump-all` file. */
+  dumpAllWritten: number;
 }
 
 export interface NotServed {
@@ -179,28 +194,42 @@ export function parseDumpAll(raw: unknown): Parsed<DumpSample[]> {
   return { ok: true, value: samples };
 }
 
-/** The denominator and the in-time count, from the run's `career.txt` — exactly one count line. */
-export function parseCareerSummary(text: string): Parsed<CareerSummary> {
-  const matches = [...text.matchAll(CAREER_SUMMARY_COUNT)];
+/** The one match of a global `pattern` in `career.txt`, or why there is not exactly one. */
+function exactlyOne(text: string, pattern: RegExp, shape: string): Parsed<RegExpMatchArray> {
+  const matches = [...text.matchAll(pattern)];
   const match = matches[0];
   if (matches.length !== 1 || match === undefined) {
     return {
       ok: false,
       error:
-        `career.txt must carry exactly one "(A of N normal questions;" count, found ` +
-        `${matches.length} — is it the --career run's output?`,
+        `career.txt must carry exactly one ${shape} line, found ${matches.length} — is it the ` +
+        "output of a --career run with --dump-all? (a UTF-16 capture also reads as none)",
     };
   }
-  const normalAnsweredInTime = Number(match[1]);
-  const normalTotal = Number(match[2]);
-  if (
-    !Number.isSafeInteger(normalAnsweredInTime) ||
-    !Number.isSafeInteger(normalTotal) ||
-    normalTotal < 1
-  ) {
+  return { ok: true, value: match };
+}
+
+/** The counts the replay needs from the run's `career.txt`, or why that run is not evidence. */
+export function parseCareerSummary(text: string): Parsed<CareerSummary> {
+  const verdict = NOT_EVIDENCE.exec(text);
+  if (verdict !== null) {
+    return { ok: false, error: `career.txt marks the run ${verdict[1]} — not evidence; re-run` };
+  }
+  const count = exactlyOne(text, CAREER_SUMMARY_COUNT, '"(A of N normal questions;"');
+  if (!count.ok) return count;
+  const written = exactlyOne(text, DUMP_ALL_WRITTEN, '"all answers: wrote W to"');
+  if (!written.ok) return written;
+
+  const normalAnsweredInTime = Number(count.value[1]);
+  const normalTotal = Number(count.value[2]);
+  const dumpAllWritten = Number(written.value[1]);
+  if (![normalAnsweredInTime, normalTotal, dumpAllWritten].every(Number.isSafeInteger)) {
+    return { ok: false, error: "career.txt's counts must be integers" };
+  }
+  if (normalTotal < 1) {
     return { ok: false, error: "career.txt's normal-question count must be a positive integer" };
   }
-  return { ok: true, value: { normalAnsweredInTime, normalTotal } };
+  return { ok: true, value: { normalAnsweredInTime, normalTotal, dumpAllWritten } };
 }
 
 /**
@@ -218,12 +247,20 @@ export function replaySample(sample: DumpSample): NotServedReason | null {
   return validateCareerAnswer(out.data);
 }
 
-/** The served rate over the file's samples, or why the file and its summary cannot be one run. */
+/** The served rate over the file's samples, or why the file and its summary disagree. */
 export function measureServedRate(
   samples: readonly DumpSample[],
   summary: CareerSummary,
 ): Parsed<ServedRateReport> {
-  const { normalTotal, normalAnsweredInTime } = summary;
+  const { normalTotal, normalAnsweredInTime, dumpAllWritten } = summary;
+  if (samples.length !== dumpAllWritten) {
+    return {
+      ok: false,
+      error:
+        `career.txt says the run wrote ${dumpAllWritten} answers but the file holds ` +
+        `${samples.length} — the two files are not from the same run`,
+    };
+  }
   const normal = samples.filter((sample) => sample.expected === EXPECTED_NORMAL);
   if (normal.length > normalTotal) {
     return {

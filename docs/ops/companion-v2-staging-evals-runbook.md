@@ -109,9 +109,11 @@ the fallback line.
 **Bar: ≥ 85 %.** Measure it with the API's replay,
 `apps/api/src/chat-companion/v2/career-served-rate.ts`. It puts each normal answer through the
 career turn's own gates, in the handler's order: the API timeout, the response contract, then
-`validateCareerAnswer`. The denominator is never typed by hand. The replay reads it from the same
-run's `career.txt` ("(A of N normal questions;"), and A must equal the in-time normal answers in
-`career-all.json`, so a `career.txt` from another run is refused.
+`validateCareerAnswer`. The denominator is never typed by hand: the replay reads it from the run's
+`career.txt` ("(A of N normal questions;"). Two counts there must match `career-all.json`: A (the
+in-time normal answers) and "all answers: wrote W" (its samples). That refuses most mismatched
+pairs, but not all, since two runs with the same counts still pair, so keep the six files together.
+A `career.txt` that the CLI marked `CONTAMINATED` or `INCOMPLETE` is refused outright.
 
 **Score against the validator the API actually serves.** It changes (#1872 changed it). So run the
 replay inside the deployed API container, which ships it from the first deploy that includes it:
@@ -129,13 +131,25 @@ Record that commit in the README.
 
 It prints the served rate, lists each normal answer that was not served by `prompt_id` and reason
 (never its text), and ends with `RESULT: PASS|FAIL` (exit 0|1). Exit 2 means the replay refused to
-score: a missing or repeated flag, a file that is not the `--dump-all` output (`career-samples.json`
-is refused), a `career.txt` without exactly one count line, or two files from different runs. Then
-write the served rate as **NOT MEASURED** in the evidence README. Do not copy the CLI's
+score:
+- a missing or repeated flag
+- a file that is not the `--dump-all` output (`career-samples.json` is refused)
+- a `career.txt` without exactly one count line and one "all answers" line. A capture made with
+  Windows PowerShell 5.1's `>` is UTF-16 and reads as neither, so capture it on the box.
+- counts that disagree with the file
+- a run the CLI marked as not evidence
+
+Then write the served rate as **NOT MEASURED** in the evidence README. Do not copy the CLI's
 pre-validator number into that line.
 
-The rate leans slightly optimistic. The CLI retries a failed call once and production does not, so
-an answer rescued by that retry counts as served here.
+The rate leans slightly optimistic, for two reasons:
+- The CLI retries a failed call once and production does not, so an answer rescued by that retry
+  counts as served here.
+- The dump does not keep `ai_metadata`, so the replay cannot catch a drift in its shape. Production
+  parses the whole body, and a drift there would turn every answer into the fallback.
+
+The script is a `require.main` entry point that no module imports. It ships in the API image for
+this runbook, so do not delete it as dead code.
 
 ## 4. Record
 
