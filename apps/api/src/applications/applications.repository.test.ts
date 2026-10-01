@@ -291,13 +291,81 @@ describe("findOpenJobs — TD73 applied-exclusion (the WA-1 starvation guard)", 
     // TD66 will push more filters through this seam. Whatever else it adds, the
     // exclusion must survive — a filtered feed that re-serves applied jobs is the
     // same bug in a smaller window.
+    // (`cnc_operator`, not the old `welding`: `tradeKey` is now typed `TradeKey`, since the
+    // service drops an unknown value before it reaches this layer — #1905.)
     const { repo, captured } = makeDb();
-    await repo.findOpenJobs(WORKER, 50, { tradeKey: "welding", city: "Pune" });
+    await repo.findOpenJobs(WORKER, 50, { tradeKey: "cnc_operator", city: "Pune" });
 
     const where = render(captured.where).toLowerCase();
     expect(where).toContain("not exists");
     expect(where).toContain("trade_key");
     expect(where).toContain("city");
+  });
+});
+
+/**
+ * #1905 — `shift` and `pay_min` reached the service and were DROPPED here: `findOpenJobs` took
+ * only trade/city, so a worker who picked "Night" got every shift back. Every service test
+ * mocks this method, so only a statement-level test can see the predicate land.
+ *
+ * The rule is V1's (match-feed.repository.ts `listFeed`), from the shared helpers in
+ * feed-filter.predicates.ts; their own test pins the exact SQL. Here: they are WIRED, they
+ * keep the NULL arm, they ride alongside the TD73 anti-join, and they stay OFF unless sent.
+ */
+describe("findOpenJobs — shift and pay floor (#1905)", () => {
+  /** WHERE text + bound params of one captured statement. */
+  const whereOf = (captured: Captured) => {
+    const q = dialect.sqlToQuery(sql`${captured.where}` as SQL);
+    return { text: q.sql.replace(/\s+/g, " "), params: q.params };
+  };
+
+  it("applies the shift filter NULL-tolerantly — an unstated shift is never excluded", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findOpenJobs(WORKER, 50, { shift: "night" });
+
+    const { text, params } = whereOf(captured);
+    expect(text).toContain('("jobs"."shift" is null or "jobs"."shift" = $');
+    expect(params).toContain("night");
+  });
+
+  it("applies the pay floor to the TOP of the band, NULL-tolerantly — an open-ended band is never excluded", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findOpenJobs(WORKER, 50, { payMin: 20000 });
+
+    const { text, params } = whereOf(captured);
+    expect(text).toContain('("jobs"."pay_max" is null or "jobs"."pay_max" >= $');
+    expect(text).not.toContain('"jobs"."pay_min"');
+    expect(params).toContain(20000);
+  });
+
+  it("keeps every other predicate when shift + pay ride along", async () => {
+    // A filtered feed that lost the TD73 anti-join (or `status = 'open'`) re-serves applied
+    // or closed jobs in a smaller window: the same bug, harder to see.
+    const { repo, captured } = makeDb();
+    await repo.findOpenJobs(WORKER, 50, {
+      tradeKey: "fitter",
+      city: "Pune",
+      shift: "day",
+      payMin: 15000,
+    });
+
+    const text = whereOf(captured).text.toLowerCase();
+    expect(text).toContain("not exists");
+    expect(text).toContain('"jobs"."status" =');
+    expect(text).toContain('"jobs"."trade_key" =');
+    expect(text).toContain('"jobs"."city" =');
+    expect(text).toContain('"jobs"."shift"');
+    expect(text).toContain('"jobs"."pay_max"');
+    expect(captured.limit).toBe(50);
+  });
+
+  it("adds NOTHING when the worker sent neither — filters are wide or off (ADR-0036 Part 3)", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findOpenJobs(WORKER, 50, {});
+
+    const { text } = whereOf(captured);
+    expect(text).not.toContain('"jobs"."shift"');
+    expect(text).not.toContain('"jobs"."pay_max"');
   });
 });
 

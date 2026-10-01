@@ -279,18 +279,27 @@ export class AdminEventsRepository {
   }
 
   /**
-   * Distinct count of one event name within the window AND its distinct-subject count — the
+   * Row count of a SET of event names within the window AND its distinct-subject count — the
    * latter is the k-anon witness (how many distinct workers/subjects a funnel stage covers).
    * Uses events_event_name_idx + events_occurred_at_idx.
+   *
+   * ONE statement over `event_name IN (...)`: every row carries exactly one name, so `count(*)`
+   * is the exact total and `count(distinct subject_id)` is the stage's distinct subjects. (Today
+   * the funnel's merged names carry different subject types — `feed.shown` a job or, from payer
+   * Reach, a worker; `feed.shown_v2` a posting — so no subject spans names; one read keeps it
+   * exact if that ever changes.)
    */
-  async eventNameStats(eventName: string, since: Date): Promise<{ count: number; distinctSubjects: number }> {
+  async eventNameStats(
+    eventNames: readonly [string, ...string[]],
+    since: Date,
+  ): Promise<{ count: number; distinctSubjects: number }> {
     const [row] = await this.db
       .select({
         count: sql<number>`count(*)::int`,
         distinctSubjects: sql<number>`count(distinct ${events.subjectId})::int`,
       })
       .from(events)
-      .where(and(eq(events.eventName, eventName), gte(events.occurredAt, since)));
+      .where(and(inArray(events.eventName, [...eventNames]), gte(events.occurredAt, since)));
     return {
       count: Number(row?.count ?? 0),
       distinctSubjects: Number(row?.distinctSubjects ?? 0),

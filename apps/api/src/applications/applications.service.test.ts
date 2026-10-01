@@ -1,6 +1,6 @@
 import "reflect-metadata";
-import { describe, it, expect, vi } from "vitest";
-import { NotFoundException } from "@nestjs/common";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { Logger, NotFoundException } from "@nestjs/common";
 import type { RequestContext } from "../common/request-context";
 import type { EventsService } from "../events/events.service";
 import { ApplicationsService } from "./applications.service";
@@ -547,6 +547,115 @@ describe("ApplicationsService — MATCH_V1_ENABLED=false keeps the legacy path",
     );
     for (const name of names) expect(name).toBe("feed.shown");
     expect(names).not.toContain("feed.shown_v2");
+  });
+});
+
+/**
+ * #1905 — the legacy arm's filters, at the seam where the RAW query becomes the repository's
+ * typed input.
+ *
+ * TRADE KEY. The worker app sent its chip LABEL (`'CNC'`) as `trade_key`. No `jobs` row
+ * carries anything but one of the 15 `TRADE_KEYS` slugs, so filtering on a label returned an
+ * empty deck on every one-chip refetch. Owner ruling: an unknown value is IGNORED (no trade
+ * filter), not 400'd, and the drop is logged so the app bug stays visible.
+ *
+ * SHIFT / PAY. Both were accepted by the DTO and never reached the query.
+ */
+describe("ApplicationsService — legacy /feed filters (#1905)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** The filters `findOpenJobs` actually received on its one call. */
+  const repoFilters = (repo: ReturnType<typeof setup>["repo"]) => {
+    const calls = repo.findOpenJobs.mock.calls as unknown as [string, number, Record<string, unknown>][];
+    expect(calls).toHaveLength(1);
+    return calls[0]![2];
+  };
+
+  it("IGNORES a trade_key that is not a known slug: no trade filter at all, the arm is served whole", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc, repo } = setup();
+    await svc.getFeed(WORKER_ID, 50, { tradeKey: "CNC" }, CTX);
+
+    // `undefined`, not `'CNC'`: forwarding the label is the bug (it matches no row).
+    expect(repoFilters(repo).tradeKey).toBeUndefined();
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it("LOGS the dropped value PII-free: its length and the request id, never the value itself", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc } = setup();
+    // A value that could plausibly be anything a client typed (here, a phone-shaped string).
+    const raw = "Welder 9876543210";
+    await svc.getFeed(WORKER_ID, 50, { tradeKey: raw }, CTX);
+
+    const line = String(warn.mock.calls[0]![0]);
+    expect(line).toContain("trade_key");
+    expect(line).toContain(`length=${raw.length}`);
+    expect(line).toContain(CTX.requestId);
+    expect(line).not.toContain("Welder");
+    expect(line).not.toContain("9876543210");
+    expect(line).not.toContain(WORKER_ID);
+  });
+
+  it("still FILTERS on a valid slug, exactly as before, and logs nothing", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc, repo } = setup();
+    await svc.getFeed(WORKER_ID, 50, { tradeKey: "cnc_operator", city: "Pune" }, CTX);
+
+    expect(repoFilters(repo)).toMatchObject({ tradeKey: "cnc_operator", city: "Pune" });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("treats an empty trade_key as 'not sent': no filter, and not logged as a drop", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc, repo } = setup();
+    await svc.getFeed(WORKER_ID, 50, { tradeKey: "" }, CTX);
+
+    expect(repoFilters(repo).tradeKey).toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("an ignored trade_key does not take the OTHER filters down with it", async () => {
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc, repo } = setup();
+    await svc.getFeed(WORKER_ID, 50, { tradeKey: "Welder", city: "Pune", shift: "night", payMin: 20000 }, CTX);
+
+    expect(repoFilters(repo)).toEqual({
+      tradeKey: undefined,
+      city: "Pune",
+      shift: "night",
+      payMin: 20000,
+    });
+  });
+
+  it("forwards shift and pay_min to the query (they were silently dropped before)", async () => {
+    const { svc, repo } = setup();
+    await svc.getFeed(WORKER_ID, 50, { shift: "rotational", payMin: 0 }, CTX);
+
+    // `payMin: 0` survives: a falsy floor is still a floor the worker set.
+    expect(repoFilters(repo)).toMatchObject({ shift: "rotational", payMin: 0 });
+  });
+
+  it("invents no filter the worker did not send (ADR-0036 Part 3: every default is off)", async () => {
+    const { svc, repo } = setup();
+    await svc.getFeed(WORKER_ID, 50, {}, CTX);
+
+    const filters = repoFilters(repo);
+    for (const key of ["tradeKey", "city", "shift", "payMin"]) {
+      expect(filters[key]).toBeUndefined();
+    }
+  });
+
+  it("leaves feed.shown exactly as it was: the filters are NOT in the payload", async () => {
+    const { svc, events } = setup({
+      openJobs: [
+        { id: JOB_ID, tradeKey: "cnc_operator", title: "T", city: "Pune", area: null, shift: "night", payMax: 25000, createdAt: new Date("2026-06-01T00:00:00.000Z") },
+      ],
+    });
+    await svc.getFeed(WORKER_ID, 50, { tradeKey: "cnc_operator", shift: "night", payMin: 20000 }, CTX);
+
+    const batch = events.emitMany.mock.calls[0]![0] as Array<{ payload: Record<string, unknown> }>;
+    expect(Object.keys(batch[0]!.payload).sort()).toEqual(["hot", "job_id", "rank", "score", "worker_id"]);
   });
 });
 
