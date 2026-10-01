@@ -137,6 +137,70 @@ and, through the real routes and gates, `tests/test_leading_name_vocabulary.py`
 (payer job-posting chat, worker turn, `certified_clean_skill_labels`,
 `POST /resume/generate`, the work-history polish `<role>`).
 
+### Employers written in capitals (issue #1875, risks-register R48)
+
+`_COMPANY_SUFFIX` is case-sensitive, so before this fix `pseudonymize("  TATA MOTORS LTD")`
+returned the text unmasked, and `certified_clean_skill_labels(["TATA MOTORS LTD"])` kept it as
+a skill. A second, separate rule (`_EMPLOYER_CAPS_RE`) now runs after the title-case one, on its
+output. The full rationale and measurements are in the comment above `_CORPORATE_FORM_CAPS`.
+
+- **The rule.** In capitals, a span is an employer only when it **ends in a corporate form**:
+  LTD, PVT, CORP (each with or without a dot), LIMITED, CORPORATION, INDUSTRIES, ENTERPRISES,
+  LLP, LLC, W.L.L, and, with guards, PRIVATE, COMPANY, INDUSTRY and CO. INC is not a form: in
+  pay talk it means "incentive" or "including" (`"OT AUR INC MILTA THA"`).
+- **Its own word grammar.** Up to 4 name words come before the form, as in title case. A name
+  word may start with digits (`"3M INDIA LTD"`) and may carry `&`, `.` or a dash
+  (`"TATA-MOTORS LTD"`). One joiner may follow each word without counting toward the 4: a bare
+  `&` or `(P)`, `(I)`, `(PVT)`, `(INDIA)`, `(OPC)`. So `"LARSEN & TOUBRO LIMITED"`,
+  `"SHARMA & CO."` and `"XYZ (P) LTD"` mask whole. A word that holds a run of 7 or more digits
+  is never a name word, so `"X12345678 LTD"` still blocks on the residual-digit net, as on main.
+  Each word is bounded at 64 characters and matched possessively (see Cost).
+- **Compounds are not forms.** A dash after PRIVATE, COMPANY, INDUSTRY or CO makes a compound
+  (`"PRIVATE-SECTOR"`, `"QUALITY CO-ORDINATOR"`, and the Unicode-dash spellings). A dash after
+  any other form is a place or a unit: `"BHARAT FORGE LTD-CHAKAN"` →
+  `"[EMPLOYER_1]-CHAKAN"`. CO also compounds across a space or a dot, from a closed list:
+  `"QUALITY CO ORDINATOR"`, `"CO OPERATION"`, `"PUNE CO OP SOCIETY"`, `"CO WORKER"`,
+  `"CO CURRICULAR"`, `"MIG CO 2 WELDING"`. `"XYZ & CO OPERATIONS MANAGER"` still masks.
+- **Trade words never end a capitals span.** In capitals, the 17 trade words in the suffix
+  list (STEEL, AUTO, TOOLS, PRECISION, ENGINEERING, …) are ordinary shouted speech:
+  `"MAIN STEEL PLANT MEIN THA"` stays unmasked. Measured over 31,907 distinct strings of the
+  repo's own text (question packs, lexicons, job-domain corpus, ai-service test strings),
+  all upper-cased: a case-insensitive suffix list would newly mask 1,521 of them (9,442
+  words). This rule masks 380 (1,966 words).
+- **Title case is byte-identical to main.** As written, the same corpus changes in 6 strings,
+  and each one contains a capitals corporate form. In neither view does a string leave a word
+  unmasked that main masked, or stop blocking where main blocked. No certifier outcome changes
+  over 4,765 lexicon labels (as written, UPPER and Title).
+- **Boundary, under.** These stay raw, each pinned by a `KNOWN_RESIDUAL` test:
+  - a capitals employer with no corporate form (`"BAJAJ AUTO"`, `"GUPTA & SONS"`);
+  - an employer in lower case (`"tata motors ltd"`);
+  - a form not on the list (`"ACME INC"`, the Gulf `"EST."`);
+  - a dash after a guarded form (`"MARUTI COMPANY-PUNE"`);
+  - the leading words of a name with 5 or more words before the form
+    (`"RAMESH KUMAR SHARMA ENGINEERING WORKS PVT LTD"` → `"RAMESH [EMPLOYER_1] LTD"`);
+  - the title-case twins `"Sharma & Co."`, `"Xyz (P) Ltd"` and `"Acme Llp"`.
+
+  A 6-word window would mask the long names, but it would mask 474 more words over 228
+  strings of the upper-cased corpus.
+- **Boundary, over.** A corporate word used as ordinary speech is masked
+  (`"MAIN PRIVATE COMPANY MEIN THA"` → `"[EMPLOYER_1] MEIN THA"`), just as its title-case twin
+  already is on main. 343 of the 452 spans the rule adds in the upper-cased corpus end in
+  PRIVATE, COMPANY or INDUSTRY, and 292 of the 380 strings change only through one of those
+  three. Dropping them as end forms would leave `"MARUTI COMPANY"` raw. That is a privacy
+  decision that has not been taken.
+- **Cost.** Measured on 2026-10-01: a typical line costs 2–10 µs more per call. On the worst
+  20,000-character input tried, the rule alone costs 42 ms. The first cut reused title case's
+  unbounded word and cost 1,575 ms on `"A." * 10000`, which doubled `pseudonymize` from
+  1,576 ms to 3,131 ms. The 1,576 ms that remains is the title-case rule's own unbounded
+  `[\w&.]*`. The same bound would fix it, but that touches title case and needs its own
+  sign-off.
+
+Pinned by `tests/test_pseudonymize_allcaps_employer.py` (154 tests). Each of 13 mutations of the
+rule turned it red, with 2 to 63 failures each: the rule removed; the dash guard on every form,
+or on none; the CO list removed; trade words allowed to end a span; the rule folded into
+`_COMPANY_SUFFIX`; joiners removed; the 7-digit refusal removed; the word unbounded; INC put
+back; a 6-word window; title case's word grammar; and every guard removed.
+
 ## Input policy switch (ADR-0047)
 
 [ADR-0047](../decisions/0047-lift-pii-restriction.md) lifts, for now, the ban on raw PII in
@@ -226,3 +290,4 @@ out: "[PERSON_1], phone [PHONE_1], worked at [EMPLOYER_1] in Faridabad"
   - **R32:** Names without cue words can leak (e.g., "Chandrashekhar bol raha hu" — 3/4 natural forms unmasked on main). Narrowed, not closed — the gazetteer approach measured dead (487 probes / 348 leaks); known-name redaction shipped in `apps/api` instead (PR #524, ADR-0035).
   - Both tracked in [risks-register.md](../registers/risks-register.md) as Critical-if-live and both **still gate `AI_ENABLE_REAL_CALLS`**; invariant #5 holds today.
   - **Both are moot while `AI_RAW_PII_ENABLED` is armed** (ADR-0047): each describes PII slipping past a masker that is then deliberately not masking. With the switch off they stand as recorded.
+  - **R48 — employers in capitals (issue #1875).** Fixed for a capitals span that ends in a listed corporate form. Still open: no corporate form (`"BAJAJ AUTO"`), lower case, INC/EST., a dash after a guarded form, 5+ name words, and the title-case joiner twins; see the section on employers in capitals. Unlike R30/R32, this is NOT moot while the switch is armed. The at-rest masked copies and the certifiers run `pseudonymize()` under both postures.
