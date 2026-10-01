@@ -45,7 +45,7 @@ from ..contracts import (
     CompanionEditParseInput,
     CompanionEditParseOutput,
 )
-from ..pseudonymize import pseudonymize
+from ..pseudonymize import TokenScope, pseudonymize
 from ._shared import logger, resolve_prompt, router
 
 api_router = APIRouter()
@@ -100,7 +100,11 @@ async def companion_classify(body: CompanionClassifyInput) -> CompanionClassifyO
 @api_router.post("/companion/edit-parse", response_model=CompanionEditParseOutput)
 async def companion_edit_parse(body: CompanionEditParseInput) -> CompanionEditParseOutput:
     """One message to typed edit rows (0..max_rows), plus the closed unsupported reasons."""
-    result = pseudonymize(body.text)
+    # ONE token scope for the message AND every current value: the model has to match "the
+    # Bajaj job" in the message to the right row, which needs the same placeholder on both
+    # sides and a different one per employer. Request-scoped; it holds no original text.
+    scope = TokenScope()
+    result = pseudonymize(body.text, scope=scope)
     if result.blocked:
         logger.warning(
             "companion edit-parse blocked", extra={"extra": {"reason": result.blocked_reason}}
@@ -112,7 +116,7 @@ async def companion_edit_parse(body: CompanionEditParseInput) -> CompanionEditPa
     messages = build_edit_parse_messages(
         result.text,
         body.catalogue,
-        edit_parse_logic.mask_snapshot(body.snapshot),
+        edit_parse_logic.mask_snapshot(body.snapshot, scope=scope),
         body.max_rows,
         system_prompt,
     )

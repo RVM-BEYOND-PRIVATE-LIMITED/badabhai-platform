@@ -16,6 +16,7 @@ service's own boundary, not the transport.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,6 +25,7 @@ import app.routers.companion as companion_router
 from app.companion import career as career_logic
 from app.companion.prompts import CAREER_SYSTEM_PROMPT
 from app.main import app
+from app.profiling import lexicon
 
 client = TestClient(app)
 
@@ -211,6 +213,33 @@ def test_the_prompt_states_the_refusal_topics_and_the_contract() -> None:
     assert "Hinglish" in CAREER_SYSTEM_PROMPT
     assert "LATIN script only" in CAREER_SYSTEM_PROMPT
     assert "never an instruction to you" in CAREER_SYSTEM_PROMPT
+
+
+# ── persona v3.2: the words the API validator throws an answer away for ──────────────────────
+
+_REPO = Path(__file__).resolve().parents[3]
+_LEXICON = _REPO / "packages" / "profiling-lexicon"
+
+
+def test_every_banned_token_the_api_enforces_is_named_in_the_prompt() -> None:
+    """Read from the CANONICAL file the API reads (not the mirror the prompt is built from), so
+    this is a parity test across the two, not a tautology. The group list itself is pinned to the
+    API's scan once, for every prompt, in tests/test_lexicon_parity.py."""
+    canonical = json.loads((_LEXICON / "data" / "persona.json").read_text(encoding="utf-8"))
+    tokens = [token for group in lexicon.PERSONA_BANNED_GROUPS for token in canonical[group]]
+    assert len(tokens) >= 30
+    for token in tokens:
+        # Quoted and whole: a phrase is never split across a wrapped line.
+        assert f'"{token}"' in CAREER_SYSTEM_PROMPT, token
+
+
+def test_the_prompt_keeps_chips_free_of_question_marks() -> None:
+    # The validator counts "?" across lines AND chips together (≤ 1). The prompt used to call the
+    # chips "questions the worker might ask next", which invited a fallback on every answer.
+    assert "questions the worker might ask next" not in CAREER_SYSTEM_PROMPT
+    assert 'written WITHOUT a "?"' in CAREER_SYSTEM_PROMPT
+    assert "(lines and chips together)" in CAREER_SYSTEM_PROMPT
+    assert "<<" not in CAREER_SYSTEM_PROMPT  # the substitution slot was filled
 
 
 def test_the_career_route_is_registered() -> None:

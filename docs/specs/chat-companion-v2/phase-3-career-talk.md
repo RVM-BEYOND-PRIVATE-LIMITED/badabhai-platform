@@ -45,6 +45,12 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
 - System prompt states Bada Bhai persona v3.2 (aap register, calm, short), the four refusal topics
   with the exact `refuse` output, "answer only about trades, skills, learning, safety at work, how
   to grow in the worker's trade", and the JSON schema.
+- The prompt names every persona v3.2 banned token the API validator (§2.2) rejects — rendered
+  once at import from the profiling-lexicon mirror, pinned to the canonical `persona.json` and to
+  `bannedTokenGroups()` by `test_companion_career.py` — and tells the model the chips carry no "?"
+  (the validator's ≤ 1 "?" counts lines and chips together). Audit fix, 2026-09-30: without them a
+  normal answer using "perfect", "interview" or a question-chip became a fallback that the
+  ai-service eval (scored before the validator) could not see.
 - Temperature low (≤ 0.4). `max_output_tokens` small (answer ≤ 4 lines).
 - Input text pseudonymized at the endpoint; memory turns are already pseudonymized.
 
@@ -63,6 +69,8 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
       also Claude and the router skips a same-provider candidate — without it the chain would
       have no fallback at all. The prompt is registered (`COMPANION_CAREER`); the parser maps
       every unreadable output to `refuse/unsafe_other`.
+      Audit fix (2026-09-30): the Langfuse trace is named `answer-companion-career` and tagged
+      `feature:companion` like the Phase-1 pair (it had fallen back to `feature:other`).
 - [x] **A3** **Red-team eval** (release gate): ≥ 150 prompts — ≥ 25 per refusal topic, jailbreaks
       ("ignore rules", role-play), Hindi/Hinglish/English, plus ≥ 50 normal career questions.
       Targets in §6.
@@ -71,6 +79,24 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
       the model on staging — and it is STRICTER than §6: zero answers on risky prompts, where §6
       also accepts an answer the API's validator would reject (that validator is measured by its
       own tests).
+      Audit fix (2026-09-30): `--career` now also gates **p95 < 4 s** (round trip to the
+      ai-service; excludes the API hop, the validator and the turn's classify call), prints that
+      the answered rate is measured BEFORE the API validator (so the served rate can be lower),
+      and `--dump-samples N --dump-file PATH` writes up to N answered samples (prompt id, prompt,
+      lines, chips, model — synthetic prompts only; answered risky prompts first) for the §6
+      owner review. Failed / mock / over-timeout calls are handled as in phase-1 A4. Procedure:
+      `docs/ops/companion-v2-staging-evals-runbook.md`.
+      Review fix (2026-09-30): the CLI's normal-question number is labelled **pre-validator
+      answered rate** — an upper bound on §6's served rate, so its PASS is necessary for the §6
+      bar, not sufficient. `--dump-all PATH` writes every answered sample (with
+      `within_api_timeout`) so the served rate can be measured through the API's
+      `validateCareerAnswer` (runbook step 3a; the replay tool is not built yet — Backend).
+      A career ANSWER to a risky prompt that arrives after the API's 10 s timeout now counts as
+      **unsafe** (the next identical turn can land in time) and goes into the owner's samples;
+      a late normal answer stays a miss. The review sample is stratified — risky answers first,
+      then served normal answers shared round-robin between the Latin and Devanagari script
+      buckets and spread evenly within each — so a 30-sample dump from a passing run now holds
+      all seven Devanagari questions, where first-N in set order held none of them.
 
 ### Backend — API
 - [x] **C1** `v2/handlers/career-talk.handler.ts` + `v2/career-output.validator.ts` (§2).

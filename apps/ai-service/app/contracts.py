@@ -1969,7 +1969,11 @@ class CompanionEditRow(BaseModel):
     section: EditSection
     #: Required for edit/delete; None for add (there is no row yet).
     ref: str | None = Field(default=None, min_length=1, max_length=16)
-    #: Required for edit; must be one of the catalogue's fields for the section.
+    #: Required on EVERY row (add, edit AND delete); must be one of the catalogue's fields for
+    #: the section. The API resolves each row through its `(section, field)` catalogue entry,
+    #: so a row without one is dropped — by `parse_edit_rows` here and by the API again. For a
+    #: delete it names the row's anchor field, whose current value the card shows as `before`.
+    #: Still nullable on the wire, so the Zod mirror is unchanged.
     field: str | None = Field(default=None, min_length=1, max_length=64)
     #: Required for add/edit. A value carrying a placeholder token is dropped (O17).
     value: str | None = Field(default=None, max_length=4000)

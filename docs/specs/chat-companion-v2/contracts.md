@@ -64,7 +64,7 @@ CompanionEditParseOutput = {
     op: "add" | "edit" | "delete",
     section: EditSection,
     ref: string | null,                           // required for edit/delete; null for add
-    field: string | null,                         // required for edit; must be in catalogue
+    field: string | null,                         // required on EVERY row (add/edit/delete); in catalogue
     value: string | null,                         // required for add/edit
   }[],                                            // 0..max_rows
   unsupported: ("identity" | "contact" | "other")[],   // things asked that cannot be edited here
@@ -80,6 +80,22 @@ languages, occupations. Employment and qualifications are **edit/delete-only in 
 request gets the profile-screen line), because a new employment or credential is inherently
 multi-field and the card carries one `value` per row (O5 caps a message at 3 rows). The catalogue
 is API-authored constants; it never carries worker text.
+
+**`field` on every row (audit fix, 2026-09-30).** The API resolves each row through its
+`(section, field)` catalogue entry before any op-specific check, so a row with `field: null` is
+dropped whatever its op. The prompt therefore requires a catalogue `field` on add, edit **and**
+delete, and the ai-service parser drops a field-less row itself (a row the API would drop anyway,
+so the observable contract is unchanged; the wire type stays `string | null` for Zod parity). For a
+delete, `field` is the row's anchor: its only field (skill, language, role, one list-preference
+member), else `employer_name` / `certificate_name` / `education_field` / `training_name`. The API
+ignores it for the apply and shows that field's current value as the card's `before`.
+
+**One token scope per edit-parse request (audit fix, 2026-09-30).** The endpoint pseudonymizes the
+message and every snapshot value with ONE request-scoped numbering (`pseudonymize(..., scope=)`),
+so the same entity carries the same placeholder in the message and in `current_values`, and two
+different employers never share `[EMPLOYER_1]`. The token grammar is unchanged (`[PREFIX_n]`, still
+caught by the API's O17 `hasPlaceholderToken` screen), no mapping is returned, and every other
+gateway caller keeps its per-call numbering. No wire field changes.
 
 ### 2.3 `POST /companion/career` (P3) — task `companion_career_answer`, Claude, json_mode
 
