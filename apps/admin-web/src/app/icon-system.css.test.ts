@@ -165,11 +165,66 @@ describe("nav, matrix and disclosure glyphs", () => {
   });
 });
 
+/**
+ * The breadcrumb at phone width: the group name goes once a section follows it (the drawer
+ * names it), and the caret that OPENS the next crumb goes with it — otherwise the trail starts
+ * with a separator ("› Workers"). The crumbs are `li`s with the caret inside the step it opens.
+ */
+describe("the breadcrumb at phone width", () => {
+  const PHONE = "@media (max-width: 600px)";
+  it("drops the group and the leading caret together, and only when a section follows", () => {
+    const rule = ALL.find(
+      (r) =>
+        r.atRules.join() === PHONE &&
+        r.selector ===
+          ".crumb--group:not(:last-child), .crumb--group:not(:last-child) + .crumb__step > .crumb__sep",
+    );
+    expect(rule).toBeDefined();
+    expect(decl(rule!.body, "display")).toBe("none");
+  });
+
+  it("keeps the group when it is the whole crumb (a top-level page)", () => {
+    const hidesBareGroup = ALL.filter(
+      (r) =>
+        r.selector.split(",").some((s) => s.trim() === ".crumb--group") &&
+        decl(r.body, "display") === "none",
+    );
+    expect(hidesBareGroup).toEqual([]);
+  });
+});
+
 describe("the header's title block shares its row with the actions when they fit", () => {
-  it("grows into the row, with a floor that still lets a long action cluster wrap below", () => {
-    const heading = body(".page__heading");
-    expect(decl(heading, "flex")).toBe("1 1 18rem");
-    expect(decl(heading, "min-inline-size")).toBe("0");
+  it("grows into the row from an 18rem basis, so a long action cluster still wraps below", () => {
+    expect(decl(body(".page__heading"), "flex")).toBe("1 1 18rem");
+  });
+
+  /**
+   * AN UNBROKEN TITLE. "CNCTurnerVMCOperatorNightShiftChakanMIDC" as a role title, or an
+   * organisation registered as one word, is wider than the title block beside the actions.
+   * The flex item's automatic minimum (its min-content width) is what makes the ROW wrap then,
+   * so the actions move below the title. Any rule that lowers that minimum — `min-inline-size`
+   * or `min-width` at 0, or anything below `auto` — lets the block shrink under its own text,
+   * and the title runs beneath Force-close / Suspend (measured in Chromium at 768-1100px).
+   * Layout cannot run in this node environment, so the guard is on the declared floor, in
+   * every at-rule.
+   */
+  it("keeps its automatic minimum, so an unbroken title wraps the actions instead of running under them", () => {
+    const lowered = ALL.filter(
+      (r) =>
+        r.selector.split(",").some((s) => s.includes(".page__heading")) &&
+        ["min-inline-size", "min-width"].some((p) => {
+          const v = decl(r.body, p);
+          return v !== null && v !== "auto";
+        }),
+    ).map((r) => [...r.atRules, r.selector].join(" > "));
+    expect(lowered).toEqual([]);
+    // …and nothing clips or hides the title's overflow instead.
+    const clipped = ALL.filter(
+      (r) =>
+        r.selector.split(",").some((s) => s.includes(".page__heading")) &&
+        decl(r.body, "overflow") !== null,
+    );
+    expect(clipped).toEqual([]);
   });
 });
 
@@ -219,6 +274,16 @@ describe("44px targets on a phone or coarse pointer (and only there)", () => {
     expect(decl(kv, "display")).toBe("inline-flex");
     expect(decl(kv, "min-block-size")).toBe("var(--control-md)");
     expect(ALL.filter((r) => r.selector.includes(".kv__v > .link::before"))).toEqual([]);
+  });
+
+  it("…and the record rows align on the text baseline, so a tall link stays beside its label", () => {
+    expect(decl(touch(".kv"), "align-items")).toBe("baseline");
+    // Only where the link is tall: on a mouse the rows keep their default alignment.
+    expect(
+      ALL.filter((r) => r.selector === ".kv" && r.atRules.join() !== TOUCH).map((r) =>
+        decl(r.body, "align-items"),
+      ),
+    ).not.toContain("baseline");
   });
 
   it("back links, id chips, the crumb's section link and disclosure rows reach 44px", () => {

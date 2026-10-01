@@ -655,16 +655,20 @@ details[open] > summary > .disclosure__caret {
   gap: var(--space-4);
   flex-wrap: wrap;
 }
-/* The title block (PageHeader). It GROWS into the row and may shrink to 18rem, so a header's
+/* The title block (PageHeader). It GROWS into the row from an 18rem basis, so a header's
    actions share the title's row whenever the two fit. Sized only by its content, a long
    description made the title block as wide as its text, and the actions wrapped under it
-   (company detail at 1280: 162px tall, measured; 102px with this). The 18rem floor is what a
+   (company detail at 1280: 162px tall, measured; 102px with this). The 18rem basis is what a
    zero basis lacked: with `flex: 1 1 0` the row never wrapped, and a long action cluster
    squeezed the title to 106-149px — a three-line h1 on a phone, a 259px worker header at 1280
-   (measured). Below 18rem beside the actions, the row wraps as before. */
+   (measured).
+   NO `min-inline-size: 0`. The flex item's automatic minimum — its min-content width — is the
+   floor that keeps a title in its own box: an unbroken title (a role title or an organisation
+   name typed as one word) widens the block, so the actions WRAP below it. Zeroed, the block
+   shrank under its own text and the title ran beneath the actions (a posting's role title
+   under Force-close at 768 and 1024, an organisation name under Suspend; measured). */
 .page__heading {
   flex: 1 1 18rem;
-  min-inline-size: 0;
 }
 .page__title {
   font-size: var(--text-xl);
@@ -2383,6 +2387,12 @@ textarea.field__input {
     display: inline-flex;
     align-items: center;
     min-block-size: var(--control-md);
+  }
+  /* …and the row keeps its label beside its value. Stretched to 44px, the link's text sat
+     11-12px below its label's line; on the shared baseline the two read as one row again
+     (offset 0, link still 44px, no overlap with the next row; measured). */
+  .kv {
+    align-items: baseline;
   }
 
   /* A candidate-id chip in a review group, and the crumb's section link: the target takes the

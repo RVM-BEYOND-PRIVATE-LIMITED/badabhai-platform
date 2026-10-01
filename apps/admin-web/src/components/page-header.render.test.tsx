@@ -15,7 +15,9 @@ const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 describe("PageHeader — structure", () => {
   it("a top-level page: title and description, no back link, no empty actions slot", () => {
     const out = html(<PageHeader title="Workers" description="Every registered worker." />);
-    expect(out).toContain('<h1 class="page__title">Workers</h1>');
+    // The title block carries the sizing hook (`.page__heading`: grow from 18rem, keep its
+    // min-content floor) — without the class the actions wrap under every long description.
+    expect(out).toContain('<header class="page__head"><div class="page__heading"><h1 class="page__title">Workers</h1>');
     expect(out).toContain('<p class="page__sub">Every registered worker.</p>');
     expect(out).not.toContain("page__back");
     expect(out).not.toContain("backlink");
