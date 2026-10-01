@@ -13,6 +13,9 @@ import type { AgencyJob, JobPostingWire } from "./contracts";
  *      each chip label 2 lines + ellipsis,
  *   5. the BadaBhai lockup at the foot.
  * It draws NO role kind, NO openings, NO company, NO seal, NO description and NO match skills.
+ * (One more row exists on the phone and is deliberately NOT previewed: the "why this job" line a
+ * worker sees when they matched through a RELATED skill — `_MatchLine`, from `matchNoteFor`. It
+ * depends on which worker is looking, so there is no single card to show the payer.)
  * {@link toJobCardView} produces exactly those rows, in that order; {@link JOB_CARD_CLAMPS} carries
  * the line limits. Create, Edit, Detail and the Agency surfaces all render through it.
  *
