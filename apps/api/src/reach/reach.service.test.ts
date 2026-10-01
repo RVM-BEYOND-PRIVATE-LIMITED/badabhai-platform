@@ -295,6 +295,71 @@ describe("ReachService — Payer-self View A (applicantsForOwnedJob, ADR-0019 R2
   });
 });
 
+describe("ReachService — tryApplicantsForOwnedJob (the #1823 payer-list source switch)", () => {
+  const PAYER = "aaaaaaaa-0000-4000-8000-000000000001";
+  const OWNED: JobSignalRow = {
+    jobId: JOB_A,
+    tradeKey: "cnc_milling",
+    city: "pune",
+    payMin: null,
+    payMax: null,
+    minExperienceYears: null,
+    maxExperienceYears: null,
+    neededBy: null,
+  };
+
+  it("an owned job → the SAME list applicantsForOwnedJob serves, from ONE ownership read", async () => {
+    // Recency is scored against "now"; pin the clock so the two lists are comparable.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-01T00:00:00.000Z"));
+    try {
+      const pool = [row(1), row(2)];
+      const a = make(pool, []);
+      a.repo.findOwnedJobSignalRowById.mockResolvedValue(OWNED);
+      const tried = await a.svc.tryApplicantsForOwnedJob(JOB_A, PAYER, CTX as never);
+      expect(a.repo.findOwnedJobSignalRowById).toHaveBeenCalledOnce();
+      expect(a.repo.findOwnedJobSignalRowById).toHaveBeenCalledWith(JOB_A, PAYER);
+
+      const b = make(pool, []);
+      b.repo.findOwnedJobSignalRowById.mockResolvedValue(OWNED);
+      expect(tried).toEqual(await b.svc.applicantsForOwnedJob(JOB_A, PAYER, CTX as never));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an owned job still emits its payer-actor feed.shown batch", async () => {
+    const { svc, repo, emitted } = make([row(1), row(2)], []);
+    repo.findOwnedJobSignalRowById.mockResolvedValue(OWNED);
+    await svc.tryApplicantsForOwnedJob(JOB_A, PAYER, CTX as never);
+    expect(emitted()).toHaveLength(2);
+    for (const e of emitted()) expect(e.actor).toEqual({ actor_type: "payer", actor_id: PAYER });
+  });
+
+  it("an unknown OR another payer's job → undefined, the same answer for both (no-oracle)", async () => {
+    const { svc, repo } = make([row(1)], []);
+    repo.findOwnedJobSignalRowById.mockResolvedValue(undefined);
+    await expect(svc.tryApplicantsForOwnedJob(JOB_A, PAYER, CTX as never)).resolves.toBeUndefined();
+  });
+
+  it("a miss reads no pool, ranks nothing and emits nothing", async () => {
+    const { svc, repo, emit, emitMany } = make([row(1)], []);
+    repo.findOwnedJobSignalRowById.mockResolvedValue(undefined);
+    await svc.tryApplicantsForOwnedJob(JOB_A, PAYER, CTX as never);
+    expect(repo.listSignalRows).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+    expect(emitMany).not.toHaveBeenCalled();
+  });
+
+  it("a DB error propagates instead of reading as not-owned (fail closed)", async () => {
+    const { svc, repo } = make([], []);
+    repo.findOwnedJobSignalRowById.mockRejectedValue(new Error("connection terminated"));
+    await expect(svc.tryApplicantsForOwnedJob(JOB_A, PAYER, CTX as never)).rejects.toThrow(
+      "connection terminated",
+    );
+  });
+});
+
 describe("ReachService — View B (job feed for a worker)", () => {
   it("404s when the worker has no profile and emits nothing", async () => {
     const { svc, emit, emitMany } = make([], [jobSpec(JOB_A, ["vmc_operator"])]);

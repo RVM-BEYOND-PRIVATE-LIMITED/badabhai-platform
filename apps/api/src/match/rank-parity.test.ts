@@ -61,6 +61,12 @@ function uuid(n: number): string {
 const POSTING_ID = uuid(9001);
 const PAYER_ID = uuid(9002);
 const OPS_ACTOR = uuid(9003);
+/**
+ * A worker inside the ADR-0031 deletion grace window who applied. Not a FIXTURE: he must
+ * never be listed, so every count and order assertion above runs over FIXTURES alone. His
+ * application id reuses his worker id, the same convention the fixtures follow.
+ */
+const LEAVER_ID = uuid(9004);
 
 /** One fixture application: the frozen snapshot plus the ids that break ties. */
 interface Fixture {
@@ -171,6 +177,14 @@ describe.skipIf(!RUN)("Matching V1 — SQL ORDER BY vs rankKeyCompare parity (AD
     const b = await repo.listCandidates(POSTING_ID, FLOOR, 500);
     expect(b.map((r) => r.applicationId)).toEqual(a.map((r) => r.applicationId));
   });
+
+  it("drops a pending-deletion applicant from the list (ADR-0031 ruling (b))", async () => {
+    // The leaver's snapshot would put him FIRST, so if the freeze is lost he cannot hide in
+    // the tail — and the parity case above also counts exactly FIXTURES.length rows.
+    const rows = await repo.listCandidates(POSTING_ID, FLOOR, 500);
+    expect(rows.map((r) => r.workerId)).not.toContain(LEAVER_ID);
+    expect(rows.map((r) => r.applicationId)).not.toContain(LEAVER_ID);
+  });
 });
 
 /** The SQL's effective-tier CASE, re-expressed for the assertion above. */
@@ -219,6 +233,22 @@ async function seed(client: DbClient): Promise<void> {
               ${f.lastWorkedAt}::date, 'v1.0', ${createdAt}::timestamptz)
     `;
   }
+
+  // The leaver: deletion scheduled 7 days out, and the strongest snapshot on the posting
+  // (tier 1, more months than any fixture), so a lost freeze would put him at rank 1.
+  await sql`
+    INSERT INTO workers (id, phone_e164, phone_hash, status, deletion_scheduled_at)
+    VALUES (${LEAVER_ID}::uuid, 'enc:rank-parity-leaver', 'hash:rank-parity-leaver', 'active',
+            now() + interval '7 days')
+    ON CONFLICT (id) DO NOTHING
+  `;
+  await sql`
+    INSERT INTO applications (id, worker_id, job_posting_id, action, source_surface,
+                              match_tier, skill_months, industry_months, last_worked_at,
+                              engine_version, created_at)
+    VALUES (${LEAVER_ID}::uuid, ${LEAVER_ID}::uuid, ${POSTING_ID}::uuid, 'applied', 'feed',
+            1, 999, 999, '2026-06-01'::date, 'v1.0', ${new Date(BASE_MS).toISOString()}::timestamptz)
+  `;
 }
 
 async function cleanup(client: DbClient): Promise<void> {
@@ -229,4 +259,5 @@ async function cleanup(client: DbClient): Promise<void> {
   for (const f of FIXTURES) {
     await sql`DELETE FROM workers WHERE id = ${uuid(f.n)}::uuid`;
   }
+  await sql`DELETE FROM workers WHERE id = ${LEAVER_ID}::uuid`;
 }
