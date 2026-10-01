@@ -16,11 +16,13 @@ import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/session/known_worker_facts_store.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_chat_bubble.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_identity_questions.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_session_opening.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
+import 'package:badabhai_worker_app/features/chat/presentation/widgets/flying_name.dart';
 import 'package:badabhai_worker_app/router.dart';
 import 'package:badabhai_worker_app/core/util/devanagari_guard.dart';
 
@@ -1210,6 +1212,53 @@ void main() {
       await tester.pump();
 
       expect(find.text(kDevanagariBlockedHint), findsNothing);
+    });
+  });
+
+  // ── ADR-0048 — THE ENTERED NAME FLIES TO THE HEADER ────────────────────────
+  //
+  // The identity intake asks the name in the chat; the moment it is answered, a
+  // token carrying the name travels up to the header action (which reads
+  // 'Feedback' until then) and the action shows the name from then on. The name
+  // STAYS in the transcript — the move is a copy, not a relocation.
+  group('ADR-0048 name flight', () {
+    testWidgets('the entered name flies up and the header shows it',
+        (WidgetTester tester) async {
+      when(() => repo.ensureSession()).thenAnswer(
+        (_) async => const ChatSessionOpening(
+          text: 'Aapka naam kya hai?',
+          questionKey: kChatFirstNameQuestionKey,
+        ),
+      );
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async =>
+              const ChatTurn(reply: 'Shukriya.', askedQuestionId: null));
+
+      await pumpScreen(tester);
+      expect(find.text('Feedback'), findsOneWidget,
+          reason: 'the action is Feedback until a name is entered');
+
+      await tester.enterText(find.byType(TextField), 'ramesh kumar');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      // Frame 1: the bubble lands, the name is captured, the flight is
+      // scheduled; frame 2 builds the overlay token.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+
+      expect(find.byType(FlyingName), findsOneWidget,
+          reason: 'the name should be in flight');
+      // The name is STILL in the chat while it flies.
+      expect(find.text('ramesh kumar'), findsOneWidget);
+
+      await tester.pumpAndSettle();
+
+      // Landed: the token is gone and the action now reads the name.
+      expect(find.byType(FlyingName), findsNothing);
+      expect(find.text('Ramesh Kumar'), findsOneWidget);
+      expect(find.text('Feedback'), findsNothing);
+      // The bubble remains — the name was copied to the header, not moved out.
+      expect(find.text('ramesh kumar'), findsOneWidget);
     });
   });
 }
