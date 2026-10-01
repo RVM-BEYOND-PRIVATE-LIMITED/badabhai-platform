@@ -39,6 +39,11 @@ or classifier null/blocked.
 Zod in `packages/ai-contracts`, mirrored in Pydantic in `apps/ai-service/app/contracts.py`
 (the existing mirror convention; a parity test must cover the new models).
 
+"Pseudonymized by the endpoint" below holds while `AI_RAW_PII_ENABLED` is off. Armed
+([ADR-0047](../../decisions/0047-lift-pii-restriction.md)), each endpoint passes the text through
+`llm_input_policy` unmasked (size caps kept) and the orchestrator skips its `/pseudonymize` hop;
+`blocked` then means only an oversize or non-string input. The wire shapes do not change.
+
 ### 2.1 `POST /companion/classify` (P1) — task `companion_classify`, Gemini Flash, json_mode
 
 ```ts
@@ -194,8 +199,8 @@ One pure module (`v2/edit-plan.ts`) turns a section's rows plus its current stat
 writer's input, parsed by the writer's REAL schema (`SetMy*Schema`). It runs twice:
 
 - **At propose**, per row, after the per-row gates (catalogue, op, ref, the field belongs to the
-  ref's entry, value, token, edit no-op) and the row-set gates — a second delete of one entry (the
-  field is only a delete's anchor), an
+  ref's entry, value, token, hard identifier (ADR-0047 G1), edit no-op) and the row-set gates — a
+  second delete of one entry (the field is only a delete's anchor), an
   edit of an entry the same card deletes, a second edit of one field, a second add of one value
   (case-insensitive), and an ADD OF SOMETHING ALREADY STORED (case-insensitive; skills included)
   are all dropped. Each surviving row is tried together with the rows already accepted for its
@@ -459,11 +464,14 @@ message cannot hang on Redis. NOT yet bounded: the `strikes` INCR and the `coold
 abandoned write still lands later, as a strike or cool-down the strike event never reported) and
 `proposal:*` — a Redis outage still stalls a faltu turn and the edit path.
 
-Memory stores the **pseudonymized** text the AI service returned, never the raw text — clipped to
-1000 chars (the store drops longer turns on read), and **never** for a message the lexicon OR the
-classifier called `faltu` (any confidence, faltu phase on or off): pseudonymizing masks PII, not
-abuse. The replay key holds only what the worker was already sent (fixed copy, a validated career
-answer, or an edit card whose values `proposal:{workerId}` already holds); never the message.
+Memory stores the **pseudonymized** text the AI service returned, never the raw text — while
+`AI_RAW_PII_ENABLED` is off. Armed (ADR-0047), it stores the worker's own words: still Redis only,
+still trimmed to `MEMORY_TURNS`, still expiring on `MEMORY_TTL_SECONDS`. Either way each worker
+turn is clipped to 1000 chars (the store drops longer turns on read), and **never** stored for a
+message the lexicon OR the classifier called `faltu` (any confidence, faltu phase on or off):
+pseudonymizing masks PII, not abuse. The replay key holds only what the worker was already sent
+(fixed copy, a validated career answer, or an edit card whose values `proposal:{workerId}` already
+holds); never the message, raw or masked, whichever way the flag is set.
 
 ## 8. Copy
 

@@ -40,7 +40,16 @@ const StoredTurnSchema = z
  * would live forever if a process died between RPUSH and EXPIRE).
  *
  * WHAT IS STORED IS ALREADY PSEUDONYMIZED: the orchestrator appends the masked text the AI
- * service returned, never the raw message (contracts §7). Nothing here writes a log line with a
+ * service returned, never the raw message (contracts §7). THE ONE EXCEPTION is
+ * `AI_RAW_PII_ENABLED` (owner decision 2026-09-30): while it is on the orchestrator skips the
+ * gateway and appends the worker's own words, so this list then holds raw text — still Redis
+ * only, still trimmed, still expiring on the TTL above. TURNING IT OFF DOES NOT CLEAR THEM: an
+ * entry carries no raw-or-masked marker, and because every append re-asserts the TTL, a raw
+ * turn stored while the flag was on outlives the revert until `MEMORY_TURNS` newer entries trim
+ * it out or the TTL lapses after that worker's last turn. It is replayed as `recent_turns`
+ * meanwhile, which the ai-service masks again before the model while the flag is off, so the
+ * residue is at rest only. An immediate at-rest revert deletes the `companion:v2:mem:*` keys —
+ * a flush costs a worker nothing but a little context. Nothing here writes a log line with a
  * turn's text, and a failed read is simply "no memory" — the turn proceeds without it.
  *
  * BOTH METHODS RUN UNDER `withinRedisDeadline`. On the shared connection a command against a

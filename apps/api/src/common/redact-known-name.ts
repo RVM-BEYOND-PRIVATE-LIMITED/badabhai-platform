@@ -26,9 +26,18 @@
  * happens on this side, before the hop.
  *
  * THIS IS DEFENCE IN DEPTH, NOT A REPLACEMENT GATE. The ai-service's
- * `pseudonymize()` still runs fail-closed in front of every LLM call (invariant #3).
- * This narrows one class it provably cannot catch; it does not license removing
- * anything downstream.
+ * `pseudonymize()` still runs fail-closed in front of every LLM call while
+ * `AI_RAW_PII_ENABLED` is off (ADR-0047). This narrows one class it provably cannot
+ * catch; it does not license removing anything downstream.
+ *
+ * NOT KEYED ON `AI_RAW_PII_ENABLED` (ADR-0047, ruling G2). Armed, the ai-service's
+ * prompt maskers pass text through, but every caller still removes the known name:
+ * the extraction (`ProfileExtractionProcessor.redactedConversation` — the transcript and
+ * the parse call's answer map) and both interview turns (`LlmTurnService.take`,
+ * `SkillsTurnService.take`, via `redactedTurnText`). No
+ * model there needs it, and a name one reads it can echo into a value it authors — a
+ * turn's `role_label` settles as the worker's trade — that reaches the employer copy,
+ * where the name shows as initials until an unlock.
  *
  * ACCEPTED TRADEOFF (deliberate, not an oversight): a worker whose own name collides
  * with trade vocabulary loses that token. A worker actually named "Kiran" who writes
@@ -87,6 +96,67 @@ export function redactKnownName(text: string, fullName: string | null | undefine
   // Function replacement (never a string) so a placeholder containing `$&`-style
   // patterns could never be reinterpreted — same discipline as `renderWorkerName`.
   return text.replace(pattern, () => REDACTED_NAME_PLACEHOLDER);
+}
+
+/**
+ * {@link redactKnownName} over every line of a conversation: the same lines in the same order,
+ * each a NEW object with its `text` redacted and every other field carried through. The input is
+ * never mutated — a caller's stored copy stays exactly what the worker typed.
+ */
+export function redactKnownNameLines<T extends { readonly text: string }>(
+  lines: readonly T[],
+  fullName: string | null | undefined,
+): T[] {
+  return lines.map((line) => ({ ...line, text: redactKnownName(line.text, fullName) }));
+}
+
+/**
+ * {@link redactKnownName} over every string inside a JSON-shaped value, at any depth: a string,
+ * each array item, each object key and value. Numbers, booleans and null come back as they are.
+ * The input is never mutated.
+ *
+ * Keys are walked because a value typed `unknown` promises nothing about who wrote them — the same
+ * reason the parse gates' `stringsIn` reads keys. JSON has no cycles, so the recursion is bounded.
+ */
+export function redactKnownNameDeep(value: unknown, fullName: string | null | undefined): unknown {
+  if (typeof value === "string") return redactKnownName(value, fullName);
+  if (Array.isArray(value)) return value.map((item) => redactKnownNameDeep(item, fullName));
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        redactKnownName(key, fullName),
+        redactKnownNameDeep(item, fullName),
+      ]),
+    );
+  }
+  return value;
+}
+
+/**
+ * The worker's decrypted `full_name` ON DEMAND — `null` when none is stored or it cannot be
+ * decrypted.
+ *
+ * A THUNK, NOT THE STRING. Most interview turns make no model call, so an eager read would
+ * decrypt a name nothing uses; and a function cannot ride into a buffer, an event or a log line by
+ * being spread or serialised with the object that carries it — the plaintext exists only where an
+ * egress awaits it.
+ */
+export type KnownNameSource = () => Promise<string | null>;
+
+/**
+ * `read`, run at most once per request, so the interview model's egress and the chat reply's
+ * vocative share ONE lookup and ONE decrypt. A REJECTED read is not kept: the next caller retries
+ * it, exactly as it would have when each consumer read the name for itself.
+ */
+export function knownNameOnce(read: () => Promise<string | null>): KnownNameSource {
+  let pending: Promise<string | null> | null = null;
+  return () => {
+    pending ??= read().catch((error: unknown) => {
+      pending = null;
+      throw error;
+    });
+    return pending;
+  };
 }
 
 /**

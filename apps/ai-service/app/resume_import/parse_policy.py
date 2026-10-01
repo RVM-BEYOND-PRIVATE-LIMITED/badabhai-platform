@@ -67,6 +67,10 @@ def input_masker(*, raw_text_enabled: bool) -> Masker:
     security review's question is "who can turn masking off, and from where" — a function
     that reaches for global settings has the answer "anything that imports it", while this
     one has the answer "its caller, in the one route that calls it".
+
+    Since 2026-09-30 the caller passes `llm_input_policy.resume_input_raw(settings)`, so the
+    platform's `AI_RAW_PII_ENABLED` selects this same uncapped pass-through as D5's own flag
+    does; `app/llm_input_policy.py` is this function generalised to every other prompt.
     """
     return passthrough_masker if raw_text_enabled else default_masker
 

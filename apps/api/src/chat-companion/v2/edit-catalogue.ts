@@ -374,7 +374,9 @@ export function cardFieldLabel(
  *
  * ADR-0046 O17: v2 builds NO token rehydration, so such a row is DROPPED — and when no row
  * survives, the worker is pointed at the Profile screen (`V2_EDIT_PLACEHOLDER`). When masking is
- * removed platform-wide, no tokens appear and these edits simply work.
+ * removed platform-wide, no tokens appear and these edits simply work — and a hard identifier
+ * the model echoes is dropped by the service's `containsHardIdentifier` gate instead (ADR-0047
+ * G1).
  */
 export function hasPlaceholderToken(value: string): boolean {
   return /\[[A-Z]+_\d+\]/.test(value);

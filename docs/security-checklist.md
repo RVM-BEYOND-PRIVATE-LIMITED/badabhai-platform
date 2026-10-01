@@ -2,13 +2,14 @@
 
 A consolidated, runnable gate for the BadaBhai invariants. Tick every box that the
 diff touches before requesting review; a privacy/AI/auth change also runs the
-`bb-security-review` skill (distinct
+[`security-engineer`](../.claude/agents/security-engineer.md) gate (distinct
 from the built-in `/security-review`).
 
 This file does **not** restate the rules — it points at the file/skill that
 **enforces** each one. Sources of truth:
 
-- Invariants: [`CLAUDE.md` §2](../CLAUDE.md) · Merge gates: [`CLAUDE.md` §6](../CLAUDE.md)
+- Principles: [`CLAUDE.md` §3](../CLAUDE.md) (privacy as amended by
+  [ADR-0047](decisions/0047-lift-pii-restriction.md)) · Quality gates: [`CLAUDE.md` §14](../CLAUDE.md)
 - PR template: [`.github/pull_request_template.md`](../.github/pull_request_template.md)
 - Reviews of record: [`docs/ai/phase-1-ai-privacy-review.md`](ai/phase-1-ai-privacy-review.md) ·
   [`docs/security/phase-1-pii-at-rest-rls-review.md`](security/phase-1-pii-at-rest-rls-review.md) ·
@@ -18,62 +19,73 @@ This file does **not** restate the rules — it points at the file/skill that
   [`docs/registers/risks-register.md`](registers/risks-register.md)
 
 > Any box you cannot truthfully tick is a **block**, not a tech-debt note. Do not
-> downgrade a Critical finding to a register line (a `bb-security-review` failure
-> condition).
+> downgrade a Critical finding to a register line (the `security-engineer` gate's own
+> rule).
 
 ---
 
-## 1. PII boundary — no raw PII past the `workers` table
+## 1. PII placement — what still holds under ADR-0047
 
-Phone, full name, address, employer names, and ID-doc tokens must **never** appear
-in LLM input, event payloads, `ai_jobs`, `audit_logs`, or logs. Raw PII lives only in
-`workers` (encrypted: `phone_e164` / `full_name` are AES-256-GCM `v1.` tokens;
-`phone_hash` is peppered HMAC-SHA256). Payer B2B contact PII (email/phone/org name)
-lives encrypted in `payers` (TD21, ADR-0019 B-R2). Agency financial KYC (PAN/bank)
-encrypted in `agency_kyc` (ADR-0022 Amdt 2, launch-gated OFF).
+[ADR-0047](decisions/0047-lift-pii-restriction.md) lifts, for now, the ban on raw PII in LLM
+prompts, logs, events, audit records and analytics. A value in one of those places is **not** a
+finding by itself. What still holds, and is checked here: name and phone stay encrypted at rest
+in `workers` (`phone_e164` / `full_name` are AES-256-GCM `v1.` tokens; `phone_hash` is peppered
+HMAC-SHA256); payer B2B contact PII (email/phone/org name) stays encrypted in `payers` (TD21,
+ADR-0019 B-R2) and agency financial KYC (PAN/bank) in `agency_kyc` (ADR-0022 Amdt 2,
+launch-gated OFF); employer-side disclosure masking (the masked profile until unlock) is
+unchanged; every place PII is written stays reachable by account deletion, or is named as
+unreachable; and no secret is ever logged.
 
-**One narrow exception — and it does not license a new column.** Text a human typed
-carries PII by *content*, not by column, and encrypting it destroys the reason it is
-stored: `voice_notes.transcript_text`/`transcript_english` and `chat_messages.body_text`
-(incidental PII — **R12**), and `worker_feedback.message` (#997), where an admin reading
-the worker's own words *is* the feature. These sit in plaintext behind the RLS+REVOKE
-lockout, and every other rule in this section applies to them **unchanged**: never to an
-LLM unpseudonymized, never into an event (`feedback.submitted` carries `message_length`,
-`category`, `app_build` and a `screen_context` drawn from a closed table of the app's own
-screen names — never the text),
-never into a log, never into `ai_jobs`/`audit_logs`. A new **structured**
-column holding a phone, a name, an address or an ID token is not covered by this and must
-be encrypted.
+**Human-typed free text.** Text a human typed carries PII by _content_, not by column, and
+encrypting it destroys the reason it is stored: `voice_notes.transcript_text`/`transcript_english`
+and `chat_messages.body_text` (incidental PII — **R12**), and `worker_feedback.message` (#997),
+where an admin reading the worker's own words _is_ the feature. These sit in plaintext behind the
+RLS+REVOKE lockout and cascade-delete with the worker. A new **structured** column holding a
+phone, a name, an address or an ID token is not covered by this and must be encrypted.
 
-- [ ] No phone/name/address/employer/ID-doc value reaches **LLM input** — verified for
-      this diff. Enforced by [`apps/ai-service/app/pseudonymize.py`](../apps/ai-service/app/pseudonymize.py).
-- [ ] No raw PII in any **event payload** — events carry ids/enums/counts only. Schema:
-      [`packages/event-schema`](../packages/event-schema).
-- [ ] No raw PII in **`ai_jobs`** (refs only) or in **`audit_logs`** (refs/enums only).
-- [ ] No raw PII in **logs** — log the worker id, not the value; PII writes log
-      `"(encrypted)"` + id (see [`docs/security/phase-1-pii-at-rest-rls-review.md`](security/phase-1-pii-at-rest-rls-review.md)).
+- [ ] Prompt-side masking changes only through the ADR-0047 switch, `AI_RAW_PII_ENABLED` — no
+      call site unmasks on its own, no new LLM path skips the shared input policy, and
+      [`apps/ai-service/app/pseudonymize.py`](../apps/ai-service/app/pseudonymize.py) itself takes
+      no flag.
+- [ ] No existing **event schema** is mutated to carry PII — PII in an event means a new
+      versioned event. Schema: [`packages/event-schema`](../packages/event-schema).
+- [ ] No secret, token or credential in any log, event, trace, error message, `ai_jobs` or
+      `audit_logs` row.
 - [ ] Crypto for any new PII column uses [`apps/api/src/common/pii-crypto.service.ts`](../apps/api/src/common/pii-crypto.service.ts)
       / [`apps/api/src/common/crypto.ts`](../apps/api/src/common/crypto.ts) (never plaintext at rest).
       A human-authored free-text column is the one exception above — tick it only if the
-      diff also shows the length-only event, the id-only logging, and the erasure path
-      (an `ON DELETE cascade` from `workers`, never `SET NULL`).
-- [ ] Privacy-critical paths have an explicit **no-PII test** (event/`ai_jobs`/log
-      assertion), per the `bb-security-review` checklist.
+      diff also shows the erasure path (an `ON DELETE cascade` from `workers`, never `SET NULL`).
+- [ ] Any new place PII is written — a column, an event, a log line, a trace, a third party — is
+      reachable by account deletion, or the PR names it as unreachable.
+- [ ] Employer-side disclosure masking is unchanged (the masked profile until a credit unlock).
+- [ ] Privacy-critical paths have an explicit test (masked with the switch off and raw with it
+      on; no hard identifier past an output wall; events validate against their schemas).
 
-## 2. Pseudonymization runs before every LLM call and fails closed
+## 2. The prompt-masking switch, and the output walls that never follow it
 
-[`apps/ai-service/app/pseudonymize.py`](../apps/ai-service/app/pseudonymize.py) is the
-gate. If it blocks (oversize input, parse error, residual digit run) the LLM is never
-called and a safe fallback returns; the original↔token mapping is never persisted or
-returned.
+[`apps/ai-service/app/pseudonymize.py`](../apps/ai-service/app/pseudonymize.py) is the gate.
+With `AI_RAW_PII_ENABLED` off (the default) it runs before every prompt-side LLM call; if it
+blocks (oversize input, parse error, residual digit run) the LLM is never called and a safe
+fallback returns; the original↔token mapping is never persisted or returned. Armed, the
+prompt-side call sites pass text through, keeping the size caps and the non-string rejection
+(ADR-0047 §3). Model **output** is certified either way, and a hard-identifier floor that reads
+no flag drops an echoed phone, PAN, Aadhaar, email or credential ID from every stored or printed
+field (ADR-0047 §6, G1). Profile extraction and both `/profiling/turn` callers (the classic
+interview turn and the skills stage) redact the worker's own name whatever the flag says (G2).
 
-- [ ] No new LLM path bypasses the gateway; the gateway runs **before** the
+- [ ] With the switch off, no LLM path bypasses the gateway; it runs **before** the
       router/provider call on every external path.
-- [ ] The path is **fail-closed** — a block yields a safe fallback /
+- [ ] With the switch off, the path is **fail-closed** — a block yields a safe fallback /
       `extraction_status="blocked"`, never a raw send (regression precedent: F-1 in
       [`docs/ai/phase-1-ai-privacy-review.md`](ai/phase-1-ai-privacy-review.md)).
-- [ ] Conversation **history** (prior turns), not just the current message, is
-      pseudonymized before entering `messages`.
+- [ ] With the switch off, conversation **history** (prior turns), not just the current
+      message, is pseudonymized before entering `messages`.
+- [ ] Model output is certified before it is stored, shown or emitted (gate 6, `certify*`,
+      `contains_hard_identifier`, the placeholder refusals, the G1 floor), and none of those
+      walls takes a policy argument.
+- [ ] `redactKnownName` still runs in profile extraction (the transcript and the `/profile/parse`
+      call's answer map), `LlmTurnService` and `SkillsTurnService` with `AI_RAW_PII_ENABLED` on
+      (G2).
 - [ ] `ruff check .` + `pytest` green in `apps/ai-service` (CI gate).
 
 ## 3. IDOR — never trust a body-supplied user / worker / payer / company id
@@ -95,7 +107,7 @@ No secret values in the repo, diff, logs, or context — env var **names** + pur
 fine, values never.
 
 - [ ] No `.env` or secret file committed; only `.env.example` placeholders changed.
-      Enforced by the harness guard [`.claude/settings.json`](../.claude/settings.json) + [`.claude/hooks/guard-secrets.mjs`](../.claude/hooks/guard-secrets.mjs)
+      Enforced by the harness guard [`.claude/settings.json`](../.claude/settings.json) + [`.claude/hooks/guard.mjs`](../.claude/hooks/guard.mjs)
       (blocks reading/editing/writing/printing `.env*` and key/credential files;
       `.env.example`/`.sample`/`.template`/`.dist` are allowed templates).
 - [ ] New secrets are **backend-only** — added to the server schema
@@ -164,7 +176,8 @@ No profiling/AI processing of a worker before `consent.accepted` is captured.
 
 ## When to escalate (stop and ask)
 
-Per [`CLAUDE.md` §7](../CLAUDE.md): an §2 invariant must change; the stack must change;
+Per [`CLAUDE.md` §16](../CLAUDE.md): a §3 principle must change (ADR-0047 was one; widening it
+is another); the stack must change;
 a migration is destructive/irreversible; real LLM/OTP/STT/payment keys or spend are
 involved; or anything touches production data. Surface the conflict — do not paper over
 a contradiction between code, ADRs, and intent.

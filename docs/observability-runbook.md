@@ -144,14 +144,17 @@ listener, no Bull Board — grep returns nothing), external-provider reachabilit
 config-presence checks above (nothing is ever actually called), and Docker/box-level resource
 pressure. `apps/ai-service`'s own `GET /health` is liveness-only, no dependency probes at all.
 
-## §6 — Langfuse tracing (dormant by config, not by code)
+## §6 — Langfuse tracing (gated by config, not by code)
 
 `apps/ai-service/app/ai/langfuse_tracing.py` is real and wired into the router, embeddings, and
 every LLM-touching route. It initializes only when both `LANGFUSE_PUBLIC_KEY` and
-`LANGFUSE_SECRET_KEY` are set (`settings.langfuse_enabled`) and no-ops otherwise — dormant in
-every committed environment today because no keys are configured, not because the integration is
-unbuilt. `GET /health` on the ai-service reports `langfuse_enabled` live. Only pseudonymized text
-is ever traced (CLAUDE.md §3 "Privacy First").
+`LANGFUSE_SECRET_KEY` are set (`settings.langfuse_enabled`) and no-ops otherwise. No committed
+file carries keys; production arms tracing through the `LANGFUSE_*` `production`-environment
+secrets, which the `ci.yml` deploy job bridges, so tracing is live there. `GET /health` on the
+ai-service reports `langfuse_enabled` live. Traced text is
+pseudonymized by the `mask=` hook while `AI_RAW_PII_ENABLED` is off; armed, the hook passes text
+through and Langfuse receives raw prompts
+([ADR-0047](decisions/0047-lift-pii-restriction.md) §6).
 
 ### §6.1 — The trace hierarchy
 
@@ -247,7 +250,8 @@ Order matters; each step is independently reversible.
 
 1. Provision a Langfuse project. **Record data-retention / no-train terms first** — ADR-0030
    §7(e) requires that before a new external PII-egress surface goes live, and no ADR covers
-   Langfuse as a processor yet. A trace store becomes a DSAR/erasure-relevant location that
+   Langfuse as a processor yet (ADR-0047 names it as receiving raw prompts while
+   `AI_RAW_PII_ENABLED` is armed). A trace store becomes a DSAR/erasure-relevant location that
    ADR-0026 / ADR-0031 deletion sweeps do **not** reach.
 2. On the box: `export LANGFUSE_PUBLIC_KEY=… LANGFUSE_SECRET_KEY=…` plus
    `LANGFUSE_TRACING_ENVIRONMENT` (compose defaults it to `staging`) and `APP_VERSION=<git sha>`.

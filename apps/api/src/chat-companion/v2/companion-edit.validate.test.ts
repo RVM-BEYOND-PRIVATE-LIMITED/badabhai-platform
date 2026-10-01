@@ -124,6 +124,76 @@ describe("CompanionEditService.propose — every drop rule (spec §Edit step 3)"
     expect(h.proposals.save).not.toHaveBeenCalled();
   });
 
+  // ADR-0047 G1. With AI_RAW_PII_ENABLED on the model reads the worker's raw message and no
+  // placeholder is minted, so an echoed identifier arrives as plain text; a confirmed employer
+  // name or work line prints on both résumé PDFs. The clean edit in each case is the control.
+  describe("a value carrying a hard identifier (ADR-0047 G1)", () => {
+    // ONE ROLE, on purpose: every row is also parsed through the employment writer's real schema
+    // (P1-EDIT-DROP-DTO), which refuses an employment with no role — so with `roles: []` each
+    // row below would be dropped by the writer, never reaching the gate this block is about.
+    const TATA = {
+      employment_id: "66666666-6666-4666-8666-666666666666",
+      employer_name: "Tata Motors",
+      employer_city: "Pune",
+      employer_state: null,
+      start_ym: "2019-01",
+      end_ym: null,
+      roles: [
+        {
+          role_label: "Welder",
+          start_ym: "2019-01",
+          end_ym: null,
+          work_done: null,
+          work_done_voice_note_id: null,
+          description_source: null,
+        },
+      ],
+    };
+    const edit = (field: string, value: string) =>
+      row({ op: "edit", section: "employment", ref: "e1", field, value });
+
+    it.each([
+      ["a phone in employer_name", "employer_name", "Tata Motors, call 98765 43210"],
+      ["a PAN in work_done", "work_done", "PAN ABCDE1234F, lathe pe shaft"],
+      ["an email in role_label", "role_label", "ramesh.k@example.com"],
+    ])("drops %s", async (_what, field, value) => {
+      const h = setup({ parse: parse([edit(field, value)]), employmentViews: [TATA] });
+      const { turn } = await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+      expect(turn.reply).toBe(V2_EDIT_NONE.latin);
+      expect(turn.edit_proposal).toBeUndefined();
+      expect(h.proposals.save).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["employer_name", "Tata Motors Ltd"],
+      ["work_done", "lathe pe shaft"],
+      ["role_label", "Senior Welder"],
+    ])("control: a clean %s edit on the same entry IS carded", async (field, value) => {
+      const h = setup({ parse: parse([edit(field, value)]), employmentViews: [TATA] });
+      const { turn } = await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+      expect(turn.edit_proposal?.rows).toHaveLength(1);
+      expect(turn.edit_proposal?.rows[0]?.after).toBe(value);
+    });
+
+    it("keeps the clean edit beside it — one card, the echo counted as dropped", async () => {
+      const h = setup({
+        parse: parse([
+          edit("employer_name", "Tata Motors Ltd"),
+          edit("work_done", "call 98765 43210"),
+        ]),
+        employmentViews: [TATA],
+      });
+      const { turn } = await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+      expect(turn.edit_proposal?.rows).toHaveLength(1);
+      expect(turn.edit_proposal?.rows[0]?.after).toBe("Tata Motors Ltd");
+      expect(JSON.stringify(h.proposals.save.mock.calls)).not.toContain("98765");
+      const proposed = h.events.emit.mock.calls.find(
+        (c) => (c[0] as { event_name: string }).event_name === "chat.companion_edit_proposed",
+      )![0] as { payload: { dropped_count: number } };
+      expect(proposed.payload.dropped_count).toBe(1);
+    });
+  });
+
   it("drops a no-op — an edit whose value already equals the current one", async () => {
     const h = setup({
       parse: parse([

@@ -13,9 +13,13 @@ profiled, contactable candidates through a chat-first worker app.
 ## Core Principles
 
 - **Event-first architecture** — every important endpoint emits a validated event.
-- **Privacy by construction** — a pseudonymization gateway runs before *every* LLM
-  call. Phone, name, address, employer names, and ID docs never reach an LLM.
-- **Fail closed** — if pseudonymization fails, the AI path is blocked.
+- **Privacy by policy** — model-prompt masking is one switch, `AI_RAW_PII_ENABLED`
+  (default off; [ADR-0047](docs/decisions/0047-lift-pii-restriction.md)). Off, a
+  pseudonymization gateway masks phone, name, address, employer names and ID docs
+  before every LLM call; armed, prompts carry the text as typed. Either way, name and
+  phone stay encrypted at rest, and model output carrying a hard identifier is dropped.
+- **Fail closed** — if the input gate fails (pseudonymization, or armed, the size and
+  type checks), the AI path is blocked.
 - **API-first AI** — no self-hosted LLM at launch; the AI service calls providers
   directly (Gemini primary + Claude Haiku fallback; ADR-0008) behind the
   `LlmAdapter`/`AIRouter` seam, gated behind `AI_ENABLE_REAL_CALLS` (default `false`).
@@ -39,7 +43,7 @@ profiled, contactable candidates through a chat-first worker app.
 | AI routing       | Direct Gemini + Claude (ADR-0008)                   |
 | STT              | Sarvam (placeholder only)                            |
 | Observability    | Structured logging + Langfuse (placeholders)        |
-| AI safety        | Pseudonymization gateway before every LLM call       |
+| AI safety        | Prompt masking per ADR-0047; output walls always     |
 
 ---
 

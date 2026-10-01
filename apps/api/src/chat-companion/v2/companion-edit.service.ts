@@ -20,6 +20,7 @@ import { WorkerQualificationsService } from "../../profiles/worker-qualification
 import { WorkerOccupationsService } from "../../profiles/worker-occupations.service";
 import { WorkerPreferencesService } from "../../profiles/worker-preferences.service";
 import { WorkerSkillsService } from "../../match/worker-skills.service";
+import { containsHardIdentifier } from "../../profiling/resume-import/resume-parse-gates";
 import { ResumeService } from "../../resume/resume.service";
 import { ResumeRerenderService } from "../../resume/resume-rerender.service";
 import type { ChatEditRegeneration } from "../../resume/resume.dto";
@@ -124,21 +125,24 @@ type RowVerdict =
  * THE MODEL NEVER WRITES. `propose` reads every section once (`EditState`), sends the message
  * plus this catalogue and a snapshot of the worker's current values — cut to the contract's cap —
  * to `AiService.companionEditParse`, validates every returned row deterministically (catalogue,
- * op, ref, value, placeholder token, no-op, duplicate, and the section writer's REAL schema) and
- * stores a card of at most `min(EDIT_MAX_ROWS, 3)` rows. `confirm` CLAIMS the card (at most one
- * apply per card), re-reads the state, refuses a stale card, applies every selected row through
- * the section writers on ONE transaction, and only then runs the post-commit side effects and
- * QUEUES the résumé regeneration (a new history entry, trigger `chat_edit`, the daily cap charged
- * up front) — when the worker's consent names `resume_generation`. When none is queued, the
- * LLM-free re-render the form path would have run puts the live-printed edits on the PDF.
+ * op, ref, value, placeholder token, hard identifier, no-op, duplicate, and the section writer's
+ * REAL schema) and stores a card of at most `min(EDIT_MAX_ROWS, 3)` rows. `confirm` CLAIMS the
+ * card (at most one apply per card), re-reads the state, refuses a stale card, applies every
+ * selected row through the section writers on ONE transaction, and only then runs the
+ * post-commit side effects and QUEUES the résumé regeneration (a new history entry, trigger
+ * `chat_edit`, the daily cap charged up front) — when the worker's consent names
+ * `resume_generation`. When none is queued, the LLM-free re-render the form path would have run
+ * puts the live-printed edits on the PDF.
  *
  * FAIL CLOSED, EVERYWHERE. No parse, no rows or a store failure means no card and no claim; a
  * claim Redis refuses, an unreadable section or a writer failure writes nothing, and the card is
  * served again so the worker may retry until its TTL; a stale card writes nothing and is deleted.
  *
- * PRIVACY. The message and every current value are masked by the AI service before the model;
- * the proposal lives in Redis for its TTL and never in a log; every event carries ids, counts
- * and closed enums only.
+ * PRIVACY. The message and every current value are masked by the AI service before the model —
+ * unless `AI_RAW_PII_ENABLED` is on, when both reach it raw and the placeholder-token gate simply
+ * finds nothing to drop, so the hard-identifier gate beside it (ADR-0047 G1) is what keeps an
+ * echoed phone off a card; the proposal lives in Redis for its TTL and never in a log; every
+ * event carries ids, counts and closed enums only.
  */
 @Injectable()
 export class CompanionEditService {
@@ -311,8 +315,18 @@ export class CompanionEditService {
    * address a row this snapshot actually minted AND showed, whose entry has that field (a
    * certificate field on a certificate, a scalar preference on `pref`); add carries no ref;
    * add/edit carry a value that passes the field's own normalisation; a placeholder token drops
-   * the row (O17); and an edit identical to the current value is a no-op. The row-SET gates —
-   * duplicates, adds of what is already there, the writer's own schema — run after, in `propose`.
+   * the row (O17); a hard identifier drops it too (ADR-0047 G1); and an edit identical to the
+   * current value is a no-op. The row-SET gates — duplicates, adds of what is already there, the
+   * writer's own schema — run after, in `propose`.
+   *
+   * THE HARD-IDENTIFIER DROP READS NO FLAG, and it is the placeholder drop's twin. A confirmed
+   * employer name or `work_done` is printed on both résumé PDFs, and neither the employment DTO
+   * nor the row renderer screens it. Off, a phone the worker typed reached the model as
+   * `[PHONE_1]` and the placeholder gate caught the row; with `AI_RAW_PII_ENABLED` on no token is
+   * minted, and this is the catch. The AI service drops the same row first (`parse_edit_rows`);
+   * this is the API's own wall, as every gate here is. Its verdict is `invalid`, not
+   * `placeholder`: `V2_EDIT_PLACEHOLDER` says rephrasing cannot help, which is only true of a
+   * masked token — a worker who drops the phone from the line gets a card.
    */
   private validateRow(
     row: {
@@ -349,6 +363,7 @@ export class CompanionEditService {
       value = normaliseValue(entry.section, entry.field, row.value);
       if (value === null) return invalid;
       if (hasPlaceholderToken(value)) return { kind: "dropped", reason: "placeholder" };
+      if (containsHardIdentifier(value) !== null) return invalid;
       if (row.op === "edit" && value === before) return invalid;
     }
 

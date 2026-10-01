@@ -27,6 +27,10 @@ for the deterministic Reach Engine, employer/unlock, and payments in later phase
 5. **A pseudonymization gateway is mandatory before every LLM call.** It runs in
    the FastAPI AI service and **fails closed**. Phone, full name, address,
    employer names, and ID-doc tokens never reach an LLM.
+   _(Amended by [ADR-0047](0047-lift-pii-restriction.md), 2026-09-30: the ban on
+   raw PII in prompts is lifted for now. Masking before a model call follows one
+   switch, `AI_RAW_PII_ENABLED` (default off = masked); the gateway itself and its
+   fail-closed paths are unchanged.)_
 6. **Flutter for the worker app.** One codebase for Android-first reach.
 7. **Worker profiling first.** Phase 1 builds identity → consent → chat profiling
    → extraction → resume.

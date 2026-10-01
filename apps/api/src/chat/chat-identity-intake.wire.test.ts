@@ -242,13 +242,15 @@ describe("POST /chat/message — flag OFF is today's turn, byte for byte", () =>
     const b = await absent.svc.postMessage(WORKER, dto, CTX);
 
     expect(a).toEqual(b);
-    // The turn's input, less the wall clock each call stamps for itself.
+    // The turn's input, less the wall clock each call stamps for itself and the name lookup each
+    // request builds for itself (a fresh closure, so never reference-equal across two calls).
     const inputOf = (world: ReturnType<typeof make>) => {
       const [input] = world.orchestrator.takeTurn.mock.calls[0] as unknown as [
         Record<string, unknown>,
       ];
-      const { now, ...rest } = input;
+      const { now, knownName, ...rest } = input;
       expect(now).toBeInstanceOf(Date);
+      expect(knownName).toBeTypeOf("function");
       return rest;
     };
     expect(inputOf(off)).toEqual(inputOf(absent));

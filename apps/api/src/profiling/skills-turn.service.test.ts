@@ -44,6 +44,8 @@ const CTX = {
   sessionId: "22222222-2222-4222-8222-222222222222",
   correlationId: "44444444-4444-4444-8444-444444444444",
   requestId: "req_1",
+  // No name on record — the known-name redaction is pinned in its own describe below.
+  knownName: async (): Promise<string | null> => null,
 };
 
 /** The settled, certified role the lane was entered with. */
@@ -88,7 +90,9 @@ const TURN = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-function make(over: { turn?: unknown; general?: unknown; interview?: unknown } = {}) {
+function make(
+  over: { turn?: unknown; general?: unknown; interview?: unknown; rawPii?: boolean } = {},
+) {
   // Typed to TAKE its arguments so `mock.calls[0][0]` is assertable (see llm-turn.service.test).
   const ai = {
     llmTurn: vi.fn(async (_input: unknown, _ctx?: unknown) =>
@@ -98,6 +102,8 @@ function make(over: { turn?: unknown; general?: unknown; interview?: unknown } =
   const config = {
     CHAT_GENERAL_ROAD_ENABLED: "general" in over ? over.general : true,
     CHAT_LLM_INTERVIEW_ENABLED: "interview" in over ? over.interview : true,
+    // ADR-0047 — set only by the known-name tests, which prove the redaction never reads it.
+    ...(over.rawPii === undefined ? {} : { AI_RAW_PII_ENABLED: over.rawPii }),
   };
   const cost = { record: vi.fn(async (..._args: unknown[]) => undefined) };
   const traces = fakeAiTraceRecorder();
@@ -1059,5 +1065,91 @@ describe("review 2b — the role is never offered as a chip", () => {
       MID,
     );
     expect(out.kind === "ask" ? out.chips : []).toEqual(["InDesign"]);
+  });
+});
+
+// R32 / ADR-0047 G2 — the skills stage sends the same `message_text` + `history` to
+// `/profiling/turn` as Phase A, so the worker's OWN known name is redacted out of both, whichever
+// way AI_RAW_PII_ENABLED is set. Grounding still reads the worker's own words.
+describe("the worker's own name never reaches the model (R32, ADR-0047 G2)", () => {
+  const HISTORY: readonly TranscriptLine[] = [
+    { i: 0, role: "assistant", text: "Aap kya kaam karte hain?" },
+    { i: 1, role: "worker", text: "Suresh Kumar, graphic designer hoon" },
+    { i: 2, role: "assistant", text: "Kaunse design tools chalate hain?" },
+  ];
+  const MESSAGE = "Figma pe kaam karta hoon, suresh bol raha hoon";
+  const withName = (name: string | null) => ({
+    ...CTX,
+    knownName: vi.fn(async (): Promise<string | null> => name),
+  });
+
+  it.each([true, false])(
+    "sends [NAME] in place of the name in the message and every history line (AI_RAW_PII_ENABLED=%s)",
+    async (rawPii) => {
+      const { svc, ai } = make({ rawPii, turn: TURN({ skills: ["Figma"] }) });
+      const out = await svc.take(env(), MESSAGE, HISTORY, withName("Suresh Kumar"), MID);
+
+      expect(sent(ai).message_text).toBe("Figma pe kaam karta hoon, [NAME] bol raha hoon");
+      expect(sent(ai).history).toEqual([
+        { i: 0, role: "assistant", text: "Aap kya kaam karte hain?" },
+        { i: 1, role: "worker", text: "[NAME], graphic designer hoon" },
+        { i: 2, role: "assistant", text: "Kaunse design tools chalate hain?" },
+      ]);
+      expect(JSON.stringify(sent(ai))).not.toMatch(/suresh|kumar/i);
+      // Grounding reads the worker's own words, so the skill they named still certifies.
+      expect(out.road.skills).toEqual(["Figma"]);
+    },
+  );
+
+  it("a `[NAME]` the model copies back is never a skill", async () => {
+    const { svc } = make({ turn: TURN({ skills: ["[NAME]", "Figma"] }) });
+    const out = await svc.take(env(), MESSAGE, HISTORY, withName("Suresh Kumar"), MID);
+    expect(out.road.skills).toEqual(["Figma"]);
+  });
+
+  it("redacts the request's copy only — the caller's lines are never rewritten", async () => {
+    const history = HISTORY.map((line) => ({ ...line }));
+    const { svc } = make();
+    await svc.take(env(), MESSAGE, history, withName("Suresh Kumar"), MID);
+    expect(history).toEqual(HISTORY);
+  });
+
+  it("no name on record → the message and history go out exactly as typed", async () => {
+    const { svc, ai } = make();
+    await svc.take(env(), MESSAGE, HISTORY, withName(null), MID);
+    expect(sent(ai).message_text).toBe(MESSAGE);
+    expect(sent(ai).history).toEqual(HISTORY);
+  });
+
+  it("a lookup that throws never fails the turn: sent as typed, warned with ids only", async () => {
+    const warn = vi.mocked(Logger.prototype.warn);
+    const { svc, ai } = make();
+    const out = await svc.take(
+      env(),
+      MESSAGE,
+      HISTORY,
+      {
+        ...CTX,
+        knownName: async () => {
+          throw new Error("connection reset while reading Suresh Kumar");
+        },
+      },
+      MID,
+    );
+
+    expect(out.kind).toBe("ask");
+    expect(sent(ai).message_text).toBe(MESSAGE);
+    const logged = warn.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(logged).toContain(`worker=${CTX.workerId}`);
+    expect(logged).toContain(`session=${CTX.sessionId}`);
+    expect(logged).not.toMatch(/suresh|kumar|connection reset/i);
+  });
+
+  it("reads no name on a turn that makes no model call", async () => {
+    const known = withName("Suresh Kumar");
+    await make().svc.take(atGate(), "Nahi", HISTORY, known, MID);
+    await make().svc.take(env({ skills: [...HELD] }), "bas itna hi", HISTORY, known, MID);
+    await make({ interview: false }).svc.take(env(), MESSAGE, HISTORY, known, MID);
+    expect(known.knownName).not.toHaveBeenCalled();
   });
 });

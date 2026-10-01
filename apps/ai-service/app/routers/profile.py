@@ -31,6 +31,8 @@ from ..contracts import (
     ProfileParseOutput,
     WorkerProfileDraft,
 )
+from ..llm_input_policy import llm_input_gate, llm_input_masker
+from ..output_floor import carries_hard_identifier
 from ..profiling import parse_gates, profile_extractor
 from ..profiling.canonical_roles import (
     ROLE_TRADE,
@@ -52,7 +54,7 @@ from ..profiling.parse_masking import mask_parse_input
 from ..profiling.parse_prompt import build_parse_messages, empty_parse
 from ..profiling.prompts import extraction_system_prompt
 from ..profiling.signals import has_first_person_claim, label_for_id
-from ..pseudonymize import certify_value, pseudonymize
+from ..pseudonymize import certify_value
 from ._shared import logger, resolve_prompt, router, settings, workflow_scope
 
 api_router = APIRouter()
@@ -108,9 +110,14 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
     #    failure. That payload is closed-set labels and numbers, not free text, and
     #    it predates this split — but it is egress, so the comment must not say
     #    otherwise.
-    result = pseudonymize(llm_text)
+    #
+    #    With `AI_RAW_PII_ENABLED` on, both pass through unmasked and are refused only by the
+    #    size cap (`app/llm_input_policy.py`); the pair is still gated together, so the
+    #    structural property above holds under either posture.
+    raw_pii = get_settings().ai_raw_pii_enabled
+    result = llm_input_gate(llm_text, raw=raw_pii)
     if not result.blocked and worker_text is not llm_text:
-        worker_gate = pseudonymize(worker_text)
+        worker_gate = llm_input_gate(worker_text, raw=raw_pii)
         if worker_gate.blocked:
             result = worker_gate
     if result.blocked:
@@ -218,7 +225,10 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
             legacy.canonical_role_id = role_id
             legacy.canonical_trade_id = ROLE_TRADE.get(role_id, legacy.canonical_trade_id)
         # Field-by-field enrichment overlay: keep each well-formed model field even
-        # when siblings are malformed (location/salary stay local — masked input).
+        # when siblings are malformed (location/salary stay local — masked input). A
+        # model value carrying a hard identifier counts as malformed (ADR-0047 G1): `rich`
+        # is stored whole as `rich_profile_draft`, and with `AI_RAW_PII_ENABLED` on the
+        # model that wrote it read the worker's phone. See `merge_model_draft`.
         rich = profile_extractor.merge_model_draft(rich, content)
         # TODO(WS4 recall backfill, owner review): once the real-eval NEGATIVE tier
         # is confirmed unaffected, enable the rich->legacy canonical backfill here:
@@ -513,6 +523,53 @@ def _certify(text: str) -> tuple[bool, str]:
     return certify_value(text)
 
 
+def _floor_quotes(gated: parse_gates.GateResult) -> parse_gates.GateResult:
+    """`gated` with every accepted field whose `evidence.quote` carries a hard identifier moved to
+    the rejections — the span gate 6 does not certify (ADR-0047 G1).
+
+    `check_pii` certifies the VALUE and nothing else. That was complete while the model read
+    masked lines, because a quote is a substring of the line it cites and could carry nothing the
+    value could not. With `AI_RAW_PII_ENABLED` on the cited line is RAW, and the line a model
+    cites for `current_city` is the one where the worker said "Pune mein rehta hoon, mera number
+    98765 43210 hai": the value "Pune" passes gate 6, and the phone rides out beside it. The
+    résumé route closed the same hole with `_carries_identifier` (RI-3).
+
+    THE FLOOR, NOT `_certify`, and it reads no flag. With the flag on a quote is the worker's raw
+    words, and the full gateway alters far more than identifiers — measured: "Tata Motors mein 5
+    saal kaam kiya" and "saal ka 1200000 milta tha" both come back altered — so certifying spans
+    with it would refuse the honest employer and salary citations the flag exists to let through.
+    The hard-identifier classes are what no quote may carry under either posture, the narrowing
+    `parse_policy.resume_value_certifier` makes for the résumé. Off, a quote is a span of masked
+    text and this fires on almost nothing.
+
+    Rejected under gate "pii" with the existing "pii_blocked" reason, so the per-gate counters,
+    `fields_rejected` and the acceptance score all see it, and the reason set mirrored in the
+    TypeScript wall does not move. Counts and ids only; the quote is never logged.
+    """
+    refused = {
+        field_id
+        for field_id, parsed in gated.accepted.items()
+        if carries_hard_identifier(parsed.evidence.quote)
+    }
+    if not refused:
+        return gated
+    return parse_gates.GateResult(
+        accepted={k: v for k, v in gated.accepted.items() if k not in refused},
+        rejections=[
+            *gated.rejections,
+            *(
+                parse_gates.Rejection(field_id=field_id, gate="pii", reason="pii_blocked")
+                for field_id in sorted(refused)
+            ),
+        ],
+        disagreements=gated.disagreements,
+        # Field ids. A field that is not returned cannot be an unrecognised city either.
+        unrecognized_cities=[
+            field_id for field_id in gated.unrecognized_cities if field_id not in refused
+        ],
+    )
+
+
 @api_router.post("/profile/parse", response_model=ProfileParseOutput)
 async def profile_parse(body: ProfileParseInput) -> ProfileParseOutput:
     """THE one LLM call of the OIE interview: type the recorded answers and cite their spans.
@@ -541,8 +598,9 @@ async def profile_parse(body: ProfileParseInput) -> ProfileParseOutput:
     # It is NOT claimed to be locale-shaped: the contract is a bare `str | None` with no
     # validator, which is exactly why `build_parse_messages` shape-checks it before letting it
     # near the prompt. What protects it here is the tracer's own `mask=` hook, which runs
-    # `pseudonymize` over every string handed to the SDK, metadata included. `target_fields` goes
-    # in as a COUNT — the ids themselves are already the generation's input.
+    # `pseudonymize` over every string handed to the SDK, metadata included — while
+    # `AI_RAW_PII_ENABLED` is off; with it on the hook passes values through, this one included.
+    # `target_fields` goes in as a COUNT — the ids themselves are already the generation's input.
     with workflow_scope(
         name=WORKFLOW_PROFILE_BUILD,
         worker_ref=body.worker_ref,
@@ -553,7 +611,11 @@ async def profile_parse(body: ProfileParseInput) -> ProfileParseOutput:
             return empty_parse([])
 
         # 1. PSEUDONYMIZE FIRST, PER MESSAGE. Never the concatenation — see `parse_masking`.
-        masked = mask_parse_input(body)
+        #    Unmasked but still capped per message while `AI_RAW_PII_ENABLED` is on. Gate 6
+        #    below certifies with `_certify`, which takes no policy and does not move — but it
+        #    certifies the VALUE only. With the flag on, the `evidence.quote` beside it is a span
+        #    of the RAW line, so step 4 floors the quote too (`_floor_quotes`, ADR-0047 G1).
+        masked = mask_parse_input(body, llm_input_masker(raw=settings_now.ai_raw_pii_enabled))
         notes: list[str] = []
         if masked.dropped_lines:
             notes.append("evidence_lines_dropped")
@@ -671,12 +733,14 @@ async def profile_parse(body: ProfileParseInput) -> ProfileParseOutput:
                 },
             ),
         ) as gates_span:
-            gated = parse_gates.apply_parse_gates(
-                parsed,
-                list(body.answer_map),
-                masked.transcript,
-                list(body.target_fields),
-                _certify,
+            gated = _floor_quotes(
+                parse_gates.apply_parse_gates(
+                    parsed,
+                    list(body.answer_map),
+                    masked.transcript,
+                    list(body.target_fields),
+                    _certify,
+                )
             )
             # COUNTS ONLY, and `unrecognized_cities` is deliberately `len(...)`: it is a list of
             # city VALUES the gazetteer did not know, and a value is exactly what may not leave.

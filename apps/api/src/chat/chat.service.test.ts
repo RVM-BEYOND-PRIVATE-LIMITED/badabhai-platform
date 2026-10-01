@@ -1254,6 +1254,37 @@ describe("ChatService — AI-PERSONA-2 worker-name seam (SG-1 PII boundary)", ()
     expect(workers.findById).toHaveBeenCalledTimes(1);
     expect(pii.decrypt).toHaveBeenCalledTimes(1);
   });
+
+  // R32 / ADR-0047 G2 — the turn's interview-model egress redacts the worker's own name with the
+  // lookup it is handed here; the vocative above reads the SAME one.
+  type NameLookup = { knownName: () => Promise<string | null> };
+  const lookupOf = (orchestrator: { takeTurn: { mock: { calls: unknown[] } } }) =>
+    (orchestrator.takeTurn.mock.calls[0] as [NameLookup])[0].knownName;
+
+  it("hands the turn the lookup the vocative reads — still ONE read when both consume it", async () => {
+    const { res, orchestrator, workers, pii } = await run(named());
+    // What the model's egress redacts: the decrypted name, from the same memoised read.
+    await expect(lookupOf(orchestrator)()).resolves.toBe("Suresh Kumar");
+    expect(res.reply).toBe("Suresh ji, aap kis sheher mein rehte hain?");
+    expect(workers.findById).toHaveBeenCalledTimes(1);
+    expect(pii.decrypt).toHaveBeenCalledTimes(1);
+  });
+
+  it("a voice-form turn (no caller lookup) still hands the turn one of its own", async () => {
+    const h = make(named());
+    await h.svc.runTurn(WORKER, SESSION, "welder hoon", CTX, null, null);
+    await expect(lookupOf(h.orchestrator)()).resolves.toBe("Suresh Kumar");
+  });
+
+  it("an undecryptable name reaches the egress as null, and the warning carries the id only", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { orchestrator } = await run(named({ decryptThrows: true }));
+    await expect(lookupOf(orchestrator)()).resolves.toBeNull();
+    const logged = warn.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(logged).toContain(WORKER);
+    expect(logged).not.toMatch(/suresh|kumar|ENC_FULL_NAME_TOKEN|rotated key/i);
+    vi.restoreAllMocks();
+  });
 });
 
 // ---------------------------------------------------------------------------

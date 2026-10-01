@@ -137,6 +137,13 @@ the API and never leave it. The input is pseudonymized before the model and the 
 re-certified after it. `worker_ref` is the worker id, which is what the service already bills and
 traces against.
 
+_Amended by [ADR-0047](0047-lift-pii-restriction.md), 2026-09-30:_ the input follows
+`AI_RAW_PII_ENABLED` — pseudonymized as above while it is off (the default); armed, the description
+and the role title reach the model as typed. The route still receives nothing else. The output is
+still re-certified by the same wall, and because that wall refuses only what the gateway would
+block, a hard-identifier floor that reads no flag now sits under it: a rewrite that carries a
+phone, PAN, Aadhaar, email or credential ID is dropped, not printed (ADR-0047 §6, G1).
+
 ## Residual risk R-§8
 
 A polished description is a claim the worker did not make in those words. The checks above narrow

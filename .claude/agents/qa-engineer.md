@@ -39,8 +39,11 @@ validation · acceptance testing · release verification · clean-environment re
   Pydantic parity holds; event payloads validate against the registry.
 - Own **AI output validation and prompt regression**: a fixed evaluation corpus, expected
   bounds, and a regression signal when a prompt or model changes.
-- Own **security validation** as evidence: no PII in events / `ai_jobs` / `audit_logs` / logs /
-  LLM input, authorization holds against a hostile caller, consent gates actually gate.
+- Own **security validation** as evidence: the privacy posture of
+  [ADR-0047](../../docs/decisions/0047-lift-pii-restriction.md) holds (prompts masked with
+  `AI_RAW_PII_ENABLED` off and raw with it on; no secret logged; output walls refuse hard
+  identifiers; events validate against their versioned schemas), authorization holds against a
+  hostile caller, consent gates actually gate.
 - Own **clean-environment verification** (invariant #10): fresh DB, fresh Redis, fresh object
   storage, fresh queues → bootstrap → auth → core workflow → restart → recovery → rollback. A
   long-lived developer database is **not** evidence.
@@ -106,7 +109,7 @@ defect back, give exact reproduction steps and the environment it was reproduced
 
 - [ ] Does the change do what the **requirement** asked, including at its edges?
 - [ ] Every important state change asserted to emit the correct **validated** event.
-- [ ] Privacy assertions explicit: no PII in events, `ai_jobs`, `audit_logs`, logs, or LLM input.
+- [ ] Privacy assertions explicit per ADR-0047: masked-when-off / raw-when-on on every prompt path touched; no secret in logs; output walls refuse hard identifiers; events validate against their versioned schemas.
 - [ ] Authorization tested against a hostile caller (another tenant, a forged body id).
 - [ ] Consent gate proven to actually block, not merely present.
 - [ ] Contracts validated on both sides of every seam touched.

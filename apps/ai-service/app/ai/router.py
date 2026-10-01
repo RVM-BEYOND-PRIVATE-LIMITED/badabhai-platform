@@ -23,6 +23,15 @@ INVARIANTS:
   The tracer is NOT part of the exception: ``_mask`` below runs ``pseudonymize``
   over everything handed to the SDK regardless of which masker the endpoint chose,
   so a trace cannot carry what the prompt carries.
+
+  THE SECOND, PLATFORM-WIDE EXCEPTION, ADDED 2026-09-30 (owner decision,
+  docs/decisions/0047-lift-pii-restriction.md): with ``AI_RAW_PII_ENABLED`` on, EVERY
+  endpoint may pass unmasked text, each selecting it explicitly through
+  ``app/llm_input_policy.py``. That flag — and only that one, never D5's — also switches
+  the tracer and ``_record_trace_text`` to the pass-through hook
+  (``langfuse_tracing.trace_mask``), so both sinks record what was sent. Off by default;
+  off is everything above, unchanged. What a MODEL-WRITTEN value may carry does not move
+  with it (``app/output_floor.py``).
 - The router NEVER raises for model failures — it falls back to ``mock_response``
   so the worker flow always completes (fail-safe, while LLM calls fail-closed).
 """
@@ -217,7 +226,14 @@ class AIRouter:
                 prompt_version=getattr(prompt, "version", None),
                 prompt_source=getattr(prompt, "source", None),
                 real_call=real,
-                extra={"real_call_allowed": real_call_allowed},
+                extra={
+                    "real_call_allowed": real_call_allowed,
+                    # WHICH INPUT POSTURE THIS CALL RAN UNDER. Every caller of `run` is a route
+                    # that reads the same flag for its prompt, so this is the per-call audit
+                    # record of whether the provider was handed unmasked text — without it the
+                    # answer lives only in the history of a deploy secret. A closed boolean.
+                    "ai_raw_pii_enabled": self._settings.ai_raw_pii_enabled,
+                },
             ),
         ) as task:
             return await self._dispatch(
@@ -703,9 +719,13 @@ class AIRouter:
         """
         if not self._settings.ai_call_trace_text_enabled:
             return
+        # `AI_RAW_PII_ENABLED` passes both through unmasked, exactly as it does the Langfuse
+        # export (`trace_mask`): the endpoint sent the provider raw text, and a store that
+        # masked it would describe a call that did not happen. Still gated by the flag above.
+        raw = self._settings.ai_raw_pii_enabled
         try:
-            meta.prompt_text = masked_trace_text(messages)
-            meta.response_text = masked_trace_text(output)
+            meta.prompt_text = masked_trace_text(messages, raw=raw)
+            meta.response_text = masked_trace_text(output, raw=raw)
         except Exception as exc:  # pragma: no cover - defensive; the mask never raises
             meta.prompt_text = None
             meta.response_text = None

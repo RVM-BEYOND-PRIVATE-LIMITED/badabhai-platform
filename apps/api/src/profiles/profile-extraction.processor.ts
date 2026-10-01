@@ -9,7 +9,9 @@ import {
   resumeProfileCarriesValues,
   type DraftProfile,
   type AICallMetadata,
+  type AnswerRecord,
   type ConversationMessage,
+  type EvidenceSpan,
   type InterviewExtractOutput,
   type OccupationPin,
   type ProfileExtractionOutput,
@@ -47,7 +49,11 @@ import { ChatRepository } from "../chat/chat.repository";
 import { ChatTranscriptBuffer, isIdentityIntakeMetadata } from "../chat/chat-transcript.buffer";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
-import { redactKnownName } from "../common/redact-known-name";
+import {
+  redactKnownName,
+  redactKnownNameDeep,
+  redactKnownNameLines,
+} from "../common/redact-known-name";
 import { WorkerSkillsService } from "../match/worker-skills.service";
 import { SkillsRepository } from "../skills/skills.repository";
 import { ProfilesRepository } from "./profiles.repository";
@@ -277,11 +283,52 @@ function overlayCarriesValues(
 }
 
 /**
+ * The answer map as the PARSE MODEL may read it: every worker-worded field of every record and of
+ * every history entry — `value_raw`, `value_normalized` at any depth, `evidence.quote` — with the
+ * worker's own known name redacted out (ADR-0047 G2). The slugs, statuses and turns are ours and
+ * are carried through.
+ *
+ * THE MAP HOLDS THE WORKER'S WORDS, NOT ONLY THE TRANSCRIPT. `value_raw` is the whole message a
+ * captured answer came from, and a trade settled from the worker's own words is stored verbatim
+ * as `value_normalized` — both reach the parse prompt as `answered "…"` and `already typed as …`,
+ * so a transcript-only redaction left an introduction ("main Ramesh hoon, CNC operator") in front
+ * of the model through the record.
+ *
+ * THE PARSE REQUEST'S COPY ONLY. The api's second wall still checks agreement against the
+ * UNREDACTED map, so a model that echoes a redacted value on a record whose value held the name
+ * is vetoed there and the deterministic value stands. That costs a `profile.parse_disagreement`
+ * count for such a field, never a value the model wrote.
+ */
+function redactKnownNameAnswers(
+  records: readonly AnswerRecord[],
+  fullName: string | null,
+): AnswerRecord[] {
+  const text = (value: string | null): string | null =>
+    value === null ? null : redactKnownName(value, fullName);
+  const span = (evidence: EvidenceSpan | null): EvidenceSpan | null =>
+    evidence === null ? null : { ...evidence, quote: redactKnownName(evidence.quote, fullName) };
+  return records.map((record) => ({
+    ...record,
+    value_raw: text(record.value_raw),
+    value_normalized: redactKnownNameDeep(record.value_normalized, fullName),
+    evidence: span(record.evidence),
+    history: record.history.map((entry) => ({
+      ...entry,
+      value_raw: text(entry.value_raw),
+      value_normalized: redactKnownNameDeep(entry.value_normalized, fullName),
+      evidence: span(entry.evidence),
+    })),
+  }));
+}
+
+/**
  * Runs profile extraction off the request path. The AI service pseudonymizes
- * before any LLM call (and falls back to a safe mock if it is down), so this
- * never sends raw PII anywhere. Emits profile.extraction_completed on success
- * and profile.extraction_failed on terminal failure — keeping async outcomes in
- * the event stream. In-process for Phase 1; splittable to its own worker later.
+ * before any LLM call while `AI_RAW_PII_ENABLED` is off (and falls back to a safe
+ * mock if it is down); armed, it lifts that masking on purpose (ADR-0047). Either
+ * way the worker's own known name is removed before the hop (`redactedConversation`).
+ * Emits profile.extraction_completed on success and profile.extraction_failed on
+ * terminal failure — keeping async outcomes in the event stream. In-process for
+ * Phase 1; splittable to its own worker later.
  */
 @Processor(PROFILE_EXTRACTION_QUEUE)
 export class ProfileExtractionProcessor extends WorkerHost {
@@ -1066,6 +1113,8 @@ export class ProfileExtractionProcessor extends WorkerHost {
     loadConversation: () => Promise<{
       readonly messages: readonly ConversationMessage[];
       readonly transcript: string;
+      /** The parse call's answer-map copy, name-redacted the same way (ADR-0047 G2). */
+      readonly redactAnswers: (records: readonly AnswerRecord[]) => AnswerRecord[];
     }>,
   ): Promise<{
     result: ProfileExtractionOutput;
@@ -1142,7 +1191,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
       };
     }
 
-    const { messages, transcript } = await loadConversation();
+    const { messages, transcript, redactAnswers } = await loadConversation();
     if (answerMap.length === 0) {
       // No deterministic record: a pre-cutover session, or an interview that collected nothing.
       // The legacy route is unchanged and still live.
@@ -1234,8 +1283,11 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // for a value nobody said, which is exactly what gate 2 (citation) exists to catch on the
     // way back. Gate 4 (agreement) and `projectProfile` below still see the FULL `answerMap`, so
     // a model that contradicts the seeded city is still vetoed.
-    const answerMapForParse = answerMap.filter(
-      (record) => !prefilledKeys.includes(record.question_key),
+    //
+    // NAME-REDACTED, like the transcript beside it (ADR-0047 G2): the records carry the worker's
+    // own words too. Gate 4 below still reads the unredacted `answerMap`.
+    const answerMapForParse = redactAnswers(
+      answerMap.filter((record) => !prefilledKeys.includes(record.question_key)),
     );
     // Hoisted so the 0083 trace can record WHAT WAS ASKED, not only what came back.
     const parseRequest = {
@@ -1933,13 +1985,29 @@ export class ProfileExtractionProcessor extends WorkerHost {
    * own question text as the worker's answers.
    *
    * R32 — the transcript is the OTHER worker-free-text egress to the ai-service
-   * (chat turns are the first, redacted in ChatService.postMessage), and it is
-   * the wider one: it replays EVERY inbound line, so an introduction typed on
-   * turn 1 rides along on every later extraction. Redact the worker's own known
-   * name out of BOTH shapes, which must describe the same lines. Fail SAFE — a
-   * null/undecryptable name sends the transcript as before (the ai-service's
-   * fail-closed pseudonymize gate still fronts the LLM); a name lookup must
-   * never fail an extraction.
+   * (chat turns are the first: `LlmTurnService.take` and `SkillsTurnService.take`
+   * send `message_text` and the whole `history` to `/profiling/turn`, redacted the
+   * same way by `redactedTurnText`), and it is the wider one: it replays EVERY
+   * inbound line, so an introduction typed on turn 1 rides along on every later
+   * extraction. Redact the worker's own known name out of BOTH shapes, which must
+   * describe the same lines. Fail SAFE — a null/undecryptable name sends the
+   * transcript as before (the ai-service's fail-closed pseudonymize gate still fronts
+   * the LLM while `AI_RAW_PII_ENABLED` is off; armed, nothing else removes the name);
+   * a name lookup must never fail an extraction.
+   *
+   * THE REDACTION DOES NOT READ `AI_RAW_PII_ENABLED` (ADR-0047, ruling G2). Armed, the flag
+   * lifts the ai-service's prompt masking, so the rest of the transcript reaches the model
+   * unmasked — but the extraction model never needs the worker's own name, and a name it reads
+   * it can echo into a value it authors (a role label, a summary line, experience text) that
+   * lands in worker_attributes and on the employer copy, where the name shows as initials until
+   * a credit unlock. No wall downstream checks extraction output for the worker's OWN name (the
+   * certifiers and gate 6 refuse hard identifiers only, the 2026-09-11 ruling), so keeping it
+   * out of the input is what holds that disclosure rule in effect. Do not key this on the flag.
+   *
+   * THE PARSE CALL'S ANSWER MAP IS THE THIRD SHAPE (`redactAnswers`). Its records hold the
+   * worker's words as well — see {@link redactKnownNameAnswers} — so it is redacted by the same
+   * name, handed back as a closure so the plaintext never leaves this method as a value that can
+   * be spread, serialised or logged.
    *
    * CALLED ONLY BY THE BRANCHES THAT SEND IT, through the thunk `extractOrParse` takes. The
    * reads, their order and the result are exactly what `process` used to do inline; the
@@ -1948,13 +2016,18 @@ export class ProfileExtractionProcessor extends WorkerHost {
   private async redactedConversation(
     workerId: string,
     sessionId: string | null,
-  ): Promise<{ messages: ConversationMessage[]; transcript: string }> {
+  ): Promise<{
+    messages: ConversationMessage[];
+    transcript: string;
+    redactAnswers: (records: readonly AnswerRecord[]) => AnswerRecord[];
+  }> {
     const messages = await this.buildMessages(sessionId);
     const transcript = this.renderTranscript(messages);
     const fullName = await this.workerFullName(workerId);
     return {
-      messages: messages.map((m) => ({ ...m, text: redactKnownName(m.text, fullName) })),
+      messages: redactKnownNameLines(messages, fullName),
       transcript: redactKnownName(transcript, fullName),
+      redactAnswers: (records) => redactKnownNameAnswers(records, fullName),
     };
   }
 
@@ -1965,8 +2038,9 @@ export class ProfileExtractionProcessor extends WorkerHost {
    * evented, stored, or forwarded.
    *
    * Never throws — this runs on the extraction path, and a rotated key must degrade
-   * to "not redacted" (the pre-existing behaviour, still gated downstream) rather
-   * than fail the job. The warning carries the opaque worker id only.
+   * to "not redacted" (the pre-existing behaviour, still gated downstream while
+   * `AI_RAW_PII_ENABLED` is off) rather than fail the job. The warning carries the
+   * opaque worker id only.
    */
   private async workerFullName(workerId: string): Promise<string | null> {
     try {
@@ -1976,7 +2050,8 @@ export class ProfileExtractionProcessor extends WorkerHost {
     } catch {
       this.logger.warn(
         `could not resolve full_name for worker ${workerId}; ` +
-          `extraction transcript is not name-redacted (pseudonymize gate still applies)`,
+          `extraction transcript is not name-redacted ` +
+          `(pseudonymize gate applies only while AI_RAW_PII_ENABLED is off)`,
       );
       return null;
     }

@@ -54,9 +54,9 @@ Events are the audit trail of the platform.
 
 ---
 
-## Privacy First
+## Privacy — PII restriction lifted (ADR-0047)
 
-Raw PII must never appear in:
+For now, raw PII may appear in:
 
 - LLM prompts
 - Logs
@@ -64,7 +64,19 @@ Raw PII must never appear in:
 - Audit records
 - Analytics
 
-Only pseudonymized data may cross AI boundaries.
+Owner decision 2026-09-30: `docs/decisions/0047-lift-pii-restriction.md`.
+
+Still required:
+
+- Name and phone stay encrypted at rest
+- Employer-side disclosure masking stays (masked profile until unlock); profile extraction and the interview turns redact the worker's own name whatever the flag (ADR-0047 G2)
+- Consent before processing; DPDP erasure on request
+- Secrets and credentials are never logged
+- Event schemas stay backward-compatible — PII in an event means a new versioned event
+- AI output is validated (§11); model output carrying a hard identifier is dropped from every stored or printed field, whatever the flag (ADR-0047 G1)
+
+Model-prompt masking in code is controlled by `AI_RAW_PII_ENABLED` (default off = masked).
+Arming it is the `production` secret plus a redeploy (ADR-0047 §5); that secret reads `true`, so production runs armed.
 
 ---
 
@@ -270,7 +282,7 @@ Prefer additive changes.
 
 Before every LLM call:
 
-- Remove PII
+- Apply the masking policy in force (ADR-0047)
 - Validate input
 - Validate output
 - Apply safety checks
@@ -322,7 +334,7 @@ Before considering any work complete:
 - Lint passes
 - Type checks pass
 - Tests pass
-- Privacy maintained
+- Privacy policy (ADR-0047) followed
 - Events emitted
 - Documentation updated
 - No breaking changes introduced

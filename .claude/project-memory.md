@@ -15,7 +15,7 @@
 
 - **Event-first:** every important endpoint emits a `createEvent`-built, registry-validated event into append-only `events`. **116 event names across 28 domains, all v1.**
 - **Services:** NestJS API (`apps/api`, **32 module dirs**) ↔ FastAPI AI service (`apps/ai-service`) ↔ single Supabase Postgres via Drizzle. Frontends: `apps/payer-web` (external payer+agency portal), `apps/web` (internal ops console), `apps/worker-app` (Flutter, 4 tabs: Jobs/Resume/Profile/Alerts).
-- **AI privacy boundary:** `pseudonymize.py` before every LLM call, fail-closed. Direct Gemini (primary) + Claude Haiku (fallback) behind `LlmAdapter`/`AIRouter` (ADR-0008). Recent cost work: prompt-cache (COST-2), O(n) stateless chat turns (COST-3), templated questions (COST-4); mentor persona (AI-PERSONA-1/2).
+- **AI privacy boundary:** one switch, `AI_RAW_PII_ENABLED` (default off; ADR-0047). Off, `pseudonymize.py` runs before every LLM call, fail-closed; armed, prompts and AI traces carry raw text. Output walls, the hard-identifier floor (G1) and extraction's `redactKnownName` (G2) hold either way. Direct Gemini (primary) + Claude Haiku (fallback) behind `LlmAdapter`/`AIRouter` (ADR-0008). Recent cost work: prompt-cache (COST-2), O(n) stateless chat turns (COST-3), templated questions (COST-4); mentor persona (AI-PERSONA-1/2).
 - **Async:** BullMQ on Redis (extraction, transcription, deletion sweeps); clients poll `ai_jobs`.
 - **Layering:** controller → service (emits events) → repository (Drizzle) + Zod dto + module. 9 guards: WorkerAuthGuard, ConsentGuard, ConsentNotRevokedGuard, PayerAuthGuard, PayerRoleGuard, PayerOrgRoleGuard, AdminAuthGuard, AdminRolesGuard, InternalServiceGuard.
 - **Deterministic ranking:** `packages/reach-engine` (RANK core — scoring/ranking, ADR-0006/0011/0015); LLMs never rank. `packages/reach-learn` = **offline-only** calibration (ADR-0017), no live influence.
@@ -32,7 +32,7 @@
 
 - **Worker identity/auth (4):** `workers` (PII root: phone AES-256-GCM + HMAC hash, full_name, deletion_scheduled_at pending ADR-0031), `worker_consents` (append-only DPDP), `worker_devices` (device_hash HMAC, push_token — ADR-0026), `worker_credentials` (scrypt PIN + lockout throttle, 1/worker).
 - **Payer tenancy (3, ADR-0019/0022/0027):** `payers` (role employer|agent; email/phone/org **encrypted**), `payer_orgs` (tenant root), `payer_members` (invite→accept→remove; token hashed).
-- **Chat/voice (3):** `chat_sessions` (conversation_state JSONB + archive storage path), `chat_messages`, `voice_notes` (transcripts = PII-class, never in events/LLM).
+- **Chat/voice (3):** `chat_sessions` (conversation_state JSONB + archive storage path), `chat_messages`, `voice_notes` (transcripts = PII-class; no event carries them; prompt masking per ADR-0047).
 - **Profiling (5, ADR-0005):** `worker_profiles` (ai_job_id unique = idempotent extraction; embedding vector(768) HNSW), `profiles`/`questions`/`profile_questions`/`worker_answers` (1 per worker+question; free text pseudonymized pre-persist).
 - **Resume (1):** `generated_resumes` (v1 idempotent per profile; pdf_storage_key; render_status; photo→PDF re-render wired ADR-0032).
 - **Spine (3):** `events` (idempotency_key), `ai_jobs` (+ model/tokens/cost_inr), `audit_logs` — refs only.
@@ -47,7 +47,7 @@
 # Business Rules (recurring)
 
 - Consent is a hard gate; **disclosure (`employer_sharing`) consent is separate from profiling consent** (ADR-0010). Consent append-only; revoke via `revoked_at`.
-- **§2 ruling (2026-07-14): a worker MAY decrypt-and-read their OWN full_name into their own session** (`GET /workers/me/resume-fields`); name still never reaches an LLM — don't re-escalate.
+- **§2 ruling (2026-07-14): a worker MAY decrypt-and-read their OWN full_name into their own session** (`GET /workers/me/resume-fields`) — don't re-escalate. The name in LLM prompts follows ADR-0047; profile extraction always redacts it (G2).
 - Resume full_name injected server-side at render, never via LLM. Masking is **payer-only**; workers see their own data.
 - **Money never ranks.** RANK weights are **CEO-locked (2026-06-19): Trade 35 / Location 20 / Skills 15 / Experience 15 / Salary 10 / Availability 5** — code must be reconciled TO these (add Skills, drop Activity); the older 06-12 "implemented weights authoritative" row is superseded. Ship flat, no demographics.
 - Unlock price ₹40 flat; posting free-through-launch (verification-gated); capacity enforcement INERT by default.
@@ -62,7 +62,7 @@
 
 # Security & Privacy Rules
 
-- CLAUDE.md §2 invariants govern. PII set: phone, full name, address, employer names, ID tokens — never in LLM input/events/ai_jobs/audit_logs/logs.
+- Privacy follows ADR-0047 (owner, 2026-09-30; CLAUDE.md "Privacy" rewritten): raw PII (phone, full name, address, employer names, ID tokens) MAY appear in LLM prompts, logs, events, audit records and analytics. Still held: no secret logged; name/phone encrypted at rest; no event schema mutated to carry PII (a new version instead); every PII write reachable by account deletion or named; payer disclosure masking; AI output validated.
 - **Launch gates — 11 boolean env vars, ALL default false:** AI_ENABLE_REAL_CALLS, PAYMENTS_ENABLE_REAL, MESSAGING_ENABLE_REAL, MEMBER_INVITES_ENABLE_REAL, RESUME_RENDER_ENABLED, AUTH_ROLLING_TIERS_ENABLED, ADMIN_PII_REVEAL_ENABLED, ZEPTOMAIL_SANDBOX_MODE, CAPACITY_ENFORCEMENT_ENABLED, PACE_ENABLED, PACE_ADJACENCY_ENABLED. Payments/messaging/invites **refuse to boot** if true without provider creds. Flips need human sign-off, staging first.
 - Worker auth = ADR-0026 (OTP + device PIN, scrypt, lockout cycles; `kPersistentAuth` ON since PR #201; **TD62 consent-routing RESOLVED 2026-07-15 #240**). Payer auth = PayerAuthGuard + org roles (ADR-0027). Admin = ADR-0025 (roles + MFA flag). **Payer-facing money routes (`/payer/unlocks*`, `/payer/job-postings/:id/plan|boost`) are `PayerAuthGuard`-protected, session-derived `payer_id` (XB-A, PRs #110/#119/#179). LC-1 residual = ops `/unlocks*` internal surface only (InternalServiceGuard, deliberate safe-interim, TD33/TD50 — retire blocked on ADMIN-4..8).**
 - **POST /resume/generate** is now `WorkerAuthGuard`, session-derived `worker_id`, no-oracle 404s, profile confirmed-gate (B-3, #385 / #252 TD70 — R26 CLOSED).
@@ -70,7 +70,7 @@
 
 # Coding Conventions
 
-- Zod DTO + `ZodValidationPipe`; global `AllExceptionsFilter` (`{statusCode,error,requestId,path,timestamp}`); RequestIdMiddleware threads request/correlation ids into events; never log PII.
+- Zod DTO + `ZodValidationPipe`; global `AllExceptionsFilter` (`{statusCode,error,requestId,path,timestamp}`); RequestIdMiddleware threads request/correlation ids into events; never log secrets (a new log line carrying PII is named in its PR — ADR-0047).
 - Vitest (unit + `tests/e2e` against ephemeral PG), Pytest, `flutter analyze && flutter test` (blocking). Gate: `pnpm lint && typecheck && test && build` + `ruff check . && pytest`.
 - Repos = Drizzle only, PII-excluding projections; services emit events; controllers thin. AI contracts stay Zod↔Pydantic mirrored (recent parity PRs #191/#193).
 

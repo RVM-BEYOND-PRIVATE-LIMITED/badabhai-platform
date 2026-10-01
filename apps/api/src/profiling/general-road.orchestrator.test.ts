@@ -407,6 +407,7 @@ const fromChat = (text: string, at: Date = T0): TurnInput => ({
   submissionId: null,
   voiceNoteId: null,
   armGeneralRoad: true,
+  knownName: async () => null,
   ctx: CTX as never,
 });
 
@@ -418,6 +419,7 @@ const fromVoice = (text: string, at: Date = T0): TurnInput => ({
   now: at,
   submissionId: null,
   voiceNoteId: null,
+  knownName: async () => null,
   ctx: CTX as never,
 });
 
@@ -1367,6 +1369,40 @@ describe("the general road through the orchestrator (ADR-0045)", () => {
         const schema = EVENT_REGISTRY[event.event_name as keyof typeof EVENT_REGISTRY].payload;
         expect(schema.safeParse(event.payload).success).toBe(true);
       }
+    });
+  });
+
+  // ═══ 10. THE WORKER'S OWN NAME (R32, ADR-0047 G2) ═════════════════════════════════════
+  describe("the worker's own name never reaches a model on this road", () => {
+    const NAMED_ROLE_MSG =
+      "main Suresh, software developer hoon, React aur Node pe kaam karta hoon";
+    const REDACTED_ROLE_MSG =
+      "main [NAME], software developer hoon, React aur Node pe kaam karta hoon";
+    const named = (text: string, at: Date = T0): TurnInput => ({
+      ...fromChat(text, at),
+      knownName: vi.fn(async (): Promise<string | null> => "Suresh Kumar"),
+    });
+
+    it("Phase A gets the turn's own lookup; the skills model reads [NAME] on entry and after", async () => {
+      const world = makeWorld({ model: [ENTER_ASK, TO_GATE] });
+      const entering = named(NAMED_ROLE_MSG);
+      await world.orchestrator.takeTurn(entering);
+      await world.orchestrator.takeTurn(named(TO_GATE_MSG, later(1_000)));
+
+      // Phase A is a stub here (its own egress is pinned in llm-turn.service.test.ts); what this
+      // proves is the wiring — it is handed the SAME lookup the turn carries.
+      const phaseACtx = (world.llm.take.mock.calls[0] as unknown[] | undefined)?.[3];
+      expect(phaseACtx).toMatchObject({ knownName: entering.knownName });
+
+      const [enterRequest, midRequest] = world.ai.llmTurn.mock.calls.map(([request]) => request);
+      expect(enterRequest?.message_text).toBe(REDACTED_ROLE_MSG);
+      // The mid-stage call replays the role answer in its history — redacted there too.
+      expect(midRequest?.history.map((line) => line.text)).toContain(REDACTED_ROLE_MSG);
+      expect(JSON.stringify(world.ai.llmTurn.mock.calls)).not.toMatch(/suresh|kumar/i);
+      // Grounding read the worker's own words, so the skills they named still certified.
+      expect(saved(world)?.generalRoad.skills).toEqual([...GATE_SKILLS]);
+      // And the buffer keeps what the worker typed: the redaction is the request's copy only.
+      expect(world.store.get(SESSION)?.messages.map((m) => m.text)).toContain(NAMED_ROLE_MSG);
     });
   });
 });
