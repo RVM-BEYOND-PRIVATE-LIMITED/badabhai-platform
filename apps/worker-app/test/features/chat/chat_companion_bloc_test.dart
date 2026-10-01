@@ -882,9 +882,10 @@ void main() {
   //
   // A card arrives on a companion turn (`edit_proposal`); Haan POSTs the ticked
   // rows' ids to the confirm route, Nahi POSTs the cancel route. Both answers
-  // are TURNS, and the two failure shapes are DISTINCT: a gone proposal (404 /
-  // stale) keeps the worker in the companion and re-reads the recap; a 409
-  // `{mode:"interview"}` leaves companion mode for the interview.
+  // are TURNS, and the failure shapes are DISTINCT: a gone proposal (404) stays
+  // in the companion and re-reads the recap; a stale proposal (409
+  // `{reason:"stale", turn}`) shows the server's own reviewed line as a normal
+  // bubble; a 409 `{mode:"interview"}` leaves companion mode for the interview.
   group('ADR-0046 edit card', () {
     const String proposalId = '22222222-2222-4222-8222-222222222222';
     const String rowA = '33333333-3333-4333-8333-333333333333';
@@ -995,6 +996,34 @@ void main() {
       await bloc.close();
     });
 
+    test('a STALE confirm shows the server\'s line as a bubble, not the gone notice', () async {
+      final ChatBloc bloc = await blocWithCard();
+      when(() => repo.confirmCompanionEdit(any(), any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => CompanionEditResult.stale(
+                const ChatTurn(
+                  reply: 'Profile beech mein badal gaya. Dobara bataiye.',
+                  ttsText: 'प्रोफ़ाइल बीच में बदल गया।',
+                  companion: true,
+                ),
+              ));
+
+      bloc.add(const ChatEditProposalConfirmed(<String>[rowA]));
+      await pumpEventQueue();
+
+      // The card is dead (the profile moved under it) and goes...
+      expect(bloc.state.editProposal, isNull);
+      // ...and the server's own line renders as an ordinary Bada Bhai bubble,
+      // read aloud from its reviewed Devanagari twin.
+      expect(bloc.state.messages.last.text,
+          contains('Profile beech mein badal gaya'));
+      expect(bloc.state.messages.last.canReadAloud, isTrue);
+      // NOT the 404 "card went away" snackbar — the server already explained.
+      expect(bloc.state.editNotice, isNull);
+      expect(bloc.state.companion, isTrue);
+      await bloc.close();
+    });
+
     test('a 409 mode:interview leaves companion mode and opens the interview', () async {
       final ChatBloc bloc = await blocWithCard();
       when(() => repo.confirmCompanionEdit(any(), any(),
@@ -1025,6 +1054,36 @@ void main() {
       expect(bloc.state.editProposal, isNotNull);
       expect(bloc.state.companion, isTrue);
       expect(bloc.state.sending, isFalse);
+      await bloc.close();
+    });
+
+    test('a NOTHING-WRITTEN fallback turn hands the SAME card back', () async {
+      final ChatBloc bloc = await blocWithCard();
+      when(() => repo.confirmCompanionEdit(any(), any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => CompanionEditResult.served(
+                ChatTurn(
+                  reply: 'Abhi badlav nahi ho paaya, thodi der mein try karein.',
+                  questionKind: ChatQuestionKind.disambiguate,
+                  companion: true,
+                  // The server wrote nothing, so it answers 200 with the
+                  // FALLBACK turn CARRYING THE SAME proposal (contracts §5.2).
+                  editProposal: proposal(),
+                ),
+              ));
+
+      bloc.add(const ChatEditProposalConfirmed(<String>[rowA]));
+      await pumpEventQueue();
+
+      // The card is still on screen — same proposal, same rows — so the worker
+      // can tap Haan again. It must not have been cleared by the served turn.
+      expect(bloc.state.editProposal, isNotNull);
+      expect(bloc.state.editProposal!.proposalId, proposalId);
+      expect(
+        bloc.state.editProposal!.rows.map((EditProposalRow r) => r.rowId),
+        <String>[rowA, rowB],
+      );
+      expect(bloc.state.companion, isTrue);
       await bloc.close();
     });
 

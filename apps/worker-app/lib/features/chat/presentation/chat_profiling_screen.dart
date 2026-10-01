@@ -2707,9 +2707,14 @@ class _ChatViewState extends State<_ChatView> {
   /// ADR-0046 §5.2 — say why the edit card could not be applied.
   ///
   /// The bloc sets [ChatState.editNotice] on exactly three paths: a dead card
-  /// (404 expired / 409 stale), a failed Haan and a failed Nahi. All three used
-  /// to be SILENT — the card either vanished or the button did nothing — which
-  /// on a worker's own profile is the most alarming thing this screen can do.
+  /// (404 expired or already applied), a failed Haan and a failed Nahi. All
+  /// three used to be SILENT — the card either vanished or the button did
+  /// nothing — which on a worker's own profile is the most alarming thing this
+  /// screen can do.
+  ///
+  /// A STALE card (409 `{reason:"stale"}`) is deliberately NOT one of them: the
+  /// server carries the reviewed `V2_EDIT_STALE` line on that answer, so the
+  /// bloc renders it as an ordinary Bada Bhai bubble instead of a snackbar.
   ///
   /// A snackbar, the same surface the companion already uses for "Applied", and
   /// fired from the listener's change edge so it shows once per notice.
@@ -3584,7 +3589,13 @@ class _EditProposalCardState extends State<_EditProposalCard> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    row.sectionLabel,
+                    // `section_label · field_label` (§5.1). The section alone
+                    // cannot tell two rows of one section apart, so the field's
+                    // own name rides beside it. An older server sends no
+                    // `field_label` and the header stays exactly the section.
+                    row.fieldLabel == null
+                        ? row.sectionLabel
+                        : '${row.sectionLabel} · ${row.fieldLabel}',
                     style: OnboardingTypography.inter(
                       size: 13,
                       weight: FontWeight.w700,
@@ -3606,16 +3617,22 @@ class _EditProposalCardState extends State<_EditProposalCard> {
   /// removed one (struck through), `edit` both; an unknown future op falls back
   /// to the same before→after line rather than hiding the row.
   ///
-  /// BOTH VALUES GO THROUGH [companionEditValue], because for nine of the edit
-  /// catalogue's fields the server's `before`/`after` is a closed-set token —
-  /// `role_cnc_operator`, `night`, `daily_wage`, `"true"` — and a worker must
-  /// never be asked to confirm a change written in ids. The row_ids sent back on
-  /// Haan are untouched by this; only the pixels are humanised.
+  /// The server now labels a CLOSED-SET value itself ([EditProposalRow
+  /// .beforeDisplay] / [.afterDisplay]) from the same dictionaries the form
+  /// chips and the résumé print, and the app PREFERS that label when it is
+  /// present. The server owns the wording; the client carries no label map of
+  /// its own. An older server sends null and every value falls back through
+  /// [companionEditValue], which is why that humaniser stays.
+  ///
+  /// The row_ids sent back on Haan are untouched by this; only the pixels are
+  /// humanised.
   Widget _rowChange(EditProposalRow row) {
-    final String? before =
-        row.before == null ? null : companionEditValue(row.before!);
-    final String? after =
-        row.after == null ? null : companionEditValue(row.after!);
+    final String? before = row.before == null
+        ? null
+        : (row.beforeDisplay ?? companionEditValue(row.before!));
+    final String? after = row.after == null
+        ? null
+        : (row.afterDisplay ?? companionEditValue(row.after!));
     switch (row.op) {
       case 'add':
         // Say it is being ADDED. A bare value under a section label reads as a

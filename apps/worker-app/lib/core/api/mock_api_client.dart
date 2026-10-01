@@ -1402,6 +1402,12 @@ class MockApiClient extends ApiClient {
               'op': 'add',
               'before': null,
               'after': 'Welding',
+              // The three ADDITIVE row labels the real server always sends
+              // (contracts §5.1). Free text keeps a null display, a closed-set
+              // token carries its dictionary label.
+              'field_label': 'Skill',
+              'before_display': null,
+              'after_display': null,
             },
             <String, dynamic>{
               'row_id': '22222222-2222-4222-8222-222222222222',
@@ -1409,6 +1415,9 @@ class MockApiClient extends ApiClient {
               'op': 'edit',
               'before': 'day',
               'after': 'night',
+              'field_label': 'Shift',
+              'before_display': 'Day shift',
+              'after_display': 'Night shift',
             },
             <String, dynamic>{
               'row_id': '33333333-3333-4333-8333-333333333333',
@@ -1416,6 +1425,9 @@ class MockApiClient extends ApiClient {
               'op': 'delete',
               'before': 'Hindi',
               'after': null,
+              'field_label': 'Bhasha',
+              'before_display': 'Hindi',
+              'after_display': null,
             },
           ],
         },

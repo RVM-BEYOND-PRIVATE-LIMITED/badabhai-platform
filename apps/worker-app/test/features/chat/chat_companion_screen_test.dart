@@ -451,6 +451,82 @@ void main() {
       expect(find.text(kVoiceBooleanNo), findsOneWidget);
     });
 
+    testWidgets('F6 — the row names the FIELD, and the server\'s value labels win',
+        (WidgetTester tester) async {
+      companionSwitch(true);
+      when(() => repo.sendCompanionMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => ChatTurn(
+                reply: 'Yeh badlav karne hain?',
+                companion: true,
+                questionKind: ChatQuestionKind.disambiguate,
+                editProposal: EditProposal(
+                  proposalId: proposalId,
+                  expiresAt: DateTime.now().add(const Duration(minutes: 10)),
+                  rows: const <EditProposalRow>[
+                    EditProposalRow(
+                      rowId: rowA,
+                      sectionLabel: 'Shift',
+                      op: 'edit',
+                      before: 'day',
+                      after: 'night',
+                      fieldLabel: 'Shift',
+                      beforeDisplay: 'Day shift',
+                      afterDisplay: 'Night shift',
+                    ),
+                    EditProposalRow(
+                      rowId: rowB,
+                      sectionLabel: 'Pasand',
+                      op: 'edit',
+                      before: 'false',
+                      after: 'true',
+                      fieldLabel: 'Travel kar sakte hain',
+                      beforeDisplay: 'Nahi',
+                      afterDisplay: 'Haan',
+                    ),
+                  ],
+                ),
+              ));
+      await pumpTab(tester);
+      await tester.tap(find.text('Resume badlein'));
+      await tester.pumpAndSettle();
+
+      // The field's own name rides beside the section, so "Pasand: Nahi → Haan"
+      // now says WHICH preference.
+      expect(find.text('Shift · Shift'), findsOneWidget);
+      expect(find.text('Pasand · Travel kar sakte hain'), findsOneWidget);
+      // The server's closed-set labels win over the app's own humaniser.
+      expect(find.textContaining('Day shift  →  Night shift'), findsOneWidget);
+      expect(find.textContaining('Nahi  →  Haan'), findsOneWidget);
+    });
+
+    testWidgets('a STALE confirm shows the server\'s line as a bubble, no snackbar',
+        (WidgetTester tester) async {
+      when(() => repo.confirmCompanionEdit(any(), any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => CompanionEditResult.stale(
+                const ChatTurn(
+                  reply: 'Profile beech mein badal gaya. Dobara bataiye kya badalna hai.',
+                  companion: true,
+                ),
+              ));
+      await pumpWithCard(tester);
+
+      await tester.tap(find.text(kVoiceBooleanYes));
+      await tester.pumpAndSettle();
+
+      // The server's reviewed line renders as an ordinary Bada Bhai bubble...
+      expect(
+        find.text('Profile beech mein badal gaya. Dobara bataiye kya badalna hai.'),
+        findsOneWidget,
+      );
+      // ...the dead card is gone...
+      expect(find.byType(Checkbox), findsNothing);
+      // ...and it is NOT the 404 "card went away" snackbar.
+      expect(find.text(kCompanionEditGoneNotice), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+    });
+
     testWidgets('Haan confirms with EVERY ticked row id', (WidgetTester tester) async {
       when(() => repo.confirmCompanionEdit(any(), any(),
               submissionId: any(named: 'submissionId')))
