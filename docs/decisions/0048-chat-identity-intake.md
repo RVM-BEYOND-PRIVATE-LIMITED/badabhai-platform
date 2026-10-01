@@ -1,8 +1,8 @@
 # ADR-0048: The chat identity intake — first name, surname, state and city asked in the onboarding chat
 
-- **Status:** **Accepted — owner rulings 2026-09-30; signatures pending** (see the foot). The backend ships
-  OFF behind `CHAT_IDENTITY_INTAKE_ENABLED`; production flag-ON is coupled to the worker-app release that unroutes
-  `/name` (§7).
+- **Status:** **Accepted — signed 2026-10-01** (see the foot). Owner rulings 2026-09-30. The backend (#1865)
+  ships behind `CHAT_IDENTITY_INTAKE_ENABLED`, which is ON in production since 2026-09-30; the worker-app release
+  that unroutes `/name` is #1868, with the in-chat location card in #1882 (§7).
 - **Date:** 2026-09-30
 - **Owner:** product owner (rulings relayed by Divyanshu, 2026-09-30); raised by Rishi as #1858
 - **Supersedes:** the rule in the worker app's `name_screen.dart` docstring — the name "is never asked for again in
@@ -240,7 +240,6 @@ the extraction and transcript-reader filters, and the event schema tests.
 ---
 
 ```
-Owner rulings D1–D10 taken 2026-09-30; production flag-ON requires these signatures and a ruling on each §4.4 open item.
-Signed (CEO / Prakash): ______________________          Date: __________
-Signed: Divyanshu (Backend Platform; relayed the owner's rulings)          Date: __________
+Owner rulings D1–D10 taken 2026-09-30; the flag went on the same day. The §4.4 items remain follow-ups.
+Signed: Divyanshu (Backend Platform; relayed the owner's rulings)          Date: 2026-10-01
 ```
