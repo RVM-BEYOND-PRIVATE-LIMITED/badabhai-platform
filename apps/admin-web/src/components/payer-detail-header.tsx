@@ -1,35 +1,36 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AdminActionButton } from "./admin-action-button";
 import { AdminActionResultBanner } from "./admin-action-result-banner";
+import { PageHeader, type PageHeaderContent } from "./page-header";
 import { reinstatePayerAction, suspendPayerAction } from "./payer-actions";
 import type { AdminActionOutcome } from "../lib/admin-action-result";
 
 /**
- * The Company/Agency detail header: the server-rendered title block plus the (possibly
- * capability-gated) Suspend/Reinstate control and the "View event timeline" link.
+ * The Company/Agency detail header: the shared `PageHeader` with the (capability-gated)
+ * Suspend/Reinstate control as its primary action and the "View event timeline" link after it.
  *
- * `title` is JSX already rendered by the server (`PayerDetailView`) and passed straight
- * through as `children` — it never re-executes on the client, so the id-formatting and label
- * logic that build it stay off this bundle. Only the interactive cluster (link + button +
- * result banner) needs to be a Client Component.
+ * `header` is built by the server (`PayerDetailView`) and passed straight through — its JSX
+ * never re-executes on the client, so the id-formatting and label logic that build it stay off
+ * this bundle. Only the interactive cluster (link + button + result banner) needs to be a Client
+ * Component.
  *
  * On a successful action `router.refresh()` re-fetches the payer record server-side (status,
  * `previous_status`, the suspended-notice banner) while this component's own local state — the
  * result banner — survives the refresh, exactly like `login-form.tsx`'s post-login refresh.
  */
 export function PayerDetailHeader({
-  title,
+  header,
   payerId,
   status,
   canSuspend,
   timelineHref,
 }: {
-  title: ReactNode;
+  /** Back link, title and description, built on the server. */
+  header: PageHeaderContent;
   payerId: string;
   status: "pending" | "active" | "suspended";
   canSuspend: boolean;
@@ -45,14 +46,11 @@ export function PayerDetailHeader({
 
   return (
     <>
-      <header className="page__head">
-        {title}
-        <div className="page__actions">
-          <Link className="btn btn--ghost" href={timelineHref}>
-            View event timeline
-          </Link>
-          {canSuspend &&
-            (status === "suspended" ? (
+      <PageHeader
+        {...header}
+        primaryAction={
+          canSuspend ? (
+            status === "suspended" ? (
               <AdminActionButton
                 label="Reinstate"
                 confirmLabel="Confirm reinstate?"
@@ -68,9 +66,15 @@ export function PayerDetailHeader({
                 action={() => suspendPayerAction(payerId)}
                 onSettled={handleSettled}
               />
-            ))}
-        </div>
-      </header>
+            )
+          ) : null
+        }
+        secondaryActions={
+          <Link className="btn btn--ghost" href={timelineHref}>
+            View event timeline
+          </Link>
+        }
+      />
       {outcome && <AdminActionResultBanner outcome={outcome} timelineHref={timelineHref} />}
     </>
   );

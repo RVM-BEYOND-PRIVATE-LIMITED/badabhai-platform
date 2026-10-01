@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { PageHeaderContent } from "./page-header";
 import type { JobPostingListItem, PayerDetail } from "../lib/entities";
 import type { AdminCapability } from "../lib/auth/capabilities";
 
@@ -14,10 +15,14 @@ import type { AdminCapability } from "../lib/auth/capabilities";
  */
 
 // Both interactive children are Client Components using `useRouter`/`useState`. The header is
-// stubbed to render the server-built `title` it is handed, which is what this file asserts on.
-vi.mock("./payer-detail-header", () => ({
-  PayerDetailHeader: ({ title }: { title: unknown }) => title,
-}));
+// stubbed to render the shared PageHeader from the server-built `header` it is handed (back
+// link, title, description), which is what this file asserts on.
+vi.mock("./payer-detail-header", async () => {
+  const { PageHeader } = await import("./page-header");
+  return {
+    PayerDetailHeader: ({ header }: { header: PageHeaderContent }) => <PageHeader {...header} />,
+  };
+});
 vi.mock("./payer-credits-panel", () => ({ PayerCreditsPanel: () => null }));
 
 const { PayerDetailView } = await import("./payer-detail");
@@ -183,5 +188,13 @@ describe("the suspended banner is not displaced by an identity banner", () => {
     const out = render({ ...FACELESS, status: "suspended", previous_status: "active" }, ENTITLED);
     expect(out).toContain("Names are withheld on this page");
     expect(out).toContain("Suspended.");
+  });
+});
+
+describe("the header (owner ruling 2026-10-01)", () => {
+  it("has a back link to its own section, named as that page names itself", () => {
+    const out = render(FACELESS, ENTITLED);
+    expect(out).toContain('<a class="backlink" href="/companies">');
+    expect(out).toContain("<span>Companies</span></a>");
   });
 });

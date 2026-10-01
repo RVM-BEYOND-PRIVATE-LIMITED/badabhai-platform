@@ -7,6 +7,7 @@ import { PayerList } from "../../../components/payer-list";
 import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Pager } from "../../../components/pager";
 import { PayerFilterBar } from "../../../components/payer-filter-bar";
+import { PageHeader } from "../../../components/page-header";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Agencies" };
@@ -53,17 +54,25 @@ export default async function AgenciesPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Agencies</h1>
-          <p className="page__sub">
+      <PageHeader
+        title="Agencies"
+        description={
+          <>
             {posture === "faceless"
               ? "Supply-side partner accounts, identified by id — your role does not include name access."
               : "Supply-side partner accounts, named by the organisation they registered as — self-declared at signup, not a verified legal name."}{" "}
             Email, phone and KYC details stay encrypted at rest and are served to no one.
-          </p>
-        </div>
-      </header>
+          </>
+        }
+        filters={
+          <section className="panel" aria-labelledby="af-heading">
+            <h2 className="sr-only" id="af-heading">
+              Filter agencies
+            </h2>
+            <PayerFilterBar basePath="/agencies" status={status ?? ""} />
+          </section>
+        }
+      />
 
       {posture === "capped" && (
         <IdentityCapNotice>
@@ -71,13 +80,6 @@ export default async function AgenciesPage({
           its hourly name budget.
         </IdentityCapNotice>
       )}
-
-      <section className="panel" aria-labelledby="af-heading">
-        <h2 className="sr-only" id="af-heading">
-          Filter agencies
-        </h2>
-        <PayerFilterBar basePath="/agencies" status={status ?? ""} />
-      </section>
 
       <section className="panel" aria-labelledby="ar-heading" aria-live="polite">
         <div className="panel__head panel__head--row">

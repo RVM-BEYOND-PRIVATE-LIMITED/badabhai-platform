@@ -1214,11 +1214,27 @@ h3 {
  * grid rather than introducing a second one.
  * ------------------------------------------------------------------------ */
 
-/* A section breadcrumb above a detail title. */
-.page__eyebrow {
+/* The back link above a detail page's title (`BackLink`, components/page-header.tsx): the
+   `arrow-left` glyph and the parent page's name. Detail and child pages only — a top-level page
+   has no back link. A link, so it stays navy on a light surface and its glyph inherits that. */
+.page__back {
   margin: 0 0 var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--text-muted);
+}
+.backlink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--icon-gap);
+  color: var(--text-link);
+  font-size: var(--ui-body-sm-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-snug);
+  text-decoration: none;
+}
+.backlink:hover {
+  text-decoration: underline;
+}
+.backlink .ph-fill {
+  font-size: var(--icon-size-sm);
 }
 /* Actions sit opposite the title in the existing flex `.page__head`. */
 .page__actions {
@@ -1517,12 +1533,22 @@ h3 {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.crumb--here {
-  font-family: var(--font-sans);
-  font-size: var(--ui-h3-size);
-  font-weight: var(--ui-h3-weight);
-  letter-spacing: var(--ui-h3-tracking);
-  color: var(--text-heading);
+/* The crumb holds the page's ancestors, never the page itself (its h1 names it), so nothing
+   in it is heading-sized. The section is the one linked step; it reads as a link in the
+   structural navy, quieter than the page's own controls. */
+.crumb__link {
+  color: var(--text-link);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+}
+.crumb__link:hover {
+  text-decoration: underline;
+}
+.crumb__step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
 }
 .crumb__sep {
   color: var(--text-disabled);
@@ -1545,13 +1571,6 @@ h3 {
   line-height: var(--ui-body-leading);
   color: var(--text-secondary);
   max-width: var(--reading-max);
-}
-.page__eyebrow {
-  font-size: var(--ui-eyebrow-size);
-  line-height: var(--ui-eyebrow-leading);
-  font-weight: var(--ui-eyebrow-weight);
-  letter-spacing: var(--ui-eyebrow-tracking);
-  color: var(--text-muted);
 }
 .panel__title {
   font-size: var(--ui-h2-size);
@@ -2237,6 +2256,15 @@ textarea.field__input {
     position: absolute;
     inset: calc((100% - var(--control-md)) / 2);
   }
+  /* The back link takes the height itself, like the drawer rows: a strip reaching past it would
+     sit over the page title directly below and steal taps aimed at nothing. The title block
+     grows by the difference on a touch screen only; the margin under it closes up to match. */
+  .backlink {
+    min-block-size: var(--control-md);
+  }
+  .page__back {
+    margin-block-end: 0;
+  }
 }
 
 /* ==================================================================
@@ -2290,11 +2318,11 @@ textarea.field__input {
     gap: var(--space-2);
     padding-inline: var(--space-4);
   }
-  /* Three crumbs plus the role pill truncated every segment to a few letters ("Oper… / Wo…
-     / aaaa…"). The section name goes first — the drawer names it — so the destination and
-     the row stay readable. */
-  .crumb--group,
-  .crumb--group + .crumb__sep {
+  /* Several crumbs plus the role pill truncated every segment to a few letters. The group name
+     goes first once a section follows it — the drawer names it — so the linked section stays
+     readable. On a top-level page the group is the whole crumb, and it stays. */
+  .crumb--group:not(:last-child),
+  .crumb--group:not(:last-child) + .crumb__sep {
     display: none;
   }
 

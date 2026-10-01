@@ -11,6 +11,7 @@ import {
 import { formatRelative, formatTimestamp, shortId } from "../../../lib/format";
 import { StatusPill, type Tone } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
+import { PageHeader } from "../../../components/page-header";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Feedback" };
@@ -163,21 +164,27 @@ export default async function FeedbackPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Feedback</h1>
-          <p className="page__sub">
-            What workers typed into the app&apos;s Feedback button, newest first. This is the one
-            screen here that shows a worker&apos;s own words, so a message may contain details they
-            chose to include about themselves — and, since they may attach photos of what they are
-            reporting, so may an image. Nothing else on the row is identifying — no name or
-            number is looked up, and the screen a message is about is recorded by matching what
-            the app sent against the list of screens the app has, so it says where the worker was
-            rather than what they were looking at. Image links expire after a few minutes; reload
-            the page to get working ones.
+      <PageHeader
+        title="Feedback"
+        description="What workers typed into the app's Feedback button, newest first."
+      />
+
+      {/* The mechanics the one-sentence description leaves out. A standing statement about how
+          to read the screen, which is what `.alert--info` is the primitive for. */}
+      <div className="alert alert--info">
+        <div className="alert__text">
+          <p className="alert__title">A worker&apos;s own words</p>
+          <p className="alert__body">
+            This is the one screen here that shows a worker&apos;s own words, so a message may
+            contain details they chose to include about themselves — and, since they may attach
+            photos of what they are reporting, so may an image. Nothing else on the row is
+            identifying — no name or number is looked up, and the screen a message is about is
+            recorded by matching what the app sent against the list of screens the app has, so it
+            says where the worker was rather than what they were looking at. Image links expire
+            after a few minutes; reload the page to get working ones.
           </p>
         </div>
-      </header>
+      </div>
 
       <section className="panel" aria-labelledby="fb-heading" aria-live="polite">
         <div className="panel__head panel__head--row">

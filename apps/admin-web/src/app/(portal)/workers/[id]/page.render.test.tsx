@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { PageHeaderContent } from "../../../../components/page-header";
 
 /**
  * What one worker's DETAIL page renders after the 2026-08-18 name ruling.
@@ -42,11 +43,14 @@ vi.mock("../../../../lib/entities", () => ({
 }));
 
 // The header is a Client Component using `useRouter`, which needs an app-router context this
-// renderer does not provide. Stubbed to render the server-built `title` it is handed — which is
-// the part of it this file is testing.
-vi.mock("./worker-detail-header", () => ({
-  WorkerDetailHeader: ({ title }: { title: unknown }) => title,
-}));
+// renderer does not provide. Stubbed to render the shared PageHeader from the server-built
+// `header` it is handed (back link, title, description) — the part this file is testing.
+vi.mock("./worker-detail-header", async () => {
+  const { PageHeader } = await import("../../../../components/page-header");
+  return {
+    WorkerDetailHeader: ({ header }: { header: PageHeaderContent }) => <PageHeader {...header} />,
+  };
+});
 
 const { default: WorkerDetailPage } = await import("./page");
 
@@ -209,5 +213,13 @@ describe("the deletion banner still wins its own space", () => {
     const out = await render();
     expect(out).toContain("Names are withheld on this page");
     expect(out).toContain("Deletion scheduled.");
+  });
+});
+
+describe("the header (owner ruling 2026-10-01)", () => {
+  it("has a back link to the real parent, named as that page names itself", async () => {
+    const out = await render();
+    expect(out).toContain('<a class="backlink" href="/workers">');
+    expect(out).toContain("<span>Workers</span></a>");
   });
 });

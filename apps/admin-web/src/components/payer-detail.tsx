@@ -50,18 +50,13 @@ export function PayerDetailView({
   const posture = identityPosture([payer], "org_name", can(capabilities, "read_identity"));
   const orgName = displayName(payer.org_name);
 
-  const title = (
-    <div>
-      <p className="page__eyebrow">
-        <Link className="link" href={backHref}>
-          {kind === "Company" ? "Companies" : "Agencies"}
-        </Link>
-      </p>
-      {/* The id keeps its `mono` treatment; an organisation name does not get one. */}
-      <h1 className={orgName === null ? "page__title mono" : "page__title"}>
-        {orgName ?? shortId(payer.id)}
-      </h1>
-      <p className="page__sub">
+  // The id keeps its `mono` treatment; an organisation name does not get one.
+  const header = {
+    back: { href: backHref, label: kind === "Company" ? "Companies" : "Agencies" },
+    title: orgName ?? shortId(payer.id),
+    titleMono: orgName === null,
+    description: (
+      <>
         One {kind === "Company" ? "employer" : "agency"} account — what it has posted and
         spent{orgName === null ? ", not who registered it" : ""}.{" "}
         {labels.length > 0 ? (
@@ -73,14 +68,14 @@ export function PayerDetailView({
         ) : (
           <>No job postings yet, so there is no self-declared label to identify this account by.</>
         )}
-      </p>
-    </div>
-  );
+      </>
+    ),
+  };
 
   return (
     <div className="page">
       <PayerDetailHeader
-        title={title}
+        header={header}
         payerId={payer.id}
         status={payer.status}
         canSuspend={can(capabilities, "suspend_payer")}

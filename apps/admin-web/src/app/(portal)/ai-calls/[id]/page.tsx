@@ -17,6 +17,7 @@ import { taskTypeLabel } from "../../../../lib/ai-cost";
 import { formatCount, formatTimestamp, healthTone } from "../../../../lib/format";
 import { DetailList } from "../../../../components/detail-list";
 import { StatusPill } from "../../../../components/status-pill";
+import { PageHeader } from "../../../../components/page-header";
 
 // Per-request, never cached. The body of this page can contain a worker's own words, and the
 // server sends the response it is built from with `Cache-Control: no-store` for exactly that
@@ -110,20 +111,16 @@ export default async function AiCallDetailPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <p className="page__eyebrow">
-            <Link className="link" href="/ai-calls">
-              AI calls
-            </Link>
-          </p>
-          <h1 className="page__title">{taskTypeLabel(trace.task_type)}</h1>
-          <p className="page__sub">
+      <PageHeader
+        back={{ href: "/ai-calls", label: "AI calls" }}
+        title={taskTypeLabel(trace.task_type)}
+        description={
+          <>
             One AI call in full — what this API sent to the AI service, and what came back.
             Recorded <time dateTime={trace.created_at}>{formatTimestamp(trace.created_at)}</time>.
-          </p>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       {/*
         THE ONE PIECE OF COPY ON THIS SURFACE THAT COULD DO REAL HARM IF IT OVERCLAIMED.
@@ -348,16 +345,7 @@ function NotRecorded({ children }: { children: ReactNode }) {
 function Frame({ children }: { children: ReactNode }) {
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <p className="page__eyebrow">
-            <Link className="link" href="/ai-calls">
-              AI calls
-            </Link>
-          </p>
-          <h1 className="page__title">AI call</h1>
-        </div>
-      </header>
+      <PageHeader back={{ href: "/ai-calls", label: "AI calls" }} title="AI call" />
       {children}
     </div>
   );

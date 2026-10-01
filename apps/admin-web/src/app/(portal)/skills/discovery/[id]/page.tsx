@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireCapability } from "../../../../../lib/auth";
 import { can } from "../../../../../lib/auth/capabilities";
@@ -27,6 +26,7 @@ import {
 import { formatRelative, formatTimestamp, shortId } from "../../../../../lib/format";
 import { StatusPill } from "../../../../../components/status-pill";
 import { DetailList } from "../../../../../components/detail-list";
+import { PageHeader } from "../../../../../components/page-header";
 import { SkillDecisionPanel } from "./decision-panel";
 
 export const dynamic = "force-dynamic";
@@ -107,17 +107,21 @@ export default async function SkillDiscoveryDetailPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <p className="page__eyebrow">
-            <Link className="link" href="/skills/discovery">
-              Skill Discovery
-            </Link>
-          </p>
-          <h1 className="page__title">{candidate.normalized_phrase}</h1>
-          <p className="page__sub">{candidate.phrase_class_label}</p>
-        </div>
-      </header>
+      <PageHeader
+        back={{ href: "/skills/discovery", label: "Skill Discovery" }}
+        title={candidate.normalized_phrase}
+        description={candidate.phrase_class_label}
+        primaryAction={
+          /* The decision itself lives in its panel at the foot of the page, beneath the
+             evidence a reviewer is meant to read first. The header offers the way to it, so
+             the page's primary action is where every other page puts its own. */
+          mayDecide && !terminal ? (
+            <a className="btn btn--primary" href="#sd-decision">
+              Record a decision
+            </a>
+          ) : null
+        }
+      />
 
       <div className="cols">
         <section className="panel" aria-labelledby="sd-summary">

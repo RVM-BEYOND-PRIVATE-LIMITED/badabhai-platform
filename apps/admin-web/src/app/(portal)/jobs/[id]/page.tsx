@@ -81,27 +81,23 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
       <span className="mono">{job.role_kind}</span>
     );
 
-  const title = (
-    <div>
-      <p className="page__eyebrow">
-        <Link className="link" href="/jobs">
-          Jobs
-        </Link>
-      </p>
-      <h1 className="page__title">{job.role_title}</h1>
-      <p className="page__sub">
+  const header = {
+    back: { href: "/jobs", label: "Jobs" },
+    title: job.role_title,
+    description: (
+      <>
         One posting&rsquo;s full content, with its reach and its trust review. Published as{" "}
         <strong>{job.org_label}</strong>
         {job.city || job.location_label ? ` · ${job.city ?? job.location_label}` : ""} · created{" "}
         {formatRelative(job.created_at)}.
-      </p>
-    </div>
-  );
+      </>
+    ),
+  };
 
   return (
     <div className="page">
       <JobDetailHeader
-        title={title}
+        header={header}
         jobId={job.id}
         status={job.status}
         payerHref={job.payer_id ? `/companies/${job.payer_id}` : null}

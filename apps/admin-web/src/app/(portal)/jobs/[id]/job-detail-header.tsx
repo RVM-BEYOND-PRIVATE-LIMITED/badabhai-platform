@@ -1,31 +1,32 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AdminActionButton } from "../../../../components/admin-action-button";
 import { AdminActionResultBanner } from "../../../../components/admin-action-result-banner";
+import { PageHeader, type PageHeaderContent } from "../../../../components/page-header";
 import { forceClosePostingAction } from "./actions";
 import type { AdminActionOutcome } from "../../../../lib/admin-action-result";
 
 /**
- * The job posting detail header: the server-rendered title block plus the owner-account link,
- * the event-timeline link, and the (capability-gated) Force-close control.
+ * The posting detail header: the shared `PageHeader` with the (capability-gated) Force-close
+ * control as its primary action, then the owner-account and event-timeline links.
  *
- * `title` is server-rendered JSX passed straight through — see `PayerDetailHeader` for why.
+ * `header` is server-built and passed straight through — see `PayerDetailHeader` for why.
  * Force-close is omitted entirely once the posting is already closed; the action is a no-op
  * there and offering it teaches nothing the status pill does not.
  */
 export function JobDetailHeader({
-  title,
+  header,
   jobId,
   status,
   payerHref,
   canForceClose,
   timelineHref,
 }: {
-  title: ReactNode;
+  /** Back link, title and description, built on the server. */
+  header: PageHeaderContent;
   jobId: string;
   status: string;
   payerHref: string | null;
@@ -42,18 +43,10 @@ export function JobDetailHeader({
 
   return (
     <>
-      <header className="page__head">
-        {title}
-        <div className="page__actions">
-          {payerHref && (
-            <Link className="btn btn--ghost" href={payerHref}>
-              Owner account
-            </Link>
-          )}
-          <Link className="btn btn--ghost" href={timelineHref}>
-            Event timeline
-          </Link>
-          {canForceClose && status !== "closed" && (
+      <PageHeader
+        {...header}
+        primaryAction={
+          canForceClose && status !== "closed" ? (
             <AdminActionButton
               label="Force-close"
               confirmLabel="Confirm force-close?"
@@ -61,9 +54,21 @@ export function JobDetailHeader({
               action={() => forceClosePostingAction(jobId)}
               onSettled={handleSettled}
             />
-          )}
-        </div>
-      </header>
+          ) : null
+        }
+        secondaryActions={
+          <>
+            {payerHref && (
+              <Link className="btn btn--ghost" href={payerHref}>
+                Owner account
+              </Link>
+            )}
+            <Link className="btn btn--ghost" href={timelineHref}>
+              Event timeline
+            </Link>
+          </>
+        }
+      />
       {outcome && <AdminActionResultBanner outcome={outcome} timelineHref={timelineHref} />}
     </>
   );

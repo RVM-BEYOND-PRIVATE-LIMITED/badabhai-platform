@@ -13,6 +13,7 @@ import { PaymentsPostureBanner, MockMoneyTag } from "../../../components/payment
 import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { Stat } from "../../../components/stat";
+import { PageHeader } from "../../../components/page-header";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Transactions" };
@@ -77,15 +78,10 @@ export default async function TransactionsPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Transactions</h1>
-          <p className="page__sub">
-            Credit-pack payment orders. Amounts and credits are stamped at order creation, so
-            a later price change never rewrites a past order.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Transactions"
+        description="Credit-pack payment orders, with amounts and credits stamped at order creation so a later price change never rewrites a past order."
+      />
 
       {posture && <PaymentsPostureBanner posture={posture} />}
 

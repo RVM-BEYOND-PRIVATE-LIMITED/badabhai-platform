@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireSession } from "../../../lib/auth";
 import { getCapabilityMatrix } from "../../../lib/entities";
 import { CAPABILITY_LABELS, ROLE_LABELS, isAdminCapability } from "../../../lib/auth/capabilities";
+import { PageHeader } from "../../../components/page-header";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Roles and capabilities" };
@@ -35,15 +36,10 @@ export default async function RolesPage() {
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Roles and capabilities</h1>
-          <p className="page__sub">
-            The authorization model, read live from the server — the same matrix the guards
-            enforce, so this table cannot disagree with what is actually permitted.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Roles and capabilities"
+        description="The authorization model, read live from the server — the same matrix the guards enforce, so this table cannot disagree with what is actually permitted."
+      />
 
       <section className="panel" aria-labelledby="rc-you">
         <div className="panel__head">

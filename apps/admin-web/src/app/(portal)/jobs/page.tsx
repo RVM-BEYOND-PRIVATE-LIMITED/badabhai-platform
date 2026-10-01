@@ -4,6 +4,7 @@ import { listJobPostings } from "../../../lib/entities";
 import { formatPayBand, formatRelative, formatTimestamp, shortId } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
+import { PageHeader } from "../../../components/page-header";
 import { JobFilterBar } from "./filter-bar";
 
 export const dynamic = "force-dynamic";
@@ -48,26 +49,22 @@ export default async function JobsPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Jobs</h1>
-          <p className="page__sub">
-            Every job posting on the platform. Company and role text is what the poster
-            typed — the same text workers see in the feed.
-          </p>
-        </div>
-      </header>
-
-      <section className="panel" aria-labelledby="jf-heading">
-        <h2 className="sr-only" id="jf-heading">
-          Filter job postings
-        </h2>
-        <JobFilterBar
-          status={status ?? ""}
-          verificationStatus={verificationStatus ?? ""}
-          payerId={payerId ?? ""}
-        />
-      </section>
+      <PageHeader
+        title="Jobs"
+        description="Every job posting on the platform. Company and role text is what the poster typed — the same text workers see in the feed."
+        filters={
+          <section className="panel" aria-labelledby="jf-heading">
+            <h2 className="sr-only" id="jf-heading">
+              Filter job postings
+            </h2>
+            <JobFilterBar
+              status={status ?? ""}
+              verificationStatus={verificationStatus ?? ""}
+              payerId={payerId ?? ""}
+            />
+          </section>
+        }
+      />
 
       <section className="panel" aria-labelledby="jr-heading" aria-live="polite">
         <div className="panel__head panel__head--row">

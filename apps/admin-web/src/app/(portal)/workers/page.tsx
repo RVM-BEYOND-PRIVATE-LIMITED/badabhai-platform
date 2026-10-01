@@ -8,6 +8,7 @@ import { StatusPill } from "../../../components/status-pill";
 import { NameCell } from "../../../components/name-cell";
 import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Pager } from "../../../components/pager";
+import { PageHeader } from "../../../components/page-header";
 import { WorkerFilterBar } from "./filter-bar";
 
 export const dynamic = "force-dynamic";
@@ -69,18 +70,26 @@ export default async function WorkersPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Workers</h1>
-          <p className="page__sub">
+      <PageHeader
+        title="Workers"
+        description={
+          <>
             {posture === "faceless"
               ? "Workers are identified by id here — your role does not include name access."
               : "Names are shown to your role, and each name read is capped and audited."}{" "}
             Contact details are never listed — revealing one worker&apos;s contact is a
             separate, reason-gated action.
-          </p>
-        </div>
-      </header>
+          </>
+        }
+        filters={
+          <section className="panel" aria-labelledby="wf-heading">
+            <h2 className="sr-only" id="wf-heading">
+              Filter workers
+            </h2>
+            <WorkerFilterBar status={status ?? ""} pendingDeletion={pendingDeletion} />
+          </section>
+        }
+      />
 
       {posture === "capped" && (
         <IdentityCapNotice>
@@ -88,13 +97,6 @@ export default async function WorkersPage({
           its hourly name budget.
         </IdentityCapNotice>
       )}
-
-      <section className="panel" aria-labelledby="wf-heading">
-        <h2 className="sr-only" id="wf-heading">
-          Filter workers
-        </h2>
-        <WorkerFilterBar status={status ?? ""} pendingDeletion={pendingDeletion} />
-      </section>
 
       <section className="panel" aria-labelledby="wr-heading" aria-live="polite">
         <div className="panel__head panel__head--row">

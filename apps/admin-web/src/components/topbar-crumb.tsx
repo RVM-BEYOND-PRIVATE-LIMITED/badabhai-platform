@@ -1,76 +1,118 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Icon } from "@badabhai/icons";
 import { NAV } from "./nav-model";
 
 /**
- * The topbar's location indicator.
+ * The topbar's section context: where this page sits, never what it is called.
  *
- * The topbar previously held a hamburger and a flex spacer — nothing else. On a console
- * whose routes are `/workers/<uuid>` and `/companies/<uuid>`, that left the sidebar's
- * active pill as the only "where am I", and on a detail page even that only named the
- * section. The trail now names the section and the row.
+ * The trail holds the page's ANCESTORS only. The page names itself in its own h1, so the crumb
+ * never repeats it:
+ *   - a top-level page (`/workers`) shows its sidebar group: `Operations`;
+ *   - a page below a section (`/workers/<id>`) adds the section, LINKED: `Operations / Workers`;
+ *   - a deeper page adds each readable step between the section and itself
+ *     (`/workers/<id>/journey/<sid>` reads `Operations / Workers / Journey`).
+ * Opaque ids are left out at every level. A truncated uuid in a breadcrumb names nothing a
+ * reader can use, and on a session route it read like the worker's id. The page's back link is
+ * where the parent is named, and linked, exactly.
  *
- * It is derived from the SAME NAV the sidebar renders, so a section can never be called one
- * thing on the left and another on top. This reads the URL only — no session, no capability
- * and no entity data is resolved here, and an opaque id is shown truncated rather than as a
- * 36-character uuid that pushes everything else off the line.
+ * Derived from the SAME nav the sidebar renders, so a section is never called one thing on the
+ * left and another on top. It reads the URL only: no session, no capability and no entity data
+ * is resolved here.
  */
 export function TopbarCrumb() {
   const pathname = usePathname();
+  const trail = crumbTrail(pathname);
 
-  let group: string | undefined;
-  let label: string | undefined;
-  let matchedHref = "";
-  for (const section of NAV) {
-    for (const item of section.items) {
-      const hit = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-      // Prefer the most specific match when two entries both claim the path.
-      if (hit && item.href.length >= matchedHref.length) {
-        group = section.title;
-        label = item.label;
-        matchedHref = item.href;
-      }
-    }
+  if (!trail) {
+    return (
+      <nav className="crumbs" aria-label="Breadcrumb">
+        <span className="crumb crumb--group">Admin</span>
+      </nav>
+    );
   }
-
-  if (!label) return <span className="crumb crumb--here">Admin</span>;
-
-  // Anything past the matched nav destination is the tail — typically one opaque entity id.
-  const rest = pathname
-    .slice(matchedHref === "/" ? 1 : matchedHref.length)
-    .split("/")
-    .filter(Boolean);
 
   return (
     <nav className="crumbs" aria-label="Breadcrumb">
-      {group ? (
+      {/* `crumb--group` lets the phone tier drop the group name once a section follows it: the
+          open drawer already shows it, and at 375px keeping it truncates the rest. */}
+      <span className="crumb crumb--group">{trail.group}</span>
+      {trail.section ? (
         <>
-          {/* `crumb--group` lets the phone tier drop the section name first: it is the one
-              segment the open drawer already shows, and at 375px keeping it truncates all
-              three. */}
-          <span className="crumb crumb--group">{group}</span>
-          <span className="crumb__sep" aria-hidden="true">
-            /
-          </span>
-        </>
-      ) : null}
-      <span className={rest.length === 0 ? "crumb crumb--here" : "crumb"}>{label}</span>
-      {rest.length > 0 ? (
-        <>
-          <span className="crumb__sep" aria-hidden="true">
-            /
-          </span>
-          <span className="crumb crumb--here mono" title={rest.join("/")}>
-            {shorten(rest[rest.length - 1]!)}
-          </span>
+          <Separator />
+          <Link className="crumb crumb__link" href={trail.section.href}>
+            {trail.section.label}
+          </Link>
+          {trail.steps.map((step, i) => (
+            <span className="crumb__step" key={`${step}-${i}`}>
+              <Separator />
+              <span className="crumb">{step}</span>
+            </span>
+          ))}
         </>
       ) : null}
     </nav>
   );
 }
 
-/** A uuid is unreadable in a breadcrumb; the leading block is enough to recognise a row. */
-function shorten(segment: string): string {
-  return segment.length > 12 ? `${segment.slice(0, 8)}…` : segment;
+function Separator() {
+  return <Icon name="caret-right" className="crumb__sep" />;
+}
+
+/** Path segments that are a view of the record above them, by the name the screen uses. */
+const SEGMENT_LABELS: Record<string, string> = {
+  journey: "Journey",
+  timeline: "Event timeline",
+};
+
+/** A uuid or a long hex handle. Never shown as a crumb. */
+export function isOpaqueId(segment: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(segment) || /^[0-9a-f]{16,}$/i.test(segment);
+}
+
+function segmentLabel(segment: string): string {
+  return SEGMENT_LABELS[segment] ?? segment.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
+}
+
+export interface CrumbTrail {
+  group: string;
+  /** The nav section, present only when the page sits BELOW it (so it never repeats the h1). */
+  section: { href: string; label: string } | null;
+  /** Readable steps between the section and this page; this page and every opaque id excluded. */
+  steps: string[];
+}
+
+/** The ancestors of `pathname` as the crumb shows them, or null off the nav. */
+export function crumbTrail(pathname: string): CrumbTrail | null {
+  let group: string | undefined;
+  let matched: { href: string; label: string } | undefined;
+  for (const section of NAV) {
+    for (const item of section.items) {
+      const hit =
+        item.href === "/"
+          ? pathname === "/"
+          : pathname === item.href || pathname.startsWith(`${item.href}/`);
+      // Prefer the most specific match when two entries both claim the path.
+      if (hit && (!matched || item.href.length > matched.href.length)) {
+        group = section.title;
+        matched = { href: item.href, label: item.label };
+      }
+    }
+  }
+  if (!group || !matched) return null;
+
+  const below = pathname
+    .slice(matched.href === "/" ? 1 : matched.href.length)
+    .split("/")
+    .filter(Boolean);
+  if (below.length === 0) return { group, section: null, steps: [] };
+
+  // The last segment is this page — its h1 names it. Everything before it is an ancestor.
+  const steps = below
+    .slice(0, -1)
+    .filter((s) => !isOpaqueId(s))
+    .map(segmentLabel);
+  return { group, section: matched, steps };
 }

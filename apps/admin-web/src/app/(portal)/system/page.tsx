@@ -5,6 +5,7 @@ import { getHealth } from "../../../lib/events";
 import { getKillSwitchStatus } from "../../../lib/entities";
 import { healthTone } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
+import { PageHeader } from "../../../components/page-header";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "System" };
@@ -53,14 +54,10 @@ export default async function SystemPage() {
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">System</h1>
-          <p className="page__sub">
-            Live dependency health and the platform&apos;s provider switches.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="System"
+        description="Live dependency health and the platform's provider switches."
+      />
 
       {mocked.length > 0 && (
         <section className="notice notice--warn" role="status">

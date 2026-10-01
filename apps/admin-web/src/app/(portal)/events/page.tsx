@@ -3,6 +3,7 @@ import { requireCapability } from "../../../lib/auth";
 import { listEvents, type EventFilters } from "../../../lib/events";
 import { EventTable } from "../../../components/event-table";
 import { Pager } from "../../../components/pager";
+import { PageHeader } from "../../../components/page-header";
 import { EventFilterBar } from "./filter-bar";
 
 export const dynamic = "force-dynamic";
@@ -63,26 +64,23 @@ export default async function EventsPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Events</h1>
-          <p className="page__sub">
-            The audit spine. Every important state change on the platform is recorded here.
-          </p>
-        </div>
-      </header>
-
-      <section className="panel" aria-labelledby="filters-heading">
-        <h2 className="sr-only" id="filters-heading">
-          Filter events
-        </h2>
-        <EventFilterBar
-          eventName={filters.eventName ?? ""}
-          actorType={filters.actorType ?? ""}
-          subjectType={filters.subjectType ?? ""}
-          correlationId={filters.correlationId ?? ""}
-        />
-      </section>
+      <PageHeader
+        title="Events"
+        description="The audit spine. Every important state change on the platform is recorded here."
+        filters={
+          <section className="panel" aria-labelledby="filters-heading">
+            <h2 className="sr-only" id="filters-heading">
+              Filter events
+            </h2>
+            <EventFilterBar
+              eventName={filters.eventName ?? ""}
+              actorType={filters.actorType ?? ""}
+              subjectType={filters.subjectType ?? ""}
+              correlationId={filters.correlationId ?? ""}
+            />
+          </section>
+        }
+      />
 
       <section className="panel" aria-labelledby="results-heading" aria-live="polite">
         <div className="panel__head panel__head--row">

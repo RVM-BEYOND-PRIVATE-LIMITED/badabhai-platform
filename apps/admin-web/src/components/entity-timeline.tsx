@@ -1,12 +1,8 @@
 import Link from "next/link";
 import { getEntityTimeline, type AdminTimelineSubjectType } from "../lib/events";
 import { EventTable } from "./event-table";
+import { PageHeader, type PageBack } from "./page-header";
 import { Pager } from "./pager";
-
-/** `job_posting` → `job posting`. Only the whitelist's `_`-joined codes need this. */
-function subjectTypeLabel(type: AdminTimelineSubjectType): string {
-  return type.replace(/_/g, " ");
-}
 
 /**
  * The per-entity event timeline — every event recorded for ONE worker, payer or job
@@ -22,8 +18,8 @@ export async function EntityTimeline({
   id,
   cursor,
   basePath,
-  backHref,
-  backLabel,
+  back,
+  subjectLabel,
 }: {
   type: AdminTimelineSubjectType;
   id: string;
@@ -31,9 +27,10 @@ export async function EntityTimeline({
   cursor?: string;
   /** This timeline route's own path — where `Pager`'s "Next page" link points. */
   basePath: string;
-  /** Where the eyebrow link returns to — the entity's own detail page. */
-  backHref: string;
-  backLabel: string;
+  /** The entity's own detail page, named as the console names that entity ("Worker 1a2b3c4d"). */
+  back: PageBack;
+  /** The entity in the copy, as the screen calls it: "worker", "company", "agency", "posting". */
+  subjectLabel: string;
 }) {
   let page: Awaited<ReturnType<typeof getEntityTimeline>> | null = null;
   let failed = false;
@@ -45,19 +42,11 @@ export async function EntityTimeline({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <p className="page__eyebrow">
-            <Link className="link" href={backHref}>
-              {backLabel}
-            </Link>
-          </p>
-          <h1 className="page__title">Event timeline</h1>
-          <p className="page__sub">
-            Every event recorded for this {subjectTypeLabel(type)}, newest first.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        back={back}
+        title="Event timeline"
+        description={`Every event recorded for this ${subjectLabel}, newest first.`}
+      />
 
       <section className="panel" aria-labelledby="timeline-results" aria-live="polite">
         <div className="panel__head">
@@ -75,8 +64,8 @@ export async function EntityTimeline({
           <div className="state state--error">
             <h3 className="state__title">The event timeline is unavailable</h3>
             <p className="state__body">
-              The events read failed. The {subjectTypeLabel(type)} record itself came from a
-              separate read and is unaffected. Reload this page to try again.
+              The events read failed. The {subjectLabel} record itself came from a separate
+              read and is unaffected. Reload this page to try again.
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={basePath}>
@@ -88,7 +77,7 @@ export async function EntityTimeline({
           <EventTable
             events={page?.events ?? []}
             emptyMessage="No events recorded yet"
-            emptyBody={`The audit spine fills as this ${subjectTypeLabel(type)} is used. Events will appear here as they are emitted.`}
+            emptyBody={`The audit spine fills as this ${subjectLabel} is used. Events will appear here as they are emitted.`}
           />
         )}
 

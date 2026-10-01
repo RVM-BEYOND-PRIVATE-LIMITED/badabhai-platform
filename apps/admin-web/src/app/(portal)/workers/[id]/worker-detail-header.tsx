@@ -1,11 +1,11 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AdminActionButton } from "../../../../components/admin-action-button";
 import { AdminActionResultBanner } from "../../../../components/admin-action-result-banner";
+import { PageHeader, type PageHeaderContent } from "../../../../components/page-header";
 import { flagWorkerAction, unflagWorkerAction } from "./actions";
 import {
   WORKER_FLAG_REASON_CODES,
@@ -15,8 +15,9 @@ import {
 import type { AdminActionOutcome } from "../../../../lib/admin-action-result";
 
 /**
- * The worker detail header: the server-rendered title block plus the event-timeline link and
- * the (capability-gated) Flag/Unflag controls.
+ * The worker detail header: the shared `PageHeader`, given the server-built title block, with
+ * the (capability-gated) Flag/Unflag controls as its primary action and the journey and
+ * event-timeline links as its secondary ones.
  *
  * There is no `is_flagged` field on `WorkerDetail` — the read model does not expose current
  * flag state, so BOTH controls are offered unconditionally rather than guessed at. That is
@@ -25,13 +26,14 @@ import type { AdminActionOutcome } from "../../../../lib/admin-action-result";
  * success), so the result banner is what tells the operator what was actually true.
  */
 export function WorkerDetailHeader({
-  title,
+  header,
   workerId,
   canFlag,
   timelineHref,
   journeyHref,
 }: {
-  title: ReactNode;
+  /** Back link, title and description, built on the server. */
+  header: PageHeaderContent;
   workerId: string;
   canFlag: boolean;
   timelineHref: string;
@@ -53,18 +55,10 @@ export function WorkerDetailHeader({
 
   return (
     <>
-      <header className="page__head">
-        {title}
-        <div className="page__actions">
-          {journeyHref && (
-            <Link className="btn btn--ghost" href={journeyHref}>
-              View journey
-            </Link>
-          )}
-          <Link className="btn btn--ghost" href={timelineHref}>
-            View event timeline
-          </Link>
-          {canFlag && (
+      <PageHeader
+        {...header}
+        primaryAction={
+          canFlag ? (
             <>
               {/* `.field`, not `.field--check`: that modifier is for an inline CHECKBOX
                   filter and carries `align-self:end` + a `padding-bottom` sized for the
@@ -100,9 +94,21 @@ export function WorkerDetailHeader({
                 onSettled={handleSettled}
               />
             </>
-          )}
-        </div>
-      </header>
+          ) : null
+        }
+        secondaryActions={
+          <>
+            {journeyHref && (
+              <Link className="btn btn--ghost" href={journeyHref}>
+                View journey
+              </Link>
+            )}
+            <Link className="btn btn--ghost" href={timelineHref}>
+              View event timeline
+            </Link>
+          </>
+        }
+      />
       {outcome && <AdminActionResultBanner outcome={outcome} timelineHref={timelineHref} />}
     </>
   );

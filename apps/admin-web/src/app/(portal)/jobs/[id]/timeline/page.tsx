@@ -1,5 +1,6 @@
 import { requireCapability } from "../../../../../lib/auth";
 import { EntityTimeline } from "../../../../../components/entity-timeline";
+import { shortId } from "../../../../../lib/format";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Job posting timeline" };
@@ -22,8 +23,8 @@ export default async function JobTimelinePage({
       id={id}
       cursor={cursor}
       basePath={`/jobs/${id}/timeline`}
-      backHref={`/jobs/${id}`}
-      backLabel="Job posting"
+      back={{ href: `/jobs/${id}`, label: `Posting ${shortId(id)}` }}
+      subjectLabel="posting"
     />
   );
 }

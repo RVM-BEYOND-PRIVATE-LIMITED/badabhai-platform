@@ -27,6 +27,7 @@ import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../
 import { StatusPill } from "../../../../components/status-pill";
 import { Pager } from "../../../../components/pager";
 import { Stat } from "../../../../components/stat";
+import { PageHeader } from "../../../../components/page-header";
 import { SkillDiscoveryFilterBar } from "./filter-bar";
 
 export const dynamic = "force-dynamic";
@@ -246,17 +247,10 @@ export default async function SkillDiscoveryPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <p className="page__eyebrow">Skills</p>
-          <h1 className="page__title">Skill Discovery</h1>
-          <p className="page__sub">
-            AI-surfaced claims that the canonical skill taxonomy may be missing something. Each
-            row is a claim, never a skill — an approval only records a decision; the corpus write
-            stays in the offline, gated chain.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title="Skill Discovery"
+        description="AI-surfaced claims that the canonical skill taxonomy may be missing something. Each row is a claim, never a skill — an approval only records a decision; the corpus write stays in the offline, gated chain."
+      />
 
       <MetricsTiles metrics={metrics} />
 

@@ -15,6 +15,7 @@ import { PaymentsPostureBanner, MockMoneyTag } from "../../../components/payment
 import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { Stat } from "../../../components/stat";
+import { PageHeader } from "../../../components/page-header";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Credits" };
@@ -75,25 +76,26 @@ export default async function CreditsPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Credits</h1>
-          <p className="page__sub">
-            The platform&apos;s outstanding credit liability and every movement behind it.
-          </p>
-        </div>
-        <div className="page__actions">
-          {WINDOWS.map((w) => (
-            <Link
-              className={`btn ${w === windowDays ? "btn--primary" : "btn--ghost"}`}
-              href={`/credits?windowDays=${w}`}
-              key={w}
-            >
-              {w}d
-            </Link>
-          ))}
-        </div>
-      </header>
+      <PageHeader
+        title="Credits"
+        description="The platform's outstanding credit liability and every movement behind it."
+        filters={
+          /* The reporting window is a FILTER on the position below, not an action, so it sits
+             in the filter row under the header rather than in the actions slot. */
+          <nav className="filters--inline" aria-label="Reporting window">
+            {WINDOWS.map((w) => (
+              <Link
+                aria-current={w === windowDays ? "true" : undefined}
+                className={`btn ${w === windowDays ? "btn--primary" : "btn--ghost"}`}
+                href={`/credits?windowDays=${w}`}
+                key={w}
+              >
+                {w}d
+              </Link>
+            ))}
+          </nav>
+        }
+      />
 
       {posture && <PaymentsPostureBanner posture={posture} />}
 

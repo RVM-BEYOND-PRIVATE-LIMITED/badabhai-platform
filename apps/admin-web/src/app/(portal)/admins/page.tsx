@@ -10,6 +10,7 @@ import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Stat } from "../../../components/stat";
 import { InviteAdminForm } from "./invite-admin-form";
 import { AdminRowActions } from "./admin-row-actions";
+import { PageHeader } from "../../../components/page-header";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Admin users" };
@@ -102,26 +103,33 @@ export default async function AdminsPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Admin users</h1>
-          <p className="page__sub">
+      <PageHeader
+        title="Admin users"
+        description={
+          <>
             Who holds access to this portal.{" "}
             {posture === "faceless"
               ? "Names are not served to your role and emails are served to no role at all"
               : "Names are shown to your role and every read of one is audited; emails stay encrypted and are served to no role at all"}{" "}
             — the id is the handle, and it appears on every audit event.
-          </p>
-        </div>
-        {/* The way back to the audit spine. Every governed admin action emits an
-            `admin.action_performed`, and without this the page states that fact and then
-            offers no way to go and read them. */}
-        <div className="page__actions">
+          </>
+        }
+        /* The page's own action, first, as on every other page. The form itself stays at the
+           foot of the page, under the directory it adds to; this is the way to it. */
+        primaryAction={
+          <a className="btn btn--primary" href="#ad-invite">
+            Invite an admin
+          </a>
+        }
+        /* The way back to the audit spine. Every governed admin action emits an
+           `admin.action_performed`, and without this the page states that fact and then
+           offers no way to go and read them. */
+        secondaryActions={
           <Link className="btn btn--ghost" href="/events?eventName=admin.action_performed">
             View all admin actions
           </Link>
-        </div>
-      </header>
+        }
+      />
 
       {posture === "capped" && (
         <IdentityCapNotice>

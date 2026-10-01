@@ -7,6 +7,7 @@ import { EventTable } from "../../components/event-table";
 import { AiSpendPanel } from "../../components/ai-spend-panel";
 import { VolumePanel } from "../../components/volume-panel";
 import { Stat } from "../../components/stat";
+import { PageHeader } from "../../components/page-header";
 import { buildAdminAttention } from "./attention";
 import {
   formatCount,
@@ -81,19 +82,19 @@ export default async function DashboardPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Dashboard</h1>
-          <p className="page__sub">
-            {/* TWO DIFFERENT PERIODS ON ONE SCREEN, said out loud. The event aggregates are
-                windowed; AI spend accrues from migration 0077 and volume is live table
-                state. One "over the last N days" caption over all of them would be wrong
-                about two thirds of the page. */}
+      {/* TWO DIFFERENT PERIODS ON ONE SCREEN, said out loud. The event aggregates are
+          windowed; AI spend accrues from migration 0077 and volume is live table state. One
+          "over the last N days" caption over all of them would be wrong about two thirds of
+          the page. */}
+      <PageHeader
+        title="Dashboard"
+        description={
+          <>
             Event activity over the last {metrics?.window_days ?? "—"} days. AI spend and
             volume below carry their own periods.
-          </p>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       {denied ? (
         <p className="notice notice--warn" role="status">

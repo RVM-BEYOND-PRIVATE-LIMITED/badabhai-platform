@@ -17,6 +17,7 @@ import { Stat } from "../../../../../../components/stat";
 import { StatusPill } from "../../../../../../components/status-pill";
 import { StuckPanel } from "../../../../../../components/stuck-panel";
 import { VoiceAttempts } from "../../../../../../components/voice-attempts";
+import { PageHeader } from "../../../../../../components/page-header";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Interview session" };
@@ -63,26 +64,22 @@ export default async function ChatSessionDetailPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <p className="page__eyebrow">
-            <Link className="link" href={journeyHref}>
-              Journey · worker {shortId(id)}
-            </Link>
-          </p>
-          <h1 className="page__title mono">{shortId(session.id, 12)}</h1>
-          <p className="page__sub">
+      <PageHeader
+        back={{ href: journeyHref, label: "Journey" }}
+        title={shortId(session.id, 12)}
+        titleMono
+        description={
+          <>
             One AI profiling interview — what was asked, what settled, and where it stopped.
-            Started {formatRelative(session.started_at)} ·{" "}
-            {formatTimestamp(session.started_at)}.
-          </p>
-        </div>
-        <div className="page__actions">
+            Started {formatRelative(session.started_at)} · {formatTimestamp(session.started_at)}.
+          </>
+        }
+        secondaryActions={
           <Link className="btn btn--ghost" href={`/workers/${session.worker_id}`}>
             Worker record
           </Link>
-        </div>
-      </header>
+        }
+      />
 
       {mismatched ? (
         <p className="notice notice--warn" role="status">

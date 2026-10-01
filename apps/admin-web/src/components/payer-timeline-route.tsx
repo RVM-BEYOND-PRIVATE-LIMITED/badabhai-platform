@@ -3,6 +3,7 @@ import { requireCapability } from "../lib/auth";
 import { getPayer } from "../lib/entities";
 import { isAdminRequestError } from "../lib/admin-http";
 import { EntityTimeline } from "./entity-timeline";
+import { shortId } from "../lib/format";
 
 /**
  * The shared Companies/Agencies timeline route body — the timeline sibling of
@@ -28,8 +29,8 @@ export async function PayerTimelineRoute({
 
   let payer: Awaited<ReturnType<typeof getPayer>>;
   try {
-    // FACELESS: this page reads `role` and `id` and renders no name (the heading is `kind`,
-    // the literal word "Company"/"Agency"). Asking for the name would charge the egress budget
+    // FACELESS: this page reads `role` and `id` and renders no name (the back link is `kind`
+    // and the short id, "Company 1a2b3c4d…"). Asking for the name would charge the egress budget
     // and write an audit row on every page-turn for a disclosure that never reaches a screen.
     payer = await getPayer(id, { faceless: true });
   } catch (err) {
@@ -47,8 +48,8 @@ export async function PayerTimelineRoute({
       id={payer.id}
       cursor={cursor}
       basePath={`${basePath}/${payer.id}/timeline`}
-      backHref={`${basePath}/${payer.id}`}
-      backLabel={kind}
+      back={{ href: `${basePath}/${payer.id}`, label: `${kind} ${shortId(payer.id)}` }}
+      subjectLabel={kind.toLowerCase()}
     />
   );
 }

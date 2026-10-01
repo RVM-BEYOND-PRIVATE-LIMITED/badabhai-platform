@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { PageHeaderContent } from "../../../../components/page-header";
 import type * as EntitiesModule from "../../../../lib/entities";
 
 /**
@@ -48,10 +49,14 @@ vi.mock("../../../../lib/entities", () => ({
 }));
 
 // The header is a Client Component using `useRouter`, which needs an app-router context this
-// renderer does not provide. Stubbed to render the server-built `title` it is handed.
-vi.mock("./job-detail-header", () => ({
-  JobDetailHeader: ({ title }: { title: unknown }) => title,
-}));
+// renderer does not provide. Stubbed to render the shared PageHeader from the server-built
+// `header` it is handed (back link, title, description) — the part this file asserts on.
+vi.mock("./job-detail-header", async () => {
+  const { PageHeader } = await import("../../../../components/page-header");
+  return {
+    JobDetailHeader: ({ header }: { header: PageHeaderContent }) => <PageHeader {...header} />,
+  };
+});
 
 const { default: JobDetailPage } = await import("./page");
 
@@ -266,5 +271,13 @@ describe("the detail schema is the real contract behind the render", () => {
     const parsed = actual.jobPostingDetailSchema.parse(legacy);
     expect(parsed.role_kind).toBeUndefined();
     expect(parsed.requirements).toBeUndefined();
+  });
+});
+
+describe("the header (owner ruling 2026-10-01)", () => {
+  it("has a back link to the posting list", async () => {
+    const out = await render();
+    expect(out).toContain('<a class="backlink" href="/jobs">');
+    expect(out).toContain("<span>Jobs</span></a>");
   });
 });

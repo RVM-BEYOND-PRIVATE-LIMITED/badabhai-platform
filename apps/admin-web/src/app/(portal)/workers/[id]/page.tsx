@@ -65,31 +65,26 @@ export default async function WorkerDetailPage({
   );
   const name = displayName(worker.full_name);
 
-  const title = (
-    <div>
-      <p className="page__eyebrow">
-        <Link className="link" href="/workers">
-          Workers
-        </Link>
-      </p>
-      {/* `mono` is dropped with the id: it is an opaque-identifier treatment, and a person's
-          name set in a monospace face reads as a machine token rather than as a name. */}
-      <h1 className={name === null ? "page__title mono" : "page__title"}>
-        {name ?? shortId(worker.id)}
-      </h1>
-      <p className="page__sub">
+  // `mono` goes with the id: it is an opaque-identifier treatment, and a person's name set in a
+  // monospace face reads as a machine token rather than as a name.
+  const header = {
+    back: { href: "/workers", label: "Workers" },
+    title: name ?? shortId(worker.id),
+    titleMono: name === null,
+    description: (
+      <>
         {name === null
           ? "One worker account as this portal sees it — what they did."
           : "One worker account as this portal sees it — what they did, and who they are."}{" "}
         Registered {formatRelative(worker.created_at)} · {formatTimestamp(worker.created_at)}.
-      </p>
-    </div>
-  );
+      </>
+    ),
+  };
 
   return (
     <div className="page">
       <WorkerDetailHeader
-        title={title}
+        header={header}
         workerId={worker.id}
         canFlag={can(session.capabilities, "flag_worker")}
         timelineHref={timelineHref}

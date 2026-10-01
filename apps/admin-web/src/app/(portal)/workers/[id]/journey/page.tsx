@@ -9,6 +9,7 @@ import { CaveatList } from "../../../../../components/caveat-list";
 import { JourneyFunnel } from "../../../../../components/journey-funnel";
 import { Pager } from "../../../../../components/pager";
 import { StatusPill } from "../../../../../components/status-pill";
+import { PageHeader } from "../../../../../components/page-header";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Worker journey" };
@@ -82,43 +83,36 @@ export default async function WorkerJourneyPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <p className="page__eyebrow">
-            <Link className="link" href={`/workers/${id}`}>
-              Worker {shortId(id)}
+      <PageHeader
+        back={{ href: `/workers/${id}`, label: `Worker ${shortId(id)}` }}
+        title="Journey"
+        description="What this worker completed, and where they stopped. Question keys and outcomes only — none of their words are served to this portal."
+        secondaryActions={
+          <>
+            {mayReadFeedback ? (
+              /* THE HALF THIS SCREEN CANNOT SEE. Everything below is behaviour with no words:
+                 it can show that a worker stopped at question four and never say why. If they
+                 told us, they told us here — and the alternative today is paging the whole
+                 feedback list reading everyone else's messages looking for theirs, which is
+                 both slower and a worse privacy posture than a lookup on an id already on the
+                 screen. */
+              <Link
+                className="btn btn--ghost"
+                /* ENCODED, unlike the path links beside it. A path segment with a stray `#` or
+                   `&` in it still resolves to a route that 404s; the same characters in a query
+                   value silently truncate the filter, and a truncated `workerId` is a page that
+                   shows every worker's messages while the button that opened it said one. */
+                href={`/feedback?workerId=${encodeURIComponent(id)}`}
+              >
+                What they told us
+              </Link>
+            ) : null}
+            <Link className="btn btn--ghost" href={`/workers/${id}/timeline`}>
+              View event timeline
             </Link>
-          </p>
-          <h1 className="page__title">Journey</h1>
-          <p className="page__sub">
-            What this worker completed, and where they stopped. Question keys and outcomes
-            only — none of their words are served to this portal.
-          </p>
-        </div>
-        <div className="page__actions">
-          {mayReadFeedback ? (
-            /* THE HALF THIS SCREEN CANNOT SEE. Everything below is behaviour with no words:
-               it can show that a worker stopped at question four and never say why. If they
-               told us, they told us here — and the alternative today is paging the whole
-               feedback list reading everyone else's messages looking for theirs, which is
-               both slower and a worse privacy posture than a lookup on an id already on the
-               screen. */
-            <Link
-              className="btn btn--ghost"
-              /* ENCODED, unlike the path links beside it. A path segment with a stray `#` or
-                 `&` in it still resolves to a route that 404s; the same characters in a query
-                 value silently truncate the filter, and a truncated `workerId` is a page that
-                 shows every worker's messages while the button that opened it said one. */
-              href={`/feedback?workerId=${encodeURIComponent(id)}`}
-            >
-              What they told us
-            </Link>
-          ) : null}
-          <Link className="btn btn--ghost" href={`/workers/${id}/timeline`}>
-            View event timeline
-          </Link>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       {/* The honest-absence channel, above the figures it qualifies. */}
       {journey ? <CaveatList caveats={journey.caveats} headingId="journey-caveats" /> : null}
