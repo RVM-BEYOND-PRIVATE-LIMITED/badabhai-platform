@@ -96,6 +96,16 @@ vi.mock("./account-menu", () => ({
   }),
 }));
 
+// The balance chip is a client component (hooks: its tooltip's Escape listener); its own markup
+// is balance-chip.test.tsx. Here the stand-in records what the LAYOUT hands it.
+const chipCalls: Array<{ balance: number; linkToCredits: boolean }> = [];
+vi.mock("./balance-chip", () => ({
+  BalanceChip: (p: { balance: number; linkToCredits: boolean }) => {
+    chipCalls.push(p);
+    return { type: "span", props: { children: `chip:${p.balance}` } };
+  },
+}));
+
 const { default: PortalLayout } = await import("./layout");
 
 interface Collected {
@@ -160,6 +170,7 @@ beforeEach(() => {
   getOrgRole.mockReset();
   getCredits.mockReset();
   flags.agencyPortalEnabled = true;
+  chipCalls.length = 0;
 });
 
 describe("portal nav — Owner-only links by getOrgRole (affordance, NOT authz)", () => {
@@ -235,29 +246,24 @@ describe("portal identity — the compact account menu mounts in the shell", () 
 });
 
 describe("portal balance chip — fail-soft courtesy read", () => {
-  it("shows the live balance, in CREDITS (the unit every billing surface uses)", async () => {
+  it("hands the chip the LIVE balance", async () => {
     const { text } = await render({ balance: 247 });
-    expect(text).toContain("247");
-    expect(text).toContain("credits");
-    expect(text).not.toContain("unlocks");
-  });
-
-  it("says '1 credit', not '1 credits' (the number and the unit are two words)", async () => {
-    const { text } = await render({ balance: 1 });
-    expect(text.replace(/\s+/g, " ")).toMatch(/\b1 credit\b/);
-    expect(text).not.toContain("credits");
+    expect(text).toContain("chip:247");
+    expect(chipCalls.map((c) => c.balance)).toEqual([247]);
   });
 
   it("hides the chip (never throws) when the credits read fails", async () => {
     const { hrefs, text } = await render({ creditsThrows: true });
     // shell still renders — nav intact, no balance chip
     expect(hrefs).toContain("/dashboard");
-    expect(text).not.toMatch(/\bcredits?\b/);
+    expect(chipCalls).toEqual([]);
+    expect(text).not.toContain("chip:");
   });
 
-  it("links to Credits for an OWNER only (a recruiter's /credits is a 404)", async () => {
-    expect((await render({ orgRole: "owner" })).hrefs).toContain("/credits");
-    expect((await render({ orgRole: "recruiter" })).hrefs).not.toContain("/credits");
+  it("the chip links to Credits for an OWNER only (a recruiter's /credits is a 404)", async () => {
+    await render({ orgRole: "owner", balance: 5 });
+    await render({ orgRole: "recruiter", balance: 5 });
+    expect(chipCalls.map((c) => c.linkToCredits)).toEqual([true, false]);
   });
 });
 

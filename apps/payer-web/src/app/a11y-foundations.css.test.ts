@@ -1039,11 +1039,17 @@ describe("W3-A · 6 — the portal reflows to 320px", () => {
     );
   });
 
-  it("phones + touch: the trail's section link is a 44px-tall target that never reaches sideways", () => {
+  it("phones + touch: the trail's section link is a 44px target (tall AND wide) that never reaches sideways", () => {
     const CTX = `@media (${PHONE}), (pointer: coarse)`;
     const host = one(G, ".pcrumb__link", "pointer: coarse");
     expect(host.at).toBe(CTX);
-    expect(props(host)).toEqual(["isolation", "position"]);
+    expect(props(host)).toEqual(["isolation", "min-width", "position"]);
+    // A short label ("Team", ~32px) is still a 44px-wide target: the link's own box grows (its
+    // strip spans that box), so the strip never has to reach sideways.
+    expect(decl(host, "min-width")).toBe("var(--control-md)");
+    // …and it comes after the base rule's `min-width: 0` (equal specificity: order decides).
+    const base = G.findIndex((r) => r.selector === ".pcrumb__link" && r.at === "");
+    expect(G.indexOf(host)).toBeGreaterThan(base);
     const strip = one(G, ".pcrumb__link::before", "pointer: coarse");
     expect(strip.at).toBe(CTX);
     expect(props(strip)).toEqual(["content", "inset-block", "inset-inline", "position", "z-index"]);
@@ -1055,6 +1061,36 @@ describe("W3-A · 6 — the portal reflows to 320px", () => {
     expect(sumPx(decl(one(G, ".pshell__header"), "min-height")!)).toBeGreaterThanOrEqual(
       tokenPx("--control-md"),
     );
+  });
+
+  it("<375px: the trail is not drawn at all — no room for a 44px link beside the actions", () => {
+    // Measured at 320px with a 4-digit balance: the trail squeezed to ~3px, its link still
+    // focusable as a sliver. From 375px it keeps ≥44px (measured with a 5-digit balance).
+    const r = one(G, ".pcrumb", "max-width: 374px");
+    expect(r.at).toBe("@media (max-width: 374px)");
+    expect(props(r)).toEqual(["display"]);
+    expect(decl(r, "display")).toBe("none");
+    // No other context hides the whole trail.
+    expect(
+      G.filter((x) => x.selector === ".pcrumb" && decl(x, "display") === "none").map((x) => x.at),
+    ).toEqual(["@media (max-width: 374px)"]);
+  });
+
+  it("≤540px the chip's hidden words are its TOOLTIP too; wider, the tooltip never shows", () => {
+    // The chip is the tooltip's containing block at every width…
+    expect(decl(one(G, ".pshell__balance"), "position")).toBe("relative");
+    // …the tooltip is hidden exactly where the words are visible: from 541px, the complement of
+    // the ≤540px rule that clips the unit word.
+    const wide = one(G, ".pshell__balance > .bb-icon-tip", "min-width");
+    expect(wide.at).toBe("@media (min-width: 541px)");
+    expect(props(wide)).toEqual(["display"]);
+    expect(decl(wide, "display")).toBe("none");
+    expect(Number(wide.at.match(/(\d+)px/)![1])).toBe(Number(NARROW.match(/(\d+)px/)![1]) + 1);
+    // Both chips (the owner's link and the static one) carry the shared tooltip, aria-hidden (the
+    // link's accessible name already says it), with the hidden words.
+    const chip = readFileSync(join(here, "(portal)", "balance-chip.tsx"), "utf8");
+    expect(offsets(chip, 'className="bb-icon-tip bb-icon-tip--bottom-end" aria-hidden="true"')).toHaveLength(1);
+    expect(chip).toContain("aria-label={`${words} — open Credits`}");
   });
 
   it("≤600px: a page head's action group may shrink to its row and wrap its own controls", () => {

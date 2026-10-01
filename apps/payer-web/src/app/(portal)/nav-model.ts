@@ -92,6 +92,14 @@ export interface NavItem {
    */
   match: NavMatch;
   /**
+   * The pages ONE level below this destination carry a back link to it (a posting's details →
+   * Postings; Post with AI → New posting). The header trail then names this destination as
+   * plain text on those pages — the back link is the way up, and one page offers one door per
+   * destination. Deeper pages (a posting's applicants) keep it as a link. Leave unset for a
+   * destination whose children have no back link to it (/team/accept is an invite landing).
+   */
+  childrenLinkBack?: boolean;
+  /**
    * REACHABLE but parked: the route renders a real page that explains what is not built yet.
    * It stays a normal link — the destination is an explanation, not a dead end — and carries a
    * SOON badge so the rail sets the right expectation before the click. A route whose gate
@@ -161,10 +169,10 @@ const AGENCY_POSTINGS_MATCH: NavMatch = {
 };
 const AGENCY_NEW_POSTING_MATCH: NavMatch = { exact: ["/agency/jobs/new"] };
 /**
- * /capacity is the hiring-capacity part of Plans & capacity (plans embeds the same
- * CapacityPanel); it has no nav entry of its own and lights its parent.
+ * Plans & capacity. (/capacity is a redirect to its Hiring capacity section, so it never
+ * renders a page that could light anything.)
  */
-const PLANS_MATCH: NavMatch = { prefix: ["/plans", "/capacity"] };
+const PLANS_MATCH: NavMatch = { prefix: ["/plans"] };
 
 const DASHBOARD_MATCH: NavMatch = { exact: ["/dashboard"] };
 
@@ -228,6 +236,7 @@ function companySections({ isOwner }: NavModelInput): NavSection[] {
           icon: ACTION_ICON.create,
           description: "Describe the role and publish it to matched workers.",
           match: POSTINGS_NEW_MATCH,
+          childrenLinkBack: true,
         },
         {
           href: "/postings",
@@ -235,6 +244,7 @@ function companySections({ isOwner }: NavModelInput): NavSection[] {
           icon: ACTION_ICON.posting,
           description: "Manage your postings and review their applicants.",
           match: POSTINGS_LIST_MATCH,
+          childrenLinkBack: true,
         },
       ],
     },
@@ -288,6 +298,7 @@ function agencySections({ isOwner, agencyPortalEnabled }: NavModelInput): NavSec
             icon: ACTION_ICON.posting,
             description: "Your agency's postings — edit, pause, resume and close them.",
             match: AGENCY_POSTINGS_MATCH,
+            childrenLinkBack: true,
           },
         ],
       },

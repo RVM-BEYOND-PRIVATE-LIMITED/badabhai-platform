@@ -80,8 +80,10 @@ describe("nav model — which paths light which item up", () => {
     expect(activeHrefs("/postings/new")).toEqual(["/postings/new"]);
   });
 
-  it("/capacity folds into Plans & capacity rather than lighting nothing", () => {
-    expect(activeHrefs("/capacity")).toEqual(["/plans"]);
+  it("/capacity lights nothing — it is a redirect to Plans & capacity, never a rendered page", () => {
+    // (capacity/page.tsx only redirects: a company to /plans#hiring-capacity, an agent to the
+    // dashboard — the w3b page-gate suite pins both.)
+    expect(activeHrefs("/capacity")).toEqual([]);
   });
 
   it("exactly one item is active on every ordinary route (no double highlight)", () => {

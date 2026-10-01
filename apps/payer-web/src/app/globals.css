@@ -384,8 +384,9 @@ body {
 }
 
 /* Wallet position — the number a payer checks most, and the one that blocks the core loop
-   at zero. Money is green in this system. */
+   at zero. Money is green in this system. Positioned: it is its tooltip's containing block. */
 .pshell__balance {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -632,6 +633,14 @@ body {
     display: none;
   }
 }
+/* …and there the chip's TOOLTIP carries the hidden words ("247 credits", balance-chip.tsx: the
+   shared `.bb-icon-tip`, on hover and keyboard focus, Escape-dismissable). Wider, the words are
+   on the chip itself, so the tooltip never shows. */
+@media (min-width: 541px) {
+  .pshell__balance > .bb-icon-tip {
+    display: none;
+  }
+}
 /* Phones: the trail keeps only its LAST step, which ellipsizes — the group on a top-level page,
    the section link on a page below it (the page itself is never a step: its H1 names it). The
    earlier steps are `nowrap` text, so in the little width a phone header leaves the trail they
@@ -652,6 +661,8 @@ body {
   .pcrumb__link {
     position: relative;
     isolation: isolate;
+    /* A short label ("Team") is still a 44px-wide target; the strip spans the link's box. */
+    min-width: var(--control-md);
   }
   .pcrumb__link::before {
     content: "";
@@ -659,6 +670,15 @@ body {
     z-index: calc(var(--z-base) - 1);
     inset-block: calc((100% - var(--control-md)) / 2);
     inset-inline: 0;
+  }
+}
+/* The narrowest phones (<375px) have no room for the trail beside the brand, the balance and
+   the account menu: it squeezed to a few pixels — a link still focusable as a 3px sliver. It is
+   not drawn there at all; the page's H1 and back link carry the context. (At 375px and up, with
+   a 5-digit balance, it keeps ≥44px — measured.) */
+@media (max-width: 374px) {
+  .pcrumb {
+    display: none;
   }
 }
 

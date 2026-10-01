@@ -1,12 +1,12 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requirePayer } from "../../lib/auth";
 import { getOrgRole } from "../../lib/auth/org-roles";
 import { agencyFlags } from "../../lib/config";
 import { getCredits } from "../../lib/payer-api";
 import { BadaBhaiLogo, Badge, ThemeToggle } from "../../components/ds";
 import { AccountMenu } from "./account-menu";
+import { BalanceChip } from "./balance-chip";
 import { AppShell } from "./app-shell";
 import { navSections } from "./nav-model";
 import { PortalBreadcrumb } from "./portal-breadcrumb";
@@ -87,22 +87,9 @@ export default async function PortalLayout({ children }: { children: ReactNode }
               /* The balance is the number a payer checks most often and the one that blocks
                  the core loop when it hits zero, so for an owner it is a LINK to Credits rather
                  than a decorative chip. Recruiters have no /credits route, so it stays
-                 display-only for them. Below ~540px the unit word is visually hidden (it
-                 stays in the accessible name, "247 credits" — the space between the two spans
-                 is for that name; the flex row ignores it). */
-              isOwner ? (
-                <Link className="pshell__balance" href="/credits">
-                  <Icon name={ACTION_ICON.credits} />
-                  <span className="ui-num pshell__balancenum">{balance}</span>{" "}
-                  <span className="pshell__balancelabel">{creditUnit(balance)}</span>
-                </Link>
-              ) : (
-                <span className="pshell__balance pshell__balance--static">
-                  <Icon name={ACTION_ICON.credits} />
-                  <span className="ui-num pshell__balancenum">{balance}</span>{" "}
-                  <span className="pshell__balancelabel">{creditUnit(balance)}</span>
-                </span>
-              )
+                 display-only for them. Below ~540px its unit word is hidden visually; the chip
+                 keeps an accessible name and a tooltip (balance-chip.tsx). */
+              <BalanceChip balance={balance} linkToCredits={isOwner} />
             ) : null}
             {/* Light/dark theme — a per-user display preference, role-agnostic. */}
             <ThemeToggle />
@@ -130,9 +117,4 @@ export default async function PortalLayout({ children }: { children: ReactNode }
       {children}
     </AppShell>
   );
-}
-
-/** "1 credit", "0 credits", "247 credits". */
-function creditUnit(balance: number): string {
-  return balance === 1 ? "credit" : "credits";
 }
