@@ -792,33 +792,66 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// on a resumed transcript, where nothing is recorded.
   String? _askedQuestionId;
 
-  /// ADR-0048 — the FIRST name the intake captured, held so a separate surname
-  /// answer can be joined to it. Bloc-local and never shown on its own once
-  /// [ChatState.workerName] carries the joined name; a session restart clears
-  /// the whole state, and this with it.
+  /// ADR-0048 — the name parts the intake captured, held until the server's
+  /// next question shows the name steps are DONE. The first name is held whether
+  /// it was one word (a surname is still to come) or a full name (the server
+  /// then skips the surname); the surname is held tentatively until the reply
+  /// proves the server did not re-ask for it.
   String? _intakeFirstName;
+  String? _intakeLastName;
 
-  /// ADR-0048 — the worker's name after answering [questionKey] with [answer],
-  /// or null when this turn answered no identity-name question (or the answer
-  /// is blank). The FIRST-name answer is the whole name when it is 2+ words
-  /// (D3: the surname step is then skipped); otherwise a later surname answer
-  /// appends to it. Title-cased with the shared [titleCaseName] the server's
-  /// `titleCaseName` mirrors, so the header and the stored record spell the
-  /// name the same way.
-  String? _capturedWorkerName(String? questionKey, String answer) {
+  /// ADR-0048 — true once [ChatState.workerName] has been revealed, so the
+  /// one-shot reveal (and its flight) fires exactly once for the intake.
+  bool _nameRevealed = false;
+
+  /// Capture one name answer TENTATIVELY. Does NOT reveal: whether the name is
+  /// complete is the SERVER's call, read from its next question in
+  /// [_revealNameIfComplete].
+  void _captureNameAnswer(String? questionKey, String answer) {
     final String value = answer.trim();
-    if (value.isEmpty) return null;
+    if (value.isEmpty) return;
     if (questionKey == kChatFirstNameQuestionKey) {
-      final String first = titleCaseName(value);
-      _intakeFirstName = first;
-      return first;
+      _intakeFirstName = titleCaseName(value);
+      // A fresh first name invalidates a surname captured for an earlier ask.
+      _intakeLastName = null;
+    } else if (questionKey == kChatLastNameQuestionKey) {
+      _intakeLastName = titleCaseName(value);
     }
-    if (questionKey == kChatLastNameQuestionKey) {
-      final String last = titleCaseName(value);
-      final String? first = _intakeFirstName;
-      return (first == null || first.isEmpty) ? last : '$first $last';
+  }
+
+  /// The name to reveal once the SERVER's next question [nextQuestionKey] proves
+  /// the name steps are done — or null while they are not.
+  ///
+  /// THE SERVER DECIDES, NOT THE ANSWER'S SHAPE. D3 lets the model skip the
+  /// surname when the first answer was already a full name (after its own cue
+  /// strip — "mera naam Rishi Ojha hai" is two words to the server, four to the
+  /// app), and D1 skips it after a second non-answer; neither is visible in the
+  /// text. What IS on the wire is the next `asked_question_id`: it is
+  /// `worker_last_name` exactly while a surname is still wanted, and every other
+  /// value (state, city, the next opening, or null) means the name steps are
+  /// over. So the reveal rides that, never a client-side word count.
+  String? _revealNameIfComplete(String? nextQuestionKey) {
+    if (_nameRevealed) return null;
+    if (_intakeFirstName == null && _intakeLastName == null) return null;
+    if (nextQuestionKey == kChatFirstNameQuestionKey) {
+      // Re-asked: the first name was refused, so nothing about it is held.
+      _intakeFirstName = null;
+      _intakeLastName = null;
+      return null;
     }
-    return null;
+    if (nextQuestionKey == kChatLastNameQuestionKey) {
+      // Still wanted. The first name is accepted; drop a surname the server just
+      // refused to write (it re-asks a non-answer once before skipping).
+      _intakeLastName = null;
+      return null;
+    }
+    final String first = _intakeFirstName?.trim() ?? '';
+    final String last = _intakeLastName?.trim() ?? '';
+    final String name =
+        <String>[if (first.isNotEmpty) first, if (last.isNotEmpty) last].join(' ');
+    if (name.isEmpty) return null;
+    _nameRevealed = true;
+    return name;
   }
 
   Future<void> _onStarted(ChatStarted event, Emitter<ChatState> emit) async {
@@ -996,12 +1029,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // worker bubble failed later (#343).
     final int index = state.messages.length;
 
-    // ADR-0048 — capture the worker's name the moment the identity intake's name
-    // question is answered, so the header can carry it (and fly it up from the
-    // bubble). Null on every other turn, which keeps the last captured name
-    // (ChatState.copyWith is sticky for this field).
-    final String? revealedName =
-        _capturedWorkerName(state.askedQuestionKey, text);
+    // ADR-0048 — hold the name answer TENTATIVELY. It is not revealed into
+    // `ChatState.workerName` (and so does not fly) until the server's reply shows
+    // the name steps are done — see [_revealNameIfComplete].
+    _captureNameAnswer(state.askedQuestionKey, text);
     // #761 — OPTIMISTIC LOOKAHEAD. If the tapped option carries a server
     // prediction WITH a next question (a `close`-shaped prediction has a null
     // key and is skipped — its closing line is not latency-critical), render the
@@ -1048,9 +1079,6 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // filtered out above by the `predicted.questionKey != null` guard, so
         // this branch can never itself be predicting a handover card back in.
         clearFormOffer: true,
-        // ADR-0048 — a captured name rides the optimistic emit too, so the
-        // header reacts the instant the worker answers.
-        workerName: revealedName,
       ));
     } else {
       // No usable prediction → EXACTLY today's behaviour: show the typing
@@ -1079,9 +1107,6 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // handover turn also ends the session, so this send is rare, but a stale
         // card must never survive it.
         clearFormOffer: true,
-        // ADR-0048 — a captured name rides the send emit, so the header reacts
-        // the instant the worker answers.
-        workerName: revealedName,
       ));
     }
 
@@ -1142,6 +1167,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       }
       final ChatTurn turn = sent;
       _inFlightSends--;
+      // ADR-0048 — the server's reply names the NEXT question. When it is no
+      // longer one of the name steps, the name is complete and this is where it
+      // is revealed (and so where it flies, exactly once). Null on every other
+      // turn, which keeps the last reveal (copyWith is sticky for the field).
+      final String? revealedName = _revealNameIfComplete(turn.askedQuestionId);
       // #761 — RECONCILE the optimistic lookahead render. The real reply is
       // ALWAYS authoritative: when an optimistic predicted bubble is on screen
       // (predictedQuestionKey != null) we REPLACE it rather than append a second
@@ -1247,6 +1277,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // ADR-0044 — TURN-SCOPED: a companion answer keeps the tab in companion
         // mode; an interview reply (a 409 fallback) takes it out.
         companion: turn.companion,
+        // ADR-0048 — the name, on the one reply where the server shows the name
+        // steps are done. Null everywhere else.
+        workerName: revealedName,
       ), turn));
       // ADR-0044 — a companion answer is not an interview ask: it must not feed
       // the per-ask funnel, the wrap-up milestone, the answered-facts store or
@@ -1328,6 +1361,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     _askedQuestionId = null;
     _companionDigestKey = null;
     _companionReadAt = null;
+    // ADR-0048 — the interview this falls back to may run the identity intake,
+    // so drop any name held by the companion turn and re-arm the reveal.
+    _intakeFirstName = null;
+    _intakeLastName = null;
+    _nameRevealed = false;
   }
 
   /// #1753 — log a companion chip tap through the same sink as every other
@@ -1717,6 +1755,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     _restarting = true;
     _askedQuestionId = null;
     _wrapUpLogged = false;
+    // ADR-0048 — a new interview re-asks any identity gap, so the held name
+    // parts are dropped and the reveal arms again.
+    _intakeFirstName = null;
+    _intakeLastName = null;
+    _nameRevealed = false;
     // The worker ASKED for this interview; a refocus must not take it away.
     _holdInterview = true;
     _inFlightSends = 0;
@@ -1745,6 +1788,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// the voice pipeline sent the transcript through ChatRepository.sendMessage.
   void _onVoiceMerged(ChatVoiceMerged event, Emitter<ChatState> emit) {
     _holdInterview = true;
+    // ADR-0048 — a SPOKEN name is still a name: hold it tentatively against the
+    // question the state is still on. This event carries no next
+    // `asked_question_id`, so the reveal waits for the next reply (or is never
+    // needed if the worker types from then on).
+    _captureNameAnswer(state.askedQuestionKey, event.transcript);
     // The voice pipeline returns only the reply text (no followups), so clear
     // any stale chips from the previous typed turn.
     emit(state.copyWith(
@@ -1774,10 +1822,6 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // #1559 / #1583 — the merge carries no answer_type either: the answered
       // question's tick row / Haan-Nahi / keypad must not outlive it.
       clearAnswerType: true,
-      // ADR-0048 — a SPOKEN name is still a name: capture it from the merged
-      // transcript against the question the state is still on. Null for every
-      // other question, which keeps the last capture.
-      workerName: _capturedWorkerName(state.askedQuestionKey, event.transcript),
     ));
     // #1316 — a voice answer is an answered ask too: the transcript was already
     // sent server-side and is merged (recorded) here, so emit its per-ask index
