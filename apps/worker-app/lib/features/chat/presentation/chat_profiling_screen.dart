@@ -1795,36 +1795,27 @@ class _ChatViewState extends State<_ChatView> {
         AppSpacing.s4,
         AppSpacing.s3,
       ),
+      // A LABELLED CTA, NOT A SECOND BARE MIC (owner request). This sat directly
+      // above the composer's dictation mic wearing the same `Icons.mic` and the
+      // same words, so one screen read as two mics for one job. They are two
+      // jobs: the composer's mic types what you say into the field as you speak,
+      // this one records a note, has it transcribed and drops the text back for
+      // review. A distinct glyph AND words on the face carry that difference; a
+      // bare second yellow circle cannot.
+      //
+      // The kit's own CTA rather than a hand-rolled pill: its `FittedBox` scales
+      // a long Hinglish label down instead of painting overflow stripes inside
+      // the control, which a fixed-width pill does at 320dp and text scale 2.0.
+      // `buttonKey` keeps the handle a test needs on THIS voice entry — the
+      // screen carries three (this one, the composer's dictation mic and the
+      // interview's voice note) and only this one rides the v2 lever.
       child: _capped(
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Semantics(
-              button: true,
-              label: 'Bolkar likhein',
-              // Named so a test can assert on THIS mic. The screen carries three
-              // (this one, the composer's dictation button and the interview's
-              // voice note), and only this one rides the v2 lever.
-              child: Material(
-                key: kCompanionVoiceButtonKey,
-                color: OnboardingColors.safetyYellow,
-                shape: const CircleBorder(),
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: _openCompanionVoiceNote,
-                  child: const SizedBox(
-                    width: AppSpacing.tap,
-                    height: AppSpacing.tap,
-                    child: Icon(
-                      Icons.mic,
-                      color: OnboardingColors.textOnYellow,
-                      size: 24,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
+        PrimaryActionButton(
+          buttonKey: kCompanionVoiceButtonKey,
+          label: kCompanionVoiceLabel,
+          leadingIcon: Icons.voice_chat,
+          showArrow: false,
+          onPressed: _openCompanionVoiceNote,
         ),
       ),
     );
@@ -1978,8 +1969,14 @@ class _ChatViewState extends State<_ChatView> {
             ),
           );
         }
+        // KEEPS THE PLAIN MIC, AND KEEPS ITS OWN WORDS. This is the keyboard
+        // slot's dictation affordance — the one glyph every worker already
+        // reads as "speak instead of typing" — so it is the companion's voice
+        // NOTE entry that was re-dressed, never this. Its wording must stay
+        // different from [kCompanionVoiceLabel]: these two sit one above the
+        // other and the label is the only thing that says which does which.
         return IconButton(
-          tooltip: 'Bolkar likhein',
+          tooltip: kComposerDictationLabel,
           onPressed: _startDictation,
           style: _composerActionStyle,
           icon: const Icon(
@@ -3400,6 +3397,25 @@ String kCooldownComposerText(DateTime until) {
 /// The companion composer's mic (ADR-0046 F3) — keyed because this screen draws
 /// three mics and only this one is gated by the v2 lever.
 const Key kCompanionVoiceButtonKey = ValueKey<String>('companion-voice-button');
+
+/// What the two VISIBLE voice controls say, and why they must never say the
+/// same thing.
+///
+/// The companion draws both at once, one above the other, and until #1884 both
+/// wore `Icons.mic` and the words "Bolkar likhein" — so the screen offered a
+/// worker two identical mics and no way to tell them apart. They do different
+/// work:
+///
+///  * [kComposerDictationLabel] — the composer's trailing mic. On-device
+///    dictation: speak and the words appear in the field as you go.
+///  * [kCompanionVoiceLabel] — the pill above it. Records a note, uploads it to
+///    be transcribed, and lands the text back in the composer to check.
+///
+/// "record karein" and not "bhejein" on the pill: it does NOT send. The worker
+/// still reads the transcript and presses send, and a label that promised
+/// otherwise would be a lie about where their words went.
+const String kComposerDictationLabel = 'Bolkar likhein';
+const String kCompanionVoiceLabel = 'Awaaz note record karein';
 
 /// What an edit row's operation DOES, in the worker's words. `section_label`
 /// names the section only, so without these a row is ambiguous between adding

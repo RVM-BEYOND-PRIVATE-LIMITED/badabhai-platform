@@ -1017,6 +1017,41 @@ void main() {
     expect(find.text('Welding'), findsNothing);
   });
 
+  // ── #1884 — THE TWO VISIBLE VOICE CONTROLS MUST READ DIFFERENTLY ───────────
+  testWidgets('the companion voice entry names itself and does not repeat the composer mic',
+      (WidgetTester tester) async {
+    companionSwitch(true);
+    final SemanticsHandle handle = tester.ensureSemantics();
+    await pumpTab(tester);
+
+    // Both are on screen at once. That is the point of the test: they are two
+    // different jobs, so the worker must be able to tell which is which.
+    expect(find.byKey(kCompanionVoiceButtonKey), findsOneWidget);
+    expect(find.byTooltip(kComposerDictationLabel), findsOneWidget);
+
+    // The pill carries WORDS, not just a second mic glyph.
+    expect(
+      find.descendant(
+        of: find.byKey(kCompanionVoiceButtonKey),
+        matching: find.text(kCompanionVoiceLabel),
+      ),
+      findsOneWidget,
+    );
+
+    // And a glyph of its own — the bare mic belongs to the dictation slot.
+    expect(
+      find.descendant(
+        of: find.byKey(kCompanionVoiceButtonKey),
+        matching: find.byIcon(Icons.mic),
+      ),
+      findsNothing,
+    );
+
+    // The wording differs. Shipping the same label on both is the bug (#1884).
+    expect(kCompanionVoiceLabel, isNot(kComposerDictationLabel));
+    handle.dispose();
+  });
+
   // ── ADR-0046 F3 — THE COMPANION VOICE BUTTON ───────────────────────────────
   testWidgets('the voice button opens the voice screen in COMPOSE mode and lands the transcript in the composer',
       (WidgetTester tester) async {
@@ -1024,7 +1059,7 @@ void main() {
     final SemanticsHandle handle = tester.ensureSemantics();
     await pumpTab(tester);
 
-    await tester.tap(find.bySemanticsLabel('Bolkar likhein'));
+    await tester.tap(find.bySemanticsLabel(kCompanionVoiceLabel));
     await tester.pumpAndSettle();
 
     // `extra: true` reached the route: the stand-in renders its compose face.
