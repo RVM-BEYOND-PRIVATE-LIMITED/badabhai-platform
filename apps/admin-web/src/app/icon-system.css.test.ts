@@ -127,3 +127,171 @@ describe("IconButton — 44px hit area on a phone or coarse pointer", () => {
     expect(decl(body(".iconbtn"), "position")).toBe("relative");
   });
 });
+
+/**
+ * Owner brief 2026-10-01 (item 6): glyphs in the nav, the matrix and the disclosures, aligned
+ * from the shared size/gap tokens, and 44px targets on touch for the small text links.
+ */
+describe("nav, matrix and disclosure glyphs", () => {
+  it("the nav glyph sizes from the shared scale and takes the row's colour", () => {
+    const icon = body(".sidebar__icon");
+    expect(decl(icon, "font-size")).toBe("var(--icon-size-sm)");
+    expect(decl(icon, "color")).toBeNull();
+    expect(decl(body(".sidebar__link"), "gap")).toBe("var(--icon-gap)");
+  });
+
+  it("the back link and an icon link set their glyph from the scale, at the shared gap", () => {
+    expect(decl(body(".backlink"), "gap")).toBe("var(--icon-gap)");
+    expect(decl(body(".backlink .ph-fill"), "font-size")).toBe("var(--icon-size-sm)");
+    expect(decl(body(".link--icon"), "align-items")).toBe("center");
+    expect(decl(body(".link--icon .ph-fill"), "font-size")).toBe("var(--icon-size-sm)");
+  });
+
+  it("a `not granted` mark is the 60% secondary step, not the near-invisible faint one", () => {
+    expect(decl(body(".mark--no"), "color")).toBe("var(--icon-secondary)");
+  });
+
+  it("the browser's disclosure triangle is hidden wherever the brand caret replaces it", () => {
+    for (const s of [".reviewgroup > summary", ".enroll__manual > summary"]) {
+      expect(decl(body(s), "list-style"), s).toBe("none");
+      expect(decl(body(`${s}::-webkit-details-marker`), "display"), s).toBe("none");
+    }
+  });
+
+  it("the caret points along the line when closed and down when open", () => {
+    expect(decl(body(".disclosure__caret"), "transform")).toBe("rotate(-90deg)");
+    expect(decl(body("details[open] > summary > .disclosure__caret"), "transform")).toBe("none");
+    expect(decl(body(".disclosure__caret"), "font-size")).toBe("var(--icon-size-sm)");
+  });
+});
+
+/**
+ * The breadcrumb at phone width: the group name goes once a section follows it (the drawer
+ * names it), and the caret that OPENS the next crumb goes with it — otherwise the trail starts
+ * with a separator ("› Workers"). The crumbs are `li`s with the caret inside the step it opens.
+ */
+describe("the breadcrumb at phone width", () => {
+  const PHONE = "@media (max-width: 600px)";
+  it("drops the group and the leading caret together, and only when a section follows", () => {
+    const rule = ALL.find(
+      (r) =>
+        r.atRules.join() === PHONE &&
+        r.selector ===
+          ".crumb--group:not(:last-child), .crumb--group:not(:last-child) + .crumb__step > .crumb__sep",
+    );
+    expect(rule).toBeDefined();
+    expect(decl(rule!.body, "display")).toBe("none");
+  });
+
+  it("keeps the group when it is the whole crumb (a top-level page)", () => {
+    const hidesBareGroup = ALL.filter(
+      (r) =>
+        r.selector.split(",").some((s) => s.trim() === ".crumb--group") &&
+        decl(r.body, "display") === "none",
+    );
+    expect(hidesBareGroup).toEqual([]);
+  });
+});
+
+describe("the header's title block shares its row with the actions when they fit", () => {
+  it("grows into the row from an 18rem basis, so a long action cluster still wraps below", () => {
+    expect(decl(body(".page__heading"), "flex")).toBe("1 1 18rem");
+  });
+
+  /**
+   * AN UNBROKEN TITLE. "CNCTurnerVMCOperatorNightShiftChakanMIDC" as a role title, or an
+   * organisation registered as one word, is wider than the title block beside the actions.
+   * The flex item's automatic minimum (its min-content width) is what makes the ROW wrap then,
+   * so the actions move below the title. Any rule that lowers that minimum — `min-inline-size`
+   * or `min-width` at 0, or anything below `auto` — lets the block shrink under its own text,
+   * and the title runs beneath Force-close / Suspend (measured in Chromium at 768-1100px).
+   * Layout cannot run in this node environment, so the guard is on the declared floor, in
+   * every at-rule.
+   */
+  it("keeps its automatic minimum, so an unbroken title wraps the actions instead of running under them", () => {
+    const lowered = ALL.filter(
+      (r) =>
+        r.selector.split(",").some((s) => s.includes(".page__heading")) &&
+        ["min-inline-size", "min-width"].some((p) => {
+          const v = decl(r.body, p);
+          return v !== null && v !== "auto";
+        }),
+    ).map((r) => [...r.atRules, r.selector].join(" > "));
+    expect(lowered).toEqual([]);
+    // …and nothing clips or hides the title's overflow instead.
+    const clipped = ALL.filter(
+      (r) =>
+        r.selector.split(",").some((s) => s.includes(".page__heading")) &&
+        decl(r.body, "overflow") !== null,
+    );
+    expect(clipped).toEqual([]);
+  });
+});
+
+describe("44px targets on a phone or coarse pointer (and only there)", () => {
+  const touch = (selector: string) => {
+    const r = ALL.find((x) => x.selector === selector && x.atRules.join() === TOUCH);
+    expect(r, `${selector} must be declared under the touch query`).toBeDefined();
+    return r!.body;
+  };
+
+  it("table links grow a row-high hit strip, the .btn--sm technique", () => {
+    const host = touch(".table td > .link, .table th > .link");
+    expect(decl(host, "position")).toBe("relative");
+    const strip = touch(".table td > .link::before, .table th > .link::before");
+    expect(decl(strip, "content")).toBe('""');
+    expect(decl(strip, "position")).toBe("absolute");
+    expect(decl(strip, "inset-block")).toBe("calc((100% - var(--control-md)) / 2)");
+    // …and none on a mouse: desktop density is unchanged.
+    expect(
+      ALL.filter((r) => r.selector.includes(".link::before") && r.atRules.join() !== TOUCH),
+    ).toEqual([]);
+  });
+
+  it("rows are taller than the strip on touch, so no strip reaches into the next row", () => {
+    expect(decl(touch(".table tbody td, .table tbody th"), "height")).toBe(
+      "calc(var(--control-md) + var(--space-1))",
+    );
+  });
+
+  it("the table scroller contains row-level hidden labels, so they cannot widen the page", () => {
+    expect(decl(body(".tablewrap"), "position")).toBe("relative");
+  });
+
+  it("two links stacked in one cell take the height themselves, so neither steals the other's taps", () => {
+    const stacked = touch(".table :is(td, th) > br + .link, .table :is(td, th) > .link:has(+ br)");
+    expect(decl(stacked, "min-block-size")).toBe("var(--control-md)");
+    expect(
+      decl(
+        touch(".table :is(td, th) > br + .link::before, .table :is(td, th) > .link:has(+ br)::before"),
+        "content",
+      ),
+    ).toBe("none");
+  });
+
+  it("a record row's link takes the height itself (no strip: rows sit 12px apart)", () => {
+    const kv = touch(".kv__v > .link");
+    expect(decl(kv, "display")).toBe("inline-flex");
+    expect(decl(kv, "min-block-size")).toBe("var(--control-md)");
+    expect(ALL.filter((r) => r.selector.includes(".kv__v > .link::before"))).toEqual([]);
+  });
+
+  it("…and the record rows align on the text baseline, so a tall link stays beside its label", () => {
+    expect(decl(touch(".kv"), "align-items")).toBe("baseline");
+    // Only where the link is tall: on a mouse the rows keep their default alignment.
+    expect(
+      ALL.filter((r) => r.selector === ".kv" && r.atRules.join() !== TOUCH).map((r) =>
+        decl(r.body, "align-items"),
+      ),
+    ).not.toContain("baseline");
+  });
+
+  it("back links, id chips, the crumb's section link and disclosure rows reach 44px", () => {
+    expect(decl(touch(".backlink"), "min-block-size")).toBe("var(--control-md)");
+    expect(decl(touch(".chip > .link"), "min-block-size")).toBe("var(--control-md)");
+    expect(decl(touch(".crumb__link"), "line-height")).toBe("var(--control-md)");
+    expect(decl(touch(".reviewgroup > summary, .enroll__manual > summary"), "min-block-size")).toBe(
+      "var(--control-md)",
+    );
+  });
+});

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
  * Account status filter, shared by Companies and Agencies.
@@ -36,6 +37,7 @@ export function PayerFilterBar({ basePath, status }: { basePath: string; status:
       </label>
       <div className="filters__actions">
         <button className="btn btn--primary" type="submit">
+          <Icon name={ACTION_ICON.filter} />
           Apply
         </button>
       </div>

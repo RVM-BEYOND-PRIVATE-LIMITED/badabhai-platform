@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { requestCodeAction, verifyCodeAction, verifyMfaAction } from "./actions";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
  * The three-step admin sign-in: address → emailed code → authenticator code.
@@ -148,6 +149,7 @@ export function LoginForm() {
             />
           </label>
           <button className="btn btn--primary" type="submit" disabled={pending || !email}>
+            <Icon name={ACTION_ICON.send} />
             {pending ? "Sending…" : "Continue"}
           </button>
         </form>
@@ -178,10 +180,12 @@ export function LoginForm() {
             The code expires shortly. It is only ever sent to your mailbox.
           </p>
           <button className="btn btn--primary" type="submit" disabled={pending || code.length < 4}>
+            <Icon name={ACTION_ICON.approve} />
             {pending ? "Verifying…" : "Verify"}
           </button>
           <div className="auth-form__row">
             <button className="btn btn--ghost" type="button" onClick={resend} disabled={resendIn > 0 || pending}>
+              <Icon name={ACTION_ICON.retry} />
               {resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code"}
             </button>
             <button
@@ -193,6 +197,7 @@ export function LoginForm() {
               }}
               disabled={pending}
             >
+              <Icon name={ACTION_ICON.back} />
               Use a different address
             </button>
           </div>
@@ -207,11 +212,14 @@ export function LoginForm() {
                 <QRCodeSVG value={enrollment.otpauthUri} size={168} level="M" />
               </div>
               <details className="enroll__manual">
-                <summary>Can&apos;t scan? Enter the key manually</summary>
+                <summary>
+                  <Icon name={ACTION_ICON.disclosure} className="disclosure__caret" />
+                  Can&apos;t scan? Enter the key manually
+                </summary>
                 <code className="enroll__secret">{enrollment.secret}</code>
                 <p className="field__help">
                   This key is shown once and is not recoverable. If you lose your device,
-                  another super admin must reset your second factor.
+                  another super admin must reset your MFA.
                 </p>
               </details>
             </div>
@@ -233,6 +241,7 @@ export function LoginForm() {
             />
           </label>
           <button className="btn btn--primary" type="submit" disabled={pending || totp.length !== 6}>
+            <Icon name="sign-in" />
             {pending ? "Signing in…" : "Sign in"}
           </button>
         </form>

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { PageHeaderContent } from "./page-header";
 import type { JobPostingListItem, PayerDetail } from "../lib/entities";
 import type { AdminCapability } from "../lib/auth/capabilities";
 
@@ -14,10 +15,24 @@ import type { AdminCapability } from "../lib/auth/capabilities";
  */
 
 // Both interactive children are Client Components using `useRouter`/`useState`. The header is
-// stubbed to render the server-built `title` it is handed, which is what this file asserts on.
-vi.mock("./payer-detail-header", () => ({
-  PayerDetailHeader: ({ title }: { title: unknown }) => title,
-}));
+// stubbed to render the shared PageHeader from the server-built `header` it is handed (back
+// link, title, description), which is what this file asserts on.
+const seen = vi.hoisted(() => ({ timelineHref: undefined as string | null | undefined }));
+vi.mock("./payer-detail-header", async () => {
+  const { PageHeader } = await import("./page-header");
+  return {
+    PayerDetailHeader: ({
+      header,
+      timelineHref,
+    }: {
+      header: PageHeaderContent;
+      timelineHref: string | null;
+    }) => {
+      seen.timelineHref = timelineHref;
+      return <PageHeader {...header} />;
+    },
+  };
+});
 vi.mock("./payer-credits-panel", () => ({ PayerCreditsPanel: () => null }));
 
 const { PayerDetailView } = await import("./payer-detail");
@@ -155,7 +170,7 @@ describe("an analyst", () => {
   it("keeps the posting-label identification path, which is their whole way in", () => {
     const out = render(FACELESS, ANALYST);
     expect(out).toContain("Acme Works Pune");
-    expect(out).toContain("Publishes as");
+    expect(out).toContain("publishing as");
   });
 });
 
@@ -183,5 +198,44 @@ describe("the suspended banner is not displaced by an identity banner", () => {
     const out = render({ ...FACELESS, status: "suspended", previous_status: "active" }, ENTITLED);
     expect(out).toContain("Names are withheld on this page");
     expect(out).toContain("Suspended.");
+  });
+});
+
+describe("the header (owner ruling 2026-10-01)", () => {
+  it("has a back link to its own section, named as that page names itself", () => {
+    const out = render(FACELESS, ENTITLED);
+    expect(out).toContain('<a class="backlink" href="/companies">');
+    expect(out).toContain("<span>Companies</span></a>");
+  });
+});
+
+describe("the event-timeline link follows read_events (an affordance; the route keeps its gate)", () => {
+  it("is offered with read_events, and only then", () => {
+    render(FACELESS, ["read_entities", "read_events"]);
+    expect(seen.timelineHref).toBe(`/companies/${PAYER_ID}/timeline`);
+    render(FACELESS, ["read_entities"]);
+    expect(seen.timelineHref).toBeNull();
+  });
+
+  it("is not repeated in the no-postings state — the header already carries it", () => {
+    const out = render(FACELESS, ["read_entities", "read_events"], []);
+    expect(out).toContain("No postings yet");
+    expect(out).not.toContain("/timeline");
+  });
+});
+
+describe("the description when the postings read FAILED (owner brief 2026-10-01)", () => {
+  it("says the postings could not be loaded — not that the account has none", () => {
+    const out = render(FACELESS, ENTITLED, null);
+    const at = out.indexOf('<p class="page__sub">');
+    const sub = out.slice(at, out.indexOf("</p>", at));
+    expect(sub).toContain("its postings could not be loaded");
+    expect(sub).not.toContain("no postings yet");
+  });
+
+  it("an account that genuinely has none still says so", () => {
+    const out = render(FACELESS, ENTITLED, []);
+    expect(out).toContain("with no postings yet");
+    expect(out).not.toContain("could not be loaded, so no self-declared label");
   });
 });

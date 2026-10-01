@@ -1,5 +1,7 @@
 "use client";
 
+import { ACTION_ICON, Icon } from "@badabhai/icons";
+
 /**
  * Portal error boundary.
  *
@@ -14,7 +16,8 @@
  * printing it hands an operator a correlation key without handing them the failure text.
  *
  * DS: the shared `.state state--error` block with the recovery action in `.state__actions`.
- * No icon: the title and body carry the whole meaning (a glyph would only decorate it).
+ * The state itself draws no glyph — the title and body carry the meaning; the recovery action
+ * carries its own.
  */
 export default function PortalError({
   error,
@@ -38,6 +41,7 @@ export default function PortalError({
       )}
       <div className="state__actions">
         <button className="btn btn--primary" type="button" onClick={reset}>
+          <Icon name={ACTION_ICON.retry} />
           Try again
         </button>
       </div>

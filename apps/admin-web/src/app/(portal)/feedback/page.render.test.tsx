@@ -112,7 +112,8 @@ beforeEach(() => {
   stub.requests.length = 0;
   stub.page = { items: [], nextCursor: null };
   stub.failure = null;
-  stub.capabilities = ["read_entities"];
+  // Every role holds read_events today, so the realistic session carries it.
+  stub.capabilities = ["read_entities", "read_events"];
 });
 
 const render = async (searchParams: Record<string, string | string[] | undefined> = {}) =>
@@ -401,7 +402,11 @@ describe("the worker narrowing", () => {
     const out = await render({ workerId: WORKER_ID });
     expect(out).toContain("Showing only what worker");
     expect(out).toContain("5eeded00…");
-    expect(out).toContain("Show every worker");
+    // With the worker as the ONLY filter, the way out is the results head's one Clear filters —
+    // not a second and third link to /feedback beside it.
+    expect(out.split('href="/feedback"').length - 1).toBe(1);
+    expect(out).toMatch(/href="\/feedback">(<i [^>]*><\/i>)?Clear filters<\/a>/);
+    expect(out).not.toContain("Show every worker");
     // …and it names the FILTERED worker, not whoever happens to be in the first row.
     expect(out).not.toContain("Showing only what worker <span class=\"mono\">abcde000…");
   });
@@ -478,6 +483,14 @@ describe("the empty states, which are four different claims", () => {
     expect(out).not.toContain("Clear filter");
   });
 
+  it("unfiltered and empty, without read_events: no link into a log the session cannot open", async () => {
+    stub.capabilities = ["read_entities"];
+    const out = await render();
+    expect(out).toContain("No feedback submitted yet");
+    expect(out).not.toContain("/events?eventName=feedback.submitted");
+    expect(out).not.toContain("View events");
+  });
+
   it("filtered and empty: the tag is empty, and clearing it is the way out", async () => {
     const out = await render({ category: "other" });
     expect(out).toContain("No feedback carries this tag");
@@ -504,7 +517,7 @@ describe("the empty states, which are four different claims", () => {
     // in untagged, so the way out offered first is dropping the tag rather than the worker.
     const out = await render({ workerId: WORKER_ID, category: "problem" });
     expect(out).toContain("Nothing from this worker carries this tag");
-    expect(out).toContain("Drop the tag");
+    expect(out).toContain("Clear the tag filter");
     expect(out).toContain(`href="/feedback?workerId=${WORKER_ID}"`);
     expect(out).not.toContain("This worker has sent no feedback");
   });

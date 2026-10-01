@@ -100,8 +100,8 @@ export async function resetAdminMfaAction(targetAdminId: string): Promise<AdminA
       ok: true,
       changed: res.changed,
       message: res.changed
-        ? "Second factor reset. They will enrol a new one at their next sign-in."
-        : "No second factor was enrolled — nothing to reset.",
+        ? "MFA reset. They will enrol a new authenticator at their next sign-in."
+        : "No MFA was enrolled — nothing to reset.",
     };
   } catch (err) {
     return { ok: false, error: describeAdminActionError(err) };

@@ -8,7 +8,10 @@ import { StatusPill } from "../../../components/status-pill";
 import { NameCell } from "../../../components/name-cell";
 import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Pager } from "../../../components/pager";
+import { PageHeader } from "../../../components/page-header";
 import { WorkerFilterBar } from "./filter-bar";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { RetryActions } from "../../../components/retry-actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Workers" };
@@ -60,6 +63,7 @@ export default async function WorkersPage({
   }
 
   const filtered = Boolean(status) || pendingDeletion;
+  const mayReadEvents = can(session.capabilities, "read_events");
 
   const posture = identityPosture(
     page?.items ?? [],
@@ -69,18 +73,26 @@ export default async function WorkersPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Workers</h1>
-          <p className="page__sub">
+      <PageHeader
+        title="Workers"
+        description={
+          <>
             {posture === "faceless"
-              ? "Workers are identified by id here — your role does not include name access."
-              : "Names are shown to your role, and each name read is capped and audited."}{" "}
-            Contact details are never listed — revealing one worker&apos;s contact is a
+              ? "Workers are identified by id here — your role does not include name access"
+              : "Names are shown to your role, and each name read is capped and audited"}
+            ; contact details are never listed, and revealing one worker&apos;s contact is a
             separate, reason-gated action.
-          </p>
-        </div>
-      </header>
+          </>
+        }
+        filters={
+          <section className="panel" aria-labelledby="wf-heading">
+            <h2 className="sr-only" id="wf-heading">
+              Filter workers
+            </h2>
+            <WorkerFilterBar status={status ?? ""} pendingDeletion={pendingDeletion} />
+          </section>
+        }
+      />
 
       {posture === "capped" && (
         <IdentityCapNotice>
@@ -88,13 +100,6 @@ export default async function WorkersPage({
           its hourly name budget.
         </IdentityCapNotice>
       )}
-
-      <section className="panel" aria-labelledby="wf-heading">
-        <h2 className="sr-only" id="wf-heading">
-          Filter workers
-        </h2>
-        <WorkerFilterBar status={status ?? ""} pendingDeletion={pendingDeletion} />
-      </section>
 
       <section className="panel" aria-labelledby="wr-heading" aria-live="polite">
         <div className="panel__head panel__head--row">
@@ -110,6 +115,7 @@ export default async function WorkersPage({
           </div>
           {filtered && (
             <Link className="btn btn--ghost" href="/workers">
+              <Icon name={ACTION_ICON.clearFilters} />
               Clear filters
             </Link>
           )}
@@ -123,11 +129,9 @@ export default async function WorkersPage({
               fetched. Check the values in the filter bar above, or clear them and start
               again.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href="/workers">
-                Clear filters
-              </Link>
-            </div>
+            {/* One "Clear filters" per screen: the results head carries it whenever a filter is
+                set, so this state does not repeat it (owner brief 2026-10-01). */}
+            {filtered ? null : <RetryActions href="/workers" cursor={cursor} />}
           </div>
         ) : page && page.items.length > 0 ? (
           <div className="tablewrap">
@@ -143,7 +147,7 @@ export default async function WorkersPage({
                   <th scope="col">Language</th>
                   <th scope="col">Resume prefs</th>
                   <th scope="col">Deletion</th>
-                  <th scope="col">Joined</th>
+                  <th scope="col">Registered</th>
                 </tr>
               </thead>
               <tbody>
@@ -201,25 +205,24 @@ export default async function WorkersPage({
               Nobody on the roster is in this state right now. Widen the filter, or clear it
               to see every registered worker.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href="/workers">
-                Clear filters
-              </Link>
-            </div>
           </div>
         ) : (
           <div className="state">
             <h3 className="state__title">No workers registered yet</h3>
             <p className="state__body">
               Workers appear here as soon as they finish signing up in the app. Until one
-              does, the event timeline is where you confirm the sign-up path is running at
-              all.
+              does, the events log is where you confirm the sign-up path is running at all.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href="/events">
-                Open the event timeline
-              </Link>
-            </div>
+            {/* Only for a reader who may open the events log — /events is `read_events`, and
+                this page is `read_entities`. An affordance; the route keeps its own gate. */}
+            {mayReadEvents ? (
+              <div className="state__actions">
+                <Link className="btn btn--ghost" href="/events">
+                  <Icon name={ACTION_ICON.timeline} />
+                  View events
+                </Link>
+              </div>
+            ) : null}
           </div>
         )}
 

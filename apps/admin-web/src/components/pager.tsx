@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Icon } from "@badabhai/icons";
 
 /**
  * Keyset "next page" control, shared by every entity list.
@@ -34,6 +35,7 @@ export function Pager({
     <div className="pager">
       <Link className="btn btn--ghost" href={`${basePath}?${q.toString()}`}>
         Next page
+        <Icon name="caret-right" />
       </Link>
       <p className="field__help">{note}</p>
     </div>

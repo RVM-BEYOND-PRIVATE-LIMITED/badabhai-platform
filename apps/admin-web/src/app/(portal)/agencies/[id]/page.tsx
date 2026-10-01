@@ -1,7 +1,7 @@
 import { PayerDetailRoute } from "../../../../components/payer-detail-route";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Agency" };
+export const metadata = { title: "Agency details" };
 
 export default async function AgencyDetailPage({
   params,

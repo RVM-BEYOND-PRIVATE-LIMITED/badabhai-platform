@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { acceptInviteAction, type AcceptOutcome } from "./actions";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
  * The redeem button and its two outcomes (#1494).
@@ -34,10 +35,11 @@ export function AcceptForm({ token }: { token: string }) {
           <p className="alert__title">Your admin account is active</p>
           <p className="alert__body">
             Sign in to finish setting up. You&rsquo;ll get a one-time code by email, then
-            register an authenticator app for your second factor.
+            register an authenticator app for MFA.
           </p>
         </div>
         <button type="button" className="btn btn--primary" onClick={() => router.push("/login")}>
+          <Icon name="sign-in" />
           Go to sign in
         </button>
       </div>
@@ -61,6 +63,7 @@ export function AcceptForm({ token }: { token: string }) {
         onClick={redeem}
         disabled={pending}
       >
+        <Icon name={ACTION_ICON.approve} />
         {pending ? "Activating…" : "Accept invite"}
       </button>
     </div>

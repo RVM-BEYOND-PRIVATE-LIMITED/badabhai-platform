@@ -15,6 +15,9 @@ import { PaymentsPostureBanner, MockMoneyTag } from "../../../components/payment
 import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { Stat } from "../../../components/stat";
+import { PageHeader } from "../../../components/page-header";
+import { RetryActions } from "../../../components/retry-actions";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Credits" };
@@ -54,12 +57,12 @@ export default async function CreditsPage({
    * was returned, unannounced, to an unfiltered page one that looked like a successful
    * reload. `cursor` is included deliberately — retrying should land you where you were.
    */
-  const retryHref = (() => {
+  const queryHref = (() => {
     const qs = new URLSearchParams({ windowDays: String(windowDays) });
     if (reason) qs.set("reason", reason);
-    if (cursor) qs.set("cursor", cursor);
     return `/credits?${qs.toString()}`;
   })();
+  const retryHref = cursor ? `${queryHref}&cursor=${encodeURIComponent(cursor)}` : queryHref;
 
   // Independent reads: a failing ledger must not blank the position, and vice versa.
   const [summaryRes, ledgerRes] = await Promise.allSettled([
@@ -75,25 +78,28 @@ export default async function CreditsPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Credits</h1>
-          <p className="page__sub">
-            The platform&apos;s outstanding credit liability and every movement behind it.
-          </p>
-        </div>
-        <div className="page__actions">
-          {WINDOWS.map((w) => (
-            <Link
-              className={`btn ${w === windowDays ? "btn--primary" : "btn--ghost"}`}
-              href={`/credits?windowDays=${w}`}
-              key={w}
-            >
-              {w}d
-            </Link>
-          ))}
-        </div>
-      </header>
+      <PageHeader
+        title="Credits"
+        description="The platform's outstanding credit liability and every movement behind it."
+        filters={
+          /* The reporting window is a FILTER on the position below, not an action, so it sits
+             in the filter row under the header rather than in the actions slot. */
+          <nav className="filters--inline" aria-label="Reporting window">
+            {WINDOWS.map((w) => (
+              <Link
+                aria-current={w === windowDays ? "true" : undefined}
+                className={`btn ${w === windowDays ? "btn--primary" : "btn--ghost"}`}
+                /* Keeps the ledger's reason filter; the two rows used to reset each other. */
+                href={`/credits?windowDays=${w}${reason ? `&reason=${encodeURIComponent(reason)}` : ""}`}
+                key={w}
+              >
+                <Icon name={ACTION_ICON.calendar} />
+                {w}d
+              </Link>
+            ))}
+          </nav>
+        }
+      />
 
       {posture && <PaymentsPostureBanner posture={posture} />}
 
@@ -106,7 +112,7 @@ export default async function CreditsPage({
             <div className="stats">
               <Stat label="Credits outstanding" value={formatCount(summary.outstanding_credits)} />
               <Stat
-                label="Payers holding credits"
+                label="Customers holding credits"
                 value={formatCount(summary.payers_with_balance)}
               />
               <Stat
@@ -144,6 +150,7 @@ export default async function CreditsPage({
                   {windowDays !== 90 && (
                     <div className="state__actions">
                       <Link className="btn btn--ghost" href="/credits?windowDays=90">
+                        <Icon name={ACTION_ICON.calendar} />
                         Widen to 90 days
                       </Link>
                     </div>
@@ -189,14 +196,15 @@ export default async function CreditsPage({
               </div>
               {summary.top_balances.length === 0 ? (
                 <div className="state">
-                  <h3 className="state__title">No payer holds a credit balance yet</h3>
+                  <h3 className="state__title">No customer holds a credit balance yet</h3>
                   <p className="state__body">
                     Nothing has been granted or purchased, so no account has credits to
                     spend on an unlock. The ledger below is the place to confirm that.
                   </p>
                   <div className="state__actions">
                     <Link className="btn btn--ghost" href="/transactions">
-                      Open transactions
+                      <Icon name="receipt" />
+                      Open payment orders
                     </Link>
                   </div>
                 </div>
@@ -246,10 +254,11 @@ export default async function CreditsPage({
             <p className="state__body">
               The finance summary did not load, so the outstanding balance and the movement
               breakdown are missing. The credit ledger below is a separate read and is
-              unaffected. Reload to try again.
+              unaffected.
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={retryHref}>
+                <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>
             </div>
@@ -268,8 +277,11 @@ export default async function CreditsPage({
             </p>
           </div>
           {reason && (
-            <Link className="btn btn--ghost" href="/credits">
-              Clear filter
+            /* Clears the ledger's reason and KEEPS the reporting window above — one filter, so it
+               is named for it ("Clear filters" means every filter, the bare route). */
+            <Link className="btn btn--ghost" href={`/credits?windowDays=${windowDays}`}>
+              <Icon name={ACTION_ICON.clearFilters} />
+              Clear the reason filter
             </Link>
           )}
         </div>
@@ -277,8 +289,9 @@ export default async function CreditsPage({
         <div className="filters filters--inline">
           {["pack_purchase", "grant", "unlock_debit", "refund"].map((r) => (
             <Link
+              aria-current={r === reason ? "true" : undefined}
               className={`btn btn--sm ${r === reason ? "btn--primary" : "btn--ghost"}`}
-              href={`/credits?reason=${r}`}
+              href={`/credits?windowDays=${windowDays}&reason=${r}`}
               key={r}
             >
               {creditReasonLabel(r)}
@@ -291,13 +304,11 @@ export default async function CreditsPage({
             <h3 className="state__title">The ledger is unavailable</h3>
             <p className="state__body">
               The credit movements did not load. The position above is a separate read and
-              is unaffected, so a balance shown there is still current. Reload to try again.
+              is unaffected, so a balance shown there is still current.
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href={retryHref}>
-                Retry
-              </Link>
-            </div>
+            {/* The ledger is the paged list on this page: Retry keeps its cursor, and with one
+                in the query the first page is offered too. */}
+            <RetryActions href={queryHref} cursor={cursor} />
           </div>
         ) : ledger.items.length === 0 ? (
           reason ? (
@@ -310,11 +321,6 @@ export default async function CreditsPage({
                 Nothing has been recorded under the selected reason. Clear it to see every
                 movement, newest first.
               </p>
-              <div className="state__actions">
-                <Link className="btn btn--ghost" href="/credits">
-                  Clear filter
-                </Link>
-              </div>
             </div>
           ) : (
             <div className="state">
@@ -325,7 +331,8 @@ export default async function CreditsPage({
               </p>
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/transactions">
-                  Open transactions
+                  <Icon name="receipt" />
+                  Open payment orders
                 </Link>
               </div>
             </div>

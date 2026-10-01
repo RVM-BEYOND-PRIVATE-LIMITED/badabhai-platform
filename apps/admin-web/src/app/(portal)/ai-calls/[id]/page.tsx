@@ -17,6 +17,8 @@ import { taskTypeLabel } from "../../../../lib/ai-cost";
 import { formatCount, formatTimestamp, healthTone } from "../../../../lib/format";
 import { DetailList } from "../../../../components/detail-list";
 import { StatusPill } from "../../../../components/status-pill";
+import { PageHeader } from "../../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 // Per-request, never cached. The body of this page can contain a worker's own words, and the
 // server sends the response it is built from with `Cache-Control: no-store` for exactly that
@@ -73,6 +75,8 @@ export default async function AiCallDetailPage({
   const { id } = await params;
 
   const mayReadText = can(session.capabilities, "read_ai_traces");
+  /** `/events` is `read_events`: the correlation id links into it only for a session with it. */
+  const mayReadEvents = can(session.capabilities, "read_events");
 
   /**
    * NO REQUEST AT ALL WITHOUT THE CAPABILITY. Not merely a hidden control: a fetch here would
@@ -110,20 +114,16 @@ export default async function AiCallDetailPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <p className="page__eyebrow">
-            <Link className="link" href="/ai-calls">
-              AI calls
-            </Link>
-          </p>
-          <h1 className="page__title">{taskTypeLabel(trace.task_type)}</h1>
-          <p className="page__sub">
-            One AI call in full — what this API sent to the AI service, and what came back.
-            Recorded <time dateTime={trace.created_at}>{formatTimestamp(trace.created_at)}</time>.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        back={{ href: "/ai-calls", label: "AI calls" }}
+        title={taskTypeLabel(trace.task_type)}
+        description={
+          <>
+            One AI call in full — what this API sent to the AI service and what came back —
+            recorded <time dateTime={trace.created_at}>{formatTimestamp(trace.created_at)}</time>.
+          </>
+        }
+      />
 
       {/*
         THE ONE PIECE OF COPY ON THIS SURFACE THAT COULD DO REAL HARM IF IT OVERCLAIMED.
@@ -238,13 +238,17 @@ export default async function AiCallDetailPage({
             {
               label: "Correlation id",
               value: trace.correlation_id ? (
-                <Link
-                  className="link mono"
-                  href={`/events?correlationId=${encodeURIComponent(trace.correlation_id)}`}
-                  title="Everything recorded under this correlation id"
-                >
-                  {trace.correlation_id}
-                </Link>
+                mayReadEvents ? (
+                  <Link
+                    className="link mono"
+                    href={`/events?correlationId=${encodeURIComponent(trace.correlation_id)}`}
+                    title="Everything recorded under this correlation id"
+                  >
+                    {trace.correlation_id}
+                  </Link>
+                ) : (
+                  <span className="mono">{trace.correlation_id}</span>
+                )
               ) : (
                 <NotRecorded>no correlation id was recorded</NotRecorded>
               ),
@@ -344,20 +348,15 @@ function NotRecorded({ children }: { children: ReactNode }) {
   );
 }
 
-/** The page frame every non-success screen shares: the same eyebrow, the same way back. */
-function Frame({ children }: { children: ReactNode }) {
+/**
+ * The page frame every non-success screen shares. `back` is the list — except on the Denied
+ * screen, whose reader cannot open the list (it is `read_ai_traces` too), so that screen has no
+ * back link rather than one that bounces them to the dashboard.
+ */
+function Frame({ children, back = true }: { children: ReactNode; back?: boolean }) {
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <p className="page__eyebrow">
-            <Link className="link" href="/ai-calls">
-              AI calls
-            </Link>
-          </p>
-          <h1 className="page__title">AI call</h1>
-        </div>
-      </header>
+      <PageHeader back={back ? { href: "/ai-calls", label: "AI calls" } : undefined} title="AI call" />
       {children}
     </div>
   );
@@ -373,21 +372,24 @@ function Frame({ children }: { children: ReactNode }) {
  */
 function Denied() {
   return (
-    <Frame>
+    <Frame back={false}>
       <section className="state">
-        <h3 className="state__title">Your role cannot read the text of an AI call</h3>
+        <h3 className="state__title">Your role cannot read AI calls</h3>
         <p className="state__body">
-          The list of calls is open to you in full — what each one was for, which model answered,
-          whether it succeeded, and how long the request and the reply were. Nothing on it has
-          been withheld. Turning one of those lengths back into the words themselves is a
-          separate capability, and this account does not hold it, so nothing was requested.
+          Reading AI calls — the list of them and the text of each one — needs the{" "}
+          <code>read_ai_traces</code> capability, and this account does not
+          hold it, so nothing was requested. The roles page shows which roles do.
         </p>
+        {/* No "Back to AI calls": the list sits behind the same capability, so for exactly
+            this reader that link only ever redirected to the dashboard. */}
         <div className="state__actions">
-          <Link className="btn btn--ghost" href="/ai-calls">
-            Back to AI calls
-          </Link>
           <Link className="btn btn--ghost" href="/roles">
+            <Icon name="shield-check" />
             Roles and capabilities
+          </Link>
+          <Link className="btn btn--ghost" href="/">
+            <Icon name={ACTION_ICON.back} />
+            Back to dashboard
           </Link>
         </div>
       </section>
@@ -407,6 +409,7 @@ function BadId() {
         </p>
         <div className="state__actions">
           <Link className="btn btn--ghost" href="/ai-calls">
+            <Icon name={ACTION_ICON.back} />
             Back to AI calls
           </Link>
         </div>
@@ -438,6 +441,7 @@ function Unavailable() {
         </p>
         <div className="state__actions">
           <Link className="btn btn--ghost" href="/ai-calls">
+            <Icon name={ACTION_ICON.back} />
             Back to AI calls
           </Link>
         </div>

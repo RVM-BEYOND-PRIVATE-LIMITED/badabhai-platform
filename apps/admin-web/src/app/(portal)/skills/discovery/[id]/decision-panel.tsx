@@ -16,6 +16,7 @@ import {
   type SkillDecisionRequest,
 } from "../../../../../lib/skill-discovery-vocabulary";
 import { searchCanonicalSkillsAction, submitSkillDecisionAction } from "./actions";
+import { ACTION_ICON, Icon, type CanonicalIconName } from "@badabhai/icons";
 
 /** How long to wait after the last keystroke before searching — long enough that a fast typist
  * never fires one request per character, short enough to still feel live. */
@@ -38,6 +39,19 @@ const SEARCH_DEBOUNCE_MS = 250;
  * what makes "send the wrong shape for this button" a compile error here, matching the
  * server's `.strict()` discriminated union.
  */
+/**
+ * One glyph per decision, from the product-wide mapping: a new skill is `plus`, an alias is a
+ * `link` to an existing one, a merge is `git-merge`, a rejection ends the candidate (`x-circle`,
+ * the same as Force-close), and a hold pauses it.
+ */
+const DECISION_ICON: Readonly<Record<AdminSkillReviewDecision, CanonicalIconName>> = {
+  create: ACTION_ICON.create,
+  alias: "link",
+  merge: "git-merge",
+  reject: ACTION_ICON.reject,
+  hold: "pause-circle",
+};
+
 export function SkillDecisionPanel({
   candidateId,
   expectedStatus,
@@ -131,6 +145,7 @@ export function SkillDecisionPanel({
             onClick={() => setSelected(decision)}
             disabled={pending}
           >
+            <Icon name={DECISION_ICON[decision]} />
             {ADMIN_SKILL_REVIEW_DECISION_LABELS[decision].toUpperCase()}
           </button>
         ))}
@@ -205,6 +220,7 @@ export function SkillDecisionPanel({
                 onChange={(e) => setNewDomainId(e.target.value)}
               />
               <button className="btn btn--ghost btn--sm" type="button" onClick={addDomain}>
+                <Icon name={ACTION_ICON.add} />
                 Add trade
               </button>
             </div>
@@ -258,6 +274,7 @@ export function SkillDecisionPanel({
             onClick={submit}
             disabled={pending || clientErrors.length > 0}
           >
+            <Icon name={ACTION_ICON.approve} />
             {pending ? "Recording…" : `Record: ${ADMIN_SKILL_REVIEW_DECISION_LABELS[selected]}`}
           </button>
         </div>
@@ -349,6 +366,7 @@ function SkillPicker({
             onClick={() => onChange("")}
             aria-label="Clear selected skill"
           >
+            <Icon name={ACTION_ICON.dismiss} />
             Clear
           </button>
         </div>
@@ -426,6 +444,9 @@ export function DecisionOutcomeNotice({ outcome }: { outcome: SkillDecisionOutco
         </div>
         <div className="alert__actions">
           <button className="btn btn--ghost btn--sm" type="button" onClick={() => location.reload()}>
+            {/* "Reload", not "Retry": it re-reads the candidate as it now stands, and never
+                re-sends the decision that conflicted. */}
+            <Icon name={ACTION_ICON.retry} />
             Reload
           </button>
         </div>

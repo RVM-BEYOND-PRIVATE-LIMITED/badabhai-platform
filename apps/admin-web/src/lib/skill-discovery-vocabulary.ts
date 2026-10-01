@@ -107,7 +107,7 @@ export const SKILL_CANDIDATE_SOURCE_TYPE_LABELS: Readonly<
   job_domain_label: "Occupation title",
   unresolved_phrase: "Unresolved phrase",
   worker_phrase: "Worker's own words",
-  job_text: "Job posting text",
+  job_text: "Posting text",
   skill_alias: "Existing skill alias",
 };
 
@@ -446,7 +446,7 @@ const SKILL_CANDIDATE_AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
   skill_candidate_approved_map: "Approved — add as alias",
   skill_candidate_approved_merge: "Approved — merge into skill",
   skill_candidate_rejected: "Rejected",
-  skill_candidate_deferred: "Held",
+  skill_candidate_deferred: "On hold",
 };
 
 export function auditActionLabel(code: string): string {

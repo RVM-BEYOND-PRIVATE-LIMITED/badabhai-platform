@@ -417,6 +417,29 @@ h3 {
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }
+.enroll__manual > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--icon-gap);
+  cursor: pointer;
+  list-style: none;
+}
+.enroll__manual > summary::-webkit-details-marker {
+  display: none;
+}
+/* The disclosure caret (`ACTION_ICON.disclosure`, caret-down) that replaces the browser's
+   triangle on every <summary>: it points along the line while closed and down once open, the
+   same reading the UA marker gave, drawn in the brand's solid glyph. */
+.disclosure__caret {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--icon-size-sm);
+  transform: rotate(-90deg);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+details[open] > summary > .disclosure__caret {
+  transform: none;
+}
 .enroll__secret {
   display: block;
   margin: var(--space-3) 0;
@@ -494,8 +517,8 @@ h3 {
 .sidebar__link {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
+  justify-content: flex-start;
+  gap: var(--icon-gap);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
   color: var(--text-on-ink-muted);
@@ -519,6 +542,19 @@ h3 {
   font-size: var(--text-xs);
   padding: 0 var(--space-2);
   border-radius: var(--radius-pill);
+  margin-inline-start: auto;
+}
+/* The nav glyph (@badabhai/icons). It inherits the row's colour — muted on the band, full on
+   hover, Safety Yellow on the active row — so no state needs an icon rule of its own. */
+.sidebar__icon {
+  flex: none;
+  font-size: var(--icon-size-sm);
+}
+.sidebar__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sidebar__foot {
   display: flex;
@@ -618,6 +654,21 @@ h3 {
   justify-content: space-between;
   gap: var(--space-4);
   flex-wrap: wrap;
+}
+/* The title block (PageHeader). It GROWS into the row from an 18rem basis, so a header's
+   actions share the title's row whenever the two fit. Sized only by its content, a long
+   description made the title block as wide as its text, and the actions wrapped under it
+   (company detail at 1280: 162px tall, measured; 102px with this). The 18rem basis is what a
+   zero basis lacked: with `flex: 1 1 0` the row never wrapped, and a long action cluster
+   squeezed the title to 106-149px — a three-line h1 on a phone, a 259px worker header at 1280
+   (measured).
+   NO `min-inline-size: 0`. The flex item's automatic minimum — its min-content width — is the
+   floor that keeps a title in its own box: an unbroken title (a role title or an organisation
+   name typed as one word) widens the block, so the actions WRAP below it. Zeroed, the block
+   shrank under its own text and the title ran beneath the actions (a posting's role title
+   under Force-close at 768 and 1024, an organisation name under Suspend; measured). */
+.page__heading {
+  flex: 1 1 18rem;
 }
 .page__title {
   font-size: var(--text-xl);
@@ -1013,6 +1064,11 @@ h3 {
    phone: a box a few rows tall that traps the reader inside it. 18rem keeps roughly six rows
    visible whatever the viewport height. */
 .tablewrap {
+  /* The containing block for anything absolutely positioned inside a row — the `.sr-only` names
+     on per-row actions and links. Without it their containing block was the viewport, so a
+     hidden label in a wide, scrolled table pushed the whole PAGE sideways (measured: /admins
+     scrolled 381px at 375). Positioned, the table's scroller clips them like any cell. */
+  position: relative;
   overflow: auto;
   max-block-size: max(calc(100dvh - 16rem), 18rem);
   overscroll-behavior: contain;
@@ -1121,6 +1177,16 @@ h3 {
 .link:hover {
   text-decoration: underline;
 }
+/* A text link with a glyph before its label (the AI calls "View"): the glyph sits on the text's
+   centre line at the shared gap, sized for the dense row, coloured by the link. */
+.link--icon {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.link--icon .ph-fill {
+  font-size: var(--icon-size-sm);
+}
 
 .filters {
   display: grid;
@@ -1214,11 +1280,35 @@ h3 {
  * grid rather than introducing a second one.
  * ------------------------------------------------------------------------ */
 
-/* A section breadcrumb above a detail title. */
-.page__eyebrow {
+/* The back link above a detail page's title (`BackLink`, components/page-header.tsx): the
+   `arrow-left` glyph and the parent page's name. Detail and child pages only — a top-level page
+   has no back link. A link, so it stays navy on a light surface and its glyph inherits that. */
+/* A flex row, not a paragraph line: the link's own box decides the row's height, so the 44px
+   touch target below is the row's height too and the title under it never overlaps it (as an
+   inline box in a text line it did, by 2px, measured). */
+.page__back {
+  display: flex;
   margin: 0 0 var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--text-muted);
+}
+.backlink {
+  /* Positioned so it paints — and hit-tests — above the title's text, whose display-face glyph
+     box reaches ~2px above the h1's own line box (measured: the title stole the bottom 2px of
+     the link's 44px touch target). No visual change. */
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--icon-gap);
+  color: var(--text-link);
+  font-size: var(--ui-body-sm-size);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-snug);
+  text-decoration: none;
+}
+.backlink:hover {
+  text-decoration: underline;
+}
+.backlink .ph-fill {
+  font-size: var(--icon-size-sm);
 }
 /* Actions sit opposite the title in the existing flex `.page__head`. */
 .page__actions {
@@ -1366,17 +1456,21 @@ h3 {
 .cell--mine {
   background: var(--brand-tint);
 }
+/* The roles matrix marks — solid `check` / `minus` glyphs (@badabhai/icons), each named
+   (`role="img"`), replacing the `✓` / `·` characters. Sized from the icon scale. */
 .mark {
-  font-family: var(--font-mono);
+  display: inline-flex;
+  font-size: var(--icon-size-sm);
 }
 .mark--yes {
   color: var(--success-press);
-  font-weight: var(--weight-bold);
 }
-/* Denied is a muted dot, not a red cross: most cells are denials by design, and a wall of
-   red would read as a wall of problems rather than as least-privilege working. */
+/* Not granted is a muted minus, not a red cross: most cells are denials by design, and a wall
+   of red would read as a wall of problems rather than as least-privilege working. The 60%
+   secondary-icon step, not the faint text one: the old dot was close to invisible, and a mark
+   that carries meaning needs 3:1 (WCAG 1.4.11). */
 .mark--no {
-  color: var(--text-faint);
+  color: var(--icon-secondary);
 }
 /* The roles matrix (`.table--matrix`) — its row headers ARE the table: scrolled sideways on a
    phone, every mark lost the capability it grants (0 of 14 labels on screen at 320/375/768,
@@ -1427,7 +1521,7 @@ h3 {
  * Typography roles, a legible active state, and a topbar that says where you are.
  * (Written when this console loaded no icon font. It now shares payer-web's SELF-HOSTED Phosphor
  * FILL sheet through @badabhai/icons — same origin, no third party — and renders glyphs only
- * through `<Icon>` / `IconButton`; the sidebar items are still text-only until the icon pass.)
+ * through `<Icon>` / `IconButton`; the sidebar items carry one each, see `.sidebar__icon`.)
  * ================================================================== */
 
 /* `sidebar__group` was referenced by nav.tsx but had no rule at all — the groups were held
@@ -1506,23 +1600,41 @@ h3 {
 
 .crumbs {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
   min-width: 0;
   font-size: var(--ui-body-sm-size);
   color: var(--text-muted);
+}
+/* The trail is an ordered list (one `li` per crumb), laid out as one row. */
+.crumbs__list {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 .crumb {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.crumb--here {
-  font-family: var(--font-sans);
-  font-size: var(--ui-h3-size);
-  font-weight: var(--ui-h3-weight);
-  letter-spacing: var(--ui-h3-tracking);
-  color: var(--text-heading);
+/* The crumb holds the page's ancestors, never the page itself (its h1 names it), so nothing
+   in it is heading-sized. The section is the one linked step; it reads as a link in the
+   structural navy, quieter than the page's own controls. */
+.crumb__link {
+  color: var(--text-link);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+}
+.crumb__link:hover {
+  text-decoration: underline;
+}
+.crumb__step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
 }
 .crumb__sep {
   color: var(--text-disabled);
@@ -1545,13 +1657,6 @@ h3 {
   line-height: var(--ui-body-leading);
   color: var(--text-secondary);
   max-width: var(--reading-max);
-}
-.page__eyebrow {
-  font-size: var(--ui-eyebrow-size);
-  line-height: var(--ui-eyebrow-leading);
-  font-weight: var(--ui-eyebrow-weight);
-  letter-spacing: var(--ui-eyebrow-tracking);
-  color: var(--text-muted);
 }
 .panel__title {
   font-size: var(--ui-h2-size);
@@ -1834,8 +1939,8 @@ textarea.field__input {
  * Rendered only when something genuinely needs an operator (see (portal)/attention.ts), so
  * its presence is itself information. Tone rides on a leading spine rather than a full-bleed
  * wash: three saturated banners stacked would out-shout the page they are directing
- * attention within. The spine plus the wording carry the tone; the items draw no tone icon yet
- * (the shared icon font is available through @badabhai/icons — adding one is the icon pass).
+ * attention within. The spine plus the wording carry the tone; the items draw no tone icon
+ * (each item's action link carries its own glyph).
  * ================================================================== */
 .attention {
   display: flex;
@@ -2087,14 +2192,6 @@ textarea.field__input {
 }
 
 /* ==================================================================
- * PHASE 6 · A LINK THAT IS THE CURRENT VIEW
- * The worker-journey session filter is plain links, not a client form — the filter belongs
- * in the URL so it survives being pasted into an incident thread. `aria-current="page"`
- * marks the active one for assistive tech; with no rule behind it the state would be
- * announced and invisible, which is the mirror of the usual bug. Reuses the brand tokens
- * `.btn--primary` already carries — no new colour is introduced.
- * ================================================================== */
-/* ==================================================================
  * #1260 · SKILL DISCOVERY — the grouped queue's review-group cards.
  * A group is a LENS over one page of the queue, never a merge (there is no group id in any
  * table) — `<details>` is the native disclosure widget, so expand/collapse needs no client JS
@@ -2109,11 +2206,15 @@ textarea.field__input {
   gap: var(--space-4);
 }
 .reviewgroup > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--icon-gap);
   cursor: pointer;
   font-weight: var(--weight-medium);
+  list-style: none;
 }
 .reviewgroup > summary::-webkit-details-marker {
-  color: var(--text-muted);
+  display: none;
 }
 .reviewgroup[open] > summary {
   margin-block-end: var(--space-3);
@@ -2167,12 +2268,6 @@ textarea.field__input {
 /* Captions under the batch list sit off it by the pager's own step (`.pager` in the flat view). */
 .queue-notes--foot {
   margin-block-start: var(--space-5);
-}
-
-.btn[aria-current="page"] {
-  background: var(--brand-tint);
-  color: var(--text-primary);
-  border-color: var(--brand-border);
 }
 
 /* ==================================================================
@@ -2237,6 +2332,86 @@ textarea.field__input {
     position: absolute;
     inset: calc((100% - var(--control-md)) / 2);
   }
+  /* The back link takes the height itself, like the drawer rows: a strip reaching past it would
+     sit over the page title directly below and steal taps aimed at nothing. The title block
+     grows by the difference on a touch screen only; the margin under it closes up to match. */
+  .backlink {
+    min-block-size: var(--control-md);
+  }
+  .page__back {
+    margin-block-end: 0;
+  }
+
+  /* TABLE LINKS — an id, a role title, "View": 17px of text in a row at least 44px tall. The
+     hit area grows to the row's height, not the drawn link: a strip centred on the link, the
+     `.btn--sm` technique, so no table moves. One link per cell, so a strip has the row to
+     itself. Two links stacked in one cell (worker + "View journey", worker + "Session") take
+     the height themselves instead (below): two strips would overlap and the second would win
+     the first one's taps. A link over a second line of text (a session's time over its id)
+     takes its height too: centred on the first line, a strip leaves the row. */
+  .table td > .link,
+  .table th > .link {
+    position: relative;
+  }
+  /* …and every body row is taller than the strip, with a little to spare, so a strip never
+     reaches into the next row (at 375 a row measured 43.6px and lost the overlap to its
+     neighbour; at exactly 44 a half-pixel off-centre link still did). A table cell's `height`
+     is its minimum. */
+  .table tbody td,
+  .table tbody th {
+    height: calc(var(--control-md) + var(--space-1));
+  }
+  .table td > .link::before,
+  .table th > .link::before {
+    content: "";
+    position: absolute;
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0px, calc((100% - var(--control-md)) / 2));
+  }
+  .table :is(td, th) > br + .link,
+  .table :is(td, th) > .link:has(+ br) {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: var(--control-md);
+  }
+  .table :is(td, th) > br + .link::before,
+  .table :is(td, th) > .link:has(+ br)::before {
+    content: none;
+  }
+
+  /* A record row's link — a posting's Owner account, an AI call's worker, session and
+     correlation id. On those pages it is the only route to that record (the posting header no
+     longer repeats the owner), so it needs the full target. Detail-list rows sit --space-3
+     apart, so a 44px strip would reach into the next row; the link takes the height itself. */
+  .kv__v > .link {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: var(--control-md);
+  }
+  /* …and the row keeps its label beside its value. Stretched to 44px, the link's text sat
+     11-12px below its label's line; on the shared baseline the two read as one row again
+     (offset 0, link still 44px, no overlap with the next row; measured). */
+  .kv {
+    align-items: baseline;
+  }
+
+  /* A candidate-id chip in a review group, and the crumb's section link: the target takes the
+     height itself (chips wrap in rows a strip would overlap; the crumb sits in a bar with room). */
+  .chip > .link {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: var(--control-md);
+  }
+  .crumb__link {
+    display: inline-block;
+    line-height: var(--control-md);
+  }
+
+  /* The review-group and enrolment disclosures: the whole summary row is the toggle. */
+  .reviewgroup > summary,
+  .enroll__manual > summary {
+    min-block-size: var(--control-md);
+  }
 }
 
 /* ==================================================================
@@ -2290,11 +2465,11 @@ textarea.field__input {
     gap: var(--space-2);
     padding-inline: var(--space-4);
   }
-  /* Three crumbs plus the role pill truncated every segment to a few letters ("Oper… / Wo…
-     / aaaa…"). The section name goes first — the drawer names it — so the destination and
-     the row stay readable. */
-  .crumb--group,
-  .crumb--group + .crumb__sep {
+  /* Several crumbs plus the role pill truncated every segment to a few letters. The group name
+     goes first once a section follows it — the drawer names it — so the linked section stays
+     readable. On a top-level page the group is the whole crumb, and it stays. */
+  .crumb--group:not(:last-child),
+  .crumb--group:not(:last-child) + .crumb__step > .crumb__sep {
     display: none;
   }
 
