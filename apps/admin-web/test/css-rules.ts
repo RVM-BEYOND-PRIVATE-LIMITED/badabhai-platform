@@ -84,6 +84,36 @@ export function decl(body: string, prop: string): string | null {
   return last;
 }
 
+/** Every property name declared in a declaration block, in order (duplicates kept). */
+export function declaredProperties(body: string): string[] {
+  return body
+    .split(";")
+    .filter((part) => part.includes(":"))
+    .map((part) => part.slice(0, part.indexOf(":")).trim())
+    .filter(Boolean);
+}
+
+/**
+ * The whitespace-separated components of a declared value, with any `fn(…)` kept whole:
+ * `calc(0px + var(--x)) solid` is two tokens, so a zero INSIDE a function is never read as a
+ * component of its own.
+ */
+export function valueTokens(value: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of value) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    if (depth === 0 && /\s/.test(ch)) {
+      if (current) out.push(current);
+      current = "";
+    } else current += ch;
+  }
+  if (current) out.push(current);
+  return out;
+}
+
 /**
  * The value of custom property `name` as the cascade would resolve it for an element inside
  * `[data-theme="<theme>"]` (or with no theme): the last declaration in a matching theme block

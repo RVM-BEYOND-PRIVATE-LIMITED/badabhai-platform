@@ -1,13 +1,20 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SIMULATED_TAG, isRupeeTile, statTiles } from "../../../../test/stat-tiles";
+import {
+  LIVE_POSTURE_BANNER,
+  MOCK_POSTURE_BANNER,
+  SIMULATED_TAG,
+  isRupeeTile,
+  statTiles,
+} from "../../../../test/stat-tiles";
 
 /**
  * The transactions page's simulated-money marking, asserted on the PAGE (#1856). The ₹ tile here
  * has TWO call sites — the mock-path pack-purchase tile (ledger-side, shown while payments are
  * mocked and a purchase exists) and the settled-orders tile otherwise — and each renders its own
- * `MockMoneyTag`, so each branch is rendered and checked. See credits/page.render.test.tsx for why
- * the component test alone does not cover this.
+ * `MockMoneyTag`, so each branch is rendered and checked. The orders table's ₹ amounts carry no
+ * tag by design; the posture banner above them is their only marker, and is pinned too. See
+ * credits/page.render.test.tsx for why the component test alone does not cover this.
  */
 const stub = vi.hoisted(() => ({
   order: [] as string[],
@@ -25,6 +32,7 @@ vi.mock("../../../lib/auth", () => ({
 vi.mock("../../../lib/entities", () => ({
   getFinanceSummary: async () => {
     stub.order.push("summary");
+    if (stub.summary instanceof Error) throw stub.summary;
     return stub.summary;
   },
   listOrders: async () => {
@@ -115,5 +123,27 @@ describe("transactions — simulated money is marked on the page", () => {
     const rupees = statTiles(out).filter(isRupeeTile);
     expect(rupees.map((t) => t.label)).toEqual(["Settled (4 orders)"]);
     expect(out).not.toContain(SIMULATED_TAG);
+    expect(out).toContain(LIVE_POSTURE_BANNER);
+    expect(out).not.toContain("Simulated money");
+  });
+
+  it("under mock payments ONE posture banner leads the page, above the orders table", async () => {
+    const out = await render();
+    expect(out.split(MOCK_POSTURE_BANNER)).toHaveLength(2);
+    const table = out.indexOf("<table");
+    // Not vacuous: the order amounts in the table are ₹ figures with no tag of their own.
+    expect(table).toBeGreaterThanOrEqual(0);
+    expect(out.slice(table)).toContain("₹1,500");
+    expect(out.indexOf(MOCK_POSTURE_BANNER)).toBeLessThan(table);
+  });
+
+  it("a failed summary read keeps the banner: the orders' posture still marks their ₹ amounts", async () => {
+    stub.summary = new Error("summary read failed");
+    const out = await render();
+    const table = out.indexOf("<table");
+    expect(table).toBeGreaterThanOrEqual(0);
+    expect(out.slice(table)).toContain("₹1,500");
+    expect(out.indexOf(MOCK_POSTURE_BANNER)).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf(MOCK_POSTURE_BANNER)).toBeLessThan(table);
   });
 });

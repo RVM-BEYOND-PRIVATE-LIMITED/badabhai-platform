@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   decl,
+  declaredProperties,
   globalsCss,
   resolveToken,
   rule,
   rules,
   tokensCss,
+  valueTokens,
   type Rule,
 } from "../../test/css-rules";
 
@@ -217,11 +219,68 @@ describe("touch targets — 44px on a phone or any coarse pointer", () => {
     expect(touchAt(".sidebar__link")).toBeGreaterThan(lastBase(".sidebar__link"));
     expect(touchAt(".btn--sm")).toBeGreaterThan(lastBase(".btn--sm"));
   });
+
+  it("nothing declared AFTER the touch rules takes back what they set, in any at-rule", () => {
+    // Same specificity again, so a LATER rule wins wherever it sits — and the PR-D1 phone tier
+    // is declared after this block. A phone-tier `.sidebar__link { min-height: var(--control-sm) }`
+    // would undo the 44px drawer rows on every phone with every check above still green.
+    // Conservative on purpose: a later rule in ANY at-rule counts (a string fence cannot prove
+    // two media queries disjoint), unless it repeats the touch value exactly.
+    const insets = (axis: "block" | "inline", start: string, end: string) => [
+      `inset-${axis}`,
+      "inset",
+      start,
+      end,
+      `inset-${axis}-start`,
+      `inset-${axis}-end`,
+    ];
+    const overriddenBy: Record<string, string[]> = {
+      "min-height": ["min-height", "min-block-size"],
+      "inset-block": insets("block", "top", "bottom"),
+      "inset-inline": insets("inline", "left", "right"),
+    };
+    const undone: string[] = [];
+    for (const sel of [".sidebar__link", ".btn--sm", ".btn--sm::before"]) {
+      const touch = touchRule(sel)!;
+      expect(touch, sel).toBeDefined();
+      for (const later of ALL.slice(ALL.indexOf(touch) + 1)) {
+        if (!later.selector.split(",").some((part) => part.trim() === sel)) continue;
+        for (const prop of declaredProperties(touch.body)) {
+          for (const rival of overriddenBy[prop] ?? [prop]) {
+            const value = decl(later.body, rival);
+            if (value !== null && !(rival === prop && value === decl(touch.body, prop))) {
+              undone.push(`${[...later.atRules, later.selector].join(" > ")} { ${rival} }`);
+            }
+          }
+        }
+      }
+    }
+    expect(undone).toEqual([]);
+  });
 });
 
 // ---- forced colours -----------------------------------------------------------------------
 
 const ADMIN_RING = ":where(a, button, input, select, textarea, summary, [tabindex]):focus-visible";
+
+/** A zero length in any unit — `0`, `0px`, `0.0em` — but never `0.5px` or a `calc(0px + …)`. */
+const isZeroLength = (token: string) =>
+  /^[+-]?(\d+\.?\d*|\.\d+)([a-z%]+)?$/i.test(token) && parseFloat(token) === 0;
+
+/**
+ * Does a rule's own outline draw nothing? No outline declared at all, or one whose style is
+ * `none` or whose width is zero in any unit — anywhere in the shorthand (it is order-free:
+ * `solid 0px` is as lost as `0`) or in an `outline-style` / `outline-width` longhand.
+ */
+function outlineLost(body: string): boolean {
+  const shorthand = decl(body, "outline");
+  const style = decl(body, "outline-style");
+  if (shorthand === null && style === null) return true;
+  return [shorthand, style, decl(body, "outline-width")]
+    .filter((v): v is string => v !== null)
+    .flatMap(valueTokens)
+    .some((t) => t === "none" || isZeroLength(t));
+}
 
 /**
  * Rules that draw a focus ring with a box-shadow — on the focused element or on a host keyed off
@@ -235,10 +294,7 @@ function ringsLostInForcedColors(rs: Rule[]): string[] {
       const shadow = decl(r.body, "box-shadow");
       return shadow !== null && shadow !== "none";
     })
-    .filter((r) => {
-      const outline = decl(r.body, "outline");
-      return outline === null || /^(none|0)\b/.test(outline);
-    })
+    .filter((r) => outlineLost(r.body))
     .map((r) => r.selector);
 }
 
@@ -276,13 +332,26 @@ describe("focus in forced colours", () => {
         ".b:focus-within { box-shadow: var(--ring-focus); }" +
         ".c:has(> input:focus-visible) { outline: 0; box-shadow: var(--ring-focus); }" +
         ".d:focus-visible { outline: var(--border-bold) solid transparent; box-shadow: var(--ring-focus); }" +
-        ".e:focus-visible { box-shadow: none; }",
+        ".e:focus-visible { box-shadow: none; }" +
+        // A zero width in any unit, in any position of the shorthand, or in a longhand.
+        ".f:focus-visible { outline: 0px; box-shadow: var(--ring-focus); }" +
+        ".g:focus-visible { outline: solid 0.0em var(--focus-ring); box-shadow: var(--ring-focus); }" +
+        ".h:focus-visible { outline: var(--border-bold) solid; outline-width: 0; box-shadow: var(--ring-focus); }" +
+        ".i:focus-visible { outline: var(--border-bold) solid; outline-style: none; box-shadow: var(--ring-focus); }" +
+        // What it must PERMIT: a width that merely starts with 0, and zeros inside a function.
+        ".j:focus-visible { outline: 0.5px solid var(--focus-ring); box-shadow: var(--ring-focus); }" +
+        ".k:focus-visible { outline: calc(0px + var(--border-bold)) solid var(--focus-ring); box-shadow: var(--ring-focus); }" +
+        ".l:focus-visible { outline: var(--border-bold) solid color(srgb 0 0 0); box-shadow: var(--ring-focus); }",
       true,
     );
     expect(ringsLostInForcedColors(fixture)).toEqual([
       ".a:focus-visible",
       ".b:focus-within",
       ".c:has(> input:focus-visible)",
+      ".f:focus-visible",
+      ".g:focus-visible",
+      ".h:focus-visible",
+      ".i:focus-visible",
     ]);
   });
 

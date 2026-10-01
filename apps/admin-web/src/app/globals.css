@@ -1326,21 +1326,29 @@ h3 {
    Everywhere else a row header stays static (`.table tbody th`, above); pinning row headers
    globally is what once covered the column headers. `.table--matrix .table__rowhead` is (0,2,0),
    so it outranks that (0,1,2) rule wherever it sits.
+   - Pinned on the INLINE axis only. `.table th` gives every header `top: 0`; the static rule
+     leaves that inert, but making the cell sticky re-arms it, and each label then pinned to the
+     scroller's top edge and left its row behind (up to 471px off its row at 375x600, measured).
+     `inset-block-start: auto` hands the block axis back: a label scrolls vertically with its row.
    - It wraps, with a 9rem floor. Unwrapped it was 439px — wider than the whole 307px scroller
      at 375 — and pinned it would have hidden every role column. At 600-1024px the wrapped
      matrix now fits without scrolling; at 1280 there is room and nothing wraps.
    - Opaque card fill, so cells sliding underneath never show through; the row-hover fill is
      repeated on it because a sticky cell paints its own background over the row's.
    - A hairline on its inline end, drawn by the cell itself: a sticky cell leaves the collapsed
-     border grid (the column header's bottom rule does the same).
+     border grid (the column header's bottom rule does the same). Drawn at EVERY width, also
+     where nothing scrolls: at 1280 it is the one visible change, a rule after the Capability
+     column. CSS cannot tell a stuck cell from a resting one without scroll-state container
+     queries (Chromium-only), and the label column reads as its own column either way.
    - No z-index: a positioned z-auto cell paints over the static cells but UNDER the column
-     header (z-index 1), so a vertical scroll still passes rows beneath the header. The corner
-     cell is pinned on both axes and sits above both.
+     header (z-index 1), so a vertical scroll passes rows beneath the header. The corner cell
+     keeps `top: 0`, is pinned on both axes and sits above both (z-index 2).
    - The scroller is the table's only focus stop (nothing inside it is a control), and its
      ring is drawn OUTSIDE the scroller, where no pinned cell can cover it. */
 .table--matrix .table__rowhead {
   position: sticky;
   inset-inline-start: 0;
+  inset-block-start: auto;
   white-space: normal;
   min-inline-size: 9rem;
   background: var(--surface-card);
@@ -1552,13 +1560,13 @@ h3 {
    with a screenshot of the tile — but it is a PILL, not part of the figure. It inherited the
    figure's type: Roboto Mono, the KPI tracking and leading, tabular slashed-zero numerals, so it
    read as a squeezed fragment of the number and stood 17.8px tall beside every other pill's
-   22.6px (measured). The pill declares its own size and weight; this returns the rest of its UI
-   sans type (weight restated so the reset is whole in one place). Type only: the value row's
-   layout (flex, wrap, the nowrap figure) is the rule above and is untouched. */
+   22.6px (measured). `.pill` declares its own size and weight on the element, so neither is
+   inherited and neither is restated here (a copy would pin this one pill if `.pill` changed);
+   this returns only what the pill inherits. Type only: the value row's layout (flex, wrap, the
+   nowrap figure) is the rule above and is untouched. */
 .stat__value .pill {
   font-family: var(--font-sans);
   font-style: normal;
-  font-weight: var(--weight-medium);
   letter-spacing: normal;
   line-height: var(--ui-caption-leading);
   font-variant-numeric: normal;
@@ -2077,10 +2085,14 @@ textarea.field__input {
 .queue-controls .filters--inline {
   margin-bottom: 0;
 }
-/* This filter bar is the console's only one with TWO actions (Apply, Clear filters), and in its
-   13rem grid track "Clear filters" broke onto two lines inside its own button at 1280. A label
-   never breaks; the second button drops under the first instead. */
+/* This filter bar is the console's only one with TWO actions (Apply, Clear filters), and the pair
+   does not fit one 13rem grid track: at 1280 "Clear filters" broke onto two lines inside its own
+   button, and wrapping the pair instead stacked Apply 56px above the last field row at 768-1280
+   (measured). So the actions take a full row of their own under the fields: both buttons on one
+   line at every width, at the same place on every screen. A label never breaks, and the pair
+   still wraps on a row too narrow for both. */
 .queue-controls .filters__actions {
+  grid-column: 1 / -1;
   flex-wrap: wrap;
 }
 .queue-controls .filters__actions .btn {

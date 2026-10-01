@@ -51,6 +51,13 @@ describe("discovery rhythm", () => {
     expect(decl(own(".queue-controls .filters__actions .btn"), "white-space")).toBe("nowrap");
   });
 
+  it("the two actions take a full row under the fields, never one 13rem track", () => {
+    // In one track the pair stacked, Apply 56px above the last field row at 768-1280 (measured).
+    // Spanning every track keeps both on one line at every width; on a one-track phone grid it
+    // is the same single track, so the phone layout is unchanged.
+    expect(decl(own(".queue-controls .filters__actions"), "grid-column")).toBe("1 / -1");
+  });
+
   it("a batch card nested in the queue panel takes the small panel pad", () => {
     expect(decl(own(".reviewgroups > .panel"), "padding")).toBe("var(--panel-pad-sm)");
   });

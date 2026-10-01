@@ -8,7 +8,8 @@ import type * as SkillDiscoveryModule from "../../../../lib/skill-discovery";
  * `lib/skill-discovery.test.ts` covers the request/schema layer; this covers what a reviewer
  * sees. Two server-only seams are replaced (the capability gate, the data layer) plus the
  * client filter bar, which needs an app-router context this renderer does not provide — the
- * same treatment `workers/page.render.test.tsx` gives `WorkerFilterBar`.
+ * same treatment `workers/page.render.test.tsx` gives `WorkerFilterBar`, except that it renders
+ * an empty sentinel `<form>` rather than nothing, so where the page places it is assertable.
  *
  * #1280 REPLACED THE GROUPED VIEW'S DATA SOURCE — it now calls `listSkillDiscoveryGroups`
  * (`GET /admin/skill-discovery/groups`), never `listSkillDiscovery`, so every assertion below
@@ -83,7 +84,15 @@ vi.mock("../../../../lib/skill-discovery", async () => {
   };
 });
 
-vi.mock("./filter-bar", () => ({ SkillDiscoveryFilterBar: () => null }));
+// A sentinel where the page PLACES the bar (its own markup is the component's concern), so the
+// stack it belongs to stays assertable below.
+vi.mock("./filter-bar", async () => {
+  const { createElement } = await import("react");
+  return {
+    SkillDiscoveryFilterBar: () =>
+      createElement("form", { "data-stub": "SkillDiscoveryFilterBar" }),
+  };
+});
 
 const { default: SkillDiscoveryPage } = await import("./page");
 
@@ -603,6 +612,44 @@ describe("loading", () => {
 // fenced in app/discovery-rhythm.css.test.ts; these pin which markup they wrap.
 // ---------------------------------------------------------------------------
 describe("hierarchy and rhythm", () => {
+  const FILTER_BAR = '<form data-stub="SkillDiscoveryFilterBar">';
+
+  /**
+   * The `.queue-controls` stack's span in `out`: its opening `<div>` to the `</div>` that closes
+   * it, found by counting depth, so a nested group's close never ends it early.
+   */
+  function queueControls(out: string): { start: number; end: number } {
+    const open = '<div class="queue-controls">';
+    const start = out.indexOf(open);
+    expect(start, open).toBeGreaterThanOrEqual(0);
+    let depth = 0;
+    for (let i = start; ; ) {
+      const nextOpen = out.indexOf("<div", i);
+      const nextClose = out.indexOf("</div>", i);
+      if (nextClose < 0) throw new Error(".queue-controls is never closed");
+      if (nextOpen >= 0 && nextOpen < nextClose) {
+        depth++;
+        i = nextOpen + "<div".length;
+      } else {
+        depth--;
+        i = nextClose + "</div>".length;
+        if (depth === 0) return { start, end: i };
+      }
+    }
+  }
+
+  function expectFilterBarClosesTheStack(out: string, results: string) {
+    const { start, end } = queueControls(out);
+    const form = out.indexOf(FILTER_BAR);
+    expect(form, "filter bar inside the stack").toBeGreaterThan(start);
+    expect(form, "filter bar inside the stack").toBeLessThan(end);
+    // Its LAST child: the form's close is the stack's last markup before the stack closes.
+    expect(out.slice(start, end).endsWith("</form></div>")).toBe(true);
+    const at = out.indexOf(results);
+    expect(at, results).toBeGreaterThanOrEqual(0);
+    expect(at, "results after the stack").toBeGreaterThanOrEqual(end);
+  }
+
   it("the metrics are ONE named section: both tile rows and both captions inside it", async () => {
     const out = await render();
     const open =
@@ -640,12 +687,23 @@ describe("hierarchy and rhythm", () => {
       at('aria-label="Status"'),
       at('<div class="queue-controls__group"><div class="filters--inline" role="group" aria-label="Review tier">'),
       at('aria-label="Batch order"'),
+      at(FILTER_BAR),
       at('<ul class="reviewgroups">'),
     ];
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     // The caption closes the tier group — it explains the tabs directly above it.
     const group = out.slice(at('<div class="queue-controls__group">'), at('aria-label="Batch order"'));
     expect(group).toContain('</div><p class="field__help">');
+    // The filter bar is the stack's LAST child, and the stack closes before the results: outside
+    // it, the filter form met the first result with 0px between them (measured).
+    expectFilterBarClosesTheStack(out, '<ul class="reviewgroups">');
+  });
+
+  it("the flat view's filter bar closes the same stack, above its results table", async () => {
+    stub.page = { items: [ROW], nextCursor: null };
+    const out = await render({ view: "flat" });
+    expect(out).not.toContain('aria-label="Batch order"');
+    expectFilterBarClosesTheStack(out, '<div class="tablewrap">');
   });
 
   it("the grouped view's trailing captions sit in a foot block after the batch list", async () => {

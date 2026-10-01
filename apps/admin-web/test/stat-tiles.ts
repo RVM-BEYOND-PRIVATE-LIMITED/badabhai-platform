@@ -47,5 +47,17 @@ export function statTiles(html: string): RenderedStat[] {
 export const SIMULATED_TAG =
   '<span class="pill pill--warn" title="Real payments are disabled — this is mock money.">simulated</span>';
 
+/**
+ * The opening of `PaymentsPostureBanner` under mock payments (components/payments-posture.tsx).
+ * A money page's TABLE ₹ figures (amounts, prices) carry no inline tag by design — the tag is for
+ * a figure that appears away from the banner — so this banner is their only marker.
+ */
+export const MOCK_POSTURE_BANNER =
+  '<section class="notice notice--warn" role="status"><strong>Simulated money — not revenue.</strong>';
+
+/** The opening of `PaymentsPostureBanner` under live payments. */
+export const LIVE_POSTURE_BANNER =
+  '<section class="notice" role="status"><strong>Live payments.</strong>';
+
 /** Does a tile's value print a rupee figure? */
 export const isRupeeTile = (t: RenderedStat) => t.valueHtml.includes("₹");

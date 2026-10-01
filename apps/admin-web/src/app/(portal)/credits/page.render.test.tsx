@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SIMULATED_TAG, isRupeeTile, statTiles } from "../../../../test/stat-tiles";
+import {
+  LIVE_POSTURE_BANNER,
+  MOCK_POSTURE_BANNER,
+  SIMULATED_TAG,
+  isRupeeTile,
+  statTiles,
+} from "../../../../test/stat-tiles";
 
 /**
  * The credits page's simulated-money marking, asserted on the PAGE (#1856). `Stat` itself is
@@ -10,7 +16,9 @@ import { SIMULATED_TAG, isRupeeTile, statTiles } from "../../../../test/stat-til
  *
  * So: under mock payments EVERY ₹ tile on the page carries the tag inside its value span, and the
  * fixture is built so there is such a tile to check (the count is asserted, not assumed). Under
- * live payments no tile does. The data seams are mocked; the page and its components are real.
+ * live payments no tile does. The TABLE ₹ figures (by-reason amounts, ledger prices) carry no tag
+ * by design, so the posture banner is their only marker: it is pinned above them too, including
+ * when the summary read fails. The data seams are mocked; the page and its components are real.
  */
 const stub = vi.hoisted(() => ({
   order: [] as string[],
@@ -28,6 +36,7 @@ vi.mock("../../../lib/auth", () => ({
 vi.mock("../../../lib/entities", () => ({
   getFinanceSummary: async () => {
     stub.order.push("summary");
+    if (stub.summary instanceof Error) throw stub.summary;
     return stub.summary;
   },
   listLedger: async () => {
@@ -116,5 +125,28 @@ describe("credits — simulated money is marked on the page", () => {
     const rupees = statTiles(out).filter(isRupeeTile);
     expect(rupees).toHaveLength(1);
     expect(out).not.toContain(SIMULATED_TAG);
+    expect(out).toContain(LIVE_POSTURE_BANNER);
+    expect(out).not.toContain("Simulated money");
+  });
+
+  it("under mock payments ONE posture banner leads the page, above every ₹ table", async () => {
+    const out = await render();
+    expect(out.split(MOCK_POSTURE_BANNER)).toHaveLength(2);
+    const firstTable = out.indexOf("<table");
+    // Not vacuous: the tables below it carry ₹ figures of their own.
+    expect(firstTable).toBeGreaterThanOrEqual(0);
+    expect(out.slice(firstTable)).toContain("₹18,000");
+    expect(out.slice(firstTable)).toContain("₹1,500");
+    expect(out.indexOf(MOCK_POSTURE_BANNER)).toBeLessThan(firstTable);
+  });
+
+  it("a failed summary read keeps the banner: the ledger's posture still marks its ₹ prices", async () => {
+    stub.summary = new Error("summary read failed");
+    const out = await render();
+    const ledgerTable = out.indexOf("<table");
+    expect(ledgerTable).toBeGreaterThanOrEqual(0);
+    expect(out.slice(ledgerTable)).toContain("₹1,500");
+    expect(out.indexOf(MOCK_POSTURE_BANNER)).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf(MOCK_POSTURE_BANNER)).toBeLessThan(ledgerTable);
   });
 });

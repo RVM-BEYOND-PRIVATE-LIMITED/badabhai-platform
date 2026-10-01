@@ -187,10 +187,48 @@ describe("the simulated tag inside a stat value", () => {
     expect(decl(body!, "font-family")).toBe("var(--font-sans)");
     expect(decl(body!, "letter-spacing")).toBe("normal");
     expect(decl(body!, "line-height")).toBe("var(--ui-caption-leading)");
-    expect(decl(body!, "font-weight")).toBe("var(--weight-medium)");
     expect(decl(body!, "font-variant-numeric")).toBe("normal");
     // An absent value is italic; a pill inside one is still upright.
     expect(decl(body!, "font-style")).toBe("normal");
+  });
+
+  it("leaves size and weight to `.pill`, which sets both on the element (never inherited)", () => {
+    // A copy here would do nothing today and would pin this one pill if `.pill` changed — the
+    // same drift away from every other pill that the reset exists to undo.
+    const pill = rule(topLevel(), ".pill");
+    expect(pill).not.toBeNull();
+    for (const prop of ["font-size", "font-weight"]) {
+      expect(decl(pill!, prop), `.pill ${prop}`).not.toBeNull();
+      expect(decl(rule(topLevel(), TAG)!, prop), `${TAG} ${prop}`).toBeNull();
+    }
+  });
+
+  it("no rule, in ANY at-rule, takes the reset back or re-pins the pill's own type", () => {
+    // The PR-D1 phone tier is declared AFTER the reset at equal specificity, so a phone-tier
+    // `.stat__value .pill { font-family: var(--font-mono) }` would bring the mono tag back on
+    // every phone while every top-level check above stayed green.
+    const reset = rule(topLevel(), TAG)!;
+    const TYPE = [
+      "font",
+      "font-family",
+      "font-style",
+      "font-weight",
+      "font-size",
+      "letter-spacing",
+      "line-height",
+      "font-variant-numeric",
+    ];
+    const targetsTag = (selector: string) =>
+      selector.split(",").some((part) => part.includes(".stat__value") && part.includes(".pill"));
+    const drift = rules(CSS, true)
+      .filter((r) => targetsTag(r.selector))
+      .flatMap((r) =>
+        TYPE.filter((p) => {
+          const value = decl(r.body, p);
+          return value !== null && value !== decl(reset, p);
+        }).map((p) => `${[...r.atRules, r.selector].join(" > ")} { ${p} }`),
+      );
+    expect(drift).toEqual([]);
   });
 
   it("resets TYPE only — the value row's layout stays the wide rule's", () => {
