@@ -1,7 +1,8 @@
 # ADR-0047: The PII restriction is lifted — model-prompt masking becomes one switch
 
-- **Status:** **Accepted — owner decision of 2026-09-30 (relayed by Divyanshu Pant, Backend Platform).** The owner
-  instructed a direct merge of the implementing change; the signatures on the foot are recorded after it. The switch
+- **Status:** **Accepted — signed 2026-10-01** (see the foot). Owner decision of 2026-09-30, relayed by Divyanshu
+  Pant (Backend Platform). The owner instructed a direct merge of the implementing change (#1870); the signature was
+  recorded after it. The switch
   defaults **off** in code. The output-side gaps the implementing change measured are decided and closed in the same
   change (§6, G1 and G2). Arming it in production is the `production` secret plus a redeploy (§5). **The secret
   already reads `true`, so merging the implementing change arms production** on the deploy that follows. A
@@ -153,8 +154,8 @@ These never read the flag:
 **Merging is arming.** The owner decided on 2026-09-30 and instructed a direct merge of the implementing change. The
 `production` secret already reads `true` (created 2026-09-30; a secret's value cannot be read back, so it is treated as
 `true`), and the deploy job exports it on every run, so the first deploy after the merge arms production. G1 and G2
-(§6) ship in that change, and a `security-engineer` review of it ran before the merge (§8). The signatures on the foot
-are recorded after the merge; they ratify the decision and gate nothing
+(§6) ship in that change, and a `security-engineer` review of it ran before the merge (§8). The change merged as #1870
+and armed production on 2026-10-01; the signature on the foot was recorded the same day, ratifying the decision
 ([production-release-runbook.md](../ops/production-release-runbook.md) P0 #13).
 
 **Recommended owner follow-ups, not gates** (the decision accepts the §6 consequences as they stand): sign the Gemini
@@ -347,8 +348,8 @@ a second switch — is a new relaxation and goes back to the owner.
 ```
 Owner decision 2026-09-30, relayed by Divyanshu Pant (Backend Platform); G1 and G2 (§6) decided the same day and
 implemented with the switch. The owner instructed a direct merge; the production secret reads true, so the merge
-armed AI_RAW_PII_ENABLED. The signatures below are recorded after the merge and ratify the decision.
+armed AI_RAW_PII_ENABLED (#1870, deployed 2026-10-01). The signature below was recorded after the merge and
+ratifies the decision.
 
-Signed (CEO / Prakash): ______________________          Date: __________
-Decided (Backend Platform / Divyanshu): ______________________          Date: __________
+Signed: Divyanshu (Backend Platform; relayed the owner's decision)          Date: 2026-10-01
 ```
