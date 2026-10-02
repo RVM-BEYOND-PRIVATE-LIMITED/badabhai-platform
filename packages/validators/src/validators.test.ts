@@ -16,6 +16,7 @@ import {
   looksLikeActionContextPii,
   looksLikeOrgName,
   looksLikeUrl,
+  workerVisibleTextScreens,
   bandForCount,
 } from "./index";
 
@@ -293,5 +294,38 @@ describe("looksLikeUrl", () => {
     "Fanuc control",
   ])("does not flag %s", (s) => {
     expect(looksLikeUrl(s)).toBe(false);
+  });
+});
+
+describe("workerVisibleTextScreens", () => {
+  it.each([
+    ["Call 98765 43210", ["contact_details"]],
+    ["hr@acme.example", ["contact_details"]],
+    ["Operator at Kalyani Pvt Ltd", ["company_name"]],
+    ["Details at www.acme.in", ["link"]],
+    ["Acme Pvt Ltd 9876543210 acme.in", ["contact_details", "company_name", "link"]],
+    ["CNC Operator — Night Shift", []],
+    ["PF + ESI", []],
+  ] as const)("%j trips %j", (s, screens) => {
+    expect(workerVisibleTextScreens(s)).toEqual(screens);
+  });
+
+  it("is exactly the three helpers, in pii → company → link order", () => {
+    const samples = [
+      "Call 98765 43210",
+      "Kalyani LLP",
+      "acme.co.in",
+      "Mehta & Co 9876543210",
+      "limited experience ok",
+      "Fanuc control",
+    ];
+    for (const s of samples) {
+      const expected = [
+        ...(looksLikePii(s) ? ["contact_details"] : []),
+        ...(looksLikeOrgName(s) ? ["company_name"] : []),
+        ...(looksLikeUrl(s) ? ["link"] : []),
+      ];
+      expect(workerVisibleTextScreens(s)).toEqual(expected);
+    }
   });
 });

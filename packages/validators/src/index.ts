@@ -262,6 +262,28 @@ export function looksLikeUrl(s: string): boolean {
   return URL_SCHEME.test(s) || URL_WWW.test(s) || URL_TLD.test(s);
 }
 
+/** Which of ADR-0024's worker-visible free-text heuristics a string trips. */
+export type WorkerVisibleScreen = "contact_details" | "company_name" | "link";
+
+/**
+ * THE ADR-0024 WORKER-VISIBLE FREE-TEXT SCREEN, as one list: {@link looksLikePii},
+ * then {@link looksLikeOrgName}, then {@link looksLikeUrl}. Returns every screen
+ * the string trips, in that order, and an empty array when it is clean.
+ *
+ * Every writer of worker-visible job text calls this rather than its own copy of
+ * the three helpers: the api's Zod screen (`screenWorkerVisibleText`), the D4
+ * seed-job converter and the seed scripts. A heuristic added here therefore
+ * reaches all of them at once, and the api's exhaustive message map stops
+ * compiling until the new screen has a message. Names only, never the text.
+ */
+export function workerVisibleTextScreens(s: string): WorkerVisibleScreen[] {
+  const out: WorkerVisibleScreen[] = [];
+  if (looksLikePii(s)) out.push("contact_details");
+  if (looksLikeOrgName(s)) out.push("company_name");
+  if (looksLikeUrl(s)) out.push("link");
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Vacancy band derivation (ADR-0012: job_postings is BANDED, not an integer)
 // ---------------------------------------------------------------------------

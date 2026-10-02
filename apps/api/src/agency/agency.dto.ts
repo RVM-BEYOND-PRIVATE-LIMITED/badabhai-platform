@@ -1,11 +1,5 @@
 import { z } from "zod";
-import {
-  uuidSchema,
-  looksLikePii,
-  looksLikeActionContextPii,
-  looksLikeOrgName,
-  looksLikeUrl,
-} from "@badabhai/validators";
+import { uuidSchema, looksLikeActionContextPii } from "@badabhai/validators";
 import { clearFieldSchema, contradictoryClears } from "../common/clearable-fields";
 import {
   areaSchema,
@@ -18,6 +12,7 @@ import {
   payTypeSchema,
   requirementsSchema,
   roleKindSchema,
+  screenWorkerVisibleText,
   shiftSchema,
 } from "../common/job-content.schemas";
 import { REQUIRED_TRADE_KEYS } from "../resume/trade-content";
@@ -58,16 +53,14 @@ const tradeKeySchema = z.enum(REQUIRED_TRADE_KEYS);
  * ADR-0009 §2 / ADR-0022 privacy line). PII-heuristic screened (defense-in-depth): a
  * phone/email in this human-typed field is a real leak risk; we name the field, never the
  * offending content. ADR-0024 final addendum (2026-07-16): the title is worker-visible,
- * so the legal-entity-suffix heuristic (`looksLikeOrgName`) also applies — a "Pvt
- * Ltd"-style name typed here is rejected with a clear 400, never stored.
+ * so the legal-entity-suffix heuristic (`looksLikeOrgName`) and the link heuristic
+ * (`looksLikeUrl`) also apply — a "Pvt Ltd"-style name typed here is rejected with a clear
+ * 400, never stored. A posting's `role_title` runs the same screen with the same messages.
  */
-const title = z
-  .string()
-  .min(1)
-  .max(TITLE_MAX)
-  .refine((s) => !looksLikePii(s), { message: "remove contact details from the title" })
-  .refine((s) => !looksLikeOrgName(s), { message: "title must not contain a company name" })
-  .refine((s) => !looksLikeUrl(s), { message: "title must not contain links" });
+const title = screenWorkerVisibleText(z.string().min(1).max(TITLE_MAX), {
+  from: "the title",
+  subject: "title",
+});
 
 /** COARSE location — a city label (e.g. "Pune"), never an address. */
 const city = z.string().min(1).max(CITY_MAX);
@@ -77,22 +70,19 @@ const area = areaSchema;
 /**
  * Worker-visible free text (ADR-0024 final addendum, 2026-07-16): description +
  * benefits/requirements chips are shown VERBATIM to workers on the job card/detail, so
- * EVERY free-text surface is screened fail-closed at this write boundary with BOTH
- * heuristics — `looksLikePii` (phone/email shapes) AND `looksLikeOrgName` (legal-entity
- * suffixes; `looksLikePii` is documented as NOT catching employer names). A phone number
- * or a "Pvt Ltd"-style name typed into any of these is rejected with a clear 400, never
- * stored. Per-field messages name the FIELD, never the offending content.
+ * EVERY free-text surface is screened fail-closed at this write boundary with all three
+ * heuristics — `looksLikePii` (phone/email shapes), `looksLikeOrgName` (legal-entity
+ * suffixes; `looksLikePii` is documented as NOT catching employer names) and `looksLikeUrl`.
+ * A phone number or a "Pvt Ltd"-style name typed into any of these is rejected with a clear
+ * 400, never stored. Per-field messages name the FIELD, never the offending content. The
+ * screen is the shared `screenWorkerVisibleText`, so the posting routes cannot drift from it.
+ * The coarse `city` / `area` labels above are the exception: worker-visible, but unscreened
+ * at the server (an open follow-up; see the header of `job-content.schemas.ts`).
  */
-const description = z
-  .string()
-  .trim()
-  .min(1)
-  .max(DESCRIPTION_MAX)
-  .refine((s) => !looksLikePii(s), { message: "remove contact details from the description" })
-  .refine((s) => !looksLikeOrgName(s), {
-    message: "description must not contain a company name",
-  })
-  .refine((s) => !looksLikeUrl(s), { message: "description must not contain links" });
+const description = screenWorkerVisibleText(z.string().trim().min(1).max(DESCRIPTION_MAX), {
+  from: "the description",
+  subject: "description",
+});
 
 /** Coarse shift enum for the worker-visible job card — mirrors db.JobShift. Non-PII. */
 const shift = shiftSchema;
