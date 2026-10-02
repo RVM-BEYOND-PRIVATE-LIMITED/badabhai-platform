@@ -182,10 +182,12 @@ the comment above `_CORPORATE_FORM_CAPS`.
   repo's own text (question packs, lexicons, job-domain corpus, ai-service test strings),
   all upper-cased: a case-insensitive suffix list would newly mask 1,521 of them (9,442
   words). This rule masks 380 (1,966 words).
-- **Title case is byte-identical to main.** As written, the same corpus changes in 6 strings,
-  and each one contains a capitals corporate form. Neither as written nor upper-cased does a
-  string leave a word unmasked that main masked, or stop blocking where main blocked. No
-  certifier outcome changes over 4,765 lexicon labels (as written, UPPER and Title).
+- **Title case is byte-identical to main** (as of #1875; #1891 later bounded the title-case
+  name word without moving any of these outputs, see the next section). As written, the same
+  corpus changes in 6 strings, and each one contains a capitals corporate form. Neither as
+  written nor upper-cased does a string leave a word unmasked that main masked, or stop
+  blocking where main blocked. No certifier outcome changes over 4,765 lexicon labels (as
+  written, UPPER and Title).
 - **The two views (R49, #1890).** The one place where more masking can mean less protection
   is the #1738 two-view check. It counts a spaced-view region as covered when the region merely
   overlaps a reader-view mask. In `"my name is<U+200B>Ramesh Kumar CO"` the reader view merges
@@ -222,9 +224,8 @@ the comment above `_CORPORATE_FORM_CAPS`.
 - **Cost.** Measured on 2026-10-01: a typical line costs 2–10 µs more per call. On the worst
   20,000-character input tried, the rule alone costs 42 ms. The first cut reused title case's
   unbounded word and cost 1,575 ms on `"A." * 10000`, which doubled `pseudonymize` from
-  1,576 ms to 3,131 ms. The 1,576 ms that remains is the title-case rule's own unbounded
-  `[\w&.]*`. The same bound would fix it, but that touches title case and needs its own
-  sign-off (#1891).
+  1,576 ms to 3,131 ms. The 1,576 ms that remained was the title-case rule's own unbounded
+  `[\w&.]*`, since bounded the same way (#1891, next section).
 
 Pinned by `tests/test_pseudonymize_allcaps_employer.py` (165 tests). Each of 14 mutations of the
 rule turned it red, with 2 to 69 failures each: the rule removed; the dash guard on every form,
@@ -232,6 +233,69 @@ or on none; the CO list removed; trade words allowed to end a span; the rule fol
 `_COMPANY_SUFFIX`; joiners removed; the 7-digit refusal removed; the word unbounded; INC put
 back; a 6-word window; title case's word grammar; every guard removed; and the rule moved back
 ahead of the name rules.
+
+### The title-case employer rule does bounded work (issue #1891, risks-register R48)
+
+`_EMPLOYER_RE`'s name word was `[A-Z][\w&.]*`, unbounded. On a run with many word boundaries
+and no whitespace that is O(n²): every letter after a `.` or `&` opens a match, and each one
+scanned to the end of the run for the whitespace a suffix needs. Found by the security review of
+#1875. `/profiling/respond` and `/profile/extract` call `pseudonymize()` inline inside
+`async def`, so one such input stalled the event loop for every worker. The clean-or-withhold
+walls run the same rule whatever `AI_RAW_PII_ENABLED` says.
+
+- **The fix.** The name word is `_TITLE_NAME_WORD`: a capital, then at most 63 more of
+  `[\w&.]`, matched possessively. That is the capitals rule's `_CAPS_NAME_WORD_MAX` bound,
+  reused so the two cannot drift. Possessive changes no match: a word is always followed by
+  `\s+`, which `[\w&.]` excludes.
+- **No other copy exists.** `profiling/signals.py` and `resume_import/parse_policy.py` name the
+  rule only in comments. `contains_hard_identifier` (gate 6, `resume_value_certifier`) never ran
+  it. Every `pseudonymize()` caller and the three walls (`is_certified_clean`, `certify_value`,
+  `certified_clean_skill_labels`) use the one compiled pattern. The only other
+  `(?:\w+\s+){m,n}` window in `apps/ai-service/app` is the job-posting chat's vacancy count
+  (`_VACANCY_ARMS`). It starts only at a 1–4 digit number and scans at most three words from
+  there. Measured on six 20,000-character adversarial inputs, it takes 1–16 ms.
+- **Measured** on 2026-10-03 at 20,000 characters. Main's and the bounded rule were interleaved
+  in one process, with Windows power throttling switched off for it. Times are the minimum of 5
+  runs.
+
+  | Input | `pseudonymize`, main | bounded | the rule alone, main | bounded |
+  |---|---|---|---|---|
+  | `"A." * 10000` | 2,134 ms | 37 ms | 2,119 ms | 8 ms |
+  | `"A." * 9999` + one ZWSP | 4,306 ms | 82 ms | 2,573 ms | 10 ms |
+  | `"A&" * 10000` | 2,016 ms | 37 ms | 1,981 ms | 8 ms |
+  | `"Ab." * 6666` | 1,242 ms | 26 ms | 1,217 ms | 5 ms |
+  | `"A." * 9990 + " Steel"` | 4 ms | 37 ms | 0.2 ms | 8 ms |
+  | a typical 68-character line | 27.1 µs | 26.8 µs | | |
+
+  The `" Steel"` row is the price, and it is linear: main matched that run from its first
+  letter, and the bounded rule scans 64 characters from each start.
+- **Over-masking, re-measured with #1875's harness.** The corpus is 31,984 distinct strings:
+  #1875's 31,907 plus the 77 ai-service test strings added since. Each runs as written and
+  upper-cased. The certifiers run over 4,765 lexicon labels, as written, UPPER and Title.
+  - Main against the fix: 0 outputs changed, 0 changes in blocked status, 0 certifier outcomes
+    changed. The two result files are byte-identical.
+  - The upper-cased half is 0 by construction: the title-case suffix list is case-sensitive.
+  - A fidelity run, main's pattern swapped into the fixed module, reproduces main byte for byte.
+  - A sensitivity run with an 8-character bound changes 148 strings as written and 4 certifier
+    outcomes, so the harness does detect a bound that bites.
+- **The boundary.** Only a title-case name word over 64 characters behaves differently.
+  - An undotted one no longer opens a span: `"<65 letters> Steel"` stays raw, and so does a
+    name in front of it. A bare name is raw on main too.
+  - A dotted one masks from the first boundary within 64 characters of its end:
+    `"A." * 40 + " Steel"` → `"A." * 8 + "[EMPLOYER_1]"`. The capitals rule has always worked
+    this way.
+  - No employer has such a word. The corpus's longest capital-led `[\w&.]` run is 43 characters
+    as written. Upper-cased it is 64, and those are SHA-256 hex digests in test fixtures.
+
+Pinned by `tests/test_pseudonymize_title_employer_bound.py` (25 tests):
+- the structural bound and possessive quantifier;
+- the issue's inputs and the three walls under a 750 ms timing backstop;
+- real employers masking exactly as on main;
+- a seeded property test: no output moves while every name word is 64 characters or shorter;
+- the boundary itself, pinned as `KNOWN_RESIDUAL`.
+
+Each of six mutations of the rule turned the file red: main's word; possessive but unbounded;
+bounded but not possessive; a 65-, 32- or 8-character bound.
 
 ## Input policy switch (ADR-0047)
 
@@ -322,5 +386,5 @@ out: "[PERSON_1], phone [PHONE_1], worked at [EMPLOYER_1] in Faridabad"
   - **R32:** Names without cue words can leak (e.g., "Chandrashekhar bol raha hu" — 3/4 natural forms unmasked on main). Narrowed, not closed — the gazetteer approach measured dead (487 probes / 348 leaks); known-name redaction shipped in `apps/api` instead (PR #524, ADR-0035).
   - Both tracked in [risks-register.md](../registers/risks-register.md) as Critical-if-live and both **still gate `AI_ENABLE_REAL_CALLS`**; invariant #5 holds today.
   - **Both are moot while `AI_RAW_PII_ENABLED` is armed** (ADR-0047): each describes PII slipping past a masker that is then deliberately not masking. With the switch off they stand as recorded.
-  - **R48 — employers in capitals (issue #1875).** Fixed for a capitals span that ends in a listed corporate form. Still open: no corporate form (`"BAJAJ AUTO"`, M/S firms), lower case, INC/EST., a dash after a guarded form, 5+ name words, and the title-case joiner twins (lower case, M/S, 5+ words and the twins are #1892); see the section on employers in capitals. The title-case `_EMPLOYER_RE` stall is #1891. Unlike R30/R32, this is NOT moot while the switch is armed. The at-rest masked copies, the embedding input (SG-2, ADR-0047 §4) and the certifiers run `pseudonymize()` under both postures. The Langfuse and `ai_call_traces` sinks follow the flag (`trace_mask`), so they are covered only while it is off.
+  - **R48 — employers in capitals (issue #1875).** Fixed for a capitals span that ends in a listed corporate form. Still open: no corporate form (`"BAJAJ AUTO"`, M/S firms), lower case, INC/EST., a dash after a guarded form, 5+ name words, and the title-case joiner twins (lower case, M/S, 5+ words and the twins are #1892); see the section on employers in capitals. The title-case `_EMPLOYER_RE` stall found there is fixed (#1891): its name word now has the capitals rule's 64-character bound, and no corpus output moved. Unlike R30/R32, this is NOT moot while the switch is armed. The at-rest masked copies, the embedding input (SG-2, ADR-0047 §4) and the certifiers run `pseudonymize()` under both postures. The Langfuse and `ai_call_traces` sinks follow the flag (`trace_mask`), so they are covered only while it is off.
   - **R49 — the two-view check accepts a partial overlap (#1890).** Pre-existing (#1738). A name hidden by an invisible character next to a masked employer span egresses unblocked: `"my name is<U+200B>Ramesh Kumar CO"` → `"my name isRamesh [EMPLOYER_1]"`. Main already does this with title-case suffixes, and #1875's capitals rule extends the shape. OPEN; the fix is to count a spaced-view region as covered only if every kept offset is inside the reader-masked regions.
