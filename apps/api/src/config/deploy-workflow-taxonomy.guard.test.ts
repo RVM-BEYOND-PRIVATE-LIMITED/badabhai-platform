@@ -224,6 +224,14 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /AI_RAW_PII_ENABLED:\s*\$\{\{\s*secrets\.AI_RAW_PII_ENABLED\s*\}\}/,
       /envs:[^\n]*\bAI_RAW_PII_ENABLED\b/,
     ],
+    // #1823 / ADR-0049 — company postings on the legacy feed (the interim union). A plain
+    // boolean, armed in production ONLY by the environment secret plus a redeploy, after the
+    // ADR-0049 pre-arm checklist — so the bridge is the switch.
+    [
+      "FEED_POSTINGS_UNION_ENABLED",
+      /FEED_POSTINGS_UNION_ENABLED:\s*\$\{\{\s*secrets\.FEED_POSTINGS_UNION_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bFEED_POSTINGS_UNION_ENABLED\b/,
+    ],
   ])("%s is bridged from the environment's secrets", (_name, fromSecrets, inEnvs) => {
     expect(DEPLOY).toMatch(fromSecrets);
     // …and reaches the container: drone-ssh only exports what `envs:` lists, so a job-level
@@ -270,6 +278,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     // ADR-0047 — off is the masked prompt path exactly. Declared on BOTH services; the
     // per-service assertion is ai-raw-pii-flag-compose.guard.test.ts.
     ["AI_RAW_PII_ENABLED", "false"],
+    // #1823 / ADR-0049 — off is today's legacy feed and apply/skip, byte for byte.
+    ["FEED_POSTINGS_UNION_ENABLED", "false"],
     // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's
     // `/i/<code>`. Undeclared, the stale config default (app.badabhai.in, no `/i/`) won.
     ["REFERRAL_SHORT_LINK_BASE", "https://payer.43-204-36-199.sslip.io"],

@@ -564,6 +564,11 @@ services:
       AGENCY_PAYOUTS_ENABLED: ${AGENCY_PAYOUTS_ENABLED:-false}
       # MEMBER_INVITES_ENABLE_REAL: deliberately NOT declared — see the #872 note above.
       MATCH_V1_ENABLED: ${MATCH_V1_ENABLED:-false}
+      # #1823 / ADR-0049 — company postings on the LEGACY feed beside agency/seed jobs (the
+      # interim union). Ignored while MATCH_V1_ENABLED is on. OFF is today's feed and
+      # apply/skip; `:-false` so an unset or empty secret is off. Arm only after the ADR-0049
+      # pre-arm checklist (probe, inventory hygiene, free-text screen parity).
+      FEED_POSTINGS_UNION_ENABLED: ${FEED_POSTINGS_UNION_ENABLED:-false}
       CAPACITY_ENFORCEMENT_ENABLED: ${CAPACITY_ENFORCEMENT_ENABLED:-false}
       PACE_ENABLED: ${PACE_ENABLED:-false}
       TEST_LOGIN_ENABLED: ${TEST_LOGIN_ENABLED:-false}
