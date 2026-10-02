@@ -388,5 +388,11 @@ export function bandForCount(n: number): VacancyBand {
   return "25+";
 }
 
+// ---------------------------------------------------------------------------
+// Title-casing worker-typed labels — the worker app's rule, ported exactly (#1432)
+// ---------------------------------------------------------------------------
+
+export { titleCaseWords } from "./title-case";
+
 export type E164Phone = z.infer<typeof e164PhoneSchema>;
 export type ConsentPurposes = z.infer<typeof consentPurposesSchema>;
