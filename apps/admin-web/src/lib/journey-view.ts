@@ -31,7 +31,7 @@ import type { Tone } from "../components/status-pill";
 const STEP_TITLES: Record<JourneyStepKey, string> = {
   login: "Signed in",
   profiling: "AI profiling interview",
-  resume: "Résumé generated",
+  resume: "Resume generated",
   profile_confirmed: "Profile confirmed",
   job_search_apply: "Searched and applied",
   photo: "Photo uploaded",
@@ -42,7 +42,7 @@ const STEP_TITLES: Record<JourneyStepKey, string> = {
 const STEP_BLURBS: Record<JourneyStepKey, string> = {
   login: "A worker record cannot exist without a completed OTP verify, so this step is always done — what matters is when, and how often.",
   profiling: "Questions settled against both packs the interview runs — this worker's own trade pack, taken from the versions their answers stamp, plus the universal tail every worker is asked. The same total the worker's own progress bar showed them.",
-  resume: "Résumé rows for this worker. The PDF render is a second, independently failing leg.",
+  resume: "Resume rows for this worker. The PDF render is a second, independently failing leg.",
   profile_confirmed: "The worker has seen their extracted profile and confirmed it. Extracting or extracted is progress, not completion.",
   job_search_apply: "Applying is the step. Searching and skipping are real engagement, but they are the step before.",
   photo: "Whether a profile photo has been uploaded. The portal never fetches the photo itself.",
@@ -97,7 +97,7 @@ export function describeStepProgress(step: JourneyStep): string | null {
     case "resume":
       return step.resume_count === 0
         ? null
-        : plural(step.resume_count, "résumé", "résumés");
+        : plural(step.resume_count, "resume", "resumes");
     case "profile_confirmed":
       return null;
     case "job_search_apply":

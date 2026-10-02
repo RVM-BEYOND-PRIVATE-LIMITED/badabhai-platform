@@ -214,7 +214,7 @@ describe("auditActionLabel — the decision-history action codes (#1280)", () =>
       "Approved — merge into skill",
     );
     expect(auditActionLabel("skill_candidate_rejected")).toBe("Rejected");
-    expect(auditActionLabel("skill_candidate_deferred")).toBe("Held");
+    expect(auditActionLabel("skill_candidate_deferred")).toBe("On hold");
   });
 
   it("falls back to the raw code for an unrecognised action, never a guessed sentence", () => {

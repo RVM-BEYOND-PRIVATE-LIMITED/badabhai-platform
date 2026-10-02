@@ -281,7 +281,8 @@ step, not here.
 
 ## P4 — Flag flips. One at a time. Canary smoke between every one.
 
-Order matters: each flip's precondition is the previous one.
+Order matters: each flip's precondition is the previous one. #13 is the exception: it does not
+follow #12, and means anything only while #12 is off.
 
 | # | Flip | Precondition | Abort lever |
 | - | ---- | ------------ | ----------- |
@@ -296,7 +297,8 @@ Order matters: each flip's precondition is the previous one.
 | 9 | `+stt_transcription` in the allowlist | **P0-1 (Sarvam DPA)**, private voice bucket confirmed, **`GEMINI_FLASH_API_KEY` set** (see note) | Remove from allowlist, or the kill switch |
 | 10 | `CHAT_ONE_SHOT_OPENER_ENABLED=true` | — | Flag off → client fallback copy |
 | 11 | `PAYMENTS_ENABLE_REAL=true` + all three secrets | P0-5 | Flag off → mock purchases resume; captured real payments still honored via webhook |
-| 12 | `MATCH_V1_ENABLED=true` | P1 + P3 complete and verified | **Flag off** → legacy feed and payer list return; the legacy code is still present until the retirement change |
+| 12 | `MATCH_V1_ENABLED=true` | P1 + P3 complete and verified | **Flag off, then redeploy** → the legacy feed and payer list return (the legacy code is still present until the retirement change). **Not the pre-flip deck once D4 has run** _(corrected 2026-10-01)_: D4 converts and closes every open `jobs` row, agency vacancies included, and has no reverse, so the legacy jobs arm comes back without them. With #13 armed they return as postings, skill-gated for profiled workers. Before D4 the revert is clean |
+| 13 | `FEED_POSTINGS_UNION_ENABLED=true` ([ADR-0049](../decisions/0049-interim-union-feed.md), #1823) | **Independent of #1–#11; arm only while #12 is off** (ignored once `MATCH_V1_ENABLED` is on). Its own pre-arm list is below | Secret `false` + redeploy → postings leave the deck. Applications written while armed stay (see below) |
 
 **On STT (#9), an accepted coupling worth knowing before you hit it:** closing the STT gating
 hole meant routing it through the single `real_calls_blocked_reason()` helper — which is what
@@ -312,6 +314,122 @@ recall is 0.350. A miss leaves the raw phrase exactly as the flag-off path does,
 strictly additive coverage with no correctness downside — and every miss feeds
 `unresolved_phrase`, which is the growth loop. Accepted at launch; the multi-domain fix that lifts
 recall is tracked separately. Do not quote 0.800 (the oracle-domain figure) anywhere.
+
+### P4 #13 — `FEED_POSTINGS_UNION_ENABLED`: company postings on the legacy feed (ADR-0049, #1823)
+
+The flag arms two things: the posting arm of the legacy `GET /feed`, and the posting branch of
+apply/skip. It does nothing while `MATCH_V1_ENABLED` is on. Three related fixes are **not** behind
+it and are live from their merge: the payer posting-applicants list, the ops
+`GET /jobs/:jobId/applicants` read and the unlock job-context fix (#1903).
+
+**Pre-arm. Arm only if every item holds.**
+
+1. **ADR-0049 is signed.** Done 2026-10-01 (Divyanshu, Backend Platform). The other items remain.
+2. **The code is live.** The api image running in production must be at or after the merge of
+   the last #1823 change (the payer posting-applicants list), with the unlock job-context fix
+   (#1903) merged and deployed. Canary step 5 needs both. Read the api container's image tag on the box
+   (`badabhai-api:sha-<short7>`), or the head SHA of the last successful `deploy-lightsail` run on
+   `main`. Check the api image, not the run's title: an incomplete deploy leaves a service on its
+   previous image (`staging-deploy.sh` prints "DEPLOY INCOMPLETE"). On 2026-10-01 the
+   `job_posting.created` payloads lacked the `role_kind` key that #1840 always writes, which
+   suggests the running image lags `main`.
+3. **The posting free-text screen (B3, defined in ADR-0049 §5) is merged and deployed.** It is
+   built in its own PR under #1823 (branch `fix/1823-posting-text-screen`). Posting `role_title`,
+   `description` and the `benefits` / `requirements` chip arrays must be screened at write with
+   `looksLikePii` + `looksLikeOrgName` + `looksLikeUrl`
+   ([ADR-0024](../decisions/0024-worker-visible-job-fields-pii.md) addendum 2026-10-01). Without
+   it, an employer name typed into a title reaches every unprofiled worker's deck. Posting
+   `city` / `area` are not in B3 (item 7, #1848).
+4. **Inventory hygiene (ADR-0049 O10).** Close or complete the thin open postings: seed
+   `5eeded00…`; employer `8eb13cb2…`, `a512c822…`, `97fa0f89…`, `ade45d03…`; agent `865e9870…`.
+   Close `865e9870…` under #1885. Open postings with a NULL `published_at` (`ade45d03…` today) stay
+   off the deck and stay appliable from search and detail; that is accepted.
+5. **The read-only probe.** Run it inside `BEGIN READ ONLY; … ROLLBACK;`:
+
+   ```sql
+   -- (1) The posting upsert names all six columns. Expect 6.
+   SELECT count(*) FROM information_schema.columns
+    WHERE table_name = 'applications'
+      AND column_name IN ('job_posting_id','match_tier','skill_months','industry_months',
+                          'last_worked_at','engine_version');
+   -- (2) ON CONFLICT (worker_id, job_posting_id) WHERE ... needs the partial unique index,
+   --     else 42P10. Expect "... WHERE (job_posting_id IS NOT NULL)".
+   SELECT indexdef FROM pg_indexes WHERE indexname = 'applications_worker_posting_uq';
+   -- (3) The feed index. Expect 1 row.
+   SELECT 1 FROM pg_indexes WHERE indexname = 'job_postings_feed_idx';
+   -- (4) What arming will show: every open posting, whether it is published, and its reach.
+   SELECT id::text, published_at IS NOT NULL AS published,
+          jsonb_array_length(reach_skill_ids) AS reach_n
+     FROM job_postings WHERE status = 'open';
+   ```
+
+6. **The feed-union e2e legs for the company loop pass.** `tests/e2e/feed-postings-union.e2e.test.ts`
+   defers two legs until their changes land: the payer applicants list
+   (`/payer/reach/jobs/:jobId/applicants` serving a posting while V1 is off, the payer
+   posting-applicants change) and the unlock grant from a posting (#1903). Both changes must be
+   merged AND deployed (item 2), and both legs appended to the suite and passing.
+7. **Posting `city` / `area` screening is decided.** Neither is screened at the server, though a
+   worker sees both verbatim (pre-existing, #1848, outside B3). Decide before arming whether #1848
+   is a precondition. Recommended: yes, with security-engineer's ruling on the pincode
+   false-positive trade-off.
+8. **The payer-app parses the posting-applicant row (#1913).** The payer-app Find tab is a second
+   consumer of `/payer/reach/jobs/:jobId/applicants`, called for each of the payer's open
+   postings. Once the payer posting-applicants change merges, an owned company posting returns
+   the V1 candidate shape (camelCase) instead of a 404. That reaches the payer-app on the
+   change's deploy, armed or not.
+9. **security-engineer decides to arm.** Arming widens the ADR-0024-protected surface: posting
+   free text and unverified postings reach the worker deck (R51).
+
+**Arm.** Run `gh secret set FEED_POSTINGS_UNION_ENABLED --env production --body true`, then re-run
+the deploy. Use `--env production`: a repository secret of the same name is shadowed. The secret
+alone reaches nothing until a deploy. Set the literal: the api refuses anything other than `true`,
+`false`, `1`, `0` or empty at boot, and the #1823 plumbing adds a deploy preflight that refuses it
+before any container moves.
+
+**Canary**, in production, with the canary accounts:
+
+1. The canary payer creates and publishes a posting on payer-web `/postings/new`, with every card
+   field filled and a match skill.
+2. The canary worker has no wanted `worker_skill` rows, or wants a skill in that posting's reach.
+   A profiled worker whose extraction produced wanted skills is skill-gated (profile extraction
+   rebuilds `worker_skill`; production had 0 rows on 2026-10-01).
+3. His Jobs tab shows the posting at rank 1, counted in "Aaj N naye jobs". Compare every field with
+   what the payer entered: title; place (area, city); pay band and pay-type pill; experience;
+   shift; needed-by; requirements and benefits; description. A posting card has no trade line and
+   no role line, by design (ADR-0049 O6).
+4. Apply returns 200, and its `applications` row has `job_posting_id` set and `job_id` NULL.
+5. The payer-web applicants page lists the worker, and the unlock is granted.
+6. The spine has `feed.shown` and `application.submitted` with `subject_type = 'job_posting'`, and
+   no `feed.shown_v2`.
+
+**Confirm the flag is live from the spine**, never from the last local `gh secret set`:
+
+```sql
+SELECT count(*) FROM events
+ WHERE event_name = 'feed.shown' AND subject_type = 'job_posting'
+   AND occurred_at > now() - interval '1 hour';
+```
+
+**Abort lever.** Run `gh secret set FEED_POSTINGS_UNION_ENABLED --env production --body false`,
+then re-run the deploy (minutes). Or revert the change.
+
+**The rollback is asymmetric. That is expected, not a fault:**
+
+- Postings leave the deck, and apply and skip on a posting return 404 again. A worker cannot
+  re-apply to or re-skip a posting he acted on while armed.
+- What was written while armed stays visible. The worker's Applied tab, the company's applicants
+  page and the ops applicants read are not behind the flag.
+
+**While armed:**
+
+- D4 converts and closes **every open `jobs` row (agency vacancies included, today)**, not only
+  seed rows. A converted row does not drain from the deck. It reappears through the posting arm in
+  the same place (`published_at = jobs.created_at`) and keeps the worker's applied state, but it
+  is now skill-gated for profiled workers (ADR-0049 O2). For a seed row that is intended. An
+  agency row becomes an agent-owned posting, which #1885 forbids: do not run D4 against live
+  agency inventory until the agency-at-cutover path is decided (ADR-0049 §8 step 1, #1904).
+- Ad-hoc SQL that joins the `job_id` of a `feed.shown` or `application.*` payload to `jobs`
+  silently drops company rows. Branch on `subject_type` (ADR-0049 §4).
 
 ---
 
@@ -385,7 +503,10 @@ worth debugging until the loop closes.
 
 Every phase is reversible by a different mechanism, and they compose:
 
-- **P4** — flip the flag back. Seconds. This covers every provider and the matching cutover.
+- **P4** — flip the flag back: set the `production` environment secret (or the box value) and
+  re-run the deploy. **Minutes, not seconds** _(corrected 2026-10-01)_: a flag is an environment
+  value, so nothing changes until the containers are recreated. This covers every provider. For
+  the matching cutover (#12) it is a full revert only before D4 has run.
 - **P2/P5** — redeploy the previous image / halt the staged rollout. The schema stays; expand-only
   means old code runs against new columns without noticing them.
 - **P1** — the only phase that is not casually reversible. That is why the rehearsal and the
@@ -393,4 +514,4 @@ Every phase is reversible by a different mechanism, and they compose:
   "rollback" means rolling back *code*, which is always safe.
 
 If two things go wrong at once, flip **#12 first** — it is the widest blast radius and the
-cheapest revert.
+cheapest revert (cheapest only before D4; see #12).

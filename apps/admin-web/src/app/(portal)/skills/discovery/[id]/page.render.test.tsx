@@ -213,7 +213,7 @@ describe("#1280 — the audit read is a separate, degradable fetch", () => {
   it("a failed audit read degrades to an inline notice, never blanks the whole page", async () => {
     stub.auditFailure = new TypeError("network down");
     const out = await render();
-    expect(out).toContain("The audit trail is unavailable");
+    expect(out).toContain("The decision history is unavailable");
     // The rest of the page — the candidate's own read — is intact.
     expect(out).toContain("sanitary fixture installation");
   });
@@ -232,7 +232,7 @@ describe("#1280 — the audit read is a separate, degradable fetch", () => {
 
   it("`current` on an undecided candidate renders pending with no reviewer, not a blank block", async () => {
     const out = await render();
-    expect(out).toContain("Audit trail");
+    expect(out).toContain("Decision history");
     // `current.status` is "pending" — rendered via the same StatusPill/labels as the header.
   });
 

@@ -103,7 +103,7 @@ beforeEach(() => {
   stub.asked.length = 0;
   stub.trace = TRACE;
   stub.failure = null;
-  stub.capabilities = ["read_entities", "read_ai_traces"];
+  stub.capabilities = ["read_entities", "read_ai_traces", "read_events"];
 });
 
 const render = async (id: string = TRACE_ID) =>
@@ -134,11 +134,27 @@ describe("a session without read_ai_traces", () => {
     expect(stub.order).toEqual(["gate:read_entities"]);
   });
 
-  it("says plainly that the role cannot read the text, and points at the model", async () => {
+  it("says plainly that the role cannot read AI calls, and points at the model", async () => {
     const out = await render();
-    expect(out).toContain("Your role cannot read the text of an AI call");
+    expect(out).toContain("Your role cannot read AI calls");
     expect(out).toContain('href="/roles"');
-    expect(out).toContain('href="/ai-calls"');
+  });
+
+  it("never claims the list is open to this reader — it sits behind the same capability", async () => {
+    // The old copy said "The list of calls is open to you in full", which is false for every
+    // role without read_ai_traces: the list page redirects them to the dashboard.
+    const out = await render();
+    expect(out).not.toContain("open to you");
+    expect(out).toContain("read_ai_traces");
+  });
+
+  it("never sends this reader to the list it cannot open — no back link, no Back to AI calls", async () => {
+    const out = await render();
+    expect(out).not.toContain('href="/ai-calls"');
+    expect(out).not.toContain("backlink");
+    expect(out).not.toContain("Back to AI calls");
+    // …and still offers a way out that opens for them.
+    expect(out).toMatch(/href="\/">(<i [^>]*><\/i>)?Back to dashboard<\/a>/);
   });
 
   it("renders no part of the call, and no caveat about text it is not showing", async () => {
@@ -152,7 +168,7 @@ describe("the server says 403 — the session list and the guard disagree", () =
   it("renders the same screen as a missing capability", async () => {
     stub.failure = new stub.ForbiddenError();
     const out = await render();
-    expect(out).toContain("Your role cannot read the text of an AI call");
+    expect(out).toContain("Your role cannot read AI calls");
     expect(out).not.toContain("This call&#x27;s text is not available");
   });
 });
@@ -363,5 +379,20 @@ describe("the code block really does wrap", () => {
     const rule = ruleFor(".code--wrap {");
     expect(rule).toMatch(/max-block-size:\s*\d+vh/);
     expect(rule).toMatch(/overflow-y:\s*auto/);
+  });
+});
+
+describe("the correlation id links into /events only for a session holding read_events", () => {
+  it("links it with read_events", async () => {
+    stub.capabilities = ["read_entities", "read_ai_traces", "read_events"];
+    const out = await render();
+    expect(out).toContain('href="/events?correlationId=req-9fd0b09"');
+  });
+
+  it("shows it as plain text without — the id stays on the page, the dead link does not", async () => {
+    stub.capabilities = ["read_entities", "read_ai_traces"];
+    const out = await render();
+    expect(out).not.toContain("/events?correlationId=");
+    expect(out).toContain('<span class="mono">req-9fd0b09</span>');
   });
 });

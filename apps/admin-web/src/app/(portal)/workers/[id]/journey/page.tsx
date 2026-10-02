@@ -9,12 +9,21 @@ import { CaveatList } from "../../../../../components/caveat-list";
 import { JourneyFunnel } from "../../../../../components/journey-funnel";
 import { Pager } from "../../../../../components/pager";
 import { StatusPill } from "../../../../../components/status-pill";
+import { PageHeader } from "../../../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Worker journey" };
+export const metadata = { title: "Journey" };
 
 /** The three `chat_sessions.status` values the API's list filter accepts. */
 const SESSION_STATUS_FILTERS = ["active", "ended", "abandoned"] as const;
+
+/** How each filter reads on its chip — sentence case, like every other label here. */
+const SESSION_STATUS_LABELS: Record<(typeof SESSION_STATUS_FILTERS)[number], string> = {
+  active: "Active",
+  ended: "Ended",
+  abandoned: "Abandoned",
+};
 
 /**
  * ONE worker's journey — the 7-step funnel, and their interview sessions.
@@ -53,6 +62,8 @@ export default async function WorkerJourneyPage({
    * control disappears with it instead of becoming a link to a redirect.
    */
   const mayReadFeedback = can(session.capabilities, "read_entities");
+  /** The worker's event timeline is `read_events`; its link is offered only with it. */
+  const mayReadEvents = can(session.capabilities, "read_events");
 
   const { id } = await params;
   const sp = await searchParams;
@@ -82,43 +93,40 @@ export default async function WorkerJourneyPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <p className="page__eyebrow">
-            <Link className="link" href={`/workers/${id}`}>
-              Worker {shortId(id)}
-            </Link>
-          </p>
-          <h1 className="page__title">Journey</h1>
-          <p className="page__sub">
-            What this worker completed, and where they stopped. Question keys and outcomes
-            only — none of their words are served to this portal.
-          </p>
-        </div>
-        <div className="page__actions">
-          {mayReadFeedback ? (
-            /* THE HALF THIS SCREEN CANNOT SEE. Everything below is behaviour with no words:
-               it can show that a worker stopped at question four and never say why. If they
-               told us, they told us here — and the alternative today is paging the whole
-               feedback list reading everyone else's messages looking for theirs, which is
-               both slower and a worse privacy posture than a lookup on an id already on the
-               screen. */
-            <Link
-              className="btn btn--ghost"
-              /* ENCODED, unlike the path links beside it. A path segment with a stray `#` or
-                 `&` in it still resolves to a route that 404s; the same characters in a query
-                 value silently truncate the filter, and a truncated `workerId` is a page that
-                 shows every worker's messages while the button that opened it said one. */
-              href={`/feedback?workerId=${encodeURIComponent(id)}`}
-            >
-              What they told us
-            </Link>
-          ) : null}
-          <Link className="btn btn--ghost" href={`/workers/${id}/timeline`}>
-            View event timeline
-          </Link>
-        </div>
-      </header>
+      <PageHeader
+        back={{ href: `/workers/${id}`, label: `Worker ${shortId(id)}` }}
+        title="Journey"
+        description="What this worker completed and where they stopped — question keys and outcomes only; none of their words are served to this portal."
+        secondaryActions={
+          <>
+            {mayReadFeedback ? (
+              /* THE HALF THIS SCREEN CANNOT SEE. Everything below is behaviour with no words:
+                 it can show that a worker stopped at question four and never say why. If they
+                 told us, they told us here — and the alternative today is paging the whole
+                 feedback list reading everyone else's messages looking for theirs, which is
+                 both slower and a worse privacy posture than a lookup on an id already on the
+                 screen. */
+              <Link
+                className="btn btn--ghost"
+                /* ENCODED, unlike the path links beside it. A path segment with a stray `#` or
+                   `&` in it still resolves to a route that 404s; the same characters in a query
+                   value silently truncate the filter, and a truncated `workerId` is a page that
+                   shows every worker's messages while the button that opened it said one. */
+                href={`/feedback?workerId=${encodeURIComponent(id)}`}
+              >
+                <Icon name="chat-centered-text" />
+                What they told us
+              </Link>
+            ) : null}
+            {mayReadEvents ? (
+              <Link className="btn btn--ghost" href={`/workers/${id}/timeline`}>
+                <Icon name={ACTION_ICON.timeline} />
+                View event timeline
+              </Link>
+            ) : null}
+          </>
+        }
+      />
 
       {/* The honest-absence channel, above the figures it qualifies. */}
       {journey ? <CaveatList caveats={journey.caveats} headingId="journey-caveats" /> : null}
@@ -165,24 +173,24 @@ export default async function WorkerJourneyPage({
           </div>
           {/* Status filter as plain links, not a client form: the filter belongs in the URL
               (shareable mid-incident) and this screen needs no JavaScript to apply it.
-              `aria-current` marks the active one — a class alone would be invisible to a
-              screen reader. */}
+              `aria-current="true"` marks the active one — a class alone would be invisible to a
+              screen reader — and it takes the primary fill, like every other chip set here. */}
           <nav aria-label="Filter sessions by status" className="page__actions">
             <Link
-              aria-current={status ? undefined : "page"}
-              className="btn btn--ghost btn--sm"
+              aria-current={status ? undefined : "true"}
+              className={`btn btn--sm ${status ? "btn--ghost" : "btn--primary"}`}
               href={`/workers/${id}/journey`}
             >
               All
             </Link>
             {SESSION_STATUS_FILTERS.map((s) => (
               <Link
-                aria-current={status === s ? "page" : undefined}
-                className="btn btn--ghost btn--sm"
+                aria-current={status === s ? "true" : undefined}
+                className={`btn btn--sm ${status === s ? "btn--primary" : "btn--ghost"}`}
                 href={`/workers/${id}/journey?status=${s}`}
                 key={s}
               >
-                {s}
+                {SESSION_STATUS_LABELS[s]}
               </Link>
             ))}
           </nav>
@@ -192,7 +200,7 @@ export default async function WorkerJourneyPage({
           <div className="state state--error">
             <h3 className="state__title">The session list could not be loaded</h3>
             <p className="state__body">
-              The chat-sessions read failed. The funnel above came from a separate read and is
+              The interview-sessions read failed. The funnel above came from a separate read and is
               unaffected — but the interview count it shows has no list beside it right now.
               Reload this page to try again.
             </p>
@@ -204,16 +212,10 @@ export default async function WorkerJourneyPage({
             </h3>
             <p className="state__body">
               {status
-                ? "This worker has sessions in other states. Clear the filter to see them."
-                : "This worker has never started the AI profiling interview. Nothing is broken — but it also means there is no profile to extract and no résumé to generate for them yet."}
+                ? "This worker has sessions in other states. Choose All above to see them."
+                : "This worker has never started the AI profiling interview. Nothing is broken — but it also means there is no profile to extract and no resume to generate for them yet."}
             </p>
-            {status ? (
-              <div className="state__actions">
-                <Link className="btn btn--ghost" href={`/workers/${id}/journey`}>
-                  Clear filter
-                </Link>
-              </div>
-            ) : null}
+            {/* No clear link: the "All" chip just above is that control. */}
           </div>
         ) : (
           <div className="tablewrap">

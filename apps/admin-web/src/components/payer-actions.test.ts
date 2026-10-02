@@ -54,7 +54,7 @@ describe("suspendPayerAction", () => {
     expect(res).toEqual({
       ok: true,
       changed: true,
-      message: "Payer suspended. Their postings are hidden and their sessions revoked.",
+      message: "Account suspended. Its postings are hidden and its sessions revoked.",
     });
   });
 
@@ -83,11 +83,18 @@ describe("suspendPayerAction", () => {
 describe("reinstatePayerAction", () => {
   it("POSTs to the reinstate route", async () => {
     adminFetch.mockResolvedValueOnce({ target_id: "p-1", changed: true });
-    await reinstatePayerAction("p-1");
+    const res = await reinstatePayerAction("p-1");
     expect(adminFetch).toHaveBeenCalledWith(
       "/admin/payers/p-1/reinstate",
       expect.objectContaining({ method: "POST" }),
     );
+    // "Account", not the backend's "payer": the result banner speaks the console's own names
+    // (owner ruling 2026-10-01 — Company / Agency, umbrella Customers).
+    expect(res).toEqual({
+      ok: true,
+      changed: true,
+      message: "Account reinstated to its pre-suspension state.",
+    });
   });
 });
 

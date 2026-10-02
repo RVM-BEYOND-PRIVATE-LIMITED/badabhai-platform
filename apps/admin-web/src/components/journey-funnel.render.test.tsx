@@ -114,7 +114,9 @@ describe("JourneyFunnel", () => {
   it("renders all seven steps, not-done ones included", () => {
     const out = html(<JourneyFunnel steps={STEPS} />);
     expect(out.match(/funnel__row/g)).toHaveLength(7);
-    expect(out).toContain("Résumé generated");
+    // One spelling across the console (owner brief 2026-10-01): "Resume", as payer-web writes it.
+    expect(out).toContain("Resume generated");
+    expect(out).not.toContain("Résumé");
     expect(out).toContain("Interview kit downloaded");
   });
 

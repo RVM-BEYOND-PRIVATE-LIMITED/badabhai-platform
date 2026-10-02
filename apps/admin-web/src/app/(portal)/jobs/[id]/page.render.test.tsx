@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { PageHeaderContent } from "../../../../components/page-header";
 import type * as EntitiesModule from "../../../../lib/entities";
 
 /**
@@ -23,6 +24,9 @@ const stub = vi.hoisted(() => {
   return {
     RequestError,
     job: null as Record<string, unknown> | null,
+    capabilities: ["read_entities"] as string[],
+    /** The props the page handed the (stubbed) client header on the last render. */
+    headerProps: null as null | { timelineHref: string | null; canForceClose: boolean },
   };
 });
 
@@ -30,12 +34,14 @@ vi.mock("../../../../lib/auth", () => ({
   requireCapability: async () => ({
     adminId: "a-1",
     role: "ops_admin",
-    capabilities: ["read_entities"],
+    capabilities: stub.capabilities,
   }),
 }));
 
+// The real rule (a capability is held iff it is listed), over the stubbed session — so a page
+// decision taken from `can(...)` is exercised for both answers, not pinned to one.
 vi.mock("../../../../lib/auth/capabilities", () => ({
-  can: () => false,
+  can: (held: readonly string[], capability: string) => held.includes(capability),
 }));
 
 vi.mock("../../../../lib/admin-http", () => ({
@@ -48,10 +54,19 @@ vi.mock("../../../../lib/entities", () => ({
 }));
 
 // The header is a Client Component using `useRouter`, which needs an app-router context this
-// renderer does not provide. Stubbed to render the server-built `title` it is handed.
-vi.mock("./job-detail-header", () => ({
-  JobDetailHeader: ({ title }: { title: unknown }) => title,
-}));
+// renderer does not provide. Stubbed to render the shared PageHeader from the server-built
+// `header` it is handed (back link, title, description) — the part this file asserts on.
+vi.mock("./job-detail-header", async () => {
+  const { PageHeader } = await import("../../../../components/page-header");
+  return {
+    JobDetailHeader: (
+      props: { header: PageHeaderContent } & NonNullable<typeof stub.headerProps>,
+    ) => {
+      stub.headerProps = props;
+      return <PageHeader {...props.header} />;
+    },
+  };
+});
 
 const { default: JobDetailPage } = await import("./page");
 
@@ -92,6 +107,8 @@ const BASE = {
 
 beforeEach(() => {
   stub.job = { ...BASE };
+  stub.capabilities = ["read_entities"];
+  stub.headerProps = null;
 });
 
 const render = async () =>
@@ -107,9 +124,14 @@ describe("the full projection renders every new card field", () => {
 
   it("renders each of the seven fields' rows", async () => {
     const out = await render();
-    // `>Role<` exact so it is not the pre-existing "Role title" row matching loosely.
-    expect(out).toContain('<dt class="kv__k">Role</dt>');
-    expect(out).toContain('<dt class="kv__k">Area</dt>');
+    // Exact `<dt>` text, so the classification row is not the "Role title" row matching loosely
+    // — the two are different fields and carry different labels (owner ruling 2026-10-01).
+    expect(out).toContain('<dt class="kv__k">Role classification</dt>');
+    expect(out).toContain('<dt class="kv__k">Role title</dt>');
+    expect(out).not.toContain('<dt class="kv__k">Role</dt>');
+    expect(out).toContain('<dt class="kv__k">Area / locality</dt>');
+    expect(out).toContain('<dt class="kv__k">Openings</dt>');
+    expect(out).not.toContain('<dt class="kv__k">Vacancies</dt>');
     expect(out).toContain('<dt class="kv__k">Pay type</dt>');
     expect(out).toContain('<dt class="kv__k">Experience</dt>');
     expect(out).toContain('<dt class="kv__k">Requirements</dt>');
@@ -164,7 +186,9 @@ describe("a poster who set none of the card content", () => {
   it("reads as honest absence, not empty cells, and never crashes", async () => {
     const out = await render();
     // Role has no dash convention behind it — a missing role is "not set", not "—".
-    expect(out).toContain('<dt class="kv__k">Role</dt><dd class="kv__v">not set</dd>');
+    expect(out).toContain(
+      '<dt class="kv__k">Role classification</dt><dd class="kv__v">not set</dd>',
+    );
     // The list fields say so in words rather than rendering an empty <ul>.
     expect(out).toContain('<dt class="kv__k">Requirements</dt><dd class="kv__v">none listed</dd>');
     expect(out).toContain('<dt class="kv__k">Benefits</dt><dd class="kv__v">none listed</dd>');
@@ -266,5 +290,58 @@ describe("the detail schema is the real contract behind the render", () => {
     const parsed = actual.jobPostingDetailSchema.parse(legacy);
     expect(parsed.role_kind).toBeUndefined();
     expect(parsed.requirements).toBeUndefined();
+  });
+});
+
+describe("the header (owner ruling 2026-10-01)", () => {
+  it("has a back link to the posting list", async () => {
+    const out = await render();
+    expect(out).toContain('<a class="backlink" href="/jobs">');
+    expect(out).toContain("<span>Postings</span></a>");
+  });
+});
+
+describe("the event-timeline link (header and result banner) follows read_events", () => {
+  // The header renders "View event timeline" from `timelineHref`, and the action-result banner
+  // links the same href through `timelineLink(timelineHref)` — so null withholds both.
+  it("is handed to the header with read_events", async () => {
+    stub.capabilities = ["read_entities", "read_events"];
+    await render();
+    expect(stub.headerProps?.timelineHref).toBe(`/jobs/${JOB_ID}/timeline`);
+  });
+
+  it("is withheld without it — the route would only redirect this reader", async () => {
+    stub.capabilities = ["read_entities"];
+    await render();
+    expect(stub.headerProps?.timelineHref).toBeNull();
+  });
+
+  it("is not repeated in the no-decisions state — the header carries it", async () => {
+    stub.capabilities = ["read_entities", "read_events"];
+    const out = await render();
+    expect(out).toContain("No job decisions yet");
+    expect(out).not.toContain("/timeline");
+  });
+
+  it("offers the owner once, in the record row, not again in the header", async () => {
+    stub.capabilities = ["read_entities", "read_events"];
+    const out = await render();
+    expect(out.split(`href="/companies/${BASE.payer_id}"`).length - 1).toBe(1);
+    expect(stub.headerProps).not.toHaveProperty("payerHref");
+  });
+});
+
+describe("the posting page calls the posting a posting (owner ruling 2026-10-01)", () => {
+  it("never says 'this job' about it", async () => {
+    const out = await render();
+    expect(out).toContain("What the poster set for this posting.");
+    expect(out).not.toMatch(/this job\b/i);
+  });
+
+  it("nor in the no-description state", async () => {
+    stub.job = { ...BASE, description: null };
+    const out = await render();
+    expect(out).toContain("The poster published this posting without one");
+    expect(out).not.toMatch(/this job\b/i);
   });
 });

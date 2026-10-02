@@ -7,7 +7,9 @@ import { LoginForm } from "./login-form";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Sign in · BadaBhai Admin",
+  // The root layout's template appends " · BadaBhai Admin"; carrying it here as well printed
+  // the suffix twice in the tab ("Sign in · BadaBhai Admin · BadaBhai Admin").
+  title: "Sign in",
   // The portal must never be indexed even if it is ever reachable from the internet.
   robots: { index: false, follow: false },
 };

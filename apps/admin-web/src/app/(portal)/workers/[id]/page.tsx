@@ -5,7 +5,13 @@ import { can } from "../../../../lib/auth/capabilities";
 import { getWorker, listApplications } from "../../../../lib/entities";
 import { isAdminRequestError } from "../../../../lib/admin-http";
 import { identityPosture, displayName } from "../../../../lib/identity";
-import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../../lib/format";
+import {
+  formatCount,
+  formatRelative,
+  formatTimestamp,
+  matchTierLabel,
+  shortId,
+} from "../../../../lib/format";
 import { StatusPill } from "../../../../components/status-pill";
 import { NameCell } from "../../../../components/name-cell";
 import { IdentityCapNotice } from "../../../../components/identity-notice";
@@ -14,7 +20,7 @@ import { Stat } from "../../../../components/stat";
 import { WorkerDetailHeader } from "./worker-detail-header";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Worker" };
+export const metadata = { title: "Worker details" };
 
 /**
  * One worker.
@@ -54,7 +60,10 @@ export default async function WorkerDetailPage({
   // Their decisions. Non-fatal: a failure here must not blank the whole worker page.
   const apps = await listApplications({ workerId: id, limit: 10 }).catch(() => null);
 
-  const timelineHref = `/workers/${worker.id}/timeline`;
+  // Offered only to a reader who may open it: the timeline route is `read_events`.
+  const timelineHref = can(session.capabilities, "read_events")
+    ? `/workers/${worker.id}/timeline`
+    : null;
   const journeyHref = `/workers/${worker.id}/journey`;
 
   // A single record, so the posture is read off this one row — `[worker]`, not a page.
@@ -65,31 +74,26 @@ export default async function WorkerDetailPage({
   );
   const name = displayName(worker.full_name);
 
-  const title = (
-    <div>
-      <p className="page__eyebrow">
-        <Link className="link" href="/workers">
-          Workers
-        </Link>
-      </p>
-      {/* `mono` is dropped with the id: it is an opaque-identifier treatment, and a person's
-          name set in a monospace face reads as a machine token rather than as a name. */}
-      <h1 className={name === null ? "page__title mono" : "page__title"}>
-        {name ?? shortId(worker.id)}
-      </h1>
-      <p className="page__sub">
+  // `mono` goes with the id: it is an opaque-identifier treatment, and a person's name set in a
+  // monospace face reads as a machine token rather than as a name.
+  const header = {
+    back: { href: "/workers", label: "Workers" },
+    title: name ?? shortId(worker.id),
+    titleMono: name === null,
+    description: (
+      <>
         {name === null
-          ? "One worker account as this portal sees it — what they did."
-          : "One worker account as this portal sees it — what they did, and who they are."}{" "}
-        Registered {formatRelative(worker.created_at)} · {formatTimestamp(worker.created_at)}.
-      </p>
-    </div>
-  );
+          ? "One worker account as this portal sees it — what they did"
+          : "One worker account as this portal sees it — what they did, and who they are"}
+        , registered {formatRelative(worker.created_at)} ({formatTimestamp(worker.created_at)}).
+      </>
+    ),
+  };
 
   return (
     <div className="page">
       <WorkerDetailHeader
-        title={title}
+        header={header}
         workerId={worker.id}
         canFlag={can(session.capabilities, "flag_worker")}
         timelineHref={timelineHref}
@@ -182,7 +186,7 @@ export default async function WorkerDetailPage({
           </div>
           <div className="stats stats--compact">
             <Stat label="Job decisions" value={formatCount(worker.application_count)} />
-            <Stat label="Times unlocked" value={formatCount(worker.unlock_count)} />
+            <Stat label="Contact unlocks" value={formatCount(worker.unlock_count)} />
           </div>
           <DetailList
             items={[
@@ -216,7 +220,7 @@ export default async function WorkerDetailPage({
           <div className="state state--error">
             <h3 className="state__title">Job decisions could not be loaded</h3>
             <p className="state__body">
-              The worker record above loaded, but the applications read failed — so this
+              The worker record above loaded, but the job-decisions read failed — so this
               table is missing, not empty. The &ldquo;Job decisions&rdquo; counter above is
               read from the worker record and is still the true total. Reload this page; if
               it keeps failing, the event timeline holds the same applies and skips as audit
@@ -240,8 +244,8 @@ export default async function WorkerDetailPage({
                 <tr>
                   <th scope="col">When</th>
                   <th scope="col">Decision</th>
-                  <th scope="col">Job</th>
-                  <th scope="col">Reason</th>
+                  <th scope="col">Posting</th>
+                  <th scope="col">Skip reason</th>
                   <th scope="col">Match tier</th>
                 </tr>
               </thead>
@@ -270,7 +274,7 @@ export default async function WorkerDetailPage({
                       )}
                     </td>
                     <td className="table__meta">{a.reason?.replace(/_/g, " ") ?? "—"}</td>
-                    <td className="table__meta">{a.match_tier ?? "—"}</td>
+                    <td className="table__meta">{matchTierLabel(a.match_tier)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -22,6 +22,10 @@ import {
 } from "../payers/payer-login-channel";
 import { ZeptoMailEmailLoginChannel } from "../payers/zeptomail-email-login-channel";
 import { WHATSAPP_PROVIDER } from "../messaging/whatsapp.provider";
+import { ReachService } from "../reach/reach.service";
+import { JobPostingsService } from "../job-postings/job-postings.service";
+import { MatchModule } from "../match/match.module";
+import { MatchCandidatesService } from "../match/match-candidates.service";
 import type { ServerConfig } from "@badabhai/config";
 
 /**
@@ -93,6 +97,18 @@ describe("PayerPortalModule wiring (cross-module DI regression guard)", () => {
     expect(tokens).toContain("ZeptoMailEmailLoginChannel");
     expect(tokens).toContain("WhatsAppLoginChannel");
     expect(tokens).toContain("SupabaseLoginChannel");
+  });
+
+  it("provides PayerApplicantsService, and every cross-module dep it injects is EXPORTED (#1823)", () => {
+    // PayerReachController now injects only this service; the service reaches across three
+    // module boundaries. A provider that is provided but not exported resolves to null at
+    // boot (the PushModule incident) — unit suites construct with fakes and never see it.
+    expect(providerTokens()).toContain("PayerApplicantsService");
+    expect(getMeta("exports", ReachModule)).toContain(ReachService);
+    expect(getMeta("exports", JobPostingsModule)).toContain(JobPostingsService);
+    // MatchModule is @Global, so no import edge is needed — but it must still export it.
+    expect(Reflect.getMetadata("__module:global__", MatchModule)).toBe(true);
+    expect(getMeta("exports", MatchModule)).toContain(MatchCandidatesService);
   });
 
   it("provides the config-selected channel + WhatsApp provider tokens (the factory seams)", () => {

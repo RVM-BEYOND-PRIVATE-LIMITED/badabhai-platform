@@ -1,8 +1,9 @@
 import { requireCapability } from "../../../../../lib/auth";
 import { EntityTimeline } from "../../../../../components/entity-timeline";
+import { shortId } from "../../../../../lib/format";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Worker timeline" };
+export const metadata = { title: "Worker event timeline" };
 
 export default async function WorkerTimelinePage({
   params,
@@ -22,8 +23,8 @@ export default async function WorkerTimelinePage({
       id={id}
       cursor={cursor}
       basePath={`/workers/${id}/timeline`}
-      backHref={`/workers/${id}`}
-      backLabel="Worker"
+      back={{ href: `/workers/${id}`, label: `Worker ${shortId(id)}` }}
+      subjectLabel="worker"
     />
   );
 }

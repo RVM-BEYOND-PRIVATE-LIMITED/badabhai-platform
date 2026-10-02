@@ -5,8 +5,11 @@ import { requireCapability } from "../../../../lib/auth";
 import { getEvent, getTrace } from "../../../../lib/events";
 import { AdminRequestError } from "../../../../lib/admin-http";
 import { formatTimestamp, humanizeEventName } from "../../../../lib/format";
+import { PageHeader } from "../../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Event details" };
 
 /**
  * Event detail — the envelope, the payload, and the causal chain it belongs to.
@@ -41,24 +44,17 @@ export default async function EventDetailPage({
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          {/* `.page__eyebrow`, not `.crumb`: `.crumb` is the TOPBAR breadcrumb primitive
-              (nowrap + ellipsis, sized for the sticky bar), and this is the section
-              backlink every other detail screen in the portal renders. */}
-          <p className="page__eyebrow">
-            <Link className="link" href="/events">
-              Events
-            </Link>
-          </p>
-          <h1 className="page__title">{humanizeEventName(event.event_name)}</h1>
-          <p className="page__sub">
-            One audit record in full — its envelope, its verbatim payload, and the causal
-            chain it belongs to. Recorded{" "}
+      <PageHeader
+        back={{ href: "/events", label: "Events" }}
+        title={humanizeEventName(event.event_name)}
+        description={
+          <>
+            One audit record in full — its envelope, verbatim payload and causal chain —
+            recorded{" "}
             <time dateTime={event.occurred_at}>{formatTimestamp(event.occurred_at)}</time>.
-          </p>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <section className="panel" aria-labelledby="env-heading">
         <div className="panel__head">
@@ -132,7 +128,8 @@ export default async function EventDetailPage({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={`/events/${event.id}`}>
-                Reload this event
+                <Icon name={ACTION_ICON.retry} />
+                Retry
               </Link>
             </div>
           </div>
@@ -150,6 +147,7 @@ export default async function EventDetailPage({
                 className="btn btn--ghost"
                 href={`/events?eventName=${encodeURIComponent(event.event_name)}`}
               >
+                <Icon name={ACTION_ICON.timeline} />
                 Other {humanizeEventName(event.event_name)} events
               </Link>
             </div>

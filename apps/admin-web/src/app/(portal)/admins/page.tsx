@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
-import { can } from "../../../lib/auth/capabilities";
+import { ADMIN_ROLES, ROLE_LABELS, can } from "../../../lib/auth/capabilities";
 import { listAdmins } from "../../../lib/entities";
 import { identityPosture } from "../../../lib/identity";
 import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../lib/format";
@@ -10,6 +10,8 @@ import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Stat } from "../../../components/stat";
 import { InviteAdminForm } from "./invite-admin-form";
 import { AdminRowActions } from "./admin-row-actions";
+import { PageHeader } from "../../../components/page-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Admin users" };
@@ -99,29 +101,42 @@ export default async function AdminsPage({
   const supers = directory?.active_super_admins ?? 0;
 
   const posture = identityPosture(admins, "name", can(session.capabilities, "read_identity"));
+  /**
+   * `/events` is `read_events`. Every role holds it today, but `manage_admins` does not imply
+   * it, so the links into the log are offered only to a session that holds it — an
+   * affordance; the route keeps its own gate.
+   */
+  const mayReadEvents = can(session.capabilities, "read_events");
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <h1 className="page__title">Admin users</h1>
-          <p className="page__sub">
-            Who holds access to this portal.{" "}
-            {posture === "faceless"
-              ? "Names are not served to your role and emails are served to no role at all"
-              : "Names are shown to your role and every read of one is audited; emails stay encrypted and are served to no role at all"}{" "}
-            — the id is the handle, and it appears on every audit event.
-          </p>
-        </div>
-        {/* The way back to the audit spine. Every governed admin action emits an
-            `admin.action_performed`, and without this the page states that fact and then
-            offers no way to go and read them. */}
-        <div className="page__actions">
-          <Link className="btn btn--ghost" href="/events?eventName=admin.action_performed">
-            View all admin actions
-          </Link>
-        </div>
-      </header>
+      <PageHeader
+        title="Admin users"
+        description={
+          posture === "faceless"
+            ? "Who holds access to this portal, by id — the handle on every audit event; names are not served to your role, and emails stay encrypted and are served to no role at all."
+            : "Who holds access to this portal — names are shown to your role and every read of one is audited, emails stay encrypted and are served to no role at all, and the id is the handle on every audit event."
+        }
+        /* The page's own action, first, as on every other page. The form itself stays at the
+           foot of the page, under the directory it adds to; this is the way to it. */
+        primaryAction={
+          <a className="btn btn--primary" href="#ad-invite">
+            <Icon name="user-plus" />
+            Invite an admin
+          </a>
+        }
+        /* The way back to the audit spine. Every governed admin action emits an
+           `admin.action_performed`, and without this the page states that fact and then
+           offers no way to go and read them. */
+        secondaryActions={
+          mayReadEvents ? (
+            <Link className="btn btn--ghost" href="/events?eventName=admin.action_performed">
+              <Icon name={ACTION_ICON.timeline} />
+              View all admin actions
+            </Link>
+          ) : null
+        }
+      />
 
       {posture === "capped" && (
         <IdentityCapNotice>
@@ -135,15 +150,15 @@ export default async function AdminsPage({
       {/* The two failure modes of a super_admin population, neither visible from a row. */}
       {directory && supers === 1 && (
         <section className="notice notice--warn" role="status">
-          <strong>Only one active super admin.</strong> If that person loses their second
-          factor, nobody can grant <code>manage_admins</code> again without a database-level
-          recovery. Consider a second one.
+          <strong>Only one active super admin.</strong> If that person loses their MFA device,
+          nobody can grant <code>manage_admins</code> again without a database-level recovery.
+          Consider a second one.
         </section>
       )}
       {directory && noMfa > 0 && (
         <section className="notice notice--bad" role="status">
           <strong>
-            {formatCount(noMfa)} active admin{noMfa === 1 ? "" : "s"} without a second factor.
+            {formatCount(noMfa)} active admin{noMfa === 1 ? "" : "s"} without MFA.
           </strong>{" "}
           An admin session is the most privileged credential on the platform; a password-only
           path to it is the weakest link in the whole model.
@@ -183,19 +198,22 @@ export default async function AdminsPage({
           </div>
           {(role || status) && (
             <Link className="btn btn--ghost" href="/admins">
+              <Icon name={ACTION_ICON.clearFilters} />
               Clear filters
             </Link>
           )}
         </div>
 
         <div className="filters filters--inline">
-          {["super_admin", "ops_admin", "support", "analyst"].map((r) => (
+          {ADMIN_ROLES.map((r) => (
             <Link
+              aria-current={r === role ? "true" : undefined}
               className={`btn btn--sm ${r === role ? "btn--primary" : "btn--ghost"}`}
-              href={`/admins?role=${r}`}
+              /* Keeps a status narrowing (`?status=`); a chip used to drop it. */
+              href={`/admins?role=${r}${status ? `&status=${encodeURIComponent(status)}` : ""}`}
               key={r}
             >
-              {r.replace(/_/g, " ")}
+              {ROLE_LABELS[r]}
             </Link>
           ))}
         </div>
@@ -210,6 +228,7 @@ export default async function AdminsPage({
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={selfHref}>
+                <Icon name={ACTION_ICON.retry} />
                 Retry
               </Link>
             </div>
@@ -224,13 +243,6 @@ export default async function AdminsPage({
                 ? "The directory loaded, but nobody holds this combination of role and status. Clear the filters to see everyone."
                 : "The directory loaded and it is genuinely empty. On a running platform that is not a normal state — you are signed in, so at least your own account should be here."}
             </p>
-            {(role || status) && (
-              <div className="state__actions">
-                <Link className="btn btn--ghost" href="/admins">
-                  Clear filters
-                </Link>
-              </div>
-            )}
           </div>
         ) : (
           <div className="tablewrap">
@@ -243,9 +255,9 @@ export default async function AdminsPage({
                       made to mean "withheld from you". */}
                   {posture === "named" && <th scope="col">Name</th>}
                   <th scope="col">Admin</th>
-                  <th scope="col">Role</th>
+                  <th scope="col">Admin role</th>
                   <th scope="col">Status</th>
-                  <th scope="col">Second factor</th>
+                  <th scope="col">MFA</th>
                   <th scope="col">Last sign-in</th>
                   <th scope="col">Added</th>
                   <th scope="col">Actions</th>
@@ -263,22 +275,16 @@ export default async function AdminsPage({
                       </td>
                     )}
                     <td>
-                      {/* Every OTHER entity now has a per-entity timeline route; admins do
-                          not, and deliberately so — `admin_session` is absent from
-                          ADMIN_TIMELINE_SUBJECT_TYPES (mirrored verbatim from the server in
-                          `lib/events.ts`), so a per-admin timeline would be a server-side
-                          400. This link is therefore subject-type-wide, and it says so: the
-                          id is the visible label, so without the title it would read as a
-                          promise of THIS admin's history. A `subjectId` param is not carried
-                          — `EventFilters` has no such field, so it would make that false
-                          promise and then quietly show every admin's events. */}
-                      <Link
-                        className="mono link"
-                        href="/events?subjectType=admin_session"
-                        title={`${a.id} — opens every admin_session event, not only this admin's`}
-                      >
+                      {/* The id is TEXT, not a link. It used to link every row to the same
+                          `/events?subjectType=admin_session` — every admin's sessions, not this
+                          one's — because there is no per-admin timeline (`admin_session` is not
+                          in ADMIN_TIMELINE_SUBJECT_TYPES, so one would be a server 400) and
+                          `EventFilters` has no subject-id filter. A link whose label is THIS
+                          admin's id and whose target is everyone's is a false promise; the
+                          header's "View all admin actions" is the honest way into the log. */}
+                      <span className="mono" title={a.id}>
                         {shortId(a.id)}
-                      </Link>
+                      </span>
                       {a.is_self && posture !== "named" && (
                         <span className="table__meta">you</span>
                       )}
@@ -288,7 +294,7 @@ export default async function AdminsPage({
                           privileged one, and it should read as something to notice. */}
                       <StatusPill
                         value={a.role}
-                        label={a.role.replace(/_/g, " ")}
+                        label={ROLE_LABELS[a.role]}
                         tone={a.role === "super_admin" ? "warn" : "muted"}
                         title={
                           a.role === "super_admin"
@@ -332,6 +338,7 @@ export default async function AdminsPage({
                     </td>
                     <td>
                       <AdminRowActions
+                        mayReadEvents={mayReadEvents}
                         admin={{
                           id: a.id,
                           role: a.role,
@@ -348,7 +355,7 @@ export default async function AdminsPage({
         )}
       </section>
 
-      <InviteAdminForm />
+      <InviteAdminForm mayReadEvents={mayReadEvents} />
     </div>
   );
 }

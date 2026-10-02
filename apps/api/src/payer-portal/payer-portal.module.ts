@@ -36,6 +36,7 @@ import { PayerOrgInvitesController } from "./payer-org-invites.controller";
 import { JobPostingChatModule } from "./job-posting-chat/job-posting-chat.module";
 import { PayerAuthService } from "./payer-auth.service";
 import { PayerOrgMembersService } from "./payer-org-members.service";
+import { PayerApplicantsService } from "./payer-applicants.service";
 import {
   MEMBER_INVITE_MAILER,
   MockMemberInviteMailer,
@@ -111,6 +112,9 @@ import {
     RequestIdempotency,
     PayerAuthService,
     PayerOrgMembersService,
+    // The payer applicant list's source selection (#1823): an owned agency `jobs` row → the
+    // ReachService pool; an owned posting → MatchCandidatesService (MatchModule, @Global).
+    PayerApplicantsService,
     PayerOtpService,
     // Org-invite mailer seam (ADR-0027 / B5.4). Mirrors the WhatsApp/login-channel factory:
     // the MOCK mailer (no send — the raw token/link never leaves the process) is the alpha
