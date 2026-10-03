@@ -356,10 +356,12 @@ describe("looksLikeOrgName", () => {
 
   // #1927 MOVED THESE TWO PINS from false to true. They pinned the old tradeoff — a bare
   // "Ltd" counted only as a TRAILING suffix after a Capitalized token — so the price of
-  // keeping "limited experience ok" legal was paid by "Ltd" too. But "Ltd" is never trade
-  // prose; only "limited" is. "Ltd" is now flagged in any position and any case after a
-  // name character, while "Limited" keeps its stricter rules (the #1927 tables below).
-  it("bare lowercase 'acme ltd' IS flagged: 'Ltd' is never prose, whatever the casing (#1927)", () => {
+  // keeping "limited experience ok" legal was paid by "Ltd" too. But "Ltd" is almost always a
+  // suffix; trade prose writes "ltd" for "limited" only before a closed list of nouns ("ltd
+  // seats", "Ltd company"). "Ltd" is now flagged in any position and any case after a name
+  // character unless one of those nouns follows, while "Limited" keeps its stricter rules (the
+  // #1927 tables below).
+  it("bare lowercase 'acme ltd' IS flagged: 'Ltd' is a suffix whatever the casing (#1927)", () => {
     expect(looksLikeOrgName("acme ltd")).toBe(true);
   });
   it("mid-sentence bare 'Ltd' followed by more words IS flagged (#1927)", () => {
@@ -500,6 +502,23 @@ describe("looksLikeOrgName", () => {
     ["Ltd before a comma clause", "Pehle Bharat Forge Ltd jaiye, phir Thermax"],
     ["Ltd mid-label (skill certifier)", "Tata Steel Ltd welding"],
     ["Ltd mid-label (skill certifier)", "Tata Motors Ltd ka kaam"],
+    // "Ltd"/"Limited" glued to "pvt", which the strong tier's "pvt ltd" needs a space for —
+    // and no skip word saves it: a glued "Pvt.Ltd company" is a firm
+    ["Ltd glued to Pvt by a dot", "Sharma Engineering Pvt.Ltd mein welder chahiye."],
+    ["Ltd glued to Pvt", "Sharma Engineering PvtLtd"],
+    ["Ltd glued to Pvt by a dash", "Sharma Engineering Pvt-Ltd."],
+    ["Ltd glued to Pvt, before a skip word", "Sharma Engg Pvt.Ltd company mein welder chahiye"],
+    ["Ltd glued to Pvt, before a skip word", "Sharma PvtLtd vacancy hai"],
+    ["Ltd glued to Pvt by a slash", "Sharma Pvt/Ltd"],
+    ["Limited glued to Pvt by a dot", "Sharma Pvt.Limited mein"],
+    // a quoted, bracketed or emphasised name: the closing mark is the name's last character
+    ["Ltd after a quoted name", '"Tata Steel" Ltd mein apply kariye'],
+    ["Ltd after a curly-quoted name", "“Tata Steel” Ltd mein"],
+    ["Ltd after a bracketed name", "[Tata Steel] Ltd mein"],
+    ["Ltd after a markdown-bold name", "**Tata Steel** Ltd mein apply kariye"],
+    ["Ltd after a guillemet-quoted name", "«Tata Steel» Ltd"],
+    ["Limited after a quoted name", '"Tata Steel" Limited mein apply kariye'],
+    ["Limited after a curly-quoted name", "“Tata Steel” Limited is hiring"],
     // "Limited" mid-sentence: Title-case or ALL-CAPS, after a name, before an entity word
     ["Limited before an English verb", "Kalyani Steels Limited is hiring CNC operators"],
     ["Limited before a postposition", "Main 5 saal Sharma Engineering Limited mein welder tha"],
@@ -523,8 +542,9 @@ describe("looksLikeOrgName", () => {
   });
 
   // #1927 must not touch prose: "limited" is an ordinary word in job text and career answers,
-  // and a Title-case posting title capitalizes it like any other word. "Ltd" stays clean where
-  // the next word makes it the entity TYPE or an adjective, not a suffix.
+  // and a Title-case posting title capitalizes it like any other word. "Ltd" stays clean only
+  // before a closed list of nouns — the entity TYPE ("Ltd company") or what a "ltd" written for
+  // "limited" limits ("ltd seats"); before any other word see KNOWN FALSE POSITIVE below.
   it.each([
     // lowercase and sentence-case "limited"
     "ITI electrician, experience limited hai par seekhne ko taiyaar hoon.",
@@ -557,14 +577,29 @@ describe("looksLikeOrgName", () => {
     "Welder Vacancies Limited for freshers",
     "Night Shift Seats Limited in Pune",
     "Time Limited ke liye joining bonus",
+    // nor is a copula, a negation, an adverb, a determiner or pronoun, or an intensifier
+    "Seats Are Limited\nApply Now",
+    "SEATS ARE LIMITED\nAPPLY NOW",
+    "Vacancies Are Limited for freshers",
+    "Seats Very Limited for freshers",
+    "Entry Strictly Limited for ITI holders",
+    "Overtime Not Limited\nApply Now",
+    "Seats Not Limited for women",
+    "Income Also Limited for helpers",
+    "Ek Limited mein kaam karta tha",
+    "Aap Limited mein apply kar sakte ho",
+    // …even inside the quotes or emphasis a name token may carry
+    "Hurry **Seats** Limited for women",
     // a name and its suffix share a line: a title on one line is not a firm with the next
     "Requirement: CNC Operator\nLimited for ITI freshers",
-    // "Ltd" as the entity type or an adjective
+    // "Ltd" before a listed noun: the entity type, or what a "ltd" for "limited" limits
     "Urgent requirement in a reputed Ltd company",
     "Ek ltd company mein kaam kiya",
     "Ltd company mein machine operator tha",
     "Only 20 ltd seats left",
     "Hurry. Ltd seats available",
+    "Only 20 Ltd posts",
+    "Freshers with ltd experience ok",
     // "Ltd" after a label's punctuation has no name before it
     "Seats: ltd, jaldi apply karein",
     "Overtime: ltd hours",
@@ -593,18 +628,45 @@ describe("looksLikeOrgName", () => {
     ["a bare brand, no suffix (TD147)", "L&T mein apply kariye ji"],
     ["a bare brand, no suffix (TD147)", "Tata Motors ya Maruti mein apply kariye"],
     ["'Ltd' read as the entity type", "Tata Steel Ltd company mein jaiye"],
+    ["'Ltd' before a listed noun", "Tata Steel Ltd vacancy nikli hai"],
+    ["'Ltd' before a listed noun", "Tata Steel Ltd jobs"],
+    ["'Ltd' before a listed noun", "Tata Steel Ltd naukri ke liye"],
+    ["'Ltd' before a listed noun", "Aapka Tata Motors Ltd experience kaam aayega."],
+    ["'Ltd' before a listed noun", "Tata Motors Ltd posts"],
+    ["'Ltd' before a listed noun", "Tata Motors Ltd hours"],
+    ["a line break between the name and 'Ltd'", "Tata Steel\nLtd mein apply kariye"],
+    ["a suffix glued with no separator", "Tata SteelLtd mein"],
+    ["a bracketed suffix", "Tata Steel (Ltd) mein"],
+    ["a dotted suffix", "Tata Steel L.t.d. mein"],
+    ["a misspelled suffix", "Tata Steel Lmtd mein"],
+    ["a misspelled suffix", "Tata Steel Lim. mein"],
+    ["a misspelled suffix", "Tata Steel Ld. mein"],
+    ["one token, then an English follow word", "Thermax Limited is hiring"],
     ["'Limited' before 'to'", "Tata Steel Limited to hire 500 welders"],
+    ["'Limited' before a Title-case postposition", "Tata Steel Limited Mein apply"],
+    ["'Limited' before a place name", "Tata Steel Limited Jamshedpur mein"],
     ["a lowercase name before 'limited'", "bharat forge limited mein kaam kiya"],
+    ["a guillemet-quoted name before 'Limited'", "«Tata Steel» Limited is hiring"],
     ["an ALL-CAPS postposition", "BHARAT FORGE LIMITED MEIN VACANCY"],
   ])("KNOWN RESIDUAL: a firm slips — %s (%j)", (_why, s) => {
     expect(looksLikeOrgName(s)).toBe(false);
   });
 
-  // The other side of the same price, unchanged by #1927: generic and company-law phrases with
-  // a strong marker, and a trailing Title-case limited noun, are flagged though they name nobody.
+  // The other side of the same price: generic and company-law phrases with a strong marker, a
+  // trailing Title-case word before a closing "Limited", a "ltd" written for "limited" before a
+  // word the closed list lacks, a "pvt" a few non-letters before "ltd"/"limited", and a
+  // mid-sentence "Limited" after a Title-case noun ORG_NOT_A_NAME_TAIL lacks, are flagged though
+  // they name nobody.
   it.each([
-    ["a trailing Title-case limited noun", "Openings Limited"],
-    ["a trailing Title-case limited noun", "Hurry, Seats Limited!"],
+    ["a trailing Title-case word", "Openings Limited"],
+    ["a trailing Title-case word", "Hurry, Seats Limited!"],
+    ["a trailing Title-case word", "Seats Are Limited!"],
+    ["'ltd' for 'limited' before an unlisted word", "Seats ltd hain"],
+    ["'ltd' for 'limited' before an unlisted word", "Vacancy ltd hai"],
+    ["'ltd' for 'limited' before an unlisted word", "OT ltd hai"],
+    ["a 'pvt' up to three non-letters before 'limited'", "Govt ya Pvt, limited experience ok"],
+    ["a Title-case noun the tail list lacks", "Night Duty Limited in winter"],
+    ["a Title-case noun the tail list lacks", "Hostel Facility Limited for female staff"],
     ["the generic entity type", "Pvt Ltd company mein 3 saal"],
     ["a company-law skill", "LLP compliance"],
   ])("KNOWN FALSE POSITIVE: %s (%j)", (_why, s) => {
@@ -737,9 +799,12 @@ describe("workerVisibleTextScreens", () => {
     // #1927 — a bare suffix mid-sentence is a company name on the job-text screen too…
     ["Welder chahiye, Tata Steel Ltd mein apply kariye", ["company_name"]],
     ["Bharat Forge Limited mein fitter ki vacancy", ["company_name"]],
+    ["Sharma Engg Pvt.Ltd company mein welder chahiye", ["company_name"]],
+    ['"Tata Steel" Limited mein fitter ki vacancy', ["company_name"]],
     // …while posting prose that only uses the words stays clean
     ["Urgent requirement in a reputed Ltd company", []],
     ["Fresher Welder Limited Experience OK", []],
+    ["Seats Are Limited\nApply Now", []],
   ] as const)("%j trips %j", (s, screens) => {
     expect(workerVisibleTextScreens(s)).toEqual(screens);
   });

@@ -478,7 +478,8 @@ export function looksLikeMoney(text: string): boolean {
  *
  * Since #1927 the shared `looksLikeOrgName` also reads a bare "Ltd" mid-sentence ("Tata Motors
  * Ltd mein 5 saal"), but only after a name character on the same line, and never before a word
- * that makes it the entity type ("Ltd company", "ltd seats") — tuned for employers' job text.
+ * on its closed skip list — the entity type ("Ltd company") or a noun a "ltd" written for
+ * "limited" limits ("ltd seats", "ltd experience") — tuned for employers' job text.
  * This wall stays stricter on purpose: these four words have no trade-prose meaning in a
  * worker's brief, so neither position nor the next word matters. "Pvt" alone is deliberately
  * absent ("pvt company me kaam kiya" is how a worker says "a private company", naming nobody);
