@@ -11,22 +11,28 @@ THE FIX (`pseudonymize._TITLE_NAME_WORD`): the capitals rule's bound, `_CAPS_NAM
 characters, matched possessively: 37 and 82 ms on those two inputs. Possessive changes no match;
 the bound changes only a name word over 64 characters (section 3). Re-measured over the #1875
 corpus (31,984 distinct strings, as written and upper-cased) and its 4,765 certifier labels: no
-output, no blocked status and no certifier outcome moves.
+output, no blocked status and no certifier outcome moves. `scripts/measure_title_employer_bound.py`
+reproduces that from tracked files (32,006 strings on this commit, the same zeros); section 5 keeps
+it measuring this rule.
 
 Each section was seen to FAIL against a mutation of the rule: main's unbounded word (1, 3; 12
 failures); possessive but unbounded (1, 3; 11); bounded but not possessive (1, the structural test
 only); a 65-character bound (1, 3); a 32-character bound (1, 2, 3); an 8-character bound (1, 2, 3,
-including "L&T Engineering Works" and "Stainless Steel"). Stdlib + pytest only, like
-`test_pseudonymize.py`. All inputs are fabricated.
+including "L&T Engineering Works" and "Stainless Steel"). Section 4 (the boundary under the two
+views) fails 3 of 3 against both unbounded mutations, and its blocking case fails against a 32- or
+8-character bound. Section 5 fails against every one of them: the script's `bound64` must equal the
+shipped rule. Stdlib + pytest only, like `test_pseudonymize.py`. All inputs are fabricated.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import random
 import re
 import time
 from collections import Counter
 from itertools import pairwise
+from pathlib import Path
 
 import pytest
 
@@ -40,7 +46,7 @@ from app.pseudonymize import (
 
 #: Main's rule before #1891, the oracle for "no output moves".
 _MAIN_EMPLOYER_RE = re.compile(r"\b(?:[A-Z][\w&.]*\s+){1,4}" + gateway._COMPANY_SUFFIX + r"\b")
-_ZWSP = "​"
+_ZWSP = "\u200b"
 
 
 @pytest.fixture
@@ -152,7 +158,7 @@ def test_a_real_employer_masks_exactly_as_on_main(text, expected, main_gateway):
 _NAMES = ["Tata", "Bharat", "Om", "Sai", "Shree", "Ramesh", "Xyz", "Main", "J.K.", "M&M", "L&T"]
 _SUFFIXES = sorted(set(re.findall(r"[A-Za-z]+", gateway._COMPANY_SUFFIX))) + ["Pvt.", "Ltd.", "Co."]
 _FILLERS = ["mein", "tha", "aur", "se", ",", "5", "Pune", "TATA", "LTD"]
-_INVISIBLES = [_ZWSP, "­"]
+_INVISIBLES = [_ZWSP, "\u00ad"]  # zero-width space, soft hyphen
 _WORD_CHARS = "abcdefghijklmnopqrstuvwxyz&."
 _CLASS_RUN = re.compile(r"[\w&.]+")
 
@@ -245,3 +251,74 @@ def test_KNOWN_RESIDUAL_a_name_word_over_64_characters_is_not_masked_whole(
     assert (result.text, result.blocked) == (expected, False)
     # A clean-or-withhold wall now passes the undotted ones raw; main withheld them as employers.
     assert is_certified_clean(text) is (expected == text)
+
+
+# --- 4. the boundary under #1738's two views ----------------------------------------------------
+# The property test skips a run over 64 that only an invisible creates. Here are both outcomes.
+
+
+def test_a_word_joined_past_64_by_an_invisible_blocks_when_it_is_the_only_name_word(main_gateway):
+    # The reader view reads one 80-letter word and opens no span. The spaced view reads two
+    # 40-letter words and masks "<A40> <B40> Steel", a region the reader view left raw, so the
+    # two-view check fails closed. Main masked it whole in both views.
+    text = "A" * 40 + _ZWSP + "B" * 40 + " Steel"
+    assert main_gateway(pseudonymize, text).text == "[EMPLOYER_1]"
+    result = pseudonymize(text)
+    assert (result.text, result.blocked) == ("", True)
+    assert is_certified_clean(text) is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "A" * 40 + _ZWSP + "B" * 40 + " Steel Works",
+        "Ramesh" + _ZWSP + "K" * 60 + " Steel Works",
+    ],
+    ids=["two 40-letter words", "a name glued to a 60-letter word"],
+)
+def test_KNOWN_RESIDUAL_r49_a_word_joined_past_64_egresses_as_the_reader_view(text, main_gateway):
+    # "Steel" is a second name word before "Works", so the reader view masks "Steel Works". The
+    # spaced-view span overlaps that mask, and R49 (#1890) counts a partial overlap as covered.
+    # What egresses is the reader view: the same output, byte for byte, as the word written with
+    # no invisible (section 3), so the invisible adds no exposure. When #1890 lands (only full
+    # cover counts), this blocks; move it to the test above.
+    assert main_gateway(pseudonymize, text).text == "[EMPLOYER_1]"
+    result = pseudonymize(text)
+    reader_view = text.replace(_ZWSP, "")
+    expected = reader_view.replace(" Steel Works", " [EMPLOYER_1]")
+    assert (result.text, result.blocked) == (expected, False)
+    no_invisible = pseudonymize(reader_view)
+    assert (no_invisible.text, no_invisible.blocked) == (result.text, False)
+
+
+# --- 5. the measurement script measures this rule -----------------------------------------------
+# `scripts/measure_title_employer_bound.py` reproduces the over-mask, timing and boundary numbers.
+# Its MAIN must be this file's oracle, and its `boundN` variants must be the shipped rule with only
+# the bound changed, or `--against bound8` would not be the sensitivity run it claims to be.
+
+
+@pytest.fixture(scope="module")
+def measure_script():
+    path = Path(__file__).resolve().parents[1] / "scripts" / "measure_title_employer_bound.py"
+    spec = importlib.util.spec_from_file_location("measure_title_employer_bound", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_measurement_script_compares_main_with_the_shipped_rule(measure_script):
+    assert measure_script.gateway is gateway
+    assert measure_script.MAIN_EMPLOYER_RE.pattern == _MAIN_EMPLOYER_RE.pattern
+    assert measure_script.variant("main") is measure_script.MAIN_EMPLOYER_RE
+    assert measure_script.variant("module") is gateway._EMPLOYER_RE
+    shipped_bound = f"bound{gateway._CAPS_NAME_WORD_MAX}"
+    assert measure_script.variant(shipped_bound).pattern == gateway._EMPLOYER_RE.pattern
+    assert measure_script.variant("bound8").pattern != gateway._EMPLOYER_RE.pattern
+
+
+def test_the_measurement_script_restores_the_shipped_rule(measure_script):
+    shipped = gateway._EMPLOYER_RE
+    with pytest.raises(RuntimeError), measure_script.employer_rule(_MAIN_EMPLOYER_RE):
+        assert gateway._EMPLOYER_RE is _MAIN_EMPLOYER_RE
+        raise RuntimeError
+    assert gateway._EMPLOYER_RE is shipped
