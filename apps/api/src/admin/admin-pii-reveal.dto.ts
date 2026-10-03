@@ -44,7 +44,12 @@ const PHONE_LIKE_RE = /(?<!\d)\+?\d[\d\s-]{7,}\d(?!\d)/;
 // numeric-PII net: Aadhaar/account/long id numbers).
 const RESIDUAL_DIGITS_RE = /\d{7,}/;
 // A basic email shape (an additional PII channel a free-text note could smuggle a contact in).
-const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
+// The local part is ONE character on purpose (#1924): `[A-Za-z0-9._%+-]+@` was quadratic on a
+// long run with no "@" (~4.2 s at 100k characters), and Zod 3 still runs the refine below after
+// `.max()` has failed, so only the JSON body limit bounded the note. Any local part ends in one
+// such character, so no verdict moves; a domain stops at the next "@", so the work is linear.
+// Only ever used with `.test()`.
+const EMAIL_RE = /[A-Za-z0-9._%+-]@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
 
 /** True when `note` contains residual contact-PII (phone-shaped digits / long digit run / email). */
 export function noteHasResidualPii(note: string): boolean {
