@@ -24,7 +24,9 @@ import {
  * the posting `role_title` / `description`. A phone number or a "Pvt Ltd"-style name typed
  * into any of those is rejected with a clear 400 and never stored. Every message names the
  * FIELD, never the offending content: an error body that echoed the text back would be the
- * leak the refusal just prevented.
+ * leak the refusal just prevented. Each heuristic reads the text as typed AND a fold of it
+ * (`foldForScreening`, #1942), so a fullwidth or invisibly split suffix, phone number or link
+ * is refused like its plain spelling; what parses, and is stored, is still what was typed.
  *
  * THE PLACE FIELDS RUN IT TOO (#1848): `area` (below) and each DTO's `city`, through
  * {@link screenWorkerVisiblePlace}. Same three heuristics, same messages, one narrow waiver:
