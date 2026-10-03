@@ -233,10 +233,6 @@ because that record would be a new place employer names are written.
     exempt the literal on write, because this run would then re-case every such row each time it
     runs.
 
-- **`Contract work`.** The renderer exempts this exact literal from its own casing
-  (`SYSTEM_EMPLOYER_LABELS`). The app's rule has no such exemption, so a stored "Contract work"
-  becomes "Contract Work" here, just as it does on a new save from the app.
-
 ## Open questions for the owner
 
 - **Should `role_label` be in scope?** The issue asks for it, and the app's trade form has cased it
