@@ -2,10 +2,11 @@
 
     cd apps/ai-service && python scripts/regex_growth_survey.py [--k 100] [--timeout 40]
 
-Every `re.Pattern` reachable from an `app/` module's globals (through tuples, lists, sets and
-dicts, four levels deep) is timed on 22 input shapes at `k` and `2k` units. The shapes are runs of
-spaces, mixed whitespace, word windows, dotted runs, and runs of digits, commas and dashes. Each
-one follows a cue word taken from the pattern's own source, or no cue at all. The ops are
+Every `re.Pattern` reachable from the globals of an `app/` module the service imports (through
+tuples, lists, sets and dicts, four levels deep) is timed on 22 input shapes at `k` and `2k`
+units. The shapes are runs of spaces, mixed whitespace, word windows, dotted runs, and runs of
+digits, commas and dashes. Each one follows a cue word taken from the pattern's own source, or
+no cue at all. The ops are
 `finditer` (what `search`, `sub` and `findall` cost at worst), `match` and `fullmatch`.
 
 A pattern is FLAGGED when an op takes over 1 ms at `2k` and more than 2.8x its `k` time (linear is
@@ -21,9 +22,7 @@ compiled inside a function body. Stdlib only.
 from __future__ import annotations
 
 import argparse
-import importlib
 import multiprocessing as mp
-import pkgutil
 import queue
 import re
 import sys
@@ -39,11 +38,12 @@ RATIO = 2.8
 def collect() -> list[tuple[re.Pattern[str], str]]:
     """Every distinct compiled pattern reachable from an `app/` module's globals, with a path."""
     sys.path.insert(0, str(AI_SERVICE))
-    import app
+    # A LITERAL import of the service entry point, then every `app.` module it pulled in: the
+    # patterns a running service can reach. No dynamic import (semgrep non-literal-import), so a
+    # module the service never imports (an eval CLI, a script) is outside the survey.
+    import app.main  # noqa: F401
 
-    modules = [
-        importlib.import_module(info.name) for info in pkgutil.walk_packages(app.__path__, "app.")
-    ]
+    modules = [mod for name, mod in sorted(sys.modules.items()) if name.startswith("app.")]
     found: dict[tuple[str, int], tuple[re.Pattern[str], str]] = {}
 
     def walk(obj: object, depth: int, path: str) -> None:
