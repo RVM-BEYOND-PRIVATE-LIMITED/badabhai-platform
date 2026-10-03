@@ -36,31 +36,42 @@ const RULES = {
 type RuleName = keyof typeof RULES;
 const NAMES = Object.keys(RULES) as RuleName[];
 
-/** The shipped rule with `connector` in place of the linear one. Throws when the shipped rule no
- * longer holds the linear text, so an edited connector can never compare a rule with itself. */
-function withConnector(name: RuleName, connector: string): RegExp {
-  const { shipped, linear } = RULES[name];
-  if (!shipped.source.includes(linear)) {
-    throw new Error(`${name}: the shipped rule no longer holds the linear connector`);
-  }
-  return new RegExp(shipped.source.replace(linear, connector), shipped.flags);
-}
+/** The linear connector without the `\s*` after the "no" word (the sensitivity variant). */
+const looseConnector = (name: RuleName): string =>
+  RULES[name].linear.replace(String.raw`|#)\s*)?`, "|#))?");
 
-const mainOf = (name: RuleName): RegExp => withConnector(name, RULES[name].main);
+/**
+ * Every variant as a FROZEN LITERAL, global for `matchAll`. semgrep's blocking
+ * detect-non-literal-regexp rule forbids building a RegExp from a string, so nothing here is
+ * compiled at runtime; the "literals" test below pins each one, by source text, to the shipped
+ * rule with exactly one connector swapped, so a later edit to a rule cannot leave a stale copy.
+ */
+const LITERALS: Record<RuleName, { shipped: RegExp; main: RegExp; loose: RegExp }> = {
+  credential: {
+    shipped:
+      /\b(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:-]\s*)?(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/gi,
+    main: /\b(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:no\.?|number|num|#)?\s*[:-]?\s*(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/gi,
+    loose:
+      /\b(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:(?:no\.?|number|num|#))?(?:[:-]\s*)?(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/gi,
+  },
+  resume: {
+    shipped:
+      /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:-]\s*)?(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/gi,
+    main: /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\s*(?:no\.?|number|num|id|#)?\s*[:-]?\s*(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/gi,
+    loose:
+      /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\s*(?:(?:no\.?|number|num|id|#))?(?:[:-]\s*)?(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/gi,
+  },
+};
 
-/** Sensitivity: the linear connector without the `\s*` after the "no" word. */
-const looseOf = (name: RuleName): RegExp =>
-  withConnector(name, RULES[name].linear.replace(String.raw`|#)\s*)?`, "|#))?"));
+const mainOf = (name: RuleName): RegExp => LITERALS[name].main;
+const looseOf = (name: RuleName): RegExp => LITERALS[name].loose;
 
 /** Every match as [index, length], the global way `test` would find each in turn. */
 function spans(pattern: RegExp, text: string): [number, number][] {
-  return [...text.matchAll(new RegExp(pattern.source, `${pattern.flags}g`))].map((m) => [
-    m.index,
-    m[0].length,
-  ]);
+  return [...text.matchAll(pattern)].map((m) => [m.index, m[0].length]);
 }
 
-function moved(text: string, against: (name: RuleName) => RegExp = (n) => RULES[n].shipped) {
+function moved(text: string, against: (name: RuleName) => RegExp = (n) => LITERALS[n].shipped) {
   return NAMES.filter(
     (name) =>
       JSON.stringify(spans(mainOf(name), text)) !== JSON.stringify(spans(against(name), text)),
@@ -145,6 +156,20 @@ describe("the cued-identifier connector (issue #1933, R54)", () => {
       expect(shipped.source).not.toContain(main);
       expect(mainOf(name).source).toContain(main);
       expect(mainOf(name).source).not.toBe(shipped.source);
+    },
+  );
+
+  it.each(NAMES)(
+    "%s: every frozen literal is the shipped rule with exactly one connector swapped",
+    (name) => {
+      const { shipped, main, linear } = RULES[name];
+      const lit = LITERALS[name];
+      expect(lit.shipped.source).toBe(shipped.source);
+      expect(lit.main.source).toBe(shipped.source.replace(linear, main));
+      expect(lit.loose.source).toBe(shipped.source.replace(linear, looseConnector(name)));
+      for (const variant of [lit.shipped, lit.main, lit.loose]) {
+        expect(variant.flags).toBe(`g${shipped.flags}`);
+      }
     },
   );
 
