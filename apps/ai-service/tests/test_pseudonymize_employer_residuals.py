@@ -17,8 +17,9 @@ token into it (`_EMPLOYER_ABSORB_RE`); the M/S cue before a firm that ends on a 
 (`_EMPLOYER_MS_CUE_RE`); five or six name words before a strong form (`_EMPLOYER_LONG_RE`). Each
 pass is gated on its mandatory piece (`_RULE_GATES`). Measured with every pass on against off over
 50,918 repo strings, 1,324 fabricated negative lines, 576 fabricated employer lines and the third
-review's 804 lines, after each of three review rounds (security, code, performance, red team,
-mutation, claims, sweep); the numbers are in the module notes.
+and fourth reviews' 804 and 678 lines, after each of four review rounds and a final check
+(security, code, performance, red team, mutation, claims, sweep); the numbers are in the module
+notes.
 
 Each section was seen to FAIL against a mutation of the rules (see the PR). Stdlib + pytest only,
 like `test_pseudonymize.py`. All inputs are fabricated.
@@ -381,7 +382,7 @@ def test_a_title_case_job_preference_is_not_a_firm(text):
         ("M/S XYZ SECURITY SERVICES", "M/S [EMPLOYER_1]"),
         # "Fabrication" names firms: it does not make a generic firm word trade talk.
         ("m/s nandi fabrication works hubli me 2 saal", "m/s [EMPLOYER_1] hubli me 2 saal"),
-        # A résumé's dates may stand before the cue; a speed never reaches a firm word.
+        # A résumé's dates may stand before the cue (a measurement, 1-3 digits or a decimal, not).
         ("2016-2019 M/S XYZ TRADERS", "2016-2019 M/S [EMPLOYER_1]"),
         (
             "07/2016 TO 06/2019 M/S SHIVAM ENGINEERING BHOSARI MIDC PUNE",
@@ -447,8 +448,8 @@ def test_two_m_s_firms_in_a_row_keep_two_cues():
             "M/[EMPLOYER_1] me loader",
             1,
         ),
-        # A firm the title-case rule half-masked keeps its token and takes the rest up to its firm
-        # word...
+        # A firm the title-case rule half-masked keeps its token and takes the firm word right after
+        # it...
         (
             "M/s Jagdamba Steel Traders me fabrication",
             "M/s [EMPLOYER_1] Traders me fabrication",
@@ -497,7 +498,7 @@ def test_an_m_s_firm_an_earlier_rule_masked_keeps_its_tokens(
 @pytest.mark.parametrize(
     "text",
     [
-        # Metres per second, after a number or explained: none reaches a firm word.
+        # Metres per second, after a number or explained: the measurement guard, or no firm word.
         "speed 5 m/s",
         "speed 5 m/s rakhte",
         "speed 5  m/s rakhni hai",
@@ -525,7 +526,7 @@ def test_an_m_s_firm_an_earlier_rule_masked_keeps_its_tokens(
         "M/S TURNING KA KAAM 3 SAAL",
         "M/S AutoCAD drafting",
         "m/s plumbing aur fitting",
-        # Mild-steel talk that opens on a word no list holds never reaches a firm word (third
+        # Mild-steel talk that opens on a word no list holds rarely reaches a firm word (third
         # review: 71 of 125 such lines masked before `_MS_FIRM_WORD`).
         "m/s hollow section ka fabrication kiya hai",
         "M/S CHEQUERED PLATE CUTTING",
@@ -642,7 +643,7 @@ def test_five_or_six_name_words_before_a_strong_form_mask_whole(
             "[EMPLOYER_1]-PUNE [EMPLOYER_2]",
         ),
         # Nor does its own strong form end inside a capitals name word (third review: the long
-        # span ended at "LTD" of "LTD-patil" and left "patil" raw; `_WORD_END_OR_DASH_CITY`).
+        # span ended at "LTD" of "LTD-patil" and left "patil" raw; `_LONG_FORM_END`).
         (
             "ramesh kumar sharma auto works LTD-patil MOTORS LTD",
             "ramesh kumar sharma auto works [EMPLOYER_1]",
@@ -655,6 +656,12 @@ def test_five_or_six_name_words_before_a_strong_form_mask_whole(
         ),
         (
             "ramesh kumar sharma auto works LTD-pune-patil MOTORS LTD",
+            "ramesh kumar sharma auto works [EMPLOYER_1]",
+            "ramesh kumar sharma auto works [EMPLOYER_1]",
+        ),
+        # A joiner in the capitals span costs no word (final check).
+        (
+            "ramesh kumar sharma auto works LTD-patil A B C & CO",
             "ramesh kumar sharma auto works [EMPLOYER_1]",
             "ramesh kumar sharma auto works [EMPLOYER_1]",
         ),
@@ -732,6 +739,26 @@ def test_the_long_pass_never_takes_a_capitals_span_s_name(text, main_text, expec
         ),
         ("pune.tata motors ltd", "pune.tata [EMPLOYER_1]", "as does a word a dot glues on"),
         (
+            "M/S Hanuman Steel Om Sai Traders me loader",
+            "M/[EMPLOYER_1] Om Sai Traders me loader",
+            "a half-masked firm's token takes only a firm word right after it",
+        ),
+        (
+            "M/S BALAJI STRUCTURE WORKS",
+            "M/S BALAJI STRUCTURE WORKS",
+            "stock before a generic firm word",
+        ),
+        (
+            "water tech industries me",
+            "water tech industries me",
+            "a weak form after vocabulary only",
+        ),
+        (
+            "RAMESH KUMAR SHARMA ENGINEERING WORKS PVT LTD.CHAKAN",
+            "RAMESH [EMPLOYER_1]CHAKAN",
+            "a dot glued after the long form, as main",
+        ),
+        (
             "SRI SAI IRON AND STEEL PVT LTD",
             "SRI [EMPLOYER_1]",
             "four name words and a joiner: the capitals window leaves the first, as on main",
@@ -739,8 +766,9 @@ def test_the_long_pass_never_takes_a_capitals_span_s_name(text, main_text, expec
     ],
 )
 def test_KNOWN_RESIDUAL_stated_under_masking(text, expected, why):
-    # Each is recorded in risks-register R48 and the module notes, with the measurement that kept it
-    # out. If one of these starts masking, the boundary moved: re-measure and update both.
+    # Each is recorded in the module notes and docs/ai/pseudonymization.md (R48 summarises them),
+    # with the measurement that kept it out. If one of these starts masking, the boundary moved:
+    # re-measure and update them.
     assert pseudonymize(text).text == expected, why
 
 
@@ -772,7 +800,7 @@ def test_KNOWN_RESIDUAL_stated_under_masking(text, expected, why):
         # guarded; main's capitals and title-case rules do the same in their cases).
         ("bhosari pune tata motors ltd", "bhosari pune tata motors ltd", "[EMPLOYER_1]"),
         # A weak form after a product noun, and a payer's benefit before "pvt ltd company" (third
-        # review's sweep: 16 of 30 and 9 of 50 lines built for these shapes).
+        # review's sweep: 28 of 30 and 7 of 50 lines built for these shapes).
         (
             "rice mill industries me loader",
             "rice mill industries me loader",
@@ -791,7 +819,7 @@ def test_KNOWN_RESIDUAL_stated_under_masking(text, expected, why):
             "[EMPLOYER_1] me fitter",
         ),
         ("forklift tata motors ltd me", "forklift tata motors ltd me", "[EMPLOYER_1] me"),
-        # Trade talk that ends on a generic firm word with no stock or sector word before it.
+        # Trade talk ending on a generic firm word, with no stock word and not all sector words.
         ("m/s hand tools se kaam", "m/s hand tools se kaam", "m/s [EMPLOYER_1] se kaam"),
     ],
 )
