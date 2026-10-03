@@ -150,6 +150,13 @@ The career handler sends the **newest 6** memory turns whatever `CHAT_COMPANION_
 says (the knob has no ceiling; above 6 every call would be a 422 and every career event invalid), and
 `turns_in_memory` on `chat.companion_career_answered` is the count actually sent.
 
+**What is served is not always what the model wrote (owner, 2026-10-03).** The API's career
+validator (phase-3 §2) drops a follow-up chip whose **only** failure is its length (> 4 words) and
+serves the rest, so `suggested_followups` can hold fewer chips than `followup_chips` did — zero
+included. Every chip still runs every content check first, and any content failure still serves
+`V2_FALLBACK`; a long line or > 3 chips still does too. The output contract above, the turn shape
+and the event (`outcome` `answered`) are unchanged.
+
 ## 3. Edit catalogue (P1)
 
 `apps/api/src/chat-companion/v2/edit-catalogue.ts` — the ONLY place that maps a section to its

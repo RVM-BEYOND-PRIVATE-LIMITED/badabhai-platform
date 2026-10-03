@@ -9,7 +9,7 @@ import { SERVER_CONFIG } from "../../../config/config.module";
 import { EventsService } from "../../../events/events.service";
 import { FALLBACK, V2_CAREER_REFUSE } from "../../companion-replies";
 import { taskChips, v2CareerAnswerTurn, v2CopyTurn } from "../companion-v2-compose";
-import { validateCareerAnswer } from "../career-output.validator";
+import { CHIP_DROP_REASON, screenCareerAnswer } from "../career-output.validator";
 import type { CompanionV2Handler, HandlerInput, HandlerResult } from "./handler";
 
 /** The contract's own cap; a longer label is truncated rather than rejecting the request. */
@@ -37,8 +37,10 @@ export const CAREER_TURNS_MAX = 6;
  *      `ResumeParseService.parse` rule;
  *   4. a NULL (unreachable, timeout, schema miss) serves the fallback line;
  *   5. a REFUSAL serves the topic's REVIEWED copy (O9) — the model chooses a topic, never words;
- *   6. an ANSWER runs the deterministic validator; ANY failure serves the fallback line. The
- *      prompt asks for all of it, and the validator is what enforces it.
+ *   6. an ANSWER runs the deterministic validator (`screenCareerAnswer`); ANY failure serves the
+ *      fallback line. The prompt asks for all of it, and the validator is what enforces it. The one
+ *      exception (owner, 2026-10-03): a follow-up chip whose only failure is its length is dropped
+ *      and the rest is served — logged as a count, never the chip.
  *
  * THE EVENT IS THE ONLY TRACE OF THE MODEL'S TEXT and it carries none: outcome, refusal topic
  * and the memory depth, nothing else.
@@ -86,16 +88,23 @@ export class CareerTalkHandler implements CompanionV2Handler {
       };
     }
 
-    const failure = validateCareerAnswer(out);
-    if (failure !== null) {
+    const screened = screenCareerAnswer(out);
+    if (screened.kind === "reject") {
       // The REASON only — never a line of the answer, which is exactly what must not be logged.
-      this.logger.warn(`career answer rejected for worker ${input.workerId} (${failure})`);
+      this.logger.warn(`career answer rejected for worker ${input.workerId} (${screened.failure})`);
       await this.emit(input, "fallback", null);
       return this.fallback();
     }
+    if (screened.droppedChips > 0) {
+      // The COUNT and the closed reason only — never the chip, which is model text.
+      this.logger.log(
+        `career answer served for worker ${input.workerId} with ${screened.droppedChips} follow-up chip(s) dropped (reason=${CHIP_DROP_REASON})`,
+      );
+    }
 
     await this.emit(input, "answered", null);
-    return { turn: v2CareerAnswerTurn(out.lines, out.followup_chips), outcome: "served" };
+    const { lines, followup_chips } = screened.answer;
+    return { turn: v2CareerAnswerTurn(lines, followup_chips), outcome: "served" };
   }
 
   private fallback(): HandlerResult {
@@ -147,8 +156,7 @@ export function workerContextOf(profile: WorkerProfile): CompanionCareerWorkerCo
   const years = experience?.["total_years"];
   return {
     trade_label: tradeLabel,
-    experience_bucket:
-      typeof years === "number" && Number.isFinite(years) ? bucketOf(years) : null,
+    experience_bucket: typeof years === "number" && Number.isFinite(years) ? bucketOf(years) : null,
   };
 }
 

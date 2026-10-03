@@ -155,6 +155,31 @@ describe("career served-rate replay (runbook 3a)", () => {
     expect(out).toContain("  NOT SERVED career-200: money");
   });
 
+  it("an answer whose only failure is a 5-word chip is SERVED without it (owner, 2026-10-03)", () => {
+    const samples = [
+      ...goodNormals(49),
+      sample({ id: 200, chips: ["Course kahan milega", "TIG welding kaise seekhun ji"] }),
+    ];
+    const { code, out, all } = run(dumpAll(samples));
+    expect(code).toBe(EXIT_CODE.pass);
+    expect(out[0]).toContain("50 of 50 normal questions = 100.0%");
+    expect(out[1]).toContain("served 50 (1 of them with an over-long follow-up chip dropped)");
+    expect(all).not.toContain("NOT SERVED");
+    expect(all).not.toContain("TIG welding");
+  });
+
+  it("a 5-word chip that ALSO states money still rejects the whole answer", () => {
+    const samples = [
+      ...goodNormals(49),
+      sample({ id: 200, chips: ["Welder ki salary 25000 hai"] }),
+    ];
+    const { out, all } = run(dumpAll(samples));
+    expect(out[0]).toContain("49 of 50");
+    expect(out).toContain("  NOT SERVED career-200: money");
+    expect(out[1]).toContain("(0 of them with an over-long follow-up chip dropped)");
+    expect(all).not.toContain("25000");
+  });
+
   it("an answer slower than the API timeout is not served, whatever it says", () => {
     const samples = [...goodNormals(49), sample({ id: 200, inTime: false })];
     const { code, out } = run(dumpAll(samples));
@@ -342,9 +367,12 @@ describe("career served-rate replay (runbook 3a)", () => {
       expect(ai).toMatch(/"\/companion\/career", input, CompanionCareerOutputSchema, 10_000/);
     });
 
-    it("the handler still validates the parsed answer alone — nothing the replay lacks", () => {
+    it("the handler still screens the parsed answer alone — nothing the replay lacks", () => {
       const handler = readFileSync(join(__dirname, "handlers", "career-talk.handler.ts"), "utf8");
-      expect(handler).toMatch(/validateCareerAnswer\(out\);/);
+      expect(handler).toMatch(/screenCareerAnswer\(out\);/);
+      // ...and serves what the screen returned, not the model's own chips.
+      expect(handler).toMatch(/= screened\.answer;/);
+      expect(handler).not.toMatch(/out\.followup_chips/);
     });
   });
 

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { validateCareerAnswer } from "./career-output.validator";
+import {
+  CHIP_DROP_REASON,
+  screenCareerAnswer,
+  validateCareerAnswer,
+} from "./career-output.validator";
 
 const answer = (lines: string[], chips: string[] = []) => ({ lines, followup_chips: chips });
 /** One line, no chips — the shape most of the tables below need. */
@@ -88,6 +92,129 @@ describe("validateCareerAnswer (ADR-0046 P3 §2) — every check rejects its own
 });
 
 /**
+ * THE OVER-LONG CHIP IS DROPPED, NOTHING ELSE IS (owner, 2026-10-03). On the 2026-10-01 eval, 10 of
+ * 51 normal answers became the fallback line for one reason only: a follow-up chip of 5–6 words.
+ * The rule is deliberately narrow — a chip whose ONLY failure is its length is dropped; every other
+ * failure, on a chip of any length or on a line, still rejects the whole answer.
+ */
+describe("screenCareerAnswer — a chip whose only failure is length is dropped (owner, 2026-10-03)", () => {
+  const LINES = ["Pehle welding ka certificate kariye.", "Phir 6G test ki tayari kariye."];
+  /** Five clean words: the chip bound is four. */
+  const LONG_CHIP = "TIG welding kaise seekhun ji";
+  const OTHER_LONG_CHIP = "Pipe welding ka course kahan";
+  const screen = (lines: string[], chips: string[]) => screenCareerAnswer(answer(lines, chips));
+
+  it("a clean answer is served as written, nothing dropped", () => {
+    expect(screen(LINES, ["Course kahan milega"])).toEqual({
+      kind: "serve",
+      answer: { lines: LINES, followup_chips: ["Course kahan milega"] },
+      droppedChips: 0,
+    });
+  });
+
+  it("a chip over four words, and clean, is dropped; the lines and the other chips are served", () => {
+    expect(screen(LINES, ["Course kahan milega", LONG_CHIP, "Kitna time lagega"])).toEqual({
+      kind: "serve",
+      answer: { lines: LINES, followup_chips: ["Course kahan milega", "Kitna time lagega"] },
+      droppedChips: 1,
+    });
+  });
+
+  it("every chip over-long: served with ZERO chips (the contract allows [])", () => {
+    expect(screen(LINES, [LONG_CHIP, OTHER_LONG_CHIP])).toEqual({
+      kind: "serve",
+      answer: { lines: LINES, followup_chips: [] },
+      droppedChips: 2,
+    });
+  });
+
+  it("the boundary: four words kept, five dropped (the same word counter as the line bound)", () => {
+    const four = "Pipe welding kahan seekhun";
+    const five = `${four} ab`;
+    const result = screen(LINES, [four, five, "  Pipe   welding  kahan   seekhun  "]);
+    expect(result).toEqual({
+      kind: "serve",
+      answer: { lines: LINES, followup_chips: [four, "  Pipe   welding  kahan   seekhun  "] },
+      droppedChips: 1,
+    });
+  });
+
+  /**
+   * NO LAUNDERING: a chip that fails a content check rejects the whole answer however long it is —
+   * the drop is never a way to make unsafe model text disappear quietly and serve the rest.
+   */
+  it.each([
+    ["money", "Welder ki salary 25000 hoti hai"],
+    ["persona", "bhai se poocho yeh sab kuch"],
+    ["emoji", "Theek hai bilkul sahi baat 👍"],
+    ["non_latin", "ਕੋਰਸ ਕਿੱਥੇ ਮਿਲੇਗਾ ਮੈਨੂੰ ਦੱਸੋ"],
+    ["pii", "Call kariye 9876543210 par abhi"],
+    ["exclamation", "Roz practice kariye aage badhiye!"],
+    ["format_char", `Sal${String.fromCharCode(0x200b)}ary ke baare mein poochiye`],
+    ["promise", "Job pakka milegi is course se"],
+    ["sensitive_advice", "Bank se loan kaise lein ab"],
+    ["worker_rating", "Aapka score kitna hai abhi tak"],
+    ["named_employer", "Sharma Engineering Pvt Ltd me jaiye"],
+  ])("an over-long chip that also fails %s rejects the answer with that reason", (reason, chip) => {
+    expect(chip.trim().split(/\s+/).length).toBeGreaterThan(4);
+    expect(screen(LINES, [chip])).toEqual({ kind: "reject", failure: reason });
+    // ...whether it comes first or after a clean over-long chip that WOULD be dropped.
+    expect(screen(LINES, [LONG_CHIP, chip])).toEqual({ kind: "reject", failure: reason });
+  });
+
+  it("an empty chip still rejects (empty is a content failure, not a length one)", () => {
+    expect(screen(LINES, [LONG_CHIP, "   "])).toEqual({ kind: "reject", failure: "empty_line" });
+  });
+
+  it("lines are untouched: a line over twenty words still rejects the whole answer", () => {
+    const longLine = Array(21).fill("kaam").join(" ");
+    expect(screen([longLine], [])).toEqual({ kind: "reject", failure: "line_too_long" });
+    expect(screen([longLine], [LONG_CHIP])).toEqual({ kind: "reject", failure: "line_too_long" });
+    expect(screen(["Salary 25000 milegi."], [LONG_CHIP])).toEqual({
+      kind: "reject",
+      failure: "money",
+    });
+  });
+
+  it("more than three chips still rejects — the extras are never dropped, over-long or not", () => {
+    const four = ["Course kahan milega", "Kitna time lagega", "TIG kaise seekhun", "MIG kya hai"];
+    expect(screen(LINES, four)).toEqual({ kind: "reject", failure: "too_many_chips" });
+    // Dropping the over-long one would leave three; the model still wrote four.
+    expect(screen(LINES, [...four.slice(0, 3), LONG_CHIP])).toEqual({
+      kind: "reject",
+      failure: "too_many_chips",
+    });
+  });
+
+  it("the one-'?' budget counts what is SERVED: a dropped chip's '?' is never read", () => {
+    expect(screen(["Theek hai?"], [`${LONG_CHIP}?`])).toEqual({
+      kind: "serve",
+      answer: { lines: ["Theek hai?"], followup_chips: [] },
+      droppedChips: 1,
+    });
+    // A KEPT chip still spends the budget...
+    expect(screen(["Theek hai?"], ["Aur?", LONG_CHIP])).toEqual({
+      kind: "reject",
+      failure: "too_many_questions",
+    });
+    // ...and two served questions still reject, however many chips were dropped.
+    expect(screen(["Kyun?", "Kaise?"], [LONG_CHIP])).toEqual({
+      kind: "reject",
+      failure: "too_many_questions",
+    });
+  });
+
+  it("validateCareerAnswer stays the AS-WRITTEN predicate: a chip the screen drops is a failure", () => {
+    expect(validateCareerAnswer(answer(LINES, [LONG_CHIP]))).toBe(CHIP_DROP_REASON);
+    expect(CHIP_DROP_REASON).toBe("chip_too_long");
+    expect(
+      validateCareerAnswer(answer(LINES, [LONG_CHIP, "Welder ki salary 25000 hoti hai"])),
+    ).toBe("money");
+    expect(validateCareerAnswer(answer(LINES, ["Course kahan milega"]))).toBeNull();
+  });
+});
+
+/**
  * LATIN ONLY (O9). The rule is "Latin script", not "not Devanagari": every other script is barred,
  * and it matters beyond O9 because every O10 pattern is spelled in Latin — the Gurmukhi and Urdu
  * fixtures are salary lines that would otherwise walk past the money check too.
@@ -166,7 +293,10 @@ describe("money (O10): a whole money word and a figure in one sentence — and n
     ["four words between", "Welder ki salary experience ke saath 25000 tak jaati hai."],
     ["tankhwah, four words between", "Tankhwah ke roop mein aapko 18000 mil sakte hain."],
     // A comma does not end the reach — this is how a drifting model phrases a wage.
-    ["commas between word and figure", "Salary, experience ke hisaab se, 15000 se 25000 tak hoti hai."],
+    [
+      "commas between word and figure",
+      "Salary, experience ke hisaab se, 15000 se 25000 tak hoti hai.",
+    ],
     [
       "a currency word and an unrelated count in one comma-joined sentence",
       "Salary employer se poochiye, pehle 2 skill test paas kariye.",
@@ -204,7 +334,10 @@ describe("money (O10): a whole money word and a figure in one sentence — and n
     ["a duration in months", "6 mahine ka course kariye."],
     ["a duration in English months", "3 months ka course kariye."],
     ["a count next to a month word", "Har mahine 100 ghante practice kariye."],
-    ["a k-prefixed unit is not a thousands suffix", "Har mahine 2 kg welding rod practice me lagaiye."],
+    [
+      "a k-prefixed unit is not a thousands suffix",
+      "Har mahine 2 kg welding rod practice me lagaiye.",
+    ],
     ["the money word with no figure", "Salary ki baat khud tay kariye."],
     ["a sentence stop between word and figure", "Salary baad me. 2 certificate pehle lijiye."],
     ["a question mark between word and figure", "Salary ka kya? 2 certificate pehle lijiye."],

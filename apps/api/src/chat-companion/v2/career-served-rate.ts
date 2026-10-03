@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { CompanionCareerAnswerSchema } from "@badabhai/ai-contracts";
 import { z } from "zod";
-import { type CareerAnswerFailure, validateCareerAnswer } from "./career-output.validator";
+import { type CareerAnswerFailure, screenCareerAnswer } from "./career-output.validator";
 
 /**
  * THE PHASE-3 §6 SERVED-RATE REPLAY (runbook `docs/ops/companion-v2-staging-evals-runbook.md`
@@ -14,7 +14,7 @@ import { type CareerAnswerFailure, validateCareerAnswer } from "./career-output.
  * WHY IT LIVES HERE. The ai-service CLI (`python -m app.companion.eval_cli --career`) scores the
  * model BEFORE the API's validator, so its answered rate is only an upper bound. §6 counts a
  * normal question as answered when the worker is SERVED the answer — not refused, not the
- * fallback line — and the fallback is decided by `validateCareerAnswer`, which is TypeScript in
+ * fallback line — and the fallback is decided by `screenCareerAnswer`, which is TypeScript in
  * this directory. So the replay imports the validator rather than re-implementing it.
  *
  * WHAT IT REPLAYS, in the order `CareerTalkHandler.handle` meets them:
@@ -23,7 +23,10 @@ import { type CareerAnswerFailure, validateCareerAnswer } from "./career-output.
  *   2. the response contract: `AiService.companionCareer` parses the body with
  *      `CompanionCareerOutputSchema`, whose `answer` arm is `CompanionCareerAnswerSchema`; a body
  *      that fails it is null, and null is the fallback;
- *   3. `validateCareerAnswer(out)` on the parsed answer — the handler's exact call.
+ *   3. `screenCareerAnswer(out)` on the parsed answer — the handler's exact call. Since the owner
+ *      ruling of 2026-10-03 a follow-up chip whose ONLY failure is its length is dropped and the
+ *      answer is SERVED without it, so such an answer is served here too, not a miss; the report
+ *      counts how many served answers lost a chip that way.
  * The worker context the eval sent (`trade_label: "Welder"`, `experience_bucket: "3-7"`) shaped
  * the model's answer, which is already in the file. The validator takes no context.
  *
@@ -131,12 +134,19 @@ export interface NotServed {
   reason: NotServedReason;
 }
 
+/** One answered sample through the handler's gates: served (and how many chips it lost), or why not. */
+export type SampleReplay =
+  | { served: true; droppedChips: number }
+  | { served: false; reason: NotServedReason };
+
 export interface ServedRateReport {
   /** The set's normal prompt count — the denominator. */
   normalTotal: number;
   /** Normal samples in the file: the model answered, before any gate. */
   normalAnswered: number;
   served: number;
+  /** Served answers the gate dropped at least one over-long follow-up chip from. */
+  servedWithChipsDropped: number;
   notServed: NotServed[];
   /** Risky samples in the file — excluded from the rate. */
   riskyAnswered: number;
@@ -233,18 +243,22 @@ export function parseCareerSummary(text: string): Parsed<CareerSummary> {
 }
 
 /**
- * What production would have served for one answered sample: `null` when the worker read the
- * answer, else the reason the handler served the fallback line instead.
+ * What production would have served for one answered sample: served when the worker read the
+ * answer (with the count of over-long chips the gate dropped), else the reason the handler served
+ * the fallback line instead.
  */
-export function replaySample(sample: DumpSample): NotServedReason | null {
-  if (!sample.within_api_timeout) return OVER_API_TIMEOUT;
+export function replaySample(sample: DumpSample): SampleReplay {
+  if (!sample.within_api_timeout) return { served: false, reason: OVER_API_TIMEOUT };
   const out = CompanionCareerAnswerSchema.safeParse({
     status: CompanionCareerAnswerSchema.shape.status.value,
     lines: sample.lines,
     followup_chips: sample.followup_chips,
   });
-  if (!out.success) return CONTRACT_SCHEMA;
-  return validateCareerAnswer(out.data);
+  if (!out.success) return { served: false, reason: CONTRACT_SCHEMA };
+  const screened = screenCareerAnswer(out.data);
+  return screened.kind === "reject"
+    ? { served: false, reason: screened.failure }
+    : { served: true, droppedChips: screened.droppedChips };
 }
 
 /** The served rate over the file's samples, or why the file and its summary disagree. */
@@ -280,9 +294,11 @@ export function measureServedRate(
     };
   }
   const notServed: NotServed[] = [];
+  let servedWithChipsDropped = 0;
   for (const sample of normal) {
-    const reason = replaySample(sample);
-    if (reason !== null) notServed.push({ promptId: sample.prompt_id, reason });
+    const replay = replaySample(sample);
+    if (!replay.served) notServed.push({ promptId: sample.prompt_id, reason: replay.reason });
+    else if (replay.droppedChips > 0) servedWithChipsDropped += 1;
   }
   const served = normal.length - notServed.length;
   return {
@@ -291,6 +307,7 @@ export function measureServedRate(
       normalTotal,
       normalAnswered: normal.length,
       served,
+      servedWithChipsDropped,
       notServed,
       riskyAnswered: samples.length - normal.length,
       // Integer arithmetic, so a rate exactly on the bar is never lost to a float.
@@ -306,7 +323,8 @@ export function formatReport(report: ServedRateReport): string[] {
   return [
     `career served rate (phase-3 §6, through the API's career validator): ${report.served} of ` +
       `${report.normalTotal} normal questions = ${rate}% (bar ${SERVED_RATE_BAR_PERCENT}%)`,
-    `normal answers in the file: ${report.normalAnswered} — served ${report.served}, ` +
+    `normal answers in the file: ${report.normalAnswered} — served ${report.served} ` +
+      `(${report.servedWithChipsDropped} of them with an over-long follow-up chip dropped), ` +
       `over the API timeout ${overTimeout}, rejected ${report.notServed.length - overTimeout}; ` +
       `${report.normalTotal - report.normalAnswered} normal questions have no answer in the file ` +
       "(refused, failed or mocked in the CLI run) and count as misses",

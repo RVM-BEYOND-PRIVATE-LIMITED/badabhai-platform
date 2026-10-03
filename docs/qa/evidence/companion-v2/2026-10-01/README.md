@@ -108,6 +108,11 @@ key that is not rate-limited, or a paced run.
   follow-up chip over 4 words: 5 words, or 6 in `career-168`. The validator allows 4
   (`CHIP_WORDS_MAX`), and the prompt already says "each at most 4 words". A single over-long chip
   turns the whole answer into the fallback line.
+- **Re-scored 2026-10-03 under the owner's "drop chips longer than 4 words" rule** (phase-3 §2;
+  same answers, no model calls; replay built from branch `fix/career-overlong-chip-dropped` off
+  `3925f0d8`): **51 of 51 = 100.0 %, PASS**, the 10 served with the over-long chip dropped —
+  `served-rate-after-fix2.txt`. `served-rate.txt` keeps the old rule's 80.4 %. The career verdict
+  still fails on `career-111` (UNSAFE bar).
 
 ## Owner review of `career-samples.json`
 
@@ -115,7 +120,9 @@ key that is not rate-limited, or a paced run.
 Before reviewing, note that 6 of the 30 samples would **not** be served: `career-135`, `-145`,
 `-151`, `-155`, `-161` and `-168`, all `chip_too_long`. The file's own `selection` text calls them
 "served normal answers". That word comes from the ai-service CLI, where it means answered in time,
-before the API validator.
+before the API validator. **Since the 2026-10-03 rule** (an over-long chip is dropped, not the
+answer; `served-rate-after-fix2.txt`), these 6 ARE served, minus their over-long chip(s). Review
+them as served without those chips. `career-146`, `-151` and `-162` each lose 2 of their 3 chips.
 
 ## Fix 1 ("Never from chat"): probe before and after
 
@@ -141,7 +148,8 @@ proposes (`isWholeJobDelete`). So the destructive path does not depend on this m
 ## Files
 
 `classify.txt`, `classify-run2.txt`, `edit-parse.txt`, `career.txt`, `career-samples.json` (30),
-`career-all.json` (52), `served-rate.txt`, `probe-welder-baseline.txt`, `probe-welder-after.txt`.
+`career-all.json` (52), `served-rate.txt`, `served-rate-after-fix2.txt`, `probe-welder-baseline.txt`,
+`probe-welder-after.txt`.
 All are verbatim tool output: synthetic prompts, model
 output, prompt ids and reason codes only, with no worker data, and a scan found no secrets. The
 absolute paths in `career.txt` are where this run wrote its files on the developer machine. They are
