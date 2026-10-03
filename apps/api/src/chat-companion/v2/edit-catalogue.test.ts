@@ -10,6 +10,7 @@ import {
   SHIFTS,
   type PreferenceVocabulary,
 } from "../../profiles/worker-preferences.vocabulary";
+import { storedEducationField, storedEmployerName } from "../../profiles/title-case-on-write";
 import { EditProposalRowSchema } from "../chat-companion.dto";
 import { EDIT_ENTRY_LABELS, EDIT_FIELD_LABELS, EDIT_YES_NO_LABELS } from "../companion-replies";
 import {
@@ -266,5 +267,76 @@ describe("a value that is not a known token has NO display label — the app sho
   it("no value (an add's before, a delete's after) → null", () => {
     expect(displayValue("languages", "language", null)).toBeNull();
     expect(displayValue("preferences", null, "true")).toBeNull();
+  });
+});
+
+describe("an employer name and an education field normalise to the casing their writer stores (#1940)", () => {
+  // The writers case these two before they store them (`profiles/title-case-on-write.ts`), so the
+  // card's `after` must be that casing too: otherwise a card shows "tata motors", stores "Tata
+  // Motors", and an edit that changes nothing gets past the no-op drop.
+  it.each([
+    ["employment", "employer_name", "  tata motors pvt ltd ", "Tata Motors Pvt Ltd"],
+    ["employment", "employer_name", "mCA institute", "MCA Institute"],
+    ["qualifications", "education_field", "mechanical engineering", "Mechanical Engineering"],
+  ] as const)("%s:%s %j → %j", (section, field, raw, stored) => {
+    expect(normaliseValue(section, field, raw)).toBe(stored);
+  });
+
+  it.each([
+    ["employment", "employer_name", "RVM CAD"],
+    ["employment", "employer_name", "L&T Construction"],
+    ["qualifications", "education_field", "B.Tech (ECE)"],
+    ["qualifications", "education_field", "CNC Programming"],
+  ] as const)(
+    "%s:%s %j is byte-identical — already cased, and nothing is lowercased",
+    (section, field, raw) => {
+      expect(normaliseValue(section, field, raw)).toBe(raw);
+    },
+  );
+
+  it("is the WRITERS' function, not a lookalike: the card and the store cannot drift apart", () => {
+    for (const raw of [
+      "sandhar technologies",
+      " a\u0085b ",
+      "आईटीआई faridabad",
+      "ßauer works",
+      "x",
+    ]) {
+      expect(normaliseValue("employment", "employer_name", raw)).toBe(
+        storedEmployerName(raw.trim()),
+      );
+      expect(normaliseValue("qualifications", "education_field", raw)).toBe(
+        storedEducationField(raw.trim()),
+      );
+    }
+  });
+
+  it("keeps the length bounds: casing never lengthens a value, so 120 and 80 still pass and one more does not", () => {
+    expect(normaliseValue("employment", "employer_name", "a".repeat(120))).toBe(
+      `A${"a".repeat(119)}`,
+    );
+    expect(normaliseValue("employment", "employer_name", "a".repeat(121))).toBeNull();
+    expect(normaliseValue("qualifications", "education_field", "a".repeat(80))).toBe(
+      `A${"a".repeat(79)}`,
+    );
+    expect(normaliseValue("qualifications", "education_field", "a".repeat(81))).toBeNull();
+    expect(normaliseValue("employment", "employer_name", "   ")).toBeNull();
+  });
+
+  it("does NOT case the role label: 'cnc turner' → 'Cnc Turner' is an open owner decision", () => {
+    expect(normaliseValue("employment", "role_label", "cnc turner")).toBe("cnc turner");
+  });
+
+  it.each([
+    ["employment", "employer_city"],
+    ["employment", "employer_state"],
+    ["employment", "work_done"],
+    ["qualifications", "certificate_name"],
+    ["qualifications", "certificate_issuer"],
+    ["qualifications", "education_institute"],
+    ["qualifications", "training_name"],
+    ["qualifications", "training_provider"],
+  ] as const)("leaves %s:%s as typed — only the two written fields are cased", (section, field) => {
+    expect(normaliseValue(section, field, "govt iti pune")).toBe("govt iti pune");
   });
 });

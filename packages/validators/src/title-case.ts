@@ -12,6 +12,10 @@ import { dartVmUpperCase } from "./title-case-dart-upper";
  * the app's function on the Dart VM over every Unicode scalar value
  * (`__fixtures__/title-case.dart-vm.json`).
  *
+ * Since #1940 the API also runs it at WRITE time over `employer_name` and the education `field`
+ * (`apps/api/src/profiles/title-case-on-write.ts`), so every writer stores what the backfill would
+ * write and the backfill finds nothing new. `role_label` is not cased there (an owner decision).
+ *
  * THE RULE: walk the string by CODE POINT (Dart `runes`); a whitespace code point is copied and
  * starts a new word; the first code point of each word goes through the Dart VM's `toUpperCase()`;
  * every other code point is copied untouched. Nothing is ever lowercased — `RVM CAD` and

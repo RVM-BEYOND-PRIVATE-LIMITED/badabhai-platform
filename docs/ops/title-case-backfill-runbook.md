@@ -4,8 +4,13 @@
 release, the trade form title-cases `employer_name`, `role_label` and the education `field` before
 it saves, so rows saved there arrive as "Recursive Global Infotech Pvt Ltd". Rows saved before that
 fix are stuck as typed ("recursive global infotech pvt ltd"), and a worker has no screen that can
-re-save them. This backfill brings every stored value to the value the app would have sent. It is
-one-time only once every writer cases these fields; some still do not (see Residuals).
+re-save them. This backfill brings every stored value to the value the app would have sent.
+
+**One-time, column by column (#1940).** Since #1940 the API cases `employer_name` and the
+education `field` on every write, whichever client sent them. So for those two columns, one run
+after the #1940 deploy catches up everything stored before it, and nothing new arrives uncased.
+`role_label` is still stored exactly as received, because casing it is an open owner question (see
+Open questions). See "When to run it" and Residuals.
 
 **What it does.** `packages/db/src/title-case-backfill.ts` (`db:backfill:title-case`) reads three
 columns and applies the app's own rule, `titleCaseWords` in `@badabhai/validators`. That is an
@@ -73,7 +78,8 @@ of the app's function on the Dart VM over every Unicode scalar value.
   Paste its `Tests … passed` line on #1432 with the commit it ran on. Do not apply on a red or
   skipped run.
 - **Pick a read-back worker for step 3.** You need a worker account you can sign in as, whose
-  employer name this run will re-case (the companion edit card stores one as typed). Note its
+  employer name this run will re-case. That has to be a name saved uncased before #1940 deployed:
+  since then the API cases every employer name it stores, so a new save cannot give you one. Note its
   `GET /workers/me/employment` response before step 2: the cased employer will be missing from
   `employments` afterwards if the write key is wrong.
 
@@ -137,8 +143,11 @@ Production is identified by `DATABASE_URL`. A dry run against it is allowed and 
    - **If the employer is missing or `unreadable_count` rose,** the API does not hold the key this
      run wrote with. Do not re-run. Restore from the backup, or deploy the keyring the run used if
      that keyring is the intended one.
-   - **Then run step 1 again.** Expect `change` to be 0 in every column, apart from rows saved
-     uncased since step 2 (see Residuals), and `undecryptable` unchanged from step 1.
+   - **Then run step 1 again.** Expect `change` to be 0 in every column you processed, and
+     `undecryptable` unchanged from step 1. On a build with #1940, a non-zero count is expected
+     only for `role_label`, from rows saved uncased since step 2 (see Residuals). A non-zero count
+     for an employer name or an education field means a writer bypassed the API's casing:
+     investigate it rather than re-running.
 
 4. **Record it.** Paste both summaries (counts only) and the read-back result (the two
    `unreadable_count` values, no employer name) on #1432.
@@ -147,6 +156,17 @@ Production is identified by `DATABASE_URL`. A dry run against it is allowed and 
 
 Yes. The rule is idempotent and unchanged rows are never written, so a re-run touches only what
 is still lowercase.
+
+## When to run it
+
+- **Once after the #1940 deploy, for the two columns the API now cases.** Rows saved between the
+  first run and that deploy were stored as received. Run steps 1–4 with
+  `--column=worker_employment.employer_name_enc,worker_education.field`. After that, those two
+  columns need no further runs. Every writer stores the value this run would write, with the same
+  `titleCaseWords`, so a later run of step 1 reports `change` 0 for both.
+- **`role_label` only after the owner rules on it** (see Open questions). Until the API cases it
+  on write too, a run catches up only to that moment, and uncased role labels keep arriving behind
+  it.
 
 ## Rollback
 
@@ -175,31 +195,43 @@ because that record would be a new place employer names are written.
 - **An open companion edit card.** A card proposed before the run, over a row the run changed, may
   be refused as stale when the worker confirms it (`isStale` compares the stored `before` value).
   Nothing is written and the worker asks again.
-  Cards expire after `CHAT_COMPANION_V2_PROPOSAL_TTL_SECONDS`.
+  Cards expire after `CHAT_COMPANION_V2_PROPOSAL_TTL_SECONDS`. Since #1940, a card proposed after
+  the run holds the cased value as its `before`, and its `after` is already the cased value the
+  writer will store. So a run has nothing left to change under it.
 - **Nothing derived lives in the same rows.** There is no blind index, search column or hash of
   any of the three values. The only other column a write moves is that row's `updated_at`, which
   nothing reads.
-- **Writers that still store these fields uncased.** The API stores all three fields exactly as it
-  receives them, and casing is a client-side rule. So lowercase rows keep arriving after this run,
-  whatever the app adoption, from:
-  - **The chat companion v2 edit card (server-side, live).** `normaliseValue` only trims
-    `employer_name`, `role_label` and `education_field`
-    (`apps/api/src/chat-companion/v2/edit-catalogue.ts`). `planEmployment`/`planQualifications`
-    (`edit-plan.ts`) then write the value as the worker typed it.
+- **Writers that send these fields uncased (#1940).** Only the app's trade form cases on the
+  client. These writers send the value as typed:
+  - **The chat companion v2 edit card** (server-side).
   - **The worker app's finishing form** (`/finishing`, `finishing_models.dart`). It trims
     `employer_name` and `role_label` but does not case them.
   - **The worker app's extracted-review education form** (`/resume/review`,
     `extracted_review_screen.dart`). It trims `field` but does not case it.
+  - **An extracted-profile correction** (`POST /profile/corrections`, the education list).
   - **App builds older than the `worker-app-sha-f55a020` release.** Their trade form saves as typed.
 
-  Re-running this backfill only catches up with them. The fix that makes it truly one-time is to
-  case these fields on write in the API, with `titleCaseWords` from `@badabhai/validators`, in the
-  employment and qualifications services every writer above goes through. That is a backend
-  follow-up. For `role_label` it waits on the owner question below.
+  **Employer names and education fields: closed by #1940.** The API cases them on write, with
+  `titleCaseWords`, before anything is stored. `WorkerEmploymentService.replaceForWorker` cases the
+  employer name before encrypting it, and `WorkerQualificationsService.replaceForWorker` cases the
+  education field. Every writer above goes through one of those two services, and nothing else
+  writes either column. The rule lives in `apps/api/src/profiles/title-case-on-write.ts`. The
+  companion card's `normaliseValue` reads the same rule, so a card shows the value that will be
+  stored.
+  - **Side effect.** A save re-sends the whole history (employment) or the whole list
+    (educations), so it also cases any older uncased value riding along in it. That is the same
+    value this run would write.
+  - **`role_label` is still uncased.** The API stores role labels exactly as received, so every
+    writer above except the trade form still sends them uncased. This waits on the owner question
+    below.
 
 - **`Contract work`.** The renderer exempts this exact literal from its own casing
   (`SYSTEM_EMPLOYER_LABELS`). The app's rule has no such exemption, so a stored "Contract work"
   becomes "Contract Work" here, just as it does on a new save from the app.
+  - Since #1940 the API stores "Contract Work" on every new save too. So the renderer's exemption
+    only matches rows that are both older than #1940 and not yet backfilled. The API does not
+    exempt the literal on write, because this run would then re-case every such row each time it
+    runs.
 
 ## Open questions for the owner
 
@@ -207,3 +239,6 @@ because that record would be a new place employer names are written.
   since f55a020f. The API's own casing rule deliberately leaves role labels alone: "cnc turner"
   becomes "Cnc Turner", which reads as a misspelt trade (`resume-text-case.ts`). The backfill
   applies the app's rule. Use `--column=` to leave role labels out until this is decided.
+  - If it is ruled in scope, the API's write-time casing needs the same change, in
+    `title-case-on-write.ts` and the employment service (#1940 left both alone on purpose).
+    Without it, this run is never one-time for role labels.

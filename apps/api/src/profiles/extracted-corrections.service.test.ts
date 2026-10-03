@@ -5,6 +5,7 @@ import { ConflictException, NotFoundException } from "@nestjs/common";
 import { CorrectExtractedSchema } from "./extracted-corrections.dto";
 import { ExtractedCorrectionsService } from "./extracted-corrections.service";
 import { CORRECTABLE_FIELDS, MAX_CORRECTIONS_PER_PROFILE } from "./extracted-corrections.contract";
+import { WorkerQualificationsService } from "./worker-qualifications.service";
 import type { RequestContext } from "../common/request-context";
 
 const CTX = { correlationId: "c", requestId: "r" } as RequestContext;
@@ -225,6 +226,58 @@ describe("ExtractedCorrectionsService — per-field delegation", () => {
       CTX,
     );
     expect(qualifications.replaceForWorker).toHaveBeenCalledWith(WORKER, { certificates }, CTX);
+  });
+
+  it("education: a lowercase field is stored in the app's casing, through the REAL writer (#1940)", async () => {
+    // The correction path writes no row itself; it inherits the writer's casing. Pinned with the
+    // real WorkerQualificationsService over a repository stub, so a correction can never become
+    // the one writer that stores "machinist".
+    const repoReplace = vi.fn(async (_workerId: string, input: { educations?: unknown[] }) => ({
+      certificatesWritten: 0,
+      educationsWritten: input.educations?.length ?? 0,
+      trainingsWritten: 0,
+      replacedExisting: true,
+    }));
+    const writer = new WorkerQualificationsService(
+      { replaceForWorker: repoReplace } as never,
+      { findById: async () => ({ id: WORKER }), latestResume: async () => undefined } as never,
+      { emit: vi.fn(async () => undefined) } as never,
+      { encrypt: vi.fn(() => "TOKEN") } as never,
+      { add: vi.fn(async () => undefined) } as never,
+    );
+    const { svc } = make({
+      qualifications: { replaceForWorker: writer.replaceForWorker.bind(writer) },
+    });
+    const body = CorrectExtractedSchema.parse({
+      profile_id: PROFILE,
+      session_id: SESSION,
+      corrections: [
+        {
+          field: "education",
+          educations: [
+            {
+              credential: "iti",
+              field: "machinist",
+              council: null,
+              year: 2019,
+              institute: "govt iti pune",
+            },
+          ],
+        },
+      ],
+    });
+    await svc.correctExtracted({ worker_id: WORKER, ...body }, CTX);
+    expect(repoReplace).toHaveBeenCalledTimes(1);
+    expect(repoReplace.mock.calls[0]![1].educations).toEqual([
+      // Only the field is cased; the institute is stored as received.
+      {
+        credential: "iti",
+        field: "Machinist",
+        council: null,
+        year: 2019,
+        institute: "govt iti pune",
+      },
+    ]);
   });
 
   it("applies several fields in one request, each audited and evented separately", async () => {

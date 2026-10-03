@@ -8,6 +8,7 @@ import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { WorkersRepository } from "../workers/workers.repository";
+import { storedEducationField } from "./title-case-on-write";
 import {
   SetMyQualificationsSchema,
   type CertificateEntryDto,
@@ -37,6 +38,14 @@ import { WorkerQualificationsRepository } from "./worker-qualifications.reposito
  * reach the PDF through `resume-qualification-rows.ts`, which is pure composition. This is the
  * same argument that puts the preferences form outside the AI boundary, and it holds for the same
  * reason: there is nothing to parse.
+ *
+ * ═══ ONE FIELD IS CASED ON THE WAY IN: THE EDUCATION `field` (#1940) ═══
+ *
+ * It is stored in the app's casing (`storedEducationField`, `title-case-on-write.ts`), so "mechanical
+ * engineering" from the finishing form, a correction or the companion's edit card lands as the
+ * trade form's "Mechanical Engineering". The rule only raises a first letter and never lowercases,
+ * so the worker's word is still the worker's word (§8). Nothing else here is cased; the certificate,
+ * institute and training strings are stored as received.
  *
  * ═══ NO ENCRYPTION, AND IT IS A RULING RATHER THAN AN OVERSIGHT ═══
  *
@@ -88,7 +97,8 @@ export class WorkerQualificationsService {
       })),
       educations: dto.educations?.map((e) => ({
         credential: e.credential,
-        field: e.field,
+        // The app's casing, for every writer (#1940, see the class docblock). `null` stays `null`.
+        field: storedEducationField(e.field),
         council: e.council,
         year: e.year,
         institute: e.institute,
