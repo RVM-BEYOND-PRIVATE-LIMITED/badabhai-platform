@@ -1,12 +1,14 @@
 /**
  * #1432 — ONE-TIME title-case backfill for three worker-typed labels.
  *
- * Since worker-app 24285c14 the app runs `titleCaseName` (`apps/worker-app/lib/core/util/
- * title_case.dart`) over `employer_name`, `role_label` and the education `field` before every PUT,
- * so NEW rows arrive cased. Rows stored before that fix are stuck as typed — "recursive global
- * infotech pvt ltd" — and the worker has no screen that can re-save them: the trade form is reached
- * once, mid-onboarding, and does not hydrate stored rows. This brings every stored value to the
- * value the app would have sent, once, server-side:
+ * Since worker-app f55a020f (first shipped as the `worker-app-sha-f55a020` APK release) the app runs
+ * `titleCaseName` (`apps/worker-app/lib/core/util/title_case.dart`) over `employer_name`,
+ * `role_label` and the education `field` before the trade form's PUT, so rows saved there arrive
+ * cased. Rows stored before that fix are stuck as typed — "recursive global infotech pvt ltd" — and
+ * the worker has no screen that can re-save them: the trade form is reached once, mid-onboarding,
+ * and does not hydrate stored rows. The API itself stores all three as received, so other writers —
+ * the companion v2 edit card among them — still add uncased rows (the runbook's residuals list
+ * them). This brings every stored value to the value the app would have sent, server-side:
  *
  *   worker_employment.employer_name_enc   AES-256-GCM token — decrypted, cased, RE-ENCRYPTED
  *   worker_employment_role.role_label     plain text
@@ -30,7 +32,9 @@
  *
  * THE TOKEN WRITTEN IS THE ONE THE API WOULD WRITE: v2 under the active kid when the keyring is
  * configured, else legacy v1 — `piiCodec` is `PiiCryptoService` minus Nest. So a re-cased v1 row
- * moves onto the active kid, exactly as a worker re-saving it would.
+ * moves onto the active kid, exactly as a worker re-saving it would. Which of the two is printed in
+ * the header and the summary ("writes v2 (keyring armed …)" / "writes v1 (legacy key …)"), and
+ * before an `--apply` writes v2 the run PROVES the API can read it — see `checkWriteKey`.
  *
  * GUARDED, DATABASE-AWARE (`ops-guard.ts`): a dry run against any identified target is allowed and
  * announced; `--apply` against a production-like DATABASE_URL — or with NODE_ENV=production — also
@@ -50,7 +54,8 @@
  *   pnpm --filter @badabhai/db db:backfill:title-case --apply     # write — see the runbook first
  *   (DATABASE_URL, PII_ENCRYPTION_KEY and — when the API runs with one — PII_ENCRYPTION_KEYS +
  *    PII_ENCRYPTION_ACTIVE_KID, from env/.env; --batch-size=<n> in 1..10000;
- *    --column=<table.column>[,<table.column>…] scopes the run.)
+ *    --column=<table.column>[,<table.column>…] scopes the run; --keyring-is-newly-armed, see
+ *    `checkWriteKey`.)
  *   Runbook: docs/ops/title-case-backfill-runbook.md
  */
 import { config } from "dotenv";
@@ -58,10 +63,12 @@ import { and, asc, eq, gt, isNotNull, sql } from "drizzle-orm";
 
 import { titleCaseWords } from "@badabhai/validators";
 
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
+
 import { createDbClient, type Database } from "./client";
 import { enforceOpsGuard, PRODUCTION_WRITE_FLAG } from "./ops-guard";
 import { piiCodec, readOptionalPiiKeyring, type PiiCodec } from "./pii-keyring-env";
-import { workerEducations, workerEmployment, workerEmploymentRole } from "./schema";
+import { workerEducations, workerEmployment, workerEmploymentRole, workers } from "./schema";
 
 const SCRIPT = "backfill:title-case";
 const TAG = "[title-case]";
@@ -69,6 +76,10 @@ const DEFAULT_BATCH_SIZE = 500;
 const MAX_BATCH_SIZE = 10_000;
 /** Undecryptable row ids printed per column before the rest are only counted. */
 const MAX_IDS_PRINTED = 10;
+/** Stored tokens under the active kid read per column by `checkWriteKey`. */
+const WRITE_KEY_SAMPLE = 3;
+/** The operator's word that the API runs this exact keyring and has not written under it yet. */
+export const NEWLY_ARMED_FLAG = "--keyring-is-newly-armed";
 
 /** Every column this backfill cases, by the name `--column=` takes and the summary prints. */
 export const TITLE_CASE_COLUMNS = [
@@ -233,6 +244,8 @@ export interface TitleCaseRunOptions {
   readonly codec: PiiCodec | null;
   /** Scope to these columns; all three when null. */
   readonly columns: readonly TitleCaseColumn[] | null;
+  /** `--keyring-is-newly-armed` — lets an `--apply` write under a kid no stored token proves. */
+  readonly keyringNewlyArmed?: boolean;
   /** Injected for tests. Defaults to `console.log`. Receives no value, ever. */
   readonly log?: (line: string) => void;
 }
@@ -241,6 +254,10 @@ export interface TitleCaseRunResult {
   readonly columns: readonly { readonly name: TitleCaseColumn; readonly stats: ColumnStats }[];
   /** Distinct workers with at least one value changed (dry run: that would change). */
   readonly workersAffected: number;
+  /** The token format employer names are written in; null when that column is out of scope. */
+  readonly employerNameWrites: "v1" | "v2" | null;
+  /** Whether the API can read what an `--apply` writes (see `WriteKeyCheck`). */
+  readonly writeKey: WriteKeyCheck;
 }
 
 /**
@@ -268,6 +285,125 @@ async function assertRoleSeesRows(db: Database): Promise<void> {
   }
 }
 
+/**
+ * Is the key `--apply` would ENCRYPT with one the deployed API holds?
+ *
+ * THE ONE KEY THE SCAN NEVER PROVES. Every key this run decrypts with is proven by the decrypt: a
+ * wrong legacy key or a missing old kid makes rows undecryptable, and the dry run counts them. The
+ * key it encrypts with is not. With a keyring set, a re-cased employer name is written as v2 under
+ * the ACTIVE kid; if the API does not hold that exact key, `readEmployerName` returns null for the
+ * row and the employer drops off the résumé and the #1504 edit page, recoverable only by deploying
+ * that key or restoring the backup. A dry run looks clean all the while, because v1 rows decrypt
+ * under the legacy key. The likely way in: dotenv fills a dev keyring from the root `.env` into a
+ * shell that exported only production's DATABASE_URL and PII_ENCRYPTION_KEY.
+ *
+ * So the run reads a few stored tokens already written under the active kid — from
+ * `worker_employment.employer_name_enc` and from `workers.phone_e164`, which every worker has — and
+ * DECRYPTS them. One that opens proves the kid AND the key bytes are the ones a writer with the
+ * API's configuration used (GCM authenticates; a wrong key never opens a token). The plaintext is
+ * discarded unread. A kid with no stored token proves nothing, and an `--apply` refuses unless the
+ * operator passes `--keyring-is-newly-armed`; tokens under the kid that will NOT open mean another
+ * key behind the same kid name, and that is refused whatever the flags say.
+ */
+export type WriteKeyCheck =
+  /** Employer names are out of scope, or written as legacy v1 — there is no new key to prove. */
+  | "not-applicable"
+  /** A stored token under the active kid opens with this run's key. */
+  | "proven"
+  /** No stored token under the active kid; the operator passed `--keyring-is-newly-armed`. */
+  | "acknowledged"
+  /** No stored token under the active kid. `--apply` refuses. */
+  | "no-token"
+  /** Stored tokens under the active kid, none of which opens. `--apply` refuses, always. */
+  | "key-mismatch";
+
+/** The verdict on a sample of stored tokens under the active kid. Pure. */
+export function judgeWriteKey(
+  sample: readonly string[],
+  decrypt: (token: string) => string,
+  acknowledged: boolean,
+): WriteKeyCheck {
+  if (sample.length === 0) return acknowledged ? "acknowledged" : "no-token";
+  for (const token of sample) {
+    try {
+      decrypt(token);
+      return "proven";
+    } catch {
+      // A single tampered token is not a verdict; the next one may open.
+    }
+  }
+  return "key-mismatch";
+}
+
+/**
+ * Why an `--apply` must not write, or null when it may. Constant strings: no kid, no key, no token.
+ */
+export function writeKeyProblem(check: WriteKeyCheck): string | null {
+  switch (check) {
+    case "not-applicable":
+    case "proven":
+    case "acknowledged":
+      return null;
+    case "no-token":
+      return (
+        "a keyring is configured, so employer names would be written as v2 under its active kid, " +
+        "and no stored token (worker_employment.employer_name_enc, workers.phone_e164) was written " +
+        "under that kid. Nothing shows the deployed API holds that key; if it does not, every " +
+        "re-cased employer becomes unreadable to it. Compare PII_ENCRYPTION_KEYS and " +
+        "PII_ENCRYPTION_ACTIVE_KID with the API's environment (dotenv fills them from the root " +
+        ".env when the shell does not set them). If the API runs exactly this keyring and has not " +
+        `written since it was armed, re-run with ${NEWLY_ARMED_FLAG}.`
+      );
+    case "key-mismatch":
+      return (
+        "stored tokens under the keyring's active kid do not decrypt with this run's key for that " +
+        "kid: they were written with a different key under the same kid name, and the API could " +
+        "not read a single employer name this run wrote. Use the API's exact PII_ENCRYPTION_KEYS " +
+        `(${NEWLY_ARMED_FLAG} does not override this).`
+      );
+  }
+}
+
+/** `column` holds a v2 token under `kid`. The kid is a bound parameter, never interpolated. */
+function writtenUnderKid(column: AnyPgColumn, kid: string) {
+  return and(
+    sql`split_part(${column}, '.', 1) = 'v2'`,
+    sql`split_part(${column}, '.', 2) = ${kid}`,
+  );
+}
+
+/**
+ * Up to `WRITE_KEY_SAMPLE` tokens per column under `kid`. Exact match on `split_part`, not LIKE: a
+ * kid may contain `_`, which LIKE reads as a wildcard. Unindexed, but it stops at the first rows it
+ * needs and runs once, before the first write.
+ */
+async function sampleTokensUnderKid(db: Database, kid: string): Promise<string[]> {
+  const employers = await db
+    .select({ token: workerEmployment.employerNameEnc })
+    .from(workerEmployment)
+    .where(writtenUnderKid(workerEmployment.employerNameEnc, kid))
+    .limit(WRITE_KEY_SAMPLE);
+  const phones = await db
+    .select({ token: workers.phoneE164 })
+    .from(workers)
+    .where(writtenUnderKid(workers.phoneE164, kid))
+    .limit(WRITE_KEY_SAMPLE);
+  return [...employers, ...phones].map((r) => r.token);
+}
+
+async function checkWriteKey(
+  db: Database,
+  selected: readonly TitleCaseTarget[],
+  opts: TitleCaseRunOptions,
+): Promise<WriteKeyCheck> {
+  const codec = opts.codec;
+  if (!selected.some((t) => t.encrypted) || codec === null || codec.activeKid === null) {
+    return "not-applicable";
+  }
+  const sample = await sampleTokensUnderKid(db, codec.activeKid);
+  return judgeWriteKey(sample, (t) => codec.decrypt(t), opts.keyringNewlyArmed === true);
+}
+
 /** Run the backfill over the selected columns. Exported for the DB-backed test; `main` is the CLI. */
 export async function runTitleCaseBackfill(
   db: Database,
@@ -284,6 +420,14 @@ export async function runTitleCaseBackfill(
   }
   await assertRoleSeesRows(db);
 
+  // Before the first read of a target, so a refused --apply has written nothing at all.
+  const writeKey = await checkWriteKey(db, selected, opts);
+  const problem = writeKeyProblem(writeKey);
+  if (problem !== null) {
+    if (opts.apply) throw new Error(`${TAG} REFUSING TO WRITE: ${problem}`);
+    log(`${TAG} WARN — an --apply would refuse: ${problem}`);
+  }
+
   const affected = new Set<string>();
   const columns: { name: TitleCaseColumn; stats: ColumnStats }[] = [];
   for (const target of selected) {
@@ -292,7 +436,12 @@ export async function runTitleCaseBackfill(
       stats: await processTarget(db, target, opts, affected, log),
     });
   }
-  return { columns, workersAffected: affected.size };
+  const employerNameWrites = !selected.some((t) => t.encrypted)
+    ? null
+    : (opts.codec?.activeKid ?? null) === null
+      ? "v1"
+      : "v2";
+  return { columns, workersAffected: affected.size, employerNameWrites, writeKey };
 }
 
 async function processTarget(
@@ -432,6 +581,7 @@ export interface TitleCaseCli {
   readonly apply: boolean;
   readonly batchSize: number;
   readonly columns: readonly TitleCaseColumn[] | null;
+  readonly keyringNewlyArmed: boolean;
 }
 
 /**
@@ -442,10 +592,13 @@ export function parseTitleCaseCli(argv: readonly string[]): TitleCaseCli {
   let apply = false;
   let batchSize = DEFAULT_BATCH_SIZE;
   let columns: TitleCaseColumn[] | null = null;
+  let keyringNewlyArmed = false;
   for (const arg of argv) {
     if (arg === "--") continue; // pnpm may forward the separator verbatim
     if (arg === "--apply") {
       apply = true;
+    } else if (arg === NEWLY_ARMED_FLAG) {
+      keyringNewlyArmed = true;
     } else if (arg === PRODUCTION_WRITE_FLAG) {
       // Read by `enforceOpsGuard`, not here.
     } else if (arg.startsWith("--batch-size=")) {
@@ -468,7 +621,46 @@ export function parseTitleCaseCli(argv: readonly string[]): TitleCaseCli {
       throw new Error(`${TAG} unknown argument "${arg}"`);
     }
   }
-  return { apply, batchSize, columns };
+  return { apply, batchSize, columns, keyringNewlyArmed };
+}
+
+/** Where the two keyring variables came from. dotenv never overrides, so "before it ran" = shell. */
+export type KeyringSource = "shell" | "env-file" | "mixed";
+
+export function keyringSourceOf(inShell: { keys: boolean; kid: boolean }): KeyringSource {
+  if (inShell.keys && inShell.kid) return "shell";
+  if (!inShell.keys && !inShell.kid) return "env-file";
+  return "mixed";
+}
+
+/**
+ * The write format for the header line — "v2" or "v1" and where the keyring came from, never the
+ * kid. Runbook step 1 compares it with the API's environment.
+ */
+export function writeFormatLabel(source: KeyringSource | null): string {
+  if (source === null) return "writes v1 (legacy key, no keyring)";
+  const from = {
+    shell: "from the shell",
+    "env-file": "from the root .env, not the shell",
+    mixed: "partly from the root .env",
+  }[source];
+  return `writes v2 (keyring armed, ${from})`;
+}
+
+/** The summary's write-format line: the format, and what proves the API can read it. */
+function writeKeyLine(result: TitleCaseRunResult): string | null {
+  if (result.employerNameWrites === null) return null;
+  if (result.employerNameWrites === "v1") {
+    return `${TAG} employer names: writes v1 (legacy key, no keyring).`;
+  }
+  const proof: Record<WriteKeyCheck, string> = {
+    proven: "a stored token under that kid decrypts with this run's key",
+    acknowledged: `NO stored token under that kid; allowed by ${NEWLY_ARMED_FLAG}`,
+    "no-token": "NO stored token under that kid, so an --apply refuses",
+    "key-mismatch": "stored tokens under that kid do NOT decrypt, so an --apply refuses",
+    "not-applicable": "nothing to prove",
+  };
+  return `${TAG} employer names: writes v2 under the keyring's active kid — ${proof[result.writeKey]}.`;
 }
 
 /** The summary — counts only. Pure, so a test can hold it to "no value, ever". */
@@ -503,6 +695,8 @@ export function formatSummary(result: TitleCaseRunResult, apply: boolean): strin
     `workers with at least one ${apply ? "changed" : "changing"} value: ${result.workersAffected}`,
     "",
   );
+  const keyLine = writeKeyLine(result);
+  if (keyLine !== null) lines.push(keyLine);
   if (!apply) {
     lines.push(
       change === 0
@@ -537,6 +731,12 @@ function requireLegacyKey(raw: string | undefined): string {
 }
 
 async function main(): Promise<void> {
+  // Read BEFORE dotenv, which fills in only what the shell left unset — so this says which
+  // keyring variables the operator exported and which the root .env supplied.
+  const inShell = {
+    keys: process.env.PII_ENCRYPTION_KEYS !== undefined,
+    kid: process.env.PII_ENCRYPTION_ACTIVE_KID !== undefined,
+  };
   // Loaded HERE, not at module scope, so importing this file (the tests do) reads no env file.
   config({ path: "../../.env" });
   const cli = parseTitleCaseCli(process.argv.slice(2));
@@ -547,16 +747,17 @@ async function main(): Promise<void> {
   });
   const needsKey =
     cli.columns === null || cli.columns.includes("worker_employment.employer_name_enc");
+  const keyring = needsKey ? readOptionalPiiKeyring(process.env, "title-case") : null;
   const codec = needsKey
-    ? piiCodec(
-        requireLegacyKey(process.env.PII_ENCRYPTION_KEY),
-        readOptionalPiiKeyring(process.env, "title-case"),
-      )
+    ? piiCodec(requireLegacyKey(process.env.PII_ENCRYPTION_KEY), keyring)
     : null;
 
   console.log(
     `${TAG} ${cli.apply ? "APPLY" : "DRY-RUN"} — batch=${cli.batchSize}, columns=` +
       `${(cli.columns ?? TITLE_CASE_COLUMNS).join(",")}` +
+      (needsKey
+        ? `, employer names: ${writeFormatLabel(keyring === null ? null : keyringSourceOf(inShell))}`
+        : "") +
       (cli.apply ? "" : " (nothing will be written)"),
   );
 
@@ -567,6 +768,7 @@ async function main(): Promise<void> {
       batchSize: cli.batchSize,
       codec,
       columns: cli.columns,
+      keyringNewlyArmed: cli.keyringNewlyArmed,
     });
     for (const line of formatSummary(result, cli.apply)) console.log(line);
     const undecryptable = result.columns.reduce((n, c) => n + c.stats.undecryptable, 0);
@@ -574,6 +776,13 @@ async function main(): Promise<void> {
       console.error(
         `${TAG} ${undecryptable} value(s) would not decrypt and were left exactly as found — ` +
           "see the WARN lines. Check the key configuration before anything else.",
+      );
+      process.exitCode = 1;
+    }
+    // Only a dry run gets here with a problem — an --apply refused before its first read.
+    if (writeKeyProblem(result.writeKey) !== null) {
+      console.error(
+        `${TAG} an --apply with this key configuration would refuse — see the WARN line.`,
       );
       process.exitCode = 1;
     }

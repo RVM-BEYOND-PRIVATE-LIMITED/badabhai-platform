@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { asc, count, inArray } from "drizzle-orm";
+import { asc, count, eq, inArray } from "drizzle-orm";
 
 import { createDbClient, type DbClient } from "./client";
-import { decryptPiiWithKeyring, encryptPii, encryptPiiWithKeyring } from "./crypto";
+import { decryptPii, decryptPiiWithKeyring, encryptPii, encryptPiiWithKeyring } from "./crypto";
 import { hostClass } from "./ops-guard";
 import { piiCodec } from "./pii-keyring-env";
 import { workerEducations, workerEmployment, workerEmploymentRole, workers } from "./schema";
@@ -12,6 +12,7 @@ import {
   buildTargets,
   runTitleCaseBackfill,
   type TitleCaseColumn,
+  type TitleCaseRunOptions,
   type TitleCaseRunResult,
 } from "./title-case-backfill";
 
@@ -22,8 +23,12 @@ import {
  * every `updated_at`, identical afterwards); that `--apply` fixes the lowercase rows across several
  * batches and leaves a correct row BYTE-IDENTICAL — for the encrypted column that means the very
  * same ciphertext, which is only true if the row was never written; that a re-run changes nothing;
- * that a token which will not decrypt is skipped and counted; and that the optimistic
- * `WHERE id = ? AND col = ?` really refuses a row that moved since it was read.
+ * that a token which will not decrypt is skipped and counted; that the optimistic
+ * `WHERE id = ? AND col = ?` really refuses a row that moved since it was read; and that an
+ * `--apply` whose write key no stored token proves refuses before it writes anything.
+ *
+ * ── CI DOES NOT RUN THIS FILE. The DB-backed gate step in ci.yml runs a fixed list of apps/api
+ *    suites; this one needs its own scratch URL. Run it by hand before changing the write path.
  *
  * ── IT RUNS THE BACKFILL OVER WHOLE TABLES, so it refuses any database that is not local and any
  *    whose three tables already hold rows, and it has NO default target — not even the local dev
@@ -74,22 +79,42 @@ const PLAINTEXTS = [
   "Cnc Programming",
 ];
 
+const randomPhone = () => `+9198${randomBytes(4).readUInt32BE(0) % 100_000_000}`;
+
+const statsOf = (result: TitleCaseRunResult, name: TitleCaseColumn) =>
+  result.columns.find((c) => c.name === name)!.stats;
+
+async function insertWorker(client: DbClient, phoneE164: string): Promise<string> {
+  const [row] = await client.db
+    .insert(workers)
+    .values({ phoneE164, phoneHash: randomBytes(32).toString("hex") })
+    .returning({ id: workers.id });
+  return row!.id;
+}
+
+/** A NAMED, LOCAL, EMPTY database — each suite runs the backfill over whole tables. */
+async function openEmptyScratch(): Promise<DbClient> {
+  expect(DATABASE_URL, "set TITLE_CASE_BACKFILL_DATABASE_URL to a scratch database").not.toBe("");
+  expect(hostClass(DATABASE_URL), "refusing a non-local database").toBe("LOCAL DOCKER");
+  const client = createDbClient(DATABASE_URL, { max: 1 });
+  for (const table of [workerEmployment, workerEmploymentRole, workerEducations]) {
+    const [{ n }] = (await client.db.select({ n: count() }).from(table)) as [{ n: number }];
+    expect(n, "refusing a database whose target tables already hold rows").toBe(0);
+  }
+  return client;
+}
+
 describe.skipIf(!RUN)("title-case backfill against a real database (#1432)", () => {
   let client: DbClient;
   const workerIds: string[] = [];
   const ids: Record<string, string> = {};
   const tokens: Record<string, string> = {};
+  let phoneUnderActiveKid: string;
 
-  async function seedWorker(): Promise<string> {
-    const [row] = await client.db
-      .insert(workers)
-      .values({
-        phoneE164: encryptPii(`+9198${randomBytes(4).readUInt32BE(0) % 100_000_000}`, LEGACY),
-        phoneHash: randomBytes(32).toString("hex"),
-      })
-      .returning({ id: workers.id });
-    workerIds.push(row!.id);
-    return row!.id;
+  async function seedWorker(phoneE164 = encryptPii(randomPhone(), LEGACY)): Promise<string> {
+    const id = await insertWorker(client, phoneE164);
+    workerIds.push(id);
+    return id;
   }
 
   async function seedEmployment(
@@ -139,7 +164,11 @@ describe.skipIf(!RUN)("title-case backfill against a real database (#1432)", () 
     };
   }
 
-  async function run(apply: boolean, lines: string[]): Promise<TitleCaseRunResult> {
+  async function run(
+    apply: boolean,
+    lines: string[],
+    over: Partial<TitleCaseRunOptions> = {},
+  ): Promise<TitleCaseRunResult> {
     return runTitleCaseBackfill(client.db, {
       apply,
       // Small on purpose: every column spans several batches, so paging and the per-batch
@@ -148,25 +177,19 @@ describe.skipIf(!RUN)("title-case backfill against a real database (#1432)", () 
       codec,
       columns: null,
       log: (line) => lines.push(line),
+      ...over,
     });
   }
 
-  const statsOf = (result: TitleCaseRunResult, name: string) =>
-    result.columns.find((c) => c.name === name)!.stats;
-
   beforeAll(async () => {
-    // A NAMED, LOCAL, EMPTY database — this suite runs the backfill over whole tables.
-    expect(DATABASE_URL, "set TITLE_CASE_BACKFILL_DATABASE_URL to a scratch database").not.toBe("");
-    expect(hostClass(DATABASE_URL), "refusing a non-local database").toBe("LOCAL DOCKER");
-    client = createDbClient(DATABASE_URL, { max: 1 });
-    for (const table of [workerEmployment, workerEmploymentRole, workerEducations]) {
-      const [{ n }] = (await client.db.select({ n: count() }).from(table)) as [{ n: number }];
-      expect(n, "refusing a database whose target tables already hold rows").toBe(0);
-    }
+    client = await openEmptyScratch();
 
     const w1 = await seedWorker();
     const w2 = await seedWorker();
-    const w3 = await seedWorker(); // already correct everywhere — must not count as affected
+    // Already correct everywhere — must not count as affected. Its phone is the one token the API
+    // has written under the ACTIVE kid k2, which is what lets an --apply write under k2 at all.
+    phoneUnderActiveKid = encryptPiiWithKeyring(randomPhone(), KEYRING);
+    const w3 = await seedWorker(phoneUnderActiveKid);
 
     // Lowercase, legacy v1 token: cased AND moved onto the active kid.
     await seedEmployment("e1", w1, encryptPii("recursive global infotech pvt ltd", LEGACY), 0, [
@@ -242,11 +265,55 @@ describe.skipIf(!RUN)("title-case backfill against a real database (#1432)", () 
       concurrentSkipped: 0,
     });
     expect(result.workersAffected).toBe(2);
+    // The stored k2 phone opens under this run's k2, so an --apply may write under it.
+    expect(result.employerNameWrites).toBe("v2");
+    expect(result.writeKey).toBe("proven");
 
     expect(await snapshot()).toEqual(seeded);
     // The two undecryptable rows are named by id, and only by id.
     expect(lines.filter((l) => l.includes("will not decrypt"))).toHaveLength(2);
     expect(lines.join("\n")).toContain(ids["e3"]!);
+    expect(lines.join("\n")).not.toContain("would refuse");
+  });
+
+  it("--apply REFUSES an active kid no stored token proves, though the keyring's other kids are proven", async () => {
+    // What a dev .env fills in: the API's two kids plus an active one the API has never written
+    // under. Its dry run counts exactly what the API's own configuration counts — only the WARN
+    // tells them apart — so the refusal is the only thing between it and unreadable employers.
+    const devKeyring = {
+      activeKid: "dev-laptop",
+      keys: { ...KEYRING.keys, "dev-laptop": FOREIGN },
+    };
+    const devCodec = piiCodec(LEGACY, devKeyring);
+
+    const lines: string[] = [];
+    const dry = await run(false, lines, { codec: devCodec });
+    expect(dry.writeKey).toBe("no-token");
+    expect(statsOf(dry, "worker_employment.employer_name_enc")).toMatchObject({
+      change: 2,
+      undecryptable: 2,
+    });
+    expect(lines.filter((l) => l.includes("an --apply would refuse"))).toHaveLength(1);
+
+    const refusal = await run(true, [], { codec: devCodec }).then(
+      () => null,
+      (err: unknown) => (err instanceof Error ? err.message : String(err)),
+    );
+    expect(refusal).toContain("REFUSING TO WRITE: a keyring is configured");
+    expect(refusal).not.toContain("dev-laptop");
+    expect(await snapshot()).toEqual(seeded);
+    // `--keyring-is-newly-armed` is exercised in the v1-only suite below.
+  });
+
+  it("--apply REFUSES, acknowledged or not, another key behind the API's own kid name", async () => {
+    // The API's kid name k2 with other key bytes: the stored k2 phone does not open under it.
+    const impostor = piiCodec(LEGACY, { activeKid: "k2", keys: { k1: K1, k2: FOREIGN } });
+    for (const keyringNewlyArmed of [false, true]) {
+      await expect(run(true, [], { codec: impostor, keyringNewlyArmed })).rejects.toThrow(
+        "REFUSING TO WRITE: stored tokens under the keyring's active kid do not decrypt",
+      );
+    }
+    expect(await snapshot()).toEqual(seeded);
   });
 
   it("--apply cases the lowercase rows and leaves every correct row byte-identical", async () => {
@@ -346,5 +413,102 @@ describe.skipIf(!RUN)("title-case backfill against a real database (#1432)", () 
     for (const value of PLAINTEXTS) expect(output, value).not.toContain(value);
     for (const token of Object.values(tokens)) expect(output).not.toContain(token);
     for (const row of afterApply.employment) expect(output).not.toContain(row.employerNameEnc);
+    expect(output).not.toContain(phoneUnderActiveKid);
   });
 });
+
+/**
+ * The estate as it stands: TD22-1 is opt-in and the API writes v1 only, so NO token anywhere is
+ * v2. A runner that picks up a keyring here — from a shell, or from a root .env dotenv reads — would
+ * write every re-cased employer name in a format the API cannot read.
+ */
+describe.skipIf(!RUN)(
+  "title-case backfill — a keyring the API has never written under (#1432)",
+  () => {
+    let client: DbClient;
+    const workerIds: string[] = [];
+    let workerId: string;
+    let employmentId: string;
+    const seededToken = encryptPii("recursive global infotech pvt ltd", LEGACY);
+
+    const storedToken = async (id: string) =>
+      (
+        await client.db
+          .select({ token: workerEmployment.employerNameEnc })
+          .from(workerEmployment)
+          .where(eq(workerEmployment.id, id))
+      )[0]!.token;
+
+    const run = (over: Partial<TitleCaseRunOptions>, lines: string[] = []) =>
+      runTitleCaseBackfill(client.db, {
+        apply: true,
+        batchSize: 500,
+        codec,
+        columns: ["worker_employment.employer_name_enc"],
+        log: (line) => lines.push(line),
+        ...over,
+      });
+
+    async function seedEmployment(token: string, sortOrder: number): Promise<string> {
+      const [row] = await client.db
+        .insert(workerEmployment)
+        .values({ workerId, employerNameEnc: token, sortOrder, startYm: "2020-01" })
+        .returning({ id: workerEmployment.id });
+      return row!.id;
+    }
+
+    beforeAll(async () => {
+      client = await openEmptyScratch();
+      workerId = await insertWorker(client, encryptPii(randomPhone(), LEGACY));
+      workerIds.push(workerId);
+      employmentId = await seedEmployment(seededToken, 0);
+    });
+
+    afterAll(async () => {
+      if (client === undefined) return; // refused before connecting
+      if (workerIds.length) await client.db.delete(workers).where(inArray(workers.id, workerIds));
+      await client.sql.end({ timeout: 5 });
+    });
+
+    it("the dry run counts the change as usual and WARNS that an --apply would refuse", async () => {
+      const lines: string[] = [];
+      const result = await run({ apply: false }, lines);
+      expect(result.writeKey).toBe("no-token");
+      expect(statsOf(result, "worker_employment.employer_name_enc")).toMatchObject({
+        change: 1,
+        undecryptable: 0,
+      });
+      expect(lines.filter((l) => l.includes("an --apply would refuse"))).toHaveLength(1);
+      expect(await storedToken(employmentId)).toBe(seededToken);
+    });
+
+    it("--apply with that keyring REFUSES before its first read, and writes nothing", async () => {
+      await expect(run({})).rejects.toThrow("REFUSING TO WRITE: a keyring is configured");
+      expect(await storedToken(employmentId)).toBe(seededToken);
+    });
+
+    it("--keyring-is-newly-armed lets it write v2 under the active kid", async () => {
+      const result = await run({ keyringNewlyArmed: true });
+      expect(result.writeKey).toBe("acknowledged");
+      expect(statsOf(result, "worker_employment.employer_name_enc").written).toBe(1);
+      const token = await storedToken(employmentId);
+      expect(token.startsWith("v2.k2.")).toBe(true);
+      expect(decrypt(token)).toBe("Recursive Global Infotech Pvt Ltd");
+    });
+
+    it("with no keyring — the API's configuration today — it writes v1 and has nothing to prove", async () => {
+      const fresh = await seedEmployment(encryptPii("sandhar technologies", LEGACY), 1);
+      const result = await run({ codec: piiCodec(LEGACY, null) });
+      expect(result.writeKey).toBe("not-applicable");
+      expect(result.employerNameWrites).toBe("v1");
+      // The v2 row the previous test wrote does not open without a keyring: counted, left alone.
+      expect(statsOf(result, "worker_employment.employer_name_enc")).toMatchObject({
+        written: 1,
+        undecryptable: 1,
+      });
+      const token = await storedToken(fresh);
+      expect(token.startsWith("v1.")).toBe(true);
+      expect(decryptPii(token, LEGACY)).toBe("Sandhar Technologies");
+    });
+  },
+);

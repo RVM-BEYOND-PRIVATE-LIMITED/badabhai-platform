@@ -129,6 +129,11 @@ export function readOptionalPiiKeyring(
 export interface PiiCodec {
   encrypt(plaintext: string): string;
   decrypt(token: string): string;
+  /**
+   * The key id `encrypt` writes under, or `null` when it writes legacy v1. A key id, never key
+   * material — and still never printed (a runner reports "v2" / "v1", not the kid).
+   */
+  readonly activeKid: string | null;
 }
 
 /**
@@ -142,9 +147,11 @@ export function piiCodec(legacyKey: string, keyring: PiiKeyring | null): PiiCode
     ? {
         encrypt: (plaintext) => encryptPiiWithKeyring(plaintext, keyring),
         decrypt: (token) => decryptPiiWithKeyring(token, keyring, legacyKey),
+        activeKid: keyring.activeKid,
       }
     : {
         encrypt: (plaintext) => encryptPii(plaintext, legacyKey),
         decrypt: (token) => decryptPii(token, legacyKey),
+        activeKid: null,
       };
 }

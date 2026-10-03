@@ -130,6 +130,7 @@ describe("readOptionalPiiKeyring — both or neither, as the API's boot gate dec
 describe("piiCodec — the token PiiCryptoService would write for the same configuration", () => {
   it("without a keyring: legacy v1 tokens, decrypted with the legacy key", () => {
     const codec = piiCodec(LEGACY, null);
+    expect(codec.activeKid).toBeNull();
     const token = codec.encrypt("Sandhar Technologies");
     expect(token.startsWith("v1.")).toBe(true);
     expect(decryptPii(token, LEGACY)).toBe("Sandhar Technologies");
@@ -139,6 +140,7 @@ describe("piiCodec — the token PiiCryptoService would write for the same confi
   it("with a keyring: writes v2 under the ACTIVE kid and still reads legacy v1", () => {
     const keyring = { activeKid: "k2", keys: { k1: KEY_A, k2: KEY_B } };
     const codec = piiCodec(LEGACY, keyring);
+    expect(codec.activeKid).toBe("k2");
     const token = codec.encrypt("acme");
     expect(token.startsWith("v2.k2.")).toBe(true);
     expect(codec.decrypt(token)).toBe("acme");

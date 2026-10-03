@@ -1,18 +1,23 @@
 import { describe, expect, it } from "vitest";
 
 import type { Database } from "./client";
-import { encryptPii } from "./crypto";
+import { encryptPii, encryptPiiWithKeyring } from "./crypto";
 import { PRODUCTION_WRITE_FLAG } from "./ops-guard";
 import { piiCodec } from "./pii-keyring-env";
 import {
+  NEWLY_ARMED_FLAG,
   TITLE_CASE_COLUMNS,
   buildTargets,
   canSeeForcedRlsRows,
   describeDbFailure,
   formatSummary,
+  judgeWriteKey,
+  keyringSourceOf,
   parseTitleCaseCli,
   planValue,
   safeErrorLine,
+  writeFormatLabel,
+  writeKeyProblem,
   type ColumnStats,
   type TitleCaseRunResult,
 } from "./title-case-backfill";
@@ -84,7 +89,12 @@ describe("the targets", () => {
 
 describe("parseTitleCaseCli", () => {
   it("defaults to a DRY RUN over all three columns", () => {
-    expect(parseTitleCaseCli([])).toEqual({ apply: false, batchSize: 500, columns: null });
+    expect(parseTitleCaseCli([])).toEqual({
+      apply: false,
+      batchSize: 500,
+      columns: null,
+      keyringNewlyArmed: false,
+    });
   });
 
   it("writes only on an explicit --apply", () => {
@@ -94,6 +104,12 @@ describe("parseTitleCaseCli", () => {
 
   it("leaves the production flag to the ops guard rather than rejecting it", () => {
     expect(parseTitleCaseCli(["--apply", PRODUCTION_WRITE_FLAG]).apply).toBe(true);
+  });
+
+  it("takes the newly-armed acknowledgement only when spelled out", () => {
+    expect(parseTitleCaseCli(["--apply", NEWLY_ARMED_FLAG]).keyringNewlyArmed).toBe(true);
+    expect(parseTitleCaseCli(["--apply"]).keyringNewlyArmed).toBe(false);
+    expect(() => parseTitleCaseCli(["--keyring-newly-armed"])).toThrow("unknown argument");
   });
 
   it("bounds --batch-size", () => {
@@ -124,6 +140,59 @@ describe("parseTitleCaseCli", () => {
       'unknown argument "--colum=worker_education.field"',
     );
     expect(() => parseTitleCaseCli(["--aply"])).toThrow("unknown argument");
+  });
+});
+
+describe("the write key — refusing to write v2 the API cannot read", () => {
+  const keyring = { activeKid: "api-2026", keys: { "api-2026": KEY } };
+  const codec = piiCodec(OTHER_KEY, keyring);
+  const decrypt = (t: string) => codec.decrypt(t);
+  const opens = encryptPiiWithKeyring("+919800000001", keyring);
+  /** The same kid NAME minted under another key — a dev .env that reused the API's kid. */
+  const sameKidOtherKey = encryptPiiWithKeyring("+919800000002", {
+    activeKid: "api-2026",
+    keys: { "api-2026": OTHER_KEY },
+  });
+
+  it("is proven only by a stored token under the active kid that this run's key opens", () => {
+    expect(judgeWriteKey([opens], decrypt, false)).toBe("proven");
+    // One tampered or foreign token is not a verdict while another one opens.
+    expect(judgeWriteKey([sameKidOtherKey, opens], decrypt, false)).toBe("proven");
+  });
+
+  it("refuses an unproven kid unless the operator acknowledges it is newly armed", () => {
+    expect(judgeWriteKey([], decrypt, false)).toBe("no-token");
+    expect(judgeWriteKey([], decrypt, true)).toBe("acknowledged");
+    expect(writeKeyProblem("no-token")).toContain(NEWLY_ARMED_FLAG);
+    expect(writeKeyProblem("acknowledged")).toBeNull();
+  });
+
+  it("refuses a different key behind the same kid, whatever the flags say", () => {
+    expect(judgeWriteKey([sameKidOtherKey], decrypt, false)).toBe("key-mismatch");
+    expect(judgeWriteKey([sameKidOtherKey], decrypt, true)).toBe("key-mismatch");
+    expect(writeKeyProblem("key-mismatch")).toContain("does not override");
+  });
+
+  it("lets a run with nothing new to prove through", () => {
+    expect(writeKeyProblem("not-applicable")).toBeNull();
+    expect(writeKeyProblem("proven")).toBeNull();
+  });
+
+  it("names neither the kid nor any key in a refusal", () => {
+    for (const check of ["no-token", "key-mismatch"] as const) {
+      const message = writeKeyProblem(check)!;
+      expect(message).not.toContain("api-2026");
+      expect(message).not.toContain(KEY);
+    }
+  });
+
+  it("says where the keyring came from — the shell, or dotenv's fill-in from the root .env", () => {
+    expect(keyringSourceOf({ keys: true, kid: true })).toBe("shell");
+    expect(keyringSourceOf({ keys: false, kid: false })).toBe("env-file");
+    expect(keyringSourceOf({ keys: true, kid: false })).toBe("mixed");
+    expect(writeFormatLabel(null)).toBe("writes v1 (legacy key, no keyring)");
+    expect(writeFormatLabel("shell")).toBe("writes v2 (keyring armed, from the shell)");
+    expect(writeFormatLabel("env-file")).toContain("from the root .env, not the shell");
   });
 });
 
@@ -158,6 +227,8 @@ describe("output never carries a value", () => {
       { name: "worker_education.field", stats: stats({ scanned: 2, unchanged: 2 }) },
     ],
     workersAffected: 3,
+    employerNameWrites: "v2",
+    writeKey: "proven",
   };
 
   it("prints counts per column, and the workers-affected count", () => {
@@ -180,8 +251,30 @@ describe("output never carries a value", () => {
     const none: TitleCaseRunResult = {
       columns: [{ name: "worker_education.field", stats: stats({ scanned: 2, unchanged: 2 }) }],
       workersAffected: 0,
+      employerNameWrites: null,
+      writeKey: "not-applicable",
     };
-    expect(formatSummary(none, false).join("\n")).toContain("nothing to change");
+    const text = formatSummary(none, false).join("\n");
+    expect(text).toContain("nothing to change");
+    // Employer names out of scope: no write format to state.
+    expect(text).not.toContain("employer names:");
+  });
+
+  it("states the employer-name write format and what proves the API can read it", () => {
+    const line = (over: Pick<TitleCaseRunResult, "employerNameWrites" | "writeKey">) =>
+      formatSummary({ ...result, ...over }, false).find((l) => l.includes("employer names:"));
+    expect(line({ employerNameWrites: "v2", writeKey: "proven" })).toContain(
+      "writes v2 under the keyring's active kid — a stored token under that kid decrypts",
+    );
+    expect(line({ employerNameWrites: "v2", writeKey: "no-token" })).toContain(
+      "an --apply refuses",
+    );
+    expect(line({ employerNameWrites: "v2", writeKey: "acknowledged" })).toContain(
+      NEWLY_ARMED_FLAG,
+    );
+    expect(line({ employerNameWrites: "v1", writeKey: "not-applicable" })).toContain(
+      "writes v1 (legacy key, no keyring)",
+    );
   });
 
   /** A drizzle 0.45 query error, as the driver builds it: the PARAMS are in the message. */
