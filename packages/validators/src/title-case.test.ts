@@ -203,6 +203,11 @@ describe("titleCaseWords — every scalar value, against the app's function on t
     for (let cp = 0; cp <= 0x10ffff; cp++) if (cp < 0xd800 || cp > 0xdfff) yield cp;
   }
 
+  // The three walks over all 1,112,064 scalar values take 0.1-0.25 s alone, but CI runs every
+  // package's tests at once: on 2026-10-03 one took 5.48 s and failed main on vitest's 5 s default.
+  // A walk is bounded (no I/O, no retry), so a generous ceiling only absorbs contention.
+  const EXHAUSTIVE_TIMEOUT_MS = 60_000;
+
   it("is a recording of the toolchain the app ships on, and every input fit the probe's model", () => {
     // Dart 3.9 is the Dart inside Flutter 3.35.7, the version ci.yml builds the app with.
     expect(recording.dart).toMatch(/^3\.9\./);
@@ -210,26 +215,34 @@ describe("titleCaseWords — every scalar value, against the app's function on t
     expect(recording.upper.every((entry) => entry.length === 2)).toBe(true);
   });
 
-  it("breaks a word on exactly the code points the app does", () => {
-    const disagree: string[] = [];
-    for (const cp of scalarValues()) {
-      if (isDartWhitespace(cp) !== whitespace.has(cp)) disagree.push(cp.toString(16));
-    }
-    expect(disagree).toEqual([]);
-  });
-
-  it("cases a word's first code point exactly as the app does, and never touches a later one", () => {
-    const disagree: string[] = [];
-    for (const cp of scalarValues()) {
-      if (whitespace.has(cp)) continue;
-      const c = String.fromCodePoint(cp);
-      const expected = upper.get(cp) ?? c;
-      if (titleCaseWords(c) !== expected || titleCaseWords(`x${c}`) !== `X${c}`) {
-        disagree.push(cp.toString(16));
+  it(
+    "breaks a word on exactly the code points the app does",
+    () => {
+      const disagree: string[] = [];
+      for (const cp of scalarValues()) {
+        if (isDartWhitespace(cp) !== whitespace.has(cp)) disagree.push(cp.toString(16));
       }
-    }
-    expect(disagree).toEqual([]);
-  });
+      expect(disagree).toEqual([]);
+    },
+    EXHAUSTIVE_TIMEOUT_MS,
+  );
+
+  it(
+    "cases a word's first code point exactly as the app does, and never touches a later one",
+    () => {
+      const disagree: string[] = [];
+      for (const cp of scalarValues()) {
+        if (whitespace.has(cp)) continue;
+        const c = String.fromCodePoint(cp);
+        const expected = upper.get(cp) ?? c;
+        if (titleCaseWords(c) !== expected || titleCaseWords(`x${c}`) !== `X${c}`) {
+          disagree.push(cp.toString(16));
+        }
+      }
+      expect(disagree).toEqual([]);
+    },
+    EXHAUSTIVE_TIMEOUT_MS,
+  );
 
   it("returns the app's output for every recorded whole string", () => {
     expect(recording.strings.length).toBeGreaterThan(200);
@@ -239,14 +252,18 @@ describe("titleCaseWords — every scalar value, against the app's function on t
     }
   });
 
-  it("is idempotent and length-preserving on every scalar value, not just the corpus above", () => {
-    const disagree: string[] = [];
-    for (const cp of scalarValues()) {
-      const once = titleCaseWords(String.fromCodePoint(cp));
-      if (titleCaseWords(once) !== once || once.length !== String.fromCodePoint(cp).length) {
-        disagree.push(cp.toString(16));
+  it(
+    "is idempotent and length-preserving on every scalar value, not just the corpus above",
+    () => {
+      const disagree: string[] = [];
+      for (const cp of scalarValues()) {
+        const once = titleCaseWords(String.fromCodePoint(cp));
+        if (titleCaseWords(once) !== once || once.length !== String.fromCodePoint(cp).length) {
+          disagree.push(cp.toString(16));
+        }
       }
-    }
-    expect(disagree).toEqual([]);
-  });
+      expect(disagree).toEqual([]);
+    },
+    EXHAUSTIVE_TIMEOUT_MS,
+  );
 });
