@@ -430,7 +430,8 @@ and every measurement are in the comment above `_EMPLOYER_STOPWORDS`.
 - **The M/S cue** (`_EMPLOYER_MS_CUE_RE`). "M/S", "M/s.", "M / S", "M/S:" or "M/S:-", then a firm
   that ends on a word naming a business.
   - "M/S" also abbreviates mild steel and metres per second, and a payer's verb or a locality
-    often follows the firm. So the cue never follows a measurement (`"3 m/s submersible pumps"`),
+    often follows the firm. So the cue never follows a measurement, a number of one to three
+    digits or a decimal up to three spaces before (`"3 m/s submersible pumps"`),
     and the firm never opens on mild-steel stock, a material, a unit, a role or a city. It ends
     on its firm word and leaves what follows raw: `"M/S SHARMA TRADERS BHOSARI ME HELPER"` →
     `"M/S [EMPLOYER_1] BHOSARI ME HELPER"`, `"M/S SHARMA TRADERS-BHOSARI"` →
@@ -441,13 +442,15 @@ and every measurement are in the comment above `_EMPLOYER_STOPWORDS`.
     nothing but sector words: `"m/s truck body works"` and `"m/s power tools"` stay raw,
     `"M/S SHREE SAI ENGINEERING WORKS"` and `"M/s Precision Components"` mask.
   - A "firm" made of nothing but curated trade vocabulary is a skill (`"M/S PIPING SYSTEMS"`). A
-    firm an earlier rule masked takes only a firm word right after its token, never words past
-    it. A year may stand before the cue: `"2016-2019 M/S XYZ TRADERS"` masks.
+    firm an earlier rule masked takes only a firm word right after its token (a joiner may come
+    between), never words past it. A year may stand before the cue:
+    `"2016-2019 M/S XYZ TRADERS"` masks.
 - **Five or six name words** (`_EMPLOYER_LONG_RE`), only before a strong form: PVT LTD, PRIVATE
   LIMITED, LTD, LLP or LLC. "and" and the parenthesised joiners do not count as words.
   - It runs ahead of the capitals rule, whose 4-word window would leave the first word raw.
   - So it never holds a word where the capitals or title-form rule would end, and its form ends
-    where that rule would not take the next word. Either would let it cut a capitals span and
+    where that rule would not take the next word (a joiner costs no word, as in that rule). Either
+  would let it cut a capitals span and
     leave that span's name raw (`"Hero Traders INDUSTRIES-PUNE …"`,
     `"…works LTD-patil MOTORS LTD"`).
   - No job word sits in it: `"MACHINE OPERATOR SHREE GANESH ENGINEERING WORKS PVT LTD"` →
@@ -466,15 +469,16 @@ sentence-cased, after each of four review rounds:
   of NCO prose.
 - 1,324 fabricated negative lines built to trip the passes: 7 over-mask as written (12 words), 6
   upper-cased, 3 lower-cased.
-- 633 fabricated employers in 576 lines, caught as written before → after: lower case
+- 590 fabricated employers in 576 lines, caught as written before → after: lower case
   1% → 75%, title-case twins 32% → 99%, M/S firms 16% → 95%, five or more name words 27% → 78%.
 - Two corpora the reviewers wrote to break the passes, firms bracketed: the third review's 804
   lines and the fourth's 678. Lines with a word main kept now inside a token fell from 243 to 94
-  and from 162 to 30 over the last two rounds' fixes. Units, payer ads, roles, localities and the
-  curated mild-steel skill labels are at 0. What remains is the OVER list below (28 of 30 lines
-  built for the industry shape, 7 of 50 and 8 of 61 for generic company talk, 10 of 78 for mild
-  steel), firms the third corpus left unbracketed, and forms folded into a token. Bracketed firms
-  left raw fell from 98 to 60 lines, most of them M/S firms with no firm word.
+  and from 162 to 30 over the last two rounds' fixes. What remains is the OVER list below (the
+  industry shape: 28 of 30 and 11 of 36 lines built for it; generic company talk: 7 of 50 and 8
+  of 61; mild steel: 10 of 78; 3 of 156 ordinary lines), firms the third corpus left
+  unbracketed, and forms folded into a token. On the fourth corpus units, payer ads and roles are
+  at 0, and the curated mild-steel skill labels certify as on main. Bracketed firms left raw fell
+  from 98 to 60 lines, most of them M/S firms with no firm word.
 
 **Declined on those numbers:** lower-case "limited" alone (+10 worker lines such as
 `"programming ka knowledge limited hai"`), lower-case "company" (+12 repo and +11 worker lines),
@@ -484,11 +488,12 @@ over-masked), a weak form after an "-ing" word left raw (it cost `"sharma tradin
 8-word window (it bought nothing).
 
 **Reviewed** by security, code, performance, red-team, mutation, claims and sweep passes over four
-rounds:
+rounds and a final check:
 
 - The first round's blocker: absorb leads had no 7-digit refusal, so a turn main blocked passed.
-- The long pass could take part of a capitals span four ways: a form word inside it, a form with
-  a dash after it, and its own form ending inside a capitals word (twice).
+- The long pass could take part of a capitals span five ways: a form word inside it, a form with
+  a dash after it, and its own form ending inside a capitals word (three times, the last one
+  through a joiner the final check found).
 - The M/S rule over-masked mild-steel talk, payer ads and localities until the firm-word rule
   replaced its never-after-a-number and next-cue guards. That re-opened `"M/S TOOL CRAFT"` (UNDER
   below), and the fourth round narrowed the number guard back to measurements.
@@ -506,8 +511,14 @@ rounds:
   `"sharma fitter [EMPLOYER_1]"`, unpinned);
 - an M/S firm with no firm word (`"M/S TOOL CRAFT"`, `"M/S SIEMENS"`), opening on a stopword, a
   mild-steel word, a role word or a city (`"M/S PUNE SHARMA TRADERS"`), after a small number
-  (`"1 M/S SHARMA TRADERS"`), before a dot or a slash (`"M/S SHARMA TRADERS.PUNE"`), or generic in
-  lower case (`"m/s precision components"`, unpinned);
+  (`"1 M/S SHARMA TRADERS"`), before a dot or a slash (`"M/S SHARMA TRADERS.PUNE"`), generic in
+  lower case (`"m/s precision components"`, unpinned), ending on a generic firm word after
+  mild-steel stock (`"M/S BALAJI STRUCTURE WORKS"`), or with
+  name words between a half-masked firm's token and its firm word
+  (`"M/S Hanuman Steel Om Sai Traders"` → `"M/[EMPLOYER_1] Om Sai Traders"`, as main);
+- in lower case, a weak form after nothing but sector words or curated vocabulary
+  (`"water tech industries"`); a long name with a dot glued after its form
+  (`"…PVT LTD.CHAKAN"` → `"RAMESH [EMPLOYER_1]CHAKAN"`, as main);
 - 7 or more name words, 5 before a non-strong form, or 4 and a joiner
   (`"SRI SAI IRON AND STEEL PVT LTD"` → `"SRI [EMPLOYER_1]"`; main leaves "SRI" raw too);
 - two spaces in "& co", a slash-glued first word, a firm wrapped across two lines, a city as a
@@ -527,8 +538,9 @@ rounds:
   `"forklift tata motors ltd"` → `"[EMPLOYER_1]"`);
 - a payer's benefit before "pvt ltd company": `"bus facility pvt ltd company"` →
   `"[EMPLOYER_1] company"`;
-- trade talk ending on a generic firm word with no stock or sector word before it:
-  `"m/s hand tools se kaam"` → `"m/s [EMPLOYER_1] se kaam"`.
+- trade talk ending on a generic firm word, unless a name word is mild-steel stock or, in lower
+  case, every name word is a sector word: `"m/s hand tools se kaam"` →
+  `"m/s [EMPLOYER_1] se kaam"`.
 
 **The two views (R49, #1890).** `"Larsen &<U+200B>Toubro Limited"` now blocks; main passed it with
 "Larsen" raw. These passes also extend R49's partial overlap, the way #1875 did:
