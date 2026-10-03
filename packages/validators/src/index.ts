@@ -182,9 +182,8 @@ export function looksLikeActionContextPii(s: string): boolean {
 
 // Strong legal-entity markers — safe to match ANYWHERE, case-insensitively (each
 // is a suffix shape that essentially never occurs in legitimate trade text):
-// Pvt Ltd / Pvt. Ltd., Private Limited, LLP, Inc, Corp/Corporation, "& Co" /
-// "and Co", and "Co." — where the DOT is REQUIRED so "co-worker" and words that
-// merely start with "co" ("control") stay legal.
+// Pvt Ltd / Pvt. Ltd., Private Limited, LLP, Inc, Corp/Corporation. The "Co"
+// forms are ORG_CO_FORM below — they need a compound guard these do not.
 const ORG_SUFFIX_STRONG = new RegExp(
   [
     String.raw`\bpvt\.?\s+ltd\b`, // Pvt Ltd / Pvt. Ltd.
@@ -192,11 +191,40 @@ const ORG_SUFFIX_STRONG = new RegExp(
     String.raw`\bllp\b`, // LLP
     String.raw`\binc\b`, // Inc / Inc.
     String.raw`\bcorp(?:oration)?\b`, // Corp / Corp. / Corporation
-    String.raw`(?:&|\band)\s+co\b`, // "& Co" / "and Co"
-    String.raw`\bco\.`, // "Co." (dot REQUIRED — bare "co"/"co-worker" pass)
   ].join("|"),
   "i",
 );
+
+// "& Co" / "and Co" anywhere, and "Co." — where the DOT is REQUIRED so a bare
+// "co" and words that merely start with "co" ("control") stay legal. Neither
+// form fires when the "co" opens a COMPOUND (#1914). The "& Co" / "and Co" form
+// takes the guard the ai-service puts on its capitals CO form (`_CAPS_CO_COMPOUND`,
+// #1875):
+//  - a dash straight after "co" always makes one — "and co-ordinate", "& co-workers",
+//    "co–operative" — across the whole dash family (ASCII hyphen, U+2010–U+2015,
+//    minus sign, small and fullwidth hyphen-minus), not only ASCII;
+//  - across a space only the CLOSED list does — "and co ordinate", "and co
+//    operation", "& co op society", "co worker", "co curricular", "and co 2
+//    welding", "co 2 gas". Closed on purpose: "Sharma & Co operations manager",
+//    "Sharma & Co 2 saal" and "Sharma & Co 2 welder chahiye" are still firms —
+//    "2 weld" stops at "weld"/"welding", so a count of welders is not a compound.
+// After a DOT — either form — only "ordinat" makes a compound ("co.ordinator",
+// "co. ordinate"). This is NARROWER than the ai-service on purpose. No compound
+// is spelled "co.-", so "Sharma Co.-Pune" is a firm, and a dot before "op" /
+// "operative" / "worker" is how the co-operative employers write their names:
+// "Cosmos Co.op. Bank", "Shanti Co. Operative Housing Society". The measured
+// corpus held no "co." compound but "co.ordinator", so the wider list would have
+// lost those firms and gained nothing.
+// Horizontal whitespace only (never \r or \n) between "co" and the listed word —
+// note `[^\S\r\n]` still admits VT, FF, U+2028 and U+2029, no wider than a plain
+// space already is: "Sharma & Co",
+// a line break, then "Operation head" is a firm. The price, stated: a firm glued
+// to a dash ("Sharma & Co-Pune", "Sharma & Co—Pune", a trailing "Sharma & Co-"),
+// or followed across a space by a listed word ("Sharma & Co workers chahiye",
+// "Sharma & Co Operative Store", "Sharma & Co op"), reads as a compound and slips
+// this tier.
+const ORG_CO_FORM =
+  /(?:&|\band)\s+co\b(?![-\u2010-\u2015\u2212\uFE63\uFF0D]|[^\S\r\n]*(?:ordinat|operat(?:ion|ive|e)\b|op\b|worker|curricular|2[^\S\r\n]*(?:weld(?:ing)?|gas)\b)|\.[^\S\r\n]*ordinat)|\bco\.(?![^\S\r\n]*ordinat)/i;
 
 // Bare "Ltd"/"Limited" WITHOUT a pvt/private prefix is genuinely ambiguous:
 // "limited experience ok" is legal trade prose. So the bare form is flagged only
@@ -227,11 +255,26 @@ const ORG_TRAILING_LTD = new RegExp(
  *    so plain prose like "limited experience ok" is never rejected;
  *  - consequence: an all-lowercase "acme ltd" (or a mid-sentence bare "Ltd")
  *    slips that tier — the strong markers still catch the Pvt Ltd / Private
- *    Limited / LLP / Inc / Corp / & Co / Co. forms anywhere, case-blind.
+ *    Limited / LLP / Inc / Corp / & Co / Co. forms anywhere, case-blind;
+ *  - a "co" that opens a compound is not a firm (#1914): "and co-ordinate",
+ *    "& co-workers", "and co operative", "co.ordinator" pass, while "Sharma & Co",
+ *    "Sharma and Co.", "Sharma & Co, Pune", "Sharma Co.-Pune" and the co-op
+ *    names "Cosmos Co.op. Bank" / "Shanti Co. Operative Housing Society" are
+ *    still flagged. The price: a "& Co" / "and Co" firm glued to any dash
+ *    ("Sharma & Co-Pune", "Sharma & Co—Pune", "Sharma & Co-") or followed across
+ *    a space by a listed compound word — worker(s), operation / operative /
+ *    operate, op, curricular, ordinat…, "2 weld(ing)" / "2 gas" ("Sharma & Co workers
+ *    chahiye") — slips the "Co" tier.
  * Callers must still keep employer identity out of these fields by policy.
+ *
+ * FOUR WALLS READ THIS, and the #1914 narrowing applies to each: the ADR-0024
+ * job-text screen ({@link workerVisibleTextScreens}, the agency and posting DTOs,
+ * payer-web's form contracts, the seed scripts), the companion-v2 career-answer
+ * gate (`named_employer`), the skill certifier's org wall, and the general-form
+ * brief's organisation wall. A change here moves all four.
  */
 export function looksLikeOrgName(s: string): boolean {
-  return ORG_SUFFIX_STRONG.test(s) || ORG_TRAILING_LTD.test(s);
+  return ORG_SUFFIX_STRONG.test(s) || ORG_CO_FORM.test(s) || ORG_TRAILING_LTD.test(s);
 }
 
 // ---------------------------------------------------------------------------
@@ -242,9 +285,29 @@ export function looksLikeOrgName(s: string): boolean {
 // TLD. The TLD tier requires the dot IMMEDIATELY before the TLD token
 // ("acme.in", "acme-components.com", "acme.co.in") — prose like "2.5 in" (space
 // before "in") or an org-suffix "Co." (dot AFTER "co") never matches.
+//
+// One host is a degree, not a link (#1914): B.Com / M.Com, the commerce degrees a
+// job's requirements name ("B.Com/M.Com preferred"). The TLD tier reads a HOST — a
+// run of word characters, dots, dashes and "@", starting at the string or after
+// any other character — and skips it only when the WHOLE run is "b.com" or "m.com"
+// (any case), optionally with trailing sentence dots ("B.Com.", "B.Com..."). So
+// "x.com", "a.com", "shop.b.com", "b.com.au", "a@b.com" and "B.Com.acme.in" are
+// still hosts; "B.Com/M.Com", "(B.Com)" and "B.Com, M.Com" are two degrees. Closed
+// on purpose: no other single-letter host is skipped. The price, stated: the hosts
+// b.com and m.com themselves slip this tier, with or without a path or port
+// ("b.com/apply") — a scheme or "www." still catches them. A host is read from the
+// last run of ASCII host characters, so ANY other character just before a host
+// that ends in "b" / "m" — a non-ASCII letter ("cafém.com"), an invisible format
+// character (a U+200B before the "m" of "instagram.com"), a fullwidth dot — leaves
+// "b.com" / "m.com"
+// and is skipped. That opens no new class: one invisible character inside the
+// TLD already beat this tier, and job text does not strip \p{Cf} (a follow-up
+// beside #1848). No lookbehind: payer-web ships this to Next's default browser
+// target (Safari 12), which predates it.
 const URL_SCHEME = /\bhttps?:\/\//i;
 const URL_WWW = /\bwww\./i;
-const URL_TLD = /\.(?:com|net|org|co\.in|co|in|io|biz|info)\b/i;
+const URL_TLD =
+  /(?:^|[^\w.@-])(?![bm]\.com\.*(?![\w.@-]))[\w.@-]*\.(?:com|net|org|co\.in|co|in|io|biz|info)\b/i;
 
 /**
  * Best-effort heuristic: true if a string looks like it contains a URL / web
@@ -256,7 +319,15 @@ const URL_TLD = /\.(?:com|net|org|co\.in|co|in|io|biz|info)\b/i;
  * rejected before it can reach a worker.
  *
  * NOT a classifier: spelled-out domains ("acme dot in") and exotic TLDs slip —
- * callers must still keep contact routes out of these fields by policy.
+ * callers must still keep contact routes out of these fields by policy. The
+ * degrees "B.Com" / "M.Com" are not links (#1914); the cost is that the bare
+ * hosts b.com and m.com slip the TLD tier too, with a path, port, query or
+ * fragment ("b.com/apply", "b.com:8080", "m.com?x=1").
+ *
+ * This helper OWNS the degree skip. The skill certifier and the general-form
+ * brief keep their own whole-token exemptions (".net", "asp.net", …, "b.com",
+ * "m.com") in front of it; their "b.com" / "m.com" entries are now redundant
+ * with this skip, and their HOST_WITH_PATH wall still refuses "b.com/anything".
  */
 export function looksLikeUrl(s: string): boolean {
   return URL_SCHEME.test(s) || URL_WWW.test(s) || URL_TLD.test(s);

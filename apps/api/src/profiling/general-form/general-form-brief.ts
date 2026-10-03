@@ -315,6 +315,12 @@ function looksLikeContactRoute(text: string): boolean {
  * an honest thing for a worker to write about himself, and ".com" is exactly what the URL wall
  * looks for. Exempted only as a WHOLE token, so "b.com/anything" and "shop.b.com" still face the
  * wall.
+ *
+ * Since #1914 the shared `looksLikeUrl` skips a host that is exactly "b.com" / "m.com" itself, so
+ * the two degree entries here are redundant with it. That helper owns the degree skip and its
+ * stated residual: the bare hosts with a port, query or fragment ("b.com:8080", "m.com?x=1") now
+ * pass the link wall, where this list alone refused them. "b.com/anything" is still refused, by
+ * {@link HOST_WITH_PATH_RE}.
  */
 const URL_TLD_EXEMPT_TOKENS: ReadonlySet<string> = new Set([
   ".net",

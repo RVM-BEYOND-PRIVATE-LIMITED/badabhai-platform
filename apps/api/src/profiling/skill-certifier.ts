@@ -257,8 +257,16 @@ function isPlaceholder(text: string): boolean {
  *
  * WHY NOT A LOOSER RULE ("a TLD after a known prefix"): the exemption is a hole in a privacy
  * wall, and a hole should be exactly as large as the names it was cut for. Known gaps, accepted:
- * "Socket.io" (.io) and "C#.NET" are still refused; "B.Com/M.Com" is refused as one token.
+ * "Socket.io" (.io) and "C#.NET" are still refused; "B.Com/M.Com" is refused, by
+ * {@link HOST_WITH_PATH_RE} below.
  * Adding a name is a one-line, reviewable change here.
+ *
+ * THE DEGREES ARE NOW THE SHARED HELPER'S (#1914): `looksLikeUrl` itself skips a host that is
+ * exactly "b.com" / "m.com", so the two entries below are redundant with it — and the hole is no
+ * longer only this list. The shared skip also passes the bare hosts with a port, query or fragment
+ * ("b.com:8080", "m.com?x=1"), which this list refused as one non-exempt token; that residual is
+ * stated in `looksLikeUrl`'s docblock and owned there. Neither host is a contact route a worker or
+ * an employer controls. "b.com/anything" is still refused, by the host-with-path wall.
  */
 const URL_TLD_EXEMPT_TOKENS: ReadonlySet<string> = new Set([
   ".net",
@@ -300,8 +308,9 @@ const AT_SIGN_RE = /[@\uFF20\uFE6B]/u;
  * ends in.
  *
  * KNOWN COST, ACCEPTED: a slash straight after a dotted technology name reads as a path, so
- * "Node.js/Express" and "B.Tech/B.E" are refused (as "B.Com/M.Com" already was, one token to the
- * exemption above). Each costs one bullet; the worker can say them as two skills.
+ * "Node.js/Express", "B.Tech/B.E" and "B.Com/M.Com" are refused (the shared `looksLikeUrl` passes
+ * the last since #1914; this wall does not). Each costs one bullet; the worker can say them as
+ * two skills.
  */
 const HOST_WITH_PATH_RE = /[\p{L}\p{N}-]\.\p{L}{2,}\//u;
 

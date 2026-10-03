@@ -246,6 +246,97 @@ describe("looksLikeOrgName", () => {
   it("mid-sentence bare 'Ltd' followed by more words is NOT flagged (same tier, same tradeoff)", () => {
     expect(looksLikeOrgName("Acme Ltd hiring now")).toBe(false);
   });
+
+  // #1914 — the "Co" forms still catch every firm spelling…
+  it.each([
+    "Sharma & Co",
+    "Sharma & Co.",
+    "Sharma and Co",
+    "Sharma and Co.",
+    "SHARMA & CO",
+    "SHARMA & CO.",
+    "Sharma & Co, Pune",
+    "Sharma & Co., Pune",
+    "Sharma & Co Pvt Ltd",
+    "Sharma & Co - Pune", // a SPACED dash is punctuation, not a compound
+    "Sharma & Co.-Pune",
+    "Sharma Co.",
+    "Fitter at Mehta & Co",
+    // the compound list is closed: these words do not make "co" a compound
+    "Sharma & Co operations manager",
+    "Sharma & Co 2 saal",
+    "Sharma & Co driver chahiye",
+    // "2 weld" compounds only as "weld"/"welding": a count of welders is a firm's ad
+    "Sharma & Co 2 welder chahiye",
+    "Sharma & Co 2 welders",
+    "Sharma & Co 2 gases",
+    // a newline is never the gap of a compound
+    "Sharma & Co\nOperation head",
+    "Sharma & Co.\nordinator",
+    // the "Co." form on its own: no compound is spelled "co.-", whatever the dash
+    "Sharma Co.-Pune",
+    "Mehta Co.—Fitter",
+    // after a dot only "ordinat" compounds: the co-operative employers keep flagging
+    "Cosmos Co.op. Bank",
+    "Shanti Co. Operative Housing Society",
+    "XYZ CO.OP. BANK",
+    "Sharma & Co. Operative",
+    "and co.operation",
+  ])("still flags the firm form %j", (s) => {
+    expect(looksLikeOrgName(s)).toBe(true);
+  });
+
+  // …but not a "co" that opens a compound.
+  it.each([
+    "Supervise the line and co-ordinate with the shift in-charge",
+    "Work with seniors & co-workers",
+    "Must co-operate and co-ordinate with QC",
+    "and co-operative society member",
+    "and co-op canteen",
+    "and co-curricular activities",
+    "and co- ordinates the crew", // dash then a space: still the compound
+    "and co ordinate with the supervisor",
+    "and co operation with the team",
+    "and co operative housing",
+    "and co op society",
+    "& co worker support",
+    "and co curricular",
+    "MIG and CO 2 welding",
+    "MIG and CO2 welding",
+    "QUALITY CO.ORDINATOR",
+    "Quality co. ordinator",
+    "and co.ordinate",
+    "AND CO-ORDINATE",
+  ])("does not flag the co- compound %j", (s) => {
+    expect(looksLikeOrgName(s)).toBe(false);
+  });
+
+  it.each([
+    ["U+2010 hyphen", "and co\u2010ordinate"],
+    ["U+2011 non-breaking hyphen", "and co\u2011ordinate"],
+    ["U+2012 figure dash", "and co\u2012ordinate"],
+    ["U+2013 en dash", "and co\u2013ordinate"],
+    ["U+2014 em dash", "& co\u2014workers"],
+    ["U+2015 horizontal bar", "and co\u2015operate"],
+    ["U+2212 minus sign", "and co\u2212ordinate"],
+    ["U+FE63 small hyphen-minus", "and co\uFE63ordinate"],
+    ["U+FF0D fullwidth hyphen-minus", "and co\uFF0Dordinate"],
+  ])("treats the %s as a compound dash (%j)", (_dash, s) => {
+    expect(looksLikeOrgName(s)).toBe(false);
+  });
+
+  // The stated price of the "& Co" / "and Co" guard: a firm glued to any dash, or
+  // followed across a space by a listed compound word, reads as a compound.
+  it.each([
+    ["glued to a dash", "Sharma & Co-Pune"],
+    ["glued to an em dash", "Sharma & Co—Pune"],
+    ["a trailing dash", "Sharma & Co-"],
+    ["a listed word across a space", "Sharma & Co workers chahiye"],
+    ["a listed word across a space", "Mehta & Co worker chahiye"],
+    ["a listed word across a space", "Sharma & Co Operative Store"],
+  ])("KNOWN RESIDUAL: a firm %s slips the Co tier (%j)", (_why, s) => {
+    expect(looksLikeOrgName(s)).toBe(false);
+  });
 });
 
 describe("bandForCount", () => {
@@ -295,6 +386,66 @@ describe("looksLikeUrl", () => {
   ])("does not flag %s", (s) => {
     expect(looksLikeUrl(s)).toBe(false);
   });
+
+  // #1914 — every real host shape still fires…
+  it.each([
+    "acme.com",
+    "ACME.COM",
+    "acme-components.com",
+    "acme.co.in",
+    "x.in",
+    "x.com",
+    "a.com", // no single-letter host but b/m is skipped
+    "c.com",
+    "b.in", // a degree is ".Com" only
+    "m.co",
+    ".com",
+    "Apply at www.",
+    "http://b.com",
+    "www.m.com",
+    "shop.b.com", // "b" is a subdomain label, not a token
+    "b.com.au",
+    "B.Com.acme.in", // a degree glued to a host is one host
+    "B.Com-acme.in",
+    "a@b.com",
+    "b@m.com",
+    "B.Com graduate, apply at acme.com",
+    "M.Com / careers.acme.org",
+  ])("still flags the host %j", (s) => {
+    expect(looksLikeUrl(s)).toBe(true);
+  });
+
+  // …but B.Com / M.Com are degrees.
+  it.each([
+    "B.Com",
+    "M.Com",
+    "b.com",
+    "B.COM",
+    "B.Com.",
+    "B.Com...",
+    "BCom",
+    "MCom",
+    "B. Com",
+    "B.Com/M.Com graduate preferred",
+    "Qualification: B.Com / M.Com",
+    "(B.Com)",
+    "B.Com(Hons)",
+    "B.Com, M.Com, BBA",
+    "B.Com pass, Tally aata ho",
+    "B.Tech / B.Sc / B.E.",
+  ])("does not flag the degree %j", (s) => {
+    expect(looksLikeUrl(s)).toBe(false);
+  });
+
+  // The stated price of the degree skip: the hosts b.com and m.com themselves,
+  // with or without a path, port, query or fragment, slip the TLD tier. A scheme
+  // or "www." still catches them.
+  it.each(["b.com/apply", "m.com", "M.COM:8080", "m.com?x=1", "b.com#careers"])(
+    "KNOWN RESIDUAL: the bare host %j slips the TLD tier",
+    (s) => {
+      expect(looksLikeUrl(s)).toBe(false);
+    },
+  );
 });
 
 describe("workerVisibleTextScreens", () => {
@@ -306,6 +457,10 @@ describe("workerVisibleTextScreens", () => {
     ["Acme Pvt Ltd 9876543210 acme.in", ["contact_details", "company_name", "link"]],
     ["CNC Operator — Night Shift", []],
     ["PF + ESI", []],
+    // #1914 — the requirement text that the #1823 posting screen used to 400
+    ["B.Com/M.Com graduate preferred, will co-ordinate with the store team", []],
+    ["Sharma & Co. — apply at acme.com", ["company_name", "link"]],
+    ["Security guard at Cosmos Co.op. Bank", ["company_name"]],
   ] as const)("%j trips %j", (s, screens) => {
     expect(workerVisibleTextScreens(s)).toEqual(screens);
   });
