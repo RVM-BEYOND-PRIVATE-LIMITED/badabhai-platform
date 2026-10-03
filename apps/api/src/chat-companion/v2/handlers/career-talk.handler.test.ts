@@ -1,5 +1,6 @@
 import "reflect-metadata";
-import { describe, expect, it, vi } from "vitest";
+import { Logger } from "@nestjs/common";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ServerConfig } from "@badabhai/config";
 import { CompanionCareerInputSchema } from "@badabhai/ai-contracts";
 import type { WorkerProfile } from "@badabhai/db";
@@ -69,9 +70,7 @@ describe("CareerTalkHandler (ADR-0046 P3) — the one model-written answer", () 
     const { turn, outcome } = await h.handler.handle(input());
 
     expect(outcome).toBe("served");
-    expect(turn.reply).toBe(
-      "Pehle welding ka certificate kariye.\nPhir 6G test ki tayari kariye.",
-    );
+    expect(turn.reply).toBe("Pehle welding ka certificate kariye.\nPhir 6G test ki tayari kariye.");
     // O9: present and FALSE — an absent field would let a shipped client read `reply` aloud.
     expect(turn.read_aloud).toBe(false);
     expect(turn.tts_text).toBeUndefined();
@@ -119,7 +118,100 @@ describe("CareerTalkHandler (ADR-0046 P3) — the one model-written answer", () 
     const { turn, outcome } = await h.handler.handle(input());
     expect(outcome).toBe("fallback");
     expect(turn.reply).toBe(FALLBACK.latin);
-    expect(careerEvent(h.events).payload).toMatchObject({ outcome: "fallback", refusal_topic: null });
+    expect(careerEvent(h.events).payload).toMatchObject({
+      outcome: "fallback",
+      refusal_topic: null,
+    });
+  });
+
+  describe("an over-long follow-up chip is dropped, not the answer (owner, 2026-10-03)", () => {
+    const LINES = ["Pehle welding ka certificate kariye.", "Phir 6G test ki tayari kariye."];
+    /** Five words, otherwise clean — its only failure is the four-word chip bound. */
+    const LONG_CHIP = "TIG welding kaise seekhun ji";
+
+    /** The handler's log and warn lines, captured so the test can read what an operator would. */
+    function captureLogs() {
+      const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+      const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+      return { log, warn };
+    }
+    afterEach(() => vi.restoreAllMocks());
+
+    it("serves the lines and only the KEPT chips; outcome answered; one counts-only log line", async () => {
+      const logs = captureLogs();
+      const h = setup({
+        status: "answer",
+        lines: LINES,
+        followup_chips: ["Course kahan milega", LONG_CHIP],
+        ai_metadata: META,
+      });
+      const { turn, outcome } = await h.handler.handle(input());
+
+      expect(outcome).toBe("served");
+      expect(turn.reply).toBe(LINES.join("\n"));
+      expect(turn.suggested_followups).toEqual(["Course kahan milega"]);
+      expect(careerEvent(h.events).payload).toEqual({
+        outcome: "answered",
+        refusal_topic: null,
+        turns_in_memory: 0,
+      });
+
+      expect(logs.warn).not.toHaveBeenCalled();
+      expect(logs.log).toHaveBeenCalledTimes(1);
+      const line = logs.log.mock.calls.flat().map(String).join(" ");
+      expect(line).toBe(
+        `career answer served for worker ${WORKER} with 1 follow-up chip(s) dropped (reason=chip_too_long)`,
+      );
+      // The count and the closed reason — never the chip, which is model text.
+      for (const word of LONG_CHIP.split(" ")) expect(line).not.toContain(word);
+    });
+
+    it("every chip over-long: served with no chips at all", async () => {
+      const logs = captureLogs();
+      const h = setup({
+        status: "answer",
+        lines: LINES,
+        followup_chips: [LONG_CHIP, "Pipe welding ka course kahan"],
+        ai_metadata: META,
+      });
+      const { turn, outcome } = await h.handler.handle(input());
+
+      expect(outcome).toBe("served");
+      expect(turn.suggested_followups).toEqual([]);
+      expect(turn.question_kind).toBe("close");
+      expect(String(logs.log.mock.calls[0]![0])).toContain("with 2 follow-up chip(s) dropped");
+    });
+
+    it("an over-long chip that ALSO states money is the fallback — the drop launders nothing", async () => {
+      const logs = captureLogs();
+      const h = setup({
+        status: "answer",
+        lines: LINES,
+        followup_chips: ["Welder ki salary 25000 hoti hai"],
+        ai_metadata: META,
+      });
+      const { turn, outcome } = await h.handler.handle(input());
+
+      expect(outcome).toBe("fallback");
+      expect(turn.reply).toBe(FALLBACK.latin);
+      expect(careerEvent(h.events).payload).toMatchObject({ outcome: "fallback" });
+      expect(logs.log).not.toHaveBeenCalled();
+      const warned = logs.warn.mock.calls.flat().map(String).join(" ");
+      expect(warned).toBe(`career answer rejected for worker ${WORKER} (money)`);
+    });
+
+    it("a clean answer logs nothing", async () => {
+      const logs = captureLogs();
+      const h = setup({
+        status: "answer",
+        lines: LINES,
+        followup_chips: ["Course kahan milega"],
+        ai_metadata: META,
+      });
+      expect((await h.handler.handle(input())).outcome).toBe("served");
+      expect(logs.log).not.toHaveBeenCalled();
+      expect(logs.warn).not.toHaveBeenCalled();
+    });
   });
 
   it("an unreachable service is the fallback line, and the spend still records (null meta)", async () => {
@@ -128,9 +220,16 @@ describe("CareerTalkHandler (ADR-0046 P3) — the one model-written answer", () 
     expect(outcome).toBe("fallback");
     expect(turn.reply).toBe(FALLBACK.latin);
     // The call happened (or was attempted); `record` no-ops on the null meta it got.
-    expect(h.cost.record).toHaveBeenCalledWith(null, "companion_career_answer", null, "c-1", "r-1", {
-      workerId: WORKER,
-    });
+    expect(h.cost.record).toHaveBeenCalledWith(
+      null,
+      "companion_career_answer",
+      null,
+      "c-1",
+      "r-1",
+      {
+        workerId: WORKER,
+      },
+    );
     expect(careerEvent(h.events).payload).toMatchObject({ outcome: "fallback" });
   });
 
