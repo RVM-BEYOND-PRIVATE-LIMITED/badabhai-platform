@@ -588,11 +588,29 @@ _RESIDUAL_DIGITS_RE = re.compile(r"\d{7,}")
 # NOT the max_length cap's job: 20,000 characters is UNDER `DEFAULT_MAX_LENGTH`, so the
 # fail-closed size gate never fires here — this input is accepted, as it should be. The
 # cap bounds size; this bounds work per character.
+#
+# THE CUE-TO-VALUE CONNECTOR IS LINEAR (issue #1933, risks-register R54). It was
+# `\s*(?:no\.?|number|num|#)?\s*[:\-]?\s*`: three whitespace quantifiers with only optional
+# tokens between them. On a cue followed by a whitespace run that then fails the digit
+# lookahead, every split of the run among the three was tried, which is O(k^3) in the run.
+# `pseudonymize("reg" + " " * 800 + "!")` took 1.6-6.0 s (2026-10-03), far under the size cap,
+# inline in `async def`, whatever `AI_RAW_PII_ENABLED` says (the walls, the at-rest copies and
+# the embedding input all run this rule). Each whitespace quantifier is now folded into the
+# optional token it FOLLOWS: `\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:\-]\s*)?`. That is linear,
+# because the "no" word and the separator never start with whitespace, so after the leading
+# `\s*` there is exactly one way to read a run. IT MATCHES THE SAME SPANS ON EVERY INPUT, not
+# only on realistic ones: the two forms accept the same strings, and in priority order they
+# try the same value starts first, the old form only adding repeats of starts it had already
+# tried (or starts on whitespace, which the value can never take). Measured over the repo
+# corpus and a seeded fuzz of cue lines: 0 span differences on this rule, `_RESUME_CUED_ID_RE`
+# and the salary guard's copy (`tests/test_pseudonymize_cued_id_linear.py`,
+# `scripts/measure_cued_id_linear.py`). No possessive quantifier, so the TypeScript ports in
+# `apps/api` and the lexicon's `credentialBefore` carry the same text.
 _CREDENTIAL_ID_LOOKAHEAD_MAX = 64
 _CREDENTIAL_ID_RE = re.compile(
     r"(?i:\b(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b"
     r"(?:\s+(?:ka|ki|ke|mera|meri))?"
-    r"\s*(?:no\.?|number|num|#)?\s*[:\-]?\s*)"
+    r"\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:\-]\s*)?)"
     r"(?=[A-Za-z0-9/\-]{0," + str(_CREDENTIAL_ID_LOOKAHEAD_MAX) + r"}\d)"
     r"([A-Za-z0-9][A-Za-z0-9/\-]{5,})"
 )
@@ -1502,10 +1520,14 @@ _INVISIBLE_RE = re.compile("[\u200b\u200c\u200d\u2060\ufeff]")
 #: "Passport No: M1234567" and "Voter ID: ABC1234567" — the two forms a real résumé actually
 #: prints — both slipped through while their lowercase equivalents were caught. A flag that
 #: covers half an expression measures as coverage and is not.
+#: THE CONNECTOR AFTER THE CUE IS `_CREDENTIAL_ID_RE`'s LINEAR ONE (issue #1933, R54; the note
+#: there). Main's `\s*(?:no\.?|number|num|id|#)?\s*[:\-]?\s*` was O(k^3) on a whitespace run:
+#: `contains_hard_identifier("passport" + " " * 800 + "!")` took 3.5-9.1 s. Same spans on every
+#: input.
 _RESUME_CUED_ID_RE = re.compile(
     r"\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|"
     r"a/c|account|dob|date\s+of\s+birth)\b"
-    r"\s*(?:no\.?|number|num|id|#)?\s*[:\-]?\s*"
+    r"\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:\-]\s*)?"
     r"(?=[A-Za-z0-9/\-]{0,24}\d)"
     r"[A-Za-z0-9][A-Za-z0-9/\-]{4,}",
     re.IGNORECASE,

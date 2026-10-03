@@ -2291,7 +2291,8 @@ def _period_months(near_before: str, near_after: str) -> int | None:
 # full rationale (including why a line scan and a fixed character window were both
 # tried and both shipped false suppressions) live in data/salary.json.
 #
-# The possessive slot is kept in step with the gate's own `_CREDENTIAL_ID_RE`.
+# The possessive slot is kept in step with the gate's own `_CREDENTIAL_ID_RE`, and so is the
+# linear connector after it (issue #1933, R54: main's was O(k^3) on a whitespace run).
 _CREDENTIAL_BEFORE_RE = lexicon.compile_pattern(_SALARY["credentialBefore"])
 
 
