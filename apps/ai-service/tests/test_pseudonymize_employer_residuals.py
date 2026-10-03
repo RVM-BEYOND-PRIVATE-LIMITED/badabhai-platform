@@ -224,6 +224,8 @@ def test_no_span_crosses_a_line(text, expected):
         "various industries mein kaam kiya",
         "municipal corporation ka kaam",
         "fabrication jobs mostly industries mein",
+        "fabrication jobs mainly industries mein",
+        "steel parts usually industries me jaate",
         "alag alag industries mein kaam kiya hai",
         "kai sari industries me kaam kiya",
         # ...or after nothing but sector words: an industry, not a firm (`_SECTOR_WORDS`).
@@ -336,6 +338,9 @@ def test_a_title_case_job_preference_is_not_a_firm(text):
         ("M/S A-ONE FABRICATORS ME WELDER", "M/S [EMPLOYER_1] ME WELDER"),
         ("M/s 3S Engineering Services me technician", "M/s [EMPLOYER_1] me technician"),
         ("m/s gupta & sons, bhosari", "m/s [EMPLOYER_1], bhosari"),
+        # A trade word first is still a firm when another word is not trade vocabulary.
+        ("M/S TOOL CRAFT", "M/S [EMPLOYER_1]"),
+        ("M/S Turning Point", "M/S [EMPLOYER_1]"),
         # An initial is a name word, not the stopword "a".
         ("M/S. A.K. ENGINEERING WORKS", "M/S. [EMPLOYER_1]"),
         ("m/s a.k. traders", "m/s [EMPLOYER_1]"),
@@ -437,6 +442,11 @@ def test_an_m_s_firm_an_earlier_rule_masked_keeps_its_tokens(
         "M/S S/S WELDING",
         "Required M/S Welder for Pune site",
         "m/s nahi pata",
+        # A "firm" of nothing but curated trade vocabulary is trade talk (`replace_ms_firm`).
+        "m/s piping ka kaam kiya",
+        "M/S TURNING KA KAAM 3 SAAL",
+        "M/S AutoCAD drafting",
+        "m/s plumbing aur fitting",
         # Not the cue at all, or the cue named.
         "feed 150 mm/s",
         "speed 3 km/s",
@@ -499,7 +509,8 @@ def test_five_or_six_name_words_before_a_strong_form_mask_whole(
     ("text", "main_text", "expected"),
     [
         # Security review: a long span that began on "INDUSTRIES" took the capitals span's form
-        # and left "KRISHNA" raw. No form word sits inside a long span (`_NOT_A_FORM_WORD`).
+        # and left "KRISHNA" raw. No form word sits inside a long span
+        # (`_NOT_A_CAPITALS_OR_TITLE_FORM_WORD`)...
         (
             "KRISHNA INDUSTRIES turning milling grinding drilling tapping pvt ltd",
             "[EMPLOYER_1] turning milling grinding drilling tapping pvt ltd",
@@ -509,6 +520,13 @@ def test_five_or_six_name_words_before_a_strong_form_mask_whole(
             "RAMESH KUMAR SHARMA COMPANY d e f g LTD",
             "[EMPLOYER_1] d e f g LTD",
             "[EMPLOYER_1] [EMPLOYER_2]",
+        ),
+        # ...including one the capitals rule ends on with a dash after it (second review: the
+        # long span took "Traders INDUSTRIES-PUNE …" and left "Hero" raw).
+        (
+            "Hero Traders INDUSTRIES-PUNE BHARAT Sharma shop ltd",
+            "[EMPLOYER_1]-PUNE BHARAT Sharma shop ltd",
+            "[EMPLOYER_1]-PUNE [EMPLOYER_2]",
         ),
     ],
 )
@@ -548,6 +566,12 @@ def test_the_long_pass_never_takes_a_capitals_span_s_name(text, main_text, expec
         ("sharma &  co", "sharma &  co", "'& co' wants exactly one space"),
         ("fitter/tata motors ltd", "fitter/tata [EMPLOYER_1]", "a slash glues a word on"),
         (
+            "pune-tata motors ltd",
+            "pune-tata [EMPLOYER_1]",
+            "a dash, a dot or '&' glues the first name word to a city, which never opens a span",
+        ),
+        ("nashik-sharma & co", "nashik-sharma & co", "so a glued firm of one word stays raw"),
+        (
             f"shree ganesh engineering{_NL}works pvt ltd",
             f"shree ganesh engineering{_NL}[EMPLOYER_1]",
             "no span crosses a line, a wrapped firm included",
@@ -560,6 +584,7 @@ def test_the_long_pass_never_takes_a_capitals_span_s_name(text, main_text, expec
         ),
         ("M/S STEEL CENTRE", "M/S STEEL CENTRE", "a mild-steel word cannot open an M/S firm"),
         ("M/S THE ROYAL ENGINEERS", "M/S THE ROYAL ENGINEERS", "nor can a stopword"),
+        ("M/S CNC TURNING WORKS", "M/S CNC TURNING WORKS", "nor can a role word"),
     ],
 )
 def test_KNOWN_RESIDUAL_stated_under_masking(text, expected, why):
@@ -590,6 +615,17 @@ def test_KNOWN_RESIDUAL_stated_under_masking(text, expected, why):
         ),
         # A weak form after two ordinary words (the one NCO prose shape left in the repo corpus).
         ("garbage removal corporation", "garbage removal corporation", "[EMPLOYER_1]"),
+        # The title-form pass takes a leading city, as the title-case and capitals rules do.
+        ("Pune Sharma & Co.", "Pune Sharma & Co.", "[EMPLOYER_1]."),
+        # After an M/S cue, a trade word then one that is not trade vocabulary reads as a firm...
+        ("m/s lathe machine pe kaam", "m/s lathe machine pe kaam", "m/s [EMPLOYER_1] pe kaam"),
+        (
+            "M/s Engineering Unit Hai Speed Ki, Meter Per Second",
+            "M/s Engineering Unit Hai Speed Ki, Meter Per Second",
+            "M/s [EMPLOYER_1] Hai Speed Ki, Meter Per Second",
+        ),
+        # ...and so does metres per second with no number in front of the cue.
+        ("speed  m/s air velocity", "speed  m/s air velocity", "speed  m/s [EMPLOYER_1]"),
     ],
 )
 def test_ACCEPTED_over_masking(text, main_text, expected, main_gateway):
@@ -702,6 +738,13 @@ def test_a_name_hidden_by_an_invisible_is_now_masked_whole(main_gateway):
             "my name isRamesh [EMPLOYER_1]",
             "Ramesh ",
         ),
+        # No cue: an invisible inside a dash-glued run (second review, the wider generator).
+        ("Sharma Motors\u2060A-ONE Motors", "Sharma [EMPLOYER_1]", "Sharma "),
+        (
+            "X1234567-Hero WORKS\u00adEngineering operator INDUSTRIES-PUNE",
+            "X[AMOUNT_1]-Hero [EMPLOYER_1]-PUNE",
+            "Hero ",
+        ),
     ],
 )
 def test_KNOWN_RESIDUAL_r49_extends_to_the_1892_passes(text, leaked, raw, main_gateway):
@@ -709,9 +752,12 @@ def test_KNOWN_RESIDUAL_r49_extends_to_the_1892_passes(text, leaked, raw, main_g
 
     An invisible right after a name cue merges "isRamesh" in the reader view, so the cue misses and
     a #1892 pass masks the name's tail with the firm; the spaced view masks "Ramesh Kumar" as a
-    name, which merely OVERLAPS that mask, so "Ramesh" egresses where main blocked. #1892 extends
-    the shape to its passes, as #1875 did to the capitals forms. The fix is #1890 (covered only
-    when every kept offset is reader-masked); when it lands these block: make them blocking pins."""
+    name, which merely OVERLAPS that mask, so "Ramesh" egresses where main blocked. An invisible
+    inside a dash-glued run does the same with no cue: the reader view merges "MotorsA-", the
+    absorb pass folds it into the token, and that token merely overlaps the spaced view's "Sharma
+    Motors". #1892 extends the shape to its passes, as #1875 did to the capitals forms. The fix is
+    #1890 (covered only when every kept offset is reader-masked); when it lands these block: make
+    them blocking pins."""
     assert main_gateway(pseudonymize, text).blocked_reason == gateway._INVISIBLE_BYPASS_REASON
     result = pseudonymize(text)
     assert (result.text, result.blocked) == (leaked, False)
@@ -808,7 +854,11 @@ _FORMS = [
     "pvt", "LIMITED", "INDUSTRIES", "pvt.ltd", "(P)LTD",
 ]  # fmt: skip
 _CUES = ["M/S", "M/s.", "m/s", "M / S", "M/S:", "M/S:-", "5 m/s", "mera naam", "MY NAME IS"]
-_JOINED = ["&", "(P)", "(I)", "and", "3M", "Hero-Honda", "A-ONE", "J.K.", "a.k.", "Pune-Tata"]
+#: ... with a form a dash glues on, which the capitals rule still ends on (second review).
+_JOINED = [
+    "&", "(P)", "(I)", "and", "3M", "Hero-Honda", "A-ONE", "J.K.", "a.k.", "Pune-Tata",
+    "INDUSTRIES-PUNE", "Ltd-Pune",
+]  # fmt: skip
 _FILLERS = [
     "mein", "at", "ek", "koi", "the", "plate", "angle", "Pune", "PUNE", "chakan", ",", "5", "\n",
     "welder", "CNC", "operator", "iti", "salary",
@@ -851,8 +901,8 @@ def test_property_the_1892_passes_only_ever_add_masking(main_gateway):
     2. END TO END (`pseudonymize`): the same, EXCEPT where main blocked on the two-view check and
        the branch passes, each such turn asserted to be "full" (the reader view now masks every
        kept offset the spaced view masked) or "partial" (R49, #1890) — and the partial turns are
-       BOUNDED, so a change that widens R49 further fails here. The shape that leaves a cued name
-       raw is pinned on its own by `test_KNOWN_RESIDUAL_r49_extends_to_the_1892_passes`.
+       BOUNDED, so a change that widens R49 further fails here. The shapes that leave a name word
+       raw are pinned on their own by `test_KNOWN_RESIDUAL_r49_extends_to_the_1892_passes`.
 
     What it does NOT prove: anything outside these pools, or that the masking is CORRECT."""
     rng = random.Random(1892)
@@ -882,17 +932,18 @@ def test_property_the_1892_passes_only_ever_add_masking(main_gateway):
         assert not (raw_words(new.text) - raw_words(old.text)), (text, old.text, new.text)
         if not any(_a_pass_may_act(v.text, old.text) for v in gateway._build_views(text)):
             assert new == old, text
-    # Measured 2026-10-03: 1,737 outputs change and main blocks 1,977 turns; of those, 26 now pass
-    # with full cover and 5 as R49 partials, which leave raw only "S", "S (I)", "(P)LTD" and "MY"
-    # (a cue letter, a joiner, a form, a cue word) — no name word.
+    # Measured 2026-10-03: 1,766 outputs change and main blocks 1,997 turns; of those, 26 now pass
+    # with full cover and 7 as R49 partials. Five leave raw only a cue letter ("S"); two leave a
+    # name word ("Fabricators", "Hero"), both an invisible inside a dash-glued run, pinned in
+    # `test_KNOWN_RESIDUAL_r49_extends_to_the_1892_passes`.
     assert seen["changed"] > 1_200, seen
     assert seen["main blocked"] > 1_500, seen
     assert seen["a region grew"] > 0, seen
     assert seen["unblocked, partial"] <= _R49_PARTIAL_BOUND, seen
 
 
-#: The R49 partial turns the property test's 6,000 samples may hold: 5 measured, a little slack.
-_R49_PARTIAL_BOUND = 8
+#: The R49 partial turns the property test's 6,000 samples may hold: 7 measured, a little slack.
+_R49_PARTIAL_BOUND = 9
 
 
 # --- 9. the gates and the cost --------------------------------------------------------------------
@@ -954,6 +1005,8 @@ _DENSE_SHAPES = {
     "dense+zwsp": "\u200b" + _DENSE[:19_969] + " ltd Ltd M/ [EMPLOYER_1]",
     "and": (("b." * 30 + " and ") * 400)[:19_992] + " pvt ltd",
     "dotted": "B." * 9_990 + " ltd Ltd M/ [EMPLOYER_1]",
+    # The largest share measured: nothing but firms, one absorb each (x2.7, linear; COST).
+    "firms": ("Ab & Tata Steel LTD " * 1_000)[:20_000],
 }
 
 
