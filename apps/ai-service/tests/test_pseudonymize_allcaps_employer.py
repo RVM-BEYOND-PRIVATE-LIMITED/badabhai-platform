@@ -48,7 +48,7 @@ from app.pseudonymize import (
 
 @pytest.fixture
 def main_gateway(monkeypatch):
-    """The gateway as on main before #1875: the capitals rule and #1892's later passes switched
+    """The gateway as on main before #1875: the capitals rule and #1892's passes switched
     off, nothing else touched.
 
     Sound because each is a SEPARATE pass that runs after the title-case rule and both name rules —
@@ -443,7 +443,7 @@ def _sample(rng: random.Random) -> str:
 
 @pytest.fixture
 def without_1892(monkeypatch):
-    """#1892's later passes switched off for the whole test, on both sides of a comparison, so a
+    """#1892's passes switched off for the whole test, on both sides of a comparison, so a
     test proves the capitals rule alone: they can take over or extend its spans (see that file)."""
     for name in _RULES_1892:
         monkeypatch.setattr(gateway, name, _NEVER)
@@ -458,7 +458,7 @@ def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway, without
     and lower case, and four invisible characters (U+200B, U+200C, U+2060, U+00AD) glued in as the
     SOLE separator between two words.
 
-    It proves THIS rule: #1892's later passes are switched off on both sides (`without_1892`);
+    It proves THIS rule: #1892's passes are switched off on both sides (`without_1892`);
     `test_pseudonymize_employer_residuals.py` proves those passes the same way.
 
     1. IN EACH VIEW (#1738's reader and spaced view, through `_mask`): every region main masked is

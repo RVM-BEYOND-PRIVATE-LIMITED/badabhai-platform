@@ -520,22 +520,25 @@ _EMPLOYER_CAPS_RE = re.compile(
 #     pseudonymize("RAMESH KUMAR SHARMA ENGINEERING WORKS PVT LTD").text
 #                                                    -> "RAMESH [EMPLOYER_1] LTD"
 #
-# Each also certified clean, so the walls passed it raw whatever AI_RAW_PII_ENABLED says (who reads
-# the gateway raw, by posture: the #1875 notes above). FIVE PASSES, each separate, so within a view
-# they only ADD masking. Four run after the title-case rule, both name rules and the capitals rule,
+# The three left wholly raw also certified clean, so the walls passed them raw whatever
+# AI_RAW_PII_ENABLED says (who reads the gateway raw, by posture: the #1875 notes above). FIVE
+# PASSES, each separate. Four run after the title-case rule, both name rules and the capitals rule,
 # on their output (rules 4c-4f in `_mask`); the long pass runs just ahead of the capitals rule (4a)
-# and is built so it never takes part of a capitals span (detail 4 below).
+# and is built so it never takes part of a capitals span (item 4 below).
 #   1. LOWER AND SENTENCE CASE (`_EMPLOYER_LOWER_RE`): up to four name words of any case before a
 #      form that stays corporate in lower case — LTD, LLP, LLC, W.L.L, PVT LTD / PRIVATE LIMITED
 #      and their glued spellings ("pvt.ltd", "(P)LTD"), "& CO" — or, after TWO or more name words,
 #      INDUSTRIES, ENTERPRISES, CORPORATION, "CO." ("jai bhavani industries", "verma brothers
-#      co."), unless every word before it is a sector word ("auto ancillary industries",
-#      `_SECTOR_WORDS`). Never "limited", "company", "pvt" or "private" alone: in worker Hinglish
-#      they are ordinary words ("knowledge limited hai", "private company mein tha", "pvt job"). In
-#      lower case every word is a candidate, so a STOPWORD (`_EMPLOYER_STOPWORDS`) can neither open
-#      nor sit inside the span, and a ROLE word (`_ROLE_WORDS`), a CITY or a form word never opens
-#      one: "cnc turner at tata motors ltd" keeps "cnc turner at", "iti fitter tata motors ltd"
-#      keeps "iti fitter", "pune tata motors ltd" keeps "pune", "ek pvt ltd company" stays raw.
+#      co."). Never "limited", "company", "pvt" or "private" alone: in worker Hinglish they are
+#      ordinary words ("knowledge limited hai", "private company mein tha", "pvt job"). Left raw:
+#      a span whose every name word is a sector word, before any form ("auto ancillary
+#      industries", "automobile pvt ltd company", `_SECTOR_WORDS`), and a weak form right after a
+#      process ("agarbatti making industries"). In lower case every word is a candidate, so a
+#      STOPWORD (`_EMPLOYER_STOPWORDS`) can neither open nor sit inside the span, and a ROLE word
+#      (`_ROLE_WORDS`), a DEPARTMENT (`_DEPARTMENT_WORDS`), a CITY or a form word never OPENS one:
+#      "cnc turner at tata motors ltd" keeps "cnc turner at", "quality inspector bharat forge ltd"
+#      keeps "quality inspector", "pune tata motors ltd" keeps "pune", "ek pvt ltd company" stays
+#      raw. (A city further in is masked with the firm: OVER, below.)
 #   2. THE TITLE-CASE TWINS OF #1875's FIXES (`_EMPLOYER_TITLE_FORM_RE`, `_EMPLOYER_ABSORB_RE`).
 #      The capitals grammar with title-case forms masks "Sharma & Co.", "Xyz (P) Ltd", "Acme Llp"
 #      (Pvt and Private only before Ltd or Limited: "Govt & Private Jobs" is a job preference).
@@ -546,32 +549,36 @@ _EMPLOYER_CAPS_RE = re.compile(
 #      of trade or sector words ("Welding & [EMPLOYER_1]", "Oil & [EMPLOYER_1]"), a city
 #      ("Pune-[EMPLOYER_1]"), a duration ("3Yrs [EMPLOYER_1]"), and a word holding 7+ digits:
 #      "AB12345678-Tata Steel" still BLOCKS on the residual-digit net, as on main.
-#   3. THE M/S CUE (`_EMPLOYER_MS_CUE_RE`): "M/S", "M/s.", "M / S", "M/S:", "M/S:-" then up to four
-#      name words of any case — the small firm with no corporate form ("M/S. KRISHNA FABRICATORS"),
-#      without touching shouted speech ("MAIN STEEL PLANT" has no cue). "M/S" also abbreviates
-#      mild steel and metres per second, so the cue never fires after a number (up to three
-#      spaces: "5  m/s"), never opens on a mild-steel, unit, role or curated trade word ("m/s
-#      plate", "M/S Tig Welding", "M/S Fitter", "m/s matlab meter per second",
-#      `_MS_NOT_A_FIRM_WORDS`), never crosses a line, and never cuts a word: one longer than the
-#      bound fails the match rather than leave digits behind. A city or a role word after the first
-#      word ends the firm ("M/S SHARMA TRADERS PUNE MEIN", "M/S SHARMA TRADERS WELDER"), and the
-#      next cue is never a name word ("M/S A M/S B" keeps two cues). A firm an earlier rule
-#      half-masked keeps its token ("M/[EMPLOYER_1] Traders", where the title-case rule took the
-#      cue's "S", -> "M/[EMPLOYER_1]").
+#   3. THE M/S CUE (`_EMPLOYER_MS_CUE_RE`): "M/S", "M/s.", "M / S", "M/S:", "M/S:-", then a firm
+#      that ENDS on a word naming a business (`_MS_FIRM_WORDS`: traders, fabricators, works,
+#      transport, sons, …) — the small firm with no corporate form ("M/S. KRISHNA FABRICATORS"),
+#      without touching shouted speech ("MAIN STEEL PLANT" has no cue). "M/S" also abbreviates mild
+#      steel and metres per second, and a payer's verb or a locality follows the firm: none ever
+#      reaches a firm word ("m/s hollow section ka fabrication", "speed 5 m/s rakhte", "M/S SHARMA
+#      TRADERS BHOSARI ME HELPER" keeps "BHOSARI ME HELPER", "M/s ABC Engineering Pvt Ltd requires
+#      CNC operators" keeps "requires CNC"). The firm never opens on a mild-steel, unit or role word
+#      (`_MS_NOT_A_FIRM_WORDS`), never crosses a line and never cuts a word; a "firm" made of
+#      nothing but curated trade vocabulary is a skill ("M/S PIPING SYSTEMS", `replace_ms_firm`). A
+#      firm an earlier rule half-masked keeps its token ("M/[EMPLOYER_1] Traders", where the
+#      title-case rule took the cue's "S", -> "M/[EMPLOYER_1]").
 #   4. FIVE OR SIX NAME WORDS (`_EMPLOYER_LONG_RE`), only before a STRONG form (PVT LTD, PRIVATE
 #      LIMITED, LTD, LLP, LLC), with "and" as a joiner ("SHIV SHAKTI PLASTIC MOULDING AND
 #      PACKAGING PVT LTD"). It runs ahead of the capitals rule, whose four-word window would
-#      otherwise take the last four words and leave the first raw — and so it holds no form word in
-#      CAPITALS or Title Case: one inside let it start on a capitals span's form and leave that
-#      span's name raw ("KRISHNA INDUSTRIES turning … pvt ltd" -> "KRISHNA [EMPLOYER_1]", found in
-#      security review). A city, a role or a form word never opens it.
+#      otherwise take the last four words and leave the first raw — and so it never holds a word
+#      where the capitals or title-form rule would END (`_NOT_A_CAPITALS_OR_TITLE_FORM_WORD`), and
+#      its own form ends at a real word end or a dash before a city (`_WORD_END_OR_DASH_CITY`):
+#      either let it start or stop inside a capitals span and leave that span's name raw
+#      ("KRISHNA INDUSTRIES turning … pvt ltd", "Hero Traders INDUSTRIES-PUNE …", "…works
+#      LTD-patil MOTORS LTD"; security review, all three rounds). A city, a role, a department or a
+#      form word never opens it.
 #   5. SHARED: every span opens at a REAL word start (`_SPAN_START`) and uses horizontal space only
 #      (`_H`), so the "S" of "M/S" never opens a firm and no span takes a résumé's role or city line
 #      into the next line's firm; each pass is GATED on its mandatory piece (`_RULE_GATES`), which
 #      changes no output and keeps the cost off the many lines with no form, cue or token.
 #
 # MEASURED 2026-10-03, every pass switched off against on, each string as written, UPPER-CASED
-# (shouting), lower-cased (phone typing) and Sentence-cased (a phone keyboard):
+# (shouting), lower-cased (phone typing) and Sentence-cased (a phone keyboard), re-measured after
+# each review round:
 #   - 50,918 distinct repo strings: #1875's 31,984 plus 18,934 it lacked (the profiling-lexicon
 #     utterance fixtures, apps/api string literals, ai-service app strings, the fabricated résumé
 #     CSV). Changed: 7 as written, 7 upper, 72 lower, 72 sentence. No string anywhere leaves a word
@@ -582,27 +589,36 @@ _EMPLOYER_CAPS_RE = re.compile(
 #     already masks).
 #   - 1,324 fabricated worker and payer lines built to trip these rules (trigger words in their
 #     ordinary sense: "limited", "pvt job", "m/s" units, mild steel, "& co-worker", Title Case job
-#     titles): 8 lines over-mask as written (14 words), 7 upper, 4 lower. Each is accepted below.
+#     titles): 7 lines over-mask as written (12 words), 6 upper, 3 lower. Each is accepted below.
 #   - 576 fabricated lines naming 633 employers. Caught as written, before -> after: lower case
-#     1% -> 75%, title-case twins 32% -> 99%, M/S firms 16% -> 99%, five or more name words
+#     1% -> 75%, title-case twins 32% -> 99%, M/S firms 16% -> 95%, five or more name words
 #     27% -> 78%; capitals forms and title-case suffixes stay 100%, firms with neither a form nor a
 #     cue stay 0% (by design, below).
+#   - The third review's own 804 lines, written to break these passes (M/S firms, mild steel and
+#     units, payer ads, generic "pvt ltd company" talk, roles, localities, industries): lines with
+#     a word main kept now inside a token, 243 before the third round's fixes -> 85 after. The
+#     real residue is the OVER list's last two shapes (16 of 30 and 9 of 50 lines built for them)
+#     and 3 of 156 ordinary lines; the rest are firms the corpus did not bracket and forms folded
+#     into a token ("JAI [EMPLOYER_1] LTD" -> "JAI [EMPLOYER_1]"). Mild steel, units, payer ads
+#     and M/S skill labels: 0.
 # Each candidate was measured alone first. Rejected on those numbers: lower-case "limited" alone
 # (+17 employers, but +10 worker lines such as "programming ka knowledge limited hai"), lower-case
 # "company" (+7 employers, +12 repo and +11 worker lines), the weak forms after ONE word (+22 NCO
-# prose lines: "other enterprises", "various industries"), and an M/S cue without the mild-steel
-# guard (+8 worker lines as written, +9 upper-cased, not one more employer). A window of eight
-# words bought nothing in any corpus, so the long rule keeps six.
-# REVIEWED 2026-10-03 (security, code, performance, red team, mutation), two rounds. Fixed from the
-# first: the absorb leads' missing 7-digit refusal (a turn main blocked passed — the blocker), the
-# M/S match cutting a word, the long pass taking part of a capitals span, mild-steel trade words
-# and role words after M/S, cities and roles opening spans, spans crossing lines, stopword gaps
-# ("hamari", "choti", "A.K." read as "a"), "Govt & Private Jobs", "3Yrs", one firm split into two
-# tokens, two M/S firms in a row, and a 5x worst case on dotted text (spans opened at every letter
-# of "B.B.B."). From the second: a capitals form with a dash after it ("INDUSTRIES-PUNE") let the
-# long pass take part of a capitals span again (`_NOT_A_CAPITALS_OR_TITLE_FORM_WORD`), and the M/S
-# trade-vocabulary veto read only the first word, leaving "M/S TOOL CRAFT" raw (`replace_ms_firm`:
-# repo and certifiers unmoved, +1 fabricated line, accepted below).
+# prose lines: "other enterprises", "various industries"), an M/S cue without the mild-steel guard
+# (+8 worker lines as written, +9 upper-cased, not one more employer), and an M/S cue with no firm
+# word (71 of 125 mild-steel lines and 17 of 20 payer ads over-masked in the third review). A window
+# of eight words bought nothing in any corpus, so the long rule keeps six.
+# REVIEWED 2026-10-03 (security, code, performance, red team, mutation, claims, sweep), three
+# rounds. Fixed from the first: the absorb leads' missing 7-digit refusal (a turn main blocked
+# passed — the blocker), the M/S match cutting a word, the long pass taking part of a capitals span,
+# mild-steel trade words and role words after M/S, cities and roles opening spans, spans crossing
+# lines, stopword gaps ("hamari", "choti", "A.K." read as "a"), "Govt & Private Jobs", "3Yrs", one
+# firm split into two tokens, two M/S firms in a row, and a 5x worst case on dotted text (spans
+# opened at every letter of "B.B.B."). From the second: a capitals form with a dash after it
+# ("INDUSTRIES-PUNE") let the long pass take part of a capitals span again. From the third: the
+# long pass's own form ending inside a capitals word ("LTD-patil"), and the over-masks above — the
+# M/S firm word replaced the never-after-a-number guard and the first-word vocabulary check, and
+# sector, department, role and stopword additions cover the rest.
 #
 # STATED BOUNDARY. UNDER — raw, each pinned by a `test_KNOWN_RESIDUAL_*`:
 #   - no corporate form and no cue, any case: "BAJAJ AUTO", "gupta & sons", "SHREE SAI ENGINEERING
@@ -611,11 +627,13 @@ _EMPLOYER_CAPS_RE = re.compile(
 #     words: "bharat forge limited", "omkar engineering company", "gupta industries",
 #     "precision engineering industries";
 #   - a stopword inside a firm: "xyz and sons ltd" -> "xyz and [EMPLOYER_1]" (as title case leaves
-#     "Gupta and [EMPLOYER_1]" on main), "steel authority of [EMPLOYER_1]"; an M/S firm opening on
-#     one ("M/S THE ROYAL ENGINEERS"), on a mild-steel word ("M/S STEEL CENTRE") or on a role word
-#     ("M/S CNC TURNING WORKS");
-#   - seven or more name words, or five before a non-strong form: "B C D E F G H PVT LTD" -> "B
-#     [EMPLOYER_1]"; "SRI RAMA KRISHNA CASTING AND FORGING LIMITED" -> "SRI RAMA [EMPLOYER_1]";
+#     "Gupta and [EMPLOYER_1]" on main), "steel authority of [EMPLOYER_1]";
+#   - an M/S firm with no firm word ("M/S TOOL CRAFT", "M/S SIEMENS", "M/S SAI PRECISION REQUIRES
+#     VMC OPERATORS"), or opening on a stopword, a mild-steel word, a role word or a city ("M/S THE
+#     ROYAL ENGINEERS", "M/S STEEL CENTRE", "M/S CNC TURNING WORKS", "M/S PUNE SHARMA TRADERS");
+#   - seven or more name words, five before a non-strong form, or four and a joiner: "B C D E F G
+#     H PVT LTD" -> "B [EMPLOYER_1]"; "SRI RAMA KRISHNA CASTING AND FORGING LIMITED" -> "SRI RAMA
+#     [EMPLOYER_1]"; "SRI SAI IRON AND STEEL PVT LTD" -> "SRI [EMPLOYER_1]" (main leaves the same);
 #   - spelling the passes do not read: "sharma &  co" (two spaces), "fitter/tata motors ltd" (a
 #     slash glues the first word on), a firm wrapped across a line, a city as the first word of a
 #     firm ("pune industrial … pvt ltd" -> "pune [EMPLOYER_1]"), a city glued on by a dash, a dot
@@ -627,32 +645,37 @@ _EMPLOYER_CAPS_RE = re.compile(
 #   - the long rule widens a span before PVT LTD on telegraphic text: "… WITH PPAP APQP FMEA MSA
 #     SPC KNOWLEDGE PVT LTD" -> "… WITH [EMPLOYER_1]";
 #   - a weak form after two ordinary words: "garbage removal corporation" -> "[EMPLOYER_1]";
-#   - the title-form pass takes a leading city, as the title-case and capitals rules do: "Pune
-#     Sharma & Co." -> "[EMPLOYER_1].";
-#   - after an M/S cue, a trade word then a word that is not trade vocabulary, or a unit with no
-#     number before the cue: "m/s lathe machine pe kaam" -> "m/s [EMPLOYER_1] pe kaam", "speed  m/s
-#     air velocity" -> "speed  m/s [EMPLOYER_1]".
+#   - a city other than a span's first word is masked with it, as the capitals and title-case
+#     rules do: "Pune Sharma & Co." -> "[EMPLOYER_1].", "bhosari pune tata motors ltd" ->
+#     "[EMPLOYER_1]";
+#   - a weak form after a product noun, and a payer's benefit before "pvt ltd company": "rice mill
+#     industries me loader" -> "[EMPLOYER_1] me loader", "bus facility pvt ltd company" ->
+#     "[EMPLOYER_1] company".
 #
-# TWO VIEWS (#1738). Within a view these passes only add masking, so the two-view check can only
-# stop blocking where the reader view now masks what the spaced view found. "Larsen &<ZWSP>Toubro
-# Limited" now BLOCKS (the spaced view absorbs "Larsen", the reader view cannot), where main passed
-# it with "Larsen" raw. Two ways it now passes what main blocked: "full" — "my name is<ZWSP>Ramesh
-# Kumar ltd" -> "my [EMPLOYER_1]", the name masked under an employer label — and R49's partial
-# overlap (#1890), which these passes extend as #1875 extended it: with an invisible right after a
-# name cue, "my name is<ZWSP>Ramesh Kumar Llp" (and "& Co.", "(P) Ltd", "W.l.l", "& Toubro Ltd",
-# "-Toubro Ltd", a long lower-case span) passes as "my name isRamesh [EMPLOYER_1]"; with one inside
-# a dash-glued run, "Sharma Motors<WJ>A-ONE Motors" passes as "Sharma [EMPLOYER_1]" (the absorb pass
-# folds the reader view's "MotorsA-" into the token; second review). Each shape is pinned; the
-# property test bounds how many such turns its generator meets (7 in 6,000, two leaving a name word
-# raw). The fix is in the two-view check (#1890), not here.
+# TWO VIEWS (#1738). The two-view check can stop blocking where the reader view now masks what the
+# spaced view found. "Larsen &<ZWSP>Toubro Limited" now BLOCKS (the spaced view absorbs "Larsen",
+# the reader view cannot), where main passed it with "Larsen" raw. Two ways it now passes what main
+# blocked: "full" — "my name is<ZWSP>Ramesh Kumar ltd" -> "my [EMPLOYER_1]", the name masked under
+# an employer label — and R49's partial overlap (#1890), which these passes extend as #1875
+# extended it: with an invisible right after a name cue, "my name is<ZWSP>Ramesh Kumar Llp" (and
+# "& Co.", "(P) Ltd", "W.l.l", "& Toubro Ltd", "-Toubro Ltd", a long lower-case span) passes as
+# "my name isRamesh [EMPLOYER_1]"; with one that merges words around a dash-glued run, "Sharma
+# Motors<WJ>A-ONE Motors" passes as "Sharma [EMPLOYER_1]" (the absorb pass folds the reader view's
+# "MotorsA-" into the token). Each shape is pinned. The third review measured the rate on its own
+# generator: 1.0% of lines that carry an invisible (200 of 20,000), about twice main's own R49 rate,
+# reaching the at-rest copies (corpus, growth queue, payer draft) and the embedding input; the
+# walls still withhold every such turn. The fix is in the two-view check (#1890), not here.
+# A long span may also split an earlier span and leave a separator or a bare form word between two
+# tokens ("xa xb xc xd SHARMA LTD PVT" -> "[EMPLOYER_1] PVT"): no name word, so it stays.
 #
-# COST, measured 2026-10-03 (this laptop, under load). A typical line: +1-5 us mean (1,882
+# COST, measured 2026-10-03 (this laptop, under load). A typical line: +1-4 us mean (1,882
 # real-shaped worker turns, the question packs, the test fixtures); a line holding a lower-case
-# employer about doubles (36 -> 81 us). The reviewers' worst shape, dotted words joined by "&" with
-# every gate open, costs x1.1-1.3 its base (x5.3 before spans opened only at real word starts). The
-# largest share found is an input of nothing but firms ("Ab & Tata Steel LTD" x1,000): x2.7, 7 ->
-# 20 ms, linear work, one absorb per firm. No 20,000-character input found takes over 30 ms. Every
-# name word is bounded and possessive (detail 5), and the word lists are compiled as tries.
+# employer about 2.5x (25 -> 64 us). On the worst 20,000-character inputs found the work is linear —
+# every word is a span start and each start reads at most six words: the reviewers' dotted shapes
+# cost x1.1-1.4 their base (x5.3 before spans opened only at real word starts), and the largest
+# shares are one-letter words before a form ("b " x 9,990 + " ltd": 7 -> 35 ms, x5) and joiners
+# ("Ab (P) " x 2,850 + " ltd": 9 -> 41 ms). No input found adds more than ~31 ms. Every name word
+# is bounded and possessive (detail 5), and the word lists are compiled as tries.
 #
 #: Words that never open or sit inside a firm name when every word is a candidate: function words,
 #: determiners, pronouns and adverbs, English and Hinglish. Every #1892 name word refuses them —
@@ -695,11 +718,19 @@ _EMPLOYER_STOPWORDS = (
     # Hinglish determiners ("apni company", "dusri company", "nayi company")
     "iss", "uss", "apni", "apna", "apne", "dusri", "dusra", "doosri", "nayi", "naya", "nai",
     "purani", "purana", "wahi", "same", "kaunsi", "jis", "jo",
+    # Hinglish demonstratives, numerals and time words ("ye pvt ltd hai", "teen pvt ltd company",
+    # "iti ke baad …"), and a payer's "free" ("ROOM FREE … PVT LTD"; third review)
+    "ye", "yeh", "wo", "woh", "vo", "yaha", "waha", "baad", "pehli", "pehla", "baar", "teen",
+    "char", "chaar", "paanch", "free", "ghante",
+    # ... and the adjectives of "a <kind of> pvt ltd company" ("korean pvt ltd company me")
+    "naami", "known", "japani", "japanese", "korean", "german", "chinese", "american", "foreign",
+    "indian", "videshi", "desi",
 )  # fmt: skip
 #: Roles, trades, qualifications and pay — what a worker writes right BEFORE a firm ("iti fitter
 #: tata motors ltd", "hiring cnc operator xyz pvt ltd", "15000 salary xyz pvt ltd") or right after
-#: an M/S firm ("M/S SHARMA TRADERS WELDER"). They never open a lower-case, long or M/S span, and
-#: they end an M/S firm; inside a lower-case or long span they may sit ("sharma welding works ltd").
+#: an M/S firm ("M/S SHARMA TRADERS WELDER"). They never open a lower-case, long or M/S span, nor
+#: stand inside an M/S firm (except `_MS_FIRM_TRADE_WORDS`); inside a lower-case or long span they
+#: may sit ("sharma fitter works ltd").
 _ROLE_WORDS = (
     "cnc", "vmc", "hmc", "operator", "operators", "welder", "fitter", "helper", "turner",
     "electrician", "supervisor", "setter", "programmer", "machinist", "technician", "mechanic",
@@ -707,6 +738,20 @@ _ROLE_WORDS = (
     "grinder", "fabricator", "iti", "diploma", "degree", "mechanical", "electrical", "salary",
     "shift", "pf", "esic", "esi", "fresher", "apprentice", "trainee", "certificate",
     "certification", "vacancy", "vacancies", "post", "posts", "midc",
+    # more roles a worker writes before a firm ("quality inspector bharat forge ltd", "mason l&t
+    # ltd site pe", "office boy xyz pvt ltd"; third review)
+    "inspector", "keeper", "storekeeper", "guard", "mason", "draftsman", "draughtsman", "mistri",
+    "mistry", "lineman", "wireman", "accountant", "cook", "attendant", "karigar", "majdoor",
+    "mazdoor", "peon", "sweeper", "cleaner", "clerk", "boy", "engineer", "manager", "executive",
+    "incharge", "worker", "workers",
+)  # fmt: skip
+#: Departments: a lower-case or long span never OPENS on one ("quality inspector …", "store keeper
+#: …", "MAINTENANCE FITTER SHREE SAI … PVT LTD"), though a firm may hold one ("xyz security
+#: services") — so, unlike a role word, one never ends an M/S firm.
+_DEPARTMENT_WORDS = (
+    "quality", "maintenance", "production", "store", "stores", "security", "office", "delivery",
+    "packing", "assembly", "dispatch", "warehouse", "purchase", "admin", "accounts",
+    "housekeeping",
 )  # fmt: skip
 
 
@@ -756,6 +801,13 @@ _CITY_WORD_ALTERNATION = _alternation_trie(
     " ".join(name.lower().split()) for name in set(KNOWN_CITIES) | set(CITY_ALIASES)
 )
 _NOT_A_CITY = r"(?!(?i:" + _CITY_WORD_ALTERNATION + r")\b)"
+#: Where a span's last word (a strong form, an M/S firm word) ends: at a real word end, or at a
+#: dash that glues a city on ("PVT LTD-PUNE", "M/S SHARMA TRADERS-PUNE"), never inside a dash- or
+#: dot-glued name word, which an earlier rule may have taken whole ("…works LTD-patil MOTORS LTD":
+#: the capitals rule masks "LTD-patil MOTORS LTD"; third review).
+_WORD_END_OR_DASH_CITY = (
+    r"(?![\w&./])(?![" + _CAPS_DASHES + r"](?!(?i:" + _CITY_WORD_ALTERNATION + r")\b))"
+)
 #: Horizontal space only: no #1892 span crosses a line, so a résumé's role line or city line is
 #: never taken into the firm on the next line ("fitter\ntata motors ltd" -> "fitter\n[EMPLOYER_1]").
 _H = r"[^\S\r\n]+"
@@ -788,6 +840,20 @@ _SECTOR_WORDS = frozenset(
     )
 )  # fmt: skip
 _PHRASE_WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+#: The form words a lower-case span may read as name words ("automobile pvt" before "ltd"): the
+#: sector check skips them, so "automobile pvt ltd company" is an industry like "automobile ltd".
+_LOWER_FORM_WORD_RE = re.compile(r"(?i)\b(?:pvt|private|ltd|limited|company|co)\b\.?")
+#: A weak form right after a process names the industry: "agarbatti making industries", "cotton
+#: ginning industries", "diamond polishing industries" (third review). A sector word that ends so
+#: names firms ("durga engineering industries", "kalyani packaging industries") and is not one.
+_LAST_WORD_RE = re.compile(r"([a-z]+)\W*$")
+
+
+def _ends_on_a_process(name: str) -> bool:
+    last = _LAST_WORD_RE.search(name.lower())
+    return bool(last) and last.group(1).endswith("ing") and last.group(1) not in _SECTOR_WORDS
 
 
 def _is_sector_phrase(text: str) -> bool:
@@ -888,9 +954,8 @@ _LOWER_NEVER_OPENS = (
     "pvt", "private", "ltd", "limited", "llp", "llc", "company", "firm", "factory", "plant",
     "kampani", "kampni", "industries", "enterprises", "corporation", "co",
 )  # fmt: skip
-_LOWER_SPAN_OPENER = (
-    _SPAN_START + _NOT_A_CITY + _NOT_A_ROLE_WORD + _not_a_whole_word_from(_LOWER_NEVER_OPENS)
-)
+_NEVER_OPENS = _not_a_whole_word_from(_LOWER_NEVER_OPENS + _DEPARTMENT_WORDS)
+_LOWER_SPAN_OPENER = _SPAN_START + _NOT_A_CITY + _NOT_A_ROLE_WORD + _NEVER_OPENS
 _EMPLOYER_LOWER_RE = re.compile(
     _LOWER_SPAN_OPENER
     + _ANY_NAME_WORD_THEN_JOINER
@@ -905,8 +970,9 @@ _EMPLOYER_LOWER_RE = re.compile(
     + str(_CAPS_NAME_WORDS_MAX - 2)
     + r"})?(?:"
     + _H
+    + r"(?P<strong>"
     + _CORPORATE_FORM_ANY_CASE
-    + r"\b|(?(more)"
+    + r")\b|(?(more)"
     + _H
     + r"(?P<weak>"
     + _CORPORATE_FORM_ANY_CASE_WEAK
@@ -937,7 +1003,7 @@ _EMPLOYER_LONG_RE = re.compile(
     _SPAN_START
     + _NOT_A_CITY
     + _NOT_A_ROLE_WORD
-    + _not_a_whole_word_from(_LOWER_NEVER_OPENS)
+    + _NEVER_OPENS
     + _LONG_NAME_WORD_THEN_JOINER
     + r"(?:"
     + _H
@@ -949,18 +1015,19 @@ _EMPLOYER_LONG_RE = re.compile(
     + r"}"
     + _H
     + _STRONG_CORPORATE_FORM
-    + r"\b"
+    + _WORD_END_OR_DASH_CITY
 )
 
 #: A placeholder this module minted for an employer.
 _EMPLOYER_TOKEN = r"\[EMPLOYER_\d+\]"
 _EMPLOYER_TOKEN_RE = re.compile(_EMPLOYER_TOKEN)
-#: Class 3 — the M/S cue ("Messrs"): never after a number, even with up to three spaces ("5 m/s"
-#: is a speed), never across a line. "M / S", "M/S.", "M/S:" and "M/S:-" are the same cue. "M/"
-#: right before a token is the cue whose "S" the title-case rule took as a name word ("M/S Hanuman
-#: Steel Traders" -> "M/[EMPLOYER_1] Traders").
+#: Class 3 — the M/S cue ("Messrs"), never across a line. "M / S", "M/S.", "M/S:" and "M/S:-" are
+#: the same cue. "M/" right before a token is the cue whose "S" the title-case rule took as a name
+#: word ("M/S Hanuman Steel Traders" -> "M/[EMPLOYER_1] Traders"). A number may stand before it:
+#: a speed ("5 m/s rakhte") never reaches a firm word (`_MS_FIRM_WORD`), and a résumé's dates do
+#: ("2016-2019 M/S XYZ TRADERS"; third review dropped the old never-after-a-number guard).
 _MS_CUE = (
-    r"(?<![\w/])(?<!\d[^\S\r\n])(?<!\d[^\S\r\n]{2})(?<!\d[^\S\r\n]{3})"
+    r"(?<![\w/])"
     r"[Mm][^\S\r\n]?/[^\S\r\n]?"
     r"(?:[Ss](?![\w/])\.?[^\S\r\n]*(?:[:"
     + _CAPS_DASHES
@@ -972,11 +1039,11 @@ _MS_NAME_WORD = _stopword_guarded_name_word(r"(?:[A-Za-z]|\d{1,4}[A-Za-z])", 5)
 #: An M/S name word ends at a real word end: one longer than the bound fails the match instead of
 #: being cut inside a digit run (security review), and "S/S" (stainless) is not a word.
 _MS_WORD_END = r"(?![\w&./" + _CAPS_DASHES + r"])"
-#: ... and the next cue is never a name word, so two firms in a row keep two cues.
-_MS_NOT_A_CUE = r"(?![Mm][^\S\r\n]?/)"
 #: What "M/S" also abbreviates: MILD STEEL ("m/s plate", "M/S ANGLE", "M/S Tig Welding") and metres
 #: per second ("m/s matlab meter per second", "speed m/s check karna"). Neither opens a firm, nor
-#: does a role word (`_ROLE_WORDS`) or curated trade vocabulary (`replace_ms_firm`).
+#: does a role word (`_ROLE_WORDS`); mild-steel talk that opens on another word still has to reach
+#: a firm word (`_MS_FIRM_WORD`), and a "firm" made of nothing but curated trade vocabulary is left
+#: alone (`replace_ms_firm`).
 _MS_NOT_A_FIRM_WORDS = (
     # mild-steel stock and work
     "plate", "plates", "angle", "angles", "channel", "channels", "structure", "structures",
@@ -1007,9 +1074,8 @@ _MS_FIRST_WORD = (
     + _MS_WORD_END
     + r")"
 )
-#: After the first word, a city or a role word ends the firm ("M/S SHARMA TRADERS PUNE MEIN",
-#: "M/S SHARMA TRADERS WELDER") — but not the trade words a firm is often named with ("M/S. AMBIKA
-#: CNC WORKS", "M/S SHREE ELECTRICAL WORKS").
+#: No city and no role word stands between the first word and the firm word — except the trade
+#: words a firm is often named with ("M/S. AMBIKA CNC WORKS", "M/S SHREE ELECTRICAL WORKS").
 _MS_FIRM_TRADE_WORDS = frozenset({"cnc", "vmc", "hmc", "mechanical", "electrical"})
 _MS_FOLLOWING_WORD = (
     r"(?:"
@@ -1017,11 +1083,32 @@ _MS_FOLLOWING_WORD = (
     + r"|"
     + _NOT_A_CITY
     + _not_a_whole_word_from(word for word in _ROLE_WORDS if word not in _MS_FIRM_TRADE_WORDS)
-    + _MS_NOT_A_CUE
     + _MS_NAME_WORD
     + _MS_WORD_END
     + r")"
 )
+#: An M/S firm ENDS on a word that names a business (third review): "M/S SHARMA TRADERS", "m/s
+#: gupta & sons", "M/S OM SAI TRANSPORT". Mild-steel talk ("m/s hollow section ka fabrication"), a
+#: payer's verb and role after the firm ("M/s ABC Engineering Pvt Ltd requires CNC operators") and a
+#: locality after it ("M/S SHARMA TRADERS BHOSARI") never reach one, so they stay raw. Plurals
+#: only where the singular is a role ("fabricators", "contractors"). A dash may follow the word
+#: ("M/S SHARMA TRADERS-PUNE" -> "M/S [EMPLOYER_1]-PUNE").
+_MS_FIRM_WORDS = (
+    "traders", "trader", "trading", "fabricators", "engineers", "engineering", "engg", "works",
+    "workshop", "enterprises", "enterprise", "industries", "udyog", "transport", "transports",
+    "logistics", "roadways", "roadlines", "carriers", "movers", "travels", "contractors",
+    "construction", "constructions", "builders", "developers", "projects", "associates", "agency",
+    "agencies", "services", "solutions", "consultants", "co", "company", "corporation", "corp",
+    "sons", "brothers", "bros", "motors", "automobiles", "castings", "forgings", "mills",
+    "suppliers", "steels", "metals", "electricals", "electronics", "plastics", "polymers",
+    "products", "exports", "impex", "international", "overseas", "group", "stores", "systems",
+    "technologies", "tech", "tools", "dies", "textiles", "garments", "foods", "chemicals",
+    "garage", "hydraulics", "pneumatics", "moulders", "components", "parts", "paints", "packers",
+    "packaging", "erectors", "centre", "center", "fab", "automation", "controls", "instruments",
+    "equipments", "machinery", "pumps", "valves", "fasteners", "springs", "ltd", "limited",
+    "llp", "llc",
+)  # fmt: skip
+_MS_FIRM_WORD = r"(?i:" + _alternation_trie(_MS_FIRM_WORDS) + r")\.?" + _WORD_END_OR_DASH_CITY
 _EMPLOYER_MS_CUE_RE = re.compile(
     _MS_CUE
     + r"("
@@ -1037,7 +1124,10 @@ _EMPLOYER_MS_CUE_RE = re.compile(
     + _ANY_JOINER
     + r")?){0,"
     + str(_CAPS_NAME_WORDS_MAX - 1)
-    + r"})"
+    + r"}"
+    + _H
+    + _MS_FIRM_WORD
+    + r")"
 )
 
 #: What separates an absorbed lead from the token: a joiner or a dash.
@@ -1665,13 +1755,13 @@ def _mask(
     def replace_ms_firm(match: re.Match[str]) -> str:
         """Keep the M/S cue, tokenise the firm after it (group 1, which ends the match).
 
-        A firm an earlier rule half-masked ("M/s [EMPLOYER_1] Furniture") keeps that token and
-        takes the rest of the firm into it, minting nothing. Two tokens under one cue are left as
-        they are: folding them would drop a minted token from the text. A "firm" made of nothing
-        but curated trade vocabulary is mild-steel trade talk ("m/s piping ka kaam", "M/S AutoCAD
-        drafting"): the match is left as it is, so no region is recorded for it. One other word
-        makes it a firm ("M/S TOOL CRAFT", "M/S Turning Point"), and a sector word is not enough
-        ("M/s Precision Components")."""
+        A firm an earlier rule half-masked ("M/[EMPLOYER_1] Traders") keeps that token and takes
+        the rest of the firm, up to its firm word, into it, minting nothing. Two tokens under one
+        cue are left as they are: folding them would drop a minted token from the text. A "firm"
+        made of nothing but curated trade vocabulary is a skill, not a firm ("M/S PIPING
+        SYSTEMS", "M/S TOOL TECH"): the match is left as it is, so no region is recorded for it,
+        and "M/S <label>" certifies as the label does. A sector word is not enough ("M/s
+        Precision Components" is a firm)."""
         tokens = _EMPLOYER_TOKEN_RE.findall(match.group(1))
         if len(tokens) > 1:
             return match.group(0)
@@ -1693,11 +1783,14 @@ def _mask(
         return token.group(0)
 
     def replace_lower_case_firm(match: re.Match[str]) -> str:
-        """Tokenise a lower-case firm, unless it ends in a weak form ("industries") after nothing
-        but sector words — an industry, not a firm ("auto ancillary industries"). Left as it is,
-        so no region is recorded for it."""
+        """Tokenise a lower-case firm, unless every name word before its form is a sector word —
+        an industry, not a firm: "auto ancillary industries", and before a strong form too,
+        "automobile pvt ltd company me job chahiye" (third review). Left as it is, so no region
+        is recorded for it."""
         weak = match.start("weak")
-        if weak != -1 and _is_sector_phrase(match.string[match.start() : weak]):
+        form = weak if weak != -1 else match.start("strong")
+        name = _LOWER_FORM_WORD_RE.sub(" ", match.string[match.start() : form])
+        if _is_sector_phrase(name) or (weak != -1 and _ends_on_a_process(name)):
             return match.group(0)
         return token_for(match.group(0), "EMPLOYER")
 
@@ -1725,8 +1818,10 @@ def _mask(
         (_NAME_CUE_RE, lambda m: replace_group1(m, "PERSON"), 1),
         (_LEADING_NAME_RE, replace_leading_name, 1),
         # 4a. Five or six name words before a strong form (#1892) — AHEAD of 4b, whose four-word
-        #    window would otherwise take the last four words and leave the first raw. It holds no
-        #    capitals or title-case form word, so it takes a capitals span whole or not at all.
+        #    window would otherwise take the last four words and leave the first raw. It neither
+        #    holds nor ends inside a word where 4b or 4c would end, so it takes a capitals span
+        #    whole or not at all — at worst leaving a separator or a bare form word between two
+        #    tokens (module notes, TWO VIEWS).
         (_EMPLOYER_LONG_RE, lambda m: token_for(m.group(0), "EMPLOYER"), 0),
         # 4b. Employers written in CAPITALS (#1875). Runs AFTER the title-case rule and both name
         #    rules, on their output, so each of them reads exactly main's input: it never shortens
@@ -1737,8 +1832,8 @@ def _mask(
         #    pre-existing exception: R49, #1890.
         (_EMPLOYER_CAPS_RE, lambda m: token_for(m.group(0), "EMPLOYER"), 0),
         # 4c-4f. The rest of #1892, each on the output of the rules above, each only masking what
-        #    they left raw: title-case forms after joiners, lower and sentence case, the M/S cue
-        #    (keeps the cue, tokenises the firm), and the absorb pass, LAST because it folds into
+        #    they left raw: title-case forms, lower and sentence case, the M/S cue (keeps the
+        #    cue, tokenises the firm), and the absorb pass, LAST because it folds into
         #    a token what the passes above left beside it. See `_EMPLOYER_STOPWORDS`.
         (_EMPLOYER_TITLE_FORM_RE, lambda m: token_for(m.group(0), "EMPLOYER"), 0),
         (_EMPLOYER_LOWER_RE, replace_lower_case_firm, 0),

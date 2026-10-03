@@ -12,7 +12,8 @@ import app.pseudonymize as gateway
 
 #: A pattern that never matches: what a test swaps in to switch a rule off.
 NEVER = re.compile(r"(?!x)x")
-#: The five passes #1892 added after the capitals rule. The one list both files switch off, so a
+#: The five passes #1892 added around the capitals rule (the long pass just ahead of it, the rest
+#: after it). The one list both files switch off, so a
 #: sixth pass cannot be missed in one of them (`test_the_1892_rule_list_is_complete` pins it).
 RULES_1892 = (
     "_EMPLOYER_LONG_RE",
