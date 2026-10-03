@@ -386,10 +386,11 @@ function overDigitBudget(text: string): boolean {
 /**
  * Words that end a legal entity's name, matched as the label's LAST WORD, case-insensitively.
  *
- * The shared `looksLikeOrgName` catches a bare "Ltd"/"Limited" only after a Capitalised token,
- * and knows no foreign suffix — so "welding at tata motors ltd", "Sharma LLC" and "Sharma GmbH"
- * passed both walls, and an employer's name would have been stored in plaintext in
- * `general_road` while D5 keeps employer names only in the encrypted `employer_name_enc`.
+ * The shared `looksLikeOrgName` reads a bare "Limited" only after a Capitalised name, knows no
+ * foreign suffix and no bare "pvt" — so "tata motors limited", "Sharma LLC", "Sharma GmbH" and
+ * "sharma pvt" pass it, and an employer's name would be stored in plaintext in `general_road`
+ * while D5 keeps employer names only in the encrypted `employer_name_enc`. (Before #1927 a bare
+ * "Ltd" slipped it the same way — "welding at tata motors ltd"; it now reads "Ltd" in any case.)
  *
  * TRAILING POSITION ONLY, and that is what makes it safe here and not in the shared module: in a
  * label of at most six words, a trailing "ltd" is never trade prose, while "Limited slip

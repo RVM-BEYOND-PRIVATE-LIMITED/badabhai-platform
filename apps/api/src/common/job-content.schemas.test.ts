@@ -70,6 +70,23 @@ describe("screenWorkerVisibleText", () => {
     ]);
     expect(chip(requirementsSchema, "Fanuc control")).toEqual([]);
   });
+
+  it("#1927: a bare suffix mid-sentence is a company name; posting prose using the words is not", () => {
+    const description = screenWorkerVisibleText(z.string().min(1).max(500), NAME);
+    const issues = (value: string): string[] => {
+      const r = description.safeParse(value);
+      return r.success ? [] : r.error.issues.map((i) => i.message);
+    };
+    expect(issues("Welder chahiye. Tata Steel Ltd mein apply kariye")).toEqual([
+      "widget must not contain a company name",
+    ]);
+    expect(issues("Bharat Forge Limited mein fitter ki vacancy hai")).toEqual([
+      "widget must not contain a company name",
+    ]);
+    expect(issues("Urgent requirement in a reputed Ltd company")).toEqual([]);
+    expect(issues("Fresher Welder Limited Experience OK")).toEqual([]);
+    expect(issues("Seats limited hain, jaldi apply kariye")).toEqual([]);
+  });
 });
 
 /**

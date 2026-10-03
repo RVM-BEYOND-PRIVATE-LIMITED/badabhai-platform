@@ -9,6 +9,13 @@ import {
 /**
  * @badabhai/validators — reusable Zod schemas shared by API DTOs, AI contracts,
  * and tests. Keep these small and composable.
+ *
+ * BROWSER FLOOR, FOR THE WHOLE FILE: payer-web bundles this module, untranspiled,
+ * into its client form schemas, for Next's default browser target (Chrome 64,
+ * Firefox 67, Safari 12). A regex lookbehind, a \p{..} property escape, a named
+ * group or an s / d / v flag ANYWHERE here — even in a function payer-web never
+ * calls — is a parse-time SyntaxError for the whole chunk on those browsers.
+ * `browser-floor.test.ts` fails on any of them.
  */
 
 /**
@@ -233,36 +240,102 @@ const ORG_SUFFIX_STRONG = new RegExp(
 const ORG_CO_FORM =
   /(?:&|\band)\s+co\b(?![-\u2010-\u2015\u2212\uFE63\uFF0D]|[^\S\r\n]*(?:ordinat|operat(?:ion|ive|e)\b|op\b|worker|curricular|2[^\S\r\n]*(?:weld(?:ing)?|gas)\b)|\.[^\S\r\n]*ordinat)|\bco\.(?![^\S\r\n]*ordinat)/i;
 
-// Bare "Ltd"/"Limited" WITHOUT a pvt/private prefix is genuinely ambiguous:
-// "limited experience ok" is legal trade prose. So the bare form is flagged only
-// in TRAILING ENTITY-SUFFIX POSITION — preceded by a Capitalized-ish token and at
-// end-of-string (or followed only by punctuation). The suffix is spelled with
-// per-letter classes because the Capitalized-token requirement forbids the `i`
-// flag (which would also case-fold the [A-Z] class).
+// Bare "Ltd"/"Limited" WITHOUT a pvt/private prefix. The two words are not equally
+// ambiguous — "Ltd" is an abbreviation nobody writes in trade prose, "limited" is an
+// ordinary word ("limited experience ok") — so they get different tiers (#1927):
+//  - ORG_TRAILING_LTD: either word after a Capitalized-ish token, at the end of the
+//    string or before punctuation ("Tata Steel Ltd", "Bharat Forge Limited.", "Tata
+//    Steel Ltd, Pune"); the suffix's own dot counts as that punctuation ("Godrej Ltd.
+//    ke liye"). The suffix is spelled with per-letter classes because the
+//    Capitalized-token test forbids the `i` flag (it would case-fold [A-Z] too).
+//  - ORG_LTD_AFTER_NAME: "Ltd" in ANY position and ANY case once a name character
+//    sits before it on the same line ("Tata Steel Ltd mein apply kariye", "welding at
+//    tata motors ltd", "Ltd/Hosur"). Skipped when the next word makes "Ltd" the entity
+//    TYPE or the adjective ("a reputed Ltd company", "Ltd seats", "ltd vacancies") —
+//    so "Tata Steel Ltd company mein" slips this tier. No [A-Z] test, so it takes `i`.
+//  - ORG_LIMITED_MID: a mid-sentence "Limited" only when Title-case or ALL-CAPS, after
+//    a NAME — two Capitalized tokens ("Tata Steel", "Larsen & Toubro") or one token
+//    carrying "&" ("M&M") — AND followed by a word only an entity takes: a Hinglish
+//    postposition (mein / ki / ke / jaisi …), an English function word (is / for / at /
+//    of …), or a line break ("Company: Bharat Forge Limited\nOT milega"). Never before
+//    a copula ("hai"), "to", or the noun an adjective modifies ("Limited experience"),
+//    and never when the word before it is itself a limited noun ("Welder Vacancies
+//    Limited for freshers", see ORG_LIMITED_PROSE_NOUNS).
+//  - ORG_LIMITED_ONE_TOKEN: one Capitalized token is enough when a Hinglish
+//    postposition follows ("Thermax Limited mein", "Wipro Limited ke saath").
+// The new tiers read horizontal whitespace only ([^\S\r\n]): a name and its suffix
+// share a line, so "Requirement: CNC Operator" with "Limited for ITI freshers" on the
+// next line stays prose.
 const ORG_TRAILING_LTD = new RegExp(
   String.raw`(?:^|\s)[A-Z][\w&.'()-]*\s+(?:[Ll][Tt][Dd]|[Ll][Ii][Mm][Ii][Tt][Ee][Dd])\.?\s*(?:$|[.,;:!?)\]])`,
+);
+
+// The word after "Ltd" that makes it the entity type or an adjective, not a suffix.
+const ORG_LTD_NOT_A_NAME = String.raw`(?:compan(?:y|ies)|compny|firms?|sector|jobs?|naukri|seats?|period|edition|offers?|stock|time|slots?|spots?|openings?|vacanc(?:y|ies))`;
+const ORG_LTD_AFTER_NAME = new RegExp(
+  String.raw`[\w&).][^\S\r\n]+ltd\b(?!\.?[^\S\r\n]*${ORG_LTD_NOT_A_NAME}\b)`,
+  "i",
+);
+
+const ORG_NAME_TOKEN = String.raw`[A-Z][\w&.'()-]*`;
+const ORG_GAP = String.raw`[^\S\r\n]+`;
+const ORG_POSTPOSITION = String.raw`(?:mein|me|mai|men|mei|ki|ka|ke|ko|se|ne|par|pe|tak|jaisi|jaisa|jaise|wali|wala|wale|waali|waala|waale|dwara)`;
+const ORG_ENTITY_FOLLOW = String.raw`(?:is|was|has|had|have|will|hires|hiring|for|at|in|of|and|or|ya|aur|group|plant|plants|factory|unit|office|branch|site)`;
+// A noun that is itself "limited" is not the last word of a firm's name: "Seats
+// Limited", "Night Shift Limited". Matched in Title-case and ALL-CAPS, because the
+// Limited tiers have no `i`. map + concat, not flatMap (Chrome 69; the floor is 64).
+const ORG_LIMITED_PROSE_NOUNS: readonly string[] = (
+  "seat seats vacancy vacancies opening openings post posts position positions slot slots " +
+  "spot spots experience time period overtime hour hours shift shifts day days night nights " +
+  "holiday holidays leave leaves budget stock offer offers job jobs intake admission " +
+  "admissions quantity space parking salary bonus"
+).split(" ");
+const ORG_NOT_PROSE_NOUN = String.raw`(?!(?:${ORG_LIMITED_PROSE_NOUNS.map(
+  (w) => w.charAt(0).toUpperCase() + w.slice(1),
+)
+  .concat(ORG_LIMITED_PROSE_NOUNS.map((w) => w.toUpperCase()))
+  .join("|")})[^\S\r\n])`;
+const ORG_LIMITED_MID = new RegExp(
+  String.raw`(?:^|\s)(?:${ORG_NAME_TOKEN}${ORG_GAP}(?:(?:&|and)${ORG_GAP})?${ORG_NOT_PROSE_NOUN}${ORG_NAME_TOKEN}|[A-Z][\w.'()-]*&[\w&.'()-]*)${ORG_GAP}L(?:imited|IMITED)(?:${ORG_GAP}(?:${ORG_POSTPOSITION}|${ORG_ENTITY_FOLLOW})\b|[^\S\r\n]*[\r\n])`,
+);
+const ORG_LIMITED_ONE_TOKEN = new RegExp(
+  String.raw`(?:^|\s)${ORG_NOT_PROSE_NOUN}${ORG_NAME_TOKEN}${ORG_GAP}L(?:imited|IMITED)${ORG_GAP}${ORG_POSTPOSITION}\b`,
 );
 
 /**
  * Best-effort heuristic: true if a string looks like it contains a LEGAL-ENTITY
  * company name — an org-suffix marker such as "Pvt Ltd" / "Pvt. Ltd." /
  * "Private Limited" / "LLP" / "Inc" / "Corp"/"Corporation" / "& Co"/"and Co" /
- * "Co.", or a trailing bare "Ltd"/"Limited" in entity position. The fail-closed
+ * "Co.", or a bare "Ltd"/"Limited" in entity position. The fail-closed
  * companion to {@link looksLikePii} for worker-visible job free text (title /
  * description / benefits / requirements items) — ADR-0024 final addendum
  * (2026-07-16): employer identity must never enter the worker-visible `jobs`
  * columns, so every jobs write path rejects strings this flags.
  *
  * NOT a classifier: it is deliberately TIGHT to legal-entity suffix markers and
- * will NOT catch a bare brand name ("Sharma Precision") or generic org-ish words
- * ("Industries" / "Works" / "Engineering" alone — far too many false positives
- * on legitimate trade text). Tradeoffs, documented and pinned by tests:
- *  - bare "Ltd"/"Limited" is flagged ONLY as a TRAILING entity suffix (preceded
- *    by a Capitalized-ish token, at end-of-string or followed by punctuation),
- *    so plain prose like "limited experience ok" is never rejected;
- *  - consequence: an all-lowercase "acme ltd" (or a mid-sentence bare "Ltd")
- *    slips that tier — the strong markers still catch the Pvt Ltd / Private
- *    Limited / LLP / Inc / Corp / & Co / Co. forms anywhere, case-blind;
+ * will NOT catch a bare brand name ("Sharma Precision", "Tata Motors mein", "L&T
+ * mein") or generic org-ish words ("Industries" / "Works" / "Engineering" alone —
+ * far too many false positives on legitimate trade text). Tradeoffs, documented
+ * and pinned by tests:
+ *  - the strong markers (Pvt Ltd / Private Limited / LLP / Inc / Corp) are flagged
+ *    anywhere, case-blind — including the generic "Pvt Ltd company mein 3 saal"
+ *    and the company-law skill "LLP compliance", which name nobody;
+ *  - a bare "Ltd" is flagged in ANY position and ANY case once a name character
+ *    sits before it on the same line (#1927): "Tata Steel Ltd mein apply kariye",
+ *    "acme ltd", "Acme Ltd hiring now", "Ltd/Hosur". It is NOT flagged as the
+ *    entity type or an adjective ("a reputed Ltd company", "Only 20 ltd seats"),
+ *    so a firm followed by one of those words slips: "Tata Steel Ltd company mein";
+ *  - a bare "Limited" is ordinary prose, so it is flagged only where nothing but a
+ *    firm stands: at the end after a Capitalized token ("Tata Motors Limited"), or
+ *    mid-sentence when Title-case or ALL-CAPS, after a name, and before a
+ *    postposition, an entity function word or a line break ("Tata Steel Limited
+ *    mein", "Larsen & Toubro Limited is hiring", "Thermax Limited ke saath").
+ *    "limited experience ok", "Experience Limited to 2 years", "Mera Limited
+ *    experience hai" and "Welder Vacancies Limited for freshers" pass. The price,
+ *    stated: a lowercase name ("bharat forge limited mein"), an ALL-CAPS
+ *    postposition ("BHARAT FORGE LIMITED MEIN") and a "to" after the suffix
+ *    ("Tata Steel Limited to hire") slip, while a trailing Title-case limited noun
+ *    ("Openings Limited", "Seats Limited!") is flagged though it names nobody;
  *  - a "co" that opens a compound is not a firm (#1914): "and co-ordinate",
  *    "& co-workers", "and co operative", "co.ordinator" pass, while "Sharma & Co",
  *    "Sharma and Co.", "Sharma & Co, Pune", "Sharma Co.-Pune" and the co-op
@@ -274,14 +347,23 @@ const ORG_TRAILING_LTD = new RegExp(
  *    chahiye") — slips the "Co" tier.
  * Callers must still keep employer identity out of these fields by policy.
  *
- * FOUR WALLS READ THIS, and the #1914 narrowing applies to each: the ADR-0024
- * job-text screen ({@link workerVisibleTextScreens}, the agency and posting DTOs,
- * payer-web's form contracts, the seed scripts), the companion-v2 career-answer
- * gate (`named_employer`), the skill certifier's org wall, and the general-form
- * brief's organisation wall. A change here moves all four.
+ * FOUR WALLS READ THIS, and both the #1914 narrowing and the #1927 widening apply
+ * to each: the ADR-0024 job-text screen ({@link workerVisibleTextScreens}, the
+ * agency and posting DTOs, payer-web's form contracts, the seed scripts), the
+ * companion-v2 career-answer gate (`named_employer`), the skill certifier's org
+ * wall, and the general-form brief's organisation wall. A change here moves all
+ * four — and, because a posting edit resends its title and description, a stored
+ * posting newly flagged here can be saved again only once its text changes.
  */
 export function looksLikeOrgName(s: string): boolean {
-  return ORG_SUFFIX_STRONG.test(s) || ORG_CO_FORM.test(s) || ORG_TRAILING_LTD.test(s);
+  return (
+    ORG_SUFFIX_STRONG.test(s) ||
+    ORG_CO_FORM.test(s) ||
+    ORG_TRAILING_LTD.test(s) ||
+    ORG_LTD_AFTER_NAME.test(s) ||
+    ORG_LIMITED_MID.test(s) ||
+    ORG_LIMITED_ONE_TOKEN.test(s)
+  );
 }
 
 // ---------------------------------------------------------------------------

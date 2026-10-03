@@ -76,6 +76,23 @@ describe("validateCareerAnswer (ADR-0046 P3 §2) — every check rejects its own
     );
   });
 
+  // #1927: a bare "Ltd"/"Limited" with the sentence going on after it used to be SERVED — the
+  // shared heuristic read the bare suffix only at the end. This is the one org check on this
+  // gate, and the model writes whole sentences, so the mid-sentence form is the one it produces.
+  it.each([
+    ["a line", answer(["Tata Steel Ltd mein apply kariye."])],
+    ["a line", answer(["Tata Steel Limited mein apply kariye."])],
+    ["a line, any case", answer(["TATA STEEL LTD mein try kariye."])],
+    ["a chip", answer(["Pehle welding ka certificate kariye."], ["Bharat Forge Ltd mein"])],
+  ])("named employer: a bare suffix mid-sentence in %s (#1927)", (_where, a) => {
+    expect(validateCareerAnswer(a)).toBe("named_employer");
+  });
+
+  it("named employer: 'limited' as a word is still served (#1927)", () => {
+    expect(line("Experience limited hai to pehle apprenticeship kariye.")).toBeNull();
+    expect(line("Kisi achhi Ltd company mein apprenticeship kariye.")).toBeNull();
+  });
+
   it("PII: an email or a phone-shaped run", () => {
     expect(validateCareerAnswer(answer(["Mail kariye ramesh@example.com par."]))).toBe("pii");
     expect(validateCareerAnswer(answer(["Call kariye 9876543210 par."]))).toBe("pii");

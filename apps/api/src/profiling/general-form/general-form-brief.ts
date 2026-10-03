@@ -476,17 +476,22 @@ export function looksLikeMoney(text: string): boolean {
 /**
  * A legal-entity suffix ANYWHERE in the brief, as a whole word, in any case.
  *
- * The shared `looksLikeOrgName` catches a bare "Ltd" only in TRAILING position after a
- * Capitalised word, which is right for a job title and wrong for prose: "Tata Motors Ltd mein 5
- * saal" has the suffix mid-sentence. These four words have no trade-prose meaning, so position
- * does not matter. "Pvt" alone is deliberately absent ("pvt company me kaam kiya" is how a
- * worker says "a private company", naming nobody); "Pvt Ltd" is caught by the shared wall.
+ * Since #1927 the shared `looksLikeOrgName` also reads a bare "Ltd" mid-sentence ("Tata Motors
+ * Ltd mein 5 saal"), but only after a name character on the same line, and never before a word
+ * that makes it the entity type ("Ltd company", "ltd seats") — tuned for employers' job text.
+ * This wall stays stricter on purpose: these four words have no trade-prose meaning in a
+ * worker's brief, so neither position nor the next word matters. "Pvt" alone is deliberately
+ * absent ("pvt company me kaam kiya" is how a worker says "a private company", naming nobody);
+ * "Pvt Ltd" is caught by the shared wall.
  */
 const LEGAL_SUFFIX_ANYWHERE_RE = /(?<![\p{L}\p{N}])(?:ltd|llc|gmbh|llp)(?![\p{L}\p{N}])/iu;
 
 /**
  * "Limited" as an entity suffix mid-sentence: CAPITALISED and after another word ("Motors
- * Limited mein"). Lower-case "limited" is prose — "experience limited hai" — and passes.
+ * Limited mein"). Lower-case "limited" is prose — "experience limited hai" — and passes. Wider
+ * than the shared tiers, which also want a name before it and a postposition or entity word
+ * after it (#1927): a brief carries no Title-case posting titles to protect, so "Experience
+ * Limited hai" is refused here and costs one retype.
  */
 const CAPITALISED_LIMITED_RE = /[\p{L}\p{N}.&'-]\s+(?:Limited|LIMITED)(?![\p{L}\p{N}])/u;
 
