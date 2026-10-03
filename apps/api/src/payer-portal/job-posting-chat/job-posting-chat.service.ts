@@ -28,7 +28,10 @@ import {
   PayerCreateJobPostingSchema,
   type PayerCreateJobPostingDto,
 } from "../../job-postings/job-postings.dto";
-import { JobPostingChatRepository } from "./job-posting-chat.repository";
+import {
+  JOB_POSTING_CHAT_LIVE_STATUSES,
+  JobPostingChatRepository,
+} from "./job-posting-chat.repository";
 import {
   JobPostingChatMessagesResponseSchema,
   JobPostingChatSessionsResponseSchema,
@@ -60,8 +63,12 @@ import {
  */
 const DRAFT_READY_EMITTED = "draft_ready_emitted";
 
-/** Statuses a session can still be worked on / published from. */
-const LIVE_STATUSES: readonly PayerJobPostingChatStatus[] = ["active", "draft_ready"];
+/**
+ * The 409 for a turn on a session that is no longer live. ONE message whether the session
+ * was already closed when the turn arrived or was published while the engine was answering
+ * (#1922), so a client handles both the same way.
+ */
+const SESSION_CLOSED_MESSAGE = "This conversation is closed";
 
 /**
  * AI job-posting chat — business logic + events (ADR-0035 §Decision 5).
@@ -344,6 +351,7 @@ export class JobPostingChatService {
         ? "draft_ready"
         : session.status;
 
+    let stored: boolean;
     if (turn.updated_state) {
       const stateToPersist: Record<string, unknown> = {
         ...(turn.updated_state as unknown as Record<string, unknown>),
@@ -352,14 +360,25 @@ export class JobPostingChatService {
       // the emit below (the events table dedupes at insert); if this write is lost and
       // the turn is retried, the event is still emitted once.
       if (turn.draft_ready || priorReadyEmitted) stateToPersist[DRAFT_READY_EMITTED] = true;
-      await this.chat.saveTurn(session.id, payerId, {
+      stored = await this.chat.saveTurn(session.id, payerId, {
         conversationState: stateToPersist,
         ...(turn.draft ? { draft: turn.draft as unknown as Record<string, unknown> } : {}),
         status,
         lastMessageAt: now,
       });
     } else {
-      await this.chat.saveTurn(session.id, payerId, { lastMessageAt: now });
+      stored = await this.chat.saveTurn(session.id, payerId, { lastMessageAt: now });
+    }
+
+    // 6b. The session stopped being live while the engine was answering (#1922): in practice
+    //     a publish claimed it, and `saveTurn` refused to write over that. The turn's state,
+    //     draft and status were not stored, so this is the SAME 409 the turn would have got
+    //     had it arrived a moment later, and `draft_ready` is not emitted, because the flip
+    //     it announces never landed. The two messages and their `message_sent` events stay:
+    //     each names a row that exists.
+    if (!stored) {
+      this.logger.warn(`session ${session.id} closed mid-turn; turn not stored (#1922)`);
+      throw new ConflictException(SESSION_CLOSED_MESSAGE);
     }
 
     // 7. One readiness signal per session, on the flip.
@@ -503,7 +522,7 @@ export class JobPostingChatService {
     if (session.status === "published") {
       throw new ConflictException("This conversation has already been published");
     }
-    if (!LIVE_STATUSES.includes(session.status)) {
+    if (!JOB_POSTING_CHAT_LIVE_STATUSES.includes(session.status)) {
       throw new ConflictException("This conversation can no longer be published");
     }
 
@@ -656,8 +675,8 @@ export class JobPostingChatService {
     payerId: string,
   ): Promise<PayerJobPostingChatSession> {
     const session = await this.requireOwnedSession(sessionId, payerId);
-    if (!LIVE_STATUSES.includes(session.status)) {
-      throw new ConflictException("This conversation is closed");
+    if (!JOB_POSTING_CHAT_LIVE_STATUSES.includes(session.status)) {
+      throw new ConflictException(SESSION_CLOSED_MESSAGE);
     }
     return session;
   }

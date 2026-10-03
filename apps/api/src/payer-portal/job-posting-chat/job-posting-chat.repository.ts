@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   type Database,
   payerJobPostingChatSessions,
@@ -22,6 +22,17 @@ export const JOB_POSTING_CHAT_HISTORY_MAX = 200;
 
 /** Safety bound on the cross-device "resume this" list. */
 export const JOB_POSTING_CHAT_SESSION_LIST_MAX = 50;
+
+/**
+ * Statuses a session can still take turns in and be published from. ONE list, read by the
+ * service's 409 checks and by the WHERE clauses of {@link JobPostingChatRepository.saveTurn}
+ * and {@link JobPostingChatRepository.claimForPublish}, so the read-time checks and the
+ * write-time guards cannot disagree.
+ */
+export const JOB_POSTING_CHAT_LIVE_STATUSES: readonly PayerJobPostingChatStatus[] = [
+  "active",
+  "draft_ready",
+];
 
 /**
  * Drizzle data access for the AI job-posting chat (ADR-0035).
@@ -115,10 +126,19 @@ export class JobPostingChatRepository {
 
   /**
    * Persist one turn's outcome: interview state, draft snapshot, status, and the
-   * activity timestamp, in a single owner-scoped write.
+   * activity timestamp, in a single owner-scoped write. Returns whether a row was written.
    *
-   * Last-write-wins, deliberately and with the same caveat the worker chat carries: a
-   * session has ONE author typing sequentially. Cross-DEVICE resume does not change
+   * ONLY A LIVE SESSION TAKES THE WRITE (#1922). The turn was read as live before an
+   * ai-service call that takes seconds, and a publish can claim the session in that window.
+   * Without the status predicate this write put `active` / `draft_ready` back over
+   * `published`, the session was live again, and a second publish created a second
+   * posting. With it, a turn that lost the race to {@link claimForPublish} writes nothing
+   * and reports `false`. The predicate is evaluated under the row lock, so a claim that
+   * commits while this UPDATE waits is seen. It also keeps a turn from reviving an
+   * `abandoned` session.
+   *
+   * Between turns it is still last-write-wins, with the same caveat the worker chat carries:
+   * a session has ONE author typing sequentially. Cross-DEVICE resume does not change
    * that — a payer can resume the same conversation anywhere, but they are still one
    * person taking one turn at a time. Two devices posting into the same session at the
    * same instant would need optimistic concurrency; that is a real (if unlikely)
@@ -133,8 +153,8 @@ export class JobPostingChatRepository {
       status?: PayerJobPostingChatStatus;
       lastMessageAt: Date;
     },
-  ): Promise<void> {
-    await this.db
+  ): Promise<boolean> {
+    const rows = await this.db
       .update(payerJobPostingChatSessions)
       .set({
         ...(patch.conversationState !== undefined
@@ -148,8 +168,11 @@ export class JobPostingChatRepository {
         and(
           eq(payerJobPostingChatSessions.id, sessionId),
           eq(payerJobPostingChatSessions.payerId, payerId),
+          inArray(payerJobPostingChatSessions.status, JOB_POSTING_CHAT_LIVE_STATUSES),
         ),
-      );
+      )
+      .returning({ id: payerJobPostingChatSessions.id });
+    return rows.length > 0;
   }
 
   /**
@@ -161,9 +184,19 @@ export class JobPostingChatRepository {
    * `createForPayer`, both would have created a posting and only the second would have
    * lost the write — two live vacancies from one conversation, each with its own
    * `job_posting.created` on the spine. Claiming first makes that structurally
-   * impossible: the `status <> 'published'` predicate is evaluated by Postgres under
-   * row lock, so exactly one caller matches and the loser gets `undefined` → 409
-   * having created nothing.
+   * impossible: the live-status predicate is evaluated by Postgres under row lock, so
+   * exactly one caller matches and the loser gets `undefined` → 409 having created
+   * nothing. It reads the same {@link JOB_POSTING_CHAT_LIVE_STATUSES} as the service's
+   * read-time check, so an `abandoned` session is refused here too, not only there.
+   *
+   * A SESSION BOUND TO A POSTING CAN NEVER BE CLAIMED AGAIN (#1922). The
+   * `published_job_posting_id IS NULL` predicate does not trust `status` alone: if any
+   * writer ever put a bound session back to a live status, a second claim still matches
+   * nothing, so there is no second posting and the bound id is never overwritten. It is
+   * defence in depth behind {@link saveTurn}'s own status guard, which is what stops a
+   * racing turn reopening the session in the first place. BOUND, not merely produced: a
+   * posting whose row committed but whose `job_posting.created` emit then threw is never
+   * bound, so the claim is released and a retry can create a second one (#1928).
    *
    * The claim is released by {@link releasePublishClaim} if the create then fails.
    */
@@ -179,7 +212,8 @@ export class JobPostingChatRepository {
         and(
           eq(payerJobPostingChatSessions.id, sessionId),
           eq(payerJobPostingChatSessions.payerId, payerId),
-          sql`${payerJobPostingChatSessions.status} <> 'published'`,
+          inArray(payerJobPostingChatSessions.status, JOB_POSTING_CHAT_LIVE_STATUSES),
+          isNull(payerJobPostingChatSessions.publishedJobPostingId),
         ),
       )
       .returning();
