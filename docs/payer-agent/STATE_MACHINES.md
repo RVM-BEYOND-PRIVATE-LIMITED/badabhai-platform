@@ -217,6 +217,8 @@ The payer pays for a cap that is never checked and a counter that is permanently
 
 CHECK at `payer.ts:724-727`. Written: `active` on create (`job-posting-chat.repository.ts:42`), `draft_ready` when the AI says so (`job-posting-chat.service.ts:234`), `published` on publish (`repository.ts:177`). **`abandoned` is never written** — grep for `abandoned` in non-test API code returns only unrelated occupation-service usages. Dead state; abandoned sessions stay `active`/`draft_ready` forever and are re-offered by the "continue where I left off" list (`postings/ai/new/page.tsx:36`).
 
+**One backward step (#1911): `draft_ready` → `active`.** A turn whose title or description the worker-visible text screen refuses re-asks that field, so a question is on screen again and the session goes back to `active` (`postMessage`, step 6). The `job_posting_chat.draft_ready` event fires once per session, so in the event log it means the first time a session became ready, not its current status. Separately, `saveTurn` writes `status` with no status predicate, so a turn racing a publish can overwrite `published` (§(b), #1922).
+
 ---
 
 ## (a) Transitions enforced ONLY by the frontend hiding a button
@@ -247,6 +249,7 @@ CHECK at `payer.ts:724-727`. Written: `active` on create (`job-posting-chat.repo
 | **Payout claim** | `payout_request_id IS NULL` UPDATE inside one tx, rollback below threshold (`agency-payout.repository.ts:162-209`) | **SAFE for the claim**; the KYC gate read is outside the tx (TOCTOU on `kyc_snapshot_status`) |
 | **Referral first-touch** | advisory lock + partial unique on `claimed_by_worker_id` (`referral.ts:496-498`) | **SAFE** |
 | **Referral bonus** | `uniqueIndex(invited_worker_id)` (`referral.ts:329`) | **SAFE** |
+| **AI job-posting chat publish vs. a message turn** | `claimForPublish` is a guarded UPDATE (`status <> 'published'`), but `saveTurn` writes `status` filtered only by `id` + `payer_id`, after an ai-service call that takes seconds (`job-posting-chat.repository.ts`) | **DOUBLE-CREATE** — a turn that overlaps a publish writes `active`/`draft_ready` over `published`, so a second publish creates a second posting (#1922, R52) |
 
 ## (c) Silent state changes and registry drift
 
