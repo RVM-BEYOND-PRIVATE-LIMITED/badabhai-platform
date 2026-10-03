@@ -3,13 +3,14 @@ import { dartVmUpperCase } from "./title-case-dart-upper";
 /**
  * The worker app's `titleCaseName`, ported EXACTLY (#1432).
  *
- * Source of truth: `apps/worker-app/lib/core/util/title_case.dart`. Since worker-app 24285c14 the
- * app runs that function over `employer_name`, `role_label` and the education `field` before every
- * PUT, so every NEW row arrives cased by it. This port exists so a row stored BEFORE that fix can be
- * brought to the byte-identical value the app would have sent — which is only true if the two
- * functions agree on every input, not merely on the obvious ones. `title-case.test.ts` holds it to
- * the app's own test cases AND to a recording of the app's function on the Dart VM over every
- * Unicode scalar value (`__fixtures__/title-case.dart-vm.json`).
+ * Source of truth: `apps/worker-app/lib/core/util/title_case.dart`. Since worker-app f55a020f
+ * (release `worker-app-sha-f55a020`) the app runs that function over `employer_name`, `role_label`
+ * and the education `field` before the trade form's PUT, so a row saved there arrives cased by it.
+ * This port exists so a row stored BEFORE that fix can be brought to the byte-identical value the
+ * app would have sent — which is only true if the two functions agree on every input, not merely on
+ * the obvious ones. `title-case.test.ts` holds it to the app's own test cases AND to a recording of
+ * the app's function on the Dart VM over every Unicode scalar value
+ * (`__fixtures__/title-case.dart-vm.json`).
  *
  * THE RULE: walk the string by CODE POINT (Dart `runes`); a whitespace code point is copied and
  * starts a new word; the first code point of each word goes through the Dart VM's `toUpperCase()`;
