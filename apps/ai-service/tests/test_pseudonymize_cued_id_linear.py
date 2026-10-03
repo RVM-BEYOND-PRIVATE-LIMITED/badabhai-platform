@@ -23,15 +23,17 @@ cue lines; section 4 checks it end to end through `pseudonymize`, `contains_hard
 back and nothing else touched (`scripts/measure_cued_id_linear.py`, which also reproduces the
 full-corpus and timing numbers; section 5 keeps it measuring these rules).
 
-Each section was seen to FAIL against a mutation (2026-10-03; failures of this file's 43). Main's
-connector back in all three copies: 40, including all 13 timing tests. Back in `_RESUME_CUED_ID_RE`
-only: 27 (its 3 timing tests). Back in the lexicon mirror only: 26 (the extractor's timing test).
-Linear but semantically different, with no `\\s*` after the separator or no `id` word: 24 each,
-and the shared hard-identifier fixture in `test_resume_parse` fails too. Each of those also breaks
-the oracle, which can no longer put main's text back, so sections 2-4 were also run with the rules
-intact and the ORACLE's connector changed (no `\\s*` before the separator: 7; no `id`: 6). The
-corpus, the fuzz, the end-to-end run and the known cases each fail on a real span difference.
-Stdlib + pytest only, like `test_pseudonymize.py`. All inputs are fabricated.
+Each section was seen to FAIL against a mutation (re-measured 2026-10-03; failures of this file's
+48). Main's connector back in all three copies: 43, including all 13 timing tests. Back in
+`_RESUME_CUED_ID_RE` only: 30 (its 3 timing tests). Back in the lexicon mirror only: 29 (the
+extractor's timing test). `_RESUME_CUED_ID_RE` linear but semantically different, with no `\\s*`
+after the separator or no `id` word: 27 each, and the shared hard-identifier fixture in
+`test_resume_parse` fails too. Each of those also breaks the oracle, which can no longer put
+main's text back, so sections 2-4 were also run with the rules intact and the ORACLE's connector
+changed, in the script and in `_MAIN_CONNECTORS` alike (no `\\s*` before the separator, in all
+three: 8; no `id`: 4). The corpus, the fuzz, the end-to-end run and the known cases each fail on a
+real span difference. The two corpus tests in section 5 fail on the script before it read the
+shared, tracked-only corpus. Stdlib, git and pytest only. All inputs are fabricated.
 """
 
 from __future__ import annotations
