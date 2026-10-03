@@ -34,11 +34,14 @@ of the app's function on the Dart VM over every Unicode scalar value.
   the active kid, otherwise legacy v1. A re-cased v1 row therefore moves onto the active kid, the
   same as when a worker re-saves it. The header and the summary say which, as
   `writes v2 (keyring armed, …)` or `writes v1 (legacy key, no keyring)`. The kid is never printed.
-- **It will not write v2 it cannot prove the API reads.** Before an `--apply` writes v2, the run
-  decrypts a stored token already written under the active kid, from `employer_name_enc` or
-  `workers.phone_e164`. If no token is stored under that kid, it refuses unless you pass
-  `--keyring-is-newly-armed`. If the stored tokens do not decrypt, it refuses whatever the flags.
-  A dry run prints the same verdict as a WARN and exits 1.
+- **It will not write v2 under a key the API has not written with.** Before an `--apply` writes
+  v2, the run decrypts a few tokens the API wrote under the active kid, from `workers.phone_e164`
+  and `workers.full_name`. It never uses `employer_name_enc`, because this run writes that column,
+  and a run with the wrong key would otherwise prove that key to every run after it. If no such
+  token is under the kid, it refuses unless you pass `--keyring-is-newly-armed`. If any sampled
+  token does not decrypt, it refuses whatever the flags. A dry run prints the same verdict as a
+  WARN and exits 1. The check cannot see a wrong key that another ops runner (`db:reencrypt:pii`)
+  also used, so step 3 reads back through the API.
 - **No event and no audit row.** No `packages/db` runner writes either (`reencrypt-pii-backfill`,
   `retag-skills`): the process has no event pipeline and no actor to attribute the write to. The
   printed counts are the record, and step 4 says where to file them.
@@ -64,6 +67,15 @@ of the app's function on the Dart VM over every Unicode scalar value.
   only a superuser or BYPASSRLS role can see their rows. The runner refuses any other role rather
   than reporting "nothing to change".
 - **Run from a tree equal to `origin/main`.**
+- **Run the DB-backed suite on that tree first.** CI does not run
+  `packages/db/src/title-case-backfill.db.test.ts`, and it is the only test of the write path. Its
+  header gives the commands: a local scratch database, migrated from empty, never a shared one.
+  Paste its `Tests … passed` line on #1432 with the commit it ran on. Do not apply on a red or
+  skipped run.
+- **Pick a read-back worker for step 3.** You need a worker account you can sign in as, whose
+  employer name this run will re-case (the companion edit card stores one as typed). Note its
+  `GET /workers/me/employment` response before step 2: the cased employer will be missing from
+  `employments` afterwards if the write key is wrong.
 
 Production is identified by `DATABASE_URL`. A dry run against it is allowed and announced. An
 `--apply` against it also needs `--i-am-authorised-to-write-to-production` **and**
@@ -109,12 +121,27 @@ Production is identified by `DATABASE_URL`. A dry run against it is allowed and 
 
    `--keyring-is-newly-armed` is only for the case where the API was just armed with exactly this
    keyring and has not yet written under its active kid. Nothing then proves the key, so the flag
-   is your statement that you have checked it against the API's environment.
+   is your statement that you have checked it against the API's environment. The employer names
+   this run writes never count as proof, so every later run refuses again until the API itself
+   writes under the kid (a sign-up or a name save). Do not pass the flag again without checking
+   again.
 
-3. **Verify.** Run step 1 again. Expect `change` to be 0 in every column, apart from rows saved
-   uncased since step 2 (see Residuals), and `undecryptable` unchanged from step 1.
+3. **Verify — through the API, not by re-running.** A re-run of this runner cannot catch a wrong
+   write key: it decrypts with the same keyring it wrote with, so its counts look clean either way.
+   - **Read back through the API.** As the read-back worker, call `GET /workers/me/employment`
+     (the app's work-history edit page). Expect the employer cased, in `employments`, and
+     `unreadable_count` unchanged from before step 2.
+   - **Watch the API log for other accounts.** Every such read logs
+     `employment read for worker <id>: <n> readable, <m> unreadable`. A rise in `<m>` for any
+     worker after step 2 is the same failure.
+   - **If the employer is missing or `unreadable_count` rose,** the API does not hold the key this
+     run wrote with. Do not re-run. Restore from the backup, or deploy the keyring the run used if
+     that keyring is the intended one.
+   - **Then run step 1 again.** Expect `change` to be 0 in every column, apart from rows saved
+     uncased since step 2 (see Residuals), and `undecryptable` unchanged from step 1.
 
-4. **Record it.** Paste both summaries (counts only) on #1432.
+4. **Record it.** Paste both summaries (counts only) and the read-back result (the two
+   `unreadable_count` values, no employer name) on #1432.
 
 ## Safe to re-run
 
