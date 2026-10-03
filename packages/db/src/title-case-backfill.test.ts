@@ -7,6 +7,7 @@ import { piiCodec } from "./pii-keyring-env";
 import {
   NEWLY_ARMED_FLAG,
   TITLE_CASE_COLUMNS,
+  WRITE_KEY_PROOF_COLUMNS,
   buildTargets,
   canSeeForcedRlsRows,
   describeDbFailure,
@@ -154,10 +155,28 @@ describe("the write key — refusing to write v2 the API cannot read", () => {
     keys: { "api-2026": OTHER_KEY },
   });
 
-  it("is proven only by a stored token under the active kid that this run's key opens", () => {
+  it("is proven only when every sampled token under the active kid opens with this run's key", () => {
     expect(judgeWriteKey([opens], decrypt, false)).toBe("proven");
-    // One tampered or foreign token is not a verdict while another one opens.
-    expect(judgeWriteKey([sameKidOtherKey, opens], decrypt, false)).toBe("proven");
+    expect(judgeWriteKey([opens, opens], decrypt, false)).toBe("proven");
+  });
+
+  it("FAILS CLOSED on one token that will not open, however many others do, in any order", () => {
+    // API tokens under key Y beside tokens under key X: whichever key this run holds, the rows
+    // written with the other one are unreadable to someone. First-success-wins would say proven.
+    expect(judgeWriteKey([sameKidOtherKey, opens], decrypt, false)).toBe("key-mismatch");
+    expect(judgeWriteKey([opens, sameKidOtherKey], decrypt, false)).toBe("key-mismatch");
+    expect(judgeWriteKey([opens, opens, sameKidOtherKey], decrypt, true)).toBe("key-mismatch");
+  });
+
+  it("takes its proof only from columns the API writes and this runner never does", () => {
+    // Its own employer_name_enc would let a run with the wrong key prove that key to every
+    // later run, with the very tokens the API cannot read.
+    expect(WRITE_KEY_PROOF_COLUMNS).toEqual(["workers.phone_e164", "workers.full_name"]);
+    for (const column of WRITE_KEY_PROOF_COLUMNS) {
+      expect(TITLE_CASE_COLUMNS as readonly string[], column).not.toContain(column);
+    }
+    expect(writeKeyProblem("no-token")).toContain("workers.phone_e164, workers.full_name");
+    expect(writeKeyProblem("no-token")).not.toContain("employer_name_enc");
   });
 
   it("refuses an unproven kid unless the operator acknowledges it is newly armed", () => {
@@ -264,7 +283,11 @@ describe("output never carries a value", () => {
     const line = (over: Pick<TitleCaseRunResult, "employerNameWrites" | "writeKey">) =>
       formatSummary({ ...result, ...over }, false).find((l) => l.includes("employer names:"));
     expect(line({ employerNameWrites: "v2", writeKey: "proven" })).toContain(
-      "writes v2 under the keyring's active kid — a stored token under that kid decrypts",
+      "writes v2 under the keyring's active kid — every sampled token the API wrote under that " +
+        "kid decrypts",
+    );
+    expect(line({ employerNameWrites: "v2", writeKey: "key-mismatch" })).toContain(
+      "a token under that kid does NOT decrypt",
     );
     expect(line({ employerNameWrites: "v2", writeKey: "no-token" })).toContain(
       "an --apply refuses",

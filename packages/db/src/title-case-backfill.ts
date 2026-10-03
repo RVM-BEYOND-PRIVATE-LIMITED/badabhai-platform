@@ -34,7 +34,8 @@
  * configured, else legacy v1 — `piiCodec` is `PiiCryptoService` minus Nest. So a re-cased v1 row
  * moves onto the active kid, exactly as a worker re-saving it would. Which of the two is printed in
  * the header and the summary ("writes v2 (keyring armed …)" / "writes v1 (legacy key …)"), and
- * before an `--apply` writes v2 the run PROVES the API can read it — see `checkWriteKey`.
+ * before an `--apply` writes v2 the run checks the API has written under that exact key — see
+ * `WriteKeyCheck`.
  *
  * GUARDED, DATABASE-AWARE (`ops-guard.ts`): a dry run against any identified target is allowed and
  * announced; `--apply` against a production-like DATABASE_URL — or with NODE_ENV=production — also
@@ -59,7 +60,7 @@
  *   Runbook: docs/ops/title-case-backfill-runbook.md
  */
 import { config } from "dotenv";
-import { and, asc, eq, gt, isNotNull, sql } from "drizzle-orm";
+import { and, asc, eq, getTableName, gt, isNotNull, sql } from "drizzle-orm";
 
 import { titleCaseWords } from "@badabhai/validators";
 
@@ -297,27 +298,47 @@ async function assertRoleSeesRows(db: Database): Promise<void> {
  * under the legacy key. The likely way in: dotenv fills a dev keyring from the root `.env` into a
  * shell that exported only production's DATABASE_URL and PII_ENCRYPTION_KEY.
  *
- * So the run reads a few stored tokens already written under the active kid — from
- * `worker_employment.employer_name_enc` and from `workers.phone_e164`, which every worker has — and
- * DECRYPTS them. One that opens proves the kid AND the key bytes are the ones a writer with the
- * API's configuration used (GCM authenticates; a wrong key never opens a token). The plaintext is
- * discarded unread. A kid with no stored token proves nothing, and an `--apply` refuses unless the
- * operator passes `--keyring-is-newly-armed`; tokens under the kid that will NOT open mean another
- * key behind the same kid name, and that is refused whatever the flags say.
+ * So the run reads a few stored tokens already written under the active kid and DECRYPTS them. A
+ * token that opens shows the kid AND the key bytes match the writer's (GCM authenticates; a wrong
+ * key never opens a token). The plaintext is discarded unread.
+ *
+ * THE PROOF COMES ONLY FROM COLUMNS THIS RUNNER NEVER WRITES — `WRITE_KEY_PROOF_COLUMNS`, which
+ * the API writes (the phone at sign-up, the name on every save). Never `employer_name_enc`: a run
+ * with the wrong key under `--keyring-is-newly-armed` writes v2 employer names the API cannot read,
+ * and if those counted, every later run would open them with that same wrong key, call it proven,
+ * and keep writing unreadable rows with no flag at all. A token another ops runner wrote under the
+ * same wrong keyring (`db:reencrypt:pii` rotates both columns) still proves it; no rerun of a runner
+ * can see that, which is why the runbook's verify step reads back through the API.
+ *
+ * EVERY SAMPLED TOKEN MUST OPEN. One under the active kid that does not is far likelier a second
+ * key behind the kid name than tampering, and the rows written with the other key are rows the API
+ * cannot read — so it is refused whatever the flags say. A kid with no stored token proves nothing,
+ * and an `--apply` refuses unless the operator passes `--keyring-is-newly-armed`.
  */
 export type WriteKeyCheck =
   /** Employer names are out of scope, or written as legacy v1 — there is no new key to prove. */
   | "not-applicable"
-  /** A stored token under the active kid opens with this run's key. */
+  /** Every sampled token under the active kid opens with this run's key. */
   | "proven"
   /** No stored token under the active kid; the operator passed `--keyring-is-newly-armed`. */
   | "acknowledged"
   /** No stored token under the active kid. `--apply` refuses. */
   | "no-token"
-  /** Stored tokens under the active kid, none of which opens. `--apply` refuses, always. */
+  /** A sampled token under the active kid does not open. `--apply` refuses, always. */
   | "key-mismatch";
 
-/** The verdict on a sample of stored tokens under the active kid. Pure. */
+/**
+ * Where the proof is read from: columns the API writes and this runner never does (see
+ * `WriteKeyCheck`). Both live on `workers`; a null name is not sampled.
+ */
+const WRITE_KEY_PROOF_SOURCES = [workers.phoneE164, workers.fullName] as const;
+
+/** `WRITE_KEY_PROOF_SOURCES` by `<table>.<column>`, the form `TITLE_CASE_COLUMNS` takes. */
+export const WRITE_KEY_PROOF_COLUMNS: readonly string[] = WRITE_KEY_PROOF_SOURCES.map(
+  (c) => `${getTableName(c.table)}.${c.name}`,
+);
+
+/** The verdict on a sample of stored tokens under the active kid. Pure. Fails closed. */
 export function judgeWriteKey(
   sample: readonly string[],
   decrypt: (token: string) => string,
@@ -327,12 +348,12 @@ export function judgeWriteKey(
   for (const token of sample) {
     try {
       decrypt(token);
-      return "proven";
     } catch {
-      // A single tampered token is not a verdict; the next one may open.
+      // Not outvoted by a token that opens: the rows behind this one are unreadable to someone.
+      return "key-mismatch";
     }
   }
-  return "key-mismatch";
+  return "proven";
 }
 
 /**
@@ -347,19 +368,20 @@ export function writeKeyProblem(check: WriteKeyCheck): string | null {
     case "no-token":
       return (
         "a keyring is configured, so employer names would be written as v2 under its active kid, " +
-        "and no stored token (worker_employment.employer_name_enc, workers.phone_e164) was written " +
-        "under that kid. Nothing shows the deployed API holds that key; if it does not, every " +
-        "re-cased employer becomes unreadable to it. Compare PII_ENCRYPTION_KEYS and " +
-        "PII_ENCRYPTION_ACTIVE_KID with the API's environment (dotenv fills them from the root " +
-        ".env when the shell does not set them). If the API runs exactly this keyring and has not " +
-        `written since it was armed, re-run with ${NEWLY_ARMED_FLAG}.`
+        `and no stored token the API writes (${WRITE_KEY_PROOF_COLUMNS.join(", ")}) is under ` +
+        "that kid. Employer names this runner wrote earlier do not count. Nothing shows the " +
+        "deployed API holds that key; if it does not, every re-cased employer becomes unreadable " +
+        "to it. Compare PII_ENCRYPTION_KEYS and PII_ENCRYPTION_ACTIVE_KID with the API's " +
+        "environment (dotenv fills them from the root .env when the shell does not set them). If " +
+        "the API runs exactly this keyring and has not written under it yet, re-run with " +
+        `${NEWLY_ARMED_FLAG}.`
       );
     case "key-mismatch":
       return (
-        "stored tokens under the keyring's active kid do not decrypt with this run's key for that " +
-        "kid: they were written with a different key under the same kid name, and the API could " +
-        "not read a single employer name this run wrote. Use the API's exact PII_ENCRYPTION_KEYS " +
-        `(${NEWLY_ARMED_FLAG} does not override this).`
+        "a stored token under the keyring's active kid does not decrypt with this run's key for " +
+        "that kid: it was written with a different key under the same kid name, and whoever holds " +
+        "that key could not read an employer name this run wrote. Use the API's exact " +
+        `PII_ENCRYPTION_KEYS (${NEWLY_ARMED_FLAG} does not override this).`
       );
   }
 }
@@ -373,22 +395,21 @@ function writtenUnderKid(column: AnyPgColumn, kid: string) {
 }
 
 /**
- * Up to `WRITE_KEY_SAMPLE` tokens per column under `kid`. Exact match on `split_part`, not LIKE: a
- * kid may contain `_`, which LIKE reads as a wildcard. Unindexed, but it stops at the first rows it
- * needs and runs once, before the first write.
+ * Up to `WRITE_KEY_SAMPLE` tokens per proof column under `kid`. Exact match on `split_part`, not
+ * LIKE: a kid may contain `_`, which LIKE reads as a wildcard. Unindexed, but it stops at the first
+ * rows it needs and runs once, before the first write.
  */
 async function sampleTokensUnderKid(db: Database, kid: string): Promise<string[]> {
-  const employers = await db
-    .select({ token: workerEmployment.employerNameEnc })
-    .from(workerEmployment)
-    .where(writtenUnderKid(workerEmployment.employerNameEnc, kid))
-    .limit(WRITE_KEY_SAMPLE);
-  const phones = await db
-    .select({ token: workers.phoneE164 })
-    .from(workers)
-    .where(writtenUnderKid(workers.phoneE164, kid))
-    .limit(WRITE_KEY_SAMPLE);
-  return [...employers, ...phones].map((r) => r.token);
+  const sample: string[] = [];
+  for (const column of WRITE_KEY_PROOF_SOURCES) {
+    const rows = await db
+      .select({ token: column })
+      .from(column.table)
+      .where(writtenUnderKid(column, kid))
+      .limit(WRITE_KEY_SAMPLE);
+    for (const { token } of rows) if (token !== null) sample.push(token);
+  }
+  return sample;
 }
 
 async function checkWriteKey(
@@ -654,10 +675,10 @@ function writeKeyLine(result: TitleCaseRunResult): string | null {
     return `${TAG} employer names: writes v1 (legacy key, no keyring).`;
   }
   const proof: Record<WriteKeyCheck, string> = {
-    proven: "a stored token under that kid decrypts with this run's key",
-    acknowledged: `NO stored token under that kid; allowed by ${NEWLY_ARMED_FLAG}`,
-    "no-token": "NO stored token under that kid, so an --apply refuses",
-    "key-mismatch": "stored tokens under that kid do NOT decrypt, so an --apply refuses",
+    proven: "every sampled token the API wrote under that kid decrypts with this run's key",
+    acknowledged: `NO token the API wrote under that kid; allowed by ${NEWLY_ARMED_FLAG}`,
+    "no-token": "NO token the API wrote under that kid, so an --apply refuses",
+    "key-mismatch": "a token under that kid does NOT decrypt, so an --apply refuses",
     "not-applicable": "nothing to prove",
   };
   return `${TAG} employer names: writes v2 under the keyring's active kid — ${proof[result.writeKey]}.`;

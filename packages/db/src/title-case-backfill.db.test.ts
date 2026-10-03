@@ -25,10 +25,12 @@ import {
  * same ciphertext, which is only true if the row was never written; that a re-run changes nothing;
  * that a token which will not decrypt is skipped and counted; that the optimistic
  * `WHERE id = ? AND col = ?` really refuses a row that moved since it was read; and that an
- * `--apply` whose write key no stored token proves refuses before it writes anything.
+ * `--apply` refuses before it writes anything when no token the API wrote proves its write key,
+ * when one such token will not open, or when the only tokens under the kid are its own.
  *
  * ── CI DOES NOT RUN THIS FILE. The DB-backed gate step in ci.yml runs a fixed list of apps/api
- *    suites; this one needs its own scratch URL. Run it by hand before changing the write path.
+ *    suites; this one needs its own scratch URL. Run it by hand before changing the write path,
+ *    and before any --apply on the tree you run from (runbook, "Before you run it").
  *
  * ── IT RUNS THE BACKFILL OVER WHOLE TABLES, so it refuses any database that is not local and any
  *    whose three tables already hold rows, and it has NO default target — not even the local dev
@@ -310,7 +312,7 @@ describe.skipIf(!RUN)("title-case backfill against a real database (#1432)", () 
     const impostor = piiCodec(LEGACY, { activeKid: "k2", keys: { k1: K1, k2: FOREIGN } });
     for (const keyringNewlyArmed of [false, true]) {
       await expect(run(true, [], { codec: impostor, keyringNewlyArmed })).rejects.toThrow(
-        "REFUSING TO WRITE: stored tokens under the keyring's active kid do not decrypt",
+        "REFUSING TO WRITE: a stored token under the keyring's active kid does not decrypt",
       );
     }
     expect(await snapshot()).toEqual(seeded);
@@ -415,6 +417,27 @@ describe.skipIf(!RUN)("title-case backfill against a real database (#1432)", () 
     for (const row of afterApply.employment) expect(output).not.toContain(row.employerNameEnc);
     expect(output).not.toContain(phoneUnderActiveKid);
   });
+
+  // Last: it adds a worker whose name no later test could get past.
+  it("--apply REFUSES one token under the active kid that will not open, though another does", async () => {
+    // Another key behind the API's kid name wrote this worker's name; w3's phone still opens under
+    // this run's k2. Rows written with that other key are unreadable to whoever holds this one.
+    const w4 = await seedWorker();
+    await client.db
+      .update(workers)
+      .set({
+        fullName: encryptPiiWithKeyring("Ramesh Kumar", { activeKid: "k2", keys: { k2: FOREIGN } }),
+      })
+      .where(eq(workers.id, w4));
+    await seedEducation("ed6", w4, 0, { field: "tool room" });
+    const before = await snapshot();
+
+    await expect(run(true, [])).rejects.toThrow(
+      "REFUSING TO WRITE: a stored token under the keyring's active kid does not decrypt",
+    );
+    expect(await snapshot()).toEqual(before);
+    expect(before.educations.find((r) => r.id === ids["ed6"])!.field).toBe("tool room");
+  });
 });
 
 /**
@@ -496,15 +519,40 @@ describe.skipIf(!RUN)(
       expect(decrypt(token)).toBe("Recursive Global Infotech Pvt Ltd");
     });
 
+    let later: string;
+    const laterToken = encryptPii("bharat forge ltd", LEGACY);
+
+    it("the v2 employer names it wrote prove nothing — the next --apply still REFUSES", async () => {
+      // Had they counted, a run under the wrong key would prove that key to every run after it,
+      // with exactly the tokens the API cannot read, and need no acknowledgement to do so.
+      later = await seedEmployment(laterToken, 1);
+      const lines: string[] = [];
+      const dry = await run({ apply: false }, lines);
+      expect(dry.writeKey).toBe("no-token");
+      await expect(run({})).rejects.toThrow("REFUSING TO WRITE: a keyring is configured");
+      expect(await storedToken(later)).toBe(laterToken);
+    });
+
+    it("a name the API wrote under the active kid proves it, with no acknowledgement", async () => {
+      await client.db
+        .update(workers)
+        .set({ fullName: encryptPiiWithKeyring("Ramesh Kumar", KEYRING) })
+        .where(eq(workers.id, workerId));
+      const result = await run({});
+      expect(result.writeKey).toBe("proven");
+      expect(statsOf(result, "worker_employment.employer_name_enc").written).toBe(1);
+      expect(decrypt(await storedToken(later))).toBe("Bharat Forge Ltd");
+    });
+
     it("with no keyring — the API's configuration today — it writes v1 and has nothing to prove", async () => {
-      const fresh = await seedEmployment(encryptPii("sandhar technologies", LEGACY), 1);
+      const fresh = await seedEmployment(encryptPii("sandhar technologies", LEGACY), 2);
       const result = await run({ codec: piiCodec(LEGACY, null) });
       expect(result.writeKey).toBe("not-applicable");
       expect(result.employerNameWrites).toBe("v1");
-      // The v2 row the previous test wrote does not open without a keyring: counted, left alone.
+      // The two v2 rows the tests above wrote do not open without a keyring: counted, left alone.
       expect(statsOf(result, "worker_employment.employer_name_enc")).toMatchObject({
         written: 1,
-        undecryptable: 1,
+        undecryptable: 2,
       });
       const token = await storedToken(fresh);
       expect(token.startsWith("v1.")).toBe(true);
