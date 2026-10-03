@@ -410,12 +410,14 @@ and every measurement are in the comment above `_EMPLOYER_STOPWORDS`.
     "CO.".
   - "limited", "company", "pvt" and "private" are never forms on their own: in worker Hinglish
     they are ordinary words.
-  - Left raw: a span whose every name word is a sector word, before any form
-    (`"auto ancillary industries"`, `"automobile pvt ltd company"`), and a weak form right after a
-    process (`"agarbatti making industries"`).
-  - A stopword can neither open nor sit inside the span. A role word, a department, a city or a
-    form word never opens one: `"quality inspector bharat forge ltd"` →
-    `"quality inspector [EMPLOYER_1]"`, `"pune tata motors ltd"` → `"pune [EMPLOYER_1]"`.
+  - Left raw as a kind of company: a span of sector words (`"auto ancillary industries"`,
+    `"automobile pvt ltd company"`) and a lone generic adjective (`"korean pvt ltd company"`).
+    Before a strong form only sector words count, so a brand stays a firm (`"siemens ltd"` masks).
+  - A stopword can neither open nor sit inside the span, a job word sits nowhere in it, and a
+    role, a department, a city or a form word never opens it:
+    `"machine operator xyz pvt ltd"` → `"machine operator [EMPLOYER_1]"`,
+    `"quality inspector bharat forge ltd"` → `"quality inspector [EMPLOYER_1]"`,
+    `"pune tata motors ltd"` → `"pune [EMPLOYER_1]"`.
 - **Title-case twins** (`_EMPLOYER_TITLE_FORM_RE`, `_EMPLOYER_ABSORB_RE`). The capitals grammar
   with title-case forms masks `"Sharma & Co."`, `"Xyz (P) Ltd"` and `"Acme Llp"`. Pvt and Private
   count only before Ltd or Limited, so `"Govt & Private Jobs"` stays raw. Like main's title-case
@@ -426,29 +428,37 @@ and every measurement are in the comment above `_EMPLOYER_STOPWORDS`.
   - It leaves alone trade and sector words (`"Welding &"`), a city (`"Pune-"`), a duration
     (`"3Yrs"`) and any word holding 7 or more digits, so `"AB12345678-Tata Steel"` still blocks.
 - **The M/S cue** (`_EMPLOYER_MS_CUE_RE`). "M/S", "M/s.", "M / S", "M/S:" or "M/S:-", then a firm
-  that ends on a word naming a business (`_MS_FIRM_WORDS`: traders, fabricators, works, transport,
-  sons, …).
+  that ends on a word naming a business.
   - "M/S" also abbreviates mild steel and metres per second, and a payer's verb or a locality
-    often follows the firm. None of those reaches a firm word:
-    `"m/s hollow section ka fabrication"` stays raw,
-    `"M/S SHARMA TRADERS BHOSARI ME HELPER"` → `"M/S [EMPLOYER_1] BHOSARI ME HELPER"`, and
-    `"M/s ABC Engineering Pvt Ltd requires CNC operators"` keeps "requires CNC".
-  - The firm never opens on a mild-steel, unit, role or city word, never crosses a line and never
-    cuts a word. A "firm" made of nothing but curated trade vocabulary is a skill
-    (`"M/S PIPING SYSTEMS"`).
-  - A number may stand before the cue: `"2016-2019 M/S XYZ TRADERS"` masks.
+    often follows the firm. So the cue never follows a measurement (`"3 m/s submersible pumps"`),
+    and the firm never opens on mild-steel stock, a material, a unit, a role or a city. It ends
+    on its firm word and leaves what follows raw: `"M/S SHARMA TRADERS BHOSARI ME HELPER"` →
+    `"M/S [EMPLOYER_1] BHOSARI ME HELPER"`, `"M/S SHARMA TRADERS-BHOSARI"` →
+    `"M/S [EMPLOYER_1]-BHOSARI"`, and `"M/s ABC Engineering Pvt Ltd requires CNC operators"` keeps
+    "requires CNC".
+  - A strong firm word (traders, fabricators, transport, sons, …) is enough. A generic one
+    (works, parts, tools, engineering, …) is not, after mild-steel stock or, in lower case, after
+    nothing but sector words: `"m/s truck body works"` and `"m/s power tools"` stay raw,
+    `"M/S SHREE SAI ENGINEERING WORKS"` and `"M/s Precision Components"` mask.
+  - A "firm" made of nothing but curated trade vocabulary is a skill (`"M/S PIPING SYSTEMS"`). A
+    firm an earlier rule masked takes only a firm word right after its token, never words past
+    it. A year may stand before the cue: `"2016-2019 M/S XYZ TRADERS"` masks.
 - **Five or six name words** (`_EMPLOYER_LONG_RE`), only before a strong form: PVT LTD, PRIVATE
   LIMITED, LTD, LLP or LLC. "and" and the parenthesised joiners do not count as words.
   - It runs ahead of the capitals rule, whose 4-word window would leave the first word raw.
-  - So it never holds a word where the capitals or title-form rule would end, and its own form
-    ends at a real word end or a dash before a city. Either let it cut a capitals span and leave
-    that span's name raw (`"Hero Traders INDUSTRIES-PUNE …"`, `"…works LTD-patil MOTORS LTD"`).
+  - So it never holds a word where the capitals or title-form rule would end, and its form ends
+    where that rule would not take the next word. Either would let it cut a capitals span and
+    leave that span's name raw (`"Hero Traders INDUSTRIES-PUNE …"`,
+    `"…works LTD-patil MOTORS LTD"`).
+  - No job word sits in it: `"MACHINE OPERATOR SHREE GANESH ENGINEERING WORKS PVT LTD"` →
+    `"MACHINE OPERATOR [EMPLOYER_1]"`.
 - **Shared rules.** Every span opens at a real word start and uses horizontal space only. Each
   pass is skipped on a text that lacks its mandatory piece (`_RULE_GATES`), which never changes an
-  output.
+  output. A pass that leaves a match as it is keeps that text's source offsets, so a later pass
+  that masks it is seen by the two-view check.
 
 **Measured** with every pass on against off, each string as written, upper-cased, lower-cased and
-sentence-cased, after each of three review rounds:
+sentence-cased, after each of four review rounds:
 
 - 50,918 repo strings (#1875's 31,984 plus 18,934 it lacked): 7 change as written, 7 upper, 72
   lower, 72 sentence. No string loses a mask, stops blocking or newly blocks. No certifier outcome
@@ -458,53 +468,67 @@ sentence-cased, after each of three review rounds:
   upper-cased, 3 lower-cased.
 - 633 fabricated employers in 576 lines, caught as written before → after: lower case
   1% → 75%, title-case twins 32% → 99%, M/S firms 16% → 95%, five or more name words 27% → 78%.
-- The third review's own 804 lines, written to break the passes: lines with a word main kept now
-  inside a token fell from 243 to 85 with the third round's fixes. Mild steel, units, payer ads
-  and M/S skill labels: 0. The real residue is the last two OVER shapes below and 3 of 156
-  ordinary lines; the rest are firms that corpus left unbracketed and forms folded into a token.
+- Two corpora the reviewers wrote to break the passes, firms bracketed: the third review's 804
+  lines and the fourth's 678. Lines with a word main kept now inside a token fell from 243 to 94
+  and from 162 to 30 over the last two rounds' fixes. Units, payer ads, roles, localities and the
+  curated mild-steel skill labels are at 0. What remains is the OVER list below (28 of 30 lines
+  built for the industry shape, 7 of 50 and 8 of 61 for generic company talk, 10 of 78 for mild
+  steel), firms the third corpus left unbracketed, and forms folded into a token. Bracketed firms
+  left raw fell from 98 to 60 lines, most of them M/S firms with no firm word.
 
 **Declined on those numbers:** lower-case "limited" alone (+10 worker lines such as
 `"programming ka knowledge limited hai"`), lower-case "company" (+12 repo and +11 worker lines),
 weak forms after one word (+22 lines of NCO prose), an M/S cue without the mild-steel guard (+8
 worker lines), an M/S cue with no firm word (71 of 125 mild-steel lines and 17 of 20 payer ads
-over-masked), and an 8-word window (it bought nothing).
+over-masked), a weak form after an "-ing" word left raw (it cost `"sharma trading co."`), and an
+8-word window (it bought nothing).
 
-**Reviewed** by security, code, performance, red-team, mutation, claims and sweep passes over three
+**Reviewed** by security, code, performance, red-team, mutation, claims and sweep passes over four
 rounds:
 
 - The first round's blocker: absorb leads had no 7-digit refusal, so a turn main blocked passed.
-- The long pass could take part of a capitals span three ways: a form word inside it, a form with
-  a dash after it, and its own form ending inside a capitals word.
+- The long pass could take part of a capitals span four ways: a form word inside it, a form with
+  a dash after it, and its own form ending inside a capitals word (twice).
 - The M/S rule over-masked mild-steel talk, payer ads and localities until the firm-word rule
-  replaced its never-after-a-number guard and its first-word vocabulary check.
+  replaced its never-after-a-number and next-cue guards. That re-opened `"M/S TOOL CRAFT"` (UNDER
+  below), and the fourth round narrowed the number guard back to measurements.
+- A pass that left a match as it is dropped that text's source offsets, so an invisible could hide
+  a firm the visible text masked. It now keeps them, and those turns block.
 - The worst cost on dotted text was ×5.3 its base; it is now ×1.1–1.4.
 
-**Boundary, under.** Each case is a `KNOWN_RESIDUAL` test:
+**Boundary, under.** Each case is a `KNOWN_RESIDUAL` test unless marked:
 
 - a firm with no form and no cue (`"BAJAJ AUTO"`);
-- lower-case `"bharat forge limited"`, `"omkar engineering company"`, `"gupta industries"`;
-- a stopword inside a firm: `"xyz and sons ltd"` → `"xyz and [EMPLOYER_1]"`, as title case does;
-- an M/S firm with no firm word (`"M/S TOOL CRAFT"`, `"M/S SIEMENS"`), or opening on a stopword, a
-  mild-steel word, a role word or a city (`"M/S PUNE SHARMA TRADERS"`);
+- lower-case `"bharat forge limited"`, `"omkar engineering company"`, `"gupta industries"`, and a
+  strong form after nothing but sector words (`"precision engineering pvt ltd"`, unpinned);
+- a stopword inside a firm (`"xyz and sons ltd"` → `"xyz and [EMPLOYER_1]"`, as title case does);
+  a job word inside one loses the words before it (`"sharma fitter works ltd"` →
+  `"sharma fitter [EMPLOYER_1]"`, unpinned);
+- an M/S firm with no firm word (`"M/S TOOL CRAFT"`, `"M/S SIEMENS"`), opening on a stopword, a
+  mild-steel word, a role word or a city (`"M/S PUNE SHARMA TRADERS"`), after a small number
+  (`"1 M/S SHARMA TRADERS"`), before a dot or a slash (`"M/S SHARMA TRADERS.PUNE"`), or generic in
+  lower case (`"m/s precision components"`, unpinned);
 - 7 or more name words, 5 before a non-strong form, or 4 and a joiner
-  (`"SRI SAI IRON AND STEEL PVT LTD"` → `"SRI [EMPLOYER_1]"`, as on main);
+  (`"SRI SAI IRON AND STEEL PVT LTD"` → `"SRI [EMPLOYER_1]"`; main leaves "SRI" raw too);
 - two spaces in "& co", a slash-glued first word, a firm wrapped across two lines, a city as a
-  firm's first word, and a city glued on by a dash, dot or "&"
-  (`"pune-tata motors ltd"` → `"pune-tata [EMPLOYER_1]"`).
+  firm's first word (`"pune industrial gases pvt ltd"` → `"pune [EMPLOYER_1]"`), and a city glued
+  on by a dash, dot or "&" (`"pune-tata motors ltd"` → `"pune-tata [EMPLOYER_1]"`).
 
 **Boundary, over.** Each case is an `ACCEPTED` test:
 
 - the absorb pass extends an over-mask the title-case rule already makes:
   `"Walk-In Interview For Quality Co-ordinator"` → `"[EMPLOYER_1]-ordinator"`;
 - the long rule widens a capitals span on telegraphic text before PVT LTD;
-- `"garbage removal corporation"` is masked;
+- a weak form after two ordinary words or a product noun: `"garbage removal corporation"`,
+  `"rice mill industries me loader"`, `"agarbatti making industries"` are masked;
 - a city other than a span's first word is masked with it, as the capitals and title-case rules
-  do: `"Pune Sharma & Co."` → `"[EMPLOYER_1]."`, `"bhosari pune tata motors ltd"` →
-  `"[EMPLOYER_1]"`;
-- a weak form after a product noun, and a payer's benefit before "pvt ltd company":
-  `"rice mill industries me loader"` → `"[EMPLOYER_1] me loader"`,
-  `"bus facility pvt ltd company"` → `"[EMPLOYER_1] company"` (16 of 30 and 9 of 50 lines built
-  for these shapes).
+  do (`"Pune Sharma & Co."` → `"[EMPLOYER_1]."`), and a locality outside the gazetteer or a job
+  the lists lack opens a lower-case span (`"chakan bharat forge ltd"`,
+  `"forklift tata motors ltd"` → `"[EMPLOYER_1]"`);
+- a payer's benefit before "pvt ltd company": `"bus facility pvt ltd company"` →
+  `"[EMPLOYER_1] company"`;
+- trade talk ending on a generic firm word with no stock or sector word before it:
+  `"m/s hand tools se kaam"` → `"m/s [EMPLOYER_1] se kaam"`.
 
 **The two views (R49, #1890).** `"Larsen &<U+200B>Toubro Limited"` now blocks; main passed it with
 "Larsen" raw. These passes also extend R49's partial overlap, the way #1875 did:
@@ -512,23 +536,25 @@ rounds:
 - with an invisible character right after a name cue, `"my name is<U+200B>Ramesh Kumar Llp"` passes
   as `"my name isRamesh [EMPLOYER_1]"` (and the "& Co.", "(P) Ltd", "W.l.l", absorb and long
   lower-case shapes);
-- with one that merges words around a dash-glued run, `"Sharma Motors<U+2060>A-ONE Motors"` passes
-  as `"Sharma [EMPLOYER_1]"`.
+- with one that merges a word into a dash-glued run, `"Sharma Motors<U+2060>A-ONE Motors"` passes as
+  `"Sharma [EMPLOYER_1]"`.
 
-Main blocks every one of these. Each shape is pinned as a `KNOWN_RESIDUAL`. On the third review's
-generator, 195 of 20,000 lines that each carry an invisible (0.98%) now pass with a name word raw
-where main blocked; with invisibles in 2% of lines it is 4 in 20,000. Those turns reach the at-rest
-copies (corpus, growth queue, payer draft) and the embedding input; the clean-or-withhold walls
-still withhold them. The security review ruled SHIP with this residual registered and acknowledged
-by the owner. The fix belongs in the two-view check (#1890).
+Main blocks every one of these. The 10 shapes are pinned as `KNOWN_RESIDUAL`. On the third
+review's generator, 20,000 lines that each carry an invisible, main's own R49 name egress is 208
+lines; these passes add 194 that main blocked (0.97%) and close 46 of main's. With invisibles in
+2% of lines they add 3 in 20,000. Those turns reach the at-rest copies (corpus, growth queue,
+payer draft) and the embedding input; the clean-or-withhold walls still withhold them. The
+security review ruled SHIP with this residual registered and acknowledged by the owner; Divyanshu
+Pant acknowledged it on 2026-10-03 (R49). The fix belongs in the two-view check: #1890, owner
+kpdagrt22, target 2026-10-10.
 
-**Cost.** A typical worker turn costs 1–4 µs more on average; a line holding a lower-case employer
-costs about 2.5× (25 → 64 µs). On the worst 20,000-character inputs the work is linear: every word
-is a span start and each start reads at most six words. The reviewers' dotted shapes cost ×1.1–1.4
-the gateway without these passes. The largest shares are one-letter words before a form
-(`"b " × 9,990 + " ltd"`: 7 → 35 ms) and joiners (`"Ab (P) " × 2,850 + " ltd"`: 9 → 41 ms). No input
-found adds more than about 31 ms. Load-proof tests pin each pass alone, the dotted shapes within
-2.5× + 20 ms of the base, and every worst input under 750 ms.
+**Cost.** A typical worker turn costs 1–5 µs more on average; a line holding a lower-case employer
+costs about 2.5–3× (25 → 64–70 µs). On the worst 20,000-character inputs the work is linear: every
+word is a span start and each start reads at most six words. The reviewers' dotted shapes cost
+×1.1–1.4 the gateway without these passes. The largest shares are one-letter words before a form
+(`"b " × 9,990 + " ltd"`: 7 → 40 ms) and joiners (`"Ab (P) " × 2,850 + " ltd"`: 9 → 46 ms). No
+input found adds more than about 37 ms. Load-proof tests pin each pass alone, the dotted shapes
+within 2.5× + 20 ms of the base, and every worst input under 750 ms.
 
 Pinned by `tests/test_pseudonymize_employer_residuals.py`, with shared helpers in
 `tests/employer_masking_helpers.py`.
@@ -698,7 +724,7 @@ out: "[PERSON_1], phone [PHONE_1], worked at [EMPLOYER_1] in Faridabad"
   - **R32:** Names without cue words can leak (e.g., "Chandrashekhar bol raha hu" — 3/4 natural forms unmasked on main). Narrowed, not closed — the gazetteer approach measured dead (487 probes / 348 leaks); known-name redaction shipped in `apps/api` instead (PR #524, ADR-0035).
   - Both tracked in [risks-register.md](../registers/risks-register.md) as Critical-if-live and both **still gate `AI_ENABLE_REAL_CALLS`**; invariant #5 holds today.
   - **Both are moot while `AI_RAW_PII_ENABLED` is armed** (ADR-0047): each describes PII slipping past a masker that is then deliberately not masking. With the switch off they stand as recorded.
-  - **R48 — employers in capitals (issue #1875).** Fixed for a capitals span that ends in a listed corporate form. #1892 then masked lower case, M/S firms that end on a firm word, 5–6 name words and the title-case twins (see "Employer shapes the capitals rule left raw"). Still open: no corporate form and no cue (`"BAJAJ AUTO"`), INC/EST., and the residue that section lists; the R49 two-view shapes #1892 extends wait on #1890. The title-case `_EMPLOYER_RE` stall found there is bounded by #1891: its name word now has the capitals rule's 64-character bound, and no corpus output moved. The owner signed off on 2026-10-03 (see the sign-off in that section and R48). Unlike R30/R32, this is NOT moot while the switch is armed. The at-rest masked copies, the embedding input (SG-2, ADR-0047 §4) and the certifiers run `pseudonymize()` under both postures. The Langfuse and `ai_call_traces` sinks follow the flag (`trace_mask`), so they are covered only while it is off.
-  - **R49 — the two-view check accepts a partial overlap (#1890).** Pre-existing (#1738). A name hidden by an invisible character next to a masked employer span egresses unblocked: `"my name is<U+200B>Ramesh Kumar CO"` → `"my name isRamesh [EMPLOYER_1]"`. Main already does this with title-case suffixes, and #1875's capitals rule extends the shape. OPEN; the fix is to count a spaced-view region as covered only if every kept offset is inside the reader-masked regions.
+  - **R48 — employers in capitals (issue #1875).** Fixed for a capitals span that ends in a listed corporate form. #1892 then masked lower case, M/S firms that end on a firm word, 5–6 name words and the title-case twins (see "Employer shapes the capitals rule left raw"). Still open: no corporate form and no cue (`"BAJAJ AUTO"`), INC/EST., a dash after a guarded form (`"MARUTI COMPANY-PUNE"`), and the residue the #1892 section lists; the R49 two-view shapes #1892 extends wait on #1890. The title-case `_EMPLOYER_RE` stall found in the #1875 section is bounded by #1891: its name word now has the capitals rule's 64-character bound, and no corpus output moved. The owner signed off on 2026-10-03 (see #1891's sign-off and R48). Unlike R30/R32, this is NOT moot while the switch is armed. The at-rest masked copies, the embedding input (SG-2, ADR-0047 §4) and the certifiers run `pseudonymize()` under both postures. The Langfuse and `ai_call_traces` sinks follow the flag (`trace_mask`), so they are covered only while it is off.
+  - **R49 — the two-view check accepts a partial overlap (#1890).** Pre-existing (#1738). A name hidden by an invisible character next to a masked employer span egresses unblocked: `"my name is<U+200B>Ramesh Kumar CO"` → `"my name isRamesh [EMPLOYER_1]"`. Main already does this with title-case suffixes, #1875's capitals rule extends the shape, and #1892's passes extend it further (10 pinned shapes; 194 of 20,000 invisible-bearing lines on the review's generator newly pass with a name word raw; accepted by the owner 2026-10-03). OPEN, owner kpdagrt22, target 2026-10-10; the fix is to count a spaced-view region as covered only if every kept offset is inside the reader-masked regions.
   - **R54 — the cued-ID rules stalled on a whitespace run. RESOLVED by #1933.** Pre-existing; found by the #1891 survey. `_CREDENTIAL_ID_RE` and `_RESUME_CUED_ID_RE` put three whitespace quantifiers in a row, so a cue followed by a whitespace run that failed to match cost O(k³): `pseudonymize("reg" + " " * 800 + "!")` took 1.7–4.0 s over three runs, whatever `AI_RAW_PII_ENABLED` says. Each quantifier is now folded into the optional token it follows, in both rules, the salary guard's lexicon copy and the API's TypeScript ports: 0.2 ms on that input, with 0 span differences over the corpus and the fuzz. See the section on the cued-ID connector. The `"Reg.No."` shape the connector never read stays a pinned residual, tracked as R56.
   - **R56 — the cued-ID rules never read a dot after the cue.** Pre-existing; found by the #1933 parity work. No connector token starts with "." and "regn" is no cue, so `"Reg.No.: MH2019CN4471"`, `"Reg. No. …"`, `"Roll.No. …"`, `"Cert. No. …"`, `"Passport.No. …"` and `"Regn. No. …"` never reach their value: `pseudonymize()` leaves the ID raw, `contains_hard_identifier` (G1/G2) admits it and the salary detector records its digits as pay. Unlike R30/R32, this is NOT moot while `AI_RAW_PII_ENABLED` is armed: the at-rest copies, the embedding input and the walls run `pseudonymize()` under both postures. OPEN. The fix reads "." after the cue, which masks more, so it takes its own security-engineer review; see R56.
