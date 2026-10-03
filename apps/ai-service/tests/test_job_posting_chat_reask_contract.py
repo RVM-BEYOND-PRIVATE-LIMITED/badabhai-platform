@@ -220,6 +220,25 @@ def test_the_add_chip_is_the_add_word_and_a_refusal():
     assert answers.is_refusal(chip)
 
 
+def _documented_refusals() -> list[str]:
+    """Every phrase the screen's comments say the engine refuses: the quoted words of each
+    ``(answers.is_refusal, #1938: "...", "...")``, with the comment's line breaks joined."""
+    prose = re.sub(r"\n[ \t]*\* ?", " ", _screen_ts())
+    cited = re.findall(r"\(answers\.is_refusal, #1938: ([^)]*)\)", prose)
+    return [phrase for group in cited for phrase in re.findall(r'"([^"]+)"', group)]
+
+
+def test_every_phrase_the_screen_says_the_engine_refuses_is_refused():
+    """#1938. The screen once told its reader that a typed "no more" or "that's it" was NOT the
+    engine's refusal and would be added as a chip; after #1938 that is false, and a comment saying
+    so steers the next change to work around a gap that is gone. The comments now cite the
+    phrasings the engine refuses, and each one is pinned against the engine here."""
+    phrases = _documented_refusals()
+    assert {"no more", "that's it", "keep it"} <= set(phrases), phrases
+    for phrase in phrases:
+        assert answers.is_refusal(phrase), phrase
+
+
 @pytest.mark.parametrize("field", _LISTS)
 def test_a_list_option_is_recorded_as_its_plus_separated_parts(field: str):
     """The TS judges an option held when every "+"-separated part of it is held."""
@@ -376,6 +395,9 @@ _KEEP_REPLIES = [
     "Nope, keep it",  # masked by the gateway: "[PERSON_1], keep it"
     "No, that's it",
     '"no"',  # the hint's word, quotes and all
+    "Okay, keep it",
+    "Bas, that's it",  # masked by the gateway: "[PERSON_1], that's it"
+    "No. Keep it.",  # a phone keyboard's double space types the period
 ]
 
 
@@ -499,6 +521,9 @@ _NONE_MORE_REPLIES = [
     "Nope, that's all",  # masked by the gateway: "[PERSON_1], that's all"
     "nahi, bas",
     "aur kuch nahi",
+    "Bas, that's it",  # masked by the gateway: "[PERSON_1], that's it"
+    "Okay, keep it",
+    "No. Keep it.",
 ]
 
 

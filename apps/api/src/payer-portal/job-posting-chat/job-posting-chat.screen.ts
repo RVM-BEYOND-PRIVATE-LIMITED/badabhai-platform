@@ -31,8 +31,9 @@ import { workerVisibleTextScreens, type WorkerVisibleScreen } from "@badabhai/va
  * chips stay in both. And the topic goes back on screen: dropping the chips without asking
  * again would leave the payer no way to restate them in the chat, and clearing the list to
  * reopen it would throw away chips that passed. On that question "no" keeps the list as it is,
- * and any other answer is added to it. The question offers "No" as a tap, because a typed
- * "no more" is not the engine's refusal and would be added as a chip.
+ * and so does the common typed "nothing more" the engine also refuses (answers.is_refusal,
+ * #1938: "no more", "that's it", "bas"). Any other answer is added to it. The question offers
+ * "No" as a tap, the one-tap path.
  *
  * AFTER THE WRAP-UP THE DESCRIPTION TAKES THE NEXT MESSAGE (#1921). A list re-asked on or after
  * the wrap-up is put last so the payer's answer reaches it. The wrap-up that follows would leave
@@ -204,21 +205,25 @@ export const FIELD_POLICY: FieldPolicies = {
 
 /**
  * Appended when the question on screen is a text field whose earlier value was KEPT. "no" is
- * the engine's refusal word on every topic: it records nothing, so the kept value survives.
- * Any other reply to that question replaces it, so the payer is told which word keeps it.
+ * the engine's refusal word on every topic: it records nothing, so the kept value survives. So
+ * does the common typed "keep it" the engine also refuses (answers.is_refusal, #1938: "keep it",
+ * "no, keep it", "no change"). Any other reply to that question replaces it, so the payer is
+ * told which word keeps it.
  */
 const KEEP_HINT = 'Reply "no" to keep the earlier one.';
 
 /**
  * Appended when the question on screen is a list with clean chips left. The same refusal word
- * records nothing, so the list stays as it is. Any other reply is added to it.
+ * records nothing, so the list stays as it is, and so does a typed "nothing more" the engine
+ * also refuses. Any other reply is added to it.
  */
 const ADD_HINT = 'Reply "no" if there are none.';
 
 /**
  * The tap served with a list's add-question: the {@link ADD_HINT} word, so it records nothing
- * and the list stays as it is. The engine's refusal is a short fixed list of words. A typed
- * "no more" or "that's it" is not on it and would be added to the list as a chip.
+ * and the list stays as it is. It is the one-tap path: the engine also refuses the common typed
+ * "nothing more" (answers.is_refusal, #1938: "no more", "that's it", "no, nothing else",
+ * "bas"), so typing one keeps the list too.
  */
 const ADD_CHIP = "No";
 

@@ -3,17 +3,21 @@
 `answers.is_refusal` decides when a reply records NOTHING: a non-essential topic closes empty, and
 a value the API's re-ask offered to keep (#1911 `KEEP_HINT`, #1921 `ADD_HINT`) stays as it was.
 It used to be a short list of single words, so "no more", "no other", "that's it", "bas" and a
-leading "no," / "nope," before a refusal were RECORDED: chips on the list topics, the description
-on the keep re-ask, even the job title.
+leading "no," / "nope," / "bas," / "ok," before a refusal were RECORDED: chips on the list topics,
+the description on the keep re-ask, even the job title. So was a refusal whose clauses a phone
+keyboard broke with a period ("No. Keep it."): it OVERWROTE the kept description (#1911).
 
 It governs every topic that does not require a value, so it is widened with care and pinned both
 ways here. Measured on 2026-10-03 over every string in main's tree at 333bf392 (211,581 distinct
 strings: every tracked .py, .ts/.tsx/.js/.dart, .json/.jsonl, .csv/.yaml/.md file, the question
-bank and the city gazetteer): 32 matched before, 98 after, 0 stopped matching. Each of the 66 new
+bank and the city gazetteer): 32 matched before, 106 after, 0 stopped matching. Each of the 74 new
 matches is a refusal ("aur kuch nahi", "bas itna hi", the packs' "Koi nahi" / "Nahi hai", "No
-change") or a code token that answers no bank question ("keep", "none"). No question-bank option
-and no job-posting chat answer fixture is among them; the only job-posting strings are the two
-`job-posting-chat.screen.ts` comments that describe this gap ("no more", "that's it").
+change", and the worker skills gate's own `done` phrasings "ok bas", "Ok, that's all.", "bas
+bas"), a code token that answers no bank question ("keep", "none"), a docstring line ("nothing;"),
+or the lexicon fixture "ok na" (a bare tag, `off_topic` there: closing an optional topic empty
+records nothing a payer said). No question-bank option and no job-posting chat answer fixture is
+among them; the only job-posting strings are the two `job-posting-chat.screen.ts` comments that
+described this gap ("no more", "that's it"), reworded with this change.
 
 The re-ask paths (keep a description or a title, keep a list) are pinned against the engine in
 `test_job_posting_chat_reask_contract.py`.
@@ -98,6 +102,16 @@ _NOW_REFUSALS = [
     "nope nothing",
     "that's all, thanks",
     "no, that's it, thank you",
+    # A different leading word: "bas," / "ok," / "okay," (#1938 review).
+    "Bas, that's it",
+    "Okay, keep it",
+    "ok that's it",
+    "Ok, no more",
+    "okay nothing else",
+    "ok bas",
+    "bas bas",
+    # A phone keyboard's double space types the period between the clauses.
+    "No. Keep it.",
 ]
 
 
@@ -131,6 +145,14 @@ def test_a_nothing_more_reply_never_closes_an_essential(reply: str):
         "No, thanks",
         "Bas.",
         "Bas",  # a phone keyboard capitalises the first letter
+        # A clause break is the comma it stands for, and a run of them is one.
+        "No. Keep it.",
+        "No; keep it",
+        "No... that's it",
+        "No… keep it",  # a phone keyboard's ellipsis
+        "No! Keep it!",
+        "no,, keep it",
+        "That's all. Thanks.",
     ],
 )
 def test_spacing_case_quotes_and_end_punctuation_do_not_matter(reply: str):
@@ -167,6 +189,11 @@ def test_spacing_case_quotes_and_end_punctuation_do_not_matter(reply: str):
         ),
         ("no experience needed", "experience", {"min": 0, "max": None}),
         ("nahi, night shift", "shift", "night"),
+        # A clause break is read as a comma by the refusal check only; the parsers see the text.
+        ("No. Only PF.", "benefits", ["No. Only PF"]),
+        ("Ok. Day shift.", "shift", "day"),
+        ("Okay keep the shop clean", "requirements", ["Okay keep the shop clean"]),
+        ("2.5 lakh", "pay_range", {"pay_min": 250000, "pay_max": None}),
     ],
 )
 def test_a_real_answer_that_starts_like_a_refusal_is_recorded(
@@ -187,6 +214,9 @@ def test_a_real_answer_that_starts_like_a_refusal_is_recorded(
         ("none, freshers ok", "experience"),
         ("no, only PF", "benefits"),
         ("no sir, immediately", "needed_by"),
+        ("Bas, PF only", "benefits"),
+        ("Ok, PF and ESI", "benefits"),
+        ("ok, no more than 2 years", "experience"),
     ],
 )
 def test_a_ceiling_or_a_leading_no_before_an_answer_is_never_a_refusal(text: str, topic: str):
@@ -194,7 +224,13 @@ def test_a_ceiling_or_a_leading_no_before_an_answer_is_never_a_refusal(text: str
     assert answers.detect_answers(text, topic) != {topic: None}
 
 
-@pytest.mark.parametrize("text", ["no more?", "that's it?", "nothing else?"])
+@pytest.mark.parametrize("text", ["ok", "Okay.", "OK", "ok!", "okay okay"])
+def test_a_bare_ok_agrees_it_does_not_refuse(text: str):
+    """An "ok" is only ever a LEADING word: alone it agrees with the question, never "nothing"."""
+    assert not answers.is_refusal(text)
+
+
+@pytest.mark.parametrize("text", ["no more?", "that's it?", "nothing else?", "ok, that's it?"])
 def test_a_question_back_is_never_a_refusal(text: str):
     """The end punctuation is stripped, but never a "?": "no more?" asks, it does not answer."""
     assert not answers.is_refusal(text)
@@ -237,7 +273,18 @@ def test_the_raw_message_never_reaches_a_recorded_value():
     assert found == {"description": "[PERSON_1], Chakan"}
 
 
-def test_the_route_closes_a_list_on_a_masked_refusal_and_drafts_no_token():
+def test_the_gateway_masks_the_bas_of_a_refusal_as_a_leading_name():
+    """The same for "Bas,": a leading word other than "no" (#1938 review)."""
+    result = pseudonymize("Bas, that's it")
+    draft = answers.safe_draft_text("Bas, that's it", result.text, result.placeholder_tokens)
+    assert draft == "[PERSON_1], that's it"
+    assert answers.detect_answers(draft, "benefits", raw_message="Bas, that's it") == {
+        "benefits": None
+    }
+
+
+@pytest.mark.parametrize("message", ["Nope, that's all", "Bas, that's it"])
+def test_the_route_closes_a_list_on_a_masked_refusal_and_drafts_no_token(message: str):
     state = JobPostingChatState(
         answered_topics=["role_title", "location_label", "city", "vacancy"],
         asked_question_ids=["location_label", "vacancy", "skills", "benefits"],
@@ -249,7 +296,7 @@ def test_the_route_closes_a_list_on_a_masked_refusal_and_drafts_no_token():
         "/job-posting-chat/respond",
         json={
             "session_id": "s1",
-            "message_text": "Nope, that's all",
+            "message_text": message,
             "conversation_state": state.model_dump(),
         },
     )
@@ -263,9 +310,9 @@ def test_the_route_closes_a_list_on_a_masked_refusal_and_drafts_no_token():
 # --- 4. Linear by construction -------------------------------------------------------------------
 
 # A generous ceiling, the `test_pseudonymize_title_employer_bound` precedent: a loaded machine has
-# measured a bounded input at hundreds of ms there. Measured here on 2026-10-03: `is_refusal` at
-# most 1.2 ms on these inputs and `detect_answers` at most 25 ms. The structural test is the real
-# guard; this is the backstop.
+# measured a bounded input at hundreds of ms there. Measured here on 2026-10-03 (worst of 5 runs):
+# `is_refusal` at most 3.0 ms on these inputs and `detect_answers` at most 35 ms, both ~10x per 10x
+# input up to 2M chars. The structural test is the real guard; this is the backstop.
 _REDOS_BUDGET_MS = 750
 
 
@@ -275,6 +322,9 @@ def test_the_refusal_grammar_quantifies_no_run():
     never the adjacent whitespace quantifiers of R53."""
     assert not re.search(r"[*+{]", answers._REFUSAL_RE.pattern)
     assert answers._refusal_form("  no ,keep\t\n it  ") == "no , keep it"
+    # Every clause break, and every run of them, is ONE spaced comma.
+    assert answers._refusal_form("No. Keep it.") == "No , Keep it"
+    assert answers._refusal_form("no .,; …! keep  it!!") == "no , keep it"
 
 
 @pytest.mark.parametrize(
@@ -288,8 +338,28 @@ def test_the_refusal_grammar_quantifies_no_run():
         "nope, " * 3_000 + "x",
         "keep " * 3_600 + "x",
         '"' * 9_000 + "no x" + '"' * 9_000,
+        "no" + "." * 19_000 + "x",
+        "no" + ". " * 9_000 + "x",
+        "no" + "…" * 19_000 + "x",
+        "no" + " \t.,;!…\n" * 2_000 + "x",
+        "bas, " * 3_600 + "x",
+        "ok " * 6_000 + "x",
     ],
-    ids=["spaces", "commas", "comma-space", "no-no", "nope-comma", "keep", "quotes"],
+    ids=[
+        "spaces",
+        "commas",
+        "comma-space",
+        "no-no",
+        "nope-comma",
+        "keep",
+        "quotes",
+        "dots",
+        "dot-space",
+        "ellipses",
+        "mixed-breaks",
+        "bas-comma",
+        "ok-ok",
+    ],
 )
 def test_the_refusal_check_is_not_quadratic(text: str):
     assert len(text) <= DEFAULT_MAX_LENGTH  # the gateway would block a longer turn

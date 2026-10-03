@@ -195,12 +195,13 @@ def _drop_unbalanced_brackets(text: str) -> str:
 # THE WHOLE MESSAGE, never a part of one. A real answer that STARTS like a refusal is
 # the answer it is: "no more than 5 years", "no other benefits than PF", "bas PF" ("just
 # PF"), "bus". Matched (with `fullmatch`) against :func:`_refusal_form`, which leaves one
-# space between words and spaces every comma " , ", so each space below is ONE literal
-# space and nothing in the pattern is quantified but a lone "'" or a bounded group:
-# linear by construction, never a whitespace-run stall (#1891, R53).
+# space between words and every clause break as ONE spaced comma " , ", so each space
+# below is ONE literal space and nothing in the pattern is quantified but a lone "'" or a
+# bounded group: linear by construction, never a whitespace-run stall (#1891, R53).
 _REFUSAL_RE = re.compile(
-    # A leading "no," / "nope," before the refusal: "no, nothing else", "nope that's it".
-    r"(?:(?:no|nope|nah|nahi|nahin) (?:, )?)?"
+    # A leading word before the refusal: "no, nothing else", "nope that's it", "Bas, that's
+    # it", "Okay, keep it". Never a refusal alone: "ok" agrees, "bas" is caught below.
+    r"(?:(?:no|nope|nah|nahi|nahin|bas|ok|okay) (?:, )?)?"
     r"(?:no|none|nope|nah|na|n/a|nil|skip|not applicable|"
     r"nothing(?: else| more| further)?(?: to add)?|"
     r"no (?:more|other|others|change|changes|thanks|thank you)|"
@@ -220,14 +221,21 @@ _REFUSAL_ACRONYMS: frozenset[str] = frozenset({"BAS"})
 # Stripped from both ends of a refusal: the space, the end punctuation, and the quotes a
 # payer copies from the hint ('"no"').
 _REFUSAL_EDGE = " .!,\"'`“”"
+# Read as the comma it stands for between the words of a refusal: "No. Keep it." (a phone
+# keyboard's double space types that period), "no; that's it", "No... that's it", "No… keep
+# it", "No! Keep it". The curly apostrophes become the one "'" the pattern spells. A "?"
+# is NOT a break: "no more?" asks, it does not refuse.
+_REFUSAL_TRANSLATION = str.maketrans({".": ",", ";": ",", "!": ",", "…": ",", "’": "'", "‘": "'"})
 
 
 def _refusal_form(message: str) -> str:
-    """``message`` as :data:`_REFUSAL_RE` reads it: one apostrophe, every comma spaced
-    " , ", single spaces, the edge punctuation and quotes gone. A "?" stays, so "no more?"
-    is a question back, never a refusal. Plain string work and one ``\\s+``: linear."""
-    spaced = message.replace("’", "'").replace("‘", "'").replace(",", " , ")
-    return _WS_RE.sub(" ", spaced).strip(_REFUSAL_EDGE)
+    """``message`` as :data:`_REFUSAL_RE` reads it: one apostrophe, every run of clause
+    breaks ONE comma spaced " , ", single spaces, the edge punctuation and quotes gone. A "?"
+    stays, so "no more?" is a question back, never a refusal. Plain string work and one
+    ``\\s+``: linear."""
+    spaced = _WS_RE.sub(" ", message.translate(_REFUSAL_TRANSLATION))
+    clauses = (clause.strip() for clause in spaced.split(","))
+    return " , ".join(clause for clause in clauses if clause).strip(_REFUSAL_EDGE)
 
 
 def is_refusal(message: str) -> bool:
@@ -1227,10 +1235,10 @@ def detect_answers(
 
     ``raw_message`` (#1938) is the payer's unmasked message when ``message`` is the masked
     draft text. Only the refusal check reads it. The gateway's leading-name rule masks the
-    "Nope" of "Nope, that's all" ("[PERSON_1], that's all", measured), which turned the
-    refusal into a chip. A refusal records NOTHING, and every value is still parsed from
-    ``message``, so reading the payer's own words for it never puts an unmasked one on the
-    draft.
+    "Nope" of "Nope, that's all" ("[PERSON_1], that's all", measured) and the "Bas" of "Bas,
+    that's it", which turned the refusal into a chip. A refusal records NOTHING, and every
+    value is still parsed from ``message``, so reading the payer's own words for it never
+    puts an unmasked one on the draft.
 
     Local only. Never calls the network, never mutates its inputs.
     """
