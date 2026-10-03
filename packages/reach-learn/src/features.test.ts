@@ -11,7 +11,12 @@ import {
 import { SIGNALS } from "./types";
 
 const job: JobSpec = { jobId: "job-1", roleIds: ["role_a"], city: "pune" };
-const worker: WorkerSignals = { workerId: "wkr-1", roleId: "role_a", city: "pune", experienceYears: 3 };
+const worker: WorkerSignals = {
+  workerId: "wkr-1",
+  roleId: "role_a",
+  city: "pune",
+  experienceYears: 3,
+};
 
 /** mulberry32 — a tiny seeded PRNG, so the fuzz below is the same on every run. */
 function mulberry32(seed: number): () => number {
@@ -102,50 +107,62 @@ describe("PII boundary — the value guard's email shape (#1936)", () => {
     expect(pre1936ValueLooksPii(s)).toBe(false);
   });
 
-  it("agrees with the pre-#1936 oracle on every string up to 7 characters over a small alphabet", () => {
-    // "@", ".", ASCII and Unicode whitespace, an ASCII and a Devanagari letter: every email,
-    // near-miss, leading/trailing "@" and multiple-"@" shape that fits in 7 characters.
-    const alphabet = ["a", "क", "@", ".", " ", " "];
-    let flagged = 0;
-    let level = [""];
-    for (let len = 0; len <= 7; len++) {
-      for (const s of level) {
+  // ~0.5 s locally, but CI runners are contended: #1941 saw a 227 ms walk take 5.48 s and trip
+  // vitest's 5 s default. The two oracle walks below carry an explicit, generous ceiling.
+  const EXHAUSTIVE_TIMEOUT_MS = 60_000;
+
+  it(
+    "agrees with the pre-#1936 oracle on every string up to 7 characters over a small alphabet",
+    () => {
+      // "@", ".", ASCII and Unicode whitespace, an ASCII and a Devanagari letter: every email,
+      // near-miss, leading/trailing "@" and multiple-"@" shape that fits in 7 characters.
+      const alphabet = ["a", "क", "@", ".", " ", " "];
+      let flagged = 0;
+      let level = [""];
+      for (let len = 0; len <= 7; len++) {
+        for (const s of level) {
+          const verdict = refusesValue(s);
+          if (verdict !== pre1936ValueLooksPii(s)) expect.fail(JSON.stringify(s));
+          if (verdict) flagged++;
+        }
+        level = level.flatMap((p) => alphabet.map((c) => p + c));
+      }
+      expect(flagged).toBeGreaterThan(3_000); // not vacuous: 4,077 of 335,923
+    },
+    EXHAUSTIVE_TIMEOUT_MS,
+  );
+
+  it(
+    "agrees with the pre-#1936 oracle on 20,000 seeded emails and near-misses",
+    () => {
+      const rng = mulberry32(0x1936);
+      const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rng() * xs.length)]!;
+      const chars = [..."abcxyzABC019._+-%!#'~éक"];
+      const run = (min: number, max: number): string => {
+        let out = "";
+        for (let n = min + Math.floor(rng() * (max - min + 1)); n > 0; n--) out += pick(chars);
+        return out;
+      };
+      let flagged = 0;
+      for (let i = 0; i < 20_000; i++) {
+        const s =
+          pick(["", "ref ", "contact:", "too_far\n", " ", "(", "@", "."]) +
+          (rng() < 0.05 ? run(64, 300) : run(0, 10)) +
+          (rng() < 0.8 ? "@" : pick(["@@", " @", "@ ", "＠", "(at)"])) +
+          (rng() < 0.05 ? run(64, 300) : run(0, 10)) +
+          (rng() < 0.75 ? "." : pick(["..", ". ", " .", "。", ""])) +
+          pick(["com", "in", "co.in", "x", ""]) +
+          pick(["", ".", "@", "@x", ")", " now", "\tPF + ESI", " "]);
         const verdict = refusesValue(s);
         if (verdict !== pre1936ValueLooksPii(s)) expect.fail(JSON.stringify(s));
         if (verdict) flagged++;
       }
-      level = level.flatMap((p) => alphabet.map((c) => p + c));
-    }
-    expect(flagged).toBeGreaterThan(3_000); // not vacuous: 4,077 of 335,923
-  });
-
-  it("agrees with the pre-#1936 oracle on 20,000 seeded emails and near-misses", () => {
-    const rng = mulberry32(0x1936);
-    const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rng() * xs.length)]!;
-    const chars = [..."abcxyzABC019._+-%!#'~éक"];
-    const run = (min: number, max: number): string => {
-      let out = "";
-      for (let n = min + Math.floor(rng() * (max - min + 1)); n > 0; n--) out += pick(chars);
-      return out;
-    };
-    let flagged = 0;
-    for (let i = 0; i < 20_000; i++) {
-      const s =
-        pick(["", "ref ", "contact:", "too_far\n", " ", "(", "@", "."]) +
-        (rng() < 0.05 ? run(64, 300) : run(0, 10)) +
-        (rng() < 0.8 ? "@" : pick(["@@", " @", "@ ", "＠", "(at)"])) +
-        (rng() < 0.05 ? run(64, 300) : run(0, 10)) +
-        (rng() < 0.75 ? "." : pick(["..", ". ", " .", "。", ""])) +
-        pick(["com", "in", "co.in", "x", ""]) +
-        pick(["", ".", "@", "@x", ")", " now", "\tPF + ESI", " "]);
-      const verdict = refusesValue(s);
-      if (verdict !== pre1936ValueLooksPii(s)) expect.fail(JSON.stringify(s));
-      if (verdict) flagged++;
-    }
-    // Not vacuous: both verdicts are well represented.
-    expect(flagged).toBeGreaterThan(4_000);
-    expect(flagged).toBeLessThan(16_000);
-  });
+      // Not vacuous: both verdicts are well represented.
+      expect(flagged).toBeGreaterThan(4_000);
+      expect(flagged).toBeLessThan(16_000);
+    },
+    EXHAUSTIVE_TIMEOUT_MS,
+  );
 
   it("matches ONE character before the @, never a run that re-scans from every start", () => {
     // The #1924 pin. Classes collapse to one token first, so the "@" found is the literal one,
@@ -188,8 +205,8 @@ describe("feature vector — fixed allowlist, no ids, no PII", () => {
   });
 
   it("rejects a non-finite feature value", () => {
-    expect(() => assertFeatureVectorClean({ ...buildFeatureVector(job, worker), role: NaN })).toThrow(
-      /finite number/,
-    );
+    expect(() =>
+      assertFeatureVectorClean({ ...buildFeatureVector(job, worker), role: NaN }),
+    ).toThrow(/finite number/);
   });
 });
