@@ -6,9 +6,12 @@
  * `role_label` and the education `field` before the trade form's PUT, so rows saved there arrive
  * cased. Rows stored before that fix are stuck as typed — "recursive global infotech pvt ltd" — and
  * the worker has no screen that can re-save them: the trade form is reached once, mid-onboarding,
- * and does not hydrate stored rows. The API itself stores all three as received, so other writers —
- * the companion v2 edit card among them — still add uncased rows (the runbook's residuals list
- * them). This brings every stored value to the value the app would have sent, server-side:
+ * and does not hydrate stored rows. Since #1940 the API cases `employer_name` and the education
+ * `field` on every write with this same `titleCaseWords` (`apps/api/src/profiles/
+ * title-case-on-write.ts`), so for those two columns one run after that deploy is the last. The API
+ * still stores `role_label` as received (an open owner decision), so other writers — the companion
+ * v2 edit card among them — still add uncased role labels (the runbook's residuals list them). This
+ * brings every stored value to the value the app would have sent, server-side:
  *
  *   worker_employment.employer_name_enc   AES-256-GCM token — decrypted, cased, RE-ENCRYPTED
  *   worker_employment_role.role_label     plain text
