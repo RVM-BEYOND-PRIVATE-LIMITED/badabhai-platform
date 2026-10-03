@@ -123,9 +123,24 @@ const SCREEN_MESSAGES: Readonly<Record<WorkerVisibleScreen, (n: ScreenedFieldNam
  * It takes the BASE schema rather than building one, because the base is the part that
  * legitimately differs per surface (see the header). Apply it to a field shown verbatim to
  * a worker. A field that is not, such as a posting's `org_label`, must not use it.
+ *
+ * THE SCREEN NEVER RUNS ON UNBOUNDED TEXT (#1924). Zod 3 still runs a refine after `.max()`
+ * has failed, so the cap alone did not bound the heuristics: only the JSON body limit did.
+ * A value longer than the base's `.max()` is already refused by the base, so it is not
+ * screened at all. That makes `.max()` load-bearing, and the base is checked when the
+ * schema is built: no `.max()` throws, and so does a case transform, which can lengthen a
+ * value after its `.max()` has passed ("ß" upper-cases to "SS"). `.trim()` only shortens.
  */
 export function screenWorkerVisibleText(base: z.ZodString, name: ScreenedFieldName) {
+  const max = base.maxLength;
+  if (max === null) {
+    throw new Error(`screenWorkerVisibleText: ${name.subject} needs a .max() on its base`);
+  }
+  if (base._def.checks.some((c) => c.kind === "toLowerCase" || c.kind === "toUpperCase")) {
+    throw new Error(`screenWorkerVisibleText: ${name.subject} must not case-transform its base`);
+  }
   return base.superRefine((s, ctx) => {
+    if (s.length > max) return; // the base's .max() has already refused it
     for (const screen of workerVisibleTextScreens(s)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: SCREEN_MESSAGES[screen](name) });
     }

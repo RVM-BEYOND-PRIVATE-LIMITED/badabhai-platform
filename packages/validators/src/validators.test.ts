@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
   e164PhoneSchema,
@@ -21,6 +23,17 @@ import {
 } from "./index";
 
 const WORKER_ID = "11111111-1111-4111-8111-111111111111";
+
+/** mulberry32 — a tiny seeded PRNG, so the fuzz below is the same on every run. */
+function mulberry32(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 describe("e164PhoneSchema", () => {
   it.each(["+919876543210", "+14155552671", "+447911123456"])("accepts %s", (p) => {
@@ -178,6 +191,111 @@ describe("looksLikePii", () => {
     "Updated Role Title",
   ])("does not flag %s", (s) => {
     expect(looksLikePii(s)).toBe(false);
+  });
+});
+
+// #1924 — the email shape is linear, and no verdict moved.
+describe("looksLikePii — the email shape (#1924)", () => {
+  // THE PRE-#1924 looksLikePii, frozen as the oracle. Its email pattern is the quadratic
+  // one, so it only ever sees short strings here.
+  const PRE_1924_EMAIL_LIKE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+  const pre1924LooksLikePii = (s: string): boolean => {
+    const value = s.trim();
+    if (!value) return false;
+    if (PRE_1924_EMAIL_LIKE.test(value)) return true;
+    return /\d{7,}/.test(value.replace(/[\s().+-]/g, ""));
+  };
+
+  it.each([
+    "hr@acme.example",
+    "first.last+tag@mail.example.co.in",
+    "Mail ravi.kumar@gmail.com now",
+    "x@y.z",
+    "@@a@b.co",
+    "a@b@c.in",
+    `${"l".repeat(300)}@acme.in`, // a bounded local part, e.g. {1,64}, would miss this one
+  ])("flags the email shape %j", (s) => {
+    expect(looksLikePii(s)).toBe(true);
+    expect(pre1924LooksLikePii(s)).toBe(true);
+  });
+
+  it.each([
+    "a@b",
+    "@b.com",
+    "a @b.com",
+    "a@ b.com",
+    "a@.com",
+    "a@b.",
+    "a@@b.com",
+    "rate @ 500.00",
+    "user@localhost",
+  ])("does not flag the near-miss %j", (s) => {
+    expect(looksLikePii(s)).toBe(false);
+    expect(pre1924LooksLikePii(s)).toBe(false);
+  });
+
+  it("agrees with the pre-#1924 oracle on 20,000 seeded emails and near-misses", () => {
+    const rng = mulberry32(0x1924);
+    const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rng() * xs.length)]!;
+    const chars = [..."abcxyzABC019._+-%!#'~\u00e9\u0915"];
+    const run = (min: number, max: number): string => {
+      let out = "";
+      for (let n = min + Math.floor(rng() * (max - min + 1)); n > 0; n--) out += pick(chars);
+      return out;
+    };
+    let flagged = 0;
+    for (let i = 0; i < 20_000; i++) {
+      const s =
+        pick(["", "Mail ", "contact:", "CNC operator\n", "\u00a0", "(", "@", "."]) +
+        (rng() < 0.05 ? run(64, 300) : run(0, 10)) +
+        (rng() < 0.8 ? "@" : pick(["@@", " @", "@ ", "\uff20", "(at)"])) +
+        (rng() < 0.05 ? run(64, 300) : run(0, 10)) +
+        (rng() < 0.75 ? "." : pick(["..", ". ", " .", "\u3002", ""])) +
+        pick(["com", "in", "co.in", "x", ""]) +
+        pick(["", ".", "@", "@x", ")", " now", "\tPF + ESI", "\u2003"]);
+      const verdict = looksLikePii(s);
+      expect(verdict, JSON.stringify(s)).toBe(pre1924LooksLikePii(s));
+      if (verdict) flagged++;
+    }
+    // Not vacuous: both verdicts are well represented.
+    expect(flagged).toBeGreaterThan(4_000);
+    expect(flagged).toBeLessThan(16_000);
+  });
+
+  it("matches ONE character before the @, never a run that re-scans from every start", () => {
+    // The #1875 precedent: pin the pattern's shape, not only its cost. Classes collapse to
+    // one token first, so the "@" found is the literal one, not the "@" inside `[^\s@]`.
+    const src = readFileSync(join(__dirname, "index.ts"), "utf8");
+    const pattern = /^const EMAIL_LIKE = \/(.+)\/;\r?$/m.exec(src)?.[1];
+    expect(pattern).toBeDefined();
+    const tokens = pattern!.replace(/\[(?:\\.|[^\]\\])*\]/g, "C");
+    const local = tokens.slice(0, tokens.indexOf("@"));
+    expect(local).toBe("C");
+  });
+});
+
+// #1924 — before the fix, looksLikePii cost ~190 ms at 20,000 characters and ~4.8 s at
+// 100,000 on a run with no whitespace or "@". Every helper is about a millisecond on each
+// shape below now. The oracle and the structural pin above are the guard; this generous
+// bound is the backstop, still ~10x under the old cost.
+describe("the screen helpers stay linear on 100,000 characters (#1924)", () => {
+  const REDOS_BUDGET_MS = 500;
+  const helpers = [looksLikePii, looksLikeActionContextPii, looksLikeOrgName, looksLikeUrl];
+  it.each([
+    ["a run with no whitespace or @", "a".repeat(100_000)],
+    ["an @ with no dot after it", `${"a".repeat(50_000)}@${"b".repeat(49_999)}`],
+    ["an @ before a run of dots", `x@${".".repeat(99_998)}`],
+    ["dotted words", "a.".repeat(50_000)],
+    ["punctuation pairs", "!a".repeat(50_000)],
+    ["a degree before a run of dots", `b.com${".".repeat(99_994)}x`],
+    ["title-case words", "Ab ".repeat(33_333)],
+    ["an ampersand before a run of spaces", `&${" ".repeat(99_998)}x`],
+  ])("%s", (_shape, text) => {
+    for (const helper of helpers) {
+      const started = performance.now();
+      helper(text);
+      expect(performance.now() - started, helper.name).toBeLessThan(REDOS_BUDGET_MS);
+    }
   });
 });
 

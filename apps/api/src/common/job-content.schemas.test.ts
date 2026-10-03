@@ -50,7 +50,7 @@ describe("screenWorkerVisibleText", () => {
   });
 
   it("keeps a trimming base trimming (the screen adds refines only)", () => {
-    const trimmed = screenWorkerVisibleText(z.string().trim().min(1), NAME);
+    const trimmed = screenWorkerVisibleText(z.string().trim().min(1).max(40), NAME);
     expect(trimmed.parse("  Welder  ")).toBe("Welder");
   });
 
@@ -69,5 +69,59 @@ describe("screenWorkerVisibleText", () => {
       "requirements must not contain links",
     ]);
     expect(chip(requirementsSchema, "Fanuc control")).toEqual([]);
+  });
+});
+
+/**
+ * #1924 — the screen never runs on unbounded text. Zod 3 runs a refine after a failed
+ * `.max()`, and the old email heuristic was quadratic: ~4.8 s on 100,000 characters, which
+ * the JSON body limit alone admitted. A value over the base's cap is refused by the base and
+ * not screened at all.
+ */
+describe("screenWorkerVisibleText — bounded by the base's .max() (#1924)", () => {
+  const codes = (schema: z.ZodTypeAny, value: string): string[] => {
+    const r = schema.safeParse(value);
+    return r.success ? [] : r.error.issues.map((i) => i.code);
+  };
+
+  it("does not screen a value its base refused for length, and still refuses it", () => {
+    // A phone number the screen would name, pushed one character over the cap: only the
+    // base's own too_big issue comes back, so the heuristics never ran.
+    const over = `Call 98765 43210 ${"x".repeat(40 - 16)}`;
+    expect(over.length).toBe(41);
+    expect(codes(screened, over)).toEqual(["too_big"]);
+  });
+
+  it("still screens a value at exactly the cap", () => {
+    const atCap = `Call 98765 43210 ${"x".repeat(40 - 17)}`;
+    expect(atCap.length).toBe(40);
+    expect(messages(atCap)).toEqual(["remove contact details from the widget"]);
+  });
+
+  it("measures the cap after a trimming base trims, as the base does", () => {
+    const trimmed = screenWorkerVisibleText(z.string().trim().min(1).max(40), NAME);
+    const atCap = `Call 98765 43210 ${"x".repeat(40 - 17)}`;
+    expect(codes(trimmed, `   ${atCap}   `)).toEqual(["custom"]);
+  });
+
+  it("refuses to build on a base with no .max(), or one that case-transforms", () => {
+    expect(() => screenWorkerVisibleText(z.string().min(1), NAME)).toThrow(/needs a \.max\(\)/);
+    // "ß" passes .max(5) four times over, then upper-cases to eight characters.
+    expect(() => screenWorkerVisibleText(z.string().max(5).toUpperCase(), NAME)).toThrow(
+      /case-transform/,
+    );
+    expect(() => screenWorkerVisibleText(z.string().toLowerCase().max(5), NAME)).toThrow(
+      /case-transform/,
+    );
+  });
+
+  it("refuses 100,000 hostile characters in well under the old cost", () => {
+    // A run with no whitespace or "@" was the measured worst case: ~4.8 s per screen before
+    // #1924. Both fixes make it about a millisecond. The structural test above is the guard;
+    // this generous bound is the backstop, still ~10x under the old cost.
+    const hostile = "a".repeat(100_000);
+    const started = performance.now();
+    expect(codes(screened, hostile)).toEqual(["too_big"]);
+    expect(performance.now() - started).toBeLessThan(500);
   });
 });

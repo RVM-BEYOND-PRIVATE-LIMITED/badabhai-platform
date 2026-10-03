@@ -126,7 +126,14 @@ export function conversationWorkerPrefix(workerId: string): string {
 // Best-effort PII shape detection (capture-boundary guard)
 // ---------------------------------------------------------------------------
 
-const EMAIL_LIKE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+// An email shape: a character, "@", then a domain with a dot inside it. The local part
+// is ONE character on purpose (#1924). `[^\s@]+@` was quadratic: on a long run with no
+// "@" it re-scanned the run from every start position, ~190 ms at 20k characters and
+// ~4.8 s at 100k, and Zod still runs a refine after `.max()` fails. Matching only the
+// character before the "@" changes no verdict, because any local part ends in one.
+// Each "@" now starts at most one domain scan, and those scans never overlap (a domain
+// stops at the next "@"), so the work is linear. Only ever used with `.test()`.
+const EMAIL_LIKE = /[^\s@]@[^\s@]+\.[^\s@]+/;
 // Separators commonly used inside phone numbers; stripped before counting digits
 // so spaced/punctuated forms ("98765 43210", "+91-98765-43210") are still caught.
 const PHONE_SEPARATORS = /[\s().+-]/g;
