@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { ConflictException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { titleCaseWords } from "@badabhai/validators";
 
 import type { RequestContext } from "../common/request-context";
 import type { EmploymentSuggestion } from "./employment-suggestions";
@@ -272,6 +273,109 @@ describe("the work-history writer (R4 Q1)", () => {
     await expect(svc.replaceForWorker(WORKER, parse([entry()]), CTX)).resolves.toMatchObject({
       employer_count: 1,
     });
+  });
+});
+
+describe("the employer name is stored in the app's casing (#1940)", () => {
+  // Every writer reaches this service: the PUT route (the trade form, the finishing form, the edit
+  // page, old builds) and the companion's edit card. So this is the one place the casing can live.
+  let h: ReturnType<typeof setup>;
+  beforeEach(() => {
+    h = setup();
+  });
+
+  it("cases a lowercase employer name BEFORE it is sealed: the plaintext encrypted is the cased one", async () => {
+    await h.svc.replaceForWorker(
+      WORKER,
+      parse([entry({ employer_name: "recursive global infotech pvt ltd" })]),
+      CTX,
+    );
+    expect(h.encrypt).toHaveBeenCalledTimes(1);
+    expect(h.encrypt).toHaveBeenCalledWith("Recursive Global Infotech Pvt Ltd");
+    // Still ciphertext, never the plaintext, in either casing.
+    const written = JSON.stringify(h.replaceForWorker.mock.calls[0]![1]);
+    expect(written).not.toMatch(/recursive global/i);
+  });
+
+  it.each([
+    "Recursive Global Infotech Pvt Ltd",
+    "RVM CAD",
+    "L&T Construction",
+    "JBM Auto (Plant II)",
+    EMPLOYER,
+  ])(
+    "stores %j byte-identical: the app already cased it, and the rule never lowercases",
+    async (name) => {
+      await h.svc.replaceForWorker(WORKER, parse([entry({ employer_name: name })]), CTX);
+      expect(h.encrypt).toHaveBeenCalledWith(name);
+    },
+  );
+
+  it("only raises letters: a stray capital mid-word survives, the first letter is raised", async () => {
+    await h.svc.replaceForWorker(WORKER, parse([entry({ employer_name: "mCA institute" })]), CTX);
+    expect(h.encrypt).toHaveBeenCalledWith("MCA Institute");
+  });
+
+  it("cases every employment the PUT re-sends, including the ones the worker did not touch", async () => {
+    // A replace re-sends the whole history, so a legacy lowercase name riding along with an edit
+    // to another job is stored cased too — the same bytes the #1432 backfill would have written.
+    await h.svc.replaceForWorker(
+      WORKER,
+      parse([entry({ employer_name: "tata motors" }), entry({ employer_name: "RVM CAD" })]),
+      CTX,
+    );
+    expect(h.encrypt.mock.calls).toEqual([["Tata Motors"], ["RVM CAD"]]);
+  });
+
+  it("stores a fixed point of the backfill's own rule, so a re-run of #1432 finds nothing to change", async () => {
+    for (const name of ["sandhar technologies pvt ltd", "  govt  iti  shop ", "आईटीआई faridabad"]) {
+      h.encrypt.mockClear();
+      await h.svc.replaceForWorker(WORKER, parse([entry({ employer_name: name })]), CTX);
+      const sealed = (h.encrypt.mock.calls[0] as unknown as [string])[0];
+      expect(titleCaseWords(sealed)).toBe(sealed);
+    }
+  });
+
+  it("leaves the role label exactly as typed: casing it is an open owner decision", async () => {
+    // "cnc turner" → "Cnc Turner" reads as a misspelt trade. Until the owner rules, no role label
+    // is cased by the API, on the shorthand or on a promotion's stints.
+    await h.svc.replaceForWorker(
+      WORKER,
+      parse([
+        entry({ employer_name: "tata motors", role_label: "cnc turner" }),
+        {
+          ...entry({ employer_name: "rvm cad" }),
+          role_label: undefined,
+          work_done: null,
+          roles: [
+            { role_label: "senior cnc setter", start_ym: "2024-04", end_ym: null },
+            { role_label: "cnc turner", start_ym: "2022-04", end_ym: "2024-03" },
+          ],
+        },
+      ]),
+      CTX,
+    );
+    const written = h.replaceForWorker.mock.calls[0]![1];
+    expect(written.map((e) => e.roles.map((r) => r.roleLabel))).toEqual([
+      ["cnc turner"],
+      ["senior cnc setter", "cnc turner"],
+    ]);
+  });
+
+  it("emits the one counts-only event it always did: casing adds no event and no field", async () => {
+    await h.svc.replaceForWorker(
+      WORKER,
+      parse([entry({ employer_name: "tata motors" }), entry({ employer_name: "Tata Motors" })]),
+      CTX,
+    );
+    expect(h.emit).toHaveBeenCalledTimes(1);
+    expect(h.emit.mock.calls[0]![0].payload).toEqual({
+      worker_id: WORKER,
+      employer_count: 2,
+      durations_stated: 2,
+      replaced_existing: false,
+    });
+    expect(JSON.stringify(h.emit.mock.calls[0]![0])).not.toMatch(/tata/i);
   });
 });
 
