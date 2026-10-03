@@ -1348,6 +1348,296 @@ describe("JobPostingChatService — a refused title or description is re-asked d
     for (const line of logged) expect(line).not.toContain(value);
   });
 
+  /**
+   * #1921 — the same screen on each `benefits` / `requirements` chip. The engine asks each list
+   * once and unions every answer into `collected`, so the refused chip must leave the STORED
+   * list (or the next turn rebuilds it), the clean chips stay, and the list is asked again.
+   * The matrix is in the screen suite; these pin what is stored, replied, evented and logged.
+   */
+  describe("benefits / requirements chips (#1921)", () => {
+    /** Each chip trips exactly the named screen (pinned in the screen suite). */
+    const CHIP_TRIPS = {
+      benefits: {
+        contact_details: "call HR 9876543210",
+        company_name: "Canteen by Kalyani Pvt Ltd",
+        link: "details www.acme.in",
+      },
+      requirements: {
+        contact_details: "Contact hr@acme.example",
+        company_name: "Licence from Sharma & Co",
+        link: "apply at acme.in",
+      },
+    } as const;
+    /** The bank's own options for benefits, served with its re-ask. */
+    const BENEFIT_CHIPS = ["PF + ESI", "Canteen", "Transport", "Accommodation"];
+    const ASKED_BEFORE_LISTS = [
+      "location_label",
+      "vacancy",
+      "skills",
+      "pay_range",
+      "pay_type",
+      "experience",
+      "shift",
+      "needed_by",
+    ];
+    const ONE_EACH = (ids: readonly string[]) => Object.fromEntries(ids.map((id) => [id, 1]));
+
+    /** The stored state with `field`'s question on screen, every topic before it answered. */
+    const listOnScreen = (field: "benefits" | "requirements") => {
+      const asked = [
+        ...ASKED_BEFORE_LISTS,
+        "benefits",
+        ...(field === "requirements" ? ["requirements"] : []),
+      ];
+      return {
+        ...PRIOR_STATE,
+        turn_count: asked.length,
+        answered_topics: [
+          ...PRIOR_STATE.answered_topics,
+          ...ASKED_BEFORE_LISTS.filter((t) => t !== "location_label"),
+          ...(field === "requirements" ? ["benefits"] : []),
+        ],
+        asked_question_ids: asked,
+        ask_counts: ONE_EACH(asked),
+        collected: {
+          ...PRIOR_STATE.collected,
+          ...(field === "requirements" ? { benefits: ["PF"] } : {}),
+        },
+        unanswered_essentials: [],
+      };
+    };
+
+    /** The engine recorded `chips` for `field` and served the next question. */
+    const listTurn = (field: "benefits" | "requirements", chips: string[]) => {
+      const prior = listOnScreen(field);
+      const next = field === "benefits" ? "requirements" : "description";
+      const turn = {
+        asked_question_id: next,
+        draft: { ...FULL_DRAFT, [field]: chips },
+        updated_state: {
+          ...prior,
+          turn_count: prior.turn_count + 1,
+          answered_topics: [...prior.answered_topics, field],
+          asked_question_ids: [...prior.asked_question_ids, next],
+          ask_counts: { ...prior.ask_counts, [next]: 1 },
+          collected: { ...prior.collected, [field]: chips },
+        },
+      };
+      return { prior, turn };
+    };
+
+    for (const field of ["benefits", "requirements"] as const) {
+      for (const [screen, value] of Object.entries(CHIP_TRIPS[field])) {
+        it(`a ${field} chip that trips ${screen} is dropped, the clean chips kept, the list re-asked, never echoed`, async () => {
+          const { prior, turn } = listTurn(field, ["ITI", value, "Free bus"]);
+          const { d, res, saved, outbound } = await run(turn, { conversationState: prior });
+
+          // The re-ask REPLACES the engine's reply and its chips.
+          expect(res.reply_text).toContain(`Workers see the ${field}, so they can't include`);
+          expect(res.reply_text).toContain(REASON[screen as keyof typeof REASON]);
+          expect(res.reply_text).toContain('Reply "no" if there are none.');
+          expect(res.asked_question_id).toBe(field);
+          // Clean chips are left, so the list is asked for more, with "No" as a tap.
+          expect(res.suggested_replies).toEqual(
+            field === "benefits" ? [...BENEFIT_CHIPS, "No"] : ["No"],
+          );
+          expect(res.draft_ready).toBe(false);
+          expect(res.draft?.[field]).toEqual(["ITI", "Free bus"]);
+          expect(outbound.bodyText).toBe(res.reply_text);
+          expect(outbound.metadata).toEqual({
+            is_mock: true,
+            blocked: false,
+            refused_fields: [field],
+          });
+
+          // The STORED list loses only the refused chip, so the engine's union cannot bring it
+          // back; the list stays answered and goes back on screen, the engine's pick un-served.
+          expect(saved.draft[field]).toEqual(["ITI", "Free bus"]);
+          expect(saved.conversationState.collected[field]).toEqual(["ITI", "Free bus"]);
+          expect(saved.conversationState.answered_topics).toContain(field);
+          expect(saved.conversationState.asked_question_ids).toEqual(prior.asked_question_ids);
+          expect(saved.conversationState.asked_question_ids.at(-1)).toBe(field);
+          expect(saved.conversationState.ask_counts).toEqual(prior.ask_counts);
+
+          // Never the refused text: not in the reply, the stored draft or state, an event, a log.
+          expect(JSON.stringify(res)).not.toContain(value);
+          expect(JSON.stringify(saved)).not.toContain(value);
+          expect(JSON.stringify(d.emitted)).not.toContain(value);
+          d.emitted.forEach(assertRegistryValid);
+          expect(logged.some((l) => l.includes(`${field}:${screen}`))).toBe(true);
+          expect(logged.some((l) => l.includes(`kept=[${field}]`))).toBe(true);
+          for (const line of logged) expect(line).not.toContain(value);
+        });
+      }
+    }
+
+    it("every chip refused: the list is emptied, listed as missing, and asked from the top", async () => {
+      const value = CHIP_TRIPS.benefits.link;
+      const { turn } = listTurn("benefits", [value]);
+      const { res, saved } = await run(turn, { conversationState: listOnScreen("benefits") });
+
+      expect(res.reply_text).toBe(
+        "Workers see the benefits, so they can't include website links. " +
+          "Which benefits are included — PF, ESI, canteen, transport or accommodation?",
+      );
+      expect(res.suggested_replies).toEqual(BENEFIT_CHIPS);
+      expect(res.draft?.benefits).toEqual([]);
+      expect(res.draft?.missing_fields).toEqual(["benefits"]);
+      expect(saved.conversationState.collected).not.toHaveProperty("benefits");
+      expect(saved.conversationState.answered_topics).not.toContain("benefits");
+      expect(saved.conversationState.asked_question_ids.at(-1)).toBe("benefits");
+      expect(JSON.stringify(saved)).not.toContain(value);
+    });
+
+    it("a dropped chip is not resurrected: the next turn hands the engine the clean list", async () => {
+      const value = CHIP_TRIPS.benefits.link;
+      const { prior, turn } = listTurn("benefits", ["PF", "ESI", value]);
+      const first = await run(turn, { conversationState: prior });
+      const stored = first.saved.conversationState;
+
+      // Turn 2: the payer replies "no". The engine records nothing for the list, rebuilds the
+      // draft from the stored list, and serves the requirements question it was denied.
+      const second = make({
+        session: session({ conversationState: stored, draft: first.saved.draft }),
+        turn: {
+          asked_question_id: "requirements",
+          suggested_answers: [],
+          draft: first.saved.draft,
+          updated_state: {
+            ...stored,
+            turn_count: 12,
+            asked_question_ids: [...stored.asked_question_ids, "requirements"],
+            ask_counts: { ...stored.ask_counts, requirements: 1 },
+          },
+        },
+      });
+      const res = await second.svc.postMessage(PAYER_A, { session_id: SESSION, text: "no" }, CTX);
+
+      const handed = second.ai.jobPostingChatRespond.mock.calls[0]![0] as {
+        conversation_state: { collected: Record<string, unknown> };
+      };
+      expect(handed.conversation_state.collected.benefits).toEqual(["PF", "ESI"]);
+      expect(JSON.stringify(handed)).not.toContain(value);
+      // A clean turn: the engine's own reply, stored as it is.
+      expect(res.reply_text).toBe(ASSISTANT_TEXT);
+      expect(res.asked_question_id).toBe("requirements");
+      expect(res.draft?.benefits).toEqual(["PF", "ESI"]);
+      expect(JSON.stringify(second.chat.saveTurn.mock.calls[0]![2])).not.toContain(value);
+    });
+
+    it("a refused title in the same turn: one reply names both, the title is asked, the clean chips stay", async () => {
+      const title = TITLE_TRIPS.company_name;
+      const chip = CHIP_TRIPS.benefits.contact_details;
+      const prior = listOnScreen("benefits");
+      // A session stored before #1911 still holds a refused title.
+      const legacy = { ...prior, collected: { ...prior.collected, role_title: title } };
+      const { turn } = listTurn("benefits", ["PF", chip]);
+      const { d, res, saved, outbound } = await run(
+        {
+          ...turn,
+          draft: { ...turn.draft, role_title: title },
+          updated_state: {
+            ...turn.updated_state,
+            collected: { ...turn.updated_state.collected, role_title: title },
+          },
+        },
+        { conversationState: legacy, draft: { ...FULL_DRAFT, role_title: title } },
+      );
+
+      expect(res.reply_text).toBe(
+        "Workers see the job title and benefits, so they can't include contact details or a " +
+          "company name. The rest of the benefits are still in the draft. " +
+          "What is the job title — for example CNC Operator, MIG Welder or Plumber?",
+      );
+      expect(res.asked_question_id).toBe("role_title");
+      expect(res.suggested_replies).toEqual([]);
+      expect(outbound.metadata.refused_fields).toEqual(["role_title", "benefits"]);
+      expect(saved.draft).toMatchObject({ role_title: null, benefits: ["PF"] });
+      expect(saved.conversationState.collected).not.toHaveProperty("role_title");
+      expect(saved.conversationState.collected.benefits).toEqual(["PF"]);
+      expect(saved.conversationState.answered_topics).toContain("benefits");
+      expect(saved.conversationState.asked_question_ids.at(-1)).toBe("role_title");
+      for (const value of [title, chip]) {
+        expect(JSON.stringify(res)).not.toContain(value);
+        expect(JSON.stringify(saved)).not.toContain(value);
+        expect(JSON.stringify(d.emitted)).not.toContain(value);
+        for (const line of logged) expect(line).not.toContain(value);
+      }
+    });
+
+    it("a list re-asked at the wrap-up, once answered, gives the next message back to the description", async () => {
+      // The stored state of a benefits re-ask at the wrap-up: benefits last, so the payer's
+      // "Canteen" reaches it. The engine records it, wraps up and appends nothing.
+      const asked = [...ASKED_BEFORE_LISTS, "requirements", "description", "benefits"];
+      const reasked = {
+        ...PRIOR_STATE,
+        turn_count: 13,
+        answered_topics: [
+          ...PRIOR_STATE.answered_topics,
+          ...ASKED_BEFORE_LISTS.filter((t) => t !== "location_label"),
+          "requirements",
+          "description",
+        ],
+        asked_question_ids: asked,
+        ask_counts: ONE_EACH(asked),
+        collected: { ...PRIOR_STATE.collected, description: FULL_DRAFT.description },
+        unanswered_essentials: [],
+      };
+      const engineState = {
+        ...reasked,
+        turn_count: 14,
+        answered_topics: [...reasked.answered_topics, "benefits"],
+        collected: { ...reasked.collected, benefits: ["Canteen"] },
+      };
+      const { res, saved } = await run(
+        {
+          asked_question_id: null,
+          draft_ready: true,
+          reply_text: "That's everything I need.",
+          suggested_answers: [],
+          draft: { ...FULL_DRAFT, benefits: ["Canteen"] },
+          updated_state: engineState,
+        },
+        { conversationState: reasked },
+      );
+
+      // A clean wrap-up: the engine's reply and draft, ready.
+      expect(res.reply_text).toBe("That's everything I need.");
+      expect(res.asked_question_id).toBeNull();
+      expect(res.draft_ready).toBe(true);
+      expect(saved.status).toBe("draft_ready");
+      // Only the attribution target moves: the description is last again, so a later
+      // "ok" revises it instead of becoming a benefit a worker reads.
+      expect(saved.conversationState.asked_question_ids).toEqual([
+        ...ASKED_BEFORE_LISTS,
+        "requirements",
+        "benefits",
+        "description",
+      ]);
+      expect(saved.conversationState.collected).toEqual(engineState.collected);
+      expect(saved.conversationState.answered_topics).toEqual(engineState.answered_topics);
+      expect(saved.conversationState.ask_counts).toEqual(engineState.ask_counts);
+      expect(logged.some((l) => l.includes("description takes the next message"))).toBe(true);
+    });
+
+    it("a draft that arrives WITHOUT a state has its refused chips removed and is not stored", async () => {
+      const value = CHIP_TRIPS.requirements.link;
+      const { res, saved, outbound } = await run({
+        ...listTurn("requirements", [value]).turn,
+        updated_state: null,
+      });
+
+      expect(res.draft?.requirements).toEqual([]);
+      expect(res.draft?.missing_fields).toEqual(["requirements"]);
+      expect(res.reply_text).toBe(ASSISTANT_TEXT);
+      expect(outbound.metadata).toEqual({ is_mock: true, blocked: false });
+      expect(Object.keys(saved)).toEqual(["lastMessageAt"]);
+      expect(JSON.stringify(res)).not.toContain(value);
+      expect(logged.some((l) => l.includes("requirements:link"))).toBe(true);
+      for (const line of logged) expect(line).not.toContain(value);
+    });
+  });
+
   describe("publish still screens (defence in depth)", () => {
     for (const [field, value, message] of [
       ["role_title", TITLE_TRIPS.company_name, "title must not contain a company name"],
@@ -1367,6 +1657,31 @@ describe("JobPostingChatService — a refused title or description is re-asked d
           issues: { path: string; message: string }[];
         };
         expect(body.issues).toEqual([{ path: field, message }]);
+        expect(JSON.stringify(body)).not.toContain(value);
+        for (const line of logged) expect(line).not.toContain(value);
+        expect(d.chat.claimForPublish).not.toHaveBeenCalled();
+        expect(d.jobPostings.createForPayer).not.toHaveBeenCalled();
+      });
+    }
+
+    // #1921: a chip stored before the chat screened chips still meets the create schema.
+    for (const [field, value, message] of [
+      ["benefits", "details www.acme.in", "benefits must not contain links"],
+      ["requirements", "Contact hr@acme.example", "remove contact details from requirements"],
+    ] as const) {
+      it(`a stored ${field} chip the screen refuses is a 400 at ${field}.1 that never echoes it`, async () => {
+        const d = make({
+          session: session({
+            status: "draft_ready",
+            draft: { ...FULL_DRAFT, [field]: ["PF", value] },
+          }),
+        });
+        const err = await d.svc.publish(PAYER_A, SESSION, CTX).catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(BadRequestException);
+        const body = (err as BadRequestException).getResponse() as {
+          issues: { path: string; message: string }[];
+        };
+        expect(body.issues).toEqual([{ path: `${field}.1`, message }]);
         expect(JSON.stringify(body)).not.toContain(value);
         for (const line of logged) expect(line).not.toContain(value);
         expect(d.chat.claimForPublish).not.toHaveBeenCalled();

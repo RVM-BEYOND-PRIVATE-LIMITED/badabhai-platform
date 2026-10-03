@@ -52,6 +52,8 @@ import {
   reaskRefusedFields,
   refusedDraftFields,
   refusedNames,
+  restoreWrapUpTarget,
+  WRAP_UP_TOPIC,
   type ReaskTurn,
 } from "./job-posting-chat.screen";
 
@@ -313,11 +315,12 @@ export class JobPostingChatService {
       ctx.correlationId,
     );
 
-    // 4. Screen the worker-visible free text BEFORE anything is stored (#1911). A
+    // 4. Screen the worker-visible free text BEFORE anything is stored (#1911, #1921). A
     //    `role_title` or `description` the shared ADR-0024 screen refuses is dropped (or
-    //    replaced by the clean value it held before this turn) and re-asked with a plain
-    //    reason, instead of sitting in the draft until publish 400s on it. From here on
-    //    `turn` is the turn that is stored and returned.
+    //    replaced by the clean value it held before this turn), and a refused `benefits` /
+    //    `requirements` chip is dropped from its list, the clean chips staying. The field is
+    //    re-asked with a plain reason, instead of sitting in the draft until publish 400s on
+    //    it. From here on `turn` is the turn that is stored and returned.
     const { turn, reask } = this.screenTurn(session.id, aiResult, priorState, priorDraft);
 
     // 5. Store the reply + put it on the spine. A re-ask records the refused field NAMES on
@@ -584,12 +587,13 @@ export class JobPostingChatService {
     const validated = PayerCreateJobPostingSchema.safeParse(candidate);
     if (!validated.success) {
       // Field PATHS + the schema's own static messages only — never the offending
-      // value. (`role_title` and `description` carry the worker-visible PII / org-name /
-      // link screen (#1823 B3), so the one thing we must not do on that failure is echo
-      // the text back through an error body.) Since #1911 every turn screens those two
-      // fields first and re-asks a refused one, so a draft written by this chat should
-      // not reach here with one. This is defence in depth: it still catches a draft
-      // stored before #1911 that no later turn has screened.
+      // value. (`role_title`, `description` and every `benefits` / `requirements` chip
+      // carry the worker-visible PII / org-name / link screen (#1823 B3), so the one thing
+      // we must not do on that failure is echo the text back through an error body.) Since
+      // #1911 and #1921 every turn screens those four fields first and re-asks a refused
+      // one, so a draft written by this chat should not reach here with one. This is
+      // defence in depth: it still catches a draft stored before then that no later turn
+      // has screened.
       const issues = validated.error.issues.map((i) => ({
         path: i.path.join(".") || "(root)",
         message: i.message,
@@ -730,15 +734,18 @@ export class JobPostingChatService {
   }
 
   /**
-   * #1911 — run the shared worker-visible screen on this turn's draft (see
+   * #1911 / #1921 — run the shared worker-visible screen on this turn's draft (see
    * `job-posting-chat.screen.ts`). Returns the turn to store and reply with, and the re-ask
    * when the screen refused a value (`null` keeps the engine's turn as it is).
    *
    * A blocked turn carries no draft (nothing was parsed, nothing is stored), so it passes.
    * A draft WITHOUT a state is outside the ai-service contract and is never stored (step 6
    * writes the draft only alongside a state), but it is still returned. Its refused values
-   * are nulled, so every draft value that leaves this service has met the screen. There is
-   * no state to reopen, so nothing is re-asked.
+   * are nulled and its refused chips removed, so every draft value that leaves this service
+   * has met the screen. There is no state to reopen, so nothing is re-asked.
+   *
+   * A clean wrap-up turn after a list re-ask puts the description back as the topic that
+   * takes the next message (`restoreWrapUpTarget`). Every other clean turn is kept as it is.
    *
    * Logs field and screen NAMES only, never the refused text.
    */
@@ -768,7 +775,12 @@ export class JobPostingChatService {
       priorDraft,
       engineAskedId: aiResult.asked_question_id,
     });
-    if (!reask) return { turn: aiResult, reask: null };
+    if (!reask) {
+      const settled = restoreWrapUpTarget(state, aiResult.asked_question_id);
+      if (settled === state) return { turn: aiResult, reask: null };
+      this.logger.log(`session ${sessionId} wrapped up; ${WRAP_UP_TOPIC} takes the next message`);
+      return { turn: { ...aiResult, updated_state: settled }, reask: null };
+    }
     this.logger.log(
       `session ${sessionId} re-asking screened draft fields=[${refusedNames(reask.refused)}] ` +
         `kept=[${reask.kept.join(",")}]`,
@@ -778,8 +790,9 @@ export class JobPostingChatService {
       turn: {
         ...aiResult,
         reply_text: reask.replyText,
-        // Both screened topics have an open answer space, so the bank gives them no chips.
-        suggested_answers: [],
+        // The engine's chips answered ITS question. The re-ask carries the re-asked topic's
+        // own bank options instead (benefits has some; the other three have none).
+        suggested_answers: [...reask.chips],
         asked_question_id: reask.askedField,
         draft_ready: false,
         draft: reask.draft,
