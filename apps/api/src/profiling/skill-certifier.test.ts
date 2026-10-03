@@ -592,6 +592,18 @@ describe("certifySkillLabel — 7. organisation names", () => {
     expect(certifySkillLabel("LLP compliance")).toBeNull();
     expect(certifySkillLabel("Pvt Ltd incorporation")).toBeNull();
   });
+
+  it("pins the shared wall's co- compound guard (#1914): a compound certifies, a firm does not", () => {
+    // `looksLikeOrgName` stopped reading a "co" that opens a compound as "& Co" / "and Co" for
+    // every caller at once. On this wall that is a decision, so its effect is pinned here.
+    expect(certifySkillLabel("Planning and co-ordination")).toBe("Planning and co-ordination");
+    expect(certifySkillLabel("Sharma & Co")).toBeNull();
+    expect(certifySkillLabel("Sharma Co.-Pune")).toBeNull();
+    expect(certifySkillLabel("Cosmos Co.op. Bank")).toBeNull();
+    // KNOWN RESIDUAL, stated in `looksLikeOrgName`: a "& Co" firm glued to a dash reads as a
+    // compound, so on this wall it certifies. Pinned so the trade-off stays a decision.
+    expect(certifySkillLabel("Sharma & Co-Pune")).toBe("Sharma & Co-Pune");
+  });
 });
 
 describe("certifySkillLabel — 8. generic words", () => {
