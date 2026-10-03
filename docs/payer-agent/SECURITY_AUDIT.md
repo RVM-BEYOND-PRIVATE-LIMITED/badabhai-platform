@@ -94,7 +94,7 @@ Class guards: `@UseGuards(PayerAuthGuard, PayerOrgRoleGuard)` (`:34`). **The onl
 | `POST /message` (body `session_id`) | SCOPED | `requireLiveSession(dto.session_id, payerId)` → `findOwnedSession` with owner in the predicate (`job-posting-chat.service.ts:169`, repo `:55-70`) |
 | `GET /sessions` | SCOPED | `listSessions(payerId)` (repo `:77-91`) |
 | `GET /sessions/:id/messages` | SCOPED | `requireOwnedSession` BEFORE `chat.listMessages(sessionId)` (`service:334-336`). The repo's `listMessages` is itself owner-blind (`repo:103-114`) — safe only because the service gates it first |
-| `POST /sessions/:id/publish` | SCOPED + race-safe | `requireOwnedSession` (`service:390`), then `claimForPublish` with owner + `status <> 'published'` in the UPDATE `WHERE` (`repo:170-187`) |
+| `POST /sessions/:id/publish` | SCOPED + race-safe | `requireOwnedSession` (`service:521`), then `claimForPublish` with owner + `status IN ('active','draft_ready')` + `published_job_posting_id IS NULL` in the UPDATE `WHERE` (`repo:203-221`, #1922). A message turn racing the publish cannot reopen the session: `saveTurn` writes only while the status is live (`repo:147-176`) |
 
 ## 1.7 Other
 

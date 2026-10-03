@@ -82,6 +82,8 @@ function make(
     decryptThrows?: boolean;
     orgName?: string;
     claimWins?: boolean;
+    /** `false` models a turn that lost the race to a publish: `saveTurn` wrote no row (#1922). */
+    turnStored?: boolean;
     createThrows?: Error;
   } = {},
 ) {
@@ -135,8 +137,11 @@ function make(
       createdAt: new Date("2026-07-28T09:01:00.000Z"),
     })),
     listMessages: vi.fn(async (_sessionId: string) => []),
+    // Resolves whether a row was written, like the real guarded UPDATE: `true` unless the
+    // test models the session leaving the live statuses mid-turn.
     saveTurn: vi.fn(
-      async (_sessionId: string, _payerId: string, _patch: Record<string, unknown>) => undefined,
+      async (_sessionId: string, _payerId: string, _patch: Record<string, unknown>) =>
+        opts.turnStored !== false,
     ),
     claimForPublish: vi.fn(async (_sessionId: string, _payerId: string, _at: Date) =>
       opts.claimWins === false ? undefined : session,
@@ -953,6 +958,93 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
       await expect(broken.svc.publish(PAYER_A, SESSION, CTX)).rejects.toThrow();
       expect(broken.jobPostings.createForPayer).not.toHaveBeenCalled();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+/**
+ * #1922 — a turn that loses the race to a publish.
+ *
+ * The turn reads the session as live, then waits seconds on the ai-service; a publish can
+ * claim the session in that window. `saveTurn`'s WHERE now refuses to write over a session
+ * that is no longer live (pinned in `job-posting-chat.repository.test.ts`, evaluated against
+ * Postgres in `job-posting-chat.repository.db.test.ts`) and reports `false`. These pin what
+ * the service does with that `false`: the same 409 a turn on a closed session gets, and no
+ * `draft_ready` for a flip that never landed.
+ */
+describe("JobPostingChatService — a turn that loses the race to a publish stores nothing (#1922)", () => {
+  const liveSession = {
+    id: SESSION,
+    payerId: PAYER_A,
+    status: "active",
+    conversationState: ENGINE_STATE,
+    draft: null,
+    publishedJobPostingId: null,
+    startedAt: new Date("2026-07-28T09:00:00.000Z"),
+    lastMessageAt: null,
+    endedAt: null,
+  };
+
+  let logged: string[];
+  beforeEach(() => {
+    logged = [];
+    vi.spyOn(Logger.prototype, "warn").mockImplementation((message: unknown) => {
+      logged.push(String(message));
+    });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("409s with the closed-session error, and emits no draft_ready for the flip that never landed", async () => {
+    const d = make({ session: liveSession, turn: { draft_ready: true }, turnStored: false });
+    const err = await d.svc
+      .postMessage(PAYER_A, { session_id: SESSION, text: PAYER_TEXT }, CTX)
+      .catch((e: unknown) => e);
+
+    // The SAME envelope a turn gets when the session is already closed on arrival, so a
+    // client needs no second branch for "it closed while I was waiting".
+    const closed = make({
+      session: { ...liveSession, status: "published", publishedJobPostingId: POSTING },
+    });
+    const onArrival = await closed.svc
+      .postMessage(PAYER_A, { session_id: SESSION, text: PAYER_TEXT }, CTX)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(onArrival).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toEqual(
+      (onArrival as ConflictException).getResponse(),
+    );
+
+    // The write WAS attempted with the ready flip; the guarded UPDATE refused it.
+    expect(d.chat.saveTurn).toHaveBeenCalledOnce();
+    expect(d.chat.saveTurn.mock.calls[0]![2]).toMatchObject({ status: "draft_ready" });
+    // The spine records the two stored message rows and nothing about a turn that did not land.
+    expect(d.emitted.map((e) => e.event_name)).toEqual([
+      "job_posting_chat.message_sent",
+      "job_posting_chat.message_sent",
+    ]);
+    // The log names the session, never the payer's text.
+    expect(logged.some((l) => l.includes(SESSION))).toBe(true);
+    expect(logged.join("\n")).not.toContain(PAYER_TEXT);
+  });
+
+  it("a BLOCKED turn whose activity-clock write is refused 409s the same way", async () => {
+    const d = make({
+      session: liveSession,
+      turn: { blocked: true, draft: null, updated_state: null, reply_text: "Please retype that." },
+      turnStored: false,
+    });
+    await expect(
+      d.svc.postMessage(PAYER_A, { session_id: SESSION, text: PAYER_TEXT }, CTX),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(d.chat.saveTurn.mock.calls[0]![2]).toEqual({ lastMessageAt: expect.any(Date) });
+    expect(d.emitted.map((e) => e.event_name)).not.toContain("job_posting_chat.draft_ready");
+  });
+
+  it("CONTROL: the same ready turn on a session that stayed live is answered and emits draft_ready", async () => {
+    const d = make({ session: liveSession, turn: { draft_ready: true } });
+    const res = await d.svc.postMessage(PAYER_A, { session_id: SESSION, text: PAYER_TEXT }, CTX);
+    expect(res.status).toBe("draft_ready");
+    expect(d.emitted.map((e) => e.event_name)).toContain("job_posting_chat.draft_ready");
   });
 });
 

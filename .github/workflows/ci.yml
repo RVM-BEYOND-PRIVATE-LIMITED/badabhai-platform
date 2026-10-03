@@ -1503,6 +1503,13 @@ jobs:
       #                    the cross-table merge order, and a posting apply landing on
       #                    `job_posting_id` with a snapshot only when a reach row exists — all
       #                    properties of the SQL evaluating, which the structural tests cannot see.
+      #   * job-posting-chat.repository.db — #1922 (R52), a job-posting chat turn racing a
+      #                    publish. A turn that lands after `claimForPublish` (before or after
+      #                    the bind, or queued on the claim's row lock on a second connection)
+      #                    writes nothing, the session stays published, and a second claim fails —
+      #                    even on a bound session some other writer put back to a live status.
+      #                    Whether a waiting UPDATE re-checks its WHERE on commit is a property
+      #                    of Postgres, so the structural pins cannot show it.
       #
       # They need nothing but a MIGRATED Postgres, which the steps above already built:
       # this job's service container gets the whole chain (journal-driven, 0000 → head —
@@ -1516,7 +1523,7 @@ jobs:
       # with no database and must keep skipping these files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
       # `node` job, and a six-file run cannot meet them.
-      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + unique violations + feed union)
+      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + unique violations + feed union + job-posting chat publish race)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -1544,7 +1551,7 @@ jobs:
           # Serialising costs nothing here (the whole step runs in ~4s) and is scoped to
           # THIS step on purpose: `apps/api/vitest.config.ts` stays parallel, because the
           # 2820-test `node` suite is database-free and has no shared state to race on.
-          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db unique-violation.db feed-union.db 2>&1 | tee db-gates-raw.log
+          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
@@ -1555,11 +1562,12 @@ jobs:
           # `ai-cost-totals.db` sits under src/ai, `jobs-search-sql` under src/jobs and
           # `admin-dashboard.db` under src/admin and `applied-subtitle.db` + `feed-union.db` under
           # src/applications and `turner-reach.db` under src/resume and `unique-violation.db`
-          # under src/common, and against a regex missing any one of them
+          # under src/common and `job-posting-chat.repository.db` under
+          # src/payer-portal/job-posting-chat, and against a regex missing any one of them
           # this loop reports "did not run at all" on a perfectly good run. Widen it whenever a
           # gate lands in a new directory.
-          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db unique-violation.db feed-union.db; do
-            line=$(grep -E "src/(ai|admin|applications|common|match|profiles|jobs|resume)/${f}\.test\.ts" db-gates.log | head -1 || true)
+          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db; do
+            line=$(grep -E "src/(ai|admin|applications|common|match|profiles|jobs|resume|payer-portal/job-posting-chat)/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
               exit 1
@@ -1576,8 +1584,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +11 passed \(11\)' db-gates.log; then
-            echo "::error::Expected exactly the 11 gate files to run — the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +12 passed \(12\)' db-gates.log; then
+            echo "::error::Expected exactly the 12 gate files to run — the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi
