@@ -661,10 +661,12 @@ _EMPLOYER_CAPS_RE = re.compile(
 # "& Co.", "(P) Ltd", "W.l.l", "& Toubro Ltd", "-Toubro Ltd", a long lower-case span) passes as
 # "my name isRamesh [EMPLOYER_1]"; with one that merges words around a dash-glued run, "Sharma
 # Motors<WJ>A-ONE Motors" passes as "Sharma [EMPLOYER_1]" (the absorb pass folds the reader view's
-# "MotorsA-" into the token). Each shape is pinned. The third review measured the rate on its own
-# generator: 1.0% of lines that carry an invisible (200 of 20,000), about twice main's own R49 rate,
-# reaching the at-rest copies (corpus, growth queue, payer draft) and the embedding input; the
-# walls still withhold every such turn. The fix is in the two-view check (#1890), not here.
+# "MotorsA-" into the token). Each shape is pinned. On the third review's generator, re-run on the
+# final rules: 195 of 20,000 lines that each carry an invisible (0.98%) pass with a name word raw
+# where main blocked (4 in 20,000 when 2% of lines carry one), reaching the at-rest copies (corpus,
+# growth queue, payer draft) and the embedding input; the walls still withhold every such turn.
+# Security review: SHIP with this registered (R49) and owner-acknowledged. The fix is in the
+# two-view check (#1890), not here.
 # A long span may also split an earlier span and leave a separator or a bare form word between two
 # tokens ("xa xb xc xd SHARMA LTD PVT" -> "[EMPLOYER_1] PVT"): no name word, so it stays.
 #
