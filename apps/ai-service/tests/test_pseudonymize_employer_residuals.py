@@ -124,6 +124,11 @@ def test_the_1892_rule_list_is_complete():
         # A sector word that ends in "-ing" is a name word before a weak form, not a process.
         ("durga engineering industries me", "[EMPLOYER_1] me"),
         ("kalyani packaging industries ke liye", "[EMPLOYER_1] ke liye"),
+        ("sharma trading co. me", "[EMPLOYER_1] me"),
+        # A brand from the curated vocabulary is a firm before a strong form (fourth review).
+        ("siemens ltd me", "[EMPLOYER_1] me"),
+        # A generic adjective may open a longer firm.
+        ("indian oil corporation ltd", "[EMPLOYER_1]"),
     ],
 )
 def test_a_lower_or_sentence_case_employer_is_masked(text, expected, main_gateway):
@@ -166,6 +171,15 @@ def test_two_lower_case_employers_get_two_tokens():
         ),
         ("store keeper xyz engineering pvt ltd", "store keeper [EMPLOYER_1]"),
         ("mason l&t ltd site pe", "mason [EMPLOYER_1] site pe"),
+        # ...nor does a job word sit inside the span: it starts after the job (fourth review).
+        ("machine operator xyz pvt ltd 2018-2020", "machine operator [EMPLOYER_1] 2018-2020"),
+        ("gas cutter jsw steel ltd dolvi", "gas cutter [EMPLOYER_1] dolvi"),
+        (
+            "MACHINE OPERATOR SHREE GANESH ENGINEERING WORKS PVT LTD",
+            "MACHINE OPERATOR [EMPLOYER_1]",
+        ),
+        # (The trade words firms are named with may: `_FIRM_NAME_TRADE_WORDS`.)
+        ("xyz electrical works pvt ltd", "[EMPLOYER_1]"),
         (
             "QUALITY INSPECTOR SHREE SAI PRECISION ENGINEERING PVT LTD",
             "QUALITY INSPECTOR [EMPLOYER_1]",
@@ -257,9 +271,6 @@ def test_no_span_crosses_a_line(text, expected):
         "oil & gas industries",
         "automobile pvt ltd company me job chahiye",
         "forging pvt ltd company me helper chahiye",
-        # ...or right after a process ("-ing", not a sector word).
-        "agarbatti making industries me kaam kiya",
-        "cotton ginning industries me 3 saal",
         # Demonstratives, numerals and adjectives of "a pvt ltd company" (third review).
         "ye pvt ltd hai ya llp",
         "teen pvt ltd company me kaam kiya",
@@ -368,8 +379,14 @@ def test_a_title_case_job_preference_is_not_a_firm(text):
         ("M/s 3S Engineering Services me technician", "M/s [EMPLOYER_1] me technician"),
         ("m/s gupta & sons, bhosari", "m/s [EMPLOYER_1], bhosari"),
         ("M/S XYZ SECURITY SERVICES", "M/S [EMPLOYER_1]"),
+        # "Fabrication" names firms: it does not make a generic firm word trade talk.
+        ("m/s nandi fabrication works hubli me 2 saal", "m/s [EMPLOYER_1] hubli me 2 saal"),
         # A résumé's dates may stand before the cue; a speed never reaches a firm word.
         ("2016-2019 M/S XYZ TRADERS", "2016-2019 M/S [EMPLOYER_1]"),
+        (
+            "07/2016 TO 06/2019 M/S SHIVAM ENGINEERING BHOSARI MIDC PUNE",
+            "07/2016 TO 06/2019 M/S [EMPLOYER_1] BHOSARI MIDC PUNE",
+        ),
         # An initial is a name word, not the stopword "a".
         ("M/S. A.K. ENGINEERING WORKS", "M/S. [EMPLOYER_1]"),
         ("m/s a.k. traders", "m/s [EMPLOYER_1]"),
@@ -387,6 +404,11 @@ def test_a_title_case_job_preference_is_not_a_firm(text):
         ("M/S KRISHNA FAB WORKS CNC OPERATOR", "M/S [EMPLOYER_1] CNC OPERATOR"),
         # ...and a city a dash glues on.
         ("M/S SHARMA TRADERS-PUNE", "M/S [EMPLOYER_1]-PUNE"),
+        ("M/S SHARMA TRADERS-BHOSARI", "M/S [EMPLOYER_1]-BHOSARI"),
+        (
+            "M/S KRISHNA FABRICATORS-CHAKAN ME WELDER",
+            "M/S [EMPLOYER_1]-CHAKAN ME WELDER",
+        ),
         # "CNC" can sit inside the firm before its firm word.
         ("M/S. AMBIKA CNC WORKS, BHOSARI", "M/S. [EMPLOYER_1], BHOSARI"),
         (
@@ -445,6 +467,13 @@ def test_two_m_s_firms_in_a_row_keep_two_cues():
             "M/s Kalyani Forge Ltd CNC operator chahiye",
             "M/s [EMPLOYER_1] CNC operator chahiye",
             "M/s [EMPLOYER_1] CNC operator chahiye",
+            1,
+        ),
+        # ...even when a firm word follows a few words on (fourth review).
+        (
+            "M/S TATA MOTORS LTD SPARE PARTS",
+            "M/[EMPLOYER_1] SPARE PARTS",
+            "M/[EMPLOYER_1] SPARE PARTS",
             1,
         ),
         # The "S" of the cue never opens a span (`_SPAN_START`).
@@ -507,6 +536,15 @@ def test_an_m_s_firm_an_earlier_rule_masked_keeps_its_tokens(
         "M/s Engineering Unit Hai Speed Ki, Meter Per Second",
         "speed  m/s air velocity",
         "speed 5   m/s rakhni hai",
+        # A measurement before the cue: one to three digits or a decimal (fourth review).
+        "discharge 3 m/s submersible pumps me",
+        "flow rate 1.5 m/s hydraulic systems",
+        # A generic firm word after mild-steel stock, or after sector words in lower case.
+        "m/s truck body works me 4 saal",
+        "M/S WATER TANK FABRICATION WORKS ME 3 SAAL",
+        "m/s power tools",
+        "m/s civil engineering",
+        "m/s auto parts welding",
         # A "firm" of nothing but curated trade vocabulary is a skill (`replace_ms_firm`).
         "M/S PIPING SYSTEMS",
         "M/S TOOL TECH",
@@ -527,6 +565,9 @@ def test_a_mild_steel_skill_label_still_certifies():
         "M/S Tig Welding", "M/S Fitter", "m/s gas cutting", "M/S Welder", "M/S Arc Welding",
         "M/S Plasma Cutting", "M/S Laser Cutting", "m/s spot welding",
         "m/s hollow section fabrication", "m/s heavy fabrication",
+        "m/s heavy structure works", "m/s truck body works", "m/s power tools",
+        "m/s auto parts welding", "m/s civil engineering", "m/s staircase railing works",
+        "M/S TRUCK BODY WORKS",
     ]  # fmt: skip
     assert certified_clean_skill_labels(labels) == labels
 
@@ -564,9 +605,9 @@ def test_a_mild_steel_skill_label_still_certifies():
             "PUNE [EMPLOYER_1]",
         ),
         (
-            "RAMESH KUMAR SHARMA ENGINEERING WORKS PVT LTD-PUNE",
-            "RAMESH [EMPLOYER_1] LTD-PUNE",
-            "[EMPLOYER_1]-PUNE",
+            "RAMESH KUMAR SHARMA ENGINEERING WORKS PVT LTD-CHAKAN",
+            "RAMESH [EMPLOYER_1] LTD-CHAKAN",
+            "[EMPLOYER_1]-CHAKAN",
         ),
     ],
 )
@@ -611,6 +652,11 @@ def test_five_or_six_name_words_before_a_strong_form_mask_whole(
             "jai bhavani steel fab works (P)LTD-hero LTD",
             "jai bhavani steel fab works (P)[EMPLOYER_1]",
             "jai bhavani steel fab works (P)[EMPLOYER_1]",
+        ),
+        (
+            "ramesh kumar sharma auto works LTD-pune-patil MOTORS LTD",
+            "ramesh kumar sharma auto works [EMPLOYER_1]",
+            "ramesh kumar sharma auto works [EMPLOYER_1]",
         ),
     ],
 )
@@ -677,6 +723,14 @@ def test_the_long_pass_never_takes_a_capitals_span_s_name(text, main_text, expec
             "so a firm with none stays raw, as on main",
         ),
         ("M/S SIEMENS", "M/S SIEMENS", "a one-word M/S firm has no firm word either"),
+        ("1 M/S SHARMA TRADERS", "1 M/S SHARMA TRADERS", "nor after a small number (a unit)"),
+        ("M/S SHARMA TRADERS.PUNE", "M/S SHARMA TRADERS.PUNE", "nor before a dot or a slash"),
+        (
+            "pune industrial gases pvt ltd",
+            "pune [EMPLOYER_1]",
+            "a city as the first word of a firm stays raw",
+        ),
+        ("pune.tata motors ltd", "pune.tata [EMPLOYER_1]", "as does a word a dot glues on"),
         (
             "SRI SAI IRON AND STEEL PVT LTD",
             "SRI [EMPLOYER_1]",
@@ -725,6 +779,20 @@ def test_KNOWN_RESIDUAL_stated_under_masking(text, expected, why):
             "[EMPLOYER_1] me loader",
         ),
         ("bus facility pvt ltd company", "bus facility pvt ltd company", "[EMPLOYER_1] company"),
+        (
+            "agarbatti making industries me kaam kiya",
+            "agarbatti making industries me kaam kiya",
+            "[EMPLOYER_1] me kaam kiya",
+        ),
+        # A locality outside the gazetteer, or a job the lists lack, opens a lower-case span.
+        (
+            "chakan bharat forge ltd me fitter",
+            "chakan bharat forge ltd me fitter",
+            "[EMPLOYER_1] me fitter",
+        ),
+        ("forklift tata motors ltd me", "forklift tata motors ltd me", "[EMPLOYER_1] me"),
+        # Trade talk that ends on a generic firm word with no stock or sector word before it.
+        ("m/s hand tools se kaam", "m/s hand tools se kaam", "m/s [EMPLOYER_1] se kaam"),
     ],
 )
 def test_ACCEPTED_over_masking(text, main_text, expected, main_gateway):
@@ -800,6 +868,17 @@ def test_digits_keep_main_s_fail_closed_path(text, expected_blocked, expected_te
         "tata motors\u200bltd",  # the reader view merges "motorsltd"; the spaced view masks
         "M/S\u200bSHARMA TRADERS",  # the reader view merges "M/SSHARMA"; the spaced view masks
         "Larsen &\u200bToubro Limited",  # main passed this with "Larsen" raw
+        # A firm the lower-case pass left alone in the spaced view (sector words only) and the M/S
+        # pass then masked: its region is recorded, so the reader view's raw firm blocks (`_apply`
+        # keeps a vetoed match's source offsets; fourth review \u2014 main passes these raw).
+        "m/s\u200bprecision engineering pvt ltd",
+        "m/s\u2060auto parts ltd",
+        "m/s\u200bpower tools pvt ltd",
+        # ...and two the fourth review found blocked in round 3 and passed in round 4.
+        "m/s\u200bsiemens ltd",
+        "m/s\u200bsharma trading co.",
+        # A job word no longer sits in the spaced view's span (second review's R49 pin).
+        "X1234567-Hero WORKS\u00adEngineering operator INDUSTRIES-PUNE",
     ],
 )
 def test_an_invisible_that_hides_an_employer_fails_closed(text):
@@ -837,14 +916,9 @@ def test_a_name_hidden_by_an_invisible_is_now_masked_whole(main_gateway):
             "my name isRamesh [EMPLOYER_1]",
             "Ramesh ",
         ),
-        # No cue: an invisible that merges a word into a dash-glued run, or two words after one
-        # (second review, the wider generator).
+        # No cue: an invisible that merges a word into a dash-glued run (second review, the wider
+        # generator).
         ("Sharma Motors\u2060A-ONE Motors", "Sharma [EMPLOYER_1]", "Sharma "),
-        (
-            "X1234567-Hero WORKS\u00adEngineering operator INDUSTRIES-PUNE",
-            "X[AMOUNT_1]-Hero [EMPLOYER_1]-PUNE",
-            "Hero ",
-        ),
     ],
 )
 def test_KNOWN_RESIDUAL_r49_extends_to_the_1892_passes(text, leaked, raw, main_gateway):
@@ -1033,11 +1107,11 @@ def test_property_the_1892_passes_only_ever_add_masking(main_gateway):
         assert not (raw_words(new.text) - raw_words(old.text)), (text, old.text, new.text)
         if not any(_a_pass_may_act(v.text, old.text) for v in gateway._build_views(text)):
             assert new == old, text
-    # Measured 2026-10-03 (third review): 1,134 outputs change and main blocks 1,999 turns; of
-    # those, 21 now pass with full cover and none as an R49 partial. (Before the M/S firm word and
-    # with smaller pools: 7 partials, two leaving a name word — "Sharma Fabricators", "Hero" — each
-    # an invisible that merges words around a dash-glued run, pinned in
-    # `test_KNOWN_RESIDUAL_r49_extends_to_the_1892_passes`.)
+    # Measured 2026-10-03 (fourth review): 1,060 outputs change and main blocks 1,999 turns; of
+    # those, 20 now pass with full cover and none as an R49 partial. (Before the M/S firm word and
+    # with smaller pools: 7 partials, two leaving a name word — "Sharma Fabricators", "Hero". The
+    # first is pinned in `test_KNOWN_RESIDUAL_r49_extends_to_the_1892_passes`; the second now
+    # fails closed.)
     assert seen["changed"] > 900, seen
     assert seen["main blocked"] > 1_500, seen
     assert seen["a region grew"] > 0, seen
