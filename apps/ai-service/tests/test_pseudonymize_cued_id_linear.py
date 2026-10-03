@@ -40,6 +40,7 @@ import importlib.util
 import random
 import re
 import time
+import uuid
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
@@ -383,15 +384,28 @@ def test_the_salary_guard_still_drops_a_roll_number_and_keeps_a_wage(
     assert sig == main_rules(signals.detect, text)
 
 
-def test_KNOWN_RESIDUAL_a_dot_after_the_cue_is_not_read_as_a_connector(main_rules):
-    # "Reg.No.:- 123456": no connector token starts with ".", so the value never begins, on main
-    # and here alike. The gateway leaves the number raw (six digits, under the residual net), G1/G2
-    # admits it, and the salary detector records it as pay. #1933 keeps main's spans exactly, so it
-    # neither fixes nor widens this; reading "." after the cue is a masking change of its own.
-    text = "Reg.No.:- 123456"
+@pytest.mark.parametrize(
+    ("text", "pay"),
+    [
+        ("Reg.No.:- 123456", 123456),
+        ("Reg.No.: MH2019CN4471", 4471),
+        ("Reg. No. MH2019CN4471", 4471),
+        ("Regn. No. MH2019CN4471", 4471),
+    ],
+)
+def test_KNOWN_RESIDUAL_a_dot_after_the_cue_is_not_read_as_a_connector(text, pay, main_rules):
+    """Tracked as risks-register R56 (open; AI + Security). No connector token starts with "."
+    and "regn" is no cue, so these common certificate spellings never reach their value, on main
+    and here alike. The gateway leaves the ID raw (no seven-digit run for the residual net) in the
+    at-rest copies and the embedding input under both AI_RAW_PII_ENABLED postures, G1/G2 admits
+    it, and the salary detector records its digits as pay. #1933 keeps main's spans exactly, so it
+    neither fixes nor widens this. Reading "." after the cue is a masking widening with its own
+    security review; when R56 lands these cases flip to masked, "credential_id" and no pay."""
     assert pseudonymize(text).text == text == main_rules(pseudonymize, text).text
     assert contains_hard_identifier(text) is None
-    assert signals.detect(text).current_salary == 123456
+    assert main_rules(contains_hard_identifier, text) is None
+    assert signals.detect(text).current_salary == pay
+    assert main_rules(signals.detect, text).current_salary == pay
 
 
 # --- 5. the measurement script measures these rules ---------------------------------------------
@@ -416,3 +430,28 @@ def test_the_harness_sees_a_connector_that_changes_spans(text):
     # difference here, its zeros above would mean nothing.
     assert measure.differences(text, "loose") != []
     assert measure.differences(text) == []
+
+
+def test_the_corpus_reads_the_shared_readers():
+    # One copy of the corpus readers (CLAUDE.md §8): the sibling script's, imported, so the two
+    # measurements cannot drift apart on what a corpus file holds.
+    for reader in (measure.tracked, measure.json_strings, measure.py_strings, measure.distinct):
+        assert reader.__module__ == "measure_title_employer_bound", reader
+
+
+def test_the_corpus_reads_tracked_files_only():
+    """An untracked file in a corpus directory stays out, so the counts in the docs and the
+    floors above hold on a dirty checkout exactly as in CI. This file stays out too: the fix is
+    not measured against its own fixtures."""
+    marker = f"reg no UNTRACKED{uuid.uuid4().hex}"
+    probe = Path(__file__).resolve().with_name(f"_untracked_corpus_probe_{uuid.uuid4().hex}.py")
+    probe.write_text(f"MARKER = {marker!r}\n", encoding="utf-8")
+    try:
+        assert marker not in measure.distinct(measure.corpus())
+        files = measure.corpus_files()
+    finally:
+        probe.unlink()
+    listed = {path for paths in files.values() for path in paths}
+    assert probe not in listed
+    assert Path(__file__).resolve() not in listed
+    assert files["ai_service_tests"], files

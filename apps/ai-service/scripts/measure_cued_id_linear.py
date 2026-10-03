@@ -28,14 +28,15 @@ timing   Main against the shipped rules on a cue + whitespace run, interleaved i
          spaces (1,600 took 13-20 s); the shipped rules also run at 20,000 characters, the size
          cap.
 
-Stdlib only. The counts depend on the checkout: re-run them on the commit you are judging.
+The corpus is read from git-tracked files only, with the file readers of
+`measure_title_employer_bound.py` (imported, not copied), so an untracked local file never enters
+it and a dirty checkout counts what CI counts. Stdlib and git only. The counts depend on the
+commit: re-run them on the one you are judging.
 """
 
 from __future__ import annotations
 
 import argparse
-import ast
-import json
 import random
 import re
 import sys
@@ -45,8 +46,16 @@ from contextlib import contextmanager
 from pathlib import Path
 
 AI_SERVICE = Path(__file__).resolve().parents[1]
-REPO = AI_SERVICE.parents[1]
 sys.path.insert(0, str(AI_SERVICE))
+# The sibling script's corpus readers: one copy of `tracked`, `json_strings` and `py_strings`.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from measure_title_employer_bound import (  # noqa: E402
+    distinct,
+    json_strings,
+    py_strings,
+    tracked,
+)
 
 import app.pseudonymize as gateway  # noqa: E402
 from app.profiling import profile_extractor, signals  # noqa: E402
@@ -184,73 +193,42 @@ VIEWS: dict[str, Callable[[str], str]] = {
 
 # --- corpus -------------------------------------------------------------------------------------
 
-
-def _walk_json(node: object, sink: list[str]) -> None:
-    if isinstance(node, str):
-        sink.append(node)
-    elif isinstance(node, dict):
-        for key, value in node.items():
-            sink.append(key)
-            _walk_json(value, sink)
-    elif isinstance(node, list):
-        for value in node:
-            _walk_json(value, sink)
-
-
-def json_strings(directory: Path) -> list[str]:
-    """Every string in the `.json` and `.jsonl` files under ``directory``. A `.jsonl` line that is
-    not JSON (a comment) is kept as text, as `measure_title_employer_bound.py` reads it."""
-    out: list[str] = []
-    for path in sorted(p for p in directory.rglob("*") if p.suffix in (".json", ".jsonl")):
-        text = path.read_text(encoding="utf-8")
-        if path.suffix == ".json":
-            _walk_json(json.loads(text), out)
-            continue
-        for line in text.splitlines():
-            if not line.strip():
-                continue
-            try:
-                _walk_json(json.loads(line), out)
-            except json.JSONDecodeError:
-                out.append(line)
-    return out
-
-
+#: Each source of the corpus: a repo-relative directory and the file suffixes read under it. The
+#: service's code and tests (prompts, docstrings, fixtures), the lexicon's sources and parity
+#: corpus, the shared hard-identifier fixture, and the question packs and job-domain corpus.
+CORPUS_SOURCES: dict[str, tuple[str, tuple[str, ...]]] = {
+    "ai_service_code": ("apps/ai-service/app", (".py",)),
+    "ai_service_tests": ("apps/ai-service/tests", (".py",)),
+    "lexicon_data": ("apps/ai-service/app/profiling/lexicon_data", (".json", ".jsonl")),
+    "lexicon_fixtures": ("packages/profiling-lexicon/__fixtures__", (".json", ".jsonl")),
+    "ai_contract_fixtures": ("packages/ai-contracts/src/__fixtures__", (".json", ".jsonl")),
+    "question_packs": ("packages/db/data/question-packs", (".json", ".jsonl")),
+    "job_domains": ("packages/db/data/job-domains", (".json", ".jsonl")),
+}
 #: The #1933 test file, left out so the fix is not measured against its own fixtures.
 EXCLUDED_FILES = frozenset({"test_pseudonymize_cued_id_linear.py"})
 
 
-def py_strings(directory: Path) -> list[str]:
-    out: list[str] = []
-    for path in sorted(directory.rglob("*.py")):
-        if path.name in EXCLUDED_FILES:
-            continue
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                out.append(node.value)
-    return out
+def corpus_files() -> dict[str, list[Path]]:
+    """The files each source reads: git-tracked only, less `EXCLUDED_FILES`."""
+    return {
+        name: [
+            path
+            for path in tracked(directory, *suffixes, exclude=False)
+            if path.name not in EXCLUDED_FILES
+        ]
+        for name, (directory, suffixes) in CORPUS_SOURCES.items()
+    }
 
 
 def corpus() -> dict[str, list[str]]:
-    """Every distinct string of the repo's own text these rules can meet: the service's code and
-    tests (prompts, docstrings, fixtures), the lexicon's sources and parity corpus, the shared
-    hard-identifier fixture, and the question packs and job-domain corpus. A directory outside
-    `apps/ai-service` that is absent (a partial checkout) contributes nothing."""
-    packages = REPO / "packages"
+    """Every distinct string of the repo's own tracked text these rules can meet, by source."""
     parts = {
-        "ai_service_code": py_strings(AI_SERVICE / "app"),
-        "ai_service_tests": py_strings(AI_SERVICE / "tests"),
-        "lexicon_data": json_strings(AI_SERVICE / "app" / "profiling" / "lexicon_data"),
-        "lexicon_fixtures": json_strings(packages / "profiling-lexicon" / "__fixtures__"),
-        "ai_contract_fixtures": json_strings(packages / "ai-contracts" / "src" / "__fixtures__"),
-        "question_packs": json_strings(packages / "db" / "data" / "question-packs"),
-        "job_domains": json_strings(packages / "db" / "data" / "job-domains"),
+        name: py_strings(p for p in paths if p.suffix == ".py")
+        + json_strings(p for p in paths if p.suffix != ".py")
+        for name, paths in corpus_files().items()
     }
     return {name: sorted(set(strings)) for name, strings in parts.items()}
-
-
-def distinct(parts: dict[str, list[str]]) -> list[str]:
-    return sorted(set().union(*map(set, parts.values())))
 
 
 # --- the seeded cue-line generator --------------------------------------------------------------
