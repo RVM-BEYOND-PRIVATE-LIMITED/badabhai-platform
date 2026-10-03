@@ -30,6 +30,10 @@ from itertools import pairwise
 from pathlib import Path
 
 import pytest
+from employer_masking_helpers import NEVER as _NEVER
+from employer_masking_helpers import RULES_1892 as _RULES_1892
+from employer_masking_helpers import raw_words as _raw_words
+from employer_masking_helpers import two_view_verdict as _two_view_verdict
 
 import app.pseudonymize as gateway
 from app.profiling import lexicon
@@ -39,17 +43,6 @@ from app.pseudonymize import (
     certify_value,
     is_certified_clean,
     pseudonymize,
-)
-
-_NEVER = re.compile(r"(?!x)x")
-#: The passes #1892 added after this rule (`tests/test_pseudonymize_employer_residuals.py`). The
-#: "main" this file compares with is the gateway before #1875, so they are switched off with it.
-_RULES_1892 = (
-    "_EMPLOYER_LONG_RE",
-    "_EMPLOYER_TITLE_FORM_RE",
-    "_EMPLOYER_LOWER_RE",
-    "_EMPLOYER_MS_CUE_RE",
-    "_EMPLOYER_ABSORB_RE",
 )
 
 
@@ -448,45 +441,15 @@ def _sample(rng: random.Random) -> str:
     return text
 
 
-def _raw_words(text: str) -> Counter[str]:
-    return Counter(re.findall(r"[^\W_]+", re.sub(r"\[[A-Z]+_\d+\]", " ", text)))
+@pytest.fixture
+def without_1892(monkeypatch):
+    """#1892's later passes switched off for the whole test, on both sides of a comparison, so a
+    test proves the capitals rule alone: they can take over or extend its spans (see that file)."""
+    for name in _RULES_1892:
+        monkeypatch.setattr(gateway, name, _NEVER)
 
 
-def _a_later_pass_may_change(text: str, main_text: str) -> bool:
-    """Could #1892's passes move this text's output? Only when one of their gates opens on it, or
-    main's output holds an employer token for the absorb pass to fold something into."""
-    return "[EMPLOYER_" in main_text or any(
-        gate.search(text) for _rule, gate in gateway._RULE_GATES.values()
-    )
-
-
-def _two_view_verdict(text: str) -> str:
-    """How #1738's two-view check in `pseudonymize` treats ``text`` on the module as it stands.
-
-    "blocks"  — a view's residual guard trips, or a spaced-view region overlaps no reader mask.
-    "full"    — it passes, and every offset of every spaced-view region that the reader view KEPT
-                (did not delete) is reader-masked: nothing the spaced view found egresses raw.
-    "partial" — it passes although a spaced-view region holds a kept offset the reader view left
-                raw; the region merely OVERLAPS a reader mask. That is R49 (#1890): under its
-                mitigation (covered only if every kept offset is reader-masked) it would block.
-    """
-    reader_view, spaced_view = gateway._build_views(text)
-    reader, reader_regions = gateway._mask(reader_view, True)
-    spaced, spaced_regions = gateway._mask(spaced_view, True)
-    reader_masked: set[int] = set().union(*reader_regions)
-    if (
-        reader.blocked
-        or spaced.blocked
-        or any(not (region & reader_masked) for region in spaced_regions)
-    ):
-        return "blocks"
-    kept = set(reader_view.src)
-    if any((region & kept) - reader_masked for region in spaced_regions):
-        return "partial"
-    return "full"
-
-
-def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway):
+def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway, without_1892):
     """What this PROVES, exactly — over 4,000 samples of THIS seeded generator, not over all inputs.
 
     The pools: title-case and capitals names, every `_COMPANY_SUFFIX` word in both cases, the
@@ -495,15 +458,14 @@ def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway):
     and lower case, and four invisible characters (U+200B, U+200C, U+2060, U+00AD) glued in as the
     SOLE separator between two words.
 
-    "Main" is the gateway before this rule (the `main_gateway` fixture); since #1892 the branch
-    carries #1892's later passes too, so the byte-identity clauses below also require that none of
-    them could act (`_a_later_pass_may_change`). The rest holds for the whole stack.
+    It proves THIS rule: #1892's later passes are switched off on both sides (`without_1892`);
+    `test_pseudonymize_employer_residuals.py` proves those passes the same way.
 
     1. IN EACH VIEW (#1738's reader and spaced view, through `_mask`): every region main masked is
        masked over exactly the same source offsets — so the rule never shortens a title-case match
        and never eats a name cue — no word main masked is left raw, every residual-digit block
-       main raised is still raised, and with no capitals corporate form in the view (and nothing
-       for #1892) the result and its regions are byte-identical to main's. No exception.
+       main raised is still raised, and with no capitals corporate form in the view the result and
+       its regions are byte-identical to main's. No exception.
     2. END TO END (`pseudonymize`): the same — no word main masked is left raw, every block main
        raised is still raised, no form in either view means byte-identical — EXCEPT where main
        blocked on the two-view check and the branch passes. That happens two ways, and each such
@@ -533,9 +495,7 @@ def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway):
             assert old_view.blocked <= new_view.blocked, text
             assert all(region in new_regions for region in old_regions), (text, view.text)
             assert not (_raw_words(new_view.text) - _raw_words(old_view.text)), (text, view.text)
-            if not _ANY_CAPITALS_FORM.search(view.text) and not _a_later_pass_may_change(
-                view.text, old_view.text
-            ):
+            if not _ANY_CAPITALS_FORM.search(view.text):
                 assert (new_view, new_regions) == (old_view, old_regions), text
         new, old = pseudonymize(text), main_gateway(pseudonymize, text)
         seen["main blocked"] += old.blocked
@@ -551,14 +511,13 @@ def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway):
             continue
         assert old.blocked <= new.blocked, text
         assert not (_raw_words(new.text) - _raw_words(old.text)), (text, old.text, new.text)
-        views = gateway._build_views(text)
-        if not any(_ANY_CAPITALS_FORM.search(v.text) for v in views) and not any(
-            _a_later_pass_may_change(v.text, old.text) for v in views
-        ):
-            assert new == old, text  # nothing for the capitals rule or #1892 -> byte-identical
+        if not any(_ANY_CAPITALS_FORM.search(v.text) for v in gateway._build_views(text)):
+            assert new == old, text  # no capitals corporate form in either view -> byte-identical
     assert seen["main blocked"] > 600, seen
     assert seen["main two-view block"] > 70, seen
     assert seen["cue beside a capitals form"] > 200, seen
+    # The R49 turns are bounded, not just classified: more would mean the rule widened R49.
+    assert seen["unblocked, partial"] <= 10, seen
 
 
 # --- 4. the stated boundary, both directions --------------------------------------------------

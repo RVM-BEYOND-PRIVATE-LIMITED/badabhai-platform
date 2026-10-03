@@ -9,13 +9,14 @@ THE GAP, measured on main before the fix (2026-10-03):
     pseudonymize("RAMESH KUMAR SHARMA ENGINEERING WORKS PVT LTD").text -> "RAMESH [EMPLOYER_1] LTD"
 
 and each certified clean. THE RULES (documented above `pseudonymize._EMPLOYER_STOPWORDS`): five
-separate passes after the capitals rule's neighbours — lower and sentence case before a form that
-stays corporate in lower case (`_EMPLOYER_LOWER_RE`); the title-case twins of #1875's forms
+separate passes around the capitals rule — lower and sentence case before a form that stays
+corporate in lower case (`_EMPLOYER_LOWER_RE`); the title-case twins of #1875's forms
 (`_EMPLOYER_TITLE_FORM_RE`) and the absorb pass that folds what the title-case rule left beside a
 token into it (`_EMPLOYER_ABSORB_RE`); the M/S cue (`_EMPLOYER_MS_CUE_RE`); five or six name words
 before a strong form (`_EMPLOYER_LONG_RE`). Each pass is gated on its mandatory piece
 (`_RULE_GATES`). Measured over 50,918 repo strings, 1,324 fabricated negative lines and 576
-fabricated employer lines before any rule was written; the numbers are in the module notes.
+fabricated employer lines before any rule was written, then reviewed (security, code,
+performance, red team, mutation); the numbers are in the module notes.
 
 Each section was seen to FAIL against a mutation of the rules (see the PR). Stdlib + pytest only,
 like `test_pseudonymize.py`. All inputs are fabricated.
@@ -32,6 +33,7 @@ from itertools import pairwise
 from pathlib import Path
 
 import pytest
+from employer_masking_helpers import NEVER, RULES_1892, raw_egress, raw_words, two_view_verdict
 
 import app.pseudonymize as gateway
 from app.profiling import lexicon
@@ -43,29 +45,22 @@ from app.pseudonymize import (
     pseudonymize,
 )
 
-_NEVER = re.compile(r"(?!x)x")
-_RULES_1892 = (
-    "_EMPLOYER_LONG_RE",
-    "_EMPLOYER_TITLE_FORM_RE",
-    "_EMPLOYER_LOWER_RE",
-    "_EMPLOYER_MS_CUE_RE",
-    "_EMPLOYER_ABSORB_RE",
-)
-_ZWSP = "​"
+_ZWSP = "\u200b"
+_NL = "\n"
 
 
 @pytest.fixture
 def main_gateway(monkeypatch):
     """The gateway as #1891 left it: the five #1892 passes switched off, nothing else touched.
 
-    Sound because each is a SEPARATE pass after the title-case rule, both name rules and the
-    capitals rule; with them matching nothing every other rule sees byte-identical input. Measured
+    Sound because each is a SEPARATE pass; with them matching nothing every other rule — the
+    capitals rule included, which the long pass runs ahead of — sees byte-identical input. Measured
     over the 50,918-string corpus: identical to the module before #1892."""
 
     def run(fn, *args):
         with monkeypatch.context() as patch:
-            for name in _RULES_1892:
-                patch.setattr(gateway, name, _NEVER)
+            for name in RULES_1892:
+                patch.setattr(gateway, name, NEVER)
             return fn(*args)
 
     return run
@@ -74,6 +69,20 @@ def main_gateway(monkeypatch):
 def _masks_to(text: str, expected: str, tokens: int = 1) -> None:
     result = pseudonymize(text)
     assert (result.text, result.blocked, result.replaced_entities) == (expected, False, tokens)
+    for token in result.placeholder_tokens:  # no pass drops a minted token from the text
+        assert token in result.text, (token, result.text)
+
+
+def _unchanged(text: str) -> None:
+    result = pseudonymize(text)
+    assert (result.text, result.blocked, result.replaced_entities) == (text, False, 0)
+
+
+def test_the_1892_rule_list_is_complete():
+    # One list (`employer_masking_helpers.RULES_1892`) switches the passes off in both test files;
+    # a sixth pass added to the module without it would be invisible to every "main" comparison.
+    gated = {id(rule) for rule, _gate in gateway._RULE_GATES.values()}
+    assert gated == {id(getattr(gateway, name)) for name in RULES_1892}
 
 
 # --- 1. lower and sentence case -----------------------------------------------------------------
@@ -97,16 +106,29 @@ def _masks_to(text: str, expected: str, tokens: int = 1) -> None:
         ("acme llp", "[EMPLOYER_1]"),
         ("al futtaim llc", "[EMPLOYER_1]"),
         ("xyz contracting w.l.l", "[EMPLOYER_1]"),
+        # The glued and abbreviated double forms.
+        ("sharma engineering pvt.ltd", "[EMPLOYER_1]"),
+        ("XYZ ENGINEERING (P)LTD", "[EMPLOYER_1]"),
         # The weak forms, after two or more name words.
         ("jai bhavani industries bhosari me", "[EMPLOYER_1] bhosari me"),
         ("om sai enterprises me electrician", "[EMPLOYER_1] me electrician"),
         ("ambika steel corporation me", "[EMPLOYER_1] me"),
         ("verma brothers co. me driver", "[EMPLOYER_1] me driver"),
+        # Words ending in -ly are names here, not adverbs (the adverbs are stopwords).
+        ("sourav ganguly enterprises me", "[EMPLOYER_1] me"),
+        ("om sai supply corporation me", "[EMPLOYER_1] me"),
+        # An initial is not the stopword "a": "a.k." is one name word.
+        ("a.k. fabricators pvt ltd", "[EMPLOYER_1]"),
     ],
 )
 def test_a_lower_or_sentence_case_employer_is_masked(text, expected, main_gateway):
     assert main_gateway(pseudonymize, text).text == text  # raw on main
     _masks_to(text, expected)
+
+
+def test_company_may_sit_inside_a_lower_case_firm():
+    _masks_to("sharma company pvt ltd", "[EMPLOYER_1]")
+    _masks_to("abc company ltd", "[EMPLOYER_1]")
 
 
 def test_two_lower_case_employers_get_two_tokens():
@@ -124,9 +146,46 @@ def test_two_lower_case_employers_get_two_tokens():
         ("maine welding kiya tata motors ltd mein", "maine welding kiya [EMPLOYER_1] mein"),
         # A sentence-final stopword still stops the span; "kiya." is not a name word.
         ("kaam kiya. tata motors ltd", "kaam kiya. [EMPLOYER_1]"),
+        # A role, a qualification or a pay word never opens a span (`_ROLE_WORDS`)...
+        ("hiring cnc operator xyz pvt ltd chakan", "hiring cnc operator [EMPLOYER_1] chakan"),
+        (
+            "iti fitter tata motors ltd se apprentice kiya",
+            "iti fitter [EMPLOYER_1] se apprentice kiya",
+        ),
+        ("diploma mechanical tata motors ltd", "diploma mechanical [EMPLOYER_1]"),
+        ("15000 salary xyz pvt ltd", "15000 salary [EMPLOYER_1]"),
+        # ...nor does a city: cities are never redacted (owner ruling 2026-07-31).
+        ("pune tata motors ltd", "pune [EMPLOYER_1]"),
+        ("nashik bosch ltd me 3 saal", "nashik [EMPLOYER_1] me 3 saal"),
+        ("Hosur ashok leyland ltd", "Hosur [EMPLOYER_1]"),
     ],
 )
-def test_a_stopword_keeps_the_words_around_a_lower_case_employer(text, expected):
+def test_the_words_around_a_lower_case_employer_stay(text, expected):
+    _masks_to(text, expected)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # No #1892 span crosses a line: a résumé's role line or city line stays its own.
+        (
+            f"cnc operator{_NL}xyz engineering pvt ltd{_NL}pune",
+            f"cnc operator{_NL}[EMPLOYER_1]{_NL}pune",
+        ),
+        (f"fitter{_NL}tata motors ltd", f"fitter{_NL}[EMPLOYER_1]"),
+        (
+            f"CNC OPERATOR{_NL}SHREE GANESH ENGINEERING WORKS PVT LTD",
+            f"CNC OPERATOR{_NL}[EMPLOYER_1]",
+        ),
+        (
+            f"Welder{_NL}Mahindra & Mahindra Ltd{_NL}2018-2020",
+            f"Welder{_NL}[EMPLOYER_1]{_NL}2018-2020",
+        ),
+        (f"Pune{_NL}Larsen & Toubro Limited", f"Pune{_NL}[EMPLOYER_1]"),
+        (f"Cnc Operator{_NL}Sharma & Co.", f"Cnc Operator{_NL}[EMPLOYER_1]."),
+    ],
+)
+def test_no_span_crosses_a_line(text, expected):
     _masks_to(text, expected)
 
 
@@ -137,6 +196,18 @@ def test_a_stopword_keeps_the_words_around_a_lower_case_employer(text, expected)
         "ek pvt ltd company mein tha",
         "koi pvt. ltd. ho to batana",
         "working in a reputed pvt. ltd. company",
+        "ek choti pvt ltd company me tha",
+        "kisi achhe pvt ltd company mein job chahiye",
+        "local pvt ltd company me",
+        # "company" never opens a span; a possessive is a stopword.
+        "hamari company pvt ltd hai",
+        "meri company private limited hai",
+        "company pvt ltd hai kya",
+        # A role or a want in front of the generic phrase.
+        "cnc operator pvt ltd company me 3 saal",
+        "job chahiye pvt ltd company mein",
+        "experience certificate pvt ltd ka chahiye",
+        "posts ltd hai, jaldi bhejo profile",
         # The forms that are ordinary words in lower case are not forms at all.
         "limited experience hai",
         "programming ka knowledge limited hai",
@@ -149,14 +220,23 @@ def test_a_stopword_keeps_the_words_around_a_lower_case_employer(text, expected)
         "fitter & co-worker",
         "co2 welding aati hai",
         "auto industry mein 5 saal",
-        # A weak form after ONE word: "various industries", "municipal corporation".
+        # A weak form after ONE word, an adverb or quantifiers...
         "various industries mein kaam kiya",
         "municipal corporation ka kaam",
+        "fabrication jobs mostly industries mein",
+        "alag alag industries mein kaam kiya hai",
+        "kai sari industries me kaam kiya",
+        # ...or after nothing but sector words: an industry, not a firm (`_SECTOR_WORDS`).
+        "auto ancillary industries mein kaam",
+        "micro irrigation industries",
+        "district industries centre",
+        "food processing industries me helper",
+        "plastic moulding industries me operator",
+        "oil & gas industries",
     ],
 )
 def test_ordinary_lower_case_speech_is_not_masked(text):
-    result = pseudonymize(text)
-    assert (result.text, result.blocked, result.replaced_entities) == (text, False, 0)
+    _unchanged(text)
 
 
 # --- 2. the title-case twins of #1875's forms ----------------------------------------------------
@@ -170,19 +250,26 @@ def test_ordinary_lower_case_speech_is_not_masked(text):
         ("Xyz (P) Ltd", "Xyz (P) Ltd", "[EMPLOYER_1]"),
         ("Acme Llp", "Acme Llp", "[EMPLOYER_1]"),
         ("Acme Llc", "Acme Llc", "[EMPLOYER_1]"),
+        # Only the title-form pass masks these (the lower-case pass reads no bare "Company",
+        # "Limited" or "Corp"): they pin that pass on its own.
+        ("Sharma & Company", "Sharma & Company", "[EMPLOYER_1]"),
+        ("Xyz (P) Limited", "Xyz (P) Limited", "[EMPLOYER_1]"),
+        ("Verma (OPC) Corp", "Verma (OPC) Corp", "[EMPLOYER_1]"),
         # Half-masked on main; the absorb pass folds the rest into the token.
         ("Larsen & Toubro Limited", "Larsen & [EMPLOYER_1]", "[EMPLOYER_1]"),
         ("Mahindra & Mahindra Ltd", "Mahindra & [EMPLOYER_1]", "[EMPLOYER_1]"),
         ("Shah Sharma & Sons Ltd", "Shah Sharma & [EMPLOYER_1]", "[EMPLOYER_1]"),
         ("3M India Ltd", "3M [EMPLOYER_1]", "[EMPLOYER_1]"),
         ("Hero-Honda Ltd", "Hero-[EMPLOYER_1]", "[EMPLOYER_1]"),
-        # A trailing form left beside the token.
+        # A trailing form left beside the token, a weak form included: one firm, one token.
         ("Tata Motors LTD", "[EMPLOYER_1] LTD", "[EMPLOYER_1]"),
         ("Tata Motors ltd", "[EMPLOYER_1] ltd", "[EMPLOYER_1]"),
         ("Tata Motors pvt ltd", "[EMPLOYER_1] pvt ltd", "[EMPLOYER_1]"),
         ("Bajaj Auto LTD", "[EMPLOYER_1] LTD", "[EMPLOYER_1]"),
         ("Tata Steel LIMITED", "[EMPLOYER_1] LIMITED", "[EMPLOYER_1]"),
         ("Shree Ganesh Auto Components Pvt Ltd", "[EMPLOYER_1] Ltd", "[EMPLOYER_1]"),
+        ("Tata Steel industries pvt ltd", "[EMPLOYER_1] industries pvt ltd", "[EMPLOYER_1]"),
+        ("Tata Steel enterprises pvt ltd", "[EMPLOYER_1] enterprises pvt ltd", "[EMPLOYER_1]"),
     ],
 )
 def test_a_title_case_twin_masks_whole(text, main_text, expected, main_gateway):
@@ -196,9 +283,18 @@ def test_a_title_case_twin_masks_whole(text, main_text, expected, main_gateway):
     [
         # A curated trade word before the joiner is a skill, not a name: exactly main's output.
         ("Welding & Stainless Steel", "Welding & [EMPLOYER_1]"),
+        # ...and a sector word names an industry (`_SECTOR_WORDS`).
+        ("Oil & Gas Industry", "Oil & [EMPLOYER_1]"),
+        ("Food & Beverage Industry", "Food & [EMPLOYER_1]"),
+        ("Iron & Steel Industries", "Iron & [EMPLOYER_1]"),
         # A stopword before the joiner is not absorbed ("3 YRS & ABOVE …").
         ("3 YRS & ABOVE EXPERIENCE IN AUTO INDUSTRY", "3 YRS & [EMPLOYER_1]"),
-        ("Quality & Co-ordination", "Quality & Co-ordination"),
+        # A duration or a class is not a digit-led name.
+        ("Experience 3Yrs Tata Motors Ltd", "Experience 3Yrs [EMPLOYER_1]"),
+        ("10Th Pass Tata Motors Ltd", "10Th [EMPLOYER_1]"),
+        # A city is never absorbed, before a joiner or a dash.
+        ("Pune-Tata Motors Ltd", "Pune-[EMPLOYER_1]"),
+        ("Pune & Tata Motors Ltd", "Pune & [EMPLOYER_1]"),
         # Two firms joined by "(I)" keep their two tokens.
         ("Abc Engineers (I) Pvt. Ltd.", "[EMPLOYER_1] (I) [EMPLOYER_2]."),
     ],
@@ -207,6 +303,20 @@ def test_the_absorb_pass_leaves_these_exactly_as_main(text, expected, main_gatew
     result = pseudonymize(text)
     assert result.text == expected
     assert result == main_gateway(pseudonymize, text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Pvt and Private name a firm only with Ltd or Limited after them.
+        "Govt & Private Jobs",
+        "Public & Private Sector",
+        "Abc (I) Pvt",
+        "Quality & Co-ordination",
+    ],
+)
+def test_a_title_case_job_preference_is_not_a_firm(text):
+    _unchanged(text)
 
 
 # --- 3. the M/S cue -------------------------------------------------------------------------------
@@ -221,19 +331,33 @@ def test_the_absorb_pass_leaves_these_exactly_as_main(text, expected, main_gatew
         ("worked at m/s sharma traders", "worked at m/s [EMPLOYER_1]"),
         ("M / S KRISHNA FABRICATORS ME WELDER", "M / S [EMPLOYER_1] ME WELDER"),
         ("M/S: Om Sai Traders, Pune", "M/S: [EMPLOYER_1], Pune"),
+        ("M/S-KRISHNA FABRICATORS", "M/S-[EMPLOYER_1]"),
+        ("M/S :- KRISHNA FABRICATORS", "M/S :- [EMPLOYER_1]"),
         ("M/S A-ONE FABRICATORS ME WELDER", "M/S [EMPLOYER_1] ME WELDER"),
         ("M/s 3S Engineering Services me technician", "M/s [EMPLOYER_1] me technician"),
         ("m/s gupta & sons, bhosari", "m/s [EMPLOYER_1], bhosari"),
+        # An initial is a name word, not the stopword "a".
+        ("M/S. A.K. ENGINEERING WORKS", "M/S. [EMPLOYER_1]"),
+        ("m/s a.k. traders", "m/s [EMPLOYER_1]"),
         # A stopword ends the firm...
         ("M/S SHARMA TRADERS mein 3 saal", "M/S [EMPLOYER_1] mein 3 saal"),
-        # ...and so does a city after the first word: cities are never redacted (2026-07-31).
+        # ...and so does a city after the first word: cities are never redacted (2026-07-31)...
         ("M/S KRISHNA FABRICATORS, PUNE", "M/S [EMPLOYER_1], PUNE"),
         (
             "worked at M/S SHARMA TRADERS PUNE MEIN 3 SAAL",
             "worked at M/S [EMPLOYER_1] PUNE MEIN 3 SAAL",
         ),
-        # ...and so does a line break: the next line is the role, not the firm.
-        ("M/S SHARMA TRADERS\nCNC OPERATOR", "M/S [EMPLOYER_1]\nCNC OPERATOR"),
+        # ...and a role word: the role is the worker's, not the firm's...
+        ("M/S SHARMA TRADERS WELDER", "M/S [EMPLOYER_1] WELDER"),
+        # ("CNC" can be part of the firm, "M/S. AMBIKA CNC WORKS"; "OPERATOR" cannot.)
+        ("M/S KRISHNA FAB WORKS CNC OPERATOR", "M/S [EMPLOYER_1] OPERATOR"),
+        ("M/S. AMBIKA CNC WORKS, BHOSARI", "M/S. [EMPLOYER_1], BHOSARI"),
+        (
+            "Required CNC operator at M/s Precision Components, Chakan",
+            "Required CNC operator at M/s [EMPLOYER_1], Chakan",
+        ),
+        # ...and a line break: the next line is the role, not the firm.
+        (f"M/S SHARMA TRADERS{_NL}CNC OPERATOR", f"M/S [EMPLOYER_1]{_NL}CNC OPERATOR"),
     ],
 )
 def test_a_firm_after_an_m_s_cue_is_masked(text, expected, main_gateway):
@@ -241,55 +365,93 @@ def test_a_firm_after_an_m_s_cue_is_masked(text, expected, main_gateway):
     _masks_to(text, expected)
 
 
+def test_two_m_s_firms_in_a_row_keep_two_cues():
+    # The first firm never takes the next cue's "M" as a name word.
+    _masks_to(
+        "M/S Sharma Traders M/S Gupta Fabricators", "M/S [EMPLOYER_1] M/S [EMPLOYER_2]", tokens=2
+    )
+    _masks_to(
+        "m/s sharma traders m/s gupta fabricators", "m/s [EMPLOYER_1] m/s [EMPLOYER_2]", tokens=2
+    )
+
+
 @pytest.mark.parametrize(
-    ("text", "main_text", "expected"),
+    ("text", "main_text", "expected", "tokens"),
     [
         # The title-case rule took the cue's "S" as a name word; the token keeps it.
         (
             "M/S Hanuman Steel Traders me loader",
             "M/[EMPLOYER_1] Traders me loader",
             "M/[EMPLOYER_1] me loader",
+            1,
         ),
         # A firm the title-case rule half-masked keeps its token and takes the rest.
         (
             "M/s Jagdamba Steel Furniture me fabrication",
             "M/s [EMPLOYER_1] Furniture me fabrication",
             "M/s [EMPLOYER_1] me fabrication",
+            1,
         ),
         # The "S" of the cue never opens a span (`_SPAN_START`).
-        ("M/S SHREE GANESH AUTO COMPONENTS LTD", "M/S [EMPLOYER_1]", "M/S [EMPLOYER_1]"),
+        ("M/S SHREE GANESH AUTO COMPONENTS LTD", "M/S [EMPLOYER_1]", "M/S [EMPLOYER_1]", 1),
+        # Two tokens under one cue are left as they are: folding them would drop a minted token.
+        (
+            "M/S Tata Motors Ltd & Bajaj Auto Ltd",
+            "M/[EMPLOYER_1] & [EMPLOYER_2]",
+            "M/[EMPLOYER_1] & [EMPLOYER_2]",
+            2,
+        ),
     ],
 )
-def test_an_m_s_firm_an_earlier_rule_half_masked_keeps_one_token(
-    text, main_text, expected, main_gateway
+def test_an_m_s_firm_an_earlier_rule_masked_keeps_its_tokens(
+    text, main_text, expected, tokens, main_gateway
 ):
     assert main_gateway(pseudonymize, text).text == main_text
-    _masks_to(text, expected)
+    _masks_to(text, expected, tokens=tokens)
 
 
 @pytest.mark.parametrize(
     "text",
     [
-        # Metres per second: after a number, or explained.
+        # Metres per second: after a number (up to three spaces), or explained.
         "speed 5 m/s",
+        "speed 5 m/s rakhte",
+        "speed 5  m/s rakhni hai",
         "SPEED 5 M/S HAI",
         "cutting speed 2.5m/s",
         "WIND SPEED 9 M/S SE UPAR",
         "speed in m/s hoti hai",
         "m/s matlab meter per second hota hai",
         "mera kaam tha conveyor ki speed m/s check karna",
-        # Mild steel.
+        # Mild steel: stock, work, trades and the curated trade vocabulary.
         "m/s plate aur angle ka kaam",
         "M/S PLATE CUTTING GAS SE KARTA HU",
         "M/S ANGLE CUTTING",
-        # Not the cue at all.
+        "M/S Tig Welding",
+        "M/S GAS CUTTING",
+        "M/S Fitter",
+        "M/S Welder",
+        "m/s welder hu 5 saal se",
+        "m/s fabricator hu",
+        "m/s door window banata hu",
+        "M/S S/S WELDING",
+        "Required M/S Welder for Pune site",
+        "m/s nahi pata",
+        # Not the cue at all, or the cue named.
         "feed 150 mm/s",
         "speed 3 km/s",
+        "M/S firms",
+        "an M/S firm",
+        "m/s pune",
     ],
 )
 def test_m_s_as_a_unit_or_mild_steel_is_not_a_firm(text):
-    result = pseudonymize(text)
-    assert (result.text, result.blocked, result.replaced_entities) == (text, False, 0)
+    _unchanged(text)
+
+
+def test_a_mild_steel_skill_label_still_certifies():
+    labels = ["M/S Tig Welding", "M/S Fitter", "m/s gas cutting", "M/S Welder", "M/S Arc Welding"]
+    assert certified_clean_skill_labels(labels) == labels
 
 
 # --- 4. five or six name words --------------------------------------------------------------------
@@ -316,6 +478,14 @@ def test_m_s_as_a_unit_or_mild_steel_is_not_a_firm(text):
             "MAINE 5 SAAL [EMPLOYER_1] LTD MEIN",
             "MAINE 5 SAAL [EMPLOYER_1] MEIN",
         ),
+        # A joiner before the form does not count: "(P) LTD" is the double form's short spelling.
+        ("RAMESH KUMAR SHARMA ENGINEERING WORKS (P) LTD", "RAMESH [EMPLOYER_1]", "[EMPLOYER_1]"),
+        # A city never opens the span.
+        (
+            "PUNE SHREE GANESH ENGINEERING WORKS PVT LTD",
+            "PUNE [EMPLOYER_1] LTD",
+            "PUNE [EMPLOYER_1]",
+        ),
     ],
 )
 def test_five_or_six_name_words_before_a_strong_form_mask_whole(
@@ -323,6 +493,31 @@ def test_five_or_six_name_words_before_a_strong_form_mask_whole(
 ):
     assert main_gateway(pseudonymize, text).text == (text if main_text is None else main_text)
     _masks_to(text, expected)
+
+
+@pytest.mark.parametrize(
+    ("text", "main_text", "expected"),
+    [
+        # Security review: a long span that began on "INDUSTRIES" took the capitals span's form
+        # and left "KRISHNA" raw. No form word sits inside a long span (`_NOT_A_FORM_WORD`).
+        (
+            "KRISHNA INDUSTRIES turning milling grinding drilling tapping pvt ltd",
+            "[EMPLOYER_1] turning milling grinding drilling tapping pvt ltd",
+            "[EMPLOYER_2] [EMPLOYER_1]",
+        ),
+        (
+            "RAMESH KUMAR SHARMA COMPANY d e f g LTD",
+            "[EMPLOYER_1] d e f g LTD",
+            "[EMPLOYER_1] [EMPLOYER_2]",
+        ),
+    ],
+)
+def test_the_long_pass_never_takes_a_capitals_span_s_name(text, main_text, expected, main_gateway):
+    old = main_gateway(pseudonymize, text)
+    assert old.text == main_text
+    result = pseudonymize(text)
+    assert (result.text, result.blocked) == (expected, False)
+    assert not (raw_words(result.text) - raw_words(old.text))
 
 
 # --- 5. the stated boundary, both directions -----------------------------------------------------
@@ -339,18 +534,32 @@ def test_five_or_six_name_words_before_a_strong_form_mask_whole(
         ("omkar engineering company chakan", "omkar engineering company chakan", "nor 'company'"),
         ("gupta industries me", "gupta industries me", "a weak form needs two name words"),
         ("balaji enterprises me tha", "balaji enterprises me tha", "a weak form needs two words"),
+        (
+            "precision engineering industries",
+            "precision engineering industries",
+            "a weak form after nothing but sector words names an industry",
+        ),
         ("tata motors mein tha", "tata motors mein tha", "no form, no cue"),
         ("SHREE SAI ENGINEERING WORKS", "SHREE SAI ENGINEERING WORKS", "no form, no cue"),
         ("BAJAJ AUTO", "BAJAJ AUTO", "no form, no cue"),
         ("GUPTA & SONS", "GUPTA & SONS", "no form, no cue"),
         ("xyz and sons ltd", "xyz and [EMPLOYER_1]", "'and' is a stopword in lower case"),
-        ("A B C D E F G PVT LTD", "A [EMPLOYER_1]", "seven name words; the window is six"),
+        ("steel authority of india ltd", "steel authority of [EMPLOYER_1]", "'of' is a stopword"),
+        ("sharma &  co", "sharma &  co", "'& co' wants exactly one space"),
+        ("fitter/tata motors ltd", "fitter/tata [EMPLOYER_1]", "a slash glues a word on"),
+        (
+            f"shree ganesh engineering{_NL}works pvt ltd",
+            f"shree ganesh engineering{_NL}[EMPLOYER_1]",
+            "no span crosses a line, a wrapped firm included",
+        ),
+        ("B C D E F G H PVT LTD", "B [EMPLOYER_1]", "seven name words; the window is six"),
         (
             "SRI RAMA KRISHNA CASTING AND FORGING LIMITED",
             "SRI RAMA [EMPLOYER_1]",
             "LIMITED is not a strong form",
         ),
         ("M/S STEEL CENTRE", "M/S STEEL CENTRE", "a mild-steel word cannot open an M/S firm"),
+        ("M/S THE ROYAL ENGINEERS", "M/S THE ROYAL ENGINEERS", "nor can a stopword"),
     ],
 )
 def test_KNOWN_RESIDUAL_stated_under_masking(text, expected, why):
@@ -379,16 +588,11 @@ def test_KNOWN_RESIDUAL_stated_under_masking(text, expected, why):
             "SENIOR QUALITY ENGINEER WITH PPAP APQP [EMPLOYER_1] LTD",
             "SENIOR QUALITY ENGINEER WITH [EMPLOYER_1]",
         ),
-        # "ltd" as an abbreviation of "limited".
-        (
-            "posts ltd hai, jaldi bhejo profile",
-            "posts ltd hai, jaldi bhejo profile",
-            "[EMPLOYER_1] hai, jaldi bhejo profile",
-        ),
+        # A weak form after two ordinary words (the one NCO prose shape left in the repo corpus).
+        ("garbage removal corporation", "garbage removal corporation", "[EMPLOYER_1]"),
     ],
 )
 def test_ACCEPTED_over_masking(text, main_text, expected, main_gateway):
-    # Measured: 9 of 1,324 fabricated negative lines over-mask as written; these are the shapes.
     # Over-masking an identity class is the safe direction (module notes, OVER).
     assert main_gateway(pseudonymize, text).text == main_text
     assert pseudonymize(text).text == expected
@@ -409,11 +613,12 @@ def test_ACCEPTED_over_masking(text, main_text, expected, main_gateway):
         "Quality Co-ordinator",
         "Tata Motors Ltd-Pune",
         "Ramesh Kumar Sharma Engineering Works Pvt Ltd",
+        f"CNC OPERATOR{_NL}TATA MOTORS LTD",
     ],
 )
 def test_every_earlier_rule_keeps_its_span(text, main_gateway):
-    # The passes run after the name rules, the title-case rule and the capitals rule, on their
-    # output: a name cue is never eaten and an earlier match is never shortened.
+    # The passes run after the name rules, the title-case rule and (all but the long pass) the
+    # capitals rule, on their output: a name cue is never eaten, an earlier match never shortened.
     assert pseudonymize(text) == main_gateway(pseudonymize, text)
 
 
@@ -429,8 +634,19 @@ def test_a_name_and_a_lower_case_employer_both_mask():
         # A word holding 7+ digits is never a name word, so main's block stands...
         ("X12345678 ltd", True, None),
         ("tm12345678 tata motors ltd", True, None),
-        # ...and an in-range amount glued to a word is still money.
+        # ...nor absorbed as a dash- or digit-led lead: before that refusal these passed as
+        # "[EMPLOYER_1]" with their digits folded in (security review), and a fake token did too.
+        ("AB12345678-Tata Steel", True, None),
+        ("A12345678-Tata Motors Ltd", True, None),
+        ("1A12345678 Tata Motors Ltd", True, None),
+        ("Landline A23456789-[EMPLOYER_1] pe call karo", True, None),
+        # ...nor cut by an M/S firm: a word longer than the bound fails the match, not the digits.
+        ("M/S 1a" + "b" * 56 + "12345678", True, None),
+        # An in-range amount glued to a word is still money, as on main.
         ("ab1234567 tata motors ltd", False, "ab[AMOUNT_1] [EMPLOYER_1]"),
+        ("X1234567-Tata Motors Ltd", False, "X[AMOUNT_1]-[EMPLOYER_1]"),
+        ("1X2345678 Tata Steel", False, "1X[AMOUNT_1] [EMPLOYER_1]"),
+        ("M/S " + "A" * 58 + "1234567", False, "M/S " + "A" * 58 + "[AMOUNT_1]"),
     ],
 )
 def test_digits_keep_main_s_fail_closed_path(text, expected_blocked, expected_text, main_gateway):
@@ -446,9 +662,9 @@ def test_digits_keep_main_s_fail_closed_path(text, expected_blocked, expected_te
 @pytest.mark.parametrize(
     "text",
     [
-        "tata motors​ltd",  # the reader view merges "motorsltd"; the spaced view masks
-        "M/S​SHARMA TRADERS",  # the reader view merges "M/SSHARMA"; the spaced view masks
-        "Larsen &​Toubro Limited",  # main passed this with "Larsen" raw
+        "tata motors\u200bltd",  # the reader view merges "motorsltd"; the spaced view masks
+        "M/S\u200bSHARMA TRADERS",  # the reader view merges "M/SSHARMA"; the spaced view masks
+        "Larsen &\u200bToubro Limited",  # main passed this with "Larsen" raw
     ],
 )
 def test_an_invisible_that_hides_an_employer_fails_closed(text):
@@ -457,58 +673,57 @@ def test_an_invisible_that_hides_an_employer_fails_closed(text):
     assert result.blocked_reason == gateway._INVISIBLE_BYPASS_REASON
 
 
-def _two_view_verdict(text: str) -> str:
-    """As in `test_pseudonymize_allcaps_employer.py`: "blocks", "full" or "partial" (R49)."""
-    reader_view, spaced_view = gateway._build_views(text)
-    reader, reader_regions = gateway._mask(reader_view, True)
-    spaced, spaced_regions = gateway._mask(spaced_view, True)
-    reader_masked: set[int] = set().union(*reader_regions)
-    if (
-        reader.blocked
-        or spaced.blocked
-        or any(not (region & reader_masked) for region in spaced_regions)
-    ):
-        return "blocks"
-    kept = set(reader_view.src)
-    if any((region & kept) - reader_masked for region in spaced_regions):
-        return "partial"
-    return "full"
-
-
 def test_a_name_hidden_by_an_invisible_is_now_masked_whole(main_gateway):
     # Main BLOCKED this (the spaced view's name overlapped no reader mask). The lower-case rule's
     # reader-view span now covers "isRamesh Kumar", so every offset the spaced view masked is
     # masked: the two-view check passes it, as designed, with the name under an employer label.
-    text = "my name is​Ramesh Kumar ltd"
+    text = "my name is\u200bRamesh Kumar ltd"
     assert main_gateway(pseudonymize, text).blocked_reason == gateway._INVISIBLE_BYPASS_REASON
     assert pseudonymize(text).text == "my [EMPLOYER_1]"
-    assert _two_view_verdict(text) == "full"
+    assert two_view_verdict(text) == "full"
 
 
 @pytest.mark.parametrize(
-    ("text", "leaked"),
+    ("text", "leaked", "raw"),
     [
-        ("my name is​Ramesh Kumar Llp", "my name isRamesh [EMPLOYER_1]"),
-        ("my name is​Ramesh Kumar & Co.", "my name isRamesh [EMPLOYER_1]."),
+        # The title-form pass (Llp, Llc, W.l.l, (P) Ltd, & Co.)...
+        ("my name is\u200bRamesh Kumar Llp", "my name isRamesh [EMPLOYER_1]", "Ramesh "),
+        ("this is\u200bRamesh Kumar Llc", "this isRamesh [EMPLOYER_1]", "Ramesh "),
+        ("my name is\u200bRamesh Kumar W.l.l", "my name isRamesh [EMPLOYER_1]", "Ramesh "),
+        ("my name is\u200bRamesh Kumar (P) Ltd", "my name isRamesh [EMPLOYER_1]", "Ramesh "),
+        ("my name is\u200bRamesh Kumar & Co.", "my name isRamesh [EMPLOYER_1].", "Ramesh "),
+        # ...the absorb pass ("Kumar &" or "Kumar-" folded into the token)...
+        ("my name is\u200bRamesh Kumar & Toubro Ltd", "my name isRamesh [EMPLOYER_1]", "Ramesh "),
+        ("mera naam\u200bSuresh Patil & Sons Ltd", "mera naamSuresh [EMPLOYER_1]", "Suresh "),
+        ("my name is\u200bRamesh Kumar-Toubro Ltd", "my name isRamesh [EMPLOYER_1]", "Ramesh "),
+        # ...and a long lower-case span.
+        (
+            "my name is\u200bRamesh Kumar aa bb cc dd ee ltd",
+            "my name isRamesh [EMPLOYER_1]",
+            "Ramesh ",
+        ),
     ],
 )
-def test_KNOWN_RESIDUAL_r49_extends_to_the_title_case_forms(text, leaked, main_gateway):
+def test_KNOWN_RESIDUAL_r49_extends_to_the_1892_passes(text, leaked, raw, main_gateway):
     """R49 / #1890, pre-existing in #1738's two-view check (see the capitals file's twin test).
 
-    The reader view merges "isRamesh", so the cue misses and the title-form pass masks "Kumar Llp";
-    the spaced view masks "Ramesh Kumar" as a name, which merely OVERLAPS that mask, so "Ramesh"
-    egresses where main blocked. #1892 extends the shape to the title-case forms, as #1875 did to
-    the capitals ones. If this starts blocking, R49 is fixed: make it a blocking pin."""
+    An invisible right after a name cue merges "isRamesh" in the reader view, so the cue misses and
+    a #1892 pass masks the name's tail with the firm; the spaced view masks "Ramesh Kumar" as a
+    name, which merely OVERLAPS that mask, so "Ramesh" egresses where main blocked. #1892 extends
+    the shape to its passes, as #1875 did to the capitals forms. The fix is #1890 (covered only
+    when every kept offset is reader-masked); when it lands these block: make them blocking pins."""
     assert main_gateway(pseudonymize, text).blocked_reason == gateway._INVISIBLE_BYPASS_REASON
     result = pseudonymize(text)
     assert (result.text, result.blocked) == (leaked, False)
-    assert _two_view_verdict(text) == "partial"
+    assert raw_egress(text) == ("partial", raw)
 
 
 # --- 7. scope and the certifiers ------------------------------------------------------------------
 
 
-def test_every_spelling_of_one_employer_shares_one_token_under_a_scope():
+def test_lower_title_and_capitals_spellings_share_one_token_under_a_scope():
+    # Equality is on the matched span, lower-cased; a span the absorb pass widened keeps the token
+    # of the span an earlier rule matched, as on main.
     scope = TokenScope()
     assert pseudonymize("tata motors ltd chhoda", scope=scope).text == "[EMPLOYER_1] chhoda"
     assert pseudonymize("Tata Motors Ltd", scope=scope).text == "[EMPLOYER_1]"
@@ -566,10 +781,15 @@ def _lexicon_strings() -> list[str]:
 
 def test_no_certifier_outcome_moves_on_the_lexicon_vocabulary(main_gateway):
     # Every lexicon string as written, UPPER, Title and lower: the three clean-or-withhold walls
-    # decide exactly as before #1892. Lower case matters here: these passes read any case.
+    # decide exactly as before #1892. Lower case matters here: these passes read any case. And every
+    # curated trade label behind an "M/S " cue, the way mild steel is written ("M/S Tig Welding"):
+    # an M/S cue before any other word is a firm by design, so only these are checked.
     labels = _lexicon_strings()
     assert len(labels) > 1_000
     casings = {v for s in labels for v in (s, s.upper(), s.title(), s.lower())}
+    trade = {s for s in labels if gateway._is_known_trade_vocabulary(s)}
+    assert len(trade) > 100
+    casings |= {f"{cue} {s}" for s in trade for cue in ("M/S", "m/s")}
     for label in sorted(casings):
         for wall in (is_certified_clean, certify_value):
             assert wall(label) == main_gateway(wall, label), (wall.__name__, label)
@@ -585,26 +805,27 @@ _TRADE = ["Motors", "motors", "Steel", "auto", "Engineering", "WORKS", "Traders"
 _FORMS = [
     "ltd", "Ltd", "LTD", "ltd.", "llp", "Llp", "llc", "pvt ltd", "PVT LTD", "private limited",
     "industries", "enterprises", "corporation", "co.", "Co.", "co", "limited", "Limited", "company",
-    "pvt", "LIMITED", "INDUSTRIES",
+    "pvt", "LIMITED", "INDUSTRIES", "pvt.ltd", "(P)LTD",
 ]  # fmt: skip
-_CUES = ["M/S", "M/s.", "m/s", "M / S", "M/S:", "5 m/s", "mera naam", "MY NAME IS", "my name is"]
-_JOINED = ["&", "(P)", "(I)", "and", "3M", "Hero-Honda", "A-ONE", "J.K."]
-_FILLERS = ["mein", "at", "ek", "koi", "the", "plate", "angle", "Pune", "PUNE", "chakan", ",", "5"]
-_DIGITS = ["X12345678", "12345678", "ab1234567"]
-_INVISIBLES = ["​", "‌", "⁠", "­"]
+_CUES = ["M/S", "M/s.", "m/s", "M / S", "M/S:", "M/S:-", "5 m/s", "mera naam", "MY NAME IS"]
+_JOINED = ["&", "(P)", "(I)", "and", "3M", "Hero-Honda", "A-ONE", "J.K.", "a.k.", "Pune-Tata"]
+_FILLERS = [
+    "mein", "at", "ek", "koi", "the", "plate", "angle", "Pune", "PUNE", "chakan", ",", "5", "\n",
+    "welder", "CNC", "operator", "iti", "salary",
+]  # fmt: skip
+#: Words main blocks on or masks as money — spaced, dash-glued and digit-led (absorb leads).
+_DIGITS = ["X12345678", "12345678", "ab1234567", "AB12345678-Tata", "1X2345678", "X1234567-Hero"]
+_INVISIBLES = ["\u200b", "\u200c", "\u2060", "\u00ad"]
 _POOLS = [_NAMES, _TRADE, _FORMS, _CUES, _JOINED, _FILLERS, _DIGITS, _INVISIBLES]
 
 
 def _sample(rng: random.Random) -> str:
-    parts = [rng.choice(rng.choice(_POOLS)) for _ in range(rng.randint(1, 9))]
+    """Up to 12 parts, so long spans and spans running past a capitals form are reachable."""
+    parts = [rng.choice(rng.choice(_POOLS)) for _ in range(rng.randint(1, 12))]
     text = parts[0]
     for previous, part in pairwise(parts):
         text += ("" if previous in _INVISIBLES or part in _INVISIBLES else " ") + part
     return text
-
-
-def _raw_words(text: str) -> Counter[str]:
-    return Counter(re.findall(r"[^\W_]+", re.sub(r"\[[A-Z]+_\d+\]", " ", text)))
 
 
 def _a_pass_may_act(text: str, main_text: str) -> bool:
@@ -614,30 +835,29 @@ def _a_pass_may_act(text: str, main_text: str) -> bool:
 
 
 def test_property_the_1892_passes_only_ever_add_masking(main_gateway):
-    """What this PROVES, exactly — over 4,000 samples of THIS seeded generator, not over all inputs.
+    """What this PROVES, exactly — over 6,000 samples of THIS seeded generator, not over all inputs.
 
-    The pools: names and trade words in three cases, every form these passes read and the ordinary
-    words they must not ("limited", "company", "pvt"), the M/S cue in five spellings and as a unit,
-    the name cues, joiners, dash- and digit-led words, stopwords, mild-steel words, cities, digit
-    words main blocks on or masks as money, and four invisibles glued in as the SOLE separator.
+    The pools: names and trade words in three cases, every form these passes read (glued spellings
+    too) and the ordinary words they must not ("limited", "company", "pvt"), the M/S cue in six
+    spellings and as a unit, the name cues, joiners, dash-, dot- and digit-led words, stopwords,
+    roles, mild-steel words, cities, line breaks, digit words main blocks on or masks as money
+    (spaced and glued), and four invisibles glued in as the SOLE separator.
 
     1. IN EACH VIEW (`_mask`): every source offset main masked is still masked (a region may grow:
-       the long rule runs ahead of the capitals rule and can take its span whole), no word main
-       masked is left raw, every residual-digit block main raised is still raised, and when no pass
-       could act (`_a_pass_may_act`) the result and regions are byte-identical. The title-case and
-       name rules run first, so their spans are exactly main's (`test_every_earlier_rule_keeps…`).
+       the long pass runs ahead of the capitals rule and can take its span whole, never a part of
+       it), no word main masked is left raw, every residual-digit block main raised is still
+       raised, and when no pass could act (`_a_pass_may_act`) the result and regions are
+       byte-identical. The title-case and name rules run first, so their spans are exactly main's.
     2. END TO END (`pseudonymize`): the same, EXCEPT where main blocked on the two-view check and
        the branch passes, each such turn asserted to be "full" (the reader view now masks every
-       kept offset the spaced view masked; 9 of the 4,000) or "partial" (R49, #1890; 5 of the
-       4,000). Measured 2026-10-03, what the 5 leave raw: four the "S" of an M/S cue (the reader
-       view keeps it as the cue, the spaced view's title-case rule took it as a name word), one
-       the forms " co PVT LTD"; none a name word. The shape that does leave a name raw is pinned
-       on its own by `test_KNOWN_RESIDUAL_r49_extends_to_the_title_case_forms`.
+       kept offset the spaced view masked) or "partial" (R49, #1890) — and the partial turns are
+       BOUNDED, so a change that widens R49 further fails here. The shape that leaves a cued name
+       raw is pinned on its own by `test_KNOWN_RESIDUAL_r49_extends_to_the_1892_passes`.
 
     What it does NOT prove: anything outside these pools, or that the masking is CORRECT."""
     rng = random.Random(1892)
     seen: Counter[str] = Counter()
-    for _ in range(4_000):
+    for _ in range(6_000):
         text = _sample(rng)
         for view in gateway._build_views(text):
             new_view, new_regions = gateway._mask(view, True)
@@ -646,7 +866,7 @@ def test_property_the_1892_passes_only_ever_add_masking(main_gateway):
             new_masked: set[int] = set().union(*new_regions)
             assert all(region <= new_masked for region in old_regions), (text, view.text)
             seen["a region grew"] += any(region not in new_regions for region in old_regions)
-            assert not (_raw_words(new_view.text) - _raw_words(old_view.text)), (text, view.text)
+            assert not (raw_words(new_view.text) - raw_words(old_view.text)), (text, view.text)
             if not _a_pass_may_act(view.text, old_view.text):
                 assert (new_view, new_regions) == (old_view, old_regions), text
         new, old = pseudonymize(text), main_gateway(pseudonymize, text)
@@ -654,19 +874,25 @@ def test_property_the_1892_passes_only_ever_add_masking(main_gateway):
         seen["main blocked"] += old.blocked
         if old.blocked and not new.blocked:
             assert old.blocked_reason == gateway._INVISIBLE_BYPASS_REASON, text
-            verdict = _two_view_verdict(text)
+            verdict = two_view_verdict(text)
             assert verdict in ("full", "partial"), (text, verdict)
             seen[f"unblocked, {verdict}"] += 1
             continue
         assert old.blocked <= new.blocked, text
-        assert not (_raw_words(new.text) - _raw_words(old.text)), (text, old.text, new.text)
+        assert not (raw_words(new.text) - raw_words(old.text)), (text, old.text, new.text)
         if not any(_a_pass_may_act(v.text, old.text) for v in gateway._build_views(text)):
             assert new == old, text
-    # Measured 2026-10-03: 854 outputs change, 1,326 turns main blocked, 9 regions grew; of the
-    # turns main blocked that now pass, 9 are "full" and 5 "partial" (R49).
-    assert seen["changed"] > 700, seen
-    assert seen["main blocked"] > 1_000, seen
+    # Measured 2026-10-03: 1,737 outputs change and main blocks 1,977 turns; of those, 26 now pass
+    # with full cover and 5 as R49 partials, which leave raw only "S", "S (I)", "(P)LTD" and "MY"
+    # (a cue letter, a joiner, a form, a cue word) — no name word.
+    assert seen["changed"] > 1_200, seen
+    assert seen["main blocked"] > 1_500, seen
     assert seen["a region grew"] > 0, seen
+    assert seen["unblocked, partial"] <= _R49_PARTIAL_BOUND, seen
+
+
+#: The R49 partial turns the property test's 6,000 samples may hold: 5 measured, a little slack.
+_R49_PARTIAL_BOUND = 8
 
 
 # --- 9. the gates and the cost --------------------------------------------------------------------
@@ -683,10 +909,10 @@ def test_every_gate_is_a_necessary_condition_of_its_rule():
         "Larsen & [EMPLOYER_1]",
         "[EMPLOYER_1] pvt ltd",
         "Hero-[EMPLOYER_1]",
+        "sharma engineering pvt.ltd",
+        "M / S KRISHNA",
     ]
-    assert len(gateway._RULE_GATES) == len(_RULES_1892)
     for rule, gate in gateway._RULE_GATES.values():
-        assert any(rule is getattr(gateway, name) for name in _RULES_1892)
         for text in texts:
             for view in gateway._build_views(text):
                 for candidate in (view.text, gateway._mask(view)[0].text):
@@ -703,31 +929,47 @@ def test_a_swapped_rule_runs_ungated(monkeypatch):
     assert gateway._gate_is_shut(gateway._EMPLOYER_ABSORB_RE, "no token here") is True
 
 
-def test_every_new_name_word_is_bounded_and_possessive():
+def test_every_new_name_word_is_bounded_possessive_and_refuses_seven_digits():
     for word in (gateway._ANY_NAME_WORD, gateway._MS_NAME_WORD):
         assert re.search(r"\{0,\d+\}\+$", word), word  # possessive and bounded
         assert "]*" not in word and "]+" not in word  # no unbounded run over a character class
+        assert r"\d{7})" in word  # detail 4
+    # The absorb lead's dash-glued word is hand-built: it carries the refusal too (security review).
+    assert gateway._NO_SEVEN_DIGIT_RUN in gateway._EMPLOYER_ABSORB_LEAD
+    assert gateway._EMPLOYER_ABSORB_LEAD.count(gateway._CAPS_NAME_WORD) == 3
 
 
-# Generous ceiling, after the `_CREDENTIAL_ID_LOOKAHEAD_MAX` precedent and the two employer files.
-# Measured 2026-10-03 for `pseudonymize` end to end: 6-29 ms on these (9-14 ms before #1892).
+# Generous ceilings, after the `_CREDENTIAL_ID_LOOKAHEAD_MAX` precedent and the two employer files.
+# Measured 2026-10-03 (module notes, COST). End to end the dense shapes below are dominated by the
+# rules #1892 did not touch (~150 ms on a quiet laptop, 1.4 s under a loaded test run), so they are
+# pinned two load-proof ways instead: each new pass ALONE, and the end-to-end cost RELATIVE to the
+# same gateway with the passes off, interleaved in one process.
 _REDOS_BUDGET_MS = 750
+_PASS_BUDGET_MS = 250
+_DENSE = ("B." * 28 + " & ") * 400
+_DENSE_SHAPES = {
+    # The reviewers' worst shapes: dotted words joined by "&" or "and" with every gate open. Each
+    # cost x5.3 its base before spans opened only at a real word start.
+    "dense": _DENSE[:19_970] + " ltd Ltd M/ [EMPLOYER_1]",
+    "dense+zwsp": "\u200b" + _DENSE[:19_969] + " ltd Ltd M/ [EMPLOYER_1]",
+    "and": (("b." * 30 + " and ") * 400)[:19_992] + " pvt ltd",
+    "dotted": "B." * 9_990 + " ltd Ltd M/ [EMPLOYER_1]",
+}
 
 
 @pytest.mark.parametrize(
     "text",
     [
         "M/S " * 5_000,
-        "m/s a " * 3_333,
-        "a " * 10_000,
-        "A& " * 6_666,
-        "Ab (P) " * 2_857,
+        "m/s b " * 3_333,
+        "b " * 9_990 + " ltd",
+        "B& " * 6_660 + " Ltd",
+        "Ab (P) " * 2_850 + " ltd",
         "Ab & Tata Steel LTD " * 1_000,
-        "abcdefgh " * 2_222,
-        "a." * 10_000,
-        "tata​motors ltd " * 1_000,
+        "abcdefgh " * 2_220 + " pvt ltd",
+        "tata\u200bmotors ltd " * 1_000,
     ],
-    ids=["M/S", "m/s a", "a", "A&", "Ab (P)", "absorb", "words", "a.", "zwsp"],
+    ids=["M/S", "m/s b", "b ltd", "B& Ltd", "Ab (P)", "absorb", "words", "zwsp"],
 )
 def test_pseudonymize_stays_linear_on_worst_inputs(text):
     text = text[: gateway.DEFAULT_MAX_LENGTH]
@@ -735,3 +977,33 @@ def test_pseudonymize_stays_linear_on_worst_inputs(text):
     pseudonymize(text)
     elapsed_ms = (time.perf_counter() - start) * 1000
     assert elapsed_ms < _REDOS_BUDGET_MS, f"{elapsed_ms:.0f}ms on {len(text)} chars"
+
+
+@pytest.mark.parametrize("rule", RULES_1892)
+@pytest.mark.parametrize("shape", sorted(_DENSE_SHAPES))
+def test_each_pass_alone_is_cheap_on_the_dense_shapes(rule, shape):
+    # 1-6 ms each on a quiet laptop; the regex itself, ungated.
+    text = _DENSE_SHAPES[shape]
+    start = time.perf_counter()
+    getattr(gateway, rule).sub("X", text)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    assert elapsed_ms < _PASS_BUDGET_MS, f"{rule}: {elapsed_ms:.0f}ms on {shape}"
+
+
+@pytest.mark.parametrize("shape", sorted(_DENSE_SHAPES))
+def test_the_passes_add_a_bounded_share_end_to_end(shape, main_gateway):
+    # x1.0-1.3 measured; the defect the review found was x5.3. Min of 3, interleaved, so machine
+    # load moves both sides together.
+    text = _DENSE_SHAPES[shape]
+
+    def best(fn) -> float:
+        times = []
+        for _ in range(3):
+            start = time.perf_counter()
+            fn(text)
+            times.append(time.perf_counter() - start)
+        return min(times)
+
+    new = best(pseudonymize)
+    old = best(lambda t: main_gateway(pseudonymize, t))
+    assert new < 2.5 * old + 0.02, f"{new * 1000:.0f}ms vs {old * 1000:.0f}ms on {shape}"
