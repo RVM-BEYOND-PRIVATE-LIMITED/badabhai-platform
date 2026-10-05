@@ -192,6 +192,22 @@ function importsOf(src: string): Import[] {
     }));
 }
 
+/**
+ * Does `src` call `name(…)`? A plain scan, not a `RegExp` built from the name (static patterns
+ * only, as the SAST gate requires): the character before the match must not continue an
+ * identifier or a member access.
+ */
+function calledIn(src: string, name: string): boolean {
+  for (let i = src.indexOf(`${name}(`); i >= 0; i = src.indexOf(`${name}(`, i + 1)) {
+    if (i === 0 || !/[\w$.]/.test(src[i - 1]!)) return true;
+  }
+  return false;
+}
+
+/** Does `src` branch on `can(…, "<capability>")`? Static pattern; the capability is compared as text. */
+const branchesOn = (src: string, capability: string): boolean =>
+  [...src.matchAll(/\bcan\([^)]*"([a-z_]+)"\s*\)/g)].some((m) => m[1] === capability);
+
 /** A server file that renders as part of a page (client components and actions cannot read). */
 const isServerRender = (src: string) => !/^\s*["']use (client|server)["']/m.test(src);
 
@@ -225,7 +241,7 @@ function analysePage(pageFile: string, lib: Map<string, Map<string, Read[]>>): P
       if (libModule) {
         for (const name of imp.names) {
           for (const r of libModule.get(name) ?? []) {
-            if (new RegExp(`\\b${name}\\(`).test(src)) out.reads.push({ ...r, file });
+            if (calledIn(src, name)) out.reads.push({ ...r, file });
           }
         }
         continue;
@@ -319,7 +335,7 @@ describe("every page is gated on every capability its reads need (or degrades th
         expect(route, `${name} reads ${r.path}, which no API GET route serves`).toBeDefined();
         const cap = route!.capability as AdminCapability | null;
         if (cap === null || a.gates.has(cap)) continue;
-        const degraded = new RegExp(`\\bcan\\([^)]*"${cap}"\\s*\\)`).test(read(r.file));
+        const degraded = branchesOn(read(r.file), cap);
         expect(
           degraded,
           `${name} reads ${r.path} (API gate: ${cap}) from ${relative(SRC, r.file)} but is ` +
