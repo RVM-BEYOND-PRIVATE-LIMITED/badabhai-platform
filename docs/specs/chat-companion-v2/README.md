@@ -73,6 +73,19 @@ What remains is listed below.
    Append, never replace. Then re-run the Deploy job of the newest `main` CI run.
 7. Adopt the 0130 ledger row (`adopt-migrations.ts --only 0130_resume_generation_trigger_chat_edit`).
 
+## Provisional rulings implemented (awaiting owner sign-off)
+
+Where the register or the owner checklist says "owner decision", the engineering work packages took
+the provisional default recorded here. Each is behind a flag, a copy row, or a trivially
+revertible code change, and each names its revert path. Owner sign-off (or a reversal) is the
+remaining action; nothing else is blocked on it.
+
+| Decision | Provisional default | Why | Revert |
+|---|---|---|---|
+| **TD149 — the cost alert** (WP9, 2026-10-05) | **O12 is satisfied by the admin dashboard; no push alert until an alerting channel exists.** The per-call `cost_alert` threshold was also **fixed from ₹20 to ₹5** (`ai_cost_alert_profile_inr`), because ₹20 sat ABOVE the ₹10 hard per-call ceiling, so the flag could never trip. | No push-alerting channel exists anywhere in the repo (`docs/observability-runbook.md`), and the dashboard already renders companion spend from `platform_ai_cost_totals`. A flag that cannot fire is worse than no flag; ₹5 is below the ceiling, so a call costing ₹5–10 is allowed AND alerts. | Alert threshold: change `ai_cost_alert_profile_inr` back to `20.0` (one number in `apps/ai-service/app/config.py`). "Dashboard only": no code change — building a channel is new work. |
+
+<!-- WP10 appends the TD146, TD147(1), TD151(1) and TD150 rows here as their PRs land. -->
+
 ## Architecture at a glance
 
 ```

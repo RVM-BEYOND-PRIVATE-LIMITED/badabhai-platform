@@ -571,7 +571,18 @@ class Settings(BaseSettings):
     # These remain ALERT/TARGET values, not enforcement. The hard stops are
     # ai_max_call_cost_inr (per call), ai_max_user_daily_cost_inr (per worker/day)
     # and the process caps below.
-    ai_cost_alert_profile_inr: float = 20.0
+    #
+    # TD149 (WP9, 2026-10-05): THE ALERT USED TO BE UNREACHABLE. It defaulted to Rs 20 while
+    # the hard per-call ceiling below is Rs 10, and a real call is REFUSED (falls to mock) when
+    # its worst-case estimate exceeds the ceiling — so no call that actually happened could ever
+    # cost more than Rs 10, and `estimated > 20` was false by construction. A flag that can never
+    # trip is worse than no flag: it reads as a control in every dashboard that shows it. The
+    # default is now Rs 5, which sits BELOW the per-call ceiling, so a call costing 5-10 rupees
+    # is allowed and raises the alert. `ai_target_profile_cost_inr` stays 15 ON PURPOSE: it is a
+    # per-PROFILE target compared against per-call estimates by the same tracker
+    # (`above_target=True` marks an expensive call), and the owner has not ruled on re-scaling
+    # it; the TD149 decision covers the alert only.
+    ai_cost_alert_profile_inr: float = 5.0
     ai_target_profile_cost_inr: float = 15.0
     # Hard per-call spend ceiling (INR). A real call whose worst-case cost would
     # exceed this is refused (falls back to mock) — a stateless runaway guard.
