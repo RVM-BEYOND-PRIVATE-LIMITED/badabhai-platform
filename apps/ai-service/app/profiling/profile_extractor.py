@@ -684,7 +684,11 @@ def certify_model_labels(draft: WorkerProfileDraft) -> tuple[WorkerProfileDraft,
     if draft.primary_role is not None and role is None:
         withheld += 1
     update["primary_role"] = role
-    return draft.model_copy(update=update), withheld
+    certified = draft.model_copy(update=update)
+    if withheld:
+        # A withheld role or list changes what the draft is missing; a clean draft is untouched.
+        _refresh_completeness(certified)
+    return certified, withheld
 
 
 def clamp_skill_labels(labels: list[str]) -> list[str]:

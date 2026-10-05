@@ -130,6 +130,13 @@ def test_a_certified_primary_role_passes_through_unchanged(
     assert body["worker_profile_draft"]["primary_role"] == role
 
 
+def test_a_withheld_role_is_reported_missing(monkeypatch: pytest.MonkeyPatch, raw_pii: bool):
+    """The draft's completeness report is derived: a withheld role must read as missing."""
+    draft = _extract(monkeypatch, {"primary_role": "Welding, Anil Kumar"})["worker_profile_draft"]
+    assert draft["primary_role"] is None
+    assert "primary_role" in draft["missing_fields"]
+
+
 def test_the_g1_hard_identifier_floor_still_holds(monkeypatch: pytest.MonkeyPatch, raw_pii: bool):
     body = _extract(
         monkeypatch,
