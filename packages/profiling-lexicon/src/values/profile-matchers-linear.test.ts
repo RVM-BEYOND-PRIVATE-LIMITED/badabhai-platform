@@ -41,6 +41,12 @@ const MATCHERS: Readonly<Record<"experience" | "salary", Matcher>> = {
 type Name = keyof typeof MATCHERS;
 const NAMES = Object.keys(MATCHERS) as Name[];
 
+/** `re` made global and with indices, for `matchAll` spans; `salary.ts` builds its matcher the same way. */
+function withIndices(re: RegExp): RegExp {
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- the pattern is a reviewed lexicon pattern from this repo, never worker or request text.
+  return new RegExp(re.source, `${re.flags}gd`);
+}
+
 /** The matcher, global and with indices, as shipped or with main's connector put back. */
 function compiled(name: Name, which: "shipped" | "main"): RegExp {
   const { shipped, main, spec } = MATCHERS[name];
@@ -53,8 +59,7 @@ function compiled(name: Name, which: "shipped" | "main"): RegExp {
     }
     source = source.replace(shipped, main);
   }
-  const re = compilePattern({ ...spec, source });
-  return new RegExp(re.source, `${re.flags}gd`);
+  return withIndices(compilePattern({ ...spec, source }));
 }
 
 const SHIPPED = {
@@ -195,7 +200,7 @@ describe("#1935: the experience and salary matchers read the same spans as main"
       ...spec,
       source: spec.source.replace(shipped, String.raw`\s*\+?(?:years`),
     });
-    const global = new RegExp(loose.source, `${loose.flags}gd`);
+    const global = withIndices(loose);
     expect(spans(global, "5 + saal")).not.toBe(spans(main().experience, "5 + saal"));
   });
 
@@ -206,7 +211,7 @@ describe("#1935: the experience and salary matchers read the same spans as main"
       ...spec,
       source: spec.source.replace(shipped, String.raw`(?:(?:₹|rs\.?|inr)\s*)?([`),
     });
-    const global = new RegExp(loose.source, `${loose.flags}gd`);
+    const global = withIndices(loose);
     expect(spans(global, "   5000")).not.toBe(spans(main().salary, "   5000"));
   });
 });
