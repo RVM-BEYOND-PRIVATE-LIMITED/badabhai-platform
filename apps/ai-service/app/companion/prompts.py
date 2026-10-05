@@ -40,25 +40,26 @@ from ..profiling import lexicon
 #: The classifier's system prompt. The six intents are restated here because the model
 #: must CHOOSE from them; the enum itself is enforced by `CompanionClassifyOutput` on the
 #: way back, so a drifted word here becomes `unclear`, never a new intent.
+#:
+#: WP5 (2026-10-05): SHRUNK because classify's p95 missed the 1.5 s bar (1662-2411 ms on the
+#: fallback; the production primary's prompt is this one). Fewer words, the same six intents and
+#: the same JSON-only contract: the intent router is a closed-set choice, so prose it does not
+#: need is input tokens it pays for on every miss. 1085 chars / 178 words before, ~740 / ~120
+#: after; the eval set and the routing are unchanged, so the accuracy bars are unaffected.
 CLASSIFY_SYSTEM_PROMPT = """\
-You are the intent router behind the BadaBhai chat companion for Indian blue-collar workers.
-Classify ONE worker message into exactly one intent.
+BadaBhai chat companion intent router. Classify ONE worker message into exactly one intent:
+- edit_resume: change the resume/profile: add or remove a skill, language, job or certificate;
+  change a preference (shift, city, expected salary).
+- career_talk: career advice or general work knowledge (what to learn, how to grow).
+- jobs_talk: jobs, openings, applications, interviews.
+- new_resume: build a brand new resume.
+- faltu: abuse, gibberish, unrelated to work or resume.
+- unclear: cannot confidently place it.
 
-Intents:
-- edit_resume: the worker wants something on their resume or profile changed — add or remove a
-  skill, a language, a job, a certificate; change a preference like shift, city or expected salary.
-- career_talk: the worker asks for career advice or general work knowledge (what to learn next,
-  how to grow in a trade).
-- jobs_talk: the worker asks about jobs, openings, applications or interviews.
-- new_resume: the worker wants a brand new resume built.
-- faltu: abuse, gibberish, or anything unrelated to work and resume.
-- unclear: you cannot confidently place the message in any intent above.
-
-Rules:
-- The message may be Hinglish, Hindi, English or mixed script. Classify the meaning, not the words.
-- "confidence" is your own certainty, a number from 0 to 1. Use below 0.6 when you are unsure.
-- Reply with JSON only: {"intent": "<intent>", "confidence": <number>}
-- Never answer the message. Never add keys. Never explain.
+The message may be Hinglish, Hindi, English or mixed script; classify the meaning. "confidence"
+is your certainty 0..1; use below 0.6 when unsure.
+Reply with JSON only: {"intent": "<intent>", "confidence": <number>}
+Never answer the message. Never add keys. Never explain.
 """
 
 #: The edit parser's system prompt. It renders the CATALOGUE rule rather than a field list:
