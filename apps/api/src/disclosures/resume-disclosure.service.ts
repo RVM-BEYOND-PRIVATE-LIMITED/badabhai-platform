@@ -28,6 +28,7 @@ import { applyTierScope, type ResumeTierScope } from "../resume/resume-tier-scop
 import { ResumeTierScopeReader } from "../resume/resume-tier-scope.reader";
 import { GeneralRoadReader, type GeneralRoadMarker } from "../resume/general-road.reader";
 import { ownBriefUsable } from "../resume/resume-brief";
+import type { JobRefPolicy } from "../payers/owned-job-ref";
 
 /** The disclosure consent purpose this gate keys on (DISTINCT from profiling). */
 const EMPLOYER_SHARING = "employer_sharing";
@@ -44,6 +45,9 @@ export interface DisclosureGrantedResponse {
 
 /** Either the one distinguishable success, or the byte-identical neutral body (B-C). */
 type DisclosureOutcome = DisclosureGrantedResponse | NeutralUnavailableResponse;
+
+/** #1899 — the posting context a disclosure may store, or a refusal (not the payer's reference). */
+type PostingContextResolution = { ok: true; jobPostingId: string | null } | { ok: false };
 
 /** Internal plan returned by the locked tx: render a fresh grant, reuse, or deny. */
 type DisclosurePlan =
@@ -111,6 +115,7 @@ export class ResumeDisclosureService {
   async requestDisclosure(
     input: { payerId: string; workerId: string; jobPostingId: string | null },
     ctx: RequestContext,
+    jobRefPolicy: JobRefPolicy = "normalise",
   ): Promise<DisclosureOutcome> {
     const { payerId, workerId } = input;
 
@@ -121,7 +126,11 @@ export class ResumeDisclosureService {
     // stored and evented as null. Every row (deny, grant, reuse lookup) and the
     // `resume.disclosed` payload carry the resolved value, never the raw input. A failed lookup
     // fails the request before any lock or write (fail closed). No migration, no event change.
-    const jobPostingId = await this.resolvePostingContext(input.jobPostingId);
+    // #1899 — on the payer-session route a reference the payer does not own is REFUSED here with
+    // the one neutral body: no consent read, no row, no event.
+    const resolved = await this.resolvePostingContext(input.jobPostingId, payerId, jobRefPolicy);
+    if (!resolved.ok) return neutralUnavailable();
+    const { jobPostingId } = resolved;
 
     // ---- [1] consent + render-source resolved BEFORE the lock (pool-vs-lock deadlock
     // fix; mirrors UnlockService). Both are tx-external reads on the global pool. ----
@@ -638,10 +647,25 @@ export class ResumeDisclosureService {
    * The disclosure's stored posting context: the input when it names a `job_postings` row, else
    * null (an agency `jobs` id, or any unknown id). A lookup error propagates — it is never folded
    * into null, so a DB outage cannot silently strip a real posting context.
+   *
+   * That is the `"normalise"` policy (the ops route). #1899 `"payer_owned"` (the payer-session
+   * route): the reference must be a posting or `jobs` row the SESSION payer owns — an owned
+   * posting is kept, an owned agency `jobs` id is stored as null exactly as above, and unknown
+   * and foreign are the same refusal (no id oracle). See {@link JobRefPolicy}.
    */
-  private async resolvePostingContext(jobPostingId: string | null): Promise<string | null> {
-    if (jobPostingId === null) return null;
-    return (await this.repo.jobPostingExists(jobPostingId)) ? jobPostingId : null;
+  private async resolvePostingContext(
+    jobPostingId: string | null,
+    payerId: string,
+    policy: JobRefPolicy,
+  ): Promise<PostingContextResolution> {
+    if (jobPostingId === null) return { ok: true, jobPostingId: null };
+    if (policy === "normalise") {
+      const exists = await this.repo.jobPostingExists(jobPostingId);
+      return { ok: true, jobPostingId: exists ? jobPostingId : null };
+    }
+    const owned = await this.repo.findOwnedJobRef(jobPostingId, payerId);
+    if (owned === null) return { ok: false };
+    return { ok: true, jobPostingId: owned.kind === "posting" ? owned.id : null };
   }
 
   /** Fail-closed disclosure-consent read (B-A): latest unrevoked employer_sharing row. */

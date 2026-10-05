@@ -102,6 +102,8 @@ interface SetupOpts {
   generalRoads?: { answer: { road: "general" } | null } | "throws";
   /** #1898: whether the request's posting context names a `job_postings` row. Default true. */
   postingRowExists?: boolean;
+  /** #1899: the posting / job ids each payer OWNS (findOwnedJobRef), keyed by ref id. */
+  ownedRefs?: Record<string, { payerId: string; kind: "job" | "posting" }>;
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -148,6 +150,11 @@ function setup(opts: SetupOpts = {}) {
     // #1898: a global-pool read, so it lives on the repo only — NOT in txMethods, where a call
     // through the locked `tx` handle would be the pool-vs-lock deadlock shape.
     jobPostingExists: vi.fn(async (_id: string) => opts.postingRowExists ?? true),
+    // #1899: the payer-scoped ownership read — also global-pool, also repo-only.
+    findOwnedJobRef: vi.fn(async (refId: string, payerId: string) => {
+      const owned = opts.ownedRefs?.[refId];
+      return owned && owned.payerId === payerId ? { kind: owned.kind, id: refId } : null;
+    }),
     ...txMethods,
   };
 
@@ -943,5 +950,108 @@ describe("#1898 — the posting context is normalised before the lock (FK to job
     expect(t.repo.withTransaction).not.toHaveBeenCalled();
     expect(t.txMethods.insertRow).not.toHaveBeenCalled();
     expect(t.emitted).toHaveLength(0);
+  });
+});
+
+describe("#1899 — a payer-session posting reference must be null or the payer's own", () => {
+  // POST /payer/resume-disclosures passes "payer_owned". Employers own company postings; agents
+  // own agency `jobs` rows (sent from their applicants page) and may still own a pre-#1969
+  // posting. Ownership is the SESSION payer's id — the role never widens or narrows it.
+  const AGENT = "a9e00000-0000-4000-8000-000000000001";
+  const EMPLOYER = "e3900000-0000-4000-8000-000000000002";
+  const AGENT_JOB = "a9e00000-0000-4000-8000-0000000000a1"; // jobs row, payer_id = AGENT
+  const AGENT_OLD_POSTING = "a9e00000-0000-4000-8000-0000000000a2"; // pre-#1969 posting
+  const EMPLOYER_POSTING = "e3900000-0000-4000-8000-0000000000e1"; // job_postings, EMPLOYER
+  const UNKNOWN = "deadbeef-0000-4000-8000-000000000000";
+  const ownedRefs = {
+    [AGENT_JOB]: { payerId: AGENT, kind: "job" as const },
+    [AGENT_OLD_POSTING]: { payerId: AGENT, kind: "posting" as const },
+    [EMPLOYER_POSTING]: { payerId: EMPLOYER, kind: "posting" as const },
+  };
+
+  async function discloseAs(payerId: string, jobPostingId: string | null, opts: SetupOpts = {}) {
+    const t = setup({ ownedRefs, ...opts });
+    const res = await t.service.requestDisclosure(
+      { payerId, workerId: WORKER, jobPostingId },
+      CTX,
+      "payer_owned",
+    );
+    return { t, res };
+  }
+
+  const allowed: { who: string; payer: string; ref: string | null; stored: string | null }[] = [
+    { who: "employer · own posting (kept)", payer: EMPLOYER, ref: EMPLOYER_POSTING, stored: EMPLOYER_POSTING },
+    { who: "employer · null", payer: EMPLOYER, ref: null, stored: null },
+    { who: "agent · own jobs row (stored null)", payer: AGENT, ref: AGENT_JOB, stored: null },
+    { who: "agent · own pre-#1969 posting (kept)", payer: AGENT, ref: AGENT_OLD_POSTING, stored: AGENT_OLD_POSTING },
+    { who: "agent · null", payer: AGENT, ref: null, stored: null },
+  ];
+
+  it.each(allowed)("$who → discloses", async ({ payer, ref, stored }) => {
+    const { t, res } = await discloseAs(payer, ref);
+    expect(res).toMatchObject({ ok: true, status: "disclosed" });
+    expect(t.txMethods.insertRow).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ payerId: payer, jobPostingId: stored }),
+    );
+    if (ref === null) expect(t.repo.findOwnedJobRef).not.toHaveBeenCalled();
+    else expect(t.repo.findOwnedJobRef).toHaveBeenCalledWith(ref, payer);
+    // The ownership read replaces the #1898 existence read on this route.
+    expect(t.repo.jobPostingExists).not.toHaveBeenCalled();
+  });
+
+  const refused: { who: string; payer: string; ref: string }[] = [
+    { who: "agent · employer's posting (foreign)", payer: AGENT, ref: EMPLOYER_POSTING },
+    { who: "agent · unknown id", payer: AGENT, ref: UNKNOWN },
+    { who: "employer · agent's jobs row (foreign)", payer: EMPLOYER, ref: AGENT_JOB },
+    { who: "employer · agent's posting (foreign)", payer: EMPLOYER, ref: AGENT_OLD_POSTING },
+    { who: "employer · unknown id", payer: EMPLOYER, ref: UNKNOWN },
+  ];
+
+  it.each(refused)("$who → the neutral body, and nothing is read, written or emitted", async ({ payer, ref }) => {
+    const { t, res } = await discloseAs(payer, ref);
+    expect(res).toEqual(NEUTRAL);
+    expect(t.repo.findOwnedJobRef).toHaveBeenCalledWith(ref, payer);
+    expect(t.consents.findLatestByWorker).not.toHaveBeenCalled();
+    expect(t.repo.withTransaction).not.toHaveBeenCalled();
+    expect(t.txMethods.insertRow).not.toHaveBeenCalled();
+    expect(t.renderer.renderPdf).not.toHaveBeenCalled();
+    expect(t.emitted).toHaveLength(0);
+  });
+
+  it("unknown vs foreign vs an existing deny (no consent) are byte-identical (no id oracle)", async () => {
+    const foreign = (await discloseAs(AGENT, EMPLOYER_POSTING)).res;
+    const unknown = (await discloseAs(AGENT, UNKNOWN)).res;
+    const noConsent = (await discloseAs(AGENT, AGENT_JOB, { consentPurposes: null })).res;
+    expect(JSON.stringify(foreign)).toBe(JSON.stringify(unknown));
+    expect(JSON.stringify(unknown)).toBe(JSON.stringify(noConsent));
+  });
+
+  it("an ownership read error fails closed before any lock, write or event", async () => {
+    const t = setup({ ownedRefs });
+    t.repo.findOwnedJobRef.mockRejectedValueOnce(new Error("connection terminated"));
+    await expect(
+      t.service.requestDisclosure(
+        { payerId: EMPLOYER, workerId: WORKER, jobPostingId: EMPLOYER_POSTING },
+        CTX,
+        "payer_owned",
+      ),
+    ).rejects.toThrow("connection terminated");
+    expect(t.repo.withTransaction).not.toHaveBeenCalled();
+    expect(t.emitted).toHaveLength(0);
+  });
+
+  it("the ops default ('normalise') is unchanged: no ownership read, an unknown id stores null", async () => {
+    const t = setup({ ownedRefs, postingRowExists: false });
+    const res = await t.service.requestDisclosure(
+      { payerId: AGENT, workerId: WORKER, jobPostingId: UNKNOWN },
+      CTX,
+    );
+    expect(res).toMatchObject({ ok: true, status: "disclosed" });
+    expect(t.repo.findOwnedJobRef).not.toHaveBeenCalled();
+    expect(t.txMethods.insertRow).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ jobPostingId: null }),
+    );
   });
 });
