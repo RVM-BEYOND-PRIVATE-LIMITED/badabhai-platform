@@ -82,6 +82,48 @@ case "${MATCH_V1_ENABLED-}" in
     ;;
 esac
 
+# EVERY OTHER BRIDGED BOOLEAN — the same boot-time grammar, the same reason. Each name below is
+# in the deploy job's `envs:` list in ci.yml AND parsed by the api's `booleanFromString`
+# (packages/config/src/server.ts), which throws at boot on anything but true/false/1/0/empty.
+# The three flags above keep their own checks and messages. AI_ENABLE_REAL_CALLS also reaches
+# the ai-service, whose pydantic `bool` accepts a superset of this grammar, so refusing here
+# blocks nothing that service would boot on. The value is never echoed — only the name.
+# bridged-boolean-flags-preflight.guard.test.ts fails if a bridged booleanFromString flag is
+# missing from this list, so adding one to `envs:` without adding it here turns CI red.
+BRIDGED_BOOLEAN_FLAGS=(
+  AGENCY_PAYOUTS_ENABLED
+  AI_ENABLE_REAL_CALLS
+  CHAT_COMPANION_ENABLED
+  CHAT_COMPANION_V2_CAREER_ENABLED
+  CHAT_COMPANION_V2_EDIT_ENABLED
+  CHAT_COMPANION_V2_ENABLED
+  CHAT_COMPANION_V2_FALTU_ENABLED
+  CHAT_COMPANION_V2_NEW_RESUME_ENABLED
+  CHAT_GENERAL_ROAD_ENABLED
+  CHAT_IDENTITY_INTAKE_ENABLED
+  PROFILING_TIERS_ENABLED
+  RESUME_AUTOFILL_ENABLED
+  RESUME_CHAT_UPDATE_OFFER_ENABLED
+  RESUME_QR_SCAN_ENABLED
+  RESUME_SKINS_ENABLED
+  TEST_IMMEDIATE_DELETE_ENABLED
+  WORK_HISTORY_POLISH_ENABLED
+)
+_bad_flags=0
+for _flag in "${BRIDGED_BOOLEAN_FLAGS[@]}"; do
+  case "${!_flag-}" in
+    "" | true | false | 1 | 0) ;;
+    *)
+      echo "::error::${_flag} must be exactly true, false, 1, 0 or empty (lowercase). Set the production secret to a literal (gh secret set ${_flag} --env production --body false) and re-run. Nothing was deployed."
+      _bad_flags=1
+      ;;
+  esac
+done
+# Every bad flag is reported above before this exits, so one run names them all.
+if [ "$_bad_flags" -ne 0 ]; then
+  exit 1
+fi
+
 # CD-1: never leave a registry credential (even an expired job token)
 # in the box's ~/.docker/config.json — logout on EVERY exit path.
 trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
