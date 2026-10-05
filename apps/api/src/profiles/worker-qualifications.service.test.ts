@@ -177,8 +177,9 @@ describe("the qualifications writer — the three-state contract survives the se
 
   it("passes every field through to the repository unchanged, encrypting only the licence number", async () => {
     // The service composes nothing — no defaults, no derivation, no expansion. §8: every printed
-    // character is the worker's own. The ONE transformation is the Layer A (d) licence number,
-    // which is PII and must be ciphertext before the repository sees it.
+    // character is the worker's own. One transformation is the Layer A (d) licence number, which
+    // is PII and must be ciphertext before the repository sees it. The other is the education
+    // field's casing (#1940, its own block below), which leaves this already-cased FIELD as is.
     const h = setup();
     await h.svc.replaceForWorker(
       WORKER,
@@ -225,6 +226,81 @@ describe("the qualifications writer — the three-state contract survives the se
       CTX,
     );
     expect(out).toEqual({ worker_id: WORKER, certificate_count: 2, education_count: 0 });
+  });
+});
+
+describe("the qualifications writer — the education field is stored in the app's casing (#1940)", () => {
+  // Every writer of `worker_education` reaches this service: the PUT route (the finishing form,
+  // the extracted-review form, the trade form), an extracted-profile correction and the
+  // companion's edit card. So this is the one place the casing can live.
+  it("cases a lowercase field on its way to the repository", async () => {
+    const h = setup();
+    await h.svc.replaceForWorker(
+      WORKER,
+      parse({ educations: [education({ field: "mechanical engineering" })] }),
+      CTX,
+    );
+    expect(h.replaceForWorker.mock.calls[0]![1].educations![0]!.field).toBe(
+      "Mechanical Engineering",
+    );
+  });
+
+  it.each(["Machinist", "CNC Programming", "B.Tech (ECE)", "Electrician"])(
+    "stores %j byte-identical: the app already cased it, and the rule never lowercases",
+    async (field) => {
+      const h = setup();
+      await h.svc.replaceForWorker(WORKER, parse({ educations: [education({ field })] }), CTX);
+      expect(h.replaceForWorker.mock.calls[0]![1].educations![0]!.field).toBe(field);
+    },
+  );
+
+  it("keeps an absent field null — there is nothing to case", async () => {
+    const h = setup();
+    await h.svc.replaceForWorker(WORKER, parse({ educations: [education({ field: null })] }), CTX);
+    expect(h.replaceForWorker.mock.calls[0]![1].educations![0]!.field).toBeNull();
+  });
+
+  it("cases ONLY the field: the institute, certificate and training strings are stored as received", async () => {
+    const h = setup();
+    await h.svc.replaceForWorker(
+      WORKER,
+      parse({
+        certificates: [certificate({ name: "cnc turning", issuer: "rvm cad" })],
+        educations: [
+          education({ field: "fitter", institute: "govt. iti, faridabad" }),
+          education({ field: "welder", credential: "class_10", council: null }),
+        ],
+        trainings: [{ name: "cnc operator course", provider: "govt. iti", year: 2019 }],
+      }),
+      CTX,
+    );
+    const input = h.replaceForWorker.mock.calls[0]![1];
+    expect(input.educations!.map((e) => [e.field, e.institute])).toEqual([
+      ["Fitter", "govt. iti, faridabad"],
+      ["Welder", INSTITUTE],
+    ]);
+    expect(input.certificates![0]).toMatchObject({ name: "cnc turning", issuer: "rvm cad" });
+    expect(input.trainings![0]).toMatchObject({
+      name: "cnc operator course",
+      provider: "govt. iti",
+    });
+  });
+
+  it("emits the same counts it always did: casing adds no event and no field", async () => {
+    const h = setup();
+    await h.svc.replaceForWorker(
+      WORKER,
+      parse({ educations: [education({ field: "fitter" }), education({ field: "Fitter" })] }),
+      CTX,
+    );
+    expect(h.emit).toHaveBeenCalledTimes(1);
+    expect(h.emit.mock.calls[0]![0].payload).toEqual({
+      worker_id: WORKER,
+      certificate_count: 0,
+      education_count: 2,
+      training_count: 0,
+      replaced_existing: false,
+    });
   });
 });
 

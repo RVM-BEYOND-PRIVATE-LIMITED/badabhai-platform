@@ -1,8 +1,9 @@
 import "reflect-metadata";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   BadRequestException,
   ConflictException,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
@@ -81,6 +82,8 @@ function make(
     decryptThrows?: boolean;
     orgName?: string;
     claimWins?: boolean;
+    /** `false` models a turn that lost the race to a publish: `saveTurn` wrote no row (#1922). */
+    turnStored?: boolean;
     createThrows?: Error;
   } = {},
 ) {
@@ -134,8 +137,11 @@ function make(
       createdAt: new Date("2026-07-28T09:01:00.000Z"),
     })),
     listMessages: vi.fn(async (_sessionId: string) => []),
+    // Resolves whether a row was written, like the real guarded UPDATE: `true` unless the
+    // test models the session leaving the live statuses mid-turn.
     saveTurn: vi.fn(
-      async (_sessionId: string, _payerId: string, _patch: Record<string, unknown>) => undefined,
+      async (_sessionId: string, _payerId: string, _patch: Record<string, unknown>) =>
+        opts.turnStored !== false,
     ),
     claimForPublish: vi.fn(async (_sessionId: string, _payerId: string, _at: Date) =>
       opts.claimWins === false ? undefined : session,
@@ -951,6 +957,736 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
       const broken = make(opts);
       await expect(broken.svc.publish(PAYER_A, SESSION, CTX)).rejects.toThrow();
       expect(broken.jobPostings.createForPayer).not.toHaveBeenCalled();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+/**
+ * #1922 — a turn that loses the race to a publish.
+ *
+ * The turn reads the session as live, then waits seconds on the ai-service; a publish can
+ * claim the session in that window. `saveTurn`'s WHERE now refuses to write over a session
+ * that is no longer live (pinned in `job-posting-chat.repository.test.ts`, evaluated against
+ * Postgres in `job-posting-chat.repository.db.test.ts`) and reports `false`. These pin what
+ * the service does with that `false`: the same 409 a turn on a closed session gets, and no
+ * `draft_ready` for a flip that never landed.
+ */
+describe("JobPostingChatService — a turn that loses the race to a publish stores nothing (#1922)", () => {
+  const liveSession = {
+    id: SESSION,
+    payerId: PAYER_A,
+    status: "active",
+    conversationState: ENGINE_STATE,
+    draft: null,
+    publishedJobPostingId: null,
+    startedAt: new Date("2026-07-28T09:00:00.000Z"),
+    lastMessageAt: null,
+    endedAt: null,
+  };
+
+  let logged: string[];
+  beforeEach(() => {
+    logged = [];
+    vi.spyOn(Logger.prototype, "warn").mockImplementation((message: unknown) => {
+      logged.push(String(message));
+    });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("409s with the closed-session error, and emits no draft_ready for the flip that never landed", async () => {
+    const d = make({ session: liveSession, turn: { draft_ready: true }, turnStored: false });
+    const err = await d.svc
+      .postMessage(PAYER_A, { session_id: SESSION, text: PAYER_TEXT }, CTX)
+      .catch((e: unknown) => e);
+
+    // The SAME envelope a turn gets when the session is already closed on arrival, so a
+    // client needs no second branch for "it closed while I was waiting".
+    const closed = make({
+      session: { ...liveSession, status: "published", publishedJobPostingId: POSTING },
+    });
+    const onArrival = await closed.svc
+      .postMessage(PAYER_A, { session_id: SESSION, text: PAYER_TEXT }, CTX)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(onArrival).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toEqual(
+      (onArrival as ConflictException).getResponse(),
+    );
+
+    // The write WAS attempted with the ready flip; the guarded UPDATE refused it.
+    expect(d.chat.saveTurn).toHaveBeenCalledOnce();
+    expect(d.chat.saveTurn.mock.calls[0]![2]).toMatchObject({ status: "draft_ready" });
+    // The spine records the two stored message rows and nothing about a turn that did not land.
+    expect(d.emitted.map((e) => e.event_name)).toEqual([
+      "job_posting_chat.message_sent",
+      "job_posting_chat.message_sent",
+    ]);
+    // The log names the session, never the payer's text.
+    expect(logged.some((l) => l.includes(SESSION))).toBe(true);
+    expect(logged.join("\n")).not.toContain(PAYER_TEXT);
+  });
+
+  it("a BLOCKED turn whose activity-clock write is refused 409s the same way", async () => {
+    const d = make({
+      session: liveSession,
+      turn: { blocked: true, draft: null, updated_state: null, reply_text: "Please retype that." },
+      turnStored: false,
+    });
+    await expect(
+      d.svc.postMessage(PAYER_A, { session_id: SESSION, text: PAYER_TEXT }, CTX),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(d.chat.saveTurn.mock.calls[0]![2]).toEqual({ lastMessageAt: expect.any(Date) });
+    expect(d.emitted.map((e) => e.event_name)).not.toContain("job_posting_chat.draft_ready");
+  });
+
+  it("CONTROL: the same ready turn on a session that stayed live is answered and emits draft_ready", async () => {
+    const d = make({ session: liveSession, turn: { draft_ready: true } });
+    const res = await d.svc.postMessage(PAYER_A, { session_id: SESSION, text: PAYER_TEXT }, CTX);
+    expect(res.status).toBe("draft_ready");
+    expect(d.emitted.map((e) => e.event_name)).toContain("job_posting_chat.draft_ready");
+  });
+});
+
+// ---------------------------------------------------------------------------
+/**
+ * #1911 — the shared worker-visible screen runs on every turn's draft, not only at publish.
+ *
+ * Before this, a refused title or description sat in the draft, publish answered 400, and no
+ * retry could clear it: the interview had marked the topic answered and never asked again.
+ * The screen's own matrix is in `job-posting-chat.screen.test.ts`; these pin the service
+ * wiring — what is stored, what is replied, what reaches the spine and the log.
+ */
+describe("JobPostingChatService — a refused title or description is re-asked during the interview (#1911)", () => {
+  /** Each value trips exactly the named screen (pinned in the screen suite). */
+  const TITLE_TRIPS = {
+    contact_details: "CNC Operator call 9876543210",
+    company_name: "Operator at Kalyani Pvt Ltd",
+    link: "CNC Operator www.acme.in",
+  } as const;
+  const DESCRIPTION_TRIPS = {
+    contact_details: "Machining work. Send CV to hr@acme.example",
+    company_name: "Machining for Mehta & Co on the shop floor",
+    link: "Machining work, details at www.acme.in",
+  } as const;
+  const REASON = {
+    contact_details: "contact details",
+    company_name: "a company name",
+    link: "website links",
+  } as const;
+
+  const PRIOR_STATE = {
+    trade_hint: null,
+    turn_count: 3,
+    answered_topics: ["role_title", "location_label", "city"],
+    asked_question_ids: ["location_label"],
+    collected: { role_title: "CNC Operator", location_label: "Chakan MIDC", city: "Pune" },
+    clarify_count: 0,
+    ask_counts: { location_label: 1 },
+    unanswered_essentials: ["vacancy"],
+  };
+
+  const session = (patch: Record<string, unknown> = {}) => ({
+    id: SESSION,
+    payerId: PAYER_A,
+    status: "active",
+    conversationState: PRIOR_STATE,
+    draft: null,
+    publishedJobPostingId: null,
+    startedAt: new Date("2026-07-28T09:00:00.000Z"),
+    lastMessageAt: null,
+    endedAt: null,
+    ...patch,
+  });
+
+  /** One engine turn that recorded `patch` into the draft and served the shift question. */
+  const engineTurn = (patch: { role_title?: string; description?: string }) => ({
+    asked_question_id: "shift",
+    draft: { ...FULL_DRAFT, ...patch },
+    updated_state: {
+      ...PRIOR_STATE,
+      turn_count: 4,
+      answered_topics: [...PRIOR_STATE.answered_topics, "vacancy", "description"],
+      asked_question_ids: [...PRIOR_STATE.asked_question_ids, "shift"],
+      collected: { ...PRIOR_STATE.collected, vacancy: "2-5", ...patch },
+      ask_counts: { ...PRIOR_STATE.ask_counts, shift: 1 },
+      unanswered_essentials: [],
+    },
+  });
+
+  let logged: string[];
+  beforeEach(() => {
+    logged = [];
+    const capture = (message: unknown): void => {
+      logged.push(String(message));
+    };
+    vi.spyOn(Logger.prototype, "log").mockImplementation(capture);
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(capture);
+    vi.spyOn(Logger.prototype, "error").mockImplementation(capture);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  async function run(turn: Record<string, unknown>, sessionPatch: Record<string, unknown> = {}) {
+    const d = make({ session: session(sessionPatch), turn });
+    const res = await d.svc.postMessage(PAYER_A, { session_id: SESSION, text: "answer" }, CTX);
+    const saved = d.chat.saveTurn.mock.calls[0]![2] as {
+      conversationState: {
+        collected: Record<string, unknown>;
+        answered_topics: string[];
+        asked_question_ids: string[];
+        ask_counts: Record<string, number>;
+        draft_ready_emitted?: boolean;
+      };
+      draft: Record<string, unknown>;
+      status: string;
+    };
+    const outbound = d.chat.insertMessage.mock.calls[1]![0] as {
+      bodyText: string;
+      metadata: Record<string, unknown>;
+    };
+    return { d, res, saved, outbound };
+  }
+
+  for (const [screen, value] of Object.entries(TITLE_TRIPS)) {
+    it(`a title that trips ${screen} is dropped and re-asked, never echoed`, async () => {
+      const { d, res, saved, outbound } = await run(engineTurn({ role_title: value }));
+
+      // The re-ask REPLACES the engine's reply, names the field and the reason class.
+      expect(res.reply_text).not.toBe(ASSISTANT_TEXT);
+      expect(res.reply_text).toContain("job title");
+      expect(res.reply_text).toContain(REASON[screen as keyof typeof REASON]);
+      expect(res.asked_question_id).toBe("role_title");
+      // The engine's chips answered ITS question (the shift); the title has none.
+      expect(res.suggested_replies).toEqual([]);
+      expect(res.draft_ready).toBe(false);
+      expect(res.draft?.role_title).toBeNull();
+      expect(outbound.bodyText).toBe(res.reply_text);
+      expect(outbound.metadata).toEqual({
+        is_mock: true,
+        blocked: false,
+        refused_fields: ["role_title"],
+      });
+
+      // The PERSISTED draft and state lack the value, and the next message answers the title.
+      expect(saved.draft.role_title).toBeNull();
+      expect(saved.conversationState.collected).not.toHaveProperty("role_title");
+      expect(saved.conversationState.answered_topics).not.toContain("role_title");
+      expect(saved.conversationState.asked_question_ids).toEqual(["location_label", "role_title"]);
+      // The engine's shift question was never shown, so it is not counted as asked.
+      expect(saved.conversationState.ask_counts).toEqual({ location_label: 1 });
+      // The rest of the turn's answers are kept.
+      expect(saved.conversationState.collected).toMatchObject({ vacancy: "2-5" });
+
+      // Never the refused text: not in the reply, the stored draft or state, an event, a log.
+      expect(res.reply_text).not.toContain(value);
+      expect(JSON.stringify(saved)).not.toContain(value);
+      expect(JSON.stringify(d.emitted)).not.toContain(value);
+      d.emitted.forEach(assertRegistryValid);
+      expect(logged.some((l) => l.includes("role_title"))).toBe(true);
+      for (const line of logged) expect(line).not.toContain(value);
+    });
+  }
+
+  for (const [screen, value] of Object.entries(DESCRIPTION_TRIPS)) {
+    it(`a description that trips ${screen} is dropped and re-asked, never echoed`, async () => {
+      const { d, res, saved, outbound } = await run(engineTurn({ description: value }));
+
+      expect(res.reply_text).toContain("job description");
+      expect(res.reply_text).toContain(REASON[screen as keyof typeof REASON]);
+      expect(res.asked_question_id).toBe("description");
+      expect(res.draft?.description).toBeNull();
+      // The clean title is untouched.
+      expect(res.draft?.role_title).toBe("CNC Operator");
+      expect(outbound.metadata.refused_fields).toEqual(["description"]);
+
+      expect(saved.draft.description).toBeNull();
+      expect(saved.draft.role_title).toBe("CNC Operator");
+      expect(saved.conversationState.collected).not.toHaveProperty("description");
+      expect(saved.conversationState.answered_topics).not.toContain("description");
+      expect(saved.conversationState.asked_question_ids.at(-1)).toBe("description");
+
+      expect(res.reply_text).not.toContain(value);
+      expect(JSON.stringify(saved)).not.toContain(value);
+      expect(JSON.stringify(d.emitted)).not.toContain(value);
+      for (const line of logged) expect(line).not.toContain(value);
+    });
+  }
+
+  it("both failing at once: one reply names both, the title is asked first, both are dropped", async () => {
+    const title = TITLE_TRIPS.link;
+    const description = DESCRIPTION_TRIPS.contact_details;
+    const { d, res, saved, outbound } = await run(engineTurn({ role_title: title, description }));
+
+    expect(res.reply_text).toBe(
+      "Workers see the job title and job description, so they can't include contact details " +
+        "or website links. What is the job title — for example CNC Operator, MIG Welder or Plumber?",
+    );
+    expect(res.asked_question_id).toBe("role_title");
+    expect(outbound.metadata.refused_fields).toEqual(["role_title", "description"]);
+    expect(saved.draft).toMatchObject({ role_title: null, description: null });
+    expect(saved.conversationState.collected).not.toHaveProperty("role_title");
+    expect(saved.conversationState.collected).not.toHaveProperty("description");
+    for (const value of [title, description]) {
+      expect(JSON.stringify(saved)).not.toContain(value);
+      expect(JSON.stringify(d.emitted)).not.toContain(value);
+      expect(JSON.stringify(res)).not.toContain(value);
+    }
+  });
+
+  it("a clean title and description pass untouched — the engine's turn is stored and returned as is", async () => {
+    const turn = engineTurn({});
+    const { res, saved, outbound } = await run(turn);
+
+    expect(res.reply_text).toBe(ASSISTANT_TEXT);
+    expect(res.suggested_replies).toEqual(["Day", "Night"]);
+    expect(res.asked_question_id).toBe("shift");
+    expect(res.draft).toEqual(FULL_DRAFT);
+    expect(saved.draft).toEqual(FULL_DRAFT);
+    expect(saved.conversationState).toEqual(turn.updated_state);
+    expect(outbound.metadata).toEqual({ is_mock: true, blocked: false });
+    expect(logged.filter((l) => l.includes("re-asking"))).toEqual([]);
+  });
+
+  it("a refused description on the engine's WRAP-UP is not ready: no draft_ready event, status stays active", async () => {
+    const { d, res, saved } = await run({
+      ...engineTurn({ description: DESCRIPTION_TRIPS.link }),
+      draft_ready: true,
+      asked_question_id: null,
+      reply_text: "That's everything I need.",
+    });
+
+    expect(res.draft_ready).toBe(false);
+    expect(res.status).toBe("active");
+    expect(saved.status).toBe("active");
+    expect(saved.conversationState.draft_ready_emitted).toBeUndefined();
+    expect(d.emitted.map((e) => e.event_name)).not.toContain("job_posting_chat.draft_ready");
+  });
+
+  it("a draft_ready session whose turn is refused goes back to active, and the ready event is not re-emitted later", async () => {
+    const { d, res, saved } = await run(
+      { ...engineTurn({ role_title: TITLE_TRIPS.company_name }), draft_ready: true },
+      {
+        status: "draft_ready",
+        conversationState: { ...PRIOR_STATE, draft_ready_emitted: true },
+      },
+    );
+
+    expect(res.status).toBe("active");
+    expect(saved.status).toBe("active");
+    // The once-per-session marker survives, so the next wrap-up does not emit again.
+    expect(saved.conversationState.draft_ready_emitted).toBe(true);
+    expect(d.emitted.map((e) => e.event_name)).not.toContain("job_posting_chat.draft_ready");
+  });
+
+  it("a refused overwrite of a clean description keeps the earlier one, stored and returned", async () => {
+    // After the wrap-up the description is still the last asked question, so the payer's
+    // next message overwrites it. A refused overwrite must not cost them the earlier text.
+    const earlier = FULL_DRAFT.description;
+    const storedState = {
+      ...PRIOR_STATE,
+      answered_topics: [...PRIOR_STATE.answered_topics, "vacancy", "description"],
+      asked_question_ids: [...PRIOR_STATE.asked_question_ids, "description"],
+      collected: { ...PRIOR_STATE.collected, vacancy: "2-5", description: earlier },
+      ask_counts: { ...PRIOR_STATE.ask_counts, description: 1 },
+      unanswered_essentials: [],
+      draft_ready_emitted: true,
+    };
+    const refused = DESCRIPTION_TRIPS.link;
+    const { d, res, saved, outbound } = await run(
+      {
+        asked_question_id: null,
+        draft_ready: true,
+        reply_text: "That's everything I need.",
+        draft: { ...FULL_DRAFT, description: refused },
+        updated_state: {
+          ...storedState,
+          turn_count: 4,
+          collected: { ...storedState.collected, description: refused },
+        },
+      },
+      { status: "draft_ready", conversationState: storedState, draft: FULL_DRAFT },
+    );
+
+    expect(res.draft?.description).toBe(earlier);
+    expect(saved.draft.description).toBe(earlier);
+    expect(saved.conversationState.collected.description).toBe(earlier);
+    expect(saved.conversationState.answered_topics).toContain("description");
+    expect(res.asked_question_id).toBe("description");
+    expect(res.reply_text).toContain("Your earlier job description is still in the draft.");
+    expect(res.reply_text).toContain('Reply "no" to keep the earlier one.');
+    // Still a question on screen: not ready, and the session is live again.
+    expect(res.draft_ready).toBe(false);
+    expect(saved.status).toBe("active");
+    expect(outbound.metadata.refused_fields).toEqual(["description"]);
+    expect(logged.some((l) => l.includes("kept=[description]"))).toBe(true);
+
+    for (const blob of [JSON.stringify(saved), JSON.stringify(res), JSON.stringify(d.emitted)]) {
+      expect(blob).not.toContain(refused);
+    }
+    for (const line of logged) expect(line).not.toContain(refused);
+  });
+
+  it("a draft that arrives WITHOUT a state is not stored, and its refused value is not returned", async () => {
+    // Outside the ai-service contract (a blocked turn nulls both), but every draft value
+    // that leaves the service must still have met the screen.
+    const value = TITLE_TRIPS.contact_details;
+    const { d, res, saved, outbound } = await run({
+      ...engineTurn({ role_title: value }),
+      updated_state: null,
+    });
+
+    expect(res.draft?.role_title).toBeNull();
+    expect(res.draft?.missing_fields).toEqual(["role_title"]);
+    // Nothing to reopen, so this is not a re-ask: the engine's reply stands.
+    expect(res.reply_text).toBe(ASSISTANT_TEXT);
+    expect(outbound.metadata).toEqual({ is_mock: true, blocked: false });
+    // Only the activity clock moves.
+    expect(Object.keys(saved)).toEqual(["lastMessageAt"]);
+    expect(JSON.stringify(res)).not.toContain(value);
+    expect(JSON.stringify(d.emitted)).not.toContain(value);
+    expect(logged.some((l) => l.includes("role_title:contact_details"))).toBe(true);
+    for (const line of logged) expect(line).not.toContain(value);
+  });
+
+  /**
+   * #1921 — the same screen on each `benefits` / `requirements` chip. The engine asks each list
+   * once and unions every answer into `collected`, so the refused chip must leave the STORED
+   * list (or the next turn rebuilds it), the clean chips stay, and the list is asked again.
+   * The matrix is in the screen suite; these pin what is stored, replied, evented and logged.
+   */
+  describe("benefits / requirements chips (#1921)", () => {
+    /** Each chip trips exactly the named screen (pinned in the screen suite). */
+    const CHIP_TRIPS = {
+      benefits: {
+        contact_details: "call HR 9876543210",
+        company_name: "Canteen by Kalyani Pvt Ltd",
+        link: "details www.acme.in",
+      },
+      requirements: {
+        contact_details: "Contact hr@acme.example",
+        company_name: "Licence from Sharma & Co",
+        link: "apply at acme.in",
+      },
+    } as const;
+    /** The bank's own options for benefits, served with its re-ask. */
+    const BENEFIT_CHIPS = ["PF + ESI", "Canteen", "Transport", "Accommodation"];
+    const ASKED_BEFORE_LISTS = [
+      "location_label",
+      "vacancy",
+      "skills",
+      "pay_range",
+      "pay_type",
+      "experience",
+      "shift",
+      "needed_by",
+    ];
+    const ONE_EACH = (ids: readonly string[]) => Object.fromEntries(ids.map((id) => [id, 1]));
+
+    /** The stored state with `field`'s question on screen, every topic before it answered. */
+    const listOnScreen = (field: "benefits" | "requirements") => {
+      const asked = [
+        ...ASKED_BEFORE_LISTS,
+        "benefits",
+        ...(field === "requirements" ? ["requirements"] : []),
+      ];
+      return {
+        ...PRIOR_STATE,
+        turn_count: asked.length,
+        answered_topics: [
+          ...PRIOR_STATE.answered_topics,
+          ...ASKED_BEFORE_LISTS.filter((t) => t !== "location_label"),
+          ...(field === "requirements" ? ["benefits"] : []),
+        ],
+        asked_question_ids: asked,
+        ask_counts: ONE_EACH(asked),
+        collected: {
+          ...PRIOR_STATE.collected,
+          ...(field === "requirements" ? { benefits: ["PF"] } : {}),
+        },
+        unanswered_essentials: [],
+      };
+    };
+
+    /** The engine recorded `chips` for `field` and served the next question. */
+    const listTurn = (field: "benefits" | "requirements", chips: string[]) => {
+      const prior = listOnScreen(field);
+      const next = field === "benefits" ? "requirements" : "description";
+      const turn = {
+        asked_question_id: next,
+        draft: { ...FULL_DRAFT, [field]: chips },
+        updated_state: {
+          ...prior,
+          turn_count: prior.turn_count + 1,
+          answered_topics: [...prior.answered_topics, field],
+          asked_question_ids: [...prior.asked_question_ids, next],
+          ask_counts: { ...prior.ask_counts, [next]: 1 },
+          collected: { ...prior.collected, [field]: chips },
+        },
+      };
+      return { prior, turn };
+    };
+
+    for (const field of ["benefits", "requirements"] as const) {
+      for (const [screen, value] of Object.entries(CHIP_TRIPS[field])) {
+        it(`a ${field} chip that trips ${screen} is dropped, the clean chips kept, the list re-asked, never echoed`, async () => {
+          const { prior, turn } = listTurn(field, ["ITI", value, "Free bus"]);
+          const { d, res, saved, outbound } = await run(turn, { conversationState: prior });
+
+          // The re-ask REPLACES the engine's reply and its chips.
+          expect(res.reply_text).toContain(`Workers see the ${field}, so they can't include`);
+          expect(res.reply_text).toContain(REASON[screen as keyof typeof REASON]);
+          expect(res.reply_text).toContain('Reply "no" if there are none.');
+          expect(res.asked_question_id).toBe(field);
+          // Clean chips are left, so the list is asked for more, with "No" as a tap.
+          expect(res.suggested_replies).toEqual(
+            field === "benefits" ? [...BENEFIT_CHIPS, "No"] : ["No"],
+          );
+          expect(res.draft_ready).toBe(false);
+          expect(res.draft?.[field]).toEqual(["ITI", "Free bus"]);
+          expect(outbound.bodyText).toBe(res.reply_text);
+          expect(outbound.metadata).toEqual({
+            is_mock: true,
+            blocked: false,
+            refused_fields: [field],
+          });
+
+          // The STORED list loses only the refused chip, so the engine's union cannot bring it
+          // back; the list stays answered and goes back on screen, the engine's pick un-served.
+          expect(saved.draft[field]).toEqual(["ITI", "Free bus"]);
+          expect(saved.conversationState.collected[field]).toEqual(["ITI", "Free bus"]);
+          expect(saved.conversationState.answered_topics).toContain(field);
+          expect(saved.conversationState.asked_question_ids).toEqual(prior.asked_question_ids);
+          expect(saved.conversationState.asked_question_ids.at(-1)).toBe(field);
+          expect(saved.conversationState.ask_counts).toEqual(prior.ask_counts);
+
+          // Never the refused text: not in the reply, the stored draft or state, an event, a log.
+          expect(JSON.stringify(res)).not.toContain(value);
+          expect(JSON.stringify(saved)).not.toContain(value);
+          expect(JSON.stringify(d.emitted)).not.toContain(value);
+          d.emitted.forEach(assertRegistryValid);
+          expect(logged.some((l) => l.includes(`${field}:${screen}`))).toBe(true);
+          expect(logged.some((l) => l.includes(`kept=[${field}]`))).toBe(true);
+          for (const line of logged) expect(line).not.toContain(value);
+        });
+      }
+    }
+
+    it("every chip refused: the list is emptied, listed as missing, and asked from the top", async () => {
+      const value = CHIP_TRIPS.benefits.link;
+      const { turn } = listTurn("benefits", [value]);
+      const { res, saved } = await run(turn, { conversationState: listOnScreen("benefits") });
+
+      expect(res.reply_text).toBe(
+        "Workers see the benefits, so they can't include website links. " +
+          "Which benefits are included — PF, ESI, canteen, transport or accommodation?",
+      );
+      expect(res.suggested_replies).toEqual(BENEFIT_CHIPS);
+      expect(res.draft?.benefits).toEqual([]);
+      expect(res.draft?.missing_fields).toEqual(["benefits"]);
+      expect(saved.conversationState.collected).not.toHaveProperty("benefits");
+      expect(saved.conversationState.answered_topics).not.toContain("benefits");
+      expect(saved.conversationState.asked_question_ids.at(-1)).toBe("benefits");
+      expect(JSON.stringify(saved)).not.toContain(value);
+    });
+
+    it("a dropped chip is not resurrected: the next turn hands the engine the clean list", async () => {
+      const value = CHIP_TRIPS.benefits.link;
+      const { prior, turn } = listTurn("benefits", ["PF", "ESI", value]);
+      const first = await run(turn, { conversationState: prior });
+      const stored = first.saved.conversationState;
+
+      // Turn 2: the payer replies "no". The engine records nothing for the list, rebuilds the
+      // draft from the stored list, and serves the requirements question it was denied.
+      const second = make({
+        session: session({ conversationState: stored, draft: first.saved.draft }),
+        turn: {
+          asked_question_id: "requirements",
+          suggested_answers: [],
+          draft: first.saved.draft,
+          updated_state: {
+            ...stored,
+            turn_count: 12,
+            asked_question_ids: [...stored.asked_question_ids, "requirements"],
+            ask_counts: { ...stored.ask_counts, requirements: 1 },
+          },
+        },
+      });
+      const res = await second.svc.postMessage(PAYER_A, { session_id: SESSION, text: "no" }, CTX);
+
+      const handed = second.ai.jobPostingChatRespond.mock.calls[0]![0] as {
+        conversation_state: { collected: Record<string, unknown> };
+      };
+      expect(handed.conversation_state.collected.benefits).toEqual(["PF", "ESI"]);
+      expect(JSON.stringify(handed)).not.toContain(value);
+      // A clean turn: the engine's own reply, stored as it is.
+      expect(res.reply_text).toBe(ASSISTANT_TEXT);
+      expect(res.asked_question_id).toBe("requirements");
+      expect(res.draft?.benefits).toEqual(["PF", "ESI"]);
+      expect(JSON.stringify(second.chat.saveTurn.mock.calls[0]![2])).not.toContain(value);
+    });
+
+    it("a refused title in the same turn: one reply names both, the title is asked, the clean chips stay", async () => {
+      const title = TITLE_TRIPS.company_name;
+      const chip = CHIP_TRIPS.benefits.contact_details;
+      const prior = listOnScreen("benefits");
+      // A session stored before #1911 still holds a refused title.
+      const legacy = { ...prior, collected: { ...prior.collected, role_title: title } };
+      const { turn } = listTurn("benefits", ["PF", chip]);
+      const { d, res, saved, outbound } = await run(
+        {
+          ...turn,
+          draft: { ...turn.draft, role_title: title },
+          updated_state: {
+            ...turn.updated_state,
+            collected: { ...turn.updated_state.collected, role_title: title },
+          },
+        },
+        { conversationState: legacy, draft: { ...FULL_DRAFT, role_title: title } },
+      );
+
+      expect(res.reply_text).toBe(
+        "Workers see the job title and benefits, so they can't include contact details or a " +
+          "company name. The rest of the benefits are still in the draft. " +
+          "What is the job title — for example CNC Operator, MIG Welder or Plumber?",
+      );
+      expect(res.asked_question_id).toBe("role_title");
+      expect(res.suggested_replies).toEqual([]);
+      expect(outbound.metadata.refused_fields).toEqual(["role_title", "benefits"]);
+      expect(saved.draft).toMatchObject({ role_title: null, benefits: ["PF"] });
+      expect(saved.conversationState.collected).not.toHaveProperty("role_title");
+      expect(saved.conversationState.collected.benefits).toEqual(["PF"]);
+      expect(saved.conversationState.answered_topics).toContain("benefits");
+      expect(saved.conversationState.asked_question_ids.at(-1)).toBe("role_title");
+      for (const value of [title, chip]) {
+        expect(JSON.stringify(res)).not.toContain(value);
+        expect(JSON.stringify(saved)).not.toContain(value);
+        expect(JSON.stringify(d.emitted)).not.toContain(value);
+        for (const line of logged) expect(line).not.toContain(value);
+      }
+    });
+
+    it("a list re-asked at the wrap-up, once answered, gives the next message back to the description", async () => {
+      // The stored state of a benefits re-ask at the wrap-up: benefits last, so the payer's
+      // "Canteen" reaches it. The engine records it, wraps up and appends nothing.
+      const asked = [...ASKED_BEFORE_LISTS, "requirements", "description", "benefits"];
+      const reasked = {
+        ...PRIOR_STATE,
+        turn_count: 13,
+        answered_topics: [
+          ...PRIOR_STATE.answered_topics,
+          ...ASKED_BEFORE_LISTS.filter((t) => t !== "location_label"),
+          "requirements",
+          "description",
+        ],
+        asked_question_ids: asked,
+        ask_counts: ONE_EACH(asked),
+        collected: { ...PRIOR_STATE.collected, description: FULL_DRAFT.description },
+        unanswered_essentials: [],
+      };
+      const engineState = {
+        ...reasked,
+        turn_count: 14,
+        answered_topics: [...reasked.answered_topics, "benefits"],
+        collected: { ...reasked.collected, benefits: ["Canteen"] },
+      };
+      const { res, saved } = await run(
+        {
+          asked_question_id: null,
+          draft_ready: true,
+          reply_text: "That's everything I need.",
+          suggested_answers: [],
+          draft: { ...FULL_DRAFT, benefits: ["Canteen"] },
+          updated_state: engineState,
+        },
+        { conversationState: reasked },
+      );
+
+      // A clean wrap-up: the engine's reply and draft, ready.
+      expect(res.reply_text).toBe("That's everything I need.");
+      expect(res.asked_question_id).toBeNull();
+      expect(res.draft_ready).toBe(true);
+      expect(saved.status).toBe("draft_ready");
+      // Only the attribution target moves: the description is last again, so a later
+      // "ok" revises it instead of becoming a benefit a worker reads.
+      expect(saved.conversationState.asked_question_ids).toEqual([
+        ...ASKED_BEFORE_LISTS,
+        "requirements",
+        "benefits",
+        "description",
+      ]);
+      expect(saved.conversationState.collected).toEqual(engineState.collected);
+      expect(saved.conversationState.answered_topics).toEqual(engineState.answered_topics);
+      expect(saved.conversationState.ask_counts).toEqual(engineState.ask_counts);
+      expect(logged.some((l) => l.includes("description takes the next message"))).toBe(true);
+    });
+
+    it("a draft that arrives WITHOUT a state has its refused chips removed and is not stored", async () => {
+      const value = CHIP_TRIPS.requirements.link;
+      const { res, saved, outbound } = await run({
+        ...listTurn("requirements", [value]).turn,
+        updated_state: null,
+      });
+
+      expect(res.draft?.requirements).toEqual([]);
+      expect(res.draft?.missing_fields).toEqual(["requirements"]);
+      expect(res.reply_text).toBe(ASSISTANT_TEXT);
+      expect(outbound.metadata).toEqual({ is_mock: true, blocked: false });
+      expect(Object.keys(saved)).toEqual(["lastMessageAt"]);
+      expect(JSON.stringify(res)).not.toContain(value);
+      expect(logged.some((l) => l.includes("requirements:link"))).toBe(true);
+      for (const line of logged) expect(line).not.toContain(value);
+    });
+  });
+
+  describe("publish still screens (defence in depth)", () => {
+    for (const [field, value, message] of [
+      ["role_title", TITLE_TRIPS.company_name, "title must not contain a company name"],
+      [
+        "description",
+        DESCRIPTION_TRIPS.contact_details,
+        "remove contact details from the description",
+      ],
+    ] as const) {
+      it(`a stored ${field} the screen refuses is a 400 that names the field and never echoes it`, async () => {
+        const d = make({
+          session: session({ status: "draft_ready", draft: { ...FULL_DRAFT, [field]: value } }),
+        });
+        const err = await d.svc.publish(PAYER_A, SESSION, CTX).catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(BadRequestException);
+        const body = (err as BadRequestException).getResponse() as {
+          issues: { path: string; message: string }[];
+        };
+        expect(body.issues).toEqual([{ path: field, message }]);
+        expect(JSON.stringify(body)).not.toContain(value);
+        for (const line of logged) expect(line).not.toContain(value);
+        expect(d.chat.claimForPublish).not.toHaveBeenCalled();
+        expect(d.jobPostings.createForPayer).not.toHaveBeenCalled();
+      });
+    }
+
+    // #1921: a chip stored before the chat screened chips still meets the create schema.
+    for (const [field, value, message] of [
+      ["benefits", "details www.acme.in", "benefits must not contain links"],
+      ["requirements", "Contact hr@acme.example", "remove contact details from requirements"],
+    ] as const) {
+      it(`a stored ${field} chip the screen refuses is a 400 at ${field}.1 that never echoes it`, async () => {
+        const d = make({
+          session: session({
+            status: "draft_ready",
+            draft: { ...FULL_DRAFT, [field]: ["PF", value] },
+          }),
+        });
+        const err = await d.svc.publish(PAYER_A, SESSION, CTX).catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(BadRequestException);
+        const body = (err as BadRequestException).getResponse() as {
+          issues: { path: string; message: string }[];
+        };
+        expect(body.issues).toEqual([{ path: `${field}.1`, message }]);
+        expect(JSON.stringify(body)).not.toContain(value);
+        for (const line of logged) expect(line).not.toContain(value);
+        expect(d.chat.claimForPublish).not.toHaveBeenCalled();
+        expect(d.jobPostings.createForPayer).not.toHaveBeenCalled();
+      });
     }
   });
 });

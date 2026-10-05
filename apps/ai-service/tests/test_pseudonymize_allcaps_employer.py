@@ -766,9 +766,9 @@ def test_the_capitals_name_word_is_bounded_and_possessive():
     ],
 )
 def test_the_capitals_rule_is_not_quadratic(text):
-    # The rule alone: `pseudonymize` on "A." * 10000 is still ~1.5 s because of title case's own
-    # unbounded `[\w&.]*` — recorded in R48 and tracked as #1891, not fixed here (it would touch
-    # title case).
+    # The rule alone. `pseudonymize` end to end was still ~1.5 s on "A." * 10000 because of title
+    # case's own unbounded `[\w&.]*`; #1891 bounded it, pinned in
+    # `test_pseudonymize_title_employer_bound.py`.
     text = text[: gateway.DEFAULT_MAX_LENGTH]
     start = time.perf_counter()
     gateway._EMPLOYER_CAPS_RE.sub("X", text)

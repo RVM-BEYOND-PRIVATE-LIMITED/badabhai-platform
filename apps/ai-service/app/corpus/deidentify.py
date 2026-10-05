@@ -37,7 +37,11 @@ _RESIDUAL_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b\d{4}\s?\d{4}\s?\d{4}\b"),  # Aadhaar
     re.compile(r"(?<!\d)\+?\d[\d\s\-]{6,}\d(?!\d)"),  # phone-like run
     re.compile(r"\d{7,}"),  # any long digit run
-    re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+"),  # email
+    # email. The local part is ONE character on purpose (#1924, #1936): `[^\s@]+@` re-scanned
+    # a long run with no "@" from every start, ~0.7 s at 20k characters and 16-31 s at 100k.
+    # Any local part ends in one such character, so no verdict moves; a domain stops at the
+    # next "@", so the work is linear. Only ever used as a yes/no `.search()`.
+    re.compile(r"[^\s@]@[^\s@]+\.[^\s@]+"),
 )
 
 

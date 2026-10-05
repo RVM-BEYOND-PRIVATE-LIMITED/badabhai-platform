@@ -169,8 +169,8 @@ NestJS boot assertion).
   production's `job_reach` and `worker_skill` are empty, so `true` serves every worker an empty
   deck. The flip is that runbook's P4 #12. Arming is the secret set to `true` plus a redeploy; off
   again is the secret set to `false` (or deleted) plus a redeploy. Values: lowercase `true`/`false`/
-  `1`/`0`/empty only; anything else stops the api booting, and unlike `AI_RAW_PII_ENABLED` the
-  deploy script has no preflight for this name. In CI only the `e2e` job's Matching V1 journey step
+  `1`/`0`/empty only; anything else would stop the api booting, so `scripts/deploy/staging-deploy.sh`
+  refuses any other value before a container moves. In CI only the `e2e` job's Matching V1 journey step
   sets it, on its own API process (port 3002).
 - **Chat / profiling** — `CHAT_TRANSCRIPT_TTL_SECONDS`, `CHAT_ABANDON_AFTER_SECONDS`,
   `CHAT_MAX_TURNS` (the authoritative hard cap — the ai-service mirrors it but holds no

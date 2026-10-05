@@ -225,7 +225,11 @@ export const EducationEntrySchema = z
   .object({
     /** A slug from {@link EDUCATION_QUALIFICATIONS} — never the printed label. */
     credential: z.enum(optionsOf(EDUCATION_QUALIFICATIONS)).nullable().default(null),
-    /** The trade or stream, in the worker's own words: "Machinist", "Mechanical Engineering". */
+    /**
+     * The trade or stream, in the worker's own words: "Machinist", "Mechanical Engineering".
+     * Accepted in any casing and STORED in the app's (#1940, `title-case-on-write.ts`): "mechanical
+     * engineering" is stored and read back as "Mechanical Engineering".
+     */
     field: freeText(80, "field of study").nullable().default(null),
     /**
      * NCVT, SCVT, a state board — a slug from {@link EDUCATION_COUNCILS}.

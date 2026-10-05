@@ -78,6 +78,8 @@ function setup(opts: { existing?: { id: string; action: string } | undefined } =
     matchFeed as never,
     matchApply as never,
     { MATCH_V1_ENABLED: true } as never,
+    // #1823 — the union's skill read. Never reached with V1 on.
+    { listWantedSkillIds: vi.fn(async () => []) } as never,
   );
   return { svc, repo, events, matchFeed, matchApply };
 }

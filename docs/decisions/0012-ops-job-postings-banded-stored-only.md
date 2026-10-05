@@ -158,6 +158,9 @@ control.
   inherently-free `description` field. It is **NOT** run on `org_label` / `role_title` /
   `location_label`, where a long digit run is a false positive (machine model numbers,
   pincodes, job codes). Reject → 422 "remove contact details" (no LLM involved).
+  _Superseded for `role_title` and `description` by the
+  [2026-10-01 addendum](#addendum-2026-10-01--c-is-superseded-for-worker-served-posting-text-1823-b3)
+  below: postings are now worker-served, so ADR-0024's free-text guard governs them._
 - **Length cap on all four fields** (DTO/Zod) to bound stored free text.
 - **Ops-form warning** (`apps/web`): an inline note — "Do not enter worker or personal contact
   details; this is an internal register" — plus a client-side mirror of the `description`
@@ -246,3 +249,33 @@ entity** itself. None of these are touched, joined to, or pre-wired by this slic
 *This ADR records the approved architecture for the ops-created, vacancy-banded, stored-only
 Job Posting flow (2026-06-15). It is the gate; implementation is handed to the engineer agents
 only after human sign-off on the coexistence flag.*
+
+## Addendum (2026-10-01) — §(c) is superseded for worker-served posting text (#1823 B3)
+
+This ADR scoped `job_postings` as an internal ops register, and listed worker-facing exposure
+of postings as out of scope. That premise no longer holds. Since migration `0054`
+(`job_postings_served_entity`) postings are worker-served: job search and the worker job
+detail read them today, and #1823 adds them to the legacy feed. ADR-0024's free-text guard
+(final addendum, 2026-07-16) therefore governs every posting field a worker sees verbatim.
+
+- **`role_title` and `description` run all three heuristics** at every write path:
+  `looksLikePii`, `looksLikeOrgName` and `looksLikeUrl`, through the shared api screen
+  `screenWorkerVisibleText` (the list itself is `workerVisibleTextScreens` in
+  `@badabhai/validators`). A hit is a `400` that names the field and never echoes the value.
+  Before this, `role_title` ran nothing and `description` ran `looksLikePii` alone.
+- **The §(c) tradeoff is reversed for `role_title`, knowingly.** §(c) kept the digit-run check
+  off `role_title` because model numbers, pincodes and job codes are false positives. A title
+  with a run of seven or more digits (after spaces, dots, dashes, brackets and `+` are stripped) is
+  now a `400`. The agency `jobs.title` has taken the same tradeoff since 2026-07-16, and every
+  role title the repository carries passes the screen (`job-postings.dto.test.ts` measures
+  them). Showing a worker a phone number in a card title is the worse failure.
+- **`org_label` and `location_label` stay unscreened.** §(c)'s reasoning still holds for them,
+  and no worker read selects either.
+- **Not settled here: `city` and `area`.** Both reach the worker card verbatim and neither is
+  screened at the server, on postings or on agency jobs. That gap predates B3 and is an open
+  follow-up.
+- **Rows stored before the screen** keep their text until an edit resends the field. That
+  edit is screened, so a client that always resends `role_title` gets a `400` until the title
+  is fixed.
+
+Architect acknowledgement of the reversal: requested on the #1823 B3 pull request.

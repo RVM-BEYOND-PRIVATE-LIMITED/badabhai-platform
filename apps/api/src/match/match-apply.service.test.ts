@@ -170,6 +170,55 @@ describe("buildSnapshot — a posting that is no longer OPEN takes the SAME 404 
       engineVersion: DEFAULT_MATCH_CONFIG.engineVersion,
     });
   });
+
+  it.each(["paused", "suspended", "closed"] as const)(
+    "%s → trySnapshot (the union path) is NULL too: no snapshot frozen against a non-open posting",
+    async (status) => {
+      await expect(staleReach(status).svc.trySnapshot(WORKER, POSTING)).resolves.toBeNull();
+    },
+  );
+});
+
+/**
+ * #1823 (ADR-0049 S3) — the interim union's apply path freezes a snapshot WHENEVER a reach
+ * row exists and writes the row without one otherwise. `trySnapshot` is that ungated read;
+ * `buildSnapshot` is it plus V1's 404 gate, and its behaviour above must not move.
+ */
+describe("trySnapshot — the snapshot when a reach row exists, NULL otherwise (never a 404)", () => {
+  it("returns NULL, not a 404, when the worker has no reach row — and reads no further", async () => {
+    const d = setup({ reach: undefined });
+    await expect(d.svc.trySnapshot(WORKER, POSTING)).resolves.toBeNull();
+    expect(d.skills.findPostingSkillSets).not.toHaveBeenCalled();
+    expect(d.skills.listSkillRows).not.toHaveBeenCalled();
+  });
+
+  it("returns NULL when the posting's skill sets are gone", async () => {
+    const { svc } = setup({ posting: undefined });
+    await expect(svc.trySnapshot(WORKER, POSTING)).resolves.toBeNull();
+  });
+
+  it("returns exactly the snapshot buildSnapshot returns when a reach row exists", async () => {
+    const opts = {
+      reach: { matchTier: 2 as const, matchedSkillId: TURNER },
+      rows: [row(TURNER, 24)],
+      industryMonths: 30,
+    };
+    const tried = await setup(opts).svc.trySnapshot(WORKER, POSTING);
+    const built = await setup(opts).svc.buildSnapshot(WORKER, POSTING);
+
+    expect(tried).not.toBeNull();
+    expect(tried).toEqual(built);
+    expect(tried).toMatchObject({ matchTier: 2, skillMonths: 24, industryMonths: 30 });
+  });
+
+  it("buildSnapshot still 404s with the neutral body on both NULL causes", async () => {
+    for (const opts of [{ reach: undefined }, { posting: undefined }]) {
+      const { svc } = setup(opts);
+      const err = await svc.buildSnapshot(WORKER, POSTING).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(NotFoundException);
+      expect((err as NotFoundException).message).toBe("Job not found");
+    }
+  });
 });
 
 describe("buildSnapshot — E5/E6: WHICH skill's months are snapshotted", () => {

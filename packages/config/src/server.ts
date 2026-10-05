@@ -1600,6 +1600,28 @@ export const serverEnvSchema = z.object({
   // falsey string stays OFF — the same fail-safe posture as AI_ENABLE_REAL_CALLS /
   // CAPACITY_ENFORCEMENT_ENABLED / AGENCY_PAYOUTS_ENABLED.
   MATCH_V1_ENABLED: booleanFromString,
+  // ── #1823 / ADR-0049 — company postings on the LEGACY feed (the interim union) ──
+  // A LEGACY-PATH SUPPLY BRIDGE, NOT A MATCHING V1 KNOB. On while MATCH_V1_ENABLED is off,
+  // `GET /feed` serves open, published `job_postings` beside the agency/seed `jobs` it serves
+  // today (merged newest-first), and apply/skip accept an open posting id. IGNORED WHEN V1 IS
+  // ON: `isFeedPostingsUnionEnabled` reads both flags, so under V1 this is structurally inert.
+  //
+  // WHY THIS IS NOT THE SECOND V1 SOURCE OF TRUTH the block above forbids (ADR-0049 S1). It
+  // tunes nothing V1 reads and selects nothing V1 serves: V1's source stays MATCH_V1_ENABLED
+  // alone, and every V1 number stays in `match_config`. This switch only widens what the
+  // legacy path reads while V1 is off. It is DELETED by the ADR-0036 retirement change, with
+  // the legacy path it bridges.
+  //
+  // Default OFF, and OFF is today's feed and apply/skip byte for byte. booleanFromString so a
+  // falsey string stays OFF; scripts/deploy/staging-deploy.sh refuses any other value before a
+  // container moves, because a value this parser throws on would stop the api booting.
+  //
+  // NOTHING IN CODE STOPS AN EARLY ARM — one secret plus a redeploy turns it on. Production
+  // stays OFF until the ADR-0049 pre-arm checklist is done, which includes: the posting
+  // free-text screen at parity with agency `jobs` (ADR-0024 — `role_title`, `description`,
+  // `city` reach the most-viewed worker surface), and the payer-applicant and unlock legs of
+  // tests/e2e/feed-postings-union.e2e.test.ts passing.
+  FEED_POSTINGS_UNION_ENABLED: booleanFromString,
 
   // Model routing. Bare provider model ids (no provider prefix); the AI service
   // selects cheap vs capable per task. Cost guardrails are in INR per worker profile.
@@ -2162,6 +2184,16 @@ export function isPaceAdjacencyEnabled(config: ServerConfig): boolean {
  */
 export function isMatchV1Enabled(config: ServerConfig): boolean {
   return config.MATCH_V1_ENABLED;
+}
+
+/**
+ * The interim union gate (#1823, ADR-0049): company `job_postings` on the LEGACY feed and its
+ * apply/skip, beside agency/seed `jobs`. TRUE ONLY WHILE V1 IS OFF — with MATCH_V1_ENABLED on,
+ * the feed already reads postings through `job_reach`, so this answers false whatever
+ * FEED_POSTINGS_UNION_ENABLED says and can never fork V1's source.
+ */
+export function isFeedPostingsUnionEnabled(c: ServerConfig): boolean {
+  return !c.MATCH_V1_ENABLED && c.FEED_POSTINGS_UNION_ENABLED;
 }
 
 /**

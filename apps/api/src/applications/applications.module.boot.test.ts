@@ -8,6 +8,10 @@ import { ConsentRepository } from "../consent/consent.repository";
 import { WorkerAuthGuard } from "../auth/worker-auth.guard";
 import { ConsentGuard } from "../auth/consent.guard";
 import { InternalServiceGuard } from "../common/guards/internal-service.guard";
+import { MatchModule } from "../match/match.module";
+import { MatchApplyService } from "../match/match-apply.service";
+import { MatchFeedService } from "../match/match-feed.service";
+import { WorkerSkillsRepository } from "../match/worker-skills.repository";
 
 /**
  * DI WIRING REGRESSION GUARD (ADR-0009 Stream B). The lesson this protects: a
@@ -64,6 +68,17 @@ describe("ApplicationsModule wiring (cross-module guard DI regression guard)", (
     for (const handler of ["feed", "apply", "skip", "myApplications"] as const) {
       const guards = getMeta("__guards__", ctrl[handler]);
       expect(guards, `${handler} guards`).toEqual([WorkerAuthGuard, ConsentGuard]);
+    }
+  });
+
+  it("#1823 — the service's injected WorkerSkillsRepository resolves: @Global MatchModule exports it", () => {
+    // ApplicationsModule does NOT import MatchModule; the union feed's skill read (and the
+    // V1 collaborators before it) are reachable only because MatchModule is @Global and
+    // exports them. Drop either and the api fails at BOOT while every hand-built unit test
+    // stays green.
+    expect(Reflect.getMetadata("__module:global__", MatchModule)).toBe(true);
+    for (const provider of [WorkerSkillsRepository, MatchApplyService, MatchFeedService]) {
+      expect(getMeta("exports", MatchModule), provider.name).toContain(provider);
     }
   });
 
