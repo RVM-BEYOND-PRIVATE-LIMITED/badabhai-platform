@@ -243,9 +243,9 @@ export async function AgentSections() {
 
       {/* c) YOUR POSTINGS — a glance at the agency's OWN postings: each card opens that
           posting's details, and the panel's one link opens the Postings page where they are
-          managed. (An agency posting's applicants are not reachable in the UI yet — the feed
-          endpoint does not serve agency jobs correctly; backend issue #1898.) `id` keeps old
-          `#agency-vacancies` deep links landing here. */}
+          managed. Each card ALSO links its REAL applicants (#1956 — since #1955 the agency
+          feed serves only the workers who applied). `id` keeps old `#agency-vacancies` deep
+          links landing here. */}
       <section id="agency-vacancies" className="panel anchor-target">
         <div className="panel__head">
           <div className="panel__text">
@@ -305,6 +305,14 @@ export async function AgentSections() {
                     </div>
                   </div>
                   <div className="dash-posting__right">
+                    {/* A real link ABOVE the card's stretched overlay (z-index in CSS): the
+                        whole card still opens the posting; this opens its applicants. */}
+                    <Link
+                      className="dash-posting__applicants"
+                      href={`${AGENCY_POSTING_ROUTES.list}/${j.id}/applicants`}
+                    >
+                      Applicants
+                    </Link>
                     <Badge tone={j.status === "open" ? "success" : "neutral"} upper>
                       {j.status}
                     </Badge>
