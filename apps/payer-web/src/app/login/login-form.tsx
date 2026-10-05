@@ -5,6 +5,7 @@ import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button, Input, OtpInput, Tabs, Toast, tabId, tabPanelId } from "../../components/ds";
 import { requestCodeAction, signupAction, verifyCodeAction } from "./actions";
+import { looksLikeLoginEmail } from "./email-shape";
 import { INVALID_ORG_NAME, INVALID_PHONE, SEND_CONFIRMATION } from "./messages";
 import type { PayerRole } from "../../lib/auth";
 import type { IconName } from "@badabhai/icons";
@@ -40,7 +41,6 @@ import type { IconName } from "@badabhai/icons";
  * neutral message — identical whether the email is unknown OR already registered, a limit was
  * hit, or the code is wrong — so the UI is never an enumeration oracle.
  */
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const E164_RE = /^\+[1-9]\d{7,14}$/;
 const CODE_RE = /^\d{4,8}$/;
 const OTP_LENGTH = 6;
@@ -123,7 +123,7 @@ export function LoginForm() {
   const isSignup = mode === "signup";
   // Inline valid affordance — a subtle check once the typed email is well-formed (and not in
   // an error state). Presentation only; the server is still the source of truth.
-  const emailValid = !emailError && EMAIL_RE.test(email.trim());
+  const emailValid = !emailError && looksLikeLoginEmail(email.trim());
 
   function clearOutcome() {
     setError(null);
@@ -169,7 +169,7 @@ export function LoginForm() {
   /** Step 1 (signin) — request a login code for the email. UNCHANGED logic. */
   function sendLoginCode() {
     clearOutcome();
-    if (!EMAIL_RE.test(email.trim())) {
+    if (!looksLikeLoginEmail(email.trim())) {
       setEmailError("Enter a valid email address.");
       return;
     }
@@ -189,7 +189,7 @@ export function LoginForm() {
       setOrgError(INVALID_ORG_NAME);
       bad = true;
     } else setOrgError(null);
-    if (!EMAIL_RE.test(email.trim())) {
+    if (!looksLikeLoginEmail(email.trim())) {
       setEmailError("Enter a valid email address.");
       bad = true;
     } else setEmailError(null);

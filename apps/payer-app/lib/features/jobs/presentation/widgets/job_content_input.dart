@@ -33,7 +33,12 @@ abstract final class JobContentLimits {
 // Everything below rides the wire into a PII-screened, worker-visible field, so
 // we refuse it AT ENTRY rather than let the server reject the whole write
 // (CLAUDE.md §2 — privacy first, fail closed).
-final RegExp _emailLike = RegExp(r'[^\s@]+@[^\s@]+\.[^\s@]+');
+//
+// The email shape is the LINEAR form (#1924/#1946): ONE character before the
+// "@". `[^\s@]+@` is quadratic on a long run with no "@"; matching only the
+// character before the "@" changes no verdict for a yes/no `hasMatch`, because a
+// local part always ends in one.
+final RegExp _emailLike = RegExp(r'[^\s@]@[^\s@]+\.[^\s@]+');
 final RegExp _phoneSeparators = RegExp(r'[\s().+-]');
 final RegExp _phoneDigitRun = RegExp(r'\d{7,}');
 
