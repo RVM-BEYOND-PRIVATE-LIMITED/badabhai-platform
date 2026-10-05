@@ -547,7 +547,7 @@ All fixed lines live in `companion-replies.ts` (v1 file, extended) with a Devana
 | `V2_EDIT_STALE` | Profile beech mein badal gaya. Dobara bataiye kya badalna hai. |
 | `V2_FALTU_REDIRECT` | Main resume aur kaam mein madad karta hoon. Inme se kuch chuniye. |
 | `V2_FALTU_COOLDOWN` | Thodi der baad baat karte hain. |
-| `V2_CAREER_REFUSE_*` | one line per refusal topic (P3) |
+| `V2_CAREER_REFUSE_*` | one line per refusal topic (P3). `legal_medical_financial`, fixed 2026-10-05 (the owner checklist named it: it sent a health question to "a lawyer or a bank"): **Yeh kanoon, sehat ya paise ka mamla hai. Iske liye vakil, doctor ya bank se salah lijiye.** Devanagari twin matches. Still a draft pending owner review, like the others. |
 | `V2_FALLBACK` | v1 `FALLBACK` reused |
 | `V2_EDIT_ASK` | **DRAFT (2026-09-30), pending owner review.** Resume mein kya badalna hai? Jaise: 'Marathi bhasha jod do' ya 'night shift kar do'. |
 | `V2_CAREER_ASK` | **DRAFT (2026-09-30), pending owner review.** Career ke baare mein aapka kya sawaal hai? Jaise: 'nayi skill kaun si seekhun'. |
