@@ -176,7 +176,10 @@ with `engine_version`. ADR-0036 makes this snapshot irreversible ("history not c
 permanently"), so V1-era agency applies must carry it even though they key on `job_id`.
 
 **Unlocks:** an unlock against a twin stores `unlocks.job_id = source_job_id`. This fits the existing FK to
-`jobs.id`. ADR-0049 O9 has to store a NULL context for a native posting, and a twin has no such loss.
+`jobs.id`. ADR-0049 O9 has to store a NULL context for a native posting, and a twin has no such loss. Since #1909,
+`UnlockService.resolveJobContext` maps any id that is not a `jobs` row to NULL, so a twin id would also land as
+NULL. The build adds one branch there: a twin id (`sync_source = 'agency_job'`) resolves to its `source_job_id`,
+before any write or emit, and fails closed exactly as the existing read does.
 
 **History is never repointed.** The 17 agency applies on the spine already sit on `jobs` ids, and they stay there.
 
@@ -236,7 +239,7 @@ just by run order (C6).
 | c. Ops sets `match_skill_ids` on the live agency jobs (3 at the probe)                                                                                                     | off    | none                        | none                            |
 | d. **Arm `AGENCY_TWIN_SYNC_ENABLED`** and redeploy                                                                                                                         | off    | `draft`, one per agency job | none (§4.4)                     |
 | e. Probe: twin count = agency job count, every twin `draft`; union deck and search unchanged                                                                               | off    | `draft`                     | none                            |
-| f. §8 step 3 prerequisites close (#1904: status gate, funnel, V1 secrets bridge and e2e, D5 fix)                                                                           | off    | `draft`                     | none                            |
+| f. §8 step 3 prerequisites close (#1904). The status gate, funnel union and V1 secrets bridge + e2e landed in #1909; the D5 recompute fix remains                          | off    | `draft`                     | none                            |
 | g. **Flip window:** deploy with V1 on → `db:sync:agency-twins --apply` (twins go to their mirrored status) → D4 (seed rows only, §6.2) → D5 `db:materialize:reach --apply` | **on** | mirrored                    | agency vacancies on the V1 deck |
 | h. §8 step 5: the ADR-0036 retirement deletes the union, its apply branch and `FEED_POSTINGS_UNION_ENABLED`                                                                | on     | mirrored                    | none                            |
 
