@@ -61,6 +61,11 @@ CompanionClassifyOutput = {
 The API treats `confidence < CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE`, `blocked`, a schema miss,
 a timeout or a null (AI service down) as `unclear`.
 
+**Prompt and budget, WP5 (2026-10-05).** The classify p95 missed its 1.5 s bar (1662–2411 ms,
+2026-10-01), so the prompt was shrunk to 791 chars / 116 words (from 1085 / 178) and the output
+cap to **48 tokens** (from 64; the worst-case answer is ~15). Temperature 0 and json_mode were
+already the route's shape. The intents, the JSON contract and the eval set are unchanged.
+
 **The API sends at most the first 1000 chars** of the pseudonymized message (`CLASSIFY_TEXT_MAX`,
 never splitting a surrogate pair). The message DTO accepts 4000, and an over-long `text` would be a
 422 → `unclear` for a message that was perfectly clear. The handler still receives the WHOLE masked
