@@ -1,8 +1,8 @@
 # ADR-0050: Agency vacancies on Matching V1 — a system-owned `job_postings` twin of each agency job
 
-- **Status:** **Proposed — owner sign-off pending.** The direction (a system-owned twin) is the product owner's
-  choice. The constraints in §2 are his. The open questions in §10 are not decided, and each has a recommended
-  default.
+- **Status:** **Accepted — signed 2026-10-05 by Prakash (product owner).** The direction (a system-owned twin)
+  and the constraints in §2 are his. Every open question in §10 is decided as its recommended default. Building it
+  (#1957) is sequenced by the owner's priorities and is not started by this signature.
 - **Date:** 2026-10-05
 - **Owner:** Prakash (product owner) decides. Backend Platform builds: Divyanshu drives the ADR-0049 exit (#1904),
   and Prakash owns the agency surface (#1885).
@@ -302,11 +302,17 @@ No existing event schema is mutated, and no existing event version changes.
 | `application.submitted` / `.skipped` v1                    | Unchanged. A twin apply is a `job`-subject event keyed on the source id (§4.5), indistinguishable from today's agency apply. That is intended: agency demand metrics continue across the flip.                                                                                                                                                                                                                                                                               |
 | `feed.shown_v2`                                            | Unchanged schema. A twin impression carries the **twin** id (subject `job_posting`), joinable to the agency job through `source_job_id` (Q5).                                                                                                                                                                                                                                                                                                                                |
 
-## 10. Open questions (owner)
+## 10. Owner decisions (Q1–Q9)
 
-Each has a recommended default. None is decided by this draft.
+Decided 2026-10-05: the owner accepted the recommended default for every question, as written below. Two carry a
+condition that remains binding on the build:
 
-| #   | Question                                                                                                                                                      | Recommended default                                                                                                                                                                                                                                                             |
+- **Q7:** the twin exemption from a P9 verified-only gate still needs security-engineer review before any P9 gate
+  ships.
+- **Q8:** the production probe runs before rollout step (c) (§6.3). Any non-agency payer-owned `jobs` row it finds
+  gets its own owner ruling.
+
+| #   | Question                                                                                                                                                      | Decision (owner, 2026-10-05)                                                                                                                                                                                                                                                    |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Q1  | V1's max-consecutive-per-company interleave: what is an agency twin's "company"?                                                                              | **The source job's `payer_id` (the agency), read opaque.** Otherwise every agency shares the system bucket and is throttled as one company. An agency places for several employers that `jobs` does not record, so per-employer interleave is not possible without a new field. |
 | Q2  | Breadth control: can an agency untick related skills, as a company can (ADR-0036 §1, "breadth belongs to the company")?                                       | **Not in this phase.** Twins reach `match ∪ related` (D4's behaviour and `related_skills_default`). Untick control on the agency form is a follow-up with its own column and its own UI.                                                                                        |
@@ -348,7 +354,7 @@ Each has a recommended default. None is decided by this draft.
 ---
 
 ```
-Proposed 2026-10-05. Owner sign-off pending: the direction (system-owned twin) and constraints C1–C6 are the
-owner's; Q1–Q9 are open with recommended defaults.
-Signed: ____________________ (product owner)          Date: __________
+Accepted 2026-10-05. The direction (system-owned twin), constraints C1–C6 and the decisions Q1–Q9 (each its
+recommended default) are the owner's.
+Signed: Prakash Kantumutchu (product owner)          Date: 2026-10-05
 ```
