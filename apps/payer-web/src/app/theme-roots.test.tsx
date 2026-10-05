@@ -112,6 +112,15 @@ describe("root layout — SSR theme + no-FOUC plumbing", () => {
     expect(hasNoFoucScript(out)).toBe(true);
     expect(hasMetaThemeColor(out)).toBe(true);
   });
+
+  it("the tab title is 'BadaBhai for Business', described in the product's nouns", async () => {
+    const { metadata } = await import("./layout");
+    expect(metadata.title).toBe("BadaBhai for Business");
+    expect(metadata.description).toBe(
+      "Self-serve hiring portal — publish postings, view faceless applicants, unlock contacts.",
+    );
+    expect(String(metadata.description)).not.toMatch(/post jobs/i);
+  });
 });
 
 describe("global-error boundary — themes its own <html>", () => {

@@ -67,8 +67,9 @@ export async function upgradeCapacityAction(input: {
     if (!res.ok) {
       return { ok: false, error: res.error };
     }
-    // Refresh the capacity view (the allowance + at-capacity banner reflect the new grant).
-    revalidatePath("/capacity");
+    // Refresh the capacity view (the allowance + at-capacity banner reflect the new grant). It
+    // lives on Plans & capacity; /capacity is only a redirect there now.
+    revalidatePath("/plans");
     return { ok: true, resumedCount: res.resumedPlanIds.length, allowance: res.allowance };
   } catch (e) {
     // 409 DUPLICATE-IN-FLIGHT (#1185): the backend 409s ONLY while the FIRST attempt's in-flight
@@ -81,7 +82,7 @@ export async function upgradeCapacityAction(input: {
     if (e instanceof PurchaseConflictError) {
       try {
         const cap = await getCapacity();
-        revalidatePath("/capacity");
+        revalidatePath("/plans");
         return { ok: false, pending: true, allowance: cap.activeVacancyAllowance };
       } catch {
         // The re-read blipped — still pending, just with no current figure to show.

@@ -1,4 +1,5 @@
 import { requirePayer } from "../../../../lib/auth";
+import { PageHeader } from "../../../../components/page-header";
 import { AcceptInvite } from "./accept-invite";
 
 export const dynamic = "force-dynamic";
@@ -23,14 +24,10 @@ export default async function AcceptInvitePage({
   // globals.css) — it carries no styling of its own.
   return (
     <div className="team-accept-page">
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">Join a team</h1>
-          <p className="page-head__sub">
-            Accept your invite to join the hiring desk you were added to.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Join a team"
+        description="Accept your invite to join the hiring desk you were added to."
+      />
       <AcceptInvite token={typeof token === "string" ? token : ""} />
     </div>
   );

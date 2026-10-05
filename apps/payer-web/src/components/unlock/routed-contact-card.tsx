@@ -9,6 +9,7 @@
  * `ContactView`/`RevealView` carry neither, so a raw phone is a COMPILE error, not a review miss —
  * the routed artifact is an opaque, expiring relay; the masked resume is initials + a link only.
  */
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { ContactView, RevealView } from "../../lib/unlock-view";
 import { Card } from "../ds";
 
@@ -57,12 +58,20 @@ export function MaskedResumeCard({ view }: { view: Extract<RevealView, { kind: "
         <strong>no phone, no full name</strong> is shown.
       </p>
       <dl className="reveal-card__dl">
-        <dt>Candidate</dt>
-        <dd className="bb-mono">{view.displayInitials ?? "Masked candidate"}</dd>
+        <dt>Applicant</dt>
+        <dd className="bb-mono">{view.displayInitials ?? "Masked applicant"}</dd>
         <dt>Resume</dt>
         <dd>
-          <a href={view.resumeUrl} target="_blank" rel="noopener noreferrer">
-            Open masked resume (PDF) →
+          {/* It opens in a NEW TAB: the external-link icon shows it, and the link's name says it. */}
+          <a
+            className="reveal-card__ext"
+            href={view.resumeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <span>Open masked resume (PDF)</span>
+            <Icon name={ACTION_ICON.external} />
+            <span className="sr-only"> (opens in a new tab)</span>
           </a>
         </dd>
         <dt>Access until</dt>

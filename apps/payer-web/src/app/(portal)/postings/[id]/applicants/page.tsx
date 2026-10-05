@@ -1,23 +1,43 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { requirePayer } from "../../../../../lib/auth";
+import { getOrgRole } from "../../../../../lib/auth/org-roles";
 import { getApplicantFeed, getDashboard } from "../../../../../lib/payer-api";
-import type { ApplicantFeed, Dashboard } from "../../../../../lib/contracts";
-import { Badge, Card } from "../../../../../components/ds";
+import type { ApplicantFeed } from "../../../../../lib/contracts";
+import { COMPANY_POSTING_ROUTES } from "../../../../../lib/posting-routes";
+import { Card } from "../../../../../components/ds";
+import { PageHeader } from "../../../../../components/page-header";
 import { RetryButton } from "../../../../../components/retry-button";
 import { ApplicantActions } from "./applicant-actions";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Faceless applicant feed for one of the payer's OWN postings (ADR-0019 Decision E) —
- * composed onto the UI-1 page spine (page-back / page-head / alert / state). Visual layer
- * only; the data path, the two decoupled reads and every invariant below are unchanged.
+ * Faceless applicant feed for one of the payer's OWN company postings (ADR-0019 Decision E).
  *
- * XB-A: the feed is fetched payer-scoped; a posting that isn't the payer's returns
- * null ⇒ a NEUTRAL not-found (no cross-tenant existence oracle). XB-C: applicants
- * are faceless (opaque id + banded taxonomy signals) — no name/phone/employer.
+ * XB-A: the feed is fetched payer-scoped; a posting that isn't the payer's returns null ⇒ a
+ * NEUTRAL not-found (no cross-tenant existence oracle). XB-C: applicants are faceless (opaque id
+ * + banded taxonomy signals) — no name/phone/employer.
+ *
+ * COMPANY postings only. An agent is sent to the posting's details BEFORE any read: an agency's
+ * older company postings are view-only (owner ruling 2026-10-01), and this feed unlocks
+ * contacts. There is no agency route onto this feed either — an agency posting's applicants are
+ * not reachable in the UI until the endpoint behind it serves agency jobs (backend issue #1898).
+ *
+ * The page NAMES ITS POSTING (in the back link and the description) from the read it already
+ * makes: the dashboard read carries the payer's postings list. No extra fetch; if that read fails
+ * or the posting is not in it, the head falls back to generic words.
+ *
+ * BALANCE (shown ONCE): the shell header's credits chip is the balance. This page still reads it,
+ * independently, as an AFFORDANCE for the unlock band (a real zero disables Unlock; an unread
+ * balance never does) — it does not print it a second time. The org role only decides whether a
+ * zero balance may LINK to the Owner-only Credits page.
  */
 export default async function ApplicantsPage({ params }: { params: Promise<{ id: string }> }) {
+  const session = await requirePayer();
   const { id } = await params;
+  if (session.role === "agent") redirect(`/postings/${encodeURIComponent(id)}`);
 
   // The two concerns are DECOUPLED (C2): a failure fetching the balance/dashboard must
   // NOT blank the applicant feed. The feed is the page's primary content; the balance is
@@ -33,30 +53,51 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
   }
 
   let balance: number | null = null;
+  let roleTitle: string | null = null;
   try {
-    const dashboard: Dashboard = await getDashboard();
+    const dashboard = await getDashboard({ withPostings: true });
     balance = dashboard.credits.balance;
+    roleTitle = dashboard.postings.find((p) => p.id === id)?.roleTitle ?? null;
   } catch {
-    // Balance unavailable → render the feed without the balance chip; never blank it.
+    // Balance unavailable → the feed renders with Unlock enabled; never blank it.
     balance = null;
   }
 
+  const header = {
+    // Back to the posting this feed belongs to, by its own name (its detail page's H1).
+    back: { href: `/postings/${id}`, label: roleTitle ?? "Posting details" },
+    title: "Applicants",
+    description: roleTitle
+      ? `Everyone who applied to ${roleTitle}, best match first and faceless until you unlock a contact.`
+      : "Everyone who applied to this posting, best match first and faceless until you unlock a contact.",
+  };
+
   // `.applicants-page` only NAMESPACES this screen's layout rules (see the "APPLICANT FEED
   // (DS1.3 · W2-B polish)" block in globals.css); it carries no styling of its own.
+  if (feed && feed.applicants.length > 0) {
+    return (
+      <div className="applicants-page">
+        {/* The feed renders its own head: the New / Shortlist tabs are its state and sit in the
+            head's toolbar row. */}
+        <ApplicantActions
+          header={header}
+          postingId={feed.postingId}
+          applicants={feed.applicants}
+          // Balance is an affordance hint only. If it failed to load (null), keep unlock
+          // ENABLED — the no-oracle server still makes the real decision; we never block on a
+          // UI-side balance we couldn't read.
+          balance={balance ?? 1}
+          canBuyCredits={getOrgRole(session) === "owner"}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="applicants-page">
-      <p className="page-back">
-        <Link href="/dashboard">← Dashboard</Link>
-      </p>
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">Applicants</h1>
-          <p className="page-head__sub">
-            Everyone who applied to this posting, in the engine&rsquo;s best-first order and
-            faceless until you unlock a contact.
-          </p>
-        </div>
-      </div>
+      {/* Not found: there is no posting to go back to, so no back link; the state's own link to
+          Postings is the way out (the header trail is not drawn on the narrowest phones). */}
+      <PageHeader {...header} back={notFound ? undefined : header.back} />
 
       {notFound ? (
         // NEUTRAL not-found (XB-A): the copy is the UNION of "does not exist" and "not yours",
@@ -64,25 +105,23 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
         <Card>
           <div className="state">
             <span className="state__icon">
-              <i className="ph-fill ph-file-dashed" aria-hidden="true" />
+              <Icon name="file-dashed" />
             </span>
             <h2 className="state__title">No posting found here</h2>
-            <p className="state__body">
-              It may not exist, or it isn&rsquo;t one of your postings.
-            </p>
+            <p className="state__body">It may not exist, or it isn&rsquo;t one of your postings.</p>
             <div className="state__actions">
-              <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/postings">
-                <i className="ph-fill ph-list-bullets" aria-hidden="true" />
-                <span>Manage postings</span>
+              <Link className="bb-btn bb-btn--secondary" href={COMPANY_POSTING_ROUTES.list}>
+                <Icon name={ACTION_ICON.posting} />
+                <span>Postings</span>
               </Link>
             </div>
           </div>
         </Card>
-      ) : feedError ? (
+      ) : feedError || !feed ? (
         <Card>
           <div className="state state--error">
             <span className="state__icon">
-              <i className="ph-fill ph-warning-circle" aria-hidden="true" />
+              <Icon name="warning-circle" />
             </span>
             <h2 className="state__title">We couldn&rsquo;t load applicants</h2>
             <p className="state__body">
@@ -93,80 +132,20 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
             </div>
           </div>
         </Card>
-      ) : feed ? (
-        <>
-          <div className="alert alert--info">
-            <i className="ph-fill ph-mask-happy alert__icon" aria-hidden="true" />
-            <div className="alert__text">
-              <p className="alert__title">Applicants are faceless</p>
-              <p className="alert__body">
-                Each row is an opaque id plus deterministic relevance (rank / score / signals),
-                shown in the engine&rsquo;s best-first order. No name, phone, or employer is
-                shown. Sort them with <strong>Keep</strong> (→ Shortlist) and{" "}
-                <strong>Pass</strong> (dismiss). <strong>Call</strong> / <strong>WhatsApp</strong>{" "}
-                open only after you unlock and reveal a candidate&rsquo;s <strong>routed</strong>{" "}
-                contact — an opaque relay, never a phone. Unlocking spends 1 credit. An
-                &ldquo;unavailable&rdquo; result never discloses its cause.
-              </p>
-            </div>
+      ) : (
+        <Card>
+          <div className="state">
+            <span className="state__icon">
+              <Icon name={ACTION_ICON.users} />
+            </span>
+            <h2 className="state__title">No applicants on this posting yet</h2>
+            <p className="state__body">
+              Matching workers appear here — faceless — as they apply. Nothing is needed from you
+              meanwhile; a wider skill list on the posting reaches more of them.
+            </p>
           </div>
-
-          {/* The feed itself is a run of cards that carry their own surface, so it is a
-              `.section` (a titled block) rather than a `.panel` — a panel around them would
-              be a box inside a box. The role title is the section heading; the balance is an
-              affordance chip beside it, never a statement about any candidate. The head
-              modifier only re-lays it on narrow phones (the chip moves to the count's row, so
-              a long role title gets the full width). */}
-          <section className="section">
-            <div className="section__head applicants-feed__head">
-              <div className="section__text">
-                <h2 className="section__title">{feed.roleTitle}</h2>
-                <p className="section__sub">
-                  {feed.applicants.length} faceless applicant
-                  {feed.applicants.length === 1 ? "" : "s"}
-                </p>
-              </div>
-              {balance !== null ? (
-                <div className="section__actions">
-                  <Badge tone="neutral" icon="coins">
-                    Balance: <span className="bb-mono">{balance}</span>
-                  </Badge>
-                </div>
-              ) : null}
-            </div>
-
-            {feed.applicants.length === 0 ? (
-              <Card>
-                <div className="state">
-                  <span className="state__icon">
-                    <i className="ph-fill ph-users-three" aria-hidden="true" />
-                  </span>
-                  <h3 className="state__title">No applicants on this posting yet</h3>
-                  <p className="state__body">
-                    Matching workers appear here — faceless — as they apply. Nothing is needed
-                    from you meanwhile; a wider skill list on the posting reaches more of them.
-                  </p>
-                  <div className="state__actions">
-                    <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/postings">
-                      <i className="ph-fill ph-list-bullets" aria-hidden="true" />
-                      <span>Manage postings</span>
-                    </Link>
-                  </div>
-                </div>
-              </Card>
-            ) : (
-              <ApplicantActions
-                postingId={feed.postingId}
-                applicants={feed.applicants}
-                // Balance is an affordance hint only. If it failed to load (null), keep
-                // unlock ENABLED — the no-oracle server still makes the real decision; we
-                // never block on a UI-side balance we couldn't read.
-                balance={balance ?? 1}
-              />
-            )}
-          </section>
-        </>
-      ) : null}
+        </Card>
+      )}
     </div>
   );
 }

@@ -146,6 +146,18 @@ describe("AccountMenu — open panel shows the payer's OWN identity", () => {
     expect(link).toBeDefined();
     expect(String(link!["role"])).toBe("menuitem");
   });
+
+  it("names the settings page by its own H1 ('Account') and the company persona 'Company'", () => {
+    openState = true;
+    const { props, text } = collect(render({ role: "employer" }));
+    const link = props.find((p) => p["href"] === "/account")!;
+    const linkText: string[] = [];
+    walk(link["children"] as ReactNode, [], linkText);
+    expect(linkText.join(" ").trim()).toBe("Account");
+    // "Company" is the persona the signup tab and the rail badge use — never "Employer".
+    expect(text).toContain("Company");
+    expect(text).not.toMatch(/\bEmployer\b/);
+  });
 });
 
 describe("AccountMenu — Sign out menu item", () => {
@@ -161,7 +173,7 @@ describe("AccountMenu — Sign out menu item", () => {
     return items.find((p) => p["href"] === undefined && typeof p["onClick"] === "function");
   }
 
-  it("adds a SECOND menuitem labelled 'Sign out' below 'Account settings'", () => {
+  it("adds a SECOND menuitem labelled 'Sign out' below 'Account'", () => {
     const items = menuitems();
     // Two menuitems now: the settings Link (href=/account) then the Sign-out button.
     expect(items.length).toBe(2);

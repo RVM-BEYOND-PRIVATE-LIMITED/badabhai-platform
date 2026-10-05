@@ -83,7 +83,7 @@ describe("EditPostingPage — the form is keyed on the saved revision", () => {
     const el = await formElement("2026-09-29T10:00:00.000Z");
     const text = JSON.stringify(el.props.lead);
     expect(text).toContain("Edit posting");
-    expect(text).toContain("The card preview updates as you edit.");
+    expect(text).toMatch(/the card preview updates as you edit\./i);
     expect(text).not.toContain("worker’s card as you edit");
     expect(text).not.toContain("worker&rsquo;s card as you edit");
   });

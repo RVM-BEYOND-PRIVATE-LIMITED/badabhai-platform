@@ -162,8 +162,8 @@ describe("topUpAction — Owner path unchanged (XT5/XB-A: pack CODE only)", () =
   it("rejects a blank / oversized pack code neutrally, without touching the seam", async () => {
     const blank = await topUpAction({ packCode: "" });
     const huge = await topUpAction({ packCode: "x".repeat(65) });
-    expect(blank).toEqual({ ok: false, error: "Choose a pack to top up." });
-    expect(huge).toEqual({ ok: false, error: "Choose a pack to top up." });
+    expect(blank).toEqual({ ok: false, error: "Choose a pack to buy." });
+    expect(huge).toEqual({ ok: false, error: "Choose a pack to buy." });
     expect(topUp).not.toHaveBeenCalled();
     // …but the gate still ran first for both (authorization precedes validation).
     expect(calls).toEqual(["requireOwner", "requireOwner"]);
@@ -180,7 +180,7 @@ describe("topUpAction — Owner path unchanged (XT5/XB-A: pack CODE only)", () =
     const res = await topUpAction({ packCode: "pack_50" });
     expect(res.ok).toBe(false);
     if (!res.ok && "error" in res) {
-      expect(res.error).toBe("Top-up failed (service unavailable). Please retry.");
+      expect(res.error).toBe("Purchase failed (service unavailable). Please retry.");
       expect(res.error).not.toMatch(/payer_id|forbidden|owner|recruiter|\d{4}/i);
     }
   });

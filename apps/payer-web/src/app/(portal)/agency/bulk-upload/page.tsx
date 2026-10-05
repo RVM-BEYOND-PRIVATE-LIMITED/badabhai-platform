@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { Icon } from "@badabhai/icons";
 import { requireAgent } from "../../../../lib/auth/roles";
 import { agencyFlags } from "../../../../lib/config";
 import { notFound } from "next/navigation";
+import { PageHeader } from "../../../../components/page-header";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +17,10 @@ export const dynamic = "force-dynamic";
  * explanation instead of a 404, and so the reader is pointed at BATCH INVITE MINTING — the
  * shipped, opposite-direction answer to the same need (anonymous links that identify nobody).
  * Names the module + its reason only; no commercial or legal language.
+ *
+ * Not in the nav (2026-10-01): the rail listed it under "Coming soon", which is exactly the
+ * framing it must never have. Its one way in is the dashboard's Invite tools card, so that is
+ * the parent its header points back to.
  */
 export default async function BulkUploadPage() {
   // Auth/role gate only — this parked shell renders no session data.
@@ -24,15 +30,11 @@ export default async function BulkUploadPage() {
 
   return (
     <>
-      <p className="page-back">
-        <Link href="/dashboard">← Dashboard</Link>
-      </p>
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">Bulk Upload</h1>
-          <p className="page-head__sub">Bulk invite upload is not available.</p>
-        </div>
-      </div>
+      <PageHeader
+        back={{ href: "/dashboard", label: "Dashboard" }}
+        title="Bulk invite upload"
+        description="This module is not available, and it will not be built."
+      />
 
       {/*
         Both blocks are the UI-1 `alert` primitive, which is the DS replacement for the
@@ -43,7 +45,7 @@ export default async function BulkUploadPage() {
         a release date — is the first thing read.
       */}
       <div className="alert alert--warning">
-        <i className="ph-fill ph-prohibit alert__icon" aria-hidden="true" />
+        <Icon name="prohibit" className="alert__icon" />
         <div className="alert__text">
           <p className="alert__title">Bulk invite upload</p>
           <p className="alert__body">
@@ -55,7 +57,7 @@ export default async function BulkUploadPage() {
       </div>
 
       <div className="alert alert--success">
-        <i className="ph-fill ph-link alert__icon" aria-hidden="true" />
+        <Icon name="link" className="alert__icon" />
         <div className="alert__text">
           <p className="alert__title">Inviting many workers at once</p>
           <p className="alert__body">
@@ -69,7 +71,8 @@ export default async function BulkUploadPage() {
             className="bb-btn bb-btn--secondary bb-btn--sm"
             href="/agency/referrals#batch-invites"
           >
-            Create batch invite links
+            <Icon name="link" />
+            <span>Create batch invite links</span>
           </Link>
         </div>
       </div>

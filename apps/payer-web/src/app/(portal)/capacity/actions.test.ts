@@ -99,7 +99,7 @@ describe("upgradeCapacityAction — success maps resumedPlanIds → resumedCount
     const res = await upgradeCapacityAction({ tier: "growth" });
     expect(res).toEqual({ ok: true, resumedCount: 3, allowance: 10 });
     expect(buyCapacity).toHaveBeenCalledWith({ tier: "growth" }); // tier CODE only.
-    expect(revalidatePath).toHaveBeenCalledWith("/capacity");
+    expect(revalidatePath).toHaveBeenCalledWith("/plans");
   });
 
   it("an empty resumedPlanIds list → resumedCount 0 (nothing was paused to resume)", async () => {
@@ -178,7 +178,7 @@ describe("upgradeCapacityAction — Idempotency-Key threading + 409 = pending (#
     expect(buyCapacity).toHaveBeenCalledTimes(1);
     expect(getCapacity).toHaveBeenCalledTimes(1);
     // The view is revalidated so the page reflects the CURRENT allowance (still current-not-final).
-    expect(revalidatePath).toHaveBeenCalledWith("/capacity");
+    expect(revalidatePath).toHaveBeenCalledWith("/plans");
   });
 
   it("a 409 whose re-read ALSO blips stays PENDING with no figure — never ok:true, never a fabricated allowance", async () => {

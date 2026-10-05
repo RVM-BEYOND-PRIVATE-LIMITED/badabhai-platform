@@ -128,21 +128,21 @@ describe("lifecycle — no-oracle on a null (unknown-or-not-owned) result", () =
   it("pause: null seam result → neutral not-found", async () => {
     pauseAgencyJob.mockResolvedValueOnce(null);
     const res = await pauseAgencyJobAction({ jobId: JOB_ID });
-    expect(res).toEqual({ ok: false, error: "That vacancy could not be found." });
+    expect(res).toEqual({ ok: false, error: "That posting could not be found." });
   });
   it("close: null seam result → neutral not-found", async () => {
     closeAgencyJob.mockResolvedValueOnce(null);
     const res = await closeAgencyJobAction({ jobId: JOB_ID });
-    expect(res).toEqual({ ok: false, error: "That vacancy could not be found." });
+    expect(res).toEqual({ ok: false, error: "That posting could not be found." });
   });
   it("update: null seam result → neutral not-found", async () => {
     updateAgencyJob.mockResolvedValueOnce(null);
     const res = await updateAgencyJobAction(JOB_ID, VALID_INPUT);
-    expect(res).toEqual({ ok: false, error: "That vacancy could not be found." });
+    expect(res).toEqual({ ok: false, error: "That posting could not be found." });
   });
   it("pause: a non-uuid id is rejected before the seam (same neutral message)", async () => {
     const res = await pauseAgencyJobAction({ jobId: "not-a-uuid" });
-    expect(res).toEqual({ ok: false, error: "That vacancy could not be found." });
+    expect(res).toEqual({ ok: false, error: "That posting could not be found." });
     expect(pauseAgencyJob).not.toHaveBeenCalled();
   });
 });

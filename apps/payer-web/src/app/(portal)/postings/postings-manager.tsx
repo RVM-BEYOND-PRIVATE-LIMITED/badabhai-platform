@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { PostingSummary } from "../../../lib/contracts";
 import { Badge, Button, Card } from "../../../components/ds";
 import {
@@ -15,17 +16,23 @@ import {
  * Client job-management surface (ADR-0019 Phase 1) — UI-1 skin, LIVE lifecycle.
  *
  * Runs in the BROWSER and sees NO secret. Each posting renders as a DS Card with its
- * real `status` Badge and links to its manage page + faceless applicant feed (XB-A: the
- * Server Actions bind tenancy to the server-held session — the client never passes a
- * payer id, only the posting id).
+ * real `status` Badge. Its TITLE opens the posting's details (as on the agency list); the row's
+ * own links name what they open — "Applicants" (the faceless feed) and "Edit". (XB-A: the
+ * Server Actions bind tenancy to the server-held session — the client never passes a payer id,
+ * only the posting id.)
  *
- * The trio (pause / resume / quota top-up) + CLOSE are LIVE payer-authed routes
+ * The trio (pause / resume / add applicant slots) + CLOSE are LIVE payer-authed routes
  * (`POST /payer/job-postings/:id/{pause|resume|quota-topup|close}`, #178/#180). Each
  * action is per-row busy-guarded; a failure renders a retryable inline error in the
  * row's aria-live region — never fake data, never a blanked row.
  *
- * FACELESS: a posting row carries only the payer's OWN fields (role / location / vacancy
+ * FACELESS: a posting row carries only the payer's OWN fields (role / location / openings
  * band / status / applicant count / created date) — no worker name/phone ever reaches the DOM.
+ *
+ * READ-ONLY (`readOnly`): an agent's OLDER company postings (see ../page.tsx) render without
+ * the lifecycle buttons and without the row links (no Applicants, no Edit) — visible by direct
+ * link, never managed or worked from here. The server actions keep their own gate; hiding the
+ * controls is an affordance, not the control.
  */
 
 const NONE = "—";
@@ -53,7 +60,13 @@ interface RowState {
 
 const IDLE: RowState = { busy: false, error: null, notice: null };
 
-export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
+export function PostingsManager({
+  postings,
+  readOnly = false,
+}: {
+  postings: PostingSummary[];
+  readOnly?: boolean;
+}) {
   // Rows RENDER FROM PROPS (each action's revalidatePath refreshes the RSC payload —
   // a local full copy would silently discard it). Only per-row action results are
   // held locally: fresher rows returned by an action overlay their prop row by id.
@@ -101,18 +114,15 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
       <Card>
         <div className="state">
           <span className="state__icon">
-            <i className="ph-fill ph-briefcase" aria-hidden="true" />
+            <Icon name={ACTION_ICON.posting} />
           </span>
           <h2 className="state__title">No postings yet</h2>
+          {/* What to do next is the page head's one primary action, "New posting" — the state
+              names it rather than offering a second door to the same form. */}
           <p className="state__body">
-            Matched workers can only find you once a role is live. Posting is free through
-            launch.
+            Matched workers can only find you once a role is live — use New posting above.
+            Posting is free through launch.
           </p>
-          <div className="state__actions">
-            <Link className="bb-btn bb-btn--primary bb-btn--sm" href="/postings/new">
-              Post your first job
-            </Link>
-          </div>
         </div>
       </Card>
     );
@@ -126,7 +136,7 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
           <Card key={p.id} padding="md" className="posting-card">
             <div className="posting-card__main">
               <div className="posting-card__head">
-                <Link className="posting-card__title" href={`/postings/${p.id}/applicants`}>
+                <Link className="posting-card__title" href={`/postings/${p.id}`}>
                   {p.roleTitle}
                 </Link>
                 <Badge tone={statusTone(p.status)} upper>
@@ -138,7 +148,7 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
                   `.posting-card__meta` in globals.css. The row holds FACTS only. */}
               <div className="posting-card__meta">
                 <span>{p.locationLabel ?? "Location flexible"}</span>
-                <span>{p.vacancyBand} vacancies</span>
+                <span>{p.vacancyBand} openings</span>
                 <span>
                   <span className="bb-mono">{p.applicantCount}</span> /{" "}
                   <span className="bb-mono">{p.applicantQuota ?? NONE}</span> applicants
@@ -148,15 +158,18 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
                 </span>
               </div>
               {/* The row's two page links get their own line: inside the facts row they read
-                  as one "Details Edit" label led by a separator dot. */}
-              <div className="posting-card__links">
-                <Link className="postings-link" href={`/postings/${p.id}`}>
-                  Details
-                </Link>{" "}
-                <Link className="postings-link" href={`/postings/${p.id}/edit`}>
-                  Edit
-                </Link>
-              </div>
+                  as one "Applicants Edit" label led by a separator dot. The title above opens
+                  the posting's details. A read-only row has neither. */}
+              {readOnly ? null : (
+                <div className="posting-card__links">
+                  <Link className="postings-link" href={`/postings/${p.id}/applicants`}>
+                    <Icon name={ACTION_ICON.users} /> Applicants
+                  </Link>{" "}
+                  <Link className="postings-link" href={`/postings/${p.id}/edit`}>
+                    <Icon name={ACTION_ICON.edit} /> Edit
+                  </Link>
+                </div>
+              )}
 
               {/* B8 — the per-row result region is announceable (aria-live): a retryable
                   error OR the success notice (e.g. the paid top-up confirmation). It sits
@@ -165,7 +178,7 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
               <div aria-live="polite">
                 {rs.error !== null && (
                   <div className="alert alert--danger">
-                    <i className="ph-fill ph-warning-circle alert__icon" aria-hidden="true" />
+                    <Icon name="warning-circle" className="alert__icon" />
                     <div className="alert__text">
                       <p className="alert__title">That didn&rsquo;t go through</p>
                       <p className="alert__body">{rs.error}</p>
@@ -174,7 +187,7 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
                 )}
                 {rs.notice !== null && (
                   <div className="alert alert--success">
-                    <i className="ph-fill ph-check-circle alert__icon" aria-hidden="true" />
+                    <Icon name="check-circle" className="alert__icon" />
                     <div className="alert__text">
                       <p className="alert__title">Done</p>
                       <p className="alert__body">{rs.notice}</p>
@@ -184,56 +197,58 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
               </div>
             </div>
 
-            <div className="posting-card__actions">
-              {/* LIVE lifecycle trio + close (#178/#180) — per-row busy + inline error. */}
-              <div className="posting-card__btns">
-                {p.status === "paused" ? (
+            {readOnly ? null : (
+              <div className="posting-card__actions">
+                {/* LIVE lifecycle trio + close (#178/#180) — per-row busy + inline error. */}
+                <div className="posting-card__btns">
+                  {p.status === "paused" ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      iconLeft="play"
+                      loading={rs.busy}
+                      disabled={rs.busy}
+                      onClick={() => void run(p.id, resumePostingAction)}
+                    >
+                      Resume
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      iconLeft="pause"
+                      loading={rs.busy}
+                      disabled={rs.busy || p.status !== "open"}
+                      onClick={() => void run(p.id, pausePostingAction)}
+                    >
+                      Pause
+                    </Button>
+                  )}
                   <Button
                     variant="secondary"
                     size="sm"
-                    iconLeft="play"
+                    iconLeft={ACTION_ICON.topUpQuota}
                     loading={rs.busy}
-                    disabled={rs.busy}
-                    onClick={() => void run(p.id, resumePostingAction)}
+                    disabled={rs.busy || p.status === "closed"}
+                    onClick={() => void run(p.id, topUpQuotaAction)}
                   >
-                    Resume
+                    Add applicant slots
                   </Button>
-                ) : (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    iconLeft="pause"
-                    loading={rs.busy}
-                    disabled={rs.busy || p.status !== "open"}
-                    onClick={() => void run(p.id, pausePostingAction)}
-                  >
-                    Pause
-                  </Button>
-                )}
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  iconLeft="plus-circle"
-                  loading={rs.busy}
-                  disabled={rs.busy || p.status === "closed"}
-                  onClick={() => void run(p.id, topUpQuotaAction)}
-                >
-                  Top up applicant quota
-                </Button>
-                {(p.status === "draft" || p.status === "open") && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    iconLeft="x-circle"
-                    loading={rs.busy}
-                    disabled={rs.busy}
-                    onClick={() => void run(p.id, closePostingAction)}
-                  >
-                    Close
-                  </Button>
-                )}
+                  {(p.status === "draft" || p.status === "open") && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      iconLeft={ACTION_ICON.reject}
+                      loading={rs.busy}
+                      disabled={rs.busy}
+                      onClick={() => void run(p.id, closePostingAction)}
+                    >
+                      Close posting
+                    </Button>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </Card>
         );
       })}

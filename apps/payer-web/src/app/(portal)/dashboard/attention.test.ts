@@ -53,6 +53,9 @@ describe("buildAttentionItems", () => {
     expect(out[0]!.id).toBe("credits-empty");
     expect(out[0]!.tone).toBe("critical");
     expect(out[0]!.actionHref).toBe("/credits");
+    // "Buy credits" with the ONE balance icon — never "Top up" (which also meant quota).
+    expect(out[0]!.actionLabel).toBe("Buy credits");
+    expect(out[0]!.actionIcon).toBe("wallet");
   });
 
   it("warns BEFORE the wallet empties, not after", () => {
@@ -109,19 +112,41 @@ describe("buildAttentionItems", () => {
     const item = out.find((i) => i.id === "no-open-postings")!;
     expect(item.title).toBe("No open postings");
     expect(item.actionHref).toBe("/postings/new");
+    expect(item.actionLabel).toBe("New posting");
+    expect(item.actionIcon).toBe("plus");
   });
 
-  it("distinguishes 'none yet' from 'all closed'", () => {
+  it("says nothing for ZERO postings — the dashboard's panel already says 'No postings yet'", () => {
+    // One page says it once: the "Your postings" panel's empty state carries it.
     const out = buildAttentionItems({ ...HEALTHY, postings: [] }, EMPLOYER_OWNER);
-    const item = out.find((i) => i.id === "no-open-postings")!;
-    expect(item.title).toBe("No postings yet");
-    expect(item.body).toContain("only find you once");
+    expect(out.map((i) => i.id)).not.toContain("no-open-postings");
+    expect(out).toEqual([]);
+  });
+
+  it("a recruiter is told to ASK the owner (no button — Credits is Owner-only)", () => {
+    const empty = buildAttentionItems(
+      { ...HEALTHY, credits: { payerId: "p", balance: 0 } },
+      EMPLOYER_RECRUITER,
+    )[0]!;
+    expect(empty.body).toContain("Ask your account owner to buy credits");
+    expect(empty.actionHref).toBeUndefined();
+    const low = buildAttentionItems(
+      { ...HEALTHY, credits: { payerId: "p", balance: LOW_BALANCE_THRESHOLD - 1 } },
+      EMPLOYER_RECRUITER,
+    )[0]!;
+    expect(low.body).toContain("Ask your account owner to buy credits");
+    expect(low.actionHref).toBeUndefined();
   });
 
   it("never makes a posting claim to an AGENT — their vacancies live in another entity", () => {
     // DATA-COHERENCE: an agent's job-postings read is empty by design; counting it would be
     // a statement about the wrong data set, contradicting their own agency demand summary.
-    const out = buildAttentionItems({ ...HEALTHY, postings: [] }, { isAgency: true, isOwner: true });
+    // All-closed postings would raise the item for a company (see above); never for an agent.
+    const closed = { ...HEALTHY, postings: [{ ...HEALTHY.postings[0]!, status: "closed" as const }] };
+    expect(buildAttentionItems(closed, EMPLOYER_OWNER).map((i) => i.id)).toContain(
+      "no-open-postings",
+    );
+    const out = buildAttentionItems(closed, { isAgency: true, isOwner: true });
     expect(out.map((i) => i.id)).not.toContain("no-open-postings");
   });
 
@@ -130,7 +155,7 @@ describe("buildAttentionItems", () => {
       {
         credits: { payerId: "p", balance: 0 },
         unlocks: [{ ...HEALTHY.unlocks[0]!, status: "expired" }],
-        postings: [],
+        postings: [{ ...HEALTHY.postings[0]!, status: "closed" }],
       } as Dashboard,
       EMPLOYER_OWNER,
     );
@@ -141,7 +166,7 @@ describe("buildAttentionItems", () => {
     ]);
   });
 
-  it("uses the agency's vocabulary for an agent", () => {
+  it("an agent gets only the wallet item (no posting item, whatever the job-postings read says)", () => {
     const out = buildAttentionItems(
       { ...HEALTHY, credits: { payerId: "p", balance: 0 } },
       { isAgency: true, isOwner: true },

@@ -29,7 +29,7 @@ export function UnlockResultToast({ kind, onClose }: UnlockResultToastProps) {
   if (kind === "granted") {
     return (
       <Toast tone="success" title={UNLOCK_SUCCESS_TITLE} onClose={onClose}>
-        The routed relay is ready under this candidate&rsquo;s contact.
+        The routed relay is ready under this applicant&rsquo;s contact.
       </Toast>
     );
   }

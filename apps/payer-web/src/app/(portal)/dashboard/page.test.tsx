@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
+import { DEFAULT_CATALOG } from "@badabhai/pricing";
 import { MaskedCandidate, StatTile } from "../../../components/ds";
+import { unlockUnitPriceInr } from "../../../lib/pricing-config";
 
 /**
  * DASHBOARD (DS1.2) — server component rendered to an element tree in the node env and
@@ -11,8 +13,15 @@ import { MaskedCandidate, StatTile } from "../../../components/ds";
  */
 const requirePayer = vi.fn();
 const getDashboard = vi.fn();
+const getOrgRole = vi.fn();
+const getLiveCatalog = vi.fn();
+const flags = { agencyPortalEnabled: true };
 vi.mock("../../../lib/auth", () => ({ requirePayer: () => requirePayer() }));
-vi.mock("../../../lib/payer-api", () => ({ getDashboard: () => getDashboard() }));
+vi.mock("../../../lib/auth/org-roles", () => ({ getOrgRole: (s: unknown) => getOrgRole(s) }));
+vi.mock("../../../lib/config", () => ({ agencyFlags: () => flags }));
+vi.mock("../../../lib/payer-api", () => ({ getDashboard: (o: unknown) => getDashboard(o) }));
+// The per-unlock price is the LIVE catalog's (the same source as Credits).
+vi.mock("../../../lib/live-catalog", () => ({ getLiveCatalog: () => getLiveCatalog() }));
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: ReactNode; href: string }) => ({
     type: "a",
@@ -26,6 +35,7 @@ const AgentSectionsStub = () => null;
 vi.mock("./agent-sections", () => ({ AgentSections: AgentSectionsStub }));
 
 const { default: DashboardPage } = await import("./page");
+const { PageHeader } = await import("../../../components/page-header");
 
 const DATA = {
   credits: { payerId: "p", balance: 247 },
@@ -105,8 +115,10 @@ const p = (el: ReactElement): Record<string, unknown> => el.props as Record<stri
 async function render(
   over?: Partial<typeof DATA> | { throws: true },
   role: "employer" | "agent" = "employer",
+  orgRole: "owner" | "recruiter" = "owner",
 ): Promise<ReactElement> {
   requirePayer.mockResolvedValue({ payerId: "p", displayLabel: "Acme", role });
+  getOrgRole.mockReturnValue(orgRole);
   if (over && "throws" in over) getDashboard.mockRejectedValue(new Error("boom"));
   else getDashboard.mockResolvedValue({ ...DATA, ...over });
   return (await DashboardPage()) as ReactElement;
@@ -115,7 +127,29 @@ async function render(
 beforeEach(() => {
   requirePayer.mockReset();
   getDashboard.mockReset();
+  getOrgRole.mockReset();
+  getLiveCatalog.mockReset().mockResolvedValue({ products: DEFAULT_CATALOG.products, live: true });
+  flags.agencyPortalEnabled = true;
 });
+
+/** Every `href` in the tree, including link-bearing props (Card / StatTile `href`). */
+function hrefsOf(node: ReactNode, acc: string[] = []): string[] {
+  if (node === null || node === undefined || typeof node !== "object") return acc;
+  if (Array.isArray(node)) {
+    node.forEach((c) => hrefsOf(c, acc));
+    return acc;
+  }
+  const el = node as ReactElement<{ href?: unknown; children?: ReactNode }>;
+  if (typeof el.props?.href === "string") acc.push(el.props.href);
+  if (el.type === PageHeader) {
+    const hp = el.props as { primaryAction?: { href: string } };
+    if (hp.primaryAction) acc.push(hp.primaryAction.href);
+  }
+  if (el.props && "children" in el.props) hrefsOf(el.props.children, acc);
+  return acc;
+}
+
+const headOf = (tree: ReactNode) => findAll(tree, PageHeader)[0]!;
 
 describe("DS1.2 · StatTiles read live counts (mono tabular)", () => {
   it("renders balance / open postings / unlocked from the live read", async () => {
@@ -133,23 +167,144 @@ describe("DS1.2 · StatTiles read live counts (mono tabular)", () => {
     const balance = findAll(tree, StatTile).find((t) => p(t).label === "Credit balance")!;
     const monos = findByClass(p(balance).caption as ReactNode, "bb-mono");
     expect(monos.length).toBeGreaterThan(0);
-    expect(monos.map((m) => textOf(p(m).children as ReactNode)).join("")).toContain("₹40");
+    const unit = unlockUnitPriceInr(DEFAULT_CATALOG.products)!;
+    expect(monos.map((m) => textOf(p(m).children as ReactNode)).join("")).toContain(`₹${unit}`);
+  });
+
+  it("the unlock price is DERIVED from the live catalog (an ops edit shows), never a literal", async () => {
+    // Double every unlock pack's price (as Credits' own test edits it): the figure must follow.
+    const EDITED = DEFAULT_CATALOG.products.map((x) =>
+      x.kind === "credit_pack" && x.code === "contact_unlock"
+        ? { ...x, tiers: x.tiers.map((t) => ({ ...t, priceInr: t.priceInr * 2 })) }
+        : x,
+    );
+    const before = unlockUnitPriceInr(DEFAULT_CATALOG.products)!;
+    const after = unlockUnitPriceInr(EDITED)!;
+    expect(after).not.toBe(before);
+    getLiveCatalog.mockResolvedValue({ products: EDITED, live: true });
+    const tree = await render();
+    const balance = findAll(tree, StatTile).find((t) => p(t).label === "Credit balance")!;
+    expect(textOf(p(balance).caption as ReactNode)).toContain(`₹${after}`);
+    expect(textOf(p(balance).caption as ReactNode)).not.toContain(`₹${before} `);
+  });
+
+  it("no unlock price on offer → no caption (never a made-up figure)", async () => {
+    getLiveCatalog.mockResolvedValue({ products: [], live: true });
+    const tree = await render();
+    const balance = findAll(tree, StatTile).find((t) => p(t).label === "Credit balance")!;
+    expect(p(balance).caption).toBeUndefined();
+  });
+
+  it("an agency session never asks for the company postings list", async () => {
+    await render(undefined, "agent");
+    expect(getDashboard).toHaveBeenCalledWith({ withPostings: false });
+    getDashboard.mockClear();
+    await render();
+    expect(getDashboard).toHaveBeenCalledWith({ withPostings: true });
   });
 });
 
 describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
-  it("each StatTile is a whole-tile link to its mapped route, with an accessible name", async () => {
-    const tree = await render();
-    const tiles = findAll(tree, StatTile);
-    const byLabel = (l: string) => tiles.find((t) => p(t).label === l)!;
-    expect(p(byLabel("Credit balance")).href).toBe("/credits");
-    expect(p(byLabel("Open postings")).href).toBe("/postings");
-    expect(p(byLabel("Contacts unlocked")).href).toBe("/postings");
-    // every linked tile carries a non-empty accessible name
-    for (const t of tiles) {
-      expect(typeof p(t).href).toBe("string");
-      expect(String(p(t).ariaLabel ?? "").length).toBeGreaterThan(0);
+  it("every tile is a COUNT — the balance too (the header chip is the balance's door)", async () => {
+    for (const orgRole of ["owner", "recruiter"] as const) {
+      const tiles = findAll(await render(undefined, "employer", orgRole), StatTile);
+      expect(tiles).toHaveLength(3);
+      // "Open postings" repeated the panel's link; "Contacts unlocked" opened a list with no
+      // unlocks on it; the balance repeated the header chip and the Buy credits card.
+      for (const t of tiles) {
+        expect(p(t).href, String(p(t).label)).toBeUndefined();
+        expect(p(t).ariaLabel, String(p(t).label)).toBeUndefined();
+      }
     }
+  });
+
+  it("a RECRUITER is never linked to /credits (Owner-only — it 404s for them)", async () => {
+    const tree = await render({ credits: { payerId: "p", balance: 0 } }, "employer", "recruiter");
+    expect(hrefsOf(tree)).not.toContain("/credits");
+    // …while an owner on the same data gets ONE door to it: the Buy credits card.
+    const owner = await render({ credits: { payerId: "p", balance: 0 } }, "employer", "owner");
+    expect(hrefsOf(owner).filter((h) => h === "/credits")).toHaveLength(1);
+  });
+
+  it("a needs-you item adds no button when the page already offers that destination", async () => {
+    // An owner at a low balance: the item still SAYS it; the Buy credits card is the door.
+    // (Only the granted unlock, so the low balance is the one item.)
+    const healthy = { unlocks: [DATA.unlocks[0]!] };
+    const tree = await render(
+      { ...healthy, credits: { payerId: "p", balance: 3 } },
+      "employer",
+      "owner",
+    );
+    const items = findByClass(tree, "attention__item");
+    expect(items.map((i) => textOf(i))).toEqual([expect.stringContaining("unlock credits left")]);
+    expect(findByClass(tree, "attention__action")).toEqual([]);
+    expect(hrefsOf(tree).filter((h) => h === "/credits")).toHaveLength(1);
+    // A recruiter is told who can fix it, in words — and gets no button either.
+    const recruiter = await render(
+      { ...healthy, credits: { payerId: "p", balance: 3 } },
+      "employer",
+      "recruiter",
+    );
+    expect(textOf(findByClass(recruiter, "attention__item")[0]!)).toContain(
+      "Ask your account owner to buy credits",
+    );
+    expect(findByClass(recruiter, "attention__action")).toEqual([]);
+  });
+
+  it("all postings closed: the needs-you item says so, and the head's New posting is the door", async () => {
+    const tree = await render({
+      postings: DATA.postings.map((x) => ({ ...x, status: "closed" })),
+      unlocks: [DATA.unlocks[0]!],
+    });
+    expect(textOf(findByClass(tree, "attention")[0]!)).toContain("No open postings");
+    expect(findByClass(tree, "attention__action")).toEqual([]);
+    expect(hrefsOf(tree).filter((h) => h === "/postings/new")).toHaveLength(1);
+  });
+
+  it("'No postings yet' is said ONCE, by the postings panel", async () => {
+    const tree = await render({ postings: [], unlocks: [DATA.unlocks[0]!] });
+    expect(textOf(tree).match(/No postings yet/g)).toHaveLength(1);
+    // Zero postings is not a needs-you item (the panel says it right there).
+    expect(findByClass(tree, "attention")).toEqual([]);
+  });
+
+  it("quick actions follow their destination's gate, and none repeats a door the page has", async () => {
+    const labels = async (role: "employer" | "agent", orgRole: "owner" | "recruiter") =>
+      findByClass(await render(undefined, role, orgRole), "quick__card").map((c) =>
+        textOf(c).trim(),
+      );
+    // Credits is Owner-only; Plans & capacity is a COMPANY page; no "Invite workers" door (the
+    // agency's invite tools are their own section).
+    expect((await labels("employer", "owner")).join(" | ")).toMatch(/^Buy credits.*\| Plans & capacity/);
+    expect(await labels("employer", "owner")).toHaveLength(2);
+    expect((await labels("employer", "recruiter")).join(" ")).toMatch(/^Plans & capacity/);
+    expect(await labels("employer", "recruiter")).toHaveLength(1);
+    expect((await labels("agent", "owner")).join(" ")).toMatch(/^Buy credits/);
+    expect(await labels("agent", "owner")).toHaveLength(1);
+    expect(await labels("agent", "recruiter")).toEqual([]);
+    for (const role of ["employer", "agent"] as const) {
+      expect(textOf(await render(undefined, role, "owner"))).not.toMatch(/Invite workers/);
+    }
+  });
+
+  it("no quick actions at all → no empty 'Quick actions' band", async () => {
+    const tree = await render(undefined, "agent", "recruiter");
+    expect(findByClass(tree, "quick")).toEqual([]);
+    expect(textOf(tree)).not.toContain("Quick actions");
+  });
+
+  it("ONE link to the Postings list and ONE New posting entry point (the head)", async () => {
+    const tree = await render();
+    const all = hrefsOf(tree);
+    expect(all.filter((h) => h === "/postings")).toHaveLength(1);
+    // A healthy account has no attention item, so the head is the only door to the form.
+    const healthy = await render({ unlocks: [DATA.unlocks[0]!] });
+    expect(hrefsOf(healthy).filter((h) => h === "/postings/new")).toHaveLength(1);
+    expect(p(headOf(healthy)).primaryAction).toEqual({
+      href: "/postings/new",
+      label: "New posting",
+      icon: "plus",
+    });
   });
 
   it("each 'Your postings' card links to THAT posting's applicants (real opaque id)", async () => {
@@ -163,11 +318,11 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
     expect(cards.every((c) => String(p(c).ariaLabel ?? "").includes("view applicants"))).toBe(true);
   });
 
-  it("each Recent-unlock row is a whole-row link to /postings (faceless)", async () => {
+  it("each Recent-unlock row is a faceless row, NOT a link to a list that shows no unlocks", async () => {
     const tree = await render();
-    const links = findByClass(tree, "dash-unlock-link");
-    expect(links.length).toBe(2);
-    expect(links.every((l) => p(l).href === "/postings")).toBe(true);
+    const rows = findByClass(tree, "dash-unlock-link");
+    expect(rows.length).toBe(2);
+    expect(rows.every((l) => p(l).href === undefined && p(l).ariaLabel === undefined)).toBe(true);
   });
 
   it("NO worker PII (uuid / phone-shaped / +91) appears in ANY generated href", async () => {
@@ -219,8 +374,10 @@ describe("UI-1 · empty + error states", () => {
     expect(findByClass(tree, "state").length).toBeGreaterThanOrEqual(2);
     expect(textOf(tree)).toContain("No contacts unlocked yet");
     expect(textOf(tree)).toContain("No postings yet");
-    // PHASE 16 — an empty state must say what to do next, not just that it is empty.
-    expect(textOf(tree)).toContain("Post a job");
+    // PHASE 16 — an empty state must say what to do next, not just that it is empty: it names
+    // the page's one primary action, which the head carries.
+    expect(textOf(tree)).toContain("use New posting above");
+    expect(p(headOf(tree)).primaryAction).toMatchObject({ label: "New posting" });
   });
 
   it("renders a neutral error state (no raw backend detail) when the read fails", async () => {
@@ -260,6 +417,8 @@ describe("MERGE-1 · single role-aware dashboard composition (agent vs employer)
     expect(tiles.length).toBe(3); // Credit balance + Revenue (agent-only) + Contacts unlocked
     const labels = tiles.map((t) => p(t).label);
     expect(labels).toContain("Revenue"); // agent-only tile, no posting-derived data
+    // The ONE way to Revenue on the dashboard (AgentSections no longer repeats it).
+    expect(hrefsOf(tree).filter((h) => h === "/agency/revenue")).toHaveLength(1);
     expect(labels).not.toContain("Open postings");
     expect(labels).not.toContain("Open vacancies");
     // the employer-postings list does NOT render for an agent (no contradictory second list)
@@ -293,6 +452,10 @@ describe("PR-D2 · hierarchy + KPI variant", () => {
       const el = k as ReactElement<{ className?: unknown }>;
       if (el.type === AgentSectionsStub) {
         out.push("agency");
+        continue;
+      }
+      if (el.type === PageHeader) {
+        out.push("head");
         continue;
       }
       const cn = typeof el.props?.className === "string" ? el.props.className : "";
@@ -340,5 +503,33 @@ describe("PR-D2 · hierarchy + KPI variant", () => {
     expect(rows).toHaveLength(1);
     expect(String(p(rows[0]!).className).split(/\s+/)).toEqual(["stat-row", "stat-row--kpi"]);
     expect(findAll(rows[0], StatTile)).toHaveLength(3);
+  });
+});
+
+describe("AGENCY posting entry point — the agency form, never the company one", () => {
+  it("an agent's head 'New posting' opens /agency/jobs/new; no link reaches /postings*", async () => {
+    const tree = await render(undefined, "agent");
+    expect(p(headOf(tree)).primaryAction).toEqual({
+      href: "/agency/jobs/new",
+      label: "New posting",
+      icon: "plus",
+    });
+    expect(hrefsOf(tree).filter((h) => h.startsWith("/postings"))).toEqual([]);
+  });
+
+  it("with the agency-portal flag OFF an agent gets no posting door and no agency tiles", async () => {
+    // Every agency page 404s with the flag off, so nothing here may link to one.
+    flags.agencyPortalEnabled = false;
+    const tree = await render(undefined, "agent");
+    expect(p(headOf(tree)).primaryAction).toBeUndefined();
+    const hrefs = hrefsOf(tree);
+    expect(hrefs.filter((h) => h.startsWith("/agency"))).toEqual([]);
+    expect(hrefs.filter((h) => h.startsWith("/postings"))).toEqual([]);
+    expect(findAll(tree, StatTile).map((t) => p(t).label)).not.toContain("Revenue");
+  });
+
+  it("a company dashboard never shows agency vocabulary", async () => {
+    expect(textOf(await render())).not.toMatch(/vacanc/i);
+    expect(textOf(await render(undefined, "agent"))).not.toMatch(/vacanc/i);
   });
 });

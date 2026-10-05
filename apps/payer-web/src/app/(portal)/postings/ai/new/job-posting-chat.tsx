@@ -71,7 +71,7 @@ export function validateTurn(text: string): string | null {
     return `That message is too long — keep it under ${MAX_TURN_CHARS} characters.`;
   }
   if (looksLikePii(t)) {
-    return "Remove contact details (phone/email) — share those only after you unlock a candidate.";
+    return "Remove contact details (phone/email) — share those only after you unlock an applicant.";
   }
   return null;
 }
@@ -318,7 +318,7 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
               placeholder="e.g. I need 6 CNC operators in Pune for the night shift"
               value={text}
               maxLength={MAX_TURN_CHARS}
-              hint="Never include a phone number or email — share contact only after you unlock a candidate."
+              hint="Never include a phone number or email — share contact only after you unlock an applicant."
               onChange={(e) => setText(e.target.value)}
             />
             <Button

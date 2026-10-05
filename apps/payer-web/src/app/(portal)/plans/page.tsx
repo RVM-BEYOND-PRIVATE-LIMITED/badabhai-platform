@@ -1,6 +1,11 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requirePayer } from "../../../lib/auth";
+import { getOrgRole } from "../../../lib/auth/org-roles";
 import { getCapacity } from "../../../lib/payer-api";
+import { COMPANY_POSTING_ROUTES } from "../../../lib/posting-routes";
+import { HIRING_CAPACITY_ANCHOR } from "../../../lib/billing-routes";
 import { getLiveCatalog } from "../../../lib/live-catalog";
 import {
   hiringCapacityTiers,
@@ -11,6 +16,7 @@ import { formatInr } from "../../../lib/format";
 import type { Capacity } from "../../../lib/contracts";
 import { Badge, Card, StatTile } from "../../../components/ds";
 import { CachedPricingNote } from "../../../components/cached-pricing-note";
+import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
 import { CapacityPanel } from "../capacity/capacity-panel";
 
@@ -19,11 +25,25 @@ export const dynamic = "force-dynamic";
 /** The per-posting table's heading — also the NAME of its scroll region (aria-labelledby). */
 const QUOTA_TABLE_HEADING_ID = "plans-quota-table-title";
 
+/**
+ * Plans & capacity — a COMPANY's billing area: usage, the Hiring capacity tiers, each posting's
+ * applicant quota, credit packs and posting plans.
+ *
+ * COMPANY-ONLY (2026-10-01, a consequence of ruling 2): everything sold here is an entitlement
+ * on COMPANY postings (`job_postings`: concurrent capacity, per-posting applicant quota, posting
+ * plans), and an agency posts agency jobs only. An agent is sent to the dashboard before any
+ * read; the agency rail and dashboard do not offer this page. Credits (/credits) stays for both
+ * personas.
+ *
+ * Naming: one word per concept — "postings", "Hiring capacity" (the concurrent allowance),
+ * "Applicant quota" (the per-posting cap), "Credits". One door per destination: the credit packs
+ * share ONE "Buy credits" (Credits does not preselect a pack, so per-card buttons were the same
+ * link N times) — for an OWNER only, since a recruiter's /credits is a 404; and ONE "New posting".
+ */
 export default async function PlansPage() {
   const session = await requirePayer();
-  const isAgency = session.role === "agent";
-  const unit = isAgency ? "vacancies" : "postings";
-  const unitOne = isAgency ? "vacancy" : "posting";
+  if (session.role === "agent") redirect("/dashboard");
+  const isOwner = getOrgRole(session) === "owner";
 
   const { products, live } = await getLiveCatalog();
   const packs = offeredCreditPacks(products);
@@ -45,17 +65,10 @@ export default async function PlansPage() {
   // globals.css) — it carries no styling of its own.
   return (
     <div className="plans-page">
-      <p className="page-back">
-        <Link href="/dashboard">← Dashboard</Link>
-      </p>
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">Plans &amp; Capacity</h1>
-          <p className="page-head__sub">
-            Your current usage, available plans, and add-ons — all in one place.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Plans & capacity"
+        description="Your current usage, available plans, and add-ons — all in one place."
+      />
 
       {!live ? <CachedPricingNote /> : null}
 
@@ -68,7 +81,7 @@ export default async function PlansPage() {
           <Card>
             <div className="state state--error">
               <span className="state__icon">
-                <i className="ph-fill ph-warning-circle" aria-hidden="true" />
+                <Icon name="warning-circle" />
               </span>
               <h3 className="state__title">Service unavailable</h3>
               <p className="state__body">
@@ -84,7 +97,7 @@ export default async function PlansPage() {
           <>
             <div className="stat-row stat-row--kpi">
               <StatTile
-                label={`Active ${unit}`}
+                label="Active postings"
                 value={
                   <span className="bb-mono">
                     {capacity.activeVacancies} / {capacity.activeVacancyAllowance}
@@ -100,18 +113,23 @@ export default async function PlansPage() {
                     {capacity.applicantQuotaUsed} / {capacity.applicantQuotaTotal}
                   </span>
                 }
-                icon="users-three"
-                caption={<Link href="/postings">Top up applicant quota →</Link>}
+                icon={ACTION_ICON.users}
+                caption={
+                  // Slots are added per posting, on the Postings page.
+                  <Link href="/postings">
+                    Add applicant slots in Postings <Icon name={ACTION_ICON.next} />
+                  </Link>
+                }
               />
             </div>
 
             {atCapacity ? (
               <div className="alert alert--warning">
-                <i className="ph-fill ph-warning alert__icon" aria-hidden="true" />
+                <Icon name="warning" className="alert__icon" />
                 <div className="alert__text">
                   <p className="alert__title">At capacity</p>
                   <p className="alert__body">
-                    You are at capacity — new {unit} will be paused until you add capacity.
+                    You are at capacity — new postings will be paused until you add capacity.
                   </p>
                 </div>
               </div>
@@ -120,13 +138,13 @@ export default async function PlansPage() {
         ) : null}
       </section>
 
-      {/* ── Capacity tiers ── */}
-      <section className="section">
+      {/* ── Capacity tiers ── (the target of /capacity → /plans#hiring-capacity) */}
+      <section className="section anchor-target" id={HIRING_CAPACITY_ANCHOR}>
         <div className="section__head">
           <div className="section__text">
-            <h2 className="section__title">Hiring Capacity</h2>
+            <h2 className="section__title">Hiring capacity</h2>
             <p className="section__sub">
-              Increase how many concurrent {unitOne}s you can run at once. Your active count above
+              Increase how many concurrent postings you can run at once. Your active count above
               is <strong>live from the enforcement engine</strong>. Prices are{" "}
               <strong>mock</strong> — no real payment is taken.
             </p>
@@ -135,7 +153,7 @@ export default async function PlansPage() {
         {tiers.length === 0 ? (
           <div className="state">
             <span className="state__icon">
-              <i className="ph-fill ph-stack" aria-hidden="true" />
+              <Icon name="stack" />
             </span>
             <h3 className="state__title">No capacity tiers on offer</h3>
             <p className="state__body">
@@ -147,12 +165,12 @@ export default async function PlansPage() {
           <CapacityPanel tiers={tiers} />
         )}
         <div className="alert alert--info">
-          <i className="ph-fill ph-info alert__icon" aria-hidden="true" />
+          <Icon name="info" className="alert__icon" />
           <div className="alert__text">
             <p className="alert__title">Recorded only — nothing is blocked yet.</p>
             <p className="alert__body">
-              Buying capacity is stored against your account; the concurrent-vacancy cap is not
-              yet enforced, so it does not pause or block any {unitOne} today. Mock payments only
+              Buying capacity is stored against your account; the concurrent-posting cap is not
+              yet enforced, so it does not pause or block any posting today. Mock payments only
               — no money moves.
             </p>
           </div>
@@ -165,11 +183,11 @@ export default async function PlansPage() {
           <div className="panel__head">
             <div className="panel__text">
               <h2 className="panel__title" id={QUOTA_TABLE_HEADING_ID}>
-                Per {unitOne} applicant quota
+                Applicant quota per posting
               </h2>
               <p className="panel__sub">
                 Your concurrent allowance and active count above are <strong>live</strong> from
-                the backend enforcement engine. The per-{unitOne} rows reflect backend-seeded
+                the backend enforcement engine. The per-posting rows reflect backend-seeded
                 plans only.
               </p>
             </div>
@@ -187,7 +205,7 @@ export default async function PlansPage() {
                     <tr>
                       <th>Role</th>
                       <th>Status</th>
-                      <th>Vacancies</th>
+                      <th>Openings</th>
                       <th className="num">Applicants seen</th>
                       <th className="num">Applicant quota</th>
                     </tr>
@@ -228,18 +246,14 @@ export default async function PlansPage() {
             ) : (
               <div className="state">
                 <span className="state__icon">
-                  <i className="ph-fill ph-briefcase" aria-hidden="true" />
+                  <Icon name={ACTION_ICON.posting} />
                 </span>
-                <h3 className="state__title">No {unit} yet</h3>
+                <h3 className="state__title">No postings yet</h3>
+                {/* The page's one "New posting" is in Posting plans below. */}
                 <p className="state__body">
-                  You haven&rsquo;t posted {isAgency ? "a vacancy" : "a job"} yet. Once you do,
-                  its applicant quota shows here.
+                  You haven&rsquo;t published a posting yet. Once you do, its applicant quota
+                  shows here.
                 </p>
-                <div className="state__actions">
-                  <Link className="bb-btn bb-btn--primary bb-btn--sm" href="/postings/new">
-                    {isAgency ? "Post your first vacancy" : "Post your first job"}
-                  </Link>
-                </div>
               </div>
             )}
           </div>
@@ -250,16 +264,27 @@ export default async function PlansPage() {
       <section className="section">
         <div className="section__head">
           <div className="section__text">
-            <h2 className="section__title">Contact Unlock Credits</h2>
+            <h2 className="section__title">Credits</h2>
             <p className="section__sub">
-              Buy credits to unlock worker contact details. 1 credit = 1 contact unlock.
+              {isOwner ? "Buy credits" : "Ask your account owner to buy credits"} to unlock
+              worker contact details. 1 credit = 1 contact unlock.
             </p>
           </div>
+          {/* ONE door to Credits for the whole section (Credits does not preselect a pack).
+              Owner-only: Credits is `requireOwner()`, so a recruiter is never sent to its 404. */}
+          {isOwner ? (
+            <div className="section__actions">
+              <Link className="bb-btn bb-btn--secondary" href="/credits">
+                <Icon name={ACTION_ICON.credits} />
+                <span>Buy credits</span>
+              </Link>
+            </div>
+          ) : null}
         </div>
         {packs.length === 0 ? (
           <div className="state">
             <span className="state__icon">
-              <i className="ph-fill ph-wallet" aria-hidden="true" />
+              <Icon name={ACTION_ICON.credits} />
             </span>
             <h3 className="state__title">No credit packs on offer</h3>
             <p className="state__body">
@@ -278,11 +303,6 @@ export default async function PlansPage() {
                 <p className="plan-card__detail">
                   <span className="bb-mono">{p.credits}</span> credits
                 </p>
-                {/* The action is the LINK itself (`bb-btn` on the anchor), not a <button>
-                    inside an <a> — one control, one accessible role. */}
-                <Link className="bb-btn bb-btn--primary bb-btn--block" href="/credits">
-                  Buy
-                </Link>
               </Card>
             ))}
           </div>
@@ -293,21 +313,26 @@ export default async function PlansPage() {
       <section className="section">
         <div className="section__head">
           <div className="section__text">
-            <h2 className="section__title">{isAgency ? "Vacancy" : "Job"} Posting Plans</h2>
-            <p className="section__sub">
-              {isAgency ? "Vacancies" : "Postings"} are free through launch.
-            </p>
+            <h2 className="section__title">Posting plans</h2>
+            <p className="section__sub">Postings are free through launch.</p>
+          </div>
+          {/* The page's ONE "New posting" (the plan cards used to carry one each). */}
+          <div className="section__actions">
+            <Link className="bb-btn bb-btn--secondary" href={COMPANY_POSTING_ROUTES.create}>
+              <Icon name={ACTION_ICON.create} />
+              <span>New posting</span>
+            </Link>
           </div>
         </div>
         {postingTiers.length === 0 ? (
           <div className="state">
             <span className="state__icon">
-              <i className="ph-fill ph-briefcase" aria-hidden="true" />
+              <Icon name={ACTION_ICON.posting} />
             </span>
             <h3 className="state__title">No posting plans on offer</h3>
             <p className="state__body">
               No plan is listed right now — this usually means the price list is being updated.
-              Any {unitOne} you have already posted stays live; check back shortly.
+              Any posting you have already published stays live; check back shortly.
             </p>
           </div>
         ) : (
@@ -319,9 +344,6 @@ export default async function PlansPage() {
                 </div>
                 <div className="plan-card__price bb-mono">Free</div>
                 <p className="plan-card__detail">Valid for {t.validityDays} days</p>
-                <Link className="bb-btn bb-btn--primary bb-btn--block" href="/postings/new">
-                  Post now
-                </Link>
               </Card>
             ))}
           </div>
@@ -330,7 +352,7 @@ export default async function PlansPage() {
 
       {/* ── Mock payments disclaimer ── */}
       <div className="alert alert--info">
-        <i className="ph-fill ph-info alert__icon" aria-hidden="true" />
+        <Icon name="info" className="alert__icon" />
         <div className="alert__text">
           <p className="alert__title">Mock payments</p>
           <p className="alert__body">

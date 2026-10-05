@@ -1,9 +1,10 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
+import { ACTION_ICON } from "@badabhai/icons";
 import { getPostingDetail } from "../../../../lib/payer-api";
 import { requirePayer } from "../../../../lib/auth";
 import { Badge } from "../../../../components/ds";
+import { PageHeader, type PageHeaderAction } from "../../../../components/page-header";
 import { JobCardPreview } from "../../../../components/job-card-preview";
 import { toJobCardView } from "../../../../lib/job-card-view";
 import { jobRoleLabel } from "../../../../lib/job-roles";
@@ -14,7 +15,12 @@ export const dynamic = "force-dynamic";
  * Manage-posting DETAIL (PR-B) — the caller's OWN posting via the LIVE `GET /payer/job-postings/:id`
  * detail read (XB-A; unknown OR not-owned → neutral 404 → `notFound()`). FACELESS: the payer's own
  * fields only. Shows the SAME {@link JobCardPreview} the form previews (one mapper), plus the kv
- * facts. A DRAFT gets a "Finish and publish" CTA — a draft reaches nobody until it is published.
+ * facts. A DRAFT's one action is "Edit posting" — a draft reaches nobody until it is published
+ * there ("Publish posting").
+ *
+ * An AGENT's older company posting is VIEW-ONLY (owner ruling 2026-10-01): no action at all — not
+ * Edit (its page sends an agent back here) and not Applicants (that feed unlocks contacts; it
+ * sends an agent back here too). The agency's own postings live under /agency/jobs.
  */
 
 function day(ts: string): string {
@@ -29,7 +35,7 @@ function statusTone(status: string): "success" | "warning" | "neutral" {
 }
 
 export default async function PostingDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  await requirePayer();
+  const session = await requirePayer();
   const { id } = await params;
   if (!z.string().uuid().safeParse(id).success) notFound();
   const detail = await getPostingDetail(id);
@@ -38,43 +44,42 @@ export default async function PostingDetailPage({ params }: { params: Promise<{ 
   const { summary, card, description } = detail;
   const view = toJobCardView(card);
   const isDraft = summary.status === "draft";
+  // An agent's OLDER company posting is view-only (owner ruling 2026-10-01; see ../page.tsx).
+  const readOnly = session.role === "agent";
+  const edit: PageHeaderAction = {
+    href: `/postings/${summary.id}/edit`,
+    label: "Edit posting",
+    icon: ACTION_ICON.edit,
+  };
+  const applicants: PageHeaderAction = {
+    href: `/postings/${summary.id}/applicants`,
+    label: "View applicants",
+    icon: ACTION_ICON.users,
+  };
+  // ONE action per destination: a draft has no applicants yet, so its one action is to finish
+  // it on the edit page (it used to offer "Finish and publish" AND "Edit posting", both → edit).
+  // Read-only: none.
+  const primary = readOnly ? undefined : isDraft ? edit : applicants;
+  const secondaries = readOnly || isDraft ? [] : [edit];
 
   return (
     <>
-      <p className="page-back">
-        <Link href="/postings">← Manage postings</Link>
-      </p>
-      <div className="page-head">
-        <div className="page-head__text">
-          <h1 className="page-head__title">{summary.roleTitle}</h1>
-          <p className="page-head__sub">
-            What this posting says and where it stands. Applicants stay masked until you unlock them.
-          </p>
-        </div>
-        <div className="page-head__actions">
+      <PageHeader
+        back={{ href: "/postings", label: readOnly ? "Older postings" : "Postings" }}
+        title={summary.roleTitle}
+        description={
+          readOnly
+            ? "What this older posting says and where it stands — it is view-only."
+            : "What this posting says and where it stands — applicants stay masked until you unlock them."
+        }
+        status={
           <Badge tone={statusTone(summary.status)} upper>
             {summary.status}
           </Badge>
-          {isDraft ? (
-            <Link className="bb-btn bb-btn--primary bb-btn--sm" href={`/postings/${summary.id}/edit`}>
-              <i className="ph-fill ph-rocket-launch" aria-hidden="true" />
-              <span>Finish and publish</span>
-            </Link>
-          ) : (
-            <Link
-              className="bb-btn bb-btn--primary bb-btn--sm"
-              href={`/postings/${summary.id}/applicants`}
-            >
-              <i className="ph-fill ph-users-three" aria-hidden="true" />
-              <span>View applicants</span>
-            </Link>
-          )}
-          <Link className="bb-btn bb-btn--secondary bb-btn--sm" href={`/postings/${summary.id}/edit`}>
-            <i className="ph-fill ph-pencil-simple" aria-hidden="true" />
-            <span>Edit posting</span>
-          </Link>
-        </div>
-      </div>
+        }
+        primaryAction={primary}
+        secondaryActions={secondaries}
+      />
 
       {isDraft ? (
         <div className="alert alert--info">
@@ -82,7 +87,9 @@ export default async function PostingDetailPage({ params }: { params: Promise<{ 
           <div className="alert__text">
             <p className="alert__title">This posting is a draft</p>
             <p className="alert__body">
-              A draft reaches nobody. Finish the card and publish it so workers can find the job.
+              {readOnly
+                ? "A draft reaches nobody, and older postings are view-only."
+                : "A draft reaches nobody. Finish the card and publish it so workers can find it."}
             </p>
           </div>
         </div>

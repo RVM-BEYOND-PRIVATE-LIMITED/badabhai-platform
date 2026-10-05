@@ -3,7 +3,8 @@
  *
  * The vitest env is `node` — there is no layout engine — so a layout regression fence asserts
  * the DECLARED geometry instead: it flattens a stylesheet into rules (keeping the enclosing
- * `@media`/`@supports` prelude, so a phone rule is distinguishable from its desktop base) and
+ * `@media`/`@supports`/`@container` prelude, so a phone rule is distinguishable from its desktop
+ * base) and
  * reads declarations out of them. Shared so each fence does not carry its own parser.
  */
 

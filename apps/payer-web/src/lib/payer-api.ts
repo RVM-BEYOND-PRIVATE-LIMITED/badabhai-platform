@@ -166,13 +166,23 @@ export async function getUnlocks(): Promise<UnlockHistoryItem[]> {
 }
 
 /**
- * Dashboard = LIVE credits + LIVE unlocks + LIVE postings. ALL three are now payer-authed
- * reads (the job-postings list moved off the mock store onto GET /payer/job-postings), so the
- * dashboard and the /postings list share ONE source of truth — a posting created via the live
- * POST appears on both. Fetched concurrently; each derives the session payer itself (XB-A).
+ * Dashboard = LIVE credits + LIVE unlocks + (optionally) LIVE company postings. All are
+ * payer-authed reads (the job-postings list is GET /payer/job-postings), so the dashboard and
+ * the /postings list share ONE source of truth — a posting created via the live POST appears on
+ * both. Fetched concurrently; each derives the session payer itself (XB-A).
+ *
+ * `withPostings` is REQUIRED, so every caller decides: the company postings list belongs to the
+ * COMPANY surface, and an AGENCY session never reads it (owner ruling 2026-10-01 — agencies post
+ * agency jobs; the backend role gate for that list is #1885, after which an agent's read would
+ * fail). With `withPostings: false` no job-postings request is made and `postings` is `[]` —
+ * a statement about what was READ, not about what exists; callers that skip it never show it.
  */
-export async function getDashboard(): Promise<Dashboard> {
-  const [credits, unlocks, postings] = await Promise.all([getCredits(), getUnlocks(), getPostings()]);
+export async function getDashboard({ withPostings }: { withPostings: boolean }): Promise<Dashboard> {
+  const [credits, unlocks, postings] = await Promise.all([
+    getCredits(),
+    getUnlocks(),
+    withPostings ? getPostings() : Promise.resolve<PostingSummary[]>([]),
+  ]);
   return { credits, unlocks, postings };
 }
 
@@ -227,10 +237,11 @@ function toMatchCandidate(a: MatchCandidateWire): FacelessApplicant {
 }
 
 /**
- * GET /payer/reach/jobs/:jobId/applicants — the FACELESS ranked candidate list for a
+ * GET /payer/reach/jobs/:jobId/applicants — the FACELESS ranked applicant list for a
  * job the caller OWNS (LIVE). A job that isn't the payer's returns the SAME neutral
  * 404 as an unknown one (no-oracle) → we map that to `null` and the page renders a
- * neutral not-found.
+ * neutral not-found. The portal reads it for COMPANY postings only: it does not serve an
+ * agency's `jobs` rows correctly yet (backend issue #1898), so no agency page calls it.
  *
  * TWO SERVER IMPLEMENTATIONS, ONE CLIENT. Behind `MATCH_V1_ENABLED` the route returns
  * the posting's ACTUAL APPLICANTS ordered by the frozen ADR-0036 rank snapshot; with the
@@ -255,8 +266,9 @@ export async function getApplicantFeed(jobId: string): Promise<ApplicantFeed | n
   );
   return applicantFeedSchema.parse({
     postingId: wire.jobId,
-    // The reach endpoint does not return a role title; the page falls back to a label.
-    roleTitle: "Ranked candidates",
+    // The reach endpoint does not return a role title. Nothing renders this placeholder: the
+    // applicants page names its posting from the payer's own postings read.
+    roleTitle: "Applicants",
     applicants,
   });
 }

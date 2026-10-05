@@ -14,7 +14,9 @@ import { RetryButton } from "../../../../components/retry-button";
  * per-invitee / per-worker rows here by construction; nothing is reconstructed.
  *
  * Each stage is a DS `Card` with its k-anon count in mono tabular (`bb-mono`); the count is
- * rendered IN-CARD as a child node (never a bare 0). Tokens only.
+ * rendered IN-CARD as a child node (never a bare 0). The stages are COUNTS, not doors: the
+ * dashboard's one way to the Referrals page is the Invite tools card (three cards opening one
+ * page were three doors to the same place). Tokens only.
  */
 export function ReferralFunnel({ summary }: { summary: AgencyReferralsSummary | null }) {
   if (!summary) {
@@ -35,23 +37,20 @@ export function ReferralFunnel({ summary }: { summary: AgencyReferralsSummary | 
   }
 
   const { created, clicked, accepted, minBucket } = summary;
-  // Each stage card is a whole-card link to the referrals page. The href is a static literal
-  // (no per-invitee/worker id) — aggregate, k-anon counts only; faceless preserved.
-  const REF = "/agency/referrals";
   return (
     <>
       <div className="agency-funnel">
-        <Card className="agency-funnel__card" href={REF} ariaLabel="Invites created — view referrals">
+        <Card className="agency-funnel__card">
           <h3 className="agency-funnel__label">Invites created</h3>
           <div className="agency-funnel__value bb-mono">{kAnonCount(created, minBucket)}</div>
           <p className="agency-funnel__hint">Links you minted</p>
         </Card>
-        <Card className="agency-funnel__card" href={REF} ariaLabel="Clicked — view referrals">
+        <Card className="agency-funnel__card">
           <h3 className="agency-funnel__label">Clicked</h3>
           <div className="agency-funnel__value bb-mono">{kAnonCount(clicked, minBucket)}</div>
           <p className="agency-funnel__hint">Opened the invite link</p>
         </Card>
-        <Card className="agency-funnel__card" href={REF} ariaLabel="Accepted — view referrals">
+        <Card className="agency-funnel__card">
           <h3 className="agency-funnel__label">Accepted</h3>
           <div className="agency-funnel__value bb-mono">{kAnonCount(accepted, minBucket)}</div>
           <p className="agency-funnel__hint">Joined &amp; consented</p>

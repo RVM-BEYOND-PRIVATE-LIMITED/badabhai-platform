@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MaskedResumeResult, RevealResult, UnlockResult } from "./contracts";
+import type { RevealView } from "./unlock-view";
 import {
   NEUTRAL_CONTACT_MESSAGE,
   NEUTRAL_REVEAL_MESSAGE,
@@ -112,7 +113,7 @@ describe("mapRevealResult — the LIVE wire shape (no initials field)", () => {
     }
   });
 
-  it("MaskedResumeCard renders the neutral 'Masked candidate' fallback (no name/phone)", async () => {
+  it("MaskedResumeCard renders the neutral 'Masked applicant' fallback (no name/phone)", async () => {
     const { MaskedResumeCard } = await import("../components/unlock/routed-contact-card");
     const tree = MaskedResumeCard({
       view: {
@@ -123,16 +124,37 @@ describe("mapRevealResult — the LIVE wire shape (no initials field)", () => {
       },
     });
     const text = JSON.stringify(tree);
-    expect(text).toContain("Masked candidate");
+    expect(text).toContain("Masked applicant");
     expect(text).not.toMatch(/\+?\d{7,}/); // never a phone-like run
+  });
+
+  it("the masked-resume link SAYS it opens a new tab: the external icon, and words in its name", async () => {
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { MaskedResumeCard } = await import("../components/unlock/routed-contact-card");
+    const html = renderToStaticMarkup(
+      MaskedResumeCard({
+        view: {
+          kind: "masked",
+          disclosureId: "aaaa7777-0000-4000-8000-000000000001",
+          resumeUrl: "https://api.test/signed/masked.pdf",
+          expiresAt: "2026-07-20T00:00:00.000Z",
+        },
+      }),
+    );
+    const link = html.slice(html.indexOf("<a "), html.indexOf("</a>") + 4);
+    expect(link).toContain('target="_blank"');
+    expect(link).toContain('rel="noopener noreferrer"');
+    expect(link).toContain('<i class="ph-fill ph-arrow-square-out" aria-hidden="true"></i>');
+    // The visible label, then the words a screen reader gets for the new tab.
+    expect(link.replace(/<[^>]+>/g, "")).toBe("Open masked resume (PDF) (opens in a new tab)");
+    expect(link).toContain('<span class="sr-only"> (opens in a new tab)</span>');
+    // An icon, never a prose arrow glyph.
+    expect(link).not.toMatch(/[→↗]/);
   });
 });
 
 describe("withheld-vs-missing display contract (#1581)", () => {
-  type MaskedView = Extract<
-    import("./unlock-view").RevealView,
-    { kind: "masked" }
-  >;
+  type MaskedView = Extract<RevealView, { kind: "masked" }>;
 
   const base: MaskedView = {
     kind: "masked",
@@ -153,7 +175,7 @@ describe("withheld-vs-missing display contract (#1581)", () => {
     // the client must not add differences. The ONLY legal delta is the
     // candidate line the server itself labels.
     const normalize = (s: string): string =>
-      s.replace(/R\*\*\*\*\* K\.|Masked candidate/g, "CAND");
+      s.replace(/R\*\*\*\*\* K\.|Masked applicant/g, "CAND");
     const withInitials = normalize(
       await rendered({ ...base, displayInitials: "R***** K." }),
     );

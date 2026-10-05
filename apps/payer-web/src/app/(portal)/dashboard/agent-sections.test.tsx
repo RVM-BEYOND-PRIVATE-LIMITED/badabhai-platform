@@ -15,12 +15,13 @@ import { Card } from "../../../components/ds";
  *    around it is unaffected),
  *  - FACELESS: a worker name/phone in a regressed agency-jobs payload is NEVER rendered
  *    (the section-level assertNoAgencyPII throws → the panel degrades), and
- *  - LIVE: identity / demand summary / vacancy manager / invite / referral funnel / parked
- *    modules all mount; the section itself holds NO form/input controls (those live in the
- *    child client components, unit-tested separately).
+ *  - LIVE: identity / demand summary / a "Your postings" glance / invite / referral funnel /
+ *    parked modules all mount; the section itself holds NO form/input controls (those live in
+ *    the child client components, unit-tested separately). Postings are MANAGED on
+ *    /agency/jobs and CREATED on /agency/jobs/new — the dashboard links there.
  *  - NEGATIVE: no payout/KYC commercial term (₹500 / 25% / 90d) in the section.
- *  - CARDS-1: the "Total vacancies" tile points at the SAME-PAGE #agency-vacancies anchor on
- *    /dashboard (no longer /agency/dashboard), with NO worker PII in any tile href.
+ *  - CARDS-1: the "Total postings" tile opens the agency's Postings page (/agency/jobs), with NO
+ *    worker PII in any tile href; each glance card opens THAT posting's applicants.
  *
  * Env is node (no DOM); we render the async Server Component to an element tree and walk it.
  */
@@ -68,16 +69,15 @@ vi.mock("next/link", () => ({
 // The child Server/Client components are unit-tested directly; here we render the SECTION's
 // own composition, so stub the children (which live under ../agency/dashboard/) to plain
 // markers. The manual node render does not invoke nested components.
-const JobsManagerStub = () => null;
 const InvitePanelStub = () => null;
 const ReferralFunnelStub = () => null;
 const ParkedModulesStub = () => null;
-vi.mock("../agency/dashboard/agency-jobs-manager", () => ({ AgencyJobsManager: JobsManagerStub }));
 vi.mock("../agency/dashboard/invite-panel", () => ({ AgencyInvitePanel: InvitePanelStub }));
 vi.mock("../agency/dashboard/referral-funnel", () => ({ ReferralFunnel: ReferralFunnelStub }));
 vi.mock("../agency/dashboard/parked-modules", () => ({ AgencyParkedModules: ParkedModulesStub }));
 
 const { AgentSections } = await import("./agent-sections");
+const { default: LinkStub } = await import("next/link");
 
 interface Collected {
   types: string[];
@@ -205,17 +205,74 @@ describe("agent sections — renders identity / demand summary / child modules",
     const joined = text.join(" ");
     expect(joined).toContain("Your agency");
     expect(joined).toContain("HireFast Agency");
-    expect(joined).toContain("Total vacancies");
+    expect(joined).toContain("Total postings");
     expect(joined).toContain("Demand summary");
-    expect(components).toContain(JobsManagerStub);
+    expect(joined).toContain("Your postings");
     expect(components).toContain(InvitePanelStub);
     expect(components).toContain(ReferralFunnelStub);
     expect(components).toContain(ParkedModulesStub);
   });
 
-  it("passes the LIVE jobs to the vacancy manager (demand summary derives from them)", async () => {
-    const { text } = collect(await AgentSections());
+  it("glances at the LIVE jobs (demand summary derives from them; each card → its details)", async () => {
+    const tree = await AgentSections();
+    const { text } = collect(tree);
     expect(text.join(" ")).toContain("Applicants received");
+    const cards = findAll(tree, Card).filter((c) =>
+      String(prop(c).className ?? "").split(/\s+/).includes("dash-posting"),
+    );
+    expect(cards).toHaveLength(1);
+    expect(prop(cards[0]!).href).toBe(`/agency/jobs/${JOB.id}`);
+    expect(String(prop(cards[0]!).ariaLabel)).toBe("CNC Operator — view posting");
+  });
+
+  it("never links an agency posting's applicants (unreachable until backend #1898)", async () => {
+    const tree = await AgentSections();
+    const hrefs = [...findAll(tree, LinkStub), ...findAll(tree, Card)]
+      .map((a) => prop(a).href)
+      .filter((h): h is string => typeof h === "string");
+    expect(hrefs.length).toBeGreaterThan(0);
+    expect(hrefs.filter((h) => /applicants/.test(h))).toEqual([]);
+    expect(collect(tree).text.join(" ")).not.toMatch(/view applicants/i);
+  });
+
+  it("offers ONE way to Referrals (the batch-invites tile), not one per funnel stage", async () => {
+    const tree = await AgentSections();
+    const hrefs = [...findAll(tree, LinkStub), ...findAll(tree, Card)]
+      .map((a) => prop(a).href)
+      .filter((h): h is string => typeof h === "string");
+    expect(hrefs.filter((h) => h.startsWith("/agency/referrals"))).toEqual([
+      "/agency/referrals#batch-invites",
+    ]);
+  });
+
+  it("the glance holds at most six postings and links to the full list ONCE", async () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({
+      ...JOB,
+      id: `00000001-0000-4000-8000-00000000000${i}`,
+    }));
+    listAgencyJobs.mockResolvedValueOnce(many);
+    const tree = await AgentSections();
+    const cards = findAll(tree, Card).filter((c) =>
+      String(prop(c).className ?? "").split(/\s+/).includes("dash-posting"),
+    );
+    expect(cards).toHaveLength(6);
+    const toList = [...findAll(tree, LinkStub), ...findAll(tree, Card)].filter(
+      (a) => prop(a).href === "/agency/jobs",
+    );
+    expect(toList).toHaveLength(1);
+  });
+
+  it("offers NO create control and never the company posting surface", async () => {
+    const tree = await AgentSections();
+    const joined = collect(tree).text.join(" ");
+    expect(joined).not.toMatch(/Post a vacancy|Post vacancy/);
+    const hrefs = [
+      ...findAll(tree, LinkStub).map((a) => prop(a).href),
+      ...findAll(tree, Card).map((c) => prop(c).href),
+    ].filter((h): h is string => typeof h === "string");
+    expect(hrefs).toContain("/agency/jobs");
+    expect(hrefs.filter((h) => h.startsWith("/postings"))).toEqual([]);
+    expect(hrefs).not.toContain("/agency/jobs/new");
   });
 });
 
@@ -243,7 +300,7 @@ describe("agent sections — NEGATIVE: no section-level inputs, no payout/KYC te
     const joined = text.join(" ");
     expect(joined).not.toContain("Ramesh Kumar");
     expect(joined).not.toContain("+919812345678");
-    expect(joined).toContain("Vacancies are unavailable right now");
+    expect(joined).toContain("Postings are unavailable right now");
   });
 });
 
@@ -260,7 +317,7 @@ describe("Invite tools · truthful about module 2, discoverable batch mint (ADR-
     expect(joined).not.toMatch(/\bat scale\b/i);
 
     // …and the tile states the reason, consistent with parked-modules.tsx.
-    const bulk = findAll(tree, Card).find((c) => labelOf(c) === "Bulk Upload")!;
+    const bulk = findAll(tree, Card).find((c) => labelOf(c) === "Bulk invite upload")!;
     expect(bulk).toBeDefined();
     const bulkText = collect(bulk).text.join(" ");
     expect(bulkText).toMatch(/not available/i);
@@ -286,14 +343,18 @@ describe("Invite tools · truthful about module 2, discoverable batch mint (ADR-
 });
 
 describe("CARDS-1 · agent tiles are whole-card links to their REAL routes (faceless)", () => {
-  it("wires identity → /account and total-vacancies → the SAME-PAGE /dashboard #-anchor", async () => {
+  it("wires identity → /account; total-postings is a count (the panel links to Postings)", async () => {
     const tree = await AgentSections();
     const cards = findAll(tree, Card);
     const byLabel = (l: string) => cards.find((c) => labelOf(c) === l);
 
     expect(prop(byLabel("Account")!).href).toBe("/account");
-    // MERGE-1: the demand tile now anchors WITHIN /dashboard (not /agency/dashboard).
-    expect(prop(byLabel("Total vacancies")!).href).toBe("/dashboard#agency-vacancies");
+    // The demand tile is a count; "All postings" on the panel is the one door to the list.
+    expect(prop(byLabel("Total postings")!).href).toBeUndefined();
+    // The Revenue card is gone: the shared top's tile is the dashboard's one way to it.
+    expect(byLabel("Revenue")).toBeUndefined();
+    expect(cards.map((c) => prop(c).href)).not.toContain("/agency/revenue");
+    expect(byLabel("QR invite")).toBeDefined();
     // B5: the faceless engagement view — a STATIC route, and no count is rendered on the
     // tile (a count would itself signal how many referrals consented).
     const activity = byLabel("Worker activity")!;
@@ -309,20 +370,32 @@ describe("CARDS-1 · agent tiles are whole-card links to their REAL routes (face
     }
   });
 
-  it("NO worker PII (uuid / phone-shaped / +91) appears in ANY tile href", async () => {
+  it("NO worker PII (uuid / phone-shaped / +91) appears in ANY tile or card href", async () => {
     const tree = await AgentSections();
-    const hrefs = findAll(tree, Card)
+    const cards = findAll(tree, Card);
+    const isGlance = (c: ReactElement) =>
+      String(prop(c).className ?? "").split(/\s+/).includes("dash-posting");
+    const tileHrefs = cards
+      .filter((c) => !isGlance(c))
       .map((c) => prop(c).href)
       .filter((h): h is string => typeof h === "string");
-    expect(hrefs.length).toBeGreaterThan(0);
-    for (const h of hrefs) {
+    expect(tileHrefs.length).toBeGreaterThan(0);
+    for (const h of tileHrefs) {
       expect(h).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
       expect(h).not.toMatch(/\b\d{10}\b/);
       expect(h).not.toMatch(/\+91/);
       // every tile href is a static app route (no interpolated id at all)
       expect(h).toMatch(
-        /^\/(account|dashboard#agency-vacancies|agency\/(revenue|qr|bulk-upload|workers|referrals#batch-invites))$/,
+        /^\/(account|agency\/(qr|bulk-upload|workers|referrals#batch-invites))$/,
       );
+    }
+    // A glance card carries exactly ONE id — the posting's OWN — in one fixed shape.
+    const glanceHrefs = cards.filter(isGlance).map((c) => String(prop(c).href));
+    expect(glanceHrefs.length).toBeGreaterThan(0);
+    for (const h of glanceHrefs) {
+      expect(h).toMatch(/^\/agency\/jobs\/[0-9a-f-]{36}$/);
+      expect(h).not.toMatch(/\b\d{10}\b/);
+      expect(h).not.toMatch(/\+91/);
     }
   });
 });

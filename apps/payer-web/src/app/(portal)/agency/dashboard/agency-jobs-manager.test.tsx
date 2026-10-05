@@ -18,12 +18,12 @@ import type { AgencyJob } from "../../../../lib/contracts";
  * counts) — no worker name/phone/email/employer, and no role-named "forbidden" oracle string.
  *
  * Env is node (no DOM); React state is injected via a mocked `useState` (source order:
- * rows, creating, editingId, busyId, errorById). `useTransition` → [false, run-immediately].
+ * rows, editingId, busyId, errorById — the inline `creating` toggle left with the inline create
+ * form, which is now its own page). `useTransition` → [false, run-immediately].
  */
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("./jobs-actions", () => ({
-  createAgencyJobAction: vi.fn(),
   updateAgencyJobAction: vi.fn(),
   pauseAgencyJobAction: vi.fn(),
   closeAgencyJobAction: vi.fn(),
@@ -83,9 +83,11 @@ function walk(node: ReactNode, acc: Collected): void {
     for (const c of node) walk(c, acc);
     return;
   }
-  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode; lead?: ReactNode }>;
   if (el.props["aria-live"] === "polite") acc.ariaLiveCount++;
   if ("children" in el.props) walk(el.props.children, acc);
+  // An editing row's header leads the (stubbed) form column — walk it too.
+  if ("lead" in el.props) walk(el.props.lead, acc);
 }
 
 function collect(tree: ReactNode): Collected {
@@ -97,10 +99,10 @@ function collect(tree: ReactNode): Collected {
 function render(
   jobs: AgencyJob[],
   errorById: Record<string, string | null> = {},
-  open: { creating?: boolean; editingId?: string | null } = {},
+  editingId: string | null = null,
 ) {
-  // useState order: rows, creating, editingId, busyId, errorById.
-  stateQueue = [jobs, open.creating ?? false, open.editingId ?? null, null, errorById];
+  // useState order: rows, editingId, busyId, errorById.
+  stateQueue = [jobs, editingId, null, errorById];
   stateCursor = 0;
   return AgencyJobsManager({ jobs }) as ReactElement;
 }
@@ -128,10 +130,76 @@ describe("AgencyJobsManager — guardrails: faceless cells, no oracle", () => {
   });
 
   it("a row error renders inside the aria-live region without leaking a role-named oracle", () => {
-    const { text } = collect(render([JOB], { [JOB.id]: "That vacancy could not be found." }));
+    const { text } = collect(render([JOB], { [JOB.id]: "That posting could not be found." }));
     const joined = text.join(" ");
-    expect(joined).toContain("That vacancy could not be found.");
+    expect(joined).toContain("That posting could not be found.");
     expect(joined).not.toMatch(/\bforbidden\b|employer|consent/i);
+  });
+});
+
+describe("AgencyJobsManager — Posting naming, one create entry point", () => {
+  it("offers no inline create: New posting is its own page, so the list has no second door", () => {
+    const joined = collect(render([JOB])).text.join(" ");
+    expect(joined).not.toMatch(/Post a vacancy|Post vacancy|Close form|New posting/);
+  });
+
+  it("the terminal action says what it ends, and the edit toggle cancels rather than 'closes'", () => {
+    const idle = collect(render([JOB])).text.join(" ");
+    expect(idle).toContain("Close posting");
+    expect(idle).toContain("Edit");
+    const editing = collect(render([JOB], {}, JOB.id)).text.join(" ");
+    expect(editing).toContain("Cancel");
+    expect(editing).not.toContain("Close edit");
+  });
+
+  it("an empty list points at New posting in words (no vacancy vocabulary)", () => {
+    const joined = collect(render([])).text.join(" ");
+    expect(joined).toContain("New posting");
+    expect(joined).not.toMatch(/vacanc/i);
+  });
+});
+
+/** Every element in render order, walking children (DS components are not expanded). */
+function elementsOf(node: ReactNode, out: ReactElement[] = []): ReactElement[] {
+  if (node === null || node === undefined || typeof node !== "object") return out;
+  if (Array.isArray(node)) {
+    for (const c of node) elementsOf(c, out);
+    return out;
+  }
+  const el = node as ReactElement<{ children?: ReactNode }>;
+  out.push(el);
+  if (el.props && "children" in el.props) elementsOf(el.props.children, out);
+  return out;
+}
+const hrefsOf = (tree: ReactNode) =>
+  elementsOf(tree)
+    .map((e) => (e.props as { href?: unknown }).href)
+    .filter((h): h is string => typeof h === "string");
+const classOf = (e: ReactElement) => String((e.props as { className?: unknown }).className ?? "");
+
+describe("AgencyJobsManager — aligned with the company list (2026-10-01)", () => {
+  it("the TITLE opens the posting's details — the row's one link (no separate 'Details')", () => {
+    const tree = render([JOB]);
+    const title = elementsOf(tree).find((e) => classOf(e).split(/\s+/).includes("agency-job__title"))!;
+    expect((title.props as { href?: string }).href).toBe(`/agency/jobs/${JOB.id}`);
+    expect(hrefsOf(tree)).toEqual([`/agency/jobs/${JOB.id}`]);
+    expect(collect(tree).text.join(" ")).not.toMatch(/\bDetails\b/);
+  });
+
+  it("never links an agency posting's applicants (no page for them until backend #1898)", () => {
+    const tree = render([JOB, { ...JOB, id: "00000001-0000-4000-8000-000000000002" }]);
+    expect(hrefsOf(tree).filter((h) => h.includes("applicants"))).toEqual([]);
+  });
+
+  it("the empty list is the shared state block — titled, explained, and with no button", () => {
+    const tree = render([]);
+    const els = elementsOf(tree);
+    expect(els.some((e) => classOf(e) === "state")).toBe(true);
+    expect(els.some((e) => classOf(e) === "state__actions")).toBe(false);
+    expect(hrefsOf(tree)).toEqual([]);
+    const text = collect(tree).text.join(" ");
+    expect(text).toContain("No postings yet");
+    expect(text).toContain("use New posting above");
   });
 });
 
@@ -149,21 +217,9 @@ function find(node: ReactNode, pred: (el: ReactElement<Record<string, unknown>>)
   return out;
 }
 
-describe("AgencyJobsManager — the inline editors start level with their host (M1)", () => {
-  it("CREATE: the heading is the form's lead (the rail starts at the card's top), and the card is the scroll target", () => {
-    const tree = render([JOB], {}, { creating: true });
-    const [card] = find(tree, (el) => el.props.id === "agency-create");
-    expect(card).toBeDefined();
-    const [form] = find(card!, (el) => el.type === AgencyJobFormMock);
-    expect(form!.props.mode).toBe("create");
-    const lead = form!.props.lead as ReactElement<{ className: string; children: ReactNode }>;
-    expect(lead.props.className).toBe("agency-jobs__createtitle");
-    // No second heading outside the form.
-    expect(find(card!, (el) => el.type === "h3")).toHaveLength(1);
-  });
-
+describe("AgencyJobsManager — the inline editor starts level with its host (M1)", () => {
   it("EDIT: the row IS the editor — its header (title, actions, the aria-live error) leads the form column", () => {
-    const tree = render([JOB], { [JOB.id]: "That vacancy could not be found." }, { editingId: JOB.id });
+    const tree = render([JOB], { [JOB.id]: "That vacancy could not be found." }, JOB.id);
     const [row] = find(tree, (el) => el.props.id === `agency-job-${JOB.id}`);
     expect(row!.props.className).toBe("agency-job agency-job--editing");
     const [form] = find(row!, (el) => el.type === AgencyJobFormMock);
@@ -182,7 +238,7 @@ describe("AgencyJobsManager — the inline editors start level with their host (
   });
 });
 
-describe("AgencyJobsManager — Edit / Close edit / Cancel keep focus on the row's toggle", () => {
+describe("AgencyJobsManager — Edit / Cancel (toggle or form) keep focus on the row's toggle", () => {
   /**
    * The row's header moves between the Card and the editor's lead, so React REBUILDS the toggle
    * the payer pressed and its focus falls to <body> (measured: Enter on Edit → BODY, next Tab →
@@ -233,7 +289,7 @@ describe("AgencyJobsManager — Edit / Close edit / Cancel keep focus on the row
 
   it("the toggle has the SAME id whether the row is editing or not (so focus can find it again)", () => {
     expect(toggleOf(render([JOB])).props.children).toBe("Edit");
-    expect(toggleOf(render([JOB], {}, { editingId: JOB.id })).props.children).toBe("Close edit");
+    expect(toggleOf(render([JOB], {}, JOB.id)).props.children).toBe("Cancel");
   });
 
   it("Edit: focus lands on the REBUILT toggle (in the editor's lead), after the scroll, without its own", () => {
@@ -246,9 +302,9 @@ describe("AgencyJobsManager — Edit / Close edit / Cancel keep focus on the row
     expect(log).toEqual(["scroll host", "focus toggle (in lead, preventScroll=true)"]);
   });
 
-  it("Close edit: focus lands on the rebuilt toggle back in the card, scrolled into view", () => {
+  it("Cancel (the toggle): focus lands on the rebuilt toggle back in the card, scrolled into view", () => {
     toggleInLead = true;
-    toggleOf(render([JOB], {}, { editingId: JOB.id })).props.onClick();
+    toggleOf(render([JOB], {}, JOB.id)).props.onClick();
     runFrame();
     expect(log).toEqual([]);
     toggleInLead = false;
@@ -258,7 +314,7 @@ describe("AgencyJobsManager — Edit / Close edit / Cancel keep focus on the row
 
   it("the form's Cancel hands focus back to the toggle too", () => {
     toggleInLead = false; // already committed by the frame
-    const tree = render([JOB], {}, { editingId: JOB.id });
+    const tree = render([JOB], {}, JOB.id);
     const [form] = find(tree, (el) => el.type === AgencyJobFormMock);
     (form!.props.onCancel as () => void)();
     runFrame();
@@ -267,7 +323,7 @@ describe("AgencyJobsManager — Edit / Close edit / Cancel keep focus on the row
 
   it("gives up after a bounded number of frames if the toggle never comes back", () => {
     toggleInLead = true; // never rebuilt into the card
-    toggleOf(render([JOB], {}, { editingId: JOB.id })).props.onClick();
+    toggleOf(render([JOB], {}, JOB.id)).props.onClick();
     for (let i = 0; i < 20; i++) runFrame();
     expect(log).toEqual([]);
     expect(frames).toEqual([]);

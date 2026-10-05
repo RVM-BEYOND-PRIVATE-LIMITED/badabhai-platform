@@ -24,7 +24,7 @@ import type { CreditTopUp, Dashboard, UnlockHistoryItem } from "../../../lib/con
 const getDashboard = vi.fn();
 const getCreditTopUps = vi.fn();
 vi.mock("../../../lib/payer-api", () => ({
-  getDashboard: () => getDashboard(),
+  getDashboard: (o: unknown) => getDashboard(o),
   getCreditTopUps: () => getCreditTopUps(),
   // Transitively imported by ./credits-panel → ./actions; never called from a render test.
   topUp: vi.fn(),
@@ -172,6 +172,12 @@ describe("credits page — OWNER-gated billing/wallet (server gate, not nav)", (
     await expect(CreditsPage()).rejects.toBe(NOT_FOUND);
     expect(getDashboard).not.toHaveBeenCalled();
   });
+
+  it("reads the balance and unlocks only — never the company postings list (it shows none)", async () => {
+    await render({ balance: 50 });
+    expect(getDashboard).toHaveBeenCalledTimes(1);
+    expect(getDashboard).toHaveBeenCalledWith({ withPostings: false });
+  });
 });
 
 describe("credits page — (a) low-balance nudge shows ONLY below the CONFIG threshold", () => {
@@ -204,7 +210,8 @@ describe("credits page — (b) history renders unlock + top-up rows", () => {
     });
     expect(joined).toMatch(/History/);
     expect(joined).toContain("Unlock"); // spend row badge
-    expect(joined).toContain("Top-up"); // top-up row badge
+    expect(joined).toContain("Purchase"); // a bought pack's row badge
+    expect(joined).not.toContain("Top-up"); // "Top up" also named adding applicant slots
     expect(joined).toContain("-1"); // each unlock spends 1 credit
     expect(joined).toContain("+50"); // top-up credits
     expect(joined).toContain("₹2,000"); // the STAMPED amount, en-IN formatted
@@ -221,7 +228,7 @@ describe("credits page — (b) history renders unlock + top-up rows", () => {
       topUps: [topUp({ credits: 50, priceInr: undefined })],
     });
     // The movement still shows...
-    expect(joined).toContain("Top-up");
+    expect(joined).toContain("Purchase");
     expect(joined).toContain("+50");
     // ...with a dash for the amount, and NO invented ₹ figure anywhere.
     expect(joined).toContain("—");

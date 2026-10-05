@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type * as AssertModule from "./assert-no-agency-pii";
 
 /**
  * Agency LIVE-seam transport tests (ADR-0022). Exercises the REAL `payerFetch` (mocked
@@ -28,6 +29,18 @@ vi.mock("./auth", () => ({
   })),
 }));
 
+// The data-layer FACELESS guard, spied but REAL: every agency payload the seam returns passes
+// through it (its own suite pins what it rejects).
+const assertSpy = vi.hoisted(() => ({ fn: null as unknown as ReturnType<typeof vi.fn> }));
+vi.mock("./assert-no-agency-pii", async (importOriginal) => {
+  const actual = await importOriginal<typeof AssertModule>();
+  assertSpy.fn = vi.fn(actual.assertNoAgencyPII);
+  return {
+    ...actual,
+    assertNoAgencyPII: (...a: Parameters<typeof actual.assertNoAgencyPII>) => assertSpy.fn(...a),
+  };
+});
+
 const fetchMock = vi.fn();
 
 const JOB = {
@@ -52,6 +65,7 @@ beforeEach(() => {
   process.env.PAYMENTS_ENABLE_REAL = "false";
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockReset();
+  assertSpy.fn?.mockClear();
 });
 
 afterEach(() => {
@@ -91,6 +105,58 @@ describe("agency jobs seam — no-oracle 404 → null", () => {
     fetchMock.mockResolvedValue(jsonResponse(JOB));
     const { getAgencyJob } = await import("./payer-api");
     await expect(getAgencyJob(JOB.id)).resolves.toEqual(JOB);
+  });
+});
+
+describe("agency jobs seam — FACELESS: a regressed payload never hands worker PII to a page", () => {
+  const LEAKY = { ...JOB, name: "Ramesh Kumar", phone: "+919812345678" };
+  const leaked = (v: unknown) => /Ramesh Kumar|\+919812345678/.test(JSON.stringify(v) ?? "");
+
+  it("listAgencyJobs: a row carrying a name / phone comes back without them", async () => {
+    fetchMock.mockResolvedValue(jsonResponse([LEAKY]));
+    const { listAgencyJobs } = await import("./payer-api");
+    const rows = await listAgencyJobs();
+    expect(rows).toHaveLength(1);
+    expect(leaked(rows)).toBe(false);
+    expect(rows[0]).not.toHaveProperty("name");
+    expect(rows[0]).not.toHaveProperty("phone");
+  });
+
+  it("getAgencyJob: the same, for one row", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(LEAKY));
+    const { getAgencyJob } = await import("./payer-api");
+    const row = await getAgencyJob(JOB.id);
+    expect(row).not.toBeNull();
+    expect(leaked(row)).toBe(false);
+    expect(row).not.toHaveProperty("name");
+  });
+
+  it("the data-layer guard runs on every agency jobs payload, labelled by its route", async () => {
+    const { listAgencyJobs, getAgencyJob } = await import("./payer-api");
+    fetchMock.mockResolvedValue(jsonResponse([JOB]));
+    await listAgencyJobs();
+    expect(assertSpy.fn).toHaveBeenCalledWith([JOB], "payer/agency/jobs");
+    fetchMock.mockResolvedValue(jsonResponse(JOB));
+    await getAgencyJob(JOB.id);
+    expect(assertSpy.fn).toHaveBeenLastCalledWith(JOB, "payer/agency/jobs/:id");
+  });
+
+  it("a guard verdict is never swallowed: the read fails (the page shows its retry state), the value never surfaces", async () => {
+    fetchMock.mockResolvedValue(jsonResponse([JOB]));
+    const { assertNoAgencyPII } = await vi.importActual<typeof AssertModule>(
+      "./assert-no-agency-pii",
+    );
+    // As if a future wire field let a forbidden key through the schema.
+    assertSpy.fn.mockImplementationOnce(() => assertNoAgencyPII([LEAKY], "payer/agency/jobs"));
+    const { listAgencyJobs } = await import("./payer-api");
+    const err = await listAgencyJobs().then(
+      () => null,
+      (e: unknown) => e as Error,
+    );
+    expect(err).toBeInstanceOf(Error);
+    expect(err!.message).toContain("forbidden PII key(s)");
+    expect(err!.message).toContain("[0].name");
+    expect(leaked(err!.message)).toBe(false);
   });
 });
 
