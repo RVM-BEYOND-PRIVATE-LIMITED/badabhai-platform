@@ -218,20 +218,21 @@ _COMPANY_SUFFIX = (
 # "Tata Motors LTD" left the trailing "LTD" raw beside its [EMPLOYER_1]; #1892 closed each in
 # separate passes after this one (see `_EMPLOYER_STOPWORDS`).
 #
-# ONE EXCEPTION, PRE-EXISTING (risks-register R49, #1890). Within a view this rule only ADDS
-# masking, by construction. The #1738 two-view check in `pseudonymize` is the one place where more
-# masking can mean LESS protection: it counts a spaced-view region as covered when it merely
-# OVERLAPS a reader-masked region. "my name is<ZWSP>Ramesh Kumar CO": the reader view merges
+# ONE EXCEPTION, PRE-EXISTING, CLOSED BY #1890 (risks-register R49). Within a view this rule only
+# ADDS masking, by construction. The #1738 two-view check in `pseudonymize` was the one place where
+# more masking could mean LESS protection: it counted a spaced-view region as covered when it merely
+# OVERLAPPED a reader-masked region. "my name is<ZWSP>Ramesh Kumar CO": the reader view merges
 # "isRamesh", so the cue misses and this rule masks "Kumar CO"; the spaced view masks "Ramesh Kumar"
 # as a name; the two overlap on "Kumar", so the turn passes as "my name isRamesh [EMPLOYER_1]" where
-# main BLOCKED it. Main already passes the title-case twin ("…Ramesh Kumar Steel"); this rule
-# extends the shape to the capitals forms. Pinned by
-# `test_KNOWN_RESIDUAL_a_name_hidden_by_an_invisible_beside_a_capitals_form_egresses`. The fix —
-# covered only when every kept offset is reader-masked — touches the two-view check and is #1890.
+# main BLOCKED it. Main also passed the title-case twin ("…Ramesh Kumar Steel"); this rule extended
+# the shape to the capitals forms. #1890 fixed it in the two-view check (`_is_covered`: covered only
+# when every kept offset is reader-masked); every such turn now BLOCKS, pinned by
+# `test_a_name_hidden_by_an_invisible_beside_a_capitals_form_fails_closed`.
 # The check also stops blocking in a SAFE way: when the reader view now masks every kept offset the
 # spaced view masked, nothing either view found egresses, so it passes as designed. Over the
 # property test's 4,000 seeded samples (invisible separators, name cues) main blocks 28 turns this
-# rule passes: 18 of that full-cover kind, 10 of the R49 kind (11 with the rule ahead of the names).
+# rule passed: 18 of that full-cover kind, 10 of the R49 kind (11 with the rule ahead of the names)
+# — the 10 block again since #1890.
 #
 # STATED BOUNDARY OF THIS RULE, both directions. UNDER — raw, each pinned by a
 # `test_KNOWN_RESIDUAL_*`. #1892 has since closed the lower-case, title-case-twin, M/S and 5+ word
@@ -681,22 +682,22 @@ _EMPLOYER_CAPS_RE = re.compile(
 #
 # TWO VIEWS (#1738). The two-view check can stop blocking where the reader view now masks what the
 # spaced view found. "Larsen &<ZWSP>Toubro Limited" now BLOCKS (the spaced view absorbs "Larsen",
-# the reader view cannot), where main passed it with "Larsen" raw. Two ways it now passes what main
+# the reader view cannot), where main passed it with "Larsen" raw. One way it passes what main
 # blocked: "full" — "my name is<ZWSP>Ramesh Kumar ltd" -> "my [EMPLOYER_1]", the name masked under
-# an employer label — and R49's partial overlap (#1890), which these passes extend as #1875
-# extended it: with an invisible right after a name cue, "my name is<ZWSP>Ramesh Kumar Llp" (and
-# "& Co.", "(P) Ltd", "W.l.l", "& Toubro Ltd", "-Toubro Ltd", a long lower-case span) passes as
-# "my name isRamesh [EMPLOYER_1]"; with one that merges a word into a dash-glued run, "Sharma
-# Motors<WJ>A-ONE Motors" passes as "Sharma [EMPLOYER_1]" (the absorb pass folds the reader view's
-# "MotorsA-" into the token). Each shape is pinned. On the third review's generator, re-run on the
-# final rules (20,000 lines that each carry an invisible): main's own R49 name egress is 208
-# lines; these passes add 194 that main blocked (0.97%) and close 46 of main's. With invisibles in
-# 2% of lines: 3 added in 20,000. They reach the at-rest copies (corpus, growth queue, payer
-# draft) and the embedding input; the walls still withhold every such turn. Security review: SHIP
-# with this registered (R49) and owner-acknowledged (acknowledged 2026-10-03). The fix is in the
-# two-view check (#1890), not here. A long span may also split an earlier span and leave a
-# separator or a bare form word between two tokens ("xa xb xc xd SHARMA LTD PVT" -> "[EMPLOYER_1]
-# PVT"): no name word, so it stays.
+# an employer label. Before #1890 there was a second, R49's partial overlap, which these passes
+# extended as #1875 extended it: with an invisible right after a name cue, "my name is<ZWSP>Ramesh
+# Kumar Llp" (and "& Co.", "(P) Ltd", "W.l.l", "& Toubro Ltd", "-Toubro Ltd", a long lower-case
+# span) passed as "my name isRamesh [EMPLOYER_1]"; with one that merges a word into a dash-glued
+# run, "Sharma Motors<WJ>A-ONE Motors" passed as "Sharma [EMPLOYER_1]" (the absorb pass folds the
+# reader view's "MotorsA-" into the token). Each shape is pinned, now as a block. On the third
+# review's generator, re-run on the final rules (20,000 lines that each carry an invisible): main's
+# own R49 name egress was 208 lines; these passes added 194 that main blocked (0.97%) and closed 46
+# of main's. With invisibles in 2% of lines: 3 added in 20,000. They reached the at-rest copies
+# (corpus, growth queue, payer draft) and the embedding input; the walls withheld every such turn.
+# Security review: SHIP with this registered (R49) and owner-acknowledged (acknowledged
+# 2026-10-03). #1890 fixed it in the two-view check, not here: each R49 shape above now BLOCKS.
+# A long span may also split an earlier span and leave a separator or a bare form word between two
+# tokens ("xa xb xc xd SHARMA LTD PVT" -> "[EMPLOYER_1] PVT"): no name word, so it stays.
 #
 # COST, measured 2026-10-03 (this laptop, under load). A typical line: +1-5 us mean (1,882
 # real-shaped worker turns, the question packs, the test fixtures); a line holding a lower-case
@@ -1707,6 +1708,23 @@ def _build_views(text: str) -> tuple[_View, _View]:
 _INVISIBLE_BYPASS_REASON = "invisible or combining characters concealed an identity token"
 
 
+def _is_covered(region: set[int], reader_masked: set[int], reader_kept: set[int]) -> bool:
+    """Whether the reader pass masked a spaced-view ``region`` (#1738 F1, CONTAINMENT per #1890).
+
+    Covered means every offset of ``region`` that the reader view KEPT (``reader_kept``, the source
+    offsets of the reader view's characters) lies inside a reader mask (``reader_masked``).
+    The offsets the reader view DELETED (the invisibles, a space in the spaced view) are exempt:
+    a phone split by an invisible masks the same digits in both views, but its spaced span also
+    holds the separator, which no reader mask can hold. Mere OVERLAP is not enough (R49): in
+    "my name is<ZWSP>Ramesh Kumar Steel" the reader view merges "isRamesh", masks only "Kumar
+    Steel", and the spaced view's "Ramesh Kumar" overlaps it on "Kumar" while "Ramesh" egresses.
+
+    The region must ALSO overlap a reader mask, as before #1890, so a region of deleted offsets
+    alone still blocks: this check only ever blocks MORE than the overlap check it replaced.
+    """
+    return bool(region & reader_masked) and (region & reader_kept) <= reader_masked
+
+
 def _apply(
     regex: re.Pattern[str],
     replace: Callable[[re.Match[str]], str],
@@ -1723,10 +1741,11 @@ def _apply(
     set of source offsets under group ``masked_group`` - group 1 for the cue/leading/credential
     rules that keep a cue and tokenise only the value, group 0 for the whole-match rules - is
     appended to ``regions`` as ONE region. Keeping regions per-match (not one flat set) is what
-    lets the caller compare by OVERLAP: a phone split by an invisible masks the same digits in
-    both views, but its spaced span also covers the separator's source offset, so the two spans
-    are not equal - yet they OVERLAP, which is coverage. Matches are non-overlapping and
-    left-to-right, exactly as ``re.sub`` scans.
+    lets the caller judge each spaced-view region on its own (``_is_covered``): a phone split by
+    an invisible masks the same digits in both views, but its spaced span also covers the
+    separator's source offset, so the two spans are not equal - yet every offset the reader view
+    kept is reader-masked, which is coverage. Matches are non-overlapping and left-to-right,
+    exactly as ``re.sub`` scans.
     """
     out: list[str] = []
     out_src: list[int | None] = []
@@ -1803,7 +1822,8 @@ def _mask(
     When ``track`` is True, returns a list of masked REGIONS - one per masking match, each the set
     of SOURCE offsets (indices into the original ``text``) that match covered - so ``pseudonymize``
     can reconcile the two views by position, never by string content: a concealed name is judged
-    covered only when a reader-pass region OVERLAPS its source offsets. When ``track`` is False the
+    covered only when reader-pass regions CONTAIN every source offset of it the reader view kept
+    (``_is_covered``, #1890). When ``track`` is False the
     output text is byte-identical but no regions are recorded (the fast ``regex.sub`` path, taken
     for the common case where the two views coincide). The original<->token mapping never leaves.
     """
@@ -1967,8 +1987,8 @@ def _mask(
         #    a title-case match, never eats a name cue ("MY NAME IS CO Ramesh" stays "MY NAME IS
         #    [PERSON_1]"), and within this view only masks what they left raw (and what 4a did
         #    not take whole). It never takes a 7+ digit run (detail 4), so money and the residual
-        #    net below see main's digits. Across the two views of `pseudonymize` there is one
-        #    pre-existing exception: R49, #1890.
+        #    net below see main's digits. Across the two views of `pseudonymize` there was one
+        #    pre-existing exception, R49, closed by #1890 (`_is_covered`).
         (_EMPLOYER_CAPS_RE, lambda m: token_for(m.group(0), "EMPLOYER"), 0),
         # 4c-4f. The rest of #1892, each on the output of the rules above, each only masking what
         #    they left raw: title-case forms, lower and sentence case, the M/S cue (keeps the
@@ -2053,13 +2073,15 @@ def pseudonymize(
 
     RECONCILED BY SOURCE POSITION, never by string content. Each pass reports the set of
     original-``text`` offsets it masked; a spaced-masked offset is "covered" only when the
-    reader pass masked that SAME offset. A content compare is unsound: a concealed name whose
-    text is a substring of a DIFFERENT co-masked token ("Ramesh" inside a masked
-    "Ramesh Steel Industries", an email local part, or an earlier masked occurrence) would look
-    covered while the reader view actually left it raw. Position keeps a merely RE-SEGMENTED
-    token safe (spaced "Ra" sits on the same offsets the reader masked as "Ramesh") while
-    blocking the laundering case (the concealed name occupies offsets no reader mask covers).
-    The reader view is what is returned; the spaced view is a detector only, never egressed.
+    reader pass masked that SAME offset, and a spaced region passes only when every offset of it
+    the reader view kept is covered (``_is_covered``; before #1890 one overlap sufficed, R49). A
+    content compare is unsound: a concealed name whose text is a substring of a DIFFERENT
+    co-masked token ("Ramesh" inside a masked "Ramesh Steel Industries", an email local part,
+    or an earlier masked occurrence) would look covered while the reader view actually left it
+    raw. Position keeps a merely RE-SEGMENTED token safe (spaced "Ra" sits on the same offsets
+    the reader masked as "Ramesh") while blocking the laundering case (the concealed name
+    occupies offsets no reader mask covers). The reader view is what is returned; the spaced
+    view is a detector only, never egressed.
     """
     try:
         if not isinstance(text, str):
@@ -2085,12 +2107,13 @@ def pseudonymize(
         spaced_result, spaced_regions = _mask(spaced_view, track=True)
 
         # FAIL CLOSED if separating the invisibles trips the spaced view's own residual guard, or
-        # if any masked region the spaced view found OVERLAPS no region the reader view masked -
-        # that region is identity the reader view left raw once the boundary was restored. Overlap
-        # (not equality) is deliberate: a phone split by an invisible masks the same digits in both
-        # views but its spaced span also covers the separator, so the spans differ yet overlap.
+        # if any masked region the spaced view found is not COVERED by the reader view's masks -
+        # an uncovered offset is identity the reader view left raw once the boundary was restored.
         reader_masked = set().union(*reader_regions) if reader_regions else set()
-        if spaced_result.blocked or any(not (region & reader_masked) for region in spaced_regions):
+        reader_kept = set(reader_view.src)
+        if spaced_result.blocked or not all(
+            _is_covered(region, reader_masked, reader_kept) for region in spaced_regions
+        ):
             return PseudonymizationResult("", True, _INVISIBLE_BYPASS_REASON, 0, [])
 
         return reader_result

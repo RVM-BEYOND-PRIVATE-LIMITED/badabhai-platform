@@ -35,6 +35,7 @@ from itertools import pairwise
 from pathlib import Path
 
 import pytest
+from employer_masking_helpers import two_view_verdict
 
 import app.pseudonymize as gateway
 from app.pseudonymize import (
@@ -54,7 +55,8 @@ def main_gateway(monkeypatch):
     """The gateway with main's unbounded title-case rule, nothing else touched.
 
     Sound because `_EMPLOYER_RE` is the only rule #1891 changed. Measured against the real main
-    module over the #1875 corpus: its outputs and certifier outcomes are byte-identical."""
+    module over the #1875 corpus: its outputs and certifier outcomes are byte-identical. The
+    two-view check is the branch's own (#1890's containment)."""
 
     def run(fn, *args):
         with monkeypatch.context() as patch:
@@ -254,7 +256,7 @@ def test_KNOWN_RESIDUAL_a_name_word_over_64_characters_is_not_masked_whole(
 
 
 # --- 4. the boundary under #1738's two views ----------------------------------------------------
-# The property test skips a run over 64 that only an invisible creates. Here are both outcomes.
+# The property test skips a run over 64 that only an invisible creates. Both shapes fail closed.
 
 
 def test_a_word_joined_past_64_by_an_invisible_blocks_when_it_is_the_only_name_word(main_gateway):
@@ -276,19 +278,16 @@ def test_a_word_joined_past_64_by_an_invisible_blocks_when_it_is_the_only_name_w
     ],
     ids=["two 40-letter words", "a name glued to a 60-letter word"],
 )
-def test_KNOWN_RESIDUAL_r49_a_word_joined_past_64_egresses_as_the_reader_view(text, main_gateway):
+def test_a_word_joined_past_64_blocks_beside_a_second_name_word(text, main_gateway):
     # "Steel" is a second name word before "Works", so the reader view masks "Steel Works". The
-    # spaced-view span overlaps that mask, and R49 (#1890) counts a partial overlap as covered.
-    # What egresses is the reader view: the same output, byte for byte, as the word written with
-    # no invisible (section 3), so the invisible adds no exposure. When #1890 lands (only full
-    # cover counts), this blocks; move it to the test above.
+    # spaced-view span "<word> <word> Steel Works" only OVERLAPS that mask; before #1890 (R49) that
+    # counted as covered and the reader view egressed with the joined word raw. Under containment
+    # the joined word's kept offsets are outside every reader mask, so the turn fails closed.
     assert main_gateway(pseudonymize, text).text == "[EMPLOYER_1]"
+    assert two_view_verdict(text) == "partial"  # the R49 path, not a residual or no-overlap block
     result = pseudonymize(text)
-    reader_view = text.replace(_ZWSP, "")
-    expected = reader_view.replace(" Steel Works", " [EMPLOYER_1]")
-    assert (result.text, result.blocked) == (expected, False)
-    no_invisible = pseudonymize(reader_view)
-    assert (no_invisible.text, no_invisible.blocked) == (result.text, False)
+    assert (result.text, result.blocked) == ("", True)
+    assert result.blocked_reason == gateway._INVISIBLE_BYPASS_REASON
 
 
 # --- 5. the measurement script measures this rule -----------------------------------------------

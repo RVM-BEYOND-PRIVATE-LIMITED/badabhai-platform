@@ -188,15 +188,16 @@ the comment above `_CORPORATE_FORM_CAPS`.
   written nor upper-cased does a string leave a word unmasked that main masked, or stop
   blocking where main blocked. No certifier outcome changes over 4,765 lexicon labels (as
   written, UPPER and Title).
-- **The two views (R49, #1890).** The one place where more masking can mean less protection
-  is the #1738 two-view check. It counts a spaced-view region as covered when the region merely
-  overlaps a reader-view mask. In `"my name is<U+200B>Ramesh Kumar CO"` the reader view merges
+- **The two views (R49, #1890 — fixed; these turns now block, see "The two-view check requires
+  containment" below).** The one place where more masking could mean less protection
+  was the #1738 two-view check. It counted a spaced-view region as covered when the region merely
+  overlapped a reader-view mask. In `"my name is<U+200B>Ramesh Kumar CO"` the reader view merges
   `"isRamesh"`, so the cue misses and this rule masks `"Kumar CO"`. The spaced view masks
   `"Ramesh Kumar"` as a name. The two overlap on `"Kumar"`, so the turn passes as
   `"my name isRamesh [EMPLOYER_1]"`, where main blocked it. Main already passes the
   title-case twin (`"…Ramesh Kumar Steel"`). This rule extends that shape to the capitals forms.
-  It is pinned as a `KNOWN_RESIDUAL` and tracked as R49 / #1890; the fix is in the two-view
-  check, not here. Measured with the property test's generator (4,000 seeded samples with
+  It was pinned as a `KNOWN_RESIDUAL` and tracked as R49; #1890 fixed it in the two-view
+  check, not here, and the pins now assert the block. Measured with the property test's generator (4,000 seeded samples with
   invisible separators and name cues), main blocks 28 turns on this check that the branch
   passes:
   - 10 are this partial-overlap shape (11 with the rule still ahead of the name rules);
@@ -361,12 +362,10 @@ walls run the same rule whatever `AI_RAW_PII_ENABLED` says.
     - It is the span's only name word. The span then blocks: the spaced view masks a region that
       the reader view left raw. `"A" * 40 + ZWSP + "B" * 40 + " Steel"` is blocked. Main
       returned `[EMPLOYER_1]`.
-    - Another name word stands before the form. The reader view then masks that tail, and the
-      partial overlap that R49 accepts (#1890) lets the text through. The output is the reader
-      view: `"A" * 40 + ZWSP + "B" * 40 + " Steel Works"` becomes `"A"*40 + "B"*40 +
-      " [EMPLOYER_1]"`. That is the same output as the 80-letter word with no invisible.
-    - The invisible adds no new exposure. Once #1890 counts only full cover, the second shape
-      blocks as well.
+    - Another name word stands before the form. The reader view then masks that tail. Before
+      #1890 the partial overlap R49 accepted let the text through as the reader view
+      (`"A"*40 + "B"*40 + " [EMPLOYER_1]"`); since #1890 counts only full cover, it blocks as
+      well.
 
 Pinned by `tests/test_pseudonymize_title_employer_bound.py` (30 tests):
 - the structural bound and possessive quantifier;
@@ -374,8 +373,7 @@ Pinned by `tests/test_pseudonymize_title_employer_bound.py` (30 tests):
 - real employers masking exactly as on main;
 - a seeded property test: no output moves while every name word is 64 characters or shorter;
 - the boundary itself, pinned as `KNOWN_RESIDUAL`;
-- the boundary under the two views: one test pins the case that blocks, and the R49 shape is
-  pinned as `KNOWN_RESIDUAL`;
+- the boundary under the two views: both shapes block (the second since #1890);
 - the measurement script: its "main" is the test's oracle, and its `boundN` is the shipped rule
   with only the bound changed.
 
@@ -543,22 +541,22 @@ rounds and a final check:
   `"m/s [EMPLOYER_1] se kaam"`.
 
 **The two views (R49, #1890).** `"Larsen &<U+200B>Toubro Limited"` now blocks; main passed it with
-"Larsen" raw. These passes also extend R49's partial overlap, the way #1875 did:
+"Larsen" raw. Before #1890 these passes also extended R49's partial overlap, the way #1875 did:
 
-- with an invisible character right after a name cue, `"my name is<U+200B>Ramesh Kumar Llp"` passes
+- with an invisible character right after a name cue, `"my name is<U+200B>Ramesh Kumar Llp"` passed
   as `"my name isRamesh [EMPLOYER_1]"` (and the "& Co.", "(P) Ltd", "W.l.l", absorb and long
   lower-case shapes);
-- with one that merges a word into a dash-glued run, `"Sharma Motors<U+2060>A-ONE Motors"` passes as
+- with one that merges a word into a dash-glued run, `"Sharma Motors<U+2060>A-ONE Motors"` passed as
   `"Sharma [EMPLOYER_1]"`.
 
-Main blocks every one of these. The 10 shapes are pinned as `KNOWN_RESIDUAL`. On the third
+Main blocks every one of these, and since #1890 the branch does too: the 10 shapes, once
+pinned as `KNOWN_RESIDUAL`, now assert the block. On the third
 review's generator, 20,000 lines that each carry an invisible, main's own R49 name egress is 208
 lines; these passes add 194 that main blocked (0.97%) and close 46 of main's. With invisibles in
 2% of lines they add 3 in 20,000. Those turns reach the at-rest copies (corpus, growth queue,
 payer draft) and the embedding input; the clean-or-withhold walls still withhold them. The
 security review ruled SHIP with this residual registered and acknowledged by the owner; Divyanshu
-Pant acknowledged it on 2026-10-03 (R49). The fix belongs in the two-view check: #1890, owner
-kpdagrt22, target 2026-10-10.
+Pant acknowledged it on 2026-10-03 (R49). #1890 fixed it in the two-view check (next section).
 
 **Cost.** A typical worker turn costs 1–5 µs more on average; a line holding a lower-case employer
 costs about 2.5–3× (25 → 64–70 µs). On the worst 20,000-character inputs the work is linear: every
@@ -570,6 +568,64 @@ within 2.5× + 20 ms of the base, and every worst input under 750 ms.
 
 Pinned by `tests/test_pseudonymize_employer_residuals.py`, with shared helpers in
 `tests/employer_masking_helpers.py`.
+
+### The two-view check requires containment (issue #1890, risks-register R49)
+
+`pseudonymize()` masks two views when an input carries an invisible format character or a Latin
+combining mark (#1738 F1): the reader view, which deletes them and is what egresses, and the
+spaced view, where each becomes a space. It fails closed when a spaced-view region is not covered
+by the reader view's masks. Until #1890, "covered" meant the region merely OVERLAPPED a reader
+mask. In `"my name is<U+200B>Ramesh Kumar Steel"` the reader view merges `"isRamesh"`, the cue
+misses, and only `"Kumar Steel"` masks; the spaced view's name `"Ramesh Kumar"` overlaps that on
+`"Kumar"`, so the turn passed as `"my name isRamesh [EMPLOYER_1]"`.
+
+**The rule (`_is_covered`).** A spaced-view region is covered only when every offset of it the
+reader view KEPT lies inside a reader mask, and (as before) it overlaps one. The offsets the
+reader view deleted (the invisibles) are exempt, so a phone split by an invisible still masks as
+one token. The overlap clause stays so the new check is never looser than the old one: it only
+ever blocks more.
+
+**Measured 2026-10-05, origin/main against the branch** (a scratch harness that loads both
+modules; every input runs through both `pseudonymize()`s):
+
+- **No invisible character: byte-identical.** The repo corpus (32,825 distinct strings, each as
+  written, UPPER, lower and Sentence: 96,121) and every sampled line without an invisible
+  (56,639): 0 results differ. This holds by construction: such text takes the fast path and never
+  reaches the check.
+- **With an invisible: only new blocks.** No turn stops blocking, no blocked turn changes its
+  reason, and no turn that still passes changes its output.
+
+  | input | with an invisible | newly blocked |
+  | --- | ---: | ---: |
+  | repo corpus x4 casings | 190 | 12 |
+  | #1875 property sampler (seed 1875, 4,000) | 1,511 | 46 |
+  | #1892 property sampler (seed 1892, 6,000) | 3,232 | 40 |
+  | #1875 sampler, 40,000 more | 15,442 | 463 |
+  | #1892 sampler, 40,000 more | 21,366 | 286 |
+  | #1891 bound sampler, 20,000 | 11,894 | 517 |
+  | corpus lines with one injected invisible, 40,000 | 39,916 | 31 |
+
+- **Every newly blocked turn is the R49 shape.** The uncovered spaced region overlaps a reader
+  mask and holds kept characters the reader view left raw. In 1,393 of 1,395 the invisible sits
+  inside or right next to that masked span. In the other two it splits a name cue a few characters
+  away (`"ke<U+2060>I AM CORPORATION STEEL"`: the spaced view reads the cue "I AM" and masks
+  `"CORPORATION STEEL"`; the reader view masks only `"AM CORPORATION"`, so `" STEEL"` was raw), or
+  it changes where a match ends (a trailing ".").
+- **The price: over-blocks.** In 66 of the 1,395 the uncovered characters are only separators (a
+  space, `-`, `.` or `&` between two reader masks), so nothing identifying was raw: for example
+  `"Tata Steel industries<U+200C>pvt ltd"`. The rule follows the issue (every kept offset); it
+  does not exempt punctuation. None of the 12 repo-corpus turns is of this kind. A blocked turn is
+  withheld from the model, as every two-view block was before.
+- **Cost:** within noise (about 150–170 µs a turn either way over 3,247 invisible-bearing lines);
+  the new work is set arithmetic on the regions both passes already record.
+
+Pinned by `test_a_name_hidden_by_an_invisible_beside_a_capitals_form_fails_closed` and
+`test_r49_title_case_twin_that_predates_the_capitals_rule_fails_closed`
+(`tests/test_pseudonymize_allcaps_employer.py`), `test_r49_shapes_the_1892_passes_reach_fail_closed`
+(`tests/test_pseudonymize_employer_residuals.py`) and
+`test_a_word_joined_past_64_blocks_beside_a_second_name_word`
+(`tests/test_pseudonymize_title_employer_bound.py`). The #1875 and #1892 property tests now
+assert that no "partial" turn passes.
 
 ### The cued-ID connector is linear (issue #1933, risks-register R54)
 
@@ -736,7 +792,7 @@ out: "[PERSON_1], phone [PHONE_1], worked at [EMPLOYER_1] in Faridabad"
   - **R32:** Names without cue words can leak (e.g., "Chandrashekhar bol raha hu" — 3/4 natural forms unmasked on main). Narrowed, not closed — the gazetteer approach measured dead (487 probes / 348 leaks); known-name redaction shipped in `apps/api` instead (PR #524, ADR-0035).
   - Both tracked in [risks-register.md](../registers/risks-register.md) as Critical-if-live and both **still gate `AI_ENABLE_REAL_CALLS`**; invariant #5 holds today.
   - **Both are moot while `AI_RAW_PII_ENABLED` is armed** (ADR-0047): each describes PII slipping past a masker that is then deliberately not masking. With the switch off they stand as recorded.
-  - **R48 — employers in capitals (issue #1875).** Fixed for a capitals span that ends in a listed corporate form. #1892 then masked lower case, M/S firms that end on a firm word, 5–6 name words and the title-case twins (see "Employer shapes the capitals rule left raw"). Still open: no corporate form and no cue (`"BAJAJ AUTO"`), INC/EST., a dash after a guarded form (`"MARUTI COMPANY-PUNE"`), and the residue the #1892 section lists; the R49 two-view shapes #1892 extends wait on #1890. The title-case `_EMPLOYER_RE` stall found in the #1875 section is bounded by #1891: its name word now has the capitals rule's 64-character bound, and no corpus output moved. The owner signed off on 2026-10-03 (see #1891's sign-off and R48). Unlike R30/R32, this is NOT moot while the switch is armed. The at-rest masked copies, the embedding input (SG-2, ADR-0047 §4) and the certifiers run `pseudonymize()` under both postures. The Langfuse and `ai_call_traces` sinks follow the flag (`trace_mask`), so they are covered only while it is off.
-  - **R49 — the two-view check accepts a partial overlap (#1890).** Pre-existing (#1738). A name hidden by an invisible character next to a masked employer span egresses unblocked: `"my name is<U+200B>Ramesh Kumar CO"` → `"my name isRamesh [EMPLOYER_1]"`. Main already does this with title-case suffixes, #1875's capitals rule extends the shape, and #1892's passes extend it further (10 pinned shapes; 194 of 20,000 invisible-bearing lines on the review's generator newly pass with a name word raw; accepted by the owner 2026-10-03). OPEN, owner kpdagrt22, target 2026-10-10; the fix is to count a spaced-view region as covered only if every kept offset is inside the reader-masked regions.
+  - **R48 — employers in capitals (issue #1875).** Fixed for a capitals span that ends in a listed corporate form. #1892 then masked lower case, M/S firms that end on a firm word, 5–6 name words and the title-case twins (see "Employer shapes the capitals rule left raw"). Still open: no corporate form and no cue (`"BAJAJ AUTO"`), INC/EST., a dash after a guarded form (`"MARUTI COMPANY-PUNE"`), and the residue the #1892 section lists; the R49 two-view shapes #1892 extended block since #1890. The title-case `_EMPLOYER_RE` stall found in the #1875 section is bounded by #1891: its name word now has the capitals rule's 64-character bound, and no corpus output moved. The owner signed off on 2026-10-03 (see #1891's sign-off and R48). Unlike R30/R32, this is NOT moot while the switch is armed. The at-rest masked copies, the embedding input (SG-2, ADR-0047 §4) and the certifiers run `pseudonymize()` under both postures. The Langfuse and `ai_call_traces` sinks follow the flag (`trace_mask`), so they are covered only while it is off.
+  - **R49 — the two-view check accepted a partial overlap (#1890).** Pre-existing (#1738); extended by #1875 and #1892. A name hidden by an invisible character next to a masked employer span egressed unblocked: `"my name is<U+200B>Ramesh Kumar CO"` → `"my name isRamesh [EMPLOYER_1]"`. MITIGATED by #1890: a spaced-view region now counts as covered only when every offset of it the reader view kept is reader-masked, so those turns block. Text with no invisible character is byte-identical (it never reaches the check). See "The two-view check requires containment".
   - **R54 — the cued-ID rules stalled on a whitespace run. RESOLVED by #1933.** Pre-existing; found by the #1891 survey. `_CREDENTIAL_ID_RE` and `_RESUME_CUED_ID_RE` put three whitespace quantifiers in a row, so a cue followed by a whitespace run that failed to match cost O(k³): `pseudonymize("reg" + " " * 800 + "!")` took 1.7–4.0 s over three runs, whatever `AI_RAW_PII_ENABLED` says. Each quantifier is now folded into the optional token it follows, in both rules, the salary guard's lexicon copy and the API's TypeScript ports: 0.2 ms on that input, with 0 span differences over the corpus and the fuzz. See the section on the cued-ID connector. The `"Reg.No."` shape the connector never read stays a pinned residual, tracked as R56.
   - **R56 — the cued-ID rules never read a dot after the cue.** Pre-existing; found by the #1933 parity work. No connector token starts with "." and "regn" is no cue, so `"Reg.No.: MH2019CN4471"`, `"Reg. No. …"`, `"Roll.No. …"`, `"Cert. No. …"`, `"Passport.No. …"` and `"Regn. No. …"` never reach their value: `pseudonymize()` leaves the ID raw, `contains_hard_identifier` (G1/G2) admits it and the salary detector records its digits as pay. Unlike R30/R32, this is NOT moot while `AI_RAW_PII_ENABLED` is armed: the at-rest copies, the embedding input and the walls run `pseudonymize()` under both postures. OPEN. The fix reads "." after the cue, which masks more, so it takes its own security-engineer review; see R56.

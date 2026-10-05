@@ -32,6 +32,7 @@ from pathlib import Path
 import pytest
 from employer_masking_helpers import NEVER as _NEVER
 from employer_masking_helpers import RULES_1892 as _RULES_1892
+from employer_masking_helpers import containment_against_overlap
 from employer_masking_helpers import raw_words as _raw_words
 from employer_masking_helpers import two_view_verdict as _two_view_verdict
 
@@ -53,7 +54,9 @@ def main_gateway(monkeypatch):
 
     Sound because each is a SEPARATE pass that runs after the title-case rule and both name rules —
     with them matching nothing, every other rule sees byte-identical input. Measured against the
-    real main module over the 31,907-string corpus: 0 outputs differ."""
+    real main module over the 31,907-string corpus: 0 outputs differ. The two-view check is the
+    branch's own (#1890's containment), so "main" here blocks the R49 turns real main passed;
+    `containment_against_overlap` compares against the pre-#1890 check."""
 
     def run(fn, *args):
         with monkeypatch.context() as patch:
@@ -449,7 +452,7 @@ def without_1892(monkeypatch):
         monkeypatch.setattr(gateway, name, _NEVER)
 
 
-def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway, without_1892):
+def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway, without_1892, monkeypatch):
     """What this PROVES, exactly — over 4,000 samples of THIS seeded generator, not over all inputs.
 
     The pools: title-case and capitals names, every `_COMPANY_SUFFIX` word in both cases, the
@@ -468,18 +471,17 @@ def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway, without
        its regions are byte-identical to main's. No exception.
     2. END TO END (`pseudonymize`): the same — no word main masked is left raw, every block main
        raised is still raised, no form in either view means byte-identical — EXCEPT where main
-       blocked on the two-view check and the branch passes. That happens two ways, and each such
-       turn is asserted to be one of them (`_two_view_verdict`):
+       blocked on the two-view check and the branch passes. Each such turn is asserted to be
+       "full" (`_two_view_verdict`), the one way left since #1890:
        a. "full": the branch's reader view now masks every kept offset its spaced view masked, so
           the check, as designed, has nothing to block on and nothing either view found egresses
           raw. Main refused the whole turn; the branch releases it with every found span masked,
           and each word it releases was raw in main's reader view too (by 1). Measured 2026-10-01:
           18 of the 4,000.
-       b. "partial": a spaced-view region merely OVERLAPS a reader mask and a kept offset of it
-          egresses raw. That is R49 (#1890), pre-existing on main with title-case suffixes.
-          Measured 2026-10-01: 10 of the 4,000 (11 with the rule ahead of the name rules). Pinned
-          on its own by
-          `test_KNOWN_RESIDUAL_a_name_hidden_by_an_invisible_beside_a_capitals_form_egresses`.
+       b. (no longer reachable) "partial": a spaced-view region merely OVERLAPS a reader mask and
+          a kept offset of it would egress raw. That was R49; since #1890 the two-view check BLOCKS
+          it, so no such turn passes (measured 2026-10-01 before #1890: 10 of the 4,000). Pinned
+          on its own by `test_a_name_hidden_by_an_invisible_beside_a_capitals_form_fails_closed`.
 
     What it does NOT prove: anything outside these pools (other cues, other invisibles, other
     scripts), or that the masking is CORRECT — only how it compares with main's. The construction
@@ -498,6 +500,9 @@ def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway, without
             if not _ANY_CAPITALS_FORM.search(view.text):
                 assert (new_view, new_regions) == (old_view, old_regions), text
         new, old = pseudonymize(text), main_gateway(pseudonymize, text)
+        seen["containment newly blocks"] += (
+            containment_against_overlap(text, monkeypatch) == "newly blocked"
+        )
         seen["main blocked"] += old.blocked
         seen["main two-view block"] += old.blocked_reason == gateway._INVISIBLE_BYPASS_REASON
         seen["cue beside a capitals form"] += bool(
@@ -506,7 +511,7 @@ def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway, without
         if old.blocked and not new.blocked:
             assert old.blocked_reason == gateway._INVISIBLE_BYPASS_REASON, text
             verdict = _two_view_verdict(text)
-            assert verdict in ("full", "partial"), (text, verdict)
+            assert verdict == "full", (text, verdict)  # a "partial" turn blocks (#1890)
             seen[f"unblocked, {verdict}"] += 1
             continue
         assert old.blocked <= new.blocked, text
@@ -516,8 +521,8 @@ def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway, without
     assert seen["main blocked"] > 600, seen
     assert seen["main two-view block"] > 70, seen
     assert seen["cue beside a capitals form"] > 200, seen
-    # The R49 turns are bounded, not just classified: more would mean the rule widened R49.
-    assert seen["unblocked, partial"] <= 10, seen
+    # #1890 measured 2026-10-05: 46 of the 4,000 block under containment that overlap passed.
+    assert seen["containment newly blocks"] > 20, seen
 
 
 # --- 4. the stated boundary, both directions --------------------------------------------------
@@ -586,31 +591,32 @@ def test_KNOWN_RESIDUAL_stated_under_masking(text, expected, why):
         ("mera naam​Ramesh Kumar PVT LTD", "mera naamRamesh [EMPLOYER_1]"),
     ],
 )
-def test_KNOWN_RESIDUAL_a_name_hidden_by_an_invisible_beside_a_capitals_form_egresses(
+def test_a_name_hidden_by_an_invisible_beside_a_capitals_form_fails_closed(
     text, leaked, main_gateway
 ):
-    """R49 / #1890 — pre-existing in #1738's two-view check, NOT fixed here (security review F1).
+    """R49 / #1890 — fixed in #1738's two-view check (security review F1 of #1875).
 
     The reader view deletes the U+200B and merges "isRamesh", so the cue misses and the capitals
-    rule masks "Kumar CO". The spaced view masks "Ramesh Kumar" as a name. `pseudonymize` counts
-    the spaced region as covered because it OVERLAPS the reader mask on "Kumar", so the turn
-    passes with "Ramesh" raw. Main BLOCKED it: no reader mask to overlap. If this starts blocking,
-    R49 is fixed — turn this into a blocking pin and close R49 / #1890."""
+    rule masks "Kumar CO". The spaced view masks "Ramesh Kumar" as a name. That region merely
+    OVERLAPS the reader mask on "Kumar"; under #1890 a region is covered only when every kept
+    offset is reader-masked, so "Ramesh" no longer egresses as `leaked` and the turn BLOCKS, as
+    main (no capitals rule, no reader mask to overlap) blocked it."""
     assert main_gateway(pseudonymize, text).blocked_reason == gateway._INVISIBLE_BYPASS_REASON
-    result = pseudonymize(text)
-    assert (result.text, result.blocked) == (leaked, False)
     assert _two_view_verdict(text) == "partial"
+    result = pseudonymize(text)
+    assert result.text != leaked
+    assert (result.text, result.blocked) == ("", True)
+    assert result.blocked_reason == gateway._INVISIBLE_BYPASS_REASON
 
 
-def test_KNOWN_RESIDUAL_r49_predates_the_capitals_rule(main_gateway):
-    # Main passes the title-case twin the same way: "Kumar Steel" is the reader mask "Ramesh
-    # Kumar" overlaps. The capitals rule extends the shape to the capitals forms; it did not
-    # create it (R49, #1890).
+def test_r49_title_case_twin_that_predates_the_capitals_rule_fails_closed(main_gateway):
+    # Main passed the title-case twin the same way before #1890: "Kumar Steel" is the reader mask
+    # "Ramesh Kumar" overlaps. Containment blocks it with or without the capitals rule.
     text = "my name is​Ramesh Kumar Steel"
-    result = main_gateway(pseudonymize, text)
-    assert (result.text, result.blocked) == ("my name isRamesh [EMPLOYER_1]", False)
     assert main_gateway(_two_view_verdict, text) == "partial"
-    assert pseudonymize(text) == result
+    for result in (pseudonymize(text), main_gateway(pseudonymize, text)):
+        assert (result.text, result.blocked) == ("", True)
+        assert result.blocked_reason == gateway._INVISIBLE_BYPASS_REASON
 
 
 # --- 5. fail-closed and the certifiers --------------------------------------------------------
