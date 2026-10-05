@@ -22,6 +22,7 @@ import { ChatCompanionController } from "./chat-companion.controller";
 import { ChatCompanionPolicy } from "./chat-companion.policy";
 import { ChatCompanionRepository } from "./chat-companion.repository";
 import { ChatCompanionService } from "./chat-companion.service";
+import { EmployersModule } from "../employers/employers.module";
 import { CompanionMemoryStore } from "./v2/companion-memory.store";
 import { EditProposalStore } from "./v2/edit-proposal.store";
 import { FaltuStore } from "./v2/faltu.store";
@@ -54,7 +55,8 @@ import {
  *   - JobsModule — `JobsRepository`, the Jobs tab's own membership rule;
  *   - @Global: AppConfigModule, DatabaseModule, EventsModule, WorkersModule (WorkersRepository),
  *     MatchModule (WorkerSkillsRepository / WorkerSkillsService), AiModule (AiService),
- *     CryptoModule (PiiCryptoService).
+ *     CryptoModule (the PII crypto service, reached only inside `employers/`).
+ *   - EmployersModule — the TD147/WP7 employer-name index the career validator checks against.
  *
  * ADR-0046 T7 — WHY THE SECTION WRITERS ARE PROVIDED HERE. The edit card applies through the
  * SAME writers the forms use, and those writers live in `ProfilesModule`, which imports
@@ -70,6 +72,10 @@ import {
     ConsentModule,
     ResumeModule,
     JobsModule,
+    // TD147/WP7 — the employer-name index the career validator checks answers against. Its own
+    // module because it decrypts employer ORG names through the PII crypto service, which this
+    // leaf may not import (the egress boot test forbids that import under chat-companion/).
+    EmployersModule,
     // ADR-0046 T5 — the v2 stores need Redis and deliberately reuse BullMQ's existing
     // connection rather than opening a second client (`ResumeRateLimit` /
     // `AdminMfaSecretStore` precedent). Registering an existing queue name here only borrows
