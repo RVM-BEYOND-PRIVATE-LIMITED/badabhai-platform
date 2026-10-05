@@ -186,7 +186,7 @@ NestJS boot assertion).
   holds. Arming is the secret set to `true` plus a redeploy; off again is the secret set to `false`
   plus a redeploy. Values: lowercase `true`/`false`/`1`/`0`/empty only; anything else would stop
   the api booting, so `scripts/deploy/staging-deploy.sh` refuses any other value before a
-  container moves. In CI only the `e2e` job's union step sets it, on a restarted API process that
+  container moves. In CI tests, only the `e2e` job's union step sets it, on a restarted API process that
   runs `tests/e2e/feed-postings-union.e2e.test.ts` alone.
 - **Chat / profiling** — `CHAT_TRANSCRIPT_TTL_SECONDS`, `CHAT_ABANDON_AFTER_SECONDS`,
   `CHAT_MAX_TURNS` (the authoritative hard cap — the ai-service mirrors it but holds no

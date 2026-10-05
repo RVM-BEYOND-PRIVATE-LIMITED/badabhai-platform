@@ -327,8 +327,10 @@ describe.skipIf(!RUN)("Company postings on the legacy feed (e2e, #1823 interim u
         and(eq(applications.workerId, worker.workerId), eq(applications.jobPostingId, postingId)),
       );
     expect(row!.applicationId).toBe(applied!.id);
-    expect(row).not.toHaveProperty("score");
-    expect(row).not.toHaveProperty("components");
+    // A fresh posting with one applicant: nobody who did not apply is listed.
+    expect(applicants).toHaveLength(1);
+    for (const k of ["score", "hot", "pushEligible", "components"])
+      expect(row).not.toHaveProperty(k);
     // Faceless until unlock: no identity on the list.
     for (const k of ["name", "phone", "full_name", "phone_number"])
       expect(row).not.toHaveProperty(k);
