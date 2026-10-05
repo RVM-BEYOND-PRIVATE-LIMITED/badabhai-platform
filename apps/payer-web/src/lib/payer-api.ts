@@ -1169,6 +1169,11 @@ export interface PostingDetail {
   /** The MATCHABLE half echoed back, so the edit skill picker prefills what was published. */
   matchSkillIds: string[];
   untickedRelatedIds: string[];
+  /**
+   * The saved revision (`updated_at`). The edit page keys its form on it, so a form seeded from
+   * an older revision remounts instead of keeping stale values (and a stale `clear` diff).
+   */
+  updatedAt: string;
 }
 
 /**
@@ -1191,6 +1196,7 @@ export async function getPostingDetail(postingId: string): Promise<PostingDetail
       skills: wire.skill_phrases,
       matchSkillIds: wire.match_skill_ids ?? [],
       untickedRelatedIds: wire.unticked_related_ids ?? [],
+      updatedAt: wire.updated_at,
     };
   } catch (e) {
     if (e instanceof Error && /returned 404/.test(e.message)) return null;

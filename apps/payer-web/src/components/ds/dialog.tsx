@@ -6,13 +6,15 @@
  * Client primitive: wires Esc-to-close, scrim-click-to-close, and modal FOCUS management —
  * on open it saves the trigger, moves focus into the dialog, and TRAPS Tab / Shift+Tab
  * within the dialog's focusable set (wrapping first↔last); on close it restores focus to the
- * trigger. Controlled via `open`. Presentational only — the caller owns the open state +
- * actions (e.g. confirm-on-spend lives in the screen, not here). Prop contract mirrors
- * docs/design/.../components/feedback/Dialog.d.ts.
+ * trigger. While open it ISOLATES THE PAGE (./page-isolation.ts): everything outside the dialog
+ * is `inert` and the page does not scroll under the scrim. Controlled via `open`.
+ * Presentational only — the caller owns the open state + actions (e.g. confirm-on-spend lives in
+ * the screen, not here). Prop contract mirrors docs/design/.../components/feedback/Dialog.d.ts.
  */
 import { useEffect, useId, useRef } from "react";
 import type { MouseEvent, ReactNode } from "react";
 import { Icon } from "@badabhai/icons";
+import { inertOutside, lockPageScroll } from "./page-isolation";
 
 export interface DialogProps {
   /** Controls visibility. */
@@ -64,6 +66,13 @@ export function Dialog({
 
     const previouslyFocused = document.activeElement as HTMLElement | null;
 
+    // ISOLATE THE PAGE behind the dialog: inert (no click, focus, find or virtual cursor reaches
+    // it) and still (no scroll under the scrim). After saving the trigger — inert blurs it.
+    // NESTING: open a second Dialog only from INSIDE this one — anywhere else in the page is
+    // inert while this is open (see page-isolation.ts).
+    const releaseInert = inertOutside(dialogEl, document.body);
+    const releaseScroll = lockPageScroll(document.documentElement, window.innerWidth);
+
     const focusable = (): HTMLElement[] =>
       Array.from(
         dialogEl.querySelectorAll<HTMLElement>(
@@ -100,6 +109,9 @@ export function Dialog({
     dialogEl.addEventListener("keydown", onKeyDown);
     return () => {
       dialogEl.removeEventListener("keydown", onKeyDown);
+      // Hand the page back FIRST: an inert trigger cannot take focus.
+      releaseInert();
+      releaseScroll();
       // Restore focus to whatever opened the dialog (keyboard users land back where they were).
       if (previouslyFocused && typeof previouslyFocused.focus === "function") {
         previouslyFocused.focus();

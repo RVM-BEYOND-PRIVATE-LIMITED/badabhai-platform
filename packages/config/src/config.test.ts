@@ -673,6 +673,16 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig({ AI_RAW_PII_ENABLED: "yes" })).toThrow();
   });
 
+  it("MATCH_V1_ENABLED (ADR-0036 §8, #1904) is OFF when absent, empty or 'false'", () => {
+    // The deploy bridge exports an ABSENT production secret as "". That must read as OFF and
+    // must not throw at boot: production's `job_reach` is empty, so ON serves an empty deck.
+    expect(loadServerConfig({}).MATCH_V1_ENABLED).toBe(false);
+    expect(loadServerConfig({ MATCH_V1_ENABLED: "" }).MATCH_V1_ENABLED).toBe(false);
+    expect(loadServerConfig({ MATCH_V1_ENABLED: "false" }).MATCH_V1_ENABLED).toBe(false);
+    expect(loadServerConfig({ MATCH_V1_ENABLED: "0" }).MATCH_V1_ENABLED).toBe(false);
+    expect(loadServerConfig({ MATCH_V1_ENABLED: "true" }).MATCH_V1_ENABLED).toBe(true);
+  });
+
   it.each(["True", "TRUE", "yes", "on", "t", "y", "False", "no", " true"])(
     "AI_RAW_PII_ENABLED=%j does not boot the api — the ai-service refuses the same values",
     (value) => {

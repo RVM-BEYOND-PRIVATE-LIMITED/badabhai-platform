@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { FeedQuerySchema } from "./applications.dto";
+import { FEED_PAY_MIN_MAX, FeedQuerySchema } from "./applications.dto";
 
 /**
  * Locks the LIBERAL-feed contract at the schema boundary (the headline of the
@@ -28,4 +28,18 @@ describe("FeedQuerySchema (liberal, bounded page)", () => {
   it("coerces a numeric string (query params arrive as strings)", () => {
     expect(FeedQuerySchema.parse({ limit: "30" }).limit).toBe(30);
   });
+});
+
+describe("FeedQuerySchema pay_min (#1905: bounded to the column type)", () => {
+  it("accepts a floor up to the int4 max that `pay_max` is compared against", () => {
+    expect(FeedQuerySchema.parse({ pay_min: "20000" }).pay_min).toBe(20000);
+    expect(FeedQuerySchema.parse({ pay_min: String(FEED_PAY_MIN_MAX) }).pay_min).toBe(FEED_PAY_MIN_MAX);
+  });
+
+  it.each(["2147483648", "1e10", "9007199254740991"])(
+    "rejects pay_min=%s at the boundary (400), never a 500 from an out-of-range bind",
+    (value) => {
+      expect(FeedQuerySchema.safeParse({ pay_min: value }).success).toBe(false);
+    },
+  );
 });

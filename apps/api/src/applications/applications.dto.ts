@@ -1,6 +1,14 @@
 import { z } from "zod";
 
 /**
+ * The largest `pay_min` the feed accepts: Postgres `int4` max, the type of `pay_max` on both
+ * `jobs` and `job_postings`. A larger floor is a 400 at the boundary instead of a 500 from
+ * an out-of-range bind (#1905 review). A technical bound, not a business cap: every real
+ * band sits far below it, so it never changes which jobs a valid floor keeps.
+ */
+export const FEED_PAY_MIN_MAX = 2_147_483_647;
+
+/**
  * Zod DTOs for the alpha swipe-to-apply surface (ADR-0009). All boundaries are
  * validated here. NOTE: `worker_id` is NEVER accepted from a client — it always
  * comes from the authenticated session (`@CurrentWorker`), so it is absent from
@@ -17,6 +25,12 @@ import { z } from "zod";
 export const FeedQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(50),
   // TD66: Server-side feed filtering
+  //
+  // `trade_key` is deliberately NOT `z.enum(TRADE_KEYS)` here (#1905, owner ruling): an
+  // unknown value must be IGNORED, not rejected with a 400. The worker app has sent a chip
+  // LABEL (`'CNC'`) where the slug belongs, and a 400 would turn "the trade filter does
+  // nothing" into "the Jobs tab is broken". The legacy-arm service resolves it against
+  // `TRADE_KEYS` and drops (and logs) anything else. Single-valued: a repeated param is a 400.
   trade_key: z.string().optional(),
   city: z.string().optional(),
   // ── ADR-0036 / spec Part 3 — "Filters belong to the worker" ────────────────
@@ -28,7 +42,7 @@ export const FeedQuerySchema = z.object({
   // from the worker's profile. If it is absent from the query string the pay filter
   // does not exist for that request. `shift` is the same.
   shift: z.enum(["day", "night", "rotational"]).optional(),
-  pay_min: z.coerce.number().int().nonnegative().optional(),
+  pay_min: z.coerce.number().int().nonnegative().max(FEED_PAY_MIN_MAX).optional(),
 });
 export type FeedQueryDto = z.infer<typeof FeedQuerySchema>;
 

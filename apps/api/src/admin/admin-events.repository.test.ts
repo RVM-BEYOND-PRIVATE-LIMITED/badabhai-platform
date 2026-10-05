@@ -43,6 +43,35 @@ describe("AdminEventsRepository is SELECT-ONLY over `events` (spine immutability
   });
 });
 
+describe("eventNameStats — one funnel stage, possibly several event names (#1904)", () => {
+  const SINCE = new Date("2026-09-01T00:00:00.000Z");
+
+  it("reads the whole name SET in ONE statement: IN (...), both counts off the same rows", async () => {
+    const c = captureQueries();
+    await new AdminEventsRepository(c.db).eventNameStats(["feed.shown", "feed.shown_v2"], SINCE);
+    // One WHERE over the union, so count(distinct subject_id) dedupes across the two names —
+    // summing two per-name distinct counts could not.
+    expect(c.sql()).toContain('"events"."event_name" in ($1, $2)');
+    expect(c.sql()).toContain('count(distinct "events"."subject_id")');
+    expect(c.sql()).toContain('"events"."occurred_at" >= $3');
+    expect(c.params.slice(0, 2)).toEqual(["feed.shown", "feed.shown_v2"]);
+  });
+
+  it("a single-name stage is the same statement with one name", async () => {
+    const c = captureQueries();
+    await new AdminEventsRepository(c.db).eventNameStats(["contact.revealed"], SINCE);
+    expect(c.sql()).toContain('"events"."event_name" in ($1)');
+    expect(c.params[0]).toBe("contact.revealed");
+  });
+
+  it("reads an empty window as zeros, never undefined", async () => {
+    const c = captureQueries();
+    await expect(
+      new AdminEventsRepository(c.db).eventNameStats(["feed.shown"], SINCE),
+    ).resolves.toEqual({ count: 0, distinctSubjects: 0 });
+  });
+});
+
 describe("countByPayloadField — the BP-5 cap-breach split", () => {
   it("filters on the INDEXED event_name and a windowed occurred_at", async () => {
     const c = captureQueries();

@@ -361,14 +361,53 @@
   padding: 7px 14px; min-height: 38px; cursor: pointer;
   transition: var(--transition-control); user-select: none;
 }
-.bb-chip:hover { border-color: var(--ink-400); background: var(--surface-sunken); }
-.bb-chip:active { transform: scale(0.97); }
+/* Hover and press belong to the BUTTON chip (selectable / suggestion); a removable chip is static
+   content and only its remove button reacts. `:where()` keeps each rule's specificity unchanged. */
+.bb-chip:where(button):hover { border-color: var(--ink-400); background: var(--surface-sunken); }
+.bb-chip:where(button):active { transform: scale(0.97); }
 .bb-chip:focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); }
 .bb-chip--selected { background: var(--brand-tint); border-color: var(--text-accent); color: var(--text-accent); font-weight: var(--weight-bold); }
-.bb-chip--selected:hover { background: var(--brand-tint-2); border-color: var(--brand); }
-.bb-chip__remove { display: inline-flex; margin-right: -4px; opacity: 0.55; font-size: var(--text-sm); }
-.bb-chip__remove:hover { opacity: 1; }
-.bb-chip .ph-fill { font-size: 1.05em; }
+.bb-chip--selected:where(button):hover { background: var(--brand-tint-2); border-color: var(--brand); }
+.bb-chip > .ph-fill { font-size: 1.05em; }
+
+/* REMOVABLE chip (Chip `onRemove`) — a value the payer entered, not a control: no pointer, its
+   text selectable, the end padding tightened around its ONE control, the remove button. */
+.bb-chip--removable { cursor: default; user-select: text; padding-inline-end: var(--space-1); }
+/* THE REMOVE BUTTON — the shared icon-only control (IconButtonBase, @badabhai/icons/button) in a
+   chip-sized skin: a 24px round target (the WCAG 2.5.8 minimum, drawn), the glyph a secondary icon
+   (60% step-down of the primary, --icon-secondary) at rest and the heading colour under the
+   pointer or focus. Positioned: it anchors the shared tooltip (.bb-icon-tip) and the hit area. */
+.bb-chip__remove {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: var(--space-6); height: var(--space-6);
+  padding: 0; border: 0; border-radius: var(--radius-round);
+  background: transparent; color: var(--icon-secondary);
+  font-size: var(--icon-size-sm);
+  cursor: pointer; transition: var(--transition-control);
+}
+.bb-chip__remove:hover { background: var(--surface-sunken); color: var(--text-heading); }
+.bb-chip__remove:focus-visible { color: var(--text-heading); outline: var(--focus-outline); outline-offset: var(--focus-outline-offset); box-shadow: var(--ring-focus); }
+.bb-chip__remove:disabled { background: transparent; color: var(--text-disabled); cursor: not-allowed; }
+/* HIT AREA ≥ 44px on a phone or any coarse pointer — the `.bb-iconbtn--sm` technique: the pseudo
+   is the button for hit-testing, centred, (100% − 44px) / 2 each way. It reaches 10px past the
+   24px circle: over the chip's own text (not a target) and 6px into the gap to the next chip. */
+@media (max-width: 600px), (pointer: coarse) {
+  .bb-chip__remove::before {
+    content: ""; position: absolute;
+    inset: calc((100% - var(--control-md)) / 2);
+  }
+}
+/* Its tooltip names the item ("Remove …"). Anchored at the chip's END (tooltipPlacement
+   "top-end") it grows toward the row's start, so it can never push the page sideways; a long name
+   WRAPS inside a box no wider than 20rem, the page, or the chip's ROW (`100cqi` — the row is an
+   inline-size container, e.g. .chip-editor__chips). Where it would still cross the row's start
+   (a short chip that starts a row), chip-tip.ts slides it right by the overrun: --bb-tip-shift. */
+.bb-chip__remove > .bb-icon-tip {
+  white-space: normal; width: max-content;
+  max-width: min(20rem, 100cqi, calc(100vw - 2 * var(--space-4)));
+  translate: calc(var(--bb-tip-shift, 0) * 1px) 0;
+}
 
 /* ---------- Avatar ---------- */
 .bb-avatar {
@@ -614,62 +653,188 @@
 .bb-chat__wave i { width: 3px; border-radius: 2px; background: currentColor; opacity: 0.5; display: block; }
 .bb-chat__dur { font-family: var(--font-mono); font-size: var(--text-xs); opacity: 0.8; }
 
-/* ---------- JobCardPreview (PR-B — the posting↔card lineage) ----------
-   The payer-facing preview built LIVE from what the posting form collected. Token-only, brand:
-   Ivory card on a Shift-Blue accented salary box, Safety-Yellow pay-type pill. Responsive down to
-   375px; a subtle entrance that collapses under prefers-reduced-motion. The DS swipe JobCard was
-   removed with PR-B — this is the only job card in payer-web. */
-.jcp { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; }
+/* ---------- JobCardPreview — the worker's swipe card, mirrored ----------
+   A row-for-row copy of the worker app's `Design1JobCard` (apps/worker-app/lib/features/swipe/
+   presentation/widgets/design1_job_card.dart). Every size below is the phone's own number in dp,
+   times ONE unit: `--jcp-u` is 1dp at `--jcp-scale` 1 (the phone sheet), and the desktop rail
+   raises the scale (globals.css) — type, padding, width and the clip all grow together, so the
+   preview wraps and truncates exactly where the phone does, just larger. The card width (332dp)
+   and the clip (386dp) are the MEASURED reference phone (REFERENCE_PHONE, lib/job-card-view.ts);
+   the line clamps are JOB_CARD_CLAMPS. Both are pinned by job-card-preview.css.test.ts.
+
+   Colour is the brand token layer (it flips under [data-theme="ink"]), mapped onto the phone's
+   roles: the paper is the card surface, the salary box the accent tint, the chips the sunken /
+   info / accent tints. The title and band use the phone's face (Anek Latin — OnboardingTypography
+   .displayFamily), not the portal's display face: the wrap points follow the face. */
+.jcp {
+  --jcp-scale: 1;
+  --jcp-u: calc(var(--jcp-scale) * 0.0625rem);
+  --jcp-face: "Anek Latin", "Anek", var(--font-display);
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
+  margin: 0; min-width: 0;
+}
 .jcp__card {
-  background: var(--surface-card); border: var(--border-hairline) solid var(--border-subtle);
-  border-radius: var(--radius-xl); box-shadow: var(--shadow-md);
-  padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4);
+  box-sizing: border-box;
+  width: min(100%, calc(332 * var(--jcp-u)));
+  padding: calc(16 * var(--jcp-u));
+  display: flex; flex-direction: column;
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-default);
+  border-radius: calc(16 * var(--jcp-u));
+  box-shadow: var(--shadow-sm);
   animation: jcp-rise 180ms ease-out both;
 }
-.jcp__head { display: flex; flex-direction: column; gap: var(--space-2); }
+/* The phone's content box: a fixed height, clipped, no scroll ("the clip IS the contract"). */
+.jcp__content { position: relative; max-height: calc(386 * var(--jcp-u)); overflow: hidden; min-width: 0; }
+.jcp__flow { display: flex; flex-direction: column; min-width: 0; }
+.jcp__foldline {
+  position: absolute; inset-inline: 0; top: calc(386 * var(--jcp-u)); height: 0;
+  border-top: calc(2 * var(--border-hairline)) dashed var(--border-strong);
+}
+.jcp:has(.jcp__fold[open]) .jcp__content { max-height: none; }
+
+/* 1 · title + chevron — a ≥48dp row (the phone's tap target), 2 lines + ellipsis. */
+.jcp__titlerow {
+  display: flex; align-items: center; gap: calc(8 * var(--jcp-u));
+  min-height: calc(48 * var(--jcp-u)); min-width: 0;
+}
 .jcp__title {
-  font-family: var(--font-display); font-weight: var(--weight-bold);
-  font-size: var(--text-2xl); line-height: 1.1; color: var(--text-heading); margin: 0;
+  flex: 1 1 auto; min-width: 0; margin: 0;
+  font-family: var(--jcp-face); font-weight: var(--weight-extrabold);
+  font-size: calc(17 * var(--jcp-u)); line-height: var(--leading-snug);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  overflow: hidden;
 }
-.jcp__title--empty { color: var(--text-faint); }
-.jcp__role {
-  display: inline-flex; align-items: center; gap: var(--space-2);
-  font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text-accent);
+.jcp__title--empty { color: var(--text-muted); }
+/* An empty slot keeps the worker's empty text; the placeholder is drawn here, never in the DOM. */
+.jcp__title--empty::before,
+.jcp__place-text--empty::before { content: attr(data-placeholder); color: var(--text-muted); }
+/* chevron_right_rounded, 26dp, Safety Yellow — drawn, not a glyph (decorative, aria-hidden). */
+.jcp__chevron { flex: none; position: relative; width: calc(26 * var(--jcp-u)); height: calc(26 * var(--jcp-u)); }
+.jcp__chevron::before {
+  content: ""; position: absolute; top: 50%; left: 38%;
+  width: calc(8 * var(--jcp-u)); height: calc(8 * var(--jcp-u));
+  border-right: calc(3 * var(--jcp-u)) solid var(--brand);
+  border-bottom: calc(3 * var(--jcp-u)) solid var(--brand);
+  border-bottom-right-radius: calc(2 * var(--jcp-u));
+  transform: translate(-50%, -50%) rotate(-45deg);
 }
+
+/* 2 · place — "Area, City", pin, 1 line + ellipsis. */
 .jcp__place {
-  display: inline-flex; align-items: center; gap: var(--space-2);
-  font-size: var(--text-base); color: var(--text-secondary);
+  display: flex; align-items: center; gap: calc(5 * var(--jcp-u));
+  margin: calc(2 * var(--jcp-u)) 0 0; min-width: 0;
+  font-family: var(--font-sans); font-size: calc(13 * var(--jcp-u)); line-height: 1.4;
+  color: var(--text-secondary);
 }
-.jcp__role .ph-fill, .jcp__place .ph-fill { color: var(--text-faint); font-size: var(--text-md); }
+.jcp__place .ph-fill { flex: none; font-size: calc(14 * var(--jcp-u)); color: var(--text-muted); }
+.jcp__place-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* 3 · MAHINE KI SALARY — label + pay-type pill, then the band on 1 line + ellipsis. */
 .jcp__salary {
-  background: var(--brand-tint); border: var(--border-hairline) solid var(--brand-border);
-  border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4);
-  display: flex; flex-direction: column; gap: var(--space-2);
+  margin-top: calc(12 * var(--jcp-u));
+  padding: calc(12 * var(--jcp-u)) calc(14 * var(--jcp-u));
+  display: flex; flex-direction: column; gap: calc(6 * var(--jcp-u)); min-width: 0;
+  background: var(--brand-tint);
+  border: var(--border-hairline) solid var(--brand);
+  border-radius: calc(10 * var(--jcp-u));
 }
-.jcp__salary-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.jcp__salary-top { display: flex; align-items: center; gap: calc(8 * var(--jcp-u)); min-width: 0; }
 .jcp__salary-label {
+  flex: 1 1 auto; min-width: 0;
   font-family: var(--font-sans); font-weight: var(--weight-bold);
-  font-size: var(--text-xs); letter-spacing: 0.06em; color: var(--text-brand);
+  font-size: calc(11 * var(--jcp-u)); line-height: 1.2; letter-spacing: calc(0.6 * var(--jcp-u));
+  color: var(--text-brand);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
+/* 10dp, the phone's own pill size (`design1_job_card.dart`): kept at true scale in the phone sheet
+   (phone parity — 10px there is what the worker reads); the desktop rail floors it at the 12px
+   text token (globals.css, `.posting-preview .jcp__paytype`) so it stays readable on a laptop. */
 .jcp__paytype {
-  background: var(--brand); color: var(--text-on-brand);
-  border-radius: var(--radius-pill); padding: 0 var(--space-2);
-  font-size: var(--text-2xs); font-weight: var(--weight-bold); letter-spacing: 0.04em;
+  flex: none;
+  padding: calc(3 * var(--jcp-u)) calc(8 * var(--jcp-u));
+  background: var(--surface-card); border: var(--border-hairline) solid var(--brand);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-sans); font-weight: var(--weight-extrabold);
+  font-size: calc(10 * var(--jcp-u)); line-height: 1.2; letter-spacing: calc(0.4 * var(--jcp-u));
+  color: var(--text-brand);
 }
 .jcp__salary-band {
-  font-family: var(--font-mono); font-weight: var(--weight-bold);
-  font-size: var(--text-xl); color: var(--text-brand);
+  min-width: 0;
+  font-family: var(--jcp-face); font-weight: var(--weight-extrabold);
+  font-size: calc(20 * var(--jcp-u)); line-height: 1.3; font-variant-numeric: tabular-nums;
+  color: var(--text-brand);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
-.jcp__duty { display: flex; flex-direction: column; gap: var(--space-2); }
-.jcp__duty-label { font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text-secondary); }
-.jcp__chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+/* A live form's pay that cannot be drawn as typed: the box names the fix — never a wrong band. */
+.jcp__salary--issue { border-style: dashed; border-color: var(--danger); }
+.jcp__salary-issue {
+  font-family: var(--font-sans); font-weight: var(--weight-bold);
+  font-size: calc(14 * var(--jcp-u)); line-height: 1.3; color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+/* 4 · Duty & Suvidhayein — shift → experience → needed-by → requirements → benefits. */
+.jcp__duty { margin-top: calc(14 * var(--jcp-u)); display: flex; flex-direction: column; gap: calc(8 * var(--jcp-u)); min-width: 0; }
+.jcp__duty-label {
+  font-family: var(--font-sans); font-weight: var(--weight-semibold);
+  font-size: calc(12 * var(--jcp-u)); line-height: 1.2; color: var(--text-secondary);
+}
+.jcp__chips { display: flex; flex-wrap: wrap; gap: calc(8 * var(--jcp-u)); margin: 0; padding: 0; list-style: none; min-width: 0; }
 .jcp__chip {
-  display: inline-flex; align-items: center; gap: var(--space-2);
-  background: var(--surface-sunken); border-radius: var(--radius-pill);
-  padding: var(--space-2) var(--space-3); font-size: var(--text-sm); color: var(--text-secondary);
+  box-sizing: border-box; display: inline-flex; align-items: center; gap: calc(6 * var(--jcp-u));
+  max-width: 100%; min-width: 0;
+  padding: calc(7 * var(--jcp-u)) calc(10 * var(--jcp-u));
+  border: var(--border-hairline) solid transparent;
+  border-radius: calc(10 * var(--jcp-u));
+  background: var(--surface-sunken); color: var(--text-primary);
 }
-.jcp__chip .ph-fill { color: var(--text-faint); font-size: var(--text-sm); }
+.jcp__chip--needed_by, .jcp__chip--benefit { background: var(--info-tint); }
+.jcp__chip--requirement { background: var(--brand-tint); }
+.jcp__chip .ph-fill { flex: none; font-size: calc(14 * var(--jcp-u)); color: var(--text-secondary); }
+.jcp__chip-text {
+  min-width: 0;
+  font-family: var(--font-sans); font-weight: var(--weight-semibold);
+  font-size: calc(12 * var(--jcp-u)); line-height: 1.2;
+  overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  overflow: hidden;
+}
+/* Typed in the chip box, not yet added — it WILL be saved (the forms commit it), so it is drawn. */
+.jcp__chip--pending { background: transparent; border-style: dashed; border-color: var(--border-strong); }
+.jcp__chip--invalid { background: transparent; border-style: dashed; border-color: var(--danger); color: var(--danger); }
+.jcp__chip--invalid .ph-fill { color: var(--danger); }
+
+/* 5 · the BadaBhai lockup at the foot — outside the clip, like the phone's reserved footer. */
+.jcp__brand { margin-top: calc(12 * var(--jcp-u)); display: flex; justify-content: center; }
+.jcp__brand-plate {
+  display: inline-flex; align-items: center;
+  padding: calc(5 * var(--jcp-u)) calc(10 * var(--jcp-u)) calc(5 * var(--jcp-u)) calc(5 * var(--jcp-u));
+  background: var(--surface-sunken); border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: calc(12 * var(--jcp-u));
+}
+
+/* Under the card: how many chips the reference phone cuts, and a control that shows them all.
+   Hidden until the browser has counted a cut (`data-cut` is written by job-card-fold.ts). */
+.jcp__fold { width: min(100%, calc(332 * var(--jcp-u))); }
+.jcp__fold:not([data-cut]), .jcp__fold[data-cut="0"] { display: none; }
+.jcp__fold-summary {
+  display: block; padding-block: var(--space-2);
+  cursor: pointer; list-style: none;
+  font-size: var(--text-sm); font-weight: var(--weight-semibold); line-height: var(--leading-snug);
+  color: var(--text-link); text-decoration: underline; text-decoration-color: var(--link-underline);
+  overflow-wrap: anywhere;
+}
+.jcp__fold-summary::-webkit-details-marker { display: none; }
+.jcp__fold[open] .jcp__fold-closed, .jcp__fold:not([open]) .jcp__fold-open { display: none; }
 .jcp__caption { font-size: var(--text-xs); color: var(--text-muted); text-align: center; margin: 0; }
+[data-theme="ink"] .jcp__salary-issue,
+[data-theme="ink"] .jcp__chip--invalid,
+[data-theme="ink"] .jcp__chip--invalid .ph-fill { color: var(--red-300); }
+[data-theme="ink"] .jcp__salary--issue,
+[data-theme="ink"] .jcp__chip--invalid { border-color: var(--red-300); }
 @keyframes jcp-rise {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }

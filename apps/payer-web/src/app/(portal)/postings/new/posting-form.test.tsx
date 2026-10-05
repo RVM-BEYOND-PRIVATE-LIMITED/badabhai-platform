@@ -103,10 +103,14 @@ describe("createPostingInputSchema — the PR-B card-lineage validation authorit
 
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
+// Setters are kept by state index so a test can see what an input handler set.
+let setters: Array<ReturnType<typeof vi.fn>> = [];
 const useState = vi.fn((initial: unknown) => {
   const i = stateCursor++;
   const seeded = i < stateQueue.length ? stateQueue[i] : initial;
-  return [seeded, vi.fn()] as [unknown, (v: unknown) => void];
+  const setter = vi.fn();
+  setters[i] = setter;
+  return [seeded, setter] as [unknown, (v: unknown) => void];
 });
 const useTransition = vi.fn((): [boolean, (cb: () => void) => void] => [false, (cb) => cb()]);
 
@@ -121,7 +125,8 @@ vi.mock("react", async () => {
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
-vi.mock("./actions", () => ({ createPostingAction: vi.fn() }));
+const createPostingAction = vi.fn(async (_input: unknown) => ({ ok: true, postingId: "p1", published: true }));
+vi.mock("./actions", () => ({ createPostingAction: (i: unknown) => createPostingAction(i) }));
 vi.mock("./match-actions", () => ({ previewReachAction: vi.fn(async () => ({ ok: false, error: "x" })) }));
 // The interactive, hook-using picker is replaced with a hookless stand-in that still renders the
 // vocabulary it was HANDED, so "the form passes the server list down" stays a real assertion.
@@ -136,6 +141,7 @@ vi.mock("./match-skill-picker", () => ({
 }));
 
 const { PostingForm } = await import("./posting-form");
+const { observeDockHeight } = await import("../../../../lib/dock-reserve");
 
 const MSKILL = {
   skill_id: "mskill_cnc_turning",
@@ -146,8 +152,9 @@ const MSKILL = {
 
 /**
  * useState order in the source: fields, fieldErrors, error, navigating, selection, preview,
- * requirements, benefits, reqDraft, benDraft, gap (then useTransition). The card-lineage state is
- * APPENDED after the ADR-0036 prefix so this positional seeding keeps working.
+ * requirements, benefits, reqDraft, benDraft, gap, revealed (then useTransition; the preview rail's
+ * own sheet state comes after, at its initial value). New state is APPENDED so this positional
+ * seeding keeps working.
  */
 function render(seed: {
   fields: Record<string, string>;
@@ -158,21 +165,28 @@ function render(seed: {
   preview?: unknown;
   requirements?: string[];
   benefits?: string[];
+  reqDraft?: string;
+  benDraft?: string;
+  revealed?: Record<string, true>;
+  gap?: { title: string; message: string; field: string } | null;
   matchSkills?: Array<Record<string, unknown>>;
+  error?: string | null;
 }) {
   stateQueue = [
     seed.fields,
     seed.fieldErrors,
-    null,
+    seed.error ?? null,
     seed.navigating ?? false,
     seed.selection ?? { matchSkillIds: [MSKILL.skill_id], untickedRelatedIds: [] },
     seed.preview ?? null,
     seed.requirements ?? [],
     seed.benefits ?? [],
-    "",
-    "",
-    null,
+    seed.reqDraft ?? "",
+    seed.benDraft ?? "",
+    seed.gap ?? null,
+    seed.revealed ?? {},
   ];
+  setters = [];
   stateCursor = 0;
   return PostingForm({
     quotaStep: seed.quotaStep ?? null,
@@ -181,6 +195,7 @@ function render(seed: {
 }
 
 interface Collected {
+  classes: string[];
   buttons: Array<{ type?: string; disabled?: boolean; text: string }>;
   aria: Array<{ id?: string; ariaInvalid?: unknown }>;
   tagById: Record<string, string>;
@@ -222,9 +237,10 @@ function walk(node: ReactNode, acc: Collected): void {
       text: textOf(el.props.children).trim(),
     });
   }
-  if (el.type === "input") {
+  if (el.type === "input" || el.type === "select" || el.type === "textarea") {
     acc.aria.push({ id: el.props.id as string | undefined, ariaInvalid: el.props["aria-invalid"] });
   }
+  if (typeof el.props.className === "string") acc.classes.push(el.props.className);
   if (typeof el.props.id === "string" && typeof el.type === "string") {
     acc.tagById[el.props.id] = el.type;
   }
@@ -232,7 +248,7 @@ function walk(node: ReactNode, acc: Collected): void {
 }
 
 function collect(tree: ReactNode): Collected {
-  const acc: Collected = { buttons: [], aria: [], tagById: {}, texts: [] };
+  const acc: Collected = { classes: [], buttons: [], aria: [], tagById: {}, texts: [] };
   walk(tree, acc);
   return acc;
 }
@@ -258,6 +274,7 @@ const VALID_FIELDS = { ...BLANK_FIELDS, roleTitle: "CNC Machinist", vacancies: "
 beforeEach(() => {
   useState.mockClear();
   useTransition.mockClear();
+  createPostingAction.mockClear();
 });
 
 describe("PostingForm render — the role picker and the card fields are present", () => {
@@ -298,12 +315,12 @@ describe("PostingForm render — disable-submit-until-valid", () => {
     expect(submit!.disabled).toBe(false);
   });
 
-  it("B7 navigate-latch keeps submit DISABLED and reads 'Posting…'", () => {
+  it("B7 navigate-latch keeps submit DISABLED and reads 'Publishing…'", () => {
     const submit = collect(
       render({ fields: VALID_FIELDS, fieldErrors: {}, navigating: true }),
     ).buttons.find((b) => b.type === "submit");
     expect(submit!.disabled).toBe(true);
-    expect(submit!.text).toBe("Posting…");
+    expect(submit!.text).toBe("Publishing…");
   });
 
   it("a form with every demand field set but NO match skill keeps submit DISABLED", () => {
@@ -356,5 +373,288 @@ describe("PostingForm render — ADR-0036 match surface (fail-closed)", () => {
     const text = collect(render(seed)).texts.join(" ").replace(/\s+/g, " ");
     expect(text).toContain("Could not load the skill list");
     expect(collect(render(seed)).buttons.find((b) => b.type === "submit")!.disabled).toBe(true);
+  });
+});
+
+/* ── 3. THE PREVIEW RAIL + the shared read ─────────────────────────────────────── */
+
+const FULL_FIELDS = {
+  ...BLANK_FIELDS,
+  roleKind: "cnc_turner",
+  roleTitle: "CNC Turner",
+  locationLabel: "Chakan plant",
+  vacancies: "5",
+  city: "Pune",
+  area: "Chakan MIDC",
+  payMin: "18000",
+  payMax: "26000",
+  payType: "in_hand",
+  minExperienceYears: "2",
+  maxExperienceYears: "5",
+  shift: "day",
+  neededBy: "soon",
+  description: "Run two Fanuc turning centres per shift.",
+};
+
+function findForm(node: ReactNode): ReactElement<{ onSubmit: (e: unknown) => void; id?: string }> | null {
+  if (node === null || node === undefined || typeof node !== "object") return null;
+  if (Array.isArray(node)) {
+    for (const c of node) {
+      const f = findForm(c);
+      if (f) return f;
+    }
+    return null;
+  }
+  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  if (el.type === "form") return el as ReactElement<{ onSubmit: (e: unknown) => void; id?: string }>;
+  if (typeof el.type === "function") return null;
+  return el.props && "children" in el.props ? findForm(el.props.children) : null;
+}
+
+describe("PostingForm — the preview rail is the worker card, built from the shared read", () => {
+  it("draws the card (Area, City), 'Also in your posting' (role, openings, note) and the phone dock", () => {
+    const text = collect(render({ fields: FULL_FIELDS, fieldErrors: {} })).texts.join(" ").replace(/\s+/g, " ");
+    expect(text).toContain("Chakan MIDC, Pune");
+    expect(text).toContain("Also in your posting");
+    expect(text).toContain("Openings");
+    expect(text).toContain("Chakan plant");
+    expect(text).toContain("Preview the card");
+    expect(text).toContain("Publish posting");
+  });
+
+  it("the rail's primary button submits THIS form (form attribute), so it works outside the <form>", () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {} });
+    const form = findForm(tree);
+    expect(form!.props.id).toBe("posting-form");
+    const ids = new Set<string>();
+    (function walkForm(node: ReactNode): void {
+      if (node === null || node === undefined || typeof node !== "object") return;
+      if (Array.isArray(node)) return node.forEach(walkForm);
+      const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+      if (typeof el.type === "function") return walkForm((el.type as (p: unknown) => ReactNode)(el.props));
+      if (el.type === "button" && el.props.type === "submit") ids.add(String(el.props.form));
+      if ("children" in el.props) walkForm(el.props.children);
+    })(tree);
+    expect([...ids]).toEqual(["posting-form"]);
+  });
+
+  it('a pay of "21k" shows "needs a whole number" AT ONCE and keeps publish disabled', () => {
+    const { texts, aria, buttons } = collect(
+      render({ fields: { ...FULL_FIELDS, payMin: "21k" }, fieldErrors: {} }),
+    );
+    expect(texts.join(" ")).toContain("Min pay needs a whole number");
+    expect(texts.join(" ")).toContain("Pay needs a whole number"); // the card names the fix
+    expect(texts.join(" ")).not.toContain("Up to ₹26,000/mah");
+    expect(aria.find((a) => a.id === "payMin")!.ariaInvalid).toBe(true);
+    expect(buttons.find((b) => b.type === "submit")!.disabled).toBe(true);
+  });
+
+  it("max below min: the card says so at once; the FIELD error waits until the payer leaves the box", () => {
+    const typing = collect(render({ fields: { ...FULL_FIELDS, payMax: "1800" }, fieldErrors: {} }));
+    expect(typing.texts.join(" ")).toContain("Max pay is below min pay");
+    expect(typing.texts.join(" ")).not.toContain("Max pay must be greater than or equal to min pay.");
+    const left = collect(
+      render({ fields: { ...FULL_FIELDS, payMax: "1800" }, fieldErrors: {}, revealed: { payMin: true, payMax: true } }),
+    );
+    expect(left.texts.join(" ")).toContain("Max pay must be greater than or equal to min pay.");
+  });
+
+  it('submits the SAME values the card shows: "18,000" → 18000 and a typed-not-added chip is kept', async () => {
+    const tree = render({
+      fields: { ...FULL_FIELDS, payMin: "18,000" },
+      fieldErrors: {},
+      requirements: ["Fanuc control"],
+      benDraft: "  PF + ESI ",
+    });
+    await findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    expect(createPostingAction).toHaveBeenCalledTimes(1);
+    const input = createPostingAction.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input.payMin).toBe(18000);
+    expect(input.requirements).toEqual(["Fanuc control"]);
+    expect(input.benefits).toEqual(["PF + ESI"]);
+    expect(input.vacancies).toBe(5);
+    expect(input.roleTitle).toBe("CNC Turner");
+  });
+
+  it("a thin card is refused BEFORE the action (the gap rule reads the same values)", async () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {}, requirements: ["Fanuc control"] });
+    await findForm(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    expect(createPostingAction).not.toHaveBeenCalled();
+  });
+});
+
+/** The DOM-level element with this id in the (function-expanded) tree, with its handlers. */
+function byId(tree: ReactNode, id: string): ReactElement<Record<string, unknown>> {
+  let found: ReactElement<Record<string, unknown>> | null = null;
+  (function visit(node: ReactNode): void {
+    if (found || node === null || node === undefined || typeof node !== "object") return;
+    if (Array.isArray(node)) return node.forEach(visit);
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    if (typeof el.type === "function") return visit((el.type as (p: unknown) => ReactNode)(el.props));
+    if (el.props.id === id && typeof el.type === "string") {
+      found = el;
+      return;
+    }
+    if ("children" in el.props) visit(el.props.children);
+  })(tree);
+  if (found === null) throw new Error(`no #${id}`);
+  return found;
+}
+
+describe("PostingForm — a refused publish says why AT the field focus moves to (M2)", () => {
+  const GAP = {
+    title: "Pick the pay type",
+    message: "Say what the band means — in-hand, gross or CTC. We never guess it for you.",
+    field: "payType",
+  };
+
+  it("the gap's message is the target control's own error (aria-invalid), not only a far-off status", () => {
+    const { aria, texts } = collect(render({ fields: FULL_FIELDS, fieldErrors: {}, gap: GAP }));
+    expect(aria.find((a) => a.id === "payType")!.ariaInvalid).toBe(true);
+    expect(texts).toContain(GAP.message);
+    // Only the target is marked: the other controls stay clean.
+    expect(aria.filter((a) => a.ariaInvalid === true).map((a) => a.id)).toEqual(["payType"]);
+  });
+
+  it("a pay-band gap points at the end that is empty (payMax here), and so does its error", () => {
+    const { aria } = collect(
+      render({
+        fields: { ...FULL_FIELDS, payMax: "" },
+        fieldErrors: {},
+        gap: { title: "Add the pay band", message: "Both ends of the band.", field: "payMax" },
+      }),
+    );
+    expect(aria.find((a) => a.id === "payMax")!.ariaInvalid).toBe(true);
+    expect(aria.find((a) => a.id === "payMin")!.ariaInvalid).toBeUndefined();
+  });
+
+  it("changing the flagged control clears the gap (index 10); changing another does not", () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {}, gap: GAP });
+    (byId(tree, "city").props.onChange as (e: unknown) => void)({ target: { value: "Nashik" } });
+    expect(setters[10]).not.toHaveBeenCalled();
+    (byId(tree, "payType").props.onChange as (e: unknown) => void)({ target: { value: "gross" } });
+    expect(setters[10]).toHaveBeenCalledWith(null);
+  });
+
+  it("ONE status per breakpoint: the rail footer and the dock carry it; the form's end does not", () => {
+    const { classes } = collect(render({ fields: FULL_FIELDS, fieldErrors: {}, gap: GAP }));
+    expect(classes.filter((c) => c === "posting-actions__status")).toHaveLength(1); // rail footer
+    expect(classes.filter((c) => c === "posting-dock__status")).toHaveLength(1); // phone dock
+    expect(classes.filter((c) => c === "posting-actions")).toHaveLength(2); // footer + form end
+  });
+});
+
+/** The text of every LIVE region the form draws (`aria-live`, role alert / status). */
+function liveTexts(tree: ReactNode): string[] {
+  const out: string[] = [];
+  (function visit(node: ReactNode): void {
+    if (node === null || node === undefined || typeof node !== "object") return;
+    if (Array.isArray(node)) return node.forEach(visit);
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    if (typeof el.type === "function") return visit((el.type as (p: unknown) => ReactNode)(el.props));
+    const role = el.props.role;
+    if (el.props["aria-live"] !== undefined || role === "alert" || role === "status") {
+      out.push(textOf(el.props.children as ReactNode));
+    }
+    if ("children" in el.props) visit(el.props.children);
+  })(tree);
+  return out;
+}
+
+describe("PostingForm — M3: a refused publish's reason is announced ONCE", () => {
+  const GAP = {
+    title: "Pick the pay type",
+    message: "Say what the band means — in-hand, gross or CTC. We never guess it for you.",
+    field: "payType",
+  };
+
+  it("the target field is DESCRIBED by its own error — what focus reads when it lands there", () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {}, gap: GAP });
+    expect(byId(tree, "payType").props["aria-describedby"]).toBe("payType-msg");
+    expect(textOf(byId(tree, "payType-msg"))).toBe(GAP.message);
+  });
+
+  it("…so NO live region repeats it: the copy by the button is visible, not announced", () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {}, gap: GAP });
+    // Drawn by the button (rail footer + dock): title, then the same message…
+    expect(collect(tree).texts.filter((t) => t === GAP.title)).toHaveLength(2);
+    expect(liveTexts(tree).filter((t) => t.includes(GAP.message))).toEqual([]);
+  });
+
+  it("a refusal no field owns (the server's) IS announced — from the live slot, one per breakpoint", () => {
+    const ERR = "Could not publish right now — try again.";
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {}, error: ERR });
+    expect(liveTexts(tree).filter((t) => t.includes(ERR))).toHaveLength(2); // rail footer + dock
+  });
+
+  it("a typed number problem is the box's own description too (aria-describedby → its line)", () => {
+    const tree = render({ fields: { ...FULL_FIELDS, payMin: "21k" }, fieldErrors: {} });
+    expect(byId(tree, "payMin").props["aria-describedby"]).toBe("payMin-msg");
+    expect(byId(tree, "payMin").props["aria-invalid"]).toBe(true);
+  });
+});
+
+describe("PostingForm — the rail knows when a publish is in flight", () => {
+  const railOf = (tree: ReactElement) =>
+    (tree.props as { children: ReactElement[] }).children.find(
+      (c) => typeof c?.type === "function" && (c.type as { name?: string }).name === "PostingPreviewRail",
+    ) as ReactElement<{ busy?: boolean }>;
+
+  it("busy while publishing/navigating (the dock's preview waits), idle otherwise", () => {
+    expect(railOf(render({ fields: FULL_FIELDS, fieldErrors: {} })).props.busy).toBe(false);
+    expect(railOf(render({ fields: FULL_FIELDS, fieldErrors: {}, navigating: true })).props.busy).toBe(true);
+  });
+});
+
+describe("PostingForm — the phone dock publishes its real height (the page's reserve for it)", () => {
+  it("the dock element is observed by observeDockHeight", () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {} });
+    let dock: ReactElement<{ ref?: unknown }> | null = null;
+    (function visit(node: ReactNode): void {
+      if (dock || node === null || node === undefined || typeof node !== "object") return;
+      if (Array.isArray(node)) return node.forEach(visit);
+      const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+      if (typeof el.type === "function") return visit((el.type as (p: unknown) => ReactNode)(el.props));
+      if (el.props.className === "posting-dock") {
+        dock = el as ReactElement<{ ref?: unknown }>;
+        return;
+      }
+      if ("children" in el.props) visit(el.props.children);
+    })(tree);
+    expect(dock).not.toBeNull();
+    expect(dock!.props.ref).toBe(observeDockHeight);
+  });
+});
+
+describe("PostingForm — owner naming ruling (labels)", () => {
+  it("the description hint says 'applicant', never 'candidate'", () => {
+    const hint = textOf(byId(render({ fields: FULL_FIELDS, fieldErrors: {} }), "description-msg"));
+    expect(hint).toContain("share contact only after you unlock an applicant.");
+    expect(hint).not.toContain("candidate");
+  });
+});
+
+describe("PostingForm — typing in a pay box stands its order error down again (reward early)", () => {
+  it("onChange of payMax conceals the revealed pay pair (index 11); a non-number field does not", () => {
+    const tree = render({
+      fields: { ...FULL_FIELDS, payMax: "1800" },
+      fieldErrors: {},
+      revealed: { payMin: true, payMax: true },
+    });
+    (byId(tree, "payMax").props.onChange as (e: unknown) => void)({ target: { value: "18" } });
+    const conceal = setters[11]!.mock.calls[0]![0] as (prev: Record<string, true>) => Record<string, true>;
+    expect(conceal({ payMin: true, payMax: true, minExperienceYears: true })).toEqual({
+      minExperienceYears: true,
+    });
+    setters[11]!.mockClear();
+    (byId(tree, "city").props.onChange as (e: unknown) => void)({ target: { value: "Pune" } });
+    expect(setters[11]).not.toHaveBeenCalled();
+  });
+
+  it("leaving a pay box reveals the pair (onBlur)", () => {
+    const tree = render({ fields: FULL_FIELDS, fieldErrors: {} });
+    (byId(tree, "payMin").props.onBlur as () => void)();
+    const reveal = setters[11]!.mock.calls[0]![0] as (prev: Record<string, true>) => Record<string, true>;
+    expect(reveal({})).toEqual({ payMin: true, payMax: true });
   });
 });

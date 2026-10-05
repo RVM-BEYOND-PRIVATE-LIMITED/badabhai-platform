@@ -47,6 +47,45 @@ function statusTone(status: string): "success" | "warning" | "neutral" {
   return "neutral";
 }
 
+/** The card that hosts an inline editor: the create card, or the vacancy's own row. */
+const CREATE_HOST_ID = "agency-create";
+const rowHostId = (jobId: string) => `agency-job-${jobId}`;
+/** A row's Edit / Close edit toggle — a STABLE id, so focus can find it again (`refocusToggle`). */
+const rowToggleId = (jobId: string) => `agency-job-edit-${jobId}`;
+
+/**
+ * Opening an inline editor brings its host card to the preview rail's sticky line (CSS
+ * `scroll-margin-top`), so the worker card and the form's actions are on screen from the first
+ * field — not 300px down the dashboard. Runs after React has committed the opened form.
+ */
+function revealEditor(hostId: string) {
+  if (typeof window === "undefined") return;
+  window.requestAnimationFrame(() => {
+    document.getElementById(hostId)?.scrollIntoView({ block: "start" });
+  });
+}
+
+/**
+ * Opening or closing a row's editor MOVES the row's header (it leads the editor's form column
+ * while editing), so React rebuilds the header — and the toggle the payer just pressed, whose
+ * focus would fall to <body>. Focus goes back to the REBUILT toggle (found by its stable id, and
+ * known by where it now sits: inside the editor's lead exactly when the row is editing — a frame
+ * that still shows the old one waits for the next, so a slow commit after a save cannot win the
+ * race). On open it adds no scroll of its own (`revealEditor`, scheduled first, owns that); on
+ * close it scrolls the toggle into view (Cancel or a save can be far down the form).
+ */
+function refocusToggle(jobId: string, opts: { editing: boolean; scroll: boolean }) {
+  if (typeof window === "undefined") return;
+  let frames = 0;
+  const attempt = () => {
+    const toggle = document.getElementById(rowToggleId(jobId));
+    const rebuilt = toggle !== null && (toggle.closest(".agency-job__lead") !== null) === opts.editing;
+    if (rebuilt) toggle.focus({ preventScroll: !opts.scroll });
+    else if (++frames < 10) window.requestAnimationFrame(attempt);
+  };
+  window.requestAnimationFrame(attempt);
+}
+
 export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
   const router = useRouter();
   // useState call order (mirrored by agency-jobs-manager.test.tsx): rows, creating, editingId,
@@ -94,8 +133,10 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
           variant={creating ? "secondary" : "primary"}
           iconLeft={creating ? "x" : "plus-circle"}
           onClick={() => {
+            const opening = !creating;
             setEditingId(null);
-            setCreating((v) => !v);
+            setCreating(opening);
+            if (opening) revealEditor(CREATE_HOST_ID);
           }}
         >
           {creating ? "Close form" : "Post a vacancy"}
@@ -103,9 +144,9 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
       </div>
 
       {creating ? (
-        <Card className="agency-jobs__createcard">
-          <h3 className="agency-jobs__createtitle">Post a vacancy</h3>
+        <Card id={CREATE_HOST_ID} className="agency-jobs__createcard">
           <AgencyJobForm
+            lead={<h3 className="agency-jobs__createtitle">Post a vacancy</h3>}
             mode="create"
             submitLabel="Post vacancy"
             onCancel={() => setCreating(false)}
@@ -136,8 +177,8 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
             const active = isActiveJob(j);
             const paused = isPausedJob(j);
             const editing = editingId === j.id;
-            return (
-              <Card key={j.id} className="agency-job">
+            const header = (
+              <>
                 <div className="agency-job__main">
                   <div className="agency-job__head">
                     <span className="agency-job__title">{j.title}</span>
@@ -177,13 +218,17 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                   {active || paused ? (
                     <div className="agency-job__btns">
                       <Button
+                        id={rowToggleId(j.id)}
                         variant="secondary"
                         size="sm"
                         disabled={busy}
                         iconLeft="pencil-simple"
                         onClick={() => {
+                          const opening = !editing;
                           setCreating(false);
-                          setEditingId((cur) => (cur === j.id ? null : j.id));
+                          setEditingId(opening ? j.id : null);
+                          if (opening) revealEditor(rowHostId(j.id));
+                          refocusToggle(j.id, { editing: opening, scroll: !opening });
                         }}
                       >
                         {editing ? "Close edit" : "Edit"}
@@ -230,28 +275,43 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                   <div aria-live="polite" className="agency-job__status">
                     {err ? <p className="agency-job__error">{err}</p> : null}
                   </div>
-                  {editing ? (
-                    <div className="agency-job__editform">
-                      <AgencyJobForm
-                        mode="edit"
-                        job={j}
-                        submitLabel="Save changes"
-                        onCancel={() => setEditingId(null)}
-                        onSubmit={async (input) => {
-                          // Pass the current row as `initial` so the seam computes the clear diff.
-                          const res = await updateAgencyJobAction(j.id, input, j);
-                          if (res.ok) {
-                            upsertRow(res.job);
-                            setEditingId(null);
-                            router.refresh();
-                            return { ok: true };
-                          }
-                          return { ok: false, error: res.error };
-                        }}
-                      />
-                    </div>
-                  ) : null}
                 </div>
+              </>
+            );
+            return (
+              <Card
+                key={j.id}
+                id={rowHostId(j.id)}
+                className={editing ? "agency-job agency-job--editing" : "agency-job"}
+              >
+                {editing ? (
+                  // EDIT: the row's own header leads the form column, so the preview rail starts
+                  // at the top of the row — level with the header, not below it.
+                  <AgencyJobForm
+                    lead={<div className="agency-job__lead">{header}</div>}
+                    mode="edit"
+                    job={j}
+                    submitLabel="Save changes"
+                    onCancel={() => {
+                      setEditingId(null);
+                      refocusToggle(j.id, { editing: false, scroll: true });
+                    }}
+                    onSubmit={async (input) => {
+                      // Pass the current row as `initial` so the seam computes the clear diff.
+                      const res = await updateAgencyJobAction(j.id, input, j);
+                      if (res.ok) {
+                        upsertRow(res.job);
+                        setEditingId(null);
+                        refocusToggle(j.id, { editing: false, scroll: true });
+                        router.refresh();
+                        return { ok: true };
+                      }
+                      return { ok: false, error: res.error };
+                    }}
+                  />
+                ) : (
+                  header
+                )}
               </Card>
             );
           })}

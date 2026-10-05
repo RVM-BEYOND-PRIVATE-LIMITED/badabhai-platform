@@ -1,0 +1,13 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/types/fixtures/**",
+        "$TURBO_ROOT$/packages/design-tokens/tokens.css"
+      ]
+    }
+  }
+}

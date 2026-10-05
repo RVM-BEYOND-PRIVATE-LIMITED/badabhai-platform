@@ -4,6 +4,7 @@ import {
   type Database,
   type Application,
   type Job,
+  type JobShift,
   type JobPosting,
   type ApplicationAction,
   type SkipReason,
@@ -13,8 +14,26 @@ import {
   jobPostings,
   jobReach,
 } from "@badabhai/db";
+import type { TradeKey } from "@badabhai/taxonomy";
 import { DATABASE } from "../database/database.module";
 import { OPS_LIST_CAP } from "../common/pagination";
+import { feedPayFloorPredicate, feedShiftPredicate } from "./feed-filter.predicates";
+
+/**
+ * The legacy `/feed` filters {@link ApplicationsRepository.findOpenJobs} applies. Every one is
+ * OPTIONAL and absent means "not filtered".
+ *
+ * `tradeKey` is typed {@link TradeKey}, not `string`: the service resolves the raw query value
+ * against `TRADE_KEYS` and drops an unknown one BEFORE it gets here (#1905), so this layer
+ * never compares `jobs.trade_key` to a chip label that cannot match.
+ */
+export interface OpenJobsFilters {
+  tradeKey?: TradeKey;
+  city?: string;
+  shift?: JobShift;
+  /** The worker's pay FLOOR (₹/month). Compared to the band's TOP — see feed-filter.predicates. */
+  payMin?: number;
+}
 
 /** Coarse, PII-free job fields surfaced in the feed + ops reads. */
 export interface FeedJob {
@@ -165,9 +184,9 @@ export class ApplicationsRepository {
   async findOpenJobs(
     workerId: string,
     limit: number,
-    filters?: { tradeKey?: string; city?: string },
+    filters: OpenJobsFilters = {},
   ): Promise<FeedJob[]> {
-    const conditions = [
+    const conditions: (SQL | undefined)[] = [
       eq(jobs.status, "open"),
       sql`NOT EXISTS (
         SELECT 1 FROM ${applications}
@@ -176,8 +195,15 @@ export class ApplicationsRepository {
           AND ${applications.action} = 'applied'
       )`,
     ];
-    if (filters?.tradeKey) conditions.push(eq(jobs.tradeKey, filters.tradeKey as any));
-    if (filters?.city) conditions.push(eq(jobs.city, filters.city));
+    if (filters.tradeKey) conditions.push(eq(jobs.tradeKey, filters.tradeKey));
+    if (filters.city) conditions.push(eq(jobs.city, filters.city));
+    // #1905 — shift + pay floor were accepted by the DTO and then silently DROPPED here. Same
+    // NULL-tolerant rule as the V1 arm, from the one place the postings arm (#1823) will
+    // share; each is `undefined` (skipped by `and`) unless the worker sent that filter.
+    conditions.push(
+      feedShiftPredicate(jobs.shift, filters.shift),
+      feedPayFloorPredicate(jobs.payMax, filters.payMin),
+    );
 
     return this.db
       .select({
@@ -255,18 +281,26 @@ export class ApplicationsRepository {
    *   (6) city: V1's wide-or-off rule — a posting with no city bucket matches every city
    *       filter, case-insensitively. Only when the worker supplied a city.
    *
+   *   (7) shift and pay floor (#1905): the SAME NULL-tolerant predicates the jobs arm uses
+   *       (feed-filter.predicates), so a filter narrows both halves of the deck or neither.
+   *       Each only when the worker supplied it.
+   *
    * NOT HERE, ON PURPOSE: `trade_key` (V1 has no trade dimension, and `role_kind` is barred
-   * as a visibility input), and `shift`/`pay_min` (the jobs arm drops them too; a filter
-   * that narrows half a deck is worse than one that narrows neither — #1905).
+   * as a visibility input).
    *
    * The projection is explicit — see {@link FeedPostingRow} for what must never be in it.
    */
   async findOpenPostingsForFeed(
     workerId: string,
     limit: number,
-    filters: { city?: string; wantedSkillIds: readonly string[] },
+    filters: {
+      city?: string;
+      shift?: JobShift;
+      payMin?: number;
+      wantedSkillIds: readonly string[];
+    },
   ): Promise<FeedPostingRow[]> {
-    const conditions: SQL[] = [
+    const conditions: (SQL | undefined)[] = [
       eq(jobPostings.status, "open"), // (1)
       isNotNull(jobPostings.publishedAt), // (2)
       sql`NOT EXISTS (
@@ -301,6 +335,10 @@ export class ApplicationsRepository {
         ${jobPostings.city} IS NULL OR lower(${jobPostings.city}) = lower(${filters.city}::text)
       )`);
     }
+    conditions.push(
+      feedShiftPredicate(jobPostings.shift, filters.shift), // (7)
+      feedPayFloorPredicate(jobPostings.payMax, filters.payMin), // (7)
+    );
 
     // ORDER BY rides `job_postings_feed_idx (status, published_at DESC)`, and it is the same
     // total order as the jobs arm (`posted_at DESC, id ASC`) — which is what lets the service

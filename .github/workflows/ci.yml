@@ -1680,6 +1680,68 @@ jobs:
             exit 1
           fi
 
+      # ---- #1904 — THE MATCHING V1 JOB JOURNEY, ON ITS OWN ARMED API ----
+      #
+      # tests/e2e/match-v1-job-journey.e2e.test.ts is the only suite that drives publish ->
+      # job_reach -> /feed -> apply -> applicants end to end, and until now it ran nowhere. It
+      # refuses to run unless the runner AND the API are both started with MATCH_V1_ENABLED=true:
+      # under a flag-off API it would hit the legacy paths and prove the wrong system.
+      #
+      # A SECOND API PROCESS, NOT THE ONE ABOVE ARMED. Every other suite asserts the flag-OFF
+      # behaviour production runs today, so the flag lives in THIS STEP'S `env:` only: it reaches
+      # this API process and this vitest process, and no other step, suite or job. Port 3002, so
+      # it can never answer a request meant for the flag-off API.
+      #
+      # VACUOUS-PASS GUARD. The suite is `describe.skipIf(!RUN)` and the package runs vitest with
+      # `--passWithNoTests`, so a dropped variable or a filter that matches nothing both exit 0.
+      # The checks after the run fail the step unless the file ran and every test in it passed.
+      - name: Start a MATCH_V1-armed API and run the Matching V1 job journey E2E
+        env:
+          MATCH_V1_ENABLED: "true"
+          E2E_MATCH_V1: "1"
+          API_PORT: "3002"
+          E2E_API_URL: http://localhost:3002
+        run: |
+          set -eo pipefail
+          node apps/api/dist/main.js > api-match-v1.log 2>&1 &
+          API_PID=$!
+          # Every exit path (health timeout, a failed check) stops the armed API, not just the happy one.
+          trap 'kill "$API_PID" 2>/dev/null || true' EXIT
+          echo "MATCH_V1 API started (pid $API_PID) — waiting for /health…"
+          for i in $(seq 1 60); do
+            if curl -sf "$E2E_API_URL/health" >/dev/null 2>&1; then
+              echo "API healthy after ${i}s"; break
+            fi
+            if ! kill -0 "$API_PID" 2>/dev/null; then
+              echo "::error::MATCH_V1 API process exited during startup"; cat api-match-v1.log; exit 1
+            fi
+            sleep 1
+          done
+          curl -sf "$E2E_API_URL/health" >/dev/null \
+            || { echo "::error::MATCH_V1 API never became healthy"; cat api-match-v1.log; exit 1; }
+
+          # NO `--` before the filter — pnpm would forward it and vitest would run every suite.
+          set +e
+          pnpm --filter @badabhai/e2e test match-v1-job-journey 2>&1 | tee match-v1-raw.log
+          E2E_EXIT=$?
+          set -e
+
+          echo "----- API log (tail) -----"; tail -n 80 api-match-v1.log || true
+          kill "$API_PID" 2>/dev/null || true
+          [ "$E2E_EXIT" -eq 0 ] || exit "$E2E_EXIT"
+
+          sed -e 's/\x1b\[[0-9;]*m//g' match-v1-raw.log > match-v1.log
+          if ! grep -qE 'Test Files +1 passed \(1\)' match-v1.log; then
+            echo "::error::match-v1-job-journey.e2e.test.ts did not run (or not alone) — the filter or an arming variable is not reaching vitest."
+            grep -E 'Test Files|      Tests ' match-v1.log || true
+            exit 1
+          fi
+          if ! grep -qE '^ +Tests +[0-9]+ passed \([0-9]+\) *$' match-v1.log; then
+            echo "::error::match-v1-job-journey ran but not every test passed (skipped/todo count as failure here)."
+            grep -E '      Tests ' match-v1.log || true
+            exit 1
+          fi
+
   # ---- CI-2 aggregator: branch protection requires THIS job, not individual ones ----
   # Always runs (if: always()), needs every PR-stage job. Passes only when every needed
   # job either succeeded or was skipped (path-filtered). This lets branch protection
@@ -2174,6 +2236,16 @@ jobs:
           # `:-false`, which is today's masked behaviour. Any value but true/false/1/0/empty fails
           # the deploy before a container moves (scripts/deploy/staging-deploy.sh's preflight).
           AI_RAW_PII_ENABLED: ${{ secrets.AI_RAW_PII_ENABLED }}
+          # Matching V1 cutover gate (ADR-0036 §8, #1904): picks the SOURCE the worker feed, apply
+          # and payer candidate list read (legacy `jobs` vs `job_reach` + `job_postings`). INERT
+          # UNTIL THE SECRET EXISTS: absent, it renders empty, exports empty, and compose's
+          # `${MATCH_V1_ENABLED:-false}` resolves it to `false` — byte-identical to before. It also
+          # means a box-level `export` no longer survives a deploy. Do NOT create it before runbook
+          # P1 + P3 (docs/ops/production-release-runbook.md): production's `job_reach` and
+          # `worker_skill` are empty, so `true` today serves every worker an EMPTY deck. The flip
+          # is that runbook's P4 #12, an owner action. Values: lowercase `true`/`false`/`1`/`0`/empty
+          # only — anything else stops the api booting (`booleanFromString`).
+          MATCH_V1_ENABLED: ${{ secrets.MATCH_V1_ENABLED }}
           # Company postings on the legacy worker feed (#1823, ADR-0049 — the interim union).
           # Unset/empty resolves to off through compose's `:-false`, which is today's feed.
           # Any value but true/false/1/0/empty fails the deploy before a container moves.
@@ -2328,7 +2400,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,PROFILING_TIERS_ENABLED,RESUME_SKINS_ENABLED,RESUME_QR_SCAN_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_COMPANION_V2_ENABLED,CHAT_COMPANION_V2_EDIT_ENABLED,CHAT_COMPANION_V2_NEW_RESUME_ENABLED,CHAT_COMPANION_V2_FALTU_ENABLED,CHAT_COMPANION_V2_CAREER_ENABLED,CHAT_GENERAL_ROAD_ENABLED,CHAT_IDENTITY_INTAKE_ENABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS,AI_RAW_PII_ENABLED,FEED_POSTINGS_UNION_ENABLED
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,PROFILING_TIERS_ENABLED,RESUME_SKINS_ENABLED,RESUME_QR_SCAN_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_COMPANION_V2_ENABLED,CHAT_COMPANION_V2_EDIT_ENABLED,CHAT_COMPANION_V2_NEW_RESUME_ENABLED,CHAT_COMPANION_V2_FALTU_ENABLED,CHAT_COMPANION_V2_CAREER_ENABLED,CHAT_GENERAL_ROAD_ENABLED,CHAT_IDENTITY_INTAKE_ENABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS,AI_RAW_PII_ENABLED,MATCH_V1_ENABLED,FEED_POSTINGS_UNION_ENABLED
           #
           # ⚠ FIVE LINKS, AND A SECRET ONLY BUYS THE FIRST. A value reaches a container by:
           #   1. existing as a GitHub environment secret

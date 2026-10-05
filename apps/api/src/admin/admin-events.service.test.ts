@@ -207,8 +207,8 @@ describe("AdminEventsService — metrics k-anon floor", () => {
 
   it("SUPPRESSES a funnel stage whose distinct-subject count is below the floor", async () => {
     // contact.revealed reached by ONE distinct worker → below K_ANON_FLOOR (5) → floored to 0.
-    m.repo.eventNameStats.mockImplementation(async (name: string) => {
-      if (name === "contact.revealed") return { count: 1, distinctSubjects: 1 };
+    m.repo.eventNameStats.mockImplementation(async (names: readonly string[]) => {
+      if (names.includes("contact.revealed")) return { count: 1, distinctSubjects: 1 };
       return { count: 100, distinctSubjects: 40 };
     });
     const res = await m.service.metrics(metricsDto);
@@ -220,6 +220,57 @@ describe("AdminEventsService — metrics k-anon floor", () => {
     expect(shown.distinct_subjects).toBe(40);
     expect(shown.suppressed).toBe(false);
     expect(res.k_anon_floor).toBe(AdminEventsService.K_ANON_FLOOR);
+  });
+
+  it("the shown stage counts feed.shown ∪ feed.shown_v2 in ONE union read (#1904)", async () => {
+    m.repo.eventNameStats.mockImplementation(async (names: readonly string[]) =>
+      names.includes("feed.shown_v2")
+        ? { count: 70, distinctSubjects: 12 }
+        : { count: 0, distinctSubjects: 0 },
+    );
+    const res = await m.service.metrics(metricsDto);
+
+    // ONE call carrying BOTH generations. Two per-name calls summed would double count a
+    // subject seen under both names; v1 alone reads zero once MATCH_V1_ENABLED flips.
+    const shownCalls = m.repo.eventNameStats.mock.calls.filter(([names]) =>
+      (names as readonly string[]).some((n) => n.startsWith("feed.shown")),
+    );
+    expect(shownCalls).toHaveLength(1);
+    expect(shownCalls[0]![0]).toEqual(["feed.shown", "feed.shown_v2"]);
+
+    // The union's numbers are reported verbatim, under the stage's v1 name.
+    const shown = res.funnel.find((f) => f.event_name === "feed.shown")!;
+    expect(shown).toEqual({ event_name: "feed.shown", count: 70, distinct_subjects: 12, suppressed: false });
+    expect(res.funnel.some((f) => f.event_name === "feed.shown_v2")).toBe(false);
+  });
+
+  it("every other stage still counts exactly its own event", async () => {
+    await m.service.metrics(metricsDto);
+    const calls = m.repo.eventNameStats.mock.calls.map(([names]) => names);
+    expect(calls).toEqual([
+      ["feed.shown", "feed.shown_v2"],
+      ["application.submitted"],
+      ["unlock.granted"],
+      ["contact.revealed"],
+    ]);
+  });
+
+  it("keeps the funnel response shape: same four stages, same order, same keys", async () => {
+    m.repo.eventNameStats.mockResolvedValue({ count: 9, distinctSubjects: 9 });
+    const res = await m.service.metrics(metricsDto);
+    // admin-web keys and labels each row on `event_name`; a renamed or extra stage is a
+    // contract change for that client, not an internal detail.
+    expect(res.funnel.map((f) => f.event_name)).toEqual([
+      "feed.shown",
+      "application.submitted",
+      "unlock.granted",
+      "contact.revealed",
+    ]);
+    for (const stage of res.funnel) {
+      expect(Object.keys(stage).sort()).toEqual(
+        ["count", "distinct_subjects", "event_name", "suppressed"].sort(),
+      );
+    }
   });
 
   it("does NOT suppress a zero-subject stage (nothing to single out)", async () => {

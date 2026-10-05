@@ -9,12 +9,13 @@ import { getCapacity, listMatchSkills } from "../../../../lib/payer-api";
 import { formatInr } from "../../../../lib/format";
 import { CachedPricingNote } from "../../../../components/cached-pricing-note";
 import type { MatchSkillWire } from "../../../../lib/contracts";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { PostingForm } from "./posting-form";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Post a job (ADR-0019 Phase 1). Free-through-launch: the "free" label is sourced
+ * New posting (ADR-0019 Phase 1). Free-through-launch: the "free" label is sourced
  * from a CONFIG FLAG, never a hardcoded ₹0 — the catalog cannot model a ₹0 price
  * (priceInr min(1)), which is the open ADR-0013 escalation. Post-launch paid tiers
  * are shown for transparency, read from the LIVE catalog (D-6; fetch failure ⇒ the
@@ -56,14 +57,17 @@ export default async function NewPostingPage() {
     matchSkills = [];
   }
 
-  return (
+  // The page head + notices lead the FORM column, so the card-preview rail beside it starts at
+  // the top of the page: on a laptop the whole worker card and the publish button are on screen
+  // from the first paint, not only after scrolling past the notices.
+  const lead = (
     <>
       <p className="page-back">
-        <Link href="/postings">← Manage postings</Link>
+        <Link href="/postings">← Postings</Link>
       </p>
       <div className="page-head">
         <div className="page-head__text">
-          <h1 className="page-head__title">Post a job</h1>
+          <h1 className="page-head__title">New posting</h1>
           <p className="page-head__sub">
             Describe the role. Applicants appear faceless until you unlock them.
           </p>
@@ -74,7 +78,7 @@ export default async function NewPostingPage() {
           create path — the manual form below is unchanged and remains the default. Both
           options are stated in one band so neither reads as the "real" way in. */}
       <div className="alert alert--info">
-        <i className="ph-fill ph-sparkle alert__icon" aria-hidden="true" />
+        <Icon name="sparkle" className="alert__icon" />
         <div className="alert__text">
           <p className="alert__title">Answer a few questions instead of filling this form</p>
           <p className="alert__body">
@@ -86,14 +90,14 @@ export default async function NewPostingPage() {
         <div className="alert__actions">
           <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/postings/ai/new">
             <span>Post with AI</span>
-            <i className="ph-fill ph-arrow-right" aria-hidden="true" />
+            <Icon name={ACTION_ICON.next} />
           </Link>
         </div>
       </div>
 
       {atCapacity ? (
         <div className="alert alert--warning">
-          <i className="ph-fill ph-gauge alert__icon" aria-hidden="true" />
+          <Icon name="gauge" className="alert__icon" />
           <div className="alert__text">
             <p className="alert__title">At capacity</p>
             <p className="alert__body">
@@ -106,11 +110,11 @@ export default async function NewPostingPage() {
 
       {free ? (
         <div className="alert alert--success">
-          <i className="ph-fill ph-gift alert__icon" aria-hidden="true" />
+          <Icon name="gift" className="alert__icon" />
           <div className="alert__text">
             <p className="alert__title">Free through launch</p>
             <p className="alert__body">
-              Posting a job is free during the launch phase. (We show this from a launch-phase
+              Publishing a posting is free during the launch phase. (We show this from a launch-phase
               config flag — the pricing catalog cannot represent a ₹0 price, so &ldquo;free&rdquo;
               is not a catalog amount.)
             </p>
@@ -118,7 +122,7 @@ export default async function NewPostingPage() {
         </div>
       ) : (
         <div className="alert alert--warning">
-          <i className="ph-fill ph-tag alert__icon" aria-hidden="true" />
+          <Icon name="tag" className="alert__icon" />
           <div className="alert__text">
             <p className="alert__title">Paid plans</p>
             <p className="alert__body">
@@ -135,8 +139,8 @@ export default async function NewPostingPage() {
       )}
 
       {!live ? <CachedPricingNote /> : null}
-
-      <PostingForm quotaStep={quotaStep} matchSkills={matchSkills} />
     </>
   );
+
+  return <PostingForm quotaStep={quotaStep} matchSkills={matchSkills} lead={lead} />;
 }
