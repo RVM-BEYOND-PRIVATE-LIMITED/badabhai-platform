@@ -48,6 +48,7 @@ import {
   cardFieldLabel,
   catalogueEntry,
   displayValue,
+  hasControlChars,
   hasPlaceholderToken,
   isWholeJobDelete,
   normaliseValue,
@@ -335,8 +336,9 @@ export class CompanionEditService {
    * can count it and point the worker at the Profile screen); the catalogue names the pair; the op
    * is legal for it; edit/delete address a row this snapshot actually minted AND showed, whose
    * entry has that field (a certificate field on a certificate, a scalar preference on `pref`);
-   * add carries no ref; add/edit carry a value that passes the field's own normalisation; a
-   * placeholder token drops the row (O17); a hard identifier drops it too (ADR-0047 G1); and an
+   * add carries no ref; add/edit carry a value that passes the field's own normalisation and
+   * carries no C0/C1 control besides `\t \n \r` (#1943); a placeholder token drops the row (O17);
+   * a hard identifier drops it too (ADR-0047 G1); and an
    * edit identical to the current value is a no-op. That comparison is on the NORMALISED value, the
    * string the writer would store: "tata motors" over a stored "Tata Motors" is a no-op, because
    * the writer cases an employer name before it stores it (#1940). The row-SET gates — duplicates,
@@ -386,6 +388,9 @@ export class CompanionEditService {
       if (row.value === null) return invalid;
       value = normaliseValue(entry.section, entry.field, row.value);
       if (value === null) return invalid;
+      // #1943's twin: a C0/C1 control is Common script and passes every field bound, so a
+      // model-proposed value could split a suffix or an identifier past the doors below it.
+      if (hasControlChars(value)) return invalid;
       if (hasPlaceholderToken(value)) return { kind: "dropped", reason: "placeholder" };
       if (containsHardIdentifier(value) !== null) return invalid;
       if (row.op === "edit" && value === before) return invalid;

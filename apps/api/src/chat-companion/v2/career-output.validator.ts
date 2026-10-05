@@ -39,6 +39,7 @@ export type CareerAnswerFailure =
   | "exclamation"
   | "emoji"
   | "format_char"
+  | "control_char"
   | "too_many_questions"
   | "money"
   | "promise"
@@ -94,6 +95,19 @@ const EMOJI =
  * `emoji`; both are rejections.
  */
 const FORMAT_CHAR = /\p{Cf}/u;
+
+/**
+ * CONTROL CHARACTERS (`\p{Cc}` OTHER THAN `\t \n \r`) are barred for the same reason as
+ * `FORMAT_CHAR`, and #1943 measured the hole they left. A C0/C1 control is `Common` script,
+ * so `NON_LATIN` lets it through; the fold below keeps it; and `\s` does not match NEL
+ * (`\u0085`), which a terminal renders as a line break. So `Tata Steel L\u0001td mein` and
+ * `Tata Steel\u0085Ltd mein` read to a worker as the employer "Tata Steel Ltd" while the
+ * `named_employer` heuristic sees no legal suffix — and the same split walks a phone number
+ * past `looksLikePii`. The three allowed controls are layout only (a tab or a line break in a
+ * multi-line answer); a model writing a Hinglish line needs no other. `\p{Cc}` also covers
+ * DEL (`\u007F`) and the C1 block (`\u0080-\u009F`).
+ */
+const CONTROL_CHAR = /(?![\t\n\r])\p{Cc}/u;
 
 /**
  * THE FORM EVERY WORD PATTERN READS. The patterns below are spelled in plain ASCII, so a
@@ -221,6 +235,7 @@ function contentFailure(text: string): CareerAnswerFailure | null {
   if (scan.includes("!")) return "exclamation";
   if (EMOJI.test(text)) return "emoji";
   if (FORMAT_CHAR.test(text)) return "format_char";
+  if (CONTROL_CHAR.test(text)) return "control_char";
   if (checkPersonaTokens(scan).length > 0) return "persona";
   if (statesMoney(scan)) return "money";
   if (PROMISE.test(scan)) return "promise";

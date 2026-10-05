@@ -413,6 +413,39 @@ describe("format characters (\\p{Cf}) are barred outright", () => {
 });
 
 /**
+ * CONTROL CHARACTERS (#1943): `\p{Cc}` other than `\t \n \r`. A C0/C1 control is `Common`
+ * script, so `NON_LATIN` lets it through, and NEL (`\u0085`) is not `\s` to JS — so each of
+ * these read to a worker as a legal suffix or a phone number while the heuristic scanned
+ * something else. Built with escapes so the fixtures stay visible.
+ */
+describe("control characters (\\p{Cc}, #1943) are barred outright", () => {
+  it.each([
+    [
+      "a C0 control inside 'Ltd' (the issue's fixture)",
+      "Tata Steel L\u0001td mein apply kariye",
+    ],
+    ["NEL inside 'Ltd' (the issue's fixture)", "Tata Steel\u0085Ltd mein"],
+    ["a NUL inside 'salary'", "Sal\u0000ary 25000 milegi."],
+    ["a C1 control inside a phone number", "Call kariye 98765\u008543210 par."],
+    ["DEL inside 'pakka'", "Job pak\u007fka milegi."],
+  ])("%s → control_char", (_label, text) => {
+    expect(line(text)).toBe("control_char");
+  });
+
+  it("a chip gets the same check", () => {
+    expect(validateCareerAnswer(answer(["line ok"], ["Tata Steel L\u0001td mein"]))).toBe(
+      "control_char",
+    );
+  });
+
+  it("\\t, \\n and \\r stay legal (layout only)", () => {
+    expect(line("Pehle welding\tseekhiye.")).toBeNull();
+    expect(line("Pehle welding seekhiye.\nPhir test dijiye.")).toBeNull();
+    expect(line("Pehle welding seekhiye.\rPhir test dijiye.")).toBeNull();
+  });
+});
+
+/**
  * EMOJI: Unicode's own pictographic set plus the pieces that only ever build an emoji. Most of the
  * fail table passed the old hand-listed ranges whenever the model left out U+FE0F.
  */
