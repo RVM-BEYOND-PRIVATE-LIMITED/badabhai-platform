@@ -1062,60 +1062,35 @@ void main() {
     expect(find.text('Welding'), findsNothing);
   });
 
-  // ── #1884 — THE TWO VISIBLE VOICE CONTROLS MUST READ DIFFERENTLY ───────────
-  testWidgets('the companion voice entry names itself and does not repeat the composer mic',
+  // ── #1884 / OWNER REQUEST (2026-10-05) — THE VOICE PILL IS HIDDEN ───────────
+  testWidgets('the companion voice entry is hidden; the composer mic remains',
       (WidgetTester tester) async {
     companionSwitch(true);
     final SemanticsHandle handle = tester.ensureSemantics();
     await pumpTab(tester);
 
-    // Both are on screen at once. That is the point of the test: they are two
-    // different jobs, so the worker must be able to tell which is which.
-    expect(find.byKey(kCompanionVoiceButtonKey), findsOneWidget);
+    // The "Awaaz note record karein" pill is PERMANENTLY hidden for now
+    // (Visibility, not deleted), so it is not on screen at all.
+    expect(find.byKey(kCompanionVoiceButtonKey), findsNothing);
+    expect(find.text(kCompanionVoiceLabel), findsNothing);
+    // The composer's own dictation mic is untouched.
     expect(find.byTooltip(kComposerDictationLabel), findsOneWidget);
 
-    // The pill carries WORDS, not just a second mic glyph.
-    expect(
-      find.descendant(
-        of: find.byKey(kCompanionVoiceButtonKey),
-        matching: find.text(kCompanionVoiceLabel),
-      ),
-      findsOneWidget,
-    );
-
-    // And a glyph of its own — the bare mic belongs to the dictation slot.
-    expect(
-      find.descendant(
-        of: find.byKey(kCompanionVoiceButtonKey),
-        matching: find.byIcon(Icons.mic),
-      ),
-      findsNothing,
-    );
-
-    // The wording differs. Shipping the same label on both is the bug (#1884).
+    // The two labels are still distinct constants (no copy regression, #1884).
     expect(kCompanionVoiceLabel, isNot(kComposerDictationLabel));
     handle.dispose();
   });
 
-  // ── ADR-0046 F3 — THE COMPANION VOICE BUTTON ───────────────────────────────
-  testWidgets('the voice button opens the voice screen in COMPOSE mode and lands the transcript in the composer',
+  // ── ADR-0046 F3 — THE COMPANION VOICE BUTTON IS HIDDEN (owner request) ─────
+  testWidgets('the hidden companion voice button opens nothing',
       (WidgetTester tester) async {
     companionSwitch(true);
     final SemanticsHandle handle = tester.ensureSemantics();
     await pumpTab(tester);
 
-    await tester.tap(find.bySemanticsLabel(kCompanionVoiceLabel));
-    await tester.pumpAndSettle();
-
-    // `extra: true` reached the route: the stand-in renders its compose face.
-    expect(find.text('COMPOSE VOICE'), findsOneWidget);
-    await tester.tap(find.text('COMPOSE VOICE'));
-    await tester.pumpAndSettle();
-
-    // The transcript is in the composer, unsent — the worker reviews and sends.
-    expect(find.widgetWithText(TextField, 'boli hui baat'), findsOneWidget);
-    verifyNever(() => repo.sendCompanionMessage(any(),
-        submissionId: any(named: 'submissionId')));
+    // The button is gone, so the COMPOSE voice screen is unreachable from here.
+    expect(find.byKey(kCompanionVoiceButtonKey), findsNothing);
+    expect(find.text('COMPOSE VOICE'), findsNothing);
     handle.dispose();
   });
 }

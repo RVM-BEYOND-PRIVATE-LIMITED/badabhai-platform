@@ -38,6 +38,8 @@ import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../core/widgets/onboarding/selection_cards.dart';
 import '../../../core/widgets/bottom_bar_inset.dart';
 import '../../../router.dart';
+import '../../resume/domain/resume_edit_repository.dart';
+import '../../resume/domain/resume_safe_fields.dart';
 import '../../trade_form/domain/trade_form_args.dart';
 import '../../trade_form/presentation/open_trade_form.dart';
 import '../../voice/domain/speech_reader.dart';
@@ -468,6 +470,15 @@ class _ChatViewState extends State<_ChatView>
     // ADR-0048 — a mount that already has the captured name (a rebuild, a
     // returning route) shows it at once; only the null → non-null edge flies.
     _headerName = context.read<ChatBloc>().state.workerName;
+    // OWNER REQUEST (2026-10-05): the BadaBhai tab runs no identity intake, so
+    // the header would never learn the worker's name. Read the SAME
+    // `GET /workers/me/resume-fields` the Profile tab reads, so the header shows
+    // the worker's own name here too. Fail-silent, and the chat's own capture
+    // still wins if it lands first.
+    if (_headerName == null) {
+      // ignore: discarded_futures — fire-and-forget; state updates on done.
+      _loadHeaderName();
+    }
     // Starts SETTLED (value 1 = scale 1.0) so the action is not enlarged on
     // mount; a landing rewinds it to 0 and plays the pop.
     _namePop = AnimationController(vsync: this, duration: AppMotion.slower)
@@ -1473,10 +1484,13 @@ class _ChatViewState extends State<_ChatView>
           ),
           ),
         ),
-        // Feedback lives HERE instead of the app-wide floating button on this
-        // screen (both the onboarding chat and the Bada Bhai tab reuse it) —
-        // see the exclusion in feedback_fab.dart. Same action, same icon,
-        // only the position differs.
+        // OWNER REQUEST (2026-10-05): this slot used to be the Feedback action
+        // (the app-wide floating Feedback button is excluded on this screen —
+        // see feedback_fab.dart). The click is gone and the 'Feedback' word with
+        // it: the slot now shows the worker's OWN NAME, the way the onboarding
+        // chat already does once the identity intake captures it (ADR-0048). On
+        // the Bada Bhai tab there is no intake, so the name is read from the
+        // profile ([_loadHeaderName]).
         actions: <Widget>[
           Padding(
             padding: EdgeInsets.only(right: headerActionGutter),
@@ -1487,37 +1501,35 @@ class _ChatViewState extends State<_ChatView>
               // subtree — and the label's cross-fade — alive across the pop.
               child: ScaleTransition(
                 scale: _namePopScale,
-                child: TextButton(
-                  // ADR-0048 — the destination the captured name flies to.
+                // A plain, NON-CLICKABLE label — no Feedback navigation. The key
+                // stays so a captured name still flies here (ADR-0048).
+                child: Container(
                   key: _headerNameActionKey,
-                  style: TextButton.styleFrom(
-                    foregroundColor: OnboardingColors.textOnBlue,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(
-                        OnboardingRadii.feedbackButton,
-                      ),
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.25),
-                      ),
-                    ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
                   ),
-                  onPressed: () => context.pushOnce(
-                    Routes.feedback,
-                    extra: GoRouterState.of(context).uri.path,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(
+                      OnboardingRadii.feedbackButton,
+                    ),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.25),
+                    ),
                   ),
                   child: BbAnimatedSwitcher(
                     child: ConstrainedBox(
                       // The switcher animates on the DIRECT child's key, so the
                       // key rides the ConstrainedBox (the label rides inside).
-                      key: ValueKey<String>(_headerName ?? 'Feedback'),
+                      key: ValueKey<String>(_headerName ?? ''),
                       // A long name must never blow the header's layout: cap it
                       // and ellipsize rather than shove the title off screen.
                       constraints: BoxConstraints(
                         maxWidth: MediaQuery.sizeOf(context).width * 0.34,
                       ),
                       child: Text(
-                        _headerName ?? 'Feedback',
+                        // The worker's own name; empty until it is known.
+                        _headerName ?? '',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,
@@ -1879,7 +1891,12 @@ class _ChatViewState extends State<_ChatView>
   ///
   /// Only rendered while the v2 lever is on (the whole Phase 1 UI ships dark).
   Widget _companionVoiceButton() {
-    return Padding(
+    // OWNER REQUEST (2026-10-05): the "Awaaz note record karein" pill is
+    // PERMANENTLY hidden for now. Wrapped in [Visibility] (not deleted) so the
+    // button can be restored by flipping `visible` back to `true`.
+    return Visibility(
+      visible: false,
+      child: Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.s4,
         AppSpacing.s3,
@@ -1908,6 +1925,7 @@ class _ChatViewState extends State<_ChatView>
           showArrow: false,
           onPressed: _openCompanionVoiceNote,
         ),
+      ),
       ),
     );
   }
@@ -2945,6 +2963,24 @@ class _ChatViewState extends State<_ChatView>
       width: 140,
       height: 40,
     );
+  }
+
+  /// Read the worker's own name for the header (owner request, 2026-10-05) —
+  /// the same `GET /workers/me/resume-fields` the Profile tab reads. Fail-silent:
+  /// a missing name or a read error just leaves the header without a label, and
+  /// a name the chat itself captured meanwhile is never overwritten.
+  Future<void> _loadHeaderName() async {
+    if (!locator.isRegistered<ResumeEditRepository>()) return;
+    try {
+      final ResumeSafeFields fields =
+          await locator<ResumeEditRepository>().load();
+      if (!mounted || _headerName != null) return;
+      final String name = fields.displayName.trim();
+      if (name.isEmpty) return;
+      setState(() => _headerName = name);
+    } catch (_) {
+      // Enhancement only — never the screen.
+    }
   }
 
   /// ADR-0046 §5.1 — the edit card: one row per proposed change, all ticked,
