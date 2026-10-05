@@ -133,7 +133,7 @@ const SCREEN_MESSAGES: Readonly<Record<WorkerVisibleScreen, (n: ScreenedFieldNam
  * value after its `.max()` has passed ("ß" upper-cases to "SS"). `.trim()` only shortens.
  */
 export function screenWorkerVisibleText(base: z.ZodString, name: ScreenedFieldName) {
-  return screenWith(base, name, workerVisibleTextScreens);
+  return screenWith("screenWorkerVisibleText", base, name, workerVisibleTextScreens);
 }
 
 /**
@@ -141,16 +141,17 @@ export function screenWorkerVisibleText(base: z.ZodString, name: ScreenedFieldNa
  * `@badabhai/validators`' to own, and a caller able to pass its own could pass a weaker one.
  */
 function screenWith(
+  label: string,
   base: z.ZodString,
   name: ScreenedFieldName,
   screens: (s: string) => WorkerVisibleScreen[],
 ) {
   const max = base.maxLength;
   if (max === null) {
-    throw new Error(`screenWorkerVisibleText: ${name.subject} needs a .max() on its base`);
+    throw new Error(`${label}: ${name.subject} needs a .max() on its base`);
   }
   if (base._def.checks.some((c) => c.kind === "toLowerCase" || c.kind === "toUpperCase")) {
-    throw new Error(`screenWorkerVisibleText: ${name.subject} must not case-transform its base`);
+    throw new Error(`${label}: ${name.subject} must not case-transform its base`);
   }
   return base.superRefine((s, ctx) => {
     if (s.length > max) return; // the base's .max() has already refused it
@@ -160,8 +161,10 @@ function screenWith(
   });
 }
 
-// A standalone six-digit Indian pincode (PIN codes never start with 0).
-const PINCODE_TOKEN = /\b[1-9]\d{5}\b/;
+// A standalone six-digit Indian pincode (PIN codes never start with 0), bounded by whitespace,
+// a comma or the ends of the value. NOT `\b`: that treats "@" and "." as boundaries, so it
+// would find "411026" inside "hr@411026.xyz" and cutting it out would hide the email.
+const PINCODE_TOKEN = /(^|[\s,])([1-9]\d{5})(?=$|[\s,])/;
 // The shortest Indian phone number a worker could dial: a ten-digit mobile. A landline with
 // its STD code is eleven.
 const PHONE_MIN_DIGITS = 10;
@@ -174,19 +177,27 @@ const PHONE_MIN_DIGITS = 10;
  * the repository's city lists and 167 real industrial localities (#1848), every refused
  * place was a sector, phase or plot number followed by a pincode.
  *
- * ALL THREE must hold, and each is fail-closed:
+ * ALL of these must hold, and each is fail-closed:
+ *  - no "@" anywhere, so an email is never weighed against a pincode at all;
  *  - fewer than ten digits in the whole value, so no ten-digit mobile or eleven-digit
  *    landline can be present however it is split ("411026 9876543210" has sixteen);
- *  - a standalone six-digit pincode token;
- *  - `looksLikePii` passes once that token is removed, so an email still refuses.
+ *  - a six-digit pincode standing alone between whitespace, commas or the value's ends;
+ *  - `looksLikePii` passes once that pincode is replaced by a space.
  *
- * Under ten digits there is at most one such token, so removing the first is removing it.
+ * Under ten digits there is at most one such token, so replacing the first is replacing it.
+ *
+ * THE ACCEPTED RESIDUAL (security review, #1848): a seven- or eight-digit local landline
+ * written with a six-digit group on its own ("Pune 24 567890") is waived. A bare six-digit
+ * number was never refused by `looksLikePii` either, and before #1848 these fields had no
+ * server screen at all.
  */
 function pincodeExplainsContactRefusal(s: string): boolean {
+  if (s.includes("@")) return false;
   if ((s.match(/\d/g)?.length ?? 0) >= PHONE_MIN_DIGITS) return false;
   const pincode = PINCODE_TOKEN.exec(s);
   if (!pincode) return false;
-  return !looksLikePii(s.slice(0, pincode.index) + s.slice(pincode.index + pincode[0].length));
+  const start = pincode.index + pincode[1]!.length;
+  return !looksLikePii(`${s.slice(0, start)} ${s.slice(start + pincode[2]!.length)}`);
 }
 
 /**
@@ -210,7 +221,7 @@ export function workerVisiblePlaceScreens(s: string): WorkerVisibleScreen[] {
  * write resends the field; a PATCH that omits `city` / `area` does not re-screen them.
  */
 export function screenWorkerVisiblePlace(base: z.ZodString, name: ScreenedFieldName) {
-  return screenWith(base, name, workerVisiblePlaceScreens);
+  return screenWith("screenWorkerVisiblePlace", base, name, workerVisiblePlaceScreens);
 }
 
 /**

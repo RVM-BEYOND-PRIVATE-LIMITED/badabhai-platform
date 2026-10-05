@@ -194,6 +194,18 @@ describe("workerVisiblePlaceScreens / screenWorkerVisiblePlace (#1848)", () => {
     expect(placeMessages(value)).toEqual(["remove contact details from the city"]);
   });
 
+  it.each(["hr@411026.xyz", "411026@proton.me", "a@411026.app", "Pune hr@411026.shop"])(
+    "still refuses the email %j whose pincode-shaped part would hide it if cut out",
+    (value) => {
+      expect(placeMessages(value)).toEqual(["remove contact details from the city"]);
+    },
+  );
+
+  it("a pincode glued to a number by a dash is not a standalone token", () => {
+    expect(placeMessages("Plot 7-411026")).toEqual(["remove contact details from the city"]);
+    expect(placeMessages("Noida Sector 63, 201301")).toEqual([]);
+  });
+
   it("still refuses an email, even beside a pincode", () => {
     expect(placeMessages("hr@acme.example")).toEqual(["remove contact details from the city"]);
     expect(placeMessages("Pune 411018 hr@acme.example")).toEqual([
@@ -215,7 +227,7 @@ describe("workerVisiblePlaceScreens / screenWorkerVisiblePlace (#1848)", () => {
 
   it("dotted co-op names stay refused as a company name (an accepted false positive)", () => {
     // The hyphenated and plain forms pass. The dotted forms are `looksLikeOrgName`'s to
-    // narrow, in @badabhai/validators, not this screen's to waive.
+    // narrow, in @badabhai/validators, not this screen's to waive (#1970).
     expect(placeMessages("Gokul Shirgaon Co-op Industrial Estate")).toEqual([]);
     expect(placeMessages("Vasai Co-operative Industrial Estate")).toEqual([]);
     expect(placeMessages("Vasai Co. Operative Industrial Estate")).toEqual([
@@ -224,7 +236,9 @@ describe("workerVisiblePlaceScreens / screenWorkerVisiblePlace (#1848)", () => {
   });
 
   it("keeps the build-time guards and the base shape", () => {
-    expect(() => screenWorkerVisiblePlace(z.string().min(1), PLACE)).toThrow(/needs a \.max\(\)/);
+    expect(() => screenWorkerVisiblePlace(z.string().min(1), PLACE)).toThrow(
+      /^screenWorkerVisiblePlace: city needs a \.max\(\)/,
+    );
     const trimmed = screenWorkerVisiblePlace(z.string().trim().min(1).max(80), PLACE);
     expect(trimmed.parse("  Chakan  ")).toBe("Chakan");
     expect(place.safeParse("").success).toBe(false);

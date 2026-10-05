@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 import { loadQuestionPackCorpus, resolveJobDomainCorpus } from "@badabhai/db";
 import { MATCH_SKILLS, ROLES } from "@badabhai/taxonomy";
+import CITIES_FILE from "@badabhai/profiling-lexicon/data/cities.json";
 import { JOB_ROLE_LABELS } from "@badabhai/types";
 
 import { CreateAgencyJobSchema, UpdateAgencyJobSchema } from "../agency/agency.dto";
-import CITIES_FILE from "@badabhai/profiling-lexicon/data/cities.json";
 import { FAMILY_CHIP_LABELS } from "../occupation/family-chip-labels";
 import { CITY_HUBS } from "../profiles/worker-cities.hubs";
 import {
@@ -264,6 +264,12 @@ const PLACE_SCREENS = [
   { screen: "looksLikePii (email)", value: "Chakan hr@acme.example", tail: "contact" },
   { screen: "looksLikeOrgName", value: "Bhosari, Kalyani Pvt Ltd", tail: "company" },
   { screen: "looksLikeUrl", value: "Chakan www.acme.in", tail: "link" },
+  // An email whose numeric part is pincode-shaped: the waiver must not cut it out (#1848).
+  {
+    screen: "looksLikePii (email with a pincode-shaped part)",
+    value: "hr@411026.xyz",
+    tail: "contact",
+  },
 ] as const;
 
 /**
