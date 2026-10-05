@@ -658,8 +658,8 @@ def certify_model_labels(draft: WorkerProfileDraft) -> tuple[WorkerProfileDraft,
     one-element list (`certified_scalar`), whether the model or the heuristic wrote it.
     `education_level` / `education_field` are certified by the route already (#1739).
 
-    A CONTROL CHARACTER WITHHOLDS FIRST. The profile's lists are clamped (control characters
-    stripped) before they are certified, and neither the gateway nor the G1 floor sees through one:
+    A CONTROL CHARACTER WITHHOLDS FIRST. The profile's lists are clamped (C0 and DEL stripped)
+    before they are certified, and neither the gateway nor the G1 floor sees through one:
     "9876\\x00543210" certifies clean. Certifying the raw draft value would store exactly what the
     profile withheld, so a value carrying a control character (Unicode Cc: C0, DEL, C1) is
     withheld outright. No clean label carries one.
