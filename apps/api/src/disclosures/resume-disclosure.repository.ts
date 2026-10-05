@@ -8,6 +8,7 @@ import {
   unlocks,
   generatedResumes,
   workers,
+  jobPostings,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { NEWEST_RESUME_FIRST } from "../resume/resume-order";
@@ -88,6 +89,25 @@ export class ResumeDisclosureRepository {
       .where(eq(workers.id, workerId))
       .limit(1);
     return rows[0];
+  }
+
+  /**
+   * Whether `id` names a `job_postings` row — a NON-tx read on the global pool, by primary key,
+   * projecting the id ONLY.
+   *
+   * #1898 (the #1903 approach): `resume_disclosures.job_posting_id` is an FK to `job_postings.id`,
+   * so only a posting id can be stored as a disclosure's context. An agency's applicants page
+   * sends its legacy `jobs` id instead; storing that violated the FK (a 500). The service calls
+   * this BEFORE the advisory-locked transaction (a global-pool read inside it would recreate the
+   * pool-vs-lock deadlock). No status filter: the FK needs the row to exist, not to be open.
+   */
+  async jobPostingExists(id: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: jobPostings.id })
+      .from(jobPostings)
+      .where(eq(jobPostings.id, id))
+      .limit(1);
+    return rows.length > 0;
   }
 
   /** The existing disclosure row for (payer, worker, posting), or undefined. Tx-scoped. */

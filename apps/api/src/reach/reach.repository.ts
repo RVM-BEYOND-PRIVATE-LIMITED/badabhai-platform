@@ -1,11 +1,12 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import {
   CURRENT_PROFILE_ORDER,
   type Database,
   workerProfiles,
   workers,
   jobs,
+  applications,
   type JobNeededBy,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
@@ -46,6 +47,23 @@ export interface JobSignalRow {
  * worker's absent row), never a signal/score condition — so `count in == count out`
  * over the eligible pool stays structural, not policed.
  */
+/**
+ * The statement behind {@link ReachRepository.listApplicantSignalRowsForJob}, exported so its
+ * compiled SQL can be pinned without a database (the `worker-transcript.repository` pattern).
+ */
+export function applicantSignalRowsStatement(db: Database, jobId: string) {
+  const appliers = db
+    .select({ workerId: applications.workerId })
+    .from(applications)
+    .where(and(eq(applications.jobId, jobId), eq(applications.action, "applied")));
+  return db
+    .selectDistinctOn([workerProfiles.workerId], ReachRepository.SIGNAL_COLUMNS)
+    .from(workerProfiles)
+    .innerJoin(workers, eq(workerProfiles.workerId, workers.id))
+    .where(and(isNull(workers.deletionScheduledAt), inArray(workerProfiles.workerId, appliers)))
+    .orderBy(workerProfiles.workerId, ...CURRENT_PROFILE_ORDER);
+}
+
 @Injectable()
 export class ReachRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
@@ -53,7 +71,7 @@ export class ReachRepository {
   /** Exactly the signal columns the mapper reads — never embedding/rawProfile.
    * `skills` joined the projection with ADR-0033 (same single query — no join, no
    * N+1): canonical closed-set skill ids for the deterministic overlap factor. */
-  private static readonly SIGNAL_COLUMNS = {
+  static readonly SIGNAL_COLUMNS = {
     workerId: workerProfiles.workerId,
     canonicalRoleId: workerProfiles.canonicalRoleId,
     canonicalTradeId: workerProfiles.canonicalTradeId,
@@ -98,6 +116,25 @@ export class ReachRepository {
       .where(isNull(workers.deletionScheduledAt))
       .orderBy(workerProfiles.workerId, ...CURRENT_PROFILE_ORDER);
     return rows;
+  }
+
+  /**
+   * #1898 — the signal rows of the workers who APPLIED to one legacy `jobs` row: an
+   * `applications` row with `job_id = jobId` AND `action = 'applied'`. A skip is not an
+   * application, and a worker with no such row is never returned, however well he would score.
+   *
+   * This is deliberately NOT {@link listSignalRows} with a filter bolted on: that read is the
+   * ELIGIBLE POOL (sort-never-block, D8) and still serves the ops view and PACE. This one is a
+   * MEMBERSHIP read — the set is "who applied", decided by the worker, not by a score — so the
+   * ranking downstream still orders without filtering (count in == count out over appliers).
+   *
+   * Same projection, same one-row-per-worker DISTINCT ON + `CURRENT_PROFILE_ORDER`, and the same
+   * ADR-0031 (b) exclusion as the pool: a worker pending deletion is never listed. The inner
+   * read is served by `applications_job_id_idx`; `applications_worker_job_uq` caps it at one
+   * decision per (worker, job). A posting decision (`job_id` NULL) can never match.
+   */
+  async listApplicantSignalRowsForJob(jobId: string): Promise<WorkerProfileSignalRow[]> {
+    return applicantSignalRowsStatement(this.db, jobId);
   }
 
   /**

@@ -39,8 +39,9 @@ export class PayerReachController {
   /**
    * The faceless candidate list for a job or posting the caller OWNS. The `payer_id` is the
    * SESSION payer (XB-A) — never a route/body value. Bounded by the per-payer reach cap, which
-   * runs BEFORE any read so a capped payer touches no data. Which list comes back (weighted
-   * pool vs actual applicants) is {@link PayerApplicantsService.listForOwned}'s decision.
+   * runs BEFORE any read so a capped payer touches no data. Either list holds only workers who
+   * applied (#1898); which shape comes back (agency job vs company posting) is
+   * {@link PayerApplicantsService.listForOwned}'s decision.
    */
   @Get("jobs/:jobId/applicants")
   async applicants(

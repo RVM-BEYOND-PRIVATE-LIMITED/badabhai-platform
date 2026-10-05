@@ -68,6 +68,9 @@ function make(rows: WorkerProfileSignalRow[], jobs: JobSpec[]) {
   const emitMany = vi.fn().mockResolvedValue([]);
   const repo = {
     listSignalRows: vi.fn().mockResolvedValue(rows),
+    // #1898: the payer-owned list reads ONLY the job's appliers. Default: every row applied, so
+    // the shape/event tests below read the same rows; the applier tests override it.
+    listApplicantSignalRowsForJob: vi.fn(async (_jobId: string) => rows),
     findSignalRowByWorkerId: vi.fn(async (id: string) => rows.find((r) => r.workerId === id)),
     // Payer-scoped ownership read (PR2). Default: NOT owned (undefined) — the no-oracle
     // resolution that maps absent AND other-payer to the same neutral 404. Tests that
@@ -247,15 +250,16 @@ describe("ReachService — Payer-self View A (applicantsForOwnedJob, ADR-0019 R2
     expect(emitMany).not.toHaveBeenCalled();
   });
 
-  it("count in == count out + faceless rows, identical to the ops View A shape", async () => {
-    const pool = [row(1), blankRow(2), offTradeRow(3), row(4)];
-    const { svc, emitted, repo } = make(pool, []);
+  it("count in == count out over the APPLIERS + faceless rows, identical to the ops View A shape", async () => {
+    const appliers = [row(1), blankRow(2), offTradeRow(3), row(4)];
+    const { svc, emitted, repo } = make(appliers, []);
     repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
 
     const res = await svc.applicantsForOwnedJob(JOB_A, PAYER, CTX as never);
 
     expect(res.jobId).toBe(JOB_A);
-    expect(res.applicants.length).toBe(pool.length); // sort-never-block
+    // The core orders the appliers, never filters them — even blank + off-trade appliers stay.
+    expect(res.applicants.length).toBe(appliers.length);
     for (const a of res.applicants) {
       expect(Object.keys(a).sort()).toEqual(
         [
@@ -271,7 +275,45 @@ describe("ReachService — Payer-self View A (applicantsForOwnedJob, ADR-0019 R2
         ].sort(),
       );
     }
-    expect(emitted().length).toBe(pool.length);
+    expect(emitted().length).toBe(appliers.length);
+  });
+
+  it("#1898: lists ONLY the workers who applied — a non-applier never appears, however well he scores", async () => {
+    const applier = offTradeRow(1); // a weak match who DID apply
+    const nonAppliers = [row(2), row(3)]; // strong matches who did NOT
+    const { svc, repo, emitted } = make([applier, ...nonAppliers], []);
+    repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
+    repo.listApplicantSignalRowsForJob.mockResolvedValue([applier]);
+
+    const res = await svc.applicantsForOwnedJob(JOB_A, PAYER, CTX as never);
+
+    expect(res.applicants.map((a) => a.workerId)).toEqual([applier.workerId]);
+    // The pool is never read on the payer path, and no impression names a non-applier.
+    expect(repo.listSignalRows).not.toHaveBeenCalled();
+    expect(repo.listApplicantSignalRowsForJob).toHaveBeenCalledWith(JOB_A);
+    const shown = emitted().map((e) => (e.payload as { worker_id: string }).worker_id);
+    expect(shown).toEqual([applier.workerId]);
+    for (const n of nonAppliers) expect(JSON.stringify(res)).not.toContain(n.workerId);
+  });
+
+  it("#1898: an owned job nobody applied to → an EMPTY list (200), not a 404, and no impression", async () => {
+    const { svc, repo, emitMany, emitted } = make([row(1), row(2)], []);
+    repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
+    repo.listApplicantSignalRowsForJob.mockResolvedValue([]);
+
+    const res = await svc.applicantsForOwnedJob(JOB_A, PAYER, CTX as never);
+
+    expect(res).toEqual({ jobId: JOB_A, applicants: [] });
+    expect(emitted()).toHaveLength(0);
+    expect(emitMany.mock.calls.every((c) => (c[0] as unknown[]).length === 0)).toBe(true);
+  });
+
+  it("#1898: the appliers are read by the job id the OWNERSHIP read returned", async () => {
+    const { svc, repo } = make([row(1)], []);
+    repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
+    await svc.applicantsForOwnedJob(JOB_A, PAYER, CTX as never);
+    expect(repo.listApplicantSignalRowsForJob).toHaveBeenCalledOnce();
+    expect(repo.listApplicantSignalRowsForJob).toHaveBeenCalledWith(JOB_A);
   });
 
   it("emits feed.shown with the PAYER actor (actor_id == session payer), payload PII-free + payer-free", async () => {
@@ -342,11 +384,12 @@ describe("ReachService — tryApplicantsForOwnedJob (the #1823 payer-list source
     await expect(svc.tryApplicantsForOwnedJob(JOB_A, PAYER, CTX as never)).resolves.toBeUndefined();
   });
 
-  it("a miss reads no pool, ranks nothing and emits nothing", async () => {
+  it("a miss reads no workers, ranks nothing and emits nothing", async () => {
     const { svc, repo, emit, emitMany } = make([row(1)], []);
     repo.findOwnedJobSignalRowById.mockResolvedValue(undefined);
     await svc.tryApplicantsForOwnedJob(JOB_A, PAYER, CTX as never);
     expect(repo.listSignalRows).not.toHaveBeenCalled();
+    expect(repo.listApplicantSignalRowsForJob).not.toHaveBeenCalled();
     expect(emit).not.toHaveBeenCalled();
     expect(emitMany).not.toHaveBeenCalled();
   });

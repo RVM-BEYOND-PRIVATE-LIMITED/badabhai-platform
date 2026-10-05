@@ -139,7 +139,7 @@ Stack traces are never leaked; `requestId` is for support correlation.
 
 - Most list endpoints return the **full set** (no offset/cursor), newest-first by `createdAt`.
 - Some lists accept `?limit=` (clamped `1–500`, default `100`); responses are bare arrays with **no `totalCount`**. There is no way to page beyond the limit today.
-- The applicant feed returns the **full pool** (sort-never-block) with **no pagination params** — design the UI to handle large lists (virtualize); escalate to backend if you need server paging.
+- The applicant feed returns **every worker who applied** (agency job: all of them, ranked; company posting: capped server-side) with **no pagination params** — virtualize long lists; escalate to backend if you need server paging.
 
 ### 3.6 Rate limits (all fail-closed; Redis down ⇒ reject)
 
@@ -333,7 +333,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 
 #### `POST /payer/resume-disclosures` (masked résumé — VERIFIED LIVE)
 - **Auth:** `PayerAuthGuard` (Bearer). Shares the per-payer disclosure cap. **Free — no credit debit.**
-- **Body:** `{ worker_id: UUID, job_posting_id: UUID|null }` — no `payer_id`.
+- **Body:** `{ worker_id: UUID, job_posting_id: UUID|null }` — no `payer_id`. `job_posting_id` is the context the résumé was opened from; an id that is not a company posting (e.g. an agency `jobs` id from the agency applicants page) is accepted and **stored as `null`** (#1898, the #1903 approach) — the disclosure still succeeds and `GET` lists it with `posting_id: null`.
 - **Response:** SUCCESS `{ ok: true, disclosure_id: UUID, status: 'disclosed', resume_url: string (short-TTL signed), expires_at }` **OR** NEUTRAL `{ status: 'unavailable' }` (HTTP `200`).
 - **Events:** `resume.disclosed` (fact only — payload never includes the PDF bytes, the worker's name, or the signed URL).
 - **Mobile gotchas:** The worker's real name is decrypted server-side at render-time, masked to **initials** in the PDF, then discarded — you only ever get a signed `resume_url` to a masked PDF. **Render the URL short-lived; never log it.** payer-web currently still mocks this; the backend is live (safe to integrate, verify in staging).
@@ -347,13 +347,12 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 #### `GET /payer/reach/jobs/:jobId/applicants`
 - **Auth:** `PayerAuthGuard` (Bearer). Per-payer hourly reach cap (default 60), checked before any read. `jobId` must be a `jobs` row or a `job_postings` row the session payer owns.
 - **Request:** path `jobId` (UUID); no query/body; **no pagination**.
-- **Source selection** (`PayerApplicantsService.listForOwned`, #1823; first owner-scoped hit wins):
-  1. `MATCH_V1_ENABLED` on → an owned posting's actual applicants (the V1 shape below).
-  2. Otherwise an owned agency/seed `jobs` row → the weighted full-pool list (the legacy shape below).
-  3. Otherwise an owned company posting → that posting's **actual applicants** (the V1 shape). Not gated by `FEED_POSTINGS_UNION_ENABLED`, so disarming the worker-feed union never hides people who already applied. Applications without a rank snapshot sort last.
-  4. Otherwise → neutral `404` in the §3.2 envelope with `error.message = "Job not found"`. The `error` object is identical for an unknown id, another payer's job and another payer's posting (no existence oracle); only the per-request `path`, `requestId` and `timestamp` differ.
+- **Source selection** (`PayerApplicantsService.listForOwned`, #1823/#1898; first owner-scoped hit wins; **independent of `MATCH_V1_ENABLED`**):
+  1. An owned agency/seed `jobs` row → **only the workers who applied to it** (`applications.job_id` = that job, `action = 'applied'`), ordered by the deterministic reach ranking (the legacy shape below). A worker who skipped or never decided is never listed; a job nobody applied to returns `200` with `applicants: []`. (#1898 — before it, this returned the whole ranked worker pool, and with `MATCH_V1_ENABLED` on it 404'd.)
+  2. Otherwise an owned company posting → that posting's **actual applicants** (the V1 shape). Not gated by `FEED_POSTINGS_UNION_ENABLED`, so disarming the worker-feed union never hides people who already applied. Applications without a rank snapshot sort last.
+  3. Otherwise → neutral `404` in the §3.2 envelope with `error.message = "Job not found"`. The `error` object is identical for an unknown id, another payer's job and another payer's posting (no existence oracle); only the per-request `path`, `requestId` and `timestamp` differ.
 - **Membership:** neither list ever includes a worker inside the account-deletion grace window (ADR-0031 ruling (b)); a cancelled deletion puts him back.
-- **Response (legacy `jobs` row):**
+- **Response (agency `jobs` row — its appliers):**
   ```
   { jobId, applicants: [ {
       workerId,            // opaque UUID
@@ -367,7 +366,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
       cityLabel            // coarse slug e.g. 'pune' | null
   } ] }
   ```
-- **Response (posting — V1 on, or V1 off with an owned posting):**
+- **Response (company posting — its applicants):**
   ```
   { jobId, applicants: [ {
       workerId, applicationId, rank,
@@ -376,11 +375,11 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
       lastWorkedAt, matchedSkillLabel, engineVersion   // string | null
   } ] }
   ```
-- **Events:** legacy `jobs` list only: `feed.shown` (one per rendered applicant, actor `payer`, batch all-or-nothing; payload `worker_id`/`job_id`/`rank`/`score`/`hot` — PII-free). The posting list emits nothing (people who already applied are not a feed impression), so a posting-list read is rate-limited (Redis, hourly) but **not durably audited**.
+- **Events:** agency `jobs` list only: `feed.shown` (one per rendered applier — none for an empty list, actor `payer`, batch all-or-nothing; payload `worker_id`/`job_id`/`rank`/`score`/`hot` — PII-free). The posting list emits nothing (people who already applied are not a feed impression), so a posting-list read is rate-limited (Redis, hourly) but **not durably audited**.
 - **Errors:** `404` as above. `429` on the reach cap. A DB failure is a `5xx`, never folded into the `404`.
 - **Mobile gotchas:**
   - **FREE — no credit debit.** Spending happens only on unlock/reveal.
-  - Legacy `jobs` list: full pool returned (sort-never-block), no limit/offset — virtualize the list. Posting list: actual applicants, capped server-side.
+  - Agency `jobs` list: every applier, ranked, no limit/offset — virtualize long lists. Posting list: actual applicants, capped server-side. Neither list ever contains a worker who did not apply.
   - Branch on the row shape (`score` vs `applicationId`), never on the id — both lists share the route.
   - Faceless: opaque `workerId` + banded chips only — **never** display/expect names/phones/employers.
   - Neutral `404` for unknown-or-not-owned job. `429` on reach cap. `5xx` → retry with backoff.
@@ -498,7 +497,7 @@ Stub or back these out behind a feature flag; do not ship them as working flows.
 | Real **payments** (credits/capacity/any purchase) | **MOCK** | `PAYMENTS_ENABLE_REAL=false` (fail-closed). All money flows are mock ledgers in Phase 1; `real_call:false`. Do not integrate a real payment SDK. |
 | Agency **payouts / commissions / KYC** | **PARKED (legal-gated)** | No endpoints; type-only shells. Phase-2, behind legal/§7 human gates. |
 | Production **identity provider** (`supabase` login) | **INERT** | `PAYER_LOGIN_METHOD` supports `supabase` but it's inert without keys. Email-OTP is the live method. WhatsApp OTP is mock. |
-| Ops surfaces: `/job-postings/*`, `/reach/jobs/:jobId/applicants`, `/unlocks/*`, `PUT /pricing/catalog` | **OPS-ONLY / unauthenticated** | Not payer-authed; do **not** call from mobile. Use the `/payer/*` equivalents. |
+| Ops surfaces: `/job-postings/*`, `/reach/jobs/:jobId/applicants`, `/unlocks/*`, `PUT /pricing/catalog` | **OPS-ONLY / unauthenticated** | Not payer-authed; do **not** call from mobile. Use the `/payer/*` equivalents. `/reach/jobs/:jobId/applicants` is the ops **ranked worker pool** (suggested workers, not applicants) — never a payer list (#1898). |
 | `POST /payer/agency/invites/:code/click` | **STUB** | Returns `{ ok: true }` always; local funnel only, no worker attribution. Generally not needed from the app. |
 
 ---

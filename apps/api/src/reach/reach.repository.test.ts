@@ -1,9 +1,10 @@
 import "reflect-metadata";
 import { describe, it, expect } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
+import { drizzle } from "drizzle-orm/postgres-js";
 import type { SQL } from "drizzle-orm";
 import { CURRENT_PROFILE_ORDER, workerProfiles, workers, type Database } from "@badabhai/db";
-import { ReachRepository } from "./reach.repository";
+import { ReachRepository, applicantSignalRowsStatement } from "./reach.repository";
 
 /**
  * STRUCTURAL tests for the worker-pool read (ADR-0011 D8 + ADR-0031 ruling (b)).
@@ -221,3 +222,57 @@ describe("ReachRepository.findOwnedJobSignalRowById — payer ownership lives in
     ).resolves.toBeUndefined();
   });
 });
+
+describe("applicantSignalRowsStatement — #1898 the agency list is the workers who APPLIED", () => {
+  // Compiled off a connection-less drizzle (the worker-transcript.repository.query pattern):
+  // every consumer fakes the repository, so a lost conjunct would pass every other suite.
+  const mockDb = drizzle.mock() as unknown as Database;
+  const JOB = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+  const compiled = applicantSignalRowsStatement(mockDb, JOB).toSQL();
+
+  it("membership is an `applied` decision on THIS job — a skip, or no decision, is never a row", () => {
+    expect(compiled.sql).toContain(
+      '"worker_profiles"."worker_id" in (select "worker_id" from "applications" where ("applications"."job_id" = $1 and "applications"."action" = $2))',
+    );
+    expect(compiled.params.slice(0, 2)).toEqual([JOB, "applied"]);
+  });
+
+  it("keeps the ADR-0031 (b) exclusion: a worker pending deletion is never listed", () => {
+    expect(compiled.sql).toContain(
+      'inner join "workers" on "worker_profiles"."worker_id" = "workers"."id"',
+    );
+    expect(compiled.sql).toContain('"workers"."deletion_scheduled_at" is null and');
+  });
+
+  it("one row per worker, the same current-profile pick as the pool (B-8b)", () => {
+    expect(compiled.sql).toMatch(/^select distinct on \("worker_profiles"\."worker_id"\)/);
+    expect(compiled.sql).toMatch(/order by "worker_profiles"\."worker_id", /);
+  });
+
+  it("binds only the job id and the action — no relevance predicate, no payer id", () => {
+    expect(compiled.params).toEqual([JOB, "applied"]);
+  });
+
+  it("projects exactly the pool's signal columns — never embedding/raw_profile/PII", () => {
+    const pool = drizzleSelectedColumns(compiled.sql);
+    expect(pool).not.toMatch(/embedding|raw_profile|phone|full_name|rich_profile_draft/);
+  });
+
+  it("the repository method serves exactly this statement", async () => {
+    const rows = [signalRow(1)];
+    const db = {
+      selectDistinctOn: () => ({
+        from: () => ({
+          innerJoin: () => ({ where: () => ({ orderBy: () => Promise.resolve(rows) }) }),
+        }),
+      }),
+      select: () => ({ from: () => ({ where: () => ({}) }) }),
+    } as unknown as Database;
+    await expect(new ReachRepository(db).listApplicantSignalRowsForJob(JOB)).resolves.toBe(rows);
+  });
+});
+
+/** The SELECT list of a compiled statement (everything before the first FROM). */
+function drizzleSelectedColumns(sql: string): string {
+  return sql.slice(0, sql.indexOf(" from "));
+}

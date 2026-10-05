@@ -56,7 +56,8 @@ export interface MatchCandidateListDto {
  * That is a real behaviour change, and it is deliberate: where the spec and the existing
  * code disagree, the spec wins. With `MATCH_V1_ENABLED` on it serves every payer posting
  * list; with it off it serves a company's OWNED posting only (#1823 owner decision O8, via
- * `PayerApplicantsService`), while an agency `jobs` row keeps the weighted full-pool list.
+ * `PayerApplicantsService`). An agency `jobs` row lists ITS appliers, weighted by the reach
+ * core (#1898), whatever the flag says.
  *
  * THE ORDER IS THE SQL'S, NOT THIS SERVICE'S. `MatchFeedRepository.listCandidates`
  * returns rows already in rank order out of `applications_rank_idx`; nothing here

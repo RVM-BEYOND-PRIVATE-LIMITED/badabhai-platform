@@ -1,7 +1,6 @@
 import "reflect-metadata";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Logger, NotFoundException } from "@nestjs/common";
-import type { ServerConfig } from "@badabhai/config";
 import type { RequestContext } from "../common/request-context";
 import { AllExceptionsFilter } from "../common/filters/all-exceptions.filter";
 import { ReachService } from "../reach/reach.service";
@@ -13,7 +12,8 @@ import type { MatchCandidateListDto } from "../match/match-candidates.service";
 import { PayerApplicantsService } from "./payer-applicants.service";
 
 /**
- * #1823 PR-5 — the payer applicant list's source selection (owner decision O8).
+ * #1823 PR-5 — the payer applicant list's source selection (owner decision O8), and #1898 —
+ * an agency's own job lists ONLY the workers who applied to it, whatever MATCH_V1_ENABLED says.
  *
  * The two ownership seams are the REAL services: `ReachService.tryApplicantsForOwnedJob` and
  * `JobPostingsService.getOneForPayer`. Only their repositories are
@@ -67,7 +67,9 @@ function worker(n: number): WorkerProfileSignalRow {
   };
 }
 
+/** The whole eligible pool. Only worker(1) applied to JOB_A; worker(2) skipped it. */
 const POOL = [worker(1), worker(2), worker(3)];
+const APPLIER = worker(1);
 
 /** The V1 candidate shape `listForPosting` returns; one applicant is enough to tell it apart. */
 function candidates(postingId: string): MatchCandidateListDto {
@@ -90,7 +92,16 @@ function candidates(postingId: string): MatchCandidateListDto {
   };
 }
 
-function make(config: Record<string, unknown> = { MATCH_V1_ENABLED: false }) {
+/**
+ * The MATCH_V1_ENABLED settings the flag-independence cases run under. The service takes no
+ * config at all since #1898; the `describe.each` below proves the result is the same for both.
+ */
+const FLAG_STATES = [
+  { MATCH_V1_ENABLED: false, label: "off" },
+  { MATCH_V1_ENABLED: true, label: "on" },
+] as const;
+
+function make() {
   // jobs: id → owner. Mirrors `findOwnedJobSignalRowById`'s `id = $1 AND payer_id = $2`.
   const jobsTable = new Map<string, string>([
     [JOB_A, PAYER_A],
@@ -102,11 +113,27 @@ function make(config: Record<string, unknown> = { MATCH_V1_ENABLED: false }) {
     [TWIN, PAYER_A],
   ]);
 
+  // applications: (job_id, worker_id, action). Mirrors `listApplicantSignalRowsForJob`'s
+  // `job_id = $1 AND action = 'applied'` membership over the eligible pool.
+  const applicationsTable = [
+    { jobId: JOB_A, workerId: APPLIER.workerId, action: "applied" },
+    { jobId: JOB_A, workerId: worker(2).workerId, action: "skipped" },
+    { jobId: TWIN, workerId: APPLIER.workerId, action: "applied" },
+  ];
+
   const reachRepo = {
     findOwnedJobSignalRowById: vi.fn(async (id: string, payerId: string) =>
       jobsTable.get(id) === payerId ? signalRow(id) : undefined,
     ),
+    // The ops pool read. The payer path must never call it (#1898).
     listSignalRows: vi.fn(async () => POOL),
+    listApplicantSignalRowsForJob: vi.fn(async (jobId: string) =>
+      POOL.filter((w) =>
+        applicationsTable.some(
+          (a) => a.jobId === jobId && a.workerId === w.workerId && a.action === "applied",
+        ),
+      ),
+    ),
   };
   const emitMany = vi.fn(async () => []);
   const emit = vi.fn(async () => undefined);
@@ -134,12 +161,7 @@ function make(config: Record<string, unknown> = { MATCH_V1_ENABLED: false }) {
     listForPosting: vi.fn(async (postingId: string) => candidates(postingId)),
   };
 
-  const svc = new PayerApplicantsService(
-    reach,
-    jobPostings,
-    matchCandidates as never,
-    config as unknown as ServerConfig,
-  );
+  const svc = new PayerApplicantsService(reach, jobPostings, matchCandidates as never);
   const feedShown = (): Record<string, unknown>[] =>
     (emitMany.mock.calls as unknown as Record<string, unknown>[][][]).flatMap((c) => c[0]!);
   return {
@@ -196,61 +218,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("PayerApplicantsService — MATCH_V1_ENABLED on (the V1 branch, unchanged)", () => {
-  const V1 = { MATCH_V1_ENABLED: true };
-
-  it("an owned posting → its actual applicants, ownership read with the SESSION payer", async () => {
-    const d = make(V1);
-    const out = await d.svc.listForOwned(POSTING_A, PAYER_A, CTX);
-    expect(out).toEqual(candidates(POSTING_A));
-    expect(d.getOneForPayer).toHaveBeenCalledWith(POSTING_A, PAYER_A);
-    expect(d.matchCandidates.listForPosting).toHaveBeenCalledWith(POSTING_A);
-  });
-
-  it("never consults the jobs table and emits no feed.shown", async () => {
-    const d = make(V1);
-    await d.svc.listForOwned(POSTING_A, PAYER_A, CTX);
-    expect(d.reachRepo.findOwnedJobSignalRowById).not.toHaveBeenCalled();
-    expect(d.reachRepo.listSignalRows).not.toHaveBeenCalled();
-    expect(d.emitMany).not.toHaveBeenCalled();
-    expect(d.emit).not.toHaveBeenCalled();
-  });
-
-  it("an owned agency `jobs` id is the neutral 404 (V1 lists postings only)", async () => {
-    const d = make(V1);
-    const err = await rejection(d.svc.listForOwned(JOB_A, PAYER_A, CTX));
-    expect(httpOutcome(err)).toEqual(NEUTRAL_404);
-    expect(d.matchCandidates.listForPosting).not.toHaveBeenCalled();
-  });
-
-  it("another payer's posting is the neutral 404 and its applicants are never read (IDOR)", async () => {
-    const d = make(V1);
-    const err = await rejection(d.svc.listForOwned(POSTING_A, PAYER_B, CTX));
-    expect(httpOutcome(err)).toEqual(NEUTRAL_404);
-    expect(d.getOneForPayer).toHaveBeenCalledWith(POSTING_A, PAYER_B);
-    expect(d.matchCandidates.listForPosting).not.toHaveBeenCalled();
-  });
-
-  it("a DB error on the ownership read is a 500, not a 404 (the old catch-all is gone)", async () => {
-    const d = make(V1);
-    const boom = new Error("connection terminated unexpectedly");
-    d.postingsRepo.findByIdAndPayer.mockRejectedValueOnce(boom);
-    const err = await rejection(d.svc.listForOwned(POSTING_A, PAYER_A, CTX));
-    expect(err).toBe(boom);
-    expect(httpOutcome(err).status).toBe(500);
-    expect(d.matchCandidates.listForPosting).not.toHaveBeenCalled();
-  });
-});
-
-describe("PayerApplicantsService — MATCH_V1_ENABLED off, an owned agency job", () => {
-  it("serves the weighted full pool through the unchanged ReachService ranking", async () => {
+describe("PayerApplicantsService — an owned agency job lists ONLY its appliers (#1898)", () => {
+  it("serves the workers who applied, weighted by the unchanged ReachService ranking", async () => {
     const d = make();
     const out = (await d.svc.listForOwned(JOB_A, PAYER_A, CTX)) as ApplicantListResponseDto;
     expect(out.jobId).toBe(JOB_A);
-    // Sort-never-block: every pool member is on the list, with engine scores + components.
-    expect(out.applicants.map((a) => a.workerId).sort()).toEqual(
-      POOL.map((w) => w.workerId).sort(),
-    );
+    expect(out.applicants.map((a) => a.workerId)).toEqual([APPLIER.workerId]);
     for (const a of out.applicants) {
       expect(typeof a.score).toBe("number");
       expect(Array.isArray(a.components)).toBe(true);
@@ -258,15 +231,29 @@ describe("PayerApplicantsService — MATCH_V1_ENABLED off, an owned agency job",
     expect(d.reachRepo.findOwnedJobSignalRowById).toHaveBeenCalledWith(JOB_A, PAYER_A);
   });
 
-  it("emits one feed.shown per row with the PAYER actor (the session payer)", async () => {
+  it("a non-applier never appears — neither a worker who skipped nor one with no decision", async () => {
+    const d = make();
+    const out = await d.svc.listForOwned(JOB_A, PAYER_A, CTX);
+    const body = JSON.stringify(out);
+    expect(body).not.toContain(worker(2).workerId); // skipped
+    expect(body).not.toContain(worker(3).workerId); // never decided
+    // The ranked whole pool is never read on the payer path.
+    expect(d.reachRepo.listSignalRows).not.toHaveBeenCalled();
+  });
+
+  it("emits one feed.shown per APPLIER with the PAYER actor (event contract unchanged)", async () => {
     const d = make();
     await d.svc.listForOwned(JOB_A, PAYER_A, CTX);
     const events = d.feedShown();
-    expect(events).toHaveLength(POOL.length);
+    expect(events).toHaveLength(1);
     for (const e of events) {
       expect(e.event_name).toBe("feed.shown");
       expect(e.actor).toEqual({ actor_type: "payer", actor_id: PAYER_A });
-      expect((e.payload as Record<string, unknown>).job_id).toBe(JOB_A);
+      expect(e).not.toHaveProperty("idempotencyKey");
+      const payload = e.payload as Record<string, unknown>;
+      expect(Object.keys(payload).sort()).toEqual(["hot", "job_id", "rank", "score", "worker_id"]);
+      expect(payload.job_id).toBe(JOB_A);
+      expect(payload.worker_id).toBe(APPLIER.workerId);
     }
   });
 
@@ -291,7 +278,34 @@ describe("PayerApplicantsService — MATCH_V1_ENABLED off, an owned agency job",
   });
 });
 
-describe("PayerApplicantsService — MATCH_V1_ENABLED off, an owned company posting (O8)", () => {
+describe("PayerApplicantsService — the result does not depend on MATCH_V1_ENABLED (#1898)", () => {
+  it("takes no server config: there is no flag for the list to branch on", () => {
+    // Constructor arity is the structural pin — the flag read was the id-space flip (#1898).
+    expect(PayerApplicantsService.length).toBe(3);
+  });
+
+  it.each(FLAG_STATES)(
+    "MATCH_V1_ENABLED $label: agency job → appliers, posting → applicants, foreign → neutral 404",
+    async (flags) => {
+      vi.stubEnv("MATCH_V1_ENABLED", String(flags.MATCH_V1_ENABLED));
+      try {
+        const d = make();
+        const job = (await d.svc.listForOwned(JOB_A, PAYER_A, CTX)) as ApplicantListResponseDto;
+        expect(job.applicants.map((a) => a.workerId)).toEqual([APPLIER.workerId]);
+        await expect(d.svc.listForOwned(POSTING_A, PAYER_A, CTX)).resolves.toEqual(
+          candidates(POSTING_A),
+        );
+        expect(httpOutcome(await rejection(d.svc.listForOwned(JOB_A, PAYER_B, CTX)))).toEqual(
+          NEUTRAL_404,
+        );
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
+});
+
+describe("PayerApplicantsService — an owned company posting (O8)", () => {
   it("serves the posting's ACTUAL applicants via listForPosting", async () => {
     const d = make();
     const out = await d.svc.listForOwned(POSTING_A, PAYER_A, CTX);
@@ -318,14 +332,19 @@ describe("PayerApplicantsService — MATCH_V1_ENABLED off, an owned company post
   });
 
   it("is NOT gated by FEED_POSTINGS_UNION_ENABLED: disarming the feed never hides applicants", async () => {
-    const d = make({ MATCH_V1_ENABLED: false, FEED_POSTINGS_UNION_ENABLED: false });
-    await expect(d.svc.listForOwned(POSTING_A, PAYER_A, CTX)).resolves.toEqual(
-      candidates(POSTING_A),
-    );
+    vi.stubEnv("FEED_POSTINGS_UNION_ENABLED", "false");
+    try {
+      const d = make();
+      await expect(d.svc.listForOwned(POSTING_A, PAYER_A, CTX)).resolves.toEqual(
+        candidates(POSTING_A),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
-describe("PayerApplicantsService — no existence oracle, no IDOR (MATCH_V1_ENABLED off)", () => {
+describe("PayerApplicantsService — no existence oracle, no IDOR", () => {
   it("another payer's POSTING → neutral 404; its applicant list is never read", async () => {
     const d = make();
     const err = await rejection(d.svc.listForOwned(POSTING_A, PAYER_B, CTX));
@@ -334,12 +353,13 @@ describe("PayerApplicantsService — no existence oracle, no IDOR (MATCH_V1_ENAB
     expect(d.matchCandidates.listForPosting).not.toHaveBeenCalled();
   });
 
-  it("another payer's JOB → neutral 404; the pool is never ranked and no impression is written", async () => {
+  it("another payer's JOB → neutral 404; no worker is read and no impression is written", async () => {
     const d = make();
     const err = await rejection(d.svc.listForOwned(JOB_A, PAYER_B, CTX));
     expect(httpOutcome(err)).toEqual(NEUTRAL_404);
     expect(d.reachRepo.findOwnedJobSignalRowById).toHaveBeenCalledWith(JOB_A, PAYER_B);
     expect(d.reachRepo.listSignalRows).not.toHaveBeenCalled();
+    expect(d.reachRepo.listApplicantSignalRowsForJob).not.toHaveBeenCalled();
     expect(d.emitMany).not.toHaveBeenCalled();
     expect(d.matchCandidates.listForPosting).not.toHaveBeenCalled();
   });
@@ -400,10 +420,10 @@ describe("PayerApplicantsService — fail closed: a DB error is a 500, never a 4
     expect(httpOutcome(err).status).toBe(500);
   });
 
-  it("the weighted pool read fails → 500, no partial impression batch", async () => {
+  it("the applier read fails → 500, no partial impression batch", async () => {
     const d = make();
     const boom = new Error("connection reset");
-    d.reachRepo.listSignalRows.mockRejectedValueOnce(boom);
+    d.reachRepo.listApplicantSignalRowsForJob.mockRejectedValueOnce(boom);
     const err = await rejection(d.svc.listForOwned(JOB_A, PAYER_A, CTX));
     expect(err).toBe(boom);
     expect(httpOutcome(err).status).toBe(500);
