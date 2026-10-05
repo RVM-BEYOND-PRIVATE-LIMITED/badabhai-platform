@@ -21,7 +21,8 @@ import { Card } from "../../../components/ds";
  *    /agency/jobs and CREATED on /agency/jobs/new — the dashboard links there.
  *  - NEGATIVE: no payout/KYC commercial term (₹500 / 25% / 90d) in the section.
  *  - CARDS-1: the "Total postings" tile opens the agency's Postings page (/agency/jobs), with NO
- *    worker PII in any tile href; each glance card opens THAT posting's applicants.
+ *    worker PII in any tile href; each glance card opens THAT posting's details and links its
+ *    REAL applicants (#1956).
  *
  * Env is node (no DOM); we render the async Server Component to an element tree and walk it.
  */
@@ -225,14 +226,15 @@ describe("agent sections — renders identity / demand summary / child modules",
     expect(String(prop(cards[0]!).ariaLabel)).toBe("CNC Operator — view posting");
   });
 
-  it("never links an agency posting's applicants (unreachable until backend #1898)", async () => {
+  it("links an agency posting's REAL applicants (#1956 — #1955 made the feed serve them)", async () => {
     const tree = await AgentSections();
     const hrefs = [...findAll(tree, LinkStub), ...findAll(tree, Card)]
       .map((a) => prop(a).href)
       .filter((h): h is string => typeof h === "string");
-    expect(hrefs.length).toBeGreaterThan(0);
-    expect(hrefs.filter((h) => /applicants/.test(h))).toEqual([]);
-    expect(collect(tree).text.join(" ")).not.toMatch(/view applicants/i);
+    expect(hrefs).toContain(`/agency/jobs/${JOB.id}/applicants`);
+    // The card itself still opens the posting's details.
+    expect(hrefs).toContain(`/agency/jobs/${JOB.id}`);
+    expect(collect(tree).text.join(" ")).toContain("Applicants");
   });
 
   it("offers ONE way to Referrals (the batch-invites tile), not one per funnel stage", async () => {

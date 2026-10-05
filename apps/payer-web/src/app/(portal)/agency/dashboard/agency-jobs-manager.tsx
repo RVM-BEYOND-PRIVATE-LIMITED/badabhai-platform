@@ -36,8 +36,9 @@ import {
  * second create control. Every posting renders as a DS `Card`: bands + a count + a status
  * `Badge`; no worker identity, no employer name (faceless/coarse). ₹ pay band + counts render
  * in mono tabular (`bb-mono`). A not-found/not-owned action result reads neutrally (no oracle).
- * Like a company row, the TITLE opens the posting's details. (Its applicants have no page yet —
- * backend issue #1898.) Tokens only (no raw hex/px).
+ * Like a company row, the TITLE opens the posting's details, and each row also links the job's
+ * REAL applicants (#1956 — the feed serves the workers who applied since #1955). Tokens only
+ * (no raw hex/px).
  */
 
 /** The DS Badge tone for a posting's REAL state (reflects `status`, never invented). 4-state now. */
@@ -183,6 +184,13 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                 </div>
 
                 <div className="agency-job__actions">
+                  <Link
+                    className="bb-btn bb-btn--secondary bb-btn--sm"
+                    href={`/agency/jobs/${j.id}/applicants`}
+                  >
+                    <Icon name={ACTION_ICON.users} />
+                    <span>Applicants</span>
+                  </Link>
                   {active || paused ? (
                     <div className="agency-job__btns">
                       <Button
