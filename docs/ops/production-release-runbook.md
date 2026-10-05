@@ -364,10 +364,10 @@ it and are live from their merge: the payer posting-applicants list, the ops
    ```
 
 6. **The feed-union e2e legs for the company loop pass.** `tests/e2e/feed-postings-union.e2e.test.ts`
-   defers two legs until their changes land: the payer applicants list
-   (`/payer/reach/jobs/:jobId/applicants` serving a posting while V1 is off, the payer
-   posting-applicants change) and the unlock grant from a posting (#1903). Both changes must be
-   merged AND deployed (item 2), and both legs appended to the suite and passing.
+   carries both legs (2026-10-05): the payer applicants list (`/payer/reach/jobs/:jobId/applicants`
+   serving a posting while V1 is off) and the unlock grant from a posting with a NULL job context
+   (#1903). Check they pass in the CI `e2e` job's union step on the `main` commit being deployed;
+   both underlying changes must also be deployed (item 2).
 7. **Posting `city` / `area` screening is decided.** Neither is screened at the server, though a
    worker sees both verbatim (pre-existing, #1848, outside B3). Decide before arming whether #1848
    is a precondition. Recommended: yes, with security-engineer's ruling on the pincode

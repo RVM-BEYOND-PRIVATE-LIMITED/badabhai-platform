@@ -172,6 +172,22 @@ NestJS boot assertion).
   `1`/`0`/empty only; anything else would stop the api booting, so `scripts/deploy/staging-deploy.sh`
   refuses any other value before a container moves. In CI only the `e2e` job's Matching V1 journey step
   sets it, on its own API process (port 3002).
+- **Interim union feed (ADR-0049, #1823)** — `FEED_POSTINGS_UNION_ENABLED`, api only
+  (`booleanFromString`, default off). Off is the legacy worker feed and apply/skip byte for byte
+  (`jobs` only). On adds company `job_postings` to the legacy `GET /feed` (newest-first, the legacy
+  17-key card) and the posting branch of apply/skip. **Effective only while `MATCH_V1_ENABLED` is
+  off**: `isFeedPostingsUnionEnabled` answers false whenever V1 is on, whatever this says. Not
+  behind it, live from their merge: the payer posting-applicants list, the ops
+  `GET /jobs/:jobId/applicants` read and the unlock job-context fix (#1903). Bridged through the
+  GitHub `production` environment secret of the same name (compose
+  `${FEED_POSTINGS_UNION_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`). **Absent = off**,
+  exactly as for `MATCH_V1_ENABLED`. **Production stays off**: arming is an owner decision, taken
+  only after every item of the pre-arm list in `docs/ops/production-release-runbook.md` P4 #13
+  holds. Arming is the secret set to `true` plus a redeploy; off again is the secret set to `false`
+  plus a redeploy. Values: lowercase `true`/`false`/`1`/`0`/empty only; anything else would stop
+  the api booting, so `scripts/deploy/staging-deploy.sh` refuses any other value before a
+  container moves. In CI only the `e2e` job's union step sets it, on a restarted API process that
+  runs `tests/e2e/feed-postings-union.e2e.test.ts` alone.
 - **Chat / profiling** — `CHAT_TRANSCRIPT_TTL_SECONDS`, `CHAT_ABANDON_AFTER_SECONDS`,
   `CHAT_MAX_TURNS` (the authoritative hard cap — the ai-service mirrors it but holds no
   per-session state, so it can only enforce what the API tells it).
