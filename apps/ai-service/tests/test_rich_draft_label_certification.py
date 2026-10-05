@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 import app.certified_values as certified_values_module
 import app.main as main_module
+from app import output_floor
 from app.config import get_settings
 from app.contracts import AICallMetadata
 from app.profiling import canonicalization_gold as gold
@@ -135,6 +136,21 @@ def test_the_g1_hard_identifier_floor_still_holds(monkeypatch: pytest.MonkeyPatc
         {"skills": ["Tool offset setting", "call 9876543210"], "primary_role": "9876543210"},
     )
     assert body["worker_profile_draft"]["skills"] == ["Tool offset setting"]
+    _assert_absent(body, "9876543210")
+
+
+def test_the_certifier_withholds_an_identifier_even_with_the_g1_floor_off(
+    monkeypatch: pytest.MonkeyPatch, raw_pii: bool
+):
+    """Defence in depth: with the floor blind, the certifier alone still keeps the phone out of
+    the stored draft (its mutation twin lives in `test_llm_input_policy.py`)."""
+    monkeypatch.setattr(output_floor, "contains_hard_identifier", lambda _text: None)
+    body = _extract(
+        monkeypatch,
+        {"machines": ["VMC", "call 9876543210"], "primary_role": "Welder 9876543210"},
+    )
+    assert body["worker_profile_draft"]["machines"] == ["VMC"]
+    assert body["worker_profile_draft"]["primary_role"] is None
     _assert_absent(body, "9876543210")
 
 
