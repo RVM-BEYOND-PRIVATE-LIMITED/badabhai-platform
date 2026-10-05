@@ -898,7 +898,7 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
   `companion_edit_parse`** to the box's `AI_REAL_CALL_TASKS`, so all three companion tasks are
   model-live. README Status row 0, the phase-1 row, the production-state paragraph, checklist
   items 1 and 6, the "Prerequisites" status block and the item-2 re-run note updated. PR
-  **##2001**.
+  **#2002**.
 - **Checks:** docs-only; `pnpm lint`, `pnpm typecheck` and the API suite re-run in the PR.
 - **Notes:** the paid re-run's evidence for the three eval modes is **not committed yet** (record
   it per runbook §4). The provisional-rulings table stays "awaiting owner sign-off" — the ADR
