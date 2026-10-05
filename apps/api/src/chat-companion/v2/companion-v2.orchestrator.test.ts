@@ -125,6 +125,8 @@ function setup(
     cost as never,
     faltuStore as never,
     replays as never,
+    // TD146/WP6 — the pending-intent store; unused unless the route-precedence flag is on.
+    { set: vi.fn(async () => undefined), take: vi.fn(async () => null), clear: vi.fn(async () => undefined) } as never,
   );
   return { orchestrator, ai, memory, edits, events, cost, faltuStore, replays, config };
 }

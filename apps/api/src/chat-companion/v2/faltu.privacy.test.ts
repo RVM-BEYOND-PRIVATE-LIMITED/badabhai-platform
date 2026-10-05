@@ -95,6 +95,7 @@ function setup(
     { record: vi.fn(async () => undefined) } as never,
     faltuStore as never,
     replays,
+    { set: vi.fn(async () => undefined), take: vi.fn(async () => null), clear: vi.fn(async () => undefined) } as never,
   );
   return { orchestrator, ai, memory, events, faltuStore, replayRedis };
 }
