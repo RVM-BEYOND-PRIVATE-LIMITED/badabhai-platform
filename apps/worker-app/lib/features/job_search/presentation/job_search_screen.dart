@@ -156,6 +156,8 @@ class _JobSearchViewState extends State<_JobSearchView> {
         title: item.title,
         city: item.city,
         area: item.area,
+        // An apply taken from a search result is recorded as 'search' (#1906).
+        sourceSurface: 'search',
       ),
     );
   }

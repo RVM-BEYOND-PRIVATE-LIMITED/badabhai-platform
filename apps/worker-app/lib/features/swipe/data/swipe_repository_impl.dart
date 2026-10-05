@@ -81,10 +81,15 @@ class SwipeRepositoryImpl implements SwipeRepository {
   }
 
   @override
-  Future<void> applyToJob(String jobId, {int? rank}) async {
+  Future<void> applyToJob(String jobId, {int? rank, String? sourceSurface}) async {
     final String token = _requireToken();
     try {
-      await _api.applyToJob(jobId, authToken: token, rank: rank);
+      await _api.applyToJob(
+        jobId,
+        authToken: token,
+        rank: rank,
+        sourceSurface: sourceSurface ?? 'feed',
+      );
     } catch (error) {
       throw mapError(error);
     }

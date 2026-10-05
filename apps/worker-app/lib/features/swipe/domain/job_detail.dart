@@ -28,6 +28,7 @@ class JobDetail extends Equatable {
     this.city,
     this.area,
     this.applicationAction,
+    this.sourceSurface = 'feed',
     this.tradeKey,
     this.payMin,
     this.payMax,
@@ -92,6 +93,13 @@ class JobDetail extends Equatable {
   /// the applied status instead of the "Apply karein" CTA (WA-2).
   bool get alreadyApplied => applicationAction == 'applied';
 
+  /// WHERE the worker opened this job from — the API's `source_surface` enum
+  /// ('feed' | 'search' | 'share' | 'other'), client-attached by the opening
+  /// surface. The detail apply records it so an apply started from SEARCH is not
+  /// miscredited to the feed (#1906). Defaults to 'feed' (the deck path); never
+  /// parsed from the wire.
+  final String sourceSurface;
+
   /// One of the 15 alpha trades — kept as a plain String (no enum). Null on
   /// the light detail.
   final String? tradeKey;
@@ -143,6 +151,7 @@ class JobDetail extends Equatable {
       city: city,
       area: area,
       applicationAction: action,
+      sourceSurface: sourceSurface,
       tradeKey: tradeKey,
       payMin: payMin,
       payMax: payMax,
@@ -183,6 +192,7 @@ class JobDetail extends Equatable {
         city,
         area,
         applicationAction,
+        sourceSurface,
         tradeKey,
         payMin,
         payMax,

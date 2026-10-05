@@ -128,7 +128,11 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
       emit(state.copyWith(status: SwipeStatus.loading));
     }
     try {
-      final String? trade = state.filters.trades.length == 1 ? state.filters.trades.first : null;
+      // Resolve a one-trade filter back to a REAL slug from the loaded queue
+      // (#1906) — sending the chip LABEL as `trade_key` never matched a slug and
+      // zeroed the deck. Null means "don't narrow server-side"; the client-side
+      // match still narrows the full feed.
+      final String? trade = outboundTradeKey(state.filters, state.queue);
       final String? city = state.filters.cities.length == 1 ? state.filters.cities.first : null;
       // Shift + pay floor are single-value, so they thread straight through as the
       // OUTBOUND `/feed` narrowing params (server-side); the client-side match in
