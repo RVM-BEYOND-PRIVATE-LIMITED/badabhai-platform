@@ -949,21 +949,22 @@ def test_a_name_hidden_by_an_invisible_is_now_masked_whole(main_gateway):
         ("Sharma Motors\u2060A-ONE Motors", "Sharma [EMPLOYER_1]", "Sharma "),
     ],
 )
-def test_KNOWN_RESIDUAL_r49_extends_to_the_1892_passes(text, leaked, raw, main_gateway):
-    """R49 / #1890, pre-existing in #1738's two-view check (see the capitals file's twin test).
+def test_r49_shapes_the_1892_passes_reach_fail_closed(text, leaked, raw, main_gateway):
+    """R49 / #1890, fixed in #1738's two-view check (see the capitals file's twin test).
 
     An invisible right after a name cue merges "isRamesh" in the reader view, so the cue misses and
     a #1892 pass masks the name's tail with the firm; the spaced view masks "Ramesh Kumar" as a
-    name, which merely OVERLAPS that mask, so "Ramesh" egresses where main blocked. An invisible
-    inside a dash-glued run does the same with no cue: the reader view merges "MotorsA-", the
-    absorb pass folds it into the token, and that token merely overlaps the spaced view's "Sharma
-    Motors". #1892 extends the shape to its passes, as #1875 did to the capitals forms. The fix is
-    #1890 (covered only when every kept offset is reader-masked); when it lands these block: make
-    them blocking pins."""
+    name, which merely OVERLAPS that mask. An invisible inside a dash-glued run does the same with
+    no cue: the reader view merges "MotorsA-", the absorb pass folds it into the token, and that
+    token merely overlaps the spaced view's "Sharma Motors". Before #1890 overlap counted as
+    covered and ``raw`` egressed as ``leaked``; now a region is covered only when every kept offset
+    is reader-masked, so each turn BLOCKS, as main (no #1892 passes) blocked it."""
     assert main_gateway(pseudonymize, text).blocked_reason == gateway._INVISIBLE_BYPASS_REASON
-    result = pseudonymize(text)
-    assert (result.text, result.blocked) == (leaked, False)
     assert raw_egress(text) == ("partial", raw)
+    result = pseudonymize(text)
+    assert result.text != leaked
+    assert (result.text, result.blocked) == ("", True)
+    assert result.blocked_reason == gateway._INVISIBLE_BYPASS_REASON
 
 
 # --- 7. scope and the certifiers ------------------------------------------------------------------
@@ -1103,9 +1104,9 @@ def test_property_the_1892_passes_only_ever_add_masking(main_gateway):
        byte-identical. The title-case and name rules run first, so their spans are exactly main's.
     2. END TO END (`pseudonymize`): the same, EXCEPT where main blocked on the two-view check and
        the branch passes, each such turn asserted to be "full" (the reader view now masks every
-       kept offset the spaced view masked) or "partial" (R49, #1890) — and the partial turns are
-       BOUNDED, so a change that widens R49 further fails here. The shapes that leave a name word
-       raw are pinned on their own by `test_KNOWN_RESIDUAL_r49_extends_to_the_1892_passes`.
+       kept offset the spaced view masked). A "partial" turn (R49) blocks since #1890, so none may
+       pass. The shapes that left a name word raw before #1890 are pinned on their own by
+       `test_r49_shapes_the_1892_passes_reach_fail_closed`.
 
     What it does NOT prove: anything outside these pools, or that the masking is CORRECT."""
     rng = random.Random(1892)
@@ -1128,7 +1129,7 @@ def test_property_the_1892_passes_only_ever_add_masking(main_gateway):
         if old.blocked and not new.blocked:
             assert old.blocked_reason == gateway._INVISIBLE_BYPASS_REASON, text
             verdict = two_view_verdict(text)
-            assert verdict in ("full", "partial"), (text, verdict)
+            assert verdict == "full", (text, verdict)  # a "partial" turn blocks (#1890)
             seen[f"unblocked, {verdict}"] += 1
             continue
         assert old.blocked <= new.blocked, text
@@ -1138,16 +1139,12 @@ def test_property_the_1892_passes_only_ever_add_masking(main_gateway):
     # Measured 2026-10-03 (fourth review): 1,060 outputs change and main blocks 1,999 turns; of
     # those, 20 now pass with full cover and none as an R49 partial. (Before the M/S firm word and
     # with smaller pools: 7 partials, two leaving a name word — "Sharma Fabricators", "Hero". The
-    # first is pinned in `test_KNOWN_RESIDUAL_r49_extends_to_the_1892_passes`; the second now
+    # first is pinned in `test_r49_shapes_the_1892_passes_reach_fail_closed`; the second now
     # fails closed.)
     assert seen["changed"] > 900, seen
     assert seen["main blocked"] > 1_500, seen
     assert seen["a region grew"] > 0, seen
-    assert seen["unblocked, partial"] <= _R49_PARTIAL_BOUND, seen
-
-
-#: The R49 partial turns the property test's 6,000 samples may hold: none measured, a little slack.
-_R49_PARTIAL_BOUND = 2
+    assert seen["unblocked, partial"] == 0, seen  # R49 closed by #1890
 
 
 # --- 9. the gates and the cost --------------------------------------------------------------------
