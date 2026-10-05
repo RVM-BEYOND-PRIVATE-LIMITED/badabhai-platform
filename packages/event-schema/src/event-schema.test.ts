@@ -3128,8 +3128,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 216 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step)", () => {
-    expect(EVENT_NAMES).toHaveLength(216);
+  it("exposes all 222 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions)", () => {
+    expect(EVENT_NAMES).toHaveLength(222);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -3376,6 +3376,14 @@ describe("registry", () => {
     expect(isEventName("chat.companion_edit_proposed")).toBe(true);
     expect(isEventName("chat.companion_edit_confirmed")).toBe(true);
     expect(isEventName("chat.companion_edit_cancelled")).toBe(true);
+    // TD150 / WP8 — the versioned companions: turn v3 (intent_source gains `chip`), the edit
+    // lifecycle v2s, the new rollback event, and the idempotency-bearing strike / career v2s.
+    expect(isEventName("chat.companion_turn_served_v3")).toBe(true);
+    expect(isEventName("chat.companion_edit_cancelled_v2")).toBe(true);
+    expect(isEventName("chat.companion_edit_confirmed_v2")).toBe(true);
+    expect(isEventName("chat.companion_edit_rolled_back")).toBe(true);
+    expect(isEventName("chat.companion_faltu_strike_v2")).toBe(true);
+    expect(isEventName("chat.companion_career_answered_v2")).toBe(true);
     expect(isEventName("action.recorded")).toBe(true);
     expect(isEventName("profile.extraction_ready")).toBe(true);
     expect(isEventName("ai.cost_recorded")).toBe(true);
@@ -3424,6 +3432,13 @@ describe("registry", () => {
     // three above; the v1 `chat.companion_turn_served` entry above keeps its definition and its
     // emitter (the v1 path, byte-for-byte while the v2 flag is off).
     "chat.companion_turn_served_v2": 2,
+    // TD150 / WP8 — the versioned companions. Each is a NEW name, so the v1/v2 definitions and
+    // their emitters stay exactly as shipped.
+    "chat.companion_turn_served_v3": 3,
+    "chat.companion_edit_cancelled_v2": 2,
+    "chat.companion_edit_confirmed_v2": 2,
+    "chat.companion_faltu_strike_v2": 2,
+    "chat.companion_career_answered_v2": 2,
   };
 
   it("every registry entry is version 1 except the ADR-versioned payloads", () => {

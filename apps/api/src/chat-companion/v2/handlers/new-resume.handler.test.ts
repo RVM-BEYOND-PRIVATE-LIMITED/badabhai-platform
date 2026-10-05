@@ -16,6 +16,7 @@ const INPUT: HandlerInput = {
   recentTurns: [],
   ctx: { correlationId: "c-1", requestId: "r-1" } as never,
   now: new Date("2026-09-29T10:00:00.000Z"),
+  submissionId: null,
 };
 
 function setup(latest?: () => Promise<unknown>) {

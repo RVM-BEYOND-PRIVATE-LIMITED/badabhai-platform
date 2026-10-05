@@ -105,6 +105,9 @@ function setup(
       if (opts.replaySetThrows) throw new Error("redis down");
       return "OK";
     }),
+    // WP8: the in-flight claim's release (SET NX is a no-op here; `get` never
+    // returns a held value and the orchestrator still processes the message).
+    del: vi.fn(async (_key: string) => 0),
   };
   const replays = new CompanionTurnReplayStore({
     client: Promise.resolve(replayRedis),
@@ -226,10 +229,11 @@ describe("the replay cache never holds the message or its PII", () => {
   const SECRETS = [RAW_WITH_NAME, RAW, MASKED, "Ramesh", "Kumar", "Tata Motors", "9876543210"];
 
   const storedTurn = (h: ReturnType<typeof setup>): string => {
-    expect(h.replayRedis.set).toHaveBeenCalledTimes(1);
-    const [key, value] = h.replayRedis.set.mock.calls[0]!;
-    expect(key).toBe(KEY);
-    return value;
+    // WP8: `set` is also used for the one-shot in-flight claim (`...:inflight:` with NX), so the
+    // replay write is found by its key, not by call order.
+    const call = h.replayRedis.set.mock.calls.find((c) => c[0] === KEY);
+    expect(call).toBeDefined();
+    return call![1];
   };
 
   it.each([
@@ -276,7 +280,8 @@ describe("the replay cache never holds the message or its PII", () => {
         CTX,
         NOW,
       );
-      expect(h.replayRedis.set).toHaveBeenCalledTimes(1);
+      // The claim and the replay write both went through `set` (and both threw here).
+      expect(h.replayRedis.set.mock.calls.some((c) => c[0] === `companion:v2:turn:${WORKER}:${SID}`)).toBe(true);
     });
     expect(logs).toContain("companion turn replay not stored");
     for (const secret of SECRETS) expect(logs).not.toContain(secret);
@@ -323,7 +328,7 @@ describe("CompanionV2Orchestrator — AI_RAW_PII_ENABLED lifts the prompt maskin
         await h.orchestrator.handleMessage(WORKER, PROFILE, { text: RAW }, CTX, NOW);
         expect(h.memory.append).toHaveBeenCalled();
       });
-      expect(logs).toContain("chat.companion_turn_served_v2 not recorded for worker");
+      expect(logs).toContain("chat.companion_turn_served_v3 not recorded for worker");
       expect(logs).not.toContain(RAW);
       expect(logs).not.toContain("Tata Motors");
       expect(logs).not.toContain("9876543210");
@@ -351,8 +356,12 @@ describe("CompanionV2Orchestrator — AI_RAW_PII_ENABLED lifts the prompt maskin
       NOW,
     );
     expect(h.ai.pseudonymize).not.toHaveBeenCalled();
-    expect(h.replayRedis.set).toHaveBeenCalledTimes(1);
-    const value = h.replayRedis.set.mock.calls[0]![1];
+    // WP8: `set` also carries the in-flight claim; the replay write is found by its key.
+    const replayWrite = h.replayRedis.set.mock.calls.find((c) =>
+      String(c[0]).startsWith("companion:v2:turn:"),
+    );
+    expect(replayWrite).toBeDefined();
+    const value = replayWrite![1];
     expect(JSON.parse(value)).toEqual(turn);
     for (const secret of [RAW, "Tata Motors", "9876543210"]) expect(value).not.toContain(secret);
   });

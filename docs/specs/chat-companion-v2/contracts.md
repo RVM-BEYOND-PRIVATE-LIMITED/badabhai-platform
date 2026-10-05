@@ -328,11 +328,19 @@ modified; v2 turns emit **v2** of it.
 | Event | Version | Payload | Phase |
 |---|---|---|---|
 | `chat.companion_turn_served` | **v2** | v1 fields + `intent_source`, `v2_intent` (nullable), `confidence_bucket` (`lt50`/`50_70`/`70_90`/`gte90`/null), `outcome` | P1 |
+| `chat.companion_turn_served_v3` | **v3** | v2 fields, `intent_source` widened by `chip` (TD150/WP8); the ORCHESTRATOR now emits this | P1 |
 | `chat.companion_edit_proposed` | v1 | `proposal_id`, `row_count`, `sections[]`, `dropped_count`, `unsupported[]` | P1 |
 | `chat.companion_edit_confirmed` | v1 | `proposal_id`, `applied_count`, `sections[]`, `resume_regen` (`queued`/`capped`/`failed`) | P1 |
+| `chat.companion_edit_confirmed_v2` | **v2** | v1 fields, `resume_regen` += `skipped_no_consent` (TD150/WP8); the SERVICE now emits this | P1 |
 | `chat.companion_edit_cancelled` | v1 | `proposal_id`, `reason` (`worker`/`expired`/`stale`) | P1 |
+| `chat.companion_edit_cancelled_v2` | **v2** | `proposal_id`, `reason` (`worker_declined`/`expired`/`stale`/`superseded`); the SERVICE now emits this | P1 |
+| `chat.companion_edit_rolled_back` | **v1** | `proposal_id`, `row_count`, `sections[]`, `reason` (`apply_failed`) — a confirm that rolled back before commit (TD150/WP8) | P1 |
 | `chat.companion_faltu_strike` | v1 | `strike_count`, `cooldown_started` | P2 |
+| `chat.companion_faltu_strike_v2` | **v2** | v1 fields + `submission_id` (nullable); the HANDLER now emits this | P2 |
 | `chat.companion_career_answered` | v1 | `outcome` (`answered`/`refused`/`fallback`), `refusal_topic` (nullable), `turns_in_memory` | P3 |
+| `chat.companion_career_answered_v2` | **v2** | v1 fields + `submission_id` (nullable); the HANDLER now emits this | P3 |
+
+**TD150 / WP8 (2026-10-05).** Every changed payload is a NEW NAME/version (the house `_v2` pattern); the v1 and v2 definitions stay registered and untouched. The old emitters are gone from the running paths (the orchestrator emits v3, the edit service the v2s, the two handlers their v2s), so a consumer reading both old and new sees each turn once. What each change fixes: `intent_source` could not tell a chip tap from the other deterministic routes; a replaced card had no `reason` (the funnel's `proposed − confirmed − cancelled` remainder); a consent refusal was recorded `failed`; a rollback had no event at all; the strike and career events carried no idempotency key for a duplicate arriving while the first request still runs (the in-flight claim below).
 
 Dedupe: message turns by `submission_id` (as v1); edit events by `proposal_id`.
 
@@ -543,6 +551,7 @@ client. All keys are prefixed `companion:v2:`.
 | `strikes:{workerId}:{utcDay}` | counter | 24 h | faltu handler | no strike counted |
 | `cooldown:{workerId}` | flag | `FALTU_COOLDOWN_MINUTES` | faltu handler | no cool-down |
 | `turn:{workerId}:{submissionId}` | JSON, the v2 turn served for a v1-miss message | 600 s | orchestrator | fail open: the retry is processed as a new message |
+| `inflight:{workerId}:{submissionId}` | flag, `SET NX EX` — one request at a time per submission (TD150/WP8) | 60 s | orchestrator (`handleMessage`), released in a `finally` | fail open (`unavailable`): the duplicate is processed as before; a concurrent duplicate gets `V2_IN_FLIGHT` with no model call, strike or event |
 
 **"If Redis fails" includes "Redis never answers" (2026-09-30).** The shared BullMQ connection runs
 with `maxRetriesPerRequest: null` and the default offline queue, so a command against a downed Redis
@@ -585,6 +594,7 @@ All fixed lines live in `companion-replies.ts` (v1 file, extended) with a Devana
 | `V2_FALTU_COOLDOWN` | Thodi der baad baat karte hain. |
 | `V2_CAREER_REFUSE_*` | one line per refusal topic (P3). `legal_medical_financial`, fixed 2026-10-05 (the owner checklist named it: it sent a health question to "a lawyer or a bank"): **Yeh kanoon, sehat ya paise ka mamla hai. Iske liye vakil, doctor ya bank se salah lijiye.** Devanagari twin matches. Still a draft pending owner review, like the others. |
 | `V2_FALLBACK` | v1 `FALLBACK` reused |
+| `V2_IN_FLIGHT` | **DRAFT (2026-10-05), pending owner review.** Aapka message mil gaya. Thodi der mein jawab aayega. — served when a duplicate of a message still being answered arrives (the in-flight claim, TD150/WP8). |
 | `V2_EDIT_ASK` | **DRAFT (2026-09-30), pending owner review.** Resume mein kya badalna hai? Jaise: 'Marathi bhasha jod do' ya 'night shift kar do'. |
 | `V2_CAREER_ASK` | **DRAFT (2026-09-30), pending owner review.** Career ke baare mein aapka kya sawaal hai? Jaise: 'nayi skill kaun si seekhun'. |
 
