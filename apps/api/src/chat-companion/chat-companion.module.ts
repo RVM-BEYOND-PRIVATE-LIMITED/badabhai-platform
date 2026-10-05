@@ -26,6 +26,7 @@ import { EmployersModule } from "../employers/employers.module";
 import { CompanionMemoryStore } from "./v2/companion-memory.store";
 import { EditProposalStore } from "./v2/edit-proposal.store";
 import { FaltuStore } from "./v2/faltu.store";
+import { PendingIntentStore } from "./v2/pending-intent.store";
 import { CompanionTurnReplayStore } from "./v2/turn-replay.store";
 import { CompanionEditService } from "./v2/companion-edit.service";
 import { CompanionV2Orchestrator } from "./v2/companion-v2.orchestrator";
@@ -92,6 +93,8 @@ import {
     CompanionMemoryStore,
     EditProposalStore,
     FaltuStore,
+    // TD146/WP6 — the one-shot pending intent a task-chip tap leaves for the next message.
+    PendingIntentStore,
     CompanionTurnReplayStore,
     // ADR-0046 T6 — the v2 turn pipeline: the orchestrator, its intent→handler registry and the
     // Phase 1 handlers. Inert while CHAT_COMPANION_V2_ENABLED is off.

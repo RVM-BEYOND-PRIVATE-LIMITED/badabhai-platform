@@ -317,6 +317,9 @@ services:
       CHAT_COMPANION_V2_FALTU_ENABLED: ${CHAT_COMPANION_V2_FALTU_ENABLED:-false}
       # P3 — career answers (Claude, Hinglish only, inside the fixed refusals).
       CHAT_COMPANION_V2_CAREER_ENABLED: ${CHAT_COMPANION_V2_CAREER_ENABLED:-false}
+      # TD146 — route precedence (WP6): pending intent after a chip tap, and the narrow edit
+      # pattern pre-check before v1. Off is today's v1-first behaviour byte-for-byte.
+      CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED: ${CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED:-false}
 
       # ---- AI_RAW_PII_ENABLED — RAW TEXT TO THE MODEL (owner decision 2026-09-30, ADR-0047).
       #

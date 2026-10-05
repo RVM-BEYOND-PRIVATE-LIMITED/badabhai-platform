@@ -69,6 +69,8 @@ describe("ChatCompanionModule wiring", () => {
       "JobsDeferredHandler",
       // ADR-0046 P2/N1 — the consent-gated new-résumé handler.
       "NewResumeHandler",
+      // TD146/WP6 — the one-shot pending intent a task-chip tap leaves for the next message.
+      "PendingIntentStore",
       "PhaseOffHandler",
       "ProfilesRepository",
       "ResumeImportRepository",
