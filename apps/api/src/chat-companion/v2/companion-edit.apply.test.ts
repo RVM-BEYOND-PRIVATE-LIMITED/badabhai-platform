@@ -5,8 +5,9 @@ import { SetMyPreferencesSchema } from "../../profiles/worker-preferences.dto";
 import { WorkerPreferencesService } from "../../profiles/worker-preferences.service";
 import { V2_EDIT_STALE } from "../companion-replies";
 import { profileRow, setup, storedProposal, WORKER_ID } from "./companion-edit.fake";
+import { planSection } from "./edit-plan";
 import type { StoredEditProposalRow } from "./edit-proposal.store";
-import { qualificationFingerprint, type QualificationList } from "./edit-snapshot";
+import { qualificationFingerprint, type EditState, type QualificationList } from "./edit-snapshot";
 
 /**
  * WHAT A HAAN WRITES (ADR-0046 O4) — each section's apply, pinned on the exact body its writer
@@ -200,8 +201,23 @@ const B = { name: "Welding Level 2", issuer: "L&T", year: 2018, licence_number: 
 const C = { name: "Crane Safety", issuer: "DGFASLI", year: 2019, licence_number: null, licence_expiry: null };
 const EDU = { credential: "iti", field: "Fitter", council: "ncvt", year: 2016, institute: "Govt ITI" };
 
+/**
+ * The PURE plan `confirm` would build for a stored card. A ticked qualification delete is refused
+ * by `confirm` before planning (TD151(1), 2026-10-05: "Never from chat"), so the resolver's
+ * delete handling — kept as defence in depth for a card stored before the ruling — is pinned HERE,
+ * at the plan itself, and the confirm's refusal is pinned in `companion-edit.confirm.test.ts`.
+ */
+function planQuals(rows: readonly StoredEditProposalRow[], certificates: readonly Record<string, unknown>[]) {
+  const state = {
+    qualifications: { certificates, educations: [], trainings: [], partial: [], dropped_count: 0 },
+  } as unknown as EditState;
+  const plan = planSection("qualifications", state, rows);
+  if (plan.section !== "qualifications") throw new Error("not a qualifications plan");
+  return plan.dto;
+}
+
 describe("qualifications — rows land on the entry the card showed (contracts-privacy BUG-2)", () => {
-  it('"delete A + fix B\'s year" edits B — never C, however the delete shifts the list', async () => {
+  it('"delete A + fix B\'s year" edits B — never C, however the delete shifts the list', () => {
     const rows = [
       qualRow(1, "certificates", 0, A, { op: "delete" }),
       qualRow(2, "certificates", 1, B, {
@@ -211,29 +227,21 @@ describe("qualifications — rows land on the entry the card showed (contracts-p
         before: "2018",
       }),
     ];
-    const h = setup({ proposal: storedProposal({ rows }), qualificationLists: { certificates: [A, B, C] } });
-    expect((await confirmAll(h, rows)).kind).toBe("applied");
-    expect(bodyOf(h.qualifications.replaceForWorker)["certificates"]).toEqual([
-      { ...B, year: 2020 },
-      C,
-    ]);
+    const dto = planQuals(rows, [A, B, C]);
+    expect(dto["certificates"]).toEqual([{ ...B, year: 2020 }, C]);
   });
 
-  it("two delete rows naming ONE entry delete one entry, not two", async () => {
+  it("two delete rows naming ONE entry delete one entry, not two", () => {
     const rows = [
       qualRow(1, "certificates", 0, A, { op: "delete", field: "certificate_name" }),
       qualRow(2, "certificates", 0, A, { op: "delete", field: "certificate_year", before: "2016" }),
     ];
-    const h = setup({ proposal: storedProposal({ rows }), qualificationLists: { certificates: [A, B, C] } });
-    await confirmAll(h, rows);
-    expect(bodyOf(h.qualifications.replaceForWorker)["certificates"]).toEqual([B, C]);
+    expect(planQuals(rows, [A, B, C])["certificates"]).toEqual([B, C]);
   });
 
-  it("identical twin entries: deleting the second leaves exactly one", async () => {
+  it("identical twin entries: deleting the second leaves exactly one", () => {
     const rows = [qualRow(1, "certificates", 1, A, { op: "delete" })];
-    const h = setup({ proposal: storedProposal({ rows }), qualificationLists: { certificates: [A, A] } });
-    await confirmAll(h, rows);
-    expect(bodyOf(h.qualifications.replaceForWorker)["certificates"]).toEqual([A]);
+    expect(planQuals(rows, [A, A])["certificates"]).toEqual([A]);
   });
 });
 

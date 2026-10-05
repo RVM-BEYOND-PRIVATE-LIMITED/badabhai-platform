@@ -11,6 +11,7 @@ import {
   jobPostings,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import { findOwnedJobRef, type OwnedJobRef } from "../payers/owned-job-ref";
 import { NEWEST_RESUME_FIRST } from "../resume/resume-order";
 
 /**
@@ -108,6 +109,15 @@ export class ResumeDisclosureRepository {
       .where(eq(jobPostings.id, id))
       .limit(1);
     return rows.length > 0;
+  }
+
+  /**
+   * #1899 — `refId` as a `job_postings` or `jobs` row the payer OWNS, or null (unknown and
+   * foreign alike). A NON-tx global-pool read like {@link jobPostingExists}: called BEFORE the
+   * advisory-locked transaction.
+   */
+  async findOwnedJobRef(refId: string, payerId: string): Promise<OwnedJobRef | null> {
+    return findOwnedJobRef(this.db, refId, payerId);
   }
 
   /** The existing disclosure row for (payer, worker, posting), or undefined. Tx-scoped. */

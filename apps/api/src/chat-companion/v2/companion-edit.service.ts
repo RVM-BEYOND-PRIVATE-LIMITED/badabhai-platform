@@ -50,12 +50,14 @@ import {
   displayValue,
   hasControlChars,
   hasPlaceholderToken,
-  isWholeJobDelete,
   normaliseValue,
   opAllowed,
   SECTION_LABELS,
+  wholeEntryDelete,
+  type WholeEntryKind,
 } from "./edit-catalogue";
 import { identityAskIn } from "./edit-identity";
+import { expandListEdits } from "./edit-normalise";
 import { dedupeRows, isNoopAdd, planSection, type SectionPlan } from "./edit-plan";
 import {
   isStale,
@@ -117,24 +119,30 @@ export interface ProposeResult {
 }
 
 /**
- * Why a model row was dropped — a closed set. `placeholder` and `job_delete` are the drops
- * rephrasing cannot fix (a masked value; a whole-job delete, which "Never from chat" leaves to the
- * Profile screen), so they point the worker there when nothing else survives.
+ * Why a model row was dropped — a closed set. `placeholder` and `whole_entry_delete` are the drops
+ * rephrasing cannot fix (a masked value; a whole job, certificate, education or training — which
+ * "Never from chat" leaves to the Profile screen), so they point the worker there when nothing else
+ * survives. The delete's entry kind rides the verdict so the counts-only log line can name it.
  */
-type DropReason = "invalid" | "placeholder" | "job_delete";
+type DropReason =
+  | { readonly kind: "invalid" }
+  | { readonly kind: "placeholder" }
+  | { readonly kind: "whole_entry_delete"; readonly entry: WholeEntryKind };
 
 /** One model row through the gates: kept as a card row, or dropped for a closed reason. */
 type RowVerdict =
   | { readonly kind: "kept"; readonly row: StoredEditProposalRow }
   | { readonly kind: "dropped"; readonly reason: DropReason };
 
+
 /**
  * THE EDIT PATH (ADR-0046 O4/O5/O6): propose → the worker taps Haan → apply in ONE transaction.
  *
  * THE MODEL NEVER WRITES. `propose` reads every section once (`EditState`), sends the message
  * plus this catalogue and a snapshot of the worker's current values — cut to the contract's cap —
- * to `AiService.companionEditParse`, validates every returned row deterministically (whole-job
- * delete, catalogue, op, ref, value, placeholder token, hard identifier, no-op, duplicate, and the
+ * to `AiService.companionEditParse`, expands an `edit` on a list member into its `delete`/`add`
+ * pair (`edit-normalise.ts`), validates every row deterministically (whole-entry delete,
+ * catalogue, op, ref, value, placeholder token, hard identifier, no-op, duplicate, and the
  * section writer's REAL schema) and stores a card of at most `min(EDIT_MAX_ROWS, 3)` rows.
  * `confirm` CLAIMS the card (at most one apply per card), refuses a ticked whole-job delete,
  * re-reads the state, refuses a stale card, applies every selected row through the section
@@ -225,18 +233,23 @@ export class CompanionEditService {
 
     // Only the refs the model was SHOWN can be addressed: a trimmed row is not guessable.
     const byRef = new Map(sent.map((row) => [row.ref, row]));
+    // LIST FIELDS: an `edit` on a list member becomes `delete old` + `add new` before any
+    // validation (edit-normalise.ts) — deterministic, fail closed, the pair counted by the cap.
+    const modelRows = expandListEdits(parsed.rows, byRef);
     const effectiveUnsupported = new Set(unsupported);
     let placeholderDropped = false;
-    let jobDeletesDropped = 0;
+    const wholeEntryDeletes: WholeEntryKind[] = [];
     const valid: StoredEditProposalRow[] = [];
-    for (const row of parsed.rows) {
+    for (const row of modelRows) {
       const verdict = this.validateRow(row, byRef);
       if (verdict.kind === "kept") {
         valid.push(verdict.row);
         continue;
       }
-      if (verdict.reason === "placeholder") placeholderDropped = true;
-      if (verdict.reason === "job_delete") jobDeletesDropped += 1;
+      if (verdict.reason.kind === "placeholder") placeholderDropped = true;
+      if (verdict.reason.kind === "whole_entry_delete") {
+        wholeEntryDeletes.push(verdict.reason.entry);
+      }
       // Belt and braces: the AI service already drops a row aimed outside the six sections, so
       // on real traffic `identityAskIn` (in `noCard`) is what serves the identity line. Widened
       // to `string` because the model's output is UNTRUSTED — its type says one of six.
@@ -245,10 +258,17 @@ export class CompanionEditService {
         effectiveUnsupported.add(section as "identity" | "contact");
       }
     }
-    if (jobDeletesDropped > 0) {
+    if (wholeEntryDeletes.length > 0) {
       // "Never from chat": counts and a closed reason only, never a value (the snapshot_cap rule).
+      // ONE line, and employment keeps its published `job_delete_from_chat` reason byte-for-byte;
+      // a qualification delete gets its own reason, so the two are never confused in a log read.
+      const jobs = wholeEntryDeletes.filter((entry) => entry === "employment").length;
+      const reasons = [
+        ...(jobs > 0 ? ["job_delete_from_chat"] : []),
+        ...(wholeEntryDeletes.length - jobs > 0 ? ["qualification_delete_from_chat"] : []),
+      ].join(",");
       this.logger.warn(
-        `companion edit dropped ${jobDeletesDropped} of ${parsed.rows.length} rows for worker ${workerId}: a whole-job delete is never carded (reason=job_delete_from_chat)`,
+        `companion edit dropped ${wholeEntryDeletes.length} of ${modelRows.length} rows for worker ${workerId}: a whole-entry delete is never carded (reason=${reasons})`,
       );
     }
 
@@ -258,10 +278,10 @@ export class CompanionEditService {
       state,
       dedupeRows(valid).filter((row) => !isNoopAdd(row, snapshot)),
     ).slice(0, cardRowsMax);
-    const dropped = parsed.rows.length - kept.length;
+    const dropped = modelRows.length - kept.length;
 
     if (kept.length === 0) {
-      const profileScreenOnly = placeholderDropped || jobDeletesDropped > 0;
+      const profileScreenOnly = placeholderDropped || wholeEntryDeletes.length > 0;
       return this.noCard(text, [...effectiveUnsupported], profileScreenOnly);
     }
 
@@ -308,9 +328,10 @@ export class CompanionEditService {
   /**
    * No card. In order: identity/contact — named by the model OR by the worker's own words — is
    * steered to the Profile screen (O3). A change chat cannot make is pointed at the Profile screen
-   * too, because rephrasing cannot help: a row dropped for a masked value (O17) or as a whole-job
-   * delete ("Never from chat", owner 2026-10-01) — `profileScreenOnly` — or anything the model
-   * itself filed as `other` (contracts §2.2: asked, but not editable here). Else the clarify line.
+   * too, because rephrasing cannot help: a row dropped for a masked value (O17) or as a whole-entry
+   * delete ("Never from chat": a job, 2026-10-01; a certificate, education or training, TD151(1)
+   * 2026-10-05) — `profileScreenOnly` — or anything the model itself filed as `other`
+   * (contracts §2.2: asked, but not editable here). Else the clarify line.
    */
   private noCard(
     text: string,
@@ -331,14 +352,15 @@ export class CompanionEditService {
   /**
    * One model row through every per-row gate (spec §Edit step 3).
    *
-   * The gates, in order: a whole-job delete is dropped as `job_delete` ("Never from chat", owner
-   * 2026-10-01 — named BEFORE the catalogue gate, which would drop it as `invalid`, so `propose`
-   * can count it and point the worker at the Profile screen); the catalogue names the pair; the op
-   * is legal for it; edit/delete address a row this snapshot actually minted AND showed, whose
+   * The gates, in order: a whole-entry delete — a job (owner 2026-10-01) or a certificate,
+   * education or training (TD151(1), provisional 2026-10-05) — is dropped as `whole_entry_delete`
+   * ("Never from chat", named BEFORE the catalogue gate, which would drop it as `invalid`, so
+   * `propose` can count it and point the worker at the Profile screen); the catalogue names the
+   * pair; the op is legal for it; edit/delete address a row this snapshot actually minted AND
+   * showed, whose
    * entry has that field (a certificate field on a certificate, a scalar preference on `pref`);
-   * add carries no ref; add/edit carry a value that passes the field's own normalisation and
-   * carries no C0/C1 control besides `\t \n \r` (#1943); a placeholder token drops the row (O17);
-   * a hard identifier drops it too (ADR-0047 G1); and an
+   * add carries no ref; add/edit carry a value that passes the field's own normalisation; a
+   * placeholder token drops the row (O17); a hard identifier drops it too (ADR-0047 G1); and an
    * edit identical to the current value is a no-op. That comparison is on the NORMALISED value, the
    * string the writer would store: "tata motors" over a stored "Tata Motors" is a no-op, because
    * the writer cases an employer name before it stores it (#1940). The row-SET gates — duplicates,
@@ -363,8 +385,11 @@ export class CompanionEditService {
     },
     byRef: ReadonlyMap<string, SnapshotRow>,
   ): RowVerdict {
-    const invalid: RowVerdict = { kind: "dropped", reason: "invalid" };
-    if (isWholeJobDelete(row)) return { kind: "dropped", reason: "job_delete" };
+    const invalid: RowVerdict = { kind: "dropped", reason: { kind: "invalid" } };
+    const wholeEntry = wholeEntryDelete(row);
+    if (wholeEntry !== null) {
+      return { kind: "dropped", reason: { kind: "whole_entry_delete", entry: wholeEntry } };
+    }
     const entry = catalogueEntry(row.section, row.field ?? "");
     if (entry === undefined || !opAllowed(entry, row.op as never)) return invalid;
 
@@ -389,9 +414,9 @@ export class CompanionEditService {
       value = normaliseValue(entry.section, entry.field, row.value);
       if (value === null) return invalid;
       // #1943's twin: a C0/C1 control is Common script and passes every field bound, so a
-      // model-proposed value could split a suffix or an identifier past the doors below it.
+      // model-proposed value could split a suffix or an identifier past the doors beside it.
       if (hasControlChars(value)) return invalid;
-      if (hasPlaceholderToken(value)) return { kind: "dropped", reason: "placeholder" };
+      if (hasPlaceholderToken(value)) return { kind: "dropped", reason: { kind: "placeholder" } };
       if (containsHardIdentifier(value) !== null) return invalid;
       if (row.op === "edit" && value === before) return invalid;
     }
@@ -483,13 +508,21 @@ export class CompanionEditService {
     if (claim === "held") return { kind: "not_found" };
     if (claim === "unavailable") return this.failed(proposal);
 
-    // "NEVER FROM CHAT" (owner, 2026-10-01), DEFENCE IN DEPTH. `propose` no longer cards a
-    // whole-job delete, but a card stored before the ruling lives up to its TTL. A TICKED one is
-    // never applied: the card is retired exactly as a stale one is, so nothing is written and the
-    // worker is asked again (and is then pointed at the Profile screen). An unticked one is inert.
-    if (selected.some(isWholeJobDelete)) {
+    // "NEVER FROM CHAT", DEFENCE IN DEPTH. `propose` no longer cards a whole-entry delete — a
+    // whole job (owner, 2026-10-01) or a whole certificate/education/training (TD151(1),
+    // 2026-10-05) — but a card stored before the ruling lives up to its TTL. A TICKED one is never
+    // applied: the card is retired exactly as a stale one is, so nothing is written and the worker
+    // is asked again (and is then pointed at the Profile screen). An unticked one is inert.
+    const blockedDeletes = selected
+      .map((row) => wholeEntryDelete(row))
+      .filter((entry): entry is WholeEntryKind => entry !== null);
+    if (blockedDeletes.length > 0) {
+      const reasons = [
+        ...(blockedDeletes.includes("employment") ? ["job_delete_from_chat"] : []),
+        ...(blockedDeletes.includes("qualification") ? ["qualification_delete_from_chat"] : []),
+      ].join(",");
       this.logger.warn(
-        `companion edit confirm for worker ${workerId} refused a stored whole-job delete; nothing written (reason=job_delete_from_chat)`,
+        `companion edit confirm for worker ${workerId} refused a stored whole-entry delete; nothing written (reason=${reasons})`,
       );
       return this.retireStale(workerId, proposalId, ctx);
     }

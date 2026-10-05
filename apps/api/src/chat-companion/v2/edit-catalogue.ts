@@ -17,11 +17,12 @@
  * reviewed copy in `companion-replies.ts`) and a closed-set value's display label
  * (`displayValue`, read from the SAME dictionaries the validation checks against).
  *
- * OWNER RULINGS ENCODED HERE (2026-09-29, amended 2026-10-01):
+ * OWNER RULINGS ENCODED HERE (2026-09-29, amended 2026-10-01, extended 2026-10-05):
  *   - single-field adds only: `add` exists for skills, languages, occupations and the three list
- *     preferences; qualifications are edit/delete-only;
- *   - "Never from chat" (2026-10-01): chat never deletes a worker's whole job — employment is
- *     EDIT-ONLY here, and a whole-job delete happens only on the Profile screen;
+ *     preferences; qualifications are edit-only;
+ *   - "Never from chat": employment is EDIT-ONLY (2026-10-01) and qualifications are EDIT-ONLY
+ *     (TD151(1) provisional default, 2026-10-05) — a whole job, certificate, education or training
+ *     is removed only on the Profile screen;
  *   - `expected_salary` is ONE field, written to `salary_expected_max` with `salary_expected_min`
  *     cleared;
  *   - `salary_period`, `commute_max_km` and the four `education_*` preference keys are NOT in the
@@ -68,17 +69,12 @@ export interface CatalogueField {
 }
 
 /**
- * Scalar preferences — and every employment field: "Never from chat" (owner, 2026-10-01) makes
- * employment EDIT-ONLY, so no field offers `delete` and a whole-job delete is never carded.
+ * Scalar preferences, every employment field AND every qualification field. "Never from chat":
+ * employment became EDIT-ONLY on 2026-10-01 and qualifications on 2026-10-05 (TD151(1)'s
+ * provisional default), so no field here offers `delete` and a whole-entry delete is never carded.
  */
 const EDIT: readonly CompanionV2EditOp[] = ["edit"];
 const ADD_DELETE: readonly CompanionV2EditOp[] = ["add", "delete"];
-/**
- * Qualifications are EDIT/DELETE-ONLY (no `add`), and `delete` is legal on every one of their
- * fields: a delete names its ROW, and the field is only the anchor the model points at (the apply
- * ignores it for deletes and uses the row's resolved target).
- */
-const EDIT_DELETE: readonly CompanionV2EditOp[] = ["edit", "delete"];
 
 /**
  * The closed catalogue, in the order the AI service receives it. Grouped by section so the
@@ -99,18 +95,19 @@ export const EDIT_CATALOGUE: readonly CatalogueField[] = [
   { section: "skills", field: "skill", ops: ADD_DELETE },
   // languages — closed dictionary, member add/delete.
   { section: "languages", field: "language", ops: ADD_DELETE },
-  // qualifications — edit one field of an existing row, or delete the row.
-  { section: "qualifications", field: "certificate_name", ops: EDIT_DELETE },
-  { section: "qualifications", field: "certificate_issuer", ops: EDIT_DELETE },
-  { section: "qualifications", field: "certificate_year", ops: EDIT_DELETE },
-  { section: "qualifications", field: "education_credential", ops: EDIT_DELETE },
-  { section: "qualifications", field: "education_field", ops: EDIT_DELETE },
-  { section: "qualifications", field: "education_council", ops: EDIT_DELETE },
-  { section: "qualifications", field: "education_year", ops: EDIT_DELETE },
-  { section: "qualifications", field: "education_institute", ops: EDIT_DELETE },
-  { section: "qualifications", field: "training_name", ops: EDIT_DELETE },
-  { section: "qualifications", field: "training_provider", ops: EDIT_DELETE },
-  { section: "qualifications", field: "training_year", ops: EDIT_DELETE },
+  // qualifications — EDIT ONLY (no `add`: a credential is multi-field; no `delete`: a whole
+  // certificate, education or training is removed only on the Profile screen, TD151(1)).
+  { section: "qualifications", field: "certificate_name", ops: EDIT },
+  { section: "qualifications", field: "certificate_issuer", ops: EDIT },
+  { section: "qualifications", field: "certificate_year", ops: EDIT },
+  { section: "qualifications", field: "education_credential", ops: EDIT },
+  { section: "qualifications", field: "education_field", ops: EDIT },
+  { section: "qualifications", field: "education_council", ops: EDIT },
+  { section: "qualifications", field: "education_year", ops: EDIT },
+  { section: "qualifications", field: "education_institute", ops: EDIT },
+  { section: "qualifications", field: "training_name", ops: EDIT },
+  { section: "qualifications", field: "training_provider", ops: EDIT },
+  { section: "qualifications", field: "training_year", ops: EDIT },
   // occupations — closed role ids, member add/delete.
   { section: "occupations", field: "role_id", ops: ADD_DELETE },
   // preferences — scalars edit; the three lists are member add/delete; availability is three
@@ -156,13 +153,32 @@ export function opAllowed(entry: CatalogueField, op: CompanionV2EditOp): boolean
   return entry.ops.includes(op);
 }
 
+/** The entry kinds "Never from chat" covers: a whole job or a whole qualification entry. */
+export type WholeEntryKind = "employment" | "qualification";
+
 /**
- * Whether a row would delete a worker's WHOLE JOB — the one change chat may never make ("Never
- * from chat", owner ruling 2026-10-01). Decided from the section and the op alone, so it holds for
- * an untrusted model row (whatever field it anchored on) and for a card stored before the ruling.
+ * Whether a row would delete a worker's WHOLE ENTRY — the change chat may never make ("Never from
+ * chat"). Employment since the owner ruling of 2026-10-01; qualifications since TD151(1)'s
+ * provisional default of 2026-10-05, which mirrors it after "welder hata do" was measured turning
+ * into a whole-job delete (3/3). Decided from the section and the op alone, so it holds for an
+ * untrusted model row (whatever field it anchored on) and for a card stored before a ruling.
+ *
+ * Returns the entry KIND for the counts-only log line, so a qualification delete is not described
+ * as a job. `null` means chat may propose this row.
  */
+export function wholeEntryDelete(row: {
+  readonly section: string;
+  readonly op: string;
+}): WholeEntryKind | null {
+  if (row.op !== "delete") return null;
+  if (row.section === "employment") return "employment";
+  if (row.section === "qualifications") return "qualification";
+  return null;
+}
+
+/** Whether a row would delete a whole job — the 2026-10-01 half of "Never from chat". */
 export function isWholeJobDelete(row: { readonly section: string; readonly op: string }): boolean {
-  return row.section === "employment" && row.op === "delete";
+  return wholeEntryDelete(row) === "employment";
 }
 
 // ── value validation ─────────────────────────────────────────────────────────────────────────

@@ -562,12 +562,25 @@ describe("CompanionEditService — a tap on an EXPIRED card is recorded as expir
   });
 });
 
-describe("CompanionEditService.confirm — a stored whole-job delete is never applied ('Never from chat')", () => {
-  // Defence in depth for the owner's 2026-10-01 ruling: `propose` no longer cards a whole-job
-  // delete, but a card stored before the deploy lives up to its TTL (600 s) and the app shows its
+describe("CompanionEditService.confirm — a stored whole-entry delete is never applied ('Never from chat')", () => {
+  // Defence in depth for the owner's 2026-10-01 ruling (a whole job) and TD151(1)'s provisional
+  // default of 2026-10-05 (a whole certificate, education or training): `propose` no longer cards
+  // either, but a card stored before a ruling lives up to its TTL (600 s) and the app shows its
   // rows pre-ticked.
   const JOB_ROW_ID = "77777777-7777-4777-8777-777777777777";
+  const CERT_ROW_ID = "88888888-8888-4888-8888-888888888888";
   const EMPLOYMENT_ID = "66666666-6666-4666-8666-666666666666";
+  const DELETE_CERTIFICATE: StoredEditProposalRow = {
+    row_id: CERT_ROW_ID,
+    section: "qualifications",
+    op: "delete",
+    field: "certificate_name",
+    value: null,
+    before: "ITI Fitter",
+    section_label: "Certificate aur padhai",
+    target: { list: "certificates", index: 0, fp: "0123456789abcdef" },
+  };
+  const CERT = { name: "ITI Fitter", issuer: "NCVT", year: 2016, licence_number: null, licence_expiry: null };
   const DELETE_JOB: StoredEditProposalRow = {
     row_id: JOB_ROW_ID,
     section: "employment",
@@ -637,6 +650,48 @@ describe("CompanionEditService.confirm — a stored whole-job delete is never ap
     const result = await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID], CTX);
     expect(result.kind).toBe("applied");
     expect(h.employment.replaceForWorker).not.toHaveBeenCalled();
+    expect(h.committed.map((w) => w.writer)).toEqual(["languages"]);
+  });
+
+  it("a TICKED stored qualification delete takes the same path — stale, nothing written (TD151(1))", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    warn.mockClear();
+    const h = setup({
+      proposal: storedProposal({ rows: [DELETE_CERTIFICATE, DELETE_HINDI] }),
+      qualificationLists: { certificates: [CERT] },
+      languageEntries: [LANGUAGE_HINDI],
+    });
+    const result = await h.service.confirm(
+      WORKER_ID,
+      profileRow(),
+      PROPOSAL_ID,
+      [CERT_ROW_ID, ROW_ID],
+      CTX,
+    );
+
+    expect(result.kind).toBe("stale");
+    if (result.kind === "stale") expect(result.turn.reply).toBe(V2_EDIT_STALE.latin);
+    // Nothing at all is written — not even the language row ticked beside it.
+    expect(h.db.transaction).not.toHaveBeenCalled();
+    expect(h.qualifications.replaceForWorker).not.toHaveBeenCalled();
+    expect(h.languages.replaceForWorker).not.toHaveBeenCalled();
+    expect(h.committed).toEqual([]);
+    expect(confirmedPayload(h)).toBeUndefined();
+    const lines = warn.mock.calls.map((c) => String(c[0]));
+    expect(lines.filter((line) => line.includes("reason=qualification_delete_from_chat"))).toHaveLength(1);
+    expect(lines.join("\n")).not.toContain("ITI");
+    warn.mockRestore();
+  });
+
+  it("an UNTICKED qualification delete is inert: the language row applies", async () => {
+    const h = setup({
+      proposal: storedProposal({ rows: [DELETE_CERTIFICATE, DELETE_HINDI] }),
+      qualificationLists: { certificates: [CERT] },
+      languageEntries: [LANGUAGE_HINDI],
+    });
+    const result = await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID], CTX);
+    expect(result.kind).toBe("applied");
+    expect(h.qualifications.replaceForWorker).not.toHaveBeenCalled();
     expect(h.committed.map((w) => w.writer)).toEqual(["languages"]);
   });
 });

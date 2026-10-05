@@ -1,7 +1,9 @@
 import "reflect-metadata";
 import { createHash } from "node:crypto";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ConflictException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
+import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import { PayerRequestUnlockSchema } from "./payer-unlocks.dto";
 import type { Request } from "express";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { PayerUnlocksController } from "./payer-unlocks.controller";
@@ -90,6 +92,17 @@ describe("PayerUnlocksController — identity from the session, never the body (
     expect(d.unlocks.requestUnlock).toHaveBeenCalledWith(
       { payerId: PAYER_A.id, workerId: WORKER, jobId: null },
       CTX,
+      "payer_owned",
+    );
+  });
+
+  it("#1899: requestUnlock asks the chokepoint to enforce SESSION-payer ownership of job_id", async () => {
+    const JOB = "dddddddd-0000-4000-8000-000000000004";
+    await d.ctrl.requestUnlock({ worker_id: WORKER, job_id: JOB }, PAYER_A, CTX);
+    expect(d.unlocks.requestUnlock).toHaveBeenCalledWith(
+      { payerId: PAYER_A.id, workerId: WORKER, jobId: JOB },
+      CTX,
+      "payer_owned",
     );
   });
 
@@ -484,5 +497,25 @@ describe("#1046 — POST /payer/credits is idempotent on Idempotency-Key", () =>
     expect(keys).toHaveLength(1);
     expect(keys[0]).toContain(`payer_idem:credits_purchase:${PAYER_A.id}:`);
     expect(keys[0]).not.toContain("secret-key-value");
+  });
+});
+
+describe("#1899 — a MALFORMED job_id is refused at the boundary (400), never reaching the chokepoint", () => {
+  // Syntax, not existence: the 400 is decided by the string alone, identical for every caller and
+  // every database state, so it is no id oracle. Unknown / foreign WELL-FORMED ids get the
+  // chokepoint's neutral 200 body instead (unlocks.service.test.ts).
+  const pipe = new ZodValidationPipe(PayerRequestUnlockSchema);
+  const WORKER_ID = "cccccccc-0000-4000-8000-000000000003";
+
+  it.each(["not-a-uuid", "", "1; drop table jobs", 42])("rejects job_id=%j", (jobId) => {
+    expect(() => pipe.transform({ worker_id: WORKER_ID, job_id: jobId })).toThrow(BadRequestException);
+  });
+
+  it("accepts an absent or null job_id as null (no reference)", () => {
+    expect(pipe.transform({ worker_id: WORKER_ID })).toEqual({ worker_id: WORKER_ID, job_id: null });
+    expect(pipe.transform({ worker_id: WORKER_ID, job_id: null })).toEqual({
+      worker_id: WORKER_ID,
+      job_id: null,
+    });
   });
 });

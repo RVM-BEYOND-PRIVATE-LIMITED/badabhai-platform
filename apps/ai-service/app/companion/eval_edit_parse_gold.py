@@ -24,9 +24,11 @@ THRESHOLD = 0.90
 #: `(op, section, ref, field, value)`; ref is None for add, value is None for delete.
 Row = tuple[str, str, str | None, str | None, str | None]
 
-#: (section, field, legal ops) — mirrors the API catalogue's P1 content. Employment is EDIT-ONLY:
-#: "Never from chat" (owner, 2026-10-01) — a whole job is removed only on the Profile screen, so
-#: a model row that deletes one is outside the catalogue and the API drops it.
+#: (section, field, legal ops) — mirrors the API catalogue's P1 content. Employment is EDIT-ONLY
+#: ("Never from chat", owner 2026-10-01: a whole job is removed only on the Profile screen) and so
+#: are qualifications (TD151(1) provisional default, 2026-10-05: a whole certificate, education or
+#: training is removed only there too), so a model row that deletes one is outside the catalogue
+#: and the API drops it.
 CATALOGUE: list[tuple[str, str, tuple[str, ...]]] = [
     ("employment", "employer_name", ("edit",)),
     ("employment", "employer_city", ("edit",)),
@@ -37,17 +39,17 @@ CATALOGUE: list[tuple[str, str, tuple[str, ...]]] = [
     ("employment", "work_done", ("edit",)),
     ("skills", "skill", ("add", "delete")),
     ("languages", "language", ("add", "delete")),
-    ("qualifications", "certificate_name", ("edit", "delete")),
-    ("qualifications", "certificate_issuer", ("edit", "delete")),
-    ("qualifications", "certificate_year", ("edit", "delete")),
-    ("qualifications", "education_credential", ("edit", "delete")),
-    ("qualifications", "education_field", ("edit", "delete")),
-    ("qualifications", "education_council", ("edit", "delete")),
-    ("qualifications", "education_year", ("edit", "delete")),
-    ("qualifications", "education_institute", ("edit", "delete")),
-    ("qualifications", "training_name", ("edit", "delete")),
-    ("qualifications", "training_provider", ("edit", "delete")),
-    ("qualifications", "training_year", ("edit", "delete")),
+    ("qualifications", "certificate_name", ("edit",)),
+    ("qualifications", "certificate_issuer", ("edit",)),
+    ("qualifications", "certificate_year", ("edit",)),
+    ("qualifications", "education_credential", ("edit",)),
+    ("qualifications", "education_field", ("edit",)),
+    ("qualifications", "education_council", ("edit",)),
+    ("qualifications", "education_year", ("edit",)),
+    ("qualifications", "education_institute", ("edit",)),
+    ("qualifications", "training_name", ("edit",)),
+    ("qualifications", "training_provider", ("edit",)),
+    ("qualifications", "training_year", ("edit",)),
     ("occupations", "role_id", ("add", "delete")),
     ("preferences", "shift", ("edit",)),
     ("preferences", "job_type", ("edit",)),
@@ -193,9 +195,18 @@ CASES: list[tuple[str, list[Row]]] = [
     ),
     ("provider RVM nahi NIMI hai", [("edit", "qualifications", "t1", "training_provider", "NIMI")]),
     ("training ka saal 2021 kar do", [("edit", "qualifications", "t1", "training_year", "2021")]),
-    ("certificate hata do", [("delete", "qualifications", "c1", "certificate_name", None)]),
-    ("education delete karo", [("delete", "qualifications", "q1", "education_field", None)]),
-    ("training nikal do", [("delete", "qualifications", "t1", "training_name", None)]),
+    # A whole certificate, education or training is never removed from chat (TD151(1),
+    # 2026-10-05): no row, and the worker is told to use the Profile screen (`unsupported:
+    # ["other"]`), exactly like the job-delete lines above.
+    ("certificate hata do", []),
+    ("education delete karo", []),
+    ("training nikal do", []),
+    ("ITI hata do", []),
+    ("mera ITI Turner certificate hata do", []),
+    # A TRADE WORD INSIDE A CREDENTIAL (WP4, 2026-10-05): "fitter" appears only in a
+    # certificate's name, so the whole-entry delete is refused and no other row is right.
+    ("ITI fitter hata do", []),
+    ("mera fitter wala certificate hata do", []),
     ("certificate ka saal 2019 aur institute Govt ITI kar do", [
         ("edit", "qualifications", "c1", "certificate_year", "2019"),
         ("edit", "qualifications", "q1", "education_institute", "Govt ITI"),
