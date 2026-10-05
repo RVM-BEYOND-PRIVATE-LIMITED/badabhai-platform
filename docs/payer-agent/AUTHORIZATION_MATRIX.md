@@ -38,8 +38,8 @@ Horizontal isolation between principals is by secret + `typ` + namespace, assert
 
 > A forgotten `@RequireAdminRole` denies everyone. A forgotten `@PayerRoles` **silently widens
 > the route to any authenticated payer.** This is documented and intentional, but it is a live
-> footgun — and `GAP-FE-06` records one route family (`/payer/job-postings/*`) that has no
-> `@PayerRoles` today, so an `agent` session can reach the employer surface.
+> footgun. `GAP-FE-06` recorded one such family (`/payer/job-postings/*`); it is **resolved**
+> (#1885): the writes and chat publish now carry `@PayerRoles("employer")`.
 
 ---
 
@@ -50,9 +50,9 @@ Horizontal isolation between principals is by secret + `typ` + namespace, assert
 | `POST /payer/{signup,login/request,login/verify}` | — | public, IP-capped |
 | `/payer/me`, `/payer/refresh`, `/payer/logout` | `P` | any active payer |
 | `/payer/credits/*`, `/payer/unlocks/*` | `P` | any active payer — **no Owner gate** ⚠️ |
-| `/payer/job-postings/*` | `P` | **none** ⚠️ `GAP-FE-06` |
+| `/payer/job-postings/*` | `P`,`R` | writes `@PayerRoles("employer")`; reads any active payer (`GAP-FE-06` resolved, #1885) |
 | `/payer/capacity`, `/payer/pricing/catalog`, `/payer/reach/*`, `/payer/match/*` | `P` | any active payer |
-| `/payer/job-posting-chat/*` | `P` | any active payer |
+| `/payer/job-posting-chat/*` | `P`,`R` | any active payer; `publish` employer-only (#1885) |
 | `GET /payer/org/members` | `P`,`ORG` | any active org member |
 | `POST /payer/org/members`, `DELETE /payer/org/members/:id` | `P`,`ORG` | **`@OrgRoles("owner")`** |
 | `/payer/agency/*` | `P`,`R` | **`@PayerRoles("agent")`** (class level) |

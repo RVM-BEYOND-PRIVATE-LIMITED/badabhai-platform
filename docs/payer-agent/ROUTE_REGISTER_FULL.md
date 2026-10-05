@@ -229,7 +229,7 @@ The `credits/actions.ts:27-41` comment records that `topUpAction` originally had
 **Assessment — this is NOT a P0 authorization hole, and I want to be precise about why:**
 - Authentication *is* enforced: `payer-http.ts:48-52` refuses to send the request without the httpOnly cookie, and `:61` treats the API's 401 as a hard failure. An unauthenticated caller gets nothing.
 - Tenancy *is* enforced server-side: the API derives `payer_id` from `req.payer.id` and never from the body (`payer-http.ts:11-15`, `payer-job-postings.controller.ts:45-53`).
-- Role authorization is not missing, because **every one of these 15 actions targets a surface both `employer` and `agent` legitimately use** (postings, applicants, unlocks, own account, AI chat). There is no `@PayerRoles`-equivalent claim being bypassed.
+- Role authorization is enforced server-side. Most of these 15 actions target a surface both roles use (applicants, unlocks, own account). Since #1885 the posting writes and AI-chat publish are employer-only at the API (`@PayerRoles("employer")`, 403 for an agent); the actions themselves still assert no role — the pages redirect agents first.
 
 The genuine defects are (i) the 401→"please retry" dead end in §4, and (ii) an **inconsistent convention** — 15 of 34 actions gate first with a documented rationale (`jobs-actions.ts:16-21`, `credits/actions.ts:27-41`), 15 do not. The moment any of those 15 surfaces becomes role-scoped, the missing gate silently becomes a hole. Recommend gating all of them uniformly and mapping `isPayerUnauthorized` to `redirect("/login")` in one shared helper.
 

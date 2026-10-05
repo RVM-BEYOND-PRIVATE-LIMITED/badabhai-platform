@@ -44,7 +44,7 @@ Seven decisions from `GAP_REGISTER.md` §Open questions.
 | Ruling | Status |
 |---|---|
 | **Tenant = org or payer?** | ✅ **RULED 2026-08-11 — ORG-AS-TENANT.** Phase 3 proceeds as scoped, gated on Phase 0.1 |
-| Agency/employer shared posting surface (`GAP-FE-06`) | ⏸ Deferred this pass |
+| Agency/employer shared posting surface (`GAP-FE-06`) | ✅ **RULED 2026-10-01 — employer-only.** Done in #1885 |
 | Faceless-rails FK posture (`PAY-DB-03`) | ⏸ Deferred this pass |
 | One-active-plan-per-posting (`PAY-DB-10`) | ⏸ Deferred this pass |
 | Subscription / recurring billing | ⏸ Deferred this pass |
@@ -189,7 +189,7 @@ Independent of Phase 3; can proceed in parallel.
 | **4.2** Honest-UI sweep — never render `₹0` where the truth is "not tracked"; fix `/profile`'s hardcoded KYC/bank literals | `GAP-FE-02`, `GAP-XC-04` |
 | **4.3** Top-up idempotency | `GAP-FE-07` |
 | **4.4** Resolve `…/plan` + `…/boost` — wire or delete | `GAP-PAY-02` |
-| **4.5** Role gate per Ruling 2 | `GAP-FE-06` |
+| **4.5** Role gate per Ruling 2 | `GAP-FE-06` — ✅ done (#1885) |
 | **4.6** Attribution abuse review of the public click sink | `GAP-AGY-02` |
 | **4.7** Deployment path for `payer-web` | `GAP-XC-06` — **it is deployed by nothing today** |
 
