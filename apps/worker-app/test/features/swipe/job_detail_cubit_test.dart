@@ -129,7 +129,7 @@ void main() {
     'apply success -> applying then appliedNonce bumped (flow unchanged)',
     build: () {
       when(() => jobs.jobDetail(any())).thenAnswer((_) async => fullJob);
-      when(() => swipe.applyToJob(any(), rank: any(named: 'rank')))
+      when(() => swipe.applyToJob(any(), rank: any(named: 'rank'), sourceSurface: any(named: 'sourceSurface')))
           .thenAnswer((_) async {});
       return JobDetailCubit(jobs, swipe, lightJob);
     },
@@ -143,14 +143,14 @@ void main() {
       const JobDetailState(detail: fullJob, applying: true),
       const JobDetailState(detail: fullJob, appliedNonce: 1),
     ],
-    verify: (_) => verify(() => swipe.applyToJob('j1', rank: 1)).called(1),
+    verify: (_) => verify(() => swipe.applyToJob('j1', rank: 1, sourceSurface: 'feed')).called(1),
   );
 
   blocTest<JobDetailCubit, JobDetailState>(
     'apply failure -> applyErrorNonce bumped, never a false success',
     build: () {
       when(() => jobs.jobDetail(any())).thenAnswer((_) async => fullJob);
-      when(() => swipe.applyToJob(any(), rank: any(named: 'rank')))
+      when(() => swipe.applyToJob(any(), rank: any(named: 'rank'), sourceSurface: any(named: 'sourceSurface')))
           .thenThrow(const NetworkFailure());
       return JobDetailCubit(jobs, swipe, lightJob);
     },
@@ -170,7 +170,7 @@ void main() {
     'concurrent apply calls only invoke the repo once',
     build: () {
       when(() => jobs.jobDetail(any())).thenAnswer((_) async => fullJob);
-      when(() => swipe.applyToJob(any(), rank: any(named: 'rank'))).thenAnswer(
+      when(() => swipe.applyToJob(any(), rank: any(named: 'rank'), sourceSurface: any(named: 'sourceSurface'))).thenAnswer(
         (_) => Future<void>.delayed(const Duration(milliseconds: 20)),
       );
       return JobDetailCubit(jobs, swipe, lightJob);
@@ -180,6 +180,6 @@ void main() {
       c.apply(); // dropped by the guard
     },
     wait: const Duration(milliseconds: 50),
-    verify: (_) => verify(() => swipe.applyToJob('j1', rank: 1)).called(1),
+    verify: (_) => verify(() => swipe.applyToJob('j1', rank: 1, sourceSurface: 'feed')).called(1),
   );
 }

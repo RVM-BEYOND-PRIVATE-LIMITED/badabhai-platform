@@ -11,6 +11,7 @@ import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/features/job_search/data/job_search_repository_impl.dart';
 import 'package:badabhai_worker_app/features/job_search/presentation/cubit/job_search_cubit.dart';
 import 'package:badabhai_worker_app/features/job_search/presentation/job_search_screen.dart';
+import 'package:badabhai_worker_app/features/swipe/domain/job_detail.dart';
 
 /// One search-result row in the API's JSON shape (snake_case).
 Map<String, dynamic> _job({
@@ -54,7 +55,7 @@ JobSearchCubit _cubit(MockClient client) {
 
 /// Mounts the search screen at `/jobs/search` plus a job-detail stand-in that a
 /// result tap navigates to (mirrors how the feed opens the shared detail route).
-Widget _harness(JobSearchCubit cubit) {
+Widget _harness(JobSearchCubit cubit, {void Function(JobDetail?)? onDetail}) {
   final GoRouter router = GoRouter(
     initialLocation: '/jobs/search',
     routes: <RouteBase>[
@@ -64,9 +65,12 @@ Widget _harness(JobSearchCubit cubit) {
       ),
       GoRoute(
         path: '/jobs/detail/:jobId',
-        builder: (_, GoRouterState s) => Scaffold(
-          body: Center(child: Text('DETAIL ${s.pathParameters['jobId']}')),
-        ),
+        builder: (_, GoRouterState s) {
+          onDetail?.call(s.extra as JobDetail?);
+          return Scaffold(
+            body: Center(child: Text('DETAIL ${s.pathParameters['jobId']}')),
+          );
+        },
       ),
     ],
   );
@@ -195,7 +199,8 @@ void main() {
       );
     }));
 
-    await tester.pumpWidget(_harness(cubit));
+    JobDetail? opened;
+    await tester.pumpWidget(_harness(cubit, onDetail: (JobDetail? d) => opened = d));
     await tester.pumpAndSettle();
     await _runSearch(tester);
 
@@ -204,5 +209,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('DETAIL job-1'), findsOneWidget);
+    // #1906 — the apply taken from here is recorded as 'search', not the feed.
+    expect(opened?.sourceSurface, 'search');
   });
 }

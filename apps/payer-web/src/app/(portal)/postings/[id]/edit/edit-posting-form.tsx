@@ -133,6 +133,9 @@ export function EditPostingForm({
   // Which button's request is in flight — so only Publish reads "Publishing…" (a draft save
   // shares the same pending state).
   const [submitting, setSubmitting] = useState<"save" | "publish" | null>(null);
+  // The server's per-field refusals (#1912), keyed by form control. APPENDED after the seeded
+  // prefix (the test mirrors the earlier states positionally).
+  const [serverFieldErrors, setServerFieldErrors] = useState<Record<string, string>>({});
   const [pending, startTransition] = useTransition();
 
   const isDraft = status === "draft";
@@ -153,9 +156,16 @@ export function EditPostingForm({
   /**
    * The payer is fixing the control a refused save pointed at: that refusal is over. Drop its
    * message WITH its field mark — a message left without its field would read as a refusal no
-   * field owns and fall into the live slot, re-announced mid-fix.
+   * field owns and fall into the live slot, re-announced mid-fix. A SERVER field error (#1912)
+   * on that control clears with it.
    */
   function clearRefusalAt(control: string) {
+    setServerFieldErrors((prev) => {
+      if (!(control in prev)) return prev;
+      const next = { ...prev };
+      delete next[control];
+      return next;
+    });
     if (problem === null || problem.control !== control) return;
     setProblem(null);
     setError(null);
@@ -169,9 +179,14 @@ export function EditPostingForm({
   const numberError = (key: CardNumberField) =>
     liveCardFieldError(read.issues, key, revealed[key] === true);
 
-  /** A control's error: its own live check first, then the refused save's reason. */
+  /**
+   * A control's error: its own live check first, then a SERVER field error (#1912 — the API
+   * refused this field at write), then the refused save's reason.
+   */
   const errorOf = (control: string, own?: string) =>
-    own ?? (problem !== null && problem.control === control ? problem.message : undefined);
+    own ??
+    serverFieldErrors[control] ??
+    (problem !== null && problem.control === control ? problem.message : undefined);
 
   /** The gaps STILL open — highlighted (never blocked) so the payer sees what the card is missing. */
   const gaps = workerCardGaps(gapInputFromValues(read.values, fields.description));
@@ -225,6 +240,7 @@ export function EditPostingForm({
     }
     setError(null);
     setProblem(null);
+    setServerFieldErrors({});
     setSubmitting(mode);
     const v = read.values;
     const count = parseWholeNumber(fields.vacancies);
@@ -262,6 +278,8 @@ export function EditPostingForm({
         router.push(`/postings/${postingId}`);
         router.refresh();
       } else {
+        // #1912 — a server validation 400 names the refused field; show it inline at its control.
+        if (res.fieldErrors) setServerFieldErrors(res.fieldErrors);
         setError(res.error);
       }
     });

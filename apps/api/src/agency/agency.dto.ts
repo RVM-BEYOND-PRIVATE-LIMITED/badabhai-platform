@@ -12,6 +12,7 @@ import {
   payTypeSchema,
   requirementsSchema,
   roleKindSchema,
+  screenWorkerVisiblePlace,
   screenWorkerVisibleText,
   shiftSchema,
 } from "../common/job-content.schemas";
@@ -62,9 +63,16 @@ const title = screenWorkerVisibleText(z.string().min(1).max(TITLE_MAX), {
   subject: "title",
 });
 
-/** COARSE location — a city label (e.g. "Pune"), never an address. */
-const city = z.string().min(1).max(CITY_MAX);
-/** COARSE locality bucket (e.g. "Pimpri-Chinchwad"), never an address. Optional. */
+/**
+ * COARSE location — a city label (e.g. "Pune"), never an address. Worker-visible, so it runs
+ * the place screen (#1848): the three heuristics, with a pincode next to a sector or phase
+ * number not read as a phone. The base is unchanged.
+ */
+const city = screenWorkerVisiblePlace(z.string().min(1).max(CITY_MAX), {
+  from: "the city",
+  subject: "city",
+});
+/** COARSE locality bucket (e.g. "Pimpri-Chinchwad"), never an address. Optional. Same screen. */
 const area = areaSchema;
 
 /**
@@ -76,8 +84,7 @@ const area = areaSchema;
  * A phone number or a "Pvt Ltd"-style name typed into any of these is rejected with a clear
  * 400, never stored. Per-field messages name the FIELD, never the offending content. The
  * screen is the shared `screenWorkerVisibleText`, so the posting routes cannot drift from it.
- * The coarse `city` / `area` labels above are the exception: worker-visible, but unscreened
- * at the server (an open follow-up; see the header of `job-content.schemas.ts`).
+ * The coarse `city` / `area` labels above run the same heuristics as places (#1848).
  */
 const description = screenWorkerVisibleText(z.string().trim().min(1).max(DESCRIPTION_MAX), {
   from: "the description",

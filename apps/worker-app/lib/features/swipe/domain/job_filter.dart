@@ -203,6 +203,39 @@ class FilterSelection extends Equatable {
       <Object?>[trades, cities, experienceBands, shift, payMin];
 }
 
+/// The OUTBOUND `trade_key` for a ONE-trade filter selection, or null (#1906).
+///
+/// The filter stores DISPLAY labels (a coarse family chip like 'CNC', or a job's
+/// own humanised label). Sending that label verbatim as `trade_key` can never
+/// equal a server slug, so a one-chip refetch zeroed the deck. Resolve it back to
+/// a REAL legacy slug from the loaded queue instead — and send NOTHING unless the
+/// whole selection maps to exactly one slug:
+///
+///  * a `mskill_*` / other internal id ([tradeKeyLabel] returns '') is not a
+///    `jobs.trade_key` at all, so it resolves to null;
+///  * a FAMILY that spans several slugs ('CNC' → cnc_operator AND cnc_turner)
+///    resolves to null, because narrowing to one slug server-side would drop the
+///    sibling the worker's chip was meant to keep. Client-side matching still
+///    narrows the full feed, so nothing is lost.
+String? outboundTradeKey(FilterSelection filters, List<FeedItem> jobs) {
+  if (filters.trades.length != 1) return null;
+  final String label = filters.trades.first;
+  if (label.trim().isEmpty) return null;
+  String? slug;
+  for (final FeedItem job in jobs) {
+    if (!jobMatchesTrades(job, <String>{label})) continue;
+    final String key = job.tradeKey.trim();
+    // An internal id (mskill_/role_/…) humanises to '' — never send it.
+    if (key.isEmpty || tradeKeyLabel(key).isEmpty) return null;
+    if (slug == null) {
+      slug = key;
+    } else if (slug != key) {
+      return null; // the one label spans several slugs — do not over-narrow.
+    }
+  }
+  return slug;
+}
+
 /// True if [job] matches ANY of [selectedTrades] (OR within the dimension). An
 /// EMPTY selection means "no trade filter" → every job matches.
 bool jobMatchesTrades(FeedItem job, Set<String> selectedTrades) {

@@ -23,18 +23,23 @@ export const DEFAULT_VACANCY_BAND: VacancyBand = "1";
 // ---------------------------------------------------------------------------
 // Client-side mirror of the server's DESCRIPTION-ONLY PII reject.
 //
-// These regexes are copied verbatim from `looksLikePii` in
-// @badabhai/validators (packages/validators/src/index.ts) — the same heuristic
-// the API's job-postings DTO refines `description` with. They are replicated
-// (not imported) so the web client doesn't pull `zod` + `@badabhai/types`'s
-// validator graph into the browser bundle; keep them in sync with the shared
-// validator if it ever changes.
+// These regexes mirror `looksLikePii` in @badabhai/validators
+// (packages/validators/src/index.ts) — the same heuristic the API's job-postings
+// DTO refines `description` with. They are replicated (not imported) so the web
+// client doesn't pull `zod` + `@badabhai/types`'s validator graph into the
+// browser bundle; keep them in sync with the shared validator if it ever changes.
+//
+// The email shape is the LINEAR form (#1924/#1946): ONE character before the
+// "@". `[^\s@]+@` is quadratic — on a long run with no "@" every start position
+// re-scans the run (a 100k-char paste was ~4.8 s in V8). Matching only the
+// character before the "@" changes no verdict for a yes/no `.test()`, because a
+// local part always ends in one.
 //
 // Apply ONLY to `description`. A long digit run in org_label / role_title /
 // location_label is a legit machine model number / pincode / job code, so those
 // fields are deliberately NOT screened (mirrors the server).
 // ---------------------------------------------------------------------------
-const EMAIL_LIKE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+const EMAIL_LIKE = /[^\s@]@[^\s@]+\.[^\s@]+/;
 const PHONE_SEPARATORS = /[\s().+-]/g;
 const PHONE_DIGIT_RUN = /\d{7,}/;
 

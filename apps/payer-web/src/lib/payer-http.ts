@@ -2,6 +2,7 @@ import "server-only";
 import type { z } from "zod";
 import { payerServerConfig } from "./server-config";
 import { readApiToken } from "./auth/session-cookie";
+import { PayerValidationError, type ApiFieldIssue } from "./payer-errors";
 
 /**
  * SERVER-ONLY HTTP transport to the payer-authed NestJS endpoints (ADR-0019 LC-1).
@@ -73,6 +74,15 @@ export async function payerFetch<T>(path: string, opts: RequestOptions<T>): Prom
 
   if (res.status === 401) throw new PayerUnauthorizedError();
   if (!res.ok) {
+    // A 400 is the ONE status whose body is a safe, structured refusal: the shared
+    // ZodValidationPipe (and the chat publish) return `error.issues[]` naming the
+    // FIELD and a static reason — never the offending value. Capture it so a form
+    // can show the refused field inline; anything else stays a class-only error
+    // (no-oracle / no PII, unchanged).
+    if (res.status === 400) {
+      const issues = await readFieldIssues(res);
+      if (issues.length > 0) throw new PayerValidationError(path, issues);
+    }
     // Body may carry a deny reason — do NOT surface it (no-oracle / no PII). Class only.
     throw new Error(`payer API ${path} returned ${res.status}`);
   }
@@ -82,4 +92,30 @@ export async function payerFetch<T>(path: string, opts: RequestOptions<T>): Prom
   const text = await res.text();
   const json: unknown = text.length > 0 ? JSON.parse(text) : {};
   return opts.schema.parse(json);
+}
+
+/**
+ * Extract `issues: [{ path, message }]` from a 400 body, defensively.
+ *
+ * The Nest exception filter wraps the pipe's payload as `{ error: { message, issues } }`;
+ * both that nesting and a flat `{ issues }` are accepted so a filter change degrades to
+ * the old class-only error rather than a parse crash. A malformed body yields `[]`.
+ */
+async function readFieldIssues(res: Response): Promise<ApiFieldIssue[]> {
+  try {
+    const body: unknown = await res.json();
+    const record = body as { error?: { issues?: unknown }; issues?: unknown };
+    const raw = record.error?.issues ?? record.issues;
+    if (!Array.isArray(raw)) return [];
+    const issues: ApiFieldIssue[] = [];
+    for (const item of raw) {
+      if (typeof item !== "object" || item === null) continue;
+      const { path, message } = item as { path?: unknown; message?: unknown };
+      if (typeof message !== "string" || message.length === 0) continue;
+      issues.push({ path: typeof path === "string" ? path : "", message });
+    }
+    return issues;
+  } catch {
+    return [];
+  }
 }

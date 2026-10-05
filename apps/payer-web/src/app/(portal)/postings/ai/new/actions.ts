@@ -13,6 +13,7 @@ import {
   sendJobPostingChatMessage,
   startJobPostingChatSession,
 } from "../../../../../lib/payer-api";
+import { isPayerValidationError } from "../../../../../lib/payer-errors";
 
 /**
  * AI job-posting chat Server Actions (ADR-0035 — the 5 frozen payer-authed endpoints).
@@ -120,7 +121,17 @@ export async function publishJobPostingChatAction(input: {
       postingId: published.jobPostingId,
       unsetCardFields: published.unsetCardFields,
     };
-  } catch {
+  } catch (e) {
+    // #1912 — a validation 400 carries `issues[].path` + a static, field-NAMING message
+    // (e.g. "remove contact details from the title"). Surface it: the chat has no per-field
+    // inputs, so the named message IS the field-level error the payer needs, not the
+    // generic retry copy.
+    if (isPayerValidationError(e)) {
+      const messages = e.issues.map((i) => i.message).filter((m) => m.length > 0);
+      if (messages.length > 0) {
+        return { ok: false, error: messages.join("; ") };
+      }
+    }
     // A 409 (draft not ready / already published) and every transport failure collapse to
     // ONE retryable message — the draft preview already shows what is still missing.
     return { ok: false, error: "Could not publish this posting yet. Please retry." };

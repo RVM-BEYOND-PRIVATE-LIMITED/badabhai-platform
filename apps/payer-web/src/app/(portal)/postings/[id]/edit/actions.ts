@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache";
 import { updatePosting, type PostingEditInitial } from "../../../../../lib/payer-api";
 import { matchSelectionInputSchema, updatePostingInputSchema } from "../../../../../lib/contracts";
 import type { PostingSummary } from "../../../../../lib/contracts";
+import { isPayerValidationError } from "../../../../../lib/payer-errors";
+import { mapPostingIssues } from "../../../../../lib/posting-field-errors";
 import { workerCardGap } from "../../../../../lib/worker-card-gap";
 
 /**
@@ -23,7 +25,12 @@ import { workerCardGap } from "../../../../../lib/worker-card-gap";
 
 export type EditPostingActionResult =
   | { ok: true; posting: PostingSummary }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      error: string;
+      /** Per-field messages from a server validation 400 (#1912), keyed by form field. */
+      fieldErrors?: Record<string, string>;
+    };
 
 const postingIdSchema = z.string().uuid();
 
@@ -114,6 +121,18 @@ export async function updatePostingAction(
     revalidatePath(`/postings/${input.postingId}`);
     return { ok: true, posting };
   } catch (e) {
+    // #1912 — a validation 400 carries per-field issues; route each to its input.
+    // A plain 400 (no issues) stays the existing "No changes to save." copy.
+    if (isPayerValidationError(e)) {
+      const { fieldErrors, rest } = mapPostingIssues(e.issues);
+      if (Object.keys(fieldErrors).length > 0) {
+        return {
+          ok: false,
+          error: rest.join("; ") || "Check the highlighted fields.",
+          fieldErrors,
+        };
+      }
+    }
     if (e instanceof Error && /returned 400/.test(e.message)) {
       return { ok: false, error: "No changes to save." };
     }

@@ -120,7 +120,13 @@ class JobDetailCubit extends Cubit<JobDetailState> {
     try {
       // rank is a coarse feed display position the detail row doesn't carry; 1
       // is a neutral value for the apply event.
-      await _swipe.applyToJob(state.detail.jobId, rank: 1);
+      // Carry the opening surface's `source_surface` (#1906): an apply started
+      // from SEARCH must not be recorded as 'feed'.
+      await _swipe.applyToJob(
+        state.detail.jobId,
+        rank: 1,
+        sourceSurface: state.detail.sourceSurface,
+      );
       if (isClosed) return;
       emit(state.copyWith(
           applying: false, appliedNonce: state.appliedNonce + 1));

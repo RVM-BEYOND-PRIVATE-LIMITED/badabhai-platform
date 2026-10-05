@@ -1051,6 +1051,31 @@ describe("getPosting / updatePosting / closePosting — LIVE: faceless, no-oracl
     const res = await updatePosting(POSTING_ID, { roleTitle: "Fitter", vacancies: 1 });
     expect(res).toBeNull();
   });
+
+  // #1912 — a validation 400 carries `error.issues[]`; the transport surfaces it as a
+  // typed PayerValidationError so a form can render the refused field inline.
+  it("updatePosting surfaces a 400's field issues as a PayerValidationError", async () => {
+    const body = {
+      statusCode: 400,
+      error: {
+        message: "Validation failed",
+        issues: [{ path: "role_title", message: "remove contact details from the title" }],
+      },
+    };
+    fetchMock.mockImplementation(async () => jsonResponse(body, 400));
+    const { updatePosting } = await import("./payer-api");
+    const { PayerValidationError } = await import("./payer-errors");
+
+    await expect(
+      updatePosting(POSTING_ID, { roleTitle: "Call 9876543210" }),
+    ).rejects.toMatchObject({
+      name: "PayerValidationError",
+      issues: [{ path: "role_title", message: "remove contact details from the title" }],
+    });
+    await expect(
+      updatePosting(POSTING_ID, { roleTitle: "Call 9876543210" }),
+    ).rejects.toBeInstanceOf(PayerValidationError);
+  });
 });
 
 describe("getApplicantFeed — surfaces faceless taxonomy bands (PR-4), null -> undefined", () => {

@@ -19,7 +19,11 @@ abstract interface class SwipeRepository {
   /// copy of those facts.
   Future<JobDetail> jobDetail(String jobId);
 
-  Future<void> applyToJob(String jobId, {int? rank});
+  /// Records the apply. [sourceSurface] is the API enum for WHERE the apply was
+  /// taken from ('feed' | 'search' | 'share' | 'other'); null defaults to 'feed'.
+  /// A search-initiated apply MUST pass 'search' so analytics do not credit the
+  /// feed (#1906).
+  Future<void> applyToJob(String jobId, {int? rank, String? sourceSurface});
 
   Future<void> skipJob(String jobId, {required String reason});
 
