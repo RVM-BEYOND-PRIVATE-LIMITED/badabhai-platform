@@ -24,7 +24,6 @@ const RAW_ICON_ALLOWLIST: Readonly<Record<string, number>> = {
   "app/(portal)/account/account-form.tsx": 1,
   "app/(portal)/account/page.tsx": 3,
   "app/(portal)/agency/bulk-upload/page.tsx": 2,
-  "app/(portal)/agency/dashboard/agency-job-form.tsx": 1,
   "app/(portal)/agency/dashboard/parked-modules.tsx": 1,
   "app/(portal)/agency/referrals/earnings-panel.tsx": 1,
   "app/(portal)/agency/referrals/kyc-panel.tsx": 5,
@@ -45,11 +44,8 @@ const RAW_ICON_ALLOWLIST: Readonly<Record<string, number>> = {
   "app/(portal)/portal-breadcrumb.tsx": 2,
   "app/(portal)/postings/[id]/applicants/applicant-actions.tsx": 4,
   "app/(portal)/postings/[id]/applicants/page.tsx": 6,
-  "app/(portal)/postings/[id]/edit/edit-posting-form.tsx": 2,
   "app/(portal)/postings/[id]/page.tsx": 4,
   "app/(portal)/postings/new/match-skill-picker.tsx": 2,
-  "app/(portal)/postings/new/page.tsx": 5,
-  "app/(portal)/postings/new/posting-form.tsx": 2,
   "app/(portal)/postings/page.tsx": 3,
   "app/(portal)/postings/postings-manager.tsx": 3,
   "app/(portal)/sidebar-nav.tsx": 2,
@@ -59,7 +55,6 @@ const RAW_ICON_ALLOWLIST: Readonly<Record<string, number>> = {
   "app/login/login-form.tsx": 1,
   "app/not-found.tsx": 1,
   "components/ds/masked-candidate.tsx": 1,
-  "components/job-card-preview.tsx": 3,
 };
 
 const srcRoot = join(dirname(fileURLToPath(import.meta.url)), "..");

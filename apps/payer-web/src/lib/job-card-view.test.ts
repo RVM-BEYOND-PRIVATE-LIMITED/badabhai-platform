@@ -7,6 +7,7 @@ import {
   formatPayBandFull,
   neededByLabel,
   payTypeLabel,
+  placeLabel,
   shiftLabel,
   toJobCardView,
   type CardFields,
@@ -75,13 +76,13 @@ const FULL_CARD: CardFields = {
   benefits: ["PF + ESI"],
 };
 
-describe("toJobCardView — the ONE mapper", () => {
-  it("builds the title, role label, place, salary + pay-type pill, and ordered chips", () => {
+describe("toJobCardView — the ONE mapper, in the worker card's order", () => {
+  it("builds the title, the place (AREA, CITY), the salary + pill, and the ordered chips — no role row", () => {
     const view = toJobCardView(FULL_CARD);
+    expect(Object.keys(view)).toEqual(["title", "place", "salary", "chips"]);
     expect(view.title).toBe("CNC Machinist");
-    expect(view.roleLabel).toBe("CNC Turner");
-    expect(view.place).toBe("Pune, Chakan");
-    expect(view.salary).toEqual({ band: "₹16,000–26,000/mah", payTypePill: "IN-HAND" });
+    expect(view.place).toBe("Chakan, Pune");
+    expect(view.salary).toEqual({ band: "₹16,000–26,000/mah", issue: null, payTypePill: "IN-HAND" });
     expect(view.chips.map((c) => c.label)).toEqual([
       "Day Shift",
       "2–5 yrs experience",
@@ -89,6 +90,8 @@ describe("toJobCardView — the ONE mapper", () => {
       "Fanuc control",
       "PF + ESI",
     ]);
+    // The picked role is NOT drawn — the worker's card has no role-kind row (ADR-0024 addendum).
+    expect(JSON.stringify(view)).not.toContain("CNC Turner");
   });
 
   it("HIDES a row whose enum is unknown/absent (never echoed, never guessed)", () => {
@@ -101,10 +104,56 @@ describe("toJobCardView — the ONE mapper", () => {
       pay_min: null,
       pay_max: null,
     });
-    expect(view.roleLabel).toBeNull();
     expect(view.salary).toBeNull(); // no band → the whole box is hidden
     expect(view.chips.some((c) => c.kind === "shift")).toBe(false);
     expect(view.chips.some((c) => c.kind === "needed_by")).toBe(false);
+    expect(JSON.stringify(view)).not.toContain("not_a_role");
+  });
+});
+
+describe("placeLabel — the worker's `_cardData`, to the letter", () => {
+  it("area first, then city; area blank → city alone", () => {
+    expect(placeLabel("Pune", "Chakan MIDC")).toBe("Chakan MIDC, Pune");
+    expect(placeLabel("Pune", "")).toBe("Pune");
+    expect(placeLabel("Pune", "  ")).toBe("Pune");
+    expect(placeLabel("Pune", null)).toBe("Pune");
+    expect(placeLabel(" Pune ", " Chakan ")).toBe("Chakan, Pune");
+  });
+
+  it("mirrors the phone where a posting should never go: no city → 'Area, '; neither → '' (the row stays)", () => {
+    // `(area == null || area.isEmpty) ? city : '${area}, ${city}'` with city "" (FeedItem's default).
+    expect(placeLabel("", "Chakan")).toBe("Chakan, ");
+    expect(placeLabel(null, null)).toBe("");
+    expect(toJobCardView({ ...FULL_CARD, city: null, area: null }).place).toBe("");
+  });
+});
+
+describe("a live form's draft — an issue REPLACES its row, a pending chip is marked", () => {
+  it("a pay issue replaces the band (the pill stays); no draft → the band", () => {
+    const view = toJobCardView(FULL_CARD, { payIssue: "Pay needs a whole number" });
+    expect(view.salary).toEqual({ band: null, issue: "Pay needs a whole number", payTypePill: "IN-HAND" });
+    // A pay issue draws the box even when no bound survived (the payer typed something).
+    expect(toJobCardView({ ...FULL_CARD, pay_min: null, pay_max: null }, { payIssue: "x" }).salary?.issue).toBe("x");
+  });
+
+  it("an experience issue replaces the window chip in ITS slot (second, after the shift)", () => {
+    const view = toJobCardView({ ...FULL_CARD, min_experience_years: null }, { experienceIssue: "Fix me" });
+    expect(view.chips.map((c) => [c.label, c.state])).toEqual([
+      ["Day Shift", undefined],
+      ["Fix me", "invalid"],
+      ["Turant chahiye", undefined],
+      ["Fanuc control", undefined],
+      ["PF + ESI", undefined],
+    ]);
+  });
+
+  it("marks only the LAST matching chip pending (the draft is appended last)", () => {
+    const view = toJobCardView(
+      { ...FULL_CARD, requirements: ["Fanuc control", "MIG", "MIG"] },
+      { pendingRequirement: "MIG", pendingBenefit: "nope" },
+    );
+    expect(view.chips.filter((c) => c.state === "pending").map((c) => c.label)).toEqual(["MIG"]);
+    expect(view.chips.filter((c) => c.label === "MIG").map((c) => c.state)).toEqual([undefined, "pending"]);
   });
 });
 
@@ -184,6 +233,7 @@ describe("adapters — org_label / verified / boost NEVER map through", () => {
     expect(card.role_kind).toBe("cnc_turner");
     expect(card.pay_type).toBe("in_hand");
     expect(JSON.stringify(card)).not.toContain("cnc_operator"); // the trade key never becomes a card field
-    expect(toJobCardView(card).roleLabel).toBe("CNC Turner");
+    // The display role rides along on the fields (for "Also in your posting"), never as a card row.
+    expect(JSON.stringify(toJobCardView(card))).not.toContain("CNC Turner");
   });
 });

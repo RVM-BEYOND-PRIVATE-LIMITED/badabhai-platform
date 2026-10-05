@@ -37,18 +37,44 @@ function FieldLabel({ id, label, optional }: { id: string; label?: string; optio
   );
 }
 
-function FieldFeedback({ error, hint }: { error?: string; hint?: string }) {
+/*
+ * THE FEEDBACK LINE IS THE CONTROL'S DESCRIPTION. It carries `${controlId}-msg` and the control's
+ * `aria-describedby` points at it, so a screen reader reads the error (or the hint) with the field
+ * — when the payer tabs to it, and when a refused submit moves focus to it. Announced ONCE: the
+ * error REPLACES the hint (one message per field, never both), its glyph is decorative
+ * (`<Icon>` is aria-hidden), and the line is not a live region — a refusal that moves focus here
+ * would otherwise be read twice, once as an alert and again as the focused field's description.
+ */
+export const fieldFeedbackId = (controlId: string) => `${controlId}-msg`;
+
+/** `aria-describedby`: the caller's own ids first, then the feedback line — each id once. */
+export function describedBy(own: string | undefined, feedbackId: string | undefined) {
+  const ids = [...(own ?? "").split(/\s+/), feedbackId ?? ""].filter((part) => part !== "");
+  return ids.length > 0 ? [...new Set(ids)].join(" ") : undefined;
+}
+
+function FieldFeedback({ id, error, hint }: { id: string; error?: string; hint?: string }) {
   if (error) {
     return (
-      <span className="bb-field__error">
+      <span id={id} className="bb-field__error">
         <Icon name="warning-circle" />
         {error}
       </span>
     );
   }
-  if (hint) return <span className="bb-field__hint">{hint}</span>;
+  if (hint) {
+    return (
+      <span id={id} className="bb-field__hint">
+        {hint}
+      </span>
+    );
+  }
   return null;
 }
+
+/** The feedback line's id when one renders (an error or a hint), else undefined. */
+const feedbackFor = (controlId: string, error?: string, hint?: string) =>
+  error || hint ? fieldFeedbackId(controlId) : undefined;
 
 /* ---------- Button ---------- */
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -136,9 +162,11 @@ export function Input({
   optional = false,
   id,
   className = "",
+  "aria-describedby": ownDescribedBy,
   ...rest
 }: InputProps) {
   const inputId = id || nextFieldId("bb-input");
+  const feedbackId = feedbackFor(inputId, error, hint);
   const cls = [
     "bb-input",
     iconLeft ? "bb-input--has-left" : "",
@@ -158,14 +186,19 @@ export function Input({
             <Icon name={iconLeft} />
           </span>
         )}
-        <input id={inputId} className={cls} {...rest} />
+        <input
+          id={inputId}
+          className={cls}
+          aria-describedby={describedBy(ownDescribedBy, feedbackId)}
+          {...rest}
+        />
         {iconRight && (
           <span className="bb-input__icon bb-input__icon--right">
             <Icon name={iconRight} />
           </span>
         )}
       </div>
-      <FieldFeedback error={error} hint={hint} />
+      <FieldFeedback id={fieldFeedbackId(inputId)} error={error} hint={hint} />
     </div>
   );
 }
@@ -187,9 +220,11 @@ export function Select({
   id,
   className = "",
   children,
+  "aria-describedby": ownDescribedBy,
   ...rest
 }: SelectProps) {
   const sid = id || nextFieldId("bb-select");
+  const feedbackId = feedbackFor(sid, error, hint);
   const cls = ["bb-input", "bb-select", error ? "bb-input--error" : "", className]
     .filter(Boolean)
     .join(" ");
@@ -198,14 +233,19 @@ export function Select({
     <div className="bb-field">
       <FieldLabel id={sid} label={label} optional={optional} />
       <div className="bb-select-wrap">
-        <select id={sid} className={cls} {...rest}>
+        <select
+          id={sid}
+          className={cls}
+          aria-describedby={describedBy(ownDescribedBy, feedbackId)}
+          {...rest}
+        >
           {children}
         </select>
         <span className="bb-select__chevron">
           <Icon name="caret-down" />
         </span>
       </div>
-      <FieldFeedback error={error} hint={hint} />
+      <FieldFeedback id={fieldFeedbackId(sid)} error={error} hint={hint} />
     </div>
   );
 }
@@ -228,9 +268,11 @@ export function Textarea({
   rows = 4,
   id,
   className = "",
+  "aria-describedby": ownDescribedBy,
   ...rest
 }: TextareaProps) {
   const taId = id || nextFieldId("bb-textarea");
+  const feedbackId = feedbackFor(taId, error, hint);
   const cls = ["bb-input", "bb-textarea", error ? "bb-input--error" : "", className]
     .filter(Boolean)
     .join(" ");
@@ -238,8 +280,14 @@ export function Textarea({
   return (
     <div className="bb-field">
       <FieldLabel id={taId} label={label} optional={optional} />
-      <textarea id={taId} className={cls} rows={rows} {...rest} />
-      <FieldFeedback error={error} hint={hint} />
+      <textarea
+        id={taId}
+        className={cls}
+        rows={rows}
+        aria-describedby={describedBy(ownDescribedBy, feedbackId)}
+        {...rest}
+      />
+      <FieldFeedback id={fieldFeedbackId(taId)} error={error} hint={hint} />
     </div>
   );
 }
