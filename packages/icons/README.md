@@ -52,7 +52,7 @@ the installed version differs from the pin. To upgrade:
 formats). It imports `phosphor-fill.subset.css`, which is **generated, never hand-edited**: only
 the glyphs in the `IconName` union, copied from the installed sheet, and a woff2-only
 `@font-face`. Each app build therefore emits one font file (woff2, ~132 KB) instead of four
-(~3.8 MB), and the glyph CSS is ~1.7 KB gzipped instead of ~11.8 KB.
+(~3.8 MB), and the glyph CSS is ≤1.7 KB gzipped (standalone; ~1.3 KB inside the merged chunk) instead of ~11.8 KB.
 
 After adding a glyph to `src/names.ts` or bumping the pin:
 

@@ -8,7 +8,9 @@
  * renders.
  *
  * ADDING A GLYPH: add it here (keep the list sorted — the test enforces it), run
- * `pnpm --filter @badabhai/icons generate:subset`, and run this package's tests. Prefer an existing entry: one concept, one icon (see `ACTION_ICON`).
+ * `pnpm --filter @badabhai/icons generate:subset`, and run this package's tests. Prefer an
+ * existing entry: one concept, one icon (see `ACTION_ICON`). This file is also run natively by
+ * that script, so keep it erasable-only TypeScript (no enum / namespace, no imports).
  *
  * FILL ONLY. The brand allows solid, rounded silhouettes and nothing thinner, so this package
  * loads the fill sheet alone; there is no weight parameter anywhere in the API.

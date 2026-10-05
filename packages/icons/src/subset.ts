@@ -28,7 +28,8 @@ export const WOFF2_REQUEST = "@phosphor-icons/web/fill/Phosphor-Fill.woff2";
 
 /**
  * How the sheet writes it: `~` marks a module request for the css-loader Next ships (a bare
- * `url(pkg/…)` is resolved as `./pkg/…`, relative to this file, and fails the build).
+ * `url(pkg/…)` is resolved as `./pkg/…`, relative to this file, and fails the build). `~` is a
+ * webpack css-loader convention: re-verify this url before either app builds with Turbopack.
  */
 export const WOFF2_URL = `~${WOFF2_REQUEST}`;
 

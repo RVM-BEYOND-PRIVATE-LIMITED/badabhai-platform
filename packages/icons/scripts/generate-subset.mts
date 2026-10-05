@@ -4,8 +4,10 @@
  *
  *   pnpm --filter @badabhai/icons generate:subset
  *
- * Plain Node (type stripping, Node ≥ 22.18) — no build step and no extra dependency. The logic
+ * Plain Node (`--experimental-strip-types`, Node ≥ 22.6; CI never runs this file) — no build step and no extra dependency. The logic
  * lives in `src/subset.ts`, which `names.test.ts` also runs to prove the checked-in file is fresh.
+ * Because Node runs `src/names.ts` and `src/subset.ts` natively here, both must stay
+ * erasable-only TypeScript (no enum / namespace) with explicit-extension relative imports.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
