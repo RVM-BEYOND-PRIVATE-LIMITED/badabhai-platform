@@ -154,6 +154,30 @@ def test_the_certifier_withholds_an_identifier_even_with_the_g1_floor_off(
     _assert_absent(body, "9876543210")
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "call 9876\x00543210",
+        "anil\x00@example.com",
+        "W\x01elding, Anil Kumar",
+        "Fitter\t9876543210",
+        "W\x85elding, Anil Kumar",
+    ],
+)
+def test_a_value_carrying_a_control_character_is_withheld(
+    monkeypatch: pytest.MonkeyPatch, raw_pii: bool, value: str
+):
+    """The gateway and the G1 floor do not see through a control character ("9876\\x00543210"
+    certifies clean), and the profile strips them before certifying: the raw draft value must be
+    withheld, or the draft stores what the profile withheld (#1788 security review)."""
+    body = _extract(monkeypatch, {"skills": ["Tool offset setting", value], "primary_role": value})
+    draft = body["worker_profile_draft"]
+    assert draft["skills"] == ["Tool offset setting"]
+    # Withheld, or never overlaid (the G1 floor refuses some first and the heuristic role stands).
+    assert draft["primary_role"] != value
+    _assert_absent(draft, value, "9876", "Anil", "anil")
+
+
 # --- fail closed ---------------------------------------------------------------------------------
 
 
@@ -172,6 +196,26 @@ def test_a_certifier_error_withholds_every_draft_label(
     assert draft["primary_role"] is None
     for field in profile_extractor.MODEL_LABEL_LIST_FIELDS:
         assert draft[field] == []
+
+
+def test_the_deadline_branch_certifies_the_draft_too(
+    monkeypatch: pytest.MonkeyPatch, raw_pii: bool
+):
+    """The timeout return carries the heuristic draft; it goes through the same gate."""
+    heuristic, legacy = profile_extractor.extract("vmc chalata hu")
+    dirty = heuristic.model_copy(update={"skills": ["Tool offset setting", *_SUSPECT]})
+    monkeypatch.setattr(profile_extractor, "extract", lambda *_a, **_k: (dirty, legacy))
+
+    async def _timeout(*_a, **_kwargs):
+        raise TimeoutError
+
+    monkeypatch.setattr(main_module.router, "run", _timeout)
+    res = client.post("/profile/extract", json={"transcript": "vmc chalata hu"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["error_code"] == "extract_deadline_exceeded"
+    assert body["worker_profile_draft"]["skills"] == ["Tool offset setting"]
+    _assert_absent(body, *_SUSPECT_FRAGMENTS)
 
 
 def test_the_log_carries_a_count_never_the_value(

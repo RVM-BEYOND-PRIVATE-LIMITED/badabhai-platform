@@ -482,7 +482,7 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
 def _certified_draft(rich: WorkerProfileDraft) -> WorkerProfileDraft:
     """#1788 — the rich draft as it may be stored. It is returned as `worker_profile_draft` and
     stored as `worker_profiles.rich_profile_draft`, beside the legacy profile whose label lists
-    are certified, so its model-written labels go through the same certifier at this output
+    are certified, so every label it stores goes through the same certifier at this output
     boundary (`profile_extractor.certify_model_labels`). Applied at the RETURN, after every pass
     that reads `rich`, so canonicalization and the domain match see exactly what they did
     before. Logs a count only, never a value."""
