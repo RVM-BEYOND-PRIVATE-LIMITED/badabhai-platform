@@ -33,9 +33,10 @@ export type CompanionMessageDto = z.infer<typeof CompanionMessageSchema>;
  * THE LABELS ARE ADDITIVE (BUG-CARD-LABELS, 2026-09-30) and optional, so the shipped app, which
  * reads `section_label`/`before`/`after` only, is unchanged:
  *   - `field_label` — which field the row changes ("Travel kar sakte hain"); on a whole-entry
- *     delete (qualifications) the entry ("Yeh poora certificate"). A whole-job delete is never
- *     proposed ("Never from chat", owner 2026-10-01); "Yeh poora kaam" labels only a card stored
- *     before that ruling;
+ *     delete the entry itself ("Yeh poora certificate"). A whole-entry delete is never proposed
+ *     ("Never from chat": a job since 2026-10-01; a certificate/education/training since
+ *     TD151(1), 2026-10-05), so these entry labels only ever front a card stored before a
+ *     ruling, which the confirm refuses;
  *   - `before_display`/`after_display` — the worker-facing label of a CLOSED-SET value ("hindi" →
  *     "Hindi", "true" → "Haan", a role id → its taxonomy label); null when the value is free
  *     text, a date or a number (shown as typed), absent, or not in its dictionary.

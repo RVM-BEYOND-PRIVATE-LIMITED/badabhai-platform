@@ -146,17 +146,24 @@ def test_no_gold_message_is_quoted_in_the_edit_prompt():
     assert quoted == []
 
 
-def test_a_job_delete_is_never_an_expected_row():
-    """The owner's "Never from chat" ruling (2026-10-01): the job-delete lines expect NO rows,
-    and the trade lines expect the occupations delete — never an employment row."""
+def test_a_whole_entry_delete_is_never_an_expected_row():
+    """"Never from chat": no whole job (owner, 2026-10-01) and no whole certificate, education or
+    training (TD151(1) provisional default, 2026-10-05). Those lines expect NO rows, and the
+    trade lines expect the occupations delete — never an employment or qualification row."""
     by_text = dict(edit_gold.CASES)
     assert by_text["purana employer hata do"] == []
     assert by_text["Tata wala kaam delete karo"] == []
+    assert by_text["certificate hata do"] == []
+    assert by_text["education delete karo"] == []
+    assert by_text["training nikal do"] == []
+    assert by_text["ITI hata do"] == []
     trade_delete = [("delete", "occupations", "o1", "role_id", None)]
     assert by_text["welder hata do"] == trade_delete
     assert by_text["mujhe welder ka kaam nahi karna"] == trade_delete
     rows = [row for _text, expected in edit_gold.CASES for row in expected]
-    assert not [row for row in rows if row[0] == "delete" and row[1] == "employment"]
+    assert not [
+        row for row in rows if row[0] == "delete" and row[1] in ("employment", "qualifications")
+    ]
 
 
 def test_the_gold_catalogue_matches_the_api_catalogue():

@@ -93,12 +93,13 @@ CompanionEditParseOutput = {
 `field` is the LOGICAL name the model should use (e.g. `expected_salary`); the API maps it to its
 writer's DTO key itself. `ops` is the legal subset for that field, and the only place the code and
 the model both learn that **`add` exists only where ONE field defines the entry** — skills,
-languages, occupations. Qualifications are **edit/delete-only in chat** and employment is
-**edit-only** (an "add" request gets the profile-screen line), because a new employment or
-credential is inherently multi-field and the card carries one `value` per row (O5 caps a message
-at 3 rows). Employment offers no `delete` either — **"Never from chat"** (owner ruling,
-2026-10-01): chat never deletes a worker's whole job; that happens only on the Profile screen
-(§3.2). The catalogue is API-authored constants; it never carries worker text.
+languages, occupations. Qualifications and employment are **edit-only** (an "add" request gets the
+profile-screen line), because a new employment or credential is inherently multi-field and the card
+carries one `value` per row (O5 caps a message at 3 rows). Neither offers `delete` either —
+**"Never from chat"**: chat never deletes a worker's whole job (owner ruling, 2026-10-01) nor a
+whole certificate, education or training (TD151(1) provisional default, 2026-10-05; a carded
+whole-entry delete was the same one-Haan shape); that happens only on the Profile screen (§3.2).
+The catalogue is API-authored constants; it never carries worker text.
 
 **`field` on every row (audit fix, 2026-09-30).** The API resolves each row through its
 `(section, field)` catalogue entry before any op-specific check, so a row with `field: null` is
@@ -106,10 +107,10 @@ dropped whatever its op. The prompt therefore requires a catalogue `field` on ad
 delete, and the ai-service parser drops a field-less row itself (a row the API would drop anyway,
 so the observable contract is unchanged; the wire type stays `string | null` for Zod parity). For a
 delete, `field` is the row's anchor: its only field (skill, language, role, one list-preference
-member), else `certificate_name` / `education_field` / `training_name`. The API ignores it for the
-apply and shows that field's current value as the card's `before`. There is no employment anchor:
-since 2026-10-01 no employment field offers `delete` ("Never from chat", §3.2), and a request to
-remove a job gets no row and `other` in `unsupported`.
+member). A delete in qualifications no longer exists (TD151(1), 2026-10-05): a request to remove a
+certificate, education or training gets no row and `other` in `unsupported`, like a job request
+since 2026-10-01 ("Never from chat", §3.2). The `certificate_*` / `education_*` / `training_*`
+anchors stay named in the prompt only for a card stored before that date.
 
 **One token scope per edit-parse request (audit fix, 2026-09-30).** The endpoint pseudonymizes the
 message and every snapshot value with ONE request-scoped numbering (`pseudonymize(..., scope=)`),
@@ -167,7 +168,7 @@ existing writer. Identity and contact are absent by construction (O3).
 | `employment` | edit *(chat; `add` deferred by the 2026-09-29 single-field-adds ruling; `delete` removed by the 2026-10-01 "Never from chat" ruling — a whole job is deleted only on the Profile screen, §3.2)* | `WorkerEmploymentService` (`PUT /workers/me/employment`) | fields: employer, role, city, start/end or years | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (§3.1). Emits `worker.employment_recorded` v1. |
 | `skills` | add / delete | **RÉSUMÉ-ONLY writer (new, T7)** — owner ruling 2026-09-28 | worker-side/profile only: append/remove labels on the confirmed profile's résumé snapshot; NO `worker_skill` / `job_reach` writes, NO ADR-0030/job-domain canonicalization; matching untouched | **RULED (owner, 2026-09-28), resolving P1-OQ1.** The named `setWants` writer is an unwired seam that THROWS (`worker-skills.service.ts:187`). T7 builds a deterministic résumé-only skills writer that edits the profile snapshot the renderer prints (`raw_profile.resume_profile.skills` when the container carries values, else `raw_profile.skills` / `raw_profile.skill_labels`). The canonical column `worker_profiles.skills` and everything downstream of matching are deliberately NOT touched. |
 | `languages` | add / delete | `WorkerLanguagesService` | closed language list | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (whole-list replace, §3.1). Emits `worker.languages_recorded` v1. |
-| `qualifications` | edit / delete *(chat; `add` deferred by the 2026-09-29 single-field-adds ruling)* | `WorkerQualificationsService` | closed options endpoint | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (whole-list replace, 3 lists, §3.1). Emits `worker.qualifications_recorded` v1. |
+| `qualifications` | edit *(chat; `add` deferred by the 2026-09-29 single-field-adds ruling; `delete` removed by the TD151(1) provisional default, 2026-10-05 — a whole credential is deleted only on the Profile screen, §3.2)* | `WorkerQualificationsService` | closed options endpoint | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (whole-list replace, 3 lists, §3.1). Emits `worker.qualifications_recorded` v1. |
 | `occupations` | add / delete | `WorkerOccupationsService` | canonical ids only | Method + DTO confirmed. Repo opens its OWN transaction; no `tx` param. Additive `tx?: Database` required (whole-list replace, §3.1). Emits `worker.occupations_recorded` v1; also calls `WorkerSkillsService.rebuildQuietly` after the write. |
 | `preferences` | edit | `WorkerPreferencesService` | RULED 2026-09-29: `shift`, `preferred_cities`, `job_type`, `work_types`, `documents_ready`, `willing_to_travel`, `willing_to_relocate`, `accommodation_needed`, `availability`, `expected_salary`. `expected_salary` is the LOGICAL field and is written to `salary_expected_max` with `salary_expected_min` cleared (the only end that prints today). REMOVED from the catalogue: `salary_period`, `commute_max_km`, the four `education_*` keys. | Method + DTO confirmed. `WorkerAttributesRepository.upsertMany` / `deleteKeys` ALREADY accept `tx?: Database`; the service passes none. Emits `worker.preferences_recorded` v1. |
 
@@ -240,22 +241,27 @@ per-row gate at propose (the row is dropped, counted in `dropped_count`); the st
 stored row whose field its entry lacks is `stale`, never read as a matching `before: null`); and
 `edit-plan.ts`, which refuses a qualification row whose field names another list.
 
-**"Never from chat" — no whole-job delete (owner ruling, 2026-10-01).** The production primary
-model (`gemini-2.5-flash-lite`) read "welder hata do" (drop the TRADE `role_welder`) as
+**"Never from chat" — no whole-entry delete.** The production primary model
+(`gemini-2.5-flash-lite`) read "welder hata do" (drop the TRADE `role_welder`) as
 `delete employment e1` in 3 of 3 measured repeats (`docs/qa/evidence/companion-v2/2026-10-01/`),
 which the API carded as "Kaam · Yeh poora kaam" with the row pre-ticked, so one Haan would remove
-the worker's whole job. Chat may still EDIT every employment field;
-it never deletes one. Enforced twice in the API, whatever the model returns:
+the worker's whole job. The owner ruled on 2026-10-01 that chat never deletes a worker's whole job;
+TD151(1)'s provisional default (2026-10-05) extends the same rule to a whole certificate, education
+or training, which had the identical shape ("Yeh poora certificate", one Haan). Chat may still
+EDIT every employment and qualification field. Enforced twice in the API, whatever the model
+returns:
 
-- **At propose.** No employment field offers `delete` (§3), and `(section = employment, op =
-  delete)` is dropped as its own closed reason (`job_delete`) BEFORE the catalogue gate, whatever
-  field it anchors on. It counts in `dropped_count` when a card survives; when nothing survives the
-  worker gets `V2_EDIT_PLACEHOLDER` (§8). Each propose that drops one logs ONE line with counts, the
-  worker id and `reason=job_delete_from_chat` — never a value.
-- **At confirm** (a card stored before the deploy lives up to its 600 s TTL). A TICKED stored
-  employment delete is never applied: right after the claim the card is retired exactly as a stale
-  one — deleted, `cancelled(stale)`, 409 `{reason:"stale", turn}` — with nothing written, and the
-  same closed-reason log line. An unticked one is inert.
+- **At propose.** No employment or qualification field offers `delete` (§3), and a
+  `(section ∈ {employment, qualifications}, op = delete)` row is dropped as its own closed reason
+  (`whole_entry_delete`) BEFORE the catalogue gate, whatever field it anchors on. It counts in
+  `dropped_count` when a card survives; when nothing survives the worker gets
+  `V2_EDIT_PLACEHOLDER` (§8). Each propose that drops one logs ONE line with counts, the worker id
+  and a closed reason — `job_delete_from_chat`, `qualification_delete_from_chat`, or both — never a
+  value.
+- **At confirm** (a card stored before a ruling lives up to its 600 s TTL). A TICKED stored
+  employment or qualification delete is never applied: right after the claim the card is retired
+  exactly as a stale one — deleted, `cancelled(stale)`, 409 `{reason:"stale", turn}` — with nothing
+  written, and the same closed-reason log line. An unticked one is inert.
 
 The stale check matches a qualification row by `list` + `fp`, never by index, so a reordered list
 still finds the entry and an entry edited elsewhere does not; a stored row without `fp` (none exist
@@ -540,7 +546,7 @@ All fixed lines live in `companion-replies.ts` (v1 file, extended) with a Devana
 | `V2_EDIT_CARD_INTRO` | Yeh badlav karne hain? Dekh kar Haan dabaiye. |
 | `V2_EDIT_NONE` | Kya badalna hai, samajh nahi aaya. Thoda aur batayiye. — Served when no row survives and neither line below applies. |
 | `V2_EDIT_IDENTITY` | Naam aur phone Profile mein jaa kar badliye. — Served when no row survives and the model's `unsupported` names identity/contact OR the message itself names the worker's own name / phone / ID number (`v2/edit-identity.ts`, deterministic, 2026-09-30). |
-| `V2_EDIT_PLACEHOLDER` | Yeh badlav chat se nahi ho sakta. Profile mein jaa kar badliye. — **DRAFT (2026-09-30), pending owner review.** Served when no row survives, the identity line does not apply, and (a) at least one row was dropped for a placeholder token (O17: a masked company or person name chat can never write back), or (b) at least one was dropped as a whole-job delete ("Never from chat", 2026-10-01, §3.2), or (c) the model's `unsupported` names `other` — "things asked that cannot be edited here" (§2.2), so "not from chat, use Profile" is the true answer and rephrasing cannot help (2026-10-01; it used to get `V2_EDIT_NONE`). |
+| `V2_EDIT_PLACEHOLDER` | Yeh badlav chat se nahi ho sakta. Profile mein jaa kar badliye. — **DRAFT (2026-09-30), pending owner review.** Served when no row survives, the identity line does not apply, and (a) at least one row was dropped for a placeholder token (O17: a masked company or person name chat can never write back), or (b) at least one was dropped as a whole-entry delete ("Never from chat": a job, 2026-10-01; a certificate/education/training, TD151(1) 2026-10-05, §3.2), or (c) the model's `unsupported` names `other` — "things asked that cannot be edited here" (§2.2), so "not from chat, use Profile" is the true answer and rephrasing cannot help (2026-10-01; it used to get `V2_EDIT_NONE`). |
 | `V2_EDIT_DONE` | Badlav ho gaya. Aapka resume update ho raha hai. |
 | `V2_EDIT_DONE_CAPPED` | Badlav ho gaya. Resume abhi update nahi hua, baad mein Resume tab se update karein. — **DRAFT (2026-09-30), pending owner review.** Served for `capped` and `failed` (incl. no `resume_generation` consent). Replaces "Resume aaj update nahi ho sakta, kal ho jayega": nothing regenerates later on its own, so the line promises no time. **Owner question (2026-09-30, EDIT-RERENDER):** when this line is served the confirm now also re-renders the PDF with the live tables (§3.2), so an edit to work history, languages, qualifications, occupations or preferences DOES reach the PDF once that render runs; the line under-states that (only skills wait for a regeneration). Copy unchanged pending that review. |
 | `V2_EDIT_CANCELLED` | Theek hai, kuch nahi badla. |
