@@ -99,7 +99,10 @@ class PhoneNumberField extends StatelessWidget {
                           ),
                         ],
                         decoration: InputDecoration(
-                          hintText: 'XXXXXXXXXX',
+                          // A real 10-digit example, not a wall of X's — it reads
+                          // as "type your number like this" and matches exactly
+                          // what the field holds (digits only, no grouping).
+                          hintText: '9876543210',
                           hintStyle: OnboardingTypography.mono(
                             size: 16,
                             weight: FontWeight.w600,

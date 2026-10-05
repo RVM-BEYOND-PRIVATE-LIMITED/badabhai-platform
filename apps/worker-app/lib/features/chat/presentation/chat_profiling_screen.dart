@@ -2752,6 +2752,20 @@ class _ChatViewState extends State<_ChatView>
   /// chips plus two more, and in the scroller the later ones sit off-screen where
   /// a worker — and a test — cannot reach them. Routing is untouched: the tap
   /// still goes to [_sendChoice], which decides on the KEY.
+  /// TEMPORARY (owner request, 2026-10-05): hide the post-completion MENU chips
+  /// at the bottom of the BadaBhai chat — "Resume badlo" / "Naya resume" /
+  /// "Career ki baat" / "Naye jobs dekhein" — WITHOUT deleting any of them. Each
+  /// is wrapped in [Visibility] so the worker can still type a reply; flip
+  /// [_kShowCompanionMenuChips] back to `true` to restore the menu.
+  ///
+  /// Deliberately NOT hidden: the individual job chips (`companion_job:`), the
+  /// Jobs-tab chip and the Applied chip — the ask named only the menu.
+  static const bool _kShowCompanionMenuChips = false;
+
+  bool _hidesCompanionMenuChip(String optionKey) =>
+      !_kShowCompanionMenuChips &&
+      (isCompanionV2OnlyKey(optionKey) || optionKey == kCompanionNewJobsKey);
+
   Widget _companionActionChips(List<ChatOption> options) {
     // THE LEVER GATES THE DOOR TOO (ADR-0046 F4). v2-only chips are dropped on a
     // build whose lever is off — see [isCompanionV2OnlyKey] for why offering one
@@ -2765,6 +2779,11 @@ class _ChatViewState extends State<_ChatView>
     // Every chip on the turn was v2-only: draw NOTHING rather than an empty
     // padded column, so a lever-off build is byte-identical to v1.
     if (shown.isEmpty) return const SizedBox.shrink();
+    // Every remaining chip is a hidden MENU chip (owner request): draw nothing,
+    // so hiding the menu leaves no empty padded column behind.
+    if (shown.every((ChatOption o) => _hidesCompanionMenuChip(o.optionKey))) {
+      return const SizedBox.shrink();
+    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.s4,
@@ -2777,7 +2796,12 @@ class _ChatViewState extends State<_ChatView>
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           for (final ChatOption o in shown)
-            Padding(
+            // TEMPORARY (owner request): the menu chips are hidden via
+            // Visibility, not deleted — flip `_kShowCompanionMenuChips` to
+            // restore them. Job / Jobs-tab / Applied chips stay visible.
+            Visibility(
+              visible: !_hidesCompanionMenuChip(o.optionKey),
+              child: Padding(
               padding: const EdgeInsets.only(bottom: AppSpacing.s2),
               child: Semantics(
                 container: true,
@@ -2821,6 +2845,7 @@ class _ChatViewState extends State<_ChatView>
                   ),
                 ),
               ),
+            ),
             ),
         ],
       ),

@@ -624,7 +624,13 @@ void main() {
   // text and the classifier routes it (contracts §5.3). Nothing about it may
   // resolve to a client route — the test router has no resume-edit route, so a
   // client-side route would throw instead of POSTing.
-  testWidgets('a task chip POSTS its label as text', (WidgetTester tester) async {
+  // OWNER REQUEST (2026-10-05): the post-completion MENU chips — "Resume badlo" /
+  // "Naya resume" / "Career ki baat" / "Naye jobs dekhein" — are temporarily HIDDEN
+  // via Visibility (`_kShowCompanionMenuChips`), not deleted. The
+  // "server-answered, never client-routed" contract is unchanged in the code;
+  // this pins the hide and that the reply still renders.
+  testWidgets('the task MENU chip is hidden; the reply still renders',
+      (WidgetTester tester) async {
     companionSwitch(true);
     when(() => repo.openCompanion()).thenAnswer(
       (_) async => CompanionOpening(
@@ -644,16 +650,10 @@ void main() {
         ),
       ),
     );
-    when(() => repo.sendCompanionMessage(any(),
-            submissionId: any(named: 'submissionId')))
-        .thenAnswer((_) async => _companion('Theek hai.', const <ChatOption>[]));
     await pumpTab(tester);
 
-    await tester.tap(find.text('Resume badlo'));
-    await tester.pumpAndSettle();
-
-    verify(() => repo.sendCompanionMessage('Resume badlo',
-        submissionId: any(named: 'submissionId'))).called(1);
+    expect(find.text(_recap), findsOneWidget);
+    expect(find.text('Resume badlo'), findsNothing);
   });
 
   // ── ADR-0046 F1 — THE CARD EXPIRES WHILE THE WORKER IS LOOKING AT IT ───────
@@ -723,11 +723,14 @@ void main() {
         CompanionOpenOutcome.companion,
         ChatTurn(
           reply: 'Thodi der ruk jaayein.',
-          followups: const <String>['Naya resume'],
+          followups: const <String>['Kitna kharcha'],
+          // A NON-menu companion chip: the post-completion MENU chips are hidden
+          // by owner request (2026-10-05), so this proves the cool-down leaves
+          // the REMAINING chips tappable.
           suggestedOptions: const <ChatOption>[
             ChatOption(
-              optionKey: kCompanionTaskNewResumeKey,
-              labelText: 'Naya resume',
+              optionKey: 'Kitna kharcha',
+              labelText: 'Kitna kharcha',
             ),
           ],
           questionKind: ChatQuestionKind.disambiguate,
@@ -752,10 +755,10 @@ void main() {
         findsOneWidget);
     expect(find.textContaining('vyast'), findsNothing);
 
-    // THE CHIPS STILL WORK. A cooled-down worker must still reach their résumé.
-    await tester.tap(find.text('Naya resume'));
+    // THE REMAINING CHIPS STILL WORK while the composer is locked.
+    await tester.tap(find.text('Kitna kharcha'));
     await tester.pumpAndSettle();
-    verify(() => repo.sendCompanionMessage('Naya resume',
+    verify(() => repo.sendCompanionMessage('Kitna kharcha',
         submissionId: any(named: 'submissionId'))).called(1);
   });
 
@@ -895,7 +898,9 @@ void main() {
   });
 
   // ── #1821 F2 / #1824 F2 — THE P2 AND P3 TASK CHIPS ─────────────────────────
-  testWidgets('the new-resume and career-talk chips render and post their LABEL',
+  // OWNER REQUEST (2026-10-05): hidden via Visibility for now (not deleted), so
+  // they no longer render. The reply still renders.
+  testWidgets('the new-resume and career-talk MENU chips are hidden',
       (WidgetTester tester) async {
     companionSwitch(true);
     when(() => repo.openCompanion()).thenAnswer(
@@ -919,19 +924,59 @@ void main() {
         ),
       ),
     );
-    when(() => repo.sendCompanionMessage(any(),
-            submissionId: any(named: 'submissionId')))
-        .thenAnswer((_) async => _companion('Theek hai.', const <ChatOption>[]));
     await pumpTab(tester);
 
-    expect(find.text('Naya resume'), findsOneWidget);
-    expect(find.text('Career ki baat'), findsOneWidget);
-    // Neither resolves to a client route — the test router has none, so a
-    // client-side route would throw instead of POSTing.
-    await tester.tap(find.text('Career ki baat'));
-    await tester.pumpAndSettle();
-    verify(() => repo.sendCompanionMessage('Career ki baat',
-        submissionId: any(named: 'submissionId'))).called(1);
+    expect(find.text(_recap), findsOneWidget);
+    expect(find.text('Naya resume'), findsNothing);
+    expect(find.text('Career ki baat'), findsNothing);
+  });
+
+  // OWNER REQUEST (2026-10-05): exactly the four post-completion MENU chips are
+  // hidden; the individual job chip is deliberately left visible.
+  testWidgets('the four MENU chips are hidden; a job chip still renders',
+      (WidgetTester tester) async {
+    companionSwitch(true);
+    when(() => repo.openCompanion()).thenAnswer(
+      (_) async => CompanionOpening(
+        CompanionOpenOutcome.companion,
+        const ChatTurn(
+          reply: _recap,
+          suggestedOptions: <ChatOption>[
+            ChatOption(
+              optionKey: kCompanionTaskEditResumeKey,
+              labelText: 'Resume badlo',
+            ),
+            ChatOption(
+              optionKey: kCompanionTaskNewResumeKey,
+              labelText: 'Naya resume',
+            ),
+            ChatOption(
+              optionKey: kCompanionTaskCareerTalkKey,
+              labelText: 'Career ki baat',
+            ),
+            ChatOption(
+              optionKey: kCompanionNewJobsKey,
+              labelText: 'Naye jobs dekhein',
+            ),
+            ChatOption(
+              optionKey: 'companion_job:00000000-0000-4000-8000-000000000001',
+              labelText: 'CNC Operator — Pune',
+            ),
+          ],
+          questionKind: ChatQuestionKind.disambiguate,
+          companion: true,
+          digestKey: 'k1',
+        ),
+      ),
+    );
+    await pumpTab(tester);
+
+    expect(find.text('Resume badlo'), findsNothing);
+    expect(find.text('Naya resume'), findsNothing);
+    expect(find.text('Career ki baat'), findsNothing);
+    expect(find.text('Naye jobs dekhein'), findsNothing);
+    // The individual job chip is NOT part of the menu — it stays.
+    expect(find.text('CNC Operator — Pune'), findsOneWidget);
   });
 
   // ── ADR-0046 F4 — THE LEVER OFF IS TODAY'S SHIPPED STATE ───────────────────
