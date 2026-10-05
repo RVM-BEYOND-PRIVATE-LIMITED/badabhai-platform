@@ -326,6 +326,10 @@ abstract class PayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    /// ADR-0050 — the closed-set demand skills (`match_skill_ids`). OPTIONAL: an
+    /// empty/null pick sends nothing. Persists once the API adds the field
+    /// (#1960/#1957); today the route strips it.
+    List<String>? matchSkillIds,
   });
 
   /// The agency's own job postings (`GET /payer/agency/jobs` — a BARE array
@@ -367,6 +371,10 @@ abstract class PayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    /// ADR-0050 — the closed-set demand skills (`match_skill_ids`). A null list
+    /// is OMITTED (leaves the stored set alone); a passed list (including `[]`)
+    /// is sent, so `[]` clears it. Persists once the API adds the field.
+    List<String>? matchSkillIds,
     List<AgencyJobClearField>? clear,
   });
 
