@@ -13,6 +13,7 @@ import {
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers/payer-auth.guard";
+import { PayerRoleGuard, PayerRoles } from "../payers/payer-role.guard";
 import { JobPostingsService } from "../job-postings/job-postings.service";
 import { PostingPlansService, type PostingStats } from "../posting-plans/posting-plans.service";
 import { ResumeDisclosureService } from "../disclosures/resume-disclosure.service";
@@ -61,9 +62,16 @@ import {
  * session payer, never a body value — XB-A, so a payer can never buy under another payer's id
  * nor against another payer's posting). A `bb-security-review` PASS is the pre-merge gate
  * (external untrusted money boundary).
+ *
+ * EMPLOYER-ONLY WRITES (#1885, owner ruling 2026-10-01; GAP-FE-06): agencies post agency
+ * jobs to `jobs` via `/payer/agency/jobs`, never company postings. Every WRITE route here
+ * carries `@PayerRoles("employer")` — the SAME {@link PayerRoleGuard} mechanism (and the
+ * same 403) the agency surface uses in reverse. The READ routes (`list`, `getOne`) carry no
+ * role metadata, so an agent account that already owns `job_postings` rows keeps read-only
+ * access to them (the guard is a no-op without metadata); every write on them is refused.
  */
 @Controller("payer/job-postings")
-@UseGuards(PayerAuthGuard)
+@UseGuards(PayerAuthGuard, PayerRoleGuard)
 export class PayerJobPostingsController {
   constructor(
     private readonly jobPostings: JobPostingsService,
@@ -86,6 +94,7 @@ export class PayerJobPostingsController {
   /** Create a posting OWNED by the caller (status=draft). payer_id from the session. */
   @Post()
   @HttpCode(201)
+  @PayerRoles("employer")
   create(
     @Body(new ZodValidationPipe(PayerCreateJobPostingSchema)) dto: PayerCreateJobPostingDto,
     @CurrentPayer() payer: AuthenticatedPayer,
@@ -124,6 +133,7 @@ export class PayerJobPostingsController {
   /** Edit and/or publish (draft -> open) one of the caller's OWN postings. */
   @Patch(":id")
   @HttpCode(200)
+  @PayerRoles("employer")
   update(
     @Param("id", new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(UpdateJobPostingSchema)) dto: UpdateJobPostingDto,
@@ -136,6 +146,7 @@ export class PayerJobPostingsController {
   /** Close one of the caller's OWN postings (draft|open -> closed). Terminal. */
   @Post(":id/close")
   @HttpCode(200)
+  @PayerRoles("employer")
   close(
     @Param("id", new ParseUUIDPipe()) id: string,
     @CurrentPayer() payer: AuthenticatedPayer,
@@ -147,6 +158,7 @@ export class PayerJobPostingsController {
   /** Pause one of the caller's OWN LIVE postings (open -> paused; B1). Reversible. */
   @Post(":id/pause")
   @HttpCode(200)
+  @PayerRoles("employer")
   pause(
     @Param("id", new ParseUUIDPipe()) id: string,
     @CurrentPayer() payer: AuthenticatedPayer,
@@ -158,6 +170,7 @@ export class PayerJobPostingsController {
   /** Resume one of the caller's OWN paused postings (paused -> open; B1). */
   @Post(":id/resume")
   @HttpCode(200)
+  @PayerRoles("employer")
   resume(
     @Param("id", new ParseUUIDPipe()) id: string,
     @CurrentPayer() payer: AuthenticatedPayer,
@@ -176,6 +189,7 @@ export class PayerJobPostingsController {
    */
   @Post(":id/plan")
   @HttpCode(201)
+  @PayerRoles("employer")
   async buyPlan(
     @Param("id", new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(PayerBuyPlanSchema)) dto: PayerBuyPlanDto,
@@ -193,6 +207,7 @@ export class PayerJobPostingsController {
    */
   @Post(":id/boost")
   @HttpCode(201)
+  @PayerRoles("employer")
   async buyBoost(
     @Param("id", new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(PayerBuyBoostSchema)) dto: PayerBuyBoostDto,
@@ -214,6 +229,7 @@ export class PayerJobPostingsController {
    */
   @Post(":id/quota-topup")
   @HttpCode(201)
+  @PayerRoles("employer")
   async topUpQuota(
     @Param("id", new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(PayerTopUpQuotaSchema)) dto: PayerTopUpQuotaDto,

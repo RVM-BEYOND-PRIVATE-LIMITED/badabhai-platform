@@ -123,7 +123,7 @@ Stack traces are never leaked; `requestId` is for support correlation.
 | 204 | No Content (logout) | clear token |
 | 400 | Zod validation failure / bad lifecycle transition (e.g. closed job edit) | fix request; show field error from `error.message` |
 | 401 | Missing/invalid/expired Bearer | refresh once, retry; else re-login |
-| 403 | Rare on payer routes (mostly role mismatch on agent-only routes) | check role |
+| 403 | Role mismatch: an employer on an agent-only `/payer/agency/*` route, or an agent on a company-posting write (`/payer/job-postings` writes, chat publish — #1885). Body: `error.message` = `"Payer role is not permitted for this resource"` | check role; route agents to `/payer/agency/jobs` |
 | 404 | Unknown **or** not-owned resource (no-oracle) | treat as generic "not found" |
 | 429 | Rate limit exceeded (fail-closed) | back off; show neutral "try again later" |
 | 500 | Server error | retry with backoff; surface `requestId` |
@@ -212,10 +212,12 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 
 ### 4.2 Job Postings (Company / Employer)
 
-> Payer-owned postings live under `/payer/job-postings`. Ownership is enforced from the session; unknown-or-foreign IDs return a neutral `404`. The `/job-postings` (no `/payer`) routes are **OPS-ONLY, unauthenticated alpha** — do **not** call them from mobile (see appendix).
+> Payer-owned postings live under `/payer/job-postings`. Ownership is enforced from the session; unknown-or-foreign IDs return a neutral `404`.
+>
+> **Employer-only writes (#1885, owner ruling 2026-10-01).** Agencies post agency jobs to `/payer/agency/jobs` (§4.6), never company postings. Every WRITE here — `POST /payer/job-postings`, `PATCH /payer/job-postings/:id` (edit + publish), `POST …/:id/close`, `…/pause`, `…/resume`, `…/plan`, `…/boost`, `…/quota-topup` — and the AI chat `POST /payer/job-posting-chat/sessions/:id/publish` require `PayerRoleGuard` role=`employer`. An `agent` session gets `403` with the same body an employer gets on an agent-only route (`"Payer role is not permitted for this resource"`); the role check runs before validation and ownership, so the refusal is the same for any posting id. The READS (`GET /payer/job-postings`, `GET /payer/job-postings/:id`) stay open to both roles: a `job_postings` row an agent account created before the ruling is **read-only** for it (list/detail, and applicants via `/payer/reach`), and every write on it is refused. No rows were changed. The `/job-postings` (no `/payer`) routes are **OPS-ONLY, unauthenticated alpha** — do **not** call them from mobile (see appendix).
 
 #### `POST /payer/job-postings`
-- **Auth:** `PayerAuthGuard` (Bearer). Role: employer (primary); session-scoped.
+- **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer` (Bearer); session-scoped. Agent → `403`.
 - **Body:** `{ org_label: string, role_title: string (1–200, screened), location_label?: string, description?: string (1–2000, screened), vacancy_band?: '1'|'2-5'|'6-10'|'11-25'|'25+' | vacancies?: positive int, city?: string (1–80, screened as a place), area?: string (1–120, screened as a place), pay_min?: int, pay_max?: int, pay_type?: 'in_hand'|'gross'|'ctc', min_experience_years?: int, max_experience_years?: int, shift?: 'day'|'night'|'rotational', needed_by?: 'immediate'|'soon'|'flexible', benefits?: string[] (≤12 × ≤80 chars, screened), requirements?: string[] (same caps), role_kind?: RoleKind, match_skill_ids?: 'mskill_*'[], unticked_related_ids?: 'mskill_*'[] }` — **exactly one** of `vacancy_band` / `vacancies`. No `payer_id`/`created_by` (session-stamped).
 - **Response:** the full posting row — **snake_case on the wire** (`JobPostingApi`), including `city`, `area`, `pay_min`, `pay_max`, `pay_type`, `min_experience_years`, `max_experience_years`, `shift`, `needed_by`, `benefits`, `requirements`, `role_kind`, `match_skill_ids`, `reach_skill_ids`, `unticked_related_ids`, `status: 'draft'`, `created_at`, `updated_at`, `closed_at: null`. (This line used to list camelCase keys; the API has always returned snake_case here.)
 - **Events:** `job_posting.created` (actor `payer`; payload — `vacancy_band`, `status`, `has_location`, `has_description`, and `role_kind` (the closed enum value, or `null`) — never free text).
@@ -245,17 +247,17 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
   - **Deploy note:** an API older than migration 0131 strips this key silently (Zod), so clients must not ship a role picker ahead of the API.
 
 #### `GET /payer/job-postings`
-- **Auth:** `PayerAuthGuard` (Bearer).
+- **Auth:** `PayerAuthGuard` (Bearer). Any role. Scoped to the caller's own rows; for an agent those all predate #1885 and are read-only.
 - **Query:** `status?: 'draft'|'open'|'closed'`.
 - **Response:** array of posting rows (own only), newest-first, limit 100.
 - **Mobile gotchas:** Rows include `orgLabel`/`description` at REST; do not display raw company labels you didn't collect — treat as faceless. No applicant count in this projection.
 
 #### `GET /payer/job-postings/:id`
-- **Auth:** `PayerAuthGuard` (Bearer).
+- **Auth:** `PayerAuthGuard` (Bearer). Any role.
 - **Response:** posting row, or neutral `404` (unknown OR not-owned).
 
 #### `PATCH /payer/job-postings/:id`
-- **Auth:** `PayerAuthGuard` (Bearer).
+- **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer` (Bearer). Agent → `403`.
 - **Body:** every field `POST` accepts (see above), all optional, plus `status?: 'open'` — at least one field; `status` may only be `'open'` (publish draft→open). No `org_label`/`payer_id`.
 - **Response:** updated posting row.
 - **Events:** `job_posting.updated` (changed-field **keys** only; publish surfaces as `status` in keys). Keys added 2026-09-22: `area`, `experience` (ONE key for both ends of the window, as `pay_band` is one key for `pay_min`+`pay_max`), `pay_type`, `benefits`, `requirements`. Key added 2026-09-29: `role_kind` (its own key — a role change is never reported as `match_skills`). Additive enum widening — every shipped payload still validates, no version bump.
@@ -270,7 +272,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Mobile gotchas:** Lifecycle: `draft→open` publish only; `closed` is terminal (editing a closed posting → `400`/conflict). No-op edits rejected. Closing is a **separate** endpoint.
 
 #### `POST /payer/job-postings/:id/close`
-- **Auth:** `PayerAuthGuard` (Bearer).
+- **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer` (Bearer). Agent → `403`.
 - **Body:** empty.
 - **Response:** posting row with `status: 'closed'`, `closedAt` set. `404` unknown/foreign; `409` already closed.
 - **Events:** `job_posting.closed` (`previous_status`, `status: 'closed'`).
@@ -452,9 +454,9 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 | Concept | Value | Meaning |
 | --- | --- | --- |
 | Account role | `employer` | Company / direct hirer. Uses `/payer/job-postings/*`, capacity, unlocks, reach, credits. |
-| Account role | `agent` | Agency. Uses everything an employer can, **plus** `/payer/agency/*` (agency jobs, invites, referrals). |
+| Account role | `agent` | Agency. Posts agency jobs via `/payer/agency/*` (agency jobs, invites, referrals); shares capacity, unlocks, reach and credits with employers. **Cannot write company postings** (#1885) — reads its own pre-existing `job_postings` only. |
 
-- The role is set at account creation (`signup` `role`) and is carried in the JWT and returned by `login/verify` + `GET /payer/me`. Use it for UI gating, but **the backend enforces it** (`PayerRoleGuard` + `@PayerRoles('agent')` on `/payer/agency/*`). Do not rely on client-side role checks for security.
+- The role is set at account creation (`signup` `role`) and is carried in the JWT and returned by `login/verify` + `GET /payer/me`. Use it for UI gating, but **the backend enforces it** (`PayerRoleGuard` + `@PayerRoles('agent')` on `/payer/agency/*`; `@PayerRoles('employer')` on the `/payer/job-postings` writes and chat publish — #1885). Do not rely on client-side role checks for security.
 - **Owner vs recruiter (org-member roles): DOES NOT EXIST.** There is **no** team/multi-user surface. Each payer account is a **single principal** — one login = one account. Multi-user org RBAC (owner/recruiter) is a Phase-2+ feature with **no API today** (stubbed in payer-web only). Build the app as single-user-per-account; do not surface team management.
 
 Which surface each role can call:
@@ -462,7 +464,8 @@ Which surface each role can call:
 | Endpoint group | `employer` | `agent` |
 | --- | --- | --- |
 | Auth / `/payer/me` / credits / capacity | ✅ | ✅ |
-| `/payer/job-postings/*` | ✅ | ✅ (dual-role; not role-gated) |
+| `GET /payer/job-postings`, `GET /payer/job-postings/:id` | ✅ | ✅ (own rows only, read-only) |
+| `/payer/job-postings` writes (create, PATCH, close, pause, resume, plan, boost, quota-topup), `POST /payer/job-posting-chat/sessions/:id/publish` | ✅ | ❌ `403` (#1885) |
 | `/payer/unlocks/*`, `/payer/reach/*`, `/payer/resume-disclosures` | ✅ | ✅ |
 | `/payer/agency/*` (jobs, invites, referrals) | ❌ `403`/`404` | ✅ |
 

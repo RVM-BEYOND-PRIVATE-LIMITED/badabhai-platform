@@ -5,8 +5,9 @@ import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import type { RequestContext } from "../common/request-context";
 import type { PostingStats } from "../posting-plans/posting-plans.service";
 
-// job-postings is a SHARED demand surface (any payer role); cover both an agent and an
-// employer session. `role` is required on AuthenticatedPayer since the ADR-0022 role claim.
+// Writes here are employer-only at the guard (#1885 — payer-job-postings-role-authz.test.ts);
+// these tests call the controller directly (below the guard) to pin session-scoping, so they
+// still cover both roles. `role` is required on AuthenticatedPayer since the ADR-0022 role claim.
 const PAYER_A: AuthenticatedPayer = {
   id: "aaaaaaaa-0000-4000-8000-000000000001",
   sid: "sid-a",
