@@ -150,6 +150,40 @@ void main() {
     });
   });
 
+  group('outboundTradeKey (#1906)', () {
+    test('no single-trade filter → null (no server narrowing)', () {
+      expect(outboundTradeKey(_sel(), _feed), isNull);
+      expect(outboundTradeKey(_sel(trades: <String>{'CNC', 'VMC'}), _feed), isNull);
+    });
+
+    test('a family spanning several slugs → null (never over-narrow)', () {
+      // 'CNC' matches both, so narrowing to one slug would drop its sibling.
+      final List<FeedItem> jobs = <FeedItem>[
+        _job('c1', 'cnc_operator', 'CNC Operator'),
+        _job('c2', 'cnc_turner_operator', 'CNC Turner'),
+      ];
+      expect(outboundTradeKey(_sel(trades: <String>{'CNC'}), jobs), isNull);
+    });
+
+    test('a label that maps to exactly one real slug sends that slug', () {
+      final List<FeedItem> jobs = <FeedItem>[
+        _job('w1', 'welder', 'MIG Welder', city: 'Pune'),
+      ];
+      expect(outboundTradeKey(_sel(trades: <String>{'Welder'}), jobs), 'welder');
+    });
+
+    test('a V1 internal id (mskill_*) is never sent as trade_key', () {
+      final FeedItem v1 = _job('v1', 'mskill_mig_welder', 'MIG Welding');
+      expect(outboundTradeKey(_sel(trades: <String>{'MIG Welding'}), <FeedItem>[v1]),
+          isNull);
+    });
+
+    test('an empty queue → null (nothing to resolve from)', () {
+      expect(outboundTradeKey(_sel(trades: <String>{'Welder'}), <FeedItem>[]),
+          isNull);
+    });
+  });
+
   group('jobMatchesCities', () {
     test('empty selection matches every job', () {
       for (final FeedItem job in _feed) {

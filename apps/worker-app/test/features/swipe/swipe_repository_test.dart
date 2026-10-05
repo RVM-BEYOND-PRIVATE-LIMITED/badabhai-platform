@@ -120,4 +120,27 @@ void main() {
     expect(captured.url.path, '/applications/j1/apply');
     expect(captured.headers['authorization'], 'Bearer tok');
   });
+
+  // #1906 — a search-initiated apply must carry source_surface:'search', and the
+  // feed default stays 'feed'.
+  test('applyToJob forwards source_surface (default feed, search explicit)', () async {
+    final List<Map<String, dynamic>> bodies = <Map<String, dynamic>>[];
+    final SwipeRepositoryImpl repo = _repo(MockClient((http.Request req) async {
+      bodies.add(jsonDecode(req.body) as Map<String, dynamic>);
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'ok': true,
+          'application_id': 'a1',
+          'action': 'applied',
+        }),
+        200,
+      );
+    }));
+
+    await repo.applyToJob('j1', rank: 1);
+    await repo.applyToJob('j2', rank: 2, sourceSurface: 'search');
+
+    expect(bodies[0]['source_surface'], 'feed');
+    expect(bodies[1]['source_surface'], 'search');
+  });
 }
