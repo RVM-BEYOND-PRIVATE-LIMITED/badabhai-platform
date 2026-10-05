@@ -775,3 +775,116 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
   caller).
 - **Remaining:** the owner checklist in the README Status section (signatures, staging evals,
   30-answer review, copy review, rulings, then the box append), and TD146–TD150.
+
+---
+
+## WP1 — security: control characters in the career answer gate (#1943) — 2026-10-05
+
+- **Done:** `career-output.validator.ts` refuses `\p{Cc}` other than `\t \n \r` in every line and chip
+  (new closed failure reason `control_char`), closing the C0/C1 hole a Common-script character left:
+  `"Tata Steel L\u0001td"` and `"Tata Steel\u0085Ltd"` read as a legal suffix to the worker while
+  `looksLikeOrgName`/`looksLikePii` saw none. The grep for the same gap found the edit card: an
+  edit row whose VALUE carries a control is dropped by `validateRow`. Risks register **R57** added.
+  PR **#1972**; issue **#1943** fixed.
+- **Checks:** api 570 files / 13,851 passed · lint 0 errors · typecheck 30/30 · ai-contracts 140 ·
+  event-schema 388 · ai-service ruff clean; the 19 pytest failures are pre-existing environment
+  failures on `main` (resume extract/parse on this box).
+- **Notes / decisions / surprises:** the new failure reason is log/test-only, so no event change.
+- **Next:** none; re-measured only by the human's staging run.
+
+## WP2 — copy: the legal_medical_financial refusal — 2026-10-05
+
+- **Done:** the refusal now names all three domains — "Yeh kanoon, sehat ya paise ka mamla hai. Iske
+  liye vakil, doctor ya bank se salah lijiye." — with a matching Devanagari twin; the refusal-copy
+  loop now covers all five topics; a regression test pins the six domain words. `contracts.md` §8
+  updated. PR **#1974**.
+- **Checks:** api suite green; the line passes the persona suite automatically (ALL_COPY_PAIRS).
+- **Notes / decisions / surprises:** the draft sent a health question to a lawyer or a bank.
+- **Next:** owner copy review (checklist 4).
+
+## WP3 — edit-path safety: qualification deletes Profile-only (TD151(1)) — 2026-10-05
+
+- **Done:** qualifications are EDIT-only; `wholeEntryDelete()` generalises `isWholeJobDelete`; a
+  qualification delete is dropped at propose as `whole_entry_delete` (counts-only
+  `reason=qualification_delete_from_chat`), the prompt routes credential removals to `other`, the
+  eval gold expects no row, and a stored ticked delete is refused at confirm. Frontend issue
+  **#1977** raised for TD151(2) (unticked destructive rows). Register TD151(1) → done (provisional).
+  PR **#1978**.
+- **Checks:** api 570 / 13,856 · ai-service companion pytest 96 pass · ruff clean.
+- **Notes / decisions / surprises:** the apply-plan's qualification-delete branch is kept as defence
+  in depth and now pinned by a PURE plan test instead of through confirm.
+- **Next:** owner sign-off; re-arm `companion_edit_parse` only after the paid eval passes.
+
+## WP4 — edit-parse quality: list fields and prompt pass — 2026-10-05
+
+- **Done:** `v2/edit-normalise.ts` (pure) expands an `edit` on a list member into `delete old` +
+  `add new` before validation, fail closed on ambiguity; the edit prompt gains the measured miss
+  categories (lists, job city vs preferred cities, karta/aata verb, year-only dates, chahiye/notice/
+  institute, Latin values, proper-name casing); the gold set adds the credential "hata do" cases.
+  PR **#1988**.
+- **Checks:** api 572 / 14,022 · ai-service companion 96 pass · ruff clean.
+- **Notes:** the real accuracy is the human's staging re-run; no paid calls made here.
+- **Next:** human `--edit-parse` run with `--expect-model gemini-2.5-flash-lite`.
+
+## WP5 — classify latency — 2026-10-05
+
+- **Done:** classify prompt 1085 chars / 178 words → 791 / 116; `max_output_tokens` 64 → 48
+  (worst-case answer ~15 tokens); json_mode/temperature 0 already in place; production routing to
+  `default_cheap_model` (`gemini-2.5-flash-lite`) and the eval CLI's fallback-run failure confirmed.
+  PR **#1986**.
+- **Checks:** ai-service suite + ruff green; api suite green.
+- **Notes:** before/after recorded in the PR body; the p95 on the primary is the human's measurement.
+- **Next:** human `--classify` run.
+
+## WP6 — route precedence (TD146) — 2026-10-05
+
+- **Done:** new flag `CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED` (default false) wired through
+  config/env/compose/ci/deploy preflight/guards. On: a chip tap stores a one-shot pending intent
+  (Redis, 10 min, GETDEL); `edit-precheck.ts` routes edit verb + field phrasings to the edit
+  handler; a v1 weak alias goes to the classifier; every named v1 intent keeps its zero-model
+  answer. Off is v1 byte-for-byte. PR **#1994**.
+- **Checks:** api 573 / 14,065 · config 200 · both deploy guard tests · boot test.
+- **Notes:** the three TD146 phrasings change behaviour only with the flag on.
+- **Next:** human turns the flag on in staging, then production (checklist).
+
+## WP7 — career validator (TD147) — 2026-10-05
+
+- **Done:** new `employers` module (employer-name repository + decrypting, normalising, 15-min TTL
+  index) run by the career handler after the pure validator; `SENSITIVE` narrowed (case/policy/
+  doctor removed, each with must-pass and must-refuse tests); µ/Ω allowed as units. Served-rate
+  replay on the stored `career-all.json`: **51/51 = 100.0 %** (bar 85 %), PASS. PR **#1996**.
+- **Checks:** api 602 / 14,180 · employers suite 24 · validator 214 · ruff clean.
+- **Notes:** the index lives outside `chat-companion` because that leaf's egress boot test forbids
+  the PII-crypto import; the module imports neither chat nor any chat-table writer.
+- **Next:** owner sign-off; the paid red-team/served-rate re-run is human.
+
+## WP8 — event v2s and in-flight idempotency (TD150) — 2026-10-05
+
+- **Done:** `turn_served_v3` (`chip`), `edit_cancelled_v2` (`worker_declined`/`expired`/`stale`/
+  `superseded`), `edit_confirmed_v2` (`skipped_no_consent`), `edit_rolled_back` v1, strike/career v2
+  with `submission_id`; `CompanionTurnReplayStore.claim/release` (SET NX EX 60 s) makes a concurrent
+  duplicate answer `V2_IN_FLIGHT` with no model call, strike, memory write or event. Contracts
+  §4/§7/§8 updated. PR **#1997**.
+- **Checks:** api 602 / 14,194 · event-schema 398 · ai-contracts 140 · lint/typecheck green.
+- **Notes:** additive only; the old emitters moved to the new names so nothing double-counts.
+- **Next:** none.
+
+## WP9 — cost alert docs (TD149) — 2026-10-05
+
+- **Done:** README provisional-rulings table created with the TD149 row ("O12 is satisfied by the
+  admin dashboard; no push alert until an alerting channel exists") and `ai_cost_alert_profile_inr`
+  fixed ₹20 → ₹5 (it sat above the ₹10 per-call ceiling and could never trip). PR **#1998**.
+- **Checks:** test_ai_router 32 pass · ruff clean.
+- **Notes:** `ai_target_profile_cost_inr` (₹15) deliberately out of scope and documented.
+- **Next:** owner accepts the dashboard-only ruling in writing (or asks for a channel).
+
+## WP10 — docs and status — 2026-10-05
+
+- **Done:** README Status + checklist + provisional-rulings table completed; this PROGRESS entry
+  per WP; tech-debt-register TD146/147/149/150/151 rows updated with statuses and PR numbers.
+  PR **#<WP10-PR>**.
+- **Checks:** docs-only; api/ai-service gates unchanged from WP9's run and re-run in the PR.
+- **Notes:** the remaining items are human-only: ADR signatures, the paid staging evals, the
+  30-answer review, the box's `AI_REAL_CALL_TASKS` append, arming the route-precedence flag, the
+  0130 ledger adoption, and the manual test script.
+- **Next:** the owner's steps, in the order in the final report.
