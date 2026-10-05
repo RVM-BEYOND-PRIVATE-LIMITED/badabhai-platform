@@ -26,6 +26,13 @@ import { ADMIN_CAPABILITIES, type AdminCapability } from "../lib/auth/capabiliti
  * making the read branches on it explicitly with `can(…, "<capability>")` — the "degrade the
  * extra read with a clean state" pattern the dashboard, `/system` and `/roles` use.
  *
+ * Limits, stated so nobody over-reads a pass: the degrade check is FILE-wide (a `can(…)` anywhere
+ * in the reading file counts, not only one wrapping the read), and reads made through a server
+ * action (`"use server"`) are out of scope — those are user-triggered, not page renders. What the
+ * parser cannot see fails loudly instead of passing: an API GET route with no capability outside
+ * {@link SESSION_ONLY_ROUTES}, a lib `adminFetch` this file did not map, and a page read no API
+ * route serves all fail below.
+ *
  * This is a UX consistency check, not the security boundary: the API re-checks every request.
  */
 
@@ -47,6 +54,9 @@ const walk = (dir: string): string[] =>
   });
 
 // ── the API side ────────────────────────────────────────────────────────────────────────────
+
+/** GET routes that are authenticated but deliberately carry no capability (the session itself). */
+const SESSION_ONLY_ROUTES = ["admin/me"];
 
 interface ApiRoute {
   segments: string[];
@@ -73,19 +83,28 @@ function apiGetRoutes(): ApiRoute[] {
   return routes;
 }
 
-/** The API route a request path hits — the most literal match, as Nest's own ordering resolves. */
+/**
+ * The API route a request path hits. Scored per segment — literal = literal beats param = param,
+ * which beats a param matched against a literal — so `/admin/events/:param` resolves to
+ * `events/:id`, never to whichever of `events/metrics` / `events/export` is declared first.
+ */
 function routeFor(routes: ApiRoute[], path: string): ApiRoute | undefined {
   const segs = path.split("/").filter(Boolean);
-  let best: { route: ApiRoute; literal: number } | undefined;
+  let best: { route: ApiRoute; score: number } | undefined;
   for (const route of routes) {
     if (route.segments.length !== segs.length) continue;
-    let literal = 0;
+    let score = 0;
     const ok = route.segments.every((s, i) => {
-      if (s.startsWith(":") || segs[i]!.startsWith(":")) return true;
-      if (s === segs[i]) return ++literal > 0;
-      return false;
+      const apiParam = s.startsWith(":");
+      const webParam = segs[i]!.startsWith(":");
+      if (apiParam && webParam) score += 1;
+      else if (!apiParam && !webParam) {
+        if (s !== segs[i]) return false;
+        score += 2;
+      }
+      return true;
     });
-    if (ok && (!best || literal > best.literal)) best = { route, literal };
+    if (ok && (!best || score > best.score)) best = { route, score };
   }
   return best?.route;
 }
@@ -226,13 +245,38 @@ const lib = libReads();
 const pages = walk(PORTAL).filter((f) => f.endsWith("page.tsx"));
 
 describe("the source this test derives from is where it expects", () => {
-  it("finds the API's admin GET routes, each with a known capability or none", () => {
+  it("finds the API's admin GET routes, each with a known capability", () => {
     expect(routes.length).toBeGreaterThan(20);
     for (const r of routes) {
-      if (r.capability !== null) {
+      const path = r.segments.join("/");
+      if (r.capability === null) {
+        // A decorator above `@Get`, a class-level one, or a missing one all read as null here —
+        // so null is allowed only where it is the design, never silently skipped.
+        expect(SESSION_ONLY_ROUTES, `${path} has no @RequireAdminRole below its @Get`).toContain(
+          path,
+        );
+      } else {
         expect(ADMIN_CAPABILITIES as readonly string[]).toContain(r.capability);
       }
     }
+  });
+
+  it("maps every adminFetch in lib/ — a fetcher it cannot parse fails here, not silently", () => {
+    const mapped = [...lib.values()].reduce(
+      (n, m) => n + [...m.values()].reduce((k, rs) => k + rs.length, 0),
+      0,
+    );
+    const calls = walk(join(SRC, "lib"))
+      .filter((f) => /\.tsx?$/.test(f) && !f.includes(".test.") && !f.endsWith("admin-http.ts"))
+      .filter((f) => !f.endsWith(join("auth", "session.ts"))) // `/admin/me`: the session read
+      .reduce((n, f) => n + (read(f).match(/\badminFetch(?:<[^>]*>)?\(/g) ?? []).length, 0);
+    expect(mapped).toBe(calls);
+  });
+
+  it("resolves a param path to the param route, not a literal sibling", () => {
+    expect(routeFor(routes, "/admin/events/:param")?.segments.join("/")).toBe("admin/events/:id");
+    expect(routeFor(routes, "/admin/events/metrics")?.capability).toBe("read_events");
+    expect(routeFor(routes, "/admin/events/export")?.capability).toBe("export");
   });
 
   it("finds the portal's pages and the lib reads they make", () => {
@@ -271,8 +315,10 @@ describe("every page is gated on every capability its reads need (or degrades th
       const a = analysePage(page, lib);
       expect(a.directFetches, "reads must go through lib/ so this test can see them").toEqual([]);
       for (const r of a.reads.filter((x) => !x.public)) {
-        const cap = routeFor(routes, r.path)?.capability as AdminCapability | null | undefined;
-        if (!cap || a.gates.has(cap)) continue;
+        const route = routeFor(routes, r.path);
+        expect(route, `${name} reads ${r.path}, which no API GET route serves`).toBeDefined();
+        const cap = route!.capability as AdminCapability | null;
+        if (cap === null || a.gates.has(cap)) continue;
         const degraded = new RegExp(`\\bcan\\([^)]*"${cap}"\\s*\\)`).test(read(r.file));
         expect(
           degraded,
