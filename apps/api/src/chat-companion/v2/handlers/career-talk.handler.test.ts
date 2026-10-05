@@ -93,7 +93,13 @@ describe("CareerTalkHandler (ADR-0046 P3) — the one model-written answer", () 
   });
 
   it("a refusal serves the REVIEWED copy for its topic, never the model's words", async () => {
-    for (const topic of ["salary_promise", "named_employer", "worker_rating"] as const) {
+    for (const topic of [
+      "salary_promise",
+      "legal_medical_financial",
+      "named_employer",
+      "worker_rating",
+      "unsafe_other",
+    ] as const) {
       const h = setup({ status: "refuse", topic, ai_metadata: META });
       const { turn, outcome } = await h.handler.handle(input());
       expect(outcome).toBe("refused");
@@ -103,6 +109,18 @@ describe("CareerTalkHandler (ADR-0046 P3) — the one model-written answer", () 
         outcome: "refused",
         refusal_topic: topic,
       });
+    }
+  });
+
+  it("legal_medical_financial names all three domains (README checklist item 4, 2026-10-05)", () => {
+    // The draft sent a health question to "a lawyer or a bank". The fixed line names the law,
+    // health and money halves and the professional each goes to.
+    const { latin, dev } = V2_CAREER_REFUSE.legal_medical_financial;
+    for (const word of ["kanoon", "sehat", "paise", "vakil", "doctor", "bank"]) {
+      expect(latin).toContain(word);
+    }
+    for (const word of ["कानून", "सेहत", "पैसे", "वकील", "डॉक्टर", "बैंक"]) {
+      expect(dev).toContain(word);
     }
   });
 

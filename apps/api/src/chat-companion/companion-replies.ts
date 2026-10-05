@@ -425,6 +425,10 @@ export const V2_FALTU_COOLDOWN: CopyPair = {
  * model refuses, the worker reads THIS copy, never the model's wording (O9) — so each line is
  * persona-checked fixed text with its Devanagari twin, and the model's only contribution is
  * choosing the topic.
+ *
+ * `legal_medical_financial` was fixed 2026-10-05 (README checklist item 4): the draft line said
+ * "Yeh kanoon ya paise ka mamla hai… vakil ya bank…", which sent a health question to a lawyer or
+ * a bank. It now names all three: kanoon, sehat, paise — vakil, doctor, bank.
  */
 export const V2_CAREER_REFUSE: Readonly<Record<CompanionV2CareerRefusalTopic, CopyPair>> = {
   salary_promise: {
@@ -432,8 +436,9 @@ export const V2_CAREER_REFUSE: Readonly<Record<CompanionV2CareerRefusalTopic, Co
     dev: "सैलरी के आँकड़े मैं नहीं बता सकता। यह बात आप खुद तय कीजिए।",
   },
   legal_medical_financial: {
-    latin: "Yeh kanoon ya paise ka mamla hai. Iske liye vakil ya bank se salah lijiye.",
-    dev: "यह कानून या पैसे का मामला है। इसके लिए वकील या बैंक से सलाह लीजिए।",
+    latin:
+      "Yeh kanoon, sehat ya paise ka mamla hai. Iske liye vakil, doctor ya bank se salah lijiye.",
+    dev: "यह कानून, सेहत या पैसे का मामला है। इसके लिए वकील, डॉक्टर या बैंक से सलाह लीजिए।",
   },
   named_employer: {
     latin: "Main kisi ka naam nahi bata sakta. Naye jobs aap Jobs tab me dekh lijiye.",
