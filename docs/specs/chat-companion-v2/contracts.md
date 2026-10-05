@@ -477,6 +477,18 @@ A recognised tap never sends its label to a model (it names a task, not a reques
 No memory pair is stored for a tap, and the NEXT message goes through the normal order (v1 first);
 routing it straight to the chip's handler would be a v1 bypass, which is an owner decision.
 
+**Decision taken provisionally — TD146 / WP6 (2026-10-05), behind
+`CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED` (default off).** With the flag on, a tap on
+`companion_task:edit_resume` / `:career_talk` stores a **pending intent** for that worker (Redis,
+10-minute TTL, one-shot) and the next free-text message routes straight to that handler — no v1
+resolver, no classifier. A second tap replaces it; another chip clears it; a take consumes it.
+Also with the flag on, a narrow reviewed table (`v2/edit-precheck.ts`: an edit verb + a field
+word) routes edit phrasings to the edit handler BEFORE v1, and a v1 **weak alias** (the résumé
+menu's substring aliases, the résumé/greeting words, the bare `kaam`) goes to the classifier
+instead of answering with the menu/recap; every NAMED v1 intent (exact chips, the menu's chips,
+jobs, applications, guarantee, status) keeps its zero-model answer. With the flag off the flow is
+byte-for-byte today's, pinned by `companion-v2.v1-first.test.ts`.
+
 ## 6. Flags and knobs
 
 Server (`packages/config`, `docs/environment-variables.md`, `ci.yml` deploy env list):
@@ -488,6 +500,7 @@ Server (`packages/config`, `docs/environment-variables.md`, `ci.yml` deploy env 
 | `CHAT_COMPANION_V2_NEW_RESUME_ENABLED` | `false` | P2 |
 | `CHAT_COMPANION_V2_FALTU_ENABLED` | `false` | P2 |
 | `CHAT_COMPANION_V2_CAREER_ENABLED` | `false` | P3 |
+| `CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED` | `false` | TD146/WP6 — a chip tap leaves a pending intent (10 min, one-shot) and the edit pre-check runs before v1; off is v1 byte-for-byte |
 | `CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE` | `0.6` | Below → `unclear` |
 | `CHAT_COMPANION_V2_EDIT_MAX_ROWS` | `3` | O5 |
 | `CHAT_COMPANION_V2_PROPOSAL_TTL_SECONDS` | `600` | Edit card lifetime |
@@ -510,6 +523,7 @@ client. All keys are prefixed `companion:v2:`.
 | `mem:{workerId}` | list, pseudonymized turns, capped at `MEMORY_TURNS` | `MEMORY_TTL_SECONDS` | orchestrator | classify/answer without memory |
 | `proposal:{workerId}` | JSON (one active proposal per worker; a new one replaces it) | `PROPOSAL_TTL_SECONDS` + 300 s grace (the card itself still ends at `expires_at`; the grace only lets a late tap be recorded `expired`, §4) | edit service | no card is offered: "abhi badlav nahi ho paaya, thodi der mein try karein" |
 | `proposal-claim:{workerId}:{proposalId}` | flag, `SET NX` — one Haan/Nahi per card | same as the proposal record | edit service (confirm / cancel; released on a rollback) | confirm applies nothing and serves the card again; cancel proceeds (it writes nothing) |
+| `pending-intent:{workerId}` | string, `edit_resume` / `career_talk` | 600 s (fixed, not a knob) | task-chip tap (`set`, replaces); next free-text message (`GETDEL`, one-shot); any other chip (`DEL`) | no pending intent: the message takes the normal v1-first path |
 | `strikes:{workerId}:{utcDay}` | counter | 24 h | faltu handler | no strike counted |
 | `cooldown:{workerId}` | flag | `FALTU_COOLDOWN_MINUTES` | faltu handler | no cool-down |
 | `turn:{workerId}:{submissionId}` | JSON, the v2 turn served for a v1-miss message | 600 s | orchestrator | fail open: the retry is processed as a new message |
