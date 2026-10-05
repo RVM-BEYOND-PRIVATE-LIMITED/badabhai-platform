@@ -46,7 +46,7 @@ describe("v2 off: the v1 paths are untouched", () => {
     ).toBe(true);
     // NEVER the v2 event name, whatever the text was.
     for (const call of h.events.emit.mock.calls) {
-      expect((call[0] as { event_name: string }).event_name).not.toBe("chat.companion_turn_served_v2");
+      expect((call[0] as { event_name: string }).event_name).not.toBe("chat.companion_turn_served_v3");
     }
   });
 

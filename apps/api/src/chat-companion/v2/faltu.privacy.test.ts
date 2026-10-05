@@ -88,6 +88,9 @@ function setup(
   const replayRedis = {
     get: vi.fn(async (_key: string) => null as string | null),
     set: vi.fn(async (_key: string, _value: string, _mode: "EX", _seconds: number) => "OK"),
+    // WP8: the in-flight claim's release (SET NX is a no-op here; `get` never
+    // returns a held value and the orchestrator still processes the message).
+    del: vi.fn(async (_key: string) => 0),
   };
   const replays = new CompanionTurnReplayStore({
     client: Promise.resolve(replayRedis),
@@ -140,7 +143,7 @@ describe("faltu privacy (ADR-0046 P2) — the abusive message never leaves the r
     // The turn event records the lexicon as the source, the intent, and nothing about the text.
     const turnEvent = h.events.emit.mock.calls
       .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
-      .find((e) => e.event_name === "chat.companion_turn_served_v2")!;
+      .find((e) => e.event_name === "chat.companion_turn_served_v3")!;
     expect(turnEvent.payload).toMatchObject({ intent_source: "lexicon", v2_intent: "faltu" });
     for (const call of h.events.emit.mock.calls) {
       const serialized = JSON.stringify(call[0]);
@@ -151,8 +154,12 @@ describe("faltu privacy (ADR-0046 P2) — the abusive message never leaves the r
     // The strike event is a count and a boolean — nothing else.
     const strike = h.events.emit.mock.calls
       .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
-      .find((e) => e.event_name === "chat.companion_faltu_strike")!;
-    expect(Object.keys(strike.payload).sort()).toEqual(["cooldown_started", "strike_count"]);
+      .find((e) => e.event_name === "chat.companion_faltu_strike_v2")!;
+    expect(Object.keys(strike.payload).sort()).toEqual([
+      "cooldown_started",
+      "strike_count",
+      "submission_id",
+    ]);
   });
 
   it("no log line contains the message, even when the strike event fails to write", async () => {
@@ -200,7 +207,7 @@ describe("faltu privacy (ADR-0046 P2) — the abusive message never leaves the r
       expect(logs).not.toContain("gadhe");
       const turnEvent = h.events.emit.mock.calls
         .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
-        .find((e) => e.event_name === "chat.companion_turn_served_v2")!;
+        .find((e) => e.event_name === "chat.companion_turn_served_v3")!;
       expect(turnEvent.payload).toMatchObject({ intent_source: "llm", v2_intent: "faltu" });
     });
 
@@ -243,8 +250,10 @@ describe("faltu privacy — the replay cache holds the redirect, never the messa
         NOW,
       );
       expect(turn.reply).toBe(V2_FALTU_REDIRECT.latin);
-      expect(h.replayRedis.set).toHaveBeenCalledTimes(1);
-      const [key, value] = h.replayRedis.set.mock.calls[0]!;
+      // WP8: `set` also carries the in-flight claim; the replay write is found by its key.
+      const replayWrite = h.replayRedis.set.mock.calls.find((c) => c[0] === KEY);
+      expect(replayWrite).toBeDefined();
+      const [key, value] = replayWrite!;
       expect(key).toBe(KEY);
       expect(JSON.parse(value)).toEqual(turn);
       for (const secret of [text, insult, "Ramesh", "Kumar", "9876543210"]) {

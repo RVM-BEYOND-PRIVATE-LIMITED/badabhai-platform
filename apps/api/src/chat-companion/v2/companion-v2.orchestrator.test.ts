@@ -19,6 +19,7 @@ import { CompanionHandlerRegistry } from "./handlers/registry";
 import {
   V2_CAREER_ASK,
   V2_CLARIFY,
+  V2_IN_FLIGHT,
   V2_EDIT_ASK,
   V2_EDIT_CARD_INTRO,
   V2_FALTU_COOLDOWN,
@@ -100,10 +101,17 @@ function setup(
   };
   // An in-memory stand-in for the Redis replay cache, keyed exactly as the store keys it.
   const replayed = new Map<string, unknown>();
+  const held = new Set<string>();
   const replays = {
     read: vi.fn(async (w: string, s: string) => replayed.get(`${w}:${s}`) ?? null),
     remember: vi.fn(async (w: string, s: string, turn: unknown) => {
       replayed.set(`${w}:${s}`, turn);
+    }),
+    // WP8: the in-flight claim. One shared set of held ids, so a concurrent-duplicate test can
+    // hold an id while the first call is still running.
+    claim: vi.fn(async (w: string, s: string) => (held.has(`${w}:${s}`) ? "held" : "claimed")),
+    release: vi.fn(async (w: string, s: string) => {
+      held.delete(`${w}:${s}`);
     }),
   };
   const registry = new CompanionHandlerRegistry(
@@ -134,7 +142,7 @@ function setup(
     // TD146/WP6 — the pending-intent store; unused unless the route-precedence flag is on.
     { set: vi.fn(async () => undefined), take: vi.fn(async () => null), clear: vi.fn(async () => undefined) } as never,
   );
-  return { orchestrator, ai, memory, edits, events, cost, faltuStore, replays, config };
+  return { orchestrator, ai, memory, edits, events, cost, faltuStore, replays, held, config };
 }
 
 const emitted = (events: { emit: { mock: { calls: unknown[][] } } }) =>
@@ -153,7 +161,7 @@ describe("CompanionV2Orchestrator — the turn pipeline (ADR-0046 §2.1)", () =>
     expect(h.edits.propose).toHaveBeenCalledWith(WORKER, PROFILE, "masked text", CTX, NOW);
 
     const event = emitted(h.events);
-    expect(event.event_name).toBe("chat.companion_turn_served_v2");
+    expect(event.event_name).toBe("chat.companion_turn_served_v3");
     expect(event.payload).toMatchObject({
       trigger: "message",
       intent: "fallback",
@@ -166,7 +174,7 @@ describe("CompanionV2Orchestrator — the turn pipeline (ADR-0046 §2.1)", () =>
       job_chips_count: 0,
     });
     // The payload is exactly what the merged contract accepts.
-    const parsed = EVENT_REGISTRY["chat.companion_turn_served_v2"].payload.safeParse(event.payload);
+    const parsed = EVENT_REGISTRY["chat.companion_turn_served_v3"].payload.safeParse(event.payload);
     expect(parsed.success).toBe(true);
 
     // ADR-0046 O12 — the classify spend is recorded against `companion_classify` before any
@@ -277,7 +285,7 @@ describe("CompanionV2Orchestrator — the turn pipeline (ADR-0046 §2.1)", () =>
       NOW,
     );
     expect(emitted(h.events).idempotencyKey).toBe(
-      `chat.companion_turn_served_v2:message:${WORKER}:44444444-4444-4444-8444-444444444444`,
+      `chat.companion_turn_served_v3:message:${WORKER}:44444444-4444-4444-8444-444444444444`,
     );
   });
 
@@ -305,7 +313,7 @@ describe("CompanionV2Orchestrator — the turn pipeline (ADR-0046 §2.1)", () =>
     });
   });
 
-  it("handleTaskChip (P2): deterministic routing, no classifier, no memory, v1_deterministic", async () => {
+  it("handleTaskChip (P2): deterministic routing, no classifier, no memory, chip source", async () => {
     const h = setup({ newResumeEnabled: true });
     const turn = await h.orchestrator.handleTaskChip(
       WORKER,
@@ -321,7 +329,7 @@ describe("CompanionV2Orchestrator — the turn pipeline (ADR-0046 §2.1)", () =>
     expect(h.ai.companionClassify).not.toHaveBeenCalled();
     expect(h.memory.append).not.toHaveBeenCalled();
     expect(emitted(h.events).payload).toMatchObject({
-      intent_source: "v1_deterministic",
+      intent_source: "chip",
       v2_intent: "new_resume",
       confidence_bucket: null,
       outcome: "served",
@@ -361,7 +369,7 @@ describe("CompanionV2Orchestrator — the turn pipeline (ADR-0046 §2.1)", () =>
     // The handler emits `chat.companion_career_answered` FIRST, so find the turn event by name.
     const turnEvent = on.events.emit.mock.calls
       .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
-      .find((e) => e.event_name === "chat.companion_turn_served_v2")!;
+      .find((e) => e.event_name === "chat.companion_turn_served_v3")!;
     expect(turnEvent.payload).toMatchObject({ v2_intent: "career_talk", outcome: "fallback" });
   });
 });
@@ -370,7 +378,7 @@ describe("a TAPPED task chip names a task — no model ever reads its label", ()
   const chipEvent = (h: ReturnType<typeof setup>) =>
     h.events.emit.mock.calls
       .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
-      .find((e) => e.event_name === "chat.companion_turn_served_v2")!;
+      .find((e) => e.event_name === "chat.companion_turn_served_v3")!;
 
   it("'Resume badlo' serves the fixed ask line: no edit-parse call, no snapshot, no memory", async () => {
     const h = setup({ newResumeEnabled: true, careerEnabled: true });
@@ -391,7 +399,7 @@ describe("a TAPPED task chip names a task — no model ever reads its label", ()
     expect(h.ai.companionClassify).not.toHaveBeenCalled();
     expect(h.memory.append).not.toHaveBeenCalled();
     expect(chipEvent(h).payload).toMatchObject({
-      intent_source: "v1_deterministic",
+      intent_source: "chip",
       v2_intent: "edit_resume",
       confidence_bucket: null,
       outcome: "served",
@@ -416,7 +424,7 @@ describe("a TAPPED task chip names a task — no model ever reads its label", ()
     // No `chat.companion_career_answered`: nothing was answered.
     expect(
       h.events.emit.mock.calls.some(
-        (c) => (c[0] as { event_name: string }).event_name === "chat.companion_career_answered",
+        (c) => (c[0] as { event_name: string }).event_name === "chat.companion_career_answered_v2",
       ),
     ).toBe(false);
   });
@@ -541,7 +549,7 @@ describe("a RETRIED submission (same submission_id) is answered once", () => {
     expect(retry).toEqual(first);
     expect(h.faltuStore.countStrike).toHaveBeenCalledTimes(1);
     const strikes = h.events.emit.mock.calls.filter(
-      (c) => (c[0] as { event_name: string }).event_name === "chat.companion_faltu_strike",
+      (c) => (c[0] as { event_name: string }).event_name === "chat.companion_faltu_strike_v2",
     );
     expect(strikes).toHaveLength(1);
   });
@@ -608,6 +616,54 @@ describe("a RETRIED submission (same submission_id) is answered once", () => {
     await h.orchestrator.handleMessage(WORKER, PROFILE, { text: "x" }, CTX, NOW);
     expect(h.replays.read).not.toHaveBeenCalled();
     expect(h.replays.remember).not.toHaveBeenCalled();
+  });
+
+  it("TD150/WP8: a CONCURRENT duplicate (the claim is held) waits — no classify, no strike, no memory, no event", async () => {
+    const h = setup({ faltuEnabled: true });
+    // Simulate the first request still running: its claim is held in the shared set.
+    h.held.add(`${WORKER}:${SID}`);
+    const turn = await h.orchestrator.handleMessage(
+      WORKER,
+      PROFILE,
+      { text: "Hindi hata do", submission_id: SID },
+      CTX,
+      NOW,
+    );
+
+    expect(turn.reply).toBe(V2_IN_FLIGHT.latin);
+    expect(turn.tts_text).toBe(V2_IN_FLIGHT.dev);
+    expect(h.ai.pseudonymize).not.toHaveBeenCalled();
+    expect(h.ai.companionClassify).not.toHaveBeenCalled();
+    expect(h.edits.propose).not.toHaveBeenCalled();
+    expect(h.faltuStore.countStrike).not.toHaveBeenCalled();
+    expect(h.memory.append).not.toHaveBeenCalled();
+    expect(h.events.emit).not.toHaveBeenCalled();
+    expect(h.replays.remember).not.toHaveBeenCalled();
+    // The claim it could not take is also not released by the duplicate.
+    expect(h.held.has(`${WORKER}:${SID}`)).toBe(true);
+  });
+
+  it("the claim is released after the turn, so a later retry replays rather than waits", async () => {
+    const h = setup();
+    const dto = { text: "Hindi hata do", submission_id: SID };
+    const first = await h.orchestrator.handleMessage(WORKER, PROFILE, dto, CTX, NOW);
+    expect(h.held.has(`${WORKER}:${SID}`)).toBe(false);
+    expect(h.replays.release).toHaveBeenCalledWith(WORKER, SID);
+    expect(await h.orchestrator.handleMessage(WORKER, PROFILE, dto, CTX, NOW)).toEqual(first);
+  });
+
+  it("a claim Redis refuses is fail-open: the duplicate is processed as before", async () => {
+    const h = setup();
+    h.replays.claim.mockResolvedValueOnce("unavailable" as never);
+    const turn = await h.orchestrator.handleMessage(
+      WORKER,
+      PROFILE,
+      { text: "Hindi hata do", submission_id: SID },
+      CTX,
+      NOW,
+    );
+    expect(turn).toBe(CARD);
+    expect(h.ai.companionClassify).toHaveBeenCalledTimes(1);
   });
 });
 
