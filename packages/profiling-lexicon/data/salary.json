@@ -14,7 +14,7 @@
   ],
 
   "matcher": {
-    "source": "(?:₹|rs\\.?|inr)?\\s*([0-9०-९]{1,3}(?:[,0-9०-९]*)(?:\\.[0-9०-९]+)?)\\s*((?:k|thousand|hazaar|hazar|hajar|hzr|lakh|lac|l){WE})?",
+    "source": "(?:(?:₹|rs\\.?|inr)\\s*|(?<!\\s)\\s+)?([0-9०-९]{1,3}(?:[,0-9०-९]*)(?:\\.[0-9०-९]+)?)\\s*((?:k|thousand|hazaar|hazar|hajar|hzr|lakh|lac|l){WE})?",
     "flags": "i"
   },
   "$comment_matcher": [
@@ -32,7 +32,14 @@
     "direction, and the differential over 500 probes shows no change.",
     "",
     "The unit alternation is thousandUnits ++ lakhUnits IN THAT ORDER. A test asserts it, so",
-    "the lists below and this pattern cannot drift apart."
+    "the lists below and this pattern cannot drift apart.",
+    "",
+    "A BARE WHITESPACE RUN IS READ ONLY FROM ITS FIRST CHARACTER (#1935, R55): the lead is",
+    "`(?:(?:₹|rs\\.?|inr)\\s*|(?<!\\s)\\s+)?`, never `(?:₹|rs\\.?|inr)?\\s*`. The old lead let",
+    "every position of a run start a match that scanned to its end, so ANY run with no digit",
+    "after it was O(k^2): 'hello' + 16,000 spaces + 'world' took 25 s. A scan from the start of the",
+    "text (finditer, search, matchAll) already began each match on the run's first character, so",
+    "no span moves; a search STARTED inside a run would. Pinned by test_profile_matchers_linear.py."
   ],
 
   "thousandUnits": ["k", "thousand", "hazaar", "hazar", "hajar", "hzr"],
