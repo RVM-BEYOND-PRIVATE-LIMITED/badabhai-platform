@@ -87,19 +87,18 @@ Rules:
 - "edit" and "delete" must use a "ref" from CURRENT VALUES. Never invent a ref.
 - "add" has no ref and needs a field and a value. "edit" needs a ref, a field and a value.
   "delete" needs a ref and a field, and its value is null.
-- For "delete", "field" is the field that names the row being removed: the row's only field
-  (a skill, a language, a trade's "role_id", one preferred city, work type or document), or
-  "certificate_name" for a certificate, "education_field" for an education and "training_name"
-  for a training.
+- For "delete", "field" is the row's only field: a skill, a language, a trade's "role_id", or
+  one preferred city, work type or document. "delete" exists only where the catalogue offers it.
 - "occupations" are the trades the worker does or wants work in: one "role_id" is one trade.
   "employment" is the worker's jobs, one row per employer; a job's "role_label" is only that
-  job's title.
+  job's title. "qualifications" are the worker's certificates, education and trainings; each is
+  one row, and a request to remove one is "other" (below).
 - Removing a trade, or saying the worker no longer wants that work, is a "delete" of that
   "occupations" row ONLY (for example "carpenter nikal do" or "mujhe VMC operator ka kaam ab
   nahi chahiye"). It never touches an "employment" row.
-- A job can only be edited here, never removed. If the worker asks to remove a job or an
-  employer (for example "Bajaj wali naukri hata do"), propose no row for it and put "other" in
-  "unsupported".
+- A job, certificate, education or training can only be EDITED here, never removed. If the
+  worker asks to remove one (for example "Bajaj wali naukri hata do" or "ITI certificate delete
+  karo"), propose no row for it and put "other" in "unsupported".
 - Propose at most the number of rows given as "max_rows". Keep the most important changes.
 - If the worker asks to change a name, a phone number, a photo or an ID document, propose no row;
   put "identity" or "contact" in "unsupported" instead.

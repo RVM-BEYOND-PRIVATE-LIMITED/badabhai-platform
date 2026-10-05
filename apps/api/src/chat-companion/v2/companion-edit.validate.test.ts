@@ -64,14 +64,15 @@ describe("CompanionEditService.propose — every drop rule (spec §Edit step 3)"
     );
   });
 
-  it("a qualification DELETE is carded; an employment DELETE never is ('Never from chat')", async () => {
-    // The A4 eval caught `delete` allowed on no field, so every qualification delete was silently
-    // dropped; the field is only the row's ANCHOR. Employment is the opposite on purpose since
-    // the owner's 2026-10-01 ruling: a whole job is deleted only on the Profile screen.
+  it("whole-entry deletes — a job or a qualification — are never carded ('Never from chat')", async () => {
+    // Employment since the owner ruling of 2026-10-01; qualifications since TD151(1)'s provisional
+    // default of 2026-10-05, which mirrors it. Both are dropped before the catalogue gate, and a
+    // member-level delete on the card beside them survives.
     const h = setup({
       parse: parse([
         row({ op: "delete", section: "employment", ref: "e1", field: "employer_name", value: null }),
         row({ op: "delete", section: "qualifications", ref: "c1", field: "certificate_name", value: null }),
+        row({ op: "delete", section: "languages", ref: "l1", field: "language", value: null }),
       ]),
       employmentViews: [
         {
@@ -87,17 +88,18 @@ describe("CompanionEditService.propose — every drop rule (spec §Edit step 3)"
       qualificationLists: {
         certificates: [{ name: "ITI Machinist", issuer: "NCVT", year: 2018, licence_number: null, licence_expiry: null }],
       },
+      languageEntries: [LANGUAGE_HINDI],
     });
     vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     const { turn } = await h.service.propose(WORKER_ID, profileRow(), "purana kaam hata do", CTX);
     expect(turn.edit_proposal?.rows).toHaveLength(1);
     expect(turn.edit_proposal?.rows[0]).toMatchObject({
-      section_label: "Certificate aur padhai",
-      field_label: "Yeh poora certificate",
+      section_label: "Bhasha",
+      field_label: "Bhasha",
       op: "delete",
     });
     expect(savedRows(h).map((r) => r.op)).toEqual(["delete"]);
-    expect(proposedPayload(h)).toMatchObject({ row_count: 1, dropped_count: 1 });
+    expect(proposedPayload(h)).toMatchObject({ row_count: 1, dropped_count: 2 });
   });
 
   it("sends the catalogue, the snapshot and max_rows to the AI service", async () => {
@@ -272,7 +274,6 @@ function proposedPayload(h: ReturnType<typeof setup>): { dropped_count: number; 
 }
 
 const CERT_A = { name: "ITI Fitter", issuer: "NCVT", year: 2016, licence_number: null, licence_expiry: null };
-const CERT_B = { name: "Welding Level 2", issuer: "L&T", year: 2018, licence_number: null, licence_expiry: null };
 const EMPLOYMENT = {
   employment_id: "66666666-6666-4666-8666-666666666666",
   employer_name: "Tata Motors",
@@ -370,27 +371,29 @@ describe("one card row per change (P1-EDIT-NOOP, contracts-privacy BUG-2)", () =
     expect(proposedPayload(h).dropped_count).toBe(1);
   });
 
-  it("two deletes of ONE entry (different anchor fields) are one delete", async () => {
+  it("two deletes of ONE member (different anchor fields) are one delete", async () => {
+    // A member delete names its ROW; the field is only its anchor (skills and languages are
+    // one-field rows, so the same entry can only be reached through that field).
     const h = setup({
       parse: parse([
-        row({ op: "delete", section: "qualifications", ref: "c1", field: "certificate_name", value: null }),
-        row({ op: "delete", section: "qualifications", ref: "c1", field: "certificate_year", value: null }),
+        row({ op: "delete", section: "preferences", ref: "pc1", field: "preferred_cities", value: null }),
+        row({ op: "delete", section: "preferences", ref: "pc1", field: "preferred_cities", value: null }),
       ]),
-      qualificationLists: { certificates: [CERT_A, CERT_B] },
+      preferenceValues: { preferred_cities: ["Pune", "Mumbai"] },
     });
-    await h.service.propose(WORKER_ID, profileRow(), "pehla certificate hatao", CTX);
+    await h.service.propose(WORKER_ID, profileRow(), "Pune hata do", CTX);
     expect(savedRows(h)).toHaveLength(1);
   });
 
-  it("an edit of an entry the same card deletes is dropped — the delete says it all", async () => {
+  it("a second language delete of the same entry is dropped", async () => {
     const h = setup({
       parse: parse([
-        row({ op: "delete", section: "qualifications", ref: "c1", field: "certificate_name", value: null }),
-        row({ op: "edit", section: "qualifications", ref: "c1", field: "certificate_year", value: "2017" }),
+        row({ op: "delete", section: "languages", ref: "l1", field: "language", value: null }),
+        row({ op: "delete", section: "languages", ref: "l1", field: "language", value: null }),
       ]),
-      qualificationLists: { certificates: [CERT_A, CERT_B] },
+      languageEntries: [LANGUAGE_HINDI],
     });
-    await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+    await h.service.propose(WORKER_ID, profileRow(), "Hindi hata do", CTX);
     expect(savedRows(h).map((r) => r.op)).toEqual(["delete"]);
   });
 
@@ -538,20 +541,25 @@ describe("every card row explains itself (BUG-CARD-LABELS, POLISH-language-slugs
     });
   });
 
-  it("a whole-entry delete is labelled as the entry, whatever field the model anchored on", async () => {
+  it("a qualification EDIT names the FIELD, not the entry — no 'Yeh poora certificate' row exists any more", async () => {
+    // TD151(1) (2026-10-05): a qualification whole-entry delete is no longer carded, so a
+    // certificate row the worker can act on is an EDIT of one field and is labelled as that
+    // field. The "Yeh poora certificate" label survives only for a card stored before the ruling.
     const h = setup({
       parse: parse([
-        row({ op: "delete", section: "qualifications", ref: "c1", field: "certificate_year", value: null }),
+        row({ op: "edit", section: "qualifications", ref: "c1", field: "certificate_year", value: "2019" }),
       ]),
       qualificationLists: { certificates: [CERT_A] },
     });
-    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "ITI wala certificate hatao", CTX);
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "certificate ka saal 2019 kar do", CTX);
     expect(turn.edit_proposal?.rows[0]).toMatchObject({
       section_label: "Certificate aur padhai",
-      field_label: "Yeh poora certificate",
-      op: "delete",
+      field_label: "Certificate ka saal",
+      op: "edit",
       before: "2016",
+      after: "2019",
       before_display: null,
+      after_display: null,
     });
   });
 
@@ -671,16 +679,16 @@ describe("the snapshot fits the edit-parse contract (BUG-SNAPSHOT-CAP)", () => {
 
 describe("a row's field must belong to the entry its ref names (EDIT-ROW-KIND)", () => {
   // The model's output is untrusted. `q1` is an education and `certificate_name` is a
-  // qualifications field, so a section check alone passed `delete q1 certificate_name` — and the
-  // apply, which goes by the ref's list, would delete the education under a card that said
-  // "Yeh poora certificate" with no value.
+  // qualifications field, so a section check alone passed `q1 certificate_name` — and the apply,
+  // which goes by the ref's list, would edit the education's field as though it were a
+  // certificate's (the delete form of this rule is moot since TD151(1), 2026-10-05).
   const EDU = { credential: "iti", field: "Fitter", council: "ncvt", year: 2016, institute: "Govt ITI" };
   const TRAINING = { name: "CNC basics", provider: "NTTF", year: 2020 };
 
   it.each([
-    ["a certificate field on an education (delete)", row({ op: "delete", section: "qualifications", ref: "q1", field: "certificate_name", value: null })],
-    ["an education field on a certificate (delete)", row({ op: "delete", section: "qualifications", ref: "c1", field: "education_year", value: null })],
-    ["a training field on a certificate (edit)", row({ op: "edit", section: "qualifications", ref: "c1", field: "training_year", value: "2019" })],
+    ["a certificate field on an education", row({ op: "edit", section: "qualifications", ref: "q1", field: "certificate_name", value: "ITI Fitter" })],
+    ["an education field on a certificate", row({ op: "edit", section: "qualifications", ref: "c1", field: "education_year", value: "2019" })],
+    ["a training field on a certificate", row({ op: "edit", section: "qualifications", ref: "c1", field: "training_year", value: "2019" })],
     ["a scalar preference on a city member", row({ op: "edit", section: "preferences", ref: "pc1", field: "shift", value: "night" })],
     ["a list preference on the scalar row", row({ op: "delete", section: "preferences", ref: "pref", field: "preferred_cities", value: null })],
     ["one list's member deleted as another list's", row({ op: "delete", section: "preferences", ref: "pc1", field: "work_types", value: null })],
@@ -696,27 +704,28 @@ describe("a row's field must belong to the entry its ref names (EDIT-ROW-KIND)",
     expect(h.proposals.save).not.toHaveBeenCalled();
   });
 
-  it("the same entry anchored on its OWN field is carded, and labelled as that entry", async () => {
+  it("the same entry anchored on its OWN field is carded", async () => {
     const h = setup({
       parse: parse([
-        row({ op: "delete", section: "qualifications", ref: "q1", field: "education_council", value: null }),
+        row({ op: "edit", section: "qualifications", ref: "q1", field: "education_council", value: "scvt" }),
       ]),
       qualificationLists: { certificates: [CERT_A], educations: [EDU] },
     });
-    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "ITI wali padhai hatao", CTX);
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "council SCVT hai", CTX);
     expect(turn.edit_proposal?.rows).toHaveLength(1);
     expect(turn.edit_proposal?.rows[0]).toMatchObject({
       section_label: "Certificate aur padhai",
-      field_label: "Yeh poori padhai",
-      op: "delete",
+      field_label: "Council / board",
+      op: "edit",
       before: "ncvt",
+      after: "scvt",
     });
   });
 
   it("a mis-kinded row beside a good one: the card carries the good row only, dropped counted", async () => {
     const h = setup({
       parse: parse([
-        row({ op: "delete", section: "qualifications", ref: "q1", field: "certificate_name", value: null }),
+        row({ op: "edit", section: "qualifications", ref: "q1", field: "certificate_name", value: "ITI" }),
         row({ op: "edit", section: "preferences", ref: "pref", field: "shift", value: "night" }),
       ]),
       qualificationLists: { educations: [EDU] },
@@ -728,7 +737,7 @@ describe("a row's field must belong to the entry its ref names (EDIT-ROW-KIND)",
   });
 });
 
-describe("'Never from chat' — chat never deletes a whole job (owner ruling, 2026-10-01)", () => {
+describe("'Never from chat' — chat never deletes a whole job (owner ruling, 2026-10-01); see the qualification twin below", () => {
   // The production primary model (gemini-2.5-flash-lite), measured 3/3: "welder hata do" (drop the
   // TRADE) came back as `delete employment e1`, because the snapshot shows "Welder" only as the
   // job's role_label. The card said "Kaam · Yeh poora kaam", pre-ticked, so one Haan would remove
@@ -888,5 +897,132 @@ describe("'Never from chat' — chat never deletes a whole job (owner ruling, 20
     const employment = input.catalogue.filter((f) => f.section === "employment");
     expect(employment).toHaveLength(7);
     for (const entry of employment) expect(entry.ops).toEqual(["edit"]);
+  });
+});
+
+describe("qualification whole-entry deletes are Profile-only (TD151(1), 2026-10-05)", () => {
+  // The 2026-10-01 "Never from chat" ruling covered jobs; TD151(1) extends it to the credentials
+  // that kept the same shape ("Yeh poora certificate" on one Haan). The pins below are the three
+  // the task names: "ITI hata do", "certificate hata do", and a trade word that appears only
+  // inside a certificate (ITI Fitter / ITI Turner), which must never become a delete of the
+  // certificate — or of anything else whole.
+  const CERTIFICATES = [
+    { name: "ITI Fitter", issuer: "NCVT", year: 2016, licence_number: null, licence_expiry: null },
+    { name: "ITI Turner", issuer: "NCVT", year: 2018, licence_number: null, licence_expiry: null },
+  ];
+  const SAFETY_EDU = { credential: "10th", field: "Science", council: "CBSE", year: 2014, institute: null };
+  const SAFETY_TRAINING = { name: "Safety", provider: "NIMI", year: 2021 };
+
+  let warn: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    warn.mockClear();
+  });
+  afterEach(() => warn.mockRestore());
+
+  const warnLines = (): string[] => warn.mock.calls.map((c) => String(c[0]));
+
+  it.each([
+    ["ITI hata do", "c1", "certificate_name"],
+    ["ITI Turner hata do", "c2", "certificate_name"],
+    ["certificate hata do", "c1", "certificate_year"],
+    ["padhai hata do", "q1", "education_field"],
+    ["training hata do", "t1", "training_name"],
+  ])(
+    "%j read as a whole-entry delete: no card, the Profile-screen line, nothing saved",
+    async (text, ref, field) => {
+      const h = setup({
+        parse: parse([row({ op: "delete", section: "qualifications", ref, field, value: null })]),
+        qualificationLists: {
+          certificates: CERTIFICATES,
+          educations: [SAFETY_EDU],
+          trainings: [SAFETY_TRAINING],
+        },
+      });
+      const result = await h.service.propose(WORKER_ID, profileRow(), text, CTX);
+
+      expect(result.turn.reply).toBe(V2_EDIT_PLACEHOLDER.latin);
+      expect(result.turn.tts_text).toBe(V2_EDIT_PLACEHOLDER.dev);
+      expect(result.outcome).toBe("served");
+      expect(result.turn.edit_proposal).toBeUndefined();
+      expect(h.proposals.save).not.toHaveBeenCalled();
+      expect(h.db.transaction).not.toHaveBeenCalled();
+
+      // ONE counts-only line, reason names the entry kind, never a value.
+      const lines = warnLines().filter((line) => line.includes("reason=qualification_delete_from_chat"));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain(WORKER_ID);
+      expect(lines[0]).toContain("1 of 1 rows");
+      for (const line of warnLines()) {
+        expect(line).not.toContain("ITI");
+        expect(line).not.toContain("Turner");
+        expect(line).not.toContain("Fitter");
+      }
+    },
+  );
+
+  it("a trade word inside a certificate beside a clean edit: only the edit is carded", async () => {
+    // "welder" never names an occupations row here; the model reaches for the certificate that
+    // mentions it. The delete is dropped and counted; the year edit beside it survives.
+    const h = setup({
+      parse: parse([
+        row({ op: "delete", section: "qualifications", ref: "c1", field: "certificate_name", value: null }),
+        row({ op: "edit", section: "qualifications", ref: "c2", field: "certificate_year", value: "2019" }),
+      ]),
+      qualificationLists: { certificates: CERTIFICATES },
+    });
+    const { turn, outcome } = await h.service.propose(WORKER_ID, profileRow(), "welder wala certificate hata do", CTX);
+
+    expect(outcome).toBe("proposed");
+    expect(turn.edit_proposal?.rows).toHaveLength(1);
+    expect(turn.edit_proposal?.rows[0]).toMatchObject({
+      section_label: "Certificate aur padhai",
+      field_label: "Certificate ka saal",
+      op: "edit",
+      after: "2019",
+    });
+    expect(savedRows(h).map((r) => r.op)).toEqual(["edit"]);
+    expect(proposedPayload(h)).toMatchObject({ row_count: 1, dropped_count: 1 });
+    expect(warnLines().filter((line) => line.includes("reason=qualification_delete_from_chat"))).toHaveLength(1);
+  });
+
+  it("a job delete and a qualification delete on one card share ONE counts-only line with both reasons", async () => {
+    const h = setup({
+      parse: parse([
+        row({ op: "delete", section: "employment", ref: "e1", field: "employer_name", value: null }),
+        row({ op: "delete", section: "qualifications", ref: "c1", field: "certificate_name", value: null }),
+      ]),
+      employmentViews: [EMPLOYMENT],
+      qualificationLists: { certificates: CERTIFICATES },
+    });
+    const result = await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+    expect(result.turn.reply).toBe(V2_EDIT_PLACEHOLDER.latin);
+    const lines = warnLines().filter((line) => line.includes("whole-entry delete"));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("reason=job_delete_from_chat,qualification_delete_from_chat");
+    expect(lines[0]).toContain("2 of 2 rows");
+  });
+
+  it("a qualification EDIT still works: 'certificate ka saal 2019 kar do' is carded", async () => {
+    const h = setup({
+      parse: parse([
+        row({ op: "edit", section: "qualifications", ref: "c1", field: "certificate_year", value: "2019" }),
+      ]),
+      qualificationLists: { certificates: CERTIFICATES },
+    });
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "certificate ka saal 2019 kar do", CTX);
+    expect(turn.edit_proposal?.rows).toHaveLength(1);
+    expect(warnLines().some((line) => line.includes("qualification_delete_from_chat"))).toBe(false);
+  });
+
+  it("the AI service is offered no qualification delete at all", async () => {
+    const h = setup({ parse: parse([]) });
+    await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
+    const input = h.ai.companionEditParse.mock.calls[0]![0] as {
+      catalogue: { section: string; field: string; ops: string[] }[];
+    };
+    const qualifications = input.catalogue.filter((f) => f.section === "qualifications");
+    expect(qualifications).toHaveLength(11);
+    for (const entry of qualifications) expect(entry.ops).toEqual(["edit"]);
   });
 });
