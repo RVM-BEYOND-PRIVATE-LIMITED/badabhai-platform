@@ -415,6 +415,28 @@ export function hasPlaceholderToken(value: string): boolean {
   return /\[[A-Z]+_\d+\]/.test(value);
 }
 
+/**
+ * A C0/C1 control character OTHER than `\t \n \r` — issue #1943's hole, closed for the edit card
+ * the same way the career gate closes it (`career-output.validator.ts`, reason `control_char`).
+ *
+ * WHY A ROW IS DROPPED RATHER THAN SANITISED. `normaliseValue` checks each field's OWN bound, not
+ * its content: `"Tata Steel L\u0001td"` is 13 characters and passes `trimmed(1, 120)`, so a
+ * model-proposed employer, `work_done` or skill label could carry a control into the card, into
+ * `proposal:{workerId}` and into the section writer on Haan. `containsHardIdentifier` strips
+ * `\u200b\u200c\u200d\u2060\ufeff` and adds separators, but it does not read `\p{Cc}`: a phone
+ * split by `\u0001` is not a phone to it. The fix is to refuse the row, not rewrite the worker's
+ * value behind the card — the same fail-closed posture as the placeholder and hard-identifier
+ * gates beside it.
+ *
+ * `\p{Cc}` also covers DEL (`\u007F`) and the C1 block (`\u0080-\u009F`); NEL (`\u0085`) is one of
+ * them, and JS `\s` does not match it. The three allowed controls are layout only.
+ */
+const CONTROL_CHAR = /(?![\t\n\r])\p{Cc}/u;
+
+export function hasControlChars(value: string): boolean {
+  return CONTROL_CHAR.test(value);
+}
+
 /** Every section the catalogue can address — the service's defensive set. */
 export const CATALOGUE_SECTIONS: ReadonlySet<CompanionV2EditSection> = new Set(
   EDIT_CATALOGUE.map((e) => e.section),
