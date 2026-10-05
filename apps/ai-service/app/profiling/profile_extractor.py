@@ -14,6 +14,7 @@ import json
 import re
 
 from ..ai.canonicalize import SkillCanonicalStore, canonicalize_labels
+from ..certified_values import certified_items, certified_scalar
 from ..config import Settings
 from ..contracts import (
     Availability,
@@ -357,6 +358,21 @@ def drop_model_taxonomy_ids(labels: list[str], *, field: str) -> list[str]:
     return kept
 
 
+# The free-text LABEL LISTS `merge_model_draft` takes from the model. ONE tuple, read by the merge
+# AND by `certify_model_labels`, so a list the model may write is a list the certifier covers: a
+# field added to the merge cannot reach the stored draft uncertified.
+MODEL_LABEL_LIST_FIELDS: tuple[str, ...] = (
+    "machines",
+    "controllers",
+    "skills",
+    "education",
+    "inspection_tools",
+    "materials_handled",
+    "secondary_roles",
+    "certifications",
+)
+
+
 def merge_model_draft(base: WorkerProfileDraft, content: str) -> WorkerProfileDraft:
     """Overlay a model's extracted fields onto the heuristic ``base``, keeping each
     field ONLY when it is individually well-formed.
@@ -411,16 +427,7 @@ def merge_model_draft(base: WorkerProfileDraft, content: str) -> WorkerProfileDr
         if isinstance(lvl, str) and lvl in _EXPERIENCE_LEVELS:
             out.experience_level = lvl
 
-    for field in (
-        "machines",
-        "controllers",
-        "skills",
-        "education",
-        "inspection_tools",
-        "materials_handled",
-        "secondary_roles",
-        "certifications",
-    ):
+    for field in MODEL_LABEL_LIST_FIELDS:
         values = _as_str_list(data.get(field))
         if values is None:
             continue
@@ -632,6 +639,38 @@ def sanitize_skill_labels(labels: list[str]) -> list[str]:
     return certified_clean_skill_labels(
         clamp_skill_labels(drop_model_taxonomy_ids(labels, field="skill_labels"))
     )
+
+
+def certify_model_labels(draft: WorkerProfileDraft) -> tuple[WorkerProfileDraft, int]:
+    """``draft`` with every model-written free-text label certified, plus how many were withheld
+    (#1788).
+
+    `/profile/extract` returns this draft as `worker_profile_draft` and apps/api stores it whole
+    as `worker_profiles.rich_profile_draft`, beside the legacy profile whose label lists already go
+    through `certified_clean_skill_labels` (`sanitize_skill_labels`). Storing a value here that
+    the profile withheld would still store it, so the draft goes through the SAME certifier: the
+    lists in `MODEL_LABEL_LIST_FIELDS` entry by entry (`certified_items`), and `primary_role` as a
+    one-element list (`certified_scalar`). `education_level` / `education_field` are certified by
+    the route already (#1739).
+
+    WITHHELD MEANS ABSENT: a failing entry is dropped, a failing `primary_role` becomes None,
+    never masked text. A clean value passes through byte-identical, in order, so a clean draft
+    comes back equal. Any certifier error withholds (see `certified_values`). Reads no flag, so
+    behaviour is identical under both `AI_RAW_PII_ENABLED` settings. Never logs; the count is the
+    only thing a caller may log. ``draft`` is not mutated.
+    """
+    update: dict[str, object] = {}
+    withheld = 0
+    for field in MODEL_LABEL_LIST_FIELDS:
+        values: list[str] = getattr(draft, field)
+        kept = certified_items(values)
+        withheld += len(values) - len(kept)
+        update[field] = kept
+    role = certified_scalar(draft.primary_role)
+    if draft.primary_role is not None and role is None:
+        withheld += 1
+    update["primary_role"] = role
+    return draft.model_copy(update=update), withheld
 
 
 def clamp_skill_labels(labels: list[str]) -> list[str]:

@@ -188,7 +188,7 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
             blocked=False,
             is_mock=True,
             extraction_status="completed",
-            worker_profile_draft=rich,
+            worker_profile_draft=_certified_draft(rich),
             # No `ai_metadata`: a fabricated zero-cost record is worse than an absent one,
             # being indistinguishable from a real call that happened to be free. Same rule
             # `/profile/parse` states for its own degraded paths.
@@ -452,7 +452,7 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
         blocked=False,
         is_mock=not meta.real_call,
         extraction_status="completed",
-        worker_profile_draft=rich,
+        worker_profile_draft=_certified_draft(rich),
         ai_metadata=meta,
         # #745: the canonicalization pass's embeds — SEPARATE from `ai_metadata`, which is the
         # extraction call alone. One entry per embed; empty when the pass did not reach a
@@ -477,6 +477,22 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
         # the spend-cap / transport reason when the router refused or the provider failed.
         error_code=meta.error_code,
     )
+
+
+def _certified_draft(rich: WorkerProfileDraft) -> WorkerProfileDraft:
+    """#1788 — the rich draft as it may be stored. It is returned as `worker_profile_draft` and
+    stored as `worker_profiles.rich_profile_draft`, beside the legacy profile whose label lists
+    are certified, so its model-written labels go through the same certifier at this output
+    boundary (`profile_extractor.certify_model_labels`). Applied at the RETURN, after every pass
+    that reads `rich`, so canonicalization and the domain match see exactly what they did
+    before. Logs a count only, never a value."""
+    certified, withheld = profile_extractor.certify_model_labels(rich)
+    if withheld:
+        logger.debug(
+            "rich draft labels withheld by the certification gate",
+            extra={"extra": {"withheld": withheld}},
+        )
+    return certified
 
 
 def _schema_hint() -> str:
