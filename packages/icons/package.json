@@ -7,16 +7,19 @@
     ".": "./src/index.ts",
     "./button": "./src/button.tsx",
     "./icons.css": "./icons.css",
+    "./phosphor-fill.subset.css": "./phosphor-fill.subset.css",
     "./package.json": "./package.json"
   },
   "files": [
     "src",
-    "icons.css"
+    "icons.css",
+    "phosphor-fill.subset.css"
   ],
   "sideEffects": [
     "*.css"
   ],
   "scripts": {
+    "generate:subset": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-subset.mts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "clean": "rimraf --glob .turbo *.tsbuildinfo"

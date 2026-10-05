@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { TOOLTIP_DISMISSED_ATTRIBUTE, TOOLTIP_PLACEMENTS } from "./control";
+import { SUBSET_FILE } from "./subset";
 
 /**
  * `icons.css` — the one stylesheet both portals import. CSS is read as a string (comments
@@ -13,7 +13,6 @@ import { TOOLTIP_DISMISSED_ATTRIBUTE, TOOLTIP_PLACEMENTS } from "./control";
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const RAW = readFileSync(join(PKG_ROOT, "icons.css"), "utf8");
 const CSS = RAW.replace(/\/\*[\s\S]*?\*\//g, "");
-const require = createRequire(import.meta.url);
 
 interface Rule {
   selector: string;
@@ -66,17 +65,17 @@ function decl(sel: string, prop: string, at = ""): string | null {
 const indexOf = (sel: string, at = "") =>
   RULES.findIndex((r) => r.at === at && r.selector.split(",").some((p) => p.trim() === sel));
 
-describe("icons.css self-hosts Phosphor FILL", () => {
+describe("icons.css self-hosts the Phosphor FILL subset", () => {
   const imports = [...CSS.matchAll(/@import\s+"([^"]+)"/g)].map((m) => m[1]);
 
-  it("imports exactly one sheet: the package's fill weight, first", () => {
-    expect(imports).toEqual(["@phosphor-icons/web/fill"]);
-    expect(CSS.trimStart().startsWith('@import "@phosphor-icons/web/fill";')).toBe(true);
+  it("imports exactly one sheet: the GENERATED subset beside it, first (#1893)", () => {
+    expect(imports).toEqual([`./${SUBSET_FILE}`]);
+    expect(CSS.trimStart().startsWith(`@import "./${SUBSET_FILE}";`)).toBe(true);
   });
 
-  it("that specifier resolves to the installed fill sheet (what the bundler will inline)", () => {
-    const resolved = require.resolve(imports[0]!).replace(/\\/g, "/");
-    expect(resolved).toMatch(/@phosphor-icons\/web\/src\/fill\/style\.css$/);
+  it("never imports the full @phosphor-icons/web sheet (four font formats, ~1,530 glyphs)", () => {
+    expect(CSS).not.toContain("@phosphor-icons/web");
+    expect(existsSync(join(PKG_ROOT, SUBSET_FILE))).toBe(true);
   });
 
   it("loads no other weight and nothing from another origin", () => {
@@ -84,12 +83,11 @@ describe("icons.css self-hosts Phosphor FILL", () => {
     expect(CSS).not.toMatch(/https?:|url\(/);
   });
 
-  it("the import site records the tracked cost (subset follow-up to PR #1886)", () => {
-    const at = RAW.indexOf('@import "@phosphor-icons/web/fill";');
-    const header = RAW.slice(0, at);
-    expect(header).toContain("KNOWN COST, TRACKED");
-    expect(header).toContain("#1886");
+  it("the import site says the subset is generated and how to regenerate it", () => {
+    const header = RAW.slice(0, RAW.indexOf(`@import "./${SUBSET_FILE}";`));
     expect(header).toContain("#1893");
+    expect(header).toContain("GENERATED");
+    expect(header).toContain("pnpm --filter @badabhai/icons generate:subset");
   });
 });
 

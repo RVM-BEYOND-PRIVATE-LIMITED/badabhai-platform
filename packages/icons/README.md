@@ -19,11 +19,12 @@ the stylesheet once, first, in `src/app/globals.css`:
 @import "@badabhai/design-tokens/tokens.css";
 ```
 
-`icons.css` imports `@phosphor-icons/web/fill` and declares the icon size tokens and the shared
-icon-button tooltip (`.bb-icon-tip`). The Phosphor
-`@font-face` uses relative URLs, so `next build` emits the font under `/_next/static/media` and
-the browser fetches it from the app's origin. Nothing is loaded from a CDN. The face is only
-downloaded by a page that paints a glyph, and only the woff2 is requested.
+`icons.css` imports the generated `phosphor-fill.subset.css` (see "The subset sheet" below) and
+declares the icon size tokens and the shared icon-button tooltip (`.bb-icon-tip`). The subset's
+`@font-face` points at the woff2 through the installed `@phosphor-icons/web` package, so
+`next build` emits that one file under `/_next/static/media` and the browser fetches it from the
+app's origin. Nothing is loaded from a CDN. The face is only downloaded by a page that paints a
+glyph.
 
 Why first:
 
@@ -40,15 +41,28 @@ the installed version differs from the pin. To upgrade:
 
 1. Bump the pin.
 2. `pnpm install`.
-3. `pnpm --filter @badabhai/icons test` (every `IconName` must still exist in the new sheet).
+3. `pnpm --filter @badabhai/icons generate:subset`, then
+   `pnpm --filter @badabhai/icons test` (every `IconName` must still exist in the new sheet).
 4. `pnpm audit --audit-level high`.
 5. Check a few screens in both apps.
 
-**Known cost, tracked** (issue #1893, follow-up to PR #1886): the whole fill sheet is render-blocking on
-every page (+12.3 KB gzipped on the public `/i/<code>` page, which paints no glyph), and the
-bundler emits the sheet's three unused font formats (svg 2.77 MB, ttf and woff about 449 KB each)
-into each app's image. The planned fix is a generated subset (the `IconName` union only, woff2
-only) with a staleness test.
+### The subset sheet (#1893)
+
+`icons.css` does not import the full `@phosphor-icons/web` fill sheet (~1,530 glyphs, four font
+formats). It imports `phosphor-fill.subset.css`, which is **generated, never hand-edited**: only
+the glyphs in the `IconName` union, copied from the installed sheet, and a woff2-only
+`@font-face`. Each app build therefore emits one font file (woff2, ~132 KB) instead of four
+(~3.8 MB), and the glyph CSS is ~1.7 KB gzipped instead of ~11.8 KB.
+
+After adding a glyph to `src/names.ts` or bumping the pin:
+
+```sh
+pnpm --filter @badabhai/icons generate:subset
+```
+
+`names.test.ts` regenerates the sheet in memory and fails when the checked-in file differs, so a
+stale or hand-edited subset cannot merge. The generator (`scripts/generate-subset.mts`, logic in
+`src/subset.ts`) refuses a name the installed sheet lacks rather than emit a partial sheet.
 
 ```tsx
 import { ACTION_ICON, Icon } from "@badabhai/icons";
