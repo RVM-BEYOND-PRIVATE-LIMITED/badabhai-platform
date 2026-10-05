@@ -46,6 +46,8 @@ interface SetupOpts {
   debitOk?: boolean;
   /** #1903: whether the request's job context names a `jobs` row (legacyJobExists). */
   jobRowExists?: boolean;
+  /** #1899: the job / posting ids each payer OWNS (findOwnedJobRef), keyed by ref id. */
+  ownedRefs?: Record<string, { payerId: string; kind: "job" | "posting" }>;
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -94,6 +96,11 @@ function setup(opts: SetupOpts = {}) {
     // #1903: a global-pool read, so it lives on the repo only — NOT in txMethods, where a
     // call through the locked `tx` handle would be the pool-vs-lock deadlock shape.
     legacyJobExists: vi.fn(async (_jobId: string) => opts.jobRowExists ?? true),
+    // #1899: the payer-scoped ownership read — also global-pool, also repo-only.
+    findOwnedJobRef: vi.fn(async (refId: string, payerId: string) => {
+      const owned = opts.ownedRefs?.[refId];
+      return owned && owned.payerId === payerId ? { kind: owned.kind, id: refId } : null;
+    }),
     listByPayer: vi.fn(async () => []),
     // reveal() reads the projection (tx-external) BEFORE the lock to run the consent
     // gate; return a worker_id-bearing projection whenever an unlock exists so that
@@ -577,6 +584,119 @@ describe("UnlockService — #1903 job context is normalised before the lock (FK 
     expect(t.events.emit).not.toHaveBeenCalled();
     expect(t.repo.withTransaction).not.toHaveBeenCalled();
     expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
+  });
+});
+
+describe("UnlockService — #1899 payer-session job reference must be null or the payer's own", () => {
+  // POST /payer/unlocks passes "payer_owned". Agents own agency `jobs` rows (and may still own a
+  // pre-#1969 posting); employers own company postings. Ownership is the SESSION payer's id —
+  // the role never widens or narrows it (the unlock route carries no @PayerRoles).
+  const AGENT = "a9e00000-0000-4000-8000-000000000001";
+  const EMPLOYER = "e3900000-0000-4000-8000-000000000002";
+  const AGENT_JOB = "a9e00000-0000-4000-8000-0000000000a1"; // jobs row, payer_id = AGENT
+  const AGENT_OLD_POSTING = "a9e00000-0000-4000-8000-0000000000a2"; // pre-#1969 posting
+  const EMPLOYER_POSTING = "e3900000-0000-4000-8000-0000000000e1"; // job_postings, EMPLOYER
+  const UNKNOWN = "deadbeef-0000-4000-8000-000000000000";
+  const ownedRefs = {
+    [AGENT_JOB]: { payerId: AGENT, kind: "job" as const },
+    [AGENT_OLD_POSTING]: { payerId: AGENT, kind: "posting" as const },
+    [EMPLOYER_POSTING]: { payerId: EMPLOYER, kind: "posting" as const },
+  };
+  const consented: SetupOpts = { balance: 5, consentPurposes: ["employer_sharing"], ownedRefs };
+
+  async function unlockAs(payerId: string, jobId: string | null, opts: SetupOpts = consented) {
+    const t = setup(opts);
+    const out = await t.svc.requestUnlock({ payerId, workerId: WORKER, jobId }, CTX, "payer_owned");
+    return { t, out };
+  }
+
+  function expectNothingHappened(t: ReturnType<typeof setup>) {
+    expect(t.events.emit).not.toHaveBeenCalled(); // not even unlock.requested
+    expect(t.repo.getBalance).not.toHaveBeenCalled();
+    expect(t.consents.findLatestByWorker).not.toHaveBeenCalled();
+    expect(t.repo.withTransaction).not.toHaveBeenCalled();
+    expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
+    expect(t.txMethods.upsertGrant).not.toHaveBeenCalled();
+    expect(t.txMethods.recordDeny).not.toHaveBeenCalled();
+  }
+
+  const allowed: { who: string; payer: string; ref: string | null; stored: string | null }[] = [
+    { who: "agent · own jobs row (kept)", payer: AGENT, ref: AGENT_JOB, stored: AGENT_JOB },
+    { who: "agent · own pre-#1969 posting (stored null)", payer: AGENT, ref: AGENT_OLD_POSTING, stored: null },
+    { who: "agent · null", payer: AGENT, ref: null, stored: null },
+    { who: "employer · own posting (stored null)", payer: EMPLOYER, ref: EMPLOYER_POSTING, stored: null },
+    { who: "employer · null", payer: EMPLOYER, ref: null, stored: null },
+  ];
+
+  it.each(allowed)("$who → grants", async ({ payer, ref, stored }) => {
+    const { t, out } = await unlockAs(payer, ref);
+    expect(out).toMatchObject({ ok: true, status: "granted" });
+    expect(t.txMethods.upsertGrant).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ payerId: payer, jobId: stored }),
+    );
+    if (ref === null) expect(t.repo.findOwnedJobRef).not.toHaveBeenCalled();
+    else expect(t.repo.findOwnedJobRef).toHaveBeenCalledWith(ref, payer);
+    // The ownership read replaces the #1903 existence read on this route.
+    expect(t.repo.legacyJobExists).not.toHaveBeenCalled();
+  });
+
+  const refused: { who: string; payer: string; ref: string }[] = [
+    { who: "agent · employer's posting (foreign)", payer: AGENT, ref: EMPLOYER_POSTING },
+    { who: "agent · unknown id", payer: AGENT, ref: UNKNOWN },
+    { who: "employer · agent's jobs row (foreign)", payer: EMPLOYER, ref: AGENT_JOB },
+    { who: "employer · agent's posting (foreign)", payer: EMPLOYER, ref: AGENT_OLD_POSTING },
+    { who: "employer · unknown id", payer: EMPLOYER, ref: UNKNOWN },
+  ];
+
+  it.each(refused)("$who → the neutral body, and nothing is emitted, read or written", async ({ payer, ref }) => {
+    const { t, out } = await unlockAs(payer, ref);
+    expect(out).toEqual(neutralUnavailable());
+    expect(t.repo.findOwnedJobRef).toHaveBeenCalledWith(ref, payer);
+    expectNothingHappened(t);
+  });
+
+  it("unknown vs foreign vs an existing deny (no consent) are byte-identical (no id oracle)", async () => {
+    const foreign = (await unlockAs(EMPLOYER, AGENT_JOB)).out;
+    const unknown = (await unlockAs(EMPLOYER, UNKNOWN)).out;
+    const noConsent = (
+      await unlockAs(EMPLOYER, EMPLOYER_POSTING, { ...consented, consentPurposes: ["profiling"] })
+    ).out;
+    expect(JSON.stringify(foreign)).toBe(JSON.stringify(unknown));
+    expect(JSON.stringify(unknown)).toBe(JSON.stringify(noConsent));
+  });
+
+  it("a refusal is still latency-padded (the early return sits inside the try/finally)", async () => {
+    const t = setup(consented);
+    const pad = vi.spyOn(t.svc as unknown as { padToTarget: (s: number) => Promise<void> }, "padToTarget");
+    await t.svc.requestUnlock({ payerId: AGENT, workerId: WORKER, jobId: UNKNOWN }, CTX, "payer_owned");
+    expect(pad).toHaveBeenCalledOnce();
+  });
+
+  it("refuses even a zero-balance payer the same way (the reference is checked first)", async () => {
+    const { t, out } = await unlockAs(AGENT, UNKNOWN, { ...consented, balance: 0 });
+    expect(out).toEqual(neutralUnavailable());
+    expectNothingHappened(t); // no payment.failed either — a refused write emits nothing new
+  });
+
+  it("an ownership read error fails closed before any emit, lock or debit", async () => {
+    const t = setup(consented);
+    t.repo.findOwnedJobRef.mockRejectedValueOnce(new Error("db down"));
+    await expect(
+      t.svc.requestUnlock({ payerId: AGENT, workerId: WORKER, jobId: AGENT_JOB }, CTX, "payer_owned"),
+    ).rejects.toThrow("db down");
+    expectNothingHappened(t);
+  });
+
+  it("the ops default ('normalise') is unchanged: no ownership read, an unknown id stores null", async () => {
+    const t = setup({ ...consented, jobRowExists: false });
+    const out = await t.svc.requestUnlock({ payerId: AGENT, workerId: WORKER, jobId: UNKNOWN }, CTX);
+    expect(out).toMatchObject({ ok: true, status: "granted" });
+    expect(t.repo.findOwnedJobRef).not.toHaveBeenCalled();
+    expect(t.txMethods.upsertGrant).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ jobId: null }),
+    );
   });
 });
 

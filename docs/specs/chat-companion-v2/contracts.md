@@ -61,6 +61,11 @@ CompanionClassifyOutput = {
 The API treats `confidence < CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE`, `blocked`, a schema miss,
 a timeout or a null (AI service down) as `unclear`.
 
+**Prompt and budget, WP5 (2026-10-05).** The classify p95 missed its 1.5 s bar (1662–2411 ms,
+2026-10-01), so the prompt was shrunk to 791 chars / 116 words (from 1085 / 178) and the output
+cap to **48 tokens** (from 64; the worst-case answer is ~15). Temperature 0 and json_mode were
+already the route's shape. The intents, the JSON contract and the eval set are unchanged.
+
 **The API sends at most the first 1000 chars** of the pseudonymized message (`CLASSIFY_TEXT_MAX`,
 never splitting a surrogate pair). The message DTO accepts 4000, and an over-long `text` would be a
 422 → `unclear` for a message that was perfectly clear. The handler still receives the WHOLE masked
@@ -118,6 +123,17 @@ so the same entity carries the same placeholder in the message and in `current_v
 different employers never share `[EMPLOYER_1]`. The token grammar is unchanged (`[PREFIX_n]`, still
 caught by the API's O17 `hasPlaceholderToken` screen), no mapping is returned, and every other
 gateway caller keeps its per-call numbering. No wire field changes.
+
+**An `edit` on a list member is expanded before validation (WP4, 2026-10-05).** The three list
+preferences (`preferred_cities`, `work_types`, `documents_ready`) offer only `add`/`delete` (§3),
+and the 2026-10-01 eval measured the primary model answering a list change with `op: "edit"` on
+such a field (3 of 74 cases — which the API dropped as out-of-catalogue, so the worker got no
+card). `expandListEdits` (`v2/edit-normalise.ts`, pure) turns such a row into `delete old` +
+`add new` — both values normalised through the field's own dictionary, in that order, before
+`validateRow` — so the worker gets the replace the model meant. Replacing a member with itself
+drops both rows; any ambiguity (no ref, a ref the snapshot does not hold, a ref whose entry lacks
+the field, a value the dictionary refuses) drops the row; a non-list row passes through untouched.
+The expanded pair counts against the 3-row cap, and `dropped_count` counts rows after expansion.
 
 **API-side bounds (2026-09-30, lane a2).** The model's output is untrusted, so the API enforces
 both caps itself rather than relying on the AI service:

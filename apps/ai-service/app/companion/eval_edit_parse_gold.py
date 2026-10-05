@@ -203,6 +203,10 @@ CASES: list[tuple[str, list[Row]]] = [
     ("training nikal do", []),
     ("ITI hata do", []),
     ("mera ITI Turner certificate hata do", []),
+    # A TRADE WORD INSIDE A CREDENTIAL (WP4, 2026-10-05): "fitter" appears only in a
+    # certificate's name, so the whole-entry delete is refused and no other row is right.
+    ("ITI fitter hata do", []),
+    ("mera fitter wala certificate hata do", []),
     ("certificate ka saal 2019 aur institute Govt ITI kar do", [
         ("edit", "qualifications", "c1", "certificate_year", "2019"),
         ("edit", "qualifications", "q1", "education_institute", "Govt ITI"),
