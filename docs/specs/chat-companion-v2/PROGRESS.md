@@ -882,7 +882,7 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
 
 - **Done:** README Status + checklist + provisional-rulings table completed; this PROGRESS entry
   per WP; tech-debt-register TD146/147/149/150/151 rows updated with statuses and PR numbers.
-  PR **#<WP10-PR>**.
+  PR **##2000**.
 - **Checks:** docs-only; api/ai-service gates unchanged from WP9's run and re-run in the PR.
 - **Notes:** the remaining items are human-only: ADR signatures, the paid staging evals, the
   30-answer review, the box's `AI_REAL_CALL_TASKS` append, arming the route-precedence flag, the
