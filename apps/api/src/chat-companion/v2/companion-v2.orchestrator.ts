@@ -5,7 +5,7 @@ import { isAbusive } from "@badabhai/profiling-lexicon";
 import type {
   CompanionV2ConfidenceBucket,
   CompanionV2Intent,
-  CompanionV2IntentSource,
+  CompanionV2IntentSourceV3,
   CompanionV2Outcome,
 } from "@badabhai/types";
 import { SERVER_CONFIG } from "../../config/config.module";
@@ -14,7 +14,13 @@ import { AiService } from "../../ai/ai.service";
 import type { RequestContext } from "../../common/request-context";
 import { EventsService } from "../../events/events.service";
 import type { CompanionMessageDto, CompanionTurn } from "../chat-companion.dto";
-import { V2_CAREER_ASK, V2_CLARIFY, V2_EDIT_ASK, type CopyPair } from "../companion-replies";
+import {
+  V2_CAREER_ASK,
+  V2_CLARIFY,
+  V2_EDIT_ASK,
+  V2_IN_FLIGHT,
+  type CopyPair,
+} from "../companion-replies";
 import { CompanionMemoryStore } from "./companion-memory.store";
 import { taskChipLabel, type CompanionTaskChipIntent } from "./companion-task-chips";
 import { taskChips, v2CooldownTurn, v2CopyTurn } from "./companion-v2-compose";
@@ -48,10 +54,10 @@ const TASK_CHIP_ASK: Readonly<Partial<Record<CompanionTaskChipIntent, CopyPair>>
   career_talk: V2_CAREER_ASK,
 };
 
-/** A turn about to be served, with the facts its memory append and its v2 event need. */
+/** A turn about to be served, with the facts its memory append and its v3 event need. */
 interface ServedTurn {
   turn: CompanionTurn;
-  intentSource: CompanionV2IntentSource;
+  intentSource: CompanionV2IntentSourceV3;
   v2Intent: CompanionV2Intent | null;
   confidenceBucket: CompanionV2ConfidenceBucket | null;
   outcome: CompanionV2Outcome;
@@ -181,6 +187,8 @@ export class CompanionV2Orchestrator {
             recentTurns: await this.memory.read(workerId),
             ctx,
             now,
+            // A chip tap has no submission id: the app posts the label, not a message send.
+            submissionId: null,
           });
     // WP6: the tap remembers the task for the NEXT message (edit/career), or clears a stale one
     // (any other task chip). Best-effort — the tap's own answer is already in hand either way.
@@ -193,7 +201,9 @@ export class CompanionV2Orchestrator {
     }
     return this.finish(workerId, ctx, dto, now, {
       turn: handled.turn,
-      intentSource: "v1_deterministic",
+      // V3 (TD150/WP8): an exact chip tap is its own source value. `v1_deterministic` now means
+      // only the OTHER deterministic pre-classifier routes (WP6's pending intent / pre-check).
+      intentSource: "chip",
       v2Intent: intent,
       confidenceBucket: null,
       outcome: handled.outcome,
@@ -244,6 +254,7 @@ export class CompanionV2Orchestrator {
         recentTurns: [],
         ctx,
         now,
+        submissionId: dto.submission_id ?? null,
       });
       return this.finish(workerId, ctx, dto, now, {
         turn: handled.turn,
@@ -273,6 +284,7 @@ export class CompanionV2Orchestrator {
       recentTurns: recent,
       ctx,
       now,
+      submissionId: dto.submission_id ?? null,
     });
     return this.finish(workerId, ctx, dto, now, {
       turn: handled.turn,
@@ -313,9 +325,23 @@ export class CompanionV2Orchestrator {
 
     const replayed = await this.replays.read(workerId, submissionId);
     if (replayed !== null) return replayed;
-    const routed = await this.route(workerId, profile, dto, ctx, now);
-    if (routed.replayable) await this.replays.remember(workerId, submissionId, routed.turn);
-    return routed.turn;
+
+    // TD150/WP8 — THE IN-FLIGHT CLAIM. A duplicate that arrives WHILE the first request still
+    // runs has no replay to read yet; without this it would run the whole pipeline again (a
+    // second classify, a second strike, a second edit parse/card). The claim is one Redis SET NX
+    // EX for the turn's duration: `held` answers the fixed V2_IN_FLIGHT line — no model call, no
+    // strike, no memory, no event (the first request owns the turn) — and the claim is released
+    // in the finally whether the route succeeded or threw. A Redis refusal fails open: the
+    // duplicate is processed as before, exactly like an unreadable replay cache.
+    const claim = await this.replays.claim(workerId, submissionId);
+    if (claim === "held") return v2CopyTurn(V2_IN_FLIGHT, taskChips(this.config));
+    try {
+      const routed = await this.route(workerId, profile, dto, ctx, now);
+      if (routed.replayable) await this.replays.remember(workerId, submissionId, routed.turn);
+      return routed.turn;
+    } finally {
+      await this.replays.release(workerId, submissionId);
+    }
   }
 
   private async route(
@@ -337,6 +363,7 @@ export class CompanionV2Orchestrator {
         recentTurns: [],
         ctx,
         now,
+        submissionId: dto.submission_id ?? null,
       });
       return this.routed(workerId, ctx, dto, now, {
         turn: handled.turn,
@@ -388,7 +415,7 @@ export class CompanionV2Orchestrator {
       { workerId },
     );
     let intent: CompanionV2Intent;
-    let intentSource: CompanionV2IntentSource;
+    let intentSource: CompanionV2IntentSourceV3;
     let v2Intent: CompanionV2Intent | null;
     let confidenceBucket: CompanionV2ConfidenceBucket | null;
     if (classified === null || classified.blocked) {
@@ -414,6 +441,7 @@ export class CompanionV2Orchestrator {
       recentTurns: recent,
       ctx,
       now,
+      submissionId: dto.submission_id ?? null,
     });
 
     // 5 + 6. MEMORY, THEN THE SPINE. A message the CLASSIFIER called faltu — at any confidence,
@@ -506,15 +534,16 @@ export class CompanionV2Orchestrator {
     dto: CompanionMessageDto,
     now: Date,
     out: {
-      intentSource: CompanionV2IntentSource;
+      intentSource: CompanionV2IntentSourceV3;
       v2Intent: CompanionV2Intent | null;
       confidenceBucket: CompanionV2ConfidenceBucket | null;
       outcome: CompanionV2Outcome;
     },
   ): Promise<void> {
     try {
+      // V3 (TD150/WP8): the v2 shape with `intent_source` widened by `chip`. v2 stays registered.
       await this.events.emit({
-        event_name: "chat.companion_turn_served_v2",
+        event_name: "chat.companion_turn_served_v3",
         actor: { actor_type: "worker", actor_id: workerId },
         subject: { subject_type: "worker", subject_id: workerId },
         payload: {
@@ -534,7 +563,7 @@ export class CompanionV2Orchestrator {
           outcome: out.outcome,
         },
         ...(dto.submission_id
-          ? { idempotencyKey: `chat.companion_turn_served_v2:message:${workerId}:${dto.submission_id}` }
+          ? { idempotencyKey: `chat.companion_turn_served_v3:message:${workerId}:${dto.submission_id}` }
           : {}),
         correlationId: ctx.correlationId,
         requestId: ctx.requestId,
@@ -542,7 +571,7 @@ export class CompanionV2Orchestrator {
     } catch (err) {
       // BEST-EFFORT: the spine never costs the worker their answer.
       this.logger.error(
-        `chat.companion_turn_served_v2 not recorded for worker ${workerId} (${
+        `chat.companion_turn_served_v3 not recorded for worker ${workerId} (${
           err instanceof Error ? err.name : "UnknownError"
         })`,
       );

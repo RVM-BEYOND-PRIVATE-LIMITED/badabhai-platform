@@ -25,6 +25,7 @@ function input(over: Partial<HandlerInput> = {}): HandlerInput {
     recentTurns: [],
     ctx: { correlationId: "c-1", requestId: "r-1" } as never,
     now: NOW,
+    submissionId: null,
     ...over,
   };
 }
@@ -49,7 +50,7 @@ function setup(out: unknown) {
 const careerEvent = (events: { emit: { mock: { calls: unknown[][] } } }) =>
   events.emit.mock.calls
     .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
-    .find((e) => e.event_name === "chat.companion_career_answered")!;
+    .find((e) => e.event_name === "chat.companion_career_answered_v2")!;
 
 const META = {
   ai_call_id: "call-1",
@@ -89,6 +90,7 @@ describe("CareerTalkHandler (ADR-0046 P3) — the one model-written answer", () 
       outcome: "answered",
       refusal_topic: null,
       turns_in_memory: 0,
+      submission_id: null,
     });
   });
 
@@ -122,6 +124,20 @@ describe("CareerTalkHandler (ADR-0046 P3) — the one model-written answer", () 
     for (const word of ["कानून", "सेहत", "पैसे", "वकील", "डॉक्टर", "बैंक"]) {
       expect(dev).toContain(word);
     }
+  });
+
+  it("TD150/WP8: the turn's submission_id rides the career event (and keys it)", async () => {
+    const SID = "99999999-9999-4999-8999-999999999999";
+    const h = setup({
+      status: "answer",
+      lines: ["Pehle welding ka certificate kariye."],
+      followup_chips: [],
+      ai_metadata: META,
+    });
+    await h.handler.handle(input({ submissionId: SID }));
+    const event = careerEvent(h.events) as { payload: Record<string, unknown>; idempotencyKey?: string };
+    expect(event.payload).toMatchObject({ outcome: "answered", submission_id: SID });
+    expect(event.idempotencyKey).toBe(`chat.companion_career_answered_v2:${WORKER}:${SID}`);
   });
 
   it("an answer that fails the validator is NOT served — the fallback line instead", async () => {
@@ -172,6 +188,7 @@ describe("CareerTalkHandler (ADR-0046 P3) — the one model-written answer", () 
         outcome: "answered",
         refusal_topic: null,
         turns_in_memory: 0,
+        submission_id: null,
       });
 
       expect(logs.warn).not.toHaveBeenCalled();
@@ -294,7 +311,7 @@ describe("CareerTalkHandler (ADR-0046 P3) — the one model-written answer", () 
     expect(event.payload).toMatchObject({ turns_in_memory: CAREER_TURNS_MAX });
     // ...which the registered event contract accepts (it caps `turns_in_memory` at six).
     expect(
-      EVENT_REGISTRY["chat.companion_career_answered"].payload.safeParse(event.payload).success,
+      EVENT_REGISTRY["chat.companion_career_answered_v2"].payload.safeParse(event.payload).success,
     ).toBe(true);
   });
 });
