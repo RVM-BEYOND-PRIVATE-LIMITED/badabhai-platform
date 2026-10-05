@@ -1,7 +1,8 @@
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import { isFeedPostingsUnionEnabled, isMatchV1Enabled, type ServerConfig } from "@badabhai/config";
-import { matchSkillLabel } from "@badabhai/taxonomy";
+import type { JobShift } from "@badabhai/db";
+import { isTradeKey, matchSkillLabel, type TradeKey } from "@badabhai/taxonomy";
 import type { RequestContext } from "../common/request-context";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService, type EmitParams } from "../events/events.service";
@@ -12,6 +13,7 @@ import {
   ApplicationsRepository,
   type FeedJob,
   type FeedPostingRow,
+  type OpenJobsFilters,
 } from "./applications.repository";
 import type { ApplyJobDto, SkipJobDto } from "./applications.dto";
 import {
@@ -23,9 +25,6 @@ import {
   type RankedFeedItem,
   type SourcedFeedItem,
 } from "./feed-merge";
-
-/** The worker's `/feed` filters, as the controller hands them over. */
-type FeedFilters = { tradeKey?: string; city?: string; shift?: string; payMin?: number };
 
 /**
  * A feed item the worker sees — PII-free (no employer, and the pay is the BAND
@@ -82,6 +81,24 @@ export interface FeedItem {
    */
   posted_at: string | null;
   rank: number;
+}
+
+/**
+ * The worker's own `GET /feed` filters, as the controller hands them over. Every one is
+ * OPTIONAL; absent means "not filtered" and nothing here fills one in from his profile
+ * (ADR-0036 Part 3).
+ */
+export interface FeedFilters {
+  /**
+   * RAW query value, NOT yet known to be a trade slug. The worker app has sent a chip
+   * display label (`'CNC'`, `'Welder'`) here, which can never equal `jobs.trade_key`; see
+   * `resolveLegacyTradeKey` below for what happens to it (#1905).
+   */
+  tradeKey?: string;
+  city?: string;
+  shift?: JobShift;
+  /** The worker's pay FLOOR (₹/month). Compared to the TOP of a job's band. */
+  payMin?: number;
 }
 
 /**
@@ -149,9 +166,18 @@ export class ApplicationsService {
     // off): company `job_postings` merged into the same deck, newest-first. Either way the
     // card is the same 17 keys, rank is the 1-based position in the deck as served (newest
     // first — see the repository), and every card gets one `feed.shown` v1.
+    //
+    // #1905: every filter the worker sent reaches the query. The trade key is resolved
+    // against the taxonomy first, so a chip label cannot zero the jobs arm.
+    const jobFilters: OpenJobsFilters = {
+      tradeKey: this.resolveLegacyTradeKey(filters.tradeKey, ctx),
+      city: filters.city,
+      shift: filters.shift,
+      payMin: filters.payMin,
+    };
     const sourced = isFeedPostingsUnionEnabled(this.config)
-      ? await this.readUnionFeed(workerId, limit, filters)
-      : (await this.repo.findOpenJobs(workerId, limit, filters)).map(toSourcedFromJob);
+      ? await this.readUnionFeed(workerId, limit, jobFilters)
+      : (await this.repo.findOpenJobs(workerId, limit, jobFilters)).map(toSourcedFromJob);
     const ranked = rankFeed(sourced);
 
     if (ranked.length > 0) {
@@ -162,9 +188,10 @@ export class ApplicationsService {
   }
 
   /**
-   * Both arms of the union, merged. The jobs arm is the UNCHANGED legacy read (its trade
-   * and city filters included); the posting arm takes the worker's wanted skills and city
-   * only — never `trade_key` (V1 precedent, O7), never shift/pay (#1905).
+   * Both arms of the union, merged. The jobs arm is the legacy read with every filter; the
+   * posting arm takes the worker's wanted skills, city, shift and pay floor — never
+   * `trade_key` (V1 precedent, O7). Shift and pay are the SAME predicates on both arms
+   * (feed-filter.predicates, #1905), so neither half of the deck is narrowed alone.
    *
    * FAIL CLOSED: any rejection — either read, or the skill lookup — fails the whole `/feed`
    * before a single `feed.shown` is written. A half deck served as if whole would record
@@ -173,10 +200,15 @@ export class ApplicationsService {
   private async readUnionFeed(
     workerId: string,
     limit: number,
-    filters: FeedFilters,
+    filters: OpenJobsFilters,
   ): Promise<SourcedFeedItem[]> {
     const readPostings = (wantedSkillIds: string[]) =>
-      this.repo.findOpenPostingsForFeed(workerId, limit, { city: filters.city, wantedSkillIds });
+      this.repo.findOpenPostingsForFeed(workerId, limit, {
+        city: filters.city,
+        shift: filters.shift,
+        payMin: filters.payMin,
+        wantedSkillIds,
+      });
     const [jobRows, postingRows] = await Promise.all([
       this.repo.findOpenJobs(workerId, limit, filters),
       this.workerSkills.listWantedSkillIds(workerId).then(readPostings),
@@ -413,15 +445,43 @@ export class ApplicationsService {
     };
   }
 
+  /**
+   * The legacy arm's TRADE filter, or `undefined` for "no trade filter" (#1905).
+   *
+   * Only a slug in `TRADE_KEYS` filters. Anything else is IGNORED (the request is served as if
+   * no trade filter had been sent), not 400'd. That is the owner ruling. Every `jobs` row
+   * carries one of those 15 slugs (the agency DTO and the seed both enforce it), so an unknown
+   * value matches no row at all, and filtering on it returns an EMPTY deck. That is what a
+   * one-chip refetch did while the app sent its chip LABEL (`'CNC'`) instead of the slug.
+   * Ignoring it restores the full arm; a valid slug filters exactly as before.
+   *
+   * Single-valued by contract: `trade_key` is `z.string()` in the DTO, so a repeated query
+   * param is a 400 at the boundary and never reaches here as a list.
+   *
+   * The drop is LOGGED so the app-side bug stays observable rather than silently healed. The
+   * value itself is NOT logged: it is unconstrained client input with no length cap, so it
+   * could carry anything. Its length and the request id are enough to find and correlate it.
+   * An empty value (`?trade_key=`) is "no filter", exactly as before, not a dropped value.
+   */
+  private resolveLegacyTradeKey(raw: string | undefined, ctx: RequestContext): TradeKey | undefined {
+    if (raw === undefined || raw === "") return undefined;
+    if (isTradeKey(raw)) return raw;
+    this.logger.warn(
+      `feed trade_key ignored: not a known trade slug (length=${raw.length}) request_id=${ctx.requestId}`,
+    );
+    return undefined;
+  }
+
   // ── ADR-0036 MOMENT ⑤ — apply/skip against the SERVED entity ─────────────────
 
   /**
    * V1 apply. `jobId` is a `job_postings.id` here (the feed serves postings).
    *
    * THE REACH ROW IS THE GATE AND THE ORACLE IS CLOSED: `buildSnapshot` 404s with the
-   * identical neutral body when the worker has no `job_reach` row — he can only apply
-   * to what the gate showed him, and a missing row is indistinguishable from a missing
-   * posting. That is stronger than the legacy path's existence check, deliberately.
+   * identical neutral body when the worker has no `job_reach` row on an OPEN posting —
+   * he can only apply to what the gate showed him, and a missing row is indistinguishable
+   * from a missing or no-longer-open posting. That is stronger than the legacy path's
+   * open-job check (`findJobById`), deliberately.
    *
    * The snapshot is written on insert and on a skip→apply flip only. E16.
    */

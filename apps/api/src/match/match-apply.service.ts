@@ -50,6 +50,8 @@ export interface MatchDecisionResult {
  * The interim union (#1823, ADR-0049 S3) is the one exception: its caller gates on the
  * posting being OPEN and uses {@link trySnapshot}, which writes a NULL snapshot when there is
  * no reach row instead of refusing the apply.
+ * Either way the reach read counts only a row whose posting is still OPEN (the V1 feed's
+ * predicate, #1904), so a paused/closed/suspended posting yields no snapshot.
  */
 @Injectable()
 export class MatchApplyService {
@@ -61,7 +63,7 @@ export class MatchApplyService {
 
   /**
    * Compute the frozen rank inputs for (worker, posting), or throw 404 when the worker
-   * has no reach row for it.
+   * has no reach row for it, or the posting is no longer open.
    *
    * `skillMonthsFor` decides WHICH skill's months count:
    *  - E5 tier 1, multi-skill posting → the MAX across the posted skills he holds;
@@ -73,7 +75,8 @@ export class MatchApplyService {
   async buildSnapshot(workerId: string, jobPostingId: string): Promise<RankSnapshot> {
     const snapshot = await this.trySnapshot(workerId, jobPostingId);
     // NO ORACLE: "no reach row" and "no such posting" are the identical 404. A worker must
-    // not be able to enumerate postings by watching which ids answer differently.
+    // not be able to enumerate postings by watching which ids answer differently. A posting
+    // that is no longer open lands here too: `findReachRow` reads open postings only (#1904).
     if (!snapshot) throw new NotFoundException("Job not found");
     return snapshot;
   }

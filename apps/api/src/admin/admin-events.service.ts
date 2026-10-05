@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { EventRow } from "@badabhai/db";
+import type { EventName } from "@badabhai/event-schema";
 import { EventsService } from "../events/events.service";
 import type { RequestContext } from "../common/request-context";
 import {
@@ -33,6 +34,14 @@ export interface FunnelStage {
   distinct_subjects: number;
   /** True when the stage's distinct-subject count was suppressed (below the floor). */
   suppressed: boolean;
+}
+
+/** One funnel stage's definition: the name it is reported under, and what counts toward it. */
+export interface FunnelStageDefinition {
+  /** The `event_name` the stage is REPORTED under (the admin UI's key and label). */
+  readonly stage: EventName;
+  /** Every registered event counted toward the stage, in ONE union read. Never empty. */
+  readonly events: readonly [EventName, ...EventName[]];
 }
 
 export interface AdminEventMetrics {
@@ -84,15 +93,25 @@ export class AdminEventsService {
 
   /**
    * The conversion funnel surfaced on the dashboard (CLAUDE.md exit criteria + the demand loop).
-   * Ordered stages; the UI renders stage-to-stage conversion. Each is an existing registered
-   * event name.
+   * Ordered stages; the UI renders stage-to-stage conversion. Every name is a registered
+   * `EventName`, so a typo or an unregistered event fails typecheck.
+   *
+   * THE "SHOWN" STAGE IS BOTH PAYLOAD GENERATIONS (#1904). `feed.shown_v2` is the Matching V1
+   * generation of the same impression (registry: `feed.shown` VERSION 2, kept as a separate
+   * name so shipped v1 emitters stay valid). Counting only `feed.shown` would read zero
+   * impressions the moment `MATCH_V1_ENABLED` flips. No impression is counted twice: the worker
+   * `/feed` branches ONCE per request on the flag (`ApplicationsService.getFeed`), emitting
+   * `feed.shown` on the legacy path or `feed.shown_v2` via `MatchFeedService`, never both. The
+   * stage is still reported as `feed.shown`, because the admin UI keys and labels on it. Its
+   * `distinct_subjects` spans mixed subject types (worker-feed jobs, payer-Reach workers, V1
+   * postings) — the pre-existing k-anon witness for this stage, unchanged here.
    */
-  static readonly FUNNEL_STAGES = [
-    "feed.shown",
-    "application.submitted",
-    "unlock.granted",
-    "contact.revealed",
-  ] as const;
+  static readonly FUNNEL_STAGES: readonly FunnelStageDefinition[] = [
+    { stage: "feed.shown", events: ["feed.shown", "feed.shown_v2"] },
+    { stage: "application.submitted", events: ["application.submitted"] },
+    { stage: "unlock.granted", events: ["unlock.granted"] },
+    { stage: "contact.revealed", events: ["contact.revealed"] },
+  ];
 
   /** The breach/circuit-breaker counters surfaced for ops monitoring (existing event names). */
   static readonly BREACH_EVENTS = [
@@ -175,11 +194,11 @@ export class AdminEventsService {
     ]);
 
     const funnel = await Promise.all(
-      AdminEventsService.FUNNEL_STAGES.map(async (name): Promise<FunnelStage> => {
-        const { count, distinctSubjects } = await this.repo.eventNameStats(name, since);
+      AdminEventsService.FUNNEL_STAGES.map(async ({ stage, events: names }): Promise<FunnelStage> => {
+        const { count, distinctSubjects } = await this.repo.eventNameStats(names, since);
         const suppressed = distinctSubjects > 0 && distinctSubjects < AdminEventsService.K_ANON_FLOOR;
         return {
-          event_name: name,
+          event_name: stage,
           count,
           distinct_subjects: suppressed ? 0 : distinctSubjects,
           suppressed,

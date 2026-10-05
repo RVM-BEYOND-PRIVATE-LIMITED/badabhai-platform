@@ -1,8 +1,18 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { NotFoundException } from "@nestjs/common";
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
 import { DEFAULT_MATCH_CONFIG, type MatchConfig } from "@badabhai/match-engine";
+import {
+  type Database,
+  jobPostings,
+  workerIndustryTenure,
+  workerSkills,
+} from "@badabhai/db";
+import type { JobPostingStatus } from "@badabhai/types";
 import { MatchApplyService, type RankSnapshot } from "./match-apply.service";
+import { WorkerSkillsRepository } from "./worker-skills.repository";
 
 /**
  * MOMENT ⑤ — "Worker swipes apply" (ADR-0036 §5, spec Part 6).
@@ -92,6 +102,81 @@ describe("buildSnapshot — the reach row is the gate and the 404 carries no ora
     expect(d.skills.findPostingSkillSets).not.toHaveBeenCalled();
     expect(d.skills.listSkillRows).not.toHaveBeenCalled();
   });
+});
+
+describe("buildSnapshot — a posting that is no longer OPEN takes the SAME 404 (#1904)", () => {
+  /**
+   * The REAL repository under the real service, over a stub executor that models Postgres for
+   * one fixture: a `job_reach` row that SURVIVED its posting (reach is kept across a pause, a
+   * close and the suspension cascade). The stub returns that row UNLESS the statement filters
+   * on the feed's `jp.status = 'open'` and the posting is not open. Deleting the predicate from
+   * `findReachRow` therefore fails THIS suite, not only the statement-shape test.
+   */
+  function staleReach(status: JobPostingStatus) {
+    const rowsFrom = new Map<unknown, unknown[]>([
+      [jobPostings, [{ matchSkillIds: [VMC], reachSkillIds: [VMC], publishedAt: null, payerId: null, createdBy: "ops" }]],
+      [workerSkills, [row(VMC, 24)]],
+      [workerIndustryTenure, [{ calendarMonths: 30 }]],
+    ]);
+    const db = {
+      execute: vi.fn(async (stmt: unknown) => {
+        const { sql } = new PgDialect().sqlToQuery(stmt as SQL);
+        const gated = sql.includes("jp.status = 'open'");
+        return gated && status !== "open" ? [] : [{ match_tier: 1, matched_skill_id: VMC }];
+      }),
+      select: vi.fn(() => {
+        let table: unknown;
+        const node: Record<string, unknown> = {
+          from: (t: unknown) => ((table = t), node),
+          where: () => node,
+          limit: () => node,
+          then: (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) =>
+            Promise.resolve(rowsFrom.get(table) ?? []).then(res, rej),
+        };
+        return node;
+      }),
+    };
+    const repo = new WorkerSkillsRepository(db as unknown as Database);
+    const config = { get: vi.fn(async () => DEFAULT_MATCH_CONFIG) };
+    return { svc: new MatchApplyService(db as never, repo, config as never), db };
+  }
+
+  it.each(["paused", "suspended", "closed"] as const)(
+    "%s → the neutral 'Job not found', byte-identical to an unknown posting, nothing further read",
+    async (status) => {
+      const { svc, db } = staleReach(status);
+      const gone = await svc.buildSnapshot(WORKER, POSTING).catch((e: unknown) => e);
+      const unknown = await setup({ posting: undefined })
+        .svc.buildSnapshot(WORKER, POSTING)
+        .catch((e: unknown) => e);
+
+      // The pre-existing not-found path, not a new error shape: same class, same body.
+      expect(gone).toBeInstanceOf(NotFoundException);
+      expect((gone as NotFoundException).getResponse()).toEqual(
+        (unknown as NotFoundException).getResponse(),
+      );
+      // Stopped AT the gate: no posting, skill or tenure read for a job he cannot apply to.
+      expect(db.select).not.toHaveBeenCalled();
+    },
+  );
+
+  it("open → the gate passes and the snapshot is built exactly as before", async () => {
+    const { svc } = staleReach("open");
+    await expect(svc.buildSnapshot(WORKER, POSTING)).resolves.toEqual({
+      matchTier: 1,
+      skillMonths: 24,
+      industryMonths: 30,
+      lastWorkedAt: null,
+      engineVersion: DEFAULT_MATCH_CONFIG.engineVersion,
+    });
+  });
+
+  it.each(["paused", "suspended", "closed"] as const)(
+    "%s → trySnapshot (the union path) is NULL too: no snapshot frozen against a non-open posting",
+    async (status) => {
+      await expect(staleReach(status).svc.trySnapshot(WORKER, POSTING)).resolves.toBeNull();
+    },
+  );
 });
 
 /**

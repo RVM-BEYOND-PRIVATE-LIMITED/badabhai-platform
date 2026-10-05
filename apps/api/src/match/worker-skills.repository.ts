@@ -593,17 +593,32 @@ export class WorkerSkillsRepository {
   }
 
   /**
-   * The worker's reach row for one posting — the APPLY GATE (moment ⑤). Absent means he
-   * was never shown the job, and the apply 404s with no oracle.
+   * The worker's reach row for one OPEN posting — the APPLY GATE (moment ⑤). Absent means
+   * he was never shown the job OR the posting is no longer open, and the apply 404s with no
+   * oracle (the worker cannot tell the two apart, by design).
+   *
+   * THE STATUS PREDICATE IS THE V1 FEED'S, VERBATIM — `jp.status = 'open'`
+   * ({@link ./match-feed.repository.ts MatchFeedRepository.listFeed}). `job_reach` rows
+   * survive a pause, a close and the suspension cascade, so the reach row alone let a worker
+   * holding an id apply to a posting no feed would show him (#1904). `paused` is excluded
+   * here even though the reconcile above keeps it in scope: that keeps the reach set warm for
+   * a resume, but a paused posting is on no feed. A resume restores apply with no write.
+   * `worker-skills.repository.test.ts` pins this predicate to the feed's.
+   *
+   * A predicate, not a decision: what an absent row MEANS (the neutral 404, no event) is
+   * decided in `MatchApplyService.buildSnapshot`.
    */
   async findReachRow(
     workerId: string,
     jobPostingId: string,
   ): Promise<{ matchTier: 1 | 2; matchedSkillId: string } | undefined> {
     const rows = await this.db.execute<{ match_tier: number; matched_skill_id: string }>(dsql`
-      SELECT match_tier, matched_skill_id
-      FROM job_reach
-      WHERE worker_id = ${workerId}::uuid AND job_posting_id = ${jobPostingId}::uuid
+      SELECT jr.match_tier, jr.matched_skill_id
+      FROM job_reach jr
+      JOIN job_postings jp ON jp.id = jr.job_posting_id
+      WHERE jr.worker_id = ${workerId}::uuid
+        AND jr.job_posting_id = ${jobPostingId}::uuid
+        AND jp.status = 'open'
       LIMIT 1
     `);
     const list = rows as unknown as { match_tier: number; matched_skill_id: string }[];

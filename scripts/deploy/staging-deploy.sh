@@ -70,6 +70,18 @@ case "${FEED_POSTINGS_UNION_ENABLED-}" in
     ;;
 esac
 
+# #1904 / ADR-0036 §8: MATCH_V1_ENABLED — the same boot-time grammar, the same reason.
+# The api's `booleanFromString` throws at boot on anything but true/false/1/0/empty, the api `up`
+# has no automatic rollback, and the secret cannot be read back — so a typo would take the api
+# down. Checked here, before any prune, pull or recreate. The value is never echoed.
+case "${MATCH_V1_ENABLED-}" in
+  "" | true | false | 1 | 0) ;;
+  *)
+    echo "::error::MATCH_V1_ENABLED must be exactly true, false, 1, 0 or empty (lowercase). Set the production secret to a literal (gh secret set MATCH_V1_ENABLED --env production --body false) and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+
 # CD-1: never leave a registry credential (even an expired job token)
 # in the box's ~/.docker/config.json — logout on EVERY exit path.
 trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT

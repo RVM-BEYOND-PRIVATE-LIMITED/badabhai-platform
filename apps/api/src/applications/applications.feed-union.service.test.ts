@@ -203,7 +203,7 @@ describe("union feed — both arms, one newest-first deck", () => {
 });
 
 describe("union feed — the posting arm's inputs", () => {
-  it("gets the worker's wanted skill ids and city — never trade_key, shift or pay_min", async () => {
+  it("gets the worker's wanted skill ids, city, shift and pay_min — never trade_key (#1905)", async () => {
     const { svc, repo } = setup({ wanted: ["mskill_vmc_operator", "mskill_cnc_turner"] });
     await svc.getFeed(
       WORKER,
@@ -214,8 +214,12 @@ describe("union feed — the posting arm's inputs", () => {
 
     const [workerId, , postingFilters] = repo.findOpenPostingsForFeed.mock.calls[0]!;
     expect(workerId).toBe(WORKER);
+    // Shift and pay narrow BOTH halves of the deck (the same predicates, #1905); trade_key
+    // never reaches the posting arm (V1 has no trade dimension, O7).
     expect(postingFilters).toEqual({
       city: "Pune",
+      shift: "night",
+      payMin: 20000,
       wantedSkillIds: ["mskill_vmc_operator", "mskill_cnc_turner"],
     });
     // The jobs arm still gets exactly what it got before the union existed.
