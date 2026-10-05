@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MaskedResumeResult, RevealResult, UnlockResult } from "./contracts";
+import type { RevealView } from "./unlock-view";
 import {
   NEUTRAL_CONTACT_MESSAGE,
   NEUTRAL_REVEAL_MESSAGE,
@@ -153,10 +154,7 @@ describe("mapRevealResult — the LIVE wire shape (no initials field)", () => {
 });
 
 describe("withheld-vs-missing display contract (#1581)", () => {
-  type MaskedView = Extract<
-    import("./unlock-view").RevealView,
-    { kind: "masked" }
-  >;
+  type MaskedView = Extract<RevealView, { kind: "masked" }>;
 
   const base: MaskedView = {
     kind: "masked",

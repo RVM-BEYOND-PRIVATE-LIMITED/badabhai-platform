@@ -2606,7 +2606,6 @@ textarea.input {
   }
   /* An agency editor sits in a padded card: when the form opens, its host lands on the sticky
      line and the rail starts one card-padding lower — still wholly on screen, actions included. */
-  .agency-jobs__createcard .posting-preview,
   .agency-job--editing .posting-preview {
     max-height: calc(100vh - var(--posting-rail-top) - var(--space-4) - var(--space-5));
     max-height: calc(100dvh - var(--posting-rail-top) - var(--space-4) - var(--space-5));
@@ -2797,16 +2796,13 @@ textarea.input {
   overflow: clip;
   display: flow-root;
 }
-/* An agency editor's host card (the create card, or the vacancy row being edited) lands on the
-   rail's sticky line when the editor opens (agency-jobs-manager.tsx `revealEditor`). */
-.agency-jobs__createcard,
-.agency-job--editing {
-  scroll-margin-top: var(--posting-rail-top);
-}
 /* Editing: the row IS the editor — its header (title, status, actions) leads the form column,
-   so the preview rail starts level with the header, not below it. */
+   so the preview rail starts level with the header, not below it. The row lands on the rail's
+   sticky line when the editor opens (agency-jobs-manager.tsx `revealEditor`); create is its own
+   page, so this row is the only inline editor host. */
 .agency-job--editing {
   display: block;
+  scroll-margin-top: var(--posting-rail-top);
 }
 .agency-job__lead {
   display: flex;

@@ -180,15 +180,12 @@ describe("desktop: the rail sticks BELOW the header, capped to the viewport, act
   });
 
   it("an agency editor's rail leaves room for its host card's padding (it starts one padding low)", () => {
-    const agency = g(
-      ".agency-jobs__createcard .posting-preview, .agency-job--editing .posting-preview",
-      DESKTOP,
-    );
+    const agency = g(".agency-job--editing .posting-preview", DESKTOP);
     expect(decl(agency, "max-height")).toBe(
       "calc(100dvh - var(--posting-rail-top) - var(--space-4) - var(--space-5))",
     );
     // …and the host lands on the sticky line when the editor opens (revealEditor).
-    expect(decl(g(".agency-jobs__createcard, .agency-job--editing"), "scroll-margin-top")).toBe(
+    expect(decl(g(".agency-job--editing"), "scroll-margin-top")).toBe(
       "var(--posting-rail-top)",
     );
   });
@@ -345,7 +342,6 @@ describe("nothing between the rail and the page turns the sticky off", () => {
       ".posting-layout__main",
       ".posting-layout--editor",
       ".agency-job-form",
-      ".agency-jobs__createcard",
       ".agency-job",
       ".agency-job--editing",
       ".agency-job__lead",
