@@ -6,6 +6,7 @@ import {
   CurrentPayer,
   type AuthenticatedPayer,
 } from "../../payers/payer-auth.guard";
+import { PayerRoleGuard, PayerRoles } from "../../payers/payer-role.guard";
 import { SubjectRateLimit } from "../../common/rate-limit/subject-rate-limit.service";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../../config/config.module";
@@ -37,9 +38,13 @@ import {
  *
  * Every `:id` route returns the SAME neutral 404 for an unknown session and for
  * another payer's session, so none of them can be used to probe for valid ids.
+ *
+ * `publish` creates a COMPANY posting, so it is employer-only (#1885) via the same
+ * {@link PayerRoleGuard} + `@PayerRoles("employer")` pair as the manual form's writes. The
+ * other routes carry no role metadata, so the guard is a no-op on them.
  */
 @Controller("payer/job-posting-chat")
-@UseGuards(PayerAuthGuard)
+@UseGuards(PayerAuthGuard, PayerRoleGuard)
 export class JobPostingChatController {
   /**
    * PAY-SEC-07 — this surface SPENDS. Every `session` and `message` turn is a paid LLM call, so
@@ -133,6 +138,7 @@ export class JobPostingChatController {
    */
   @Post("sessions/:id/publish")
   @HttpCode(201)
+  @PayerRoles("employer")
   publish(
     @CurrentPayer() payer: AuthenticatedPayer,
     @Param(new ZodValidationPipe(JobPostingChatSessionParamSchema))
