@@ -33,11 +33,19 @@ export default async function RolesPage() {
   // to the people working inside them.
   const session = await requireSession();
 
+  // The matrix itself is served on `read_entities` (`GET /admin/capabilities`). The page stays
+  // open to every session — "Your access" comes from the session, not from that read — so a
+  // role without it is told so plainly instead of being sent a request that would 403 into the
+  // error state below. `app/page-gates.test.ts` pins this branch against the API's gate.
+  const mayReadMatrix = can(session.capabilities, "read_entities");
+
   let matrix: Awaited<ReturnType<typeof getCapabilityMatrix>> | null = null;
-  try {
-    matrix = await getCapabilityMatrix();
-  } catch {
-    matrix = null;
+  if (mayReadMatrix) {
+    try {
+      matrix = await getCapabilityMatrix();
+    } catch {
+      matrix = null;
+    }
   }
 
   return (
@@ -87,7 +95,17 @@ export default async function RolesPage() {
           </p>
         </div>
 
-        {matrix === null ? (
+        {!mayReadMatrix ? (
+          // Not an error: the full matrix is withheld by role, and saying so plainly is the
+          // difference between a permission boundary and a broken screen (as on /system).
+          <div className="state">
+            <h3 className="state__title">The full matrix is not available to your role</h3>
+            <p className="state__body">
+              Reading it requires the <code>read_entities</code> capability. Nothing failed,
+              and your own capabilities are listed above from your session.
+            </p>
+          </div>
+        ) : matrix === null ? (
           <div className="state state--error">
             <h3 className="state__title">The capability matrix could not be loaded</h3>
             <p className="state__body">

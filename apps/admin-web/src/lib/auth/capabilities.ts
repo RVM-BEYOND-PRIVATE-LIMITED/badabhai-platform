@@ -81,7 +81,10 @@ export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   force_close_posting: "Force-close postings",
   flag_worker: "Flag workers",
   review_skill_candidates: "Decide skill candidates",
-  toggle_kill_switch: "Toggle kill switch",
+  // "View", not "Toggle" (owner ruling, #1900): the portal only ever READS switch state —
+  // flipping one is an env/deploy action, never a portal control. The capability KEY keeps
+  // its name; only what the Roles screen calls it changes.
+  toggle_kill_switch: "View kill switch",
   reveal_pii: "Reveal contact details",
   manage_admins: "Manage admins",
 };
