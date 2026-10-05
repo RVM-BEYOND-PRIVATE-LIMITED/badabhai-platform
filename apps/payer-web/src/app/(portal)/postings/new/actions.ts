@@ -2,6 +2,8 @@
 
 import { createPostingInputSchema, matchSelectionInputSchema } from "../../../../lib/contracts";
 import { createPosting, publishPostingWithMatchSkills } from "../../../../lib/payer-api";
+import { isPayerValidationError } from "../../../../lib/payer-errors";
+import { mapPostingIssues } from "../../../../lib/posting-field-errors";
 import { workerCardGap } from "../../../../lib/worker-card-gap";
 
 /**
@@ -23,7 +25,12 @@ import { workerCardGap } from "../../../../lib/worker-card-gap";
  */
 export type CreatePostingResult =
   | { ok: true; postingId: string; published: boolean }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      error: string;
+      /** Per-field messages from a server validation 400 (#1912), keyed by form field. */
+      fieldErrors?: Record<string, string>;
+    };
 
 export async function createPostingAction(input: {
   roleKind: string;
@@ -99,7 +106,20 @@ export async function createPostingAction(input: {
   let postingId: string;
   try {
     postingId = (await createPosting(parsed.data)).id;
-  } catch {
+  } catch (e) {
+    // #1912 — the server screens the worker-visible text too (it is the authority);
+    // a refused `role_title` / `description` comes back as per-field issues. Attach
+    // each to the field the payer typed into instead of one generic banner.
+    if (isPayerValidationError(e)) {
+      const { fieldErrors, rest } = mapPostingIssues(e.issues);
+      if (Object.keys(fieldErrors).length > 0) {
+        return {
+          ok: false,
+          error: rest.join("; ") || "Check the highlighted fields.",
+          fieldErrors,
+        };
+      }
+    }
     return { ok: false, error: "Could not create the posting right now. Please retry." };
   }
 

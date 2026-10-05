@@ -189,12 +189,14 @@ export type VacancyBand = z.infer<typeof vacancyBandSchema>;
  * + this schema in the action stay the AUTHORITY; the form mirrors it for inline UX (C9).
  *
  * PII (invariant #2 / D3 defense-in-depth): EVERY worker-visible free-text field is screened
- * fail-closed with `looksLikePii` + `looksLikeOrgName` + `looksLikeUrl` — `description`, the
- * requirement/benefit chips (`chipListSchema`) AND the `city`/`area` place labels
- * (`placeFieldSchema`), which render verbatim on the card. `roleTitle` stays a short label
- * (`looksLikePii` would false-positive on legit role names) and `roleKind` is a closed enum.
- * The server re-validates and remains the authority. There is deliberately NO employer-name
- * field (the payer's own org is the session identity, stamped server-side — never typed here).
+ * fail-closed with `looksLikePii` + `looksLikeOrgName` + `looksLikeUrl` — `roleTitle`, the
+ * `description`, the requirement/benefit chips (`chipListSchema`) AND the `city`/`area` place
+ * labels (`placeFieldSchema`), which render verbatim on the card. `roleTitle` is screened too
+ * (the backend `job-postings.dto.ts` runs the same ADR-0024 screen on `role_title`; the older
+ * note here said it was unscreened) — the role is the worker's card TITLE, so a company name or
+ * a link in it is the same leak. `roleKind` is a closed enum and needs no screen. The server
+ * re-validates and remains the authority. There is deliberately NO employer-name field (the
+ * payer's own org is the session identity, stamped server-side — never typed here).
  */
 export const createPostingInputSchema = z
   .object({
@@ -203,7 +205,19 @@ export const createPostingInputSchema = z
     // keeps `trade_key`, its matching classifier). Optional at the boundary — the workerCardGap
     // rule (create/publish only) is what insists on it, not the API (which accepts a NULL role).
     roleKind: roleKindInputSchema.optional(),
-    roleTitle: z.string().min(2).max(120),
+    roleTitle: z
+      .string()
+      .min(2)
+      .max(120)
+      .refine((s) => !looksLikePii(s), {
+        message: "Remove contact details (phone/email) from the role title.",
+      })
+      .refine((s) => !looksLikeOrgName(s), {
+        message: "Don't put a company name in the role title.",
+      })
+      .refine((s) => !looksLikeUrl(s), {
+        message: "Don't put links in the role title.",
+      }),
     locationLabel: z.string().max(120).optional(),
     description: z
       .string()
@@ -267,7 +281,20 @@ export const updatePostingInputSchema = z
   .object({
     // max 200 (NOT the create form's 120): the backend PATCH accepts up to 200, and an
     // ops-created posting with a 121–200-char title must stay saveable in the edit form.
-    roleTitle: z.string().min(2).max(200),
+    // Screened with the SAME three heuristics as create (the worker reads it as the card title).
+    roleTitle: z
+      .string()
+      .min(2)
+      .max(200)
+      .refine((s) => !looksLikePii(s), {
+        message: "Remove contact details (phone/email) from the role title.",
+      })
+      .refine((s) => !looksLikeOrgName(s), {
+        message: "Don't put a company name in the role title.",
+      })
+      .refine((s) => !looksLikeUrl(s), {
+        message: "Don't put links in the role title.",
+      }),
     /**
      * OPTIONAL: omitted when the user did not touch the count, so an edit of another
      * field can NEVER silently re-derive (and possibly downgrade) the stored vacancy

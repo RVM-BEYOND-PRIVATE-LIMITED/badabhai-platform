@@ -69,7 +69,24 @@ interface FormFields {
   description: string;
 }
 
-type FieldKey = "roleTitle" | "vacancies" | "description";
+// Every control that can receive a server-side field error (#1912) as well as the client checks.
+type FieldKey =
+  | "roleTitle"
+  | "roleKind"
+  | "locationLabel"
+  | "vacancies"
+  | "city"
+  | "area"
+  | "payMin"
+  | "payMax"
+  | "payType"
+  | "minExperienceYears"
+  | "maxExperienceYears"
+  | "shift"
+  | "neededBy"
+  | "requirements"
+  | "benefits"
+  | "description";
 type FieldErrors = Partial<Record<FieldKey, string>>;
 
 const BLANK: FormFields = {
@@ -172,8 +189,12 @@ export function PostingForm({
   /** The gap that refused the last publish, shown AT its control — where focus lands. */
   const gapError = (control: string) =>
     gap !== null && gap.field === control ? gap.message : undefined;
-  /** A control's error: its own validation first, then the refused-publish gap. */
-  const errorOf = (control: string, own?: string) => own ?? gapError(control);
+  /**
+   * A control's error: its own validation first, then a SERVER field error (#1912 — the API
+   * refused this field at write), then the refused-publish gap.
+   */
+  const errorOf = (control: string, own?: string) =>
+    own ?? fieldErrors[control as FieldKey] ?? gapError(control);
 
   function addChip(kind: "req" | "ben") {
     if (gap !== null && gap.field === (kind === "req" ? "requirements" : "benefits")) setGap(null);
@@ -244,6 +265,9 @@ export function PostingForm({
         router.push(`/postings/${res.postingId}/applicants`);
         router.refresh();
       } else {
+        // #1912 — the server refused a field (it re-runs the PII screen); show its
+        // message ON that input, not only in the banner.
+        if (res.fieldErrors) setFieldErrors(res.fieldErrors as FieldErrors);
         setError(res.error);
       }
     });
@@ -331,6 +355,8 @@ export function PostingForm({
               optional
               placeholder="Pune, MH"
               value={fields.locationLabel}
+              error={errorOf("locationLabel")}
+              aria-invalid={errorOf("locationLabel") ? true : undefined}
               hint="Free text for your own note — the worker's card shows the area and city below, not this."
               onChange={(e) => set("locationLabel", e.target.value)}
             />
@@ -352,6 +378,8 @@ export function PostingForm({
                 optional
                 placeholder="Pimpri-Chinchwad"
                 value={fields.area}
+                error={errorOf("area")}
+                aria-invalid={errorOf("area") ? true : undefined}
                 onChange={(e) => set("area", e.target.value)}
               />
             </div>

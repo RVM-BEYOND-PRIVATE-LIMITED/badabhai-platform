@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PostingSummary } from "../../../../../lib/contracts";
 import type { PostingEditInitial } from "../../../../../lib/payer-api";
+import { PayerValidationError } from "../../../../../lib/payer-errors";
 import type { UpdatePostingActionInput } from "./actions";
 
 /**
@@ -235,5 +236,25 @@ describe("updatePostingAction — outcome mapping", () => {
       ok: false,
       error: "Could not save the changes right now. Please retry.",
     });
+  });
+
+  // #1912 — a validation 400 (per-field issues) is routed to the form's fields, not the
+  // generic "No changes to save." copy.
+  it("a validation 400 maps issues[].path to per-field errors", async () => {
+    updatePosting.mockRejectedValueOnce(
+      new PayerValidationError("x", [
+        { path: "role_title", message: "remove contact details from the title" },
+        { path: "description", message: "description must not contain links" },
+      ]),
+    );
+    const res = await updatePostingAction({ postingId: ID, roleTitle: "CNC", initial: INITIAL });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.fieldErrors).toEqual({
+        roleTitle: "remove contact details from the title",
+        description: "description must not contain links",
+      });
+      expect(res.error).toBe("Check the highlighted fields.");
+    }
   });
 });
