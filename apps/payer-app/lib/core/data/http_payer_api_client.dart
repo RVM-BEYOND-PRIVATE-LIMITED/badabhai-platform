@@ -1132,9 +1132,42 @@ class HttpPayerApiClient implements PayerApiClient {
         _ => JobStatus.review,
       };
 
-  /// One faceless camelCase applicant row → [Applicant]. NO name/phone/skill
-  /// field exists on the wire by construction; only opaque id + coarse facets.
+  /// One faceless applicant row → [Applicant]. NO name/phone/skill field exists
+  /// on the wire by construction; only an opaque id + coarse facets.
+  ///
+  /// The route serves TWO SHAPES behind `MATCH_V1_ENABLED` (#1823/#1913), and
+  /// the mapper branches on shape so flipping the flag — and rolling it back —
+  /// is invisible here (parity with payer-web's `toMatchCandidate` /
+  /// `toWeightedApplicant`):
+  ///
+  ///  - a COMPANY POSTING row (Matching V1): camelCase keys + an
+  ///    `applicationId`. It carries NO `score`, `hot`, `pushEligible` or
+  ///    `components` — V1 has no weights and no model output; the order is the
+  ///    server's frozen rank key. [Applicant.score]/[Applicant.hot] are
+  ///    therefore STRUCTURAL placeholders (0/false), never a meaningful number,
+  ///    and no signal list is invented from nothing.
+  ///  - an AGENCY weighted-pool row: a real `score`/`components` and the
+  ///    snake_case match facets.
   Applicant _applicantFromRow(Map<String, dynamic> row) {
+    final Object? applicationId = row['applicationId'];
+    if (applicationId is String && applicationId.isNotEmpty) {
+      return Applicant(
+        workerId: row['workerId'] as String? ?? '',
+        rank: (row['rank'] as num?)?.toInt() ?? 0,
+        // V1: no score/hot/components on the wire. Structural placeholders,
+        // pinned so nothing reads a fabricated 0 as a real ranking value.
+        score: 0,
+        hot: false,
+        pushEligible: false,
+        // camelCase, straight off the posting-applicant wire.
+        matchTier: (row['matchTier'] as num?)?.toInt(),
+        effectiveTier: (row['effectiveTier'] as num?)?.toInt(),
+        skillMonths: (row['skillMonths'] as num?)?.toInt(),
+        industryMonths: (row['industryMonths'] as num?)?.toInt(),
+        matchedSkillLabel: row['matchedSkillLabel'] as String?,
+        lastWorkedAt: row['lastWorkedAt'] as String?,
+      );
+    }
     final List<dynamic> components =
         (row['components'] as List<dynamic>?) ?? const <dynamic>[];
     return Applicant(
