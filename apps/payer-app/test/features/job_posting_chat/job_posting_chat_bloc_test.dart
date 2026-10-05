@@ -234,23 +234,63 @@ void main() {
       await bloc.close();
     });
 
-    test('draftReady LATCHES — a later turn cannot un-ready the publish action',
+    // #1920 — #1911's re-ask: the server refuses a role_title / description and
+    // answers with `draft_ready: false` on an otherwise-active turn. That false
+    // is DELIBERATE and must un-ready Publish; only a blocked turn (nothing
+    // processed) may keep the previous readiness.
+    test('a non-blocked re-ask turn UN-readies the publish action (#1920)',
         () async {
       final _FakeRepo repo = _FakeRepo(turns: <JobPostingChatTurn>[
-        _turn(ready: true, draft: const JobPostingDraft(roleTitle: 'X')),
-        _turn(ready: false),
+        _turn(
+          ready: true,
+          draft: const JobPostingDraft(roleTitle: 'CNC Setter', vacancyBand: '2-5'),
+        ),
+        // The re-ask fixture: active, draft_ready:false, the refused title nulled.
+        _turn(
+          ready: false,
+          reply: "Workers see the job title, so it can't include a company name. "
+              'What is the job title — for example CNC Operator, MIG Welder or Plumber?',
+          draft: const JobPostingDraft(vacancyBand: '2-5'),
+        ),
       ]);
       final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
       bloc.add(const JobPostingChatStarted());
       await bloc.stream.firstWhere((JobPostingChatState s) => !s.initializing);
 
-      bloc.add(const JobPostingChatMessageSent('a'));
+      bloc.add(const JobPostingChatMessageSent('ACME CNC Setter'));
       await bloc.stream.firstWhere((JobPostingChatState s) => s.draftReady);
-      bloc.add(const JobPostingChatMessageSent('b'));
+      expect(bloc.state.draft.roleTitle, 'CNC Setter');
+
+      bloc.add(const JobPostingChatMessageSent('CNC Setter'));
       await bloc.stream.firstWhere(
           (JobPostingChatState s) => s.messages.length >= 5 && !s.sending);
 
-      expect(bloc.state.draftReady, isTrue);
+      expect(bloc.state.draftReady, isFalse,
+          reason: 'the server re-asked a field; Publish must go back to disarmed');
+      expect(bloc.state.draft.roleTitle, isNull,
+          reason: 'the refused title is null in the re-ask draft');
+      await bloc.close();
+    });
+
+    test('a BLOCKED turn is the one real transient false — it keeps readiness',
+        () async {
+      final _FakeRepo repo = _FakeRepo(turns: <JobPostingChatTurn>[
+        _turn(ready: true, draft: const JobPostingDraft(roleTitle: 'CNC Setter')),
+        _turn(reply: 'Dobara likhiye', blocked: true),
+      ]);
+      final JobPostingChatBloc bloc = JobPostingChatBloc(repo);
+      bloc.add(const JobPostingChatStarted());
+      await bloc.stream.firstWhere((JobPostingChatState s) => !s.initializing);
+
+      bloc.add(const JobPostingChatMessageSent('CNC Setter'));
+      await bloc.stream.firstWhere((JobPostingChatState s) => s.draftReady);
+
+      bloc.add(const JobPostingChatMessageSent('my number is …'));
+      await bloc.stream.firstWhere(
+          (JobPostingChatState s) => !s.sending && s.lastReplyBlocked);
+
+      expect(bloc.state.draftReady, isTrue,
+          reason: 'a blocked turn processed nothing; do not yank readiness');
       await bloc.close();
     });
   });

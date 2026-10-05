@@ -117,10 +117,14 @@ class JobPostingChatState extends Equatable {
 
   /// The engine's own readiness decision (`draft_ready`).
   ///
-  /// STICKY by design — it latches on the first `true` and never falls back.
-  /// The engine's signal is monotonic in practice, and a transient false (a
-  /// degraded reply, a field lost in a partial parse) must never yank the
-  /// Publish action away from a payer who was already told they could finish.
+  /// TAKEN AS SENT on every NON-blocked turn (#1920). It is NOT latched: since
+  /// #1911 the server deliberately re-asks a refused `role_title` or
+  /// `description` with `draft_ready: false` on an otherwise-active turn, and
+  /// latching would leave Publish armed over a draft the server just refused
+  /// (a 400 for a null title, or a silent post with no description). Only a
+  /// BLOCKED turn — pseudonymization failed closed, nothing was processed, and
+  /// the AI contract defaults `draft_ready` to false — keeps the previous value
+  /// (see [_deliver]).
   final bool draftReady;
 
   /// True when the MOST RECENT reply was blocked (pseudonymization failed
@@ -174,8 +178,10 @@ class JobPostingChatState extends Equatable {
       followups: followups ?? this.followups,
       sessionFailed: sessionFailed ?? this.sessionFailed,
       draft: draft ?? this.draft,
-      // Latch: once ready, always ready (see the field doc).
-      draftReady: this.draftReady || (draftReady ?? false),
+      // Taken as sent (#1920). Callers pass an explicit value only on a
+      // non-blocked turn; a blocked turn passes the CURRENT value and so keeps
+      // readiness (see _deliver / the field doc). No latch.
+      draftReady: draftReady ?? this.draftReady,
       lastReplyBlocked: lastReplyBlocked ?? this.lastReplyBlocked,
       lastReplyMock: lastReplyMock ?? this.lastReplyMock,
       publishing: publishing ?? this.publishing,
@@ -415,7 +421,12 @@ class JobPostingChatBloc
         // so keep the draft we already had rather than letting a fallback reply
         // blank out fields the payer already gave.
         draft: turn.blocked ? state.draft : (turn.draft ?? state.draft),
-        draftReady: turn.draftReady,
+        // Honour draft_ready:false on a re-ask turn (#1920). A NON-blocked turn
+        // takes the server's value as sent — a re-ask after a refused title /
+        // description must un-ready Publish. A BLOCKED turn processed nothing
+        // (the contract defaults draft_ready to false), so keep what we had
+        // rather than yanking readiness on a transient failure.
+        draftReady: turn.blocked ? state.draftReady : turn.draftReady,
         lastReplyBlocked: turn.blocked,
         lastReplyMock: turn.isMock,
       ));
