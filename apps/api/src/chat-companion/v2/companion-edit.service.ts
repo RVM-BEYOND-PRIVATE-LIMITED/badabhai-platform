@@ -57,6 +57,7 @@ import {
   type WholeEntryKind,
 } from "./edit-catalogue";
 import { identityAskIn } from "./edit-identity";
+import { expandListEdits } from "./edit-normalise";
 import { dedupeRows, isNoopAdd, planSection, type SectionPlan } from "./edit-plan";
 import {
   isStale,
@@ -139,8 +140,9 @@ type RowVerdict =
  *
  * THE MODEL NEVER WRITES. `propose` reads every section once (`EditState`), sends the message
  * plus this catalogue and a snapshot of the worker's current values — cut to the contract's cap —
- * to `AiService.companionEditParse`, validates every returned row deterministically (whole-job
- * delete, catalogue, op, ref, value, placeholder token, hard identifier, no-op, duplicate, and the
+ * to `AiService.companionEditParse`, expands an `edit` on a list member into its `delete`/`add`
+ * pair (`edit-normalise.ts`), validates every row deterministically (whole-entry delete,
+ * catalogue, op, ref, value, placeholder token, hard identifier, no-op, duplicate, and the
  * section writer's REAL schema) and stores a card of at most `min(EDIT_MAX_ROWS, 3)` rows.
  * `confirm` CLAIMS the card (at most one apply per card), refuses a ticked whole-job delete,
  * re-reads the state, refuses a stale card, applies every selected row through the section
@@ -231,11 +233,14 @@ export class CompanionEditService {
 
     // Only the refs the model was SHOWN can be addressed: a trimmed row is not guessable.
     const byRef = new Map(sent.map((row) => [row.ref, row]));
+    // LIST FIELDS: an `edit` on a list member becomes `delete old` + `add new` before any
+    // validation (edit-normalise.ts) — deterministic, fail closed, the pair counted by the cap.
+    const modelRows = expandListEdits(parsed.rows, byRef);
     const effectiveUnsupported = new Set(unsupported);
     let placeholderDropped = false;
     const wholeEntryDeletes: WholeEntryKind[] = [];
     const valid: StoredEditProposalRow[] = [];
-    for (const row of parsed.rows) {
+    for (const row of modelRows) {
       const verdict = this.validateRow(row, byRef);
       if (verdict.kind === "kept") {
         valid.push(verdict.row);
@@ -263,7 +268,7 @@ export class CompanionEditService {
         ...(wholeEntryDeletes.length - jobs > 0 ? ["qualification_delete_from_chat"] : []),
       ].join(",");
       this.logger.warn(
-        `companion edit dropped ${wholeEntryDeletes.length} of ${parsed.rows.length} rows for worker ${workerId}: a whole-entry delete is never carded (reason=${reasons})`,
+        `companion edit dropped ${wholeEntryDeletes.length} of ${modelRows.length} rows for worker ${workerId}: a whole-entry delete is never carded (reason=${reasons})`,
       );
     }
 
@@ -273,7 +278,7 @@ export class CompanionEditService {
       state,
       dedupeRows(valid).filter((row) => !isNoopAdd(row, snapshot)),
     ).slice(0, cardRowsMax);
-    const dropped = parsed.rows.length - kept.length;
+    const dropped = modelRows.length - kept.length;
 
     if (kept.length === 0) {
       const profileScreenOnly = placeholderDropped || wholeEntryDeletes.length > 0;

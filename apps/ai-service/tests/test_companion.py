@@ -384,6 +384,35 @@ def test_the_delete_anchors_the_prompt_names_are_catalogue_fields_that_allow_del
         assert "delete" not in ops[("qualifications", field)]
 
 
+def test_the_edit_prompt_states_the_list_fields_rule() -> None:
+    """WP4 (2026-10-05): the first eval run's three out-of-catalogue rows were `edit` on
+    preferred_cities / work_types. Lists take members: add the new one, delete the old one."""
+    rule = _edit_prompt_rule("Some fields are LISTS")
+    assert 'take only "add" and "delete", never "edit"' in rule
+    assert '"add" the new one and' in rule
+    # A job's city is not a preferred city (two wrong targets in the same run).
+    city = _edit_prompt_rule('"employment" "employer_city" is the city of ONE job')
+    assert '"preferred_cities" is where the worker' in city
+    assert "edits the employment row" in city
+
+
+def test_the_edit_prompt_routes_a_trade_by_its_verb() -> None:
+    """WP4: "karta hoon" names an occupation, "aata hai" a skill — the two cases the eval missed.
+    Phrased as rules, not quoted gold lines (the no-quoting test checks the whole prompt)."""
+    rule = _edit_prompt_rule("A trade the worker does is an")
+    assert '"occupations" add' in rule
+    assert '"skills" add' in rule
+
+
+def test_the_edit_prompt_states_the_year_only_and_wording_rules() -> None:
+    """WP4: a year-only end date is December (the eval got 2023-01 for a leaving date), the
+    "chahiye / notice / institute" phrasings map to their fields, and values are Latin."""
+    assert "the start month is January and the end month is December" in EDIT_PARSE_SYSTEM_PROMPT
+    assert '"education_institute"' in EDIT_PARSE_SYSTEM_PROMPT
+    assert '"availability_notice_period_days"' in EDIT_PARSE_SYSTEM_PROMPT
+    assert "Write every value in Latin letters" in EDIT_PARSE_SYSTEM_PROMPT
+
+
 def test_the_edit_prompt_never_offers_a_whole_entry_delete() -> None:
     """"Never from chat": a whole job (owner, 2026-10-01) and a whole certificate, education or
     training (TD151(1) provisional default, 2026-10-05) are removed only on the Profile screen.

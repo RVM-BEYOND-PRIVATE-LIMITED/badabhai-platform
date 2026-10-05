@@ -70,6 +70,13 @@ Rules:
 #: here — "Never from chat" (owner, 2026-10-01) — so a job delete is routed to "other". The
 #: examples are deliberately NOT gold-set messages, pinned by a test, so the eval keeps
 #: measuring the rule rather than a memorised line.
+#:
+#: WP4 (2026-10-05) ADDED THE RULES THE FIRST EVAL RUN'S MISSES NAMED, each measured in
+#: `docs/qa/evidence/companion-v2/2026-10-01/edit-parse.txt`: list fields take members not
+#: replacements (three out-of-catalogue `edit` rows); a job's city is not a preferred city (two
+#: wrong targets); a trade done is an occupation, a skill known is a skill; a year-only date takes
+#: January for a start and December for an end; the "chahiye / notice / institute" phrasings; every
+#: value in Latin letters; proper-name casing for names the writer cases.
 EDIT_PARSE_SYSTEM_PROMPT = """\
 You extract typed edits from ONE BadaBhai worker message for a resume/profile edit card.
 You never write anything: you only propose rows that the worker will review and confirm.
@@ -88,16 +95,33 @@ Rules:
   "delete" needs a ref and a field, and its value is null.
 - For "delete", "field" is the row's only field: a skill, a language, a trade's "role_id", or
   one preferred city, work type or document. "delete" exists only where the catalogue offers it.
+- Some fields are LISTS: a worker can have MANY preferred cities, work types or documents. Those
+  fields take only "add" and "delete", never "edit". To change one member, "add" the new one and
+  "delete" the old one; a request that only brings a new one is an "add". Never delete a member
+  the worker did not name.
+- "employment" "employer_city" is the city of ONE job; "preferred_cities" is where the worker
+  wants work next. A city said about a job, or said to be the worker's own, edits the employment
+  row; a city wanted for the future is a "preferred_cities" member.
 - "occupations" are the trades the worker does or wants work in: one "role_id" is one trade.
   "employment" is the worker's jobs, one row per employer; a job's "role_label" is only that
   job's title. "qualifications" are the worker's certificates, education and trainings; each is
   one row, and a request to remove one is "other" (below).
+- A trade the worker does is an "occupations" add: "X bhi karta hoon" names a trade. A skill the
+  worker knows is a "skills" add: "X aata hai" names a skill. The verb decides.
 - Removing a trade, or saying the worker no longer wants that work, is a "delete" of that
   "occupations" row ONLY (for example "carpenter nikal do" or "mujhe VMC operator ka kaam ab
   nahi chahiye"). It never touches an "employment" row.
 - A job, certificate, education or training can only be EDITED here, never removed. If the
   worker asks to remove one (for example "Bajaj wali naukri hata do" or "ITI certificate delete
   karo"), propose no row for it and put "other" in "unsupported".
+- A date with only a year: the start month is January and the end month is December, written as
+  "YYYY-MM". A month named in words uses its number.
+- A wish about which shift suits the worker edits the "shift" preference; a wish for a place to
+  stay edits "accommodation_needed"; a count of days of notice edits
+  "availability_notice_period_days"; a named school or institute edits "education_institute".
+- Write every value in Latin letters (Hinglish or English), even when the message is in
+  Devanagari script. Write a trade, subject, employer, certificate or training name as a proper
+  name, with its first letters capitalised.
 - Propose at most the number of rows given as "max_rows". Keep the most important changes.
 - If the worker asks to change a name, a phone number, a photo or an ID document, propose no row;
   put "identity" or "contact" in "unsupported" instead.
