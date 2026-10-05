@@ -30,6 +30,10 @@ from itertools import pairwise
 from pathlib import Path
 
 import pytest
+from employer_masking_helpers import NEVER as _NEVER
+from employer_masking_helpers import RULES_1892 as _RULES_1892
+from employer_masking_helpers import raw_words as _raw_words
+from employer_masking_helpers import two_view_verdict as _two_view_verdict
 
 import app.pseudonymize as gateway
 from app.profiling import lexicon
@@ -41,20 +45,20 @@ from app.pseudonymize import (
     pseudonymize,
 )
 
-_NEVER = re.compile(r"(?!x)x")
-
 
 @pytest.fixture
 def main_gateway(monkeypatch):
-    """The gateway exactly as on main: the capitals rule switched off, nothing else touched.
+    """The gateway as on main before #1875: the capitals rule and #1892's passes switched
+    off, nothing else touched.
 
-    Sound because the capitals rule is a SEPARATE pass that runs after the title-case rule and both
-    name rules — with it matching nothing, every other rule sees byte-identical input. Measured
-    against the real main module over the 31,907-string corpus: 0 outputs differ."""
+    Sound because each is a SEPARATE pass that runs after the title-case rule and both name rules —
+    with them matching nothing, every other rule sees byte-identical input. Measured against the
+    real main module over the 31,907-string corpus: 0 outputs differ."""
 
     def run(fn, *args):
         with monkeypatch.context() as patch:
-            patch.setattr(gateway, "_EMPLOYER_CAPS_RE", _NEVER)
+            for name in ("_EMPLOYER_CAPS_RE", *_RULES_1892):
+                patch.setattr(gateway, name, _NEVER)
             return fn(*args)
 
     return run
@@ -334,9 +338,9 @@ def test_an_invisible_inside_a_co_compound_does_not_block(text):
         ("Quality Co ordinator", "[EMPLOYER_1] ordinator"),
         # No title-case "Inc" — not added here.
         ("Acme Inc", "Acme Inc"),
-        # The title-case match keeps its span; the capitals rule runs on its OUTPUT, so the
-        # trailing capitals form beside a token is left exactly as main leaves it.
-        ("Tata Motors LTD", "[EMPLOYER_1] LTD"),
+        # (The title-case match keeps its span, and this rule left the trailing capitals form
+        # beside its token, "Tata Motors LTD" -> "[EMPLOYER_1] LTD"; #1892's absorb pass now folds
+        # it in, pinned in test_pseudonymize_employer_residuals.py.)
         # ORDER PIN. Folded into `_COMPANY_SUFFIX` as an alternation, the capitals form would win
         # here and leave "Steel" raw: "[EMPLOYER_1] Steel".
         ("Om Sai Ram Krishna LTD Steel", "Om [EMPLOYER_1]"),
@@ -437,37 +441,15 @@ def _sample(rng: random.Random) -> str:
     return text
 
 
-def _raw_words(text: str) -> Counter[str]:
-    return Counter(re.findall(r"[^\W_]+", re.sub(r"\[[A-Z]+_\d+\]", " ", text)))
+@pytest.fixture
+def without_1892(monkeypatch):
+    """#1892's passes switched off for the whole test, on both sides of a comparison, so a
+    test proves the capitals rule alone: they can take over or extend its spans (see that file)."""
+    for name in _RULES_1892:
+        monkeypatch.setattr(gateway, name, _NEVER)
 
 
-def _two_view_verdict(text: str) -> str:
-    """How #1738's two-view check in `pseudonymize` treats ``text`` on the module as it stands.
-
-    "blocks"  — a view's residual guard trips, or a spaced-view region overlaps no reader mask.
-    "full"    — it passes, and every offset of every spaced-view region that the reader view KEPT
-                (did not delete) is reader-masked: nothing the spaced view found egresses raw.
-    "partial" — it passes although a spaced-view region holds a kept offset the reader view left
-                raw; the region merely OVERLAPS a reader mask. That is R49 (#1890): under its
-                mitigation (covered only if every kept offset is reader-masked) it would block.
-    """
-    reader_view, spaced_view = gateway._build_views(text)
-    reader, reader_regions = gateway._mask(reader_view, True)
-    spaced, spaced_regions = gateway._mask(spaced_view, True)
-    reader_masked: set[int] = set().union(*reader_regions)
-    if (
-        reader.blocked
-        or spaced.blocked
-        or any(not (region & reader_masked) for region in spaced_regions)
-    ):
-        return "blocks"
-    kept = set(reader_view.src)
-    if any((region & kept) - reader_masked for region in spaced_regions):
-        return "partial"
-    return "full"
-
-
-def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway):
+def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway, without_1892):
     """What this PROVES, exactly — over 4,000 samples of THIS seeded generator, not over all inputs.
 
     The pools: title-case and capitals names, every `_COMPANY_SUFFIX` word in both cases, the
@@ -475,6 +457,9 @@ def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway):
     Hinglish fillers, the five name cues (MY NAME IS, MERA NAAM, MYSELF, I AM, NAAM) in capitals
     and lower case, and four invisible characters (U+200B, U+200C, U+2060, U+00AD) glued in as the
     SOLE separator between two words.
+
+    It proves THIS rule: #1892's passes are switched off on both sides (`without_1892`);
+    `test_pseudonymize_employer_residuals.py` proves those passes the same way.
 
     1. IN EACH VIEW (#1738's reader and spaced view, through `_mask`): every region main masked is
        masked over exactly the same source offsets — so the rule never shortens a title-case match
@@ -531,6 +516,8 @@ def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway):
     assert seen["main blocked"] > 600, seen
     assert seen["main two-view block"] > 70, seen
     assert seen["cue beside a capitals form"] > 200, seen
+    # The R49 turns are bounded, not just classified: more would mean the rule widened R49.
+    assert seen["unblocked, partial"] <= 10, seen
 
 
 # --- 4. the stated boundary, both directions --------------------------------------------------
@@ -563,14 +550,13 @@ def test_ACCEPTED_a_shouted_corporate_word_over_masks_exactly_like_its_title_cas
         "BAJAJ AUTO",
         "JYOTI CNC",
         "GUPTA & SONS",
-        "M/S SHARMA TRADERS",  # an M/S firm with no corporate form — tracked in #1892
     ],
 )
 def test_KNOWN_RESIDUAL_an_all_caps_employer_without_a_corporate_form_is_not_masked(text):
     # The price of not masking "MAIN STEEL PLANT MEIN THA": with no corporate form, a capitals
     # employer is indistinguishable from shouted trade speech. If this starts masking, the
-    # boundary moved — re-run the over-mask measurement and update the register (R48; the M/S
-    # firm is #1892).
+    # boundary moved — re-run the over-mask measurement and update the register (R48). An M/S firm
+    # ("M/S SHARMA TRADERS") left this list with #1892's cue rule.
     result = pseudonymize(text)
     assert result.text == text
     assert result.replaced_entities == 0
@@ -579,25 +565,16 @@ def test_KNOWN_RESIDUAL_an_all_caps_employer_without_a_corporate_form_is_not_mas
 @pytest.mark.parametrize(
     ("text", "expected", "why"),
     [
-        ("tata motors ltd", "tata motors ltd", "lower case: its own over-mask measurement first"),
-        ("TATA MOTORS ltd", "TATA MOTORS ltd", "lower-case form"),
         ("ACME INC", "ACME INC", "INC is pay talk here, not a form"),
         ("AL KHALEEJ EST.", "AL KHALEEJ EST.", "EST. is also 'estimated'"),
         ("MARUTI COMPANY-PUNE", "MARUTI COMPANY-PUNE", "a dash after a guarded form"),
-        (
-            "RAMESH KUMAR SHARMA ENGINEERING WORKS PVT LTD",
-            "RAMESH [EMPLOYER_1] LTD",
-            "five name words before the form; the window is four",
-        ),
-        ("Sharma & Co.", "Sharma & Co.", "title case is not touched here"),
-        ("Xyz (P) Ltd", "Xyz (P) Ltd", "title case is not touched here"),
-        ("Acme Llp", "Acme Llp", "no title-case Llp"),
     ],
 )
 def test_KNOWN_RESIDUAL_stated_under_masking(text, expected, why):
-    # Each is recorded as a residual in risks-register R48 and docs/ai/pseudonymization.md; the
-    # lower-case, 5+ word and title-case-twin rows are tracked in #1892. If one of these starts
-    # masking, the boundary moved: re-measure and update both.
+    # Each is recorded as a residual in risks-register R48 and docs/ai/pseudonymization.md. If one
+    # of these starts masking, the boundary moved: re-measure and update both. The lower-case
+    # ("tata motors ltd"), 5+ word and title-case-twin ("Sharma & Co.", "Xyz (P) Ltd", "Acme Llp")
+    # rows left this list with #1892: test_pseudonymize_employer_residuals.py.
     assert pseudonymize(text).text == expected, why
 
 
