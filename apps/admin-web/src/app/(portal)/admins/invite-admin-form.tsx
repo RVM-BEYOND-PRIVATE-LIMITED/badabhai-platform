@@ -6,6 +6,7 @@ import { AdminActionButton } from "../../../components/admin-action-button";
 import { AdminActionResultBanner } from "../../../components/admin-action-result-banner";
 import { inviteAdminAction } from "./actions";
 import { ADMIN_ROLES, ROLE_LABELS, type AdminRole } from "../../../lib/auth/capabilities";
+import { looksLikeAdminEmail } from "../../../lib/email-shape";
 import type { AdminActionOutcome } from "../../../lib/admin-action-result";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
@@ -23,7 +24,7 @@ export function InviteAdminForm({
   const emailId = useId();
   const roleId = useId();
 
-  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const emailValid = looksLikeAdminEmail(email);
 
   function handleSettled(o: AdminActionOutcome) {
     setOutcome(o);
