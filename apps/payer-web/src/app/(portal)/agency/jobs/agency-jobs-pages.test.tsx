@@ -11,8 +11,8 @@ import type * as ConfigModule from "../../../../lib/config";
  *   /agency/jobs/<id>   "Posting details".
  * Each gates like every agency page: `requireAgent()` FIRST (anyone else gets the neutral 404),
  * then the agency-portal flag (off → the route does not exist) — both BEFORE any read. The
- * details page also refuses a non-uuid id before the read, and offers NO way to the posting's
- * applicants: the applicant endpoint does not serve agency jobs correctly yet (backend #1898).
+ * details page also refuses a non-uuid id before the read, and offers a secondary link to the
+ * posting's REAL applicants (#1956 — the feed serves them since #1955).
  */
 
 const AGENT: PayerSession = {
@@ -137,14 +137,15 @@ describe("the heads — Posting naming, one door each", () => {
     expect(h.primaryAction).toBeUndefined();
   });
 
-  it("Posting details: back to Postings, and NO way to its applicants (backend #1898)", async () => {
+  it("Posting details: back to Postings, plus a secondary link to its REAL applicants (#1956)", async () => {
     const tree = await detail.default(params(JOB.id));
     const h = head(tree);
     expect(h.title).toBe("CNC Operator");
     expect(h.back).toEqual({ href: "/agency/jobs", label: "Postings" });
     expect(h.primaryAction).toBeUndefined();
-    expect(h.secondaryActions ?? []).toEqual([]);
-    expect(JSON.stringify(tree)).not.toMatch(/applicants"|\/applicants/);
+    expect(h.secondaryActions).toEqual([
+      { href: `/agency/jobs/${JOB.id}/applicants`, label: "Applicants", icon: "users-three" },
+    ]);
   });
 });
 
