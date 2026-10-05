@@ -60,3 +60,28 @@ def raw_egress(text: str) -> tuple[str, str]:
     kept = set(reader_view.src)
     raw = sorted(set().union(*((region & kept) - reader_masked for region in spaced_regions)))
     return ("partial" if raw else "full"), "".join(text[i] for i in raw)
+
+
+def _overlap_covered(region: set[int], reader_masked: set[int], reader_kept: set[int]) -> bool:
+    """`_is_covered` as it stood before #1890: one overlapping offset was enough (R49)."""
+    return bool(region & reader_masked)
+
+
+def containment_against_overlap(text: str, monkeypatch) -> str:
+    """Compare `pseudonymize(text)` with the same module under the pre-#1890 overlap check, and
+    assert containment only ever blocks MORE: a turn overlap blocked blocks the same way, a turn
+    containment passes is byte-identical, and a turn only containment blocks is an R49 "partial"
+    turn. Independently, every "partial" turn blocks. Returns "same" or "newly blocked"."""
+    result = gateway.pseudonymize(text)
+    with monkeypatch.context() as patch:
+        patch.setattr(gateway, "_is_covered", _overlap_covered)
+        overlap = gateway.pseudonymize(text)
+    verdict = two_view_verdict(text)
+    if verdict == "partial":
+        assert result.blocked_reason == gateway._INVISIBLE_BYPASS_REASON, text
+    if overlap.blocked or not result.blocked:
+        assert result == overlap, (text, overlap, result)
+        return "same"
+    assert result.blocked_reason == gateway._INVISIBLE_BYPASS_REASON, text
+    assert verdict == "partial", (text, verdict)
+    return "newly blocked"

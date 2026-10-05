@@ -682,22 +682,22 @@ _EMPLOYER_CAPS_RE = re.compile(
 #
 # TWO VIEWS (#1738). The two-view check can stop blocking where the reader view now masks what the
 # spaced view found. "Larsen &<ZWSP>Toubro Limited" now BLOCKS (the spaced view absorbs "Larsen",
-# the reader view cannot), where main passed it with "Larsen" raw. Two ways it now passes what main
+# the reader view cannot), where main passed it with "Larsen" raw. One way it passes what main
 # blocked: "full" — "my name is<ZWSP>Ramesh Kumar ltd" -> "my [EMPLOYER_1]", the name masked under
-# an employer label — and R49's partial overlap (#1890), which these passes extend as #1875
-# extended it: with an invisible right after a name cue, "my name is<ZWSP>Ramesh Kumar Llp" (and
-# "& Co.", "(P) Ltd", "W.l.l", "& Toubro Ltd", "-Toubro Ltd", a long lower-case span) passes as
-# "my name isRamesh [EMPLOYER_1]"; with one that merges a word into a dash-glued run, "Sharma
-# Motors<WJ>A-ONE Motors" passes as "Sharma [EMPLOYER_1]" (the absorb pass folds the reader view's
-# "MotorsA-" into the token). Each shape is pinned. On the third review's generator, re-run on the
-# final rules (20,000 lines that each carry an invisible): main's own R49 name egress is 208
-# lines; these passes add 194 that main blocked (0.97%) and close 46 of main's. With invisibles in
-# 2% of lines: 3 added in 20,000. They reach the at-rest copies (corpus, growth queue, payer
-# draft) and the embedding input; the walls still withhold every such turn. Security review: SHIP
-# with this registered (R49) and owner-acknowledged (acknowledged 2026-10-03). #1890 fixed it in
-# the two-view check, not here: each R49 shape above now BLOCKS. A long span may also split an
-# earlier span and leave a separator or a bare form word between two tokens ("xa xb xc xd SHARMA
-# LTD PVT" -> "[EMPLOYER_1] PVT"): no name word, so it stays.
+# an employer label. Before #1890 there was a second, R49's partial overlap, which these passes
+# extended as #1875 extended it: with an invisible right after a name cue, "my name is<ZWSP>Ramesh
+# Kumar Llp" (and "& Co.", "(P) Ltd", "W.l.l", "& Toubro Ltd", "-Toubro Ltd", a long lower-case
+# span) passed as "my name isRamesh [EMPLOYER_1]"; with one that merges a word into a dash-glued
+# run, "Sharma Motors<WJ>A-ONE Motors" passed as "Sharma [EMPLOYER_1]" (the absorb pass folds the
+# reader view's "MotorsA-" into the token). Each shape is pinned, now as a block. On the third
+# review's generator, re-run on the final rules (20,000 lines that each carry an invisible): main's
+# own R49 name egress was 208 lines; these passes added 194 that main blocked (0.97%) and closed 46
+# of main's. With invisibles in 2% of lines: 3 added in 20,000. They reached the at-rest copies
+# (corpus, growth queue, payer draft) and the embedding input; the walls withheld every such turn.
+# Security review: SHIP with this registered (R49) and owner-acknowledged (acknowledged
+# 2026-10-03). #1890 fixed it in the two-view check, not here: each R49 shape above now BLOCKS.
+# A long span may also split an earlier span and leave a separator or a bare form word between two
+# tokens ("xa xb xc xd SHARMA LTD PVT" -> "[EMPLOYER_1] PVT"): no name word, so it stays.
 #
 # COST, measured 2026-10-03 (this laptop, under load). A typical line: +1-5 us mean (1,882
 # real-shaped worker turns, the question packs, the test fixtures); a line holding a lower-case
@@ -1987,8 +1987,8 @@ def _mask(
         #    a title-case match, never eats a name cue ("MY NAME IS CO Ramesh" stays "MY NAME IS
         #    [PERSON_1]"), and within this view only masks what they left raw (and what 4a did
         #    not take whole). It never takes a 7+ digit run (detail 4), so money and the residual
-        #    net below see main's digits. Across the two views of `pseudonymize` there is one
-        #    pre-existing exception: R49, #1890.
+        #    net below see main's digits. Across the two views of `pseudonymize` there was one
+        #    pre-existing exception, R49, closed by #1890 (`_is_covered`).
         (_EMPLOYER_CAPS_RE, lambda m: token_for(m.group(0), "EMPLOYER"), 0),
         # 4c-4f. The rest of #1892, each on the output of the rules above, each only masking what
         #    they left raw: title-case forms, lower and sentence case, the M/S cue (keeps the

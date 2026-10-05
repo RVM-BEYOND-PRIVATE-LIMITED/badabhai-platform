@@ -32,6 +32,7 @@ from pathlib import Path
 import pytest
 from employer_masking_helpers import NEVER as _NEVER
 from employer_masking_helpers import RULES_1892 as _RULES_1892
+from employer_masking_helpers import containment_against_overlap
 from employer_masking_helpers import raw_words as _raw_words
 from employer_masking_helpers import two_view_verdict as _two_view_verdict
 
@@ -53,7 +54,9 @@ def main_gateway(monkeypatch):
 
     Sound because each is a SEPARATE pass that runs after the title-case rule and both name rules —
     with them matching nothing, every other rule sees byte-identical input. Measured against the
-    real main module over the 31,907-string corpus: 0 outputs differ."""
+    real main module over the 31,907-string corpus: 0 outputs differ. The two-view check is the
+    branch's own (#1890's containment), so "main" here blocks the R49 turns real main passed;
+    `containment_against_overlap` compares against the pre-#1890 check."""
 
     def run(fn, *args):
         with monkeypatch.context() as patch:
@@ -449,7 +452,7 @@ def without_1892(monkeypatch):
         monkeypatch.setattr(gateway, name, _NEVER)
 
 
-def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway, without_1892):
+def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway, without_1892, monkeypatch):
     """What this PROVES, exactly — over 4,000 samples of THIS seeded generator, not over all inputs.
 
     The pools: title-case and capitals names, every `_COMPANY_SUFFIX` word in both cases, the
@@ -497,6 +500,9 @@ def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway, without
             if not _ANY_CAPITALS_FORM.search(view.text):
                 assert (new_view, new_regions) == (old_view, old_regions), text
         new, old = pseudonymize(text), main_gateway(pseudonymize, text)
+        seen["containment newly blocks"] += (
+            containment_against_overlap(text, monkeypatch) == "newly blocked"
+        )
         seen["main blocked"] += old.blocked
         seen["main two-view block"] += old.blocked_reason == gateway._INVISIBLE_BYPASS_REASON
         seen["cue beside a capitals form"] += bool(
@@ -515,6 +521,8 @@ def test_property_the_capitals_rule_only_ever_adds_masking(main_gateway, without
     assert seen["main blocked"] > 600, seen
     assert seen["main two-view block"] > 70, seen
     assert seen["cue beside a capitals form"] > 200, seen
+    # #1890 measured 2026-10-05: 46 of the 4,000 block under containment that overlap passed.
+    assert seen["containment newly blocks"] > 20, seen
 
 
 # --- 4. the stated boundary, both directions --------------------------------------------------

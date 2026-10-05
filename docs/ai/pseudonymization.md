@@ -541,12 +541,12 @@ rounds and a final check:
   `"m/s [EMPLOYER_1] se kaam"`.
 
 **The two views (R49, #1890).** `"Larsen &<U+200B>Toubro Limited"` now blocks; main passed it with
-"Larsen" raw. These passes also extend R49's partial overlap, the way #1875 did:
+"Larsen" raw. Before #1890 these passes also extended R49's partial overlap, the way #1875 did:
 
-- with an invisible character right after a name cue, `"my name is<U+200B>Ramesh Kumar Llp"` passes
+- with an invisible character right after a name cue, `"my name is<U+200B>Ramesh Kumar Llp"` passed
   as `"my name isRamesh [EMPLOYER_1]"` (and the "& Co.", "(P) Ltd", "W.l.l", absorb and long
   lower-case shapes);
-- with one that merges a word into a dash-glued run, `"Sharma Motors<U+2060>A-ONE Motors"` passes as
+- with one that merges a word into a dash-glued run, `"Sharma Motors<U+2060>A-ONE Motors"` passed as
   `"Sharma [EMPLOYER_1]"`.
 
 Main blocks every one of these, and since #1890 the branch does too: the 10 shapes, once

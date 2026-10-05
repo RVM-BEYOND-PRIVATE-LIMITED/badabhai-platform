@@ -36,7 +36,14 @@ from itertools import pairwise
 from pathlib import Path
 
 import pytest
-from employer_masking_helpers import NEVER, RULES_1892, raw_egress, raw_words, two_view_verdict
+from employer_masking_helpers import (
+    NEVER,
+    RULES_1892,
+    containment_against_overlap,
+    raw_egress,
+    raw_words,
+    two_view_verdict,
+)
 
 import app.pseudonymize as gateway
 from app.profiling import lexicon
@@ -58,7 +65,9 @@ def main_gateway(monkeypatch):
 
     Sound because each is a SEPARATE pass; with them matching nothing every other rule — the
     capitals rule included, which the long pass runs ahead of — sees byte-identical input. Measured
-    over the 50,918-string corpus: identical to the module before #1892."""
+    over the 50,918-string corpus: identical to the module before #1892. The two-view check is the
+    branch's own (#1890's containment); `containment_against_overlap` compares against the
+    pre-#1890 check."""
 
     def run(fn, *args):
         with monkeypatch.context() as patch:
@@ -967,6 +976,26 @@ def test_r49_shapes_the_1892_passes_reach_fail_closed(text, leaked, raw, main_ga
     assert result.blocked_reason == gateway._INVISIBLE_BYPASS_REASON
 
 
+# Region offsets for `_is_covered`: 0-9 kept by the reader view, 10 an invisible it deleted.
+_KEPT = set(range(10))
+
+
+@pytest.mark.parametrize(
+    ("region", "reader_masked", "covered"),
+    [
+        (set(), {1, 2}, False),  # an empty region overlaps nothing: blocks, as before #1890
+        ({10}, {1, 2}, False),  # only deleted offsets: no overlap, blocks, as before #1890
+        ({1, 2, 10}, {1, 2}, True),  # every KEPT offset masked; the invisible is exempt
+        ({1, 2, 3}, {1, 2}, False),  # one kept offset raw: R49, blocks since #1890
+        ({1, 2, 3, 10}, {1, 2}, False),  # the same with the invisible inside the region
+        ({4, 5}, {1, 2}, False),  # no overlap at all
+        ({1, 2}, {0, 1, 2, 3}, True),  # contained in a wider reader mask
+    ],
+)
+def test_is_covered_requires_every_kept_offset_masked(region, reader_masked, covered):
+    assert gateway._is_covered(region, reader_masked, _KEPT) is covered
+
+
 # --- 7. scope and the certifiers ------------------------------------------------------------------
 
 
@@ -1088,7 +1117,7 @@ def _a_pass_may_act(text: str, main_text: str) -> bool:
     )
 
 
-def test_property_the_1892_passes_only_ever_add_masking(main_gateway):
+def test_property_the_1892_passes_only_ever_add_masking(main_gateway, monkeypatch):
     """What this PROVES, exactly — over 6,000 samples of THIS seeded generator, not over all inputs.
 
     The pools: names and trade words in three cases, every form these passes read (glued spellings
@@ -1124,6 +1153,9 @@ def test_property_the_1892_passes_only_ever_add_masking(main_gateway):
             if not _a_pass_may_act(view.text, old_view.text):
                 assert (new_view, new_regions) == (old_view, old_regions), text
         new, old = pseudonymize(text), main_gateway(pseudonymize, text)
+        seen["containment newly blocks"] += (
+            containment_against_overlap(text, monkeypatch) == "newly blocked"
+        )
         seen["changed"] += new != old
         seen["main blocked"] += old.blocked
         if old.blocked and not new.blocked:
@@ -1144,7 +1176,8 @@ def test_property_the_1892_passes_only_ever_add_masking(main_gateway):
     assert seen["changed"] > 900, seen
     assert seen["main blocked"] > 1_500, seen
     assert seen["a region grew"] > 0, seen
-    assert seen["unblocked, partial"] == 0, seen  # R49 closed by #1890
+    # #1890 measured 2026-10-05: 40 of the 6,000 block under containment that overlap passed.
+    assert seen["containment newly blocks"] > 20, seen
 
 
 # --- 9. the gates and the cost --------------------------------------------------------------------

@@ -35,6 +35,7 @@ from itertools import pairwise
 from pathlib import Path
 
 import pytest
+from employer_masking_helpers import two_view_verdict
 
 import app.pseudonymize as gateway
 from app.pseudonymize import (
@@ -54,7 +55,8 @@ def main_gateway(monkeypatch):
     """The gateway with main's unbounded title-case rule, nothing else touched.
 
     Sound because `_EMPLOYER_RE` is the only rule #1891 changed. Measured against the real main
-    module over the #1875 corpus: its outputs and certifier outcomes are byte-identical."""
+    module over the #1875 corpus: its outputs and certifier outcomes are byte-identical. The
+    two-view check is the branch's own (#1890's containment)."""
 
     def run(fn, *args):
         with monkeypatch.context() as patch:
@@ -282,6 +284,7 @@ def test_a_word_joined_past_64_blocks_beside_a_second_name_word(text, main_gatew
     # counted as covered and the reader view egressed with the joined word raw. Under containment
     # the joined word's kept offsets are outside every reader mask, so the turn fails closed.
     assert main_gateway(pseudonymize, text).text == "[EMPLOYER_1]"
+    assert two_view_verdict(text) == "partial"  # the R49 path, not a residual or no-overlap block
     result = pseudonymize(text)
     assert (result.text, result.blocked) == ("", True)
     assert result.blocked_reason == gateway._INVISIBLE_BYPASS_REASON
