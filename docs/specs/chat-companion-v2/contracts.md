@@ -119,6 +119,17 @@ different employers never share `[EMPLOYER_1]`. The token grammar is unchanged (
 caught by the API's O17 `hasPlaceholderToken` screen), no mapping is returned, and every other
 gateway caller keeps its per-call numbering. No wire field changes.
 
+**An `edit` on a list member is expanded before validation (WP4, 2026-10-05).** The three list
+preferences (`preferred_cities`, `work_types`, `documents_ready`) offer only `add`/`delete` (§3),
+and the 2026-10-01 eval measured the primary model answering a list change with `op: "edit"` on
+such a field (3 of 74 cases — which the API dropped as out-of-catalogue, so the worker got no
+card). `expandListEdits` (`v2/edit-normalise.ts`, pure) turns such a row into `delete old` +
+`add new` — both values normalised through the field's own dictionary, in that order, before
+`validateRow` — so the worker gets the replace the model meant. Replacing a member with itself
+drops both rows; any ambiguity (no ref, a ref the snapshot does not hold, a ref whose entry lacks
+the field, a value the dictionary refuses) drops the row; a non-list row passes through untouched.
+The expanded pair counts against the 3-row cap, and `dropped_count` counts rows after expansion.
+
 **API-side bounds (2026-09-30, lane a2).** The model's output is untrusted, so the API enforces
 both caps itself rather than relying on the AI service:
 
