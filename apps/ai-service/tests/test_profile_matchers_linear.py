@@ -180,7 +180,7 @@ def test_every_corpus_string_reads_the_same(corpus: list[str], view: str) -> Non
 
 
 #: The corpus sources the end-to-end run reads: the worker-facing text. The script's `parity`
-#: runs the whole corpus in every view (0 of 104,349 texts change, 2026-10-05).
+#: runs the whole corpus in every view (0 of 103,661 texts change, 2026-10-05).
 _END_TO_END_SOURCES = ("question_packs", "lexicon_fixtures", "lexicon_data", "ai_service_tests")
 
 
@@ -202,6 +202,7 @@ def test_end_to_end_detect_and_values_do_not_move() -> None:
 def test_the_harness_sees_a_connector_that_moves_spans(corpus: list[str]) -> None:
     moved_known = [t for t in KNOWN if measure.differences(t, against="loose")]
     assert "5 + saal" in moved_known
+    assert "   5000" in moved_known
     assert "hello     world" not in moved_known
     assert any(measure.differences(t, against="loose") for t in corpus)
     texts = [t for t in KNOWN if measure.touched(t)]

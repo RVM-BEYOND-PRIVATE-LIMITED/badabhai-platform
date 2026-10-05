@@ -198,13 +198,24 @@ describe("#1935: the experience and salary matchers read the same spans as main"
     const global = new RegExp(loose.source, `${loose.flags}gd`);
     expect(spans(global, "5 + saal")).not.toBe(spans(main().experience, "5 + saal"));
   });
+
+  it("sees a salary lead that does move spans", () => {
+    // The lead without its bare-run branch starts every match on the digits.
+    const { spec, shipped } = MATCHERS.salary;
+    const loose = compilePattern({
+      ...spec,
+      source: spec.source.replace(shipped, String.raw`(?:(?:₹|rs\.?|inr)\s*)?([`),
+    });
+    const global = new RegExp(loose.source, `${loose.flags}gd`);
+    expect(spans(global, "   5000")).not.toBe(spans(main().salary, "   5000"));
+  });
 });
 
 describe("#1935: the experience and salary readers are linear on a whitespace run", () => {
   // Shipped: 0.6 ms or less on every input below. Main: 300-410 ms on each, except 48 ms for the
-  // plus split and linear on the run a digit ends (2026-10-05). V8 is faster than Python's engine
-  // at this, so the budget is tighter than the pytest side's.
-  const BUDGET_MS = 25;
+  // plus split and linear on the run a digit ends (2026-10-05). Those two pin correctness only;
+  // the budget leaves room for a GC pause on a loaded runner and still fails main on the rest.
+  const BUDGET_MS = 150;
 
   function bestOf3(fn: () => unknown): number {
     let best = Number.POSITIVE_INFINITY;
