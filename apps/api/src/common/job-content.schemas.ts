@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
-import { workerVisibleTextScreens, type WorkerVisibleScreen } from "@badabhai/validators";
+import {
+  looksLikePii,
+  workerVisibleTextScreens,
+  type WorkerVisibleScreen,
+} from "@badabhai/validators";
 
 /**
  * THE WORKER-VISIBLE JOB-CONTENT FIELD SCHEMAS — one copy, two demand surfaces.
@@ -22,10 +26,10 @@ import { workerVisibleTextScreens, type WorkerVisibleScreen } from "@badabhai/va
  * FIELD, never the offending content: an error body that echoed the text back would be the
  * leak the refusal just prevented.
  *
- * NOT SCREENED AT THE SERVER, though a worker sees both verbatim: `area` (below) and each
- * DTO's `city`. ADR-0024's guard names title, description, benefits and tags; payer-web
- * screens city and area client-side only. Screening them here, and keeping a pincode legal
- * if so, is an open follow-up from the #1823 B3 review, not a gap this file closes.
+ * THE PLACE FIELDS RUN IT TOO (#1848): `area` (below) and each DTO's `city`, through
+ * {@link screenWorkerVisiblePlace}. Same three heuristics, same messages, one narrow waiver:
+ * an Indian pincode next to a sector or phase number is not a phone number (see
+ * {@link workerVisiblePlaceScreens}).
  *
  * ONE LIST OF HEURISTICS. `workerVisibleTextScreens` in `@badabhai/validators` is the list;
  * this file only maps each screen to its field-naming message, and the D4 seed-job converter
@@ -55,9 +59,6 @@ const LIST_ITEMS_MAX = 12; // per list
  */
 export const PAY_MAX_INR = 10_000_000; // ₹/month sanity ceiling (₹1 crore)
 export const EXPERIENCE_MAX_YEARS = 60; // a plausible career length ceiling
-
-/** COARSE locality bucket (e.g. "Pimpri-Chinchwad"), never an address. */
-export const areaSchema = z.string().min(1).max(AREA_MAX);
 
 /** Monthly pay band (INR, whole rupees — never paise). Non-negative, bounded. */
 export const payAmountSchema = z.number().int().nonnegative().max(PAY_MAX_INR);
@@ -132,6 +133,18 @@ const SCREEN_MESSAGES: Readonly<Record<WorkerVisibleScreen, (n: ScreenedFieldNam
  * value after its `.max()` has passed ("ß" upper-cases to "SS"). `.trim()` only shortens.
  */
 export function screenWorkerVisibleText(base: z.ZodString, name: ScreenedFieldName) {
+  return screenWith(base, name, workerVisibleTextScreens);
+}
+
+/**
+ * The shared body of the two exported screens. NOT exported: the list of heuristics is
+ * `@badabhai/validators`' to own, and a caller able to pass its own could pass a weaker one.
+ */
+function screenWith(
+  base: z.ZodString,
+  name: ScreenedFieldName,
+  screens: (s: string) => WorkerVisibleScreen[],
+) {
   const max = base.maxLength;
   if (max === null) {
     throw new Error(`screenWorkerVisibleText: ${name.subject} needs a .max() on its base`);
@@ -141,11 +154,73 @@ export function screenWorkerVisibleText(base: z.ZodString, name: ScreenedFieldNa
   }
   return base.superRefine((s, ctx) => {
     if (s.length > max) return; // the base's .max() has already refused it
-    for (const screen of workerVisibleTextScreens(s)) {
+    for (const screen of screens(s)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: SCREEN_MESSAGES[screen](name) });
     }
   });
 }
+
+// A standalone six-digit Indian pincode (PIN codes never start with 0).
+const PINCODE_TOKEN = /\b[1-9]\d{5}\b/;
+// The shortest Indian phone number a worker could dial: a ten-digit mobile. A landline with
+// its STD code is eleven.
+const PHONE_MIN_DIGITS = 10;
+
+/**
+ * True when a pincode alone explains the contact-details refusal of a place value.
+ *
+ * `looksLikePii` strips spaces and dashes before it counts digits, so "Sector 63 201301"
+ * reads as the eight-digit run "63201301" and is refused as a phone number. Measured over
+ * the repository's city lists and 167 real industrial localities (#1848), every refused
+ * place was a sector, phase or plot number followed by a pincode.
+ *
+ * ALL THREE must hold, and each is fail-closed:
+ *  - fewer than ten digits in the whole value, so no ten-digit mobile or eleven-digit
+ *    landline can be present however it is split ("411026 9876543210" has sixteen);
+ *  - a standalone six-digit pincode token;
+ *  - `looksLikePii` passes once that token is removed, so an email still refuses.
+ *
+ * Under ten digits there is at most one such token, so removing the first is removing it.
+ */
+function pincodeExplainsContactRefusal(s: string): boolean {
+  if ((s.match(/\d/g)?.length ?? 0) >= PHONE_MIN_DIGITS) return false;
+  const pincode = PINCODE_TOKEN.exec(s);
+  if (!pincode) return false;
+  return !looksLikePii(s.slice(0, pincode.index) + s.slice(pincode.index + pincode[0].length));
+}
+
+/**
+ * THE PLACE-FIELD SCREEN (#1848): {@link workerVisibleTextScreens}, except that a
+ * contact-details refusal a pincode alone explains is waived. The company-name and link
+ * screens are unchanged, so "Co. Op. Industrial Estate" is still refused as a company name
+ * (an accepted false positive; the hyphenated "Co-op" and "Co-operative" forms pass).
+ */
+export function workerVisiblePlaceScreens(s: string): WorkerVisibleScreen[] {
+  const screens = workerVisibleTextScreens(s);
+  if (!screens.includes("contact_details") || !pincodeExplainsContactRefusal(s)) return screens;
+  return screens.filter((screen) => screen !== "contact_details");
+}
+
+/**
+ * {@link screenWorkerVisibleText} for a worker-visible PLACE: a `city` or an `area`. Same
+ * contract (the base's `.max()` is required, messages name the field), with
+ * {@link workerVisiblePlaceScreens} as the screen.
+ *
+ * WRITE-SIDE ONLY, like every screen here. A row stored before #1848 keeps its value until a
+ * write resends the field; a PATCH that omits `city` / `area` does not re-screen them.
+ */
+export function screenWorkerVisiblePlace(base: z.ZodString, name: ScreenedFieldName) {
+  return screenWith(base, name, workerVisiblePlaceScreens);
+}
+
+/**
+ * COARSE locality bucket (e.g. "Pimpri-Chinchwad"), never an address. Screened as a place
+ * (#1848); the base is unchanged.
+ */
+export const areaSchema = screenWorkerVisiblePlace(z.string().min(1).max(AREA_MAX), {
+  from: "the area",
+  subject: "area",
+});
 
 /** One short worker-visible benefit chip (e.g. "PF + ESI") — all three heuristics apply. */
 const benefitItem = screenWorkerVisibleText(z.string().trim().min(1).max(LIST_ITEM_MAX), {

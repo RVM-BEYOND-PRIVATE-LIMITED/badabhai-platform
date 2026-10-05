@@ -5,7 +5,9 @@ import { MATCH_SKILLS, ROLES } from "@badabhai/taxonomy";
 import { JOB_ROLE_LABELS } from "@badabhai/types";
 
 import { CreateAgencyJobSchema, UpdateAgencyJobSchema } from "../agency/agency.dto";
+import CITIES_FILE from "@badabhai/profiling-lexicon/data/cities.json";
 import { FAMILY_CHIP_LABELS } from "../occupation/family-chip-labels";
+import { CITY_HUBS } from "../profiles/worker-cities.hubs";
 import {
   CreateJobPostingSchema,
   PayerCreateJobPostingSchema,
@@ -219,5 +221,166 @@ describe("#1823 B3 — legitimate trade titles are NOT rejected", () => {
     expect(real).toEqual([]);
     // The artefact carve-out must stay small, or it is hiding something.
     expect(rejected.length).toBeLessThan(10);
+  });
+});
+
+/**
+ * #1848 — CITY AND AREA ON EVERY WRITE ROUTE, BOTH DEMAND SURFACES.
+ *
+ * Both render verbatim on the worker job card and detail. Every write of a posting or an
+ * agency job parses one of these five schemas (the chat publish goes through
+ * `PayerCreateJobPostingSchema`), so this matrix covers every runtime write path for them.
+ */
+const PLACE_ROUTES: ReadonlyArray<{
+  name: string;
+  schema: z.ZodTypeAny;
+  base: Record<string, unknown>;
+}> = [
+  ...ROUTES,
+  {
+    name: "CreateAgencyJobSchema",
+    schema: CreateAgencyJobSchema,
+    base: { trade_key: "cnc_operator", title: "CNC Operator", city: "Pune" },
+  },
+  { name: "UpdateAgencyJobSchema", schema: UpdateAgencyJobSchema, base: {} },
+];
+
+const PLACE_MESSAGES = {
+  city: {
+    contact: "remove contact details from the city",
+    company: "city must not contain a company name",
+    link: "city must not contain links",
+  },
+  area: {
+    contact: "remove contact details from the area",
+    company: "area must not contain a company name",
+    link: "area must not contain links",
+  },
+} as const;
+
+/** One sample per heuristic, each a place-shaped value tripping ONLY that heuristic. */
+const PLACE_SCREENS = [
+  { screen: "looksLikePii (phone)", value: "Pune 98765 43210", tail: "contact" },
+  { screen: "looksLikePii (email)", value: "Chakan hr@acme.example", tail: "contact" },
+  { screen: "looksLikeOrgName", value: "Bhosari, Kalyani Pvt Ltd", tail: "company" },
+  { screen: "looksLikeUrl", value: "Chakan www.acme.in", tail: "link" },
+] as const;
+
+/**
+ * Real places, measured (#1848): the seed jobs' cities and areas, then industrial localities
+ * across the hubs, then the five sector/phase/plot + pincode forms the plain screen refused.
+ * The repository's own city lists are checked in full below.
+ */
+const REAL_PLACES = [
+  "Pune",
+  "Chakan",
+  "Coimbatore",
+  "Peelamedu",
+  "Rajkot",
+  "Aji GIDC",
+  "Pimpri-Chinchwad",
+  "Ludhiana",
+  "Focal Point",
+  "Bengaluru",
+  "Peenya",
+  "Bhosari",
+  "Ahmedabad",
+  "Vatva GIDC",
+  "Chennai",
+  "Ambattur",
+  "Faridabad",
+  "Sector 24",
+  "SIDCO Industrial Estate",
+  "Ranjangaon",
+  "Shapar-Veraval",
+  "MIDC Industrial Estate",
+  "Peenya Industrial Area",
+  "Sector 63",
+  "Sector 63, Noida",
+  "Bhosari MIDC",
+  "Manesar IMT",
+  "GIDC Vatva",
+  "Ambattur Industrial Estate",
+  "Pvt Colony",
+  "Udyog Vihar Phase-V",
+  "Okhla Industrial Area Phase 2",
+  "Mohali Phase 8",
+  "Hosur SIPCOT",
+  "SIPCOT Phase 1, Hosur",
+  "Electronic City Phase II",
+  "Pithampur Sector 3",
+  "L&T Colony",
+  "Tata Motors Colony",
+  "Bhosari & Chakan",
+  "Pune (Chakan)",
+  "Ahmedabad – Vatva",
+  "Co-operative Industrial Estate",
+  "G.T. Road",
+  "St. Thomas Mount",
+  "N.H. 48",
+  "Pune 411018",
+  "560058",
+  "Sector 63, 201301",
+  "Sector 63 201301",
+  "Sector 63 - 201301",
+  "Phase 2 411026",
+  "MIDC Phase 2 411026",
+  "Plot 7 411026",
+] as const;
+
+describe("#1848 — every posting and agency write route screens city and area", () => {
+  for (const route of PLACE_ROUTES) {
+    for (const field of ["city", "area"] as const) {
+      for (const s of PLACE_SCREENS) {
+        it(`${route.name}: ${field} × ${s.screen} → 400 naming the field`, () => {
+          const body = { ...route.base, [field]: s.value };
+          expect(route.schema.safeParse(body).success).toBe(false);
+          expect(issuesFor(route.schema, body, field)).toEqual([PLACE_MESSAGES[field][s.tail]]);
+        });
+      }
+
+      it(`${route.name}: ${field} accepts every measured real place`, () => {
+        const rejected = REAL_PLACES.filter(
+          (value) => !route.schema.safeParse({ ...route.base, [field]: value }).success,
+        );
+        expect(rejected).toEqual([]);
+      });
+    }
+
+    it(`${route.name}: the stored value is the value sent (no shape change)`, () => {
+      const r = route.schema.safeParse({ ...route.base, city: "Pune", area: "Phase 2 411026" });
+      expect(r.success).toBe(true);
+      if (r.success) {
+        expect(r.data.city).toBe("Pune");
+        expect(r.data.area).toBe("Phase 2 411026");
+      }
+    });
+  }
+
+  it("the repository's city lists and hub areas pass with zero false rejections", () => {
+    const cities = CITIES_FILE as unknown as {
+      canonical: string[];
+      aliases: Record<string, string>;
+    };
+    const places = new Set<string>([
+      ...cities.canonical,
+      ...Object.keys(cities.aliases),
+      ...CITY_HUBS.flatMap((h) => [h.display, h.city_value, ...h.areas]),
+    ]);
+    expect(places.size).toBeGreaterThan(80); // vacuity guard
+
+    const route = PLACE_ROUTES[1]!;
+    const rejected = [...places].filter(
+      (value) =>
+        issuesFor(route.schema, { ...route.base, city: value }, "city").length > 0 ||
+        issuesFor(route.schema, { ...route.base, area: value }, "area").length > 0,
+    );
+    expect(rejected).toEqual([]);
+  });
+
+  it("a PATCH that does not resend city or area does not re-screen the stored values", () => {
+    // Write-side only: a row stored before #1848 keeps its value until an edit resends it.
+    expect(UpdateJobPostingSchema.safeParse({ shift: "night" }).success).toBe(true);
+    expect(UpdateAgencyJobSchema.safeParse({ shift: "night" }).success).toBe(true);
   });
 });

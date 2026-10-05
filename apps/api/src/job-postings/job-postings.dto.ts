@@ -13,6 +13,7 @@ import {
   payTypeSchema,
   requirementsSchema,
   roleKindSchema,
+  screenWorkerVisiblePlace,
   screenWorkerVisibleText,
   shiftSchema,
 } from "../common/job-content.schemas";
@@ -40,9 +41,8 @@ const locationLabel = z.string().min(1).max(LABEL_MAX);
  * (`job-content.schemas.ts`).
  *
  * NOT THE ONLY WORKER-VISIBLE FREE TEXT. `city` and `area` below also reach the worker card
- * and job detail verbatim, and neither is screened at the server, here or on the agency
- * DTO. That gap predates B3 and is an open follow-up; see the header of
- * `job-content.schemas.ts`.
+ * and job detail verbatim. Since #1848 both run the place variant of the same screen,
+ * `screenWorkerVisiblePlace`, here and on the agency DTO.
  *
  * `role_title` used to be unscreened and `description` ran `looksLikePii` alone, while the
  * agency fields ran all three. This reverses ADR-0012 §(c), which kept the phone/email
@@ -121,12 +121,16 @@ const matchSkillId = z.string().regex(/^mskill_[a-z0-9_]+$/, "not a match skill 
  *
  * PII: every field is PII-free by its own classification — COARSE buckets (city, area),
  * integer ₹ bands, year counts, closed enums, and short chips screened fail-closed by
- * `../common/job-content.schemas` with all three heuristics. For city and area that is the
- * intent, not an enforced check: both are free strings with no server screen (see above).
+ * `../common/job-content.schemas` with all three heuristics. City and area run the place
+ * variant of that screen (#1848).
  */
 const postingContentFields = {
   // COARSE city bucket (never an address). `location_label` stays the poster's free text.
-  city: z.string().trim().min(1).max(80).optional(),
+  // Worker-visible, so screened as a place (#1848); the base is unchanged.
+  city: screenWorkerVisiblePlace(z.string().trim().min(1).max(80), {
+    from: "the city",
+    subject: "city",
+  }).optional(),
   // COARSE locality bucket (e.g. "Chakan"), never an address and never derived from
   // `location_label` — see the repository note that keeps that wall.
   area: areaSchema.optional(),
