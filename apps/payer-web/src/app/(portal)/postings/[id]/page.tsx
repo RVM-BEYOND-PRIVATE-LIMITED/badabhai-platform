@@ -6,6 +6,8 @@ import { requirePayer } from "../../../../lib/auth";
 import { Badge } from "../../../../components/ds";
 import { PageHeader, type PageHeaderAction } from "../../../../components/page-header";
 import { JobCardPreview } from "../../../../components/job-card-preview";
+import { toJobCardView } from "../../../../lib/job-card-view";
+import { jobRoleLabel } from "../../../../lib/job-roles";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +41,8 @@ export default async function PostingDetailPage({ params }: { params: Promise<{ 
   const detail = await getPostingDetail(id);
   if (!detail) notFound();
 
-  const { summary, card } = detail;
+  const { summary, card, description } = detail;
+  const view = toJobCardView(card);
   const isDraft = summary.status === "draft";
   // An agent's OLDER company posting is view-only (owner ruling 2026-10-01; see ../page.tsx).
   const readOnly = session.role === "agent";
@@ -98,10 +101,16 @@ export default async function PostingDetailPage({ params }: { params: Promise<{ 
             <h2 className="panel__title">Posting details</h2>
           </div>
           <div className="panel__body">
+            {/* Anything the card beside this list ALSO shows is formatted by the card's own mapper
+                (`toJobCardView`), so the two can never disagree about one posting. */}
             <dl className="kv">
               <dt className="kv__k">Location</dt>
-              <dd className="kv__v">{summary.locationLabel ?? "Location flexible"}</dd>
-              <dt className="kv__k">Vacancies</dt>
+              <dd className="kv__v">{view.place || "—"}</dd>
+              <dt className="kv__k">Location note</dt>
+              <dd className="kv__v">{summary.locationLabel ?? "—"}</dd>
+              <dt className="kv__k">Role</dt>
+              <dd className="kv__v">{jobRoleLabel(card.role_kind) ?? "—"}</dd>
+              <dt className="kv__k">Openings</dt>
               <dd className="kv__v bb-mono">{summary.vacancyBand}</dd>
               <dt className="kv__k">Applicants</dt>
               <dd className="kv__v">
@@ -110,12 +119,16 @@ export default async function PostingDetailPage({ params }: { params: Promise<{ 
               </dd>
               <dt className="kv__k">Posted</dt>
               <dd className="kv__v bb-mono">{day(summary.createdAt)}</dd>
+              <dt className="kv__k">Description</dt>
+              <dd className="kv__v kv__v--prose">{description ?? "—"}</dd>
             </dl>
           </div>
         </section>
 
-        <aside className="posting-preview" aria-label="Job card">
-          <JobCardPreview fields={card} />
+        <aside className="posting-preview" aria-label="Worker card preview">
+          <div className="posting-preview__scroll">
+            <JobCardPreview fields={card} />
+          </div>
         </aside>
       </div>
     </>

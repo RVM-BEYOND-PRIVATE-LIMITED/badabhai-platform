@@ -4,7 +4,13 @@ import { looksLikeOrgName, looksLikePii } from "@badabhai/validators";
 /**
  * THE CAREER ANSWER'S DETERMINISTIC GATE (ADR-0046 P3 §2) — the API's half of "the model
  * writes what the worker reads". Every check below runs on the answer BEFORE a line is served,
- * and ANY failure serves the v1 fallback line instead (outcome `fallback`).
+ * and ANY failure serves the v1 fallback line instead (outcome `fallback`) — with ONE exception.
+ *
+ * THE ONE EXCEPTION (owner, 2026-10-03): a follow-up chip whose ONLY failure is its length (over
+ * `CHIP_WORDS_MAX` words) is DROPPED and the answer is served without it. Every chip still runs
+ * every CONTENT check first, whatever its length, and any content failure still rejects the whole
+ * answer — so a dropped chip can never launder unsafe model text. A long LINE, too many chips and
+ * every other failure still reject. `screenCareerAnswer` is the one entry point that applies it.
  *
  * WHY THIS IS NOT IN THE PROMPT. The prompt asks the model to obey all of this; the prompt is
  * not what enforces it. A model that drifts, a jailbreak, or a provider swap must not be able
@@ -185,14 +191,31 @@ const RATING =
 
 const words = (s: string): number => s.trim().split(/\s+/).filter(Boolean).length;
 
+/** The worker-facing parts of a model answer — the fields `CompanionCareerAnswerSchema` parses. */
+export interface CareerAnswerText {
+  lines: readonly string[];
+  followup_chips: readonly string[];
+}
+
 /**
- * The checks a LINE and a CHIP share. `maxWords` differs; everything else is identical — the
- * phase says the chips get "the same checks", and they are served to the worker just like a
- * line is.
+ * The gate's decision: SERVE `answer` (the lines as written, the chips that survived the length
+ * drop, `droppedChips` counting the rest) or REJECT the whole answer for `failure`.
  */
-function contentFailure(text: string, maxWords: number): CareerAnswerFailure | null {
+export type CareerScreenResult =
+  | { kind: "serve"; answer: CareerAnswerText; droppedChips: number }
+  | { kind: "reject"; failure: CareerAnswerFailure };
+
+/** The one failure that DROPS a chip instead of rejecting the answer (owner, 2026-10-03). */
+export const CHIP_DROP_REASON = "chip_too_long" satisfies CareerAnswerFailure;
+
+/**
+ * The checks on what a LINE or a CHIP SAYS — identical for both (the phase says the chips get "the
+ * same checks", and they are served to the worker just like a line is). The word bound is NOT here:
+ * the two artefacts answer it differently (a long line rejects, a long chip is dropped), and keeping
+ * it out is what lets every chip run this whole list before any chip is dropped.
+ */
+function contentFailure(text: string): CareerAnswerFailure | null {
   if (text.trim().length === 0) return "empty_line";
-  if (words(text) > maxWords) return "line_too_long";
   if (NON_LATIN.test(text)) return "non_latin";
   const scan = scanForm(text);
   if (scan.includes("!")) return "exclamation";
@@ -208,37 +231,81 @@ function contentFailure(text: string, maxWords: number): CareerAnswerFailure | n
   return null;
 }
 
+/** A line: over the word bound rejects; an empty line counts no words, so it reports `empty_line`. */
+function lineFailure(line: string): CareerAnswerFailure | null {
+  if (words(line) > LINE_WORDS_MAX) return "line_too_long";
+  return contentFailure(line);
+}
+
+/** The answer's shape, on what the MODEL returned — extra chips are rejected, never trimmed. */
+function shapeFailure(answer: CareerAnswerText): CareerAnswerFailure | null {
+  if (answer.lines.length === 0) return "no_lines";
+  if (answer.lines.length > LINES_MAX) return "too_many_lines";
+  if (answer.followup_chips.length > CHIPS_MAX) return "too_many_chips";
+  return null;
+}
+
+function firstFailure(
+  texts: readonly string[],
+  check: (text: string) => CareerAnswerFailure | null,
+): CareerAnswerFailure | null {
+  for (const text of texts) {
+    const failure = check(text);
+    if (failure !== null) return failure;
+  }
+  return null;
+}
+
+/** Counted on the folded form, so a fullwidth "？" spends the same budget as "?". */
+function questionCount(texts: readonly string[]): number {
+  return texts.reduce((n, text) => n + (scanForm(text).match(/\?/g) ?? []).length, 0);
+}
+
+const chipFits = (chip: string): boolean => words(chip) <= CHIP_WORDS_MAX;
+
 /**
- * The answer through every check, in order, returning the FIRST failure or `null`.
+ * THE GATE THE CAREER TURN SERVES THROUGH: the answer through every check, in order, returning
+ * either the answer to serve or the FIRST failure.
+ *
+ *   1. shape, on the model's answer (`too_many_chips` counts every chip the model wrote);
+ *   2. every line — the word bound, then the content checks;
+ *   3. EVERY chip through the content checks, the over-long ones included — a chip that fails any
+ *      of them rejects the answer, whatever its length;
+ *   4. only then the chips over `CHIP_WORDS_MAX` words are dropped (owner, 2026-10-03) — zero
+ *      chips left is a valid answer (`followup_chips: []`);
+ *   5. ≤ 1 "?" across the SERVED lines and chips: a dropped chip is never shown.
  *
  * ORDER IS REPORTING ORDER, NOT SECURITY ORDER — every check is a rejection, so the order only
  * decides which reason an operator sees when several apply.
  */
-export function validateCareerAnswer(answer: {
-  lines: readonly string[];
-  followup_chips: readonly string[];
-}): CareerAnswerFailure | null {
-  if (answer.lines.length === 0) return "no_lines";
-  if (answer.lines.length > LINES_MAX) return "too_many_lines";
-  if (answer.followup_chips.length > CHIPS_MAX) return "too_many_chips";
+export function screenCareerAnswer(answer: CareerAnswerText): CareerScreenResult {
+  const failure =
+    shapeFailure(answer) ??
+    firstFailure(answer.lines, lineFailure) ??
+    firstFailure(answer.followup_chips, contentFailure);
+  if (failure !== null) return { kind: "reject", failure };
 
-  for (const line of answer.lines) {
-    const failure = contentFailure(line, LINE_WORDS_MAX);
-    if (failure !== null) return failure;
+  const served: CareerAnswerText = {
+    lines: [...answer.lines],
+    followup_chips: answer.followup_chips.filter(chipFits),
+  };
+  if (questionCount([...served.lines, ...served.followup_chips]) > QUESTIONS_MAX) {
+    return { kind: "reject", failure: "too_many_questions" };
   }
-  for (const chip of answer.followup_chips) {
-    const failure = contentFailure(chip, CHIP_WORDS_MAX);
-    // A chip that fails the shared checks reports as its own reason where the bound differs,
-    // so "chip_too_long" says which artefact broke rather than blaming a line.
-    if (failure === "line_too_long") return "chip_too_long";
-    if (failure !== null) return failure;
-  }
+  return {
+    kind: "serve",
+    answer: served,
+    droppedChips: answer.followup_chips.length - served.followup_chips.length,
+  };
+}
 
-  // Counted on the folded form, so a fullwidth "？" spends the same budget as "?".
-  const questions = [...answer.lines, ...answer.followup_chips].reduce(
-    (n, text) => n + (scanForm(text).match(/\?/g) ?? []).length,
-    0,
-  );
-  if (questions > QUESTIONS_MAX) return "too_many_questions";
-  return null;
+/**
+ * The answer AS WRITTEN: `null` only when it can be served VERBATIM, nothing dropped. A chip the
+ * screen would drop reports `chip_too_long`, so a caller that serves the model's own arrays after a
+ * `null` can never show an over-long chip. The career turn serves through `screenCareerAnswer`.
+ */
+export function validateCareerAnswer(answer: CareerAnswerText): CareerAnswerFailure | null {
+  const screened = screenCareerAnswer(answer);
+  if (screened.kind === "reject") return screened.failure;
+  return screened.droppedChips > 0 ? CHIP_DROP_REASON : null;
 }

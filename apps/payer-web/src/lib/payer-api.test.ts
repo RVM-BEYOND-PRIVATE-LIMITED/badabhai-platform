@@ -968,6 +968,15 @@ describe("getDashboard — the company postings list is read only when the calle
   });
 });
 
+describe("getPostingDetail — carries the saved revision for the edit form's key", () => {
+  it("maps the wire `updated_at` to `updatedAt`", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(jobPostingRow({ updated_at: "2026-09-29T10:05:00.000Z" })));
+    const { getPostingDetail } = await import("./payer-api");
+    const detail = await getPostingDetail(POSTING_ID);
+    expect(detail?.updatedAt).toBe("2026-09-29T10:05:00.000Z");
+  });
+});
+
 describe("getPosting / updatePosting / closePosting — LIVE: faceless, no-oracle 404 → null", () => {
   it("getPosting maps an unknown-or-not-owned 404 to a neutral null (no-oracle)", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ message: "Job posting not found" }, 404));

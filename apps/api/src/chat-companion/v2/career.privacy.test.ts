@@ -7,7 +7,11 @@ import { CareerTalkHandler } from "./handlers/career-talk.handler";
 import { EditResumeHandler } from "./handlers/edit-resume.handler";
 import { FaltuHandler } from "./handlers/faltu.handler";
 import { NewResumeHandler } from "./handlers/new-resume.handler";
-import { JobsDeferredHandler, PhaseOffHandler, UnclearHandler } from "./handlers/fixed-line.handlers";
+import {
+  JobsDeferredHandler,
+  PhaseOffHandler,
+  UnclearHandler,
+} from "./handlers/fixed-line.handlers";
 import { CompanionHandlerRegistry } from "./handlers/registry";
 import type { Queue } from "bullmq";
 import type { CompanionEditService } from "./companion-edit.service";
@@ -166,6 +170,42 @@ describe("career privacy (ADR-0046 P3)", () => {
     // ...and none of the rejected text rides along.
     expect(logs).not.toContain("25000");
     expect(logs).not.toContain("pakki mil jayegi");
+  });
+
+  it("a DROPPED over-long chip reaches no log, no event and not the replay cache", async () => {
+    const DROPPED = "Pipe welding ka course kahan";
+    const SID = "55555555-5555-4555-8555-555555555555";
+    let h!: ReturnType<typeof setup>;
+    let turn!: Awaited<ReturnType<CompanionV2Orchestrator["handleMessage"]>>;
+    const logs = await withCapturedLogs(async () => {
+      h = setup({
+        career: {
+          status: "answer",
+          lines: [ANSWER_LINE],
+          followup_chips: ["Course kahan milega", DROPPED],
+          ai_metadata: null,
+        },
+      });
+      turn = await h.orchestrator.handleMessage(
+        WORKER,
+        PROFILE,
+        { text: QUESTION, submission_id: SID },
+        CTX,
+        NOW,
+      );
+    });
+    expect(turn.reply).toBe(ANSWER_LINE);
+    expect(turn.suggested_followups).toEqual(["Course kahan milega"]);
+    // The drop is logged as a count and a closed reason...
+    expect(logs).toContain("1 follow-up chip(s) dropped (reason=chip_too_long)");
+    // ...and the dropped text is nowhere: not in a log, an event, memory or the cached turn.
+    expect(logs).not.toContain("Pipe welding");
+    for (const call of h.events.emit.mock.calls) {
+      expect(JSON.stringify(call[0])).not.toContain("Pipe welding");
+    }
+    expect(JSON.stringify(h.memory.append.mock.calls)).not.toContain("Pipe welding");
+    expect(h.replayRedis.set).toHaveBeenCalledTimes(1);
+    expect(h.replayRedis.set.mock.calls[0]![1]).not.toContain("Pipe welding");
   });
 });
 

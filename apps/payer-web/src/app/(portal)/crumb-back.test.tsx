@@ -114,11 +114,16 @@ vi.mock("../../lib/payer-api", async (importOriginal) => {
 
 // Heavy children unrelated to the head (a full card renderer, two posting forms), and the
 // agency dashboard's modules — an async server component, which the static renderer cannot
-// await (its own suite renders it).
+// await (its own suite renders it). The posting forms render only their `lead`: the create /
+// edit pages hand their head to the form column (#1887), so the head is the form's lead.
 vi.mock("../../components/job-card-preview", () => ({ JobCardPreview: () => null }));
 vi.mock("./dashboard/agent-sections", () => ({ AgentSections: () => null }));
-vi.mock("./postings/[id]/edit/edit-posting-form", () => ({ EditPostingForm: () => null }));
-vi.mock("./postings/new/posting-form", () => ({ PostingForm: () => null }));
+vi.mock("./postings/[id]/edit/edit-posting-form", () => ({
+  EditPostingForm: ({ lead }: { lead?: ReactNode }) => lead ?? null,
+}));
+vi.mock("./postings/new/posting-form", () => ({
+  PostingForm: ({ lead }: { lead?: ReactNode }) => lead ?? null,
+}));
 
 const { default: PortalLayout } = await import("./layout");
 
@@ -165,7 +170,20 @@ beforeEach(() => {
       id === POSTING
         ? {
             summary: SUMMARY,
-            card: {},
+            card: {
+              role_kind: "cnc_turner",
+              city: "Pune",
+              area: "Chakan",
+              pay_min: 18000,
+              pay_max: 26000,
+              pay_type: "in_hand",
+              min_experience_years: 1,
+              max_experience_years: 5,
+              shift: "day",
+              needed_by: "soon",
+              requirements: [],
+              benefits: [],
+            },
             description: null,
             skills: [],
             matchSkillIds: [],

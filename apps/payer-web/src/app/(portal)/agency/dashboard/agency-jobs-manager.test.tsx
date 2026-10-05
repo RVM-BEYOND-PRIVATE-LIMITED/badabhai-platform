@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import type { AgencyJob } from "../../../../lib/contracts";
@@ -49,6 +49,7 @@ vi.mock("react", async () => {
 });
 
 const { AgencyJobsManager } = await import("./agency-jobs-manager");
+const { AgencyJobForm: AgencyJobFormMock } = await import("./agency-job-form");
 
 const JOB: AgencyJob = {
   id: "00000001-0000-4000-8000-000000000001",
@@ -82,9 +83,11 @@ function walk(node: ReactNode, acc: Collected): void {
     for (const c of node) walk(c, acc);
     return;
   }
-  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode; lead?: ReactNode }>;
   if (el.props["aria-live"] === "polite") acc.ariaLiveCount++;
   if ("children" in el.props) walk(el.props.children, acc);
+  // An editing row's header leads the (stubbed) form column — walk it too.
+  if ("lead" in el.props) walk(el.props.lead, acc);
 }
 
 function collect(tree: ReactNode): Collected {
@@ -197,5 +200,132 @@ describe("AgencyJobsManager — aligned with the company list (2026-10-01)", () 
     const text = collect(tree).text.join(" ");
     expect(text).toContain("No postings yet");
     expect(text).toContain("use New posting above");
+  });
+});
+
+/** Elements (host or component) matching `pred`, walking children AND the `lead` prop. */
+function find(node: ReactNode, pred: (el: ReactElement<Record<string, unknown>>) => boolean) {
+  const out: Array<ReactElement<Record<string, unknown>>> = [];
+  (function visit(n: ReactNode): void {
+    if (n === null || n === undefined || typeof n !== "object") return;
+    if (Array.isArray(n)) return n.forEach(visit);
+    const el = n as ReactElement<Record<string, unknown> & { children?: ReactNode; lead?: ReactNode }>;
+    if (pred(el)) out.push(el);
+    if ("children" in el.props) visit(el.props.children);
+    if ("lead" in el.props) visit(el.props.lead);
+  })(node);
+  return out;
+}
+
+describe("AgencyJobsManager — the inline editor starts level with its host (M1)", () => {
+  it("EDIT: the row IS the editor — its header (title, actions, the aria-live error) leads the form column", () => {
+    const tree = render([JOB], { [JOB.id]: "That vacancy could not be found." }, JOB.id);
+    const [row] = find(tree, (el) => el.props.id === `agency-job-${JOB.id}`);
+    expect(row!.props.className).toBe("agency-job agency-job--editing");
+    const [form] = find(row!, (el) => el.type === AgencyJobFormMock);
+    expect(form!.props.mode).toBe("edit");
+    const lead = form!.props.lead as ReactNode;
+    expect(find(lead, (el) => el.props.className === "agency-job__lead")).toHaveLength(1);
+    expect(find(lead, (el) => el.props["aria-live"] === "polite")).toHaveLength(1);
+    expect(collect(lead).text.join(" ")).toContain("That vacancy could not be found.");
+  });
+
+  it("not editing: the row is the plain row (no editor, no editing class)", () => {
+    const tree = render([JOB]);
+    const [row] = find(tree, (el) => el.props.id === `agency-job-${JOB.id}`);
+    expect(row!.props.className).toBe("agency-job");
+    expect(find(row!, (el) => el.type === AgencyJobFormMock)).toHaveLength(0);
+  });
+});
+
+describe("AgencyJobsManager — Edit / Cancel (toggle or form) keep focus on the row's toggle", () => {
+  /**
+   * The row's header moves between the Card and the editor's lead, so React REBUILDS the toggle
+   * the payer pressed and its focus falls to <body> (measured: Enter on Edit → BODY, next Tab →
+   * "Details"). The manager refocuses the rebuilt toggle by its stable id. The DOM is faked: rAF
+   * queues frames the test runs; `getElementById` hands back the toggle where the LAST commit put
+   * it — inside the editor's lead while editing.
+   */
+  const TOGGLE = `agency-job-edit-${JOB.id}`;
+  const HOST = `agency-job-${JOB.id}`;
+  let frames: Array<() => void> = [];
+  let log: string[] = [];
+  let toggleInLead = false;
+  const runFrame = () => {
+    const now = frames;
+    frames = [];
+    for (const f of now) f();
+  };
+  beforeEach(() => {
+    frames = [];
+    log = [];
+    vi.stubGlobal("window", {
+      requestAnimationFrame: (cb: () => void) => {
+        frames.push(cb);
+        return frames.length;
+      },
+    });
+    vi.stubGlobal("document", {
+      getElementById: (id: string) => {
+        if (id === HOST) return { scrollIntoView: () => log.push("scroll host") };
+        if (id !== TOGGLE) return null;
+        return {
+          closest: (sel: string) => (sel === ".agency-job__lead" && toggleInLead ? {} : null),
+          focus: (o: { preventScroll?: boolean }) =>
+            log.push(`focus toggle (${toggleInLead ? "in lead" : "in card"}, preventScroll=${o.preventScroll})`),
+        };
+      },
+    });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const toggleOf = (tree: ReactNode) => {
+    const [t] = find(tree, (el) => el.props.id === TOGGLE);
+    expect(t, "the row's toggle carries a stable id").toBeDefined();
+    return t as ReactElement<{ onClick: () => void; children: ReactNode }>;
+  };
+
+  it("the toggle has the SAME id whether the row is editing or not (so focus can find it again)", () => {
+    expect(toggleOf(render([JOB])).props.children).toBe("Edit");
+    expect(toggleOf(render([JOB], {}, JOB.id)).props.children).toBe("Cancel");
+  });
+
+  it("Edit: focus lands on the REBUILT toggle (in the editor's lead), after the scroll, without its own", () => {
+    toggleInLead = false; // the commit has not happened yet in the first frame
+    toggleOf(render([JOB])).props.onClick();
+    runFrame(); // revealEditor scrolls; the old toggle (still in the card) is not the one → wait
+    expect(log).toEqual(["scroll host"]);
+    toggleInLead = true; // React committed: the header now leads the form
+    runFrame();
+    expect(log).toEqual(["scroll host", "focus toggle (in lead, preventScroll=true)"]);
+  });
+
+  it("Cancel (the toggle): focus lands on the rebuilt toggle back in the card, scrolled into view", () => {
+    toggleInLead = true;
+    toggleOf(render([JOB], {}, JOB.id)).props.onClick();
+    runFrame();
+    expect(log).toEqual([]);
+    toggleInLead = false;
+    runFrame();
+    expect(log).toEqual(["focus toggle (in card, preventScroll=false)"]);
+  });
+
+  it("the form's Cancel hands focus back to the toggle too", () => {
+    toggleInLead = false; // already committed by the frame
+    const tree = render([JOB], {}, JOB.id);
+    const [form] = find(tree, (el) => el.type === AgencyJobFormMock);
+    (form!.props.onCancel as () => void)();
+    runFrame();
+    expect(log).toEqual(["focus toggle (in card, preventScroll=false)"]);
+  });
+
+  it("gives up after a bounded number of frames if the toggle never comes back", () => {
+    toggleInLead = true; // never rebuilt into the card
+    toggleOf(render([JOB], {}, JOB.id)).props.onClick();
+    for (let i = 0; i < 20; i++) runFrame();
+    expect(log).toEqual([]);
+    expect(frames).toEqual([]);
   });
 });

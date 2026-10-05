@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { Badge, Button, Input, Toast } from "../../../components/ds";
 
 /**
@@ -254,7 +255,7 @@ describe("AccountForm — neutral error path (no field-level oracle)", () => {
 });
 
 describe("AccountForm — a11y wiring", () => {
-  it("sets aria-invalid + aria-describedby on the org Input when it has an error", () => {
+  it("the org Input's error is its DESCRIPTION — through the DS feedback line's real id", () => {
     const tree = render({
       orgValue: "A",
       fieldErrors: { orgName: "Organisation name must be 2–120 characters." },
@@ -262,8 +263,14 @@ describe("AccountForm — a11y wiring", () => {
     const org = findAll(tree, Input).find((el) => p(el).id === "account-org")!;
     expect(p(org).label).toBe("Organisation name");
     expect(p(org)["aria-invalid"]).toBe(true);
-    expect(p(org)["aria-describedby"]).toBe("account-org-error");
     expect(p(org).error).toBe("Organisation name must be 2–120 characters.");
+    // The form no longer points the box at an id nothing carries ("account-org-error"); the DS
+    // field describes it by its own feedback line.
+    expect(p(org)["aria-describedby"]).toBeUndefined();
+    const html = renderToStaticMarkup(org);
+    expect(html).toMatch(/<input[^>]*aria-describedby="account-org-msg"/);
+    expect(html).toContain('<span id="account-org-msg" class="bb-field__error">');
+    expect(html).not.toContain("account-org-error");
   });
 
   it("leaves aria-invalid UNSET on a clean phone field", () => {

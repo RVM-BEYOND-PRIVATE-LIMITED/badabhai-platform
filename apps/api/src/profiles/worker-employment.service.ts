@@ -11,6 +11,7 @@ import { ResumeSuggestionReader } from "../profiling/resume-import/resume-sugges
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { WorkersRepository } from "../workers/workers.repository";
 import { buildChatEmploymentSuggestions, type EmploymentSuggestion } from "./employment-suggestions";
+import { storedEmployerName } from "./title-case-on-write";
 import type {
   DescriptionSource,
   EmploymentView,
@@ -44,6 +45,11 @@ function descriptionSourceOf(declined: boolean, hasPolish: boolean): Description
  * ENCRYPT BEFORE THE DB TOUCH, exactly as `WorkersService.setFullName` does. The repository
  * takes ciphertext and cannot encrypt, so there is no path on which a plaintext employer name
  * reaches a column.
+ *
+ * CASE BEFORE THE ENCRYPT (#1940). The employer name is sealed in the app's casing
+ * (`storedEmployerName`, `title-case-on-write.ts`), so every writer of this table stores the same
+ * bytes for the same input, whatever casing its client sent: the PUT route and the companion's edit
+ * card alike. The role label is NOT cased; that is an open owner decision.
  */
 @Injectable()
 export class WorkerEmploymentService {
@@ -104,7 +110,9 @@ export class WorkerEmploymentService {
     }
 
     const rows = dto.employments.map((e) => ({
-      employerNameEnc: this.pii.encrypt(e.employer_name),
+      // Cased, then sealed (#1940, see the class docblock). The ciphertext is the only form that
+      // leaves this line, so the casing can only happen here, before the encrypt.
+      employerNameEnc: this.pii.encrypt(storedEmployerName(e.employer_name)),
       employerCity: e.employer_city,
       employerState: e.employer_state,
       startYm: e.start_ym,
@@ -121,6 +129,9 @@ export class WorkerEmploymentService {
       // `roles` is taken in the order the worker gave it, which is display order, most recent
       // first; deriving it from the dates would reshuffle stints between renders and make every
       // regenerated PDF a false diff, exactly as the employment `sortOrder` comment says.
+      //
+      // `role_label` is stored AS RECEIVED, never cased: "cnc turner" → "Cnc Turner" is the open
+      // owner decision on #1940.
       roles:
         e.roles !== undefined
           ? e.roles.map((r) => ({

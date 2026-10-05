@@ -40,7 +40,11 @@ const PII_KEY_DENYLIST = [
 ] as const;
 
 const PHONE_RE = /(?:\+?\d[\s-]?){7,}/; // 7+ digits run → looks like a phone
-const EMAIL_RE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+// An email shape. The local part is ONE character on purpose (#1924, #1936): `[^\s@]+@`
+// re-scanned a long run with no "@" from every start, ~190 ms at 20k characters and ~4.8 s
+// at 100k. Any local part ends in one such character, so no verdict moves; a domain stops
+// at the next "@", so the work is linear. Only ever used with `.test()`.
+const EMAIL_RE = /[^\s@]@[^\s@]+\.[^\s@]+/;
 
 function keyLooksPii(key: string): boolean {
   const k = key.toLowerCase();

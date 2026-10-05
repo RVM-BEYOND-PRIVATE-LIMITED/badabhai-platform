@@ -3,15 +3,14 @@ import { z } from "zod";
 import { getAgencyJob } from "../../../../../lib/payer-api";
 import { requireAgent } from "../../../../../lib/auth/roles";
 import { agencyFlags } from "../../../../../lib/config";
+import { day, tradeLabel } from "../../../../../lib/agency-view";
 import {
-  day,
-  experienceBandLabel,
+  cardFieldsFromAgencyJob,
+  experienceLabel,
   neededByLabel,
-  payBandLabel,
-  tradeLabel,
-} from "../../../../../lib/agency-view";
-import { bandLabel } from "../../../../../lib/masking";
-import { cardFieldsFromAgencyJob } from "../../../../../lib/job-card-view";
+  toJobCardView,
+} from "../../../../../lib/job-card-view";
+import { jobRoleLabel } from "../../../../../lib/job-roles";
 import { Badge } from "../../../../../components/ds";
 import { JobCardPreview } from "../../../../../components/job-card-preview";
 import { PageHeader } from "../../../../../components/page-header";
@@ -46,6 +45,8 @@ export default async function AgencyJobDetailPage({
   if (!z.string().uuid().safeParse(jobId).success) notFound();
   const job = await getAgencyJob(jobId);
   if (!job) notFound();
+  const card = cardFieldsFromAgencyJob(job);
+  const view = toJobCardView(card);
 
   return (
     <>
@@ -63,34 +64,41 @@ export default async function AgencyJobDetailPage({
       <div className="posting-layout">
         <section className="panel">
           <div className="panel__head">
-            <h2 className="panel__title">Vacancy details</h2>
+            <h2 className="panel__title">Posting details</h2>
           </div>
           <div className="panel__body">
             {/* FACELESS: bands, counts and dates only — every value below is derived from the
-                vacancy itself, never from an applicant. */}
+                vacancy itself, never from an applicant. Anything the card beside this list ALSO
+                shows is formatted by the card's own mapper, so the two never disagree. */}
             <dl className="kv">
+              <dt className="kv__k">Role</dt>
+              <dd className="kv__v">{jobRoleLabel(card.role_kind) ?? "—"}</dd>
               <dt className="kv__k">Trade</dt>
               <dd className="kv__v">{tradeLabel(job.tradeKey)}</dd>
               <dt className="kv__k">Location</dt>
-              <dd className="kv__v">{bandLabel([job.city, job.area]) || "—"}</dd>
+              <dd className="kv__v">{view.place || "—"}</dd>
               <dt className="kv__k">Pay band</dt>
-              <dd className="kv__v bb-mono">{payBandLabel(job.payMin, job.payMax)}</dd>
+              <dd className="kv__v bb-mono">{view.salary?.band ?? "—"}</dd>
               <dt className="kv__k">Experience</dt>
               <dd className="kv__v">
-                {experienceBandLabel(job.minExperienceYears, job.maxExperienceYears)}
+                {experienceLabel(card.min_experience_years, card.max_experience_years) ?? "—"}
               </dd>
               <dt className="kv__k">Needed by</dt>
-              <dd className="kv__v">{neededByLabel(job.neededBy)}</dd>
+              <dd className="kv__v">{neededByLabel(card.needed_by) ?? "—"}</dd>
               <dt className="kv__k">Applicants</dt>
               <dd className="kv__v ui-num">{job.applicantsReceived}</dd>
               <dt className="kv__k">Posted</dt>
               <dd className="kv__v bb-mono">{day(job.createdAt)}</dd>
+              <dt className="kv__k">Description</dt>
+              <dd className="kv__v kv__v--prose">{job.description ?? "—"}</dd>
             </dl>
           </div>
         </section>
 
-        <aside className="posting-preview" aria-label="Job card">
-          <JobCardPreview fields={cardFieldsFromAgencyJob(job)} />
+        <aside className="posting-preview" aria-label="Worker card preview">
+          <div className="posting-preview__scroll">
+            <JobCardPreview fields={card} />
+          </div>
         </aside>
       </div>
     </>

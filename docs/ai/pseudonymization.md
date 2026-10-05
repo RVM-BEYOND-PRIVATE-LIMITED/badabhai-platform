@@ -182,10 +182,12 @@ the comment above `_CORPORATE_FORM_CAPS`.
   repo's own text (question packs, lexicons, job-domain corpus, ai-service test strings),
   all upper-cased: a case-insensitive suffix list would newly mask 1,521 of them (9,442
   words). This rule masks 380 (1,966 words).
-- **Title case is byte-identical to main.** As written, the same corpus changes in 6 strings,
-  and each one contains a capitals corporate form. Neither as written nor upper-cased does a
-  string leave a word unmasked that main masked, or stop blocking where main blocked. No
-  certifier outcome changes over 4,765 lexicon labels (as written, UPPER and Title).
+- **Title case is byte-identical to main** (as of #1875; #1891 later bounded the title-case
+  name word without moving any of these outputs, see the next section). As written, the same
+  corpus changes in 6 strings, and each one contains a capitals corporate form. Neither as
+  written nor upper-cased does a string leave a word unmasked that main masked, or stop
+  blocking where main blocked. No certifier outcome changes over 4,765 lexicon labels (as
+  written, UPPER and Title).
 - **The two views (R49, #1890).** The one place where more masking can mean less protection
   is the #1738 two-view check. It counts a spaced-view region as covered when the region merely
   overlaps a reader-view mask. In `"my name is<U+200B>Ramesh Kumar CO"` the reader view merges
@@ -222,9 +224,8 @@ the comment above `_CORPORATE_FORM_CAPS`.
 - **Cost.** Measured on 2026-10-01: a typical line costs 2–10 µs more per call. On the worst
   20,000-character input tried, the rule alone costs 42 ms. The first cut reused title case's
   unbounded word and cost 1,575 ms on `"A." * 10000`, which doubled `pseudonymize` from
-  1,576 ms to 3,131 ms. The 1,576 ms that remains is the title-case rule's own unbounded
-  `[\w&.]*`. The same bound would fix it, but that touches title case and needs its own
-  sign-off (#1891).
+  1,576 ms to 3,131 ms. The 1,576 ms that remained was the title-case rule's own unbounded
+  `[\w&.]*`, since bounded the same way (#1891, next section).
 
 Pinned by `tests/test_pseudonymize_allcaps_employer.py` (165 tests). Each of 14 mutations of the
 rule turned it red, with 2 to 69 failures each: the rule removed; the dash guard on every form,
@@ -232,6 +233,239 @@ or on none; the CO list removed; trade words allowed to end a span; the rule fol
 `_COMPANY_SUFFIX`; joiners removed; the 7-digit refusal removed; the word unbounded; INC put
 back; a 6-word window; title case's word grammar; every guard removed; and the rule moved back
 ahead of the name rules.
+
+### The title-case employer rule does bounded work (issue #1891, risks-register R48)
+
+`_EMPLOYER_RE`'s name word was `[A-Z][\w&.]*`, unbounded. On a run with many word boundaries
+and no whitespace that is O(n²): every letter after a `.` or `&` opens a match, and each one
+scanned to the end of the run for the whitespace a suffix needs. Found by the security review of
+#1875. `/profiling/respond` and `/profile/extract` call `pseudonymize()` inline inside
+`async def`, so one such input stalled the event loop for every worker. The clean-or-withhold
+walls run the same rule whatever `AI_RAW_PII_ENABLED` says.
+
+- **The fix.** The name word is `_TITLE_NAME_WORD`: a capital, then at most 63 more of
+  `[\w&.]`, matched possessively. That is the capitals rule's `_CAPS_NAME_WORD_MAX` bound,
+  reused so the two cannot drift. Possessive changes no match: a word is always followed by
+  `\s+`, which `[\w&.]` excludes.
+- **No other copy exists.** `profiling/signals.py` and `resume_import/parse_policy.py` name the
+  rule only in comments. `contains_hard_identifier` (gate 6, `resume_value_certifier`) never ran
+  it. Every `pseudonymize()` caller and the three walls (`is_certified_clean`, `certify_value`,
+  `certified_clean_skill_labels`) use the one compiled pattern.
+- **Other stalls of the same kind (survey, 2026-10-03).** The first version of this section said
+  the job-posting vacancy count was the only other `(?:\w+\s+){m,n}` window in
+  `apps/ai-service/app`. The #1891 review showed that was wrong, so it was replaced by a
+  measurement. None of the stalls below is fixed on this branch. Each one predates #1891 and
+  none copies this rule.
+  - **Method** (`apps/ai-service/scripts/regex_growth_survey.py`). Every compiled pattern
+    reachable from an `app/` module's globals (351) was timed at two input sizes on 22 input
+    shapes. The shapes are runs of spaces, mixed whitespace, word windows, dotted runs, and runs
+    of digits, commas and dashes, each after a cue word taken from the pattern itself. Each
+    pattern that grew faster than linear was then timed through its real entry point, on the
+    inputs quoted below. A pattern compiled inside a function body is not covered. Times are
+    ranges over two or three runs on a shared machine; the growth per doubling is the stable
+    signal. Under load the screen also flags patterns near its 1 ms floor: two runs flagged 31
+    and 41 patterns, and every one was checked through its entry point.
+  - **In the gateway**, the capitals rule already had this bound. The two cued-ID rules had a
+    different stall: three whitespace quantifiers in a row. A cue followed by a whitespace run
+    that then fails to match cost O(k³), about 8× per doubling. **Fixed by #1933** (R54, resolved;
+    see the section on the cued-ID connector below).
+    - `_CREDENTIAL_ID_RE` runs in every `pseudonymize` call, whatever `AI_RAW_PII_ENABLED` says.
+      `pseudonymize("reg" + " " * 800 + "!")` took 1.7–4.0 s, against 0.2–0.5 s at 400 spaces.
+      With 300 repeats of `" \t\n"` it took 3.6–7.5 s.
+    - `_RESUME_CUED_ID_RE` runs only in `contains_hard_identifier`.
+      `contains_hard_identifier("passport" + " " * 800 + "!")` took 3.6–5.9 s.
+  - **Outside the gateway**, six stalls are live through their entry point:
+    - The job-posting role cue (`_ROLE_CUE_RE`), when the role question is on screen.
+      `detect_answers("need" + " " * 10000 + "5", "role_title")` took 748–801 ms. R53.
+    - The job-posting phrase splitter (`_PHRASE_SPLIT_RE`), when skills or benefits are on
+      screen. Requirements uses the same splitter. Any run of 10,000 spaces took 730–800 ms.
+      R53.
+    - The job-posting pay-range parser (`_PAY_RANGE_RE`), on every turn that carries a money
+      cue, whatever topic is on screen. `detect_answers("salary 20k 5" + " " * 10000 + "!",
+      None)` took 1.9 s, and 0.5 s at 5,000. R53.
+    - The profiling experience matcher (`_EXPERIENCE_RE`), in `/profile/extract`'s heuristic
+      pass over the worker's own text. `"adhai" + " " * 5000 + "5"` took 1.4 s, and 6–24 s at
+      10,000 spaces. R55.
+    - The profiling salary matcher (`_SALARY_RE`), in the same pass. It needs no cue: any run of
+      spaces that no digit follows is enough. `"hello" + " " * 8000 + "world"` took 1.0 s, and
+      25 s at 16,000. R55.
+    - The salary detector's credential guard (`_CREDENTIAL_BEFORE_RE`), the same shape as the
+      gateway's. `"reg" + " " * 800 + "!5000"` took 2.6–2.7 s in the same pass. R54, fixed by
+      #1933 with the gateway's rules.
+  - **Flagged alone, not live through their entry point:**
+    - The other job-posting patterns it flags (pay type, currency, experience, timeline, label
+      tail) run on text whose whitespace is already collapsed, or start at a figure. On the
+      shapes tried, `detect_answers` stayed under 30 ms at 10,000 characters for every topic
+      those patterns serve.
+    - `is_hardship` is cubic on a run of digits (9.2 s at 10,000), but nothing in this service
+      calls it in production: `classify_utterance` serves the parity corpus only. Its
+      TypeScript twin in `packages/profiling-lexicon` was not measured.
+    - `_SKILLS_PLACEHOLDER` reads model output only.
+    - The capitals rule's flag was noise. `_EMPLOYER_CAPS_RE.sub` on `"WELD " + "A&" * 8000`
+      takes 22 ms and grows linearly. So do the other profiling patterns flagged (city,
+      relocation cues, first-person claim, don't-know, job question) through their functions at
+      8,000 units.
+  - The vacancy count (`_VACANCY_ARMS`) and the location cue (`_LOCATION_CUE_RE`) are linear on
+    every shape tried. On six 20,000-character adversarial inputs the vacancy count takes
+    1–16 ms.
+- **Measured** on 2026-10-03 at 20,000 characters. Main's and the bounded rule were interleaved
+  in one process, with Windows power throttling switched off for it. Times are the minimum of 5
+  runs.
+
+  | Input | `pseudonymize`, main | bounded | the rule alone, main | bounded |
+  |---|---|---|---|---|
+  | `"A." * 10000` | 2,134 ms | 37 ms | 2,119 ms | 8 ms |
+  | `"A." * 9999` + one ZWSP | 4,306 ms | 82 ms | 2,573 ms | 10 ms |
+  | `"A&" * 10000` | 2,016 ms | 37 ms | 1,981 ms | 8 ms |
+  | `"Ab." * 6666` | 1,242 ms | 26 ms | 1,217 ms | 5 ms |
+  | `"A." * 9990 + " Steel"` | 4 ms | 37 ms | 0.2 ms | 8 ms |
+  | a typical 68-character line | 27.1 µs | 26.8 µs | | |
+
+  The `" Steel"` row is the price, and it is linear: main matched that run from its first
+  letter, and the bounded rule scans 64 characters from each start.
+- **Reproduce** every number in this section with
+  `apps/ai-service/scripts/measure_title_employer_bound.py`:
+  - `timing` prints the table above;
+  - `overmask` gives the over-mask counts below, and `overmask --against bound8` the
+    sensitivity run;
+  - `longwords` gives the distances to the boundary.
+
+  Its "main" is the module with the pre-#1891 `_EMPLOYER_RE` swapped back in. The tests in
+  section 5 of the test file keep the script in step with the rule.
+- **Over-masking, re-measured with #1875's harness.** The corpus is 31,984 distinct strings:
+  #1875's 31,907 plus the 77 ai-service test strings added since. Each runs as written and
+  upper-cased. The certifiers run over 4,765 lexicon labels, as written, UPPER and Title.
+  - Main against the fix: 0 outputs changed, 0 changes in blocked status, 0 certifier outcomes
+    changed. The two result files are byte-identical.
+  - The committed script reads tracked files only. On this commit it finds 32,006 distinct
+    strings and the same 4,765 labels, with the same zeros. Main's tests have moved since:
+    6 #1875 fixtures are gone and newer test strings arrived.
+  - The upper-cased half is 0 by construction: the title-case suffix list is case-sensitive.
+  - A fidelity run, main's pattern swapped into the fixed module, reproduces main byte for byte.
+  - A sensitivity run with an 8-character bound changes 148 strings as written (1 of them in
+    blocked status) and 4 certifier outcomes, so the harness does detect a bound that bites.
+- **The boundary.** Only a title-case name word over 64 characters behaves differently.
+  - An undotted one no longer opens a span: `"<65 letters> Steel"` stays raw, and so does a
+    name in front of it. A bare name is raw on main too.
+  - A dotted one masks from the first boundary within 64 characters of its end:
+    `"A." * 40 + " Steel"` → `"A." * 8 + "[EMPLOYER_1]"`. The capitals rule has always worked
+    this way.
+  - No employer has such a word. The corpus's longest capital-led `[\w&.]` run is 43 characters
+    as written. Upper-cased it is 64, and those are SHA-256 hex digests in test fixtures. A scan
+    of every tracked `.py`, `.json`, `.yaml` and `.csv` file under `apps/ai-service` and
+    `packages` (617 files when measured, 620 on this commit) finds no run over 64. The
+    longest is 48.
+  - Under the #1738 two views, a word that reaches 65+ characters only because an invisible
+    joins two shorter words behaves in one of two ways:
+    - It is the span's only name word. The span then blocks: the spaced view masks a region that
+      the reader view left raw. `"A" * 40 + ZWSP + "B" * 40 + " Steel"` is blocked. Main
+      returned `[EMPLOYER_1]`.
+    - Another name word stands before the form. The reader view then masks that tail, and the
+      partial overlap that R49 accepts (#1890) lets the text through. The output is the reader
+      view: `"A" * 40 + ZWSP + "B" * 40 + " Steel Works"` becomes `"A"*40 + "B"*40 +
+      " [EMPLOYER_1]"`. That is the same output as the 80-letter word with no invisible.
+    - The invisible adds no new exposure. Once #1890 counts only full cover, the second shape
+      blocks as well.
+
+Pinned by `tests/test_pseudonymize_title_employer_bound.py` (30 tests):
+- the structural bound and possessive quantifier;
+- the issue's inputs and the three walls under a 750 ms timing backstop;
+- real employers masking exactly as on main;
+- a seeded property test: no output moves while every name word is 64 characters or shorter;
+- the boundary itself, pinned as `KNOWN_RESIDUAL`;
+- the boundary under the two views: one test pins the case that blocks, and the R49 shape is
+  pinned as `KNOWN_RESIDUAL`;
+- the measurement script: its "main" is the test's oracle, and its `boundN` is the shipped rule
+  with only the bound changed.
+
+Each of six mutations of the rule turned the file red: main's word; possessive but unbounded;
+bounded but not possessive; a 65-, 32- or 8-character bound. The two-view tests fail on main, on
+both unbounded mutations (3 of 3) and on the 32- and 8-character bounds (the blocking case).
+
+**Sign-off.** #1891 changes title case, so the issue asked for the owner's sign-off before it
+merges. Divyanshu Pant gave it on 2026-10-03: he is the issue's author and assignee and the
+signer of ADR-0047, and he directed that #1891 be solved and merged. The basis is the measured
+zero real-world impact. No output, blocked status or certifier outcome moves over the corpus.
+No tracked file under `apps/ai-service` or `packages` holds a capital-led run over 64
+characters. Under the two views, a word that only an invisible joins past 64 either blocks
+(fail-closed) or egresses exactly as the word written without the invisible. #1892 (lower case, M/S, 5+ name
+words, the title-case twins) is not part of this change. It stays open under its own issue.
+
+### The cued-ID connector is linear (issue #1933, risks-register R54)
+
+Three rules read the gap between a credential cue and its value with one connector:
+`_CREDENTIAL_ID_RE` (every `pseudonymize` call, under both `AI_RAW_PII_ENABLED` postures),
+`_RESUME_CUED_ID_RE` (in `contains_hard_identifier`, the G1/G2 floor of ADR-0047 §6) and the
+salary detector's credential guard (`signals._CREDENTIAL_BEFORE_RE`, lexicon `credentialBefore`).
+The API's TypeScript wall (`resume-parse-gates.ts`) ports the first two.
+
+- **The defect.** The connector was `\s*(?:no\.?|number|num|#)?\s*[:\-]?\s*` (the résumé rule
+  adds an `id` word). That is three whitespace quantifiers with only optional tokens between
+  them. When a cue was followed by a whitespace run that then failed the digit lookahead, every
+  split of the run was tried: O(k³). After a "no" word two quantifiers remained, so that branch
+  was O(k²). The inputs are far under `DEFAULT_MAX_LENGTH`, and the calls run inline in
+  `async def`.
+- **The fix.** Each whitespace quantifier is folded into the optional token it follows:
+  `\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:\-]\s*)?`. The "no" word and the separator never start
+  with whitespace, so after the leading `\s*` there is one reading of a run. It needs no
+  possessive quantifier, so all five copies carry the same text: both Python rules, both lexicon
+  copies (`[:-]`, the JavaScript u-mode spelling) and both TypeScript ports.
+- **Why no match can move, on any input.** The two connectors accept the same strings. A
+  backtracking engine tries the value's start positions in the same priority order under both;
+  the old form only adds repeats of starts it already tried, or starts on whitespace, where the
+  value's first character `[A-Za-z0-9]` can never match. What follows the connector reads only the
+  start position. So the whole match, the value span, and therefore the mask, the G1/G2 verdict
+  and the salary guard's verdict are unchanged.
+- **Measured, not assumed** (`apps/ai-service/scripts/measure_cued_id_linear.py parity`). MAIN
+  is each shipped rule with main's connector put back and nothing else touched. Every match is
+  compared, whole span and value span, plus the guard's verdict on every slice the salary
+  detector hands it.
+  - 36,536 distinct strings of the repo's git-tracked text (service code and tests, the lexicon
+    and its parity corpus, the shared hard-identifier fixture, the question packs and the
+    job-domain corpus; `.jsonl` comment lines skipped), as written, with whitespace runs
+    stretched, with separators spaced and upper-cased: 0 move. The corpus readers are
+    `measure_title_employer_bound.py`'s, imported, so an untracked local file never enters it.
+  - 60,000 seeded fuzzed cue lines: 0 move.
+  - End to end over the 7,791 cue-bearing texts in those three views: 0 changes in
+    `pseudonymize`, `contains_hard_identifier` or `signals.detect`.
+  - The sensitivity run (`--against loose`, the `\s*` after the "no" word dropped) moves 22–26
+    strings per view, 6,494 fuzz samples and 46–55 end-to-end results, so the harness does see
+    a connector change.
+  - `contains_hard_identifier` keeps exactly its verdicts, which is the G1/G2 requirement.
+- **Timing**, `timing 3`: minimum of 3 interleaved runs on 2026-10-03, in ms. Main was not run
+  at 20,000; its cubic cost there would not finish.
+
+  | Entry point | Input | main | linear |
+  |---|---|---|---|
+  | `pseudonymize` | `"reg"` + 800 spaces + `"!"` | 1,599 | 0.2 |
+  | `pseudonymize` | `"reg"` + 19,996 spaces + `"!"` | — | 5.8 |
+  | `contains_hard_identifier` | `"passport"` + 800 spaces + `"!"` | 3,537 | 0.2 |
+  | `contains_hard_identifier` | `"passport"` + 19,991 spaces + `"!"` | — | 6.4 |
+  | `profile_extractor.extract` | `"reg"` + 800 spaces + `"!5000"` | 2,925 | 16.9 |
+  | the TypeScript ports (V8, regex alone) | cue + 1,600 spaces + `"!"` | 1,891–1,960 | < 0.1 |
+
+  `profile_extractor.extract` still takes about 7 s at 20,000 spaces. None of that is this
+  connector, which costs 5.6 ms there. It is the salary matcher's own quadratic scan,
+  risks-register R55 (b), which this change does not touch.
+- **Pinned** by `tests/test_pseudonymize_cued_id_linear.py` (48 tests: the connector text in all
+  three Python-read copies; a 750 ms timing backstop on `pseudonymize`, `contains_hard_identifier`,
+  the three walls and the extractor; the corpus and fuzz differentials; the end-to-end run; the
+  known cases and the four R56 residual shapes; and the script, including its sensitivity
+  variant, its shared corpus readers and a probe that an untracked file stays out of the corpus).
+  `apps/api/src/profiling/resume-import/resume-parse-gates.linear.test.ts` and
+  `packages/profiling-lexicon/src/values/salary-credential-guard.test.ts` do the same for V8.
+  The tests were seen to fail on main's connector, on two semantic mutations and, with the rules
+  intact, on a changed oracle. The counts are in the test file's docstring.
+- **Residual, unchanged: risks-register R56 (open).** No connector token starts with "." and
+  "regn" is no cue, so the common certificate spellings `"Reg.No.:- 123456"`,
+  `"Reg.No.: MH2019CN4471"`, `"Reg. No. …"` and `"Regn. No. …"` never reach their value, on main
+  and here alike. The gateway leaves the ID raw (it has no seven-digit run for the residual net),
+  G1/G2 admits the text, and the salary detector records the ID's digits as pay (123456, and
+  4471 from `MH2019CN4471`). `pseudonymize()` builds the at-rest copies and the embedding input
+  under both `AI_RAW_PII_ENABLED` postures, so this is not moot while the switch is armed.
+  Reading "." after the cue masks more, so it is a masking widening with its own security
+  review, not part of a rewrite that must keep main's spans. The four shapes are pinned as
+  `KNOWN_RESIDUAL`, so the R56 fix flips them.
 
 ## Input policy switch (ADR-0047)
 
@@ -322,5 +556,7 @@ out: "[PERSON_1], phone [PHONE_1], worked at [EMPLOYER_1] in Faridabad"
   - **R32:** Names without cue words can leak (e.g., "Chandrashekhar bol raha hu" — 3/4 natural forms unmasked on main). Narrowed, not closed — the gazetteer approach measured dead (487 probes / 348 leaks); known-name redaction shipped in `apps/api` instead (PR #524, ADR-0035).
   - Both tracked in [risks-register.md](../registers/risks-register.md) as Critical-if-live and both **still gate `AI_ENABLE_REAL_CALLS`**; invariant #5 holds today.
   - **Both are moot while `AI_RAW_PII_ENABLED` is armed** (ADR-0047): each describes PII slipping past a masker that is then deliberately not masking. With the switch off they stand as recorded.
-  - **R48 — employers in capitals (issue #1875).** Fixed for a capitals span that ends in a listed corporate form. Still open: no corporate form (`"BAJAJ AUTO"`, M/S firms), lower case, INC/EST., a dash after a guarded form, 5+ name words, and the title-case joiner twins (lower case, M/S, 5+ words and the twins are #1892); see the section on employers in capitals. The title-case `_EMPLOYER_RE` stall is #1891. Unlike R30/R32, this is NOT moot while the switch is armed. The at-rest masked copies, the embedding input (SG-2, ADR-0047 §4) and the certifiers run `pseudonymize()` under both postures. The Langfuse and `ai_call_traces` sinks follow the flag (`trace_mask`), so they are covered only while it is off.
+  - **R48 — employers in capitals (issue #1875).** Fixed for a capitals span that ends in a listed corporate form. Still open: no corporate form (`"BAJAJ AUTO"`, M/S firms), lower case, INC/EST., a dash after a guarded form, 5+ name words, and the title-case joiner twins (lower case, M/S, 5+ words and the twins are #1892); see the section on employers in capitals. The title-case `_EMPLOYER_RE` stall found there is bounded by #1891: its name word now has the capitals rule's 64-character bound, and no corpus output moved. The owner signed off on 2026-10-03 (see the sign-off in that section and R48). The #1892 classes stay open under issue #1892; #1891 does not touch them. Unlike R30/R32, this is NOT moot while the switch is armed. The at-rest masked copies, the embedding input (SG-2, ADR-0047 §4) and the certifiers run `pseudonymize()` under both postures. The Langfuse and `ai_call_traces` sinks follow the flag (`trace_mask`), so they are covered only while it is off.
   - **R49 — the two-view check accepts a partial overlap (#1890).** Pre-existing (#1738). A name hidden by an invisible character next to a masked employer span egresses unblocked: `"my name is<U+200B>Ramesh Kumar CO"` → `"my name isRamesh [EMPLOYER_1]"`. Main already does this with title-case suffixes, and #1875's capitals rule extends the shape. OPEN; the fix is to count a spaced-view region as covered only if every kept offset is inside the reader-masked regions.
+  - **R54 — the cued-ID rules stalled on a whitespace run. RESOLVED by #1933.** Pre-existing; found by the #1891 survey. `_CREDENTIAL_ID_RE` and `_RESUME_CUED_ID_RE` put three whitespace quantifiers in a row, so a cue followed by a whitespace run that failed to match cost O(k³): `pseudonymize("reg" + " " * 800 + "!")` took 1.7–4.0 s over three runs, whatever `AI_RAW_PII_ENABLED` says. Each quantifier is now folded into the optional token it follows, in both rules, the salary guard's lexicon copy and the API's TypeScript ports: 0.2 ms on that input, with 0 span differences over the corpus and the fuzz. See the section on the cued-ID connector. The `"Reg.No."` shape the connector never read stays a pinned residual, tracked as R56.
+  - **R56 — the cued-ID rules never read a dot after the cue.** Pre-existing; found by the #1933 parity work. No connector token starts with "." and "regn" is no cue, so `"Reg.No.: MH2019CN4471"`, `"Reg. No. …"`, `"Roll.No. …"`, `"Cert. No. …"`, `"Passport.No. …"` and `"Regn. No. …"` never reach their value: `pseudonymize()` leaves the ID raw, `contains_hard_identifier` (G1/G2) admits it and the salary detector records its digits as pay. Unlike R30/R32, this is NOT moot while `AI_RAW_PII_ENABLED` is armed: the at-rest copies, the embedding input and the walls run `pseudonymize()` under both postures. OPEN. The fix reads "." after the cue, which masks more, so it takes its own security-engineer review; see R56.

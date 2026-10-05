@@ -44,12 +44,12 @@ import type { PgColumn } from "drizzle-orm/pg-core";
 
 import { createDbClient, type Database } from "./client";
 import {
-  PII_KID_PATTERN,
   decryptPiiWithKeyring,
   encryptPiiWithKeyring,
   isEncryptedPii,
   type PiiKeyring,
 } from "./crypto";
+import { parsePiiKeyring } from "./pii-keyring-env";
 import {
   adminUsers,
   agencyKyc,
@@ -304,38 +304,9 @@ function buildTargets(db: Database): PiiTarget[] {
   ];
 }
 
-/**
- * Counts top-level `key:` members in a JSON object's raw text (ignores nested
- * braces/brackets and string contents). `JSON.parse` silently keeps the LAST
- * value for a repeated top-level key, so comparing this count to
- * `Object.keys(parsed).length` is how a duplicate kid is caught at all — a
- * straight `JSON.parse` would boot clean and fail only later, at READ time, on
- * rows written under the shadowed key. Byte-for-byte the same algorithm as
- * `packages/config/src/server.ts`'s `countTopLevelJsonMembers` (kept in sync by
- * hand — packages/db cannot depend on packages/config).
- */
-function countTopLevelJsonMembers(raw: string): number {
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  let count = 0;
-  for (const ch of raw) {
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') inString = true;
-    else if (ch === "{" || ch === "[") depth += 1;
-    else if (ch === "}" || ch === "]") depth -= 1;
-    else if (ch === ":" && depth === 1) count += 1;
-  }
-  return count;
-}
-
-/** Local mirror of @badabhai/config's keyring validation (packages/db cannot depend on config —
- * see crypto.ts's PII_KID_PATTERN doc comment). Fails closed; never echoes key material. */
+/** The keyring this rotation writes under. Validation lives in `pii-keyring-env.ts` (shared with
+ * the #1432 title-case backfill); the "must be active" refusal is this runner's own, because a
+ * rotation without a keyring has no kid to rotate onto. Fails closed; never echoes key material. */
 function parseKeyring(): PiiKeyring {
   const rawKeys = process.env.PII_ENCRYPTION_KEYS;
   const rawKid = process.env.PII_ENCRYPTION_ACTIVE_KID;
@@ -345,40 +316,7 @@ function parseKeyring(): PiiKeyring {
         "this backfill only makes sense once the TD22-1 keyring is active.",
     );
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawKeys);
-  } catch {
-    throw new Error("[reencrypt] PII_ENCRYPTION_KEYS is not valid JSON");
-  }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error("[reencrypt] PII_ENCRYPTION_KEYS must be a JSON object");
-  }
-  const parsedEntries = Object.entries(parsed as Record<string, unknown>);
-  if (countTopLevelJsonMembers(rawKeys) !== parsedEntries.length) {
-    throw new Error("[reencrypt] PII_ENCRYPTION_KEYS contains a duplicate key id");
-  }
-  const keys: Record<string, string> = {};
-  for (const [kid, key] of parsedEntries) {
-    if (!PII_KID_PATTERN.test(kid)) {
-      throw new Error("[reencrypt] PII_ENCRYPTION_KEYS contains an invalid key id");
-    }
-    if (typeof key !== "string" || Buffer.from(key, "base64").length !== 32) {
-      throw new Error(
-        "[reencrypt] PII_ENCRYPTION_KEYS contains a key that is not base64 of exactly 32 bytes",
-      );
-    }
-    if (Buffer.from(key, "base64").every((b) => b === 0)) {
-      throw new Error("[reencrypt] PII_ENCRYPTION_KEYS contains an all-zero key");
-    }
-    keys[kid] = key;
-  }
-  if (!PII_KID_PATTERN.test(rawKid) || !Object.prototype.hasOwnProperty.call(keys, rawKid)) {
-    throw new Error(
-      "[reencrypt] PII_ENCRYPTION_ACTIVE_KID is not a valid key id present in PII_ENCRYPTION_KEYS",
-    );
-  }
-  return { activeKid: rawKid, keys };
+  return parsePiiKeyring(rawKeys, rawKid, "reencrypt");
 }
 
 async function processTarget(

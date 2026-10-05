@@ -21,8 +21,8 @@ export interface Rule {
 export const stripComments = (css: string): string => css.replace(/\/\*[\s\S]*?\*\//g, "");
 
 /**
- * Flatten a stylesheet into rules, descending through @media/@supports/@container and keeping
- * the prelude.
+ * Flatten a stylesheet into rules, descending through @media/@supports/@container and keeping the
+ * prelude.
  */
 export function parseRules(css: string, at = ""): Rule[] {
   const out: Rule[] = [];

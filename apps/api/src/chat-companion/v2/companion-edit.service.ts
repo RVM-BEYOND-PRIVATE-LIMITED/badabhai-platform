@@ -337,8 +337,10 @@ export class CompanionEditService {
    * entry has that field (a certificate field on a certificate, a scalar preference on `pref`);
    * add carries no ref; add/edit carry a value that passes the field's own normalisation; a
    * placeholder token drops the row (O17); a hard identifier drops it too (ADR-0047 G1); and an
-   * edit identical to the current value is a no-op. The row-SET gates — duplicates, adds of what
-   * is already there, the writer's own schema — run after, in `propose`.
+   * edit identical to the current value is a no-op. That comparison is on the NORMALISED value, the
+   * string the writer would store: "tata motors" over a stored "Tata Motors" is a no-op, because
+   * the writer cases an employer name before it stores it (#1940). The row-SET gates — duplicates,
+   * adds of what is already there, the writer's own schema — run after, in `propose`.
    *
    * THE HARD-IDENTIFIER DROP READS NO FLAG, and it is the placeholder drop's twin. A confirmed
    * employer name or `work_done` is printed on both résumé PDFs, and neither the employment DTO

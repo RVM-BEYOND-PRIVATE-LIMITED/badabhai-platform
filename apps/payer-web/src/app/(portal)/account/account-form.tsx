@@ -138,8 +138,6 @@ export function AccountForm({ orgName, email, phoneLast4, role, status }: Accoun
     });
   }
 
-  const orgErrorId = fieldErrors.orgName ? "account-org-error" : undefined;
-  const phoneErrorId = fieldErrors.phone ? "account-phone-error" : undefined;
   const currentPhone = phoneLast4 ? `•••• ${phoneLast4}` : "Not set";
   const saveDisabled = pending || !isDirty;
 
@@ -153,7 +151,6 @@ export function AccountForm({ orgName, email, phoneLast4, role, status }: Accoun
           value={orgValue}
           error={fieldErrors.orgName}
           aria-invalid={fieldErrors.orgName ? true : undefined}
-          aria-describedby={orgErrorId}
           autoComplete="organization"
           onChange={(e) => {
             setOrgValue(e.target.value);
@@ -181,7 +178,6 @@ export function AccountForm({ orgName, email, phoneLast4, role, status }: Accoun
           value={phoneValue}
           error={fieldErrors.phone}
           aria-invalid={fieldErrors.phone ? true : undefined}
-          aria-describedby={phoneErrorId}
           autoComplete="tel"
           hint="Leave blank to keep your current number. Enter a full number to change it."
           onChange={(e) => {

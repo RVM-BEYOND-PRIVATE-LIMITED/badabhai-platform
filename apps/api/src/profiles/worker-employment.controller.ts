@@ -67,6 +67,10 @@ export class WorkerEmploymentController {
    *
    * The response carries a COUNT and never echoes an employer name back — the same discipline as
    * `PATCH me/name` returning `{ ok: true }`.
+   *
+   * The employer name is STORED in the app's casing (#1940), so the next `GET me/employment`
+   * returns "Tata Motors" for a PUT of "tata motors". A value already cased comes back
+   * byte-identical. The role label is stored as sent.
    */
   @Put("me/employment")
   @HttpCode(200)

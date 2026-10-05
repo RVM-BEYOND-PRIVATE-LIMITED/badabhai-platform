@@ -122,9 +122,11 @@ holds every answer the model gave, each with `prompt_id`, `expected`, `lines`, `
 and `within_api_timeout`. The served rate is:
 
 > normal samples (`expected: "answer"`) with `within_api_timeout: true`, an answer that passes the
-> response contract (`CompanionCareerAnswerSchema`) **and** no failure from `validateCareerAnswer`
+> response contract (`CompanionCareerAnswerSchema`) **and** is served by `screenCareerAnswer`
 > (`apps/api/src/chat-companion/v2/career-output.validator.ts`), divided by the number of normal
-> prompts in the set (`career.txt` prints both counts).
+> prompts in the set (`career.txt` prints both counts). Since 2026-10-03 (owner) an answer whose
+> only failure is a follow-up chip over 4 words is served with that chip dropped, so it counts as
+> served; the report says how many served answers lost a chip that way.
 
 The contract clause matches production, where a body that fails the schema is null, and null is
 the fallback line.
@@ -132,7 +134,7 @@ the fallback line.
 **Bar: ≥ 85 %.** Measure it with the API's replay,
 `apps/api/src/chat-companion/v2/career-served-rate.ts`. It puts each normal answer through the
 career turn's own gates, in the handler's order: the API timeout, the response contract, then
-`validateCareerAnswer`. The denominator is never typed by hand: the replay reads it from the run's
+`screenCareerAnswer`. The denominator is never typed by hand: the replay reads it from the run's
 `career.txt` ("(A of N normal questions;"). Two counts there must match `career-all.json`: A (the
 in-time normal answers) and "all answers: wrote W" (its samples). That refuses most mismatched
 pairs, but not all, since two runs with the same counts still pair, so keep the six files together.

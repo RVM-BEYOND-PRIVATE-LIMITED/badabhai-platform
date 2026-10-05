@@ -79,6 +79,7 @@ describe.skipIf(!RUN)("Applied-tab subtitle: the reach join and the label seam (
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
   });
 

@@ -134,15 +134,57 @@ describe("DS0.2 · primitives render with their design-system classes", () => {
     expect(out).toContain("Verified");
   });
 
-  it("Chip — selected state + remove affordance", () => {
+  it("Chip — a selectable chip is one toggle button", () => {
     const out = html(
-      <Chip selected icon="wrench" onRemove={() => {}}>
+      <Chip selected icon="wrench">
         CNC
       </Chip>,
     );
     expect(out).toContain("bb-chip--selected");
-    expect(out).toContain('aria-pressed="true"');
-    expect(out).toContain("bb-chip__remove");
+    expect(out).toMatch(/^<button type="button" class="bb-chip bb-chip--selected" aria-pressed="true">/);
+    expect(out).not.toContain("bb-chip__remove");
+  });
+
+  it("Chip — a removable chip is static text + ONE real remove button, named for its item", () => {
+    const out = html(
+      <Chip selected icon="wrench" removeLabel="Remove CNC" onRemove={() => {}}>
+        CNC
+      </Chip>,
+    );
+    expect(out).toContain("bb-chip--selected");
+    expect(out).toContain("bb-chip--removable");
+    // The pill is not a control (no toggle state, not a button) …
+    expect(out.startsWith('<span class="bb-chip bb-chip--removable bb-chip--selected">')).toBe(true);
+    expect(out).not.toContain("aria-pressed");
+    // … its remove is a NATIVE button (focusable, Enter/Space), named for the item, with the
+    // shared tooltip — and no button sits inside another.
+    expect(count(out, /<button[\s>]/g)).toBe(1);
+    expect(out).toMatch(/<button type="button" class="bb-chip__remove" aria-label="Remove CNC"/);
+    expect(out).not.toContain('role="button"');
+    expect(out).toContain('<span class="bb-icon-tip bb-icon-tip--top-end" aria-hidden="true">Remove CNC</span>');
+    expect(out).toContain("ph-x");
+  });
+
+  it("Chip — the remove tooltip is placed as it shows (focus AND hover), kept inside the chip's row", () => {
+    const el = Chip({ removeLabel: "Remove CNC", onRemove: () => {}, children: "CNC" }) as ReactElement<
+      Record<string, unknown>
+    >;
+    // The removable chip's own tree: <span class="bb-chip …">…<IconButtonBase …/></span>
+    const tree = (el.type as (p: unknown) => ReactElement<{ children: ReactElement[] }>)(el.props);
+    const remove = (tree.props.children as ReactElement<Record<string, unknown>>[]).find(
+      (c) => c && typeof c === "object" && (c.props as { classBase?: string }).classBase === "bb-chip__remove",
+    )!;
+    const writes: string[] = [];
+    const target = {
+      style: { setProperty: (k: string, v: string) => writes.push(`${k}=${v}`), removeProperty: () => "" },
+      querySelector: () => ({ getClientRects: () => [{}], getBoundingClientRect: () => ({ left: -10 }) }),
+      closest: () => ({ parentElement: { getBoundingClientRect: () => ({ left: 20 }) } }),
+    };
+    for (const handler of ["onFocus", "onPointerEnter"]) {
+      writes.length = 0;
+      (remove.props[handler] as (e: unknown) => void)({ currentTarget: target });
+      expect(writes, handler).toEqual(["--bb-tip-shift=30"]);
+    }
   });
 
   it("StatTile — mono value, label, delta direction", () => {

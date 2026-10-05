@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getPostingDetail, listMatchSkills } from "../../../../../lib/payer-api";
 import { requirePayer } from "../../../../../lib/auth";
 import type { MatchSkillWire } from "../../../../../lib/contracts";
+import { Badge } from "../../../../../components/ds";
 import { PageHeader } from "../../../../../components/page-header";
 import { EditPostingForm } from "./edit-posting-form";
 
@@ -47,40 +48,56 @@ export default async function EditPostingPage({ params }: { params: Promise<{ id
 
   const { summary, card, description } = detail;
 
-  return (
+  // The page head leads the FORM column, so the card-preview rail starts beside it at the top.
+  const lead = (
     <>
       <PageHeader
         back={{ href: `/postings/${id}`, label: "Posting details" }}
         title="Edit posting"
-        description={`Change the role, location, pay, timing, chips or description for ${summary.roleTitle} — the preview shows the worker’s card as you edit.`}
-      />
-      <EditPostingForm
-        postingId={id}
-        status={summary.status}
-        matchSkills={matchSkills}
-        matchSelection={{
-          matchSkillIds: detail.matchSkillIds,
-          untickedRelatedIds: detail.untickedRelatedIds,
-        }}
-        initial={{
-          roleTitle: summary.roleTitle,
-          vacanciesHint: bandRepresentativeCount(summary.vacancyBand),
-          locationLabel: summary.locationLabel,
-          description,
-          roleKind: card.role_kind,
-          city: card.city,
-          area: card.area,
-          payMin: card.pay_min,
-          payMax: card.pay_max,
-          payType: card.pay_type,
-          minExperienceYears: card.min_experience_years,
-          maxExperienceYears: card.max_experience_years,
-          shift: card.shift,
-          neededBy: card.needed_by,
-          requirements: card.requirements,
-          benefits: card.benefits,
-        }}
+        description={`Change the role, location, pay, timing, chips or description for ${summary.roleTitle} — the card preview updates as you edit.`}
+        status={
+          summary.status === "draft" ? (
+            <Badge tone="neutral" upper>
+              draft
+            </Badge>
+          ) : undefined
+        }
       />
     </>
+  );
+
+  return (
+    <EditPostingForm
+      // KEYED ON THE SAVED REVISION: a form seeded from an older copy of this posting (a cached
+      // page restored by Back after a save, a refresh after a concurrent edit) remounts from the
+      // current one instead of keeping stale values — and a stale `initial` for the clear diff.
+      key={detail.updatedAt}
+      postingId={id}
+      status={summary.status}
+      matchSkills={matchSkills}
+      matchSelection={{
+        matchSkillIds: detail.matchSkillIds,
+        untickedRelatedIds: detail.untickedRelatedIds,
+      }}
+      initial={{
+        roleTitle: summary.roleTitle,
+        vacanciesHint: bandRepresentativeCount(summary.vacancyBand),
+        locationLabel: summary.locationLabel,
+        description,
+        roleKind: card.role_kind,
+        city: card.city,
+        area: card.area,
+        payMin: card.pay_min,
+        payMax: card.pay_max,
+        payType: card.pay_type,
+        minExperienceYears: card.min_experience_years,
+        maxExperienceYears: card.max_experience_years,
+        shift: card.shift,
+        neededBy: card.needed_by,
+        requirements: card.requirements,
+        benefits: card.benefits,
+      }}
+      lead={lead}
+    />
   );
 }

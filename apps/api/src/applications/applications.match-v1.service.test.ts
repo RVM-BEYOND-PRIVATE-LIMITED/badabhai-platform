@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { NotFoundException } from "@nestjs/common";
+import { Logger, NotFoundException } from "@nestjs/common";
 import type { RequestContext } from "../common/request-context";
 import type { EventsService } from "../events/events.service";
 import { ApplicationsService } from "./applications.service";
@@ -78,6 +78,8 @@ function setup(opts: { existing?: { id: string; action: string } | undefined } =
     matchFeed as never,
     matchApply as never,
     { MATCH_V1_ENABLED: true } as never,
+    // #1823 — the union's skill read. Never reached with V1 on.
+    { listWantedSkillIds: vi.fn(async () => []) } as never,
   );
   return { svc, repo, events, matchFeed, matchApply };
 }
@@ -112,6 +114,21 @@ describe("getFeed with MATCH_V1_ENABLED — the source moves, the envelope does 
       { city: "Pune", shift: undefined, payMin: undefined },
       CTX,
     );
+  });
+
+  it("does not resolve or log an unknown trade_key — #1905's drop is LEGACY-ARM ONLY", async () => {
+    // V1 ignores `trade_key` entirely, so a chip label here is not a dropped filter, and a
+    // warn per V1 fetch would be noise that buries the legacy-arm signal it exists for.
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { svc, matchFeed } = setup();
+      await svc.getFeed(WORKER, 10, { tradeKey: "CNC" }, CTX);
+
+      expect(matchFeed.getFeed).toHaveBeenCalledOnce();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

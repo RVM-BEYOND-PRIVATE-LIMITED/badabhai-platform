@@ -92,7 +92,20 @@ const SUMMARY = {
 };
 const DETAIL = (status = "open") => ({
   summary: { ...SUMMARY, status },
-  card: {},
+  card: {
+    role_kind: "cnc_turner",
+    city: "Pune",
+    area: "Chakan",
+    pay_min: 18000,
+    pay_max: 26000,
+    pay_type: "in_hand",
+    min_experience_years: 1,
+    max_experience_years: 5,
+    shift: "day",
+    needed_by: "soon",
+    requirements: [],
+    benefits: [],
+  },
   description: null,
   skills: [],
   matchSkillIds: [],
@@ -100,7 +113,10 @@ const DETAIL = (status = "open") => ({
 });
 const params = (id: string) => ({ params: Promise.resolve({ id }) });
 
-/** The page's PageHeader props (the head is a direct child of the page's fragment / wrapper). */
+/**
+ * The page's PageHeader props — a direct child of the page's fragment / wrapper, or inside a
+ * form's `lead` (the create / edit pages hand their head to the form column, #1887).
+ */
 function head(tree: unknown): Record<string, unknown> {
   const found: ReactElement[] = [];
   (function walk(node: ReactNode): void {
@@ -112,6 +128,7 @@ function head(tree: unknown): Record<string, unknown> {
     const el = node as ReactElement<{ children?: ReactNode }>;
     if (el.type === PageHeader) found.push(el);
     if (el.props && "children" in el.props) walk(el.props.children);
+    if (el.props && "lead" in el.props) walk((el.props as { lead?: ReactNode }).lead);
   })(tree as ReactNode);
   expect(found).toHaveLength(1);
   return found[0]!.props as Record<string, unknown>;

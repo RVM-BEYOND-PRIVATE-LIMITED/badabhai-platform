@@ -140,15 +140,24 @@ const INVISIBLE_RE = /\u200b|\u200c|\u200d|\u2060|\ufeff/g;
 // indistinguishable from a part number, and a date of birth from the date range a résumé
 // prints on every line of its work history. The digit lookahead is what stops `\baccount\b`
 // plus the next word refusing "Account Manager", which is a job a real worker holds.
-const RESUME_CUED_ID_RE =
-  /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\s*(?:no\.?|number|num|id|#)?\s*[:-]?\s*(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/i;
+//
+// THE CONNECTOR AFTER THE CUE IS LINEAR, in both patterns (issue #1933, risks-register R54).
+// It was `\s*(?:no\.?|number|num|#)?\s*[:-]?\s*`: three whitespace quantifiers with only
+// optional tokens between them, so a cue followed by a whitespace run that then failed the digit
+// lookahead tried every split of the run, O(k^3) in V8 as in Python: 31 ms at 400 spaces, 244 ms
+// at 800, 1.96 s at 1,600 (2026-10-03). Each quantifier is now folded into the optional token it
+// follows, the far side's exact text: the same spans on every input, and 0.1 ms on a run of
+// 20,000. Both are exported for `resume-parse-gates.linear.test.ts`, which compares them span for
+// span with main's text; `containsHardIdentifier` stays the only production reader.
+export const RESUME_CUED_ID_RE =
+  /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:-]\s*)?(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/i;
 const EMAIL_RE =
   /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/;
 // Masked on their CUE rather than their shape — a roll or registration number has no shape
 // that an ordinary alphanumeric token does not also have. The bounded lookahead mirrors the
 // far side's 64-character ceiling, which bounds work per character rather than input size.
-const CREDENTIAL_ID_RE =
-  /\b(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:no\.?|number|num|#)?\s*[:-]?\s*(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/i;
+export const CREDENTIAL_ID_RE =
+  /\b(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:-]\s*)?(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/i;
 
 /**
  * Which class of hard identifier appears in `text`, or null. Never throws.

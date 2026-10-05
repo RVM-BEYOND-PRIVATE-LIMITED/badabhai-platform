@@ -47,6 +47,7 @@ import {
   type PreferenceVocabulary,
 } from "../../profiles/worker-preferences.vocabulary";
 import { CREDENTIAL_YEAR_FLOOR, currentYear } from "../../profiles/credential-year";
+import { storedEducationField, storedEmployerName } from "../../profiles/title-case-on-write";
 import { EDIT_ENTRY_LABELS, EDIT_FIELD_LABELS, EDIT_YES_NO_LABELS } from "../companion-replies";
 import { QUALIFICATION_PREFIX } from "./edit-snapshot";
 
@@ -237,7 +238,12 @@ function credentialYear(raw: string): string | null {
  *
  * Normalising rather than only checking is what makes the card's `after` and the stored value
  * the same string: a city comes back canonical ("gurgaon" → "Gurugram"), a boolean as
- * "true"/"false", a number without leading zeroes.
+ * "true"/"false", a number without leading zeroes, and an employer name or an education field in
+ * the casing its writer stores ("tata motors" → "Tata Motors", #1940). The casing is the WRITERS'
+ * rule (`profiles/title-case-on-write.ts`), read here so the card can show it, not restated here.
+ * It is what keeps the no-op drop honest: an edit whose value is the stored value in other casing
+ * would write the same bytes and still spend a regeneration. A role label is not cased; that is
+ * still an open owner decision.
  */
 export function normaliseValue(
   section: CompanionV2EditSection,
@@ -251,8 +257,10 @@ export function normaliseValue(
   if (vocabulary !== undefined) return slugIn(vocabulary, raw);
   switch (key) {
     // ── employment ──
-    case "employment:employer_name":
-      return trimmed(raw, 1, 120);
+    case "employment:employer_name": {
+      const value = trimmed(raw, 1, 120);
+      return value === null ? null : storedEmployerName(value);
+    }
     case "employment:employer_city":
     case "employment:employer_state":
       return trimmed(raw, 1, 80);
@@ -262,6 +270,7 @@ export function normaliseValue(
       return YEAR_MONTH.test(value) ? value : null;
     }
     case "employment:role_label":
+      // As typed: the writer does not case a role label either (open owner decision, #1940).
       return trimmed(raw, 1, 80);
     case "employment:work_done":
       return trimmed(raw, 1, 300);
@@ -283,8 +292,10 @@ export function normaliseValue(
     case "qualifications:education_year":
     case "qualifications:training_year":
       return credentialYear(raw);
-    case "qualifications:education_field":
-      return trimmed(raw, 1, 80);
+    case "qualifications:education_field": {
+      const value = trimmed(raw, 1, 80);
+      return value === null ? null : storedEducationField(value);
+    }
     // ── occupations ──
     case "occupations:role_id": {
       const value = raw.trim();

@@ -92,6 +92,10 @@ const EmploymentEntrySchema = z
      * The worker's own typing. §11 #4: contract or thekedar work with no company name renders
      * the site or the literal "contract work" — the field is never blank and never invented, so
      * the client must have already decided which, and an empty string is a client bug.
+     *
+     * Accepted in any casing and STORED in the app's (#1940): the service raises the first letter
+     * of each word before it encrypts (`title-case-on-write.ts`), so `GET` returns "Tata Motors"
+     * for a PUT of "tata motors". A value already cased comes back byte-identical ("RVM CAD").
      */
     employer_name: z.string().trim().min(1).max(120),
     employer_city: z.string().trim().min(1).max(80).nullable().default(null),
