@@ -8,9 +8,14 @@ export const dynamic = "force-dynamic";
 /**
  * Reach — View A by path param: `GET /reach/jobs/:jobId/applicants` (ADR-0011).
  *
- * A clean, linkable URL for one job's ranked applicant pool. Identical faceless rows to
- * the /ops/reach landing page: opaque `workerId`, `rank`, `score`, HOT/PUSH badges, and
- * the explainable `components[]` "why". SORT-NEVER-BLOCK — the whole pool appears.
+ * A clean, linkable URL for one job's ranked ELIGIBLE WORKER POOL — NOT the people who
+ * applied. The route is `ReachService.applicantsForJob`, the deterministic RANK core's
+ * faceless pool; most of those workers never applied to this job. The label says so
+ * (#1962); the job's REAL applicants are a different read, linked below.
+ *
+ * Identical faceless rows to the /ops/reach landing page: opaque `workerId`, `rank`,
+ * `score`, HOT/PUSH badges, and the explainable `components[]` "why". SORT-NEVER-BLOCK —
+ * the whole pool appears.
  */
 export default async function JobApplicantsPage({
   params,
@@ -35,11 +40,16 @@ export default async function JobApplicantsPage({
   return (
     <>
       <p className="page-sub">
-        <Link href="/ops/reach">← Reach (applicant list)</Link>
+        <Link href="/ops/reach">← Reach (suggested workers)</Link>
       </p>
-      <h1 className="page-title">Applicants for job</h1>
+      <h1 className="page-title">Suggested workers (ranked pool)</h1>
       <p className="page-sub">
         Job <span className="mono">{jobId}</span>
+      </p>
+      {/* The pool above is SUGGESTED eligible workers, not applicants. The job's REAL
+          applicants are a different read — link to it so the two are never conflated (#1962). */}
+      <p className="page-sub">
+        <Link href={`/ops/jobs/${jobId}/applicants`}>View the job&rsquo;s real applicants →</Link>
       </p>
 
       {notFound ? (
@@ -55,8 +65,8 @@ export default async function JobApplicantsPage({
       ) : data ? (
         <>
           <p className="page-sub">
-            {data.applicants.length} applicant{data.applicants.length === 1 ? "" : "s"} (whole
-            pool).
+            <span className="mono">{data.applicants.length}</span> worker
+            {data.applicants.length === 1 ? "" : "s"} in pool.
           </p>
           <p className="note">
             <strong>Sort-never-block:</strong> everyone in the pool appears here. A low score
