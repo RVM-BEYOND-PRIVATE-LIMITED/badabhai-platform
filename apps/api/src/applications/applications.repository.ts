@@ -1,9 +1,11 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, sql, type SQL } from "drizzle-orm";
 import {
   type Database,
   type Application,
   type Job,
+  type JobShift,
+  type JobPosting,
   type ApplicationAction,
   type SkipReason,
   type SourceSurface,
@@ -12,8 +14,26 @@ import {
   jobPostings,
   jobReach,
 } from "@badabhai/db";
+import type { TradeKey } from "@badabhai/taxonomy";
 import { DATABASE } from "../database/database.module";
 import { OPS_LIST_CAP } from "../common/pagination";
+import { feedPayFloorPredicate, feedShiftPredicate } from "./feed-filter.predicates";
+
+/**
+ * The legacy `/feed` filters {@link ApplicationsRepository.findOpenJobs} applies. Every one is
+ * OPTIONAL and absent means "not filtered".
+ *
+ * `tradeKey` is typed {@link TradeKey}, not `string`: the service resolves the raw query value
+ * against `TRADE_KEYS` and drops an unknown one BEFORE it gets here (#1905), so this layer
+ * never compares `jobs.trade_key` to a chip label that cannot match.
+ */
+export interface OpenJobsFilters {
+  tradeKey?: TradeKey;
+  city?: string;
+  shift?: JobShift;
+  /** The worker's pay FLOOR (₹/month). Compared to the band's TOP — see feed-filter.predicates. */
+  payMin?: number;
+}
 
 /** Coarse, PII-free job fields surfaced in the feed + ops reads. */
 export interface FeedJob {
@@ -46,6 +66,37 @@ export interface FeedJob {
   neededBy: Job["neededBy"];
   /** #1649 — when the job was posted. NOT NULL on the column; also the feed's sort key. */
   createdAt: Date;
+}
+
+/**
+ * The worker-visible card columns of ONE open, published company posting (#1823, the
+ * interim union arm of the legacy feed). EXACTLY what {@link
+ * ApplicationsRepository.findOpenPostingsForFeed} projects, so the type and the projection
+ * cannot drift (the lesson `UpsertedApplication` below records).
+ *
+ * WHAT IS ABSENT IS THE CONTRACT (ADR-0024 HIDDEN). No `org_label`, `payer_id`,
+ * `created_by`, `location_label` (poster free text that may name the site or employer),
+ * `verification_status`, `role_kind`, `boosted_until`, `state`, `vacancy_band`, skill arrays
+ * or `source_job_id`: none of them is a card field, and every one is a leak or a claim the
+ * worker card must not make. `city`/`area` are the coarse buckets, never back-filled.
+ */
+export interface FeedPostingRow {
+  id: string;
+  roleTitle: string;
+  city: string | null;
+  area: string | null;
+  minExperienceYears: number | null;
+  maxExperienceYears: number | null;
+  payMin: number | null;
+  payMax: number | null;
+  payType: JobPosting["payType"];
+  shift: JobPosting["shift"];
+  description: string | null;
+  benefits: string[] | null;
+  requirements: string[] | null;
+  neededBy: JobPosting["neededBy"];
+  /** The sort key and the card's `posted_at`. The query requires it non-null. */
+  publishedAt: Date | null;
 }
 
 /** An application row joined with its (coarse, PII-free) job fields. */
@@ -120,8 +171,9 @@ export class ApplicationsRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
   /**
-   * Open jobs in a DETERMINISTIC order (created_at asc, id tiebreak) so the feed
-   * page + its 1-based `rank` are stable across calls and environments.
+   * Open jobs in a DETERMINISTIC order (created_at DESC, id ASC tiebreak — newest first
+   * since #1649) so the feed page + its 1-based `rank` are stable across calls and
+   * environments.
    *
    * TD73: excludes jobs the worker has already applied to via a NOT EXISTS anti-join
    * on applications (worker_id, job_id, action='applied'). The unique index
@@ -132,9 +184,9 @@ export class ApplicationsRepository {
   async findOpenJobs(
     workerId: string,
     limit: number,
-    filters?: { tradeKey?: string; city?: string },
+    filters: OpenJobsFilters = {},
   ): Promise<FeedJob[]> {
-    const conditions = [
+    const conditions: (SQL | undefined)[] = [
       eq(jobs.status, "open"),
       sql`NOT EXISTS (
         SELECT 1 FROM ${applications}
@@ -143,8 +195,15 @@ export class ApplicationsRepository {
           AND ${applications.action} = 'applied'
       )`,
     ];
-    if (filters?.tradeKey) conditions.push(eq(jobs.tradeKey, filters.tradeKey as any));
-    if (filters?.city) conditions.push(eq(jobs.city, filters.city));
+    if (filters.tradeKey) conditions.push(eq(jobs.tradeKey, filters.tradeKey));
+    if (filters.city) conditions.push(eq(jobs.city, filters.city));
+    // #1905 — shift + pay floor were accepted by the DTO and then silently DROPPED here. Same
+    // NULL-tolerant rule as the V1 arm, from the one place the postings arm (#1823) will
+    // share; each is `undefined` (skipped by `and`) unless the worker sent that filter.
+    conditions.push(
+      feedShiftPredicate(jobs.shift, filters.shift),
+      feedPayFloorPredicate(jobs.payMax, filters.payMin),
+    );
 
     return this.db
       .select({
@@ -195,6 +254,130 @@ export class ApplicationsRepository {
       .select()
       .from(jobs)
       .where(and(eq(jobs.id, id), eq(jobs.status, "open")))
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
+   * #1823 — the interim union's posting arm of `GET /feed`: open, published company
+   * postings for ONE worker, newest first. Every predicate is separate and index-served;
+   * the numbering is ADR-0049's.
+   *
+   *   (1) `status = 'open'` — positively excludes draft, paused, suspended and closed. The
+   *       ADR-0037 suspension cascade is a status move, so no `payers` join is needed.
+   *   (2) `published_at IS NOT NULL` — a NULL means the publish never completed; such a row
+   *       has no honest `posted_at`, and V1 never serves it either.
+   *   (3a) no APPLIED decision on this posting (`applications_worker_posting_uq`), and
+   *   (3b) none on its D4 source job (`applications_applied_idx`). Applied-only, exactly
+   *       like `findOpenJobs` (TD73): a skipped posting is re-served in the same deck.
+   *   (4) THE TWIN GUARD — while a D4 source job is still open, the jobs arm serves that
+   *       vacancy, so its converted posting stays hidden. Kept SEPARATE from (3b): folding
+   *       them into one clause showed the twin when its source closed, or when the worker
+   *       had applied to the source.
+   *   (5) the #1240 relevance rule, verbatim from `JobsRepository.searchOpenPostings`:
+   *       when the worker wants skills, the posting's `reach_skill_ids` must overlap them;
+   *       when he wants none, every posting passes. Match inputs only — never `role_kind`
+   *       (ADR-0036 addendum).
+   *   (6) city: V1's wide-or-off rule — a posting with no city bucket matches every city
+   *       filter, case-insensitively. Only when the worker supplied a city.
+   *
+   *   (7) shift and pay floor (#1905): the SAME NULL-tolerant predicates the jobs arm uses
+   *       (feed-filter.predicates), so a filter narrows both halves of the deck or neither.
+   *       Each only when the worker supplied it.
+   *
+   * NOT HERE, ON PURPOSE: `trade_key` (V1 has no trade dimension, and `role_kind` is barred
+   * as a visibility input).
+   *
+   * The projection is explicit — see {@link FeedPostingRow} for what must never be in it.
+   */
+  async findOpenPostingsForFeed(
+    workerId: string,
+    limit: number,
+    filters: {
+      city?: string;
+      shift?: JobShift;
+      payMin?: number;
+      wantedSkillIds: readonly string[];
+    },
+  ): Promise<FeedPostingRow[]> {
+    const conditions: (SQL | undefined)[] = [
+      eq(jobPostings.status, "open"), // (1)
+      isNotNull(jobPostings.publishedAt), // (2)
+      sql`NOT EXISTS (
+        SELECT 1 FROM ${applications}
+        WHERE ${applications.workerId} = ${workerId}
+          AND ${applications.jobPostingId} = ${jobPostings.id}
+          AND ${applications.action} = 'applied'
+      )`, // (3a)
+      // NULL `source_job_id` (every non-D4 posting) never equals anything, so (3b) passes.
+      sql`NOT EXISTS (
+        SELECT 1 FROM ${applications}
+        WHERE ${applications.workerId} = ${workerId}
+          AND ${applications.jobId} = ${jobPostings.sourceJobId}
+          AND ${applications.action} = 'applied'
+      )`, // (3b)
+      sql`NOT EXISTS (
+        SELECT 1 FROM ${jobs}
+        WHERE ${jobs.id} = ${jobPostings.sourceJobId}
+          AND ${jobs.status} = 'open'
+      )`, // (4)
+    ];
+    if (filters.wantedSkillIds.length > 0) {
+      // (5) ⚠️ ONE bound text[] via `sql.param` — a bare JS array expands to a RECORD and fails
+      // at runtime with 42846 (see JobsRepository.searchOpenPostings, which pins the same).
+      conditions.push(
+        sql`${jobPostings.reachSkillIds} ?| ${sql.param([...filters.wantedSkillIds])}::text[]`,
+      );
+    }
+    if (filters.city) {
+      // (6) `::text` so `lower()` resolves without guessing at the parameter's type.
+      conditions.push(sql`(
+        ${jobPostings.city} IS NULL OR lower(${jobPostings.city}) = lower(${filters.city}::text)
+      )`);
+    }
+    conditions.push(
+      feedShiftPredicate(jobPostings.shift, filters.shift), // (7)
+      feedPayFloorPredicate(jobPostings.payMax, filters.payMin), // (7)
+    );
+
+    // ORDER BY rides `job_postings_feed_idx (status, published_at DESC)`, and it is the same
+    // total order as the jobs arm (`posted_at DESC, id ASC`) — which is what lets the service
+    // merge the two arms by comparing heads only.
+    return this.db
+      .select({
+        id: jobPostings.id,
+        roleTitle: jobPostings.roleTitle,
+        city: jobPostings.city,
+        area: jobPostings.area,
+        minExperienceYears: jobPostings.minExperienceYears,
+        maxExperienceYears: jobPostings.maxExperienceYears,
+        payMin: jobPostings.payMin,
+        payMax: jobPostings.payMax,
+        payType: jobPostings.payType,
+        shift: jobPostings.shift,
+        description: jobPostings.description,
+        benefits: jobPostings.benefits,
+        requirements: jobPostings.requirements,
+        neededBy: jobPostings.neededBy,
+        publishedAt: jobPostings.publishedAt,
+      })
+      .from(jobPostings)
+      .where(and(...conditions))
+      .orderBy(desc(jobPostings.publishedAt), asc(jobPostings.id))
+      .limit(limit);
+  }
+
+  /**
+   * #1823 — an OPEN posting's id, or undefined: the posting branch of the apply/skip
+   * resolution, consulted only after the open-`jobs` read misses. Id-only on purpose — the
+   * caller needs existence, and a wider projection is a leak waiting for a log line.
+   * Unknown, draft, paused, suspended and closed all read as undefined (no oracle).
+   */
+  async findOpenPostingRef(id: string): Promise<{ id: string } | undefined> {
+    const rows = await this.db
+      .select({ id: jobPostings.id })
+      .from(jobPostings)
+      .where(and(eq(jobPostings.id, id), eq(jobPostings.status, "open")))
       .limit(1);
     return rows[0];
   }
@@ -276,7 +459,10 @@ export class ApplicationsRepository {
 
   /**
    * Applicants for a job (ops read). PII-FREE projection — worker_id only, NEVER
-   * a name/phone. Newest decision first.
+   * a name/phone. Oldest decision first.
+   *
+   * The LEGACY id space only (`applications.job_id`, served by `applications_job_id_idx`);
+   * {@link findApplicantsByPosting} is the posting twin, and the service picks one.
    */
   async findApplicantsByJob(jobId: string): Promise<Application[]> {
     return this.db
@@ -285,6 +471,38 @@ export class ApplicationsRepository {
       .where(eq(applications.jobId, jobId))
       .orderBy(asc(applications.createdAt))
       .limit(OPS_LIST_CAP); // bound an otherwise-unbounded ops read
+  }
+
+  /**
+   * #1823 — applicants for a company posting (ops read): decisions that carry
+   * `job_posting_id` (V1, or the interim union feed), with `job_id` NULL. Same PII-free
+   * projection, order and cap as {@link findApplicantsByJob}.
+   *
+   * A SEPARATE single-column equality, never `job_id = $1 OR job_posting_id = $1`: the OR
+   * cannot be served by `applications_job_id_idx` alone, so it would have moved every legacy
+   * ops read off its index too. KNOWN GAP: no index leads with `job_posting_id` across both
+   * actions (`applications_rank_idx` is partial on `applied`; the other two lead with
+   * `worker_id`), so this read scans the partial `applications_worker_posting_uq` at best.
+   * Fine at today's posting-decision volume; an additive `applications(job_posting_id)`
+   * index is the fix if it ever is not.
+   */
+  async findApplicantsByPosting(jobPostingId: string): Promise<Application[]> {
+    return this.db
+      .select()
+      .from(applications)
+      .where(eq(applications.jobPostingId, jobPostingId))
+      .orderBy(asc(applications.createdAt))
+      .limit(OPS_LIST_CAP);
+  }
+
+  /**
+   * #1823 — does `id` name a `jobs` row in ANY status? The id-space probe behind the ops
+   * applicants read: a closed job still has applicants worth reading, so unlike
+   * {@link findJobById} this has no status predicate. Id-only, served by the primary key.
+   */
+  async legacyJobExists(id: string): Promise<boolean> {
+    const rows = await this.db.select({ id: jobs.id }).from(jobs).where(eq(jobs.id, id)).limit(1);
+    return rows.length > 0;
   }
 
   /**

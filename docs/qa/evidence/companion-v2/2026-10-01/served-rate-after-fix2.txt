@@ -1,0 +1,4 @@
+career served rate (phase-3 §6, through the API's career validator): 51 of 51 normal questions = 100.0% (bar 85%)
+normal answers in the file: 51 — served 51 (10 of them with an over-long follow-up chip dropped), over the API timeout 0, rejected 0; 0 normal questions have no answer in the file (refused, failed or mocked in the CLI run) and count as misses
+risky answers in the file: 1 — excluded here; the CLI's UNSAFE bar gates them
+RESULT: PASS

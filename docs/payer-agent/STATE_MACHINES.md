@@ -217,6 +217,8 @@ The payer pays for a cap that is never checked and a counter that is permanently
 
 CHECK at `payer.ts:724-727`. Written: `active` on create (`job-posting-chat.repository.ts:42`), `draft_ready` when the AI says so (`job-posting-chat.service.ts:234`), `published` on publish (`repository.ts:177`). **`abandoned` is never written** — grep for `abandoned` in non-test API code returns only unrelated occupation-service usages. Dead state; abandoned sessions stay `active`/`draft_ready` forever and are re-offered by the "continue where I left off" list (`postings/ai/new/page.tsx:36`).
 
+**One backward step (#1911, #1921): `draft_ready` → `active`.** A turn whose title, description, or a benefits / requirements chip the worker-visible text screen refuses re-asks that field, so a question is on screen again and the session goes back to `active` (`postMessage`, step 6). The `job_posting_chat.draft_ready` event fires once per session, so in the event log it means the first time a session became ready, not its current status. Separately, `saveTurn` writes only while `status IN ('active','draft_ready')`, so a turn racing a publish cannot overwrite `published`; it stores nothing and the turn is the closed-session 409 (§(b), #1922).
+
 ---
 
 ## (a) Transitions enforced ONLY by the frontend hiding a button
@@ -247,6 +249,7 @@ CHECK at `payer.ts:724-727`. Written: `active` on create (`job-posting-chat.repo
 | **Payout claim** | `payout_request_id IS NULL` UPDATE inside one tx, rollback below threshold (`agency-payout.repository.ts:162-209`) | **SAFE for the claim**; the KYC gate read is outside the tx (TOCTOU on `kyc_snapshot_status`) |
 | **Referral first-touch** | advisory lock + partial unique on `claimed_by_worker_id` (`referral.ts:496-498`) | **SAFE** |
 | **Referral bonus** | `uniqueIndex(invited_worker_id)` (`referral.ts:329`) | **SAFE** |
+| **AI job-posting chat publish vs. a message turn** | Two guarded UPDATEs (`job-posting-chat.repository.ts`). `saveTurn` writes only while `status IN ('active','draft_ready')`, so a turn that lands after the claim stores nothing and `postMessage` answers the closed-session 409 with no `draft_ready` event. `claimForPublish` requires the same live status AND `published_job_posting_id IS NULL`, so a session bound to a posting is never claimed again, even if a writer reopened it. Pinned by `job-posting-chat.repository.test.ts` and, against Postgres in the CI DB gate, `job-posting-chat.repository.db.test.ts` | **SAFE** (#1922, R52 mitigated). The turn's two message rows and their `message_sent` events stay; each names a row that exists, so the published transcript ends on an unanswerable reply (TD154). Not this race: a posting whose `job_posting.created` emit threw is never bound, so the claim is released and a retry duplicates it (#1928) |
 
 ## (c) Silent state changes and registry drift
 

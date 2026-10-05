@@ -1,6 +1,6 @@
 import "reflect-metadata";
-import { describe, it, expect, vi } from "vitest";
-import { NotFoundException } from "@nestjs/common";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { Logger, NotFoundException } from "@nestjs/common";
 import type { RequestContext } from "../common/request-context";
 import type { EventsService } from "../events/events.service";
 import { ApplicationsService } from "./applications.service";
@@ -58,7 +58,14 @@ function setup(opts: { jobExists?: boolean; openJobs?: Array<Record<string, unkn
       return next;
     }),
     findApplicantsByJob: vi.fn(async () => []),
+    // #1823 — the ops applicants read resolves the id space first: JOB_ID is a `jobs` row.
+    legacyJobExists: vi.fn(async (id: string) => id === JOB_ID),
+    findApplicantsByPosting: vi.fn(async () => []),
     findApplicationsByWorker: vi.fn(async () => []),
+    // #1823 — the interim union's reads. FEED_POSTINGS_UNION_ENABLED is absent from this
+    // file's config, so neither may ever be called here (asserted below).
+    findOpenPostingRef: vi.fn(async () => ({ id: JOB_ID })),
+    findOpenPostingsForFeed: vi.fn(async () => []),
   };
   const events = {
     emit: vi.fn(async (params: Record<string, unknown>) => params),
@@ -71,19 +78,22 @@ function setup(opts: { jobExists?: boolean; openJobs?: Array<Record<string, unkn
   const matchFeed = { getFeed: vi.fn(async () => ({ jobs: [] })) };
   const matchApply = {
     buildSnapshot: vi.fn(),
+    trySnapshot: vi.fn(),
     findDecision: vi.fn(),
     upsertDecision: vi.fn(),
   };
+  const workerSkills = { listWantedSkillIds: vi.fn(async () => []) };
   const svc = new ApplicationsService(
     repo as unknown as ApplicationsRepository,
     events as unknown as EventsService,
     matchFeed as never,
     matchApply as never,
     { MATCH_V1_ENABLED: false } as never,
+    workerSkills as never,
   );
   // `countFor` reads the simulated denormalized jobs.applicants_received rollup.
   const countFor = (jobId: string) => applicantsReceived.get(jobId) ?? 0;
-  return { svc, repo, events, countFor, matchFeed, matchApply };
+  return { svc, repo, events, countFor, matchFeed, matchApply, workerSkills };
 }
 
 describe("ApplicationsService — apply", () => {
@@ -551,6 +561,219 @@ describe("ApplicationsService — MATCH_V1_ENABLED=false keeps the legacy path",
 });
 
 /**
+ * #1905 — the legacy arm's filters, at the seam where the RAW query becomes the repository's
+ * typed input.
+ *
+ * TRADE KEY. The worker app sent its chip LABEL (`'CNC'`) as `trade_key`. No `jobs` row
+ * carries anything but one of the 15 `TRADE_KEYS` slugs, so filtering on a label returned an
+ * empty deck on every one-chip refetch. Owner ruling: an unknown value is IGNORED (no trade
+ * filter), not 400'd, and the drop is logged so the app bug stays visible.
+ *
+ * SHIFT / PAY. Both were accepted by the DTO and never reached the query.
+ */
+describe("ApplicationsService — legacy /feed filters (#1905)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** The filters `findOpenJobs` actually received on its one call. */
+  const repoFilters = (repo: ReturnType<typeof setup>["repo"]) => {
+    const calls = repo.findOpenJobs.mock.calls as unknown as [string, number, Record<string, unknown>][];
+    expect(calls).toHaveLength(1);
+    return calls[0]![2];
+  };
+
+  it("IGNORES a trade_key that is not a known slug: no trade filter at all, the arm is served whole", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc, repo } = setup();
+    await svc.getFeed(WORKER_ID, 50, { tradeKey: "CNC" }, CTX);
+
+    // `undefined`, not `'CNC'`: forwarding the label is the bug (it matches no row).
+    expect(repoFilters(repo).tradeKey).toBeUndefined();
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it("LOGS the dropped value PII-free: its length and the request id, never the value itself", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc } = setup();
+    // A value that could plausibly be anything a client typed (here, a phone-shaped string).
+    const raw = "Welder 9876543210";
+    await svc.getFeed(WORKER_ID, 50, { tradeKey: raw }, CTX);
+
+    const line = String(warn.mock.calls[0]![0]);
+    expect(line).toContain("trade_key");
+    expect(line).toContain(`length=${raw.length}`);
+    expect(line).toContain(CTX.requestId);
+    expect(line).not.toContain("Welder");
+    expect(line).not.toContain("9876543210");
+    expect(line).not.toContain(WORKER_ID);
+  });
+
+  it("still FILTERS on a valid slug, exactly as before, and logs nothing", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc, repo } = setup();
+    await svc.getFeed(WORKER_ID, 50, { tradeKey: "cnc_operator", city: "Pune" }, CTX);
+
+    expect(repoFilters(repo)).toMatchObject({ tradeKey: "cnc_operator", city: "Pune" });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("treats an empty trade_key as 'not sent': no filter, and not logged as a drop", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc, repo } = setup();
+    await svc.getFeed(WORKER_ID, 50, { tradeKey: "" }, CTX);
+
+    expect(repoFilters(repo).tradeKey).toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("an ignored trade_key does not take the OTHER filters down with it", async () => {
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc, repo } = setup();
+    await svc.getFeed(WORKER_ID, 50, { tradeKey: "Welder", city: "Pune", shift: "night", payMin: 20000 }, CTX);
+
+    expect(repoFilters(repo)).toEqual({
+      tradeKey: undefined,
+      city: "Pune",
+      shift: "night",
+      payMin: 20000,
+    });
+  });
+
+  it("forwards shift and pay_min to the query (they were silently dropped before)", async () => {
+    const { svc, repo } = setup();
+    await svc.getFeed(WORKER_ID, 50, { shift: "rotational", payMin: 0 }, CTX);
+
+    // `payMin: 0` survives: a falsy floor is still a floor the worker set.
+    expect(repoFilters(repo)).toMatchObject({ shift: "rotational", payMin: 0 });
+  });
+
+  it("invents no filter the worker did not send (ADR-0036 Part 3: every default is off)", async () => {
+    const { svc, repo } = setup();
+    await svc.getFeed(WORKER_ID, 50, {}, CTX);
+
+    const filters = repoFilters(repo);
+    for (const key of ["tradeKey", "city", "shift", "payMin"]) {
+      expect(filters[key]).toBeUndefined();
+    }
+  });
+
+  it("leaves feed.shown exactly as it was: the filters are NOT in the payload", async () => {
+    const { svc, events } = setup({
+      openJobs: [
+        { id: JOB_ID, tradeKey: "cnc_operator", title: "T", city: "Pune", area: null, shift: "night", payMax: 25000, createdAt: new Date("2026-06-01T00:00:00.000Z") },
+      ],
+    });
+    await svc.getFeed(WORKER_ID, 50, { tradeKey: "cnc_operator", shift: "night", payMin: 20000 }, CTX);
+
+    const batch = events.emitMany.mock.calls[0]![0] as Array<{ payload: Record<string, unknown> }>;
+    expect(Object.keys(batch[0]!.payload).sort()).toEqual(["hot", "job_id", "rank", "score", "worker_id"]);
+  });
+});
+
+/**
+ * #1823 — FEED_POSTINGS_UNION_ENABLED is DARK BY DEFAULT, and dark means today's code path.
+ * This file's config never sets it, so every case above is the flag-off contract; these pin
+ * the negative directly. `findOpenPostingRef` is stubbed to REPORT AN OPEN POSTING, so a
+ * leak of the union branch into the flag-off path would turn a 404 into a 200 here.
+ */
+describe("ApplicationsService — FEED_POSTINGS_UNION_ENABLED off keeps the jobs-only path", () => {
+  it("never reads postings or wanted skills for the feed", async () => {
+    const { svc, repo, workerSkills } = setup({ openJobs: [] });
+    await svc.getFeed(WORKER_ID, 10, { city: "Pune" }, CTX);
+    expect(repo.findOpenJobs).toHaveBeenCalledOnce();
+    expect(repo.findOpenPostingsForFeed).not.toHaveBeenCalled();
+    expect(workerSkills.listWantedSkillIds).not.toHaveBeenCalled();
+  });
+
+  it("never consults the posting table or the snapshot writer on apply/skip", async () => {
+    const { svc, repo, matchApply } = setup();
+    await svc.apply(WORKER_ID, JOB_ID, { rank: 1, source_surface: "feed" }, CTX);
+    await svc.skip(WORKER_ID, JOB_ID, { reason: "too_far" }, CTX);
+    expect(repo.findOpenPostingRef).not.toHaveBeenCalled();
+    for (const fn of Object.values(matchApply)) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("404s a posting-only id with no write and no event — exactly as before the union", async () => {
+    const { svc, repo, events, matchApply } = setup({ jobExists: false });
+    for (const decide of [
+      () => svc.apply(WORKER_ID, JOB_ID, { rank: 1, source_surface: "feed" }, CTX),
+      () => svc.skip(WORKER_ID, JOB_ID, { reason: "too_far" }, CTX),
+    ]) {
+      const err = await decide().catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(NotFoundException);
+      expect((err as NotFoundException).message).toBe("Job not found");
+    }
+    expect(repo.findOpenPostingRef).not.toHaveBeenCalled();
+    expect(repo.upsertDecision).not.toHaveBeenCalled();
+    expect(matchApply.upsertDecision).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #1823 — THE OPS APPLICANTS READ SEES BOTH ID SPACES, ONE INDEXED READ AT A TIME.
+ * Ungated (the flag is absent from this file's config): disarming the union must never hide
+ * who already applied. The id space is resolved first so neither read is an OR that would
+ * take the legacy path off `applications_job_id_idx`.
+ */
+describe("applicantsForJob — #1823 resolves the id space, then reads one column", () => {
+  const POSTING_ID = "33333333-3333-3333-3333-333333333333";
+  const row = (over: Record<string, unknown>) => ({
+    workerId: WORKER_ID,
+    action: "applied",
+    reason: null,
+    sourceSurface: "feed",
+    rank: 1,
+    createdAt: new Date("2026-10-01T00:00:00Z"),
+    updatedAt: new Date("2026-10-01T00:00:00Z"),
+    ...over,
+  });
+
+  it("a `jobs` id reads job_id only — today's read, byte for byte", async () => {
+    const { svc, repo } = setup();
+    repo.findApplicantsByJob.mockResolvedValueOnce([row({}) as never]);
+    const out = await svc.applicantsForJob(JOB_ID);
+    expect(repo.legacyJobExists).toHaveBeenCalledWith(JOB_ID);
+    expect(repo.findApplicantsByJob).toHaveBeenCalledWith(JOB_ID);
+    expect(repo.findApplicantsByPosting).not.toHaveBeenCalled();
+    expect(out.job_id).toBe(JOB_ID);
+    expect(out.applicants).toHaveLength(1);
+  });
+
+  it("any other id reads job_posting_id — a posting's applicants are no longer invisible", async () => {
+    const { svc, repo } = setup();
+    repo.findApplicantsByPosting.mockResolvedValueOnce([
+      row({ action: "skipped", reason: "too_far", rank: null }) as never,
+    ]);
+    const out = await svc.applicantsForJob(POSTING_ID);
+    expect(repo.findApplicantsByPosting).toHaveBeenCalledWith(POSTING_ID);
+    expect(repo.findApplicantsByJob).not.toHaveBeenCalled();
+    // Same PII-free projection whichever id space answered — worker_id, never a name/phone.
+    expect(out).toEqual({
+      job_id: POSTING_ID,
+      applicants: [
+        {
+          worker_id: WORKER_ID,
+          action: "skipped",
+          reason: "too_far",
+          source_surface: "feed",
+          rank: null,
+          created_at: new Date("2026-10-01T00:00:00Z"),
+          updated_at: new Date("2026-10-01T00:00:00Z"),
+        },
+      ],
+    });
+  });
+
+  it("a failed id-space probe propagates — it is never read as 'not a job'", async () => {
+    const { svc, repo } = setup();
+    repo.legacyJobExists.mockRejectedValueOnce(new Error("db down"));
+    await expect(svc.applicantsForJob(JOB_ID)).rejects.toThrow("db down");
+    expect(repo.findApplicantsByJob).not.toHaveBeenCalled();
+    expect(repo.findApplicantsByPosting).not.toHaveBeenCalled();
+  });
+});
+
+/**
  * #1051 — THE SEAM WHERE AN INTERNAL ID BECOMES SOMETHING A WORKER MAY READ.
  *
  * The repository projects `job_reach.matched_skill_id` because a V1 decision has no other
@@ -587,6 +810,7 @@ describe("applicationsForWorker — matched_skill_label (#1051)", () => {
     return new ApplicationsService(
       repo as unknown as ApplicationsRepository,
       {} as unknown as EventsService,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

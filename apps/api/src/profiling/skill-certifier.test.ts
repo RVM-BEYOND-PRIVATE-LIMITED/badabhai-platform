@@ -592,6 +592,30 @@ describe("certifySkillLabel — 7. organisation names", () => {
     expect(certifySkillLabel("LLP compliance")).toBeNull();
     expect(certifySkillLabel("Pvt Ltd incorporation")).toBeNull();
   });
+
+  it("pins the shared wall's co- compound guard (#1914): a compound certifies, a firm does not", () => {
+    // `looksLikeOrgName` stopped reading a "co" that opens a compound as "& Co" / "and Co" for
+    // every caller at once. On this wall that is a decision, so its effect is pinned here.
+    expect(certifySkillLabel("Planning and co-ordination")).toBe("Planning and co-ordination");
+    expect(certifySkillLabel("Sharma & Co")).toBeNull();
+    expect(certifySkillLabel("Sharma Co.-Pune")).toBeNull();
+    expect(certifySkillLabel("Cosmos Co.op. Bank")).toBeNull();
+    // KNOWN RESIDUAL, stated in `looksLikeOrgName`: a "& Co" firm glued to a dash reads as a
+    // compound, so on this wall it certifies. Pinned so the trade-off stays a decision.
+    expect(certifySkillLabel("Sharma & Co-Pune")).toBe("Sharma & Co-Pune");
+  });
+
+  it("pins the shared wall's mid-label suffix (#1927): a firm inside a label is refused", () => {
+    // This module's own wall reads the LAST word only, and the shared one used to read a bare
+    // "Ltd"/"Limited" only at the end — so a suffix in the MIDDLE of a label certified, a
+    // model-suggested chip included. `looksLikeOrgName` now reads it there for every caller.
+    expect(certifySkillLabel("Tata Steel Ltd welding")).toBeNull();
+    expect(certifySkillLabel("Tata Motors Ltd ka kaam")).toBeNull();
+    expect(certifySkillLabel("TATA STEEL LTD welding")).toBeNull();
+    expect(certifySkillLabel("Thermax Limited mein welding")).toBeNull();
+    // A leading "Limited" is still trade prose (pinned above too).
+    expect(certifySkillLabel("Limited slip differential")).toBe("Limited slip differential");
+  });
 });
 
 describe("certifySkillLabel — 8. generic words", () => {

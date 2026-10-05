@@ -113,6 +113,10 @@ export class WorkerQualificationsController {
    *
    * The response carries COUNTS and never echoes a certificate name or an institute back — the
    * same discipline as `PUT me/employment` returning an employer count.
+   *
+   * An education `field` is STORED in the app's casing (#1940), so the next GET returns
+   * "Mechanical Engineering" for a PUT of "mechanical engineering". Every other string is stored
+   * as sent.
    */
   @Put("me/qualifications")
   @HttpCode(200)

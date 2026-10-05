@@ -46,6 +46,9 @@ describe("screenBrief — what a real worker writes passes, verbatim", () => {
     "Maine 2015 se 2023 tak kaam kiya.",
     // Five letters, a year, a one-letter word: the any-case PAN wall must not read prose as one.
     "Working since 2019 a good welder",
+    // A "co-" compound is not a firm (#1914): the shared org wall no longer reads "and co-" as
+    // "and Co". The firm forms stay refused, in the organisation cases below.
+    "Line supervisor hoon, QC and co-workers ke saath co-ordinate karta hoon.",
   ])("%s", (raw) => {
     expect(accepted(raw)).toBe(raw);
   });
@@ -101,6 +104,9 @@ describe("screenBrief — refused whole, with a closed reason", () => {
     ["Sharma Pvt Ltd mein kaam kiya", "organisation"],
     ["Reliance Industries Limited mein supervisor", "organisation"],
     ["शर्मा प्राइवेट लिमिटेड में काम", "organisation"],
+    // the shared "Co" forms after #1914's compound guard
+    ["Sharma & Co mein fitter tha", "organisation"],
+    ["Cosmos Co.op. Bank mein 5 saal security guard", "organisation"],
     // what the sheet cannot print
     ["Accha kaam karta hoon 🙂", "emoji"],
     ["Accha kaam 🇮🇳", "emoji"],

@@ -24,8 +24,9 @@
  *  - `description`/`benefits`/`requirements` are short, generic strings — NEVER an
  *    employer/company name, phone, email, address, or URL.
  *  - NO employer name/id, NO contact/phone.
- *  - FAIL-CLOSED: every free-text value is checked with `looksLikePii`
- *    (@badabhai/validators) before insert; a trip aborts the whole run.
+ *  - FAIL-CLOSED: every free-text value is checked with the ADR-0024 screen
+ *    (`workerVisibleTextScreens`, @badabhai/validators) before insert; a trip
+ *    aborts the whole run.
  *  - Coarse demand-side ranking signals (pay band / experience window / timing)
  *    are present for Reach-on-real-jobs (ADR-0011): non-PII job attributes, never
  *    an identity. They feed the RANK core's Pay/Experience/Availability factors.
@@ -37,7 +38,7 @@
  * Does NOT seed `applications` — those are produced only by real worker apply/skip.
  */
 import { config } from "dotenv";
-import { looksLikePii, looksLikeOrgName, looksLikeUrl } from "@badabhai/validators";
+import { workerVisibleTextScreens } from "@badabhai/validators";
 import { createDbClient } from "./client";
 import { jobs, type TradeKey, type JobNeededBy, type JobShift } from "./schema";
 
@@ -368,7 +369,7 @@ const JOBS: SeedJob[] = [
  * names the job id + field but NEVER echoes the offending content.
  */
 function assertSeedContentPiiFree(all: SeedJob[]): void {
-  const flagged = (s: string): boolean => looksLikePii(s) || looksLikeOrgName(s) || looksLikeUrl(s);
+  const flagged = (s: string): boolean => workerVisibleTextScreens(s).length > 0;
   const fail = (id: string, field: string): never => {
     throw new Error(
       `[seed:jobs] PII guard tripped — job ${id}, field "${field}" looks like PII / an employer name / a link; aborting (content not echoed)`,

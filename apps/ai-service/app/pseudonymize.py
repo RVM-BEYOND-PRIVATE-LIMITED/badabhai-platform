@@ -120,8 +120,9 @@ _COMPANY_SUFFIX = (
 )
 
 # ALL-CAPS EMPLOYERS (issue #1875, risks-register R48). `_COMPANY_SUFFIX` is case-SENSITIVE
-# while the prefix words of `_EMPLOYER_RE` (`[A-Z][\w&.]*`) already accept capitals, so an
-# employer written in capitals never matched. MEASURED on main before this rule:
+# while the prefix words of `_EMPLOYER_RE` (`_TITLE_NAME_WORD`, a capital then `[\w&.]`) already
+# accept capitals, so an employer written in capitals never matched. MEASURED on main before this
+# rule:
 #
 #     pseudonymize("  TATA MOTORS LTD").text              -> "  TATA MOTORS LTD"   (0 masked)
 #     pseudonymize("BHARAT FORGE LIMITED").text           -> unchanged             (0 masked)
@@ -195,24 +196,26 @@ _COMPANY_SUFFIX = (
 #      text main refused. With the lookahead it blocks exactly as on main, and "AB1234567 LTD" keeps
 #      main's "AB[AMOUNT_1] LTD".
 #   5. Each word is BOUNDED at `_CAPS_NAME_WORD_MAX` characters and POSSESSIVE. Reusing title case's
-#      unbounded `[A-Z][\w&.]*` was O(n^2) on a run with many word boundaries and no whitespace —
-#      every letter after a "." or "&" is a start, and each start scanned to the end of the run —
-#      and so DOUBLED a stall title case already has. See COST.
+#      then-unbounded `[A-Z][\w&.]*` was O(n^2) on a run with many word boundaries and no
+#      whitespace — every letter after a "." or "&" is a start, and each start scanned to the end
+#      of the run — and so DOUBLED a stall title case then had. See COST; #1891 has since given
+#      title case this same bound (`_TITLE_NAME_WORD`).
 #
 # INC IS NOT A FORM. In worker and payer pay talk "INC" is "incentive" or "including": "OT AUR INC
 # MILTA THA" masked to "[EMPLOYER_1] MILTA THA", "CTC 3 LPA INC. PF" lost the unit. An Indian
 # blue-collar employer is practically never an "Inc", and title case has no "Inc" either.
 #
-# TITLE CASE IS UNTOUCHED. `_COMPANY_SUFFIX` and `_EMPLOYER_RE` are byte-identical to main, and so
-# is the input of every rule ahead of this one (detail 1). On the corpus above taken AS WRITTEN this
-# rule changes 6 of 31,907 strings, each because it holds a capitals corporate form: five NCO
-# descriptions naming public bodies ("MUNICIPAL CORPORATION", "LIFE INSURANCE CORPORATION") and the
-# TokenScope fixture "…, TATA MOTORS LTD". In neither view does a string leave raw a word main
-# masked, or stop blocking where main blocked; no outcome of the three certifiers moves over 4,765
-# lexicon labels (as written, UPPER and Title). Re-measured after the detail-1 reorder: the same
-# counts, and no corpus string's output moved. The cost of not touching title case, stated: "Acme
-# Llp", "Sharma & Co." and "Xyz (P) Ltd" still do not mask, and "Tata Motors LTD" still leaves the
-# trailing "LTD" raw beside its [EMPLOYER_1].
+# TITLE CASE IS UNTOUCHED BY THIS RULE. `_COMPANY_SUFFIX` and `_EMPLOYER_RE` were byte-identical to
+# main when it landed, as was the input of every rule ahead of this one (detail 1); #1891 has
+# since bounded `_EMPLOYER_RE`'s name word, which moves no corpus output (`_TITLE_NAME_WORD`). On
+# the corpus above taken AS WRITTEN this rule changes 6 of 31,907 strings, each because it holds a
+# capitals corporate form: five NCO descriptions naming public bodies ("MUNICIPAL CORPORATION",
+# "LIFE INSURANCE CORPORATION") and the TokenScope fixture "…, TATA MOTORS LTD". In neither view
+# does a string leave raw a word main masked, or stop blocking where main blocked; no outcome of the
+# three certifiers moves over 4,765 lexicon labels (as written, UPPER and Title). Re-measured after
+# the detail-1 reorder: the same counts, and no corpus string's output moved. The cost of not
+# touching title case, stated: "Acme Llp", "Sharma & Co." and "Xyz (P) Ltd" still do not mask, and
+# "Tata Motors LTD" still leaves the trailing "LTD" raw beside its [EMPLOYER_1].
 #
 # ONE EXCEPTION, PRE-EXISTING (risks-register R49, #1890). Within a view this rule only ADDS
 # masking, by construction. The #1738 two-view check in `pseudonymize` is the one place where more
@@ -255,8 +258,8 @@ _COMPANY_SUFFIX = (
 # (17 -> 27 us on a 10-word shouted sentence, the worst). The worst 20,000-character input tried for
 # this rule alone, 327 dotted 60-character words, costs 42 ms (112 ms before detail 5's possessive);
 # "A." * 10000 costs 18 ms, where the unbounded first cut cost 1,575 ms and took `pseudonymize` from
-# 1,576 to 3,131 ms. The 1,576 ms that remains is `_EMPLOYER_RE`'s own unbounded `[\w&.]*` — the
-# same bound would fix it, but that touches title case and is not done here (#1891).
+# 1,576 to 3,131 ms. The 1,576 ms that remained was `_EMPLOYER_RE`'s own unbounded `[\w&.]*`, since
+# bounded the same way (#1891, `_TITLE_NAME_WORD`).
 #
 #: The dash family, for a regex class: ASCII hyphen; hyphen, non-breaking hyphen, figure dash, en
 #: dash, em dash, horizontal bar (U+2010-U+2015); minus sign; small and fullwidth hyphen. Inside a
@@ -465,7 +468,30 @@ def phone_shaped_runs(text: str) -> list[str]:
 _EMAIL_RE = re.compile(
     r"(?<![A-Za-z0-9._%+\-])[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}"
 )
-_EMPLOYER_RE = re.compile(r"\b(?:[A-Z][\w&.]*\s+){1,4}" + _COMPANY_SUFFIX + r"\b")
+# THE TITLE-CASE NAME WORD IS BOUNDED AND POSSESSIVE (issue #1891, risks-register R48). It was
+# `[A-Z][\w&.]*`, unbounded, and on a run with many word boundaries and no whitespace that is
+# O(n^2): every letter after a "." or "&" is a start, and each start scanned to the end of the run
+# for the whitespace a suffix needs. At 20,000 characters, under `DEFAULT_MAX_LENGTH` so the size
+# gate never fires, `pseudonymize("A." * 10000)` took 2.1 s, and 4.3 s with one invisible
+# character, because #1738's two views each run the rule (2026-10-03, min of 5).
+# `/profiling/respond` and `/profile/extract` call `pseudonymize()` inline inside `async def`, so
+# the stall is the whole event loop, and every clean-or-withhold wall runs it whatever
+# `AI_RAW_PII_ENABLED` says: the defect `_CREDENTIAL_ID_LOOKAHEAD_MAX` already fixed once. Bounded,
+# those two inputs cost 37 and 82 ms.
+#
+# THE CAPITALS RULE'S BOUND, reused so the two cannot drift: `_CAPS_NAME_WORD_MAX` characters,
+# possessive (detail 5 at `_CORPORATE_FORM_CAPS`). Possessive changes no match: a word is always
+# followed by `\s+`, which `[\w&.]` excludes, so giving characters back can never help. The bound
+# changes one thing, a name word over 64 characters: an undotted one no longer opens a span
+# ("<65 letters> Steel" stays raw), and a dotted one masks from the first "." or "&" boundary within
+# 64 characters of its end ("A." * 40 + " Steel" -> "A." * 8 + "[EMPLOYER_1]"; main masked it
+# whole), as the capitals rule always has. No employer has a 65-character word: the longest
+# capital-led run in the #1875 corpus is 43 characters. RE-MEASURED over that corpus (31,984
+# distinct strings, as written and upper-cased) and its 4,765 certifier labels: no output, no
+# blocked status and no certifier outcome moves. The price is linear: a run main matched from its
+# first letter is now scanned 64 characters per start ("A." * 9990 + " Steel": 4 -> 37 ms).
+_TITLE_NAME_WORD = r"[A-Z][\w&.]{0," + str(_CAPS_NAME_WORD_MAX - 1) + r"}+"
+_EMPLOYER_RE = re.compile(r"\b(?:" + _TITLE_NAME_WORD + r"\s+){1,4}" + _COMPANY_SUFFIX + r"\b")
 #: Issue #1875 — see `_CORPORATE_FORM_CAPS`. Runs AFTER `_EMPLOYER_RE` and both name rules, on their
 #: output (rule 4b in `_mask`, detail 1). A name word opens the span; at most one joiner follows
 #: each name word and none counts toward the window.
@@ -562,11 +588,29 @@ _RESIDUAL_DIGITS_RE = re.compile(r"\d{7,}")
 # NOT the max_length cap's job: 20,000 characters is UNDER `DEFAULT_MAX_LENGTH`, so the
 # fail-closed size gate never fires here — this input is accepted, as it should be. The
 # cap bounds size; this bounds work per character.
+#
+# THE CUE-TO-VALUE CONNECTOR IS LINEAR (issue #1933, risks-register R54). It was
+# `\s*(?:no\.?|number|num|#)?\s*[:\-]?\s*`: three whitespace quantifiers with only optional
+# tokens between them. On a cue followed by a whitespace run that then fails the digit
+# lookahead, every split of the run among the three was tried, which is O(k^3) in the run.
+# `pseudonymize("reg" + " " * 800 + "!")` took 1.6-6.0 s (2026-10-03), far under the size cap,
+# inline in `async def`, whatever `AI_RAW_PII_ENABLED` says (the walls, the at-rest copies and
+# the embedding input all run this rule). Each whitespace quantifier is now folded into the
+# optional token it FOLLOWS: `\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:\-]\s*)?`. That is linear,
+# because the "no" word and the separator never start with whitespace, so after the leading
+# `\s*` there is exactly one way to read a run. IT MATCHES THE SAME SPANS ON EVERY INPUT, not
+# only on realistic ones: the two forms accept the same strings, and in priority order they
+# try the same value starts first, the old form only adding repeats of starts it had already
+# tried (or starts on whitespace, which the value can never take). Measured over the repo
+# corpus and a seeded fuzz of cue lines: 0 span differences on this rule, `_RESUME_CUED_ID_RE`
+# and the salary guard's copy (`tests/test_pseudonymize_cued_id_linear.py`,
+# `scripts/measure_cued_id_linear.py`). No possessive quantifier, so the TypeScript ports in
+# `apps/api` and the lexicon's `credentialBefore` carry the same text.
 _CREDENTIAL_ID_LOOKAHEAD_MAX = 64
 _CREDENTIAL_ID_RE = re.compile(
     r"(?i:\b(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b"
     r"(?:\s+(?:ka|ki|ke|mera|meri))?"
-    r"\s*(?:no\.?|number|num|#)?\s*[:\-]?\s*)"
+    r"\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:\-]\s*)?)"
     r"(?=[A-Za-z0-9/\-]{0," + str(_CREDENTIAL_ID_LOOKAHEAD_MAX) + r"}\d)"
     r"([A-Za-z0-9][A-Za-z0-9/\-]{5,})"
 )
@@ -1476,10 +1520,14 @@ _INVISIBLE_RE = re.compile("[\u200b\u200c\u200d\u2060\ufeff]")
 #: "Passport No: M1234567" and "Voter ID: ABC1234567" — the two forms a real résumé actually
 #: prints — both slipped through while their lowercase equivalents were caught. A flag that
 #: covers half an expression measures as coverage and is not.
+#: THE CONNECTOR AFTER THE CUE IS `_CREDENTIAL_ID_RE`'s LINEAR ONE (issue #1933, R54; the note
+#: there). Main's `\s*(?:no\.?|number|num|id|#)?\s*[:\-]?\s*` was O(k^3) on a whitespace run:
+#: `contains_hard_identifier("passport" + " " * 800 + "!")` took 3.5-9.1 s. Same spans on every
+#: input.
 _RESUME_CUED_ID_RE = re.compile(
     r"\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|"
     r"a/c|account|dob|date\s+of\s+birth)\b"
-    r"\s*(?:no\.?|number|num|id|#)?\s*[:\-]?\s*"
+    r"\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:\-]\s*)?"
     r"(?=[A-Za-z0-9/\-]{0,24}\d)"
     r"[A-Za-z0-9][A-Za-z0-9/\-]{4,}",
     re.IGNORECASE,

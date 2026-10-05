@@ -15,6 +15,7 @@ import {
   areRealMemberInvitesEnabled,
   assertMemberInvitesConfig,
   isCapacityEnforcementEnabled,
+  isFeedPostingsUnionEnabled,
   isRealOtpSmsActive,
   isRealPayerEmailActive,
   resolveCorsOrigins,
@@ -672,6 +673,16 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig({ AI_RAW_PII_ENABLED: "yes" })).toThrow();
   });
 
+  it("MATCH_V1_ENABLED (ADR-0036 §8, #1904) is OFF when absent, empty or 'false'", () => {
+    // The deploy bridge exports an ABSENT production secret as "". That must read as OFF and
+    // must not throw at boot: production's `job_reach` is empty, so ON serves an empty deck.
+    expect(loadServerConfig({}).MATCH_V1_ENABLED).toBe(false);
+    expect(loadServerConfig({ MATCH_V1_ENABLED: "" }).MATCH_V1_ENABLED).toBe(false);
+    expect(loadServerConfig({ MATCH_V1_ENABLED: "false" }).MATCH_V1_ENABLED).toBe(false);
+    expect(loadServerConfig({ MATCH_V1_ENABLED: "0" }).MATCH_V1_ENABLED).toBe(false);
+    expect(loadServerConfig({ MATCH_V1_ENABLED: "true" }).MATCH_V1_ENABLED).toBe(true);
+  });
+
   it.each(["True", "TRUE", "yes", "on", "t", "y", "False", "no", " true"])(
     "AI_RAW_PII_ENABLED=%j does not boot the api — the ai-service refuses the same values",
     (value) => {
@@ -682,6 +693,31 @@ describe("loadServerConfig", () => {
       expect(() => loadServerConfig({ AI_RAW_PII_ENABLED: value })).toThrow();
     },
   );
+
+  it("FEED_POSTINGS_UNION_ENABLED (#1823, ADR-0049) is OFF by default, for the empty string, 'false' and '0'", () => {
+    // Off is today's legacy feed and apply/skip byte for byte. The deploy bridge exports an unset
+    // secret as "", so the empty string must read as OFF rather than throw at boot.
+    const union = (value?: string) =>
+      loadServerConfig(value === undefined ? {} : { FEED_POSTINGS_UNION_ENABLED: value })
+        .FEED_POSTINGS_UNION_ENABLED;
+    expect(union()).toBe(false);
+    for (const off of ["", "false", "0"]) expect(union(off), off).toBe(false);
+    for (const on of ["true", "1"]) expect(union(on), on).toBe(true);
+    // Anything else stops the boot, which is why staging-deploy.sh refuses it first.
+    expect(() => loadServerConfig({ FEED_POSTINGS_UNION_ENABLED: "yes" })).toThrow();
+  });
+
+  it("isFeedPostingsUnionEnabled is true ONLY with the union on AND Matching V1 off", () => {
+    // Structurally inert under V1: the V1 feed already reads postings, and this flag must never
+    // become a second V1 source (ADR-0049 S1).
+    const cfg = (union: string, v1: string) =>
+      loadServerConfig({ FEED_POSTINGS_UNION_ENABLED: union, MATCH_V1_ENABLED: v1 });
+    expect(isFeedPostingsUnionEnabled(cfg("true", "false"))).toBe(true);
+    expect(isFeedPostingsUnionEnabled(cfg("true", "true"))).toBe(false);
+    expect(isFeedPostingsUnionEnabled(cfg("false", "false"))).toBe(false);
+    expect(isFeedPostingsUnionEnabled(cfg("false", "true"))).toBe(false);
+    expect(isFeedPostingsUnionEnabled(loadServerConfig({}))).toBe(false);
+  });
 
   it("REFERRAL_SHORT_LINK_BASE accepts the interim payer-web origin and refuses a non-https one", () => {
     // #1800: staging now declares the origin that SERVES `/i/<code>`. The default stays the old

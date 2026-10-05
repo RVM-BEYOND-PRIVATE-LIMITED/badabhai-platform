@@ -629,9 +629,10 @@ describe("JobPostingsService.getOne / list", () => {
 });
 
 // ---------------------------------------------------------------------------
-// DTO guards (Zod) — PII heuristic on description ONLY, length caps on all four
-// free-text fields. These are D3 defense-in-depth (the events are PII-free by
-// construction); they reject obvious leaks at the boundary.
+// DTO guards (Zod) — length caps on all four free-text fields, and the
+// worker-visible screen on role_title + description only (org_label and
+// location_label stay unscreened). The full screen matrix lives in
+// `job-postings.dto.test.ts` (#1823 B3).
 // ---------------------------------------------------------------------------
 describe("CreateJobPostingSchema PII + length guards", () => {
   const base = {

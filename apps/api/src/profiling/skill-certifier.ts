@@ -257,8 +257,16 @@ function isPlaceholder(text: string): boolean {
  *
  * WHY NOT A LOOSER RULE ("a TLD after a known prefix"): the exemption is a hole in a privacy
  * wall, and a hole should be exactly as large as the names it was cut for. Known gaps, accepted:
- * "Socket.io" (.io) and "C#.NET" are still refused; "B.Com/M.Com" is refused as one token.
+ * "Socket.io" (.io) and "C#.NET" are still refused; "B.Com/M.Com" is refused, by
+ * {@link HOST_WITH_PATH_RE} below.
  * Adding a name is a one-line, reviewable change here.
+ *
+ * THE DEGREES ARE NOW THE SHARED HELPER'S (#1914): `looksLikeUrl` itself skips a host that is
+ * exactly "b.com" / "m.com", so the two entries below are redundant with it — and the hole is no
+ * longer only this list. The shared skip also passes the bare hosts with a port, query or fragment
+ * ("b.com:8080", "m.com?x=1"), which this list refused as one non-exempt token; that residual is
+ * stated in `looksLikeUrl`'s docblock and owned there. Neither host is a contact route a worker or
+ * an employer controls. "b.com/anything" is still refused, by the host-with-path wall.
  */
 const URL_TLD_EXEMPT_TOKENS: ReadonlySet<string> = new Set([
   ".net",
@@ -300,8 +308,9 @@ const AT_SIGN_RE = /[@\uFF20\uFE6B]/u;
  * ends in.
  *
  * KNOWN COST, ACCEPTED: a slash straight after a dotted technology name reads as a path, so
- * "Node.js/Express" and "B.Tech/B.E" are refused (as "B.Com/M.Com" already was, one token to the
- * exemption above). Each costs one bullet; the worker can say them as two skills.
+ * "Node.js/Express", "B.Tech/B.E" and "B.Com/M.Com" are refused (the shared `looksLikeUrl` passes
+ * the last since #1914; this wall does not). Each costs one bullet; the worker can say them as
+ * two skills.
  */
 const HOST_WITH_PATH_RE = /[\p{L}\p{N}-]\.\p{L}{2,}\//u;
 
@@ -377,10 +386,11 @@ function overDigitBudget(text: string): boolean {
 /**
  * Words that end a legal entity's name, matched as the label's LAST WORD, case-insensitively.
  *
- * The shared `looksLikeOrgName` catches a bare "Ltd"/"Limited" only after a Capitalised token,
- * and knows no foreign suffix — so "welding at tata motors ltd", "Sharma LLC" and "Sharma GmbH"
- * passed both walls, and an employer's name would have been stored in plaintext in
- * `general_road` while D5 keeps employer names only in the encrypted `employer_name_enc`.
+ * The shared `looksLikeOrgName` reads a bare "Limited" only after a Capitalised name, knows no
+ * foreign suffix and no bare "pvt" — so "tata motors limited", "Sharma LLC", "Sharma GmbH" and
+ * "sharma pvt" pass it, and an employer's name would be stored in plaintext in `general_road`
+ * while D5 keeps employer names only in the encrypted `employer_name_enc`. (Before #1927 a bare
+ * "Ltd" slipped it the same way — "welding at tata motors ltd"; it now reads "Ltd" in any case.)
  *
  * TRAILING POSITION ONLY, and that is what makes it safe here and not in the shared module: in a
  * label of at most six words, a trailing "ltd" is never trade prose, while "Limited slip

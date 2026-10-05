@@ -23,7 +23,28 @@ experience bucket.
 ## 2. Output validation (deterministic, in the API, after the model)
 
 A model answer is served only if **every** check passes; any failure → `V2_FALLBACK`, outcome
-`fallback`.
+`fallback` — with one exception, the over-long follow-up chip (item 5).
+
+**Owner-approved change, 2026-10-03 (Divyanshu, owner: "drop chips longer than 4 words").** A
+follow-up chip whose **only** failure is its length (> 4 words) is **dropped**, and the answer is
+served without it (outcome `answered`). The rule is conservative:
+
+- every chip, whatever its length, still runs **every** content check (script, "!", emoji, format
+  character, persona, money, promise, sensitive advice, rating, named employer, PII, empty) — a chip
+  that fails any of them still rejects the **whole** answer, so a drop can never launder unsafe text;
+- lines are untouched: a line over 20 words, or failing any check, still rejects the whole answer;
+- more than 3 chips still rejects (`too_many_chips`, counted on what the model wrote) — the extras
+  are never dropped;
+- the ≤ 1 "?" budget counts what is **served** (lines + the remaining chips), since a dropped chip is
+  never shown;
+- every chip dropped → served with zero chips (`followup_chips: []` is valid).
+
+One entry point applies it, `screenCareerAnswer` (`career-output.validator.ts`), which both the
+handler and the §6 served-rate replay call. A drop is logged as a count and the closed reason
+`chip_too_long`, never the chip. No prompt, event, DTO or wire change. Why: on the 2026-10-01 eval,
+10 of 51 normal answers became the fallback for this reason alone (served rate 80.4 %, bar 85 %); the
+same answers replayed under this rule serve 51 of 51
+(`docs/qa/evidence/companion-v2/2026-10-01/served-rate-after-fix2.txt`).
 
 1. Schema: 1–4 lines; each ≤ 20 words; Latin script only (no Devanagari, O9).
    "Latin only" bars a character any OTHER script owns — Devanagari, Gurmukhi, Urdu (Arabic),
@@ -32,7 +53,7 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
    typographic quotes and accented Latin letters stay legal. Failure reason `non_latin`
    (was `devanagari`; the reason reaches a log line only, never an event).
 2. Persona: `checkPersonaTokens` (packages/profiling-lexicon) returns nothing; no "!"; no emoji;
-   ≤ 1 "?" in the whole answer; no vocative (ADR-0044 R8).
+   ≤ 1 "?" in the served answer (its lines and the chips it keeps); no vocative (ADR-0044 R8).
    "No emoji" is `\p{Extended_Pictographic}` + regional indicators (flags) + the emoji-building
    components on their own (skin-tone modifiers, variation selectors, ZWJ, the keycap mark, tag
    characters) + the Misc Symbols / Dingbats blocks (★ ☆ ✓ ✗ are not pictographic to Unicode).
@@ -59,7 +80,8 @@ A model answer is served only if **every** check passes; any failure → `V2_FAL
    - named employers: any token matching the employer / payer-name list the API already holds for
      jobs (read once, cached) → fail.
 4. `looksLikePii` (packages/validators) false for every line.
-5. Follow-up chips: ≤ 3, each ≤ 4 words, same checks.
+5. Follow-up chips: ≤ 3, same checks. A chip over 4 words is **dropped**, not failed, when length
+   is its only failure (owner, 2026-10-03 — see above); > 3 chips still fails.
 
 The word checks (persona, "!", "?", money, promise, sensitive, rating, employer, PII) read an
 NFKD-folded form with combining marks dropped, so a fullwidth `Ｓａｌａｒｙ ２５０００` or an accented
@@ -137,6 +159,9 @@ NFKD-folded form with combining marks dropped, so a fullwidth `Ｓａｌａｒ�
       emoji rule is Unicode's pictographic set plus flags and emoji components (flags, ⭐, ⌛, ⌚
       and keycaps passed before). Table-driven pass/fail fixtures, plus 16 clean Hinglish answers
       to normal eval questions that must be served.
+      2026-10-03 (owner-approved): an over-long follow-up chip whose only failure is its length is
+      dropped instead of failing the answer (§2) — `screenCareerAnswer`, used by the handler and
+      the served-rate replay; `validateCareerAnswer` stays the as-written predicate.
 - [x] **C2** `AiService.companionCareer` (timeout 10 s).
 - [x] **C3** Memory: store last `MEMORY_TURNS` pairs (orchestrator already writes; handler reads 6).
       The orchestrator reads memory ONCE and passes the full list on `HandlerInput.recentTurns`
@@ -170,9 +195,9 @@ NFKD-folded form with combining marks dropped, so a fullwidth `Ｓａｌａｒ�
 
 | Test | Proves |
 |---|---|
-| `career-output.validator.test.ts` | each check rejects its fixture; a clean answer passes; per-rule pass/fail tables (script, money, emoji, format characters); 16 clean answers to normal eval questions are served |
-| `career-talk.handler.test.ts` | refuse → fixed copy; invalid → fallback; memory passed (≤ 6, sliced to the newest 6 when the store holds more) |
-| `career.privacy.test.ts` | worker_context has only trade label + bucket; no text in events/logs |
+| `career-output.validator.test.ts` | each check rejects its fixture; a clean answer passes; per-rule pass/fail tables (script, money, emoji, format characters); 16 clean answers to normal eval questions are served; `screenCareerAnswer`: an over-long clean chip is dropped (4 words kept, 5 dropped; all dropped → 0 chips), an over-long chip failing any content check rejects the answer, long lines and > 3 chips still reject, "?" counted over the served chips |
+| `career-talk.handler.test.ts` | refuse → fixed copy; invalid → fallback; memory passed (≤ 6, sliced to the newest 6 when the store holds more); a dropped chip → served with the kept chips, outcome `answered`, one counts-only log line |
+| `career.privacy.test.ts` | worker_context has only trade label + bucket; no text in events/logs; a dropped chip's text reaches no log, event, memory append or replay-cache write |
 | ai-service `test_companion_career*` | contracts; mock mode; red-team gate thresholds |
 
 ## 6. Acceptance (release gate before any flag-ON)

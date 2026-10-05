@@ -12,6 +12,7 @@ import {
   JobPostingChatStateSchema,
   JobPostingDraftSchema,
   type JobPostingChatState,
+  type JobPostingChatTurnOutput,
   type JobPostingDraft,
 } from "@badabhai/ai-contracts";
 import type { PayerJobPostingChatSession, PayerJobPostingChatStatus } from "@badabhai/db";
@@ -27,7 +28,10 @@ import {
   PayerCreateJobPostingSchema,
   type PayerCreateJobPostingDto,
 } from "../../job-postings/job-postings.dto";
-import { JobPostingChatRepository } from "./job-posting-chat.repository";
+import {
+  JOB_POSTING_CHAT_LIVE_STATUSES,
+  JobPostingChatRepository,
+} from "./job-posting-chat.repository";
 import {
   JobPostingChatMessagesResponseSchema,
   JobPostingChatSessionsResponseSchema,
@@ -43,6 +47,15 @@ import {
   type UnmappedDraftField,
   type WorkerCardField,
 } from "./job-posting-chat.dto";
+import {
+  blankRefusedFields,
+  reaskRefusedFields,
+  refusedDraftFields,
+  refusedNames,
+  restoreWrapUpTarget,
+  WRAP_UP_TOPIC,
+  type ReaskTurn,
+} from "./job-posting-chat.screen";
 
 /**
  * Marker kept on the RAW `conversation_state` jsonb (never inside the typed state):
@@ -52,8 +65,12 @@ import {
  */
 const DRAFT_READY_EMITTED = "draft_ready_emitted";
 
-/** Statuses a session can still be worked on / published from. */
-const LIVE_STATUSES: readonly PayerJobPostingChatStatus[] = ["active", "draft_ready"];
+/**
+ * The 409 for a turn on a session that is no longer live. ONE message whether the session
+ * was already closed when the turn arrived or was published while the engine was answering
+ * (#1922), so a client handles both the same way.
+ */
+const SESSION_CLOSED_MESSAGE = "This conversation is closed";
 
 /**
  * AI job-posting chat — business logic + events (ADR-0035 §Decision 5).
@@ -205,6 +222,7 @@ export class JobPostingChatService {
       );
     }
     const priorState: JobPostingChatState | null = loaded.success ? loaded.data : null;
+    const priorDraft = this.readDraft(session);
     const priorReadyEmitted = Boolean(
       (session.conversationState as Record<string, unknown> | null)?.[DRAFT_READY_EMITTED],
     );
@@ -297,44 +315,76 @@ export class JobPostingChatService {
       ctx.correlationId,
     );
 
-    // 4. Store the engine's reply + put it on the spine.
+    // 4. Screen the worker-visible free text BEFORE anything is stored (#1911, #1921). A
+    //    `role_title` or `description` the shared ADR-0024 screen refuses is dropped (or
+    //    replaced by the clean value it held before this turn), and a refused `benefits` /
+    //    `requirements` chip is dropped from its list, the clean chips staying. The field is
+    //    re-asked with a plain reason, instead of sitting in the draft until publish 400s on
+    //    it. From here on `turn` is the turn that is stored and returned.
+    const { turn, reask } = this.screenTurn(session.id, aiResult, priorState, priorDraft);
+
+    // 5. Store the reply + put it on the spine. A re-ask records the refused field NAMES on
+    //    the row's metadata (never the text), so how often the screen fires is measurable.
     const outbound = await this.chat.insertMessage({
       sessionId: session.id,
       payerId,
       direction: "outbound",
       messageType: "text",
-      bodyText: aiResult.reply_text,
-      metadata: { is_mock: aiResult.is_mock, blocked: aiResult.blocked },
+      bodyText: turn.reply_text,
+      metadata: {
+        is_mock: turn.is_mock,
+        blocked: turn.blocked,
+        ...(reask ? { refused_fields: reask.refused.map((r) => r.field) } : {}),
+      },
     });
     await this.emitMessageSent(session.id, payerId, outbound.id, "ai_service", ctx);
 
-    // 5. Persist the turn. A BLOCKED turn returns null state AND null draft by
+    // 6. Persist the turn. A BLOCKED turn returns null state AND null draft by
     //    contract (nothing was parsed), so it only touches the activity clock —
     //    the stored state and draft must survive a blocked message untouched.
+    //
+    //    A re-ask is never ready, and it puts a `draft_ready` session back to `active`:
+    //    a question is on screen again, so the interview is not over. The once-per-session
+    //    `draft_ready` event is unaffected — its marker survives below.
     const now = new Date();
-    const becameReady =
-      aiResult.draft_ready && aiResult.updated_state != null && !priorReadyEmitted;
-    const status: PayerJobPostingChatStatus = aiResult.draft_ready ? "draft_ready" : session.status;
+    const becameReady = turn.draft_ready && turn.updated_state != null && !priorReadyEmitted;
+    const status: PayerJobPostingChatStatus = reask
+      ? "active"
+      : turn.draft_ready
+        ? "draft_ready"
+        : session.status;
 
-    if (aiResult.updated_state) {
+    let stored: boolean;
+    if (turn.updated_state) {
       const stateToPersist: Record<string, unknown> = {
-        ...(aiResult.updated_state as unknown as Record<string, unknown>),
+        ...(turn.updated_state as unknown as Record<string, unknown>),
       };
       // Fast-path marker only. The exactly-once GUARANTEE is the `idempotencyKey` on
       // the emit below (the events table dedupes at insert); if this write is lost and
       // the turn is retried, the event is still emitted once.
-      if (aiResult.draft_ready || priorReadyEmitted) stateToPersist[DRAFT_READY_EMITTED] = true;
-      await this.chat.saveTurn(session.id, payerId, {
+      if (turn.draft_ready || priorReadyEmitted) stateToPersist[DRAFT_READY_EMITTED] = true;
+      stored = await this.chat.saveTurn(session.id, payerId, {
         conversationState: stateToPersist,
-        ...(aiResult.draft ? { draft: aiResult.draft as unknown as Record<string, unknown> } : {}),
+        ...(turn.draft ? { draft: turn.draft as unknown as Record<string, unknown> } : {}),
         status,
         lastMessageAt: now,
       });
     } else {
-      await this.chat.saveTurn(session.id, payerId, { lastMessageAt: now });
+      stored = await this.chat.saveTurn(session.id, payerId, { lastMessageAt: now });
     }
 
-    // 6. One readiness signal per session, on the flip.
+    // 6b. The session stopped being live while the engine was answering (#1922): in practice
+    //     a publish claimed it, and `saveTurn` refused to write over that. The turn's state,
+    //     draft and status were not stored, so this is the SAME 409 the turn would have got
+    //     had it arrived a moment later, and `draft_ready` is not emitted, because the flip
+    //     it announces never landed. The two messages and their `message_sent` events stay:
+    //     each names a row that exists.
+    if (!stored) {
+      this.logger.warn(`session ${session.id} closed mid-turn; turn not stored (#1922)`);
+      throw new ConflictException(SESSION_CLOSED_MESSAGE);
+    }
+
+    // 7. One readiness signal per session, on the flip.
     if (becameReady) {
       await this.events.emit({
         event_name: "job_posting_chat.draft_ready",
@@ -347,24 +397,24 @@ export class JobPostingChatService {
       });
     }
 
-    // 7. Reply. On a blocked turn the AI contract returns a null draft precisely so
+    // 8. Reply. On a blocked turn the AI contract returns a null draft precisely so
     //    the caller keeps what it had — so fall back to the STORED draft rather than
     //    blanking the payer's draft card over one rejected message.
     return this.checked(
       JobPostingChatTurnResponseSchema,
       {
         session_id: session.id,
-        status: aiResult.updated_state ? status : session.status,
-        reply_text: aiResult.reply_text,
+        status: turn.updated_state ? status : session.status,
+        reply_text: turn.reply_text,
         message_id: outbound.id,
         // `suggested_answers` is the AI contract's name for the chips; `suggested_replies`
         // is the API's, and it is what both shipped clients read.
-        suggested_replies: aiResult.suggested_answers,
-        blocked: aiResult.blocked,
-        is_mock: aiResult.is_mock,
-        asked_question_id: aiResult.asked_question_id,
-        draft_ready: aiResult.draft_ready,
-        draft: aiResult.draft ?? this.readDraft(session),
+        suggested_replies: turn.suggested_answers,
+        blocked: turn.blocked,
+        is_mock: turn.is_mock,
+        asked_question_id: turn.asked_question_id,
+        draft_ready: turn.draft_ready,
+        draft: turn.draft ?? priorDraft,
       },
       session.id,
     );
@@ -475,7 +525,7 @@ export class JobPostingChatService {
     if (session.status === "published") {
       throw new ConflictException("This conversation has already been published");
     }
-    if (!LIVE_STATUSES.includes(session.status)) {
+    if (!JOB_POSTING_CHAT_LIVE_STATUSES.includes(session.status)) {
       throw new ConflictException("This conversation can no longer be published");
     }
 
@@ -537,8 +587,13 @@ export class JobPostingChatService {
     const validated = PayerCreateJobPostingSchema.safeParse(candidate);
     if (!validated.success) {
       // Field PATHS + the schema's own static messages only — never the offending
-      // value. (`description` carries a `looksLikePii` refine, so the one thing we
-      // must not do on that failure is echo the text back through an error body.)
+      // value. (`role_title`, `description` and every `benefits` / `requirements` chip
+      // carry the worker-visible PII / org-name / link screen (#1823 B3), so the one thing
+      // we must not do on that failure is echo the text back through an error body.) Since
+      // #1911 and #1921 every turn screens those four fields first and re-asks a refused
+      // one, so a draft written by this chat should not reach here with one. This is
+      // defence in depth: it still catches a draft stored before then that no later turn
+      // has screened.
       const issues = validated.error.issues.map((i) => ({
         path: i.path.join(".") || "(root)",
         message: i.message,
@@ -624,8 +679,8 @@ export class JobPostingChatService {
     payerId: string,
   ): Promise<PayerJobPostingChatSession> {
     const session = await this.requireOwnedSession(sessionId, payerId);
-    if (!LIVE_STATUSES.includes(session.status)) {
-      throw new ConflictException("This conversation is closed");
+    if (!JOB_POSTING_CHAT_LIVE_STATUSES.includes(session.status)) {
+      throw new ConflictException(SESSION_CLOSED_MESSAGE);
     }
     return session;
   }
@@ -676,6 +731,74 @@ export class JobPostingChatService {
       return null;
     }
     return parsed.data;
+  }
+
+  /**
+   * #1911 / #1921 — run the shared worker-visible screen on this turn's draft (see
+   * `job-posting-chat.screen.ts`). Returns the turn to store and reply with, and the re-ask
+   * when the screen refused a value (`null` keeps the engine's turn as it is).
+   *
+   * A blocked turn carries no draft (nothing was parsed, nothing is stored), so it passes.
+   * A draft WITHOUT a state is outside the ai-service contract and is never stored (step 6
+   * writes the draft only alongside a state), but it is still returned. Its refused values
+   * are nulled and its refused chips removed, so every draft value that leaves this service
+   * has met the screen. There is no state to reopen, so nothing is re-asked.
+   *
+   * A clean wrap-up turn after a list re-ask puts the description back as the topic that
+   * takes the next message (`restoreWrapUpTarget`). Every other clean turn is kept as it is.
+   *
+   * Logs field and screen NAMES only, never the refused text.
+   */
+  private screenTurn(
+    sessionId: string,
+    aiResult: JobPostingChatTurnOutput,
+    priorState: JobPostingChatState | null,
+    priorDraft: JobPostingDraft | null,
+  ): { readonly turn: JobPostingChatTurnOutput; readonly reask: ReaskTurn | null } {
+    const { draft, updated_state: state } = aiResult;
+    if (!draft) return { turn: aiResult, reask: null };
+
+    if (!state) {
+      const refused = refusedDraftFields(draft);
+      if (refused.length === 0) return { turn: aiResult, reask: null };
+      this.logger.warn(
+        `session ${sessionId} got a draft without a state; nulled screened draft ` +
+          `fields=[${refusedNames(refused)}]`,
+      );
+      return { turn: { ...aiResult, draft: blankRefusedFields(draft, refused) }, reask: null };
+    }
+
+    const reask = reaskRefusedFields({
+      draft,
+      state,
+      priorState,
+      priorDraft,
+      engineAskedId: aiResult.asked_question_id,
+    });
+    if (!reask) {
+      const settled = restoreWrapUpTarget(state, aiResult.asked_question_id);
+      if (settled === state) return { turn: aiResult, reask: null };
+      this.logger.log(`session ${sessionId} wrapped up; ${WRAP_UP_TOPIC} takes the next message`);
+      return { turn: { ...aiResult, updated_state: settled }, reask: null };
+    }
+    this.logger.log(
+      `session ${sessionId} re-asking screened draft fields=[${refusedNames(reask.refused)}] ` +
+        `kept=[${reask.kept.join(",")}]`,
+    );
+    return {
+      reask,
+      turn: {
+        ...aiResult,
+        reply_text: reask.replyText,
+        // The engine's chips answered ITS question. The re-ask carries the re-asked topic's
+        // own bank options instead (benefits has some; the other three have none).
+        suggested_answers: [...reask.chips],
+        asked_question_id: reask.askedField,
+        draft_ready: false,
+        draft: reask.draft,
+        updated_state: reask.state,
+      },
+    };
   }
 
   /**

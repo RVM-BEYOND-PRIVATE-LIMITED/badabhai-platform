@@ -150,6 +150,13 @@ The career handler sends the **newest 6** memory turns whatever `CHAT_COMPANION_
 says (the knob has no ceiling; above 6 every call would be a 422 and every career event invalid), and
 `turns_in_memory` on `chat.companion_career_answered` is the count actually sent.
 
+**What is served is not always what the model wrote (owner, 2026-10-03).** The API's career
+validator (phase-3 §2) drops a follow-up chip whose **only** failure is its length (> 4 words) and
+serves the rest, so `suggested_followups` can hold fewer chips than `followup_chips` did — zero
+included. Every chip still runs every content check first, and any content failure still serves
+`V2_FALLBACK`; a long line or > 3 chips still does too. The output contract above, the turn shape
+and the event (`outcome` `answered`) are unchanged.
+
 ## 3. Edit catalogue (P1)
 
 `apps/api/src/chat-companion/v2/edit-catalogue.ts` — the ONLY place that maps a section to its
@@ -254,6 +261,26 @@ The stale check matches a qualification row by `list` + `fp`, never by index, so
 still finds the entry and an entry edited elsewhere does not; a stored row without `fp` (none exist
 in production: the model paths are dark) is stale. A section the confirm cannot re-read is NOT
 stale — nothing is known about it — so the confirm writes nothing and serves the card again.
+
+**A card row carries the value its writer will store (2026-10-03, #1940).** The employment and
+qualifications writers store `employer_name` and the education `field` in the worker app's casing
+(`titleCaseWords`, via `profiles/title-case-on-write.ts`). It raises the first letter of each word
+and never lowercases anything. `normaliseValue` applies the same function, so for these two fields:
+
+- **`after` is the cased value.** "mahindra logistics" is carded as "Mahindra Logistics", and Haan
+  stores exactly that.
+- **The edit no-op drop compares stored forms.** "tata motors" over a stored "Tata Motors" is no
+  edit: it is dropped and counted in `dropped_count`. An uncased value stored before #1940 is
+  carded as the casing Haan will apply ("tata motors" → "Tata Motors").
+- **The stale check is unchanged.** `before` is the stored value, so a card stays valid across its
+  own Haan. It is stale only if the row's bytes moved under it, for example because the #1432
+  backfill re-cased the row.
+- **An employment confirm re-sends the whole history,** so it also cases an older uncased employer
+  name riding along in it, just as the form path does. The counts are not affected:
+  `applied_count` is still the ticked rows, and `worker.employment_recorded` still counts
+  employments.
+
+`role_label` is NOT cased, by the writer or by the card. Casing it is an open owner decision.
 
 After commit, a `preferences.shift` row runs the form path's own
 `WorkerPreferencesService.seedNightShiftReadyFromShift` (now public; the writer skips it on a
@@ -378,8 +405,10 @@ reached the card as typed tokens. Each row now also carries, ADDITIVELY:
   `GET /workers/me/occupations` labels it), and `EDIT_YES_NO_LABELS` ("Haan" / "Nahi") for the
   three yes/no preferences. Always present (possibly null). **Null** when the value is null, when
   the field is free text, a date or a number (a name, a city, `2019-01`, a salary — shown as
-  typed, never re-cased), or when a closed-set field holds a value its dictionary does not know
-  (a legacy model-written availability, a retired slug) — never a guessed prettification.
+  stored, never re-cased for display; an employer name or education field `after` is already the
+  cased value its writer stores, §3.2), or when a closed-set field holds a value its dictionary
+  does not know (a legacy model-written availability, a retired slug) — never a guessed
+  prettification.
 
 `before` / `after` are unchanged (the stored tokens). The labels are derived at WIRE time from
 the stored row's section, field and values — never stored in Redis — so a card saved before this

@@ -1,14 +1,30 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
-import { isMatchV1Enabled, type ServerConfig } from "@badabhai/config";
-import { matchSkillLabel } from "@badabhai/taxonomy";
+import { isFeedPostingsUnionEnabled, isMatchV1Enabled, type ServerConfig } from "@badabhai/config";
+import type { JobShift } from "@badabhai/db";
+import { isTradeKey, matchSkillLabel, type TradeKey } from "@badabhai/taxonomy";
 import type { RequestContext } from "../common/request-context";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { MatchFeedService, type MatchFeedItem } from "../match/match-feed.service";
-import { MatchApplyService } from "../match/match-apply.service";
-import { ApplicationsRepository, type FeedJob } from "./applications.repository";
+import { MatchApplyService, type RankSnapshot } from "../match/match-apply.service";
+import { WorkerSkillsRepository } from "../match/worker-skills.repository";
+import {
+  ApplicationsRepository,
+  type FeedJob,
+  type FeedPostingRow,
+  type OpenJobsFilters,
+} from "./applications.repository";
 import type { ApplyJobDto, SkipJobDto } from "./applications.dto";
+import {
+  mergeNewestFirst,
+  rankFeed,
+  toSourcedFromJob,
+  toSourcedFromPosting,
+  type FeedSource,
+  type RankedFeedItem,
+  type SourcedFeedItem,
+} from "./feed-merge";
 
 /**
  * A feed item the worker sees — PII-free (no employer, and the pay is the BAND
@@ -68,6 +84,24 @@ export interface FeedItem {
 }
 
 /**
+ * The worker's own `GET /feed` filters, as the controller hands them over. Every one is
+ * OPTIONAL; absent means "not filtered" and nothing here fills one in from his profile
+ * (ADR-0036 Part 3).
+ */
+export interface FeedFilters {
+  /**
+   * RAW query value, NOT yet known to be a trade slug. The worker app has sent a chip
+   * display label (`'CNC'`, `'Welder'`) here, which can never equal `jobs.trade_key`; see
+   * `resolveLegacyTradeKey` below for what happens to it (#1905).
+   */
+  tradeKey?: string;
+  city?: string;
+  shift?: JobShift;
+  /** The worker's pay FLOOR (₹/month). Compared to the TOP of a job's band. */
+  payMin?: number;
+}
+
+/**
  * Alpha swipe-to-apply business logic + event emission (ADR-0009 Stream B).
  *
  * Pure CRUD + PII-free behavioural events — NO LLM, NO ranking (`score`/`hot`
@@ -77,6 +111,8 @@ export interface FeedItem {
  */
 @Injectable()
 export class ApplicationsService {
+  private readonly logger = new Logger(ApplicationsService.name);
+
   constructor(
     private readonly repo: ApplicationsRepository,
     private readonly events: EventsService,
@@ -86,6 +122,10 @@ export class ApplicationsService {
     private readonly matchFeed: MatchFeedService,
     private readonly matchApply: MatchApplyService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    // #1823 — the worker's wanted skill ids, for the union posting arm's #1240 relevance
+    // rule. Appended LAST so no existing argument moves. No import edge is needed:
+    // MatchModule is `@Global` (the `JobsService` precedent).
+    private readonly workerSkills: WorkerSkillsRepository,
   ) {}
 
   /**
@@ -95,7 +135,12 @@ export class ApplicationsService {
    * impressions, so the emits are intentionally UNKEYED (always insert), batched
    * into a single DB round-trip via `emitMany`.
    */
-  async getFeed(workerId: string, limit: number, filters: { tradeKey?: string; city?: string; shift?: string; payMin?: number }, ctx: RequestContext): Promise<{ jobs: FeedItem[] | MatchFeedItem[] }> {
+  async getFeed(
+    workerId: string,
+    limit: number,
+    filters: FeedFilters,
+    ctx: RequestContext,
+  ): Promise<{ jobs: FeedItem[] | MatchFeedItem[] }> {
     // ── ADR-0036 MOMENT ④ ─────────────────────────────────────────────────────
     // The route, the guards, the `{ jobs: [...] }` envelope and the Flutter client are
     // UNCHANGED. Only the SOURCE moves: `job_reach ⋈ job_postings` instead of the
@@ -116,57 +161,100 @@ export class ApplicationsService {
       );
     }
 
-    const openJobs = await this.repo.findOpenJobs(workerId, limit, filters);
-    const items: FeedItem[] = openJobs.map((job: FeedJob, index) => ({
-      job_id: job.id,
-      trade_key: job.tradeKey,
-      title: job.title,
-      city: job.city,
-      area: job.area,
-      // Straight pass-through, nulls preserved (see FeedItem) — the window is the
-      // job's own data, not a ranking signal; nothing here scores or drops a job.
-      min_experience_years: job.minExperienceYears,
-      max_experience_years: job.maxExperienceYears,
-      // ADR-0024 final addendum: pay band + shift join the PII-free set under the
-      // same honest-nulls pass-through. Response-only — feed.shown is UNCHANGED.
-      pay_min: job.payMin,
-      pay_max: job.payMax,
-      pay_type: job.payType,
-      shift: job.shift,
-      // Card content (#1561): the seed's own description/benefits/requirements, verbatim.
-      description: job.description,
-      benefits: job.benefits,
-      requirements: job.requirements,
-      needed_by: job.neededBy,
-      posted_at: job.createdAt.toISOString(),
-      rank: index + 1, // 1-based feed position (now newest-first — see the repository)
-    }));
+    // ── #1823 / ADR-0049 — THE INTERIM UNION (dark behind FEED_POSTINGS_UNION_ENABLED) ──
+    // Off: the agency/seed `jobs` scan alone, exactly as before. On (and only while V1 is
+    // off): company `job_postings` merged into the same deck, newest-first. Either way the
+    // card is the same 17 keys, rank is the 1-based position in the deck as served (newest
+    // first — see the repository), and every card gets one `feed.shown` v1.
+    //
+    // #1905: every filter the worker sent reaches the query. The trade key is resolved
+    // against the taxonomy first, so a chip label cannot zero the jobs arm.
+    const jobFilters: OpenJobsFilters = {
+      tradeKey: this.resolveLegacyTradeKey(filters.tradeKey, ctx),
+      city: filters.city,
+      shift: filters.shift,
+      payMin: filters.payMin,
+    };
+    const sourced = isFeedPostingsUnionEnabled(this.config)
+      ? await this.readUnionFeed(workerId, limit, jobFilters)
+      : (await this.repo.findOpenJobs(workerId, limit, jobFilters)).map(toSourcedFromJob);
+    const ranked = rankFeed(sourced);
 
-    if (items.length > 0) {
-      await this.events.emitMany(
-        items.map((item): EmitParams<"feed.shown"> => {
-          const payload: PayloadInputOf<"feed.shown"> = {
-            worker_id: workerId,
-            job_id: item.job_id,
-            rank: item.rank,
-            // Honest unranked values — nothing scored this alpha surface. score/hot
-            // also have schema defaults; passed explicitly for clarity.
-            score: 0,
-            hot: false,
-          };
-          return {
-            event_name: "feed.shown",
-            actor: { actor_type: "worker", actor_id: workerId },
-            subject: { subject_type: "job", subject_id: item.job_id },
-            payload,
-            correlationId: ctx.correlationId,
-            requestId: ctx.requestId,
-          };
-        }),
-      );
+    if (ranked.length > 0) {
+      await this.events.emitMany(ranked.map((card) => this.feedShown(workerId, card, ctx)));
     }
 
-    return { jobs: items };
+    return { jobs: ranked.map((card) => card.item) };
+  }
+
+  /**
+   * Both arms of the union, merged. The jobs arm is the legacy read with every filter; the
+   * posting arm takes the worker's wanted skills, city, shift and pay floor — never
+   * `trade_key` (V1 precedent, O7). Shift and pay are the SAME predicates on both arms
+   * (feed-filter.predicates, #1905), so neither half of the deck is narrowed alone.
+   *
+   * FAIL CLOSED: any rejection — either read, or the skill lookup — fails the whole `/feed`
+   * before a single `feed.shown` is written. A half deck served as if whole would record
+   * impressions of a feed the worker was never actually shown.
+   */
+  private async readUnionFeed(
+    workerId: string,
+    limit: number,
+    filters: OpenJobsFilters,
+  ): Promise<SourcedFeedItem[]> {
+    const readPostings = (wantedSkillIds: string[]) =>
+      this.repo.findOpenPostingsForFeed(workerId, limit, {
+        city: filters.city,
+        shift: filters.shift,
+        payMin: filters.payMin,
+        wantedSkillIds,
+      });
+    const [jobRows, postingRows] = await Promise.all([
+      this.repo.findOpenJobs(workerId, limit, filters),
+      this.workerSkills.listWantedSkillIds(workerId).then(readPostings),
+    ]);
+    return mergeNewestFirst(jobRows.map(toSourcedFromJob), this.toPostingArm(postingRows), limit);
+  }
+
+  /** Map the posting rows; a row with no `published_at` is dropped and logged, never coerced. */
+  private toPostingArm(rows: readonly FeedPostingRow[]): SourcedFeedItem[] {
+    const arm: SourcedFeedItem[] = [];
+    for (const row of rows) {
+      const sourced = toSourcedFromPosting(row);
+      if (sourced) arm.push(sourced);
+      else this.logger.warn(`feed: dropped posting ${row.id} — no published_at to order it by`);
+    }
+    return arm;
+  }
+
+  /**
+   * ONE `feed.shown` v1 for one served card, payload unchanged: exactly
+   * {worker_id, job_id, rank, score, hot}. The ENVELOPE names the id space — subject `job`
+   * for a `jobs.id`, `job_posting` for a `job_postings.id` — the same discriminator V1 ships
+   * for `application.*` (ADR-0049 S2). Never `feed.shown_v2`: that requires a reach row.
+   */
+  private feedShown(
+    workerId: string,
+    { source, item }: RankedFeedItem,
+    ctx: RequestContext,
+  ): EmitParams<"feed.shown"> {
+    const payload: PayloadInputOf<"feed.shown"> = {
+      worker_id: workerId,
+      job_id: item.job_id,
+      rank: item.rank,
+      // Honest unranked values — nothing scored this alpha surface. score/hot
+      // also have schema defaults; passed explicitly for clarity.
+      score: 0,
+      hot: false,
+    };
+    return {
+      event_name: "feed.shown",
+      actor: { actor_type: "worker", actor_id: workerId },
+      subject: { subject_type: source, subject_id: item.job_id },
+      payload,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    };
   }
 
   /**
@@ -179,8 +267,50 @@ export class ApplicationsService {
    */
   async apply(workerId: string, jobId: string, dto: ApplyJobDto, ctx: RequestContext) {
     if (isMatchV1Enabled(this.config)) return this.applyV1(workerId, jobId, dto, ctx);
-    await this.assertJobExists(jobId);
+    const target = await this.resolveDecisionTarget(jobId);
+    return target === "job"
+      ? this.applyJob(workerId, jobId, dto, ctx)
+      : this.applyPosting(workerId, jobId, dto, ctx);
+  }
 
+  /**
+   * Record a SKIP. Upserts the (worker, job) decision (last-write-wins) and emits
+   * `application.skipped` with a coarse enum reason. Idempotent like apply; the
+   * emit is keyed `application.skipped:{worker_id}:{job_id}`. 404 if the job is
+   * unknown.
+   */
+  async skip(workerId: string, jobId: string, dto: SkipJobDto, ctx: RequestContext) {
+    if (isMatchV1Enabled(this.config)) return this.skipV1(workerId, jobId, dto, ctx);
+    const target = await this.resolveDecisionTarget(jobId);
+    return target === "job"
+      ? this.skipJob(workerId, jobId, dto, ctx)
+      : this.recordPostingSkip(workerId, jobId, dto, ctx);
+  }
+
+  /**
+   * WHICH TABLE A FLAG-OFF DECISION LANDS IN (#1823). The route stays a bare uuid: a type tag
+   * would break `ParseUUIDPipe` and every shipped client, which posts the feed's `job_id`
+   * straight back.
+   *
+   *   1. an OPEN `jobs` row → `job` (today's path, and the `GET /jobs/:jobId` precedence, so
+   *      feed, detail and apply resolve an id the same way; on a v4 collision `job` wins);
+   *   2. only with the union armed, an OPEN `job_postings` row → `job_posting`;
+   *   3. otherwise the identical neutral 404 — unknown, closed, paused, suspended and draft
+   *      all look alike, with no write and no event (no existence oracle).
+   *
+   * The gate is "open posting", not "has a reach row": search and detail already show any
+   * open posting, and a stricter apply gate would keep their dead end.
+   */
+  private async resolveDecisionTarget(jobId: string): Promise<FeedSource> {
+    if (await this.repo.findJobById(jobId)) return "job";
+    if (isFeedPostingsUnionEnabled(this.config) && (await this.repo.findOpenPostingRef(jobId))) {
+      return "job_posting";
+    }
+    throw new NotFoundException("Job not found");
+  }
+
+  /** The legacy apply on an agency/seed `jobs` row — today's body, unchanged. */
+  private async applyJob(workerId: string, jobId: string, dto: ApplyJobDto, ctx: RequestContext) {
     // TD38: read the existing decision BEFORE upsert to detect skip→apply flips.
     const existing = await this.repo.findDecision(workerId, jobId);
 
@@ -220,16 +350,8 @@ export class ApplicationsService {
     return { ok: true as const, application_id: saved.id, action: "applied" as const };
   }
 
-  /**
-   * Record a SKIP. Upserts the (worker, job) decision (last-write-wins) and emits
-   * `application.skipped` with a coarse enum reason. Idempotent like apply; the
-   * emit is keyed `application.skipped:{worker_id}:{job_id}`. 404 if the job is
-   * unknown.
-   */
-  async skip(workerId: string, jobId: string, dto: SkipJobDto, ctx: RequestContext) {
-    if (isMatchV1Enabled(this.config)) return this.skipV1(workerId, jobId, dto, ctx);
-    await this.assertJobExists(jobId);
-
+  /** The legacy skip on an agency/seed `jobs` row — today's body, unchanged. */
+  private async skipJob(workerId: string, jobId: string, dto: SkipJobDto, ctx: RequestContext) {
     // TD73: prevent applied->skipped downgrade (e.g. from >500 decisions upsert-overwrite)
     const existing = await this.repo.findDecision(workerId, jobId);
     if (existing?.action === "applied") {
@@ -263,9 +385,24 @@ export class ApplicationsService {
     return { ok: true as const, application_id: saved.id, action: "skipped" as const };
   }
 
-  /** Applicants for a job (ops). PII-free projection — worker_id only. */
+  /**
+   * Applicants for a job (ops). PII-free projection — worker_id only.
+   *
+   * #1823: `jobId` is either id space. A decision on an agency/seed job carries `job_id`; one
+   * on a company posting (V1, or the interim union feed) carries `job_posting_id` with
+   * `job_id` NULL, so reading `job_id` alone made every posting's applicants invisible.
+   * The id space is resolved FIRST so each read stays a single-column equality on its own
+   * index: a `jobs` id in any status reads `job_id`, anything else reads `job_posting_id`.
+   * That equals `job_id = $1 OR job_posting_id = $1` — `applications.job_id` is a FK to
+   * `jobs`, so an id with no `jobs` row has no `job_id` rows — except on a cross-table v4
+   * collision, where the job wins (the `GET /jobs/:jobId` precedence).
+   * Ungated by any flag: it reads rows that exist, and disarming a feed must never hide who
+   * already applied.
+   */
   async applicantsForJob(jobId: string) {
-    const rows = await this.repo.findApplicantsByJob(jobId);
+    const rows = (await this.repo.legacyJobExists(jobId))
+      ? await this.repo.findApplicantsByJob(jobId)
+      : await this.repo.findApplicantsByPosting(jobId);
     return {
       job_id: jobId,
       applicants: rows.map((a) => ({
@@ -308,10 +445,31 @@ export class ApplicationsService {
     };
   }
 
-  /** 404 (no oracle) if the job id does not resolve to an OPEN row. */
-  private async assertJobExists(jobId: string): Promise<void> {
-    const job = await this.repo.findJobById(jobId);
-    if (!job) throw new NotFoundException("Job not found");
+  /**
+   * The legacy arm's TRADE filter, or `undefined` for "no trade filter" (#1905).
+   *
+   * Only a slug in `TRADE_KEYS` filters. Anything else is IGNORED (the request is served as if
+   * no trade filter had been sent), not 400'd. That is the owner ruling. Every `jobs` row
+   * carries one of those 15 slugs (the agency DTO and the seed both enforce it), so an unknown
+   * value matches no row at all, and filtering on it returns an EMPTY deck. That is what a
+   * one-chip refetch did while the app sent its chip LABEL (`'CNC'`) instead of the slug.
+   * Ignoring it restores the full arm; a valid slug filters exactly as before.
+   *
+   * Single-valued by contract: `trade_key` is `z.string()` in the DTO, so a repeated query
+   * param is a 400 at the boundary and never reaches here as a list.
+   *
+   * The drop is LOGGED so the app-side bug stays observable rather than silently healed. The
+   * value itself is NOT logged: it is unconstrained client input with no length cap, so it
+   * could carry anything. Its length and the request id are enough to find and correlate it.
+   * An empty value (`?trade_key=`) is "no filter", exactly as before, not a dropped value.
+   */
+  private resolveLegacyTradeKey(raw: string | undefined, ctx: RequestContext): TradeKey | undefined {
+    if (raw === undefined || raw === "") return undefined;
+    if (isTradeKey(raw)) return raw;
+    this.logger.warn(
+      `feed trade_key ignored: not a known trade slug (length=${raw.length}) request_id=${ctx.requestId}`,
+    );
+    return undefined;
   }
 
   // ── ADR-0036 MOMENT ⑤ — apply/skip against the SERVED entity ─────────────────
@@ -320,9 +478,10 @@ export class ApplicationsService {
    * V1 apply. `jobId` is a `job_postings.id` here (the feed serves postings).
    *
    * THE REACH ROW IS THE GATE AND THE ORACLE IS CLOSED: `buildSnapshot` 404s with the
-   * identical neutral body when the worker has no `job_reach` row — he can only apply
-   * to what the gate showed him, and a missing row is indistinguishable from a missing
-   * posting. That is stronger than the legacy path's existence check, deliberately.
+   * identical neutral body when the worker has no `job_reach` row on an OPEN posting —
+   * he can only apply to what the gate showed him, and a missing row is indistinguishable
+   * from a missing or no-longer-open posting. That is stronger than the legacy path's
+   * open-job check (`findJobById`), deliberately.
    *
    * The snapshot is written on insert and on a skip→apply flip only. E16.
    */
@@ -335,6 +494,53 @@ export class ApplicationsService {
     // Freeze the rank inputs FIRST — it is also the 404 gate, so an ungated apply never
     // reaches the write.
     const snapshot = await this.matchApply.buildSnapshot(workerId, jobPostingId);
+    return this.recordPostingApply(workerId, jobPostingId, dto, snapshot, ctx);
+  }
+
+  /**
+   * V1 skip. Same reach gate as apply — a worker cannot skip a posting he was never
+   * shown, and answering differently for one he was not would be an existence oracle.
+   */
+  private async skipV1(
+    workerId: string,
+    jobPostingId: string,
+    dto: SkipJobDto,
+    ctx: RequestContext,
+  ) {
+    await this.matchApply.buildSnapshot(workerId, jobPostingId); // the 404 gate only
+    return this.recordPostingSkip(workerId, jobPostingId, dto, ctx);
+  }
+
+  /**
+   * #1823 — an apply on a company posting from the interim union (MATCH_V1 off). The gate
+   * already ran: `resolveDecisionTarget` found the posting OPEN. The rank inputs are frozen
+   * whenever a reach row exists and the row carries none otherwise (ADR-0049 S3) — the union
+   * serves by the #1240 skill rule, so a reach row is not a precondition here.
+   */
+  private async applyPosting(
+    workerId: string,
+    jobPostingId: string,
+    dto: ApplyJobDto,
+    ctx: RequestContext,
+  ) {
+    const snapshot = await this.matchApply.trySnapshot(workerId, jobPostingId);
+    return this.recordPostingApply(workerId, jobPostingId, dto, snapshot, ctx);
+  }
+
+  /**
+   * THE ONE POSTING APPLY WRITER, shared by V1 and the interim union so a posting decision
+   * has one shape whichever flag served it: `applications.job_posting_id` set and `job_id`
+   * NULL, the E16 snapshot freeze in SQL, subject `job_posting`, and the same idempotency key
+   * — so a union apply and a later V1 apply on the same posting are one logical event.
+   * The caller has already passed its gate and chosen the snapshot.
+   */
+  private async recordPostingApply(
+    workerId: string,
+    jobPostingId: string,
+    dto: ApplyJobDto,
+    snapshot: RankSnapshot | null,
+    ctx: RequestContext,
+  ) {
     const existing = await this.matchApply.findDecision(workerId, jobPostingId);
 
     const saved = await this.matchApply.upsertDecision({
@@ -377,22 +583,20 @@ export class ApplicationsService {
   }
 
   /**
-   * V1 skip. Same reach gate as apply — a worker cannot skip a posting he was never
-   * shown, and answering differently for one he was not would be an existence oracle.
+   * THE ONE POSTING SKIP WRITER, shared by V1 and the interim union (see
+   * {@link recordPostingApply}). The caller has already passed its gate.
    *
    * NO SNAPSHOT IS WRITTEN ON A SKIP. A skip is never ranked (the rank index is partial
    * on `action='applied'`), so freezing rank inputs for one would store numbers no
    * reader consumes — and would then have to be protected from rewrite on the flip to
    * apply, which is precisely the moment the real snapshot must be taken.
    */
-  private async skipV1(
+  private async recordPostingSkip(
     workerId: string,
     jobPostingId: string,
     dto: SkipJobDto,
     ctx: RequestContext,
   ) {
-    await this.matchApply.buildSnapshot(workerId, jobPostingId); // the 404 gate only
-
     // TD73 (carried forward): never downgrade an applied row to skipped.
     const existing = await this.matchApply.findDecision(workerId, jobPostingId);
     if (existing?.action === "applied") {

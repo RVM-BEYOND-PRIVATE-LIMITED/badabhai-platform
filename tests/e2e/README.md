@@ -49,6 +49,7 @@ $env:RUN_E2E=1; pnpm --filter @badabhai/e2e test
 | `TEST_LOGIN_TOKEN` | _(unset → worker-seam suites skip)_ | The D-3 worker test-login gate secret (≥32 chars). Must match the running API's `TEST_LOGIN_TOKEN`, which also needs `TEST_LOGIN_ENABLED=true`. |
 | `PAYER_TEST_LOGIN_TOKEN` | _(unset → payer-seam suites skip)_ | The payer test-login gate secret (≥32 chars). Must match the running API's `PAYER_TEST_LOGIN_TOKEN`, which also needs `PAYER_TEST_LOGIN_ENABLED=true`. |
 | `E2E_UNLOCK_SUITE` | _(unset → contact-unlock skips)_ | Set to `1` (with `RUN_E2E=1` + `TEST_LOGIN_TOKEN`) to run `contact-unlock.e2e.test.ts`. Armed in CI. |
+| `E2E_MATCH_V1` | _(unset → match-v1-job-journey skips)_ | Set to `1`, together with `MATCH_V1_ENABLED=true` on the runner, ONLY when the API was started with `MATCH_V1_ENABLED=true`. Armed in CI in its own step, against a second API on port 3002; every other suite keeps the flag-off API. |
 
 ## Status — the test-login seams (BL-18)
 
@@ -67,6 +68,7 @@ or both of them:
 | `match-skills-clear-all.e2e.test.ts` | worker seam | wired, opt-in (E4 clear-all `cleared` count over real SQL, #1850) |
 | `payer-tenancy.e2e.test.ts` | worker seam + payer seam | wired, opt-in (adds `PAYER_TEST_LOGIN_TOKEN`) |
 | `payer-capacity.e2e.test.ts` | neither (ops-token only, no `payers` row required) | wired, opt-in |
+| `match-v1-job-journey.e2e.test.ts` | worker seam + payer seam | wired, **armed in CI** in a dedicated step (`E2E_MATCH_V1=1` + `MATCH_V1_ENABLED=true` on a second API) |
 | `phase1-flow.e2e.test.ts` | — | still hard `describe.skip` (real OTP provider required) — out of scope here |
 
 **The worker seam** — `POST /auth/test-login`

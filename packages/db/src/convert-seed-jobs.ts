@@ -43,6 +43,11 @@
  * DRY-RUN IS THE DEFAULT; `--apply` writes. Each conversion runs in a TRANSACTION so a
  * posting can never exist with its source job still open (or vice versa).
  *
+ * WORKER-VISIBLE TEXT IS SCREENED FIRST (#1823 B3). Every pending `title`, `description`
+ * and `benefits` / `requirements` chip runs the ADR-0024 screen
+ * (`screenJobTextForConversion`). One failure refuses `--apply` for the whole batch before
+ * anything is written.
+ *
  * `--feed-cutover-now` IS REQUIRED FOR `--apply` WHEN THERE IS ANYTHING TO CONVERT.
  * Closing an open legacy row drains the LIVE worker feed while `MATCH_V1_ENABLED=false`
  * (the committed default — the live feed reads `jobs`, the V1 feed reads `job_reach` and
@@ -50,6 +55,16 @@
  * (#1561 follow-up: 18 rows closed on a flag-off deploy, feed went to zero). Pass the flag
  * only when the `MATCH_V1_ENABLED` flip is happening NOW — D5 `db:materialize:reach --apply`
  * must follow in the same window, per the runbook order D4 → D5.
+ *
+ * WITH `FEED_POSTINGS_UNION_ENABLED` ARMED (#1823, ADR-0049) the drain above no longer
+ * happens for SEED rows: the flag-off feed also serves open, published `job_postings`, so a
+ * converted row stays on the deck as its posting twin — in the same position
+ * (`published_at = jobs.created_at`) and with the worker's applied state kept (the feed's
+ * source-job anti-join). One change in kind: the twin is gated by the #1240 skill-overlap
+ * rule, so a profiled worker sees it only if he wants one of its reach skills (ADR-0049 R15).
+ * The flag above is still required. AGENCY rows are a different matter: this script converts
+ * EVERY open `jobs` row, and the #1885 ruling keeps agency vacancies on `jobs` — do not run
+ * it against live agency inventory before the agency-at-cutover path is decided (#1904).
  *
  *   pnpm db:convert:seed-jobs --ops-actor=<uuid> --org-label="Hiring Employer"
  *   pnpm db:convert:seed-jobs --ops-actor=<uuid> --org-label="Hiring Employer" --apply --feed-cutover-now
@@ -60,7 +75,7 @@ import { eq, sql as dsql } from "drizzle-orm";
 import { createDbClient } from "./client";
 import { jobPostings, jobs } from "./schema";
 import { loadMatchTaxonomy, validateMatchTaxonomy, DEFAULT_INDUSTRY_ID } from "./match-taxonomy";
-import { expandReachSkillIds } from "./match-v1-derive";
+import { expandReachSkillIds, screenJobTextForConversion } from "./match-v1-derive";
 import { argValue, parseCommonCli, printCounts, printFooter, printHeader } from "./match-v1-cli";
 
 const NAME = "convert:seed-jobs";
@@ -151,7 +166,8 @@ async function main(): Promise<void> {
     // `--feed-cutover-now` acknowledgement: pass it only when the flag flip is happening
     // NOW, with D5 `db:materialize:reach --apply` in the same window. A no-op re-run
     // (everything already converted) needs no acknowledgement and stays a no-op.
-    const pendingConvert = openJobs.filter((j) => !alreadyConverted.has(j.id)).length;
+    const pendingJobs = openJobs.filter((j) => !alreadyConverted.has(j.id));
+    const pendingConvert = pendingJobs.length;
     if (opts.apply && pendingConvert > 0 && !process.argv.includes("--feed-cutover-now")) {
       throw new Error(
         `[${NAME}] REFUSING --apply: ${pendingConvert} open legacy job(s) would be CLOSED, ` +
@@ -159,6 +175,29 @@ async function main(): Promise<void> {
           `--feed-cutover-now when the flag flip is happening NOW (and run D5 ` +
           `db:materialize:reach --apply in the same window), or run without --apply for a dry run.`,
       );
+    }
+
+    // THE WORKER-VISIBLE TEXT GATE (#1823 B3). `title`, `description` and each benefits /
+    // requirements chip land on the worker card verbatim (the title as `role_title`), so
+    // they must pass the same screen every API write into `job_postings` runs on them. The
+    // dry run lists what fails; `--apply` refuses the whole batch before any write. Ids,
+    // fields and screen names only, never the text.
+    const textFailures = screenJobTextForConversion(pendingJobs);
+    if (textFailures.length > 0) {
+      console.log(
+        `[${NAME}] ${textFailures.length} field(s) fail the worker-visible free-text screen ` +
+          `(phone/email, company name, link). Fix each jobs row (the agency PATCH, or by hand) ` +
+          `and re-run:`,
+      );
+      for (const f of textFailures) {
+        console.log(`  ${f.jobId} ${f.field.padEnd(16)} ${f.screens.join(", ")}`);
+      }
+      if (opts.apply) {
+        throw new Error(
+          `[${NAME}] REFUSING --apply: ${textFailures.length} field(s) would put text that ` +
+            `fails the worker-visible screen into job_postings. Nothing was written.`,
+        );
+      }
     }
 
     const unbridgedTrades = new Map<string, number>();
@@ -246,6 +285,7 @@ async function main(): Promise<void> {
       "org_label used": JSON.stringify(orgLabel),
       "vacancy_band used": bandArg,
       "trades with NO bridge": unbridgedTrades.size,
+      "fields failing the text screen": textFailures.length,
     });
 
     if (unbridgedTrades.size > 0) {
