@@ -110,6 +110,13 @@ describe("PayerJobPostingsController — writes are employer-only (#1885)", () =
 });
 
 describe("JobPostingChatController — publish is employer-only (#1885)", () => {
+  it("attaches the agency guard pair at the class level, auth first", () => {
+    const guards = (Reflect.getMetadata("__guards__", JobPostingChatController) ?? []) as Array<{
+      name: string;
+    }>;
+    expect(guards.map((g) => g.name)).toEqual(["PayerAuthGuard", "PayerRoleGuard"]);
+  });
+
   it("REJECTS (403) an agent on publish", () => {
     expect(() => guard.canActivate(ctxFor(JobPostingChatController, "publish", agent))).toThrow(
       ForbiddenException,
