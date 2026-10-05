@@ -214,6 +214,93 @@ void main() {
           h.api.fetchApplicants('job-1'), throwsA(isA<PayerApiException>()));
     });
 
+    // #1913 — Matching V1 serves a COMPANY POSTING row: camelCase keys and an
+    // `applicationId`, and NO score/hot/components. Before the branch the mapper
+    // read snake_case facets (→ all null, "blanks") and minted a 0 score. It must
+    // now read the camelCase keys and invent no signal list.
+    test('fetchApplicants posting row (V1) parses camelCase match facets',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'GET /payer/reach/jobs/job-1/applicants': _json(<String, dynamic>{
+          'jobId': 'job-1',
+          'applicants': <dynamic>[
+            <String, dynamic>{
+              'workerId': 'w-11111111-1111-4111-8111-111111111111',
+              'applicationId': 'a-11111111-1111-4111-8111-111111111111',
+              'rank': 1,
+              'matchTier': 2,
+              'effectiveTier': 1,
+              'skillMonths': 48,
+              'industryMonths': 72,
+              'lastWorkedAt': '2026-05-01T00:00:00Z',
+              'matchedSkillLabel': 'MIG Welding',
+              'engineVersion': 'match_v1',
+            },
+          ],
+        }),
+      });
+
+      final Applicant a = (await h.api.fetchApplicants('job-1')).single;
+
+      expect(a.workerId, 'w-11111111-1111-4111-8111-111111111111');
+      expect(a.rank, 1);
+      expect(a.matchTier, 2);
+      expect(a.effectiveTier, 1);
+      expect(a.skillMonths, 48);
+      expect(a.industryMonths, 72);
+      expect(a.matchedSkillLabel, 'MIG Welding');
+      expect(a.lastWorkedAt, '2026-05-01T00:00:00Z');
+      expect(a.viaRelated, isTrue);
+      // V1 carries no weights: score/hot are structural placeholders and no
+      // signal list is fabricated, so the card shows the tier badge alone.
+      expect(a.hot, isFalse);
+      expect(a.components, isEmpty);
+      expect(a.softSignals(), isEmpty);
+    });
+
+    // The AGENCY weighted-pool shape is unchanged: a real score + components and
+    // the snake_case match facets (no `applicationId`).
+    test('fetchApplicants agency pool row still parses score + components',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'GET /payer/reach/jobs/job-1/applicants': _json(<String, dynamic>{
+          'jobId': 'job-1',
+          'applicants': <dynamic>[
+            <String, dynamic>{
+              'workerId': 'w-22222222-2222-4222-8222-222222222222',
+              'rank': 2,
+              'score': 0.83,
+              'hot': true,
+              'pushEligible': true,
+              'components': <dynamic>[
+                <String, dynamic>{
+                  'signal': 'distance',
+                  'raw': 0.9,
+                  'weight': 0.2,
+                  'reason': 'Close to the job',
+                },
+              ],
+              'experienceBand': '3-5 yrs',
+              'tradeLabel': 'Welder',
+              'cityLabel': 'Pune',
+              'match_tier': 1,
+              'skill_months': 36,
+            },
+          ],
+        }),
+      });
+
+      final Applicant a = (await h.api.fetchApplicants('job-1')).single;
+
+      expect(a.score, 0.83);
+      expect(a.hot, isTrue);
+      expect(a.pushEligible, isTrue);
+      expect(a.softSignals(), <String>['Close to the job']);
+      expect(a.tradeLabel, 'Welder');
+      expect(a.matchTier, 1);
+      expect(a.skillMonths, 36);
+    });
+
     // Every list/view GET that used to decode the body unconditionally now
     // throws on a real server error instead of fabricating an empty/zero model
     // shown as a "ready" success.
