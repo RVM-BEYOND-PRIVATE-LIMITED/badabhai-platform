@@ -28,7 +28,7 @@ import { applyTierScope, type ResumeTierScope } from "../resume/resume-tier-scop
 import { ResumeTierScopeReader } from "../resume/resume-tier-scope.reader";
 import { GeneralRoadReader, type GeneralRoadMarker } from "../resume/general-road.reader";
 import { ownBriefUsable } from "../resume/resume-brief";
-import type { JobRefPolicy } from "../payers/owned-job-ref";
+import type { JobRefPolicy } from "../payers/job-ref-policy";
 
 /** The disclosure consent purpose this gate keys on (DISTINCT from profiling). */
 const EMPLOYER_SHARING = "employer_sharing";
@@ -129,7 +129,11 @@ export class ResumeDisclosureService {
     // #1899 — on the payer-session route a reference the payer does not own is REFUSED here with
     // the one neutral body: no consent read, no row, no event.
     const resolved = await this.resolvePostingContext(input.jobPostingId, payerId, jobRefPolicy);
-    if (!resolved.ok) return neutralUnavailable();
+    if (!resolved.ok) {
+      // Ops visibility only (ids, no PII): repeated hits from one payer are tenant probing.
+      this.logger.warn(`disclosure refused: posting ref not owned by payer=${payerId}`);
+      return neutralUnavailable();
+    }
     const { jobPostingId } = resolved;
 
     // ---- [1] consent + render-source resolved BEFORE the lock (pool-vs-lock deadlock

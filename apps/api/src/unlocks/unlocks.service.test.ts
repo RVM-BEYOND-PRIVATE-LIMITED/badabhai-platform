@@ -666,6 +666,13 @@ describe("UnlockService — #1899 payer-session job reference must be null or th
     expect(JSON.stringify(unknown)).toBe(JSON.stringify(noConsent));
   });
 
+  it("a refusal is still latency-padded (the early return sits inside the try/finally)", async () => {
+    const t = setup(consented);
+    const pad = vi.spyOn(t.svc as unknown as { padToTarget: (s: number) => Promise<void> }, "padToTarget");
+    await t.svc.requestUnlock({ payerId: AGENT, workerId: WORKER, jobId: UNKNOWN }, CTX, "payer_owned");
+    expect(pad).toHaveBeenCalledOnce();
+  });
+
   it("refuses even a zero-balance payer the same way (the reference is checked first)", async () => {
     const { t, out } = await unlockAs(AGENT, UNKNOWN, { ...consented, balance: 0 });
     expect(out).toEqual(neutralUnavailable());

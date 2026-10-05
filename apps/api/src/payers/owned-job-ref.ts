@@ -42,18 +42,10 @@ export async function findOwnedJobRef(
       .where(and(eq(jobPostings.id, refId), eq(jobPostings.payerId, payerId)))
       .limit(1),
   ]);
+  // Ids are random v4 uuids minted per table, so at most one table matches; were both ever to
+  // match, `jobs` wins (a disclosure would then store null, never a foreign or wrong id).
   if (jobRows.length > 0) return { kind: "job", id: refId };
   if (postingRows.length > 0) return { kind: "posting", id: refId };
   return null;
 }
 
-/**
- * How a write treats its caller-supplied job reference (#1899).
- *
- *  - `"normalise"` — the ops routes (InternalServiceGuard, `payer_id` from the body). The #1903 /
- *    #1898 behaviour, unchanged: an id the row's FK cannot hold is stored and evented as null.
- *  - `"payer_owned"` — the payer-session routes. The reference must be null or a job / posting
- *    the SESSION payer owns; anything else is refused with the surface's neutral body before
- *    anything is emitted or written.
- */
-export type JobRefPolicy = "normalise" | "payer_owned";

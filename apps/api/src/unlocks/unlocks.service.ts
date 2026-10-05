@@ -19,7 +19,7 @@ import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { MatchConfigService } from "../match/match-config.service";
 import { PayersRepository } from "../payers/payers.repository";
-import type { JobRefPolicy } from "../payers/owned-job-ref";
+import type { JobRefPolicy } from "../payers/job-ref-policy";
 import {
   UnlocksRepository,
   type Tx,
@@ -166,7 +166,11 @@ export class UnlockService {
     // #1899 — on the payer-session route a reference the payer does not own is REFUSED here
     // with the one neutral body: no event, no deny row, no debit (and still latency-padded).
     const resolved = await this.resolveJobContext(input.jobId, payerId, jobRefPolicy);
-    if (!resolved.ok) return neutralUnavailable();
+    if (!resolved.ok) {
+      // Ops visibility only (ids, no PII): repeated hits from one payer are tenant probing.
+      this.logger.warn(`unlock refused: job ref not owned by payer=${payerId}`);
+      return neutralUnavailable();
+    }
     const { jobContext } = resolved;
 
     // Audit the attempt at entry (PII-free). We do NOT yet have an unlock_id, so this
