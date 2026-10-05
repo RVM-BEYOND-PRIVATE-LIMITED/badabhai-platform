@@ -117,6 +117,11 @@ describe("JobPostingChatController — publish is employer-only (#1885)", () => 
     expect(guards.map((g) => g.name)).toEqual(["PayerAuthGuard", "PayerRoleGuard"]);
   });
 
+  it("declares @PayerRoles('employer') on publish", () => {
+    const handler = handlerOf(JobPostingChatController, "publish");
+    expect(new Reflector().get<PayerRole[]>(PAYER_ROLES_KEY, handler)).toEqual(["employer"]);
+  });
+
   it("REJECTS (403) an agent on publish", () => {
     expect(() => guard.canActivate(ctxFor(JobPostingChatController, "publish", agent))).toThrow(
       ForbiddenException,
@@ -137,6 +142,7 @@ describe("JobPostingChatController — publish is employer-only (#1885)", () => 
   for (const method of ["startSession", "postMessage", "listSessions", "listMessages"]) {
     it(`${method} carries no role metadata (guard is a no-op)`, () => {
       expect(guard.canActivate(ctxFor(JobPostingChatController, method, agent))).toBe(true);
+      expect(guard.canActivate(ctxFor(JobPostingChatController, method, employer))).toBe(true);
     });
   }
 });

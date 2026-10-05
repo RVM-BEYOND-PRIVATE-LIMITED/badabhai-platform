@@ -245,7 +245,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
   - **Deploy note:** an API older than migration 0131 strips this key silently (Zod), so clients must not ship a role picker ahead of the API.
 
 #### `GET /payer/job-postings`
-- **Auth:** `PayerAuthGuard` (Bearer). Any role (an agent sees only its own pre-#1885 rows, read-only).
+- **Auth:** `PayerAuthGuard` (Bearer). Any role. Scoped to the caller's own rows; for an agent those all predate #1885 and are read-only.
 - **Query:** `status?: 'draft'|'open'|'closed'`.
 - **Response:** array of posting rows (own only), newest-first, limit 100.
 - **Mobile gotchas:** Rows include `orgLabel`/`description` at REST; do not display raw company labels you didn't collect — treat as faceless. No applicant count in this projection.
@@ -451,9 +451,9 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 | Concept | Value | Meaning |
 | --- | --- | --- |
 | Account role | `employer` | Company / direct hirer. Uses `/payer/job-postings/*`, capacity, unlocks, reach, credits. |
-| Account role | `agent` | Agency. Uses everything an employer can, **plus** `/payer/agency/*` (agency jobs, invites, referrals). |
+| Account role | `agent` | Agency. Posts agency jobs via `/payer/agency/*` (agency jobs, invites, referrals); shares capacity, unlocks, reach and credits with employers. **Cannot write company postings** (#1885) — reads its own pre-existing `job_postings` only. |
 
-- The role is set at account creation (`signup` `role`) and is carried in the JWT and returned by `login/verify` + `GET /payer/me`. Use it for UI gating, but **the backend enforces it** (`PayerRoleGuard` + `@PayerRoles('agent')` on `/payer/agency/*`). Do not rely on client-side role checks for security.
+- The role is set at account creation (`signup` `role`) and is carried in the JWT and returned by `login/verify` + `GET /payer/me`. Use it for UI gating, but **the backend enforces it** (`PayerRoleGuard` + `@PayerRoles('agent')` on `/payer/agency/*`; `@PayerRoles('employer')` on the `/payer/job-postings` writes and chat publish — #1885). Do not rely on client-side role checks for security.
 - **Owner vs recruiter (org-member roles): DOES NOT EXIST.** There is **no** team/multi-user surface. Each payer account is a **single principal** — one login = one account. Multi-user org RBAC (owner/recruiter) is a Phase-2+ feature with **no API today** (stubbed in payer-web only). Build the app as single-user-per-account; do not surface team management.
 
 Which surface each role can call:
@@ -461,7 +461,8 @@ Which surface each role can call:
 | Endpoint group | `employer` | `agent` |
 | --- | --- | --- |
 | Auth / `/payer/me` / credits / capacity | ✅ | ✅ |
-| `/payer/job-postings/*` | ✅ | ✅ (dual-role; not role-gated) |
+| `GET /payer/job-postings`, `GET /payer/job-postings/:id` | ✅ | ✅ (own rows only, read-only) |
+| `/payer/job-postings` writes (create, PATCH, close, pause, resume, plan, boost, quota-topup), `POST /payer/job-posting-chat/sessions/:id/publish` | ✅ | ❌ `403` (#1885) |
 | `/payer/unlocks/*`, `/payer/reach/*`, `/payer/resume-disclosures` | ✅ | ✅ |
 | `/payer/agency/*` (jobs, invites, referrals) | ❌ `403`/`404` | ✅ |
 

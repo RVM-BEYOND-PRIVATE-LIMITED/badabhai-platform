@@ -140,12 +140,11 @@ Two genuine residual risks remain, both narrower than "missing auth":
 > path to any of them silently removes the only check. A one-line `await requirePayer()` at the
 > top of each makes the guarantee local and explicit.
 
-> **`GAP-FE-06` (P1 — cross-role access, open question).** None of the employer posting actions
-> asserts a role, **and** `/payer/job-postings/*` carries no `@PayerRoles` on the backend — where
-> `PayerRoleGuard` is a documented **no-op without metadata**. An `agent` session can therefore
-> drive the employer posting surface directly. Agencies have their own `/payer/agency/jobs`
-> surface, so this is either intentional overlap or an omission. **Needs an owner ruling** — it
-> determines whether agency vacancies and employer postings share one table and one quota.
+> ~~**`GAP-FE-06`**~~ ✅ **Resolved (#1885).** Owner ruling 2026-10-01: company postings are
+> employer-only. The backend refuses an `agent` with `403` on every `/payer/job-postings` write
+> and on chat publish; reads stay open so an agent's pre-existing rows are read-only. The
+> payer-web posting actions still assert no role themselves (the pages redirect agents) — a
+> client-side gate would be defence in depth only.
 
 > **`GAP-FE-07` (P1 — money idempotency).** `topUpQuotaAction` (`postings/actions.ts:74`) spends
 > credits and has no idempotency key at the action layer. The code comments at `:83-88` show the
