@@ -882,9 +882,27 @@ A4/tests** — with each task still its own commit. PROGRESS records the actual 
 
 - **Done:** README Status + checklist + provisional-rulings table completed; this PROGRESS entry
   per WP; tech-debt-register TD146/147/149/150/151 rows updated with statuses and PR numbers.
-  PR **##2000**.
+  PR **#2000**.
 - **Checks:** docs-only; api/ai-service gates unchanged from WP9's run and re-run in the PR.
 - **Notes:** the remaining items are human-only: ADR signatures, the paid staging evals, the
   30-answer review, the box's `AI_REAL_CALL_TASKS` append, arming the route-precedence flag, the
   0130 ledger adoption, and the manual test script.
 - **Next:** the owner's steps, in the order in the final report.
+
+---
+
+## Owner actions — signatures and edit-parse arming — 2026-10-05
+
+- **Done:** recorded the owner's actions in the repo: **ADR-0044 and ADR-0046 signed by the owner
+  (CEO / Prakash) on 2026-10-05** (status headers and foot lines), and the owner **re-appended
+  `companion_edit_parse`** to the box's `AI_REAL_CALL_TASKS`, so all three companion tasks are
+  model-live. README Status row 0, the phase-1 row, the production-state paragraph, checklist
+  items 1 and 6, the "Prerequisites" status block and the item-2 re-run note updated. PR
+  **##2001**.
+- **Checks:** docs-only; `pnpm lint`, `pnpm typecheck` and the API suite re-run in the PR.
+- **Notes:** the paid re-run's evidence for the three eval modes is **not committed yet** (record
+  it per runbook §4). The provisional-rulings table stays "awaiting owner sign-off" — the ADR
+  signature ratifies the ADR, not those product rulings. TD151(2) (Frontend #1977, unticked
+  destructive rows) is now the only open edit-card residual.
+- **Next:** the paid eval evidence, the 30-answer career review, optionally arming
+  `CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED`, and adopting 0130.
