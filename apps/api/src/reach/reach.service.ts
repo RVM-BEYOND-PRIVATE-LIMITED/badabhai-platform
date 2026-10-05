@@ -32,7 +32,8 @@ import type {
  * INVARIANTS HELD HERE:
  *  - NO LLM anywhere on this path. Ranking is the deterministic engine, exclusively.
  *  - SORT-NEVER-BLOCK. No relevance filtering: View-A response length == pool length;
- *    View-B response length == candidate-job count (`count in == count out`).
+ *    the payer-self list's length == the job's applier count (#1898); View-B response
+ *    length == candidate-job count (`count in == count out`).
  *  - FACELESS. Responses + events carry opaque ids + ranking signals only.
  *  - `feed.shown` is emitted UNKEYED (D7) — no `idempotencyKey`; each render is an
  *    honest impression, matching the spine's other behavioural/impression events.
@@ -46,8 +47,11 @@ export class ReachService {
   ) {}
 
   /**
-   * View A — payer applicant list (`GET /reach/jobs/:jobId/applicants`). Resolves the
-   * job, scores the FULL worker pool via the core, and renders faceless ranked rows.
+   * View A — the OPS ranked-pool view (`GET /reach/jobs/:jobId/applicants`, internal ops
+   * console only). Resolves the job, scores the FULL eligible worker pool via the core, and
+   * renders faceless ranked rows. Despite the route name these are SUGGESTED workers, not
+   * applicants; no payer surface serves this read (#1898) — the payer list is
+   * {@link applicantsForOwnedJob}.
    */
   async applicantsForJob(jobId: string, ctx: RequestContext): Promise<ApplicantListResponseDto> {
     const jobSpec = await this.jobs.getJobSpec(jobId);
@@ -88,8 +92,16 @@ export class ReachService {
   }
 
   /**
-   * PAYER-SELF View A (`GET /payer/reach/jobs/:jobId/applicants`, ADR-0019 R22 / PR2).
-   * IDENTICAL faceless ranking to {@link applicantsForJob} — the deltas are exactly two:
+   * PAYER-SELF applicant list for an owned legacy `jobs` row
+   * (`GET /payer/reach/jobs/:jobId/applicants`, ADR-0019 R22; #1898).
+   *
+   * #1898 (owner ruling): an agency's applicants are the workers who APPLIED to that job —
+   * `applications.job_id = jobId AND action = 'applied'` — never the ranked worker pool
+   * (CLAUDE.md §2: never show irrelevant candidates). The appliers are ordered by the SAME
+   * deterministic RANK core as the ops view (no LLM, no new scoring, the row shape unchanged);
+   * the core orders, it never filters (count in == count out over the appliers). The whole-pool
+   * ranking stays ONLY on the ops view {@link applicantsForJob}.
+   *
    *  (1) OWNERSHIP: the job is resolved via the payer-scoped, no-oracle ownership read
    *      (`findOwnedJobSignalRowById`) — a not-found job and another payer's job both
    *      resolve to the SAME neutral 404, so a payer cannot enumerate jobs they do not
@@ -97,8 +109,6 @@ export class ReachService {
    *      ownership WHERE and NEVER enters the JobSpec/response/event.
    *  (2) ACTOR: each `feed.shown` carries `{actor_type:"payer", actor_id: payerId}` (bound
    *      to the verified session — never the body), vs the ops path's `system` actor.
-   * The RANK core, the faceless worker projection, and the response shape are UNCHANGED
-   * (no new scoring, no LLM, sort-never-block, count-in==count-out).
    */
   async applicantsForOwnedJob(
     jobId: string,
@@ -113,10 +123,11 @@ export class ReachService {
 
   /**
    * {@link applicantsForOwnedJob} without the 404: `undefined` when `jobId` is not a `jobs`
-   * row the session payer owns (unknown and another payer's job alike), the ranked list
-   * otherwise. The payer applicant list (#1823) uses it to tell an agency job from a company
-   * posting in ONE ownership read, with no exception as control flow. A DB error propagates;
-   * it is never folded into `undefined`, so it can never become a 404.
+   * row the session payer owns (unknown and another payer's job alike), the ranked APPLIERS
+   * otherwise (possibly empty — a job nobody applied to is an empty list, not a 404). The payer
+   * applicant list (#1823) uses it to tell an agency job from a company posting in ONE
+   * ownership read, with no exception as control flow. A DB error propagates; it is never
+   * folded into `undefined`, so it can never become a 404.
    */
   async tryApplicantsForOwnedJob(
     jobId: string,
@@ -127,8 +138,9 @@ export class ReachService {
     if (!ownedRow) return undefined;
     const jobSpec = jobSignalRowToJobSpec(ownedRow);
 
-    // Full pool, signal columns only, NO relevance WHERE (sort-never-block, D8).
-    const rows = await this.repo.listSignalRows();
+    // #1898: ONLY the workers who applied to this job — read by the job id the ownership read
+    // returned, never the route value. Signal columns only, as the pool read.
+    const rows = await this.repo.listApplicantSignalRowsForJob(jobSpec.jobId);
     const now = new Date();
     const signals: WorkerSignals[] = rows.map((r) => workerProfileRowToSignals(r, now));
     const bandsByWorker = ReachService.bandsByWorker(rows);
@@ -139,6 +151,7 @@ export class ReachService {
 
     // One feed.shown per row, UNKEYED (D7), with the PAYER as the actor (actor_id is the
     // verified session payer — never the route/body). payer_id stays opaque in the event.
+    // emitMany([]) is a no-op, so a job with no appliers writes nothing.
     await this.events.emitMany(
       ranked.map((r) =>
         this.feedShownParams(

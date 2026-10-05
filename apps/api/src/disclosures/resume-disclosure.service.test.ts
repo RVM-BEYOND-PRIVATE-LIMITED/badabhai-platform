@@ -100,6 +100,8 @@ interface SetupOpts {
   // ADR-0045 Phase 5 — the general road's reader, as the optional last dependency. OMITTED is
   // the reader absent; `"throws"` is a read that escapes it.
   generalRoads?: { answer: { road: "general" } | null } | "throws";
+  /** #1898: whether the request's posting context names a `job_postings` row. Default true. */
+  postingRowExists?: boolean;
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -143,6 +145,9 @@ function setup(opts: SetupOpts = {}) {
     ),
     markDisclosed: vi.fn(async (_id: string, _input: Record<string, unknown>) => undefined),
     listByPayer: vi.fn(async () => []),
+    // #1898: a global-pool read, so it lives on the repo only — NOT in txMethods, where a call
+    // through the locked `tx` handle would be the pool-vs-lock deadlock shape.
+    jobPostingExists: vi.fn(async (_id: string) => opts.postingRowExists ?? true),
     ...txMethods,
   };
 
@@ -858,5 +863,85 @@ describe("ADR-0045 — the general road on the employer's copy", () => {
       true,
     );
     expect(lines.join("\n")).not.toMatch(/road boom|Ramesh/);
+  });
+});
+
+describe("#1898 — the posting context is normalised before the lock (FK to job_postings)", () => {
+  // `resume_disclosures.job_posting_id` references `job_postings.id`. An agency's applicants page
+  // sends its legacy `jobs` id; storing it violated the FK. The #1903 approach: store null for any
+  // id that is not a `job_postings` row — on every row AND on the event.
+  const AGENCY_JOB = "66666666-6666-4666-8666-666666666666"; // a jobs id: no job_postings row
+  const POSTING = "77777777-7777-4777-8777-777777777777"; // a company posting
+  const req = (jobPostingId: string | null) => ({ payerId: PAYER, workerId: WORKER, jobPostingId });
+
+  function disclosedPayload(t: ReturnType<typeof setup>): Record<string, unknown> {
+    const evt = t.emitted.find(
+      (e) => (e as { event_name: string }).event_name === "resume.disclosed",
+    ) as { payload: Record<string, unknown> } | undefined;
+    expect(evt, "resume.disclosed must be emitted").toBeDefined();
+    return evt!.payload;
+  }
+
+  it("an agency jobs id DISCLOSES with a null context on the row, the lookup and the event", async () => {
+    const t = setup({ postingRowExists: false });
+    const res = await t.service.requestDisclosure(req(AGENCY_JOB), CTX);
+
+    expect(res).toMatchObject({ ok: true, status: "disclosed" });
+    expect(t.repo.jobPostingExists).toHaveBeenCalledOnce();
+    expect(t.repo.jobPostingExists).toHaveBeenCalledWith(AGENCY_JOB);
+    expect(t.txMethods.findByPayerWorkerPosting).toHaveBeenCalledWith(
+      expect.anything(),
+      PAYER,
+      WORKER,
+      null,
+    );
+    expect(t.txMethods.insertRow).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ jobPostingId: null }),
+    );
+    expect(disclosedPayload(t).job_posting_id).toBeNull();
+    // The jobs id reaches no write and no event.
+    expect(JSON.stringify(t.txMethods.insertRow.mock.calls)).not.toContain(AGENCY_JOB);
+    expect(JSON.stringify(t.emitted)).not.toContain(AGENCY_JOB);
+  });
+
+  it("a deny row (no consent) also stores the null context, never the jobs id", async () => {
+    const t = setup({ postingRowExists: false, consentPurposes: [] });
+    const res = await t.service.requestDisclosure(req(AGENCY_JOB), CTX);
+    expect(res).toEqual(NEUTRAL);
+    expect(t.txMethods.insertRow).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ jobPostingId: null, status: "denied" }),
+    );
+    expect(JSON.stringify(t.txMethods.insertRow.mock.calls)).not.toContain(AGENCY_JOB);
+  });
+
+  it("a company posting id is KEPT on the row and the event (behaviour unchanged)", async () => {
+    const t = setup({ postingRowExists: true });
+    await t.service.requestDisclosure(req(POSTING), CTX);
+    expect(t.repo.jobPostingExists).toHaveBeenCalledWith(POSTING);
+    expect(t.txMethods.insertRow).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ jobPostingId: POSTING }),
+    );
+    expect(disclosedPayload(t).job_posting_id).toBe(POSTING);
+  });
+
+  it("a null context stays null and costs no lookup", async () => {
+    const t = setup();
+    await t.service.requestDisclosure(req(null), CTX);
+    expect(t.repo.jobPostingExists).not.toHaveBeenCalled();
+    expect(disclosedPayload(t).job_posting_id).toBeNull();
+  });
+
+  it("a failed lookup fails the request before any lock, write or event (fail closed)", async () => {
+    const t = setup();
+    t.repo.jobPostingExists.mockRejectedValueOnce(new Error("connection terminated"));
+    await expect(t.service.requestDisclosure(req(POSTING), CTX)).rejects.toThrow(
+      "connection terminated",
+    );
+    expect(t.repo.withTransaction).not.toHaveBeenCalled();
+    expect(t.txMethods.insertRow).not.toHaveBeenCalled();
+    expect(t.emitted).toHaveLength(0);
   });
 });

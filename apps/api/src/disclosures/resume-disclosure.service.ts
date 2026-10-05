@@ -112,7 +112,16 @@ export class ResumeDisclosureService {
     input: { payerId: string; workerId: string; jobPostingId: string | null },
     ctx: RequestContext,
   ): Promise<DisclosureOutcome> {
-    const { payerId, workerId, jobPostingId } = input;
+    const { payerId, workerId } = input;
+
+    // ---- #1898 context normalisation (the #1903 approach), BEFORE any lock or write ----------
+    // `job_posting_id` is an FK to `job_postings`. A disclosure requested from an agency's
+    // applicants page carries the agency's legacy `jobs` id; storing it violated the FK (500).
+    // Resolved once, here: null stays null, an existing posting id is kept, any other id is
+    // stored and evented as null. Every row (deny, grant, reuse lookup) and the
+    // `resume.disclosed` payload carry the resolved value, never the raw input. A failed lookup
+    // fails the request before any lock or write (fail closed). No migration, no event change.
+    const jobPostingId = await this.resolvePostingContext(input.jobPostingId);
 
     // ---- [1] consent + render-source resolved BEFORE the lock (pool-vs-lock deadlock
     // fix; mirrors UnlockService). Both are tx-external reads on the global pool. ----
@@ -623,6 +632,16 @@ export class ResumeDisclosureService {
       resume_url: url,
       expires_at: expiresAt.toISOString(),
     };
+  }
+
+  /**
+   * The disclosure's stored posting context: the input when it names a `job_postings` row, else
+   * null (an agency `jobs` id, or any unknown id). A lookup error propagates — it is never folded
+   * into null, so a DB outage cannot silently strip a real posting context.
+   */
+  private async resolvePostingContext(jobPostingId: string | null): Promise<string | null> {
+    if (jobPostingId === null) return null;
+    return (await this.repo.jobPostingExists(jobPostingId)) ? jobPostingId : null;
   }
 
   /** Fail-closed disclosure-consent read (B-A): latest unrevoked employer_sharing row. */

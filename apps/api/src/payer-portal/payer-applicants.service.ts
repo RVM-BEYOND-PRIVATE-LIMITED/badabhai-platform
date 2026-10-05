@@ -1,6 +1,4 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { isMatchV1Enabled, type ServerConfig } from "@badabhai/config";
-import { SERVER_CONFIG } from "../config/config.module";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import type { RequestContext } from "../common/request-context";
 import { ReachService } from "../reach/reach.service";
 import type { ApplicantListResponseDto } from "../reach/reach.dto";
@@ -12,8 +10,9 @@ import { JobPostingsService } from "../job-postings/job-postings.service";
 
 /**
  * The two list shapes `GET /payer/reach/jobs/:jobId/applicants` can return. payer-web
- * already parses both (`apps/payer-web/src/lib/contracts.ts`): the weighted full-pool
- * list for an agency `jobs` row, the actual-applicant list for a company posting.
+ * already parses both (`apps/payer-web/src/lib/contracts.ts`): the weighted list of the
+ * workers who applied to an agency `jobs` row (#1898), the actual-applicant list for a company
+ * posting.
  */
 export type PayerApplicantListDto = ApplicantListResponseDto | MatchCandidateListDto;
 
@@ -27,16 +26,19 @@ const NOT_FOUND = "Job not found";
 /**
  * The payer's applicant list for an id they OWN (ADR-0019 R22; ADR-0036 moment ⑥; #1823).
  *
- * SOURCE SELECTION — the id is resolved in this order, and the first owner-scoped hit wins:
- *  1. `MATCH_V1_ENABLED` on → the V1 branch, unchanged: an owned posting's ACTUAL applicants
- *     in frozen-rank order.
- *  2. otherwise an owned `jobs` row (agency / seed) → the weighted full-pool list, unchanged,
- *     with its payer-actor `feed.shown`.
- *  3. otherwise an owned `job_postings` row → that posting's ACTUAL applicants, through the
- *     same `listForPosting` V1 uses. NOT gated by `FEED_POSTINGS_UNION_ENABLED` (owner
- *     decision O8): disarming the worker-feed union must never hide people who already
+ * SOURCE SELECTION — the id is resolved in this order, and the first owner-scoped hit wins.
+ * The result does NOT depend on `MATCH_V1_ENABLED` (#1898): before it, flag-on skipped step 1,
+ * so an agency's own job 404'd ("No posting found here").
+ *  1. an owned `jobs` row (agency / seed) → the workers who APPLIED to it
+ *     (`applications.job_id`, `action = 'applied'`), weighted by the RANK core, with its
+ *     payer-actor `feed.shown` (#1898; formerly the whole eligible worker pool).
+ *  2. otherwise an owned `job_postings` row → that posting's ACTUAL applicants, through
+ *     `listForPosting` — the same read V1 uses. NOT gated by `FEED_POSTINGS_UNION_ENABLED`
+ *     (owner decision O8): disarming the worker-feed union must never hide people who already
  *     applied. Snapshot-less applications sort last (the SQL's LEFT JOIN + COALESCE).
- *  4. otherwise → the identical neutral 404.
+ *  3. otherwise → the identical neutral 404.
+ *
+ * Both sources list only people who applied; neither ever lists a worker who did not.
  *
  * AUTHZ: `payerId` is the verified SESSION payer, never a route/body value, and it is consumed
  * only in the two ownership WHEREs (`jobs.payer_id`, `job_postings.payer_id`). A payer can list
@@ -53,8 +55,9 @@ const NOT_FOUND = "Job not found";
  * (its payer-actor `feed.shown`). A durable read trail would be a new versioned event, never a
  * reused `feed.shown`.
  *
- * ADR-0031 (b): a worker pending deletion is never listed on either source — the legacy pool
- * and `MatchFeedRepository.listCandidates` both exclude him in the SQL.
+ * ADR-0031 (b): a worker pending deletion is never listed on either source —
+ * `ReachRepository.listApplicantSignalRowsForJob` and `MatchFeedRepository.listCandidates` both
+ * exclude him in the SQL.
  */
 @Injectable()
 export class PayerApplicantsService {
@@ -63,7 +66,6 @@ export class PayerApplicantsService {
     private readonly jobPostings: JobPostingsService,
     // ADR-0036 moment ⑥ — the actual-applicant source.
     private readonly matchCandidates: MatchCandidatesService,
-    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
   async listForOwned(
@@ -71,10 +73,9 @@ export class PayerApplicantsService {
     payerId: string,
     ctx: RequestContext,
   ): Promise<PayerApplicantListDto> {
-    if (isMatchV1Enabled(this.config)) return this.listForOwnedPosting(jobId, payerId);
-
-    // ONE ownership read decides the source: an owned `jobs` row is ranked from the row it
-    // returned; a miss (unknown or another payer's job) falls through to the posting seam.
+    // ONE ownership read decides the source, whatever MATCH_V1_ENABLED says (#1898): an owned
+    // `jobs` row lists its appliers; a miss (unknown or another payer's job) falls through to
+    // the posting seam.
     const jobList = await this.reach.tryApplicantsForOwnedJob(jobId, payerId, ctx);
     return jobList ?? this.listForOwnedPosting(jobId, payerId);
   }
