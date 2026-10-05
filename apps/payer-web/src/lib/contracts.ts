@@ -148,7 +148,7 @@ export const benefitsInputSchema = chipListSchema("benefit");
 
 /**
  * A worker-visible PLACE label (city or area) — shown VERBATIM on the job card via
- * `placeLabel` ("city, area"), so it is screened fail-closed with the SAME three heuristics as
+ * `placeLabel` ("area, city"), so it is screened fail-closed with the SAME three heuristics as
  * the chips (`looksLikePii` + `looksLikeOrgName` + `looksLikeUrl`). Coarse locality only — a
  * payer must not be able to smuggle a phone number, a company name or a link onto the worker
  * surface through the location (invariant #2 / the reveal-gate). The server re-validates and
