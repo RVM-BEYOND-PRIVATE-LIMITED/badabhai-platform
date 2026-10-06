@@ -100,8 +100,9 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   only a recovery that nothing else on screen offers.
 - **"View events"** opens the global log (`/events`). **"View event timeline"** opens one
   record's timeline. A link to a filtered slice of the log is named for that slice ("View
-  these breaches" on the dashboard's cap-breach item, "View all admin actions" on Admin
-  users). All are offered only to a session holding `read_events`; this is an affordance, and
+  these breaches" on the dashboard's cap-breach item, "View submission events" on Feedback,
+  "View AI cost events" on AI calls, "View all admin actions" on Admin users); a fence in
+  `lib/terminology-fence.test.ts` holds every "View events" to the bare `/events`. All are offered only to a session holding `read_events`; this is an affordance, and
   each route keeps its own gate.
 - **"Retry"** repeats exactly the current query, page cursor included — filters kept, whether
   or not a filter is set. **"Back to the first page"** is the same query without the cursor,
@@ -120,9 +121,9 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   - **no filter, a page cursor** → the cursor: "Back to the first page" (`FirstPageAction`;
     Skill discovery's flat view lays out the bare `FirstPageLink`, keeping `view=flat`).
   - **nothing in the address** → it cannot be the operator's. Workers, Postings, Events,
-    Companies and Agencies read it as an outage; AI calls and Feedback say the request was
-    refused and offer no action; Skill discovery shows the server's own reason (its grouped
-    view refuses a result too large to group) with "Clear filters".
+    Companies, Agencies, AI calls and Feedback read it as an outage; Skill discovery shows the
+    server's own reason (its grouped view refuses a result too large to group) with "Clear
+    filters".
 
   Anything else is an outage ("Workers are unavailable", "Feedback is unavailable" — a fault
   on our side, not the filters) and offers both recoveries.

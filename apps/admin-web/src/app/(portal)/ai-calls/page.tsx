@@ -105,8 +105,15 @@ export default async function AiCallsPage({
      * the address bar is not a value this list accepts — a user error, rendered inline rather
      * than tripping the error boundary. Anything else is our failure, and saying "check your
      * filters" while the API is down sends an operator to fix something that is not broken.
+     *
+     * And only when the address HOLDS something to refuse — a filter or a page cursor. With
+     * neither, a 400 cannot be the operator's, so it is an outage like any other: unavailable,
+     * with Retry (the rule the five entity lists follow).
      */
-    rejected = isAdminRequestError(err) && err.status === 400;
+    rejected =
+      isAdminRequestError(err) &&
+      err.status === 400 &&
+      Boolean(taskType || success || workerId || cursor);
   }
 
   const failed = page === null;
@@ -424,10 +431,11 @@ export default async function AiCallsPage({
                 <Icon name="gauge" />
                 View provider switches
               </Link>
+              {/* Named for the slice it opens — "View events" is the whole log. */}
               {mayReadEvents ? (
                 <Link className="btn btn--ghost" href="/events?eventName=ai.cost_recorded">
                   <Icon name={ACTION_ICON.timeline} />
-                  View events
+                  View AI cost events
                 </Link>
               ) : null}
             </div>

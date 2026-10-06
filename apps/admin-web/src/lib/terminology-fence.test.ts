@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 /**
  * TERMINOLOGY FENCE — the names the owner retired on 2026-10-01 stay retired in what the console
@@ -180,4 +181,71 @@ describe("terminology fence — the console", () => {
       expect(offenders).toEqual([]);
     });
   }
+});
+
+/**
+ * "View events" opens the WHOLE log (docs/design/NAVIGATION.md). A link into a filtered slice of
+ * it is named for that slice ("View these breaches", "View submission events", "View AI cost
+ * events", "View all admin actions") — the same name for two different targets is how an
+ * operator stops trusting either. Read from the AST of every shipped TSX file: each element
+ * whose visible text is exactly "View events" must carry the literal `href="/events"`.
+ */
+function viewEventsHrefs(fileName: string, source: string): string[] {
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const out: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isJsxElement(node)) {
+      const text = node.children
+        .filter(ts.isJsxText)
+        .map((c) => c.text)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (text === "View events") {
+        const href = node.openingElement.attributes.properties.find(
+          (a): a is ts.JsxAttribute => ts.isJsxAttribute(a) && a.name.getText(sf) === "href",
+        )?.initializer;
+        out.push(href && ts.isStringLiteral(href) ? href.text : `<${href?.getText(sf) ?? "none"}>`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+describe("View events is the whole log", () => {
+  it("the reader finds the label's href, literal or not", () => {
+    expect(
+      viewEventsHrefs("t.tsx", '<Link href="/events"><Icon name="x" />View events</Link>'),
+    ).toEqual(["/events"]);
+    // JSX text across lines, the way the pages write it.
+    const multiLine = `<Link href="/events?eventName=a.b">
+      <Icon name="x" />
+      View events
+    </Link>`;
+    expect(viewEventsHrefs("t.tsx", multiLine)).toEqual(["/events?eventName=a.b"]);
+    expect(viewEventsHrefs("t.tsx", "<Link href={h}>View events</Link>")).toEqual(["<{h}>"]);
+    expect(viewEventsHrefs("t.tsx", '<Link href="/x">View these breaches</Link>')).toEqual([]);
+  });
+
+  it("every 'View events' in the console links the bare /events", () => {
+    const wrong: string[] = [];
+    let seen = 0;
+    (function walk(dir: string): void {
+      for (const ent of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, ent.name);
+        if (ent.isDirectory()) walk(full);
+        else if (ent.name.endsWith(".tsx") && !/\.(test|spec)\.tsx$/.test(ent.name)) {
+          for (const href of viewEventsHrefs(ent.name, readFileSync(full, "utf8"))) {
+            seen++;
+            if (href !== "/events") wrong.push(`${relative(srcRoot, full)}: ${href}`);
+          }
+        }
+      }
+    })(srcRoot);
+    expect(wrong).toEqual([]);
+    // …and it really read the ones that are there (workers, postings, the dashboard).
+    expect(seen).toBeGreaterThanOrEqual(3);
+  });
 });

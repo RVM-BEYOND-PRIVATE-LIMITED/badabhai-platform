@@ -477,7 +477,11 @@ describe("the empty states, which are four different claims", () => {
   it("unfiltered and empty: nothing has been submitted, and the spine is where to check", async () => {
     const out = await render();
     expect(out).toContain("No feedback submitted yet");
-    expect(out).toContain("/events?eventName=feedback.submitted");
+    // Named for the slice it opens: "View events" is the WHOLE log (NAVIGATION.md).
+    expect(out).toMatch(
+      /href="\/events\?eventName=feedback\.submitted">(<i [^>]*><\/i>)?View submission events<\/a>/,
+    );
+    expect(out).not.toContain(">View events<");
     // Nothing to clear, so nothing is offered — the link used to point at the page you were
     // already on, which is the emptiest recovery action there is.
     expect(out).not.toContain("Clear filter");
@@ -488,6 +492,7 @@ describe("the empty states, which are four different claims", () => {
     const out = await render();
     expect(out).toContain("No feedback submitted yet");
     expect(out).not.toContain("/events?eventName=feedback.submitted");
+    expect(out).not.toContain("View submission events");
     expect(out).not.toContain("View events");
   });
 
@@ -585,11 +590,14 @@ describe("the two failures, which are also different claims", () => {
     expect(out).not.toContain(">Retry<");
   });
 
-  it("a 400 with nothing in the URL offers NO action — there is nothing to undo", async () => {
+  it("a 400 with nothing in the URL cannot be the operator's: it is an outage, with Retry", async () => {
+    // It read "The server rejected this request" with no action at all — a refusal of an address
+    // that held nothing to refuse. Now the same rule as the five entity lists.
     stub.failure = new stub.RequestError(400);
     const out = await render();
-    expect(out).toContain("The server rejected this request");
-    expect(out).not.toContain("state__actions");
+    expect(out).toContain("Feedback is unavailable");
+    expect(out).not.toContain("The server rejected this request");
+    expect(out).toMatch(/href="\/feedback">(<i [^>]*><\/i>)?Retry<\/a>/);
   });
 
   it("anything else is our fault and says so, retrying the SAME query", async () => {

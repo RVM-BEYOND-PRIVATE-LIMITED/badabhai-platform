@@ -336,14 +336,25 @@ describe("the Text column moves with the session, not with the page gate", () =>
 });
 
 describe("links into the events log follow read_events (an affordance; the route keeps its gate)", () => {
-  it("drops the empty state's View events for a session without read_events", async () => {
+  it("drops the empty state's events link for a session without read_events", async () => {
     stub.capabilities = ["read_ai_traces"];
     stub.page = { items: [], nextCursor: null };
     const out = await render();
     expect(out).not.toContain("/events?eventName=ai.cost_recorded");
+    expect(out).not.toContain(">View AI cost events<");
     expect(out).not.toContain(">View events<");
     // …and keeps the recovery that IS open to them.
     expect(out).toContain(">View provider switches<");
+  });
+
+  it("names the empty state's link for the slice it opens — View events is the WHOLE log", async () => {
+    stub.capabilities = ["read_ai_traces", "read_events"];
+    stub.page = { items: [], nextCursor: null };
+    const out = await render();
+    expect(out).toMatch(
+      /href="\/events\?eventName=ai\.cost_recorded">(<i [^>]*><\/i>)?View AI cost events<\/a>/,
+    );
+    expect(out).not.toContain(">View events<");
   });
 });
 
@@ -475,11 +486,14 @@ describe("the two failures, which are different claims", () => {
     expect(out).not.toContain("AI calls are unavailable");
   });
 
-  it("a 400 with nothing in the URL offers NO action — there is nothing to undo", async () => {
+  it("a 400 with nothing in the URL cannot be the operator's: it is an outage, with Retry", async () => {
+    // It read "The server rejected this request" with no action at all — a refusal of an address
+    // that held nothing to refuse. Now the same rule as the five entity lists.
     stub.failure = new stub.RequestError(400);
     const out = await render();
-    expect(out).toContain("The server rejected this request");
-    expect(out).not.toContain("state__actions");
+    expect(out).toContain("AI calls are unavailable");
+    expect(out).not.toContain("The server rejected this request");
+    expect(out).toMatch(/href="\/ai-calls">(<i [^>]*><\/i>)?Retry<\/a>/);
   });
 
   it("a 400 with filters — past page one too — is cleared from the refusal itself", async () => {
