@@ -610,10 +610,20 @@ body {
        made every nav tap close the drawer instead of navigating. */
     z-index: var(--z-modal);
     transform: translateX(-100%);
-    transition: transform var(--duration-base) var(--ease-out);
+    /* CLOSED IS HIDDEN, not just off-screen: an off-screen rail kept its links in the Tab order
+       (and the accessibility tree) — measured at 375 and 900px, they were the first seven Tab
+       stops of every page, ahead of the menu button that opens them. `visibility` waits out the
+       slide before it hides the closing drawer (the delay is the slide's duration) and comes back
+       at once when it opens. Focus in/out of the open drawer: app-shell.tsx + drawer-focus.ts. */
+    visibility: hidden;
+    transition:
+      transform var(--duration-base) var(--ease-out),
+      visibility 0s linear var(--duration-base);
   }
   .pshell--drawer-open .pshell__rail {
     transform: translateX(0);
+    visibility: visible;
+    transition: transform var(--duration-base) var(--ease-out);
   }
   .pshell--drawer-open .pshell__scrim {
     display: block;
@@ -727,8 +737,11 @@ body {
   }
 }
 
+/* No slide under reduced motion — the open drawer's rule included: it is more specific than the
+   bare rail's, so it escaped a `.pshell__rail`-only reset and kept its transform transition. */
 @media (prefers-reduced-motion: reduce) {
-  .pshell__rail {
+  .pshell__rail,
+  .pshell--drawer-open .pshell__rail {
     transition: none;
   }
   .pshell__content {
