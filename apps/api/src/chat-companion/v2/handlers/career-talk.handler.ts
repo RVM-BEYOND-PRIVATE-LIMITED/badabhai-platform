@@ -9,7 +9,12 @@ import { SERVER_CONFIG } from "../../../config/config.module";
 import { EventsService } from "../../../events/events.service";
 import { FALLBACK, V2_CAREER_REFUSE } from "../../companion-replies";
 import { taskChips, v2CareerAnswerTurn, v2CopyTurn } from "../companion-v2-compose";
-import { CHIP_DROP_REASON, screenCareerAnswer } from "../career-output.validator";
+import {
+  CHIP_DROP_REASON,
+  screenCareerAnswer,
+  type CareerAnswerText,
+} from "../career-output.validator";
+import { EmployerNameIndex } from "../../../employers/employer-name-index.service";
 import type { CompanionV2Handler, HandlerInput, HandlerResult } from "./handler";
 
 /** The contract's own cap; a longer label is truncated rather than rejecting the request. */
@@ -54,6 +59,10 @@ export class CareerTalkHandler implements CompanionV2Handler {
     private readonly ai: AiService,
     private readonly cost: AiCostRecorder,
     private readonly events: EventsService,
+    // TD147(1) — the platform's own employer names, the deterministic backstop behind
+    // `looksLikeOrgName`. Its store is in-memory and refreshed on a TTL; a never-loaded index
+    // answers `null` and the heuristic above stands (recorded as a counts-only warning).
+    private readonly employers: EmployerNameIndex,
   ) {}
 
   async handle(input: HandlerInput): Promise<HandlerResult> {
@@ -102,9 +111,42 @@ export class CareerTalkHandler implements CompanionV2Handler {
       );
     }
 
+    // TD147(1): the platform's OWN employer names, after the pure validator. A match serves the
+    // fallback line exactly as a `named_employer` failure would; an index that never loaded is
+    // recorded and the heuristic-only answer stands (fail closed without a model claim).
+    const employer = await this.employerCheck(screened.answer);
+    if (employer === "match") {
+      // The closed reason only — never a line of the answer, which is what must not be logged.
+      this.logger.warn(`career answer rejected for worker ${input.workerId} (named_employer_index)`);
+      await this.emit(input, "fallback", null);
+      return this.fallback();
+    }
+    if (employer === "unavailable") {
+      this.logger.warn(
+        `career employer index unavailable for worker ${input.workerId}; the org-name heuristic still applied`,
+      );
+    }
+
     await this.emit(input, "answered", null);
     const { lines, followup_chips } = screened.answer;
     return { turn: v2CareerAnswerTurn(lines, followup_chips), outcome: "served" };
+  }
+
+  /**
+   * The employer-name index over the answer's lines and chips (TD147(1)). A chip counts, like
+   * every other content check. `unavailable` is returned only when no line matched and at least
+   * one lookup could not run — a match elsewhere still wins.
+   */
+  private async employerCheck(
+    answer: CareerAnswerText,
+  ): Promise<"match" | "clear" | "unavailable"> {
+    let unavailable = false;
+    for (const text of [...answer.lines, ...answer.followup_chips]) {
+      const known = await this.employers.isKnownEmployer(text);
+      if (known === true) return "match";
+      if (known === null) unavailable = true;
+    }
+    return unavailable ? "unavailable" : "clear";
   }
 
   private fallback(): HandlerResult {
@@ -117,8 +159,10 @@ export class CareerTalkHandler implements CompanionV2Handler {
     refusalTopic: string | null,
   ): Promise<void> {
     try {
+      // v2 (TD150/WP8): v1's disposition plus the turn's submission id when the client sent one.
+      // v1 stays registered for consumers that have not migrated.
       await this.events.emit({
-        event_name: "chat.companion_career_answered",
+        event_name: "chat.companion_career_answered_v2",
         actor: { actor_type: "worker", actor_id: input.workerId },
         subject: { subject_type: "worker", subject_id: input.workerId },
         payload: {
@@ -126,14 +170,20 @@ export class CareerTalkHandler implements CompanionV2Handler {
           refusal_topic: refusalTopic,
           // The turns the model was actually SENT — the same cap `handle` applied.
           turns_in_memory: Math.min(input.recentTurns.length, CAREER_TURNS_MAX),
+          submission_id: input.submissionId,
         } as never,
+        ...(input.submissionId
+          ? {
+              idempotencyKey: `chat.companion_career_answered_v2:${input.workerId}:${input.submissionId}`,
+            }
+          : {}),
         correlationId: input.ctx.correlationId,
         requestId: input.ctx.requestId,
       });
     } catch (err) {
       // Best-effort, like every companion event: ids and the error CLASS only, never the text.
       this.logger.error(
-        `chat.companion_career_answered not recorded for worker ${input.workerId} (${
+        `chat.companion_career_answered_v2 not recorded for worker ${input.workerId} (${
           err instanceof Error ? err.name : "UnknownError"
         })`,
       );

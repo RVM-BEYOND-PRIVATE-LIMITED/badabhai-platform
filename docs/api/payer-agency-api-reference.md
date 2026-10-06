@@ -323,7 +323,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 
 #### `POST /payer/unlocks`
 - **Auth:** `PayerAuthGuard` (Bearer). Per-payer hourly disclosure cap.
-- **Body:** `{ worker_id: UUID, job_id: UUID|null }` — no `payer_id`. `job_id` is optional context: a `jobs` id (agency/seed vacancy) is stored; any other id (e.g. a company posting's id) is accepted and stored as `null` (#1903).
+- **Body:** `{ worker_id: UUID, job_id: UUID|null }` — no `payer_id`. `job_id` is optional context and must be `null` or a job / posting the **session payer owns** (#1899): an owned `jobs` id (agency vacancy) is stored; an owned company posting's id is accepted and stored as `null` (#1903). An unknown or another payer's id gets the neutral `200 { status: 'unavailable' }` body — byte-identical to every other deny — with nothing emitted, debited or written. A malformed id is a `400` (syntax only).
 - **Response:** SUCCESS `{ ok: true, unlock_id, status: 'granted', expires_at }` **OR** NEUTRAL `{ status: 'unavailable' }` (HTTP `200` in both cases).
 - **Events:** on success `unlock.requested` + `unlock.granted` + `payment.authorized` + `payment.captured`; on deny `unlock.denied` (plus `unlock.cap_exceeded` if a per-worker cap is hit, or `payment.failed` if no credit). The deny **reason is internal-only**, never echoed in the response.
 - **Mobile gotchas:** Spends 1 credit on grant. All denials (no credit / capped / no consent / protected) return the **same** neutral `unavailable` — never infer why. Fail-closed ordering (credit precondition → consent → cap → grant). Branch on the `ok` field, not the HTTP status.
@@ -337,7 +337,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 
 #### `POST /payer/resume-disclosures` (masked résumé — VERIFIED LIVE)
 - **Auth:** `PayerAuthGuard` (Bearer). Shares the per-payer disclosure cap. **Free — no credit debit.**
-- **Body:** `{ worker_id: UUID, job_posting_id: UUID|null }` — no `payer_id`. `job_posting_id` is the context the résumé was opened from; an id that is not a company posting (e.g. an agency `jobs` id from the agency applicants page) is accepted and **stored as `null`** (#1898, the #1903 approach) — the disclosure still succeeds and `GET` lists it with `posting_id: null`.
+- **Body:** `{ worker_id: UUID, job_posting_id: UUID|null }` — no `payer_id`. `job_posting_id` is the context the résumé was opened from and must be `null` or a posting / job the **session payer owns** (#1899): an owned company posting is stored; an owned agency `jobs` id (from the agency applicants page) is accepted and **stored as `null`** (#1898, the #1903 approach) — the disclosure still succeeds and `GET` lists it with `posting_id: null`. An unknown or another payer's id gets the neutral body — byte-identical to every other deny — with nothing written or emitted. A malformed id is a `400` (syntax only).
 - **Response:** SUCCESS `{ ok: true, disclosure_id: UUID, status: 'disclosed', resume_url: string (short-TTL signed), expires_at }` **OR** NEUTRAL `{ status: 'unavailable' }` (HTTP `200`).
 - **Events:** `resume.disclosed` (fact only — payload never includes the PDF bytes, the worker's name, or the signed URL).
 - **Mobile gotchas:** The worker's real name is decrypted server-side at render-time, masked to **initials** in the PDF, then discarded — you only ever get a signed `resume_url` to a masked PDF. **Render the URL short-lived; never log it.** payer-web currently still mocks this; the backend is live (safe to integrate, verify in staging).

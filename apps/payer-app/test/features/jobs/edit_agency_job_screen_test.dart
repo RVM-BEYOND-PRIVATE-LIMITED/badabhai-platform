@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:get_it/get_it.dart';
 import 'package:payer_app/core/data/mock_payer_api_client.dart';
 import 'package:payer_app/core/data/models.dart';
+import 'package:payer_app/core/di/locator.dart';
+import 'package:payer_app/core/auth/payer_token_store.dart';
 import 'package:payer_app/features/jobs/presentation/cubit/agency_jobs_cubit.dart';
 import 'package:payer_app/features/jobs/presentation/edit_agency_job_screen.dart';
 
@@ -28,6 +31,24 @@ class _ScriptedApi extends MockPayerApiClient {
   String? lastArea;
   List<AgencyJobClearField>? lastClear;
 
+  /// #1960 — the demand-skill pick of the last PATCH.
+  List<String>? lastMatchSkillIds;
+
+  // The demand-skill vocabulary, so the picker section renders in the edit form.
+  @override
+  Future<List<MatchSkill>> fetchMatchSkills() async => const <MatchSkill>[
+        MatchSkill(
+          skillId: 'mskill_cnc_operate',
+          label: 'CNC operating',
+          industryId: 'ind_manufacturing',
+        ),
+        MatchSkill(
+          skillId: 'mskill_vmc_operate',
+          label: 'VMC operating',
+          industryId: 'ind_manufacturing',
+        ),
+      ];
+
   @override
   Future<AgencyJobView> updateAgencyJob(
     String id, {
@@ -45,6 +66,7 @@ class _ScriptedApi extends MockPayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    List<String>? matchSkillIds,
     List<AgencyJobClearField>? clear,
   }) async {
     updated.add(id);
@@ -54,6 +76,7 @@ class _ScriptedApi extends MockPayerApiClient {
     lastBenefits = benefits;
     lastRequirements = requirements;
     lastArea = area;
+    lastMatchSkillIds = matchSkillIds;
     lastClear = clear;
     return AgencyJobView(
       id: id,
@@ -102,7 +125,14 @@ void main() {
     WidgetTester tester,
     AgencyJobsCubit cubit, {
     AgencyJobView job = _job,
+    _ScriptedApi? api,
   }) async {
+    // The edit screen reads the demand-skill vocabulary through the locator
+    // (#1960), so the graph must be wired for the picker to render.
+    if (api != null) {
+      await GetIt.instance.reset();
+      setupLocator(apiClient: api, secureStore: InMemoryKeyValueStore());
+    }
     tester.view.physicalSize = const Size(1000, 3000);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -188,6 +218,33 @@ void main() {
     expect(api.lastShift, isNull);
     expect(api.lastBenefits, isNull);
     expect(api.lastRequirements, isNull);
+    // #1960 — an untouched demand-skill pick is omitted too, so a title-only
+    // save can never wipe the stored `match_skill_ids`.
+    expect(api.lastMatchSkillIds, isNull);
+  });
+
+  // #1960 — the demand-skill picker on the agency edit form (ADR-0050).
+  testWidgets('picking a demand skill rides the PATCH; clearing sends []', (
+    WidgetTester tester,
+  ) async {
+    final _ScriptedApi api = _ScriptedApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+
+    await open(tester, cubit, api: api);
+
+    // The picker loads its closed vocabulary asynchronously (the route read),
+    // then the section renders it. A bounded wait, not pumpAndSettle, so a
+    // picker that never appears fails on the assertion rather than timing out.
+    for (int i = 0; i < 20 && find.text('Skills this role needs').evaluate().isEmpty; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(find.text('Skills this role needs'), findsOneWidget);
+    await tester.tap(find.text('CNC operating'));
+    await tester.pumpAndSettle();
+    await save(tester);
+
+    expect(api.lastMatchSkillIds, <String>['mskill_cnc_operate']);
   });
 
   testWidgets('typed description, shift and chips ride the PATCH', (

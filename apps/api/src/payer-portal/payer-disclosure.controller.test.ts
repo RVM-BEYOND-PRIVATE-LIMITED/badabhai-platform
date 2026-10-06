@@ -1,6 +1,9 @@
 import "reflect-metadata";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { BadRequestException } from "@nestjs/common";
 import { PayerDisclosureController } from "./payer-disclosure.controller";
+import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import { PayerRequestDisclosureSchema } from "./payer-disclosure.dto";
 import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import type { RequestContext } from "../common/request-context";
 
@@ -44,6 +47,7 @@ describe("PayerDisclosureController — identity from the session, never the bod
     expect(d.disclosures.requestDisclosure).toHaveBeenCalledWith(
       { payerId: PAYER_A.id, workerId: WORKER, jobPostingId: POSTING },
       CTX,
+      "payer_owned", // #1899: the chokepoint enforces SESSION-payer ownership of the posting
     );
   });
 
@@ -69,5 +73,21 @@ describe("PayerDisclosureController — identity from the session, never the bod
       d.ctrl.request({ worker_id: WORKER, job_posting_id: null }, PAYER_A, CTX),
     ).rejects.toThrow();
     expect(d.disclosures.requestDisclosure).not.toHaveBeenCalled();
+  });
+});
+
+describe("#1899 — a MALFORMED job_posting_id is refused at the boundary (400), never reaching the chokepoint", () => {
+  // Syntax, not existence: identical for every caller and database state, so no id oracle.
+  // Unknown / foreign WELL-FORMED ids get the chokepoint's neutral body (resume-disclosure.service.test.ts).
+  const pipe = new ZodValidationPipe(PayerRequestDisclosureSchema);
+
+  it.each(["not-a-uuid", "", "1; drop table job_postings", 42])("rejects job_posting_id=%j", (id) => {
+    expect(() => pipe.transform({ worker_id: WORKER, job_posting_id: id })).toThrow(
+      BadRequestException,
+    );
+  });
+
+  it("accepts an absent or null job_posting_id as null (no reference)", () => {
+    expect(pipe.transform({ worker_id: WORKER })).toEqual({ worker_id: WORKER, job_posting_id: null });
   });
 });

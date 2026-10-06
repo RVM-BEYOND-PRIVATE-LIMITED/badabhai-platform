@@ -9,6 +9,8 @@ import { AuthModule } from "../auth/auth.module";
 import { AppConfigModule } from "../config/config.module";
 import { ConsentModule } from "../consent/consent.module";
 import { ConsentRepository } from "../consent/consent.repository";
+import { EmployerNameIndex } from "../employers/employer-name-index.service";
+import { EmployersModule } from "../employers/employers.module";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
 import { JobsModule } from "../jobs/jobs.module";
@@ -67,6 +69,8 @@ describe("ChatCompanionModule wiring", () => {
       "JobsDeferredHandler",
       // ADR-0046 P2/N1 — the consent-gated new-résumé handler.
       "NewResumeHandler",
+      // TD146/WP6 — the one-shot pending intent a task-chip tap leaves for the next message.
+      "PendingIntentStore",
       "PhaseOffHandler",
       "ProfilesRepository",
       "ResumeImportRepository",
@@ -99,6 +103,10 @@ describe("ChatCompanionModule wiring", () => {
     // the section writers, `ConsentModule` has no chat edge.
     expect(imports).toContain(ConsentModule);
     expect(getMeta("exports", ConsentModule)).toContain(ConsentRepository);
+    // TD147/WP7 — the employer-name index, from its own module: the decrypting service may not
+    // live under this leaf (the egress guard forbids `pii-crypto` here), so it is IMPORTED.
+    expect(imports).toContain(EmployersModule);
+    expect(getMeta("exports", EmployersModule)).toContain(EmployerNameIndex);
   });
 
   it("reaches the rest through @Global modules — pinned, so demoting one fails here, not at boot", () => {

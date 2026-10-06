@@ -731,23 +731,31 @@ describe("loadServerConfig", () => {
 });
 
 describe("companion v2 flags and knobs (ADR-0046 — every switch defaults off)", () => {
-  it("all five phase flags default OFF and treat the empty string as absent", () => {
+  it("all five phase flags and the route-precedence flag default OFF and treat the empty string as absent", () => {
     const c = loadServerConfig({});
     expect(c.CHAT_COMPANION_V2_ENABLED).toBe(false);
     expect(c.CHAT_COMPANION_V2_EDIT_ENABLED).toBe(false);
     expect(c.CHAT_COMPANION_V2_NEW_RESUME_ENABLED).toBe(false);
     expect(c.CHAT_COMPANION_V2_FALTU_ENABLED).toBe(false);
     expect(c.CHAT_COMPANION_V2_CAREER_ENABLED).toBe(false);
+    // TD146 (WP6) — its own switch, default off, so v1 stays byte-for-byte.
+    expect(c.CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED).toBe(false);
 
     const empty = loadServerConfig({
       CHAT_COMPANION_V2_ENABLED: "",
       CHAT_COMPANION_V2_EDIT_ENABLED: "",
+      CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED: "",
     });
     expect(empty.CHAT_COMPANION_V2_ENABLED).toBe(false);
     expect(empty.CHAT_COMPANION_V2_EDIT_ENABLED).toBe(false);
+    expect(empty.CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED).toBe(false);
     expect(loadServerConfig({ CHAT_COMPANION_V2_ENABLED: "true" }).CHAT_COMPANION_V2_ENABLED).toBe(
       true,
     );
+    expect(
+      loadServerConfig({ CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED: "true" })
+        .CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED,
+    ).toBe(true);
   });
 
   it("knobs default to the contracts' values and survive an empty env string (the `${VAR:-}` class)", () => {
