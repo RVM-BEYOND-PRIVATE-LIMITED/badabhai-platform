@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100" data-loop="3">
+  <g data-part="scene">
+    <rect x="0" y="0" width="300" height="100" fill="#05194C"/>
+    <rect x="0" y="84" width="300" height="16" fill="#F3F5F4" opacity="0.4"/>
+  </g>
+  <g data-part="unit">
+    <rect x="230" y="40" width="44" height="10" rx="5" fill="#F3F5F4" opacity="0.6"/>
+    <path d="M178 10 H222 L210 30 H190 Z" fill="#F3F5F4" opacity="0.8"/>
+    <path d="M178 10 H222 L210 30 H190 Z" stroke-width="4" fill="none" stroke="#F3F5F4" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
+    <rect x="170" y="30" width="60" height="54" rx="10" fill="#F3F5F4"/>
+    <circle cx="200" cy="56" r="15" fill="#05194C" opacity="0.8"/>
+    <circle cx="192" cy="8" r="3" fill="#FFB32C"/>
+    <circle cx="200" cy="6" r="3" fill="#FFB32C"/>
+    <circle cx="208" cy="9" r="3" fill="#FFB32C"/>
+  </g>
+  <g data-part="figure">
+    <path d="M48 84 V70 A22 22 0 0 1 92 70 V84 Z" fill="#FFB32C"/>
+    <path d="M57 40 A13 13 0 0 1 83 40 V41 A3 3 0 0 1 80 44 H60 A3 3 0 0 1 57 41 Z" fill="#FFB32C"/>
+  </g>
+  <g data-part="tablet">
+    <path d="M84 62 Q108 60 128 56" stroke-width="9" fill="none" stroke="#FFB32C" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="126" y="42" width="24" height="30" rx="5" fill="#F3F5F4" opacity="0.8"/>
+    <path d="M133 52 H143 M133 61 H139" stroke-width="4" fill="none" stroke="#05194C" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+  </g>
+  <g data-part="needle" data-motion="swing" data-amp="28" data-origin="200 56">
+    <path d="M200 56 L200 45" stroke-width="4" fill="none" stroke="#FFB32C" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="200" cy="56" r="3.5" fill="#FFB32C"/>
+  </g>
+</svg>

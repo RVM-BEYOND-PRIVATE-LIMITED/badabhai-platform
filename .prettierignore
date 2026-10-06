@@ -69,3 +69,8 @@ apps/api/src/resume/templates/**
 # only actual difference was single quotes becoming double. The generator is
 # the formatter for this file; nothing else may be.
 packages/profiling-lexicon/src/internal/data.generated.ts
+
+# GENERATED role art (packages/role-art/scripts/generate.mjs) — the generator owns the layout
+# and its --check compares bytes, so a formatter must never touch these.
+packages/role-art/src/generated/**
+packages/role-art/role-art.css

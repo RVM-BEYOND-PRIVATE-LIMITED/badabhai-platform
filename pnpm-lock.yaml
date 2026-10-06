@@ -244,6 +244,9 @@ importers:
       '@badabhai/pricing':
         specifier: workspace:*
         version: link:../../packages/pricing
+      '@badabhai/role-art':
+        specifier: workspace:*
+        version: link:../../packages/role-art
       '@badabhai/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -426,6 +429,27 @@ importers:
       '@badabhai/reach-engine':
         specifier: workspace:*
         version: link:../reach-engine
+
+  packages/role-art:
+    devDependencies:
+      '@badabhai/types':
+        specifier: workspace:*
+        version: link:../types
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.17)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.7(react@19.2.7)
+      vitest:
+        specifier: ^3.2.7
+        version: 3.2.7(@types/node@22.19.20)(terser@5.48.0)(tsx@4.22.4)
 
   packages/taxonomy:
     dependencies:
