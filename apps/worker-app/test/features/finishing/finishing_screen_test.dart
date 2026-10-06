@@ -191,6 +191,11 @@ void main() {
         await loader.load();
       }
 
+      // #1999 — the DISPLAY family is Kilimanjaro Sans now; load it so the
+      // measurement is the real device rendering, not the default test font.
+      await load('Kilimanjaro Sans', <String>[
+        'assets/fonts/KilimanjaroSans-Regular.otf',
+      ]);
       await load('Anek Latin', <String>[
         'assets/fonts/AnekLatin-SemiBold.ttf',
         'assets/fonts/AnekLatin-Bold.ttf',
