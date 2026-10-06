@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { Button } from "../../../../components/ds";
 import { acceptInviteAction } from "../actions";
 
@@ -32,7 +33,7 @@ export function AcceptInvite({ token }: { token: string }) {
     return (
       <div className="state state--error">
         <span className="state__icon">
-          <i className="ph-fill ph-link-break" aria-hidden="true" />
+          <Icon name="link-break" />
         </span>
         <h2 className="state__title">This invite link is missing its code</h2>
         <p className="state__body">Ask your team owner to resend the invite.</p>
@@ -48,7 +49,7 @@ export function AcceptInvite({ token }: { token: string }) {
   if (result?.ok) {
     return (
       <div className="alert alert--success">
-        <i className="ph-fill ph-check-circle alert__icon" aria-hidden="true" />
+        <Icon name="check-circle" className="alert__icon" />
         <div className="alert__text">
           <p className="alert__title">Invite accepted</p>
           <p className="alert__body">{result.message}</p>
@@ -56,7 +57,7 @@ export function AcceptInvite({ token }: { token: string }) {
         <div className="alert__actions">
           <Link className="bb-btn bb-btn--primary bb-btn--sm" href="/dashboard">
             <span>Go to your dashboard</span>
-            <i className="ph-fill ph-arrow-right" aria-hidden="true" />
+            <Icon name={ACTION_ICON.next} />
           </Link>
         </div>
       </div>
@@ -73,7 +74,7 @@ export function AcceptInvite({ token }: { token: string }) {
       <div aria-live="polite" className="form-status">
         {result && !result.ok ? (
           <div className="alert alert--danger">
-            <i className="ph-fill ph-warning-circle alert__icon" aria-hidden="true" />
+            <Icon name="warning-circle" className="alert__icon" />
             <div className="alert__text">
               {/* The server's NEUTRAL message, verbatim — it never says which check failed. */}
               <p className="alert__body">{result.message}</p>

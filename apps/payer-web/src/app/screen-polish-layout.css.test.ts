@@ -191,24 +191,24 @@ describe("PR-D2 · /dashboard — KPI band is opt-in and becomes ledger rows on 
   it("≤600px: each tile is a one-row ledger line (icon · label/caption · figure)", () => {
     const tile = rule(".stat-row--kpi .bb-stat", NARROW);
     expect(decl(tile, "display")).toBe("grid");
-    expect(decl(tile, "grid-template-areas")).toMatch(/"icon label value"\s+"icon caption value"/);
+    expect(decl(tile, "grid-template-areas")).toMatch(/"icon label value"\s+"icon caption \."/);
     expect(decl(rule(".stat-row--kpi .bb-stat__head", NARROW), "display")).toBe("contents");
     expect(decl(rule(".stat-row--kpi > *", NARROW), "flex-basis")).toBe("100%");
   });
 
-  it("W3-A ≤600px: the label/caption pair is CENTRED on the tile, with or without a caption", () => {
+  it("W3-A ≤600px: the text block is CENTRED on the tile, with or without a caption", () => {
     // Two content rows alone left a caption-less label (referral funnel, earnings) at the bottom
     // of row 1 — 9.6px above the centre line the icon and figure sit on (measured at 375px).
-    // Between two equal 1fr spacer rows the pair is centred, and an absent caption's row is 0.
+    // Between two equal 1fr spacer rows the block is centred, and an absent caption's row is 0.
     const tile = rule(".stat-row--kpi .bb-stat", NARROW);
     expect(decl(tile, "grid-template-rows")).toBe("1fr auto auto auto 1fr");
     const rows = decl(tile, "grid-template-areas")!.match(/"[^"]*"/g);
     expect(rows).toEqual([
-      '"icon . value"',
+      '"icon . ."',
       '"icon label value"',
-      '"icon caption value"',
-      '"icon delta value"',
-      '"icon . value"',
+      '"icon caption ."',
+      '"icon delta ."',
+      '"icon . ."',
     ]);
     // No row gap: three gaps between four rows would push a lone label off-centre by half one.
     expect(decl(tile, "gap")).toBeNull();
@@ -218,6 +218,24 @@ describe("PR-D2 · /dashboard — KPI band is opt-in and becomes ledger rows on 
     for (const sel of [".stat-row--kpi .bb-stat__label", ".stat-row--kpi .bb-stat__caption"]) {
       expect(decl(rule(sel, NARROW), "align-self"), sel).toBeNull();
     }
+  });
+
+  it("final sweep C ≤600px: the figure shares its LABEL's row, so the two share one centre line", () => {
+    // Spanning all five rows, the figure centred on the TILE while a caption under the label
+    // lifted the label off that line: 9.5px with a one-line caption (/dashboard), 18px with two
+    // (/plans), measured at 375px. On the label's row (and only there), both centre on it.
+    const tile = rule(".stat-row--kpi .bb-stat", NARROW);
+    const rows = decl(tile, "grid-template-areas")!
+      .match(/"[^"]*"/g)!
+      .map((r) => r.replace(/"/g, "").trim().split(/\s+/));
+    const labelRows = rows.flatMap((cells, i) => (cells.includes("label") ? [i] : []));
+    const valueRows = rows.flatMap((cells, i) => (cells.includes("value") ? [i] : []));
+    expect(labelRows).toHaveLength(1);
+    expect(valueRows).toEqual(labelRows);
+    // …centred within that row like everything else in the tile (no self-alignment of its own).
+    expect(decl(tile, "align-items")).toBe("center");
+    expect(decl(rule(".stat-row--kpi .bb-stat__value", NARROW), "grid-area")).toBe("value");
+    expect(decl(rule(".stat-row--kpi .bb-stat__value", NARROW), "align-self")).toBeNull();
   });
 
   it("W3-A ≤600px: EVERY child StatTile can render has its own named area (the '.' cells stay empty)", () => {

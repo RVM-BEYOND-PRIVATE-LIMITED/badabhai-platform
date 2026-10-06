@@ -63,9 +63,17 @@ const useState = vi.fn((init: unknown) => {
   };
   return [cells[i], setter] as [unknown, (v: unknown) => void];
 });
+// useRef / useEffect are inert stand-ins too: the unlock-result Toast's dismiss ✕ is the shared
+// icon-only control (IconButtonBase, a ref + an unmount effect), and the text walker below expands
+// it like any other child. A fresh ref and no effect render it as the plain markup it is.
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
-  return { ...actual, useState: (init: unknown) => useState(init) };
+  return {
+    ...actual,
+    useState: (init: unknown) => useState(init),
+    useRef: (init: unknown) => ({ current: init }),
+    useEffect: () => undefined,
+  };
 });
 
 const { ApplicantActions } = await import("./applicant-actions");

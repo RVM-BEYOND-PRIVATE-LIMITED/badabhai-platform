@@ -190,3 +190,33 @@ It does not change V1. The flag is ignored when `MATCH_V1_ENABLED` is on. The ar
 reads match inputs only (`reach_skill_ids`, never `role_kind`; the 2026-09-29 addendum holds).
 The arm, its apply/skip branch and the flag are deleted by this ADR's retirement change
 (ADR-0049 §8, TD152, #1904). The text above is not rewritten.
+
+## Addendum (2026-10-05) — the worker feed orders DIRECT before RELATED
+
+**Owner ruling, Prakash, 2026-10-05.** In the V1 worker feed (moment ④), a job the worker
+reaches through the **posted** skill (`match_tier` 1) ranks above one he reaches only through a
+**related** skill (tier 2). §7's feed order becomes:
+
+```sql
+ORDER BY (jp.boosted_until IS NOT NULL AND jp.boosted_until > now()) DESC, jr.match_tier ASC,
+         jp.published_at DESC NULLS LAST, jp.id ASC
+```
+
+- **Boost stays first.** A boosted tier-2 card still sorts above every unboosted card. The three
+  §7 fences are unchanged: boost permutes order only, never adds a card, never touches the
+  company's list.
+- **Not a score.** `match_tier` is the two-value tier materialized at publish (best tier wins).
+  It is a lexicographic key like recency: no weight, no formula, no model (§2, invariant #4).
+  The tier-floor `CASE` of §2 orders the company's candidate list only, not the feed.
+- **Still a total order.** `id ASC` stays last (E11/Policy 7).
+- **Scope.** Only behind `MATCH_V1_ENABLED`. The legacy `/feed` and the ADR-0049 union arm are
+  unchanged. No migration, no event schema change (`feed.shown_v2.rank` reports the new
+  position), no config change. The read stays on `job_reach_worker_idx`, which already carries
+  `match_tier` as an INCLUDE column.
+- **Open item, not decided here.** §5 (and spec Policy 23) say a feed-order change takes a new
+  `engine_version`, CEO sign-off and its own ADR. This change does not bump `engine_version`:
+  that value lives in `match_config` and stamps the application snapshot that orders the
+  company's list, which this ruling does not change. Whether the feed-order change needs a
+  version bump or a standalone ADR is left to the owner.
+
+The text above is not rewritten.
