@@ -259,6 +259,22 @@ describe("POST /chat/session — the greeting opens a new session (ADR-0051 (b))
     );
   });
 
+  it("under the kill switch the résumé-import open is NOT the free chat's (it stamps nothing)", async () => {
+    const { svc, orchestrator } = make({ killSwitch: true });
+    await svc.startSession(WORKER, CTX, CONFIRM_FIRST);
+    expect(orchestrator.openResumeConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ freeChat: false }),
+    );
+  });
+
+  it("`mint` skips the reattach entirely — the voice form's escape from a live free chat", async () => {
+    const { svc, chat } = make({ liveSession: { id: SESSION, status: "active", startedAt: T0 } });
+    const res = await svc.startSession(WORKER, CTX, { mint: true });
+    expect(chat.findActiveSessionByWorker).not.toHaveBeenCalled();
+    expect(chat.createSession).toHaveBeenCalledOnce();
+    expect(res.session_id).toBe(NEW_SESSION);
+  });
+
   it("opens no greeting on a REATTACH — the thread redraw shows it", async () => {
     const { svc, orchestrator } = make({
       liveSession: { id: SESSION, status: "active", startedAt: T0 },

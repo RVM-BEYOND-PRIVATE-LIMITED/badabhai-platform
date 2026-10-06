@@ -112,18 +112,27 @@ export class ProfilingSessionService {
    * resume-after-kill, and minting a session each time would leave a trail of one-question
    * interviews and — worse — ask a worker who answered nine questions yesterday to begin again.
    * The session row is the durable anchor; `openTurn` is idempotent on top of it.
+   *
+   * THE CANDIDATE IS THE LIVE SESSION (`findActiveSessionByWorker`), the one `startSession` itself
+   * reattaches to — not the latest by `last_message_at`, which ranks a fresh greeting session
+   * (clock still NULL) below an older ENDED one and so never consulted `notContinuable` for it,
+   * after which `startSession` reattached to that very session anyway. A live session that may not
+   * be continued here (an armed general road, a free chat in greeting or free mode, ADR-0051) gets
+   * a NEW session minted WITHOUT the reattach (`{ mint: true }`).
    */
   async start(workerId: string, ctx: RequestContext): Promise<ProfilingSessionResponse> {
-    const existing = await this.chat.findLatestSessionByWorker(workerId);
-    const reattach =
-      existing !== undefined &&
-      existing.status === "active" &&
-      !(await this.notContinuable(existing));
+    const live = await this.chat.findActiveSessionByWorker(workerId);
+    const reattach = live !== undefined && !(await this.notContinuable(live));
     const sessionId =
-      reattach && existing
-        ? existing.id
-        : ((await this.chatService.startSession(workerId, ctx)) as { session_id: string })
-            .session_id;
+      reattach && live
+        ? live.id
+        : (
+            (await this.chatService.startSession(
+              workerId,
+              ctx,
+              live === undefined ? {} : { mint: true },
+            )) as { session_id: string }
+          ).session_id;
 
     const turn = await this.orchestrator.openTurn({
       sessionId,

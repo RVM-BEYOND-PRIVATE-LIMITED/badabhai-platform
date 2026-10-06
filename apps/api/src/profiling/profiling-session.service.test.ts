@@ -10,7 +10,7 @@ import type { AnswerRecord, QuestionPackItem, QuestionPackOption } from "@badabh
 
 import { DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
 
-import type { ChatTurnOutcome } from "../chat/chat.service";
+import { ChatService, type ChatTurnOutcome } from "../chat/chat.service";
 import { TURN_KINDS } from "./conversation-state";
 import type { Lookahead, LookaheadEntry } from "./lookahead";
 import type { ServedQuestion, SessionView, TurnResult } from "./orchestrator.service";
@@ -153,6 +153,10 @@ function makeWorld(
   const chat = {
     findSession: vi.fn(async () => session),
     findLatestSessionByWorker: vi.fn(async () => opts.latest ?? undefined),
+    // The voice form's reattach candidate: the LIVE session, the one `startSession` reattaches to.
+    findActiveSessionByWorker: vi.fn(async () =>
+      opts.latest?.status === "active" ? opts.latest : undefined,
+    ),
     listPackAnswers: vi.fn(async () => opts.flushed ?? []),
   };
   const chatService = {
@@ -372,6 +376,71 @@ describe("start — never continues a chat session armed for the general road (A
 
     expect(result.session_id).toBe(SESSION);
     expect(chatService.startSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("start — the voice form mints past a live greeting session (a REAL startSession)", () => {
+  it("never reattaches into the greeting session: a NEW session is minted", async () => {
+    const NEW_SESSION = "55555555-5555-4555-8555-555555555555";
+    const greeting = {
+      id: SESSION,
+      workerId: WORKER,
+      status: "active",
+      startedAt: new Date(),
+      lastMessageAt: null,
+      conversationState: null,
+    };
+    const chat = {
+      findActiveSessionByWorker: vi.fn(async () => greeting),
+      findLatestSessionByWorker: vi.fn(async () => undefined),
+      createSession: vi.fn(async () => ({
+        id: NEW_SESSION,
+        status: "active",
+        startedAt: new Date(),
+      })),
+    };
+    const orchestrator = {
+      viewSession: vi.fn(
+        async (): Promise<SessionView | null> =>
+          ({
+            buffer: {} as never,
+            envelope: { generalRoad: { armed: false }, freeChat: { mode: "greeting" } } as never,
+            items: [],
+            served: null,
+          }) as SessionView,
+      ),
+      openTurn: vi.fn(async () => turn({ questionKey: "q_city" })),
+    };
+    const chatService = new ChatService(
+      { CHAT_ONE_SHOT_OPENER_ENABLED: false } as never,
+      chat as never,
+      { findById: vi.fn(async () => ({ id: WORKER, fullName: null })) } as never,
+      {} as never,
+      { emit: vi.fn(async () => undefined) } as never,
+      {} as never,
+      {} as never,
+      orchestrator as never,
+    );
+    const service = new ProfilingSessionService(
+      chat as never,
+      chatService,
+      orchestrator as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    const result = await service.start(WORKER, CTX);
+
+    expect(result.session_id).toBe(NEW_SESSION);
+    expect(chat.createSession).toHaveBeenCalledOnce();
+    // The voice form read the live session ONCE; `startSession` did not reattach to it.
+    expect(chat.findActiveSessionByWorker).toHaveBeenCalledOnce();
+    expect(orchestrator.openTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: NEW_SESSION }),
+    );
   });
 });
 

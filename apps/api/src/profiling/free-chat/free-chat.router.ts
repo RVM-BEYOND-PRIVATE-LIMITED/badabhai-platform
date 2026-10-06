@@ -98,6 +98,18 @@ export function isResumeChip(text: string): boolean {
   return isChip(text, FREE_CHAT_RESUME_KEY, FREE_CHAT_RESUME_LABEL);
 }
 
+/**
+ * Any of the free chat's three chips — its key or its label. In résumé mode a double tap of one is
+ * a no-op that re-serves the pending question (never captured as an answer).
+ */
+export function isFreeChatChip(text: string): boolean {
+  return (
+    isChip(text, FREE_CHAT_START_KEY, FREE_CHAT_START_LABEL) ||
+    isChip(text, FREE_CHAT_LATER_KEY, FREE_CHAT_LATER_LABEL) ||
+    isResumeChip(text)
+  );
+}
+
 /** Does the message match one of the options the worker was shown — its key or its label? */
 export function matchesOfferedOption(
   text: string,
@@ -233,6 +245,9 @@ export type FreeModeAction =
 
 export function postClassifyFree(verdict: FreeChatVerdict, text: string): FreeModeAction {
   if (verdict.kind === "unavailable") return { kind: "clarify" };
+  // DISTRESS BYPASSES THE FLOOR: a helpline offered to a worker who did not need it costs one line;
+  // a clarify served to one who did is the failure R10 exists to prevent.
+  if (verdict.category === "distress") return { kind: "fixed", line: "DISTRESS" };
   if (verdict.confidence < FREE_CHAT_MIN_CONFIDENCE) return { kind: "clarify" };
   switch (verdict.category) {
     case "resume":
@@ -244,8 +259,6 @@ export function postClassifyFree(verdict: FreeChatVerdict, text: string): FreeMo
       return { kind: "fixed", line: "JOBS" };
     case "off_limits":
       return { kind: "fixed", line: "OFF_LIMITS" };
-    case "distress":
-      return { kind: "fixed", line: "DISTRESS" };
     case "trash":
       return { kind: "strike" };
     case "unclear":
@@ -280,8 +293,18 @@ export interface ResumeSkipFacts {
   readonly asideCapReached: boolean;
 }
 
-/** The lexicon classes today's interview already owns (de-escalation, silence, "pata nahi"). */
-const LEXICON_OWNED: ReadonlySet<UtteranceClass> = new Set(["abusive", "empty", "dont_know"]);
+/**
+ * The lexicon classes today's interview already owns: de-escalation, silence, "pata nahi", and —
+ * by owner ruling 2026-10-06 — hardship (today's sympathetic line) and a question back (today's
+ * why-then-question). Distress is read before this list, so a distress phrase never lands here.
+ */
+const LEXICON_OWNED: ReadonlySet<UtteranceClass> = new Set([
+  "abusive",
+  "empty",
+  "dont_know",
+  "hardship",
+  "question_back",
+]);
 
 export type ResumeModePre =
   | { readonly kind: "distress" }
@@ -335,14 +358,14 @@ export type ResumeModeAction =
 export function postClassifyResume(verdict: FreeChatVerdict): ResumeModeAction {
   // AN OUTAGE NEVER DEGRADES THE INTERVIEW: unavailable is today's interview, not a clarify.
   if (verdict.kind === "unavailable") return { kind: "pass" };
+  // DISTRESS BYPASSES THE FLOOR, in this mode as in free mode (R10).
+  if (verdict.category === "distress") return { kind: "distress" };
   if (verdict.confidence < FREE_CHAT_MIN_CONFIDENCE) return { kind: "clarify" };
   switch (verdict.category) {
     case "resume":
       return { kind: "pass" };
     case "trash":
       return { kind: "de_escalate" };
-    case "distress":
-      return { kind: "distress" };
     case "unclear":
       return { kind: "clarify" };
     case "career":

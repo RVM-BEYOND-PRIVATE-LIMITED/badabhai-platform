@@ -409,8 +409,37 @@ describe("the kill switch — every reply is the orchestrator without the free c
     // No model was asked anything, and the buffers carry the same lines.
     expect(off.ai.freeChatClassify).not.toHaveBeenCalled();
     expect(off.saved()!.messages).toEqual(absent.saved()!.messages);
-    // The session was still stamped résumé mode — invisibly — for the lock.
-    expect(off.envelope().freeChat).toMatchObject({ mode: "resume", trigger: "kill_switch" });
+    // THE SWITCH WRITES NOTHING: no mode stamped, no lock merged, no free-chat event.
+    expect(off.envelope().freeChat).toBeNull();
+    expect(off.chat.mergeFreeChatLock).not.toHaveBeenCalled();
+    expect(off.emitted("chat.free_chat_turn_served")).toEqual([]);
+    expect(off.emitted("chat.free_chat_mode_changed")).toEqual([]);
+  });
+
+  it("a session with no mode seen after the switch goes back OFF is stamped as today (first_turn)", async () => {
+    const off = makeWorld({ killSwitch: true });
+    await off.say("main welder hoon");
+    expect(off.envelope().freeChat).toBeNull();
+    const on = makeWorld();
+    on.store.set(SESSION, off.saved()!);
+    await on.say("welder");
+    expect(on.envelope().freeChat).toMatchObject({ mode: "resume", trigger: "first_turn" });
+  });
+
+  it("opens a résumé-import turn without stamping résumé mode or writing a lock", async () => {
+    const off = makeWorld({ killSwitch: true, identity: LINE });
+    const opened = await off.orchestrator.openResumeConfirm({
+      sessionId: SESSION,
+      workerId: WORKER,
+      now: T0,
+      ctx: CTX as never,
+      // The chat passes `!CHAT_FREE_CHAT_DISABLED` here.
+      freeChat: false,
+    });
+    expect(opened).not.toBeNull();
+    expect(off.envelope().freeChat).toBeNull();
+    expect(off.chat.mergeFreeChatLock).not.toHaveBeenCalled();
+    expect(off.emitted("chat.free_chat_mode_changed")).toEqual([]);
   });
 
   it("serves the intake's handoff opener byte for byte", async () => {
@@ -424,15 +453,19 @@ describe("the kill switch — every reply is the orchestrator without the free c
     expect(a.reply).toBe(INTAKE_HANDOFF_TEXT);
   });
 
-  it("treats ANY message on a greeting or free session as the greeting's Haan", async () => {
+  it("a greeting session started while it was on: the message reaches today's interview, the mode is kept", async () => {
     const world = makeWorld();
     await world.greet();
     const off = makeWorld({ killSwitch: true });
     off.store.set(SESSION, world.saved()!);
-    const turn = await off.say("aaj mausam kaisa hai");
-    expect(turn.reply).toBe(FREE_CHAT_COPY.OPENER.latin);
-    expect(off.envelope().freeChat).toMatchObject({ mode: "resume", trigger: "kill_switch" });
+    const turn = await off.say("main welder hoon");
+    expect(turn.reply).toBe(TRADE.prompt_text);
+    expect(off.saved()!.turnCount).toBe(1);
+    // KEPT, never re-stamped: the switch writes nothing.
+    expect(off.envelope().freeChat).toMatchObject({ mode: "greeting" });
     expect(off.ai.freeChatClassify).not.toHaveBeenCalled();
+    expect(off.emitted("chat.free_chat_turn_served")).toEqual([]);
+    expect(off.emitted("chat.free_chat_mode_changed")).toEqual([]);
   });
 });
 
@@ -1036,6 +1069,130 @@ describe("the identity intake's handoff (ADR-0051 (a))", () => {
 });
 
 // ---------------------------------------------------------------------------
+// The code-review round
+// ---------------------------------------------------------------------------
+
+describe("the helpline is never re-served as 'the pending question'", () => {
+  it("distress with nothing held, then a casual verdict: the interview answers, not the helpline again", async () => {
+    const world = makeWorld();
+    // The session's first message — nothing on screen, nothing held.
+    expect((await world.say("main marna chahta hoon")).reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    expect(world.envelope().freeChat!.held).toBeNull();
+    world.classifyAs(verdict("casual"));
+    const next = await world.say("acha theek hai");
+    expect(next.reply).not.toContain(FREE_CHAT_COPY.DISTRESS.latin);
+    expect(next.reply).toBe(TRADE.prompt_text);
+  });
+});
+
+describe("résumé mode — hardship and a question back keep today's handling (owner ruling)", () => {
+  it.each([
+    ["hardship", "ghar chalana mushkil ho gaya hai"],
+    // The lexicon's question back is the job-prospect question (persona §5).
+    ["question back", "Sir job milegi kya?"],
+  ])("%s skips the classifier", async (_label, text) => {
+    const world = makeWorld();
+    await inResumeMode(world);
+    world.classifyAs(verdict("resume"));
+    await world.say("main welder hoon");
+    world.ai.freeChatClassify.mockClear();
+    await world.say(text);
+    expect(world.ai.freeChatClassify).not.toHaveBeenCalled();
+  });
+});
+
+describe("résumé mode — a double-tapped free-chat chip is a no-op", () => {
+  it.each(["Haan, shuru karein", "free_chat_start", "Resume banayein", "Baad mein"])(
+    "%j re-serves the pending question: not captured, not classified, counted toward no cap",
+    async (text) => {
+      const world = makeWorld();
+      await inResumeMode(world);
+      const before = world.envelope();
+      const turn = await world.say(text);
+      expect(turn.reply).toBe(FREE_CHAT_COPY.OPENER.latin);
+      expect(world.ai.freeChatClassify).not.toHaveBeenCalled();
+      const after = world.envelope();
+      expect(world.saved()!.turnCount).toBe(0);
+      expect(after.answerMap).toEqual([]);
+      expect(after.freeChat!.asides).toBe(before.freeChat!.asides);
+      expect(after.freeChat!.deflected).toBeNull();
+      // Nothing was decided, so nothing is recorded as served.
+      const served = world.emitted("chat.free_chat_turn_served").map((e) => e.payload.outcome);
+      expect(served).toEqual(["greeting", "opener"]);
+    },
+  );
+});
+
+describe("a pending résumé import found at the greeting or in free mode (an upload is résumé intent)", () => {
+  it("serves the import's turn on the next message instead of hiding it behind Haan", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.resume.identityForChat.mockResolvedValue(LINE as never);
+    const turn = await world.say("kaise ho");
+    expect(optionKeys(turn)).toEqual(RESUME_IDENTITY_OPTIONS.map((o) => o.option_key));
+    expect(world.ai.freeChatClassify).not.toHaveBeenCalled();
+    expect(world.envelope().freeChat).toMatchObject({ mode: "resume", trigger: "resume_import" });
+    expect(world.emitted("chat.free_chat_turn_served").at(-1)!.payload).toMatchObject({
+      decided_by: "flow",
+      category: "resume",
+      outcome: "opener",
+    });
+  });
+
+  it("distress still outranks it", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.resume.identityForChat.mockResolvedValue(LINE as never);
+    expect((await world.say("suicide")).reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    expect(world.envelope().freeChat!.mode).toBe("free");
+  });
+});
+
+describe("a classifier distress verdict bypasses the confidence floor", () => {
+  it("free mode: distress at 0.3 gives the helpline", async () => {
+    const world = makeWorld();
+    await inFreeMode(world);
+    world.classifyAs(verdict("distress", 0.3));
+    expect((await world.say("sab khatam sa lag raha hai")).reply).toBe(
+      FREE_CHAT_COPY.DISTRESS.latin,
+    );
+  });
+
+  it("résumé mode: distress at 0.3 gives the helpline, not a clarify", async () => {
+    const world = makeWorld();
+    await inResumeMode(world);
+    world.classifyAs(verdict("distress", 0.3));
+    expect((await world.say("sab khatam sa lag raha hai")).reply).toBe(
+      FREE_CHAT_COPY.DISTRESS.latin,
+    );
+  });
+});
+
+describe("the classify memo is keyed by its inputs", () => {
+  it("a lost CAS that reloads onto ANOTHER pending question classifies again", async () => {
+    const world = makeWorld();
+    await inResumeMode(world);
+    world.classifyAs(verdict("casual"), verdict("casual"));
+    // The first write loses to a winner that put a pack question on screen.
+    world.buffer.saveWithCas.mockImplementationOnce(async (id: string) => {
+      const held = world.store.get(id)!;
+      world.store.set(id, {
+        ...held,
+        profiling: {
+          ...held.profiling!,
+          rev: held.profiling!.rev + 1,
+          servedQuestionKey: TRADE.question_key,
+        },
+      });
+      return false;
+    });
+    const turn = await world.say("aaj garmi hai");
+    expect(world.ai.freeChatClassify).toHaveBeenCalledTimes(2);
+    expect(turn.reply).toBe(`${FREE_CHAT_COPY.LOCK_DEFLECT.latin} ${TRADE.prompt_text}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 4. The CAS — a lost write never pays twice
 // ---------------------------------------------------------------------------
 
@@ -1085,8 +1242,30 @@ describe("transcript hygiene — no aside line reaches a reader of meaning", () 
 });
 
 describe("the gates beside the turn", () => {
-  it("openResumeConfirm opens nothing beneath a greeting (ADR-0051 (e))", async () => {
-    const world = makeWorld({ identity: LINE });
+  it("a REATTACH with a pending import at the greeting serves the import and enters résumé mode", async () => {
+    const world = makeWorld();
+    await world.greet();
+    // The worker uploads a résumé, then the app reopens the chat.
+    world.resume.identityForChat.mockResolvedValue(LINE as never);
+    const opened = await world.orchestrator.openResumeConfirm({
+      sessionId: SESSION,
+      workerId: WORKER,
+      now: T0,
+      ctx: CTX as never,
+      freeChat: true,
+    });
+    expect(optionKeys(opened!)).toEqual(RESUME_IDENTITY_OPTIONS.map((o) => o.option_key));
+    expect(world.envelope().freeChat).toMatchObject({ mode: "resume", trigger: "resume_import" });
+    expect(world.envelope().resumeIdentity).toEqual({ importId: IMPORT, state: "pending" });
+    expect(world.emitted("chat.free_chat_mode_changed")[0]!.payload).toMatchObject({
+      from: "greeting",
+      to: "resume",
+      trigger: "resume_import",
+    });
+  });
+
+  it("openResumeConfirm opens nothing beneath a greeting with NO import — and openTurn writes nothing", async () => {
+    const world = makeWorld();
     await world.greet();
     const before = world.saved();
     expect(
@@ -1098,6 +1277,14 @@ describe("the gates beside the turn", () => {
         freeChat: true,
       }),
     ).toBeNull();
+    // A free chat's screen is the free chat's: no pack question is ever written under it.
+    const opened = await world.orchestrator.openTurn({
+      sessionId: SESSION,
+      workerId: WORKER,
+      now: T0,
+      ctx: CTX as never,
+    });
+    expect(opened.unavailable).toBe(true);
     expect(world.saved()).toEqual(before);
   });
 

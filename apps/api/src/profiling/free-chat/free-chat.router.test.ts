@@ -6,6 +6,7 @@ import {
   confidenceBucketOf,
   DISTRESS_PHRASES,
   FREE_CHAT_MIN_CONFIDENCE,
+  isFreeChatChip,
   isResumeChip,
   matchesDistress,
   matchesOfferedOption,
@@ -58,6 +59,21 @@ describe("reading the worker's words deterministically", () => {
     expect(isResumeChip("free_chat_resume")).toBe(true);
     expect(isResumeChip("  resume BANAYEIN ")).toBe(true);
     expect(isResumeChip("resume banao")).toBe(false);
+  });
+
+  it("reads any of the three free-chat chips, by key or label", () => {
+    for (const chip of [
+      "Haan, shuru karein",
+      "free_chat_start",
+      "Baad mein",
+      "free_chat_later",
+      "Resume banayein",
+      "free_chat_resume",
+    ]) {
+      expect(isFreeChatChip(chip)).toBe(true);
+    }
+    expect(isFreeChatChip("haan")).toBe(false);
+    expect(isFreeChatChip("main welder hoon")).toBe(false);
   });
 
   it("matches an offered option by key or by its normalised label", () => {
@@ -151,6 +167,8 @@ describe("free mode — the classifier's answer", () => {
   it.each([
     [UNAVAILABLE_VERDICT, { kind: "clarify" }],
     [v("career", FREE_CHAT_MIN_CONFIDENCE - 0.01), { kind: "clarify" }],
+    // Distress bypasses the floor.
+    [v("distress", 0.3), { kind: "fixed", line: "DISTRESS" }],
     [v("unclear"), { kind: "clarify" }],
     [v("career", FREE_CHAT_MIN_CONFIDENCE), { kind: "reply", category: "career" }],
     [v("casual"), { kind: "reply", category: "casual" }],
@@ -199,6 +217,8 @@ describe("résumé mode — the skip list, then the classifier", () => {
     ["the lexicon's abusive class", { lexiconClass: "abusive" as const }],
     ["the lexicon's empty class", { lexiconClass: "empty" as const }],
     ["the lexicon's dont_know class", { lexiconClass: "dont_know" as const }],
+    ["the lexicon's hardship class", { lexiconClass: "hardship" as const }],
+    ["the lexicon's question_back class", { lexiconClass: "question_back" as const }],
     ["a typed answer", { typedAnswer: true }],
     ["nothing on screen to re-ask", { hasPendingQuestion: false }],
     ["the aside cap", { asideCapReached: true }],
@@ -215,6 +235,7 @@ describe("résumé mode — the skip list, then the classifier", () => {
     [v("resume"), "pass"],
     [v("trash"), "de_escalate"],
     [v("distress"), "distress"],
+    [v("distress", 0.3), "distress"],
     [v("unclear"), "clarify"],
     [v("resume", 0.59), "clarify"],
     [v("career"), "deflect"],

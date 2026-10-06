@@ -228,7 +228,7 @@ export class ChatService {
   async startSession(
     workerId: string,
     ctx: RequestContext,
-    opts: { confirmFirst?: boolean; redo?: boolean } = {},
+    opts: { confirmFirst?: boolean; redo?: boolean; mint?: boolean } = {},
   ) {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
@@ -255,7 +255,12 @@ export class ChatService {
     // (an early finish): a redo must not run inside it, see `supersedeConfirmedLeftover`. Only
     // the client's `redo` flag says so. Without it this POST is indistinguishable from the resume
     // fallback above, which must keep reattaching whatever the session's history.
-    const found = await this.chat.findActiveSessionByWorker(workerId);
+    //
+    // ADR-0051 — `mint` SKIPS THE REATTACH ENTIRELY. Only the voice form passes it, and only when
+    // it has already judged the live session not continuable (a free chat in greeting or free mode,
+    // an armed general road): reattaching here would hand it back that same session.
+    const found =
+      opts.mint === true ? undefined : await this.chat.findActiveSessionByWorker(workerId);
     const live =
       found && opts.redo === true && (await this.supersedeConfirmedLeftover(found, workerId, ctx))
         ? undefined
@@ -483,7 +488,8 @@ export class ChatService {
         now: new Date(),
         ctx,
         // ADR-0051 (c) — a chat session that opens on a résumé-import turn enters résumé mode.
-        freeChat: true,
+        // Never under the kill switch, which stamps nothing.
+        freeChat: this.config.CHAT_FREE_CHAT_DISABLED !== true,
       });
     } catch (error) {
       // DEGRADES, NEVER FAILS — the identical posture `autoTriggerExtraction` takes on the
