@@ -40,6 +40,7 @@ from .logging_config import configure_logging, correlation_id_var, get_logger, r
 from .routers import (
     companion,
     embeddings,
+    free_chat,
     growth,
     health,
     job_posting,
@@ -256,6 +257,10 @@ app.include_router(voice.api_router)
 # that only exists when a flag is set answers 404, which is indistinguishable from a
 # path typo. Neither route writes anything.
 app.include_router(companion.api_router)
+# ADR-0051 — the profiling-stage free chat's classifier and reply. Registered unconditionally for
+# the companion's reason: the API holds the only lever (`CHAT_FREE_CHAT_DISABLED`), and an unarmed
+# task answers from its mock, which the API reads as "unavailable". Neither route writes anything.
+app.include_router(free_chat.api_router)
 
 # R7 §1 — the SYNTHETIC-PERSONA harness, and the second of its three barriers.
 #

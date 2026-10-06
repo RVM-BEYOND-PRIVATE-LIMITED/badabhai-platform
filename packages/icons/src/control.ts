@@ -91,6 +91,42 @@ export function restoreTooltip(control: Pick<Element, "removeAttribute">): void 
   control.removeAttribute(TOOLTIP_DISMISSED_ATTRIBUTE);
 }
 
+/** What {@link focusWithoutTooltip} needs from the target (any `HTMLElement` fits). */
+export interface FocusArrivalTarget {
+  readonly children: ArrayLike<{ readonly classList: Pick<DOMTokenList, "contains"> }>;
+  readonly ownerDocument: { readonly activeElement: unknown };
+  setAttribute(name: string, value: string): void;
+  removeAttribute(name: string): void;
+  focus(options?: FocusOptions): void;
+}
+
+/**
+ * Move focus to a control the APP chose — a dialog's first focusable on open, the menu button a
+ * closing drawer hands focus back to — WITHOUT opening that control's tooltip.
+ *
+ * The tooltip shows on keyboard focus (`:focus-visible`), but focus the app put there is not the
+ * user pointing at the control: a dialog opened from the keyboard lands on its ✕, and the "Close"
+ * bubble covered the first line of the body, dismissable only by Escape — which also closes the
+ * dialog (WCAG 1.4.13). So a control with a `.bb-icon-tip` child arrives with the tooltip already
+ * dismissed ({@link TOOLTIP_DISMISSED_ATTRIBUTE}); its own blur / pointer leave re-arm it
+ * ({@link restoreTooltip}), so moving away and back shows it as usual — and so does HOVER: pointer
+ * enter clears it (`useIconTipHandlers`), so only keyboard focus stays quiet. Any other target is
+ * focused untouched.
+ *
+ * Never an attribute nothing will clear: when the focus does not take — a control that is
+ * `display: none` right now (the drawer's menu button once the window has widened past the drawer
+ * breakpoint) never receives the blur that re-arms it — the flag is taken back at once, or its
+ * tooltip would stay dismissed for good.
+ */
+export function focusWithoutTooltip(target: FocusArrivalTarget, options?: FocusOptions): void {
+  const hasTip = Array.from(target.children).some((c) => c.classList.contains("bb-icon-tip"));
+  if (hasTip) target.setAttribute(TOOLTIP_DISMISSED_ATTRIBUTE, "");
+  target.focus(options);
+  if (hasTip && target.ownerDocument.activeElement !== target) {
+    target.removeAttribute(TOOLTIP_DISMISSED_ATTRIBUTE);
+  }
+}
+
 /** What {@link watchEscapeWhileHovered} needs from the control (an `HTMLButtonElement` fits). */
 export interface HoverEscapeTarget {
   readonly isConnected: boolean;

@@ -130,7 +130,7 @@ unavailable.
   - use no "!" or emoji
   - avoid the persona's banned tokens
   - never address the worker by name
-- **Casual** refuses `off_limits` and `distress`.
+- **Casual** refuses `off_limits`, `distress` and `news`.
 - **Career** refuses `legal_medical_financial` and `news`. Career allows "aam taur par" ₹ ranges and company
   names, never promises a job, and never ranks the worker.
 - **Each call is memoised per `takeTurn`**, so a lost CAS never pays twice.

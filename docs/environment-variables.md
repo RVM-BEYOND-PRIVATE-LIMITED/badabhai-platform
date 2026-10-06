@@ -142,7 +142,9 @@ NestJS boot assertion).
   with companion v1 live, and real model calls need the box to widen the ai-service's
   `AI_REAL_CALL_TASKS` allowlist to name `companion_classify` and `companion_edit_parse` (P1)
   and `companion_career_answer` (P3). The production box sets its own list, which replaces
-  the compose default (#1843), so widening means appending to that list on the box.
+  the compose default (#1843), so widening means appending to that list on the box. The
+  profiling-stage free chat's two tasks (`profiling_free_classify`, `profiling_free_reply`,
+  ADR-0051) are appended the same way; see its kill-switch entry below.
 - **The general road (ADR-0045)** — `CHAT_GENERAL_ROAD_ENABLED` (default off; off is the interview
   as it was for every worker). On, a chat worker whose role is outside the 21 predefined roles gets
   role → skills and then the offline general form. Needs `CHAT_LLM_INTERVIEW_ENABLED`. Stamped per

@@ -130,6 +130,13 @@ _ROUTE_SHAPES: dict[str, tuple[ModelTier, bool]] = {
     # object (answer lines or a refusal topic); the tier is a harmless placeholder - the route
     # sets `model` explicitly (O7: Claude primary), so no tier default is consulted.
     "companion_career_answer": ("cheap", True),
+    # ADR-0051 - the profiling-stage free chat. The classifier is CHEAP for the companion
+    # classifier's reason: an eight-way choice over one short message, on the live interview path
+    # where latency is the cost that matters. The reply's tier is a placeholder like the career
+    # answer's: its route names the model explicitly. `json_mode` on both: each answer is parsed
+    # as an object, and a prose preamble would be scraped.
+    "profiling_free_classify": ("cheap", True),
+    "profiling_free_reply": ("cheap", True),
 }
 
 
@@ -353,6 +360,38 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
             # global `default_fallback_model` is ALSO Claude, and the router skips a fallback
             # whose provider matches the primary's - so without this the career chain would
             # have no cross-provider fallback at all.
+            model=settings.default_career_model,
+            fallback_model=settings.default_capable_model,
+        )
+    if task_type == "profiling_free_classify":
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # THE COMPANION CLASSIFIER'S NUMBERS, for its reasons (ADR-0051 §3.3). 48 tokens: the
+            # worst-case answer `{"category": "off_limits", "confidence": 0.95}` is ~15 tokens,
+            # and the API waits ~2.5 s, so the output cap is part of the worst-case latency.
+            max_output_tokens=48,
+            # TEMPERATURE ZERO: a closed-set choice, and the same résumé-mode answer must route
+            # the same way on a retry.
+            temperature=0.0,
+            json_mode=json_mode,
+            max_retries=settings.ai_chat_max_retries,
+        )
+    if task_type == "profiling_free_reply":
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # The companion career answer's budget: at most 4 lines plus 3 chips, so 512 is slack,
+            # and a truncated object fails the contract like a rejected one.
+            max_output_tokens=512,
+            # 0.5 (ADR-0051 §3.3), a little above the companion's 0.4: casual talk that reads the
+            # same on every ask feels like a form. Sampling is never what keeps it SAFE; the API's
+            # validator does that whatever the temperature.
+            temperature=0.5,
+            json_mode=json_mode,
+            max_retries=settings.ai_chat_max_retries,
+            # The career answer's chain: Claude primary, Gemini Flash as THIS task's fallback,
+            # because the global fallback is also Claude and the router skips a same-provider one.
             model=settings.default_career_model,
             fallback_model=settings.default_capable_model,
         )
