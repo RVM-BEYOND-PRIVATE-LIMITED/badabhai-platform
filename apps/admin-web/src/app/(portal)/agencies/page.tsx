@@ -7,6 +7,7 @@ import { PayerList } from "../../../components/payer-list";
 import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Pager } from "../../../components/pager";
 import { PayerFilterBar } from "../../../components/payer-filter-bar";
+import { FilterPanel } from "../../../components/filter-panel";
 import { PageHeader } from "../../../components/page-header";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { RetryActions } from "../../../components/retry-actions";
@@ -67,12 +68,10 @@ export default async function AgenciesPage({
           </>
         }
         filters={
-          <section className="panel" aria-labelledby="af-heading">
-            <h2 className="sr-only" id="af-heading">
-              Filter agencies
-            </h2>
+          /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */
+          <FilterPanel headingId="af-heading" heading="Filter agencies" activeCount={status ? 1 : 0}>
             <PayerFilterBar basePath="/agencies" status={status ?? ""} />
-          </section>
+          </FilterPanel>
         }
       />
 

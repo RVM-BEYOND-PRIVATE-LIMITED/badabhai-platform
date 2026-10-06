@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/job_card_brand_footer.dart';
 import '../../../../core/widgets/bb_job_card.dart';
 import '../../../../core/widgets/kit/kit_square_icon_button.dart';
+import '../../../../core/widgets/role_art/role_art.dart';
 import 'job_deck.dart' show kSkipSemanticLabel;
 
 /// DESIGN1 — the Jobs-tab single job card, pixel-drawn from
@@ -18,6 +20,9 @@ import 'job_deck.dart' show kSkipSemanticLabel;
 ///    "Duty & Suvidhayein" chips; empty hides the section.
 ///  - [next] is the REAL next job in the queue (or null); its teaser
 ///    advances the pager via [onNextTap] — no backend decision is recorded.
+///
+/// The ROLE ILLUSTRATION ([RoleArtBanner], from [BbJobCardData.roleKind])
+/// heads the face; it is decorative and never prints the role as text.
 ///
 /// Static chrome labels ("MAHINE KI SALARY", "Duty & Suvidhayein",
 /// "AAPKE LIYE AUR OPTIONS", "Feedback", "Apply", "Dekhein", "Sab dekhein")
@@ -49,6 +54,7 @@ class Design1JobCard extends StatelessWidget {
     this.onSeeAll,
     this.showDock = true,
     this.showTeaser = true,
+    this.compact = false,
   }) : assert(
          !showDock || (onApply != null && onFeedback != null),
          'showDock needs onApply + onFeedback',
@@ -71,6 +77,11 @@ class Design1JobCard extends StatelessWidget {
   /// job and its own dock owns the actions.
   final bool showDock;
   final bool showTeaser;
+
+  /// The deck box is short (< ~300dp: a 320x568 handset, or any phone in
+  /// landscape — [JobDeck] decides). The role illustration is dropped so the
+  /// clip never eats the salary box: the worker's pay outranks decoration.
+  final bool compact;
 
   // Design1 pastels, measured off the mock. Kept local: they are this
   // card's drawing, not app-wide tokens.
@@ -147,6 +158,15 @@ class Design1JobCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
+              // The animated role illustration heads the card — the same art,
+              // the same place and the same 3:1 size as the payer's live
+              // preview (`job-card-preview.tsx`), except on a COMPACT deck,
+              // where it is dropped so the salary box always fits. An unknown
+              // role draws the generic scene.
+              if (!compact) ...<Widget>[
+                RoleArtBanner(roleKind: data.roleKind),
+                const SizedBox(height: AppSpacing.s3),
+              ],
               _TitleRow(data: data, onTitleTap: onTitleTap),
               const SizedBox(height: 2),
               _PlaceRow(place: data.place),

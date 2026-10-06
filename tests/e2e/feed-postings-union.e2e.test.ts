@@ -1,6 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, inArray } from "drizzle-orm";
-import { applications, createDbClient, events, jobPostings, type DbClient } from "@badabhai/db";
+import {
+  applications,
+  createDbClient,
+  events,
+  jobPostings,
+  unlocks,
+  type DbClient,
+} from "@badabhai/db";
 import { mintPayerSession } from "./helpers/payer-session";
 
 /**
@@ -9,10 +16,12 @@ import { mintPayerSession } from "./helpers/payer-session";
  *
  *   payer creates a posting with every card field -> publishes it with a match skill -> a
  *   FRESH worker (no wanted skills, so the #1240 rule serves him every posting) sees it on
- *   `GET /feed` with every field verbatim on the legacy 17 keys -> applies (200, a
+ *   `GET /feed` with every field verbatim on the legacy 17 keys + role_kind -> applies (200, a
  *   `job_posting_id` row) -> the Applied tab and the ops applicant read both list it -> the
  *   spine carries `feed.shown` and `application.submitted` on subject `job_posting`, and no
- *   `feed.shown_v2`.
+ *   `feed.shown_v2` -> the PAYER's `/payer/reach/jobs/:id/applicants` serves that posting and
+ *   lists him -> a payer unlock referencing the posting id is granted with a NULL legacy job
+ *   context on the row and on the spine (#1903). The last two are the PRE-ARM gate.
  *
  * WHY A DEDICATED, DOUBLE-ARMED GATE. The flag is OFF by default everywhere, and the CI e2e
  * pass that runs every other suite runs the API that way on purpose — prod's default path
@@ -68,6 +77,7 @@ const FEED_ITEM_KEYS = [
   "posted_at",
   "rank",
   "requirements",
+  "role_kind",
   "shift",
   "title",
   "trade_key",
@@ -75,7 +85,8 @@ const FEED_ITEM_KEYS = [
 
 /**
  * Every payer-web `CardField` (apps/payer-web/src/lib/job-card-view.ts) plus the description.
- * `role_kind` is sent on purpose: it must NOT reach the worker card (ADR-0024 addendum, O6).
+ * `role_kind` is sent on purpose: since the owner ruling of 2026-10-05 (ADR-0024 addendum) it
+ * reaches the worker card on its OWN key, for the role illustration — never as `trade_key`.
  */
 const CARD = {
   role_title: "VMC Operator (union e2e)",
@@ -163,7 +174,7 @@ describe.skipIf(!RUN)("Company postings on the legacy feed (e2e, #1823 interim u
     expect(row.publishedAt).not.toBeNull();
   });
 
-  it("a FRESH worker sees it on GET /feed — every field verbatim, on exactly the 17 legacy keys", async () => {
+  it("a FRESH worker sees it on GET /feed — every field verbatim, on the 17 legacy keys + role_kind", async () => {
     const login = await req("POST", "/auth/test-login", {
       body: { phone: syntheticPhone() },
       testLogin: true,
@@ -201,9 +212,10 @@ describe.skipIf(!RUN)("Company postings on the legacy feed (e2e, #1823 interim u
       description: CARD.description,
       // No trade column on a posting; never the role, never a skill id.
       trade_key: "",
+      // Card art (owner ruling 2026-10-05) — its own additive key, never folded into trade_key.
+      role_kind: CARD.role_kind,
     });
     expect(typeof card!.posted_at).toBe("string");
-    expect(JSON.stringify(card)).not.toContain(CARD.role_kind);
     expect(JSON.stringify(card)).not.toContain("E2E Union Works");
   });
 
@@ -291,11 +303,126 @@ describe.skipIf(!RUN)("Company postings on the legacy feed (e2e, #1823 interim u
     expect(ids).toContain(worker.workerId);
   });
 
-  // NOT YET HERE, ON PURPOSE: the two legs that close the company loop land in their own
-  // changes and are appended to this suite with them — the payer's
-  // `/payer/reach/jobs/:id/applicants` serving a posting while V1 is off (the payer
-  // posting-applicants change), and the unlock storing a NULL job context for a posting id
-  // instead of a 500 (#1903). Not `it.todo`: vitest reports a todo as SKIPPED on the file
-  // line, which the CI step's vacuous-skip guard would rightly fail. Both legs are a PRE-ARM
-  // gate: FEED_POSTINGS_UNION_ENABLED is not armed in production until they pass here.
+  // THE TWO PRE-ARM LEGS (#1823 gate): they close the company loop, and
+  // FEED_POSTINGS_UNION_ENABLED is not armed in production until both pass here. Real `it`s,
+  // never `it.todo`/`skip`: vitest reports either as SKIPPED on the file line, which the CI
+  // step's vacuous-skip guard would rightly fail.
+
+  it("PRE-ARM (a): the payer's /payer/reach applicants read serves the POSTING and lists the applicant", async () => {
+    const r = await req("GET", `/payer/reach/jobs/${postingId}/applicants`, {
+      token: payer.token,
+    });
+    expect(r.status).toBe(200);
+    // The posting branch (PayerApplicantsService step 2), not the legacy `jobs` list: the
+    // match-candidate shape, keyed on the posting id, with no `score`/`hot`/`components`.
+    expect(r.json.jobId).toBe(postingId);
+    const applicants = r.json.applicants as Array<Record<string, unknown>>;
+    const row = applicants.find((a) => a.workerId === worker.workerId);
+    expect(
+      row,
+      "the worker who applied via the union feed must be on the payer's list",
+    ).toBeTruthy();
+
+    const [applied] = await client.db
+      .select({ id: applications.id })
+      .from(applications)
+      .where(
+        and(eq(applications.workerId, worker.workerId), eq(applications.jobPostingId, postingId)),
+      );
+    expect(row!.applicationId).toBe(applied!.id);
+    // A fresh posting with one applicant: nobody who did not apply is listed.
+    expect(applicants).toHaveLength(1);
+    for (const k of ["score", "hot", "pushEligible", "components"])
+      expect(row).not.toHaveProperty(k);
+    // Faceless until unlock: no identity on the list.
+    for (const k of ["name", "phone", "full_name", "phone_number"])
+      expect(row).not.toHaveProperty(k);
+  });
+
+  it("PRE-ARM (b): an unlock referencing the POSTING id is granted and stores a NULL legacy job context (#1903)", async () => {
+    // Credits against the SERVER-ASSIGNED payer id (ops route, as payer-tenancy.e2e does), and
+    // the worker's employer_sharing grant — the two unlock preconditions this suite lacked.
+    const seeded = await req("POST", `/payers/${payer.payerId}/credits`, {
+      ops: true,
+      body: { pack_code: "pack_10" },
+    });
+    expect(seeded.status).toBe(200);
+    const balanceBefore = seeded.json.balance as number;
+    expect(balanceBefore).toBeGreaterThanOrEqual(1);
+    const consent = await req("POST", "/consent/accept", {
+      token: worker.token,
+      body: {
+        consent_version: CONSENT_VERSION,
+        purposes: ["profiling", "resume_generation", "employer_sharing"],
+      },
+    });
+    expect(consent.status).toBe(201);
+
+    // Before #1910 this inserted the posting id into the `unlocks.job_id -> jobs.id` FK: a 500
+    // with the debit rolled back.
+    const grant = await req("POST", "/payer/unlocks", {
+      token: payer.token,
+      body: { worker_id: worker.workerId, job_id: postingId },
+    });
+    expect(grant.status).toBe(200);
+    expect(grant.json).toMatchObject({ ok: true, status: "granted" });
+    const unlockId = grant.json.unlock_id as string;
+    expect(unlockId).toBeTruthy();
+
+    const rows = await client.db
+      .select({ id: unlocks.id, jobId: unlocks.jobId, status: unlocks.status })
+      .from(unlocks)
+      .where(and(eq(unlocks.payerId, payer.payerId), eq(unlocks.workerId, worker.workerId)));
+    expect(rows).toEqual([{ id: unlockId, jobId: null, status: "granted" }]);
+
+    // Exactly one credit debited for the grant.
+    const credits = await req("GET", "/payer/credits", { token: payer.token });
+    expect(credits.status).toBe(200);
+    expect(credits.json.balance).toBe(balanceBefore - 1);
+
+    // The spine: the posting id never lands in a `jobs`-id field (ADR-0049 O9).
+    const spine = await client.db
+      .select({
+        name: events.eventName,
+        subjectType: events.subjectType,
+        subjectId: events.subjectId,
+        payload: events.payload,
+      })
+      .from(events)
+      .where(
+        and(
+          eq(events.actorId, payer.payerId),
+          inArray(events.eventName, ["unlock.requested", "unlock.granted", "profile.viewed_v2"]),
+        ),
+      );
+    const byName = (n: string) =>
+      spine.filter(
+        (e) => (e.payload as { worker_id?: string }).worker_id === worker.workerId && e.name === n,
+      );
+    const requested = byName("unlock.requested");
+    expect(requested).toHaveLength(1);
+    expect(requested[0]!.payload).toMatchObject({
+      payer_id: payer.payerId,
+      worker_id: worker.workerId,
+      job_id: null,
+    });
+    const granted = byName("unlock.granted");
+    expect(granted).toHaveLength(1);
+    expect(granted[0]!.subjectType).toBe("unlock");
+    expect(granted[0]!.subjectId).toBe(unlockId);
+    expect(granted[0]!.payload).toMatchObject({
+      unlock_id: unlockId,
+      payer_id: payer.payerId,
+      worker_id: worker.workerId,
+      job_id: null,
+    });
+    const viewed = byName("profile.viewed_v2");
+    expect(viewed).toHaveLength(1);
+    // A null context is OMITTED from profile.viewed_v2, never written as the posting id.
+    expect(viewed[0]!.payload).toEqual({
+      worker_id: worker.workerId,
+      viewer_payer_id: payer.payerId,
+    });
+    for (const e of spine) expect(JSON.stringify(e.payload)).not.toContain(postingId);
+  });
 });

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { Icon } from "@badabhai/icons";
 import { e164PhoneSchema } from "@badabhai/validators";
 import { Badge, Button, Input, Toast } from "../../../components/ds";
 import { updateAccountAction } from "./actions";
@@ -220,7 +221,7 @@ export function AccountForm({ orgName, email, phoneLast4, role, status }: Accoun
       <div aria-live="polite" className="form-status">
         {saved ? (
           <div className="alert alert--success">
-            <i className="ph-fill ph-check-circle alert__icon" aria-hidden="true" />
+            <Icon name="check-circle" className="alert__icon" />
             <div className="alert__text">
               <p className="alert__body">{SAVED_CONFIRMATION}</p>
             </div>

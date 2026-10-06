@@ -525,6 +525,8 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
             // Both Jobs-tab views carry the lockup at the foot of the card —
             // the deck card draws its own (see [Design1JobCard]).
             showBrand: true,
+            // …and the role illustration at its head, like the deck face.
+            showRoleArt: true,
           );
         },
       ),
@@ -598,6 +600,7 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
             onTitleTap: onTitleTap,
             showDock: false,
             showTeaser: false,
+            compact: compact,
           ),
           dockBuilder: (
             BuildContext context, {
@@ -1040,6 +1043,8 @@ BbJobCardData feedItemCardData(FeedItem item) {
     // the pill, so the band is never described as take-home on no evidence.
     payNote: payTypeLabel(item.payType),
     matchNote: matchNoteFor(item),
+    // Display only: picks the card's role illustration (unknown → generic).
+    roleKind: item.roleKind,
   );
 }
 

@@ -295,4 +295,33 @@ void main() {
     expect(find.text('Kya ye aapka kaam tha?'), findsNothing);
     expect(find.text('Aur ek jagah jodein'), findsNothing);
   });
+
+  // Regression (#easy-work-history): on Easy the scope hides
+  // `additional_entries`, and the page used to gate the WHOLE add control on
+  // that — so an Easy worker with no saved jobs got a title-only page and no way
+  // to add even their CURRENT job. `additional_entries` hides jobs BEYOND the
+  // current one, so the control must still render while the list is empty.
+  testWidgets('the CURRENT job is still offered on Easy (empty list + hidden)',
+      (WidgetTester tester) async {
+    setKitSurface(tester, const Size(420, 2400));
+    final _Host host = _Host();
+    await tester.pumpWidget(
+      host.build(
+        // No saved jobs, and the Easy scope hides `additional_entries`.
+        tierScope: const TradeFormTierScope(
+          hiddenFields: <String>{kTierFieldAdditionalEntries},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Aur ek jagah jodein'), findsOneWidget);
+    await tester.tap(find.text('Aur ek jagah jodein'));
+    await tester.pumpAndSettle();
+
+    // A card opened to enter the current job…
+    expect(find.byType(TextField), findsWidgets);
+    // …and Easy still asks for only the one current job, not a second.
+    expect(find.text('Aur ek jagah jodein'), findsNothing);
+  });
 }

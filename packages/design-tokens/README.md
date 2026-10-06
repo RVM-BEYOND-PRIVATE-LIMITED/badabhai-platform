@@ -69,6 +69,12 @@ So on light surfaces the link is navy text and yellow is the accent (hover under
 to Safety Yellow under `[data-theme="ink"]`, as does `--text-link`. `--ring-focus` is two-tone
 (a 2px `--surface-card` band, then 2px of `--focus-ring`) so it reads on a yellow button too.
 
+The base `:focus-visible` draws that shadow over a transparent `--border-bold` outline. Windows
+forced-colors mode drops box-shadows; the transparent outline is invisible in normal mode and is
+repainted in the system colour there, so an element that matches only the base rule still shows
+focus (#1856). payer-web overrides the outline with its `--focus-outline` pair (system
+`Highlight` under forced colours).
+
 ## Alpha ladder
 
 `CLAUDE.md` asks for 80 / 60 / 40 % step-downs of the primary tokens. They are declared once,

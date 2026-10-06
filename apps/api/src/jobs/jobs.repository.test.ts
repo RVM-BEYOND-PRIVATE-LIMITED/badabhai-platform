@@ -578,20 +578,22 @@ describe("searchOpenPostings — the PII-free projection", () => {
 });
 
 // =============================================================================================
-// Migration 0131 — the posting's display ROLE is on NO worker read (ADR-0024 addendum
-// 2026-09-29, #1823). Both worker job reads name their columns explicitly, so the new
-// `role_kind` column cannot arrive by accident — these pin that it has not been ADDED.
+// Migration 0131 — the posting's display ROLE on the worker job reads. Owner ruling 2026-10-05
+// (ADR-0024 addendum): the detail read a feed card opens carries it as card art, on BOTH arms.
+// `GET /jobs/search` is outside that ruling and still leaves it out. A projection only — never
+// a WHERE input on either read.
 // =============================================================================================
-describe("migration 0131 — role_kind is never selected by a worker job read", () => {
-  it("the legacy detail read and the V1 fallback leave it out", async () => {
+describe("migration 0131 — role_kind on the worker job reads", () => {
+  it("the legacy detail read and the V1 fallback select it, and never filter on it", async () => {
     const { repo, queries } = makeDb([], [{ id: JOB_ID }]);
     await repo.findWorkerVisibleJobById(JOB_ID);
     expect(queries).toHaveLength(2);
+    const [legacy, posting] = queries;
+    expect(render(legacy!.selection!.roleKind)).toContain('"jobs"."role_kind"');
+    expect(render(posting!.selection!.roleKind)).toContain('"job_postings"."role_kind"');
     for (const q of queries) {
-      const projection = projectionOf(q);
-      // Vacuity guard: the projection really renders column names.
-      expect(projection).toMatch(/"(title|role_title)"/);
-      expect(projection).not.toContain("role_kind");
+      expect(q.where).toBeDefined(); // vacuity guard
+      expect(render(q.where)).not.toContain("role_kind");
     }
   });
 
