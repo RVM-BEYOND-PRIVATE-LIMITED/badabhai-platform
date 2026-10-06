@@ -88,8 +88,8 @@ interface JobPostingApi {
    * The ROLE the payer picked (migration 0131) — one of the 21 declared kinds, or NULL for "no
    * role picked" (every chat-published and pre-0131 posting). Returned on THIS payer/ops
    * projection only, so the portal can prefill its picker and draw its card preview. DISPLAY /
-   * CLASSIFICATION ONLY: never a match or rank input, and on NO worker read this phase
-   * (ADR-0024 addendum 2026-09-29, #1823).
+   * CLASSIFICATION ONLY: never a match or rank input. Worker reads carry it only as the card's
+   * illustration key (ADR-0024 addendum 2026-10-05).
    */
   role_kind: TradeFormKindName | null;
   published_at: Date | null;
@@ -197,8 +197,22 @@ export { toJobPostingApi, type JobPostingApi };
 export class JobPostingsRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-  async create(input: NewJobPosting): Promise<JobPostingApi> {
-    const inserted = await this.db.insert(jobPostings).values(input).returning();
+  /**
+   * Run `work` inside ONE Drizzle transaction (#1928). The service commits a posting row and
+   * its `job_posting.created` event through it, so a failed emit rolls the row back. The `tx`
+   * handed to `work` is the `Database`-shaped executor `create` and `EventsService.emit({ tx })`
+   * accept.
+   */
+  withTransaction<T>(work: (tx: Database) => Promise<T>): Promise<T> {
+    return this.db.transaction(work as (tx: unknown) => Promise<T>);
+  }
+
+  /**
+   * Insert one posting. `executor` is the caller's transaction when the row must commit with
+   * something else (its created event, #1928); it defaults to the injected db.
+   */
+  async create(input: NewJobPosting, executor: Database = this.db): Promise<JobPostingApi> {
+    const inserted = await executor.insert(jobPostings).values(input).returning();
     const row = inserted[0];
     if (!row) throw new Error("Failed to create job posting");
     return toJobPostingApi(row);

@@ -1,3 +1,4 @@
+import { RoleArt } from "@badabhai/role-art";
 import { Badge, Card } from "../../../../../components/ds";
 import { formatInr } from "../../../../../lib/format";
 import type { JobPostingDraft } from "../../../../../lib/contracts";
@@ -159,6 +160,12 @@ export function DraftPreview({ draft, draftReady }: DraftPreviewProps) {
           {draftReady ? "Ready to publish" : "In progress"}
         </Badge>
       </div>
+
+      {/* The job card's role illustration. The chat interview never picks a role (publish leaves
+          `role_kind` NULL — see below), so this is the generic scene until the payer picks one on
+          the posting form, whose card preview then draws that role's art. Held still here so the page
+          stays calm while the payer chats. */}
+      <RoleArt roleKind={null} animated={false} className="ai-draft__art" />
 
       {draft === null ? (
         <p className="ai-draft__empty">

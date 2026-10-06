@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JobCardPreview } from "./job-card-preview";
 import { JOB_CARD_CLAMPS, type CardFields } from "../lib/job-card-view";
+import { TRADE_FORM_KINDS_ALL } from "../lib/job-roles";
 
 /**
  * PREVIEW == WORKER CARD, pinned against a checked-in fixture of inputs → the exact text the
@@ -40,6 +41,7 @@ interface Fixture {
   version: number;
   clamps: Record<string, number>;
   cases: Array<{ name: string; input: Record<string, unknown>; expected: Slot[] }>;
+  role_art: { cases: Array<{ name: string; input: Record<string, unknown>; art: string }> };
 }
 const FIXTURE = JSON.parse(readFileSync(FIXTURE_PATH, "utf8")) as Fixture;
 
@@ -50,7 +52,7 @@ function cardFromFeedInput(input: Record<string, unknown>): CardFields {
   const list = (k: string) => (Array.isArray(input[k]) ? (input[k] as string[]) : []);
   return {
     role_title: str("title"),
-    role_kind: null,
+    role_kind: str("role_kind"),
     city: str("city"),
     area: str("area"),
     pay_min: num("pay_min"),
@@ -134,5 +136,19 @@ describe("the worker-card contract fixture", () => {
       const expectedClamp = FIXTURE.clamps[s.slot];
       expect(s.clamp, `${s.slot} clamp`).toBe(expectedClamp ?? null);
     }
+  });
+});
+
+describe("the worker-card contract fixture — role_kind → the card's role illustration", () => {
+  it("covers every declared role kind", () => {
+    const kinds = FIXTURE.role_art.cases.map((c) => c.input.role_kind);
+    for (const kind of TRADE_FORM_KINDS_ALL) expect(kinds).toContain(kind);
+  });
+
+  it.each(FIXTURE.role_art.cases.map((c) => [c.name, c] as const))("%s", (_name, c) => {
+    const markup = renderToStaticMarkup(
+      <JobCardPreview fields={cardFromFeedInput({ title: "Any job", ...c.input })} />,
+    );
+    expect(markup).toContain(`data-role-art="${c.art}"`);
   });
 });

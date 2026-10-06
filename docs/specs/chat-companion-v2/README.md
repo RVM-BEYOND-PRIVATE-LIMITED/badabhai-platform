@@ -15,8 +15,8 @@ conversation.
 
 | Phase | Scope | State |
 |---|---|---|
-| 0 | ADR-0046 written | **Proposed — still unsigned**, although the flags are ON (below) |
-| 1 | Router + Edit résumé | **Built + audit-fixed + WP1–WP6/WP8; flags ON in production.** Classifier model-live since 2026-10-01. The edit card is still **dark**: `companion_edit_parse` is off the box list, and the engineering prerequisites ("Never from chat", TD151(1), list normalisation, latency) are now merged — re-arming is the owner's step (checklist 6). Backend #1816/#1817/#1819/#1820, audit fixes #1869 + #1871, WPs #1972/#1974/#1988/#1986/#1994/#1997; worker-app F1–F6 #1827/#1834/#1867/#1880, TD151(2) issue #1977 |
+| 0 | ADR-0046 written | **Accepted — signed by the owner (CEO / Prakash) 2026-10-05**; ADR-0044 signed the same day, and the flags are ON (below) |
+| 1 | Router + Edit résumé | **Built + audit-fixed + WP1–WP6/WP8; flags ON in production.** Classifier model-live since 2026-10-01; the edit card is **live since 2026-10-05** (the owner re-appended `companion_edit_parse` to the box list after the engineering prerequisites merged). Backend #1816/#1817/#1819/#1820, audit fixes #1869 + #1871, WPs #1972/#1974/#1988/#1986/#1994/#1997; worker-app F1–F6 #1827/#1834/#1867/#1880, TD151(2) issue #1977 |
 | 2 | New résumé + Faltu | **Built + audit-fixed; flags ON in production** (deterministic paths live). Backend #1822, audit fixes #1872; worker-app F1/F2 #1827/#1834/#1867 |
 | 3 | Career talk | **Built + audit-fixed + WP1/WP7; flags ON in production, model-live since 2026-10-01.** The career gate now refuses `\p{Cc}` (#1943), names law/health/money honestly, and checks the platform's own employer names (TD147). Backend #1825, audit fixes #1869 + #1872, WPs #1972/#1974/#1996; worker-app F1/F2 #1827 |
 
@@ -42,16 +42,24 @@ What remains is listed below.
 
 **Engineering completion (2026-10-05).** The ten follow-up work packages landed on `main`:
 WP1 #1972 (issue #1943), WP2 #1974, WP3 #1978, WP4 #1988, WP5 #1986, WP6 #1994, WP7 #1996,
-WP8 #1997, WP9 #1998, WP10 (this PR). The edit-path safety work ("Never from chat" for
+WP8 #1997, WP9 #1998, WP10 #2000. The edit-path safety work ("Never from chat" for
 qualifications, list-member normalisation, no control characters, the classify prompt/budget
 shrink, route precedence behind a new default-off flag, event v2s, the in-flight duplicate
 claim) is all merged; the career validator now refuses the platform's own employer names and
-stops over-blocking ordinary Hinglish. The box itself is untouched: flags, secrets,
-`AI_REAL_CALL_TASKS` and the 30-answer review are the human steps below.
+stops over-blocking ordinary Hinglish.
+
+**Owner actions (2026-10-05).** The owner **signed ADR-0044 and ADR-0046** and **re-appended
+`companion_edit_parse`** to the box's `AI_REAL_CALL_TASKS` (append, never replace), so all three
+companion tasks are now model-live: the edit card, typed classification and career answers. No
+paid-eval evidence for the re-run is recorded in the repo yet — when the runbook §2/§3a runs are
+made, commit their six files under `docs/qa/evidence/companion-v2/<date>/` per runbook §4. If the
+append is ever rolled back, removing the task from the box list and redeploying is the reverting
+action. Remaining human steps: the paid eval evidence, the 30-answer career review, optionally
+arming `CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED`, and adopting migration 0130's ledger row.
 
 ### Before the owner arms `AI_REAL_CALL_TASKS` (in this order)
 
-1. **Sign** ADR-0046 and ADR-0044, or record a written waiver. Both are unsigned, and the flags are already on.
+1. **Sign** ADR-0046 and ADR-0044, or record a written waiver. **DONE — both signed by the owner (CEO / Prakash) on 2026-10-05** (the ADR feet carry the signature; the flags were already on).
 2. **Run the staging evals** per [`docs/ops/companion-v2-staging-evals-runbook.md`](../../ops/companion-v2-staging-evals-runbook.md).
    Record the results in `docs/qa/evidence/companion-v2/`. The bars:
    - `--classify`: ≥ 90 % accuracy, ≥ 95 % `edit_resume` precision, p95 < 1.5 s.
@@ -62,6 +70,10 @@ stops over-blocking ordinary Hinglish. The box itself is untouched: flags, secre
    **First run, 2026-10-01 (#1883, evidence `docs/qa/evidence/companion-v2/2026-10-01/`): FAIL on all three —
    do not append any task.** Classify misses p95 only (2411 / 1662 ms; quality passes); edit-parse 78.4 % exact
    with 3 out-of-catalogue rows; career 1 unsafe answer; served rate 80.4 %.
+   **Re-run owed.** The WP3/WP4/WP5/WP7 engineering fixes address those causes (list-member normalisation +
+   prompt rules; the classify prompt/budget shrink; the employer index and narrowed walls). The owner
+   re-armed `companion_edit_parse` on 2026-10-05; the paid re-run's evidence is **not committed yet** —
+   record it per runbook §4.
 3. **Review 30 career answers** (`eval_cli --career --dump-samples 30`).
 4. **Review the draft copy** in `contracts.md` §8: every `V2_*` line, the ask lines and the 39 card
    field labels. These drafts are already live where their flag is on. **The one defect named here
@@ -83,7 +95,10 @@ stops over-blocking ordinary Hinglish. The box itself is untouched: flags, secre
 6. **Only then** append `companion_classify,companion_edit_parse`, and later `companion_career_answer`,
    to the box's own list, which overrides the compose default (see [`docs/environment-variables.md`](../../environment-variables.md)).
    Append, never replace. Then re-run the Deploy job of the newest `main` CI run.
-7. Adopt the 0130 ledger row (`adopt-migrations.ts --only 0130_resume_generation_trigger_chat_edit`).
+   **DONE — the owner re-appended `companion_edit_parse` on 2026-10-05** (classification and career
+   answers were already on since 2026-10-01), so all three companion tasks are model-live. The
+   paid-eval evidence for the re-run is not committed; record it per runbook §4 when made.
+7. Adopt the 0130 ledger row (`adopt-migrations.ts --only 0130_resume_generation_trigger_chat_edit`). **Still open.**
 
 ## Provisional rulings implemented (awaiting owner sign-off)
 
@@ -172,9 +187,9 @@ Read before writing code: `CLAUDE.md`, ADR-0044, ADR-0046, this folder, and the 
 2. ADR-0046 signed.
 3. Staging first (Remote Config conditioned to test devices), then widen.
 
-Status 2026-10-01:
-- (1) v1 is live, but ADR-0044 is unsigned. The builds are rolled out, and TD145 is fixed.
-- (2) ADR-0046 is unsigned.
+Status 2026-10-05:
+- (1) v1 is live, ADR-0044 is **signed (2026-10-05)**. The builds are rolled out, and TD145 is fixed.
+- (2) ADR-0046 is **signed (2026-10-05)**.
 - (3) This step was skipped. The Remote Config levers are unconditioned, and the server flags have
   no per-worker cohort, so a server flag flips v2 for every companion worker at once. The
   checklist under "Status" is the remaining path.

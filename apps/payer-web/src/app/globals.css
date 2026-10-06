@@ -7,10 +7,15 @@
  * then merges the token and component layers into one stylesheet again — imported between them,
  * the sheet split the CSS into five requests on every page, measured on /i/<code>. Its size
  * tokens are var() aliases of the token layer, which resolve whatever the import order.
- * KNOWN COST, TRACKED (issue #1893, follow-up to PR #1886): the whole fill sheet is render-blocking here
- * too — +12.3 KB gzipped on /i/<code>, which paints no glyph — and the build emits three unused
- * font formats; the planned fix is a generated subset. Details at the import in icons.css. */
+ * SUBSET (#1893): the glyph sheet is generated for the IconName union only (≤1.7 KB gzipped, not
+ * the full ~11.8 KB) with a woff2-only @font-face, so the build emits one font file instead of
+ * four and this import no longer gets a CSS chunk of its own. It stays here, root-level, on
+ * purpose: /i/<code> paints no glyph (so never downloads the font), and moving the sheet into
+ * per-segment layouts would invert the cascade order above and add a render-blocking request
+ * to every other page. Details at the import in icons.css. */
 @import "@badabhai/icons/icons.css";
+/* The job-card role illustrations: their keyframes + the reduce-motion hold (@badabhai/role-art). */
+@import "@badabhai/role-art/role-art.css";
 
 /* BadaBhai brand token layer — the foundation (colors / type / spacing / radii /
  * elevation / motion / base). Imported before every rule below so each resolves from tokens.
@@ -2480,8 +2485,9 @@ textarea.input {
   line-clamp: 2;
   overflow: hidden;
 }
-/* ONE row, never wrapped: the summary takes what the primary leaves, and a long primary label
-   ("Publish anyway — reaches nobody yet") wraps INSIDE its button instead of widening the page. */
+/* ONE unwrapped row while the dock is at least 17rem wide (narrower, it stacks — the @container
+   rule below): the summary takes what the primary leaves, and a long primary label ("Publish
+   anyway — reaches nobody yet") wraps INSIDE its button instead of widening the page. */
 .posting-dock__row {
   display: flex;
   flex-wrap: nowrap;
@@ -2504,6 +2510,17 @@ textarea.input {
   font: inherit;
   text-align: start;
   cursor: pointer;
+}
+/* While a save is pending the summary is disabled (posting-preview-rail.tsx `busy`) and must not
+   read as a control: no pointer, its "Preview the card" cue loses the link underline, and the
+   whole summary steps down to 60% (the brand's 80 / 60 / 40 ladder — the step that keeps the
+   card's title and pay readable while the save runs). */
+.posting-dock__summary:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.posting-dock__summary:disabled .posting-dock__cue {
+  text-decoration: none;
 }
 .posting-dock__title,
 .posting-dock__meta {
@@ -2814,9 +2831,10 @@ textarea.input {
 }
 /* In the form column the header's text keeps a readable measure: unless the column holds 24rem of
    it BESIDE the 315px buttons, the buttons wrap UNDER it (every measured editor column, 403–686px,
-   stacks). With the row's `flex: 1` — a zero basis — the buttons stayed beside it and crushed it
-   (68px wide at 1024: 16 lines of meta); an 18rem basis still left long data 6–7 lines at 768 and
-   at 1600+, where the column fits 18rem beside the buttons but not much more. */
+   stacks). With a zero basis (the row's old `flex: 1`) the buttons stayed beside it and crushed it
+   (68px wide at 1024: 16 lines of meta); an 18rem basis (the plain row's, below) still left long
+   data 6–7 lines here at 768 and at 1600+, where the column fits 18rem beside the buttons but not
+   much more. */
 .agency-job__lead > .agency-job__main {
   flex: 1 1 24rem;
 }
@@ -3181,11 +3199,15 @@ textarea.input {
   gap: var(--space-5);
   flex-wrap: wrap;
 }
+/* The header text keeps an 18rem basis: unless the row holds 18rem of it BESIDE the actions, the
+   actions wrap UNDER it. With `flex: 1` — a zero basis — the actions stayed beside it from 430 to
+   520px and crushed it (6px wide at 440, the Edit button over the title); 18rem keeps the 768+
+   rows as they were (the text already had 334px+ there). In the editor's lead it is 24rem (above). */
 .agency-job__main {
   display: grid;
   gap: var(--space-2);
   min-width: 0;
-  flex: 1;
+  flex: 1 1 18rem;
 }
 .agency-job__head {
   display: flex;
@@ -5239,6 +5261,11 @@ img.agency-qr__code,
 .ai-draft {
   display: grid;
   gap: var(--space-3);
+}
+/* The role illustration above the draft (@badabhai/role-art) — a header strip, rounded like the card. */
+.ai-draft__art {
+  border-radius: var(--radius-md);
+  overflow: hidden;
 }
 .ai-draft__head {
   display: flex;
