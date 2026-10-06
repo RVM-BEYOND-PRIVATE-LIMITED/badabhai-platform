@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useUrlState } from "../../../../components/use-url-state";
 import { useRouter } from "next/navigation";
 import {
   SKILL_CANDIDATE_ACTIONS,
@@ -38,6 +38,20 @@ const BAR_FIELDS: readonly (keyof SkillDiscoveryFilterValues)[] = [
   "createdTo",
   "sort",
 ];
+
+/** The bar with none of its fields set — what a URL without them shows (Newest first). */
+const CLEARED: SkillDiscoveryFilterValues = {
+  band: "",
+  proposedAction: "",
+  tradeFamily: "",
+  sourceType: "",
+  runId: "",
+  clusterKey: "",
+  phrase: "",
+  createdFrom: "",
+  createdTo: "",
+  sort: "newest",
+};
 
 /**
  * Where the bar navigates: `carry` (the controls above the bar) plus the bar's own non-empty
@@ -95,7 +109,7 @@ export function SkillDiscoveryFilterBar({
   initial: SkillDiscoveryFilterValues;
 }) {
   const router = useRouter();
-  const [values, setValues] = useState(initial);
+  const [values, setValues] = useUrlState(initial);
 
   function set<K extends keyof SkillDiscoveryFilterValues>(key: K, value: string) {
     setValues((v) => ({ ...v, [key]: value }));
@@ -106,8 +120,14 @@ export function SkillDiscoveryFilterBar({
     router.push(filterBarHref(basePath, carry, values));
   }
 
-  /** Empties this bar's fields and keeps the status, tier and view chosen above it. */
+  /**
+   * Empties this bar's fields and keeps the status, tier and view chosen above it. It empties
+   * them HERE as well as in the URL: when the URL carries none of them already, the navigation
+   * goes to the same URL, the fields' sync key does not change, and typed-but-unapplied values
+   * would stay on screen (review of #2046).
+   */
   function clearFields() {
+    setValues(CLEARED);
     router.push(filterBarHref(basePath, carry, null));
   }
 

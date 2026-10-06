@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useUrlState } from "../../../components/use-url-state";
 import { AI_TRACE_TASK_TYPES } from "../../../lib/ai-trace-view";
 import { taskTypeLabel } from "../../../lib/ai-cost";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
@@ -37,7 +37,7 @@ export function AiCallFilterBar({
   workerId: string;
 }) {
   const router = useRouter();
-  const [values, setValues] = useState({ taskType, success, workerId });
+  const [values, setValues] = useUrlState({ taskType, success, workerId });
 
   function submit(e: React.FormEvent) {
     e.preventDefault();

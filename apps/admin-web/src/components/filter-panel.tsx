@@ -1,7 +1,19 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { useUrlState } from "./use-url-state";
+
+/** The filters a page read from the URL, by name. Empty, `false` or absent is not set. */
+export type FilterValues = Readonly<Record<string, string | boolean | undefined>>;
+
+/**
+ * The identity of the SET filters — what the panel re-syncs its open state on. JSON of the set
+ * entries, so a value holding `&` or `=` can never pass for another set (review Nit-1).
+ */
+export function filterSetKey(filters: FilterValues): string {
+  return JSON.stringify(Object.entries(filters).filter(([, value]) => Boolean(value)));
+}
 
 /**
  * A list page's filter panel, folded behind one toggle on a phone (final sweep AW-08).
@@ -12,28 +24,33 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
  * "Filters (n)" disclosure: CLOSED when no filter is set, OPEN when one is, so a filter that is
  * narrowing the list is never hidden behind a closed toggle.
  *
- * The open state is decided from the server's `activeCount` on first render, so the phone layout
- * is right from the first paint with no client measuring, and a fresh navigation that sets a
- * filter (a "View events" link) lands open. Toggling is the operator's from then on.
- *
- * The filter bar itself is passed in as `children` and is untouched — it still owns its fields,
- * its Apply and its URL.
+ * THE OPEN STATE FOLLOWS THE FILTER SET (reviews of #2036 and #2046). Next keeps a client
+ * component's state across a navigation that changes only the search params, so a state decided
+ * once at mount went stale: a row's correlation-id link on /events landed on a filtered list with
+ * a phone's panel still closed. The state now re-syncs during render when the filter set changes
+ * (`useUrlState`) — nothing remounts, so focus stays on Apply or the field it was in:
+ *  - a new or changed non-empty set OPENS the panel (the correlation-id link, a chip, a back link);
+ *  - an emptied set leaves it as it is — clearing every filter with Apply must not hide the Apply
+ *    a keyboard user is standing on;
+ *  - the same set (a page turn) changes nothing; the toggle stays the operator's.
+ * The filter bars passed in as `children` follow their own URL values the same way.
  */
 export function FilterPanel({
   headingId,
   heading,
-  activeCount,
+  filters,
   children,
 }: {
   /** The panel's (visually hidden) heading id — the `aria-labelledby` of the section. */
   headingId: string;
   /** The heading text, e.g. "Filter workers". */
   heading: string;
-  /** How many filters the current URL applies. Opens the panel on a phone when above zero. */
-  activeCount: number;
+  /** The filters the page read from the URL (never the cursor: paging is not a filter). */
+  filters: FilterValues;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(activeCount > 0);
+  const activeCount = Object.values(filters).filter(Boolean).length;
+  const [open, setOpen] = useUrlState(activeCount > 0, filterSetKey(filters), openOnly);
   const bodyId = useId();
 
   return (
@@ -60,4 +77,9 @@ export function FilterPanel({
       </div>
     </section>
   );
+}
+
+/** A filter-set change opens the panel when the new set has a filter, and never closes it. */
+function openOnly(wasOpen: boolean, hasFilters: boolean): boolean {
+  return wasOpen || hasFilters;
 }

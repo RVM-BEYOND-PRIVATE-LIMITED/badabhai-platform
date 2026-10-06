@@ -61,9 +61,11 @@
   --warn-soft: var(--warning-tint);
 }
 
-/* FOCUS IN FORCED COLORS. The base `:focus-visible` in tokens.css is `outline: none` + a
-   box-shadow ring, and Windows forced-colors mode DROPS box-shadows — a keyboard user in High
-   Contrast had no focus indicator anywhere in the portal. So this rule also spends the
+/* FOCUS IN FORCED COLORS. Windows forced-colors mode DROPS box-shadows, and the base
+   `:focus-visible` in tokens.css is a box-shadow ring: while its outline was `none`, a keyboard
+   user in High Contrast had no focus indicator anywhere in the portal. tokens.css now draws a
+   TRANSPARENT `--border-bold` outline under the ring (#1856), which forced colours repaint in
+   their own system colour; this rule overrides that outline with payer-web's: it spends the
    `--focus-outline` / `--focus-outline-offset` custom properties (declared at the top of
    ds-components.css): `--focus-outline` is a TRANSPARENT outline in normal mode (the look is
    unchanged) and the token itself switches to the system `Highlight` colour under

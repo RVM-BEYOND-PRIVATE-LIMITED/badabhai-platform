@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useUrlState } from "../../../components/use-url-state";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
@@ -26,7 +26,7 @@ export function EventFilterBar({
   correlationId: string;
 }) {
   const router = useRouter();
-  const [values, setValues] = useState({ eventName, actorType, subjectType, correlationId });
+  const [values, setValues] = useUrlState({ eventName, actorType, subjectType, correlationId });
   const set = (k: keyof typeof values) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setValues((v) => ({ ...v, [k]: e.target.value }));
 
