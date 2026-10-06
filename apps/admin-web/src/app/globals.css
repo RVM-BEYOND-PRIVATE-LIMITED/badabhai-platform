@@ -2695,6 +2695,11 @@ textarea.field__input {
   margin: 0;
   color: inherit;
 }
+/* A short ref is an id: it keeps its case (and stays Inter-mono), even inside an uppercase title. */
+.engine__panel-title .mono {
+  text-transform: none;
+  font-size: var(--text-md);
+}
 .engine__subhead {
   font-size: var(--text-md);
   font-weight: var(--weight-bold);
@@ -2891,6 +2896,11 @@ textarea.field__input {
 .engine-card--exiting {
   opacity: 0.4;
   animation: engine-out var(--duration-slower) var(--ease-in) forwards;
+}
+@media (min-width: 1280px) {
+  .engine__grid--posting {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);
+  }
 }
 .engine__table th,
 .engine__table td {
