@@ -40,7 +40,9 @@ void main() {
       // bundles, so Flutter resolved both to the platform font: every heading
       // and button outside the onboarding kit rendered in system sans while the
       // code claimed Anek. The names now match the real bundled faces.
-      expect(AppTypography.display().fontFamily, 'Anek Latin');
+      // #1999 — the DISPLAY family is the brand-kit heading face, Kilimanjaro
+      // Sans; body/UI stays Inter.
+      expect(AppTypography.display().fontFamily, 'Kilimanjaro Sans');
       expect(AppTypography.body().fontFamily, 'Inter');
       expect(AppTypography.eyebrow().fontFamily, 'Inter');
     });
@@ -110,7 +112,7 @@ void main() {
         ];
 
         for (final TextStyle? s in slots) {
-          expect(s!.fontFamily, anyOf('Anek Latin', 'Inter'));
+          expect(s!.fontFamily, anyOf('Kilimanjaro Sans', 'Inter'));
         }
       },
     );
