@@ -26,9 +26,11 @@ trust it, against main's text over the repo corpus, seeded payer phrases and `de
 MAIN is each shipped regex with main's text put back and nothing else touched
 (`scripts/measure_job_chat_parsers_linear.py`, which also reproduces the full numbers).
 
-Each section was seen to fail against a mutation (2026-10-05): with main's two regexes put back
-in `answers.py`, the tests listed in the PR fail. Stdlib, git and pytest only. All inputs are
-fabricated.
+Seen to fail against a mutation (2026-10-05): with main's two regexes put back in `answers.py`,
+79 of these 96 tests fail. The timing tests above 2.5k, the role-word tests and the long-run
+test fail on behaviour; the oracle and parity tests fail on the harness's own guard (the shipped
+text is gone), which is how they are meant to catch a revert. Stdlib, git and pytest only. All
+inputs are fabricated.
 """
 
 from __future__ import annotations
@@ -244,7 +246,7 @@ def test_the_harness_sees_a_variant_that_moves_results() -> None:
 
 #: A linear budget: main is quadratic, about 10, 21, 42 and 63 ms per 1k characters at 2.5k, 5k,
 #: 10k and 15k on detect_answers (R53, and `measure timing`); the fix takes well under 1 ms per
-#: 1k. So main passes at 2.5k only, and CI has 40x headroom at 15k.
+#: 1k. So main may pass at 2.5k (machine-dependent), and CI has 40x headroom at 15k.
 _MS_PER_1K = 10.0
 _FLOOR_MS = 25.0
 _RUNS = measure.RUNS
