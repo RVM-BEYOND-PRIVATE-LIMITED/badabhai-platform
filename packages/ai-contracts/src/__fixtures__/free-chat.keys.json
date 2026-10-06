@@ -1,0 +1,8 @@
+{
+  "_comment": "ADR-0051 (profiling-stage free chat, #2027). The Zod shapes live in packages/ai-contracts/src/free-chat.ts and the Pydantic mirror in apps/ai-service/app/contracts.py; BOTH suites assert against this file, so a field added on one side only turns the other side red. The recent-turn and worker-context shapes are the companion's and are pinned by companion.keys.json.",
+  "FreeChatClassifyInput": ["text", "recent_turns", "mode", "pending_question"],
+  "FreeChatClassifyOutput": ["category", "confidence", "blocked", "ai_metadata"],
+  "FreeChatReplyInput": ["category", "text", "recent_turns", "worker_context"],
+  "FreeChatAnswer": ["status", "lines", "followup_chips", "ai_metadata"],
+  "FreeChatRefuse": ["status", "topic", "ai_metadata"]
+}

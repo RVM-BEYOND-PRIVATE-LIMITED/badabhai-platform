@@ -306,6 +306,9 @@ addendum and ADR-0049 **O6** ("not this phase"); earlier audits that recorded `r
 "dropped on purpose" from the card were describing that superseded state. The field ruling
 above otherwise stands unchanged.
 
+This supersedes ADR-0049 O6 and its never-projected list for `role_kind`; ADR-0049's text is left
+unedited for its owner.
+
 - **Where.** `GET /feed` — both `FeedItem` (legacy jobs arm and the ADR-0049 postings arm) and
   `MatchFeedItem` (V1) — and the worker job detail `GET /jobs/:jobId` (both its `jobs` read and
   its `job_postings` fallback), so the detail screen opened from a card draws the same art.

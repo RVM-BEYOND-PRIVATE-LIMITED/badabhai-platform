@@ -30,18 +30,24 @@ import { JobCardPreview } from "./job-card-preview";
  */
 
 /**
- * What the payer entered that the worker's swipe card does NOT show — role kind, openings, match
- * skills, location note, description — listed under the preview so nothing they typed looks
- * silently dropped. Every value wraps inside the column and is clamped to two lines with the full
- * text in `title`.
+ * What the payer entered that the worker's swipe card does not put into WORDS — role kind,
+ * openings, match skills, location note, description — listed under the preview so nothing they
+ * typed looks silently dropped. Every value wraps inside the column and is clamped to two lines
+ * with the full text in `title`.
+ *
+ * "not WRITTEN on the worker's card" since the owner ruling of 2026-10-05 (#2009): the role is
+ * now on that card, drawn as its ROLE ILLUSTRATION (`@badabhai/role-art`) — the same picture the
+ * preview above this list is already painting, so the payer can see their pick land. Its NAME is
+ * still never text on the card, which is what this list is telling them. The flat "not on the
+ * worker's card" became a false claim the moment the art shipped.
  */
 export function PostingFacts({ facts }: { facts: readonly PostingFact[] }) {
   if (facts.length === 0) return null;
   return (
-    <section className="posting-facts" aria-label="Also in your posting — not on the worker's card">
+    <section className="posting-facts" aria-label="Also in your posting — not written on the worker's card">
       <p className="posting-facts__title">
         Also in your posting{" "}
-        <span className="posting-facts__sub">— not on the worker&rsquo;s card</span>
+        <span className="posting-facts__sub">— not written on the worker&rsquo;s card</span>
       </p>
       <dl className="posting-facts__list">
         {facts.map((fact) => (
@@ -119,7 +125,7 @@ export interface PostingPreviewRailProps {
   fields: CardFields;
   /** The live form's draft state, from `readCardForm(...).draft`. */
   draft?: JobCardDraft;
-  /** "Also in your posting — not on the worker's card". */
+  /** "Also in your posting — not written on the worker's card". */
   facts: readonly PostingFact[];
   /** The full actions block (status + buttons) — the rail's pinned footer. */
   actions: ReactNode;

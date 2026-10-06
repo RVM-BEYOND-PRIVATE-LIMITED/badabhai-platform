@@ -156,6 +156,12 @@ const ALL_TASK_TYPES = AiCostRecordedPayload.shape.task_type.options as readonly
 const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = [
   "domain_match",
   "tts_synthesis",
+  // ADR-0051 (#2027) — TEMPORARY, and only for one PR. The shared contract (PR 0) names the two
+  // free-chat tasks before the API change that calls them (PR B), so for that window nothing in
+  // apps/api emits them. PR B wires the emitters and moves both to the emitted list above; this
+  // entry must not outlive it.
+  "profiling_free_classify",
+  "profiling_free_reply",
 ];
 
 describe("every task type that can spend is either emitted or named as unledgered (#738)", () => {

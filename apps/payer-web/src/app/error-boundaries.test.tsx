@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
+import { Icon, type IconProps } from "@badabhai/icons";
 import { navSections, type NavSection } from "./(portal)/nav-model";
 
 // global-error.tsx is a client component (THEME-1 added useState/useEffect so the error screen
@@ -72,6 +73,12 @@ function walk(node: ReactNode, acc: Collected): void {
     onClick?: () => void;
     className?: string;
   }>;
+  // The typed glyph (`<Icon>`) is a pure, hook-free element: render it, so the classes it draws
+  // (`ph-fill ph-…`) are counted exactly like a raw `<i className="ph-fill …">`.
+  if (el.type === Icon) {
+    walk(Icon(el.props as unknown as IconProps), acc);
+    return;
+  }
   if (typeof el.type === "string") acc.types.push(el.type);
   if (el.props && typeof el.props.className === "string") acc.classNames.push(el.props.className);
   if (el.props && typeof el.props.onClick === "function") acc.onClicks.push(el.props.onClick);

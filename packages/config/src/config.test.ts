@@ -88,7 +88,8 @@ describe("ai_jobs retention knobs (PERF-3 — 90-day owner decision, dry-run by 
   it("AI_JOBS_RETENTION_DELETE_ENABLED defaults OFF (dry-run) and falsey strings stay OFF", () => {
     expect(loadServerConfig({}).AI_JOBS_RETENTION_DELETE_ENABLED).toBe(false);
     expect(
-      loadServerConfig({ AI_JOBS_RETENTION_DELETE_ENABLED: "false" }).AI_JOBS_RETENTION_DELETE_ENABLED,
+      loadServerConfig({ AI_JOBS_RETENTION_DELETE_ENABLED: "false" })
+        .AI_JOBS_RETENTION_DELETE_ENABLED,
     ).toBe(false);
     expect(
       loadServerConfig({ AI_JOBS_RETENTION_DELETE_ENABLED: "0" }).AI_JOBS_RETENTION_DELETE_ENABLED,
@@ -97,7 +98,8 @@ describe("ai_jobs retention knobs (PERF-3 — 90-day owner decision, dry-run by 
 
   it("arming real deletion requires the explicit 'true'/'1' flag", () => {
     expect(
-      loadServerConfig({ AI_JOBS_RETENTION_DELETE_ENABLED: "true" }).AI_JOBS_RETENTION_DELETE_ENABLED,
+      loadServerConfig({ AI_JOBS_RETENTION_DELETE_ENABLED: "true" })
+        .AI_JOBS_RETENTION_DELETE_ENABLED,
     ).toBe(true);
     expect(
       loadServerConfig({ AI_JOBS_RETENTION_DELETE_ENABLED: "1" }).AI_JOBS_RETENTION_DELETE_ENABLED,
@@ -162,10 +164,16 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
   });
 
   it("ADMIN-3b PII-reveal flag is tunable to ON (coerced from 'true'/'1'; stays OFF on falsey forms)", () => {
-    expect(loadServerConfig({ ADMIN_PII_REVEAL_ENABLED: "true" }).ADMIN_PII_REVEAL_ENABLED).toBe(true);
+    expect(loadServerConfig({ ADMIN_PII_REVEAL_ENABLED: "true" }).ADMIN_PII_REVEAL_ENABLED).toBe(
+      true,
+    );
     expect(loadServerConfig({ ADMIN_PII_REVEAL_ENABLED: "1" }).ADMIN_PII_REVEAL_ENABLED).toBe(true);
-    expect(loadServerConfig({ ADMIN_PII_REVEAL_ENABLED: "false" }).ADMIN_PII_REVEAL_ENABLED).toBe(false);
-    expect(loadServerConfig({ ADMIN_PII_REVEAL_ENABLED: "0" }).ADMIN_PII_REVEAL_ENABLED).toBe(false);
+    expect(loadServerConfig({ ADMIN_PII_REVEAL_ENABLED: "false" }).ADMIN_PII_REVEAL_ENABLED).toBe(
+      false,
+    );
+    expect(loadServerConfig({ ADMIN_PII_REVEAL_ENABLED: "0" }).ADMIN_PII_REVEAL_ENABLED).toBe(
+      false,
+    );
     expect(loadServerConfig({ ADMIN_PII_REVEAL_ENABLED: "" }).ADMIN_PII_REVEAL_ENABLED).toBe(false);
   });
 
@@ -173,8 +181,12 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     const config = loadServerConfig({});
     expect(config.ADMIN_PII_REVEAL_MAX_PER_HOUR).toBe(10);
     expect(config.ADMIN_PII_REVEAL_MAX_PER_DAY).toBe(30);
-    expect(loadServerConfig({ ADMIN_PII_REVEAL_MAX_PER_HOUR: "3" }).ADMIN_PII_REVEAL_MAX_PER_HOUR).toBe(3);
-    expect(loadServerConfig({ ADMIN_PII_REVEAL_MAX_PER_DAY: "5" }).ADMIN_PII_REVEAL_MAX_PER_DAY).toBe(5);
+    expect(
+      loadServerConfig({ ADMIN_PII_REVEAL_MAX_PER_HOUR: "3" }).ADMIN_PII_REVEAL_MAX_PER_HOUR,
+    ).toBe(3);
+    expect(
+      loadServerConfig({ ADMIN_PII_REVEAL_MAX_PER_DAY: "5" }).ADMIN_PII_REVEAL_MAX_PER_DAY,
+    ).toBe(5);
     // positive-only: a non-positive cap is rejected (an unbounded/zero reveal cap is unsafe).
     expect(() => loadServerConfig({ ADMIN_PII_REVEAL_MAX_PER_HOUR: "0" })).toThrow();
   });
@@ -188,8 +200,12 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     expect(config.ADMIN_IDENTITY_MAX_PER_DAY).toBe(1000);
     // ...and they are genuinely independent of the reveal's, not aliases of it.
     expect(config.ADMIN_IDENTITY_MAX_PER_HOUR).not.toBe(config.ADMIN_PII_REVEAL_MAX_PER_HOUR);
-    expect(loadServerConfig({ ADMIN_IDENTITY_MAX_PER_HOUR: "7" }).ADMIN_IDENTITY_MAX_PER_HOUR).toBe(7);
-    expect(loadServerConfig({ ADMIN_IDENTITY_MAX_PER_DAY: "9" }).ADMIN_IDENTITY_MAX_PER_DAY).toBe(9);
+    expect(loadServerConfig({ ADMIN_IDENTITY_MAX_PER_HOUR: "7" }).ADMIN_IDENTITY_MAX_PER_HOUR).toBe(
+      7,
+    );
+    expect(loadServerConfig({ ADMIN_IDENTITY_MAX_PER_DAY: "9" }).ADMIN_IDENTITY_MAX_PER_DAY).toBe(
+      9,
+    );
     // Zero would mean "names are off", which must be a capability decision, not an env typo.
     expect(() => loadServerConfig({ ADMIN_IDENTITY_MAX_PER_HOUR: "0" })).toThrow();
     expect(() => loadServerConfig({ ADMIN_IDENTITY_MAX_PER_DAY: "-1" })).toThrow();
@@ -202,11 +218,37 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     // the one that matters on the box: a compose `${VAR:-false}` pass-through with an unset
     // GitHub secret arrives as an empty string, and that must read as OFF, not throw.
     expect(loadServerConfig({}).ADMIN_AI_TRACE_READ_ENABLED).toBe(false);
-    expect(loadServerConfig({ ADMIN_AI_TRACE_READ_ENABLED: "true" }).ADMIN_AI_TRACE_READ_ENABLED).toBe(true);
-    expect(loadServerConfig({ ADMIN_AI_TRACE_READ_ENABLED: "1" }).ADMIN_AI_TRACE_READ_ENABLED).toBe(true);
-    expect(loadServerConfig({ ADMIN_AI_TRACE_READ_ENABLED: "false" }).ADMIN_AI_TRACE_READ_ENABLED).toBe(false);
-    expect(loadServerConfig({ ADMIN_AI_TRACE_READ_ENABLED: "0" }).ADMIN_AI_TRACE_READ_ENABLED).toBe(false);
-    expect(loadServerConfig({ ADMIN_AI_TRACE_READ_ENABLED: "" }).ADMIN_AI_TRACE_READ_ENABLED).toBe(false);
+    expect(
+      loadServerConfig({ ADMIN_AI_TRACE_READ_ENABLED: "true" }).ADMIN_AI_TRACE_READ_ENABLED,
+    ).toBe(true);
+    expect(loadServerConfig({ ADMIN_AI_TRACE_READ_ENABLED: "1" }).ADMIN_AI_TRACE_READ_ENABLED).toBe(
+      true,
+    );
+    expect(
+      loadServerConfig({ ADMIN_AI_TRACE_READ_ENABLED: "false" }).ADMIN_AI_TRACE_READ_ENABLED,
+    ).toBe(false);
+    expect(loadServerConfig({ ADMIN_AI_TRACE_READ_ENABLED: "0" }).ADMIN_AI_TRACE_READ_ENABLED).toBe(
+      false,
+    );
+    expect(loadServerConfig({ ADMIN_AI_TRACE_READ_ENABLED: "" }).ADMIN_AI_TRACE_READ_ENABLED).toBe(
+      false,
+    );
+  });
+
+  it("ADMIN_ENGINE_VIEW_ALLOW_PHONES: empty by default (demo block only), a list of E.164, malformed fails boot", () => {
+    // Owner ruling 2026-10-06: the Engine view shows demo workers only. An unset or empty
+    // compose pass-through must read as "no extra handsets", never throw.
+    expect(loadServerConfig({}).ADMIN_ENGINE_VIEW_ALLOW_PHONES).toEqual([]);
+    expect(
+      loadServerConfig({ ADMIN_ENGINE_VIEW_ALLOW_PHONES: "" }).ADMIN_ENGINE_VIEW_ALLOW_PHONES,
+    ).toEqual([]);
+    expect(
+      loadServerConfig({ ADMIN_ENGINE_VIEW_ALLOW_PHONES: " +919812345678 ,+919812345679," })
+        .ADMIN_ENGINE_VIEW_ALLOW_PHONES,
+    ).toEqual(["+919812345678", "+919812345679"]);
+    // A typo must not silently drop the owner's handset — it fails closed at boot.
+    expect(() => loadServerConfig({ ADMIN_ENGINE_VIEW_ALLOW_PHONES: "9812345678" })).toThrow();
+    expect(() => loadServerConfig({ ADMIN_ENGINE_VIEW_ALLOW_PHONES: "+1 555 0100" })).toThrow();
   });
 
   it("the AI-TRACE decrypt caps are a THIRD budget (20/hour, 60/day) and REJECT an empty string", () => {
@@ -217,8 +259,12 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     expect(config.ADMIN_AI_TRACE_MAX_PER_DAY).toBe(60);
     expect(config.ADMIN_AI_TRACE_MAX_PER_HOUR).not.toBe(config.ADMIN_IDENTITY_MAX_PER_HOUR);
     expect(config.ADMIN_AI_TRACE_MAX_PER_HOUR).not.toBe(config.ADMIN_PII_REVEAL_MAX_PER_HOUR);
-    expect(loadServerConfig({ ADMIN_AI_TRACE_MAX_PER_HOUR: "7" }).ADMIN_AI_TRACE_MAX_PER_HOUR).toBe(7);
-    expect(loadServerConfig({ ADMIN_AI_TRACE_MAX_PER_DAY: "9" }).ADMIN_AI_TRACE_MAX_PER_DAY).toBe(9);
+    expect(loadServerConfig({ ADMIN_AI_TRACE_MAX_PER_HOUR: "7" }).ADMIN_AI_TRACE_MAX_PER_HOUR).toBe(
+      7,
+    );
+    expect(loadServerConfig({ ADMIN_AI_TRACE_MAX_PER_DAY: "9" }).ADMIN_AI_TRACE_MAX_PER_DAY).toBe(
+      9,
+    );
     // Zero/negative would mean "the read is off", which must be the FLAG's decision, not a typo.
     expect(() => loadServerConfig({ ADMIN_AI_TRACE_MAX_PER_HOUR: "0" })).toThrow();
     expect(() => loadServerConfig({ ADMIN_AI_TRACE_MAX_PER_DAY: "-1" })).toThrow();
@@ -246,7 +292,9 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     expect(loadServerConfig({}).SKILLS_INTERNAL_TOKEN).toBeUndefined();
     expect(loadServerConfig({ SKILLS_INTERNAL_TOKEN: "" }).SKILLS_INTERNAL_TOKEN).toBeUndefined();
     // A real value still arrives intact — the seam is armed by presence, never by shape.
-    expect(loadServerConfig({ SKILLS_INTERNAL_TOKEN: "s3cr3t" }).SKILLS_INTERNAL_TOKEN).toBe("s3cr3t");
+    expect(loadServerConfig({ SKILLS_INTERNAL_TOKEN: "s3cr3t" }).SKILLS_INTERNAL_TOKEN).toBe(
+      "s3cr3t",
+    );
   });
 
   it("AI_INTERNAL_TOKEN does the same, and STILL rejects a short non-empty value", () => {
@@ -377,7 +425,9 @@ describe("real Razorpay payments — fail-closed boot gate (all three secrets)",
       ),
     ).toBeNull(); // flag + key id only — not live
     // Credentials present but the master flag OFF ⇒ still null (the flag is the master gate).
-    expect(getRazorpayCredentials(loadServerConfig({ ...FULL, PAYMENTS_ENABLE_REAL: "false" }))).toBeNull();
+    expect(
+      getRazorpayCredentials(loadServerConfig({ ...FULL, PAYMENTS_ENABLE_REAL: "false" })),
+    ).toBeNull();
     expect(getRazorpayCredentials(loadServerConfig(FULL))).toEqual({
       keyId: "rzp_test_keyid",
       keySecret: "rzp_key_secret",
@@ -565,18 +615,19 @@ describe("OTP global daily send circuit-breaker (OTP-5 — the spend ceiling + k
   });
 
   it("accepts 0 (paused = kill-switch) on both caps — min(0) is deliberate", () => {
-    expect(loadServerConfig({ OTP_GLOBAL_MAX_SENDS_PER_DAY: "0" }).OTP_GLOBAL_MAX_SENDS_PER_DAY).toBe(
-      0,
-    );
     expect(
-      loadServerConfig({ PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY: "0" }).PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY,
+      loadServerConfig({ OTP_GLOBAL_MAX_SENDS_PER_DAY: "0" }).OTP_GLOBAL_MAX_SENDS_PER_DAY,
+    ).toBe(0);
+    expect(
+      loadServerConfig({ PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY: "0" })
+        .PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY,
     ).toBe(0);
   });
 
   it("is tunable (coerced from a string)", () => {
-    expect(loadServerConfig({ OTP_GLOBAL_MAX_SENDS_PER_DAY: "500" }).OTP_GLOBAL_MAX_SENDS_PER_DAY).toBe(
-      500,
-    );
+    expect(
+      loadServerConfig({ OTP_GLOBAL_MAX_SENDS_PER_DAY: "500" }).OTP_GLOBAL_MAX_SENDS_PER_DAY,
+    ).toBe(500);
   });
 
   it("rejects a negative cap (min(0) floor)", () => {
@@ -631,17 +682,36 @@ describe("loadServerConfig", () => {
     // The box's `${CHAT_GENERAL_ROAD_ENABLED:-false}` passes an unset secret as "false", but a
     // shell that exports it empty must still read as OFF, never throw at boot.
     expect(loadServerConfig({}).CHAT_GENERAL_ROAD_ENABLED).toBe(false);
-    expect(loadServerConfig({ CHAT_GENERAL_ROAD_ENABLED: "" }).CHAT_GENERAL_ROAD_ENABLED).toBe(false);
-    expect(loadServerConfig({ CHAT_GENERAL_ROAD_ENABLED: "true" }).CHAT_GENERAL_ROAD_ENABLED).toBe(true);
+    expect(loadServerConfig({ CHAT_GENERAL_ROAD_ENABLED: "" }).CHAT_GENERAL_ROAD_ENABLED).toBe(
+      false,
+    );
+    expect(loadServerConfig({ CHAT_GENERAL_ROAD_ENABLED: "true" }).CHAT_GENERAL_ROAD_ENABLED).toBe(
+      true,
+    );
   });
 
   it("CHAT_IDENTITY_INTAKE_ENABLED (ADR-0048) is OFF by default, for the empty string and for 'false'", () => {
     // Off is today's chat opening byte for byte; it flips only with the app release that
     // unroutes `/name`, so an unset or blank secret must never read as on.
     expect(loadServerConfig({}).CHAT_IDENTITY_INTAKE_ENABLED).toBe(false);
-    expect(loadServerConfig({ CHAT_IDENTITY_INTAKE_ENABLED: "" }).CHAT_IDENTITY_INTAKE_ENABLED).toBe(false);
-    expect(loadServerConfig({ CHAT_IDENTITY_INTAKE_ENABLED: "false" }).CHAT_IDENTITY_INTAKE_ENABLED).toBe(false);
-    expect(loadServerConfig({ CHAT_IDENTITY_INTAKE_ENABLED: "true" }).CHAT_IDENTITY_INTAKE_ENABLED).toBe(true);
+    expect(
+      loadServerConfig({ CHAT_IDENTITY_INTAKE_ENABLED: "" }).CHAT_IDENTITY_INTAKE_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ CHAT_IDENTITY_INTAKE_ENABLED: "false" }).CHAT_IDENTITY_INTAKE_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ CHAT_IDENTITY_INTAKE_ENABLED: "true" }).CHAT_IDENTITY_INTAKE_ENABLED,
+    ).toBe(true);
+  });
+
+  it("CHAT_FREE_CHAT_DISABLED (ADR-0051) is false by default — the free chat is live unless killed", () => {
+    // The kill switch, not a gate: unset, blank and 'false' all leave the free chat ON (live on
+    // merge, owner ruling 2026-10-06); only an explicit true restores the pre-ADR-0051 chat.
+    expect(loadServerConfig({}).CHAT_FREE_CHAT_DISABLED).toBe(false);
+    expect(loadServerConfig({ CHAT_FREE_CHAT_DISABLED: "" }).CHAT_FREE_CHAT_DISABLED).toBe(false);
+    expect(loadServerConfig({ CHAT_FREE_CHAT_DISABLED: "false" }).CHAT_FREE_CHAT_DISABLED).toBe(false);
+    expect(loadServerConfig({ CHAT_FREE_CHAT_DISABLED: "true" }).CHAT_FREE_CHAT_DISABLED).toBe(true);
   });
 
   it("RESUME_SKINS_ENABLED (#1801) is OFF by default and for the empty string", () => {
@@ -723,7 +793,9 @@ describe("loadServerConfig", () => {
     // #1800: staging now declares the origin that SERVES `/i/<code>`. The default stays the old
     // value only so a bare local boot validates; the refinement keeps a redirect off plain http.
     const base = "https://payer.43-204-36-199.sslip.io";
-    expect(loadServerConfig({ REFERRAL_SHORT_LINK_BASE: base }).REFERRAL_SHORT_LINK_BASE).toBe(base);
+    expect(loadServerConfig({ REFERRAL_SHORT_LINK_BASE: base }).REFERRAL_SHORT_LINK_BASE).toBe(
+      base,
+    );
     expect(() =>
       loadServerConfig({ REFERRAL_SHORT_LINK_BASE: "http://payer.43-204-36-199.sslip.io" }),
     ).toThrow();

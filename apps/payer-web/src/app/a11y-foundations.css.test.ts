@@ -383,12 +383,14 @@ describe("W2-A · 2 — small controls clear a 44px hit area on phones (≤600px
   const T_BLOCK = "calc((100% - var(--control-md)) / 2)";
   const T_INLINE = "min(0px, calc((100% - var(--control-md)) / 2))";
   const BEHIND = "calc(var(--z-base) - 1)";
-  /** The shell header's controls are finger targets on ANY coarse pointer, not only phones. */
+  /** The small controls are finger targets on ANY coarse pointer, not only phones. */
   const PHONE_OR_TOUCH = `@media (${PHONE}), (pointer: coarse)`;
   /** [file, host selector (as written), its base class, that file's rules, its hit-area context]. */
   const HOSTS: [string, string, string, Rule[], string][] = [
-    ["ds-components.css", ".bb-btn--sm", "bb-btn--sm", D, `@media (${PHONE})`],
-    ["ds-components.css", ".bb-chip", "bb-chip", D, `@media (${PHONE})`],
+    // Final sweep C (F06): the DS small button and chip take their strips on a coarse pointer
+    // too — measured 36 / 38px effective at 768 / 1024px under touch before.
+    ["ds-components.css", ".bb-btn--sm", "bb-btn--sm", D, PHONE_OR_TOUCH],
+    ["ds-components.css", ".bb-chip", "bb-chip", D, PHONE_OR_TOUCH],
     ["globals.css", ".theme-toggle__switch", "theme-toggle__switch", G, PHONE_OR_TOUCH],
     ["globals.css", ".theme-toggle__system", "theme-toggle__system", G, PHONE_OR_TOUCH],
     ["globals.css", ".pshell__menu", "pshell__menu", G, PHONE_OR_TOUCH],
@@ -481,9 +483,8 @@ describe("W2-A · 2 — small controls clear a 44px hit area on phones (≤600px
   it("W3-A: the header's controls take their strips on a coarse pointer too (a 768/1024px tablet)", () => {
     // Measured under a coarse pointer at 768/1024/1280px: menu, balance, switch and "System"
     // went from 36.5 / 35.5 / 32.5 / 22.5px tall to a 44.5px hit area; a fine pointer at
-    // 768/1280px keeps the drawn sizes. The DS small button and chip stay phone-only (their
-    // coarse-pointer lift is per screen, a drawn min-height).
-    const header = HOSTS.filter(([, , , , ctx]) => ctx === PHONE_OR_TOUCH).map(([, h]) => h);
+    // 768/1280px keeps the drawn sizes.
+    const header = HOSTS.filter(([file]) => file === "globals.css").map(([, h]) => h);
     expect(header).toHaveLength(4);
     for (const host of header) {
       expect(phoneRuleWith(G, host).at, host).toBe(PHONE_OR_TOUCH);
@@ -491,6 +492,19 @@ describe("W2-A · 2 — small controls clear a 44px hit area on phones (≤600px
     }
     // …the same context as the shared back link's strip (2b below).
     expect(one(G, ".page-back > a", "pointer: coarse").at).toBe(PHONE_OR_TOUCH);
+  });
+
+  it("final sweep C: the DS small button and chip take their strips on a coarse pointer too", () => {
+    // Measured at 768/1024px under touch: "All postings" / "Post with AI" (36px) and the skill
+    // chips (38px) were 36 / 38px effective — the strip stopped at 600px. Every host now shares
+    // the header's context, so a tablet finger gets the same 44px everywhere.
+    const ds = HOSTS.filter(([file]) => file === "ds-components.css").map(([, h]) => h);
+    expect(ds).toEqual([".bb-btn--sm", ".bb-chip"]);
+    for (const host of ds) {
+      expect(phoneRuleWith(D, host).at, host).toBe(PHONE_OR_TOUCH);
+      expect(phoneRuleWith(D, `${host}::before`).at, host).toBe(PHONE_OR_TOUCH);
+    }
+    expect(HOSTS.every(([, , , , ctx]) => ctx === PHONE_OR_TOUCH)).toBe(true);
   });
 
   it("desktop sizing is unchanged: the drawn controls keep their base heights", () => {

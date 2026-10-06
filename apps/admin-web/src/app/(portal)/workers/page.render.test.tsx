@@ -280,3 +280,13 @@ describe("a failed read: Retry repeats the query, Back to the first page drops t
     expect(out).not.toContain(">Retry<");
   });
 });
+
+/** PAGE HEIGHT (final sweep AW-08): the filter panel folds behind a toggle on a phone. */
+describe("the filter panel (AW-08)", () => {
+  it("is closed with no filter; the status and the deletion checkbox each count as one", async () => {
+    expect(await render()).toContain('data-open="false"');
+    const out = await render({ status: "active", pendingDeletion: "true" });
+    expect(out).toContain('data-open="true"');
+    expect(out).toContain(">Filters (2)</button>");
+  });
+});

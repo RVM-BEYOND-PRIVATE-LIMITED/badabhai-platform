@@ -77,12 +77,10 @@ export function MaskedCandidate({
       <div className="bb-candidate__body">
         <div className="bb-candidate__name">
           <span className="bb-candidate__name-text">{masked ? "Ramesh K." : name}</span>
+          {/* A status mark whose meaning no visible text carries, so the glyph itself is named:
+              role="img" + "Verified". */}
           {verified && (
-            <i
-              className="ph-fill ph-seal-check"
-              style={{ color: "var(--success)", fontSize: 16 }}
-              aria-label="Verified"
-            />
+            <Icon name="seal-check" size="sm" label="Verified" className="bb-candidate__verified" />
           )}
         </div>
         <div className="bb-candidate__meta">

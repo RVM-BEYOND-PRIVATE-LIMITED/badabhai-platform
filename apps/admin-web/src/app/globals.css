@@ -71,20 +71,13 @@ h3 {
   margin: 0;
 }
 
-/* FOCUS IN FORCED COLORS. The token layer's base `:focus-visible` is `outline: none` + a
-   box-shadow ring, and Windows forced-colors mode DROPS box-shadows. The admin ring below takes
-   over for every element in its list, but not for anything outside it — and Chrome now makes a
+/* FOCUS IN FORCED COLORS. Windows forced-colors mode DROPS box-shadows, and Chrome makes a
    scroller with nothing focusable inside (the roles matrix, an event payload) a tab stop of its
-   own. Focused in forced colors, that scroller showed no indicator at all (0 changed pixels,
-   measured). A TRANSPARENT outline is invisible in normal mode, so nothing changes there, and
-   forced colors repaint it in the system colour. Same fallback as payer-web's global
-   `:focus-visible`.
-   It MUST stay BEFORE the admin ring: both are (0,1,0), and source order is what lets the
-   visible ring win wherever both apply. */
-:focus-visible {
-  outline: var(--border-bold) solid transparent;
-  outline-offset: var(--border-bold);
-}
+   own — a stop the admin ring below does not list. The token layer's base `:focus-visible` now
+   carries a TRANSPARENT outline under its shadow ring (#1856): invisible in normal mode, repainted
+   in the system colour under forced colours. This file used to keep its own copy of that
+   fallback; the shared rule replaces it, and it precedes the admin ring by being @imported above
+   every rule here (both are (0,1,0), so source order is what lets the visible ring win). */
 
 /* One visible focus treatment for everything. Never remove it: the portal is designed to
    be driven from the keyboard, and an invisible focus ring makes that impossible.
@@ -175,6 +168,20 @@ h3 {
 .btn--ghost:hover:not(:disabled) {
   color: var(--text-primary);
   border-color: var(--border-strong);
+}
+/* A SELECTED filter chip (`filterChipClass`, components/filter-chip.ts) — a state, not an action
+   (final sweep AW-11). Selected chips used to reuse `.btn--primary`, so a screen showed up to five
+   Safety Yellow fills and the one real action (Apply) was one of five. The pairing is payer-web's
+   `.bb-chip--selected` — the pale accent tint, Shift Blue text and edge — so the two portals have
+   one selected state; the edge carries it for a reader who cannot see the tint, and the chip's
+   `aria-current` / `aria-pressed` carries it to assistive tech. */
+.btn--selected {
+  background: var(--brand-tint);
+  color: var(--text-accent);
+  border-color: var(--text-accent);
+}
+.btn--selected:hover:not(:disabled) {
+  background: var(--brand-tint-2);
 }
 .btn--block {
   width: 100%;
@@ -440,6 +447,37 @@ h3 {
 details[open] > summary > .disclosure__caret {
   transform: none;
 }
+/* …and the same reading on a button disclosure (`FilterPanel`'s toggle): open is `aria-expanded`. */
+[aria-expanded="true"] > .disclosure__caret {
+  transform: none;
+}
+
+/* A native disclosure in a panel (`<details class="disclosure">`): the discovery queue's More
+   filters (final sweep AW-02). Same summary row as the review groups — the brand caret, no UA
+   triangle, the whole row the toggle (44px on touch, in the touch block). */
+.disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--icon-gap);
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--ui-body-sm-size);
+  font-weight: var(--weight-semibold);
+  color: var(--text-heading);
+}
+.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.disclosure[open] > summary {
+  margin-block-end: var(--space-4);
+}
+
+/* A list page's filter panel (`FilterPanel`, components/filter-panel.tsx). Above the phone line
+   it is exactly the panel it was: the toggle is not drawn and the fields always show. On a phone
+   it folds behind a "Filters (n)" toggle, open whenever a filter is set (the phone tier). */
+.filter-panel__toggle {
+  display: none;
+}
 .enroll__secret {
   display: block;
   margin: var(--space-3) 0;
@@ -666,9 +704,16 @@ details[open] > summary > .disclosure__caret {
    floor that keeps a title in its own box: an unbroken title (a role title or an organisation
    name typed as one word) widens the block, so the actions WRAP below it. Zeroed, the block
    shrank under its own text and the title ran beneath the actions (a posting's role title
-   under Force-close at 768 and 1024, an organisation name under Suspend; measured). */
+   under Force-close at 768 and 1024, an organisation name under Suspend; measured).
+   …BUT CLAMPED TO THE ROW (final sweep AW-01). A token wider than the whole row widened the
+   block past it, and the page body with it: 1445px at 1280, 803px at 375 for a 95-character
+   organisation name (measured). Flexbox clamps the content-based minimum by a definite maximum
+   size, so `max-inline-size: 100%` stops the block at the row and the title wraps inside it
+   (`overflow-wrap` on the title and description, in the type roles below), while a title that
+   fits keeps its whole width as the floor and still sends the actions under it. */
 .page__heading {
   flex: 1 1 18rem;
+  max-inline-size: 100%;
 }
 .page__title {
   font-size: var(--text-xl);
@@ -835,10 +880,24 @@ details[open] > summary > .disclosure__caret {
        the drawer, but not click anything in it. The drawer now sits above its own scrim. */
     z-index: var(--z-modal);
     transform: translateX(-100%);
-    transition: transform var(--duration-base) var(--ease-out);
+    /* CLOSED IS HIDDEN, not just off-screen (final sweep AW-04). Translated out of view, the 15
+       drawer controls were still the first 15 Tab stops of every page below 1024px — focus
+       vanished off the left edge for 15 presses before reaching the toggle (measured at 375 and
+       900). `visibility: hidden` takes the whole drawer out of the tab order and the
+       accessibility tree, in CSS, so it holds before hydration too. It switches only once the
+       slide-out has run (the delay), so closing still animates; opening shows it at once
+       (below), so the shell can move focus into it. */
+    visibility: hidden;
+    transition:
+      transform var(--duration-base) var(--ease-out),
+      visibility 0s linear var(--duration-base);
   }
   .shell--drawer-open .sidebar {
     transform: translateX(0);
+    visibility: visible;
+    transition:
+      transform var(--duration-base) var(--ease-out),
+      visibility 0s;
   }
   .shell--drawer-open .shell__scrim {
     display: block;
@@ -1368,9 +1427,12 @@ details[open] > summary > .disclosure__caret {
   color: var(--danger-press);
   border-color: var(--danger);
 }
+/* Secondary text, not muted (final sweep AW-03): --text-muted measured 4.22:1 on the sunken fill —
+   under AA for the 12px label of a status that is read ("skipped", "not done", "ended"). The
+   secondary step is 7.0:1 there; the pill stays the quietest tone by its grey fill. */
 .pill--muted {
   background: var(--surface-sunken);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   border-color: var(--divider);
 }
 
@@ -1444,6 +1506,10 @@ details[open] > summary > .disclosure__caret {
   flex-wrap: wrap;
   gap: var(--space-2);
 }
+/* `overflow-wrap: anywhere` (AW-01): a chip is a flex item in a wrapping row, so it only ever
+   breaks inside itself when it alone is wider than the row — a skill's 95-character source
+   phrase scrolled the page to 1433px at 1280 (measured). `anywhere`, because only it lowers the
+   item's min-content; an ordinary chip still moves to the next line whole. */
 .chip {
   padding: 0.1rem var(--space-3);
   border-radius: var(--radius-pill);
@@ -1451,6 +1517,7 @@ details[open] > summary > .disclosure__caret {
   border: var(--border-hairline) solid var(--divider);
   font-size: var(--text-xs);
   color: var(--text-secondary);
+  overflow-wrap: anywhere;
 }
 /* The signed-in admin's column, so "what can I do" is findable at a glance. */
 .cell--mine {
@@ -1585,12 +1652,14 @@ details[open] > summary > .disclosure__caret {
      border lines up with it. */
   box-shadow: var(--shadow-sticky);
 }
+/* The role badge: 12px uppercase on the sunken tint, so it takes the secondary step (7.0:1) — the
+   muted one measured 4.22:1 there, on every page (final sweep AW-03). */
 .topbar__env {
   font-size: var(--ui-caption-size);
   font-weight: var(--weight-semibold);
   letter-spacing: var(--tracking-wide);
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   background: var(--surface-sunken);
   border: var(--border-hairline) solid var(--border-subtle);
   border-radius: var(--radius-pill);
@@ -1646,17 +1715,24 @@ details[open] > summary > .disclosure__caret {
  * The document baseline moved from 18px to the 14px body role (see the `body` rule); these
  * put the page furniture on the same scale instead of each block picking its own step.
  * ================================================================== */
+/* `overflow-wrap: break-word` on the title and its description (AW-01): an unbroken name breaks
+   at the edge of the (row-clamped, see `.page__heading`) title block instead of running past it.
+   `break-word`, NOT `anywhere`, above the phone line: `anywhere` lowers the min-content size, so
+   a title that fits whole would split mid-word beside the actions rather than move them under
+   it. The phone tier keeps its `anywhere` (there the row is the title's either way). */
 .page__title {
   font-size: var(--ui-h1-size);
   line-height: var(--ui-h1-leading);
   font-weight: var(--ui-h1-weight);
   letter-spacing: var(--ui-h1-tracking);
+  overflow-wrap: break-word;
 }
 .page__sub {
   font-size: var(--ui-body-size);
   line-height: var(--ui-body-leading);
   color: var(--text-secondary);
   max-width: var(--reading-max);
+  overflow-wrap: break-word;
 }
 .panel__title {
   font-size: var(--ui-h2-size);
@@ -1933,7 +2009,6 @@ textarea.field__input {
   display: none;
 }
 
-
 /* ==================================================================
  * UI-1 · NEEDS ATTENTION — the console's first band.
  * Rendered only when something genuinely needs an operator (see (portal)/attention.ts), so
@@ -2006,14 +2081,28 @@ textarea.field__input {
   flex: none;
   align-self: center;
 }
+/* `min-inline-size` (final sweep AW-29): a one-word chip ("All") was 40px wide at 320 with its
+   label overflowing by 2px, and narrower than a touch target. 44px is the floor at every width;
+   the touch strip below then never needs to reach sideways. */
 .btn--sm {
   min-height: var(--control-sm);
+  min-inline-size: var(--control-md);
   padding: 0 var(--space-3);
   font-size: var(--ui-body-sm-size);
 }
+/* On a phone the message takes the whole row and its action drops under it (final sweep AW-07).
+   `flex-wrap` alone never wrapped: with `flex: 1` (basis 0) the text could always shrink, so it
+   was squeezed to a 65px column beside a 140-173px button at 320 and every two-line message ran
+   to six or seven lines (measured). A full basis puts the text on a row of its own. */
 @media (max-width: 600px) {
   .attention__item {
     flex-wrap: wrap;
+  }
+  .attention__text {
+    flex: 1 1 100%;
+  }
+  .attention__action {
+    align-self: flex-start;
   }
 }
 
@@ -2147,7 +2236,7 @@ textarea.field__input {
 
 .thumb {
   display: inline-flex;
-  border: 1px solid var(--border-default);
+  border: var(--border-hairline) solid var(--border-default);
   border-radius: var(--radius-xs);
   overflow: hidden;
   line-height: 0;
@@ -2216,6 +2305,16 @@ textarea.field__input {
 .reviewgroup > summary::-webkit-details-marker {
   display: none;
 }
+/* The summary's text — the batch label and its counts — is ONE inline run beside the caret, so it
+   wraps as a sentence does. The label is the one corpus-typed token in the row (AW-01: a
+   95-character anchor made the page 888px wide at 375). `anywhere` lowers the run's min-content
+   so an unbroken token wraps inside the row; it only ever breaks a word that cannot fit a line
+   on its own. (With the label and the counts as SEPARATE flex items, the flex algorithm shrank a
+   short label by its share of the overflow and split "welding" into three lines, measured.) */
+.reviewgroup__title {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
 .reviewgroup[open] > summary {
   margin-block-end: var(--space-3);
 }
@@ -2259,11 +2358,17 @@ textarea.field__input {
 .queue-controls .filters__actions .btn {
   white-space: nowrap;
 }
-.queue-controls__group,
 .queue-notes {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+/* More filters' body (final sweep AW-02): batch order over the filter form, one stack at the
+   controls stack's own gap. (The tier tabs' caption group it replaces moved to the foot notes.) */
+.queue-filters__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 /* Captions under the batch list sit off it by the pager's own step (`.pager` in the flat view). */
 .queue-notes--foot {
@@ -2368,11 +2473,20 @@ textarea.field__input {
     inset-block: calc((100% - var(--control-md)) / 2);
     inset-inline: min(0px, calc((100% - var(--control-md)) / 2));
   }
+  /* …and a link SHORTER than 44px ("Fitter", "1d ago") is 44px wide itself (final sweep AW-18).
+     The strip reached sideways past a short link, but a table scrolled sideways clips anything
+     outside its scrollport, and with the link at the scroller's edge the strip's outer half was
+     gone (39px measured). Its own box is never clipped while the link is visible. */
+  .table :is(td, th) > .link {
+    display: inline-block;
+    min-inline-size: var(--control-md);
+  }
   .table :is(td, th) > br + .link,
   .table :is(td, th) > .link:has(+ br) {
     display: inline-flex;
     align-items: center;
     min-block-size: var(--control-md);
+    min-inline-size: var(--control-md);
   }
   .table :is(td, th) > br + .link::before,
   .table :is(td, th) > .link:has(+ br)::before {
@@ -2411,6 +2525,46 @@ textarea.field__input {
   .reviewgroup > summary,
   .enroll__manual > summary {
     min-block-size: var(--control-md);
+  }
+  .disclosure > summary {
+    min-block-size: var(--control-md);
+  }
+
+  /* Final sweep AW-18 — the targets the first pass missed (elementFromPoint scan at 375 touch,
+     768 and 1280 coarse). */
+  /* The checkbox filter's label was a 72x32 target. It takes the inputs' 44px height itself, and
+     its grid-alignment pad moves inside that height, so label and inputs share one row line. */
+  .field--check {
+    min-block-size: var(--control-md);
+    padding-block: 0;
+  }
+  /* A causal-chain link (121x22): the rows sit --space-3 apart, so a strip would reach into the
+     next one; the link takes the row height itself and keeps its text on the time's baseline. */
+  .chain__item > .link {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: var(--control-md);
+  }
+  /* A feedback thumbnail (42x42): the image grows to fill a 44px target with its border, rather
+     than floating in a 44px box with a gap round it. */
+  .thumb img {
+    inline-size: calc(var(--control-md) - 2 * var(--border-hairline));
+    block-size: calc(var(--control-md) - 2 * var(--border-hairline));
+  }
+
+  /* Page header actions are drawn compact on a phone (the phone tier, AW-08); the hit area stays
+     44px with the `.btn--sm` strip, behind the label in the button's own stacking context. At a
+     coarse pointer above the phone line the button is 44px already and the strip is its size. */
+  .page__actions .btn {
+    position: relative;
+    isolation: isolate;
+  }
+  .page__actions .btn::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0px, calc((100% - var(--control-md)) / 2));
   }
 }
 
@@ -2535,5 +2689,517 @@ textarea.field__input {
   .funnel__nums {
     flex-wrap: wrap;
     row-gap: var(--space-1);
+  }
+
+  /* PAGE HEIGHT (final sweep AW-08, owner requirement 21). Header actions are drawn at the small
+     control size: a worker's header was 311px at 375 — a select, Flag, Unflag and two links, two
+     button sizes mixed, four rows (measured). The 44px hit area is the touch block's strip. A
+     select keeps its full height (a strip cannot be drawn on one), and a button sharing its line
+     stretches to match. */
+  .page__actions {
+    gap: var(--space-2);
+  }
+  .page__actions .btn {
+    min-height: var(--control-sm);
+    padding: 0 var(--space-3);
+    font-size: var(--ui-body-sm-size);
+  }
+  .page__actions .btn .ph-fill {
+    font-size: var(--icon-size-sm);
+  }
+  /* …and a select among them (the worker's flag reason) fills what its row leaves, in the same
+     13px face: at its natural width it pushed Unflag onto a row of its own, so the worker header
+     took three rows of actions at 375 (287px); filling the remainder it takes two (243px), and
+     the longest reason ("Duplicate account") still fits whole. */
+  .page__actions .field {
+    flex: 1 1 8rem;
+    min-inline-size: 0;
+  }
+  .page__actions .field__input {
+    padding-inline: var(--space-3);
+    font-size: var(--ui-body-sm-size);
+  }
+
+  /* A list page's filter panel folds behind its toggle (AW-08): 163-418px of fields stood
+     between the header and the first row. Closed, it is only the toggle — no card around it. */
+  .filter-panel__toggle {
+    display: inline-flex;
+  }
+  .filter-panel[data-open="false"] {
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .filter-panel[data-open="false"] .filter-panel__body {
+    display: none;
+  }
+  .filter-panel[data-open="true"] .filter-panel__toggle {
+    margin-block-end: var(--space-4);
+  }
+}
+
+/* The crumb trail on the narrowest phones (final sweep AW-29): at 320 every step was ellipsized
+   to a few letters ("Workers" 57px in a 42px box). Wrapping puts a step on a second line inside
+   the bar's own 44px instead; a step wider than the whole bar still ellipsizes. */
+@media (max-width: 360px) {
+  .crumbs__list {
+    flex-wrap: wrap;
+    row-gap: 0;
+  }
+  /* The crumb's old paragraph margin (`.crumb`, --space-2 under each step) stacked once per line
+     when wrapped: a 99px bar at 320 (measured), against 82px without it. */
+  .crumbs .crumb {
+    margin: 0;
+  }
+}
+
+/* ============================================================
+   ENGINE VIEW (/matching/engine) — the presenter surface for the Matching V1 demo.
+
+   Brand-kit "typography usecase" look (#1993): a deep Shift Blue stage, Kilimanjaro Sans
+   uppercase headings with ONE key word in Safety Yellow, Inter for body / labels / numbers, Ivory
+   cards with Shift Blue text and large radii. Only the three brand colours and their 80/60/40%
+   steps; Safety Yellow carries text only on the navy stage or as a fill under navy text (never
+   small yellow text on Ivory). Every control is ≥ --control-md (44px). Motion is class-driven
+   and dropped entirely under prefers-reduced-motion (the token durations already zero there).
+   ============================================================ */
+.engine {
+  /* Focus on the navy stage: a Safety Yellow ring with no white halo (the sidebar's pattern);
+     the Ivory panels below restore the navy ring. */
+  --focus-ring: var(--text-on-ink-active);
+  background: var(--color-brand-primary);
+  color: var(--text-on-ink);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-7);
+  display: grid;
+  gap: var(--space-6);
+}
+.engine :where(a, button, input):focus-visible {
+  box-shadow: none;
+}
+.engine__panel:not(.engine__panel--funnel) {
+  --focus-ring: var(--color-brand-primary);
+}
+/* Short refs are ids, but on a projector they must read: Inter with tabular figures, not the
+   portal's 12px mono. Scoped to the stage so the rest of the console is untouched. */
+.engine .mono {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-md);
+}
+.engine__head {
+  display: grid;
+  gap: var(--space-3);
+}
+.engine__title {
+  font-family: var(--font-display);
+  font-size: var(--text-4xl);
+  line-height: var(--leading-tight);
+  text-transform: uppercase;
+  color: var(--text-on-ink);
+  margin: 0;
+}
+.engine__title-key {
+  color: var(--text-on-ink-active);
+}
+.engine__sub,
+.engine__state {
+  font-size: var(--text-lg);
+  color: var(--text-on-ink-muted);
+  margin: 0;
+}
+
+.engine__tabs,
+.engine__picker,
+.engine__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.engine__tab,
+.engine__pick {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-md);
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-pill);
+  border: var(--border-hairline) solid var(--color-brand-surface);
+  color: var(--text-on-ink);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+}
+.engine__tab[aria-current="page"],
+.engine__pick[aria-current="true"] {
+  background: var(--color-brand-accent);
+  border-color: var(--color-brand-accent);
+  color: var(--text-on-brand);
+}
+.engine__pick-date {
+  white-space: nowrap;
+  color: inherit;
+  opacity: 0.8;
+  font-size: var(--text-base);
+}
+
+.engine__posting-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.engine__posting-label {
+  font-weight: var(--weight-semibold);
+}
+.engine__posting-input {
+  min-height: var(--control-md);
+  min-width: 0;
+  flex: 1 1 22em;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--color-brand-surface);
+  color: var(--color-brand-primary);
+  font-size: var(--text-md);
+}
+
+.engine__live {
+  display: grid;
+  gap: var(--space-5);
+}
+.engine__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-md);
+}
+.engine__status-text {
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+  color: var(--text-on-ink-active);
+}
+.engine__status-time {
+  color: var(--text-on-ink-muted);
+}
+.engine__dot {
+  inline-size: var(--space-3);
+  block-size: var(--space-3);
+  border-radius: var(--radius-round);
+  background: var(--color-brand-accent);
+  animation: engine-pulse calc(var(--duration-slower) * 3) var(--ease-in-out) infinite;
+}
+.engine__dot--paused {
+  background: var(--color-brand-accent-40);
+  animation: none;
+}
+.engine__pause {
+  min-height: var(--control-md);
+  color: var(--text-on-ink);
+}
+
+.engine__grid {
+  display: grid;
+  gap: var(--space-5);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1.5fr);
+  align-items: start;
+}
+.engine__panel {
+  background: var(--color-brand-surface);
+  color: var(--color-brand-primary);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-6);
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.engine__panel--funnel {
+  background: var(--color-brand-primary);
+  border: var(--border-hairline) solid var(--color-brand-accent-40);
+  color: var(--text-on-ink);
+}
+.engine__panel-title {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  text-transform: uppercase;
+  margin: 0;
+  color: inherit;
+}
+/* A short ref is an id: it keeps its case even inside an uppercase title. */
+.engine__panel-title .mono {
+  text-transform: none;
+}
+.engine__subhead {
+  font-size: var(--text-md);
+  font-weight: var(--weight-bold);
+  margin: 0;
+}
+.engine__note,
+.engine__empty {
+  margin: 0;
+  font-size: var(--text-base);
+  opacity: 0.8;
+}
+.engine__warn {
+  margin: 0;
+  font-weight: var(--weight-bold);
+  color: var(--text-on-ink-active);
+}
+
+.engine__skills {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+.engine__skill {
+  display: grid;
+  gap: var(--space-1);
+  padding-block: var(--space-2);
+  border-block-end: var(--border-hairline) solid var(--color-brand-primary-40);
+}
+.engine__skill--off {
+  color: var(--color-brand-primary-60);
+}
+.engine__skill-label {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+.engine__skill-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: var(--text-base);
+}
+.engine__switch {
+  padding-inline: var(--space-2);
+  border-radius: var(--radius-pill);
+  border: var(--border-hairline) solid currentColor;
+  font-weight: var(--weight-bold);
+}
+.engine__switch--on {
+  background: var(--color-brand-primary);
+  border-color: var(--color-brand-primary);
+  color: var(--text-on-ink);
+}
+
+.engine__funnel {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-4);
+}
+.engine__step {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--space-4);
+  align-items: baseline;
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  transition: background-color var(--duration-slow) var(--ease-out);
+}
+.engine__step-value {
+  grid-row: span 2;
+  font-size: var(--text-5xl);
+  font-weight: var(--weight-extrabold);
+  line-height: var(--leading-none);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-on-ink-active);
+}
+.engine__step-label {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  text-transform: uppercase;
+}
+.engine__step-blurb {
+  font-size: var(--text-base);
+  color: var(--text-on-ink-muted);
+}
+.engine__step--hidden .engine__step-value {
+  color: var(--text-on-ink-muted);
+}
+.engine__step--changed {
+  outline: var(--border-bold) solid var(--color-brand-accent);
+}
+.engine__bar {
+  grid-column: 1 / -1;
+  margin-block-start: var(--space-2);
+  block-size: var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--color-brand-accent-40);
+  overflow: hidden;
+}
+.engine__bar-fill {
+  display: block;
+  block-size: 100%;
+  border-radius: inherit;
+  background: var(--color-brand-accent);
+  transition: width var(--duration-slower) var(--ease-out);
+}
+.engine__step--hidden .engine__bar-fill {
+  background: var(--color-brand-accent-60);
+}
+
+.engine__cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+.engine-card__link {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--control-md);
+  padding: var(--space-4);
+  border-radius: var(--radius-xl);
+  background: var(--color-brand-surface);
+  color: var(--color-brand-primary);
+  text-decoration: none;
+  border: var(--border-hairline) solid var(--color-brand-primary-40);
+}
+.engine-card__rank {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-extrabold);
+  font-variant-numeric: tabular-nums;
+  min-inline-size: 2ch;
+  text-align: center;
+}
+.engine-card__art {
+  display: grid;
+  place-items: center;
+  inline-size: var(--space-10);
+  block-size: var(--space-10);
+  border-radius: var(--radius-lg);
+  background: var(--color-brand-primary);
+  color: var(--color-brand-accent);
+}
+.engine-card__body {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.engine-card__title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  overflow-wrap: anywhere;
+}
+.engine-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-base);
+}
+.engine-card__why {
+  font-size: var(--text-base);
+  color: var(--color-brand-primary-80);
+}
+.engine-tier {
+  display: inline-block;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-base);
+  font-weight: var(--weight-bold);
+}
+.engine-tier--direct {
+  background: var(--color-brand-primary);
+  color: var(--text-on-ink);
+}
+.engine-tier--related {
+  background: var(--color-brand-accent);
+  color: var(--text-on-brand);
+}
+.engine-tier--boosted,
+.engine-tier--unknown {
+  border: var(--border-hairline) solid currentColor;
+}
+.engine-card--entered .engine-card__link {
+  border-color: var(--color-brand-accent);
+  box-shadow: 0 0 0 var(--space-1) var(--color-brand-accent-60);
+  animation: engine-in var(--duration-slower) var(--ease-out);
+}
+.engine-card--exiting {
+  opacity: 0.4;
+  animation: engine-out var(--duration-slower) var(--ease-in) forwards;
+}
+/* Posting tab: skills and reach side by side, the ranked table on its own full-width row so
+   every rank-key column is visible without a sideways scroll. */
+@media (min-width: 1280px) {
+  .engine__grid--posting {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .engine__panel--candidates {
+    grid-column: 1 / -1;
+  }
+}
+.engine__back {
+  min-height: var(--control-md);
+  justify-self: start;
+  color: var(--color-brand-primary);
+}
+.engine__table a {
+  color: var(--color-brand-primary);
+}
+.engine__table th,
+.engine__table td {
+  font-size: var(--text-base);
+}
+
+@keyframes engine-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+@keyframes engine-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--space-3)));
+  }
+}
+@keyframes engine-out {
+  to {
+    opacity: 0;
+    transform: translateX(var(--space-7));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .engine__dot,
+  .engine-card--entered .engine-card__link,
+  .engine-card--exiting {
+    animation: none;
+  }
+}
+
+@media (max-width: 1279px) {
+  .engine__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 767px) {
+  .engine {
+    padding: var(--space-4);
+    border-radius: var(--radius-xl);
+  }
+  .engine__title {
+    font-size: var(--text-2xl);
+  }
+  .engine__step-value {
+    font-size: var(--text-3xl);
+  }
+  .engine-card__link {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .engine-card__art {
+    display: none;
   }
 }

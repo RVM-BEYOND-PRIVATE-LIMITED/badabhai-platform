@@ -116,9 +116,22 @@ export class MatchFeedRepository {
    *   job_reach ⋈ job_postings WHERE worker_id = :me AND status = 'open'
    *     AND NOT EXISTS (applied/skipped on job_posting_id)
    *     AND <his filters>
-   *   ORDER BY (boosted_until > now()) DESC, published_at DESC, id ASC
+   *   ORDER BY (boosted_until > now()) DESC, jr.match_tier ASC,
+   *            jp.published_at DESC NULLS LAST, jp.id ASC
    *
-   * NO SCORE, NO RANKING — the order is boost, then recency, then a stable id tiebreak.
+   * NO SCORE, NO WEIGHTS — the order is boost, then match tier, then recency, then a
+   * stable id tiebreak: a lexicographic tuple of one boolean (boost live?) and plain
+   * columns, with no formula over them.
+   *
+   * DIRECT BEFORE RELATED (owner ruling, Prakash, 2026-10-05). Within each boost band, a
+   * job the worker reaches through the POSTED skill (`match_tier` 1) ranks above one he
+   * reaches only through a RELATED skill (tier 2). `match_tier` is a two-value tier
+   * fixed at publish (best tier wins, moment ③), not a score, so this is a lexicographic
+   * key like recency — not ranking-by-model. Boost stays FIRST: a paid placement lifts a
+   * card above every unboosted card whatever its tier (ADR-0036 §7 — boost still never
+   * adds a card that failed the skill gate). Before this ruling the order was boost,
+   * recency, id ("NO SCORE, NO RANKING").
+   *
    * The `id ASC` tail makes it a TOTAL order: a feed that reorders between page loads is
    * a bug (E11/Policy 7), and without it two postings published in the same transaction
    * would swap on every fetch.
@@ -202,6 +215,7 @@ export class MatchFeedRepository {
         AND (${filters.payMin ?? null}::int IS NULL OR jp.pay_max IS NULL
              OR jp.pay_max >= ${filters.payMin ?? null}::int)
       ORDER BY (jp.boosted_until IS NOT NULL AND jp.boosted_until > now()) DESC,
+               jr.match_tier ASC,
                jp.published_at DESC NULLS LAST,
                jp.id ASC
       LIMIT ${limit}

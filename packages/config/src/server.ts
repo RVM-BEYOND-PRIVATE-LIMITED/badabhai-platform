@@ -1202,6 +1202,22 @@ export const serverEnvSchema = z.object({
   // `admin-ai-traces.controller.ts`). Arming it is one `${ADMIN_AI_TRACE_READ_ENABLED:-false}`
   // line in `docker-compose.staging.yml`'s `api.environment:` — `:-`, never a bare `-`.
   ADMIN_AI_TRACE_READ_ENABLED: booleanFromString,
+  // Engine view (admin `/admin/match/engine/*`, investor demo) — owner ruling 2026-10-06: the
+  // per-worker read serves DEMO WORKERS ONLY, fail-closed. A demo worker is one whose phone is in
+  // the reserved demo block `+910000026xxx` (the S1 demo seed's personas) OR in this list — the
+  // owner's demo handset. Comma-separated E.164 (`+91` + 10 digits), default EMPTY (block only).
+  // Not a secret: it widens nothing beyond named demo handsets, and each must still match a
+  // worker's peppered `phone_hash`. A malformed entry FAILS BOOT rather than being dropped.
+  ADMIN_ENGINE_VIEW_ALLOW_PHONES: z
+    .string()
+    .default("")
+    .transform((v) =>
+      v
+        .split(",")
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0),
+    )
+    .pipe(z.array(z.string().regex(/^\+91\d{10}$/, "must be +91 followed by 10 digits")).max(20)),
   // Per-ADMIN trace-decrypt caps, over the same FIXED UTC hour + UTC day windows as the two caps
   // above and on their OWN `admin_ai_trace:*` Redis namespace — a THIRD budget, not a share of
   // either existing one. The reveal budget bounds phone disclosures on an incident route; the
@@ -1551,6 +1567,16 @@ export const serverEnvSchema = z.object({
   // with `/name` still routed asks only what `/name` left blank; off with `/name` gone captures
   // nobody's name at all. booleanFromString so a falsey string stays OFF.
   CHAT_IDENTITY_INTAKE_ENABLED: booleanFromString,
+  // ADR-0051 (#2027) — THE PROFILING-STAGE FREE CHAT'S KILL SWITCH. The free chat is LIVE ON
+  // MERGE (owner ruling 2026-10-06): a profiling session opens on a greeting ("Shuru karein?"),
+  // résumé mode is today's interview (locked until the résumé is done) and free mode classifies
+  // and answers every message per category. There is no default-off gate; this is the one lever.
+  //
+  // DEFAULT OFF = THE FEATURE IS ON. True (the GitHub `production` environment secret plus a
+  // redeploy) sends every session straight to today's interview with no greeting and no
+  // classifier call — the byte-for-byte pre-ADR-0051 chat. booleanFromString so a falsey string
+  // keeps the feature on and anything outside the grammar fails the boot, never a silent flip.
+  CHAT_FREE_CHAT_DISABLED: booleanFromString,
 
   // ── Agency payout ledger (ADR-0022 module 3+7, Amendment 2, owner-ratified 2026-07-23) ──
   // Master switch for the agency SUPPLY payout surface. Default OFF = inert: the payout
