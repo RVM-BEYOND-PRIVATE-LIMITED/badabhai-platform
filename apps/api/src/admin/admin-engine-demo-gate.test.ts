@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { hashPhone } from "@badabhai/db";
+import { DEMO_PHONE_PATTERN, hashPhone, isDemoWorkerPhone } from "@badabhai/db";
 import { AdminEngineDemoGate, demoBlockPhones } from "./admin-engine-demo-gate";
 
 const PEPPER = "p".repeat(48);
 const pii = { hashPhone: (phone: string) => hashPhone(phone, PEPPER) };
-const gate = (allow: string[] = [], workers: unknown = { findLiveIdsByPhoneHashes: async () => [] }) =>
+const gate = (
+  allow: string[] = [],
+  workers: unknown = { findLiveIdsByPhoneHashes: async () => [] },
+) =>
   new AdminEngineDemoGate(
     { ADMIN_ENGINE_VIEW_ALLOW_PHONES: allow } as never,
     pii as never,
@@ -20,6 +23,21 @@ describe("AdminEngineDemoGate — the Engine view shows demo workers only (owner
     // The demo seed's first persona (#2013 `demoPhone(0)`) is inside the block.
     expect(phones).toContain("+910000026001");
     for (const p of phones) expect(p).toMatch(/^\+910000026\d{3}$/);
+  });
+
+  it("enumerates EXACTLY the shared demo block — the one definition in @badabhai/db (#2013)", () => {
+    const phones = demoBlockPhones();
+    // Every enumerated phone is a demo phone by the shared definition…
+    for (const p of phones) {
+      expect(DEMO_PHONE_PATTERN.test(p)).toBe(true);
+      expect(isDemoWorkerPhone(p)).toBe(true);
+    }
+    // …no two are the same, and the pattern admits nothing the enumeration missed: it is
+    // `prefix + exactly three digits`, so 1,000 distinct matches is the whole of it.
+    expect(new Set(phones).size).toBe(1000);
+    expect(DEMO_PHONE_PATTERN.test("+9100000261000")).toBe(false);
+    expect(DEMO_PHONE_PATTERN.test("+91000002600")).toBe(false);
+    expect(DEMO_PHONE_PATTERN.test("+910000019844")).toBe(false);
   });
 
   it("a demo worker's hash is in the set; a real worker's is not", () => {

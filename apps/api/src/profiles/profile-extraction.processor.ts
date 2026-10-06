@@ -66,6 +66,7 @@ import { ChatTableWritesService } from "./chat-table-writes";
 import { WorkerAttributesRepository } from "./worker-attributes.repository";
 import { WorkerEmploymentRepository } from "./worker-employment.repository";
 import { buildGeneralRoadExtraction } from "./general-road-profile";
+import { certifyInterviewDraft } from "./interview-draft-certification";
 import { hasExtractedContent, type ProfileContentFields } from "./profile-content";
 import {
   AI_SPEND_CAP_REASONS,
@@ -1388,8 +1389,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
       `profile projected for job ${job.aiJobId} status=${projection.parseStatus} ` +
         `fields=${Object.keys(projection.draft).length} overlay=${projection.overlayFields.length}`,
     );
+    const extraction = toExtractionOutput(projection, interview, occupation?.label ?? null);
+    this.logWithheldDraftFields(job.aiJobId, extraction.withheldDraftFields);
     return {
-      result: toExtractionOutput(projection, interview),
+      result: extraction.output,
       pin: occupation,
       // THE LINE THAT WAS MISSING. `projectProfile` has computed this array on every interview
       // since V2 shipped; `toExtractionOutput` reads `projection.draft` and nothing else, so the
@@ -1500,8 +1503,11 @@ export class ProfileExtractionProcessor extends WorkerHost {
   }> {
     const projection = projectProfile(answerMap, {}, { split: splitToolsEquipment });
     const employments = await this.employments.loadForResume(job.workerId);
+    const pin = readOccupationPin(state?.occupation);
+    const deterministic = toExtractionOutput(projection, null, pin?.label ?? null);
+    this.logWithheldDraftFields(job.aiJobId, deterministic.withheldDraftFields);
     const result = buildGeneralRoadExtraction({
-      deterministic: toExtractionOutput(projection, null),
+      deterministic: deterministic.output,
       stamp,
       employments,
       // The job's processing time: what closes a current job's span in the total.
@@ -1518,10 +1524,22 @@ export class ProfileExtractionProcessor extends WorkerHost {
     );
     return {
       result,
-      pin: readOccupationPin(state?.occupation),
+      pin,
       attributes: projection.attributes,
       pack: packPinOf(state),
     };
+  }
+
+  /**
+   * #2004 — say which draft fields `certifyInterviewDraft` withheld. FIELD IDS ONLY: a withheld
+   * value is by definition not certified, so it is never logged.
+   */
+  private logWithheldDraftFields(aiJobId: string, withheld: readonly string[]): void {
+    if (withheld.length === 0) return;
+    this.logger.log(
+      `rich draft for job ${aiJobId}: withheld ${withheld.length} uncertified model-written ` +
+        `field(s) [${withheld.join(",")}]`,
+    );
   }
 
   /**
@@ -2283,13 +2301,25 @@ function availabilityOf(
   return mapped ?? { status: deterministic, notice_period_days: null };
 }
 
+/** `toExtractionOutput`'s result: the output, plus the draft fields #2004 withheld (ids only). */
+interface InterviewExtraction {
+  readonly output: ProfileExtractionOutput;
+  readonly withheldDraftFields: readonly string[];
+}
+
 function toExtractionOutput(
   projection: ProjectionResult,
-  interview: InterviewExtractOutput | null = null,
-): ProfileExtractionOutput {
-  const at = <T>(field: string): T | undefined => projection.draft[field]?.value as T | undefined;
+  interview: InterviewExtractOutput | null,
+  pinnedOccupationLabel: string | null,
+): InterviewExtraction {
+  // #2004 — FIRST, so nothing below can read a value the certification withheld. The rich draft
+  // and every profile field built from it (`machines`, `certifications`, `education_*`, the
+  // `skill_labels` fallback, the location fallback) see only closed-set values and the worker's
+  // own answers. See `certifyInterviewDraft` for the field-by-field rule.
+  const certified = certifyInterviewDraft(projection.draft, pinnedOccupationLabel);
+  const at = <T>(field: string): T | undefined => certified.draft[field]?.value as T | undefined;
   const arr = (field: string): string[] => {
-    const value = projection.draft[field]?.value;
+    const value = certified.draft[field]?.value;
     if (Array.isArray(value)) return value.filter((v): v is string => typeof v === "string");
     return typeof value === "string" && value.length > 0 ? [value] : [];
   };
@@ -2413,7 +2443,7 @@ function toExtractionOutput(
       : null,
   });
 
-  return ProfileExtractionOutputSchema.parse({
+  const output = ProfileExtractionOutputSchema.parse({
     profile,
     blocked: false,
     is_mock: false,
@@ -2427,4 +2457,5 @@ function toExtractionOutput(
     // from. See `resolvePinnedDomain`.
     job_domain_match: null,
   });
+  return { output, withheldDraftFields: certified.withheld };
 }
