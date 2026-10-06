@@ -170,3 +170,11 @@ describe("the status chips keep an account narrowing (owner brief 2026-10-01)", 
     expect(out).toContain('href="/transactions?status=paid"');
   });
 });
+
+describe("the orders table names the payer the console's way", () => {
+  it("'Customer' — never 'Account', which is the payer's own settings page (sweep AW-12)", async () => {
+    const out = await render();
+    expect(out).toContain('<th scope="col">Customer</th>');
+    expect(out).not.toContain('<th scope="col">Account</th>');
+  });
+});

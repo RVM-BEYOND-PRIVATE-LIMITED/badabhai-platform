@@ -1,6 +1,7 @@
 "use client";
 
 import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { FallbackHeader } from "../../components/fallback-header";
 
 /**
  * Portal error boundary.
@@ -15,9 +16,9 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
  * The digest is NOT a backend string: it is the opaque hash Next mints for this render, so
  * printing it hands an operator a correlation key without handing them the failure text.
  *
- * DS: the shared `.state state--error` block with the recovery action in `.state__actions`.
- * The state itself draws no glyph — the title and body carry the meaning; the recovery action
- * carries its own.
+ * DS: the shared page header (title, one sentence), then the `.state state--error` block with
+ * the recovery action in `.state__actions`, labelled "Retry" like every other retry in the
+ * console. The state itself draws no glyph — the recovery action carries its own.
  */
 export default function PortalError({
   error,
@@ -27,23 +28,29 @@ export default function PortalError({
   reset: () => void;
 }) {
   return (
-    <div className="state state--error" role="alert">
-      <h1 className="state__title">Something went wrong</h1>
-      <p className="state__body">
-        This screen could not be loaded. That usually means the admin API is unreachable or
-        returned an unexpected response — it does not mean your session ended. Retry; if it
-        keeps failing, quote the reference below when you report it.
-      </p>
-      {error.digest && (
-        <p className="field__help">
-          Reference: <code>{error.digest}</code>
+    <div className="page">
+      <FallbackHeader
+        title="Something went wrong"
+        description="This screen could not be loaded, which usually means the admin API is unreachable or returned an unexpected response."
+      />
+      {/* The alert region speaks for itself: assistive tech announces its text on its own, so
+          it opens with what happened rather than relying on the header above it. */}
+      <div className="state state--error" role="alert">
+        <p className="state__body">
+          This screen failed to load. That does not mean your session ended. Retry; if it keeps
+          failing, quote the reference below when you report it.
         </p>
-      )}
-      <div className="state__actions">
-        <button className="btn btn--primary" type="button" onClick={reset}>
-          <Icon name={ACTION_ICON.retry} />
-          Try again
-        </button>
+        {error.digest && (
+          <p className="field__help">
+            Reference: <code>{error.digest}</code>
+          </p>
+        )}
+        <div className="state__actions">
+          <button className="btn btn--primary" type="button" onClick={reset}>
+            <Icon name={ACTION_ICON.retry} />
+            Retry
+          </button>
+        </div>
       </div>
     </div>
   );
