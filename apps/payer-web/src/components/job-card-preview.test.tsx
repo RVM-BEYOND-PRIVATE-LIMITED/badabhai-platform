@@ -72,11 +72,30 @@ describe("JobCardPreview — the worker card's rows, never a trust/identity clai
     ]) {
       expect(out, banned).not.toContain(banned);
     }
-    // role_kind "cnc_turner" → "CNC Turner" is NOT a card row (the title here is "CNC Machinist"),
-    // and neither is the raw id.
+    // role_kind "cnc_turner" → "CNC Turner" is NOT a card row (the title here is "CNC Machinist"):
+    // the role reaches the card ONLY as its decorative illustration, never as text.
     expect(out).not.toContain("cnc turner");
-    expect(out).not.toContain("cnc_turner");
+    expect(out.replace('data-role-art="cnc_turner"', "")).not.toContain("cnc_turner");
     expect(out).not.toContain("ph-briefcase");
+  });
+
+  it("heads the card with the picked role's illustration — decorative, before the title", () => {
+    const out = html(FULL);
+    expect(out).toMatch(
+      /<svg class="bb-role-art bb-role-art--animated jcp__art"[^>]*data-role-art="cnc_turner"[^>]*aria-hidden="true"/,
+    );
+    expect(out.indexOf("data-role-art")).toBeLessThan(out.indexOf('data-slot="title"'));
+  });
+
+  it.each(TRADE_FORM_KINDS_ALL)(
+    "role_kind=%s draws that role's art (the picker changes the picture)",
+    (kind) => {
+      expect(html({ ...FULL, role_kind: kind })).toContain(`data-role-art="${kind}"`);
+    },
+  );
+
+  it.each([null, "not_a_role", ""])("role_kind=%s draws the generic art, never a blank", (kind) => {
+    expect(html({ ...FULL, role_kind: kind })).toContain('data-role-art="generic"');
   });
 
   it("hides a row whose value is absent (no empty salary box / no invented chips)", () => {

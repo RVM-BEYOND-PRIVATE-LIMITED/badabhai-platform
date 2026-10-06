@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_spacing.dart';
 import '../theme/onboarding_theme.dart';
 import 'job_card_brand_footer.dart';
 import 'kit/kit_callout.dart';
 import 'kit/kit_info_chip.dart';
 import 'kit/kit_salary_box.dart';
+import 'role_art/role_art.dart';
 
 /// Immutable contents of a [BbJobCard] — the worker-facing job summary the feed
 /// renders. Pure data, no behaviour.
@@ -25,6 +27,7 @@ class BbJobCardData {
     this.spotsLeft,
     this.matchNote,
     this.metaRight,
+    this.roleKind,
   });
 
   final String title;
@@ -108,6 +111,11 @@ class BbJobCardData {
   /// falls back to [shift] for this slot (the kit uses the meta slot for shift).
   final String? metaRight;
 
+  /// The posting's raw `role_kind` (null when the source has none). Picks the
+  /// card's role illustration ([RoleArtBanner]); an unknown or null value
+  /// draws the generic art. Never rendered as text.
+  final String? roleKind;
+
   /// The value the card shows in its right-hand meta slot: an explicit
   /// [metaRight] wins, otherwise [shift].
   String? get effectiveMetaRight => metaRight ?? shift;
@@ -173,6 +181,7 @@ class BbJobCard extends StatelessWidget {
     this.layout = BbJobCardLayout.list,
     this.compact = false,
     this.showBrand = false,
+    this.showRoleArt = false,
   });
 
   final BbJobCardData data;
@@ -185,6 +194,13 @@ class BbJobCard extends StatelessWidget {
   /// a screen that is already branded; a lockup on every row there would be
   /// noise, not provenance.
   final bool showBrand;
+
+  /// LIST LAYOUT: head the card with the animated role illustration
+  /// ([RoleArtBanner], keyed by [BbJobCardData.roleKind]). Off by default and
+  /// on for the Jobs tab's list view, whose deck face carries the same art.
+  /// The applied list and search results carry no role yet, so a column of
+  /// identical generic pictures there would be noise.
+  final bool showRoleArt;
 
   final VoidCallback? onTitleTap;
 
@@ -240,6 +256,10 @@ class BbJobCard extends StatelessWidget {
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
+                      if (showRoleArt) ...<Widget>[
+                        RoleArtBanner(roleKind: data.roleKind),
+                        const SizedBox(height: AppSpacing.s3),
+                      ],
                       _HeaderRow(data: data, onTitleTap: onTitleTap),
                       // E18 — the "why am I seeing this" line, only for a
                       // related match.

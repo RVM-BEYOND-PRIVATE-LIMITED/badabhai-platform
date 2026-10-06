@@ -1,0 +1,37 @@
+{
+  "name": "@badabhai/role-art",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The animated ROLE ILLUSTRATIONS for job cards — one in-house SVG per declared role kind (+ a generic fallback) in art/, and the checked-in generator that emits the web renderer data + keyframes and the worker app's painter data from them. TS source, transpiled by each app (transpilePackages); no build step.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./role-art.css": "./role-art.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "art",
+    "role-art.css"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node scripts/generate.mjs --check && vitest run",
+    "art:generate": "node scripts/generate.mjs",
+    "art:verify": "node scripts/generate.mjs --check",
+    "clean": "rimraf --glob .turbo *.tsbuildinfo"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@badabhai/types": "workspace:*",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "vitest": "^3.2.7"
+  }
+}
