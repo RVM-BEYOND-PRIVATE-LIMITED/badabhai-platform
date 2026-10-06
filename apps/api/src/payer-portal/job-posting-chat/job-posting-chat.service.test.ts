@@ -10,6 +10,8 @@ import {
 import { createEvent } from "@badabhai/event-schema";
 import type { RequestContext } from "../../common/request-context";
 import { fakeAiTraceRecorder } from "../../ai/ai-trace-recorder.fake";
+import { EventsService } from "../../events/events.service";
+import { JobPostingsService } from "../../job-postings/job-postings.service";
 import { JobPostingChatService } from "./job-posting-chat.service";
 
 const PAYER_A = "aaaaaaaa-0000-4000-8000-000000000001";
@@ -958,6 +960,182 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
       await expect(broken.svc.publish(PAYER_A, SESSION, CTX)).rejects.toThrow();
       expect(broken.jobPostings.createForPayer).not.toHaveBeenCalled();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+/**
+ * #1928 — ONE PUBLISH, AT MOST ONE POSTING, WHEN `job_posting.created` FAILS.
+ *
+ * The stubbed `createForPayer` above cannot show this, because the defect lived between the
+ * two services: `JobPostingsService` committed the posting row and only then emitted, outside
+ * any transaction. A failed emit threw into `publish`, which released the claim (correctly
+ * guarded on "nothing bound", but the row WAS committed), and the retry created a second
+ * posting. So this wires the REAL `JobPostingsService` and the REAL `EventsService` under the
+ * REAL `publish`, over fakes that keep the semantics that matter:
+ *   - the posting + events store is TRANSACTIONAL. A write on the open `tx` persists only if the
+ *     callback resolves, and a write with no executor autocommits, as the pre-#1928 insert did;
+ *   - the session store mirrors the guarded UPDATEs (claim: live AND unbound; release: unbound).
+ * The real-Postgres version is the #1928 block in `job-posting-chat.repository.db.test.ts`.
+ */
+describe("JobPostingChatService — a publish whose job_posting.created emit fails creates no posting (#1928)", () => {
+  const LIVE = ["active", "draft_ready"];
+
+  function wired() {
+    const TX = { executor: "publish-test-tx" };
+    type Stored = {
+      postings: { id: string }[];
+      spine: { event_name: string; subject_id: string }[];
+    };
+    const committed: Stored = { postings: [], spine: [] };
+    let pending: Stored | null = null;
+    const write = <K extends keyof Stored>(tx: unknown, into: K, value: Stored[K][number]) => {
+      if (tx === undefined) (committed[into] as Stored[K][number][]).push(value);
+      else if (tx === TX && pending !== null) (pending[into] as Stored[K][number][]).push(value);
+      else throw new Error("write on an executor that is not the open transaction");
+    };
+
+    let seq = 0;
+    const postingsRepo = {
+      withTransaction: async (work: (tx: unknown) => Promise<unknown>) => {
+        pending = { postings: [], spine: [] };
+        try {
+          const out = await work(TX);
+          committed.postings.push(...pending.postings);
+          committed.spine.push(...pending.spine);
+          return out;
+        } finally {
+          pending = null;
+        }
+      },
+      create: async (input: Record<string, unknown>, tx?: unknown) => {
+        const posting = {
+          id: `dddddddd-0000-4000-8000-${String(++seq).padStart(12, "0")}`,
+          created_by: input.createdBy,
+          vacancy_band: input.vacancyBand,
+          location_label: input.locationLabel ?? null,
+          description: input.description ?? null,
+          role_kind: input.roleKind ?? null,
+          status: "draft",
+        };
+        write(tx, "postings", posting);
+        return posting;
+      },
+    };
+
+    // The FIRST events insert fails, as a dropped connection would; every later one succeeds.
+    let failNextEventInsert = true;
+    const eventsRepo = {
+      insert: async (
+        event: { event_name: string; subject: { subject_id: string } },
+        _key?: string | null,
+        executor?: unknown,
+      ) => {
+        if (failNextEventInsert) {
+          failNextEventInsert = false;
+          throw new Error("connection terminated unexpectedly");
+        }
+        write(executor, "spine", {
+          event_name: event.event_name,
+          subject_id: event.subject.subject_id,
+        });
+        return true;
+      },
+    };
+    const traces = fakeAiTraceRecorder();
+    const aiCost = { record: vi.fn(async () => {}) };
+    const jobPostings = new JobPostingsService(
+      postingsRepo as never,
+      new EventsService(eventsRepo as never, { NODE_ENV: "test" } as never),
+      // The draft's skill phrase is canonicalized on the way in; unresolved is enough here.
+      {
+        canonicalizeSkill: vi.fn(async () => ({
+          status: "unresolved",
+          skill_id: null,
+          score: null,
+          ai_metadata: null,
+        })),
+      } as never,
+      aiCost as never,
+      traces.recorder,
+      // A create never materializes reach and a chat publish sends no match_skill_ids.
+      {} as never,
+      {} as never,
+    );
+
+    const session = {
+      id: SESSION,
+      payerId: PAYER_A,
+      status: "draft_ready",
+      conversationState: ENGINE_STATE,
+      draft: FULL_DRAFT,
+      publishedJobPostingId: null as string | null,
+      startedAt: new Date("2026-10-03T09:00:00.000Z"),
+      lastMessageAt: null,
+      endedAt: null as Date | null,
+    };
+    const chat = {
+      findOwnedSession: async (id: string, payerId: string) =>
+        id === session.id && payerId === session.payerId ? { ...session } : undefined,
+      claimForPublish: async (_id: string, _payerId: string, at: Date) => {
+        if (!LIVE.includes(session.status) || session.publishedJobPostingId !== null) {
+          return undefined;
+        }
+        session.status = "published";
+        session.endedAt = at;
+        return { ...session };
+      },
+      releasePublishClaim: async (_id: string, _payerId: string, to: string) => {
+        if (session.publishedJobPostingId !== null) return;
+        session.status = to;
+        session.endedAt = null;
+      },
+      bindPublishedPosting: async (_id: string, _payerId: string, postingId: string) => {
+        session.publishedJobPostingId = postingId;
+      },
+    };
+
+    const svc = new JobPostingChatService(
+      chat as never,
+      { emit: vi.fn(async () => undefined) } as never,
+      {} as never,
+      aiCost as never,
+      traces.recorder,
+      { findById: async () => ({ id: PAYER_A, orgNameEnc: "ENC_ORG_TOKEN" }) } as never,
+      { decrypt: () => ORG_NAME } as never,
+      jobPostings,
+    );
+    return { svc, committed, session };
+  }
+
+  it("the failed attempt leaves no posting and no event, and releases the session", async () => {
+    const w = wired();
+    await expect(w.svc.publish(PAYER_A, SESSION, CTX)).rejects.toThrow(
+      "connection terminated unexpectedly",
+    );
+    // Rolled back with its event. Before #1928 the row had already committed here.
+    expect(w.committed.postings).toEqual([]);
+    expect(w.committed.spine).toEqual([]);
+    // The release is now CORRECT: nothing exists for the session to be bound to.
+    expect(w.session.status).toBe("draft_ready");
+    expect(w.session.publishedJobPostingId).toBeNull();
+  });
+
+  it("the retry creates exactly ONE posting, bound, with its one job_posting.created; a third publish is a 409", async () => {
+    const w = wired();
+    await expect(w.svc.publish(PAYER_A, SESSION, CTX)).rejects.toThrow();
+    const res = await w.svc.publish(PAYER_A, SESSION, CTX);
+
+    expect(w.committed.postings.map((p) => p.id)).toEqual([res.job_posting_id]);
+    // No posting without its event, and no event without its posting.
+    expect(w.committed.spine).toEqual([
+      { event_name: "job_posting.created", subject_id: res.job_posting_id },
+    ]);
+    expect(w.session.status).toBe("published");
+    expect(w.session.publishedJobPostingId).toBe(res.job_posting_id);
+
+    await expect(w.svc.publish(PAYER_A, SESSION, CTX)).rejects.toBeInstanceOf(ConflictException);
+    expect(w.committed.postings).toHaveLength(1);
   });
 });
 

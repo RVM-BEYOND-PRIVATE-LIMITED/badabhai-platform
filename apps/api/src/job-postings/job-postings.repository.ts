@@ -197,8 +197,22 @@ export { toJobPostingApi, type JobPostingApi };
 export class JobPostingsRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-  async create(input: NewJobPosting): Promise<JobPostingApi> {
-    const inserted = await this.db.insert(jobPostings).values(input).returning();
+  /**
+   * Run `work` inside ONE Drizzle transaction (#1928). The service commits a posting row and
+   * its `job_posting.created` event through it, so a failed emit rolls the row back. The `tx`
+   * handed to `work` is the `Database`-shaped executor `create` and `EventsService.emit({ tx })`
+   * accept.
+   */
+  withTransaction<T>(work: (tx: Database) => Promise<T>): Promise<T> {
+    return this.db.transaction(work as (tx: unknown) => Promise<T>);
+  }
+
+  /**
+   * Insert one posting. `executor` is the caller's transaction when the row must commit with
+   * something else (its created event, #1928); it defaults to the injected db.
+   */
+  async create(input: NewJobPosting, executor: Database = this.db): Promise<JobPostingApi> {
+    const inserted = await executor.insert(jobPostings).values(input).returning();
     const row = inserted[0];
     if (!row) throw new Error("Failed to create job posting");
     return toJobPostingApi(row);
