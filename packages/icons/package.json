@@ -11,12 +11,14 @@
   },
   "files": [
     "src",
-    "icons.css"
+    "icons.css",
+    "phosphor-fill.subset.css"
   ],
   "sideEffects": [
     "*.css"
   ],
   "scripts": {
+    "generate:subset": "node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-subset.mts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "clean": "rimraf --glob .turbo *.tsbuildinfo"
