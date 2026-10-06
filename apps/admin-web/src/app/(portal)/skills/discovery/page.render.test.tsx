@@ -569,6 +569,39 @@ describe("error states", () => {
     expect(out).not.toContain("The queue is unavailable");
   });
 
+  /** The href of the state's "Back to the first page" — "" when there is none. */
+  const firstPageHref = (out: string) =>
+    /href="([^"]*)"><i [^>]*><\/i>Back to the first page<\/a>/.exec(out)?.[1] ?? "";
+
+  it("a 400 on a flat-view CURSOR alone offers the first page, view kept — not a Clear filters", async () => {
+    // `?view=flat&cursor=stale` offered only "Clear filters" → /skills/discovery, which also
+    // dropped `view=flat`: a first-page action wearing the clear-filters name (sweep AW-14).
+    stub.listFailure = new stub.RequestError(400);
+    const out = await render({ view: "flat", cursor: "stale" });
+    expect(out).toContain("The server rejected this request");
+    // …and says what was refused: the cursor, not "one of the filters" that are not set.
+    expect(out).toContain("not one this list ever issued");
+    expect(out).not.toContain("One of the filters");
+    const first = firstPageHref(out);
+    expect(first).toContain("view=flat");
+    expect(first).not.toContain("cursor=");
+    expect(out).not.toContain(">Clear filters<");
+    // A refused request is not retried — it would only be refused again.
+    expect(out).not.toContain(">Retry<");
+  });
+
+  it("a 400 on a flat-view cursor WITH a filter offers Clear filters alone — the filter was refused", async () => {
+    // The API refuses a page cursor only when it is longer than any it issues, so with a filter
+    // set it is the FILTER that was refused: a first page keeping it would be refused again.
+    stub.listFailure = new stub.RequestError(400);
+    const out = await render({ view: "flat", tradeFamily: "Welders", cursor: "c2" });
+    expect(firstPageHref(out)).toBe("");
+    expect(out).not.toContain("Back to the first page");
+    const state = out.slice(out.indexOf("The server rejected this request"));
+    expect(state.split(">Clear filters<").length - 1).toBe(1);
+    expect(out).not.toContain(">Retry<");
+  });
+
   it("anything else (grouped) is our fault, with a retry that repeats the same query", async () => {
     stub.groupsFailure = new TypeError("network down");
     const out = await render({ tradeFamily: "Welders" });

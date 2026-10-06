@@ -34,6 +34,27 @@ describe("BucketList — the `other` bucket", () => {
     expect(out).toContain(">0<");
   });
 
+  it("names a key through the labels it is given, and de-snakes the rest", () => {
+    // A payer role reads "Company", never `employer` (owner ruling 2026-10-01; sweep AW-12).
+    const out = html(
+      <BucketList
+        buckets={[
+          { key: "employer", count: 2 },
+          { key: "job_posting", count: 1 },
+        ]}
+        labels={{ employer: "Company" }}
+      />,
+    );
+    expect(out).toContain('<span class="funnel__label">Company</span>');
+    expect(out).toContain('<span class="funnel__label">job posting</span>');
+    expect(out).not.toContain("employer");
+  });
+
+  it("does not read an inherited key as a label", () => {
+    const out = html(<BucketList buckets={[{ key: "toString", count: 1 }]} labels={{}} />);
+    expect(out).toContain('<span class="funnel__label">toString</span>');
+  });
+
   it("HIDES `other` while it is zero", () => {
     const out = html(<BucketList buckets={[...members, { key: "other", count: 0 }]} />);
     expect(out).not.toContain("other");

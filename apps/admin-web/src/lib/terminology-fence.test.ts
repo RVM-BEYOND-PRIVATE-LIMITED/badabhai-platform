@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 /**
  * TERMINOLOGY FENCE — the names the owner retired on 2026-10-01 stay retired in what the console
@@ -12,10 +13,13 @@ import { fileURLToPath } from "node:url";
  *
  *   - one spelling, "Resume" (never "Résumé");
  *   - "MFA", never "second factor" (the button, the column and the stat already said MFA);
- *   - the umbrella for Company + Agency is "Customers" / "account", never "Payer" on screen;
+ *   - the umbrella for Company + Agency is "Customers" / "Customer", never "Payer" on screen;
  *   - "Skill discovery" / "Skill candidate" in sentence case; "Roles and capabilities";
  *   - "View events" for the log, never "Open the event timeline" / "View in event timeline";
- *   - "Show every worker" did two different things and is gone.
+ *   - "Show every worker" did two different things and is gone;
+ *   - and from the final acceptance sweep: "MFA", never "Two-factor"; a worker's apply or skip is
+ *     a "posting decision", never a "job decision"; the payer is a "Customer", never an "Owner
+ *     account"; the way to page one is "Back to the first page", never "Back to the newest".
  *
  * CASE. Each retired phrase is matched in any case — except "Skill Discovery" (whose sentence-case
  * replacement differs only in case) and the lower-case word "payer", which is also a key and a
@@ -57,7 +61,7 @@ const RETIRED: readonly { what: string; found: (v: Visible) => boolean }[] = [
     found: (v) => all(v).some((t) => /second\s+factor/i.test(t)),
   },
   {
-    what: "Payer as a visible name (say Customer / account)",
+    what: "Payer as a visible name (say Customer)",
     found: (v) =>
       all(v).some((t) => /(^|[\s"'`>])Payers?\b/.test(t)) ||
       prose(v).some((t) => /\bpayers?\b/i.test(t)),
@@ -77,6 +81,23 @@ const RETIRED: readonly { what: string; found: (v: Visible) => boolean }[] = [
   {
     what: "Show every worker",
     found: (v) => all(v).some((t) => /show every worker/i.test(t)),
+  },
+  // ── the final acceptance sweep (2026-10-06): one name per concept ───────────────────────
+  {
+    what: "Two-factor (say MFA)",
+    found: (v) => all(v).some((t) => /two[\s-]factor/i.test(t)),
+  },
+  {
+    what: "Job decision(s) (a worker's apply or skip on a Posting is a posting decision)",
+    found: (v) => all(v).some((t) => /\bjob[\s-]decisions?\b/i.test(t)),
+  },
+  {
+    what: "Owner account (the payer is a Customer; Account is their own settings page)",
+    found: (v) => all(v).some((t) => /owner account/i.test(t)),
+  },
+  {
+    what: "Back to the newest (it is Back to the first page, like every other way to page one)",
+    found: (v) => all(v).some((t) => /back to the newest/i.test(t)),
   },
 ];
 
@@ -128,6 +149,16 @@ describe("terminology fence — the detectors", () => {
     expect(hits("<h3>Skill discovery</h3>")).toHaveLength(0);
     expect(hits("<a>show every worker</a>")).toHaveLength(1);
     expect(hits('const a = "open the event timeline";')).toHaveLength(1);
+    expect(hits('const a = "Two-factor code";')).toHaveLength(1);
+    expect(hits("<h1>two factor code</h1>")).toHaveLength(1);
+    expect(hits('const a = "MFA code";')).toHaveLength(0);
+    expect(hits("<h2>Recent job decisions</h2>")).toHaveLength(1);
+    expect(hits('const a = "the job-decisions read failed";')).toHaveLength(1);
+    expect(hits("<h2>Recent posting decisions</h2>")).toHaveLength(0);
+    expect(hits('<th scope="col">Owner account</th>')).toHaveLength(1);
+    expect(hits('<th scope="col">Customer</th>')).toHaveLength(0);
+    expect(hits("<a>Back to the newest</a>")).toHaveLength(1);
+    expect(hits("<a>Back to the first page</a>")).toHaveLength(0);
   });
 
   it("catches a lower-case payer where it can only be prose, and not in a key or a path", () => {
@@ -150,4 +181,71 @@ describe("terminology fence — the console", () => {
       expect(offenders).toEqual([]);
     });
   }
+});
+
+/**
+ * "View events" opens the WHOLE log (docs/design/NAVIGATION.md). A link into a filtered slice of
+ * it is named for that slice ("View these breaches", "View submission events", "View AI cost
+ * events", "View all admin actions") — the same name for two different targets is how an
+ * operator stops trusting either. Read from the AST of every shipped TSX file: each element
+ * whose visible text is exactly "View events" must carry the literal `href="/events"`.
+ */
+function viewEventsHrefs(fileName: string, source: string): string[] {
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const out: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isJsxElement(node)) {
+      const text = node.children
+        .filter(ts.isJsxText)
+        .map((c) => c.text)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (text === "View events") {
+        const href = node.openingElement.attributes.properties.find(
+          (a): a is ts.JsxAttribute => ts.isJsxAttribute(a) && a.name.getText(sf) === "href",
+        )?.initializer;
+        out.push(href && ts.isStringLiteral(href) ? href.text : `<${href?.getText(sf) ?? "none"}>`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+describe("View events is the whole log", () => {
+  it("the reader finds the label's href, literal or not", () => {
+    expect(
+      viewEventsHrefs("t.tsx", '<Link href="/events"><Icon name="x" />View events</Link>'),
+    ).toEqual(["/events"]);
+    // JSX text across lines, the way the pages write it.
+    const multiLine = `<Link href="/events?eventName=a.b">
+      <Icon name="x" />
+      View events
+    </Link>`;
+    expect(viewEventsHrefs("t.tsx", multiLine)).toEqual(["/events?eventName=a.b"]);
+    expect(viewEventsHrefs("t.tsx", "<Link href={h}>View events</Link>")).toEqual(["<{h}>"]);
+    expect(viewEventsHrefs("t.tsx", '<Link href="/x">View these breaches</Link>')).toEqual([]);
+  });
+
+  it("every 'View events' in the console links the bare /events", () => {
+    const wrong: string[] = [];
+    let seen = 0;
+    (function walk(dir: string): void {
+      for (const ent of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, ent.name);
+        if (ent.isDirectory()) walk(full);
+        else if (ent.name.endsWith(".tsx") && !/\.(test|spec)\.tsx$/.test(ent.name)) {
+          for (const href of viewEventsHrefs(ent.name, readFileSync(full, "utf8"))) {
+            seen++;
+            if (href !== "/events") wrong.push(`${relative(srcRoot, full)}: ${href}`);
+          }
+        }
+      }
+    })(srcRoot);
+    expect(wrong).toEqual([]);
+    // …and it really read the ones that are there (workers, postings, the dashboard).
+    expect(seen).toBeGreaterThanOrEqual(3);
+  });
 });

@@ -1,4 +1,4 @@
-import { capBreachReasonLabel } from "./ai-cost";
+import { capBreachReasonLabel, type KnownAiTaskType } from "./ai-cost";
 import type { Tone } from "../components/status-pill";
 
 /**
@@ -41,7 +41,7 @@ import type { Tone } from "../components/status-pill";
  * never narrows what the list may DISPLAY. The stored column is `text` with no IN-list CHECK
  * on purpose (a new ai-service task type must not need a migration before the deploy), so a
  * row can legitimately arrive carrying a value this build has never heard of — and
- * {@link taskTypeLabel} shows it de-snaked rather than dropping the row, which is the same
+ * `taskTypeLabel` shows its raw id rather than dropping the row, which is the same
  * ruling `screen_context` makes on the feedback list. Pinning the response schema to this list
  * would blank the whole page on the day a surface is added, which is the one way the portal
  * could make a new task type worse than invisible.
@@ -56,7 +56,7 @@ export const AI_TRACE_TASK_TYPES = [
   "tts_synthesis",
   "skill_embedding",
   "job_posting_chat_turn",
-] as const;
+] as const satisfies readonly KnownAiTaskType[];
 
 export type AiTraceTaskType = (typeof AI_TRACE_TASK_TYPES)[number];
 
