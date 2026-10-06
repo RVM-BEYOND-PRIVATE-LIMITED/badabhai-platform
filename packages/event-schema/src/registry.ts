@@ -1370,6 +1370,23 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileIdentityIntakeAnsweredPayload,
   },
+
+  // ── ADR-0051 (#2027) — appended at the tail, per the append-only protocol ────────────────
+  //
+  // The profiling-stage free chat. One served free-chat turn (greeting, opener, a free-mode
+  // reply, a résumé-mode deflection or clarify) — what decided it and what it delivered — and one
+  // mode change (greeting → free / résumé; résumé is the lock). Ids + closed enums + counts only;
+  // never the worker's words or the model's. v1 each.
+  "chat.free_chat_turn_served": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatFreeChatTurnServedPayload,
+  },
+  "chat.free_chat_mode_changed": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatFreeChatModeChangedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */
