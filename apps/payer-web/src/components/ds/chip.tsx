@@ -18,7 +18,7 @@
 import type { ButtonHTMLAttributes, MouseEvent, ReactNode } from "react";
 import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import { IconButtonBase } from "@badabhai/icons/button";
-import { keepTipInRow } from "./chip-tip";
+import { hideTip, showTip, unwatchTip } from "./chip-tip";
 
 interface ChipLook {
   /** Selected (brand) state. On a selectable chip it is also `aria-pressed`. */
@@ -52,8 +52,23 @@ export interface RemovableChipProps extends ChipLook {
 
 export type ChipProps = SelectableChipProps | RemovableChipProps;
 
-/** Measure the remove button's tooltip as it shows (focus / hover) and keep it inside the row. */
-const placeTip = (e: { currentTarget: HTMLButtonElement }) => keepTipInRow(e.currentTarget);
+/**
+ * Measure the remove button's tooltip as it shows (focus / hover) and keep it inside the row —
+ * again on every window resize while it stays shown, until it hides (./chip-tip.ts).
+ */
+const placeTip = (e: { currentTarget: HTMLButtonElement }) => showTip(e.currentTarget, window);
+const releaseTip = (e: { currentTarget: HTMLButtonElement }) => hideTip(e.currentTarget);
+/**
+ * A chip removed while its tooltip shows (by its own button) gets no blur or pointer leave: its
+ * unmount ends the watch. A stable ref callback, so React runs it on mount and unmount only.
+ */
+const unwatchOnUnmount = (chip: HTMLSpanElement | null) => {
+  if (chip === null) return;
+  return () => {
+    const button = chip.querySelector<HTMLButtonElement>(".bb-chip__remove");
+    if (button !== null) unwatchTip(button);
+  };
+};
 
 const chipClass = (selected: boolean, className: string, removable: boolean) =>
   [
@@ -75,7 +90,7 @@ function RemovableChip({
   disabled,
 }: RemovableChipProps) {
   return (
-    <span className={chipClass(selected, className, true)}>
+    <span className={chipClass(selected, className, true)} ref={unwatchOnUnmount}>
       {icon && <Icon name={icon} />}
       <span>{children}</span>
       <IconButtonBase
@@ -87,6 +102,8 @@ function RemovableChip({
         tooltipPlacement="top-end"
         onFocus={placeTip}
         onPointerEnter={placeTip}
+        onBlur={releaseTip}
+        onPointerLeave={releaseTip}
         disabled={disabled}
         onClick={onRemove}
       />
