@@ -129,6 +129,62 @@ describe("requestUnlock — tenancy (XB-A): no client payer_id is ever sent", ()
   });
 });
 
+describe("getUnlocks — the payer's own history, with its grant day passed through", () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    unlock_id: "22222222-2222-4222-8222-222222222222",
+    payer_id: "11111111-1111-4111-8111-111111111111",
+    worker_id: "44444444-4444-4444-8444-444444444444",
+    job_id: null,
+    status: "granted",
+    reveal_count: 0,
+    granted_at: "2026-10-01T09:00:00.000Z",
+    expires_at: "2026-10-15T09:00:00.000Z",
+    created_at: "2026-08-01T09:00:00.000Z",
+    ...over,
+  });
+
+  it("maps granted_at → grantedAt (null kept null); carries NO job context and no payer id", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        unlocks: [
+          row(),
+          row({
+            unlock_id: "33333333-3333-4333-8333-333333333333",
+            job_id: "55555555-5555-4555-8555-555555555555",
+            status: "revealed",
+            granted_at: null,
+          }),
+        ],
+      }),
+    );
+    const { getUnlocks } = await import("./payer-api");
+    const out = await getUnlocks();
+    expect(out).toEqual([
+      {
+        unlockId: "22222222-2222-4222-8222-222222222222",
+        workerId: "44444444-4444-4444-8444-444444444444",
+        status: "granted",
+        createdAt: "2026-08-01T09:00:00.000Z",
+        expiresAt: "2026-10-15T09:00:00.000Z",
+        grantedAt: "2026-10-01T09:00:00.000Z",
+      },
+      {
+        unlockId: "33333333-3333-4333-8333-333333333333",
+        workerId: "44444444-4444-4444-8444-444444444444",
+        status: "granted",
+        createdAt: "2026-08-01T09:00:00.000Z",
+        expiresAt: "2026-10-15T09:00:00.000Z",
+        grantedAt: null,
+      },
+    ]);
+    expect(JSON.stringify(out)).not.toContain("11111111-1111-4111-8111-111111111111");
+    // An agency unlock's `jobs` id is on the wire, but no screen can use it yet (a company unlock
+    // carries none, #1903): it is not carried, so nothing can claim a posting it cannot reach.
+    expect(JSON.stringify(out)).not.toContain("55555555-5555-4555-8555-555555555555");
+    for (const u of out) expect(u).not.toHaveProperty("jobId");
+  });
+});
+
 describe("reveal — NO RAW PHONE (F-4): routed relay handle only", () => {
   it("returns a routed handle and sends no payer_id; the result has no phone field", async () => {
     fetchMock.mockResolvedValue(
