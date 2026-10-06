@@ -111,3 +111,6 @@ skills-lock.json
 # Anchored with a leading slash so it matches ONLY the root file, never a legitimate
 # `x` directory or fixture deeper in the tree. Keeps `git add -A` from sweeping it in.
 /x
+
+# Vitest JSON report written by the CI union E2E step (#1823)
+tests/e2e/e2e-union.json

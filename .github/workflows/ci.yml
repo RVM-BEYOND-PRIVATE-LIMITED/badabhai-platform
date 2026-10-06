@@ -1663,7 +1663,9 @@ jobs:
 
           set +e
           # NO `--` before the filter (see the DB-backed gates step): pnpm would forward it.
-          pnpm --filter @badabhai/e2e test feed-postings-union 2>&1 | tee e2e-union-raw.log
+          # The JSON report (written beside the package, tests/e2e/) feeds the PRE-ARM check
+          # below; the default reporter's output, which the guards grep, is unchanged.
+          pnpm --filter @badabhai/e2e test feed-postings-union --reporter=default --reporter=json --outputFile.json=e2e-union.json 2>&1 | tee e2e-union-raw.log
           E2E_EXIT=${PIPESTATUS[0]}
           set -e
 
@@ -1688,6 +1690,23 @@ jobs:
             grep -E 'Test Files|      Tests ' e2e-union.log || true
             exit 1
           fi
+
+          # THE PRE-ARM GATE, NAMED (#1823; runbook P4 #13 item 6). The two company-loop legs —
+          # the payer's posting-applicants read and the unlock from a posting — must each be
+          # present AND passed. A rename or deletion of either fails here, not silently.
+          node -e '
+            const r = require("./tests/e2e/e2e-union.json");
+            const tests = r.testResults.flatMap((f) => f.assertionResults);
+            let ok = true;
+            for (const leg of ["PRE-ARM (a):", "PRE-ARM (b):"]) {
+              const t = tests.find((x) => x.title.startsWith(leg));
+              if (!t || t.status !== "passed") {
+                console.log(`::error::union pre-arm leg "${leg}" ${t ? t.status : "missing"}`);
+                ok = false;
+              } else console.log(`${t.status}: ${t.title}`);
+            }
+            process.exit(ok ? 0 : 1);
+          '
 
       # ---- #1904 — THE MATCHING V1 JOB JOURNEY, ON ITS OWN ARMED API ----
       #
