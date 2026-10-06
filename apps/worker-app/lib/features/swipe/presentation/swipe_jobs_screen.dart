@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_models.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/nav/job_feed_invalidation.dart';
 import '../../../core/nav/tab_focus.dart';
 import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/onboarding_theme.dart';
@@ -81,8 +82,12 @@ class _FeedView extends StatefulWidget {
   State<_FeedView> createState() => _FeedViewState();
 }
 
-class _FeedViewState extends State<_FeedView> {
+class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
   int _shownAppliedNonce = 0;
+
+  /// True while a refresh the worker asked for (deck-mode header button) is
+  /// in flight — swaps the glyph for a spinner and blocks a double tap.
+  bool _refreshing = false;
   int _shownDecisionError = 0;
 
   /// #1058 — briefly overlays the green success "stamp" when an apply truly
@@ -94,7 +99,38 @@ class _FeedViewState extends State<_FeedView> {
   @override
   void dispose() {
     _applyStampTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    if (locator.isRegistered<JobFeedInvalidation>()) {
+      locator<JobFeedInvalidation>().removeListener(_onFeedInvalidated);
+    }
     super.dispose();
+  }
+
+  /// Whether the Jobs tab is the one on screen. Refetches that fire while the
+  /// worker is on another tab are pointless: [TabFocusRefetch] reloads the
+  /// moment Jobs comes back into view.
+  bool get _jobsTabVisible => locator<TabFocus>().value == TabIndex.jobs;
+
+  /// The app came back to the foreground. Jobs may have been published (or the
+  /// profile edited elsewhere) while it was away, so a visible feed reloads in
+  /// the background — the deck stays on screen while it does.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
+    if (lifecycle != AppLifecycleState.resumed || !mounted) return;
+    if (!_jobsTabVisible) return;
+    context.read<SwipeBloc>().add(const SwipeFeedRequested(background: true));
+  }
+
+  /// The worker's trade/skills changed ([JobFeedInvalidation]). The edit
+  /// screens live in other branches, so this usually fires while Jobs is off
+  /// screen — and the tab-focus refetch already covers the return. Only a
+  /// VISIBLE feed reloads here, as `fresh` so a load already in flight (which
+  /// may predate the write) cannot swallow it.
+  void _onFeedInvalidated() {
+    if (!mounted || !_jobsTabVisible) return;
+    context.read<SwipeBloc>().add(
+      const SwipeFeedRequested(background: true, fresh: true),
+    );
   }
 
   /// Flash the apply stamp for a beat, then remove it. A fresh [ValueKey] on the
@@ -134,6 +170,10 @@ class _FeedViewState extends State<_FeedView> {
     super.initState();
     context.read<SwipeBloc>().add(const SwipeFeedRequested());
     unawaited(_loadViewMode());
+    WidgetsBinding.instance.addObserver(this);
+    if (locator.isRegistered<JobFeedInvalidation>()) {
+      locator<JobFeedInvalidation>().addListener(_onFeedInvalidated);
+    }
   }
 
   /// Reads the persisted view-mode preference if a store is registered — absent
@@ -188,14 +228,29 @@ class _FeedViewState extends State<_FeedView> {
     _setFilters(bloc, withoutJobFilter(_filters, option));
   }
 
-  /// Pull-to-refresh — reloads the feed via the SAME [SwipeFeedRequested] the
-  /// empty-state "Refresh" button uses. `background: true` keeps the current list
-  /// on screen (the RefreshIndicator supplies the spinner) instead of flashing
-  /// the full-screen loader; the list updates reactively when the load lands. The
-  /// short delay just gives the indicator a bounded, natural lifetime.
-  Future<void> _onRefresh(BuildContext context) async {
-    context.read<SwipeBloc>().add(const SwipeFeedRequested(background: true));
-    await Future<void>.delayed(const Duration(milliseconds: 300));
+  /// Pull-to-refresh (list) and the header refresh button (deck) — reloads the
+  /// feed via the SAME [SwipeFeedRequested] the empty-state button uses.
+  /// `background: true` keeps the current cards on screen instead of flashing
+  /// the full-screen loader; the returned future settles when the REAL load
+  /// does, so the spinner means what it says.
+  Future<void> _onRefresh(BuildContext context) {
+    final Completer<void> done = Completer<void>();
+    context.read<SwipeBloc>().add(
+      SwipeFeedRequested(background: true, done: done),
+    );
+    return done.future;
+  }
+
+  /// The deck's refresh affordance. A swipe deck cannot host pull-to-refresh —
+  /// its card owns every drag direction — so the header carries the button.
+  Future<void> _refreshDeck(BuildContext context) async {
+    if (_refreshing) return;
+    setState(() => _refreshing = true);
+    try {
+      await _onRefresh(context);
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
   }
 
   @override
@@ -337,6 +392,13 @@ class _FeedViewState extends State<_FeedView> {
                   const BbAlertsAction(
                     color: OnboardingColors.textOnBlue,
                   ),
+                  // Deck only: the list refreshes by pull, the deck's card owns
+                  // every drag, so it gets the explicit button.
+                  if (_viewMode == JobFeedViewMode.deck)
+                    _RefreshAction(
+                      refreshing: _refreshing,
+                      onPressed: () => _refreshDeck(context),
+                    ),
                   // The icon shows the OTHER mode (a visual hint of what
                   // tapping switches TO); the tooltip names the CURRENT mode.
                   KitHeaderIconAction(
@@ -592,15 +654,16 @@ class _FeedViewState extends State<_FeedView> {
   }
 
   Widget _empty(BuildContext context) {
-    // Hinglish, in the app's own aap-form voice — this was the one
-    // English-only state on a Hinglish screen. And a NEUTRAL glyph: a
-    // success-green tick told the worker that having no work to look at was
-    // something that had gone right.
+    // Hinglish, in the app's own aap-form voice. A NEUTRAL glyph and a
+    // forward-looking line: an empty feed is usually a profile still being
+    // matched (a fresh worker, a just-edited trade) — never an error, and
+    // never a dead end.
     return BbStatusView(
+      key: const Key('jobFeedEmpty'),
       icon: Icons.work_history_outlined,
       iconColor: OnboardingColors.shiftBlue,
-      title: 'Abhi naye jobs nahi hain.',
-      subtitle: 'Thodi der baad dobara dekhein.',
+      title: 'Aapki profile se jobs match ho rahi hain.',
+      subtitle: 'Naye jobs aate hi yahan dikhenge.',
       action: FilledButton(
         onPressed: () =>
             context.read<SwipeBloc>().add(const SwipeFeedRequested()),
@@ -651,6 +714,62 @@ class _FeedViewState extends State<_FeedView> {
       action: FilledButton(
         onPressed: () => context.go(Routes.consent),
         child: const Text('Go to consent'),
+      ),
+    );
+  }
+}
+
+/// The deck-mode header "refresh jobs" action: the glyph while idle, a small
+/// spinner in the same 48dp slot while the reload is in flight (disabled, so a
+/// second tap cannot stack a load).
+///
+/// The busy slot stays a labelled, disabled button in the semantics tree (and a
+/// live region), so a TalkBack user who just tapped refresh hears that jobs are
+/// loading instead of losing the focused control. With system animations off it
+/// shows the still glyph at the 60% step rather than spinning.
+class _RefreshAction extends StatelessWidget {
+  const _RefreshAction({required this.refreshing, required this.onPressed});
+
+  final bool refreshing;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!refreshing) {
+      return KitHeaderIconAction(
+        key: const Key('jobFeedRefresh'),
+        icon: Icons.refresh_rounded,
+        tooltip: 'Naye jobs dekhein',
+        onPressed: onPressed,
+      );
+    }
+    final bool still = MediaQuery.disableAnimationsOf(context);
+    return Semantics(
+      key: const Key('jobFeedRefreshing'),
+      button: true,
+      enabled: false,
+      liveRegion: true,
+      label: 'Naye jobs aa rahe hain',
+      child: ExcludeSemantics(
+        child: SizedBox(
+          width: OnboardingLayout.tapTarget,
+          height: OnboardingLayout.tapTarget,
+          child: Center(
+            child: still
+                ? Icon(
+                    Icons.refresh_rounded,
+                    size: 22,
+                    color: OnboardingColors.textOnBlue.withValues(alpha: 0.6),
+                  )
+                : const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: OnboardingColors.safetyYellow,
+                    ),
+                  ),
+          ),
+        ),
       ),
     );
   }

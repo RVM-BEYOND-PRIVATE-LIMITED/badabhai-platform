@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -19,7 +21,11 @@ sealed class SwipeEvent extends Equatable {
 
 /// (Re)load the feed.
 class SwipeFeedRequested extends SwipeEvent {
-  const SwipeFeedRequested({this.background = false});
+  const SwipeFeedRequested({
+    this.background = false,
+    this.fresh = false,
+    this.done,
+  });
 
   /// A silent tab-focus refetch (T4) rather than the screen's first load.
   ///
@@ -28,8 +34,19 @@ class SwipeFeedRequested extends SwipeEvent {
   /// them with a spinner or an error view. A stale deck beats no deck.
   final bool background;
 
+  /// The feed must reflect the server AS OF NOW — the worker's match inputs
+  /// just changed ([JobFeedInvalidation]). A load already in flight may have
+  /// been answered before that write landed, so instead of being dropped by
+  /// the in-flight guard this request runs once more after it.
+  final bool fresh;
+
+  /// Completed when the load that serves this request settles (success or
+  /// failure). Lets a pull-to-refresh / refresh button spin for the REAL
+  /// load instead of a fixed delay. Not part of equality.
+  final Completer<void>? done;
+
   @override
-  List<Object?> get props => <Object?>[background];
+  List<Object?> get props => <Object?>[background, fresh];
 }
 
 /// Apply to the current (head) card.
@@ -117,14 +134,69 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
   /// network work and race their emits.
   bool _loadingFeed = false;
 
+  /// A [SwipeFeedRequested.fresh] request arrived while a load was in flight:
+  /// run one more background load once it settles.
+  bool _reloadQueued = false;
+
+  /// [SwipeFeedRequested.done] completers waiting on the load in flight (or
+  /// the queued one). Completed — never errored — when that load settles.
+  final List<Completer<void>> _waiters = <Completer<void>>[];
+
   Future<void> _onFeedRequested(
     SwipeFeedRequested event,
     Emitter<SwipeState> emit,
   ) async {
-    if (_loadingFeed) return;
+    final Completer<void>? done = event.done;
+    if (done != null) _waiters.add(done);
+    if (_loadingFeed) {
+      if (event.fresh) _reloadQueued = true;
+      return;
+    }
     _loadingFeed = true;
-    // A background refetch keeps the current deck on screen while it reloads.
-    if (!event.background) {
+    try {
+      bool background = event.background;
+      do {
+        _reloadQueued = false;
+        final List<Completer<void>> served = List<Completer<void>>.of(_waiters);
+        _waiters.clear();
+        try {
+          await _loadFeed(emit, background: background);
+        } finally {
+          // Even an unexpected (non-Failure) throw settles its waiters — a
+          // refresh spinner must never outlive the load it was waiting on.
+          _complete(served);
+        }
+        // A queued re-run never flashes the loader over a deck just loaded.
+        background = true;
+      } while (_reloadQueued && !emit.isDone);
+    } finally {
+      _loadingFeed = false;
+      _reloadQueued = false;
+      _complete(_waiters);
+      _waiters.clear();
+    }
+  }
+
+  static void _complete(List<Completer<void>> waiters) {
+    for (final Completer<void> waiter in waiters) {
+      if (!waiter.isCompleted) waiter.complete();
+    }
+  }
+
+  @override
+  Future<void> close() {
+    _complete(_waiters);
+    _waiters.clear();
+    return super.close();
+  }
+
+  /// One `GET /feed` round-trip and its emits. [background] keeps the current
+  /// deck on screen while it reloads.
+  Future<void> _loadFeed(
+    Emitter<SwipeState> emit, {
+    required bool background,
+  }) async {
+    if (!background) {
       emit(state.copyWith(status: SwipeStatus.loading));
     }
     try {
@@ -154,7 +226,7 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
       // A background refetch must not replace a readable deck with an error.
       // Consent is the exception: a 403 means the worker genuinely cannot see
       // jobs any more, so it routes even from a background refetch.
-      final bool keepCurrent = event.background &&
+      final bool keepCurrent = background &&
           !isConsent &&
           state.status == SwipeStatus.ready;
       if (!keepCurrent) {
@@ -165,8 +237,6 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
           failure: isConsent ? null : failure,
         ));
       }
-    } finally {
-      _loadingFeed = false;
     }
   }
 
