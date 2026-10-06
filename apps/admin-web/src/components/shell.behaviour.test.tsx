@@ -200,8 +200,14 @@ describe("a link activated inside the drawer closes it (review L1)", () => {
     expect(el, "the sidebar <aside>").toBeDefined();
     return el!;
   };
-  /** A click whose target sits inside (or is) a link, or not. */
-  const clickOn = (inLink: boolean) => ({
+  /** A plain primary click (as a tap or Enter on a link fires it) whose target sits inside (or is) a link, or not. */
+  const clickOn = (inLink: boolean, extra: Record<string, unknown> = {}) => ({
+    button: 0,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    altKey: false,
+    ...extra,
     target: {
       closest: (selector: string) =>
         inLink && selector === "a[href]" ? { href: "/workers" } : null,
@@ -218,5 +224,54 @@ describe("a link activated inside the drawer closes it (review L1)", () => {
     hooks.setOpen.mockClear();
     aside().props.onClick?.(clickOn(false));
     expect(hooks.setOpen).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * REVIEW Nit-2 — a modified click on a drawer link opens it ELSEWHERE (Ctrl/Cmd: a new tab, Shift:
+ * a new window, Alt: a download, the middle button: a new tab): this page does not navigate, so the
+ * drawer must stay open. Guarded on the click itself, not on `defaultPrevented` — Next's Link
+ * calls preventDefault on every plain click it routes.
+ */
+describe("a modified click on a drawer link leaves the drawer open (review Nit-2)", () => {
+  const aside = () => {
+    hooks.open = true;
+    const root = Shell(props) as ReactElement<{ children: ReactElement[] }>;
+    return [root.props.children]
+      .flat()
+      .find(
+        (c): c is ReactElement<{ id?: string; onClick?: (e: unknown) => void }> =>
+          Boolean(c) && (c as ReactElement<{ id?: string }>).props?.id === "portal-sidebar",
+      )!;
+  };
+  const linkClick = (extra: Record<string, unknown>) => ({
+    button: 0,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    altKey: false,
+    defaultPrevented: true, // Next's Link prevents the default of every click it handles
+    ...extra,
+    target: {
+      closest: (selector: string) => (selector === "a[href]" ? { href: "/events" } : null),
+    },
+  });
+
+  it.each([
+    ["Ctrl-click (a new tab)", { ctrlKey: true }],
+    ["Cmd-click (a new tab)", { metaKey: true }],
+    ["Shift-click (a new window)", { shiftKey: true }],
+    ["Alt-click (a download)", { altKey: true }],
+    ["a middle-button click (a new tab)", { button: 1 }],
+  ])("%s", (_what, extra) => {
+    hooks.setOpen.mockClear();
+    aside().props.onClick?.(linkClick(extra));
+    expect(hooks.setOpen).not.toHaveBeenCalled();
+  });
+
+  it("a plain click still closes it, even though Link has prevented its default", () => {
+    hooks.setOpen.mockClear();
+    aside().props.onClick?.(linkClick({}));
+    expect(hooks.setOpen).toHaveBeenCalledWith(false);
   });
 });

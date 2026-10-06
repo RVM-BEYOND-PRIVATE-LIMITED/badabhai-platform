@@ -97,12 +97,24 @@ export function Shell({
           sees a navigation to ANOTHER page: the link for the page you are on — or one that
           changes only the query — left the drawer open over it, the page still inert. Delegated
           here, so a link anywhere in the drawer counts; on the permanent sidebar (1024px and up)
-          the drawer is never open and this does nothing. */}
+          the drawer is never open and this does nothing. A MODIFIED click opens the link elsewhere
+          (Ctrl/Cmd or the middle button: a new tab; Shift: a window; Alt: a download) and this
+          page stays, so the drawer does too (review Nit-2) — guarded on the click itself, since
+          Next's Link prevents the default of every plain click it routes. */}
       <aside
         className="sidebar"
         id="portal-sidebar"
         ref={sidebarRef}
         onClick={(event) => {
+          if (
+            event.button !== 0 ||
+            event.ctrlKey ||
+            event.metaKey ||
+            event.shiftKey ||
+            event.altKey
+          ) {
+            return;
+          }
           if ((event.target as Element).closest("a[href]")) setDrawerOpen(false);
         }}
       >

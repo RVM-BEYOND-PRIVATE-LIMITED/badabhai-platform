@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useUrlState } from "../../../components/use-url-state";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 /**
@@ -21,7 +21,7 @@ export function WorkerFilterBar({
   pendingDeletion: boolean;
 }) {
   const router = useRouter();
-  const [values, setValues] = useState({ status, pendingDeletion });
+  const [values, setValues] = useUrlState({ status, pendingDeletion });
 
   function submit(e: React.FormEvent) {
     e.preventDefault();

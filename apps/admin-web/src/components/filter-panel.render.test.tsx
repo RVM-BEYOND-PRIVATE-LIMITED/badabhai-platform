@@ -1,7 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
-import type { ReactElement } from "react";
+import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { FilterPanel, rememberFocus, resumeFocus } from "./filter-panel";
+import { FilterPanel, filterSetKey } from "./filter-panel";
 
 /**
  * A list page's filter panel, folded behind one "Filters (n)" toggle on a phone (final sweep
@@ -63,110 +62,28 @@ describe("FilterPanel", () => {
 });
 
 /**
- * REVIEW M1 — the open state was decided once, at mount, and Next keeps a client component's
- * state across a search-params-only navigation. So on a phone, /events (no filter, panel closed)
- * → a row's correlation-id link → /events?correlationId=… left the panel CLOSED over a filtered
- * list, and the filter bar inside kept its own stale state: an empty Correlation id that Apply
- * then dropped. The panel is now KEYED on the filter values it was given: a new filter set is a
- * new panel (open when non-empty), and the bar inside it re-reads the URL.
- *
- * The node env has no reconciler to re-render in, so these pin React's own contract: a different
- * `key` is a fresh mount, and a fresh mount reads `filters` again.
+ * The filter set's identity — what the panel re-syncs its open state on (the re-sync itself is
+ * driven render by render in url-state.behaviour.test.tsx). Review Nit-1: it was a `name=value`
+ * join, so a value holding `&` or `=` could pass for another set; it is JSON now.
  */
-describe("a new filter set is a new panel (review M1)", () => {
-  const panel = (filters: Record<string, string | boolean | undefined>) =>
-    FilterPanel({
-      headingId: "h",
-      heading: "Filter events",
-      filters,
-      children: null,
-    }) as ReactElement;
-
-  it("0 → 1 active filter: a different key, so the panel remounts — and the new mount is open", () => {
-    const none = panel({ correlationId: undefined, eventName: undefined });
-    const one = panel({ correlationId: "5eeded00-00c0", eventName: undefined });
-    expect(one.key).not.toBe(none.key);
-    expect(renderToStaticMarkup(one)).toContain('data-open="true"');
+describe("filterSetKey", () => {
+  it("names the SET filters only — empty, false and absent are not set", () => {
+    expect(
+      filterSetKey({ status: "active", pendingDeletion: false, cursorless: "", x: undefined }),
+    ).toBe(filterSetKey({ status: "active" }));
   });
 
-  it("a changed VALUE remounts too, so the bar shows the value the link carried (same count)", () => {
-    expect(panel({ correlationId: "a" }).key).not.toBe(panel({ correlationId: "b" }).key);
-  });
-
-  it("the same filters keep the same panel — paging (a cursor is not a filter) remounts nothing", () => {
-    expect(panel({ status: "active", pendingDeletion: false }).key).toBe(
-      panel({ status: "active", pendingDeletion: false }).key,
+  it("a value holding & or = cannot pass for another filter set", () => {
+    expect(filterSetKey({ eventName: "a&actorType=b" })).not.toBe(
+      filterSetKey({ eventName: "a", actorType: "b" }),
     );
-    expect(panel({ status: "", pendingDeletion: false }).key).toBe(panel({}).key);
-  });
-});
-
-/**
- * The remount must not cost a keyboard user their place: before it, pressing Apply left focus on
- * Apply; a remount would drop it to <body>. So the panel remembers where focus was when ITS OWN
- * form was submitted, and the panel that mounts for the new filters puts it back.
- */
-describe("focus survives the panel's own Apply", () => {
-  type Ctl = {
-    tabIndex: number;
-    focus: ReturnType<typeof vi.fn>;
-    getClientRects: () => { length: number };
-  };
-  const ctl = (): Ctl => ({ tabIndex: 0, focus: vi.fn(), getClientRects: () => ({ length: 1 }) });
-  const section = (controls: Ctl[]) => ({ querySelectorAll: () => controls });
-  const BODY = { body: true };
-
-  it("remembers the submitting control's position in the panel", () => {
-    const [toggle, field, apply] = [ctl(), ctl(), ctl()];
-    expect(rememberFocus(section([toggle, field, apply]), apply, 1000)).toEqual({
-      index: 2,
-      at: 1000,
-    });
-    expect(rememberFocus(section([toggle, field, apply]), field, 1000)).toEqual({
-      index: 1,
-      at: 1000,
-    });
+    expect(filterSetKey({ eventName: "a=b" })).not.toBe(filterSetKey({ "eventName=a": "b" }));
   });
 
-  it("remembers nothing when focus is not in the panel (Safari does not focus a clicked button)", () => {
-    expect(rememberFocus(section([ctl()]), BODY, 1000)).toBeNull();
-  });
-
-  it("the remounted panel puts focus back on the control at the same position", () => {
-    const [toggle, field, apply] = [ctl(), ctl(), ctl()];
-    resumeFocus({ index: 2, at: 1000 }, section([toggle, field, apply]), {
-      active: BODY,
-      body: BODY,
-      now: 1500,
-    });
-    expect(apply.focus).toHaveBeenCalledTimes(1);
-    expect(field.focus).not.toHaveBeenCalled();
-  });
-
-  it("never takes focus from somewhere the operator put it", () => {
-    const apply = ctl();
-    const elsewhere = { link: true };
-    resumeFocus({ index: 0, at: 1000 }, section([apply]), {
-      active: elsewhere,
-      body: BODY,
-      now: 1500,
-    });
-    expect(apply.focus).not.toHaveBeenCalled();
-  });
-
-  it("ignores a stale memory — a remount long after the submit is someone else's navigation", () => {
-    const apply = ctl();
-    resumeFocus({ index: 0, at: 1000 }, section([apply]), {
-      active: BODY,
-      body: BODY,
-      now: 1000 + 60_000,
-    });
-    expect(apply.focus).not.toHaveBeenCalled();
-  });
-
-  it("with nothing remembered, does nothing (an ordinary first mount)", () => {
-    const apply = ctl();
-    resumeFocus(null, section([apply]), { active: BODY, body: BODY, now: 1500 });
-    expect(apply.focus).not.toHaveBeenCalled();
+  it("a different value is a different set; the same values are the same set", () => {
+    expect(filterSetKey({ correlationId: "a" })).not.toBe(filterSetKey({ correlationId: "b" }));
+    expect(filterSetKey({ status: "active", payerId: "p" })).toBe(
+      filterSetKey({ status: "active", payerId: "p" }),
+    );
   });
 });

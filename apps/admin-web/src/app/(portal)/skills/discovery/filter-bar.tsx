@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useUrlState } from "../../../../components/use-url-state";
 import { useRouter } from "next/navigation";
 import {
   SKILL_CANDIDATE_ACTIONS,
@@ -95,7 +95,7 @@ export function SkillDiscoveryFilterBar({
   initial: SkillDiscoveryFilterValues;
 }) {
   const router = useRouter();
-  const [values, setValues] = useState(initial);
+  const [values, setValues] = useUrlState(initial);
 
   function set<K extends keyof SkillDiscoveryFilterValues>(key: K, value: string) {
     setValues((v) => ({ ...v, [key]: value }));
