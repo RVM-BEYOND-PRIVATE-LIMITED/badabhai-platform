@@ -19,7 +19,7 @@ import { createHookHarness, type HookHarness } from "../../test/hook-harness";
  * (test/hook-harness.ts) that keeps state across re-renders of ONE instance — exactly what the
  * navigation does — and re-runs a render-phase update the way React does.
  */
-const h = vi.hoisted(() => ({ harness: null as unknown }));
+const h = vi.hoisted(() => ({ harness: null as unknown, pushed: [] as string[] }));
 const harness = () => h.harness as HookHarness;
 
 vi.mock("react", async (importOriginal) => {
@@ -30,7 +30,9 @@ vi.mock("react", async (importOriginal) => {
     useId: () => harness().useId(),
   };
 });
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => undefined }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: (href: string) => void h.pushed.push(href) }),
+}));
 
 const { useUrlState } = await import("./use-url-state");
 const { FilterPanel } = await import("./filter-panel");
@@ -43,6 +45,7 @@ const { SkillDiscoveryFilterBar } = await import("../app/(portal)/skills/discove
 
 beforeEach(() => {
   h.harness = createHookHarness();
+  h.pushed = [];
 });
 
 /** Every element in a tree, in document order (no custom component is rendered, only walked). */
@@ -281,3 +284,101 @@ describe.each(BARS)(
     });
   },
 );
+
+// ---------------------------------------------------------------------------------------------
+// the harness itself
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The harness must loop where React loops (delta review of #2046). It skipped a render-phase
+ * setState whose value was unchanged (`Object.is`), but React 19 re-runs the component for EVERY
+ * render-phase update — so a hook that forgot to record its synced key looped forever in React
+ * ("Too many re-renders") while every primitive-state test here stayed green.
+ */
+describe("the hook harness re-renders like React", () => {
+  it("a render-phase setState re-runs the component, even with an unchanged value", () => {
+    let passes = 0;
+    let once = true;
+    harness().render(() => {
+      passes++;
+      const [value, setValue] = harness().useState(false);
+      if (once) {
+        once = false;
+        setValue(value);
+      }
+      return value;
+    });
+    expect(passes).toBe(2);
+  });
+
+  it("a render-phase setState on every render never settles — too many re-renders, as in React", () => {
+    expect(() =>
+      harness().render(() => {
+        const [value, setValue] = harness().useState("same");
+        setValue(value);
+        return value;
+      }),
+    ).toThrow(/too many re-renders/i);
+  });
+
+  it("a handler's setState of the same value schedules nothing (React bails out there)", () => {
+    let passes = 0;
+    let set: ((v: string) => void) | null = null;
+    const draw = () =>
+      harness().render(() => {
+        passes++;
+        const [value, setValue] = harness().useState("a");
+        set = setValue;
+        return value;
+      });
+    draw();
+    set!("a");
+    draw();
+    expect(passes).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// skill discovery's "Clear these fields"
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * "Clear these fields" navigates to the URL without the bar's fields. When the URL carries none
+ * already, that is the SAME URL: the bar's sync key does not change, so the fields — re-synced
+ * only when the URL changes — kept what the operator had typed (delta review of #2046). Clearing
+ * now empties the fields itself as well as navigating.
+ */
+describe("skill discovery — Clear these fields empties the fields, whatever the URL holds", () => {
+  const bar = () =>
+    SkillDiscoveryFilterBar({
+      basePath: "/skills/discovery",
+      view: "flat",
+      carry: { view: "flat" },
+      initial: SKILLS_EMPTY,
+    });
+  const draw = () => harness().render(bar);
+  /** What the fields show for a URL with none of the bar's fields: all empty, Newest first. */
+  const cleared = BARS.find((b) => b.name === "skill discovery")!.shows({});
+  const clear = (tree: ReactNode) => {
+    const button = elements(tree).find((e) =>
+      [(e.props as { children?: ReactNode }).children].flat().includes("Clear these fields"),
+    ) as ReactElement<{ onClick: () => void }> | undefined;
+    expect(button, "the Clear these fields button").toBeDefined();
+    button!.props.onClick();
+  };
+
+  it("typed but unapplied, on a URL with no bar fields: Clear empties them (the URL cannot)", () => {
+    for (const c of controls(draw())) {
+      c.props.onChange({ target: { value: c.type === "select" ? "oldest" : "typed" } });
+    }
+    expect(controls(draw()).map(shown)).not.toEqual(cleared);
+    clear(draw());
+    // The URL is unchanged, so the page re-renders the bar with the same (empty) URL values.
+    expect(controls(draw()).map(shown)).toEqual(cleared);
+  });
+
+  it("…and still navigates to the bare route, keeping only what sits above the bar", () => {
+    clear(draw());
+    expect(h.pushed).toEqual(["/skills/discovery?view=flat"]);
+  });
+});
