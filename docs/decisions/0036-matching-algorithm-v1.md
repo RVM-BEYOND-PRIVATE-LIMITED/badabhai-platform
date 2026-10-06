@@ -139,7 +139,7 @@ What this addendum pins, so §3 above stays true:
 - **The agency job keeps `trade_key`.** On `jobs`, `trade_key` (15 trade keys) stays the
   classifier the conversion bridge and the agency flow use; `role_kind` (21 roles) sits beside it
   as the display role and is never inferred from it.
-- **No worker read carries it this phase** — see the ADR-0024 addendum of the same date (#1823).
+- **No worker read carries it this phase** — see the ADR-0024 addendum of the same date (#1823). _(Superseded 2026-10-05 for the feed card and job detail, as art only — see the addendum below.)_
 - **A chat-published posting leaves it NULL** — the interview does not ask for a role.
 - **Skills are the owner's follow-up, not this change.** Not every one of the 21 roles has a
   counterpart in the V1 match vocabulary, so a posting for such a role can be classified but
@@ -153,6 +153,30 @@ What this addendum pins, so §3 above stays true:
 
 Labels live in `JOB_ROLE_LABELS` (`@badabhai/types`), copied from each role descriptor's
 `displayName`/`cluster` and pinned by `apps/api/src/profiling/roles/job-role-labels.parity.test.ts`.
+
+## Addendum (2026-10-05) — `role_kind` reaches the worker card, as art only
+
+**Owner approval 2026-10-05** ("Go", W3-BE, investor demo). This reverses ONE line of the
+2026-09-29 addendum above, "No worker read carries it this phase": `GET /feed` (`FeedItem` and
+`MatchFeedItem`) and the worker job detail `GET /jobs/:jobId` now return an additive `role_kind`
+key. The worker card keys a role illustration on it. The field side of the ruling is the
+[ADR-0024 addendum](0024-worker-visible-job-fields-pii.md) of the same date. `GET /jobs/search`
+does not return it.
+
+Every other point the 2026-09-29 addendum pins still holds, unchanged:
+
+- **Display only.** It is never a match, rank or visibility input: not a rank-tuple key, not a
+  tie-break and not a feed filter. Every worker read projects it in the SELECT list only, and the
+  repository tests pin it out of each WHERE and ORDER BY. `match_skill_ids` / `reach_skill_ids`
+  remain the only match inputs.
+- **Not folded into `match_skills`.** No `mskill_*` id, reach set or relation is derived from it.
+  It is not written into `trade_key`, which stays `""` on a posting card. `job_domain_id` stays
+  unwritten.
+- **NULL stays NULL.** There is no default, inference or backfill. On the way out, a value outside
+  the 21 declared kinds fails closed to `null` (`apps/api/src/common/worker-role-kind.ts`).
+- **No event change.** `feed.shown` / `feed.shown_v2` payloads do not carry it.
+
+The text above is not rewritten.
 
 ## Addendum (2026-10-01) — an owner-signed interim deviation from §6 and §8 (ADR-0049)
 
