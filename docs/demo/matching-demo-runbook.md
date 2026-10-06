@@ -10,12 +10,12 @@ CI gate: `apps/api/src/match/demo-matching-seed.db.test.ts`.
 The seed writes:
 
 - 25 synthetic employers;
-- **1,200 open postings** across the **9 role kinds that have a real match skill**, spread over
+- **1,200 open postings** across the **8 role kinds that have a real match skill**, spread over
   5 cities (Pune, Manesar, Chennai, Ahmedabad, Bengaluru);
   - `published_at` is spread over 30 days, in per-employer batches minutes apart, so the
     max-2-per-employer interleave is visible;
   - about 3% are boosted;
-  - the other 12 role kinds get **no** postings (see Known gaps);
+  - the other 13 role kinds get **no** postings (see Known gaps);
 - **10 personas**, each with 1–2 wanted skills.
 
 Reach rows are then materialized with D5's own function. Every seeded id starts with `de30`.
@@ -145,18 +145,26 @@ The owner creates a worker live through the chat. The chat's profile → `worker
 reconciles reach against every open posting, so the demo postings appear without re-running
 the seed.
 
-Which skills a live worker gets (traced 2026-10-06):
+Which skills a live worker gets (traced 2026-10-06; trade forms per #2019):
 
-| They say…                                    | Path                                    | Match skill                                           | Sees (from `--report-trades`)                                |
-| -------------------------------------------- | --------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------ |
-| "welder" / "welding"                         | free-text chat (`role_welder`)          | `mskill_mig_welder` (+ arc/tig if they say TIG/arc)   | MIG direct; arc + TIG related                                |
-| "CNC turner"                                 | free-text chat, or the **turning form** | `mskill_cnc_turner`                                   | turner direct; VMC / setter / grinding / general CNC related |
-| "CNC operator"                               | free-text chat                          | `mskill_cnc_operator_general`                         | general CNC direct; grinding / turner / HMC related          |
-| any other **trade form** (welder, fitter, …) | form                                    | **none** — only `qp_cnc_turning` bridges today        | **nothing**                                                  |
-| chat with **structured answers**             | chat                                    | **none** (`toExtractionOutput` writes no role/skills) | **nothing**                                                  |
+- **Free-text chat:**
+  - "welder" / "welding" → `role_welder` → `mskill_mig_welder` (plus arc / TIG if they say TIG or
+    arc). MIG jobs are direct; arc and TIG are related.
+  - "CNC turner" → `mskill_cnc_turner`.
+  - "CNC operator" → `mskill_cnc_operator_general`. General-CNC jobs are direct; grinding, turner
+    and HMC are related.
+- **Trade form, or a structured-answer chat on the same role pack** (#2019, `PACK_ANSWER_SKILLS`
+  in `@badabhai/taxonomy`):
+  - welder → MIG / TIG / arc, by the processes ticked;
+  - CNC turning → turner (+ programmer / CAM);
+  - VMC → VMC / HMC (+ programmer / CAM);
+  - CNC grinding, CAM, CAD, fitter and QC → their own skills.
+  - The 8 packs in `PACKS_WITHOUT_MATCH_SKILL` (manual machining, tool & die, sheet metal, press,
+    coating, maintenance tech, electrician, assembly) derive **nothing**, and so see nothing.
 
-Run `--report-trades` before the demo and pick a trade with a full feed. **Welder (free-text
-chat) and CNC turner** are the proven paths.
+Run `--report-trades` before the demo and pick a trade with a full feed. Form rows show a
+**fully-answered** form, an upper bound; a real worker derives the subset his chips claim.
+**Welder and CNC turner** are proven by both chat and form.
 
 **Re-running a live onboarding.** Extraction is skipped for a worker who already has a profile.
 `--reset-live-worker` deletes **only** that worker's `worker_profiles`, `worker_skill` and
@@ -244,17 +252,17 @@ The answer key (`--answer-key=<file>`) holds, per persona:
 
 - **Role kinds without a real match skill are skipped** (owner decision, 2026-10-06: a worker must
   never see an irrelevant job).
-  - The vocabulary has 18 match skills and none for these 12 kinds, so they get **no demo
+  - The vocabulary has 18 match skills and none for these 13 kinds, so they get **no demo
     postings**: `industrial_electrician`, `maintenance_technician`, `assembly_line_worker`,
     `press_operator`, `painter_coating`, `sheet_metal_worker`, `tool_die_maker`,
-    `mould_die_maker`, and the four plastics/rubber kinds.
-  - The other 9 kinds — `cnc_turner`, `vmc_milling`, `cnc_grinding`, `conventional_machinist`,
-    `cam_programmer`, `cad_draughtsman`, `welder`, `fitter`, `quality_inspector` — post only
-    their own real skill.
+    `conventional_machinist` (manual machining), `mould_die_maker`, and the four
+    plastics/rubber kinds. This agrees with `PACKS_WITHOUT_MATCH_SKILL` (#2019).
+  - The other 8 kinds — `cnc_turner`, `vmc_milling`, `cnc_grinding`, `cam_programmer`,
+    `cad_draughtsman`, `welder`, `fitter`, `quality_inspector` — post only real skills.
+  - General-CNC-operator postings (`mskill_cnc_operator_general`) use the `cnc_turner` card
+    illustration. The role vocabulary has no general-CNC kind; the match skill itself is real.
   - Closing the gap is a taxonomy change.
-- **Trade forms other than CNC turning derive no match skill**, so a form-onboarded welder sees an
-  empty feed. A chat with structured answers derives none either. The fix is a separate backend
-  PR (owner decision): `pack-attribute-skills.ts`, and `toExtractionOutput` in
-  `profile-extraction.processor.ts`.
+- **Form onboarding** was fixed on main by #2019: welder, grinding, VMC, CAM, CAD, fitter and QC
+  forms now derive real skills. The packs without a match skill still derive nothing, by design.
 - **Carpenter and delivery rider** have match skills but no role kind, so they get no demo
   postings. A live "carpenter" sees 0.

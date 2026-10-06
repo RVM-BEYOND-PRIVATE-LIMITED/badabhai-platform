@@ -135,13 +135,16 @@ function cityByName(name: string): DemoCity {
  * `mskill_cnc_turner`.
  *
  * NO PROXIES (owner decision, 2026-10-06). The vocabulary has 18 skills and none for the
- * electrician, maintenance-technician, assembly, press, coating, sheet-metal, tool/mould-making
- * or polymer kinds. Those 12 kinds are SKIPPED rather than posted under a "nearest" skill: a
- * worker must never see an irrelevant job. {@link SKIPPED_ROLE_KINDS} names them; the plan test
- * pins that the catalogue covers exactly the other 9.
+ * electrician, maintenance-technician, assembly, press, coating, sheet-metal, tool/mould-making,
+ * manual-machining or polymer kinds. Those 13 kinds are SKIPPED rather than posted under a
+ * "nearest" skill: a worker must never see an irrelevant job. {@link SKIPPED_ROLE_KINDS} names
+ * them (it agrees with `PACKS_WITHOUT_MATCH_SKILL` in @badabhai/taxonomy); the plan test pins that
+ * the catalogue covers exactly the other 8.
  */
 /** Role kinds with no match skill of their own — no demo postings (see above). */
 export const SKIPPED_ROLE_KINDS: readonly TradeFormKindName[] = [
+  // Manual lathe/mill — a CNC skill would be a proxy (#2019, `PACKS_WITHOUT_MATCH_SKILL`).
+  "conventional_machinist",
   "tool_die_maker",
   "sheet_metal_worker",
   "press_operator",
@@ -259,11 +262,13 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
     shiftWeights: MACHINING_SHIFTS,
   },
   {
-    roleKind: "conventional_machinist",
+    // A general CNC operator (what "CNC operator" in the chat derives). The role vocabulary has no
+    // general-CNC kind and `conventional_machinist` is MANUAL machining (a proxy, #2019), so the
+    // card illustration uses the nearest CNC kind; the MATCH skill is the real one.
+    roleKind: "cnc_turner",
     skillId: "mskill_cnc_operator_general",
-
     weight: 4,
-    titles: ["CNC Operator", "Lathe Machinist", "Machine Operator Trainee"],
+    titles: ["CNC Operator", "CNC Machine Operator", "CNC Operator Trainee"],
     pay: [13000, 20000],
     minExp: [0, 2],
     unit: "machining unit",

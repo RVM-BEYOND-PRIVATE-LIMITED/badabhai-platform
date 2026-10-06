@@ -1,5 +1,5 @@
 /**
- * Matching V1 stakeholder DEMO seed — synthetic payers, 1,200 OPEN postings across the 9 role
+ * Matching V1 stakeholder DEMO seed — synthetic payers, 1,200 OPEN postings across the 8 role
  * kinds that have a real match skill, 10 personas, and the ANSWER KEY that proves each feed shows only the jobs its skills reach.
  * Runbook: docs/demo/matching-demo-runbook.md.
  *
@@ -69,11 +69,18 @@ import {
   resolveReachSet,
   type MatchConfig,
 } from "@badabhai/match-engine";
-import { ROLE_TO_MATCH_SKILL, matchSkillIndustry, matchSkillLabel } from "@badabhai/taxonomy";
+import {
+  ATTRIBUTE_TO_MATCH_SKILLS,
+  PACK_ANSWER_SKILLS,
+  ROLE_TO_MATCH_SKILL,
+  matchSkillIndustry,
+  matchSkillLabel,
+} from "@badabhai/taxonomy";
 import {
   CURRENT_CONSENT_VERSION,
   TRADE_FORM_KINDS_ALL,
   type ConsentPurpose,
+  type TradeFormKindName,
 } from "@badabhai/types";
 import { workerVisibleTextScreens } from "@badabhai/validators";
 
@@ -991,9 +998,59 @@ export interface TradeReportRow {
 }
 
 /**
- * The occupations onboarding can produce, with the match skills each derives (traced
- * 2026-10-06; see `DemoTrade`). Chat rows come straight from `ROLE_TO_MATCH_SKILL` so they track
- * the bridge; the form rows record that only the turning form bridges today.
+ * The 21 declared role kinds → the role pack their trade FORM asks (the `packId` on each
+ * `apps/api/src/profiling/roles/*.role.ts` descriptor; packages/db cannot import apps/api).
+ */
+export const FORM_KIND_PACK: Readonly<Record<TradeFormKindName, string>> = {
+  cnc_turner: "qp_cnc_turning",
+  vmc_milling: "qp_vmc_milling",
+  cnc_grinding: "qp_cnc_grinding",
+  cam_programmer: "qp_cam_programming",
+  cad_draughtsman: "qp_cad_drafting",
+  conventional_machinist: "qp_conventional_machining",
+  tool_die_maker: "qp_tool_die_making",
+  welder: "qp_welding_trade",
+  sheet_metal_worker: "qp_sheet_metal_fab",
+  press_operator: "qp_press_operation",
+  painter_coating: "qp_powder_coating",
+  fitter: "qp_fitter",
+  maintenance_technician: "qp_maintenance_tech",
+  industrial_electrician: "qp_industrial_electrician",
+  assembly_line_worker: "qp_assembly_line",
+  quality_inspector: "qp_quality_inspection",
+  injection_moulding_operator: "qp_injection_moulding",
+  mould_die_maker: "qp_mould_making",
+  blow_moulding_operator: "qp_blow_moulding",
+  rubber_moulding_operator: "qp_rubber_moulding",
+  plastic_process_technician: "qp_plastic_process",
+};
+
+/**
+ * The match skills a FULLY-answered form for this pack can derive: every id the taxonomy's
+ * `PACK_ANSWER_SKILLS` can emit for it, through the same two bridges `deriveWorkerSkills` uses.
+ * An upper bound — a real worker derives the subset his chips claim.
+ */
+export function formReachableSkills(packId: string): string[] {
+  const out = new Set<string>();
+  for (const options of Object.values(PACK_ANSWER_SKILLS[packId] ?? {})) {
+    for (const ids of Object.values(options)) {
+      for (const id of ids) {
+        if (id.startsWith("role_")) {
+          const viaRole = ROLE_TO_MATCH_SKILL[id as keyof typeof ROLE_TO_MATCH_SKILL];
+          if (viaRole !== undefined) out.add(viaRole);
+        } else {
+          for (const m of ATTRIBUTE_TO_MATCH_SKILLS[id] ?? []) out.add(m);
+        }
+      }
+    }
+  }
+  return [...out].sort();
+}
+
+/**
+ * The occupations onboarding can produce, with the match skills each derives. Chat rows come
+ * straight from `ROLE_TO_MATCH_SKILL` (the free-text extractor's role bridge); form rows from
+ * `PACK_ANSWER_SKILLS` (a fully-answered form, #2019). Both track the taxonomy automatically.
  */
 export function tradeReportRows(): TradeReportRow[] {
   const chat = Object.entries(ROLE_TO_MATCH_SKILL).map(([roleId, skillId]) => ({
@@ -1004,7 +1061,7 @@ export function tradeReportRows(): TradeReportRow[] {
   const forms = TRADE_FORM_KINDS_ALL.map((kind) => ({
     label: kind,
     path: "trade form",
-    skills: kind === "cnc_turner" ? ["mskill_cnc_turner"] : [],
+    skills: formReachableSkills(FORM_KIND_PACK[kind as TradeFormKindName] ?? ""),
   }));
   return [...chat, ...forms];
 }
@@ -1038,8 +1095,8 @@ async function printTradeReport(db: Database): Promise<void> {
     );
   }
   console.log(
-    `  Note: chat with STRUCTURED answers writes no role/skills (profile-extraction.processor.ts); the free-text ` +
-      `chat path above is what a live demo uses. Role kinds with no real match skill get no demo postings.`,
+    `  Form rows are a FULLY-answered form (upper bound). Role kinds with no real match skill ` +
+      `derive nothing and get no demo postings.`,
   );
 }
 

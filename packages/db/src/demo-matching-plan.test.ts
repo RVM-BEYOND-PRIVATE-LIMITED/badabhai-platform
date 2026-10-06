@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveReachSet } from "@badabhai/match-engine";
-import { ROLE_TO_MATCH_SKILL, isMatchSkillId } from "@badabhai/taxonomy";
+import {
+  PACKS_WITHOUT_MATCH_SKILL,
+  PACK_ANSWER_SKILLS,
+  ROLE_TO_MATCH_SKILL,
+  isMatchSkillId,
+} from "@badabhai/taxonomy";
 import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
 import { workerVisibleTextScreens } from "@badabhai/validators";
 
@@ -21,6 +26,7 @@ import {
   workerVisibleFields,
 } from "./demo-matching-plan";
 import {
+  FORM_KIND_PACK,
   parseAllowPhones,
   personaConsentPurposes,
   resetPhoneProblem,
@@ -115,7 +121,24 @@ describe("demo-matching plan — catalogue", () => {
       new Set(plan.postings.filter((p) => p.roleKind === kind).flatMap((p) => p.matchSkillIds));
     expect(named("welder").has(ROLE_TO_MATCH_SKILL.role_welder)).toBe(true);
     expect(named("cnc_turner").has(ROLE_TO_MATCH_SKILL.role_cnc_turner_operator)).toBe(true);
-    expect(named("conventional_machinist").has(ROLE_TO_MATCH_SKILL.role_cnc_operator)).toBe(true);
+    expect(named("cnc_turner").has(ROLE_TO_MATCH_SKILL.role_cnc_operator)).toBe(true);
+  });
+
+  it("every form-onboarding trade the taxonomy bridges is posted; every no-skill pack's kind is skipped", () => {
+    const posted = new Set(DEMO_TRADES.map((t) => t.roleKind));
+    const skipped = new Set<string>(SKIPPED_ROLE_KINDS);
+    for (const [kind, packId] of Object.entries(FORM_KIND_PACK)) {
+      if ((PACKS_WITHOUT_MATCH_SKILL as readonly string[]).includes(packId)) {
+        expect(skipped.has(kind), `${kind} (${packId}) has no match skill — must be skipped`).toBe(
+          true,
+        );
+      }
+      if (packId in PACK_ANSWER_SKILLS) {
+        expect(posted.has(kind as never), `${kind} (${packId}) is bridged — must be posted`).toBe(
+          true,
+        );
+      }
+    }
   });
 
   it("a skipped (no-real-skill) role kind never appears on any posting", () => {
