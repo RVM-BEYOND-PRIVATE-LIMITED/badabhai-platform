@@ -1451,11 +1451,34 @@ _RESIDUAL_DIGITS_RE = re.compile(r"\d{7,}")
 # and the salary guard's copy (`tests/test_pseudonymize_cued_id_linear.py`,
 # `scripts/measure_cued_id_linear.py`). No possessive quantifier, so the TypeScript ports in
 # `apps/api` and the lexicon's `credentialBefore` carry the same text.
+#
+# A DOT AFTER THE CUE AND A ":-" SEPARATOR ARE READ (issue #1950, risks-register R56). The
+# connector had no token that starts with ".", the separator was one character, and "regn" was no
+# cue, so the common certificate spellings "Reg.No.:- <id>", "Regn. No. <id>" and "Roll.No-<id>"
+# never reached their value: the ID stayed raw, G1/G2 admitted it under both postures, and the
+# salary guard let its digits through as pay. "reg no:- <id>" missed for the separator alone.
+# Three additive tokens, all outside the whitespace structure above: `\.?` straight after the cue
+# word (the abbreviation dot, so "Reg." reads exactly as "Reg"), "regn" among the cues, and `-?`
+# after the separator (":-" and "--" read as ":" and "-"). None of them is whitespace and each is
+# followed by a different class, so a run still has one reading and the rule stays linear. The
+# accepted language is a superset, so every VERDICT only grows: a G1/G2 refusal, a certifier
+# refusal or a salary-guard drop is never lost. The masked TEXT grows per cue, but not across
+# cues: `sub` is non-overlapping and this rule runs before the phone rule, so a newly read dotted
+# cue's value can swallow a later cue glued on by "/" or "-" ("Cert. NAPS/2020/reg: 445566" leaves
+# 445566 raw) or the first group of a spaced phone ("Licence. 098765 43210"). The same happens on
+# the undotted spelling, on PRE and here alike; the walls still refuse both. Risks-register R62.
+# Over the repo corpus (#1875's method, `scripts/measure_cued_id_dot.py`) no string changes; the
+# dot is transparent by construction, so a number written straight after "cert." masks or is
+# dropped as pay exactly as it was after "cert". The test file
+# `tests/test_pseudonymize_cued_id_dot.py` pins the shapes, the near misses and the measurement.
+# "Reg . No" (a SPACED dot), "Num.", "No: -", an en dash, "No #" and "No.=" are still not read;
+# see the doc.
 _CREDENTIAL_ID_LOOKAHEAD_MAX = 64
 _CREDENTIAL_ID_RE = re.compile(
-    r"(?i:\b(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b"
+    r"(?i:\b(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license)"
+    r"\b\.?"
     r"(?:\s+(?:ka|ki|ke|mera|meri))?"
-    r"\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:\-]\s*)?)"
+    r"\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:\-]-?\s*)?)"
     r"(?=[A-Za-z0-9/\-]{0," + str(_CREDENTIAL_ID_LOOKAHEAD_MAX) + r"}\d)"
     r"([A-Za-z0-9][A-Za-z0-9/\-]{5,})"
 )
@@ -2467,10 +2490,12 @@ _INVISIBLE_RE = re.compile("[\u200b\u200c\u200d\u2060\ufeff]")
 #: there). Main's `\s*(?:no\.?|number|num|id|#)?\s*[:\-]?\s*` was O(k^3) on a whitespace run:
 #: `contains_hard_identifier("passport" + " " * 800 + "!")` took 3.5-9.1 s. Same spans on every
 #: input.
+#: THE DOT AFTER THE CUE AND THE ":-" SEPARATOR ARE READ, as in `_CREDENTIAL_ID_RE` (issue #1950,
+#: R56; the note there): "Passport.No: K1234567" and "A/c. No. 12345678" were admitted.
 _RESUME_CUED_ID_RE = re.compile(
     r"\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|"
-    r"a/c|account|dob|date\s+of\s+birth)\b"
-    r"\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:\-]\s*)?"
+    r"a/c|account|dob|date\s+of\s+birth)\b\.?"
+    r"\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:\-]-?\s*)?"
     r"(?=[A-Za-z0-9/\-]{0,24}\d)"
     r"[A-Za-z0-9][A-Za-z0-9/\-]{4,}",
     re.IGNORECASE,

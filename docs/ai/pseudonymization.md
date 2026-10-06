@@ -693,22 +693,75 @@ The API's TypeScript wall (`resume-parse-gates.ts`) ports the first two.
 - **Pinned** by `tests/test_pseudonymize_cued_id_linear.py` (48 tests: the connector text in all
   three Python-read copies; a 750 ms timing backstop on `pseudonymize`, `contains_hard_identifier`,
   the three walls and the extractor; the corpus and fuzz differentials; the end-to-end run; the
-  known cases and the four R56 residual shapes; and the script, including its sensitivity
-  variant, its shared corpus readers and a probe that an untracked file stays out of the corpus).
+  known cases and the four R56 shapes, pinned as residuals until #1950 and now masked; and the
+  script, including its sensitivity variant, its shared corpus readers and a probe that an
+  untracked file stays out of the corpus).
   `apps/api/src/profiling/resume-import/resume-parse-gates.linear.test.ts` and
   `packages/profiling-lexicon/src/values/salary-credential-guard.test.ts` do the same for V8.
   The tests were seen to fail on main's connector, on two semantic mutations and, with the rules
   intact, on a changed oracle. The counts are in the test file's docstring.
-- **Residual, unchanged: risks-register R56 (open).** No connector token starts with "." and
-  "regn" is no cue, so the common certificate spellings `"Reg.No.:- 123456"`,
-  `"Reg.No.: MH2019CN4471"`, `"Reg. No. …"` and `"Regn. No. …"` never reach their value, on main
-  and here alike. The gateway leaves the ID raw (it has no seven-digit run for the residual net),
-  G1/G2 admits the text, and the salary detector records the ID's digits as pay (123456, and
-  4471 from `MH2019CN4471`). `pseudonymize()` builds the at-rest copies and the embedding input
-  under both `AI_RAW_PII_ENABLED` postures, so this is not moot while the switch is armed.
-  Reading "." after the cue masks more, so it is a masking widening with its own security
-  review, not part of a rewrite that must keep main's spans. The four shapes are pinned as
-  `KNOWN_RESIDUAL`, so the R56 fix flips them.
+- **R56, fixed by #1950: a dot after the cue, a ":-" separator and the "regn" cue.** #1933 kept
+  main's spans exactly, so it left the common certificate spellings unread: no connector token
+  started with ".", the separator was one character, and "regn" was no cue. `"Reg.No.:- 123456"`,
+  `"Reg.No.: MH2019CN4471"`, `"Regn. No. …"`, `"Roll.No-…"` and `"Passport.No: …"` never reached
+  their value. The gateway left the ID raw (it has no seven-digit run for the residual net), G1/G2
+  admitted the text, and the salary detector recorded the ID's digits as pay (123456, and 4471
+  from `MH2019CN4471`). `pseudonymize()` builds the at-rest copies and the embedding input under
+  both `AI_RAW_PII_ENABLED` postures, so this was not moot while the switch is armed.
+  - **Three additive tokens, in all five copies** (`_CREDENTIAL_ID_RE`, `_RESUME_CUED_ID_RE`,
+    lexicon `credentialBefore` and its mirror, both TypeScript ports): `\.?` straight after the
+    cue word, "regn" among the credential cues, and `-?` after the separator (":-" and "--" read
+    as ":" and "-"). None of them is whitespace and each is followed by a different class, so a
+    run still has one reading and the rules stay linear.
+  - **Every verdict only grows.** The accepted language is a superset, so no G1/G2 refusal, no
+    certifier refusal and no salary-guard drop can be lost, and per cue every identifier character
+    the old rule masked is still masked. The dot is TRANSPARENT: "Cue." decides exactly as "Cue"
+    wherever the cue already ended on a boundary. So a number written straight after a
+    sentence-final "certificate." masks, or is dropped as pay, exactly as one after "certificate"
+    always was (pinned as `DECIDED`).
+  - **The masked text is not monotone across cues (R62).** Found by the #1950 security review.
+    The gateway's `sub` is non-overlapping and the cued-ID rule runs before the phone rule, so a
+    cue's value runs to the end of its token. A newly read dotted cue can therefore take a later
+    cue glued on by "/" (`"Cert. NAPS/2020/reg: 445566"` was `"… reg: [ID_1]"` and is now
+    `"Cert. [ID_1]: 445566"`), or the first group of a spaced phone (`"Licence. 098765 43210"` was
+    `"Licence. [PHONE_1]"` and is now `"Licence. [ID_1] 43210"`). The undotted spelling did exactly
+    this already, so the dot extends an existing class rather than adding one. Only the masked
+    text is affected: G1/G2 and the certifiers still refuse every such text. About 1 in 40,000
+    multi-cue fuzz strings; none in the corpus. The candidate fix is to mask the union of the
+    values matched from every cue start.
+  - **Measured** (`scripts/measure_cued_id_dot.py`, 2026-10-06, on the rebased branch). PRE is
+    each rule as #1933 shipped it.
+    - `overmask` (#1875's method): 38,187 distinct strings of the git-tracked corpus, 2,646
+      cue-bearing. In each of the four views (as written, whitespace stretched, separators spaced,
+      upper-cased), 0 strings change in `pseudonymize`, `contains_hard_identifier` or
+      `signals.detect`. 0 of 4,843 certifier labels change outcome. The corpus holds none of the
+      new shapes, so the widening touches nothing it already held.
+    - `fuzz`: 60,000 seeded cue lines. 0 decide less than PRE. 6,296 move, every one holding a new
+      shape. In 15, a run of connector text PRE had swallowed into the value ("NO--" before an
+      ID) is now read as the connector, so only the ID itself is masked; no digit is ever
+      unmasked. The twin checks hold: 51,370 dot, 19,690 separator and 1,739 "regn" cases decide
+      as their plain form.
+    - `timing 3` (minimum of 3 runs, local, Python 3.14): at 20,000 characters on the new tokens'
+      worst shapes, `pseudonymize` takes 5.9–16.5 ms, `contains_hard_identifier` 3.1–7.2 ms and
+      the salary guard 1.4–3.5 ms; `profile_extractor.extract` is unchanged (4.2–4.4 ms either
+      way at 1,000 characters).
+  - **Pinned** by `tests/test_pseudonymize_cued_id_dot.py` (the shapes, the near misses decided
+    as on PRE, the two `DECIDED` cases, the corpus and fuzz properties, timing at the size cap and
+    the residuals). The V8 copies are pinned in `resume-parse-gates.linear.test.ts` and
+    `salary-credential-guard.test.ts`; those #1933 differentials now compare against the unfolded
+    connector carrying `-?`, so they still isolate the folding.
+  - **Residuals, still open** (`KNOWN_RESIDUAL`): a SPACED dot (`"Reg . No . 123456"`) and a dot
+    after "Num" / "Number" are not read, and neither shape is in the corpus. Reading `\s*\.` would
+    put a whitespace quantifier in front of a token, a new #1933-class review. Nor are four
+    pre-existing separator spellings the security review named: `"Reg No: - 123456"`, an en dash
+    (`"Reg. No. – 123456"`, which Word's autocorrect produces), `"Reg No #123456"` and
+    `"Reg.No.=123456"`. Each leaves the ID raw, G1/G2 admits it and its digits are pay, on the #1933
+    rules and here alike. Separately, the
+    salary guard holds the credential cues only, so a passport number G1/G2 refuses
+    (`"Passport No. M123456"`) is still recorded as pay. #1950 reads the dot in the guard but adds
+    no cue to it; the owner split that out as #2043 (2026-10-06), because "account" and "a/c" can
+    sit right before a real wage. The sentence-end transparency was confirmed by the owner the
+    same day.
 
 ## Input policy switch (ADR-0047)
 
@@ -802,4 +855,4 @@ out: "[PERSON_1], phone [PHONE_1], worked at [EMPLOYER_1] in Faridabad"
   - **R48 — employers in capitals (issue #1875).** Fixed for a capitals span that ends in a listed corporate form. #1892 then masked lower case, M/S firms that end on a firm word, 5–6 name words and the title-case twins (see "Employer shapes the capitals rule left raw"). Still open: no corporate form and no cue (`"BAJAJ AUTO"`), INC/EST., a dash after a guarded form (`"MARUTI COMPANY-PUNE"`), and the residue the #1892 section lists; the R49 two-view shapes #1892 extended block since #1890. The title-case `_EMPLOYER_RE` stall found in the #1875 section is bounded by #1891: its name word now has the capitals rule's 64-character bound, and no corpus output moved. The owner signed off on 2026-10-03 (see #1891's sign-off and R48). Unlike R30/R32, this is NOT moot while the switch is armed. The at-rest masked copies, the embedding input (SG-2, ADR-0047 §4) and the certifiers run `pseudonymize()` under both postures. The Langfuse and `ai_call_traces` sinks follow the flag (`trace_mask`), so they are covered only while it is off.
   - **R49 — the two-view check accepted a partial overlap (#1890).** Pre-existing (#1738); extended by #1875 and #1892. A name hidden by an invisible character next to a masked employer span egressed unblocked: `"my name is<U+200B>Ramesh Kumar CO"` → `"my name isRamesh [EMPLOYER_1]"`. MITIGATED by #1890: a spaced-view region now counts as covered only when every offset of it the reader view kept is reader-masked, so those turns block. Text with no invisible character is byte-identical (it never reaches the check). See "The two-view check requires containment".
   - **R54 — the cued-ID rules stalled on a whitespace run. RESOLVED by #1933.** Pre-existing; found by the #1891 survey. `_CREDENTIAL_ID_RE` and `_RESUME_CUED_ID_RE` put three whitespace quantifiers in a row, so a cue followed by a whitespace run that failed to match cost O(k³): `pseudonymize("reg" + " " * 800 + "!")` took 1.7–4.0 s over three runs, whatever `AI_RAW_PII_ENABLED` says. Each quantifier is now folded into the optional token it follows, in both rules, the salary guard's lexicon copy and the API's TypeScript ports: 0.2 ms on that input, with 0 span differences over the corpus and the fuzz. See the section on the cued-ID connector. The `"Reg.No."` shape the connector never read stays a pinned residual, tracked as R56.
-  - **R56 — the cued-ID rules never read a dot after the cue.** Pre-existing; found by the #1933 parity work. No connector token starts with "." and "regn" is no cue, so `"Reg.No.: MH2019CN4471"`, `"Reg. No. …"`, `"Roll.No. …"`, `"Cert. No. …"`, `"Passport.No. …"` and `"Regn. No. …"` never reach their value: `pseudonymize()` leaves the ID raw, `contains_hard_identifier` (G1/G2) admits it and the salary detector records its digits as pay. Unlike R30/R32, this is NOT moot while `AI_RAW_PII_ENABLED` is armed: the at-rest copies, the embedding input and the walls run `pseudonymize()` under both postures. OPEN. The fix reads "." after the cue, which masks more, so it takes its own security-engineer review; see R56.
+  - **R56 — the cued-ID rules never read a dot after the cue. MITIGATED by #1950.** Pre-existing; found by the #1933 parity work. No connector token started with "." and "regn" was no cue, so `"Reg.No.: MH2019CN4471"`, `"Reg. No. …"`, `"Roll.No. …"`, `"Cert. No. …"`, `"Passport.No. …"` and `"Regn. No. …"` never reached their value: `pseudonymize()` left the ID raw, `contains_hard_identifier` (G1/G2) admitted it and the salary detector recorded its digits as pay. Unlike R30/R32, this was NOT moot while `AI_RAW_PII_ENABLED` is armed: the at-rest copies, the embedding input and the walls run `pseudonymize()` under both postures. #1950 reads `\.?` after the cue word, "regn" and `-?` after the separator, in all five copies. Every verdict only grows, and 0 of 2,646 cue-bearing corpus strings change, in four views. The masked text is not monotone across cues (R62, pre-existing on the undotted spelling). A spaced dot, four separator spellings and the salary guard's missing résumé cues (#2043) remain; see the section on the cued-ID connector and R56.
