@@ -314,7 +314,15 @@ def _record_model(log: CallLog, meta: dict) -> None:
     )
 
 
-def _call(base_url: str, path: str, body: dict, log: CallLog, label: str) -> Reply | None:
+def _call(
+    base_url: str,
+    path: str,
+    body: dict,
+    log: CallLog,
+    label: str,
+    *,
+    api_timeout_ms: float | None = None,
+) -> Reply | None:
     """POST one case; the parsed body when the MODEL answered it, else None.
 
     httpx, exactly like the canonicalization eval — never urllib (SAST: file:// schemes).
@@ -323,7 +331,11 @@ def _call(base_url: str, path: str, body: dict, log: CallLog, label: str) -> Rep
     value the API would have acted on. An answer slower than the API's timeout is listed too,
     and returned with ``in_time`` False: the caller decides what a late answer means. Every
     model answer, late or not, records the model that served it.
+
+    ``api_timeout_ms`` is for a route outside :data:`API_TIMEOUT_MS` (the free-chat eval,
+    ADR-0051, shares this call layer); the companion's own routes leave it None.
     """
+    timeout_ms = API_TIMEOUT_MS[path] if api_timeout_ms is None else api_timeout_ms
     log.sent += 1
     payload: object = None
     wall_ms = 0.0
@@ -375,7 +387,7 @@ def _call(base_url: str, path: str, body: dict, log: CallLog, label: str) -> Rep
     cost = meta.get("estimated_cost_inr")
     if isinstance(cost, int | float):
         log.cost_inr += float(cost)
-    if wall_ms > API_TIMEOUT_MS[path]:
+    if wall_ms > timeout_ms:
         log.over_api_timeout.append(f"{label}: {wall_ms:.0f} ms")
         return Reply(payload, in_time=False)
     return Reply(payload)
