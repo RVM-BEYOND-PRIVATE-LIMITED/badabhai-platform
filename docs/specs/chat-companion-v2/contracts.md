@@ -61,6 +61,11 @@ CompanionClassifyOutput = {
 The API treats `confidence < CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE`, `blocked`, a schema miss,
 a timeout or a null (AI service down) as `unclear`.
 
+**Prompt and budget, WP5 (2026-10-05).** The classify p95 missed its 1.5 s bar (1662–2411 ms,
+2026-10-01), so the prompt was shrunk to 791 chars / 116 words (from 1085 / 178) and the output
+cap to **48 tokens** (from 64; the worst-case answer is ~15). Temperature 0 and json_mode were
+already the route's shape. The intents, the JSON contract and the eval set are unchanged.
+
 **The API sends at most the first 1000 chars** of the pseudonymized message (`CLASSIFY_TEXT_MAX`,
 never splitting a surrogate pair). The message DTO accepts 4000, and an over-long `text` would be a
 422 → `unclear` for a message that was perfectly clear. The handler still receives the WHOLE masked
@@ -118,6 +123,17 @@ so the same entity carries the same placeholder in the message and in `current_v
 different employers never share `[EMPLOYER_1]`. The token grammar is unchanged (`[PREFIX_n]`, still
 caught by the API's O17 `hasPlaceholderToken` screen), no mapping is returned, and every other
 gateway caller keeps its per-call numbering. No wire field changes.
+
+**An `edit` on a list member is expanded before validation (WP4, 2026-10-05).** The three list
+preferences (`preferred_cities`, `work_types`, `documents_ready`) offer only `add`/`delete` (§3),
+and the 2026-10-01 eval measured the primary model answering a list change with `op: "edit"` on
+such a field (3 of 74 cases — which the API dropped as out-of-catalogue, so the worker got no
+card). `expandListEdits` (`v2/edit-normalise.ts`, pure) turns such a row into `delete old` +
+`add new` — both values normalised through the field's own dictionary, in that order, before
+`validateRow` — so the worker gets the replace the model meant. Replacing a member with itself
+drops both rows; any ambiguity (no ref, a ref the snapshot does not hold, a ref whose entry lacks
+the field, a value the dictionary refuses) drops the row; a non-list row passes through untouched.
+The expanded pair counts against the 3-row cap, and `dropped_count` counts rows after expansion.
 
 **API-side bounds (2026-09-30, lane a2).** The model's output is untrusted, so the API enforces
 both caps itself rather than relying on the AI service:
@@ -312,11 +328,19 @@ modified; v2 turns emit **v2** of it.
 | Event | Version | Payload | Phase |
 |---|---|---|---|
 | `chat.companion_turn_served` | **v2** | v1 fields + `intent_source`, `v2_intent` (nullable), `confidence_bucket` (`lt50`/`50_70`/`70_90`/`gte90`/null), `outcome` | P1 |
+| `chat.companion_turn_served_v3` | **v3** | v2 fields, `intent_source` widened by `chip` (TD150/WP8); the ORCHESTRATOR now emits this | P1 |
 | `chat.companion_edit_proposed` | v1 | `proposal_id`, `row_count`, `sections[]`, `dropped_count`, `unsupported[]` | P1 |
 | `chat.companion_edit_confirmed` | v1 | `proposal_id`, `applied_count`, `sections[]`, `resume_regen` (`queued`/`capped`/`failed`) | P1 |
+| `chat.companion_edit_confirmed_v2` | **v2** | v1 fields, `resume_regen` += `skipped_no_consent` (TD150/WP8); the SERVICE now emits this | P1 |
 | `chat.companion_edit_cancelled` | v1 | `proposal_id`, `reason` (`worker`/`expired`/`stale`) | P1 |
+| `chat.companion_edit_cancelled_v2` | **v2** | `proposal_id`, `reason` (`worker_declined`/`expired`/`stale`/`superseded`); the SERVICE now emits this | P1 |
+| `chat.companion_edit_rolled_back` | **v1** | `proposal_id`, `row_count`, `sections[]`, `reason` (`apply_failed`) — a confirm that rolled back before commit (TD150/WP8) | P1 |
 | `chat.companion_faltu_strike` | v1 | `strike_count`, `cooldown_started` | P2 |
+| `chat.companion_faltu_strike_v2` | **v2** | v1 fields + `submission_id` (nullable); the HANDLER now emits this | P2 |
 | `chat.companion_career_answered` | v1 | `outcome` (`answered`/`refused`/`fallback`), `refusal_topic` (nullable), `turns_in_memory` | P3 |
+| `chat.companion_career_answered_v2` | **v2** | v1 fields + `submission_id` (nullable); the HANDLER now emits this | P3 |
+
+**TD150 / WP8 (2026-10-05).** Every changed payload is a NEW NAME/version (the house `_v2` pattern); the v1 and v2 definitions stay registered and untouched. The old emitters are gone from the running paths (the orchestrator emits v3, the edit service the v2s, the two handlers their v2s), so a consumer reading both old and new sees each turn once. What each change fixes: `intent_source` could not tell a chip tap from the other deterministic routes; a replaced card had no `reason` (the funnel's `proposed − confirmed − cancelled` remainder); a consent refusal was recorded `failed`; a rollback had no event at all; the strike and career events carried no idempotency key for a duplicate arriving while the first request still runs (the in-flight claim below).
 
 Dedupe: message turns by `submission_id` (as v1); edit events by `proposal_id`.
 
@@ -477,6 +501,18 @@ A recognised tap never sends its label to a model (it names a task, not a reques
 No memory pair is stored for a tap, and the NEXT message goes through the normal order (v1 first);
 routing it straight to the chip's handler would be a v1 bypass, which is an owner decision.
 
+**Decision taken provisionally — TD146 / WP6 (2026-10-05), behind
+`CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED` (default off).** With the flag on, a tap on
+`companion_task:edit_resume` / `:career_talk` stores a **pending intent** for that worker (Redis,
+10-minute TTL, one-shot) and the next free-text message routes straight to that handler — no v1
+resolver, no classifier. A second tap replaces it; another chip clears it; a take consumes it.
+Also with the flag on, a narrow reviewed table (`v2/edit-precheck.ts`: an edit verb + a field
+word) routes edit phrasings to the edit handler BEFORE v1, and a v1 **weak alias** (the résumé
+menu's substring aliases, the résumé/greeting words, the bare `kaam`) goes to the classifier
+instead of answering with the menu/recap; every NAMED v1 intent (exact chips, the menu's chips,
+jobs, applications, guarantee, status) keeps its zero-model answer. With the flag off the flow is
+byte-for-byte today's, pinned by `companion-v2.v1-first.test.ts`.
+
 ## 6. Flags and knobs
 
 Server (`packages/config`, `docs/environment-variables.md`, `ci.yml` deploy env list):
@@ -488,6 +524,7 @@ Server (`packages/config`, `docs/environment-variables.md`, `ci.yml` deploy env 
 | `CHAT_COMPANION_V2_NEW_RESUME_ENABLED` | `false` | P2 |
 | `CHAT_COMPANION_V2_FALTU_ENABLED` | `false` | P2 |
 | `CHAT_COMPANION_V2_CAREER_ENABLED` | `false` | P3 |
+| `CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED` | `false` | TD146/WP6 — a chip tap leaves a pending intent (10 min, one-shot) and the edit pre-check runs before v1; off is v1 byte-for-byte |
 | `CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE` | `0.6` | Below → `unclear` |
 | `CHAT_COMPANION_V2_EDIT_MAX_ROWS` | `3` | O5 |
 | `CHAT_COMPANION_V2_PROPOSAL_TTL_SECONDS` | `600` | Edit card lifetime |
@@ -510,9 +547,11 @@ client. All keys are prefixed `companion:v2:`.
 | `mem:{workerId}` | list, pseudonymized turns, capped at `MEMORY_TURNS` | `MEMORY_TTL_SECONDS` | orchestrator | classify/answer without memory |
 | `proposal:{workerId}` | JSON (one active proposal per worker; a new one replaces it) | `PROPOSAL_TTL_SECONDS` + 300 s grace (the card itself still ends at `expires_at`; the grace only lets a late tap be recorded `expired`, §4) | edit service | no card is offered: "abhi badlav nahi ho paaya, thodi der mein try karein" |
 | `proposal-claim:{workerId}:{proposalId}` | flag, `SET NX` — one Haan/Nahi per card | same as the proposal record | edit service (confirm / cancel; released on a rollback) | confirm applies nothing and serves the card again; cancel proceeds (it writes nothing) |
+| `pending-intent:{workerId}` | string, `edit_resume` / `career_talk` | 600 s (fixed, not a knob) | task-chip tap (`set`, replaces); next free-text message (`GETDEL`, one-shot); any other chip (`DEL`) | no pending intent: the message takes the normal v1-first path |
 | `strikes:{workerId}:{utcDay}` | counter | 24 h | faltu handler | no strike counted |
 | `cooldown:{workerId}` | flag | `FALTU_COOLDOWN_MINUTES` | faltu handler | no cool-down |
 | `turn:{workerId}:{submissionId}` | JSON, the v2 turn served for a v1-miss message | 600 s | orchestrator | fail open: the retry is processed as a new message |
+| `inflight:{workerId}:{submissionId}` | flag, `SET NX EX` — one request at a time per submission (TD150/WP8) | 60 s | orchestrator (`handleMessage`), released in a `finally` | fail open (`unavailable`): the duplicate is processed as before; a concurrent duplicate gets `V2_IN_FLIGHT` with no model call, strike or event |
 
 **"If Redis fails" includes "Redis never answers" (2026-09-30).** The shared BullMQ connection runs
 with `maxRetriesPerRequest: null` and the default offline queue, so a command against a downed Redis
@@ -555,6 +594,7 @@ All fixed lines live in `companion-replies.ts` (v1 file, extended) with a Devana
 | `V2_FALTU_COOLDOWN` | Thodi der baad baat karte hain. |
 | `V2_CAREER_REFUSE_*` | one line per refusal topic (P3). `legal_medical_financial`, fixed 2026-10-05 (the owner checklist named it: it sent a health question to "a lawyer or a bank"): **Yeh kanoon, sehat ya paise ka mamla hai. Iske liye vakil, doctor ya bank se salah lijiye.** Devanagari twin matches. Still a draft pending owner review, like the others. |
 | `V2_FALLBACK` | v1 `FALLBACK` reused |
+| `V2_IN_FLIGHT` | **DRAFT (2026-10-05), pending owner review.** Aapka message mil gaya. Thodi der mein jawab aayega. — served when a duplicate of a message still being answered arrives (the in-flight claim, TD150/WP8). |
 | `V2_EDIT_ASK` | **DRAFT (2026-09-30), pending owner review.** Resume mein kya badalna hai? Jaise: 'Marathi bhasha jod do' ya 'night shift kar do'. |
 | `V2_CAREER_ASK` | **DRAFT (2026-09-30), pending owner review.** Career ke baare mein aapka kya sawaal hai? Jaise: 'nayi skill kaun si seekhun'. |
 

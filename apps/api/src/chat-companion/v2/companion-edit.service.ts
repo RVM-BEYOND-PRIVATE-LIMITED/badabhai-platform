@@ -57,6 +57,7 @@ import {
   type WholeEntryKind,
 } from "./edit-catalogue";
 import { identityAskIn } from "./edit-identity";
+import { expandListEdits } from "./edit-normalise";
 import { dedupeRows, isNoopAdd, planSection, type SectionPlan } from "./edit-plan";
 import {
   isStale,
@@ -139,8 +140,9 @@ type RowVerdict =
  *
  * THE MODEL NEVER WRITES. `propose` reads every section once (`EditState`), sends the message
  * plus this catalogue and a snapshot of the worker's current values — cut to the contract's cap —
- * to `AiService.companionEditParse`, validates every returned row deterministically (whole-job
- * delete, catalogue, op, ref, value, placeholder token, hard identifier, no-op, duplicate, and the
+ * to `AiService.companionEditParse`, expands an `edit` on a list member into its `delete`/`add`
+ * pair (`edit-normalise.ts`), validates every row deterministically (whole-entry delete,
+ * catalogue, op, ref, value, placeholder token, hard identifier, no-op, duplicate, and the
  * section writer's REAL schema) and stores a card of at most `min(EDIT_MAX_ROWS, 3)` rows.
  * `confirm` CLAIMS the card (at most one apply per card), refuses a ticked whole-job delete,
  * re-reads the state, refuses a stale card, applies every selected row through the section
@@ -231,11 +233,14 @@ export class CompanionEditService {
 
     // Only the refs the model was SHOWN can be addressed: a trimmed row is not guessable.
     const byRef = new Map(sent.map((row) => [row.ref, row]));
+    // LIST FIELDS: an `edit` on a list member becomes `delete old` + `add new` before any
+    // validation (edit-normalise.ts) — deterministic, fail closed, the pair counted by the cap.
+    const modelRows = expandListEdits(parsed.rows, byRef);
     const effectiveUnsupported = new Set(unsupported);
     let placeholderDropped = false;
     const wholeEntryDeletes: WholeEntryKind[] = [];
     const valid: StoredEditProposalRow[] = [];
-    for (const row of parsed.rows) {
+    for (const row of modelRows) {
       const verdict = this.validateRow(row, byRef);
       if (verdict.kind === "kept") {
         valid.push(verdict.row);
@@ -263,7 +268,7 @@ export class CompanionEditService {
         ...(wholeEntryDeletes.length - jobs > 0 ? ["qualification_delete_from_chat"] : []),
       ].join(",");
       this.logger.warn(
-        `companion edit dropped ${wholeEntryDeletes.length} of ${parsed.rows.length} rows for worker ${workerId}: a whole-entry delete is never carded (reason=${reasons})`,
+        `companion edit dropped ${wholeEntryDeletes.length} of ${modelRows.length} rows for worker ${workerId}: a whole-entry delete is never carded (reason=${reasons})`,
       );
     }
 
@@ -273,7 +278,7 @@ export class CompanionEditService {
       state,
       dedupeRows(valid).filter((row) => !isNoopAdd(row, snapshot)),
     ).slice(0, cardRowsMax);
-    const dropped = parsed.rows.length - kept.length;
+    const dropped = modelRows.length - kept.length;
 
     if (kept.length === 0) {
       const profileScreenOnly = placeholderDropped || wholeEntryDeletes.length > 0;
@@ -289,9 +294,20 @@ export class CompanionEditService {
       expires_at: expiresAt,
       rows: kept,
     };
+    // WP8: a successful save REPLACES the worker's previous open card, if any (one active card
+    // per worker). Read it BEFORE the save so the replaced id can be recorded: `superseded` —
+    // the reason v1's closed set could not express, which is why proposed − confirmed − cancelled
+    // had a remainder. A Redis miss here is harmless (no previous card to record).
+    const previous = await this.proposals.load(workerId);
     if (!(await this.proposals.save(workerId, proposal))) {
       // Contracts §7: no card is offered, and nothing is claimed to have happened.
       return { turn: v2CopyTurn(V2_EDIT_UNAVAILABLE), outcome: "fallback" };
+    }
+    if (previous !== null) {
+      await this.emit(workerId, ctx, "chat.companion_edit_cancelled_v2", {
+        proposal_id: previous.proposal_id,
+        reason: "superseded",
+      });
     }
 
     await this.emit(workerId, ctx, "chat.companion_edit_proposed", {
@@ -558,6 +574,14 @@ export class CompanionEditService {
           err instanceof Error ? err.name : "UnknownError"
         })`,
       );
+      // TD150/WP8: the rollback gets its own event — v1 recorded nothing but the turn's
+      // `fallback` outcome, so a failed apply was invisible in the edit funnel.
+      await this.emit(workerId, ctx, "chat.companion_edit_rolled_back", {
+        proposal_id: proposalId,
+        row_count: selected.length,
+        sections: sectionsOf(selected),
+        reason: "apply_failed",
+      });
       return this.failed(proposal);
     }
 
@@ -583,7 +607,7 @@ export class CompanionEditService {
       await this.rerender.enqueueLatest(workerId, ctx);
     }
 
-    await this.emit(workerId, ctx, "chat.companion_edit_confirmed", {
+    await this.emit(workerId, ctx, "chat.companion_edit_confirmed_v2", {
       proposal_id: proposalId,
       applied_count: selected.length,
       sections: sectionsOf(selected),
@@ -614,9 +638,9 @@ export class CompanionEditService {
     // refused still cancels — a Nahi writes nothing, so there is nothing to apply twice.
     if ((await this.proposals.claim(workerId, proposalId)) === "held") return { kind: "not_found" };
     await this.proposals.delete(workerId);
-    await this.emit(workerId, ctx, "chat.companion_edit_cancelled", {
+    await this.emit(workerId, ctx, "chat.companion_edit_cancelled_v2", {
       proposal_id: proposalId,
-      reason: "worker",
+      reason: "worker_declined",
     });
     return { kind: "cancelled", turn: v2CopyTurn(V2_EDIT_CANCELLED), proposalId };
   }
@@ -632,7 +656,7 @@ export class CompanionEditService {
     proposalId: string,
     ctx: RequestContext,
   ): Promise<{ readonly kind: "not_found" }> {
-    await this.emit(workerId, ctx, "chat.companion_edit_cancelled", {
+    await this.emit(workerId, ctx, "chat.companion_edit_cancelled_v2", {
       proposal_id: proposalId,
       reason: "expired",
     });
@@ -650,7 +674,7 @@ export class CompanionEditService {
     ctx: RequestContext,
   ): Promise<{ readonly kind: "stale"; readonly turn: CompanionTurn }> {
     await this.proposals.delete(workerId);
-    await this.emit(workerId, ctx, "chat.companion_edit_cancelled", {
+    await this.emit(workerId, ctx, "chat.companion_edit_cancelled_v2", {
       proposal_id: proposalId,
       reason: "stale",
     });
@@ -683,7 +707,7 @@ export class CompanionEditService {
       this.logger.warn(
         `companion edit regeneration not requested for worker ${workerId}: consent is not active`,
       );
-      return "failed";
+      return "skipped_no_consent";
     }
     try {
       return await this.resumes.queueChatEditRegeneration(workerId, profile.id, ctx);
@@ -772,8 +796,9 @@ export class CompanionEditService {
     ctx: RequestContext,
     eventName:
       | "chat.companion_edit_proposed"
-      | "chat.companion_edit_confirmed"
-      | "chat.companion_edit_cancelled",
+      | "chat.companion_edit_confirmed_v2"
+      | "chat.companion_edit_cancelled_v2"
+      | "chat.companion_edit_rolled_back",
     payload: Record<string, unknown>,
   ): Promise<void> {
     try {

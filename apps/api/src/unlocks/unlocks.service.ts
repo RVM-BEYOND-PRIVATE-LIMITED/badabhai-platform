@@ -19,6 +19,7 @@ import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { MatchConfigService } from "../match/match-config.service";
 import { PayersRepository } from "../payers/payers.repository";
+import type { JobRefPolicy } from "../payers/job-ref-policy";
 import {
   UnlocksRepository,
   type Tx,
@@ -70,6 +71,9 @@ export interface RelayResolution {
  * transaction commits — see {@link UnlockService} class doc (deadlock fix).
  */
 type DeferredEmit = () => Promise<void>;
+
+/** #1899 — the job context an unlock may store, or a refusal (the reference is not the payer's). */
+type JobContextResolution = { ok: true; jobContext: string | null } | { ok: false };
 
 /** What a transaction step returns: the HTTP body + the events to emit post-commit. */
 interface TxResult<R> {
@@ -149,6 +153,7 @@ export class UnlockService {
   async requestUnlock(
     input: { payerId: string; workerId: string; jobId: string | null },
     ctx: RequestContext,
+    jobRefPolicy: JobRefPolicy = "normalise",
   ): Promise<UnlockOutcome> {
     const { payerId, workerId } = input;
     const _r21_start = Date.now();
@@ -158,7 +163,15 @@ export class UnlockService {
     // emitted: every row and event below carries `jobContext`, never the raw input. It is
     // resolved here, BEFORE the advisory lock, because it is a global-pool read (the
     // deadlock rule above the consent read below). See resolveJobContext.
-    const jobContext = await this.resolveJobContext(input.jobId);
+    // #1899 — on the payer-session route a reference the payer does not own is REFUSED here
+    // with the one neutral body: no event, no deny row, no debit (and still latency-padded).
+    const resolved = await this.resolveJobContext(input.jobId, payerId, jobRefPolicy);
+    if (!resolved.ok) {
+      // Ops visibility only (ids, no PII): repeated hits from one payer are tenant probing.
+      this.logger.warn(`unlock refused: job ref not owned by payer=${payerId}`);
+      return neutralUnavailable();
+    }
+    const { jobContext } = resolved;
 
     // Audit the attempt at entry (PII-free). We do NOT yet have an unlock_id, so this
     // is keyed on (payer, worker) so a retry is one logical request in the spine. The
@@ -985,10 +998,26 @@ export class UnlockService {
    * Existence, not openness: a closed `jobs` row still satisfies the FK and is still the
    * context the payer unlocked from. A read error PROPAGATES — the request fails before
    * anything is emitted, locked or debited, rather than guessing a context (fail closed).
+   *
+   * That is the `"normalise"` policy (the ops route). #1899 adds `"payer_owned"` for the
+   * payer-session route, where the reference must also belong to the SESSION payer — see
+   * {@link JobRefPolicy}.
    */
-  private async resolveJobContext(jobId: string | null): Promise<string | null> {
-    if (jobId === null) return null;
-    return (await this.repo.legacyJobExists(jobId)) ? jobId : null;
+  private async resolveJobContext(
+    jobId: string | null,
+    payerId: string,
+    policy: JobRefPolicy,
+  ): Promise<JobContextResolution> {
+    if (jobId === null) return { ok: true, jobContext: null };
+    if (policy === "normalise") {
+      return { ok: true, jobContext: (await this.repo.legacyJobExists(jobId)) ? jobId : null };
+    }
+    // #1899 — "payer_owned": the SESSION payer must own the reference. An owned `jobs` row is
+    // kept (the FK holds it); an owned posting is accepted and stored as null exactly as #1903
+    // stores it; unknown and foreign are the same refusal (no id oracle).
+    const owned = await this.repo.findOwnedJobRef(jobId, payerId);
+    if (owned === null) return { ok: false };
+    return { ok: true, jobContext: owned.kind === "job" ? owned.id : null };
   }
 
   /**

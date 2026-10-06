@@ -35,7 +35,7 @@ const ADD_WELDING: StoredEditProposalRow = {
 
 function confirmedPayload(h: ReturnType<typeof setup>): Record<string, unknown> | undefined {
   const call = h.events.emit.mock.calls.find(
-    (c) => (c[0] as { event_name: string }).event_name === "chat.companion_edit_confirmed",
+    (c) => (c[0] as { event_name: string }).event_name === "chat.companion_edit_confirmed_v2",
   );
   return (call?.[0] as { payload: Record<string, unknown> } | undefined)?.payload;
 }
@@ -79,7 +79,7 @@ describe("CompanionEditService.confirm", () => {
     expect(h.languages.replaceForWorker).not.toHaveBeenCalled();
     expect(h.db.transaction.mock.calls.length).toBe(0);
     const cancelled = h.events.emit.mock.calls.find(
-      (c) => (c[0] as { event_name: string }).event_name === "chat.companion_edit_cancelled",
+      (c) => (c[0] as { event_name: string }).event_name === "chat.companion_edit_cancelled_v2",
     )![0] as { payload: { reason: string } };
     expect(cancelled.payload.reason).toBe("stale");
   });
@@ -153,6 +153,16 @@ describe("CompanionEditService.confirm", () => {
     expect(h.resumes.queueChatEditRegeneration).not.toHaveBeenCalled();
     expect(h.committed).toEqual([]);
     expect(confirmedPayload(h)).toBeUndefined();
+    // TD150/WP8: the rollback has its own event — v1's funnel could not see an apply failure.
+    const rolledBack = h.events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
+      .find((e) => e.event_name === "chat.companion_edit_rolled_back");
+    expect(rolledBack?.payload).toEqual({
+      proposal_id: PROPOSAL_ID,
+      row_count: 1,
+      sections: ["languages"],
+      reason: "apply_failed",
+    });
   });
 
   it("the rolled-back answer CARRIES the same card, so Haan can be tapped again (BUG-F1)", async () => {
@@ -282,7 +292,7 @@ describe("CompanionEditService.confirm", () => {
       ["a consent without resume_generation", { revokedAt: null, purposes: ["profiling"] }],
     ];
 
-    it.each(cases)("%s: no cap slot, no model call — failed, and the truthful line", async (_, consent) => {
+    it.each(cases)("%s: no cap slot, no model call — skipped_no_consent, and the truthful line", async (_, consent) => {
       vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
       const h = setup({
         proposal: storedProposal(),
@@ -294,12 +304,15 @@ describe("CompanionEditService.confirm", () => {
       // Nothing is asked of the résumé seam, so neither the cap nor the model is touched.
       expect(h.resumes.queueChatEditRegeneration).not.toHaveBeenCalled();
       expect(h.consents.findLatestByWorker).toHaveBeenCalledWith(WORKER_ID);
-      expect(result.resumeRegen).toBe("failed");
+      expect(result.resumeRegen).toBe("skipped_no_consent");
       expect(result.turn.reply).toBe(V2_EDIT_DONE_CAPPED.latin);
       // The edit is written and reported as written.
       expect(h.committed.map((w) => w.writer)).toEqual(["languages"]);
       expect(h.proposals.delete).toHaveBeenCalledTimes(1);
-      expect(confirmedPayload(h)).toMatchObject({ applied_count: 1, resume_regen: "failed" });
+      expect(confirmedPayload(h)).toMatchObject({
+        applied_count: 1,
+        resume_regen: "skipped_no_consent",
+      });
     });
 
     it("a consent read that throws is a no, not an error", async () => {
@@ -308,7 +321,7 @@ describe("CompanionEditService.confirm", () => {
       h.consents.findLatestByWorker.mockRejectedValue(new Error("db down"));
       const result = await h.service.confirm(WORKER_ID, profileRow(), PROPOSAL_ID, [ROW_ID], CTX);
       if (result.kind !== "applied") throw new Error("expected applied");
-      expect(result.resumeRegen).toBe("failed");
+      expect(result.resumeRegen).toBe("skipped_no_consent");
       expect(h.resumes.queueChatEditRegeneration).not.toHaveBeenCalled();
     });
   });
@@ -435,9 +448,9 @@ describe("CompanionEditService.confirm", () => {
     expect(result.kind).toBe("cancelled");
     expect(h.proposals.delete).toHaveBeenCalledTimes(1);
     const cancelled = h.events.emit.mock.calls.find(
-      (c) => (c[0] as { event_name: string }).event_name === "chat.companion_edit_cancelled",
+      (c) => (c[0] as { event_name: string }).event_name === "chat.companion_edit_cancelled_v2",
     )![0] as { payload: { reason: string } };
-    expect(cancelled.payload.reason).toBe("worker");
+    expect(cancelled.payload.reason).toBe("worker_declined");
   });
 
   it("cancel on an unknown proposal is not_found", async () => {
@@ -520,7 +533,7 @@ describe("CompanionEditService — a tap on an EXPIRED card is recorded as expir
   function cancelledReasons(h: ReturnType<typeof setup>): string[] {
     return h.events.emit.mock.calls
       .map((c) => c[0] as { event_name: string; payload: { reason?: string } })
-      .filter((e) => e.event_name === "chat.companion_edit_cancelled")
+      .filter((e) => e.event_name === "chat.companion_edit_cancelled_v2")
       .map((e) => e.payload.reason ?? "");
   }
 
@@ -533,7 +546,7 @@ describe("CompanionEditService — a tap on an EXPIRED card is recorded as expir
     // The spine's own schema (ids + a closed reason) — deduped on the proposal, so a second late
     // tap adds nothing.
     expect(event.payload).toEqual({ proposal_id: PROPOSAL_ID, reason: "expired" });
-    expect(event.idempotencyKey).toBe(`chat.companion_edit_cancelled:${PROPOSAL_ID}`);
+    expect(event.idempotencyKey).toBe(`chat.companion_edit_cancelled_v2:${PROPOSAL_ID}`);
     expect(h.proposals.claim).not.toHaveBeenCalled();
     expect(h.db.transaction).not.toHaveBeenCalled();
     // Left to lapse, never deleted: a delete could race a newer card saved meanwhile.
@@ -631,7 +644,7 @@ describe("CompanionEditService.confirm — a stored whole-entry delete is never 
     expect(h.proposals.delete).toHaveBeenCalledTimes(1);
     expect(confirmedPayload(h)).toBeUndefined();
     const cancelled = h.events.emit.mock.calls.find(
-      (c) => (c[0] as { event_name: string }).event_name === "chat.companion_edit_cancelled",
+      (c) => (c[0] as { event_name: string }).event_name === "chat.companion_edit_cancelled_v2",
     )![0] as { payload: unknown };
     expect(cancelled.payload).toEqual({ proposal_id: PROPOSAL_ID, reason: "stale" });
     // Observable with a closed reason, ids only — never the employer.

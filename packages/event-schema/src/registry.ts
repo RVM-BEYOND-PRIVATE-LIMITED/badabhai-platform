@@ -1300,6 +1300,53 @@ export const EVENT_REGISTRY = {
     payload: p.ChatCompanionCareerAnsweredPayload,
   },
 
+  // ── TD150 / WP8 — the versioned companions, appended at the tail (append-only protocol) ─────
+  //
+  // Each is a NEW NAME for a changed payload, exactly as `chat.companion_turn_served_v2` was in
+  // Phase 1: v1 keeps its definition and its emitter compatibility, and a consumer migrates when
+  // it can. Counts, closed enums and ids only; never worker text.
+
+  // The turn, v3: `intent_source` gains `chip` (an exact task-chip tap); v1_deterministic means
+  // only the other deterministic pre-classifier routes. v3.
+  "chat.companion_turn_served_v3": {
+    version: 3,
+    domain: "chat",
+    payload: p.ChatCompanionTurnServedV3Payload,
+  },
+  // The card was dismissed: worker_declined / expired / stale, plus `superseded` (a newer
+  // proposal replaced an open card), which v1 could not express. v2.
+  "chat.companion_edit_cancelled_v2": {
+    version: 2,
+    domain: "chat",
+    payload: p.ChatCompanionEditCancelledV2Payload,
+  },
+  // Haan applied the rows; `resume_regen` gains `skipped_no_consent` (no resume_generation
+  // consent — the edits are written, no regeneration is asked for). v2.
+  "chat.companion_edit_confirmed_v2": {
+    version: 2,
+    domain: "chat",
+    payload: p.ChatCompanionEditConfirmedV2Payload,
+  },
+  // A confirm rolled back before commit; nothing was written and the card is still served. v1.
+  "chat.companion_edit_rolled_back": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatCompanionEditRolledBackPayload,
+  },
+  // A faltu strike with the turn's submission id (nullable); the WP8 in-flight claim uses it to
+  // make a concurrent duplicate one strike. v2.
+  "chat.companion_faltu_strike_v2": {
+    version: 2,
+    domain: "chat",
+    payload: p.ChatCompanionFaltuStrikeV2Payload,
+  },
+  // A career answer with the turn's submission id (nullable). v2.
+  "chat.companion_career_answered_v2": {
+    version: 2,
+    domain: "chat",
+    payload: p.ChatCompanionCareerAnsweredV2Payload,
+  },
+
   // ── E4 — appended at the tail, per the append-only protocol ──────────────────────────────
   //
   // The worker changed the VISIBILITY of his own supply: one skill toggled, or every skill

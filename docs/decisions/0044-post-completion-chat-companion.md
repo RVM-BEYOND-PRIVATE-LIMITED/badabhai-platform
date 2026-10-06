@@ -1,11 +1,12 @@
 # ADR-0044: The post-completion Bada Bhai companion
 
-- **Status:** **Accepted for build (ships OFF).** R2–R4 were chosen by the owner on 2026-09-26; R1 is the owner's own
-  request ("let the worker know what has happened till now"); R5–R10 are the defaults the owner approved with the
-  plan. **Production flag-ON is gated on the owner's signature** at the foot.
+- **Status:** **Accepted for build; signed by the owner (CEO / Prakash) on 2026-10-05.** R2–R4 were chosen by the
+  owner on 2026-09-26; R1 is the owner's own request ("let the worker know what has happened till now"); R5–R10 are
+  the defaults the owner approved with the plan. **Production flag-ON was gated on the owner's signature at the
+  foot — signed 2026-10-05; companion v1 has been live in production since 2026-09-27.**
 - **Date:** 2026-09-26
 - **Owner:** CEO / Prakash
-- **Amended by:** [ADR-0046](0046-chat-companion-v2-llm-task-router.md) (Proposed, unsigned) widens **R7** ("No LLM in V1") in three named ways — a classifier on a v1 miss, a confirm-card edit parser, and Claude-written career answers inside hard refusals.
+- **Amended by:** [ADR-0046](0046-chat-companion-v2-llm-task-router.md) (Accepted, signed 2026-10-05) widens **R7** ("No LLM in V1") in three named ways — a classifier on a v1 miss, a confirm-card edit parser, and Claude-written career answers inside hard refusals.
 - **Relates:** [ADR-0043](0043-resume-history-and-chat-update.md) (R3 required its own ADR for post-interview Bada
   Bhai behaviour — this is it) · [ADR-0042](0042-profile-road-separation.md) (the roads) ·
   [ADR-0024](0024-worker-visible-job-fields-pii.md) (worker-visible job fields) ·
@@ -196,5 +197,5 @@ recap), and its extraction deduped onto the early-finish job (so the redo never 
 
 ```
 Owner rulings R1–R10 taken 2026-09-26 in the planning session; production flag-ON requires this signature.
-Signed (CEO / Prakash): ______________________          Date: __________
+Signed (CEO / Prakash): Prakash          Date: 2026-10-05
 ```
