@@ -85,7 +85,7 @@ const ACTIONS: Record<RowAction, LifecycleAction> = {
  * not apply is not drawn (a disabled one could not say why). Add applicant slots keeps today's
  * rule (any status but closed); the purchase itself is unchanged.
  */
-export function rowActions(status: PostingSummary["status"]): RowAction[] {
+function rowActions(status: PostingSummary["status"]): RowAction[] {
   const out: RowAction[] = [];
   if (status === "open") out.push("pause");
   if (status === "paused") out.push("resume");

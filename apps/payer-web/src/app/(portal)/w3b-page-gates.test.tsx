@@ -15,9 +15,10 @@ import type { Capacity } from "../../lib/contracts";
  *     W3-B CSS block is scoped to these wrappers — see w3b-page-polish.css.test.ts);
  *   · the per-posting table on /plans is a focusable scroll region NAMED BY its panel heading
  *     (aria-labelledby → the heading's id, not a copied aria-label string);
- *   · /plans: credits are bought on /credits, and the shell's balance chip is an owner's door
- *     there — so the page adds none of its own (F15; per-pack buttons were one door N times, and
- *     a section "Buy credits" beside the chip was two); the pack cards carry no action;
+ *   · /plans: credits are bought on /credits, which an owner reaches from the rail (Billing) and
+ *     the header chip — so the page adds no door of its own (F15; per-pack buttons were one door
+ *     N times, and a section "Buy credits" beside the chip was two); its copy names the Credits
+ *     page (never the chip, which hides when its read fails); the pack cards carry no action;
  *   · /postings for an AGENT: redirected to their own Postings, unless they own older company
  *     postings, which are shown READ-ONLY (no create action).
  * Env is node: each async Server Component is awaited to an element tree and walked. The
@@ -274,11 +275,11 @@ function hrefs(node: ReactNode, acc: string[] = []): string[] {
   return acc;
 }
 
-describe("W3-B · /plans — credits are bought on /credits, through the shell's ONE door", () => {
+describe("W3-B · /plans — credits are bought on /credits; the page adds no door of its own", () => {
   const creditPacks = (tree: ReactElement) =>
     byClass(tree, "plan-card").filter((c) => /\bcredits\b/.test(textOf(c)) && !/Valid for/.test(textOf(c)));
 
-  it("OWNER: no in-page door to /credits (the header balance is it — F15); packs carry no action", async () => {
+  it("OWNER: no in-page door to /credits (F15) — the copy names the Credits page; packs carry no action", async () => {
     const tree = (await plans.default()) as ReactElement;
     const packs = creditPacks(tree);
     expect(packs.length).toBeGreaterThan(1);
@@ -288,8 +289,10 @@ describe("W3-B · /plans — credits are bought on /credits, through the shell's
     }
     expect(hrefs(tree).filter((h) => h === "/credits")).toEqual([]);
     expect(byClass(tree, "bb-btn").filter((b) => props(b).href === "/credits")).toEqual([]);
-    // …and the section says where buying happens instead.
-    expect(textOf(tree)).toContain("your balance at the top of the page opens Credits");
+    // …and the section names where buying happens — the Credits page, which an owner's rail
+    // always lists under Billing. Never the header chip: it hides when its own read fails.
+    expect(textOf(tree)).toContain("Buy credits on the Credits page, under Billing");
+    expect(textOf(tree)).not.toMatch(/balance at the top/);
   });
 
   it("RECRUITER: no link to /credits anywhere (it is Owner-only — a 404 for them)", async () => {

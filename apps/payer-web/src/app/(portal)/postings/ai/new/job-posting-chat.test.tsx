@@ -132,6 +132,8 @@ interface Collected {
   /** Every native form host rendered (id + tag), to prove which fields exist at all. */
   fields: Array<{ tag: string; id?: string }>;
   ariaLiveCount: number;
+  /** Every anchor rendered (the mocked next/link renders a native `a`). */
+  links: Array<{ href: string; text: string }>;
 }
 
 function textOf(node: ReactNode): string {
@@ -174,6 +176,9 @@ function walk(node: ReactNode, acc: Collected): void {
   if (el.type === "input" || el.type === "textarea" || el.type === "select") {
     acc.fields.push({ tag: el.type, id: el.props.id as string | undefined });
   }
+  if (el.type === "a") {
+    acc.links.push({ href: String(el.props.href), text: textOf(el.props.children).trim() });
+  }
   if (el.props["aria-live"] === "polite") acc.ariaLiveCount += 1;
   walk(el.props.children, acc);
 }
@@ -193,7 +198,7 @@ function render(seed: {
     resumable: seed.resumable ?? [],
     loadFailed: seed.loadFailed ?? false,
   }) as ReactElement;
-  const acc: Collected = { buttons: [], texts: [], fields: [], ariaLiveCount: 0 };
+  const acc: Collected = { buttons: [], texts: [], fields: [], ariaLiveCount: 0, links: [] };
   walk(tree, acc);
   return acc;
 }
@@ -315,6 +320,25 @@ describe("choose screen — ONE primary action (F18)", () => {
   it("nothing to resume: Start chat is the page's one primary", () => {
     const acc = render({ resumable: [] });
     expect(primaries(acc).map((b) => b.text)).toEqual(["Start chat"]);
+  });
+});
+
+/* ── 1c. The way to the manual form, on BOTH screens ─────────────────────────────── */
+
+describe("the manual form stays one link away on both screens (review of #2037)", () => {
+  // Post with AI is a MODE of New posting with no back link (F15), so its own "Use the manual
+  // form instead" is the only way to the form in the page — once a chat starts too.
+  const manual = (acc: Collected) => acc.links.filter((l) => l.href === "/postings/new");
+  const ONE = [{ href: "/postings/new", text: "Use the manual form instead" }];
+
+  it("the choose screen offers it", () => {
+    expect(manual(render({ resumable: [RESUMABLE] }))).toEqual(ONE);
+    expect(manual(render({ resumable: [] }))).toEqual(ONE);
+  });
+
+  it("the chat screen keeps it — mid-conversation and once the draft is ready", () => {
+    expect(manual(render({ convo: CONVO }))).toEqual(ONE);
+    expect(manual(render({ convo: { ...CONVO, draftReady: true } }))).toEqual(ONE);
   });
 });
 

@@ -36,11 +36,11 @@ const QUOTA_TABLE_HEADING_ID = "plans-quota-table-title";
  * personas.
  *
  * Naming: one word per concept — "postings", "Hiring capacity" (the concurrent allowance),
- * "Applicant quota" (the per-posting cap), "Credits". One door per destination: the shell's
- * balance chip is an owner's door to Credits on every page, so the credit packs carry none and
- * the Credits section adds none (F15 — per-card buttons were one link N times, and a section
- * "Buy credits" beside the chip was two); a recruiter's /credits is a 404, so they are told to
- * ask their owner. ONE "New posting". A posting's role title opens the POSTING (F12): a title
+ * "Applicant quota" (the per-posting cap), "Credits". One door per destination: an owner reaches
+ * Credits from the rail (Billing) and the header chip on every page, so the credit packs carry no
+ * door and the Credits section adds none — it names the Credits page instead (F15: per-card
+ * buttons were one link N times, and a section "Buy credits" beside the chip was two); a
+ * recruiter's /credits is a 404, so they are told to ask their owner. ONE "New posting". A posting's role title opens the POSTING (F12): a title
  * always opens the details, and the details carry the "Applicants" action.
  */
 export default async function PlansPage() {
@@ -265,11 +265,12 @@ export default async function PlansPage() {
         <div className="section__head">
           <div className="section__text">
             <h2 className="section__title">Credits</h2>
-            {/* No door here: the shell's balance chip is an owner's ONE door to Credits (F15).
-                A recruiter has no /credits (Owner-only), so they are told who can buy. */}
+            {/* No door here (F15): an owner reaches Credits from the rail (Billing) and the header
+                chip, so the copy names the PAGE — never the chip, which hides when its own read
+                fails. A recruiter has no /credits (Owner-only), so they are told who can buy. */}
             <p className="section__sub">
               {isOwner
-                ? "Buy credits to unlock worker contact details — your balance at the top of the page opens Credits."
+                ? "Buy credits on the Credits page, under Billing, to unlock worker contact details."
                 : "Ask your account owner to buy credits to unlock worker contact details."}{" "}
               1 credit = 1 contact unlock.
             </p>

@@ -375,6 +375,11 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
               Keep answering — publish unlocks once the posting has everything it needs.
             </p>
           ) : null}
+          {/* The page has no back link (a MODE of New posting — F15), so the way to the manual
+              form stays here once a conversation is open, as on the choose screen. */}
+          <Link className="ai-chat__alt" href="/postings/new">
+            Use the manual form instead
+          </Link>
         </div>
       </aside>
     </div>

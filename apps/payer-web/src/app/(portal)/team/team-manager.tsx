@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useTransition, type FormEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import { Icon } from "@badabhai/icons";
 import type { OrgMemberView, OrgMemberStatus } from "../../../lib/org-members";
 import type { OrgRole } from "../../../lib/auth/org-roles";
-import { Badge, Button, Input } from "../../../components/ds";
+import { Badge, Button, Dialog, Input } from "../../../components/ds";
 import { RetryButton } from "../../../components/retry-button";
 import { inviteMemberAction, removeMemberAction } from "./actions";
 
@@ -29,10 +29,18 @@ import { inviteMemberAction, removeMemberAction } from "./actions";
  * error with a Retry, and the invite form stays. On a phone the table is re-laid as one card per
  * member so Remove is on screen without scrolling it sideways (F38, globals.css); because CSS
  * re-display can drop a table's semantics in some engines, every part states its role.
+ *
+ * REMOVE ASKS FIRST: a row's Remove opens the generic DS Dialog ("Remove <masked email> from your
+ * team?" — Cancel / Remove); only its Remove calls the action. The Dialog hands focus back to the
+ * trigger on close, but a confirmed removal disables every Remove while it runs — so once the
+ * dialog is closed AND the removal has settled, focus is put back on that row's Remove (or, if the
+ * row is gone, on the Members heading). Keyboard users land where they were.
  */
 const ROLE_TONE: Record<OrgRole, "brand" | "neutral"> = { owner: "brand", recruiter: "neutral" };
 /** The directory's heading — also the NAME of its scroll region (aria-labelledby). */
 const MEMBERS_HEADING_ID = "team-members-title";
+/** A row's Remove — where focus returns after its confirm. The member id is the org's own. */
+const removeButtonId = (memberId: string) => `team-remove-${memberId}`;
 const STATUS_TONE: Record<OrgMemberStatus, "success" | "warning" | "neutral"> = {
   active: "success",
   invited: "warning",
@@ -42,7 +50,18 @@ const STATUS_TONE: Record<OrgMemberStatus, "success" | "warning" | "neutral"> = 
 export function TeamManager({ members }: { members: OrgMemberView[] | null }) {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  // The member a Remove is waiting to be confirmed for — the confirm dialog is open while set.
+  const [confirming, setConfirming] = useState<OrgMemberView | null>(null);
   const [pending, startTransition] = useTransition();
+  // The control focus returns to once the confirm has closed and any removal has settled.
+  const focusBack = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (confirming !== null || pending || focusBack.current === null) return;
+    const id = focusBack.current;
+    focusBack.current = null;
+    (document.getElementById(id) ?? document.getElementById(MEMBERS_HEADING_ID))?.focus();
+  }, [confirming, pending]);
 
   function onInvite(e: FormEvent) {
     e.preventDefault();
@@ -54,10 +73,18 @@ export function TeamManager({ members }: { members: OrgMemberView[] | null }) {
     });
   }
 
-  function onRemove(memberId: string) {
+  function askRemove(member: OrgMemberView) {
     setMessage(null);
+    focusBack.current = removeButtonId(member.memberId);
+    setConfirming(member);
+  }
+
+  function confirmRemove() {
+    const member = confirming;
+    if (member === null) return;
+    setConfirming(null);
     startTransition(async () => {
-      const res = await removeMemberAction({ memberId });
+      const res = await removeMemberAction({ memberId: member.memberId });
       setMessage({ ok: res.ok, text: res.message });
     });
   }
@@ -109,7 +136,8 @@ export function TeamManager({ members }: { members: OrgMemberView[] | null }) {
       <section className="panel panel--table">
         <div className="panel__head">
           <div className="panel__text">
-            <h2 className="panel__title" id={MEMBERS_HEADING_ID}>
+            {/* tabIndex -1: focus can be PUT here (after a removed row is gone), never Tabbed to. */}
+            <h2 className="panel__title" id={MEMBERS_HEADING_ID} tabIndex={-1}>
               Members
             </h2>
             <p className="panel__sub">
@@ -197,10 +225,11 @@ export function TeamManager({ members }: { members: OrgMemberView[] | null }) {
                           <span aria-hidden="true">—</span>
                         ) : (
                           <Button
+                            id={removeButtonId(m.memberId)}
                             variant="secondary"
                             size="sm"
                             disabled={pending}
-                            onClick={() => onRemove(m.memberId)}
+                            onClick={() => askRemove(m)}
                           >
                             Remove
                           </Button>
@@ -214,6 +243,25 @@ export function TeamManager({ members }: { members: OrgMemberView[] | null }) {
           )}
         </div>
       </section>
+
+      {/* Remove asks first — the generic DS Dialog (never the credit-spend confirm). */}
+      <Dialog
+        open={confirming !== null}
+        onClose={() => setConfirming(null)}
+        title={confirming ? `Remove ${confirming.emailMasked} from your team?` : undefined}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirming(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={confirmRemove}>
+              Remove
+            </Button>
+          </>
+        }
+      >
+        They will lose access to this hiring desk.
+      </Dialog>
     </>
   );
 }

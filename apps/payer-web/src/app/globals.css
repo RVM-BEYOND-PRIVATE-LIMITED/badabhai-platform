@@ -5398,6 +5398,10 @@ img.agency-qr__code,
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
 }
+/* The chat screen's way to the manual form — the choose screen's link, under the publish CTA. */
+.ai-chat__alt {
+  font-size: var(--text-sm);
+}
 
 /* ------------------------------------------------------------------
  * PUBLIC REFERRAL LANDING (`/i/<code>`, blocker B4) — the ONLY worker-facing surface in

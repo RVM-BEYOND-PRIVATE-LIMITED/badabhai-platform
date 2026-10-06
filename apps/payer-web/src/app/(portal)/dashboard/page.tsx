@@ -49,10 +49,12 @@ export const dynamic = "force-dynamic";
  * action — for an agency it opens the AGENCY form (`jobs`), never the company one. The Postings
  * list is reached from the "Your postings" panel alone. A posting card opens THAT POSTING, and its
  * "Applicants" action opens the feed — the one rule on every surface (F12, as on the agency
- * dashboard). The counters are counts, the balance included; the unlock rows are rows. The
- * shell's balance chip is an owner's ONE door to Credits, so this page adds none (F15 — a "Buy
- * credits" card was a second), and a "Needs your attention" item shows no button of its own for a
- * destination the page or its header already offers (the head's New posting, the chip). Plans &
+ * dashboard). The counters are counts, the balance included; the unlock rows are rows. There is
+ * no standing door to Credits on the page (F15 — a "Buy credits" card repeated the header's balance
+ * chip): an owner whose balance is empty or low gets the needs-you item's own contextual "Buy
+ * credits" — the one labelled way to buy, shown exactly when it matters. A needs-you item shows no
+ * button for a destination the page itself already offers (the head's New posting, a quick
+ * action). Credits is Owner-only: a recruiter is told to ask, never linked to its 404. Plans &
  * capacity is a company page (it sells company-posting entitlements), so an agency gets no card.
  *
  * EACH PART IS READ ON ITS OWN (F29). Credits, unlocks and (for a company) postings are three
@@ -92,12 +94,13 @@ export default async function DashboardPage() {
   const recentUnlocks = (unlocks ?? []).slice(0, 5);
   const attention = buildAttentionItems({ credits, unlocks, postings }, { isAgency, isOwner });
   const quick = quickActions({ isAgency });
-  // The destinations this page (and its header) already offer: an attention item does not
-  // repeat one. For an owner the shell's balance chip is the door to Credits.
+  // The destinations this page ALREADY offers — the head's primary and the quick actions it
+  // renders: an attention item does not repeat one. (The shell's balance chip is not one: it
+  // shows a number, it hides when its read fails, and a recruiter's is not a link — so an owner's
+  // empty/low-balance item keeps its own labelled "Buy credits".)
   const pageDoors = new Set<string>([
     ...(posting ? [posting.create] : []),
     ...quick.map((q) => q.href),
-    ...(isOwner ? ["/credits"] : []),
   ]);
 
   return (
@@ -149,8 +152,8 @@ export default async function DashboardPage() {
       {/* 2 · POSITION — the KPI variant: no hole beside a lone third tile, and a compact
           ledger row per tile on a phone so the counters stay secondary to bands 1 and 3. */}
       <div className="stat-row stat-row--kpi">
-        {/* A count like its neighbours: the header chip (an owner's link to Credits) and the
-            Buy credits card are this page's doors to Credits. */}
+        {/* A count like its neighbours, never a door: Credits is reached from the header chip
+            (an owner's link) and, when the balance is empty or low, the needs-you item. */}
         <StatTile
           label="Credit balance"
           value={credits?.balance ?? UNREAD}

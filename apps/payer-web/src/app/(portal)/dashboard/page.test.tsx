@@ -245,40 +245,69 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
     }
   });
 
-  it("a RECRUITER is never linked to /credits (Owner-only — it 404s for them)", async () => {
-    const tree = await render({ credits: { payerId: "p", balance: 0 } }, "employer", "recruiter");
-    expect(hrefsOf(tree)).not.toContain("/credits");
-    // …and an owner on the same data gets NO in-page door either: the shell's balance chip is an
-    // owner's one door to Credits on every page (F15 — the "Buy credits" card was a second one).
-    const owner = await render({ credits: { payerId: "p", balance: 0 } }, "employer", "owner");
-    expect(hrefsOf(owner).filter((h) => h === "/credits")).toEqual([]);
-    // The empty wallet is still SAID (it stops the core loop).
-    expect(textOf(findByClass(owner, "attention")[0]!)).toContain("out of unlock credits");
+  /** The page's own links to Credits, and the ones that sit in a needs-you item's action. */
+  const creditsDoors = (tree: ReactElement) => ({
+    all: hrefsOf(tree).filter((h) => h === "/credits"),
+    inAction: findByClass(tree, "attention__action").filter((a) => p(a).href === "/credits"),
+  });
+  // Only the granted unlock, so the wallet is the one needs-you item.
+  const granted = { unlocks: [DATA.unlocks[0]!] };
+
+  it("an OWNER at an empty or low balance gets exactly ONE 'Buy credits', in the needs-you item", async () => {
+    // The page has no standing Credits door (no Buy credits card — F15), so the item's own
+    // contextual action is the labelled way to buy when it matters.
+    for (const balance of [0, 3]) {
+      const tree = await render(
+        { ...granted, credits: { payerId: "p", balance } },
+        "employer",
+        "owner",
+      );
+      const doors = creditsDoors(tree);
+      expect(doors.all, `balance ${balance}`).toEqual(["/credits"]);
+      expect(doors.inAction, `balance ${balance}`).toHaveLength(1);
+      expect(textOf(doors.inAction[0]!).trim(), `balance ${balance}`).toBe("Buy credits");
+    }
+    // An agency owner the same.
+    const agency = await render(
+      { ...granted, credits: { payerId: "p", balance: 0 } },
+      "agent",
+      "owner",
+    );
+    expect(creditsDoors(agency).inAction).toHaveLength(1);
   });
 
-  it("a needs-you item adds no button when the page already offers that destination", async () => {
-    // An owner at a low balance: the item still SAYS it; the header's balance chip is the door.
-    // (Only the granted unlock, so the low balance is the one item.)
-    const healthy = { unlocks: [DATA.unlocks[0]!] };
+  it("an OWNER with a healthy balance gets NO in-page door to Credits (the header chip is it)", async () => {
     const tree = await render(
-      { ...healthy, credits: { payerId: "p", balance: 3 } },
+      { ...granted, credits: { payerId: "p", balance: 247 } },
       "employer",
       "owner",
     );
-    const items = findByClass(tree, "attention__item");
-    expect(items.map((i) => textOf(i))).toEqual([expect.stringContaining("unlock credits left")]);
-    expect(findByClass(tree, "attention__action")).toEqual([]);
-    expect(hrefsOf(tree).filter((h) => h === "/credits")).toEqual([]);
-    // A recruiter is told who can fix it, in words — and gets no button either.
-    const recruiter = await render(
-      { ...healthy, credits: { payerId: "p", balance: 3 } },
+    expect(findByClass(tree, "attention")).toEqual([]);
+    expect(creditsDoors(tree).all).toEqual([]);
+  });
+
+  it("a RECRUITER is never sent to Credits or told to buy (Owner-only — it 404s for them)", async () => {
+    for (const role of ["employer", "agent"] as const) {
+      for (const balance of [0, 3, 247]) {
+        const tree = await render(
+          { ...granted, credits: { payerId: "p", balance } },
+          role,
+          "recruiter",
+        );
+        expect(hrefsOf(tree), `${role} ${balance}`).not.toContain("/credits");
+        expect(findByClass(tree, "attention__action"), `${role} ${balance}`).toEqual([]);
+        expect(textOf(tree), `${role} ${balance}`).not.toMatch(/Buy credits/);
+      }
+    }
+    // A recruiter is told who can fix it, in words.
+    const low = await render(
+      { ...granted, credits: { payerId: "p", balance: 3 } },
       "employer",
       "recruiter",
     );
-    expect(textOf(findByClass(recruiter, "attention__item")[0]!)).toContain(
+    expect(textOf(findByClass(low, "attention__item")[0]!)).toContain(
       "Ask your account owner to buy credits",
     );
-    expect(findByClass(recruiter, "attention__action")).toEqual([]);
   });
 
   it("all postings closed: the needs-you item says so, and the head's New posting is the door", async () => {

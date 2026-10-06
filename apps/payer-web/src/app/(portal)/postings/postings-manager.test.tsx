@@ -290,9 +290,16 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
     expect(topUpQuotaAction).toHaveBeenCalledWith({ postingId: OPEN.id });
 
     const errored = render([OPEN], {
-      [OPEN.id]: { busy: false, error: "This posting has no active plan yet — buy a plan first.", notice: null },
+      [OPEN.id]: {
+        busy: null,
+        error: "This posting has no active plan yet — buy a plan first.",
+        notice: null,
+      },
     });
     expect(textOf(errored)).toContain("no active plan");
+    // A row that has reported is IDLE again: every action is pressable, nothing spins.
+    const idle = collect(errored).buttons;
+    expect(idle.every((b) => !b.disabled && !b.loading)).toBe(true);
   });
 
   it("a DRAFT posting offers ENABLED Close posting and NO Pause; clicking Close fires ITS action", () => {
@@ -316,9 +323,14 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
 
   it("a seeded SUCCESS notice (the paid slots confirmation) renders in the aria-live row region", () => {
     const tree = render([OPEN], {
-      [OPEN.id]: { busy: false, error: null, notice: "Applicant slots added — 10 more applicant views." },
+      [OPEN.id]: {
+        busy: null,
+        error: null,
+        notice: "Applicant slots added — 10 more applicant views.",
+      },
     });
     expect(textOf(tree)).toContain("Applicant slots added — 10 more applicant views.");
+    expect(collect(tree).buttons.every((b) => !b.disabled && !b.loading)).toBe(true);
   });
 });
 
@@ -420,7 +432,7 @@ describe("PostingsManager — W3-B card anatomy (facts row / links row / action 
     expect(liveOf(render([OPEN])).children.every((c) => c === false || c == null)).toBe(true);
     // With a result, the SAME region (still in the a11y tree all along) holds the band.
     const errored = liveOf(
-      render([OPEN], { [OPEN.id]: { busy: false, error: "That failed.", notice: null } }),
+      render([OPEN], { [OPEN.id]: { busy: null, error: "That failed.", notice: null } }),
     );
     expect(errored.children.some((c) => typeof c === "object" && c !== null)).toBe(true);
   });

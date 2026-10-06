@@ -16,20 +16,53 @@ import { Button } from "../../../components/ds";
  * the retired `team-table` / `team-empty` classes.
  */
 
+// Hooks run outside React here: state is SEEDED by call order (source order: email, message,
+// confirming) and each slot's setter is kept; effects are collected to be run by hand; a ref is
+// one object per call order that survives re-renders (as React's does); `pending` is settable.
+let stateQueue: unknown[] = [];
+let stateCursor = 0;
+const setters: Array<ReturnType<typeof vi.fn>> = [];
+let refs: Array<{ current: unknown }> = [];
+let refCursor = 0;
+let effects: Array<() => void | (() => void)> = [];
+let pendingNow = false;
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
   return {
     ...actual,
-    useState: (init: unknown) => [init, vi.fn()],
-    useTransition: () => [false, (cb: () => void) => cb()],
+    useState: (init: unknown) => {
+      const i = stateCursor++;
+      const set = vi.fn();
+      setters[i] = set;
+      return [i < stateQueue.length ? stateQueue[i] : init, set];
+    },
+    useTransition: () => [pendingNow, (cb: () => void) => cb()],
+    useRef: (init: unknown) => {
+      const i = refCursor++;
+      refs[i] ??= { current: init };
+      return refs[i];
+    },
+    useEffect: (fn: () => void | (() => void)) => {
+      effects.push(fn);
+    },
   };
 });
+const removeMemberAction = vi.fn();
 vi.mock("./actions", () => ({
   inviteMemberAction: vi.fn(),
-  removeMemberAction: vi.fn(),
+  removeMemberAction: (i: unknown) => removeMemberAction(i),
 }));
 
-const { TeamManager } = await import("./team-manager");
+const { TeamManager: TeamManagerImpl } = await import("./team-manager");
+const { Dialog } = await import("../../../components/ds");
+
+/** Render once (the hooks above reset their cursors; seeded state persists until reset). */
+function TeamManager(props: Parameters<typeof TeamManagerImpl>[0]) {
+  stateCursor = 0;
+  refCursor = 0;
+  effects = [];
+  return TeamManagerImpl(props);
+}
 
 function textOf(node: ReactNode): string {
   if (node === null || node === undefined || typeof node === "boolean") return "";
@@ -231,5 +264,154 @@ describe("TeamManager — the members table stacks into cards on a phone (F38)",
     expect(cells).toHaveLength(4);
     expect((cells[3]!.props as { className?: string }).className).toBe("rowactions");
     expect(gatherButtons(cells[3]!)).toEqual(["Remove"]);
+  });
+});
+
+/**
+ * Review of #2037 — Remove was ONE tap: `onRemove` fired the action at once, and on a phone card it
+ * now sits under the thumb. It asks first, in the generic DS Dialog (not the spend dialog), and
+ * focus goes back to where the payer was once the dialog has closed AND the removal has settled.
+ */
+describe("TeamManager — Remove asks first (generic DS Dialog), then returns focus", () => {
+  const reset = () => {
+    stateQueue = [];
+    refs = [];
+    pendingNow = false;
+    removeMemberAction.mockReset().mockResolvedValue({ ok: true, message: "Member removed." });
+  };
+  /** Every element of a component type, depth-first (props.children only). */
+  const ofType = (node: ReactNode, type: unknown, acc: ReactElement[] = []): ReactElement[] => {
+    if (node === null || node === undefined || typeof node !== "object") return acc;
+    if (Array.isArray(node)) {
+      node.forEach((c) => ofType(c, type, acc));
+      return acc;
+    }
+    const el = node as ReactElement<{ children?: ReactNode }>;
+    if (el.type === type) acc.push(el);
+    if (el.props && "children" in el.props) ofType(el.props.children, type, acc);
+    return acc;
+  };
+  const props = (el: ReactElement) => el.props as Record<string, unknown>;
+  const rowRemove = (tree: ReactNode) =>
+    ofType(tree, Button).find((b) => textOf(props(b).children as ReactNode).trim() === "Remove")!;
+  const dialogOf = (tree: ReactNode) => {
+    const found = ofType(tree, Dialog);
+    expect(found).toHaveLength(1);
+    return found[0]!;
+  };
+  const footerButtons = (dialog: ReactElement) =>
+    ofType(props(dialog).footer as ReactNode, Button).map((b) => ({
+      text: textOf(props(b).children as ReactNode).trim(),
+      variant: props(b).variant,
+      onClick: props(b).onClick as () => void,
+    }));
+
+  it("tapping a row's Remove opens the confirm — it does NOT remove anyone", () => {
+    reset();
+    const tree = TeamManager({ members: [recruiter] }) as ReactElement;
+    expect(props(dialogOf(tree)).open).toBe(false);
+    (props(rowRemove(tree)).onClick as () => void)();
+    expect(removeMemberAction).not.toHaveBeenCalled();
+    // Slot 3 (source order) is the member awaiting confirmation.
+    expect(setters[2]).toHaveBeenCalledWith(recruiter);
+  });
+
+  it("the confirm names the member by MASKED email, with Cancel and a destructive Remove", () => {
+    reset();
+    stateQueue = ["", null, recruiter];
+    const dialog = dialogOf(TeamManager({ members: [recruiter] }) as ReactElement);
+    expect(props(dialog).open).toBe(true);
+    expect(props(dialog).title).toBe("Remove h•••@acme.example from your team?");
+    expect(footerButtons(dialog).map((b) => [b.text, b.variant])).toEqual([
+      ["Cancel", "ghost"],
+      ["Remove", "danger"],
+    ]);
+  });
+
+  it("Cancel (and Esc / the scrim — the Dialog's onClose) closes it without removing", () => {
+    reset();
+    stateQueue = ["", null, recruiter];
+    const dialog = dialogOf(TeamManager({ members: [recruiter] }) as ReactElement);
+    footerButtons(dialog)[0]!.onClick();
+    (props(dialog).onClose as () => void)();
+    expect(setters[2]!.mock.calls).toEqual([[null], [null]]);
+    expect(removeMemberAction).not.toHaveBeenCalled();
+  });
+
+  it("confirming closes the dialog and removes THAT member, sending only its id", async () => {
+    reset();
+    stateQueue = ["", null, recruiter];
+    const dialog = dialogOf(TeamManager({ members: [recruiter] }) as ReactElement);
+    footerButtons(dialog)[1]!.onClick();
+    expect(setters[2]).toHaveBeenCalledWith(null);
+    expect(removeMemberAction).toHaveBeenCalledWith({ memberId: "mem-1" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(setters[1]).toHaveBeenCalledWith({ ok: true, text: "Member removed." });
+  });
+
+  it("focus returns to the row's Remove — only once the dialog is closed AND the removal settled", () => {
+    reset();
+    const focus = vi.fn();
+    const headingFocus = vi.fn();
+    (globalThis as { document?: unknown }).document = {
+      getElementById: (id: string) =>
+        id === "team-remove-mem-1"
+          ? { focus }
+          : id === "team-members-title"
+            ? { focus: headingFocus }
+            : null,
+    };
+    // Ask (the trigger is remembered), then render the open dialog: nothing moves focus yet.
+    const first = TeamManager({ members: [recruiter] }) as ReactElement;
+    expect(props(rowRemove(first)).id).toBe("team-remove-mem-1");
+    (props(rowRemove(first)).onClick as () => void)();
+    stateQueue = ["", null, recruiter];
+    TeamManager({ members: [recruiter] });
+    effects.forEach((run) => run());
+    expect(focus).not.toHaveBeenCalled();
+    // Confirmed: closed but still pending (the row's Remove is disabled) — still nothing.
+    stateQueue = ["", null, null];
+    pendingNow = true;
+    TeamManager({ members: [recruiter] });
+    effects.forEach((run) => run());
+    expect(focus).not.toHaveBeenCalled();
+    // Settled: focus lands back on the Remove that opened it, once.
+    pendingNow = false;
+    TeamManager({ members: [recruiter] });
+    effects.forEach((run) => run());
+    expect(focus).toHaveBeenCalledTimes(1);
+    TeamManager({ members: [recruiter] });
+    effects.forEach((run) => run());
+    expect(focus).toHaveBeenCalledTimes(1);
+    expect(headingFocus).not.toHaveBeenCalled();
+  });
+
+  it("…and to the Members heading when that row is gone", () => {
+    reset();
+    const headingFocus = vi.fn();
+    (globalThis as { document?: unknown }).document = {
+      getElementById: (id: string) =>
+        id === "team-members-title" ? { focus: headingFocus } : null,
+    };
+    const first = TeamManager({ members: [recruiter] }) as ReactElement;
+    (props(rowRemove(first)).onClick as () => void)();
+    stateQueue = ["", null, null];
+    const tree = TeamManager({ members: [self] }) as ReactElement;
+    effects.forEach((run) => run());
+    expect(headingFocus).toHaveBeenCalledTimes(1);
+    // The heading can take that focus (programmatically only — it is not a Tab stop).
+    const heading = findByClass(tree, "panel__title").find(
+      (h) => gatherText(h).trim() === "Members",
+    );
+    expect(props(heading!).tabIndex).toBe(-1);
+  });
+
+  it("uses the generic Dialog — never the credit-spend confirm", async () => {
+    reset();
+    const { ConfirmSpendDialog } = await import("../../../components/unlock");
+    stateQueue = ["", null, recruiter];
+    const tree = TeamManager({ members: [recruiter] }) as ReactElement;
+    expect(ofType(tree, ConfirmSpendDialog)).toEqual([]);
+    expect(ofType(tree, Dialog)).toHaveLength(1);
   });
 });
