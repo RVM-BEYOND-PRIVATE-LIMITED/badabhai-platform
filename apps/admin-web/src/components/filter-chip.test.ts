@@ -95,7 +95,10 @@ describe("the detector", () => {
 });
 
 describe("no selected chip anywhere in the console is drawn as a primary action", () => {
-  it("walks every component", () => {
+  // Parses every TSX file in the console with the TypeScript compiler: well under a second alone,
+  // but past vitest's 5 s default on a shared CI runner under turbo's parallel `test --coverage`
+  // (5,204 ms on #2039). Same explicit budget as the other whole-tree sweeps (#2023, #2026).
+  it("walks every component", { timeout: 30_000 }, () => {
     const files = sources(srcRoot);
     expect(files.length).toBeGreaterThan(50);
     const offenders = files.flatMap((f) =>

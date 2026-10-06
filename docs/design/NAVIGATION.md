@@ -51,7 +51,7 @@ itself. The topbar crumb shows the page's ancestors only (see the header rules).
 | `/workers/[id]/journey/[sessionId]`                   | session short id       | Journey → `/workers/[id]/journey`                                                    | `read_entities`                              |
 | `/ai-calls/[id]`                                      | the call's task        | AI calls → `/ai-calls` (none on the denied screen: that reader cannot open the list) | `read_entities` page; text: `read_ai_traces` |
 | `/companies/[id]`, `/agencies/[id]`                   | organisation or id     | Companies / Agencies → the list                                                      | `read_entities`                              |
-| `/companies/[id]/timeline`, `/agencies/[id]/timeline` | Event timeline         | Company {id} / Agency {id} → the account                                             | `read_events`                                |
+| `/companies/[id]/timeline`, `/agencies/[id]/timeline` | Event timeline         | Company {id} / Agency {id} → the customer                                            | `read_events`                                |
 | `/jobs/[id]`                                          | the role title         | Postings → `/jobs`                                                                   | `read_entities`                              |
 | `/jobs/[id]/timeline`                                 | Event timeline         | Posting {id} → `/jobs/[id]`                                                          | `read_events`                                |
 | `/skills/discovery/[id]`                              | the candidate phrase   | Skill discovery → `/skills/discovery`                                                | `read_entities`                              |
@@ -67,43 +67,74 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
    have none (a fence in `page-header.render.test.tsx` enforces this). It is the `arrow-left`
    glyph plus text, and 44px tall on touch.
 2. **Title**, then a **one-sentence description** — on detail pages too, the record's own
-   timestamp folded into that sentence. Mechanics and privacy notes go in an alert or notice
-   below the header. `components/page-description.test.ts` holds every description, in every
+   timestamp folded into that sentence. Mechanics and privacy notes go in an alert or notice —
+   on a list, after its rows as a standing footnote, so the first row stays within reach on a
+   phone (final sweep AW-08). `components/page-description.test.ts` holds every description, in every
    branch it can render, to one sentence.
 3. **Actions.** The page's own action first (Flag, Suspend / Reinstate, Force-close, Invite an
    admin, Record a decision), then related views (View journey, View event timeline). Only
    page-relevant actions, each offered once on the screen. The title block grows into the row
    with an 18rem floor, so the actions sit beside the title whenever both fit and wrap below
    it otherwise.
-4. **Filters** directly below the header (`filters` slot), never in the actions slot.
+4. **Filters** directly below the header (`filters` slot), never in the actions slot. A list's
+   filter bar sits in `components/filter-panel.tsx`: unchanged above the phone line, a
+   "Filters (n)" disclosure on a phone — open whenever a filter is set.
 5. **Topbar crumb** (`topbar-crumb.tsx`): an ordered list — the group, then the section once
    the page sits below it, then the named views between the section and the page ("Journey").
    It never repeats the h1, and it never shows a record's id (only the views listed in
    `SEGMENT_LABELS` are named). The section is linked only when the reader's sidebar holds it,
-   so a reader is never offered a link that redirects them.
+   so a reader is never offered a link that redirects them — and never on a page directly below
+   it (`/workers/[id]`), whose back link already links the list: one target, one link, and the
+   crumb keeps the section as context. The portal's error and not-found screens keep that back
+   link at the same addresses (`components/fallback-header.tsx`).
 6. **Current location.** The sidebar marks the exact page `aria-current="page"`; on a page
    below it, the item is the current section (`aria-current="true"`). Chip filters mark the
-   active chip `aria-current="true"` and give it the primary fill.
+   active chip `aria-current="true"` and give it the selected tint (`filterChipClass` →
+   `.btn--selected`) — never the primary fill, which marks a screen's one action.
 7. **Tab title.** `metadata.title` names the page. The root template adds " · BadaBhai Admin",
    so a page never includes it itself.
 
 ### Link and label conventions
 
-- **One "Clear filters" per list**, in the results head, shown whenever a filter is set. It
-  clears every filter (the bare route). A clear that removes one filter and keeps the rest is
+- **One "Clear filters" per list**, in the results head, shown whenever a filter is set — or,
+  when the server refused the filters, inside that refusal state instead (it is the way out
+  there, and the head does not repeat it). It clears every filter (the bare route). A clear that removes one filter and keeps the rest is
   named for that filter: "Clear the worker filter", "Clear the tag filter", "Clear the reason
   filter" (the credit ledger, which keeps the reporting window). Empty and error states offer
   only a recovery that nothing else on screen offers.
 - **"View events"** opens the global log (`/events`). **"View event timeline"** opens one
-  record's timeline. Both are offered only to a session holding `read_events`; this is an
-  affordance, and each route keeps its own gate.
-- **"Retry"** repeats exactly the current query, page cursor included. **"Back to the first
-  page"** is the same query without the cursor, and appears only when there is one. Every
-  paged list's failed read renders both through `components/retry-actions.tsx` (Workers,
-  Postings, Events, Companies, Agencies, the event timelines, Payment orders, the credit
-  ledger, Skill discovery's flat view, AI calls, Feedback); a test fails if one does not pass
-  its cursor. AI calls and Feedback, which tell a refused request apart, offer only "Back to
-  the first page" in that refusal state.
+  record's timeline. A link to a filtered slice of the log is named for that slice ("View
+  these breaches" on the dashboard's cap-breach item, "View submission events" on Feedback,
+  "View AI cost events" on AI calls, "View all admin actions" on Admin users); a fence in
+  `lib/terminology-fence.test.ts` holds every "View events" to the bare `/events`. All are offered only to a session holding `read_events`; this is an affordance, and
+  each route keeps its own gate.
+- **"Retry"** repeats exactly the current query, page cursor included — filters kept, whether
+  or not a filter is set. **"Back to the first page"** is the same query without the cursor,
+  and appears only when there is one; it is also the name of the way back from an empty page
+  past the first. Every paged list's failed read renders both through
+  `components/retry-actions.tsx` (Workers, Postings, Events, Companies, Agencies, the event
+  timelines, Payment orders, the credit ledger, Skill discovery's flat view, AI calls,
+  Feedback, a worker's interview sessions); a test fails if one does not pass its cursor.
+- **A refused read is not an outage.** A list that tells a 400 apart (Workers, Postings,
+  Events, Companies, Agencies, AI calls, Feedback, Skill discovery) never offers Retry in its
+  refusal — the request would only be refused again — and says what was refused:
+  - **a filter is set** → the filters. The API refuses a page cursor only when it is longer
+    than any it issues (a malformed one falls back to page one), so with a filter set the
+    filter is at fault and its first page would be refused too: the state's action is "Clear
+    filters", the screen's one.
+  - **no filter, a page cursor** → the cursor: "Back to the first page" (`FirstPageAction`;
+    Skill discovery's flat view lays out the bare `FirstPageLink`, keeping `view=flat`).
+  - **nothing in the address** → it cannot be the operator's. Workers, Postings, Events,
+    Companies, Agencies, AI calls and Feedback read it as an outage; Skill discovery shows the
+    server's own reason (its grouped view refuses a result too large to group) with "Clear
+    filters".
+
+  Anything else is an outage ("Workers are unavailable", "Feedback is unavailable" — a fault
+  on our side, not the filters) and offers both recoveries.
+
+- **One recovery of each kind per screen.** Two states on one page that would each offer the
+  same link (the credit position and the ledger both failed, or both empty) show it once.
+  The error boundary's button is "Retry" too.
 - **One instruction per failure.** Where a Retry button sits under an error, the copy does not
   also say "reload". A failure with no button (a secondary read on a detail page) says
   "Reload this page".
@@ -114,9 +145,20 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   owner, an AI call's worker, session and correlation id), id chips, the back link and the
   crumb's section link by taking the height themselves. Record rows then align on the text
   baseline, so a 44px link stays beside its label.
-- **Names.** "Resume" (one spelling), "MFA" (never "second factor"), "account" / "Customers"
-  for Company and Agency together (never "Payer" on screen), "Posting" for the job entity.
-  `lib/terminology-fence.test.ts` keeps the retired names out of the console's visible text. Event names are data and keep their words (`payer.suspended`); where one is
+- **Names.** "Resume" (one spelling), "MFA" (never "second factor" or "two-factor"),
+  "Customers" / "Customer" for Company and Agency together (never "Payer" on screen; never
+  "Account", which is the payer's own settings page — so "Customer", not "Owner account", and
+  role buckets read Company / Agency, not `employer` / `agent`), "Posting" for the job entity
+  and "posting decision" for a worker's apply or skip on one, "View all admin actions" for
+  the admin directory's one link into the log. AI task types read through `TASK_TYPE_LABELS`
+  (`lib/ai-cost.ts`), the raw id for one this build was not taught.
+  `lib/terminology-fence.test.ts` keeps the retired names out of the console's visible text:
+  Résumé, second factor, two-factor, Payer, Owner account, job decision(s), Back to the newest,
+  Skill Discovery / Skill Candidate, Roles & capabilities, Open the event timeline, Show every
+  worker. The word "account" is NOT fenced — it is right for an admin's own account ("this
+  admin account has spent its hourly name budget") — so a customer is kept out of it by the
+  render tests of the customer screens (Companies, Agencies, a customer's page, its credits
+  panel, a posting's page), not by the fence. Event names are data and keep their words (`payer.suspended`); where one is
   shown humanized, its domain reads as the console says it ("Customer · suspended",
   "Posting · created" — `humanizeEventName`).
 - **Icons** come from `@badabhai/icons` only (`<Icon>`, `ACTION_ICON`). Key actions show icon
@@ -152,7 +194,7 @@ users today. No link to an O route is rendered for a non-owner.
 | Company | Hiring       | New posting      | `/postings/new`     | `postings/new/page.tsx`     | Create a company posting (`job_postings`)                  | P; agent → redirected to `/agency/jobs/new`    |
 | Company | Hiring       | Postings         | `/postings`         | `postings/page.tsx`         | List + pause / resume / add applicant slots / close        | P; agent → see "Agency on the company surface" |
 | Agency  | Demand       | New posting      | `/agency/jobs/new`  | `agency/jobs/new/page.tsx`  | Create an agency posting (`jobs`, the worker feed's table) | A + F; nav-F                                   |
-| Agency  | Demand       | Postings         | `/agency/jobs`      | `agency/jobs/page.tsx`      | List + edit / pause / resume / close the agency's postings | A + F; nav-F                                   |
+| Agency  | Demand       | Postings         | `/agency/jobs`      | `agency/jobs/page.tsx`      | List + pause / resume / close; links details, applicants, edit | A + F; nav-F                               |
 | Agency  | Supply       | Worker activity  | `/agency/workers`   | `agency/workers/page.tsx`   | Faceless funnel of the workers the agency referred         | A + F; nav-F                                   |
 | Agency  | Supply       | Referrals        | `/agency/referrals` | `agency/referrals/page.tsx` | Invite link, batch links, funnel, earnings / KYC / payouts | A + F; nav-F                                   |
 | Agency  | Supply       | QR invite        | `/agency/qr`        | `agency/qr/page.tsx`        | Printable QR invite sheet                                  | A + F; nav-F                                   |
@@ -162,8 +204,26 @@ users today. No link to an O route is rendered for a non-owner.
 | Agency  | Coming soon  | Revenue (Soon)   | `/agency/revenue`   | `agency/revenue/page.tsx`   | Parked explainer (no data)                                 | A + F; nav-F                                   |
 
 Not in the rail, on purpose: **Bulk invite upload** (`/agency/bulk-upload`). It is dead — a consent
-violation that will never be built (ADR-0022 Amendment 3) — and is never framed as coming. Its one
-way in is the dashboard's Invite tools card, which says why it is not available.
+violation that will never be built (ADR-0022 Amendment 3) — and is never framed as coming. Nothing in
+the portal links to it (final sweep F17: the dashboard's "not available" tile was a dead end, and is
+gone); the route stays so an old link lands on its explanation, which points at batch invite links.
+
+**Agency dashboard doors** (final sweep F15/F21 — a glance, not a second rail). The head's primary
+is New posting (`/agency/jobs/new`). "Your postings" shows three rows — each card opens that
+posting's details, and its "Applicants" link its feed — and "All postings" opens `/agency/jobs`. The
+Account tile opens `/account`. The Referral funnel panel's "Invite workers" is the dashboard's one
+door to `/agency/referrals`, where the invite form and the batch links live. "Not in this release"
+starts closed; Payout details (KYC) and Payouts read "Available on Referrals — payouts are
+simulated" and open Referrals only when the SERVER has payouts on (`AGENCY_PAYOUTS_ENABLED`, read
+the way Referrals reads it: the earnings route answers) — the public `NEXT_PUBLIC_ENABLE_AGENCY_*`
+flags never claim it. Removed (they repeated the rail or led nowhere): the Worker activity, QR
+invite, Batch invites and Bulk invite upload tiles, and the inline invite form. Revenue is a rail
+destination; the agency sections link it nowhere.
+
+**Referrals** (`/agency/referrals`, final sweep F19) reads: the funnel, then "Invite workers" — its
+one primary, "Create invite link", directly under the consent note, with the four optional settings
+in an "Options" disclosure (closed while empty, open whenever one is set) — then the batch links in
+a closed disclosure with a secondary "Create links", then earnings / payouts.
 
 **Plans & capacity is a Company page** (2026-10-01, a consequence of ruling 2): everything it sells
 is an entitlement on company postings (`job_postings`) — concurrent capacity, per-posting applicant
@@ -206,6 +266,8 @@ reopen. The applicants page's "No posting found here" state links to Postings.
 | `/postings/<id>/edit`        | "Hiring › **Postings**" (link)   | Posting details           |
 | `/postings/<id>/applicants`  | "Hiring › **Postings**" (link)   | the posting, by its title |
 | `/agency/jobs/<id>`          | "Demand › Postings" (text)       | Postings                  |
+| `/agency/jobs/<id>/edit`     | "Demand › **Postings**" (link)   | Posting details           |
+| `/agency/jobs/<id>/applicants` | "Demand › **Postings**" (link)   | the posting, by its title |
 | `/team/accept` (owner)       | "Organisation › **Team**" (link) | —                         |
 | `/dashboard`, `/account`     | none                             | —                         |
 
@@ -225,17 +287,24 @@ toolbar. Top-level pages (rail or account menu) have no back link.
 | Company | `/postings/<id>`            | the role title     | Postings                                                | status · View applicants · Edit posting (draft: Edit posting only) | P (owned posting)             |
 | Company | `/postings/<id>/edit`       | Edit posting       | Posting details                                         | — (Save / Publish posting in the form)                             | P; agent → `/postings/<id>`   |
 | Company | `/postings/<id>/applicants` | Applicants         | the posting, by its title ("Posting details" if unread) | toolbar: New / Shortlist tabs                                      | P; agent → `/postings/<id>`   |
-| Agency  | `/agency/jobs/<id>`         | the posting title  | Postings                                                | status                                                             | A + F                         |
-| Agency  | `/agency/bulk-upload`       | Bulk invite upload | Dashboard                                               | —                                                                  | A + F                         |
+| Agency  | `/agency/jobs/<id>`         | the posting title  | Postings                                                | status · Applicants · Edit posting (closed / suspended: Applicants) | A + F                         |
+| Agency  | `/agency/jobs/<id>/edit`    | Edit posting       | Posting details                                         | — (Save changes / Cancel in the form)                              | A + F; closed / suspended → `/agency/jobs/<id>` |
+| Agency  | `/agency/jobs/<id>/applicants` | Applicants         | the posting, by its title                               | —                                                                  | A + F                         |
 
-**An agency posting's applicants are not reachable in the UI** (D1, 2026-10-01). The applicant
-endpoint behind the feed (`GET /payer/reach/jobs/:jobId/applicants`) does not serve agency `jobs`
-rows correctly yet — backend issue #1898. Until it does there is no `/agency/jobs/<id>/applicants`
-route and nothing links to one; an agency posting's details show its applicant COUNT only.
+**An agency posting's applicants** are its own feed (`/agency/jobs/<id>/applicants`, #1956): since
+#1955 the applicant endpoint serves an agency's `jobs` rows — only the workers who applied — so the
+posting's details (primary "Applicants"), its Postings row and its dashboard card all link it.
+
+**An agency posting is edited on its own page** (`/agency/jobs/<id>/edit`, final sweep F02), headed
+like the company edit page, with the head leading the form column so the card preview starts at
+the top. It replaced the inline editor in the Postings row. Its details header and its Postings row
+offer it for an open or paused posting only (`isEditableJob`); a closed or suspended one's edit URL
+lands on its details.
 
 Top-level pages outside the rail (no back link): `/account` (H1 "Account", the account menu's
-item; P) and `/team/accept` (H1 "Join a team", the invite email's link; P — its trail is
-"Organisation › Team" for an owner, none for a recruiter).
+item; P), `/team/accept` (H1 "Join a team", the invite email's link; P — its trail is
+"Organisation › Team" for an owner, none for a recruiter) and `/agency/bulk-upload` (H1 "Bulk invite
+upload", reached by URL only; A + F).
 
 Redirects (kept so old links resolve): `/` → `/dashboard` or `/login`; `/profile` → `/account`;
 `/agency/dashboard` → `/dashboard`; `/capacity` → `/plans#hiring-capacity` (the Hiring capacity

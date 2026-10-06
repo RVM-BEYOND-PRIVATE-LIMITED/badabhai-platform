@@ -43,7 +43,7 @@ export function shortId(id: string | null, chars = 8): string {
 }
 
 /**
- * A job decision's match tier, the same words on the worker page and the posting page: 1 is a
+ * A posting decision's match tier, the same words on the worker page and the posting page: 1 is a
  * match on a skill the posting asked for, 2 on a related one. Anything else (no tier recorded,
  * or a tier this portal has not been taught) is a dash rather than a bare number.
  */

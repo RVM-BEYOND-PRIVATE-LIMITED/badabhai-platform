@@ -8,6 +8,7 @@ import type { PostingSummary } from "../../../../../lib/contracts";
 import { isPayerValidationError } from "../../../../../lib/payer-errors";
 import { mapPostingIssues } from "../../../../../lib/posting-field-errors";
 import { workerCardGap } from "../../../../../lib/worker-card-gap";
+import { reachAfterPublish } from "../../../../../lib/published-reach.server";
 
 /**
  * Edit-posting Server Action (PR-B — LIVE `PATCH /payer/job-postings/:id`). One action serves both
@@ -23,8 +24,12 @@ import { workerCardGap } from "../../../../../lib/worker-card-gap";
  * never a payer id. Input is re-validated here with the SAME schema the form used.
  */
 
+/**
+ * `reached` — on a PUBLISH only — is the now-live posting's reach ("Reached N workers"), read via
+ * reach-preview after the PATCH lands; null on a plain save or when that read failed.
+ */
 export type EditPostingActionResult =
-  | { ok: true; posting: PostingSummary }
+  | { ok: true; posting: PostingSummary; reached: number | null }
   | {
       ok: false;
       error: string;
@@ -119,7 +124,8 @@ export async function updatePostingAction(
     if (!posting) return { ok: false, error: "That posting could not be found." };
     revalidatePath("/postings");
     revalidatePath(`/postings/${input.postingId}`);
-    return { ok: true, posting };
+    const reached = publish && posting.status === "open" ? await reachAfterPublish(publish) : null;
+    return { ok: true, posting, reached };
   } catch (e) {
     // #1912 — a validation 400 carries per-field issues; route each to its input.
     // A plain 400 (no issues) stays the existing "No changes to save." copy.

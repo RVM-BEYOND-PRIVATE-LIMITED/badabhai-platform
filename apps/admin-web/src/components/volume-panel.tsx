@@ -1,5 +1,6 @@
 import type { VolumeSummary } from "../lib/dashboard";
 import { formatCount } from "../lib/format";
+import { CUSTOMER_KIND_LABELS } from "../lib/customer";
 import { BucketList } from "./bucket-list";
 import { Stat } from "./stat";
 
@@ -45,7 +46,7 @@ export function VolumePanel({ volume }: { volume: VolumeSummary }) {
       <div className="stats stats--compact">
         <Stat label="Applies" value={formatCount(volume.applications.applied)} />
         <Stat
-          label="Job decisions (applies + skips)"
+          label="Posting decisions (applies + skips)"
           value={formatCount(volume.applications.total)}
         />
         <Stat label="Contact unlocks" value={formatCount(volume.unlocks.issued)} />
@@ -86,10 +87,15 @@ export function VolumePanel({ volume }: { volume: VolumeSummary }) {
         </div>
         <div>
           <h3 className="panel__title" id="volume-payers-role">
-            Customers by account type
+            Customers by type
           </h3>
-          <p className="panel__sub">employer = Company, agent = Agency.</p>
-          <BucketList buckets={volume.payers.by_role} labelledBy="volume-payers-role" />
+          {/* The stored roles are `employer` and `agent`; the console's names are Company and
+              Agency (owner ruling 2026-10-01), so the rows say those and need no legend. */}
+          <BucketList
+            buckets={volume.payers.by_role}
+            labelledBy="volume-payers-role"
+            labels={CUSTOMER_KIND_LABELS}
+          />
 
           <h3 className="panel__title" id="volume-payers-status">
             Customers by status

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { looksLikeActionContextPii } from "@badabhai/validators";
 import { Badge, Button, Card, Input, SelectMenu } from "../../../../components/ds";
 import { inviteContextSlugError } from "../../../../lib/invite-meta";
@@ -39,6 +40,12 @@ const TAG_MAX = 64; // parity with campaignSchema.max(64)
  * (no fake success, no leaked reason). The mint form stays a native `<form>` (so its
  * submit + aria-live error region remain reachable); only the field + buttons + the
  * opaque-code result move to DS primitives. The opaque code/link render in mono tabular.
+ *
+ * LAYOUT (final sweep F19): "Create invite link" — the Referrals page's one primary — sits directly
+ * under the consent note. The four optional settings (campaign tag, link type, role, city) wait in
+ * an "Options" disclosure after it: collapsed while all are empty, OPEN whenever any holds a value,
+ * so a setting that will be applied to the link is never out of sight (and an inline refusal, which
+ * only a filled option can earn, is always visible). The open state is React's, not the browser's.
  */
 export function AgencyInvitePanel() {
   const [campaign, setCampaign] = useState("");
@@ -56,7 +63,15 @@ export function AgencyInvitePanel() {
   const [role, setRole] = useState("");
   const [city, setCity] = useState("");
   const [contextError, setContextError] = useState<string | null>(null);
+  // F19: the payer's own open/closed choice for "Options" (APPENDED — see the note above).
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [pending, startTransition] = useTransition();
+
+  /** How many of the four optional settings hold a value — any one keeps "Options" open. */
+  const optionsSet = [campaign.trim(), medium, role.trim(), city.trim()].filter(
+    (v) => v !== "",
+  ).length;
+  const optionsShown = optionsOpen || optionsSet > 0;
 
   /**
    * The ABSOLUTE url to share. The mint returns a RELATIVE "/i/<code>" (the API cannot know
@@ -122,73 +137,8 @@ export function AgencyInvitePanel() {
         <strong>Consent-first.</strong> Share this link with workers. They must self-onboard and
         accept consent before BadaBhai processes their data — minting a link does not.
       </Card>
-      <p className="agency-section__sub">
-        Agencies never upload worker phone numbers or names here — workers join themselves and give
-        their own consent. You only ever see consent-safe, aggregate progress.
-      </p>
 
       <form className="agency-invite__form" onSubmit={handleCreate}>
-        <Input
-          id="campaign"
-          label="Campaign tag"
-          optional
-          placeholder="diwali-drive"
-          value={campaign}
-          error={campaignError ?? undefined}
-          aria-invalid={campaignError ? true : undefined}
-          hint="A short slug to group invites, like diwali-drive. Never a phone, name, or email."
-          onChange={(e) => {
-            setCampaign(e.target.value);
-            if (campaignError) setCampaignError(null);
-          }}
-        />
-
-        {/*
-          LINK METADATA (W1). Both are REFERENT-FREE and that is why they may exist on a
-          faceless surface at all: `medium` describes the CHANNEL the link travels on, and
-          role/city describe the JOB SHAPE it advertises. Neither can denote a person, and
-          there is still no phone/name/email/recipient field anywhere on this panel.
-        */}
-        <SelectMenu
-          id="medium"
-          label="Link type"
-          optional
-          value={medium}
-          placeholder="Organic (default)"
-          hint="Paid links are matched against a shorter 24-hour install window; organic gets 7 days."
-          options={[
-            { value: "organic", label: "Organic — shared by hand" },
-            { value: "paid", label: "Paid — an ad or promoted post" },
-          ]}
-          onChange={setMedium}
-        />
-        <Input
-          id="role"
-          label="Role slug"
-          optional
-          placeholder="welder"
-          value={role}
-          error={contextError && role.trim() ? contextError : undefined}
-          hint="What this link is advertising, as a lowercase slug. Never a person's name."
-          onChange={(e) => {
-            setRole(e.target.value);
-            if (contextError) setContextError(null);
-          }}
-        />
-        <Input
-          id="city"
-          label="City slug"
-          optional
-          placeholder="pune-west"
-          value={city}
-          error={contextError && !role.trim() ? contextError : undefined}
-          hint="Where the work is, as a lowercase slug."
-          onChange={(e) => {
-            setCity(e.target.value);
-            if (contextError) setContextError(null);
-          }}
-        />
-
         <div className="agency-invite__actions">
           {/* Enabled while the tag is invalid ON PURPOSE: disabling the submit also blocked
               Enter, so `handleCreate` never ran and `campaignError` — the only thing that
@@ -203,6 +153,92 @@ export function AgencyInvitePanel() {
         <div aria-live="polite" className="agency-invite__status">
           {error ? <p className="agency-invite__error">{error}</p> : null}
         </div>
+
+        {/* The OPTIONAL settings. Controlled: the summary toggles React's state (the browser's own
+            toggle is cancelled), and a filled option keeps the disclosure open. */}
+        <details className="agency-disclosure agency-invite__options" open={optionsShown}>
+          <summary
+            className="agency-disclosure__summary"
+            onClick={(e) => {
+              e.preventDefault();
+              // A set option keeps it open, and pins the payer's choice to open too — so clearing
+              // the last option mid-edit never snaps the fields shut under the cursor.
+              setOptionsOpen(optionsSet > 0 ? true : !optionsShown);
+            }}
+          >
+            <span className="agency-disclosure__text">
+              <span className="agency-disclosure__label">Options</span>{" "}
+              <span className="agency-disclosure__hint">
+                {optionsSet > 0
+                  ? `· ${optionsSet} set`
+                  : "· campaign tag, link type, role, city — all optional"}
+              </span>
+            </span>
+            <Icon name={ACTION_ICON.disclosure} className="agency-disclosure__caret" />
+          </summary>
+          <div className="agency-invite__option-fields">
+            <Input
+              id="campaign"
+              label="Campaign tag"
+              optional
+              placeholder="diwali-drive"
+              value={campaign}
+              error={campaignError ?? undefined}
+              aria-invalid={campaignError ? true : undefined}
+              hint="A short slug to group invites, like diwali-drive. Never a phone, name, or email."
+              onChange={(e) => {
+                setCampaign(e.target.value);
+                if (campaignError) setCampaignError(null);
+              }}
+            />
+
+            {/*
+              LINK METADATA (W1). Both are REFERENT-FREE and that is why they may exist on a
+              faceless surface at all: `medium` describes the CHANNEL the link travels on, and
+              role/city describe the JOB SHAPE it advertises. Neither can denote a person, and
+              there is still no phone/name/email/recipient field anywhere on this panel.
+            */}
+            <SelectMenu
+              id="medium"
+              label="Link type"
+              optional
+              value={medium}
+              placeholder="Organic (default)"
+              hint="Paid links are matched against a shorter 24-hour install window; organic gets 7 days."
+              options={[
+                { value: "organic", label: "Organic — shared by hand" },
+                { value: "paid", label: "Paid — an ad or promoted post" },
+              ]}
+              onChange={setMedium}
+            />
+            <Input
+              id="role"
+              label="Role slug"
+              optional
+              placeholder="welder"
+              value={role}
+              error={contextError && role.trim() ? contextError : undefined}
+              hint="What this link is advertising, as a lowercase slug. Never a person's name."
+              onChange={(e) => {
+                setRole(e.target.value);
+                if (contextError) setContextError(null);
+              }}
+            />
+            <Input
+              id="city"
+              label="City slug"
+              optional
+              placeholder="pune-west"
+              value={city}
+              error={contextError && !role.trim() ? contextError : undefined}
+              hint="Where the work is, as a lowercase slug."
+              onChange={(e) => {
+                setCity(e.target.value);
+                if (contextError) setContextError(null);
+              }}
+            />
+          </div>
+        </details>
       </form>
 
       {invite ? (
@@ -243,6 +279,11 @@ export function AgencyInvitePanel() {
           </div>
         </Card>
       ) : null}
+
+      <p className="agency-section__sub">
+        Agencies never upload worker phone numbers or names here — workers join themselves and give
+        their own consent. You only ever see consent-safe, aggregate progress.
+      </p>
     </section>
   );
 }

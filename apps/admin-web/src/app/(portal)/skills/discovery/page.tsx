@@ -28,7 +28,11 @@ import { StatusPill } from "../../../../components/status-pill";
 import { Pager } from "../../../../components/pager";
 import { Stat } from "../../../../components/stat";
 import { PageHeader } from "../../../../components/page-header";
-import { RetryActions } from "../../../../components/retry-actions";
+import {
+  CURSOR_REFUSAL,
+  FirstPageLink,
+  RetryActions,
+} from "../../../../components/retry-actions";
 import { SkillDiscoveryFilterBar } from "./filter-bar";
 import { filterChipClass } from "../../../../components/filter-chip";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
@@ -428,13 +432,25 @@ export default async function SkillDiscoveryPage({
             <p className="state__body">
               {view === "grouped" && badRequestMessage
                 ? badRequestMessage
-                : "Nothing was fetched. One of the filters, as it stands in the address bar, is not a value this queue accepts — a hand-edited status, tier, band or run id."}
+                : view === "flat" && cursor && !filtered
+                  ? CURSOR_REFUSAL.body
+                  : "Nothing was fetched. One of the filters, as it stands in the address bar, is not a value this queue accepts — a hand-edited status, tier, band or run id."}
             </p>
+            {/* ONE way out, and never a Retry of a refused request. A refused page cursor on an
+                unfiltered flat view goes back to the first page with `view=flat` kept — the bare
+                queue "Clear filters" goes to would drop it, a first-page action wearing the
+                clear-filters name. Anything else is the filters: the API refuses a cursor only
+                when it is longer than any it issues, so keeping the filters on the first page
+                would be refused again. */}
             <div className="state__actions">
-              <Link className="btn btn--ghost" href="/skills/discovery">
-                <Icon name={ACTION_ICON.clearFilters} />
-                Clear filters
-              </Link>
+              {view === "flat" && cursor && !filtered ? (
+                <FirstPageLink href={listHref({})} />
+              ) : (
+                <Link className="btn btn--ghost" href="/skills/discovery">
+                  <Icon name={ACTION_ICON.clearFilters} />
+                  Clear filters
+                </Link>
+              )}
             </div>
           </div>
         ) : primaryFailed ? (

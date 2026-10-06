@@ -113,6 +113,16 @@ export function isPausedJob(job: AgencyJob): boolean {
 }
 
 /**
+ * Whether the portal offers an EDIT door for a job: an `open` or `paused` one. A `closed` job is
+ * terminal (the API refuses its edit) and a `suspended` one is SYSTEM-owned (ADR-0037). ONE rule
+ * for the Postings row, the posting's details header and the edit page itself, so the three never
+ * disagree. Affordance only — the API stays the authority on what an edit may change.
+ */
+export function isEditableJob(job: AgencyJob): boolean {
+  return isActiveJob(job) || isPausedJob(job);
+}
+
+/**
  * The accrual BASIS sentence for the earnings surface — built from the CONFIG values the
  * API returns (rate / basis ₹ / window), never hard-coded commercial terms. `rateBps` is
  * basis points (2500 → "25%"); `basisInr` is the per-unlock ₹; `windowDays` the attribution
