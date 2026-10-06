@@ -88,8 +88,8 @@ interface JobPostingApi {
    * The ROLE the payer picked (migration 0131) — one of the 21 declared kinds, or NULL for "no
    * role picked" (every chat-published and pre-0131 posting). Returned on THIS payer/ops
    * projection only, so the portal can prefill its picker and draw its card preview. DISPLAY /
-   * CLASSIFICATION ONLY: never a match or rank input, and on NO worker read this phase
-   * (ADR-0024 addendum 2026-09-29, #1823).
+   * CLASSIFICATION ONLY: never a match or rank input. Worker reads carry it only as the card's
+   * illustration key (ADR-0024 addendum 2026-10-05).
    */
   role_kind: TradeFormKindName | null;
   published_at: Date | null;

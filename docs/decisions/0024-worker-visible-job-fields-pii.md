@@ -297,3 +297,27 @@ posting fills that item, so the card stays inside the SHOW set.
   B3, built in its own PR under #1823 (branch `fix/1823-posting-text-screen`); it also moves the
   `benefits` / `requirements` chip arrays onto the same screen. Posting `city` / `area` are
   outside B3 and tracked in #1848.
+
+## Addendum (2026-10-05) — `role_kind` reaches the worker card as an illustration
+
+Owner ruling 2026-10-05 (investor demo): job cards show a role illustration keyed by the
+posting's `role_kind`. This **reverses** the "on NO worker read" bullet of the 2026-09-29
+addendum and ADR-0049 **O6** ("not this phase"); earlier audits that recorded `role_kind` as
+"dropped on purpose" from the card were describing that superseded state. The field ruling
+above otherwise stands unchanged.
+
+- **Where.** `GET /feed` — both `FeedItem` (legacy jobs arm and the ADR-0049 postings arm) and
+  `MatchFeedItem` (V1) — and the worker job detail `GET /jobs/:jobId` (both its `jobs` read and
+  its `job_postings` fallback), so the detail screen opened from a card draws the same art.
+  `GET /jobs/search` is **not** in this ruling and still does not return it.
+- **Shape.** An ADDITIVE key `role_kind`: one of the 21 declared kinds (`TRADE_FORM_KINDS_ALL`)
+  or `null` ("no role picked" — every pre-0131 and chat-published row). Shipped clients ignore
+  the new key. It is its own key — never folded into `trade_key` (which stays `""` on a posting).
+- **Fail closed.** One outbound gate (`apps/api/src/common/worker-role-kind.ts`) returns the
+  value only when it is a declared kind, else `null`, on every path above.
+- **Art, not text.** The worker card draws an illustration, never the slug or a role label;
+  `packages/types/fixtures/job-card-contract.json` pins that a `role_kind` adds no text slot.
+- **Still display only.** Projected, never a `WHERE` / `ORDER BY` / rank / match input (ADR-0036
+  addendum 2026-09-29 holds; the repository tests pin it).
+- **No event change.** `feed.shown` and `feed.shown_v2` payloads are unchanged; no migration, no
+  flag. PII classification unchanged: none (closed occupation enum).

@@ -14,7 +14,10 @@ import {
  * the newest-first merge of the two arms. No database, no Nest; everything here is a value.
  */
 
-/** The 17 keys a shipped client parses. The e2e exact-keys pin says the same of the wire. */
+/**
+ * The 17 keys a shipped client parses, plus the additive `role_kind` (owner ruling 2026-10-05).
+ * The e2e exact-keys pin says the same of the wire.
+ */
 const FEED_ITEM_KEYS = [
   "area",
   "benefits",
@@ -30,6 +33,7 @@ const FEED_ITEM_KEYS = [
   "posted_at",
   "rank",
   "requirements",
+  "role_kind",
   "shift",
   "title",
   "trade_key",
@@ -56,6 +60,7 @@ function sourced(source: FeedSource, id: string, iso: string): SourcedFeedItem {
       requirements: null,
       needed_by: null,
       posted_at: iso,
+      role_kind: null,
     },
   };
 }
@@ -160,6 +165,7 @@ describe("toSourcedFromJob — the legacy mapping, unchanged", () => {
     benefits: ["B1"],
     requirements: ["R1"],
     neededBy: "immediate",
+    roleKind: "cnc_turner",
     createdAt: new Date("2026-06-01T00:00:00.000Z"),
   };
 
@@ -184,11 +190,18 @@ describe("toSourcedFromJob — the legacy mapping, unchanged", () => {
       requirements: ["R1"],
       needed_by: "immediate",
       posted_at: "2026-06-01T00:00:00.000Z",
+      role_kind: "cnc_turner",
     });
+  });
+
+  it("fails role_kind closed to null on anything outside the declared set", () => {
+    for (const roleKind of ["cnc_operator", "Welder", "", null]) {
+      expect(toSourcedFromJob({ ...JOB, roleKind }).card.role_kind).toBeNull();
+    }
   });
 });
 
-describe("toSourcedFromPosting — a company posting on the same 17 keys", () => {
+describe("toSourcedFromPosting — a company posting on the same keys as a jobs card", () => {
   const ROW: FeedPostingRow = {
     id: "b0000000-0000-4000-8000-000000000001",
     roleTitle: "VMC Operator",
@@ -204,6 +217,7 @@ describe("toSourcedFromPosting — a company posting on the same 17 keys", () =>
     benefits: ["PF + ESI"],
     requirements: ["Fanuc control"],
     neededBy: "soon",
+    roleKind: "vmc_milling",
     publishedAt: new Date("2026-10-01T09:30:00.000Z"),
   };
 
@@ -229,7 +243,14 @@ describe("toSourcedFromPosting — a company posting on the same 17 keys", () =>
       requirements: ["Fanuc control"],
       needed_by: "soon",
       posted_at: "2026-10-01T09:30:00.000Z",
+      role_kind: "vmc_milling",
     });
+  });
+
+  it("fails role_kind closed to null on anything outside the declared set", () => {
+    for (const roleKind of ["mskill_vmc_operator", "VMC_MILLING", " ", null]) {
+      expect(toSourcedFromPosting({ ...ROW, roleKind })!.card.role_kind).toBeNull();
+    }
   });
 
   it('sends trade_key "" — never a skill id, never a role — and city "" when the posting has none', () => {
@@ -252,6 +273,7 @@ describe("toSourcedFromPosting — a company posting on the same 17 keys", () =>
       benefits: null,
       requirements: null,
       neededBy: null,
+      roleKind: null,
     })!;
     for (const key of [
       "area",

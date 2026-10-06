@@ -87,7 +87,7 @@ export const payTypeSchema = z.enum(["in_hand", "gross", "ctc"]);
  * (`TRADE_FORM_KINDS_ALL`). Closed and PII-free, so it needs no heuristic screen.
  *
  * DISPLAY / CLASSIFICATION ONLY (ADR-0036 addendum 2026-09-29): never a match or rank input,
- * never mapped to a skill or a `job_domain_id`, and on no worker read this phase. No default
+ * never mapped to a skill or a `job_domain_id`. On the worker card as art only (2026-10-05). No default
  * and no inference — omitted stores NULL ("no role picked"). A `null` in a body is a 400 like
  * every other field here; unsetting goes through `clear: ["role_kind"]` (#1652).
  *
