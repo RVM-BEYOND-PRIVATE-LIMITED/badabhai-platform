@@ -17,11 +17,18 @@ export {
   TOOLTIP_DISMISSED_ATTRIBUTE,
   TOOLTIP_PLACEMENTS,
   dismissTooltipOnEscape,
+  focusWithoutTooltip,
   restoreTooltip,
   warnIfUnlabelled,
   watchEscapeWhileHovered,
 } from "./control";
-export type { HoverEscapeTarget, IconOnlyControlProps, TooltipPlacement } from "./control";
+export type {
+  FocusArrivalTarget,
+  HoverEscapeTarget,
+  IconOnlyControlProps,
+  TooltipPlacement,
+} from "./control";
 // The icon-only button itself is a CLIENT module, so it has its own entry point and is NOT
-// re-exported here (this index stays importable from Server Components):
-//   import { IconButtonBase } from "@badabhai/icons/button";
+// re-exported here (this index stays importable from Server Components) — with the hook it is
+// built on, for a control that keeps its own markup around the shared tooltip:
+//   import { IconButtonBase, useIconTipHandlers } from "@badabhai/icons/button";

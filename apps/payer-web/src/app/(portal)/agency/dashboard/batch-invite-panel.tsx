@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useState, useTransition } from "react";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { looksLikeActionContextPii } from "@badabhai/validators";
 import { Badge, Button, Card, Input, SelectMenu } from "../../../../components/ds";
 import { inviteContextSlugError } from "../../../../lib/invite-meta";
@@ -56,7 +57,35 @@ const COPY_FAILED =
  * payload renders outside it and focus is never moved — a screen-reader user who mints 50
  * links would otherwise hear nothing. The field, buttons and the opaque-code result use DS
  * primitives, with codes/links in mono tabular.
+ *
+ * THE PAGE'S SECONDARY TOOL (final sweep F19): on Referrals the single invite link is the one
+ * primary, so this panel is a native disclosure, CLOSED by default, and its "Create links" is a
+ * secondary button. It holds the page's `#batch-invites` fragment target INSIDE the disclosure, so
+ * a link to it (the bulk-upload explanation's "Create batch invite links") opens the panel as the
+ * browser scrolls to it. Collapsing never drops minted links: they stay in the DOM.
  */
+/**
+ * Opens the disclosure when the URL's fragment names an element INSIDE it. A full page load does
+ * this natively (the browser reveals a closed <details> holding the fragment target); a client-side
+ * navigation — the bulk-upload explanation's "Create batch invite links" is a Next `Link` — does
+ * not (measured: the panel stayed closed). As a ref callback it runs when the panel mounts, before
+ * the router scrolls to the target, so the scroll lands on a rendered element.
+ */
+export function revealFragmentTarget(details: HTMLDetailsElement | null): void {
+  if (details === null || typeof window === "undefined") return;
+  let id: string;
+  try {
+    id = decodeURIComponent(window.location.hash.slice(1));
+  } catch {
+    // A malformed fragment (`#%`) names nothing; thrown from a ref it would take the page into
+    // the error boundary (review L1).
+    return;
+  }
+  if (id === "") return;
+  const target = document.getElementById(id);
+  if (target !== null && details.contains(target)) details.open = true;
+}
+
 export function AgencyBatchInvitePanel() {
   const [count, setCount] = useState("10");
   const [countError, setCountError] = useState<string | null>(null);
@@ -166,196 +195,207 @@ export function AgencyBatchInvitePanel() {
   const validationMessage = [countError, campaignError].filter(Boolean).join(" ");
 
   return (
-    <section className="agency-section agency-batch">
-      <h2 className="agency-section__title">Create several invite links at once</h2>
-      <Card variant="flat" className="agency-invite__note">
-        <strong>Each link is anonymous.</strong> A link is just a random code — it is not assigned
-        to anyone and BadaBhai does not know who you give it to. The worker joins themselves and
-        gives their own consent before any data is processed.
-      </Card>
-      <p className="agency-section__sub">
-        Useful for a gate drive or a print run: generate up to {BATCH_MAX} links, then share or
-        print them yourself. You never upload a worker&rsquo;s name, phone or number list here —
-        BadaBhai sends nothing on your behalf.
-      </p>
-
-      <form className="agency-batch__form" onSubmit={handleCreate}>
-        <div className="agency-batch__count">
-          <Input
-            id="batch-count"
-            label="How many links"
-            type="number"
-            inputMode="numeric"
-            min={BATCH_MIN}
-            max={BATCH_MAX}
-            step={1}
-            value={count}
-            error={countError ?? undefined}
-            aria-invalid={countError ? true : undefined}
-            hint={`Between ${BATCH_MIN} and ${BATCH_MAX} at a time.`}
-            onChange={(e) => {
-              setCount(e.target.value);
-              if (countError) setCountError(null);
-            }}
-          />
-        </div>
-
-        <Input
-          id="batch-campaign"
-          label="Campaign tag"
-          optional
-          placeholder="pune-gate-2"
-          value={campaign}
-          error={campaignError ?? undefined}
-          aria-invalid={campaignError ? true : undefined}
-          hint="One label for the whole batch, to group these invites. Never a phone, name, or email."
-          onChange={(e) => {
-            setCampaign(e.target.value);
-            if (campaignError) setCampaignError(null);
-          }}
-        />
-
-        {/*
-          LINK METADATA (W1) — ONE value each, applied to the whole batch. Referent-free by
-          construction: a channel and a job shape, never a person. Per-invite variants are
-          deliberately absent (see the note on the action).
-        */}
-        <SelectMenu
-          id="batch-medium"
-          label="Link type"
-          optional
-          value={medium}
-          placeholder="Organic (default)"
-          hint="Paid links are matched against a shorter 24-hour install window; organic gets 7 days."
-          options={[
-            { value: "organic", label: "Organic — shared by hand" },
-            { value: "paid", label: "Paid — an ad or promoted post" },
-          ]}
-          onChange={setMedium}
-        />
-        <Input
-          id="batch-role"
-          label="Role slug"
-          optional
-          placeholder="welder"
-          value={role}
-          error={contextError && role.trim() ? contextError : undefined}
-          hint="What these links advertise, as a lowercase slug. Never a person's name."
-          onChange={(e) => {
-            setRole(e.target.value);
-            if (contextError) setContextError(null);
-          }}
-        />
-        <Input
-          id="batch-city"
-          label="City slug"
-          optional
-          placeholder="pune-west"
-          value={city}
-          error={contextError && !role.trim() ? contextError : undefined}
-          hint="Where the work is, as a lowercase slug."
-          onChange={(e) => {
-            setCity(e.target.value);
-            if (contextError) setContextError(null);
-          }}
-        />
-
-        <div className="agency-invite__actions">
-          <Button type="submit" disabled={submitBlocked} loading={pending}>
-            {pending ? "Creating…" : "Create links"}
-          </Button>
-          <Badge tone="success" upper>
-            Live
-          </Badge>
-        </div>
-        {/*
-          THE ONE ANNOUNCED REGION. It carries every outcome, not just failure: the mint
-          result list renders outside the form and focus never moves, so a success that is
-          not announced here is silent to a screen reader.
-        */}
-        <div aria-live="polite" className="agency-invite__status">
-          {validationMessage ? <p className="agency-invite__error">{validationMessage}</p> : null}
-          {error ? (
-            <p className="agency-invite__error">
-              {error}
-              {invites && invites.length > 0
-                ? " The links already created are still listed below and are still valid."
-                : ""}
-            </p>
-          ) : null}
-          {copyError ? <p className="agency-invite__error">{copyError}</p> : null}
-          {!error && invites && invites.length > 0 ? (
-            <p className="agency-section__sub">
-              {invites.length} {invites.length === 1 ? "link" : "links"} created and listed below.
-              {copied ? " All links copied to the clipboard." : ""}
-            </p>
-          ) : null}
-        </div>
-      </form>
-
-      {invites && invites.length > 0 ? (
-        <Card className="agency-batch__result">
+    <section className="agency-section">
+      <details className="agency-disclosure" ref={revealFragmentTarget}>
+        <summary className="agency-disclosure__summary">
+          <span className="agency-section__title">Create several invite links at once</span>
+          <Icon name={ACTION_ICON.disclosure} className="agency-disclosure__caret" />
+        </summary>
+        {/* The in-page anchor target (`.anchor-target` clears the sticky header). */}
+        <div id="batch-invites" className="anchor-target agency-batch">
+          <Card variant="flat" className="agency-invite__note">
+            <strong>Each link is anonymous.</strong> A link is just a random code — it is not
+            assigned to anyone and BadaBhai does not know who you give it to. The worker joins
+            themselves and gives their own consent before any data is processed.
+          </Card>
           <p className="agency-section__sub">
-            <strong>
-              {invites.length} {invites.length === 1 ? "link" : "links"} created.
-            </strong>{" "}
-            Share or print them — each one identifies no worker and carries no contact. Attribution
-            happens only after a worker joins and consents. If you want to note who you gave a link
-            to, keep that note in your own records: BadaBhai must never hold it.
+            Useful for a gate drive or a print run: generate up to {BATCH_MAX} links, then share or
+            print them yourself. You never upload a worker&rsquo;s name, phone or number list here —
+            BadaBhai sends nothing on your behalf.
           </p>
-          <ol className="agency-batch__list">
-            {shareLinks.map((invite) => (
-              <li key={invite.code} className="agency-batch__item">
-                <span className="agency-batch__code bb-mono">{invite.code}</span>
-                {/*
-                  A real anchor, not a <span>: the row is CSS-truncated to an ellipsis, so a
-                  non-focusable span left the link unreachable by keyboard and un-copyable
-                  without the clipboard. The href carries the FULL url (open / copy address /
-                  read by a screen reader) even when the visible text is clipped.
-                */}
-                <a className="bb-mono" href={invite.url}>
-                  {invite.url}
-                </a>
-                {/*
-                  PER-ROW, deliberately. A batch is minted so each link can go to a
-                  DIFFERENT worker, so the useful WhatsApp action is "send this one", not
-                  one message carrying fifty links. Still no recipient stored anywhere: the
-                  contact is picked inside WhatsApp and never returns to us.
-                */}
-                <a
-                  className="agency-batch__share"
-                  href={whatsAppShareUrl(inviteShareMessage(invite.url))}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={`Send invite ${invite.code} on WhatsApp`}
-                >
-                  WhatsApp
-                </a>
-              </li>
-            ))}
-          </ol>
-          <div className="agency-invite__actions">
-            <Button variant="secondary" onClick={() => copyAll(shareLinks.map((i) => i.url))}>
-              {copied ? "Copied" : "Copy all links"}
-            </Button>
-          </div>
-          {copyError ? (
-            <div className="agency-invite__result">
-              <p className="agency-invite__error">{COPY_FAILED}</p>
-              {/* The single-mint fallback shape: `.agency-invite__dl dd` wraps (break-all),
-                  so every url is readable in full and transcribable by hand. */}
-              <dl className="agency-invite__dl">
-                {shareLinks.map((invite) => (
-                  <Fragment key={invite.code}>
-                    <dt className="bb-mono">{invite.code}</dt>
-                    <dd className="bb-mono">{invite.url}</dd>
-                  </Fragment>
-                ))}
-              </dl>
+
+          <form className="agency-batch__form" onSubmit={handleCreate}>
+            <div className="agency-batch__count">
+              <Input
+                id="batch-count"
+                label="How many links"
+                type="number"
+                inputMode="numeric"
+                min={BATCH_MIN}
+                max={BATCH_MAX}
+                step={1}
+                value={count}
+                error={countError ?? undefined}
+                aria-invalid={countError ? true : undefined}
+                hint={`Between ${BATCH_MIN} and ${BATCH_MAX} at a time.`}
+                onChange={(e) => {
+                  setCount(e.target.value);
+                  if (countError) setCountError(null);
+                }}
+              />
             </div>
+
+            <Input
+              id="batch-campaign"
+              label="Campaign tag"
+              optional
+              placeholder="pune-gate-2"
+              value={campaign}
+              error={campaignError ?? undefined}
+              aria-invalid={campaignError ? true : undefined}
+              hint="One label for the whole batch, to group these invites. Never a phone, name, or email."
+              onChange={(e) => {
+                setCampaign(e.target.value);
+                if (campaignError) setCampaignError(null);
+              }}
+            />
+
+            {/*
+              LINK METADATA (W1) — ONE value each, applied to the whole batch. Referent-free by
+              construction: a channel and a job shape, never a person. Per-invite variants are
+              deliberately absent (see the note on the action).
+            */}
+            <SelectMenu
+              id="batch-medium"
+              label="Link type"
+              optional
+              value={medium}
+              placeholder="Organic (default)"
+              hint="Paid links are matched against a shorter 24-hour install window; organic gets 7 days."
+              options={[
+                { value: "organic", label: "Organic — shared by hand" },
+                { value: "paid", label: "Paid — an ad or promoted post" },
+              ]}
+              onChange={setMedium}
+            />
+            <Input
+              id="batch-role"
+              label="Role slug"
+              optional
+              placeholder="welder"
+              value={role}
+              error={contextError && role.trim() ? contextError : undefined}
+              hint="What these links advertise, as a lowercase slug. Never a person's name."
+              onChange={(e) => {
+                setRole(e.target.value);
+                if (contextError) setContextError(null);
+              }}
+            />
+            <Input
+              id="batch-city"
+              label="City slug"
+              optional
+              placeholder="pune-west"
+              value={city}
+              error={contextError && !role.trim() ? contextError : undefined}
+              hint="Where the work is, as a lowercase slug."
+              onChange={(e) => {
+                setCity(e.target.value);
+                if (contextError) setContextError(null);
+              }}
+            />
+
+            <div className="agency-invite__actions">
+              <Button type="submit" variant="secondary" disabled={submitBlocked} loading={pending}>
+                {pending ? "Creating…" : "Create links"}
+              </Button>
+              <Badge tone="success" upper>
+                Live
+              </Badge>
+            </div>
+            {/*
+              THE ONE ANNOUNCED REGION. It carries every outcome, not just failure: the mint
+              result list renders outside the form and focus never moves, so a success that is
+              not announced here is silent to a screen reader.
+            */}
+            <div aria-live="polite" className="agency-invite__status">
+              {validationMessage ? (
+                <p className="agency-invite__error">{validationMessage}</p>
+              ) : null}
+              {error ? (
+                <p className="agency-invite__error">
+                  {error}
+                  {invites && invites.length > 0
+                    ? " The links already created are still listed below and are still valid."
+                    : ""}
+                </p>
+              ) : null}
+              {copyError ? <p className="agency-invite__error">{copyError}</p> : null}
+              {!error && invites && invites.length > 0 ? (
+                <p className="agency-section__sub">
+                  {invites.length} {invites.length === 1 ? "link" : "links"} created and listed
+                  below.
+                  {copied ? " All links copied to the clipboard." : ""}
+                </p>
+              ) : null}
+            </div>
+          </form>
+
+          {invites && invites.length > 0 ? (
+            <Card className="agency-batch__result">
+              <p className="agency-section__sub">
+                <strong>
+                  {invites.length} {invites.length === 1 ? "link" : "links"} created.
+                </strong>{" "}
+                Share or print them — each one identifies no worker and carries no contact.
+                Attribution happens only after a worker joins and consents. If you want to note who
+                you gave a link to, keep that note in your own records: BadaBhai must never hold it.
+              </p>
+              <ol className="agency-batch__list">
+                {shareLinks.map((invite) => (
+                  <li key={invite.code} className="agency-batch__item">
+                    <span className="agency-batch__code bb-mono">{invite.code}</span>
+                    {/*
+                      A real anchor, not a <span>: the row is CSS-truncated to an ellipsis, so a
+                      non-focusable span left the link unreachable by keyboard and un-copyable
+                      without the clipboard. The href carries the FULL url (open / copy address /
+                      read by a screen reader) even when the visible text is clipped.
+                    */}
+                    <a className="bb-mono" href={invite.url}>
+                      {invite.url}
+                    </a>
+                    {/*
+                      PER-ROW, deliberately. A batch is minted so each link can go to a
+                      DIFFERENT worker, so the useful WhatsApp action is "send this one", not
+                      one message carrying fifty links. Still no recipient stored anywhere: the
+                      contact is picked inside WhatsApp and never returns to us.
+                    */}
+                    <a
+                      className="agency-batch__share"
+                      href={whatsAppShareUrl(inviteShareMessage(invite.url))}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Send invite ${invite.code} on WhatsApp`}
+                    >
+                      WhatsApp
+                    </a>
+                  </li>
+                ))}
+              </ol>
+              <div className="agency-invite__actions">
+                <Button variant="secondary" onClick={() => copyAll(shareLinks.map((i) => i.url))}>
+                  {copied ? "Copied" : "Copy all links"}
+                </Button>
+              </div>
+              {copyError ? (
+                <div className="agency-invite__result">
+                  <p className="agency-invite__error">{COPY_FAILED}</p>
+                  {/* The single-mint fallback shape: `.agency-invite__dl dd` wraps (break-all),
+                      so every url is readable in full and transcribable by hand. */}
+                  <dl className="agency-invite__dl">
+                    {shareLinks.map((invite) => (
+                      <Fragment key={invite.code}>
+                        <dt className="bb-mono">{invite.code}</dt>
+                        <dd className="bb-mono">{invite.url}</dd>
+                      </Fragment>
+                    ))}
+                  </dl>
+                </div>
+              ) : null}
+            </Card>
           ) : null}
-        </Card>
-      ) : null}
+        </div>
+      </details>
     </section>
   );
 }

@@ -13,7 +13,8 @@
  */
 import { useEffect, useId, useRef } from "react";
 import type { MouseEvent, ReactNode } from "react";
-import { ACTION_ICON } from "@badabhai/icons";
+import { ACTION_ICON, focusWithoutTooltip } from "@badabhai/icons";
+import { FOCUSABLE_SELECTOR } from "./focusable";
 import { IconButton } from "./icon-button";
 import { inertOutside, lockPageScroll } from "./page-isolation";
 
@@ -75,15 +76,16 @@ export function Dialog({
     const releaseScroll = lockPageScroll(document.documentElement, window.innerWidth);
 
     const focusable = (): HTMLElement[] =>
-      Array.from(
-        dialogEl.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ),
-      ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+      Array.from(dialogEl.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+        (el) => el.offsetParent !== null || el === document.activeElement,
+      );
 
-    // Move focus into the dialog — its first focusable, else the dialog container itself.
+    // Move focus into the dialog — its first focusable, else the dialog container itself. That is
+    // usually the ✕: focus the DIALOG put there must not open its "Close" tooltip over the body
+    // (on a keyboard open it covered ConfirmSpendDialog's first line, and Escape — its only
+    // dismissal — also closes the dialog). Blur re-arms it; a later Tab back to the ✕ shows it.
     const initial = focusable();
-    (initial[0] ?? dialogEl).focus();
+    focusWithoutTooltip(initial[0] ?? dialogEl);
 
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
       if (e.key !== "Tab") return;

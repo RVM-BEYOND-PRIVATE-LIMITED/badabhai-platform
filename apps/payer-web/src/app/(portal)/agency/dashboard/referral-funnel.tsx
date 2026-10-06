@@ -14,9 +14,9 @@ import { RetryButton } from "../../../../components/retry-button";
  * per-invitee / per-worker rows here by construction; nothing is reconstructed.
  *
  * Each stage is a DS `Card` with its k-anon count in mono tabular (`bb-mono`); the count is
- * rendered IN-CARD as a child node (never a bare 0). The stages are COUNTS, not doors: the
- * dashboard's one way to the Referrals page is the Invite tools card (three cards opening one
- * page were three doors to the same place). Tokens only.
+ * rendered IN-CARD as a child node (never a bare 0). The stages are COUNTS, not doors: on the
+ * dashboard the funnel panel's one "Invite workers" link is the way to the Referrals page (three
+ * cards opening one page were three doors to the same place). Tokens only.
  */
 export function ReferralFunnel({ summary }: { summary: AgencyReferralsSummary | null }) {
   if (!summary) {

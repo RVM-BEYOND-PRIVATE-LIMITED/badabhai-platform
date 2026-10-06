@@ -85,6 +85,13 @@ COMPANION_EDIT_PARSE = "companion-edit-parse"
 # the sampled-answer review are exactly what a prompt edit moves, so "which prompt wrote this
 # answer" has to be answerable from one generation record.
 COMPANION_CAREER = "companion-career"
+# ADR-0051 - the profiling-stage free chat's three prompts on two tasks: the category router and
+# the reply's two prompts, chosen by category. Versioned like the rest: the category mix and the
+# served/fallback rate are exactly what a prompt edit moves, and the casual and career prompts
+# each need their own name because one task carries both.
+FREE_CHAT_CLASSIFY = "profiling-free-classify"
+FREE_CHAT_CASUAL = "profiling-free-casual"
+FREE_CHAT_CAREER = "profiling-free-career"
 
 #: ``prompt_source`` values. Two, and they mean different things to an operator: "local"
 #: says the deploy decides the prompt, "langfuse" says someone outside the deploy can.
@@ -217,7 +224,7 @@ def install_default_prompts() -> None:
     the OIE cutover left behind — registering either would claim prompt management over text no
     provider ever sees. The list has grown with the routes: the original three (the Phase A
     turn, the Phase C extract, the profile parse), then the general road, #1350's polish, the
-    ADR-0041 import trio, and ADR-0046's companion pair.
+    ADR-0041 import trio, ADR-0046's companion prompts, and ADR-0051's free-chat trio.
 
     Imports are LOCAL to this function, deliberately: it is called from the FastAPI
     lifespan, so the profiling package is imported after app construction rather than at
@@ -229,6 +236,7 @@ def install_default_prompts() -> None:
         CLASSIFY_SYSTEM_PROMPT,
         EDIT_PARSE_SYSTEM_PROMPT,
     )
+    from ..free_chat import prompts as free_chat_prompts
     from ..profiling.interview_prompts import (
         extract_system_prompt,
         interview_system_prompt,
@@ -257,3 +265,9 @@ def install_default_prompts() -> None:
     # interpolation, so the registered text and the route's fallback literal are the same
     # bytes unless a Langfuse-managed copy deliberately differs.
     register(COMPANION_CAREER, lambda: CAREER_SYSTEM_PROMPT)
+    # ADR-0051. Module constants like the companion's, the reply pair carrying only the
+    # import-time banned-token substitution, so each registered text and its route's fallback
+    # literal are the same bytes.
+    register(FREE_CHAT_CLASSIFY, lambda: free_chat_prompts.CLASSIFY_SYSTEM_PROMPT)
+    register(FREE_CHAT_CASUAL, lambda: free_chat_prompts.CASUAL_SYSTEM_PROMPT)
+    register(FREE_CHAT_CAREER, lambda: free_chat_prompts.CAREER_SYSTEM_PROMPT)

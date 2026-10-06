@@ -179,15 +179,16 @@ describe("desktop: the rail sticks BELOW the header, capped to the viewport, act
     expect(decl(rail, "flex-direction")).toBe("column");
   });
 
-  it("an agency editor's rail leaves room for its host card's padding (it starts one padding low)", () => {
-    const agency = g(".agency-job--editing .posting-preview", DESKTOP);
-    expect(decl(agency, "max-height")).toBe(
-      "calc(100dvh - var(--posting-rail-top) - var(--space-4) - var(--space-5))",
+  it("ONE rail rule for every posting form: no host re-caps it (the inline agency editor is gone)", () => {
+    // The agency row editor sat in a padded card and needed a shorter rail; its edit is a page
+    // now (final sweep F02), headed like the company forms, so no selector special-cases the rail.
+    const overrides = G.filter(
+      (r) =>
+        r.selector !== ".posting-preview" &&
+        r.selector.endsWith(".posting-preview") &&
+        decl(r, "max-height") !== null,
     );
-    // …and the host lands on the sticky line when the editor opens (revealEditor).
-    expect(decl(g(".agency-job--editing"), "scroll-margin-top")).toBe(
-      "var(--posting-rail-top)",
-    );
+    expect(overrides.map((r) => r.selector)).toEqual([]);
   });
 
   it("the card + facts scroll inside the rail only when they must; the actions are a pinned footer", () => {
@@ -353,8 +354,6 @@ describe("nothing between the rail and the page turns the sticky off", () => {
       ".posting-layout--editor",
       ".agency-job-form",
       ".agency-job",
-      ".agency-job--editing",
-      ".agency-job__lead",
     ];
     for (const r of G) {
       if (!wrappers.includes(r.selector)) continue;
@@ -364,11 +363,6 @@ describe("nothing between the rail and the page turns the sticky off", () => {
       expect(decl(r, "transform"), `${r.selector} transform`).toBeNull();
       expect(decl(r, "contain"), `${r.selector} contain`).toBeNull();
     }
-  });
-
-  it("an agency vacancy being edited IS the editor: block row, header leading the form column", () => {
-    expect(decl(g(".agency-job--editing"), "display")).toBe("block");
-    expect(decl(g(".agency-job__lead"), "display")).toBe("flex");
   });
 
   it("a long unbroken chip wraps inside its pill (it widened the page by up to 698px)", () => {
@@ -473,12 +467,7 @@ describe("L4/L5 — focusing the sticky dock never scrolls the page", () => {
   });
 });
 
-describe("an agency row's header keeps a readable measure — plain, and while it leads the editor", () => {
-  it("the header text has a 24rem basis in the lead, so the buttons wrap under it (not crush it)", () => {
-    expect(decl(g(".agency-job__lead"), "flex-wrap")).toBe("wrap");
-    expect(decl(g(".agency-job__lead > .agency-job__main"), "flex")).toBe("1 1 24rem");
-  });
-
+describe("an agency row's header keeps a readable measure", () => {
   it("the plain (unedited) row's text has an 18rem basis too, so its actions wrap under it", () => {
     // A zero basis (`flex: 1`) kept the actions beside the text from 430 to 520px and crushed it
     // (6px wide at 440, the Edit button over the title). The row wraps; beside the actions the

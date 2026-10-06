@@ -15,14 +15,15 @@ import { Card } from "../../../components/ds";
  *    around it is unaffected),
  *  - FACELESS: a worker name/phone in a regressed agency-jobs payload is NEVER rendered
  *    (the section-level assertNoAgencyPII throws → the panel degrades), and
- *  - LIVE: identity / demand summary / a "Your postings" glance / invite / referral funnel /
- *    parked modules all mount; the section itself holds NO form/input controls (those live in
- *    the child client components, unit-tested separately). Postings are MANAGED on
+ *  - LIVE: identity / demand summary / a "Your postings" glance / referral funnel / parked
+ *    modules all mount; the section holds NO form/input controls at all. Postings are MANAGED on
  *    /agency/jobs and CREATED on /agency/jobs/new — the dashboard links there.
  *  - NEGATIVE: no payout/KYC commercial term (₹500 / 25% / 90d) in the section.
- *  - CARDS-1: the "Total postings" tile opens the agency's Postings page (/agency/jobs), with NO
- *    worker PII in any tile href; each glance card opens THAT posting's details and links its
- *    REAL applicants (#1956).
+ *  - CARDS-1: the only linked tile is the agency's own account (/account), with NO worker PII in
+ *    any href; each glance card opens THAT posting's details and links its REAL applicants (#1956).
+ *  - SHORTER (final sweep F15/F21 — 5,354px tall at 375): no tile mirrors a rail destination
+ *    (Worker activity, QR invite, batch links), the dead bulk-upload tile is gone (F17), the invite
+ *    FORM lives on Referrals only (the dashboard links there once), and the glance holds 3 rows.
  *
  * Env is node (no DOM); we render the async Server Component to an element tree and walk it.
  */
@@ -42,6 +43,7 @@ const notFound = vi.fn(() => {
 const getAgencyAccount = vi.fn();
 const listAgencyJobs = vi.fn();
 const getAgencyReferralsSummary = vi.fn();
+const getAgencyEarnings = vi.fn();
 const flags = {
   agencyPortalEnabled: true,
   agencySupplyEnabled: false,
@@ -59,6 +61,7 @@ vi.mock("../../../lib/payer-api", () => ({
   getAgencyAccount: () => getAgencyAccount(),
   listAgencyJobs: () => listAgencyJobs(),
   getAgencyReferralsSummary: () => getAgencyReferralsSummary(),
+  getAgencyEarnings: () => getAgencyEarnings(),
 }));
 // next/link renders an <a>; stub to a plain anchor so the walk sees it.
 vi.mock("next/link", () => ({
@@ -73,6 +76,7 @@ vi.mock("next/link", () => ({
 const InvitePanelStub = () => null;
 const ReferralFunnelStub = () => null;
 const ParkedModulesStub = () => null;
+// Still mocked so a regression that re-mounts the form here is SEEN (as this stub), not rendered.
 vi.mock("../agency/dashboard/invite-panel", () => ({ AgencyInvitePanel: InvitePanelStub }));
 vi.mock("../agency/dashboard/referral-funnel", () => ({ ReferralFunnel: ReferralFunnelStub }));
 vi.mock("../agency/dashboard/parked-modules", () => ({ AgencyParkedModules: ParkedModulesStub }));
@@ -164,6 +168,8 @@ beforeEach(() => {
   getAgencyReferralsSummary
     .mockReset()
     .mockResolvedValue({ created: 7, clicked: 0, accepted: 0, minBucket: 5 });
+  // The server's payouts gate is OFF by default (the earnings route 404s → the seam's null).
+  getAgencyEarnings.mockReset().mockResolvedValue(null);
 });
 
 describe("agent sections — role + flag gating (defence-in-depth)", () => {
@@ -172,6 +178,7 @@ describe("agent sections — role + flag gating (defence-in-depth)", () => {
     await expect(AgentSections()).rejects.toThrow("NEXT_NOT_FOUND");
     expect(getAgencyAccount).not.toHaveBeenCalled();
     expect(listAgencyJobs).not.toHaveBeenCalled();
+    expect(getAgencyEarnings).not.toHaveBeenCalled();
   });
 
   /**
@@ -197,6 +204,54 @@ describe("agent sections — role + flag gating (defence-in-depth)", () => {
     expect(getAgencyAccount).not.toHaveBeenCalled();
     expect(listAgencyJobs).not.toHaveBeenCalled();
     expect(getAgencyReferralsSummary).not.toHaveBeenCalled();
+    expect(getAgencyEarnings).not.toHaveBeenCalled();
+  });
+});
+
+describe("agent sections — review M1: the KYC/payout cards follow the SERVER's payouts answer", () => {
+  // /agency/referrals draws the KYC, earnings and payout panels exactly when the earnings read
+  // answers (a 404 → null means AGENCY_PAYOUTS_ENABLED is off). The dashboard makes the SAME read
+  // and hands its answer to the parked cards — never the public NEXT_PUBLIC_* flags.
+  const EARNINGS = {
+    totalAccruedInr: 0,
+    requestableInr: 0,
+    inRequestInr: 0,
+    paidInr: 0,
+    accrualCount: 0,
+    kycStatus: "not_submitted",
+    thresholdInr: 500,
+    basisInr: 40,
+    rateBps: 2500,
+    windowDays: 90,
+    payoutsEnabled: true,
+    canRequest: false,
+    blockedReason: "kyc_not_verified",
+  };
+  const parkedProps = async () => {
+    const tree = await AgentSections();
+    const [parked] = findAll(tree, ParkedModulesStub);
+    expect(parked, "the parked cards mount").toBeDefined();
+    return { tree, props: prop(parked!) };
+  };
+
+  it("the earnings read answered → payoutsAvailable", async () => {
+    getAgencyEarnings.mockResolvedValueOnce(EARNINGS);
+    expect((await parkedProps()).props.payoutsAvailable).toBe(true);
+    expect(getAgencyEarnings).toHaveBeenCalledTimes(1);
+  });
+
+  it("the server's gate is off (404 → null) → not available, even with the public flags on", async () => {
+    agencyFlags.mockReturnValue({ ...flags, agencyKycEnabled: true, agencyPayoutsEnabled: true });
+    expect((await parkedProps()).props.payoutsAvailable).toBe(false);
+  });
+
+  it("a FAILED earnings read → not available, and no error: the rest of the dashboard is untouched", async () => {
+    getAgencyEarnings.mockRejectedValueOnce(new Error("upstream 503"));
+    const { tree, props } = await parkedProps();
+    expect(props.payoutsAvailable).toBe(false);
+    // Not a "Some signals unavailable" alert: the cards simply stay parked.
+    expect(collect(tree).text.join(" ")).not.toContain("Some signals unavailable");
+    expect(collect(tree).text.join(" ")).toContain("Your postings");
   });
 });
 
@@ -209,9 +264,18 @@ describe("agent sections — renders identity / demand summary / child modules",
     expect(joined).toContain("Total postings");
     expect(joined).toContain("Demand summary");
     expect(joined).toContain("Your postings");
-    expect(components).toContain(InvitePanelStub);
     expect(components).toContain(ReferralFunnelStub);
     expect(components).toContain(ParkedModulesStub);
+  });
+
+  it("F21: the invite FORM is not on the dashboard — one link to Referrals, where it lives", async () => {
+    const tree = await AgentSections();
+    expect(collect(tree).components).not.toContain(InvitePanelStub);
+    const toReferrals = findAll(tree, LinkStub).filter((a) =>
+      String(prop(a).href).startsWith("/agency/referrals"),
+    );
+    expect(toReferrals.map((a) => prop(a).href)).toEqual(["/agency/referrals"]);
+    expect(collect(toReferrals[0]!).text.join(" ")).toContain("Invite workers");
   });
 
   it("glances at the LIVE jobs (demand summary derives from them; each card → its details)", async () => {
@@ -237,17 +301,15 @@ describe("agent sections — renders identity / demand summary / child modules",
     expect(collect(tree).text.join(" ")).toContain("Applicants");
   });
 
-  it("offers ONE way to Referrals (the batch-invites tile), not one per funnel stage", async () => {
+  it("offers ONE way to Referrals, not one per funnel stage or invite tool", async () => {
     const tree = await AgentSections();
     const hrefs = [...findAll(tree, LinkStub), ...findAll(tree, Card)]
       .map((a) => prop(a).href)
       .filter((h): h is string => typeof h === "string");
-    expect(hrefs.filter((h) => h.startsWith("/agency/referrals"))).toEqual([
-      "/agency/referrals#batch-invites",
-    ]);
+    expect(hrefs.filter((h) => h.startsWith("/agency/referrals"))).toEqual(["/agency/referrals"]);
   });
 
-  it("the glance holds at most six postings and links to the full list ONCE", async () => {
+  it("F21: the glance holds at most THREE postings and links to the full list ONCE", async () => {
     const many = Array.from({ length: 9 }, (_, i) => ({
       ...JOB,
       id: `00000001-0000-4000-8000-00000000000${i}`,
@@ -257,7 +319,7 @@ describe("agent sections — renders identity / demand summary / child modules",
     const cards = findAll(tree, Card).filter((c) =>
       String(prop(c).className ?? "").split(/\s+/).includes("dash-posting"),
     );
-    expect(cards).toHaveLength(6);
+    expect(cards).toHaveLength(3);
     const toList = [...findAll(tree, LinkStub), ...findAll(tree, Card)].filter(
       (a) => prop(a).href === "/agency/jobs",
     );
@@ -306,41 +368,32 @@ describe("agent sections — NEGATIVE: no section-level inputs, no payout/KYC te
   });
 });
 
-describe("Invite tools · truthful about module 2, discoverable batch mint (ADR-0022 Amdt 3)", () => {
-  it("does NOT advertise bulk upload as coming soon — it names the module + its reason", async () => {
+describe("F15/F17 · no tile mirrors a rail destination, and no door to a dead module", () => {
+  it("never advertises bulk upload (dead, ADR-0022 Amdt 3) — no tile, no link, no 'coming soon'", async () => {
     const tree = await AgentSections();
-    const { text } = collect(tree);
-    const joined = text.join(" ");
-
+    const joined = collect(tree).text.join(" ");
     // Module 2 is DEAD with NO gate ("no gate ever revives bulk raw-phone ingest/export"):
-    // promising it is a promise the product must never keep.
+    // promising it is a promise the product must never keep — and a tile that only says "not
+    // available" is a dead end (F17).
     expect(joined).not.toMatch(/coming soon/i);
     expect(joined).not.toMatch(/upload multiple invites/i);
     expect(joined).not.toMatch(/\bat scale\b/i);
-
-    // …and the tile states the reason, consistent with parked-modules.tsx.
-    const bulk = findAll(tree, Card).find((c) => labelOf(c) === "Bulk invite upload")!;
-    expect(bulk).toBeDefined();
-    const bulkText = collect(bulk).text.join(" ");
-    expect(bulkText).toMatch(/not available/i);
-    expect(bulkText).toMatch(/consent violation/i);
-    // The route is kept (an explanation page), so the tile never 404s.
-    expect(prop(bulk).href).toBe("/agency/bulk-upload");
+    expect(joined).not.toMatch(/bulk/i);
+    const hrefs = [...findAll(tree, LinkStub), ...findAll(tree, Card)].map((a) => prop(a).href);
+    expect(hrefs).not.toContain("/agency/bulk-upload");
   });
 
-  it("surfaces the LIVE batch mint from Invite tools, pointing at the referrals batch panel", async () => {
+  it("no tile repeats the rail: Worker activity, QR invite and batch links are the rail's (or Referrals')", async () => {
     const tree = await AgentSections();
-    const batch = findAll(tree, Card).find((c) => labelOf(c) === "Batch invites")!;
-    expect(batch).toBeDefined();
-    expect(prop(batch).href).toBe("/agency/referrals#batch-invites");
-    expect(String(prop(batch).ariaLabel ?? "")).toMatch(/batch invite links/i);
-
-    // The Amdt-3 distinction must survive in the copy: batch mint GENERATES anonymous links
-    // (arity over nothing); it is not a softened "bulk feature".
-    const batchText = collect(batch).text.join(" ");
-    expect(batchText).toMatch(/anonymous/i);
-    expect(batchText).toMatch(/Live/);
-    expect(batchText).not.toMatch(/upload/i);
+    const hrefs = [...findAll(tree, LinkStub), ...findAll(tree, Card)].map((a) => prop(a).href);
+    for (const railOnly of ["/agency/workers", "/agency/qr", "/agency/referrals#batch-invites"]) {
+      expect(hrefs, railOnly).not.toContain(railOnly);
+    }
+    const labels = findAll(tree, Card).map(labelOf);
+    for (const gone of ["Worker activity", "QR invite", "Batch invites", "Bulk invite upload"]) {
+      expect(labels, gone).not.toContain(gone);
+    }
+    expect(collect(tree).text.join(" ")).not.toContain("Invite tools");
   });
 });
 
@@ -353,15 +406,13 @@ describe("CARDS-1 · agent tiles are whole-card links to their REAL routes (face
     expect(prop(byLabel("Account")!).href).toBe("/account");
     // The demand tile is a count; "All postings" on the panel is the one door to the list.
     expect(prop(byLabel("Total postings")!).href).toBeUndefined();
-    // The Revenue card is gone: the shared top's tile is the dashboard's one way to it.
+    // No Revenue card: Revenue is a rail destination (the rail is its door; PR D #2037 also
+    // removed the shared top's "Coming soon" tile).
     expect(byLabel("Revenue")).toBeUndefined();
     expect(cards.map((c) => prop(c).href)).not.toContain("/agency/revenue");
-    expect(byLabel("QR invite")).toBeDefined();
-    // B5: the faceless engagement view — a STATIC route, and no count is rendered on the
-    // tile (a count would itself signal how many referrals consented).
-    const activity = byLabel("Worker activity")!;
-    expect(prop(activity).href).toBe("/agency/workers");
-    expect(String(prop(activity).ariaLabel ?? "")).toContain("Worker activity");
+    // F15: Worker activity and QR invite are rail destinations — the rail is their door.
+    expect(byLabel("QR invite")).toBeUndefined();
+    expect(byLabel("Worker activity")).toBeUndefined();
 
     // every LINKED tile carries a non-empty accessible name
     for (const c of cards) {
@@ -387,9 +438,7 @@ describe("CARDS-1 · agent tiles are whole-card links to their REAL routes (face
       expect(h).not.toMatch(/\b\d{10}\b/);
       expect(h).not.toMatch(/\+91/);
       // every tile href is a static app route (no interpolated id at all)
-      expect(h).toMatch(
-        /^\/(account|agency\/(qr|bulk-upload|workers|referrals#batch-invites))$/,
-      );
+      expect(h).toMatch(/^\/account$/);
     }
     // A glance card carries exactly ONE id — the posting's OWN — in one fixed shape.
     const glanceHrefs = cards.filter(isGlance).map((c) => String(prop(c).href));

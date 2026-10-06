@@ -32,8 +32,8 @@
  *     tile on the agency dashboard — navigate away and the browser's back button was the only
  *     route back. It is now addressable from the nav. This exposes no new capability: the
  *     route keeps `requireAgent()` + its flag gate. (`/agency/bulk-upload` is NOT in the nav:
- *     it explains a module that will never be built, and the dashboard's Invite tools card is
- *     its one way in.)
+ *     it explains a module that will never be built. Nothing in the portal links to it — the
+ *     dashboard tile that did was a dead end (final sweep F17); an old link still lands on it.)
  *
  *  3. DUPLICATES PRESENTED AS PEERS. `/profile` used to render the very same `AccountForm`
  *     as `/account`, so the nav offered two doors onto one screen. `/account` is the

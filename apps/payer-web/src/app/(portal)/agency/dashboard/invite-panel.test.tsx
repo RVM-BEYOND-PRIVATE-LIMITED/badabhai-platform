@@ -244,3 +244,104 @@ describe("AgencyInvitePanel — W1 link metadata reaches the action", () => {
     for (const p of placeholders) expect(p).not.toMatch(/phone|mobile|name|email|csv/i);
   });
 });
+
+/* ── F19 (final sweep): the primary sits under the consent note; the options wait behind it ── */
+
+/** Every element of the tree in render order (DS fields are not expanded). */
+function elementsOf(node: ReactNode, out: ReactElement<Record<string, unknown>>[] = []) {
+  if (node === null || node === undefined || typeof node !== "object") return out;
+  if (Array.isArray(node)) {
+    for (const c of node) elementsOf(c, out);
+    return out;
+  }
+  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  out.push(el);
+  if ("children" in el.props) elementsOf(el.props.children, out);
+  return out;
+}
+const OPTION_IDS = ["campaign", "medium", "role", "city"];
+const optionsOf = (tree: ReactNode) => elementsOf(tree).find((e) => e.type === "details")!;
+
+describe("AgencyInvitePanel — F19: 'Create invite link' right under the consent note", () => {
+  it("the form opens with the submit row — no field, no prose between the note and the button", () => {
+    const section = render("") as ReactElement<{ children: ReactNode[] }>;
+    const kids = (section.props.children as ReactNode[]).filter(
+      (k): k is ReactElement<Record<string, unknown>> => typeof k === "object" && k !== null,
+    );
+    const noteAt = kids.findIndex((k) => String(k.props.className ?? "").includes("agency-invite__note"));
+    const form = kids[noteAt + 1]!;
+    expect(form.type).toBe("form");
+    const firstRow = (form.props.children as ReactNode[]).find(
+      (k): k is ReactElement<Record<string, unknown>> => typeof k === "object" && k !== null,
+    )!;
+    expect(firstRow.props.className).toBe("agency-invite__actions");
+    const submitBtn = elementsOf(firstRow).find((e) => e.props.type === "submit")!;
+    expect(collect(submitBtn).text.join("")).toBe("Create invite link");
+  });
+
+  it("all four optional fields live inside ONE 'Options' disclosure, after the button", () => {
+    const tree = render("");
+    const options = optionsOf(tree);
+    expect(options).toBeDefined();
+    const summary = elementsOf(options).find((e) => e.type === "summary")!;
+    expect(collect(summary).text.join(" ")).toContain("Options");
+    const inside = elementsOf(options).map((e) => e.props.id);
+    for (const id of OPTION_IDS) expect(inside, id).toContain(id);
+    // …and none of them sits outside it.
+    const outside = elementsOf(tree).filter((e) => !elementsOf(options).includes(e));
+    for (const id of OPTION_IDS) expect(outside.map((e) => e.props.id), id).not.toContain(id);
+  });
+
+  it("collapsed while every option is empty", () => {
+    expect(optionsOf(render("")).props.open).toBeFalsy();
+  });
+
+  it("OPEN whenever any option holds a value — a setting applied to the link is never hidden", () => {
+    // [campaign, campaignError, invite, copied, error, medium, role, city, contextError]
+    const seeds: Array<[string, Partial<Record<number, unknown>>]> = [
+      ["campaign", { 0: "diwali-drive" }],
+      ["medium", { 5: "paid" }],
+      ["role", { 6: "welder" }],
+      ["city", { 7: "pune-west" }],
+    ];
+    for (const [name, over] of seeds) {
+      const state: unknown[] = ["", null, null, false, null, "", "", "", null];
+      for (const [i, v] of Object.entries(over)) state[Number(i)] = v;
+      expect(optionsOf(renderState(state)).props.open, name).toBe(true);
+    }
+  });
+
+  it("the summary toggles it (the open state is React's, so a re-render never fights the click)", () => {
+    const first = useState.mock.results.length;
+    const tree = render("");
+    // useState order: …, contextError, optionsOpen (APPENDED) — the tenth.
+    const setOptionsOpen = useState.mock.results[first + 9]!.value[1] as ReturnType<typeof vi.fn>;
+    const summary = elementsOf(optionsOf(tree)).find((e) => e.type === "summary")!;
+    const preventDefault = vi.fn();
+    (summary.props.onClick as (e: { preventDefault: () => void }) => void)({ preventDefault });
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(setOptionsOpen).toHaveBeenCalledWith(true);
+  });
+
+  it("a click while an option is set keeps it open — clearing that option later never snaps it shut", () => {
+    // Measured in the browser: fill → click (no visible change) → clear the field → the fields
+    // collapsed under the cursor, because the click had recorded "closed".
+    const first = useState.mock.results.length;
+    const tree = renderState(["diwali-drive", null, null, false, null, "", "", "", null, false]);
+    const setOptionsOpen = useState.mock.results[first + 9]!.value[1] as ReturnType<typeof vi.fn>;
+    const summary = elementsOf(optionsOf(tree)).find((e) => e.type === "summary")!;
+    (summary.props.onClick as (e: { preventDefault: () => void }) => void)({ preventDefault: () => {} });
+    expect(setOptionsOpen).toHaveBeenCalledWith(true);
+    expect(setOptionsOpen).not.toHaveBeenCalledWith(false);
+  });
+
+  it("an open, empty disclosure closes on a click", () => {
+    const first = useState.mock.results.length;
+    const tree = renderState(["", null, null, false, null, "", "", "", null, true]);
+    const setOptionsOpen = useState.mock.results[first + 9]!.value[1] as ReturnType<typeof vi.fn>;
+    expect(optionsOf(tree).props.open).toBe(true);
+    const summary = elementsOf(optionsOf(tree)).find((e) => e.type === "summary")!;
+    (summary.props.onClick as (e: { preventDefault: () => void }) => void)({ preventDefault: () => {} });
+    expect(setOptionsOpen).toHaveBeenCalledWith(false);
+  });
+});
