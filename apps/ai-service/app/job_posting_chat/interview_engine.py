@@ -321,7 +321,9 @@ def next_turn(
     if last_asked is None and st.turn_count == 1:
         last_asked = _opener_topic_id(trade_hint)
     correcting = answers.is_correction(payer_message_raw)
-    detected = answers.detect_answers(recorded_text, last_asked, pay_text=pay_text)
+    detected = answers.detect_answers(
+        recorded_text, last_asked, pay_text=pay_text, raw_message=payer_message_raw
+    )
     if _pay_type_describes_another_band(st, detected, last_asked, correcting):
         del detected["pay_type"]
     for topic_id, value in detected.items():
