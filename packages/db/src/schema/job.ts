@@ -220,8 +220,9 @@ export const jobPostings = pgTable(
     //
     // DISPLAY / CLASSIFICATION ONLY. Never a match or rank input: `match_skill_ids` above
     // stays the only thing a posting is matched on (ADR-0036 §3), and nothing derives a
-    // `job_domain_id` or a skill from this. It is on NO worker read in this phase (ADR-0024
-    // addendum 2026-09-29, #1823) — the feed/search/detail projections do not select it.
+    // `job_domain_id` or a skill from this. Worker reads: `GET /feed` and the worker job detail
+    // project it as the card's role ILLUSTRATION key (owner ruling 2026-10-05, ADR-0024
+    // addendum), gated to the closed set or null; search does not. Never a predicate.
     //
     // NULLABLE WITH NO BACKFILL and NO DEFAULT: every existing posting, and every chat-
     // published one, reads NULL = "no role picked", never a guessed role. Closed by the
