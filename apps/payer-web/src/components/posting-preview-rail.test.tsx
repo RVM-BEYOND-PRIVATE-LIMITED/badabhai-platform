@@ -202,7 +202,7 @@ describe("PostingPreviewRail", () => {
   });
 });
 
-describe("Also in your posting — not on the worker's card", () => {
+describe("Also in your posting — not written on the worker's card", () => {
   it("company: role, openings, skills (labels, never ids), location note, description + where workers read it", () => {
     const facts = companyPostingFacts({
       roleKind: "tool_die_maker",

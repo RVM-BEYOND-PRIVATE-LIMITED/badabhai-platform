@@ -221,6 +221,6 @@ describe("the lineage — form → body → wire echo → 'Also in your posting'
       />,
     );
     expect(facts).toContain(escaped);
-    expect(facts).toContain("not on the worker&#x27;s card");
+    expect(facts).toContain("not written on the worker&#x27;s card");
   });
 });
