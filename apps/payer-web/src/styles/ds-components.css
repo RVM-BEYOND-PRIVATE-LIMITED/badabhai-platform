@@ -402,11 +402,19 @@
    "top-end") it grows toward the row's start, so it can never push the page sideways; a long name
    WRAPS inside a box no wider than 20rem, the page, or the chip's ROW (`100cqi` — the row is an
    inline-size container, e.g. .chip-editor__chips). Where it would still cross the row's start
-   (a short chip that starts a row), chip-tip.ts slides it right by the overrun: --bb-tip-shift. */
+   (a short chip that starts a row), chip-tip.ts slides it right by the overrun: --bb-tip-shift.
+   The row cap is added only where container units exist: with a var() in it the declaration
+   cannot be dropped at parse time, so an engine without `cqi` would compute it to `max-width:
+   none` — the 20rem / page cap is the base every engine keeps. */
 .bb-chip__remove > .bb-icon-tip {
   white-space: normal; width: max-content;
-  max-width: min(20rem, 100cqi, calc(100vw - 2 * var(--space-4)));
+  max-width: min(20rem, calc(100vw - 2 * var(--space-4)));
   translate: calc(var(--bb-tip-shift, 0) * 1px) 0;
+}
+@supports (width: 1cqi) {
+  .bb-chip__remove > .bb-icon-tip {
+    max-width: min(20rem, 100cqi, calc(100vw - 2 * var(--space-4)));
+  }
 }
 
 /* ---------- Avatar ---------- */
