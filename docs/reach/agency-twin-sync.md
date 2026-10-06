@@ -39,11 +39,11 @@ A refused twin stores no match or reach ids. It reaches nobody, whatever its sta
 The shared core is `packages/db/src/agency-twin.ts`. Two callers run it, so they cannot write
 different twins:
 
-| Trigger    | Where                                                              | Cadence                       | Does                                                                                                  |
-| ---------- | ------------------------------------------------------------------ | ----------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Event poll | `apps/api/src/agency-twin` (BullMQ `agency-twin-sync`, job `poll`) | every 30 s                    | re-syncs every agency job named by a `job.created/updated/closed` in the last 10 min                  |
-| Sweep      | same queue, job `sweep`                                            | every 10 min                  | converges every agency job; catches the ADR-0037 suspension cascade and any write that emits no event |
-| CLI        | `pnpm db:sync:agency-twins`                                        | by hand (flip window, probes) | the same sync; dry run by default                                                                     |
+| Trigger    | Where                                                                                                                                                    | Cadence                       | Does                                                                                                        |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Event poll | `apps/api/src/agency-twin` (BullMQ `agency-twin-sync`, job `poll`)                                                                                       | every 30 s                    | re-syncs every agency job named by a `job.created/updated/closed` in the last 10 min                        |
+| Sweep      | same queue, job `sweep`                                                                                                                                  | every 10 min                  | converges every agency job; catches the ADR-0037 suspension cascade and any write that emits no event       |
+| CLI        | `pnpm db:sync:agency-twins` (after `pnpm --filter @badabhai/api build`; on a box: `node dist/agency-twin/sync-agency-twins.cli.js` in the api container) | by hand (flip window, probes) | the same sync and the same validated event; dry run by default; the shared ops guard on a production target |
 
 What one job's sync does:
 

@@ -34,6 +34,35 @@ export const AGENCY_TWIN_EVENT_LOOKBACK_MS = 10 * 60_000;
 /** Distinct job ids one poll may take; anything beyond is converged by the sweep. */
 export const AGENCY_TWIN_EVENT_POLL_LIMIT = 500;
 
+/**
+ * THE ONE MAPPING from a sync write to the `job_posting.twin_synced` v1 payload — used by the api
+ * service and by the `sync-agency-twins` CLI, so the two cannot emit different shapes.
+ */
+export function twinSyncedPayload(w: AgencyTwinWrite): PayloadInputOf<"job_posting.twin_synced"> {
+  return {
+    job_posting_id: w.jobPostingId,
+    source_job_id: w.sourceJobId,
+    operation: w.operation,
+    status: w.status,
+    changed_fields: w.changedFields,
+    refused_reason: w.refusedReason,
+  };
+}
+
+/** The payload for one twin the kill switch paused (ADR-0050 §7). */
+export function killSwitchPayload(
+  m: AgencyTwinDisarmed,
+): PayloadInputOf<"job_posting.twin_synced"> {
+  return {
+    job_posting_id: m.jobPostingId,
+    source_job_id: m.sourceJobId,
+    operation: "refused",
+    status: "paused",
+    changed_fields: ["status"],
+    refused_reason: "kill_switch",
+  };
+}
+
 /** What one tick did — counts only (ids never leave the spine). */
 export interface AgencyTwinTickSummary {
   armed: boolean;
@@ -192,26 +221,12 @@ export class AgencyTwinService implements OnModuleInit {
 
   /** `job_posting.twin_synced` for one write, on the write's transaction. */
   private async emitWrite(tx: Database, w: AgencyTwinWrite): Promise<void> {
-    await this.emit(tx, {
-      job_posting_id: w.jobPostingId,
-      source_job_id: w.sourceJobId,
-      operation: w.operation,
-      status: w.status,
-      changed_fields: w.changedFields,
-      refused_reason: w.refusedReason,
-    });
+    await this.emit(tx, twinSyncedPayload(w));
   }
 
   /** `job_posting.twin_synced` for one twin the kill switch paused. */
   private async emitDisarmed(tx: Database, m: AgencyTwinDisarmed): Promise<void> {
-    await this.emit(tx, {
-      job_posting_id: m.jobPostingId,
-      source_job_id: m.sourceJobId,
-      operation: "refused",
-      status: "paused",
-      changed_fields: ["status"],
-      refused_reason: "kill_switch",
-    });
+    await this.emit(tx, killSwitchPayload(m));
   }
 
   private async emit(

@@ -174,7 +174,9 @@ describe.skipIf(!RUN)("ADR-0050 agency twin sync, against Postgres", () => {
     expect(empty.status).toBe("paused");
     expect(empty.match_skill_ids).toEqual([]);
     expect((await twinEvents(J_EMPTY)).at(-1)!.payload).toMatchObject({
-      operation: "created",
+      // Born unservable → reported as a refusal (the CI 37487401977 regression).
+      operation: "refused",
+      status: "paused",
       refused_reason: "no_match_skills",
     });
 

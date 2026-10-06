@@ -3,7 +3,7 @@
  * linked by `source_job_id`, written by ONE idempotent sync (#1957).
  *
  * THE SHARED CORE. The api's queue (event poll + periodic sweep) and the `db:sync:agency-twins`
- * CLI both run exactly this code, so the twin a sweep writes and the twin the flip-window CLI
+ * CLI (`apps/api/src/agency-twin/sync-agency-twins.cli.ts`) both run exactly this code, so the twin a sweep writes and the twin the flip-window CLI
  * writes cannot differ. It holds:
  *
  *   - {@link planAgencyTwin}         — PURE: the target twin for one source row (§4.2).
@@ -514,14 +514,20 @@ function toSource(row: Awaited<ReturnType<typeof agencySourceQuery>>[number]): A
   };
 }
 
-/** Which operation a write is, from what changed (§9). */
-function operationOf(
+/**
+ * Which operation a write is (§9). A REFUSAL WINS, including on the write that creates the twin:
+ * `job_posting.twin_synced` admits a `refused_reason` only with `operation: "refused"` (and only
+ * on a `paused` twin), so a twin born unservable — an open agency job with no pick yet — is
+ * reported as `refused`, never as a `created` that carries a reason. `changed_fields` still
+ * lists every key the create populated.
+ */
+export function agencyTwinOperation(
   created: boolean,
   changed: readonly AgencyTwinChangedField[],
   refusedReason: AgencyTwinPlan["refusedReason"],
 ): AgencyTwinOperation {
-  if (created) return "created";
   if (refusedReason !== null) return "refused";
+  if (created) return "created";
   return changed.length === 1 && changed[0] === "status" ? "status_changed" : "updated";
 }
 
@@ -578,7 +584,7 @@ export async function syncAgencyTwin(
     const write = {
       kind: "written" as const,
       sourceJobId: jobId,
-      operation: operationOf(!existing, changed, plan.refusedReason),
+      operation: agencyTwinOperation(!existing, changed, plan.refusedReason),
       status: plan.values.status,
       changedFields: changed,
       refusedReason: plan.refusedReason,

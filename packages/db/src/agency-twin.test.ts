@@ -3,7 +3,6 @@
  * whether a sync writes (and emits) anything. The transactional half is exercised against a real
  * Postgres in `apps/api/src/agency-twin/agency-twin-sync.db.test.ts`.
  */
-import { AGENCY_TWIN_ORG_LABEL, AGENCY_TWIN_SYSTEM_ACTOR_ID } from "@badabhai/config";
 import { TRADE_TO_MATCH_SKILL } from "@badabhai/taxonomy";
 import { describe, expect, it } from "vitest";
 
@@ -173,10 +172,10 @@ describe("diffAgencyTwin — an unchanged source writes nothing", () => {
 });
 
 describe("agencyTwinConstantsProblems — the Q3 boot check", () => {
-  it("passes the shipped constants", () => {
-    expect(agencyTwinConstantsProblems(AGENCY_TWIN_SYSTEM_ACTOR_ID, AGENCY_TWIN_ORG_LABEL)).toEqual(
-      [],
-    );
+  // The SHIPPED constants live in @badabhai/config; their boot check is asserted where they are
+  // consumed (apps/api `agency-twin.service.test.ts`), so this package takes no config edge.
+  it("passes a uuid actor and a neutral label", () => {
+    expect(agencyTwinConstantsProblems(CTX.systemActorId, CTX.orgLabel)).toEqual([]);
   });
 
   it("fails closed on a non-uuid actor, an empty label, or a label with identity in it", () => {
