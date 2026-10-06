@@ -1,5 +1,6 @@
 import type { FeedJob, FeedPostingRow } from "./applications.repository";
 import type { FeedItem } from "./applications.service";
+import { toWorkerRoleKind } from "../common/worker-role-kind";
 
 /**
  * THE LEGACY FEED'S CARD MAPPING AND ITS TWO-SOURCE MERGE (#1823, ADR-0049). Pure: no I/O,
@@ -57,16 +58,20 @@ export function toSourcedFromJob(job: FeedJob): SourcedFeedItem {
       requirements: job.requirements,
       needed_by: job.neededBy,
       posted_at: job.createdAt.toISOString(),
+      // Card art (owner ruling 2026-10-05). Fail closed: a declared kind or null, nothing else.
+      role_kind: toWorkerRoleKind(job.roleKind),
     },
   };
 }
 
 /**
- * A company posting as a card, on the SAME 17 keys — no `role_kind`, no source key, nothing a
- * shipped client has not already parsed (ADR-0024 addendum for #1823).
+ * A company posting as a card, on the SAME keys as a jobs card — no source key (ADR-0024
+ * addendum for #1823).
  *
  *   - `trade_key` is `""`: a posting has no trade column, and the client renders no trade line
  *     for an empty key. Never an `mskill_*` id (vocabulary leak) and never `role_kind` (O6).
+ *   - `role_kind` rides its OWN additive key, gated to the closed set or null, for the card's
+ *     illustration (owner ruling 2026-10-05 supersedes O6's "not this phase").
  *   - `city` is `""` when the posting has no bucket: `FeedItem.city` is a string, the V1
  *     precedent. Never back-filled from `location_label`.
  *   - `posted_at` is `published_at` — ADR-0024's one key on both feed shapes.
@@ -96,6 +101,7 @@ export function toSourcedFromPosting(row: FeedPostingRow): SourcedFeedItem | nul
       requirements: row.requirements,
       needed_by: row.neededBy,
       posted_at: row.publishedAt.toISOString(),
+      role_kind: toWorkerRoleKind(row.roleKind),
     },
   };
 }

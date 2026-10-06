@@ -83,7 +83,12 @@ describe("Clear these fields — empties the bar, keeps what is chosen above it"
 
 describe("the rendered bar", () => {
   const html = renderToStaticMarkup(
-    <SkillDiscoveryFilterBar basePath={BASE} carry={{}} initial={{ ...EMPTY, phrase: "arc" }} />,
+    <SkillDiscoveryFilterBar
+      view="flat"
+      basePath={BASE}
+      carry={{}}
+      initial={{ ...EMPTY, phrase: "arc" }}
+    />,
   );
 
   it("offers Apply and a clear that says what it clears", () => {
@@ -95,5 +100,53 @@ describe("the rendered bar", () => {
 
   it("shows the current values in the fields", () => {
     expect(html).toContain('value="arc"');
+  });
+});
+
+/**
+ * The Sort field orders the FLAT queue's keyset pages (final sweep AW-23). Grouped batches are
+ * ordered by the Batch order chips; the select was shown there too and changed nothing.
+ */
+describe("Sort is offered only where it orders something", () => {
+  const render = (view: "grouped" | "flat", sort: "newest" | "oldest" = "newest") =>
+    renderToStaticMarkup(
+      <SkillDiscoveryFilterBar
+        view={view}
+        basePath={BASE}
+        carry={{}}
+        initial={{ ...EMPTY, sort }}
+      />,
+    );
+
+  it("the flat view shows it", () => {
+    const html = render("flat");
+    expect(html).toContain(">Sort</span>");
+    expect(html).toContain("Newest first");
+  });
+
+  it("the grouped view does not", () => {
+    const html = render("grouped");
+    expect(html).not.toContain(">Sort</span>");
+    expect(html).not.toContain("Newest first");
+    // Every other field is still there.
+    for (const label of [
+      "Confidence band",
+      "Suggested action",
+      "Source type",
+      "Trade family",
+      "Run id",
+      "Cluster key",
+      "Phrase starts with",
+      "Created from",
+      "Created to",
+    ]) {
+      expect(html, label).toContain(`>${label}</span>`);
+    }
+  });
+
+  it("a sort carried into the grouped view survives Apply, for when the reviewer goes back to flat", () => {
+    // Hidden is not cleared: the bar still owns the value, so `?sort=oldest` round-trips.
+    const href = filterBarHref(BASE, { view: "grouped" }, { ...EMPTY, sort: "oldest" });
+    expect(new URL(href, "http://x").searchParams.get("sort")).toBe("oldest");
   });
 });

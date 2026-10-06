@@ -1,6 +1,6 @@
 /**
- * Skill Discovery loading skeleton — shape-matched to the real page (`page__head` → `.stats`
- * tiles → a second compact `.stats` row → the queue `.panel`), the same discipline the
+ * Skill Discovery loading skeleton — shape-matched to the real page (`page__head` → the queue
+ * `.panel` → the metrics: `.stats` tiles and a second compact `.stats` row), the same discipline the
  * portal-level `(portal)/loading.tsx` uses. Its own file rather than relying on the shared
  * shell skeleton because this route's tile count (4 + 5) and the queue panel's filter rows
  * are a materially different shape — a skeleton the wrong size jumps the layout the moment
@@ -16,6 +16,18 @@ export default function SkillDiscoveryLoading() {
           <div className="skeleton skeleton--title" />
         </div>
       </header>
+
+      {/* The queue panel FIRST, as the page renders it (AW-02): its controls, then rows. */}
+      <section className="panel">
+        <div className="panel__head">
+          <div className="skeleton skeleton--title" />
+        </div>
+        <div className="skeleton skeleton--row" />
+        <div className="skeleton skeleton--row" />
+        <div className="skeleton skeleton--row" />
+        <div className="skeleton skeleton--row" />
+        <div className="skeleton skeleton--row" />
+      </section>
 
       {/* The metrics block — the same `.queue-metrics` stack the page renders, so the two tile
           rows sit the same distance apart while loading as once loaded. */}
@@ -55,18 +67,6 @@ export default function SkillDiscoveryLoading() {
           </div>
         </div>
       </div>
-
-      {/* The queue panel: filters, then rows. */}
-      <section className="panel">
-        <div className="panel__head">
-          <div className="skeleton skeleton--title" />
-        </div>
-        <div className="skeleton skeleton--row" />
-        <div className="skeleton skeleton--row" />
-        <div className="skeleton skeleton--row" />
-        <div className="skeleton skeleton--row" />
-        <div className="skeleton skeleton--row" />
-      </section>
     </div>
   );
 }

@@ -157,6 +157,15 @@ NestJS boot assertion).
   `${CHAT_IDENTITY_INTAKE_ENABLED:-false}`, `ci.yml` `env:` + `envs:`). **It must be on by the
   release that unroutes the app's `/name` screen** — off with `/name` gone captures nobody's name;
   on with `/name` still routed asks only what `/name` left blank. No migration.
+- **The profiling-stage free chat's kill switch (ADR-0051, #2027)** — `CHAT_FREE_CHAT_DISABLED`
+  (default false, which means the feature is ON: live on merge, owner ruling 2026-10-06). A
+  profiling session opens on a greeting ("Shuru karein?"); résumé mode is today's interview,
+  locked until the résumé is done; free mode classifies and answers every message per category.
+  `true` sends every session straight to today's interview with no greeting and no classifier
+  call, byte for byte the pre-ADR-0051 chat. Bridged through the GitHub `production` environment
+  secret of the same name (compose `${CHAT_FREE_CHAT_DISABLED:-false}`, `ci.yml` `env:` + `envs:`).
+  The two model tasks it calls (`profiling_free_classify`, `profiling_free_reply`) are armed
+  separately, by appending them to the box's `AI_REAL_CALL_TASKS`. No migration.
 - **Matching V1 cutover gate (ADR-0036 §8, #1904)** — `MATCH_V1_ENABLED`, api only
   (`booleanFromString`, default off). Off is the legacy source for the worker feed, apply and the
   payer candidate list (`jobs` + the weighted engine); on is `job_reach` + `job_postings` + the V1
@@ -172,6 +181,22 @@ NestJS boot assertion).
   `1`/`0`/empty only; anything else would stop the api booting, so `scripts/deploy/staging-deploy.sh`
   refuses any other value before a container moves. In CI only the `e2e` job's Matching V1 journey step
   sets it, on its own API process (port 3002).
+- **Interim union feed (ADR-0049, #1823)** — `FEED_POSTINGS_UNION_ENABLED`, api only
+  (`booleanFromString`, default off). Off is the legacy worker feed and apply/skip byte for byte
+  (`jobs` only). On adds company `job_postings` to the legacy `GET /feed` (newest-first, the legacy
+  17-key card) and the posting branch of apply/skip. **Effective only while `MATCH_V1_ENABLED` is
+  off**: `isFeedPostingsUnionEnabled` answers false whenever V1 is on, whatever this says. Not
+  behind it, live from their merge: the payer posting-applicants list, the ops
+  `GET /jobs/:jobId/applicants` read and the unlock job-context fix (#1903). Bridged through the
+  GitHub `production` environment secret of the same name (compose
+  `${FEED_POSTINGS_UNION_ENABLED:-false}` on `api`, `ci.yml` `env:` + `envs:`). **Absent = off**,
+  exactly as for `MATCH_V1_ENABLED`. **Production stays off**: arming is an owner decision, taken
+  only after every item of the pre-arm list in `docs/ops/production-release-runbook.md` P4 #13
+  holds. Arming is the secret set to `true` plus a redeploy; off again is the secret set to `false`
+  plus a redeploy. Values: lowercase `true`/`false`/`1`/`0`/empty only; anything else would stop
+  the api booting, so `scripts/deploy/staging-deploy.sh` refuses any other value before a
+  container moves. In CI tests, only the `e2e` job's union step sets it, on a restarted API process that
+  runs `tests/e2e/feed-postings-union.e2e.test.ts` alone.
 - **Admin Engine view demo allow-list (owner ruling 2026-10-06, #2014)** —
   `ADMIN_ENGINE_VIEW_ALLOW_PHONES`, api only. The Engine view (`/admin/match/engine/*`) shows
   DEMO WORKERS ONLY: phones in the reserved demo block `+910000026xxx`, plus the handsets listed
@@ -180,7 +205,7 @@ NestJS boot assertion).
   `${ADMIN_ENGINE_VIEW_ALLOW_PHONES:-}`, `ci.yml` `env:` + `envs:`); a malformed value fails the api
   boot, so `scripts/deploy/staging-deploy.sh` refuses it before a container moves.
   **Every entry must be a handset whose owner has consented to demo use, and adding one is an
-  owner decision** — the list can admit any `+91` number (risks register R60).
+  owner decision** — the list can admit any `+91` number (risks register R61).
 - **Chat / profiling** — `CHAT_TRANSCRIPT_TTL_SECONDS`, `CHAT_ABANDON_AFTER_SECONDS`,
   `CHAT_MAX_TURNS` (the authoritative hard cap — the ai-service mirrors it but holds no
   per-session state, so it can only enforce what the API tells it).

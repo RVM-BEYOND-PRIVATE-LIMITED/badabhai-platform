@@ -705,6 +705,15 @@ describe("loadServerConfig", () => {
     ).toBe(true);
   });
 
+  it("CHAT_FREE_CHAT_DISABLED (ADR-0051) is false by default — the free chat is live unless killed", () => {
+    // The kill switch, not a gate: unset, blank and 'false' all leave the free chat ON (live on
+    // merge, owner ruling 2026-10-06); only an explicit true restores the pre-ADR-0051 chat.
+    expect(loadServerConfig({}).CHAT_FREE_CHAT_DISABLED).toBe(false);
+    expect(loadServerConfig({ CHAT_FREE_CHAT_DISABLED: "" }).CHAT_FREE_CHAT_DISABLED).toBe(false);
+    expect(loadServerConfig({ CHAT_FREE_CHAT_DISABLED: "false" }).CHAT_FREE_CHAT_DISABLED).toBe(false);
+    expect(loadServerConfig({ CHAT_FREE_CHAT_DISABLED: "true" }).CHAT_FREE_CHAT_DISABLED).toBe(true);
+  });
+
   it("RESUME_SKINS_ENABLED (#1801) is OFF by default and for the empty string", () => {
     // Off means nothing touches `worker_resume_skin` (migration 0128), which is what makes a
     // deploy ahead of that migration safe — so the default is load-bearing, not cosmetic.

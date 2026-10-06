@@ -27,8 +27,17 @@ describe("discovery rhythm", () => {
   });
 
   it("a caption sits closer to what it explains than to the next block", () => {
-    const group = own(".queue-controls__group, .queue-notes");
+    // The tier tabs' caption group is gone (its caption is a foot note since AW-02); the foot
+    // notes and the metrics' captions keep the tight step.
+    const group = own(".queue-notes");
     expect(decl(group, "gap")).toBe("var(--space-2)");
+  });
+
+  it("More filters' body is one stack at the controls stack's own gap (AW-02)", () => {
+    const body = own(".queue-filters__body");
+    expect(decl(body, "display")).toBe("flex");
+    expect(decl(body, "flex-direction")).toBe("column");
+    expect(decl(body, "gap")).toBe(decl(own(".queue-metrics, .queue-controls"), "gap"));
   });
 
   it("the results and the trailing captions stand off the controls by the pager's step", () => {

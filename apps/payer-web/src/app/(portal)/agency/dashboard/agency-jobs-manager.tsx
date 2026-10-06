@@ -73,6 +73,11 @@ function revealEditor(hostId: string) {
  * that still shows the old one waits for the next, so a slow commit after a save cannot win the
  * race). On open it adds no scroll of its own (`revealEditor`, scheduled first, owns that); on
  * close it scrolls the toggle into view (Cancel or a save can be far down the form).
+ *
+ * It only puts back focus the rebuild DROPPED (to <body>). A save lands seconds after the press,
+ * and a payer who moved on meanwhile — into another row's editor, onto another row's link — keeps
+ * their focus and their scroll position: taking it back scrolled the page to the saved row
+ * (measured 1428 → 0 at 1280) and the payer's next space pressed that row's Edit.
  */
 function refocusToggle(jobId: string, opts: { editing: boolean; scroll: boolean }) {
   if (typeof window === "undefined") return;
@@ -80,8 +85,12 @@ function refocusToggle(jobId: string, opts: { editing: boolean; scroll: boolean 
   const attempt = () => {
     const toggle = document.getElementById(rowToggleId(jobId));
     const rebuilt = toggle !== null && (toggle.closest(".agency-job__lead") !== null) === opts.editing;
-    if (rebuilt) toggle.focus({ preventScroll: !opts.scroll });
-    else if (++frames < 10) window.requestAnimationFrame(attempt);
+    if (!rebuilt) {
+      if (++frames < 10) window.requestAnimationFrame(attempt);
+      return;
+    }
+    const active = document.activeElement;
+    if (active === null || active === document.body) toggle.focus({ preventScroll: !opts.scroll });
   };
   window.requestAnimationFrame(attempt);
 }
@@ -277,7 +286,9 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                       const res = await updateAgencyJobAction(j.id, input, j);
                       if (res.ok) {
                         upsertRow(res.job);
-                        setEditingId(null);
+                        // Close only THIS editor: the payer may have opened another row's
+                        // editor while the save was in flight.
+                        setEditingId((cur) => (cur === j.id ? null : cur));
                         refocusToggle(j.id, { editing: false, scroll: true });
                         router.refresh();
                         return { ok: true };

@@ -139,7 +139,7 @@ What this addendum pins, so §3 above stays true:
 - **The agency job keeps `trade_key`.** On `jobs`, `trade_key` (15 trade keys) stays the
   classifier the conversion bridge and the agency flow use; `role_kind` (21 roles) sits beside it
   as the display role and is never inferred from it.
-- **No worker read carries it this phase** — see the ADR-0024 addendum of the same date (#1823).
+- **No worker read carries it this phase** — see the ADR-0024 addendum of the same date (#1823). _(Superseded 2026-10-05 for the feed card and job detail, as art only — see the addendum below.)_
 - **A chat-published posting leaves it NULL** — the interview does not ask for a role.
 - **Skills are the owner's follow-up, not this change.** Not every one of the 21 roles has a
   counterpart in the V1 match vocabulary, so a posting for such a role can be classified but
@@ -154,6 +154,30 @@ What this addendum pins, so §3 above stays true:
 Labels live in `JOB_ROLE_LABELS` (`@badabhai/types`), copied from each role descriptor's
 `displayName`/`cluster` and pinned by `apps/api/src/profiling/roles/job-role-labels.parity.test.ts`.
 
+## Addendum (2026-10-05) — `role_kind` reaches the worker card, as art only
+
+**Owner approval 2026-10-05** ("Go", W3-BE, investor demo). This reverses ONE line of the
+2026-09-29 addendum above, "No worker read carries it this phase": `GET /feed` (`FeedItem` and
+`MatchFeedItem`) and the worker job detail `GET /jobs/:jobId` now return an additive `role_kind`
+key. The worker card keys a role illustration on it. The field side of the ruling is the
+[ADR-0024 addendum](0024-worker-visible-job-fields-pii.md) of the same date. `GET /jobs/search`
+does not return it.
+
+Every other point the 2026-09-29 addendum pins still holds, unchanged:
+
+- **Display only.** It is never a match, rank or visibility input: not a rank-tuple key, not a
+  tie-break and not a feed filter. Every worker read projects it in the SELECT list only, and the
+  repository tests pin it out of each WHERE and ORDER BY. `match_skill_ids` / `reach_skill_ids`
+  remain the only match inputs.
+- **Not folded into `match_skills`.** No `mskill_*` id, reach set or relation is derived from it.
+  It is not written into `trade_key`, which stays `""` on a posting card. `job_domain_id` stays
+  unwritten.
+- **NULL stays NULL.** There is no default, inference or backfill. On the way out, a value outside
+  the 21 declared kinds fails closed to `null` (`apps/api/src/common/worker-role-kind.ts`).
+- **No event change.** `feed.shown` / `feed.shown_v2` payloads do not carry it.
+
+The text above is not rewritten.
+
 ## Addendum (2026-10-01) — an owner-signed interim deviation from §6 and §8 (ADR-0049)
 
 [ADR-0049](0049-interim-union-feed.md) (#1823) lets company `job_postings` reach the **legacy**
@@ -166,3 +190,33 @@ It does not change V1. The flag is ignored when `MATCH_V1_ENABLED` is on. The ar
 reads match inputs only (`reach_skill_ids`, never `role_kind`; the 2026-09-29 addendum holds).
 The arm, its apply/skip branch and the flag are deleted by this ADR's retirement change
 (ADR-0049 §8, TD152, #1904). The text above is not rewritten.
+
+## Addendum (2026-10-05) — the worker feed orders DIRECT before RELATED
+
+**Owner ruling, Prakash, 2026-10-05.** In the V1 worker feed (moment ④), a job the worker
+reaches through the **posted** skill (`match_tier` 1) ranks above one he reaches only through a
+**related** skill (tier 2). §7's feed order becomes:
+
+```sql
+ORDER BY (jp.boosted_until IS NOT NULL AND jp.boosted_until > now()) DESC, jr.match_tier ASC,
+         jp.published_at DESC NULLS LAST, jp.id ASC
+```
+
+- **Boost stays first.** A boosted tier-2 card still sorts above every unboosted card. The three
+  §7 fences are unchanged: boost permutes order only, never adds a card, never touches the
+  company's list.
+- **Not a score.** `match_tier` is the two-value tier materialized at publish (best tier wins).
+  It is a lexicographic key like recency: no weight, no formula, no model (§2, invariant #4).
+  The tier-floor `CASE` of §2 orders the company's candidate list only, not the feed.
+- **Still a total order.** `id ASC` stays last (E11/Policy 7).
+- **Scope.** Only behind `MATCH_V1_ENABLED`. The legacy `/feed` and the ADR-0049 union arm are
+  unchanged. No migration, no event schema change (`feed.shown_v2.rank` reports the new
+  position), no config change. The read stays on `job_reach_worker_idx`, which already carries
+  `match_tier` as an INCLUDE column.
+- **Open item, not decided here.** §5 (and spec Policy 23) say a feed-order change takes a new
+  `engine_version`, CEO sign-off and its own ADR. This change does not bump `engine_version`:
+  that value lives in `match_config` and stamps the application snapshot that orders the
+  company's list, which this ruling does not change. Whether the feed-order change needs a
+  version bump or a standalone ADR is left to the owner.
+
+The text above is not rewritten.

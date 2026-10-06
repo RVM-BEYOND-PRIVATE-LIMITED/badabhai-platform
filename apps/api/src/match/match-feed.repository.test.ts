@@ -71,26 +71,44 @@ function orderByOf(sql: string): string {
  * listFeed — MOMENT ④.
  * ══════════════════════════════════════════════════════════════════════════ */
 
-describe("listFeed — the order is boost, then recency, then a STABLE tiebreak", () => {
-  it("orders by boosted DESC, published_at DESC NULLS LAST, id ASC — in that sequence", async () => {
+describe("listFeed — the order is boost, then tier, then recency, then a STABLE tiebreak", () => {
+  it("orders by boosted DESC, match_tier ASC, published_at DESC NULLS LAST, id ASC — in that sequence", async () => {
     const { repo, statements } = makeDb();
     await repo.listFeed(WORKER, 10, {});
 
     // ADR-0036 §7: boost "permutes order within what the worker already qualified for"
-    // and does NOTHING else. Recency second. The `id ASC` tail is not decoration — it
-    // is what makes this a TOTAL order, and without it two postings published in the
+    // and stays FIRST — a paid placement is never outranked by tier. Then DIRECT BEFORE
+    // RELATED (owner ruling 2026-10-05): a posted-skill match (tier 1) above a
+    // related-skill match (tier 2). Recency third. The `id ASC` tail is not decoration —
+    // it is what makes this a TOTAL order, and without it two postings published in the
     // same transaction swap places on every fetch (E11/Policy 7: "a feed that reorders
-    // between page loads is a bug"). Asserted as a SEQUENCE, because getting the three
+    // between page loads is a bug"). Asserted as a SEQUENCE, because getting the four
     // keys present but in the wrong order is the failure that still looks plausible.
     const order = orderByOf(statements[0]!.sql);
     const boostAt = order.indexOf("boosted_until");
+    const tierAt = order.indexOf("jr.match_tier ASC");
     const publishedAt = order.indexOf("jp.published_at DESC NULLS LAST");
     const idAt = order.indexOf("jp.id ASC");
 
+    expect(tierAt, "jr.match_tier ASC must be in the ORDER BY").toBeGreaterThan(-1);
     expect(publishedAt, "published_at DESC NULLS LAST must be in the ORDER BY").toBeGreaterThan(-1);
     expect(idAt, "the id ASC total-order tiebreak must be in the ORDER BY").toBeGreaterThan(-1);
-    expect(boostAt).toBeLessThan(publishedAt);
+    expect(boostAt).toBeGreaterThan(-1);
+    expect(boostAt).toBeLessThan(tierAt);
+    expect(tierAt).toBeLessThan(publishedAt);
     expect(publishedAt).toBeLessThan(idAt);
+  });
+
+  it("is EXACTLY the four ruled keys — nothing scored, weighted or added", async () => {
+    const { repo, statements } = makeDb();
+    await repo.listFeed(WORKER, 10, {});
+    // Pinned verbatim: a fifth key, a CASE, a COALESCE or an arithmetic expression here
+    // would be a ranking change nobody ruled on (ADR-0036 §5 — the feed order is a
+    // signed decision, not a tuning surface).
+    expect(orderByOf(statements[0]!.sql)).toBe(
+      "ORDER BY (jp.boosted_until IS NOT NULL AND jp.boosted_until > now()) DESC, " +
+        "jr.match_tier ASC, jp.published_at DESC NULLS LAST, jp.id ASC",
+    );
   });
 
   it("ranks by boost EXPIRY, never by a boolean column that could go stale", async () => {
@@ -180,15 +198,26 @@ describe("listFeed — the company NAME is not in the projection (ADR-0036's ope
     expect(sql).not.toContain("location_label");
   });
 
-  it("never selects role_kind — the posting's display role is on NO worker read (0131, #1823)", async () => {
-    // ADR-0024 addendum 2026-09-29: the payer's role pick is display / classification for the
-    // payer portal only this phase. Selecting it here is the first step of putting it on the
-    // worker card, which is #1823's decision, not a mapper edit's.
+  it("selects role_kind for the card's art, and never filters or orders on it (2026-10-05)", async () => {
+    // Owner ruling 2026-10-05 (ADR-0024 addendum): the posting's role reaches the worker card
+    // as an illustration. It is a PROJECTION only — ADR-0036's addendum still bars it as a
+    // match, rank or visibility input, so it must not appear after FROM.
     const { repo, statements } = makeDb();
     await repo.listFeed(WORKER, 10, {});
     const { sql } = statements[0]!;
-    expect(sql).toContain("jp.role_title");
-    expect(sql).not.toContain("role_kind");
+    expect(sql).toContain("jp.role_kind AS role_kind");
+    const from = sql.indexOf(" FROM job_reach");
+    expect(from, "statement has the FROM clause").toBeGreaterThan(0); // vacuity guard
+    expect(sql.slice(from)).not.toContain("role_kind");
+  });
+
+  it("maps role_kind off the row verbatim (the service gates it)", async () => {
+    const { repo } = makeDb([
+      { job_posting_id: POSTING, payer_key: "p", match_tier: 1, published_at: null, role_kind: "fitter" },
+      { job_posting_id: WORKER, payer_key: "p", match_tier: 1, published_at: null, role_kind: null },
+    ]);
+    const rows = await repo.listFeed(WORKER, 10, {});
+    expect(rows.map((r) => r.roleKind)).toEqual(["fitter", null]);
   });
 });
 

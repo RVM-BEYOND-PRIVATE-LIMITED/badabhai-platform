@@ -209,7 +209,8 @@ describe("JobsTableJobSource — serves the real jobs table via the faceless pro
 //
 // ⚠️ SUPERSEDED BY ADR-0036 §7 FOR THE V1 PATH, AND RETAINED DELIBERATELY.
 // TD42's inert boost is retired: behind `MATCH_V1_ENABLED` a boost DOES lift a card in
-// the worker feed (`ORDER BY (boosted_until > now()) DESC, published_at DESC`). What it
+// the worker feed (`ORDER BY (boosted_until > now()) DESC, …` — boost first; since the
+// 2026-10-05 ruling, match_tier then recency follow). What it
 // still may never do is add a card that failed the skill gate, or touch the company's
 // candidate list (Policy 13) — and those are the three release-gated fences in
 // `apps/api/src/match/boost-fences.test.ts`, which is what REPLACES this suite.

@@ -19,6 +19,7 @@ import {
   looksLikeOrgName,
   looksLikeUrl,
   workerVisibleTextScreens,
+  foldForScreening,
   bandForCount,
 } from "./index";
 
@@ -234,33 +235,43 @@ describe("looksLikePii — the email shape (#1924)", () => {
     expect(pre1924LooksLikePii(s)).toBe(false);
   });
 
-  it("agrees with the pre-#1924 oracle on 20,000 seeded emails and near-misses", () => {
-    const rng = mulberry32(0x1924);
-    const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rng() * xs.length)]!;
-    const chars = [..."abcxyzABC019._+-%!#'~\u00e9\u0915"];
-    const run = (min: number, max: number): string => {
-      let out = "";
-      for (let n = min + Math.floor(rng() * (max - min + 1)); n > 0; n--) out += pick(chars);
-      return out;
-    };
-    let flagged = 0;
-    for (let i = 0; i < 20_000; i++) {
-      const s =
-        pick(["", "Mail ", "contact:", "CNC operator\n", "\u00a0", "(", "@", "."]) +
-        (rng() < 0.05 ? run(64, 300) : run(0, 10)) +
-        (rng() < 0.8 ? "@" : pick(["@@", " @", "@ ", "\uff20", "(at)"])) +
-        (rng() < 0.05 ? run(64, 300) : run(0, 10)) +
-        (rng() < 0.75 ? "." : pick(["..", ". ", " .", "\u3002", ""])) +
-        pick(["com", "in", "co.in", "x", ""]) +
-        pick(["", ".", "@", "@x", ")", " now", "\tPF + ESI", "\u2003"]);
-      const verdict = looksLikePii(s);
-      expect(verdict, JSON.stringify(s)).toBe(pre1924LooksLikePii(s));
-      if (verdict) flagged++;
-    }
-    // Not vacuous: both verdicts are well represented.
-    expect(flagged).toBeGreaterThan(4_000);
-    expect(flagged).toBeLessThan(16_000);
-  });
+  // A correctness sweep, not a timing test: well under 1 s alone, but over vitest's 5 s default on
+  // a shared CI runner under turbo's parallel `test --coverage` (see #2023).
+  it(
+    "agrees with the pre-#1924 oracle on 20,000 seeded emails and near-misses",
+    { timeout: 30_000 },
+    () => {
+      const rng = mulberry32(0x1924);
+      const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rng() * xs.length)]!;
+      const chars = [..."abcxyzABC019._+-%!#'~\u00e9\u0915"];
+      const run = (min: number, max: number): string => {
+        let out = "";
+        for (let n = min + Math.floor(rng() * (max - min + 1)); n > 0; n--) out += pick(chars);
+        return out;
+      };
+      let flagged = 0;
+      for (let i = 0; i < 20_000; i++) {
+        const s =
+          pick(["", "Mail ", "contact:", "CNC operator\n", "\u00a0", "(", "@", "."]) +
+          (rng() < 0.05 ? run(64, 300) : run(0, 10)) +
+          (rng() < 0.8 ? "@" : pick(["@@", " @", "@ ", "\uff20", "(at)"])) +
+          (rng() < 0.05 ? run(64, 300) : run(0, 10)) +
+          (rng() < 0.75 ? "." : pick(["..", ". ", " .", "\u3002", ""])) +
+          pick(["com", "in", "co.in", "x", ""]) +
+          pick(["", ".", "@", "@x", ")", " now", "\tPF + ESI", "\u2003"]);
+        const verdict = looksLikePii(s);
+        // looksLikePii reads the #1942 fold as well, so the oracle does too: a fullwidth "＠"
+        // (U+FF20, in this alphabet) folds to "@". The fold is the same on both sides, so this
+        // still pins EMAIL_LIKE against the pre-#1924 pattern.
+        const oracle = pre1924LooksLikePii(s) || pre1924LooksLikePii(foldForScreening(s));
+        expect(verdict, JSON.stringify(s)).toBe(oracle);
+        if (verdict) flagged++;
+      }
+      // Not vacuous: both verdicts are well represented.
+      expect(flagged).toBeGreaterThan(4_000);
+      expect(flagged).toBeLessThan(16_000);
+    },
+  );
 
   it("matches ONE character before the @, never a run that re-scans from every start", () => {
     // The #1875 precedent: pin the pattern's shape, not only its cost. Classes collapse to
@@ -827,4 +838,250 @@ describe("workerVisibleTextScreens", () => {
       expect(workerVisibleTextScreens(s)).toEqual(expected);
     }
   });
+});
+
+/**
+ * #1942 — THE SCREEN READS A FOLD AS WELL AS THE RAW TEXT. The heuristics read ASCII Latin only, so
+ * a suffix, a phone number or a link written in fullwidth forms, or split by a zero-width, format or
+ * control character, walked past the ADR-0024 job-text screen while a worker read the plain text.
+ * Each helper now also reads `foldForScreening` (invisibles stripped, then NFKC), so every caller
+ * inherits it: the api DTOs through `workerVisibleTextScreens`, and payer-web's form contracts,
+ * which call the three helpers directly. Fixtures spell each invisible as a \u escape.
+ */
+describe("the #1942 fold: fullwidth and invisibly split text trips the screen its plain spelling does", () => {
+  // The issue's four strings, verbatim. Three passed the screen before the fold; "Sharma Pvt．Ltd"
+  // was already caught on main by #1927's glued-pvt branch (a non-letter between "pvt" and "ltd"),
+  // and is pinned here so the fold cannot lose it. "Sharma Co．" below is a fullwidth dot that only
+  // the fold catches.
+  it.each([
+    ["fullwidth letters", "Tata Steel \u{FF2C}\u{FF54}\u{FF44} mein apply kariye"],
+    ["a fullwidth dot", "Sharma Pvt\u{FF0E}Ltd"],
+    ["a zero-width space inside the suffix", "Tata Steel L\u{200B}td mein"],
+    ["a C0 control inside the suffix", "Tata Steel L\u{1}td mein"],
+  ])("%s → company_name, on the screen and on looksLikeOrgName alone", (_label, s) => {
+    expect(workerVisibleTextScreens(s)).toEqual(["company_name"]);
+    // payer-web's contracts.ts calls the helper directly, not the list.
+    expect(looksLikeOrgName(s)).toBe(true);
+  });
+
+  it.each([
+    ["a soft hyphen in the strong suffix", "Sharma L\u{AD}LP ke liye welder"],
+    ["a word joiner", "Tata Steel L\u{2060}td mein"],
+    ["a BOM", "Tata Steel Lt\u{FEFF}d mein"],
+    ["a bidi override", "Tata Steel L\u{202E}td mein"],
+    ["a tag character (astral Cf)", "Tata Steel L\u{E0041}td mein"],
+    ["DEL", "Tata Steel L\u{7F}td mein"],
+    ["NEL (C1)", "Tata Steel L\u{85}td mein"],
+    ["CSI (C1)", "Tata Steel L\u{9B}td mein"],
+    ["a combining grapheme joiner (Default_Ignorable, Mn)", "Tata Steel L\u{34F}td mein"],
+    ["a variation selector (Default_Ignorable, Mn)", "Tata Steel L\u{FE0F}td mein"],
+    ["a Hangul filler (Default_Ignorable, Lo)", "Tata Steel L\u{3164}td mein"],
+    ["the Braille blank", "Tata Steel L\u{2800}td mein"],
+    [
+      "fullwidth capitals",
+      "\u{FF34}\u{FF21}\u{FF34}\u{FF21} \u{FF2D}\u{FF2F}\u{FF34}\u{FF2F}\u{FF32}\u{FF33} \u{FF2C}\u{FF34}\u{FF24}",
+    ],
+    [
+      "fullwidth Private Limited",
+      "Sharma \u{FF30}\u{FF52}\u{FF49}\u{FF56}\u{FF41}\u{FF54}\u{FF45} Limited",
+    ],
+    ["a fullwidth ampersand", "Sharma \u{FF06} Co mein vacancy"],
+    ["a fullwidth dot after Co", "Sharma Co\u{FF0E} mein vacancy"],
+  ])("a suffix split or spelled with %s → company_name", (_label, s) => {
+    expect(workerVisibleTextScreens(s)).toEqual(["company_name"]);
+  });
+
+  it.each([
+    [
+      "fullwidth digits",
+      "Call \u{FF19}\u{FF18}\u{FF17}\u{FF16}\u{FF15}\u{FF14}\u{FF13}\u{FF12}\u{FF11}\u{FF10}",
+    ],
+    ["a zero-width space between the halves", "Call 98765\u{200B}43210"],
+    ["a soft hyphen between the halves", "Call 98765\u{AD}43210"],
+    ["an SOH between the halves", "Call 98765\u{1}43210"],
+    ["a fullwidth hyphen", "Call 98765\u{FF0D}43210"],
+  ])("a phone number in %s → contact_details", (_label, s) => {
+    expect(workerVisibleTextScreens(s)).toEqual(["contact_details"]);
+    expect(looksLikePii(s)).toBe(true);
+  });
+
+  it("a fullwidth at-sign and dot make an email (and its host a link)", () => {
+    expect(workerVisibleTextScreens("Resume bhejiye hr\u{FF20}acme\u{FF0E}in")).toEqual([
+      "contact_details",
+      "link",
+    ]);
+    expect(looksLikePii("hr@\u{200B}acme.example")).toBe(true);
+    expect(looksLikePii("hr\u{FE6B}acme\u{FF0E}example")).toBe(true); // the small commercial at
+  });
+
+  it.each([
+    ["a fullwidth host", "Apply at \u{FF41}\u{FF43}\u{FF4D}\u{FF45}\u{FF0E}\u{FF49}\u{FF4E}"],
+    ["a fullwidth www", "\u{FF57}\u{FF57}\u{FF57}.acme dekhiye"],
+    ["a fullwidth scheme", "\u{FF48}\u{FF54}\u{FF54}\u{FF50}\u{FF53}://acme dekhiye"],
+    ["a zero-width space inside the TLD", "acme.i\u{200B}n par apply"],
+    // The degree skip read "m.com" after a non-host character; the fold puts the host back.
+    ["a zero-width space before the 'm' of a .com host", "instagra\u{200B}m.com par DM"],
+    ["a fullwidth dot before an m.com host", "instagram\u{FF0E}m.com"],
+  ])("%s → link", (_label, s) => {
+    expect(workerVisibleTextScreens(s)).toEqual(["link"]);
+    expect(looksLikeUrl(s)).toBe(true);
+  });
+
+  /**
+   * THE FOLD NEVER TAKES A VERDICT AWAY. A vertical tab, a form feed and the BOM are whitespace to
+   * JavaScript, so the org tiers read each as the gap between a name and its suffix — and stripping
+   * it glues them ("Tata SteelLtd"). NFKC glues a fullwidth digit to the word before it ("Ltd1"),
+   * which breaks the \b after the suffix or the TLD. A screen on the fold alone would pass all of
+   * these; each helper reads the raw text too.
+   */
+  it.each([
+    ["a vertical tab between name and suffix", "Tata Steel\u{B}Ltd mein", "company_name"],
+    ["a form feed between name and suffix", "Tata Steel\u{C}Ltd mein", "company_name"],
+    ["a BOM between name and suffix", "Tata Steel\u{FEFF}Ltd mein", "company_name"],
+    ["a fullwidth digit after the suffix", "Sharma Pvt Ltd\u{FF11}", "company_name"],
+    ["a fullwidth digit after the TLD", "acme.com\u{FF11}", "link"],
+  ] as const)("%s still trips the screen", (_label, s, screen) => {
+    expect(workerVisibleTextScreens(s)).toEqual([screen]);
+  });
+
+  it.each([
+    [
+      "Hinglish with Devanagari",
+      "\u{935}\u{947}\u{932}\u{94D}\u{921}\u{930} \u{91A}\u{93E}\u{939}\u{93F}\u{90F}, 2 saal ka experience, PF + ESI milega",
+    ],
+    ["a Devanagari conjunct with a ZWJ", "\u{915}\u{94D}\u{200D}\u{937} shift mein kaam"],
+    ["accented names", "Jos\u{E9} aur Ren\u{E9}e ke saath kaam, caf\u{E9} canteen available"],
+    ["a decomposed accent", "Rene\u{301}e supervisor hain"],
+    [
+      "emoji, with a ZWJ sequence and a variation selector",
+      "Welder chahiye \u{1F525}\u{1F477}\u{200D}\u{2642}\u{FE0F} OT milega \u{1F4B0}",
+    ],
+    ["a flag", "Kaam \u{1F1EE}\u{1F1F3} mein"],
+    ["a no-break space", "Night\u{A0}Shift Operator"],
+    ["an ideographic space", "Night\u{3000}Shift"],
+    ["a tab and CRLF lines", "CNC Operator\tNight Shift\r\nSeats Are Limited\r\nApply Now"],
+    ["a soft hyphen in a long word", "Main\u{AD}tenance fitter, ITI pass"],
+    [
+      "fullwidth trade words",
+      "\u{FF23}\u{FF2E}\u{FF23} Operator — \u{FF2E}\u{FF49}\u{FF47}\u{FF48}\u{FF54} Shift",
+    ],
+    ["a zero-width space in plain prose", "Fresher\u{200B} Welder Limited Experience OK"],
+    ["the rupee sign and a range", "\u{20B9}15,000\u{2013}\u{20B9}18,000 per month, PF + ESI"],
+  ])("leaves %s clean", (_label, s) => {
+    expect(workerVisibleTextScreens(s)).toEqual([]);
+  });
+
+  /**
+   * THE PRICE, STATED. The fold reads what the worker sees, so a compatibility character screens as
+   * its plain spelling: an ellipsis is "...", which the TLD tier already read as a host before
+   * "in" ("shuru...in Pune" was a link before #1942, and "shuru…in Pune" is one now). And what the
+   * fold cannot reach still slips: a lookalike from another script, a combining mark that composes,
+   * non-ASCII digits, and a NEL between the name and its suffix, which renders as the line break
+   * the org tiers already price.
+   */
+  it("an ellipsis screens as three dots", () => {
+    expect(workerVisibleTextScreens("Kaam shuru...in Pune")).toEqual(["link"]);
+    expect(workerVisibleTextScreens("Kaam shuru\u{2026}in Pune")).toEqual(["link"]);
+    expect(workerVisibleTextScreens("Kaam shuru\u{2026} Pune mein")).toEqual([]);
+  });
+
+  it.each([
+    ["a Cyrillic lookalike", "Tata Steel L\u{442}d mein"],
+    ["a combining mark that composes", "Tata Steel L\u{301}td mein"],
+    [
+      "Devanagari digits",
+      "Call \u{96F}\u{96E}\u{96D}\u{96C}\u{96B}\u{96A}\u{969}\u{968}\u{967}\u{966}",
+    ],
+    ["a NEL between name and suffix", "Tata Steel\u{85}Ltd mein"],
+  ])("KNOWN RESIDUAL: %s slips", (_label, s) => {
+    expect(workerVisibleTextScreens(s)).toEqual([]);
+  });
+
+  it("returns the same three categories, and never changes the text it was given", () => {
+    const s =
+      "Sharma Pvt\u{FF0E}Ltd \u{FF19}\u{FF18}\u{FF17}\u{FF16}\u{FF15}\u{FF14}\u{FF13}\u{FF12}\u{FF11}\u{FF10} acme\u{FF0E}in";
+    const before = s.slice();
+    expect(workerVisibleTextScreens(s)).toEqual(["contact_details", "company_name", "link"]);
+    expect(s).toBe(before);
+    expect(foldForScreening(s)).toBe("Sharma Pvt.Ltd 9876543210 acme.in");
+  });
+
+  // Bounded CPU work, no I/O: NFKC can lengthen a string 18x (U+FDFA), and the heuristics are
+  // linear. Measured at about 1 ms per value; the generous ceiling only absorbs a contended runner.
+  it("screens a capped description of the worst NFKC expanders quickly", () => {
+    const CAP = 2000;
+    const hostile = [
+      "\u{FDFA}".repeat(CAP),
+      " \u{2026}".repeat(CAP / 2),
+      "\u{FF41}\u{FF20}".repeat(CAP / 2),
+      "\u{FF21}\u{FF06}".repeat(CAP / 2),
+      "\u{FF34} \u{FF2C}\u{FF54}\u{FF44}".repeat(CAP / 5),
+      "a\u{200B}".repeat(CAP / 2),
+    ];
+    for (const s of hostile) expect(s.length).toBe(CAP);
+    const started = performance.now();
+    for (const s of hostile) workerVisibleTextScreens(s);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+});
+
+describe("foldForScreening — the invisible set, checked against Node's Unicode tables", () => {
+  const ch = String.fromCodePoint;
+  const hex = (cp: number): string => `U+${cp.toString(16).toUpperCase()}`;
+  // Bounded CPU work over all 1,114,112 code points, no I/O; the ceiling absorbs a contended
+  // CI runner (#1941).
+  const EXHAUSTIVE_TIMEOUT_MS = 120_000;
+  const KEPT_CONTROLS = new Set([0x09, 0x0a, 0x0d]);
+  const CF = /\p{Cf}/u;
+  const CC = /\p{Cc}/u;
+  const DEFAULT_IGNORABLE = /\p{Default_Ignorable_Code_Point}/u;
+  const BRAILLE_BLANK = 0x2800;
+  /** What the fold must strip: \p{Cf}, \p{Cc} but tab/LF/CR, Default_Ignorable, the Braille blank. */
+  const invisible = (cp: number): boolean => {
+    if (KEPT_CONTROLS.has(cp)) return false;
+    const c = ch(cp);
+    return CF.test(c) || CC.test(c) || DEFAULT_IGNORABLE.test(c) || cp === BRAILLE_BLANK;
+  };
+
+  it("keeps tab, line feed and carriage return — the org tiers read them", () => {
+    expect(foldForScreening("a\tb\nc\rd")).toBe("a\tb\nc\rd");
+  });
+
+  // Every code point, one at a time, between two letters: stripped exactly when it is in the set.
+  // The class in index.ts is spelled as explicit ranges (the browser floor bars \p{..}), so this is
+  // what stops it drifting from Unicode: a release that adds a format or ignorable character fails
+  // here. NFKC never maps a character to nothing, so "ab" comes back only for a stripped one.
+  it(
+    "strips every \\p{Cf}, every \\p{Cc} but \\t \\n \\r, every Default_Ignorable and U+2800, and nothing else",
+    () => {
+      const wrong: string[] = [];
+      let cf = 0;
+      for (let cp = 0; cp <= 0x10ffff; cp++) {
+        const stripped = foldForScreening(`a${ch(cp)}b`) === "ab";
+        if (stripped !== invisible(cp)) wrong.push(hex(cp));
+        if (CF.test(ch(cp))) {
+          cf++;
+          if (!stripped) wrong.push(`Cf ${hex(cp)}`);
+        }
+      }
+      expect(wrong).toEqual([]);
+      expect(cf).toBeGreaterThanOrEqual(170); // Unicode 15.1, the oldest CI's Node ships, has 170
+    },
+    EXHAUSTIVE_TIMEOUT_MS,
+  );
+
+  // Stripped BEFORE the fold, and NFKC makes no invisible out of a visible character, so one
+  // pass leaves nothing for a second: the result is NFKC-normal and holds no stripped character.
+  it(
+    "is idempotent on every code point",
+    () => {
+      const wrong: string[] = [];
+      for (let cp = 0; cp <= 0x10ffff; cp++) {
+        const once = foldForScreening(`x${ch(cp)}`);
+        if (foldForScreening(once) !== once) wrong.push(hex(cp));
+      }
+      expect(wrong).toEqual([]);
+    },
+    EXHAUSTIVE_TIMEOUT_MS,
+  );
 });

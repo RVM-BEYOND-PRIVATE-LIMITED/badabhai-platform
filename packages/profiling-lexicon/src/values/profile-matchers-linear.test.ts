@@ -187,7 +187,9 @@ describe("#1935: the experience and salary matchers read the same spans as main"
     expect(texts.filter((text) => moved(text).length > 0)).toEqual([]);
   });
 
-  it("reads 20,000 seeded phrases the same", () => {
+  // A correctness sweep, not a timing test: well under 1 s alone, but over vitest's 5 s default on
+  // a shared CI runner under turbo's parallel `test --coverage` (see #2023).
+  it("reads 20,000 seeded phrases the same", { timeout: 30_000 }, () => {
     const rand = seeded(1935);
     const texts = Array.from({ length: 20_000 }, () => sample(rand));
     expect(texts.filter((text) => moved(text).length > 0)).toEqual([]);
