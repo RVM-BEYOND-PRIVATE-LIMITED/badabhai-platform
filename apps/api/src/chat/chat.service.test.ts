@@ -103,6 +103,7 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     importAppliedId: null,
     generalRoad: emptyGeneralRoad(),
     identityIntake: null,
+    freeChat: null,
     ...over,
   };
 }

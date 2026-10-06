@@ -431,3 +431,79 @@ describe("ChatRepository.markGeneralFormCompleted — the chat's 'form done' sig
     ).toBe(false);
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * ADR-0051 — the free chat's durable résumé lock
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+describe("ChatRepository.findFreeChatLockDecider — the session that decides the lock", () => {
+  it("filters on the worker AND (ended OR carries the lock key) IN the WHERE clause", async () => {
+    const h = makeSelectingDb([{ id: SESSION, status: "abandoned" }]);
+    const out = await new ChatRepository(h.db as never).findFreeChatLockDecider(WORKER);
+    expect(out).toEqual({ id: SESSION, status: "abandoned" });
+
+    const { sql, params } = new PgDialect().sqlToQuery(h.captured.where as never);
+    expect(sql).toContain('"worker_id" = $1');
+    // Presence, not parse: a lock a later build shaped differently still counts.
+    expect(sql).toMatch(
+      /\("chat_sessions"\."status" = \$2 or "chat_sessions"\."conversation_state" -> 'free_chat_lock' IS NOT NULL\)/,
+    );
+    expect(params).toEqual([WORKER, "ended"]);
+    expect(h.captured.limit).toBe(1);
+  });
+
+  it("orders by started_at DESC — the newest deciding session wins", async () => {
+    const h = makeSelectingDb();
+    await new ChatRepository(h.db as never).findFreeChatLockDecider(WORKER);
+    const order = renderOrderBy(h);
+    expect(order).toMatch(/started_at"?\s+desc/i);
+    expect(order).not.toContain("last_message_at");
+  });
+
+  it("returns undefined for a worker with no deciding session", async () => {
+    const h = makeSelectingDb([]);
+    expect(await new ChatRepository(h.db as never).findFreeChatLockDecider(WORKER)).toBeUndefined();
+  });
+});
+
+describe("ChatRepository.mergeFreeChatLock — the lock, merged beside the state", () => {
+  const AT = "2026-10-06T10:00:00.000Z";
+
+  it("MERGES one sibling key — never a replace — and binds the time as a parameter", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new ChatRepository(db as never).mergeFreeChatLock(SESSION, WORKER, AT);
+    const q = renderQuery(captured.set!.conversationState);
+    expect(q.sql).toMatch(
+      /^coalesce\((?:"chat_sessions"\.)?"conversation_state", '\{\}'::jsonb\) \|\| jsonb_build_object\('free_chat_lock', jsonb_build_object\('v', 1, 'locked_at', \$1::text\)\)$/,
+    );
+    expect(q.params).toEqual([AT]);
+  });
+
+  it("does NOT touch last_message_at, status or ended_at", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new ChatRepository(db as never).mergeFreeChatLock(SESSION, WORKER, AT);
+    expect(Object.keys(captured.set!)).toEqual(["conversationState"]);
+  });
+
+  it("is scoped to the session, its owner, an ACTIVE row, and an ABSENT key (write-once)", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new ChatRepository(db as never).mergeFreeChatLock(SESSION, WORKER, AT);
+    const where = renderWhere(captured.where);
+    expect(where).toContain('"id"');
+    expect(where).toContain('"worker_id"');
+    expect(where).toContain('"status"');
+    expect(where).toMatch(/'free_chat_lock'\s+IS NULL/);
+  });
+
+  it("reports whether it wrote", async () => {
+    const lost = makeCapturingDb();
+    lost.setUpdateMatchesNothing();
+    expect(await new ChatRepository(lost.db as never).mergeFreeChatLock(SESSION, WORKER, AT)).toBe(
+      false,
+    );
+    const won = makeCapturingDb();
+    expect(await new ChatRepository(won.db as never).mergeFreeChatLock(SESSION, WORKER, AT)).toBe(
+      true,
+    );
+  });
+});

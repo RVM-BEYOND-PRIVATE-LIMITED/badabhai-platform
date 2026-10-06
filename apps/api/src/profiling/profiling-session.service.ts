@@ -118,7 +118,7 @@ export class ProfilingSessionService {
     const reattach =
       existing !== undefined &&
       existing.status === "active" &&
-      !(await this.armedForGeneralRoad(existing));
+      !(await this.notContinuable(existing));
     const sessionId =
       reattach && existing
         ? existing.id
@@ -152,13 +152,21 @@ export class ProfilingSessionService {
    *
    * FAILS CLOSED: an envelope that cannot be read counts as armed. A fresh voice interview costs
    * the worker the questions he answered by voice; continuing an armed session costs him the form.
+   *
+   * ADR-0051 §3.6 — AND NOT A FREE-CHAT SESSION STILL IN GREETING OR FREE MODE. Its greeting chips
+   * and free-mode turns are drawn by the chat alone, and `openTurn` here would put the pack's first
+   * question over a free chat the worker never left. Résumé mode IS today's interview, and is
+   * continued as before. ONE envelope read answers both questions, under the same fail-closed rule.
    */
-  private async armedForGeneralRoad(session: ChatSession): Promise<boolean> {
+  private async notContinuable(session: ChatSession): Promise<boolean> {
     if (readGeneralRoadStamp(session.conversationState) !== null) return true;
     try {
-      const road = (await this.orchestrator.viewSession(session.id, new Date()))?.envelope
-        .generalRoad;
-      return road?.armed === true && road.lane !== "classic";
+      const live = (await this.orchestrator.viewSession(session.id, new Date()))?.envelope;
+      const road = live?.generalRoad;
+      const mode = live?.freeChat?.mode;
+      return (
+        (road?.armed === true && road.lane !== "classic") || mode === "greeting" || mode === "free"
+      );
     } catch (error) {
       this.logger.warn(
         `voice form start: session ${session.id} unreadable (${

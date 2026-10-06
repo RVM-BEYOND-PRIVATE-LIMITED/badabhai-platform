@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import {
   type Database,
   aiJobs,
@@ -526,6 +526,79 @@ export class ChatRepository {
           eq(chatSessions.workerId, workerId),
           sql`${chatSessions.conversationState} -> 'general_road' ->> 'handed_over' = 'true'`,
           sql`${chatSessions.conversationState} -> 'general_form_completed_at' IS NULL`,
+        ),
+      )
+      .returning({ id: chatSessions.id });
+    return updated.length > 0;
+  }
+
+  /**
+   * ADR-0051 — THE SESSION THAT DECIDES whether this worker is locked into résumé mode, or
+   * undefined: the worker's NEWEST session (by `started_at`) that is `ended` OR carries the
+   * `free_chat_lock` key. The worker is locked iff that row exists and is NOT ended.
+   *
+   * WHY THIS ONE QUERY IS THE WHOLE RULE. Entering résumé mode writes the lock key onto that
+   * session's row (`mergeFreeChatLock`, and every replacing writer carries it); finishing the résumé
+   * — the interview, the voice form, a trade-form or general-form handover — ends a session. So the
+   * newest row that is either is the latest word: a lock nobody has finished since (an abandoned
+   * résumé session keeps its key) holds; a completion since releases it. Sessions that are neither —
+   * an empty mint, a free chat that never entered résumé mode, a pre-ADR abandonment — say nothing
+   * and are skipped by the predicate, which is IN the WHERE clause for the reason
+   * {@link findActiveSessionByWorker} gives: a post-hoc test on the latest row fails exactly when it
+   * matters.
+   *
+   * PRESENCE, NOT PARSE: `-> 'free_chat_lock' IS NOT NULL` counts a row whose stamp a later build
+   * shaped differently, which errs toward the lock — today's interview, the safe side.
+   *
+   * ONE INDEXED READ: `chat_sessions_worker_id_idx` narrows to one worker's handful of rows, and the
+   * jsonb test runs over those only. Read at a new session's open and, lazily, at the identity
+   * intake's handoff — never on an ordinary turn.
+   */
+  async findFreeChatLockDecider(
+    workerId: string,
+  ): Promise<{ id: string; status: string } | undefined> {
+    const rows = await this.db
+      .select({ id: chatSessions.id, status: chatSessions.status })
+      .from(chatSessions)
+      .where(
+        and(
+          eq(chatSessions.workerId, workerId),
+          or(
+            eq(chatSessions.status, "ended"),
+            sql`${chatSessions.conversationState} -> 'free_chat_lock' IS NOT NULL`,
+          ),
+        ),
+      )
+      .orderBy(desc(chatSessions.startedAt))
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
+   * ADR-0051 — record that this session entered RÉSUMÉ MODE (the lock): a sibling key,
+   * `free_chat_lock: {v: 1, locked_at}`, merged into `conversation_state`.
+   *
+   * THE {@link markGeneralFormCompleted} SHAPE, for its reasons: a JSONB MERGE (`||`) because the
+   * column holds state this method did not read; `last_message_at` UNTOUCHED because nothing the
+   * worker said is recorded here; CONDITIONAL and WRITE-ONCE — the session and its owner, still
+   * `active`, and the key still ABSENT — so the FIRST lock time is kept and a retried turn is a
+   * no-op. The three REPLACING writers (checkpoint, flush, abandon) spread the same key from the
+   * envelope (`toFreeChatStatePatch`), so none of them can erase it.
+   *
+   * Returns whether it wrote.
+   */
+  async mergeFreeChatLock(sessionId: string, workerId: string, lockedAt: string): Promise<boolean> {
+    const updated = await this.db
+      .update(chatSessions)
+      .set({
+        conversationState: sql`coalesce(${chatSessions.conversationState}, '{}'::jsonb) || jsonb_build_object('free_chat_lock', jsonb_build_object('v', 1, 'locked_at', ${lockedAt}::text))`,
+      })
+      .where(
+        and(
+          eq(chatSessions.id, sessionId),
+          eq(chatSessions.workerId, workerId),
+          eq(chatSessions.status, "active"),
+          sql`${chatSessions.conversationState} -> 'free_chat_lock' IS NULL`,
         ),
       )
       .returning({ id: chatSessions.id });

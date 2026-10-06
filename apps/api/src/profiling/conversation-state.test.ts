@@ -128,6 +128,9 @@ const FULL: ProfilingEnvelope = {
     // NON-DEFAULT for the same reason as everything else here: 0 is what a `narrow` that dropped
     // the field would default to (see `MAX_REPLAYS_PER_TURN`'s narrowing).
     replays: 1,
+    // NON-DEFAULT (ADR-0051): absent is what a `narrow` that dropped it would rebuild, and a
+    // replayed model reply that lost it would be read aloud.
+    readAloud: false,
   },
   // Every bucket distinct and non-zero, for the same reason as every other field here: a
   // zeroed histogram would round-trip identically through a `narrow` that dropped it entirely.
@@ -206,6 +209,36 @@ const FULL: ProfilingEnvelope = {
     asks: { first_name: 2, last_name: 1 },
     firstNameEnc: "v1:sealed-first-name",
     heldState: "Maharashtra",
+  },
+  // NON-DEFAULT in every sub-field (ADR-0051): null is what a narrower that dropped the field would
+  // rebuild — and a lost lock time, strike tally or held question is a worker let out of the lock,
+  // let off a strike, or re-asked the wrong question after a deflection.
+  freeChat: {
+    mode: "resume",
+    trigger: "chip",
+    lockedAt: "2026-10-06T10:00:00.000Z",
+    strikes: { day: "2026-10-06", count: 2 },
+    cooldownUntil: "2026-10-06T10:30:00.000Z",
+    casualReplies: 4,
+    asides: 7,
+    held: {
+      reply: "Aap kis sheher mein rehte hain?",
+      kind: "ask",
+      questionKey: "q_city",
+      options: [
+        {
+          option_key: "pune",
+          label_text: "Pune",
+          value: null,
+          implies_skill_id: null,
+          is_none_of_above: false,
+        },
+      ],
+      answerType: "single_select",
+      whyText: "Isse hum aapke sheher ke kaam dikha payenge.",
+      inputMode: "text",
+    },
+    clarifiedFor: "key:q_city",
   },
 };
 

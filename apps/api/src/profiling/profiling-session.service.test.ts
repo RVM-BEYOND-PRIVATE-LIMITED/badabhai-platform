@@ -375,6 +375,42 @@ describe("start — never continues a chat session armed for the general road (A
   });
 });
 
+describe("start — never continues a free-chat session still in greeting or free mode (ADR-0051 §3.6)", () => {
+  /** A live envelope whose free chat is in the given mode, on an unarmed general road. */
+  const freeChatView = (mode: string) =>
+    ({
+      buffer: {} as never,
+      envelope: { generalRoad: { armed: false }, freeChat: { mode } } as never,
+      items: [],
+      served: served(),
+    }) as SessionView;
+
+  it.each(["greeting", "free"])(
+    "mints its own interview over a session in %s mode",
+    async (mode) => {
+      // The greeting's chips and free-mode turns are drawn by the chat alone; `openTurn` here would
+      // put the pack's first question over a free chat the worker never left.
+      const { service, chatService } = makeWorld({
+        latest: { id: SESSION, workerId: WORKER, status: "active" },
+        view: freeChatView(mode),
+      });
+      const result = await service.start(WORKER, CTX);
+      expect(result.session_id).toBe(OTHER_SESSION);
+      expect(chatService.startSession).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("continues a session in résumé mode — that is today's interview", async () => {
+    const { service, chatService } = makeWorld({
+      latest: { id: SESSION, workerId: WORKER, status: "active" },
+      view: freeChatView("resume"),
+    });
+    const result = await service.start(WORKER, CTX);
+    expect(result.session_id).toBe(SESSION);
+    expect(chatService.startSession).not.toHaveBeenCalled();
+  });
+});
+
 describe("the server maps option keys to labels — never the client", () => {
   it("sends the LABEL of the single chip the worker tapped", async () => {
     const { service, chatService } = makeWorld();
