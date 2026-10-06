@@ -297,6 +297,10 @@ export class AdminEntitiesRepository {
       .select({
         id: jobPostings.id,
         payerId: jobPostings.payerId,
+        // #2032 — LEFT JOIN on `payers` PK: one round trip, no N+1, and a posting whose
+        // opaque payer_id resolves to no account still lists (role null). Role only — no
+        // other payers column is read here.
+        payerRole: payers.role,
         orgLabel: jobPostings.orgLabel,
         roleTitle: jobPostings.roleTitle,
         locationLabel: jobPostings.locationLabel,
@@ -311,6 +315,7 @@ export class AdminEntitiesRepository {
         createdAt: jobPostings.createdAt,
       })
       .from(jobPostings)
+      .leftJoin(payers, eq(payers.id, jobPostings.payerId))
       .where(clauses.length > 0 ? and(...clauses) : undefined)
       .orderBy(desc(jobPostings.createdAt), desc(jobPostings.id))
       .limit(limit);
@@ -318,6 +323,7 @@ export class AdminEntitiesRepository {
     return rows.map((r) => ({
       id: r.id,
       payer_id: r.payerId,
+      payer_role: r.payerRole,
       org_label: r.orgLabel,
       role_title: r.roleTitle,
       location_label: r.locationLabel,
@@ -338,6 +344,10 @@ export class AdminEntitiesRepository {
       .select({
         id: jobPostings.id,
         payerId: jobPostings.payerId,
+        // #2032 — LEFT JOIN on `payers` PK: one round trip, no N+1, and a posting whose
+        // opaque payer_id resolves to no account still lists (role null). Role only — no
+        // other payers column is read here.
+        payerRole: payers.role,
         orgLabel: jobPostings.orgLabel,
         roleTitle: jobPostings.roleTitle,
         locationLabel: jobPostings.locationLabel,
@@ -367,6 +377,7 @@ export class AdminEntitiesRepository {
         updatedAt: jobPostings.updatedAt,
       })
       .from(jobPostings)
+      .leftJoin(payers, eq(payers.id, jobPostings.payerId))
       .where(eq(jobPostings.id, id))
       .limit(1);
 
@@ -387,6 +398,7 @@ export class AdminEntitiesRepository {
     return {
       id: j.id,
       payer_id: j.payerId,
+      payer_role: j.payerRole,
       org_label: j.orgLabel,
       role_title: j.roleTitle,
       location_label: j.locationLabel,

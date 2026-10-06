@@ -447,6 +447,7 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 #### `GET /admin/job-postings/:id`
 - **Auth:** `AdminAuthGuard` + capability `read_entities`. Never called by the payer app.
 - **Response (`AdminJobPostingDetail`, snake_case):** the list fields plus `description`, `shift`, `needed_by`, `boosted_until`, `previous_status`, `applied_count`, `skipped_count`, `updated_at`, and — **added 2026-09-29** — `area`, `min_experience_years`, `max_experience_years`, `pay_type`, `requirements`, `benefits`, `role_kind`. Every one is a nullable, PII-free card field the owning payer already reads back; `role_kind` is returned **raw** (the admin UI labels it with `jobRoleLabel()` and shows the raw id when it is not one of the 21). Explicit column select — never a bare `select()`.
+- **`payer_role` (added 2026-10-06, #2032):** `'employer' | 'agent' | null`, next to `payer_id`, on `GET /admin/job-postings` (list) and `GET /admin/job-postings/:id`, and on every row of `GET /admin/finance/ledger` and `GET /admin/finance/orders`. It is `payers.role`, read through one `LEFT JOIN payers ON payers.id = <row>.payer_id` inside the page query (no per-row lookup). `null` when `payer_id` is null or resolves to no `payers` row (these columns carry no FK). Additive — consumers that ignore it are unaffected; admin-web uses it to link to `/companies/:id` (`employer`) or `/agencies/:id` (`agent`) and falls back to `/companies/:id` on `null`.
 
 ---
 
