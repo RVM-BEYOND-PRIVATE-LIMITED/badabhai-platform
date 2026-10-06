@@ -1,87 +1,132 @@
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { AgencyFlags } from "../../../../lib/config";
-import { Badge } from "../../../../components/ds";
+import { Badge, Card } from "../../../../components/ds";
 
 /**
- * PARKED / DEAD / DEFERRED module cards (informational, NON-interactive) — DS3.1 re-skin
- * onto the BadaBhai Design System (VISUAL layer only).
+ * "NOT IN THIS RELEASE" — the agency modules that are parked or deferred, and the two that are
+ * built but switched on per environment — DS3.1 re-skin onto the BadaBhai Design System.
  *
- * These are NOT clickable fake flows — they explain WHY a module is unavailable and
- * tie to the respective public flag (all default OFF). Building any of them is a
- * STOP+escalate (CLAUDE.md §8 + the agency ADRs): KYC needs legal/DPDP sign-off;
- * payouts need TD34 real payments + product-ratified params; matching/outcome tracking is
- * product-locked.
+ * Two kinds of card, by what is TRUE of the module (no flag logic lives here — the inputs only
+ * choose which true sentence is shown):
+ *
+ *  - AVAILABLE (Payout details (KYC), Payouts): ADR-0022 Amendment 2 BUILT both, with simulated
+ *    payouts, behind the SERVER flag `AGENCY_PAYOUTS_ENABLED`. /agency/referrals draws their panels
+ *    exactly when the earnings read answers (a 404 means off), so `payoutsAvailable` is that same
+ *    answer, read by the dashboard (review M1). Only then does the card say they are available and
+ *    link to Referrals. The public `NEXT_PUBLIC_ENABLE_AGENCY_KYC/PAYOUTS` flags gate nothing those
+ *    panels do, so they never make that claim (they used to: the card promised a panel Referrals
+ *    then did not draw).
+ *  - PARKED / DEFERRED (everything else, and KYC/Payouts while the server says off or its read
+ *    failed): an informational, NON-interactive card naming the module and its gate. Matching /
+ *    outcome tracking is product-locked and unbuilt, so its public flag only re-labels it
+ *    ("Flagged on — still unbuilt").
  *
  * NOT LISTED: bulk invite upload. It is DEAD — a consent violation that will never be built
  * (ADR-0022 Amendment 3) — so it does not belong in a list of modules "not in this release",
- * where a "Parked" badge would frame it as coming. The dashboard's Invite tools card is its one
- * place, and it says why it is not available.
+ * where a "Parked" badge would frame it as coming. Its explanation page is reachable by its URL.
  *
- * NEVER promise payouts / ₹500 / 25% / 90d / any commercial term. The cards name the
- * module + its gate ONLY. A flag being ON would still build NOTHING — it only changes
- * the wording from "Parked" to "flagged on but unbuilt".
+ * NEVER promise payouts / ₹500 / 25% / 90d / any commercial term, and never call KYC a "test":
+ * details entered there are stored (encrypted, ADR-0022 Amdt 2) — only the payouts are simulated.
  *
- * Each card is the UI-1 `soon-card` primitive marked `aria-disabled` — the one visual
- * language for "not open yet": a dashed, colourless placeholder, never broken and never
- * interactive (no DS Button, no link). The status pill stays a DS `Badge` rather than the
- * `soon-badge`, because "Soon" is precisely the promise these cards must NEVER make: each is
- * gated on a legal, money or product decision, not on engineering readiness.
- * Tokens only (no raw hex/px).
+ * A parked card is the UI-1 `soon-card` primitive marked `aria-disabled` — the one visual language
+ * for "not open yet": a dashed, colourless placeholder, never broken and never interactive. Its
+ * status pill stays a DS `Badge` rather than the `soon-badge`, because "Soon" is precisely the
+ * promise these cards must NEVER make: each is gated on a legal, money or product decision, not on
+ * engineering readiness. An available card is a real door, so it is the dashboard's whole-card
+ * link tile instead. Tokens only (no raw hex/px).
+ *
+ * CLOSED BY DEFAULT (final sweep F21): this is the page's lowest-priority block; open, it was most
+ * of the agency dashboard's height on a phone. The native <summary> keeps it one keypress away.
  */
 
-interface ParkedCard {
+interface ModuleCard {
   title: string;
-  note: string;
-  /** Whether the flag is on. ON never builds the flow — it only re-labels. */
-  flaggedOn: boolean;
+  /** Why it is not here (shown while parked). */
+  parkedNote: string;
+  /** Available now (the server answered for a built module) — a linked card, not a parked one. */
+  available: boolean;
+  /** A public flag that only RE-LABELS a still-unbuilt module. */
+  flaggedOn?: boolean;
 }
 
-export function AgencyParkedModules({ flags }: { flags: AgencyFlags }) {
-  const cards: ParkedCard[] = [
+/** Where the KYC + payout panels render (ADR-0022 Amendment 2). */
+const REFERRALS_HREF = "/agency/referrals";
+const AVAILABLE_NOTE = "Available on Referrals — payouts are simulated; no money is paid out yet.";
+
+export function AgencyParkedModules({
+  flags,
+  payoutsAvailable,
+}: {
+  flags: AgencyFlags;
+  /**
+   * The SERVER's answer: the agency earnings read returned (`AGENCY_PAYOUTS_ENABLED` on) — the same
+   * check /agency/referrals makes before it draws the KYC, earnings and payout panels. A failed
+   * read is `false` (the cards stay parked, never an error).
+   */
+  payoutsAvailable: boolean;
+}) {
+  const cards: ModuleCard[] = [
     {
       title: "Payout details (KYC)",
-      note: "Parked: legal/DPDP sign-off required",
-      flaggedOn: flags.agencyKycEnabled,
+      parkedNote: "Parked: legal/DPDP sign-off required",
+      available: payoutsAvailable,
     },
     {
       title: "Payouts",
-      note: "Parked: real payments + product-ratified params required",
-      flaggedOn: flags.agencyPayoutsEnabled,
+      parkedNote: "Parked: real payments + product-ratified params required",
+      available: payoutsAvailable,
     },
     {
       title: "Matching / Outcome Tracking",
-      note: "Deferred by product lock",
+      parkedNote: "Deferred by product lock",
+      available: false,
       flaggedOn: flags.agencyOutcomeTrackingEnabled,
     },
   ];
 
   return (
-    // COMPACT-1: this verbose, lowest-priority secondary section (what is deliberately NOT
-    // built) becomes an accessible native <details> disclosure to lift dashboard density —
-    // but it stays `open` by DEFAULT so nothing is hidden on first paint. Layout/disclosure
-    // only: the same heading, sub-copy, and parked cards render unchanged. The native
-    // <summary> is keyboard-operable for free; the chevron motion honors reduced-motion.
-    // `.agency-parked-disclosure` carries this block's own bottom rhythm, so the retired
-    // `.agency-section` wrapper class is not replaced by anything.
-    <details className="agency-parked-disclosure" open>
-      <summary className="agency-parked-disclosure__summary">
+    // A native <details> (keyboard-operable for free; the caret honours reduced motion), CLOSED by
+    // default. `.agency-parked-disclosure` carries this block's own bottom rhythm.
+    <details className="agency-disclosure agency-parked-disclosure">
+      <summary className="agency-disclosure__summary">
         <span className="section__title">Not in this release</span>
-        <Icon name={ACTION_ICON.disclosure} className="agency-parked-disclosure__caret" />
+        <Icon name={ACTION_ICON.disclosure} className="agency-disclosure__caret" />
       </summary>
       <p className="section__sub">
-        These modules are deliberately not built. They are gated on legal, money or product
-        decisions — not engineering readiness.
+        These modules are gated on legal, money or product decisions — not engineering readiness.
+        Where payouts are switched on they are simulated: no money is paid out yet.
       </p>
       <div className="stat-row">
-        {cards.map((c) => (
-          <div key={c.title} className="soon-card" aria-disabled="true">
-            <Badge tone="warning" upper>
-              {c.flaggedOn ? "Flagged on — still unbuilt" : "Parked"}
-            </Badge>
-            <h3 className="soon-card__title">{c.title}</h3>
-            <p className="soon-card__body">{c.note}</p>
-          </div>
-        ))}
+        {cards.map((c) =>
+          c.available ? (
+            <Card
+              key={c.title}
+              className="agency-stat"
+              href={REFERRALS_HREF}
+              ariaLabel={`${c.title} — available on Referrals`}
+            >
+              <div className="agency-stat__head">
+                <span className="agency-stat__label">{c.title}</span>
+              </div>
+              <div className="agency-stat__foot">
+                <Badge tone="info" upper>
+                  Available
+                </Badge>
+                <span className="agency-stat__hint">
+                  {AVAILABLE_NOTE} <Icon name={ACTION_ICON.next} />
+                </span>
+              </div>
+            </Card>
+          ) : (
+            <div key={c.title} className="soon-card" aria-disabled="true">
+              <Badge tone="warning" upper>
+                {c.flaggedOn ? "Flagged on — still unbuilt" : "Parked"}
+              </Badge>
+              <h3 className="soon-card__title">{c.title}</h3>
+              <p className="soon-card__body">{c.parkedNote}</p>
+            </div>
+          ),
+        )}
       </div>
     </details>
   );
