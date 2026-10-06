@@ -162,6 +162,10 @@ export async function getUnlocks(): Promise<UnlockHistoryItem[]> {
       status: u.status === "granted" || u.status === "revealed" ? "granted" : "expired",
       createdAt: u.created_at,
       expiresAt: u.expires_at ?? u.created_at,
+      // Context only, passed through as sent: an agency `jobs` id, or null (a company posting's
+      // unlock is stored without one, #1903). Never used to decide WHICH applicant it opens.
+      jobId: u.job_id,
+      grantedAt: u.granted_at,
     }));
 }
 

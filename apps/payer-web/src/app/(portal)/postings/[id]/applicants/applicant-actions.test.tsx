@@ -1,8 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
+import { ACTION_ICON } from "@badabhai/icons";
 import type { FacelessApplicant } from "../../../../../lib/contracts";
 import { NEUTRAL_UNLOCK_MESSAGE, mapUnlockResult } from "../../../../../lib/unlock-view";
+import type { GrantedUnlock } from "../../../../../lib/unlock-history";
 import { Badge, Button } from "../../../../../components/ds";
 
 /**
@@ -77,7 +79,15 @@ const APPLICANT: FacelessApplicant = {
 };
 
 interface Collected {
-  buttons: Array<{ text: string; onClick?: () => void; disabled?: boolean; loading?: boolean }>;
+  buttons: Array<{
+    text: string;
+    onClick?: () => void;
+    disabled?: boolean;
+    loading?: boolean;
+    iconLeft?: unknown;
+    title?: unknown;
+    describedBy?: unknown;
+  }>;
   ariaLiveCount: number;
 }
 
@@ -134,6 +144,9 @@ function walk(node: ReactNode, acc: Collected): void {
       onClick: el.props.onClick as (() => void) | undefined,
       disabled: el.props.disabled as boolean | undefined,
       loading: el.props.loading as boolean | undefined,
+      iconLeft: el.props.iconLeft,
+      title: el.props.title,
+      describedBy: el.props["aria-describedby"],
     });
   }
   if (el.props["aria-live"] === "polite") acc.ariaLiveCount++;
@@ -159,6 +172,8 @@ function render(opts: {
   applicants?: FacelessApplicant[];
   balance?: number;
   canBuyCredits?: boolean;
+  /** The page's LIVE grants for this feed (omitted → the component's own default). */
+  unlocked?: Record<string, GrantedUnlock>;
 }) {
   // Source order of useState: rows, confirmedUnlock, stages, activeStage, confirmWorker.
   stateQueue = [
@@ -177,10 +192,11 @@ function render(opts: {
     balance: opts.balance ?? 5,
     // An OWNER by default (the viewer who may open /credits); the recruiter case is explicit.
     canBuyCredits: opts.canBuyCredits ?? true,
+    ...(opts.unlocked ? { unlocked: opts.unlocked } : {}),
   }) as ReactElement;
 }
 
-/** A granted-unlock + ROUTED-reveal row state (the gate that enables Call / WhatsApp). */
+/** A granted-unlock + ROUTED-reveal row state (the gate for "Mark as contacted"). */
 function routedRowState() {
   return {
     [WORKER]: {
@@ -193,7 +209,6 @@ function routedRowState() {
       resumeBusy: false,
       resume: null,
       resumeError: null,
-      reach: null,
     },
   };
 }
@@ -393,21 +408,30 @@ describe("ApplicantActions — pipeline Keep/Pass are LOCAL stage transitions (N
   });
 });
 
-describe("ApplicantActions — Call/WhatsApp gated behind a granted unlock + ROUTED reveal", () => {
-  it("renders Call and WhatsApp DISABLED until a routed relay handle exists", () => {
-    const { buttons } = collect(render({})); // not unlocked ⇒ not routed
-    expect(buttons.find((b) => b.text === "Call")!.disabled).toBe(true);
-    expect(buttons.find((b) => b.text === "WhatsApp")!.disabled).toBe(true);
+describe("ApplicantActions — no Call/WhatsApp while the routed channel is closed (F09); the routed card is the read-out", () => {
+  // The routed card says "nothing to dial or message today" and no contract field says when that
+  // changes, so an enabled Call that only set a local hint was a control that did nothing — and a
+  // disabled one could never enable. Neither renders, at ANY stage, and nothing promises them.
+  const reachControls = (tree: ReactNode) =>
+    collect(tree).buttons.filter((b) => /^(Call|WhatsApp)$/.test(b.text));
+
+  it("renders NO Call / WhatsApp control before an unlock, and no line promising them", () => {
+    const tree = render({}); // not unlocked ⇒ not routed
+    expect(reachControls(tree)).toEqual([]);
+    expect(gatherText(tree)).not.toMatch(/Call|WhatsApp/);
   });
 
-  it("ENABLES Call/WhatsApp once row.contact is routed; clicking is LOCAL (no reveal re-call)", () => {
-    const { buttons } = collect(render({ rows: routedRowState() }));
-    const call = buttons.find((b) => b.text === "Call");
-    const wa = buttons.find((b) => b.text === "WhatsApp");
-    expect(call!.disabled).toBeFalsy();
-    expect(wa!.disabled).toBeFalsy();
-    call!.onClick!();
-    // reach is recorded on the ROWS state (index 0) — local; never re-hits reveal/unlock.
+  it("still none once routed: the routed card is the ONE contact read-out; Mark as contacted stays LOCAL", () => {
+    const tree = render({ rows: routedRowState() });
+    expect(reachControls(tree)).toEqual([]);
+    expect(gatherText(tree)).not.toMatch(/Call|WhatsApp|relay ready/);
+    // The relay read-out is there (the routed card) and its own copy says there is nothing to dial.
+    expect(findRoutedView(tree)).not.toBeNull();
+    expect(deepGather(tree)).toContain("nothing to dial or message today");
+    // The one contact-stage control left is the local marker — no reveal/unlock re-call.
+    const mark = collect(tree).buttons.find((b) => b.text === "Mark as contacted");
+    expect(mark).toBeDefined();
+    mark!.onClick!();
     expect(setters[0]).toHaveBeenCalledTimes(1);
     expect(revealContactAction).not.toHaveBeenCalled();
     expect(unlockAction).not.toHaveBeenCalled();
@@ -487,7 +511,6 @@ const baseRow = {
   resumeBusy: false,
   resume: null,
   resumeError: null,
-  reach: null,
   contacted: false,
 };
 
@@ -894,16 +917,15 @@ describe("ApplicantActions — W2-B card anatomy: identity → tags → toolbar 
     }
   });
 
-  it("the spend CTA lives in the band; triage + the gated contact pair live in the toolbar", () => {
+  it("the spend CTA lives in the band; the triage pair is the whole toolbar", () => {
     const all = elements(render({}));
     const band = all.find((e) => hasClass(e, "applicant__contact"))!;
     const toolbar = all.find((e) => hasClass(e, "applicant__actions"))!;
     expect(buttonLabels(band)).toEqual(["Unlock contact (1 credit)"]);
-    expect(buttonLabels(toolbar)).toEqual(["Keep", "Pass", "Call", "WhatsApp"]);
-    // The toolbar is exactly the two groups, triage first.
+    expect(buttonLabels(toolbar)).toEqual(["Keep", "Pass"]);
+    // The toolbar is exactly ONE group (triage); the Call / WhatsApp group is gone (F09).
     expect(childEls(toolbar).map((k) => String(k.props.className))).toEqual([
       "applicant__pipeline",
-      "applicant__reach",
     ]);
   });
 
@@ -912,13 +934,7 @@ describe("ApplicantActions — W2-B card anatomy: identity → tags → toolbar 
     const band = all.find((e) => hasClass(e, "applicant__contact"))!;
     const toolbar = all.find((e) => hasClass(e, "applicant__actions"))!;
     expect(buttonLabels(band)).toEqual(["View masked resume"]);
-    expect(buttonLabels(toolbar)).toEqual([
-      "Keep",
-      "Pass",
-      "Mark as contacted",
-      "Call",
-      "WhatsApp",
-    ]);
+    expect(buttonLabels(toolbar)).toEqual(["Keep", "Pass", "Mark as contacted"]);
   });
 });
 
@@ -1084,6 +1100,121 @@ describe("ApplicantActions — the skill/signal TAGS are static text, not contro
     expect(signalsOnly.props["aria-label"]).toBe("Relevance signals");
     expect(textOf(childEls(childEls(signalsOnly)[0]!)[0]!.props.children as ReactNode)).toBe(
       "on-trade",
+    );
+  });
+});
+
+/* ── Final acceptance sweep B: icons, honest disabled reasons, unlocked state, compact note ── */
+
+describe("ApplicantActions — every row control leads with its icon (F08)", () => {
+  const iconOf = (tree: ReactNode, text: string) =>
+    collect(tree).buttons.find((b) => b.text === text)?.iconLeft;
+
+  it("Keep / Pass / Unlock carry the product icons; Unlock and its confirm share ONE glyph", () => {
+    const tree = render({ confirmWorker: WORKER });
+    expect(iconOf(tree, "Keep")).toBe("bookmark-simple");
+    expect(iconOf(tree, "Pass")).toBe(ACTION_ICON.reject);
+    expect(iconOf(tree, "Unlock contact (1 credit)")).toBe(ACTION_ICON.unlock);
+    // The dialog's spend button ("Unlock · 1 credit") is the same action — the same icon.
+    expect(iconOf(tree, "Unlock · 1 credit")).toBe(ACTION_ICON.unlock);
+  });
+
+  it("'Mark as contacted' (routed rows) carries one too, so the toolbar reads as one set", () => {
+    expect(iconOf(render({ rows: routedRowState() }), "Mark as contacted")).toBe("check-circle");
+  });
+});
+
+describe("ApplicantActions — a disabled Unlock says WHY in visible text, not a dead title (F27)", () => {
+  it("balance 0: no `title` on the disabled Unlock; it is described by the visible hint beneath it", () => {
+    const tree = render({ applicants: [A, B], balance: 0 });
+    const unlocks = collect(tree).buttons.filter((b) => b.text === "Unlock contact (1 credit)");
+    expect(unlocks).toHaveLength(2);
+    const hints = elements(tree).filter((e) => hasClass(e, "applicant__hint"));
+    for (const [i, u] of unlocks.entries()) {
+      expect(u.disabled).toBe(true);
+      // A disabled button takes no hover, so a title there is never seen.
+      expect(u.title).toBeUndefined();
+      expect(typeof u.describedBy).toBe("string");
+      const hint = hints.find((h) => h.props.id === u.describedBy);
+      expect(hint, `row ${i}: aria-describedby must name a rendered hint`).toBeDefined();
+      expect(textOf(hint!.props.children as ReactNode)).toContain("Buy credits to unlock.");
+    }
+    // One id per row — two rows never point at the same line.
+    expect(new Set(unlocks.map((u) => u.describedBy)).size).toBe(2);
+    // The ids are positional: no full worker id lands in a DOM attribute.
+    for (const u of unlocks) expect(String(u.describedBy)).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
+  });
+
+  it("a positive balance (incl. the unread-balance 1): Unlock enabled, described by nothing", () => {
+    for (const balance of [1, 5]) {
+      const unlock = collect(render({ balance })).buttons.find(
+        (b) => b.text === "Unlock contact (1 credit)",
+      )!;
+      expect(unlock.disabled).toBe(false);
+      expect(unlock.describedBy).toBeUndefined();
+      expect(unlock.title).toBeUndefined();
+    }
+  });
+});
+
+describe("ApplicantActions — an applicant the payer already unlocked STARTS unlocked (F10)", () => {
+  const HELD: GrantedUnlock = {
+    kind: "granted",
+    unlockId: "66666666-6666-4666-8666-666666666666",
+    expiresAt: "2026-11-04T09:30:00.000Z",
+  };
+
+  it("a held row renders the granted band (Unlocked · Open routed contact), never a fresh spend", () => {
+    const tree = render({ applicants: [A, B], unlocked: { [A.workerId]: HELD } });
+    const cards = elements(tree).filter((e) => hasClass(e, "applicant"));
+    expect(cards).toHaveLength(2);
+    const [held, fresh] = cards.map((c) => elements(c.props.children as ReactNode));
+    const labels = (els: El[]) =>
+      els.filter((e) => e.type === Button).map((e) => textOf(e.props.children as ReactNode).trim());
+    // A: the payer holds a live grant — the band is the granted one, with its window end.
+    expect(labels(held!)).toContain("Open routed contact");
+    expect(labels(held!)).not.toContain("Unlock contact (1 credit)");
+    expect(held!.some((e) => e.type === Badge && textOf(e.props.children as ReactNode) === "Unlocked")).toBe(true);
+    expect(gatherText(cards[0]!)).toContain("2026-11-04");
+    // B: not held — the spend is offered as before.
+    expect(labels(fresh!)).toContain("Unlock contact (1 credit)");
+  });
+
+  it("opening the held row's contact reveals THAT grant — no unlock, no confirm, no spend", () => {
+    revealContactAction.mockResolvedValue({ ok: false, error: "x" });
+    const { buttons } = collect(render({ unlocked: { [WORKER]: HELD } }));
+    buttons.find((b) => b.text === "Open routed contact")!.onClick!();
+    expect(revealContactAction).toHaveBeenCalledWith({ unlockId: HELD.unlockId });
+    expect(unlockAction).not.toHaveBeenCalled();
+    expect(setters[4]).not.toHaveBeenCalled(); // the confirm dialog never opened
+  });
+
+  it("session state layers OVER the held grant (the patch keeps it; this session's state wins)", () => {
+    revealContactAction.mockReturnValue(new Promise(() => {}));
+    const { buttons } = collect(render({ unlocked: { [WORKER]: HELD } }));
+    buttons.find((b) => b.text === "Open routed contact")!.onClick!();
+    // The busy patch starts from the held row, so the grant survives the patch.
+    const updater = setters[0]!.mock.calls[0]![0] as (
+      p: Record<string, unknown>,
+    ) => Record<string, Record<string, unknown>>;
+    expect(updater({})[WORKER]).toMatchObject({ unlock: HELD, contactBusy: true });
+    // A row this session already moved (e.g. a routed reveal) renders from session state.
+    const routed = collect(render({ rows: routedRowState(), unlocked: { [WORKER]: HELD } }));
+    expect(routed.buttons.map((b) => b.text)).toContain("Mark as contacted");
+  });
+});
+
+describe("ApplicantActions — the privacy note is ONE compact line (F20)", () => {
+  it("no title row: one short sentence that still says applicants are faceless", () => {
+    const notes = elements(render({ applicants: [A, B] })).filter((e) => hasClass(e, "alert--info"));
+    expect(notes).toHaveLength(1);
+    const inside = elements(notes[0]!.props.children as ReactNode);
+    // The title row was the second line that pushed the first Unlock under a 375×812 fold.
+    expect(inside.filter((e) => hasClass(e, "alert__title"))).toEqual([]);
+    const body = inside.filter((e) => hasClass(e, "alert__body"));
+    expect(body).toHaveLength(1);
+    expect(textOf(body[0]!.props.children as ReactNode)).toBe(
+      "Applicants are faceless until unlocked.",
     );
   });
 });

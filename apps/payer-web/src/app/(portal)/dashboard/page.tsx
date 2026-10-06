@@ -8,7 +8,8 @@ import { getLiveCatalog } from "../../../lib/live-catalog";
 import { unlockUnitPriceInr } from "../../../lib/pricing-config";
 import { postingRoutes } from "../../../lib/posting-routes";
 import type { Dashboard } from "../../../lib/contracts";
-import { Badge, Card, MaskedCandidate, StatTile } from "../../../components/ds";
+import { unlockRow } from "../../../lib/unlock-history";
+import { Badge, Card, StatTile } from "../../../components/ds";
 import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
 import { formatInr } from "../../../lib/format";
@@ -35,7 +36,7 @@ export const dynamic = "force-dynamic";
  *
  * UNCHANGED: the authz path (requirePayer → XB-A binds every read to the server-held payer
  * id), the role branching, and the FACELESS invariant — no worker name, phone or opaque id
- * ever reaches the DOM; recent unlocks still render through MaskedCandidate.
+ * ever reaches the DOM; a recent-unlock row carries its posting, dates and status only.
  *
  * MERGE-1 (agent branch): when `session.role === "agent"` the agency demand modules render
  * INLINE below via {@link AgentSections}, a SERVER component that re-asserts requireAgent(),
@@ -49,7 +50,8 @@ export const dynamic = "force-dynamic";
  * ONE DOOR PER DESTINATION (owner ruling 2026-10-01). "New posting" is the head's one primary
  * action — for an agency it opens the AGENCY form (`jobs`), never the company one. The Postings
  * list is reached from the "Your postings" panel alone. The counters are counts, the balance
- * included (the header chip is the balance's door); the unlock rows are rows. A "Needs your
+ * included (the header chip is the balance's door); an unlock row is a door only to the posting
+ * it names (its applicants show the unlock). A "Needs your
  * attention" item shows no button of its own when the page already offers that destination
  * (the head's New posting, the Buy credits card). Credits is linked only for an owner:
  * `/credits` is Owner-only and a recruiter would land on a 404. Plans & capacity is a company
@@ -318,19 +320,47 @@ export default async function DashboardPage() {
             </div>
           ) : (
             <div className="dash-candlist">
-              {recentUnlocks.map((u) => (
-                // FACELESS: a row names nobody — no worker id/phone/name reaches the DOM. Not a
-                // link: the postings list it used to open shows no unlocks. The wrapper's own
-                // surface is zeroed so only the inner MaskedCandidate row shows.
-                <Card key={u.unlockId} variant="flat" padding="none" className="dash-unlock-link">
-                  <MaskedCandidate
-                    masked={false}
-                    verified={u.status === "granted"}
-                    name="Unlocked contact"
-                    experience={u.status === "granted" ? "Active access" : "Access expired"}
-                  />
-                </Card>
-              ))}
+              {recentUnlocks.map((u) => {
+                // FACELESS: a row names nobody — no worker id/phone/name reaches the DOM. It says
+                // WHAT was unlocked (its posting, when the record names one of your own), WHEN,
+                // and whether access is still open — an ended window is a neutral "Expired",
+                // never a green "Unlocked". It links to that posting's applicants, where the
+                // unlocked row shows as unlocked; a record that names no posting of yours (a
+                // company unlock is stored without one today) is not a link.
+                const row = unlockRow(u, data.postings, Date.now());
+                // `href` and its accessible name travel together (the DS link contract).
+                const link = row.posting
+                  ? {
+                      href: `/postings/${row.posting.id}/applicants`,
+                      ariaLabel: `${row.posting.title} — view applicants`,
+                    }
+                  : {};
+                return (
+                  <Card key={row.key} padding="sm" className="dash-unlock" {...link}>
+                    <div className="dash-unlock__main">
+                      <div className="dash-unlock__title">
+                        {row.posting ? row.posting.title : "Unlocked contact"}
+                      </div>
+                      <div className="dash-unlock__meta">
+                        Unlocked <span className="bb-mono">{row.unlockedOn}</span> ·{" "}
+                        {row.live ? "until" : "ended"}{" "}
+                        <span className="bb-mono">{row.endsOn}</span>
+                      </div>
+                    </div>
+                    <div className="dash-unlock__right">
+                      <Badge tone={row.live ? "success" : "neutral"} upper>
+                        {row.live ? "Unlocked" : "Expired"}
+                      </Badge>
+                      {row.posting ? (
+                        <span className="dash-posting__cta">
+                          View applicants
+                          <Icon name={ACTION_ICON.next} className="dash-view__arrow" />
+                        </span>
+                      ) : null}
+                    </div>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </div>

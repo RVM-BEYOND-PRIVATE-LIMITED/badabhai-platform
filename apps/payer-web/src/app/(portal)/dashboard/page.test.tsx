@@ -1,14 +1,14 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import { DEFAULT_CATALOG } from "@badabhai/pricing";
-import { MaskedCandidate, StatTile } from "../../../components/ds";
+import { Badge, MaskedCandidate, StatTile } from "../../../components/ds";
 import { unlockUnitPriceInr } from "../../../lib/pricing-config";
 
 /**
  * DASHBOARD (DS1.2) — server component rendered to an element tree in the node env and
  * walked. Asserts: three StatTiles whose counts come from the LIVE read, the ₹ price in
- * mono tabular, the recent-unlock teasers rendered via the MaskedCandidate primitive and
- * kept FACELESS (no worker name/phone/opaque id in the DOM or props), and the DS Card
+ * mono tabular, the recent-unlock rows (posting · dates · Unlocked/Expired status) kept
+ * FACELESS (no worker name/phone/opaque id in the DOM or props), and the DS Card
  * empty/error states. requirePayer + getDashboard are mocked.
  */
 const requirePayer = vi.fn();
@@ -46,6 +46,8 @@ const DATA = {
       status: "granted",
       createdAt: "2026-06-20T00:00:00.000Z",
       expiresAt: "2026-12-20T00:00:00.000Z",
+      // No job context: a company unlock is stored without one (#1903).
+      jobId: null as string | null,
     },
     {
       unlockId: "u2",
@@ -53,6 +55,7 @@ const DATA = {
       status: "expired",
       createdAt: "2026-05-01T00:00:00.000Z",
       expiresAt: "2026-06-01T00:00:00.000Z",
+      jobId: null as string | null,
     },
   ],
   postings: [
@@ -318,17 +321,34 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
     expect(cards.every((c) => String(p(c).ariaLabel ?? "").includes("view applicants"))).toBe(true);
   });
 
-  it("each Recent-unlock row is a faceless row, NOT a link to a list that shows no unlocks", async () => {
-    const tree = await render();
-    const rows = findByClass(tree, "dash-unlock-link");
+  it("a Recent-unlock row links ONLY to a posting of yours it names (whose applicants show it)", async () => {
+    // No job context (how a company unlock is stored today): the row is NOT a link.
+    const plain = await render();
+    const rows = findByClass(plain, "dash-unlock");
     expect(rows.length).toBe(2);
     expect(rows.every((l) => p(l).href === undefined && p(l).ariaLabel === undefined)).toBe(true);
+    // Context that IS one of your postings → that posting's applicants, named; anything else
+    // (an id that is not one of your postings) → still no link.
+    const named = await render({
+      unlocks: [
+        { ...DATA.unlocks[0]!, jobId: "j1" },
+        { ...DATA.unlocks[1]!, jobId: "not-one-of-yours" },
+      ],
+    });
+    const [a, b] = findByClass(named, "dash-unlock");
+    expect(p(a!).href).toBe("/postings/j1/applicants");
+    expect(p(a!).ariaLabel).toBe("CNC Operator — view applicants");
+    expect(textOf(a!)).toContain("CNC Operator");
+    expect(p(b!).href).toBeUndefined();
+    expect(p(b!).ariaLabel).toBeUndefined();
   });
 
   it("NO worker PII (uuid / phone-shaped / +91) appears in ANY generated href", async () => {
-    const tree = await render();
+    // One unlock names a posting, so the unlock rows generate an href too.
+    const tree = await render({ unlocks: [{ ...DATA.unlocks[0]!, jobId: "j1" }, DATA.unlocks[1]!] });
     const cards = findByClass(tree, "dash-posting");
-    const unlockLinks = findByClass(tree, "dash-unlock-link");
+    const unlockLinks = findByClass(tree, "dash-unlock");
+    expect(unlockLinks.filter((l) => typeof p(l).href === "string")).toHaveLength(1);
     const tileHrefs = findAll(tree, StatTile).map((t) => p(t).href as string | undefined);
     const cardHrefs = cards.map((c) => p(c).href as string | undefined);
     const unlockHrefs = unlockLinks.map((l) => p(l).href as string | undefined);
@@ -346,19 +366,75 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
   });
 });
 
-describe("DS1.2 · recent-unlock teasers are faceless MaskedCandidate rows", () => {
-  it("renders one MaskedCandidate per recent unlock, all unmasked, with NO PII", async () => {
+describe("DS1.2 · recent-unlock rows are faceless", () => {
+  it("renders one faceless row per recent unlock, with NO PII (and no decoy-name candidate row)", async () => {
     const tree = await render();
-    const cands = findAll(tree, MaskedCandidate);
-    expect(cands.length).toBe(2);
-    expect(cands.every((c) => p(c).masked === false)).toBe(true);
-    expect(cands.every((c) => p(c).name === "Unlocked contact")).toBe(true);
+    const rows = findByClass(tree, "dash-unlock");
+    expect(rows.length).toBe(2);
+    // The rows are not the MaskedCandidate primitive any more: it drew a person (initials, a
+    // name line, a green "Unlocked") for what is an access RECORD, so three rows read as three
+    // identical "UC · Unlocked contact" people and an expired one still said "Unlocked".
+    expect(findAll(tree, MaskedCandidate)).toHaveLength(0);
+    for (const r of rows) expect(textOf(r)).toContain("Unlocked contact");
 
-    // no opaque worker id or any phone-like run reaches the DOM or the component props
-    const serialized = textOf(tree) + JSON.stringify(cands.map((c) => p(c)));
+    // no opaque worker id or any phone-like run reaches the DOM or the row props
+    const serialized =
+      textOf(tree) +
+      JSON.stringify(rows.map((r) => ({ href: p(r).href, ariaLabel: p(r).ariaLabel })));
     expect(serialized).not.toContain("worker-uuid");
     expect(serialized).not.toMatch(/\b\d{10}\b/);
     expect(serialized).not.toMatch(/\+91/);
+  });
+});
+
+describe("F37 · a recent-unlock row says what, when, and whether access is still open", () => {
+  const day = (offsetDays: number) => new Date(Date.now() + offsetDays * 864e5).toISOString();
+  const badgesOf = (row: ReactElement) =>
+    findAll(row, Badge).map((b) => ({
+      tone: p(b).tone,
+      text: textOf(p(b).children as ReactNode).trim(),
+    }));
+
+  it("an ENDED window is a neutral 'Expired' — never a green 'Unlocked' beside it", async () => {
+    const tree = await render({
+      unlocks: [
+        { ...DATA.unlocks[0]!, unlockId: "live", status: "granted", expiresAt: day(7) },
+        { ...DATA.unlocks[0]!, unlockId: "stored-expired", status: "expired", expiresAt: day(-30) },
+        // The store never moves a lapsed grant to `expired`; its window end says it ended.
+        { ...DATA.unlocks[0]!, unlockId: "lapsed", status: "granted", expiresAt: day(-1) },
+      ],
+    });
+    const rows = findByClass(tree, "dash-unlock");
+    expect(rows.map(badgesOf)).toEqual([
+      [{ tone: "success", text: "Unlocked" }],
+      [{ tone: "neutral", text: "Expired" }],
+      [{ tone: "neutral", text: "Expired" }],
+    ]);
+  });
+
+  it("each row carries its unlock day and its window end (mono), and the posting title when named", async () => {
+    const tree = await render({
+      unlocks: [
+        {
+          ...DATA.unlocks[0]!,
+          jobId: "j2",
+          createdAt: "2026-05-01T00:00:00.000Z",
+          expiresAt: day(7),
+          grantedAt: "2026-10-01T10:00:00.000Z",
+        } as (typeof DATA.unlocks)[number],
+        { ...DATA.unlocks[1]!, expiresAt: "2026-06-01T00:00:00.000Z" },
+      ],
+    });
+    const [named, plain] = findByClass(tree, "dash-unlock");
+    const t1 = textOf(named!).replace(/\s+/g, " ");
+    expect(t1).toContain("VMC Setter");
+    expect(t1).toContain(`Unlocked 2026-10-01 · until ${day(7).slice(0, 10)}`);
+    const t2 = textOf(plain!).replace(/\s+/g, " ");
+    expect(t2).toContain("Unlocked contact");
+    expect(t2).toContain("Unlocked 2026-05-01 · ended 2026-06-01");
+    // The dates are mono figures, like every other date in the portal.
+    const mono = findByClass(named!, "bb-mono").map((m) => textOf(m));
+    expect(mono).toEqual(["2026-10-01", day(7).slice(0, 10)]);
   });
 });
 
@@ -368,7 +444,7 @@ describe("UI-1 · empty + error states", () => {
   // the STATE blocks rather than counting Cards — same intent, at the layer that now owns it.
   it("renders an empty state per section (no teasers, no posting rows) when there is no data", async () => {
     const tree = await render({ unlocks: [], postings: [] });
-    expect(findAll(tree, MaskedCandidate).length).toBe(0);
+    expect(findByClass(tree, "dash-unlock").length).toBe(0);
     expect(findByClass(tree, "dash-posting").length).toBe(0);
     // One for "Your postings", one for "Recent unlocks".
     expect(findByClass(tree, "state").length).toBeGreaterThanOrEqual(2);
@@ -387,7 +463,7 @@ describe("UI-1 · empty + error states", () => {
     // The recovery action is part of the contract — an error with no way forward is a wall.
     expect(findByClass(tree, "state__actions").length).toBe(1);
     // no candidate/posting data leaks on the error path
-    expect(findAll(tree, MaskedCandidate).length).toBe(0);
+    expect(findByClass(tree, "dash-unlock").length).toBe(0);
   });
 });
 
@@ -431,8 +507,8 @@ describe("MERGE-1 · single role-aware dashboard composition (agent vs employer)
     const byLabel = (l: string) => tiles.find((t) => p(t).label === l);
     expect(p(byLabel("Credit balance")!).value).toBe(247);
     expect(p(byLabel("Contacts unlocked")!).value).toBe(2);
-    // recent-unlock teasers are coherent (same unlocks read) and stay faceless
-    expect(findAll(tree, MaskedCandidate).length).toBe(2);
+    // recent-unlock rows are coherent (same unlocks read) and stay faceless
+    expect(findByClass(tree, "dash-unlock").length).toBe(2);
   });
 });
 
