@@ -90,7 +90,7 @@ export default async function WorkersPage({
           <FilterPanel
             headingId="wf-heading"
             heading="Filter workers"
-            activeCount={[Boolean(status), pendingDeletion].filter(Boolean).length}
+            filters={{ status, pendingDeletion }}
           >
             <WorkerFilterBar status={status ?? ""} pendingDeletion={pendingDeletion} />
           </FilterPanel>

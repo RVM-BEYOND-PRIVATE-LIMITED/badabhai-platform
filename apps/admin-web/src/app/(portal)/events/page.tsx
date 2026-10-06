@@ -72,7 +72,7 @@ export default async function EventsPage({
         description="The audit spine: every important state change on the platform is recorded here."
         filters={
           /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */
-          <FilterPanel headingId="filters-heading" heading="Filter events" activeCount={active.length}>
+          <FilterPanel headingId="filters-heading" heading="Filter events" filters={Object.fromEntries(active)}>
             <EventFilterBar
               eventName={filters.eventName ?? ""}
               actorType={filters.actorType ?? ""}

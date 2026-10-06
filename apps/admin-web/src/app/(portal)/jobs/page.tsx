@@ -62,7 +62,7 @@ export default async function JobsPage({
           <FilterPanel
             headingId="jf-heading"
             heading="Filter postings"
-            activeCount={[status, verificationStatus, payerId].filter(Boolean).length}
+            filters={{ status, verificationStatus, payerId }}
           >
             <JobFilterBar
               status={status ?? ""}

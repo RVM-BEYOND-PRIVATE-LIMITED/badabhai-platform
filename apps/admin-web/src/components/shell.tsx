@@ -93,7 +93,19 @@ export function Shell({
 
   return (
     <div className={`shell${drawerOpen ? " shell--drawer-open" : ""}`}>
-      <aside className="sidebar" id="portal-sidebar" ref={sidebarRef}>
+      {/* Any link activated in the drawer closes it (review L1). The pathname effect above only
+          sees a navigation to ANOTHER page: the link for the page you are on — or one that
+          changes only the query — left the drawer open over it, the page still inert. Delegated
+          here, so a link anywhere in the drawer counts; on the permanent sidebar (1024px and up)
+          the drawer is never open and this does nothing. */}
+      <aside
+        className="sidebar"
+        id="portal-sidebar"
+        ref={sidebarRef}
+        onClick={(event) => {
+          if ((event.target as Element).closest("a[href]")) setDrawerOpen(false);
+        }}
+      >
         <div className="sidebar__brand">
           <BrandLockup surface="ink" />
         </div>

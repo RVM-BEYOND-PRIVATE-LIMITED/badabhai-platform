@@ -179,3 +179,44 @@ describe("what the open drawer renders", () => {
     expect(el.props.className).toBe("shell shell--drawer-open");
   });
 });
+
+/**
+ * REVIEW L1 — the drawer closed only when the PATHNAME changed, so following the drawer's link for
+ * the page you are already on (or one that only changes the query) left it open over the page,
+ * with that page still inert. Any link activated inside the drawer closes it now; the pathname
+ * effect stays for navigations that start elsewhere.
+ */
+describe("a link activated inside the drawer closes it (review L1)", () => {
+  /** The <aside> the shell renders, from the function form (no DOM). */
+  const aside = () => {
+    hooks.open = true;
+    const root = Shell(props) as ReactElement<{ children: ReactElement[] }>;
+    const el = [root.props.children]
+      .flat()
+      .find(
+        (c): c is ReactElement<{ id?: string; onClick?: (e: unknown) => void }> =>
+          Boolean(c) && (c as ReactElement<{ id?: string }>).props?.id === "portal-sidebar",
+      );
+    expect(el, "the sidebar <aside>").toBeDefined();
+    return el!;
+  };
+  /** A click whose target sits inside (or is) a link, or not. */
+  const clickOn = (inLink: boolean) => ({
+    target: {
+      closest: (selector: string) =>
+        inLink && selector === "a[href]" ? { href: "/workers" } : null,
+    },
+  });
+
+  it("a click on a drawer link — the current page's included — closes the drawer", () => {
+    hooks.setOpen.mockClear();
+    aside().props.onClick?.(clickOn(true));
+    expect(hooks.setOpen).toHaveBeenCalledWith(false);
+  });
+
+  it("a click elsewhere in the drawer (a group title, the identity block) leaves it open", () => {
+    hooks.setOpen.mockClear();
+    aside().props.onClick?.(clickOn(false));
+    expect(hooks.setOpen).not.toHaveBeenCalled();
+  });
+});

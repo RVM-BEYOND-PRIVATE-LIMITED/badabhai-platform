@@ -68,7 +68,7 @@ export default async function CompaniesPage({
         }
         filters={
           /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */
-          <FilterPanel headingId="cf-heading" heading="Filter companies" activeCount={status ? 1 : 0}>
+          <FilterPanel headingId="cf-heading" heading="Filter companies" filters={{ status }}>
             <PayerFilterBar basePath="/companies" status={status ?? ""} />
           </FilterPanel>
         }
