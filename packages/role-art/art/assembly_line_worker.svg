@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100" data-loop="2">
+  <g data-part="scene">
+    <rect x="0" y="0" width="300" height="100" fill="#05194C"/>
+    <circle cx="252" cy="24" r="32" fill="#F3F5F4" opacity="0.4"/>
+    <rect x="0" y="84" width="300" height="16" fill="#F3F5F4" opacity="0.4"/>
+  </g>
+  <g data-part="conveyor">
+    <rect x="132" y="72" width="8" height="12" rx="3" fill="#F3F5F4" opacity="0.6"/>
+    <rect x="262" y="72" width="8" height="12" rx="3" fill="#F3F5F4" opacity="0.6"/>
+    <rect x="104" y="64" width="196" height="12" rx="6" fill="#F3F5F4" opacity="0.8"/>
+    <circle cx="118" cy="70" r="3" fill="#05194C" opacity="0.6"/>
+    <circle cx="150" cy="70" r="3" fill="#05194C" opacity="0.6"/>
+    <circle cx="182" cy="70" r="3" fill="#05194C" opacity="0.6"/>
+    <circle cx="214" cy="70" r="3" fill="#05194C" opacity="0.6"/>
+    <circle cx="246" cy="70" r="3" fill="#05194C" opacity="0.6"/>
+    <circle cx="278" cy="70" r="3" fill="#05194C" opacity="0.6"/>
+  </g>
+  <g data-part="boxes" data-motion="convey" data-amp="56" data-origin="150 50">
+    <rect x="68" y="46" width="24" height="18" rx="4" fill="#FFB32C"/>
+    <rect x="124" y="46" width="24" height="18" rx="4" fill="#FFB32C"/>
+    <rect x="180" y="46" width="24" height="18" rx="4" fill="#FFB32C"/>
+    <rect x="236" y="46" width="24" height="18" rx="4" fill="#FFB32C"/>
+    <rect x="292" y="46" width="24" height="18" rx="4" fill="#FFB32C"/>
+  </g>
+  <g data-part="figure">
+    <path d="M48 84 V70 A22 22 0 0 1 92 70 V84 Z" fill="#FFB32C"/>
+    <path d="M57 40 A13 13 0 0 1 83 40 V41 A3 3 0 0 1 80 44 H60 A3 3 0 0 1 57 41 Z" fill="#FFB32C"/>
+  </g>
+  <g data-part="arm">
+    <path d="M84 62 Q100 58 112 56" stroke-width="9" fill="none" stroke="#FFB32C" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

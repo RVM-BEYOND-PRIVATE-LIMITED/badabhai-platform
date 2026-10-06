@@ -29,6 +29,7 @@ const FULL_ROW: WorkerVisibleJobRow = {
   description: "Operate and set Fanuc-control machines on the night line.",
   benefits: ["PF + ESI", "Canteen"],
   requirements: ["Fanuc control", "ITI / Diploma"],
+  roleKind: "cnc_turner",
 };
 
 function setup(
@@ -116,6 +117,8 @@ describe("JobsService.getWorkerVisibleJob — the ADR-0024 SHOW projection", () 
       description: "Operate and set Fanuc-control machines on the night line.",
       benefits: ["PF + ESI", "Canteen"],
       requirements: ["Fanuc control", "ITI / Diploma"],
+      // Owner ruling 2026-10-05 — the role illustration the card and detail share.
+      role_kind: "cnc_turner",
     });
   });
 
@@ -136,6 +139,7 @@ describe("JobsService.getWorkerVisibleJob — the ADR-0024 SHOW projection", () 
       description: null,
       benefits: null,
       requirements: null,
+      roleKind: null,
     };
     const { svc } = setup(bare);
     const out = await svc.getWorkerVisibleJob(JOB_ID);
@@ -157,6 +161,7 @@ describe("JobsService.getWorkerVisibleJob — the ADR-0024 SHOW projection", () 
       description: null,
       benefits: null,
       requirements: null,
+      role_kind: null,
     });
   });
 
@@ -182,6 +187,7 @@ describe("JobsService.getWorkerVisibleJob — the ADR-0024 SHOW projection", () 
       description: "Run VMC/CNC on the day line.",
       benefits: null,
       requirements: null,
+      roleKind: null,
     };
     const { svc } = setup(posting);
     const out = await svc.getWorkerVisibleJob(JOB_ID);
@@ -202,8 +208,18 @@ describe("JobsService.getWorkerVisibleJob — the ADR-0024 SHOW projection", () 
       description: "Run VMC/CNC on the day line.",
       benefits: null,
       requirements: null,
+      role_kind: null,
     });
   });
+
+  it.each(["cnc_operator", "CNC_TURNER", "", "fitter;drop"])(
+    "fails role_kind closed to null on an undeclared value (%j)",
+    async (roleKind) => {
+      const { svc } = setup({ ...FULL_ROW, roleKind });
+      const out = await svc.getWorkerVisibleJob(JOB_ID);
+      expect(out.role_kind).toBeNull();
+    },
+  );
 
   it("PROJECTION: the serialized response never contains payer/payer_id/applicants/status keys", async () => {
     // Belt-and-braces: even if the repo (hypothetically) leaked the hidden

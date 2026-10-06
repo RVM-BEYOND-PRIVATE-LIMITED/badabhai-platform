@@ -64,6 +64,12 @@ export interface FeedJob {
   benefits: string[] | null;
   requirements: string[] | null;
   neededBy: Job["neededBy"];
+  /**
+   * The job's display role (migration 0131), RAW off the column — the mapper gates it to the
+   * closed set or null (`toWorkerRoleKind`). Shown as card art (owner ruling 2026-10-05);
+   * never a filter or order input.
+   */
+  roleKind: string | null;
   /** #1649 — when the job was posted. NOT NULL on the column; also the feed's sort key. */
   createdAt: Date;
 }
@@ -76,9 +82,12 @@ export interface FeedJob {
  *
  * WHAT IS ABSENT IS THE CONTRACT (ADR-0024 HIDDEN). No `org_label`, `payer_id`,
  * `created_by`, `location_label` (poster free text that may name the site or employer),
- * `verification_status`, `role_kind`, `boosted_until`, `state`, `vacancy_band`, skill arrays
- * or `source_job_id`: none of them is a card field, and every one is a leak or a claim the
+ * `verification_status`, `boosted_until`, `state`, `vacancy_band`, skill arrays or
+ * `source_job_id`: none of them is a card field, and every one is a leak or a claim the
  * worker card must not make. `city`/`area` are the coarse buckets, never back-filled.
+ *
+ * `role_kind` IS projected since the owner ruling of 2026-10-05 (ADR-0024 addendum): a closed,
+ * PII-free enum the worker card draws as art. Projection only — still never a predicate.
  */
 export interface FeedPostingRow {
   id: string;
@@ -95,6 +104,8 @@ export interface FeedPostingRow {
   benefits: string[] | null;
   requirements: string[] | null;
   neededBy: JobPosting["neededBy"];
+  /** Display role (migration 0131), RAW — gated to the closed set or null by the mapper. */
+  roleKind: string | null;
   /** The sort key and the card's `posted_at`. The query requires it non-null. */
   publishedAt: Date | null;
 }
@@ -222,6 +233,8 @@ export class ApplicationsRepository {
         benefits: jobs.benefits,
         requirements: jobs.requirements,
         neededBy: jobs.neededBy,
+        // Card art only (owner ruling 2026-10-05) — selected, never filtered or ordered on.
+        roleKind: jobs.roleKind,
         // #1649 — the posting date the feed never carried. Projected so the card can
         // badge a fresh job and the Jobs-tab header can count today's honestly.
         createdAt: jobs.createdAt,
@@ -286,7 +299,7 @@ export class ApplicationsRepository {
    *       Each only when the worker supplied it.
    *
    * NOT HERE, ON PURPOSE: `trade_key` (V1 has no trade dimension, and `role_kind` is barred
-   * as a visibility input).
+   * as a visibility input — it is PROJECTED for the card's art, never a WHERE).
    *
    * The projection is explicit — see {@link FeedPostingRow} for what must never be in it.
    */
@@ -359,6 +372,8 @@ export class ApplicationsRepository {
         benefits: jobPostings.benefits,
         requirements: jobPostings.requirements,
         neededBy: jobPostings.neededBy,
+        // Card art only (owner ruling 2026-10-05) — selected, never a predicate (see (5)).
+        roleKind: jobPostings.roleKind,
         publishedAt: jobPostings.publishedAt,
       })
       .from(jobPostings)
