@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import type { FacelessApplicant } from "../../../../../lib/contracts";
+import { IconButtonBase } from "@badabhai/icons/button";
 import { Badge, Button } from "../../../../../components/ds";
 
 /**
@@ -63,17 +64,9 @@ const useState = vi.fn((init: unknown) => {
   };
   return [cells[i], setter] as [unknown, (v: unknown) => void];
 });
-// useRef / useEffect are inert stand-ins too: the unlock-result Toast's dismiss ✕ is the shared
-// icon-only control (IconButtonBase, a ref + an unmount effect), and the text walker below expands
-// it like any other child. A fresh ref and no effect render it as the plain markup it is.
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
-  return {
-    ...actual,
-    useState: (init: unknown) => useState(init),
-    useRef: (init: unknown) => ({ current: init }),
-    useEffect: () => undefined,
-  };
+  return { ...actual, useState: (init: unknown) => useState(init) };
 });
 
 const { ApplicantActions } = await import("./applicant-actions");
@@ -168,8 +161,10 @@ function deepText(node: ReactNode = currentTree, seen: WeakSet<object> = new Wea
   if (seen.has(el)) return "";
   seen.add(el);
   const isDialog = typeof el.type === "function" && (el.type as { name?: string }).name === "Dialog";
+  // The Toast's dismiss ✕ is the hooked shared icon-only control: never invoked, like the Dialog.
+  const isHooked = isDialog || el.type === IconButtonBase;
   // Expand a PURE (hook-free) child component by invoking it with its props.
-  if (typeof el.type === "function" && !isDialog) {
+  if (typeof el.type === "function" && !isHooked) {
     return deepText((el.type as (p: unknown) => ReactNode)(el.props), seen);
   }
   let out = "";
