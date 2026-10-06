@@ -19,6 +19,9 @@ import { loadUtteranceFixtures } from "../internal/fixtures.js";
 import { compilePattern, loadLexicon, type PatternSpec } from "../internal/regex.js";
 import { detectSalaries } from "./salary.js";
 
+/** Explicit budget for the 20,000-sample correctness sweeps: they check spans, not speed. */
+const PROPERTY_SWEEP_TIMEOUT_MS = 60_000;
+
 const MAIN_CONNECTOR = String.raw`\s*(?:no\.?|number|num|#)?\s*[:-]?\s*`;
 const LINEAR_CONNECTOR = String.raw`\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:-]\s*)?`;
 const VALUE_TAIL = String.raw`[A-Za-z0-9/-]{0,20}$`;
@@ -173,22 +176,29 @@ describe("the salary credential guard's connector (issue #1933, R54)", () => {
     expect(guarded.length).toBeGreaterThan(0);
   });
 
-  it("gives main's verdict on every slice of 20,000 seeded cue lines", () => {
-    const next = seeded(1933);
-    let hits = 0;
-    let sliced = 0;
-    for (let i = 0; i < 20_000; i += 1) {
-      const text = `${next() < 0.3 ? "abhi 25000 milta hai, " : ""}${cueLine(next)}`;
-      expect(moved(text), JSON.stringify(text)).toEqual([]);
-      for (const slice of guardSlices(text)) {
-        sliced += 1;
-        if (SHIPPED.test(slice)) hits += 1;
+  it(
+    "gives main's verdict on every slice of 20,000 seeded cue lines",
+    () => {
+      const next = seeded(1933);
+      let hits = 0;
+      let sliced = 0;
+      for (let i = 0; i < 20_000; i += 1) {
+        const text = `${next() < 0.3 ? "abhi 25000 milta hai, " : ""}${cueLine(next)}`;
+        expect(moved(text), JSON.stringify(text)).toEqual([]);
+        for (const slice of guardSlices(text)) {
+          sliced += 1;
+          if (SHIPPED.test(slice)) hits += 1;
+        }
       }
-    }
-    // Both verdicts were met many times: the comparison was not vacuous.
-    expect(hits).toBeGreaterThan(4_000);
-    expect(sliced - hits).toBeGreaterThan(4_000);
-  });
+      // Both verdicts were met many times: the comparison was not vacuous.
+      expect(hits).toBeGreaterThan(4_000);
+      expect(sliced - hits).toBeGreaterThan(4_000);
+      // A correctness sweep, not a timing budget: 20,000 lines run in ~1.5 s locally but past
+      // vitest's 5 s default on a loaded CI runner (7.6 s seen). The linear-time guarantee is
+      // pinned by the timing tests, which keep their own budgets.
+    },
+    PROPERTY_SWEEP_TIMEOUT_MS,
+  );
 
   it("still drops a roll number and keeps a wage", () => {
     expect(detectSalaries("NCVT hai, roll number R/2019/123456").current).toBeNull();
