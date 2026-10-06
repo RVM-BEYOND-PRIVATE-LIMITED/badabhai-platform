@@ -335,6 +335,58 @@ void main() {
     });
   });
 
+  // #1960 — the agency demand-skill pick (`match_skill_ids`, ADR-0050). The route
+  // strips it until the API field lands, but the client must already send it
+  // correctly so the field persists the day the backend ships.
+  group('HttpPayerApiClient — agency match_skill_ids (#1960)', () {
+    Map<String, dynamic> agencyRow() => <String, dynamic>{
+          'id': 'job-1',
+          'status': 'open',
+          'tradeKey': 'cnc_operator',
+          'title': 'CNC Operator',
+          'city': 'Pune',
+          'applicantsReceived': 0,
+        };
+
+    test('createAgencyJob sends match_skill_ids only when a skill is picked',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/agency/jobs': _json(agencyRow()),
+      });
+      await h.api.createAgencyJob(
+        tradeKey: 'cnc_operator',
+        title: 'CNC Operator',
+        city: 'Pune',
+        matchSkillIds: const <String>['mskill_cnc_operate'],
+      );
+      final Map<String, dynamic> body =
+          jsonDecode(h.router.seen.single.body) as Map<String, dynamic>;
+      expect(body['match_skill_ids'], <String>['mskill_cnc_operate']);
+    });
+
+    test('createAgencyJob omits match_skill_ids when nothing is picked',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/agency/jobs': _json(agencyRow()),
+      });
+      await h.api.createAgencyJob(
+          tradeKey: 'cnc_operator', title: 'CNC Operator', city: 'Pune');
+      final Map<String, dynamic> body =
+          jsonDecode(h.router.seen.single.body) as Map<String, dynamic>;
+      expect(body.containsKey('match_skill_ids'), isFalse);
+    });
+
+    test('updateAgencyJob sends a passed list (even [] to clear)', () async {
+      final h = _harness(<String, http.Response>{
+        'PATCH /payer/agency/jobs/job-1': _json(agencyRow()),
+      });
+      await h.api.updateAgencyJob('job-1', matchSkillIds: const <String>[]);
+      final Map<String, dynamic> body =
+          jsonDecode(h.router.seen.single.body) as Map<String, dynamic>;
+      expect(body['match_skill_ids'], <String>[]);
+    });
+  });
+
   // The real client used to COMPOSE a MockPayerApiClient and delegate ~10
   // methods to it with no kUseMocks gate, so a release build served invented
   // home metrics / activity / payouts / KYC / referred rows / credit packs

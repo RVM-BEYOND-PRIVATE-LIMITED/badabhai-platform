@@ -72,6 +72,10 @@ export function makeCompanionServiceForV2(opts: {
   cooling?: string | null;
   /** P2 — a real cool-down read to delegate to instead of `cooling` (e.g. a store over a dead Redis). */
   cooldownUntil?: (workerId: string, now: Date) => Promise<string | null>;
+  /** WP6 (TD146) — the route-precedence flag. Off by default, like every other v2 flag. */
+  precedence?: boolean;
+  /** WP6 — what the pending-intent store answers (one-shot in production; the spy is fixed). */
+  pendingIntent?: "edit_resume" | "career_talk" | null;
 }) {
   const policy = {
     resolve: vi.fn(async () => ({ mode: "companion", profile: PROFILE })),
@@ -98,6 +102,12 @@ export function makeCompanionServiceForV2(opts: {
       cooldown_until: until,
     })),
     handleTaskChip: vi.fn(async () => v2CopyTurn(V2_CLARIFY)),
+    // WP6 spies: the pending intent (one-shot in production) and the deterministic bypass route.
+    takePendingIntent: vi.fn(async () => opts.pendingIntent ?? null),
+    clearPendingIntent: vi.fn(async () => undefined),
+    handleDirectIntent: vi.fn(
+      async (_w: string, _p: unknown, _d: unknown, _i: string) => v2CopyTurn(V2_CLARIFY),
+    ),
   };
   const config = {
     CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS: 7,
@@ -109,6 +119,7 @@ export function makeCompanionServiceForV2(opts: {
     CHAT_COMPANION_V2_NEW_RESUME_ENABLED: opts.newResume ?? opts.v2,
     CHAT_COMPANION_V2_FALTU_ENABLED: opts.faltu ?? false,
     CHAT_COMPANION_V2_CAREER_ENABLED: opts.career ?? false,
+    CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED: opts.precedence ?? false,
   };
   const svc = new ChatCompanionService(
     config as never,

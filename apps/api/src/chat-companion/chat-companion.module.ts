@@ -22,9 +22,11 @@ import { ChatCompanionController } from "./chat-companion.controller";
 import { ChatCompanionPolicy } from "./chat-companion.policy";
 import { ChatCompanionRepository } from "./chat-companion.repository";
 import { ChatCompanionService } from "./chat-companion.service";
+import { EmployersModule } from "../employers/employers.module";
 import { CompanionMemoryStore } from "./v2/companion-memory.store";
 import { EditProposalStore } from "./v2/edit-proposal.store";
 import { FaltuStore } from "./v2/faltu.store";
+import { PendingIntentStore } from "./v2/pending-intent.store";
 import { CompanionTurnReplayStore } from "./v2/turn-replay.store";
 import { CompanionEditService } from "./v2/companion-edit.service";
 import { CompanionV2Orchestrator } from "./v2/companion-v2.orchestrator";
@@ -53,7 +55,8 @@ import {
  *   - JobsModule — `JobsRepository`, the Jobs tab's own membership rule;
  *   - @Global: AppConfigModule, DatabaseModule, EventsModule, WorkersModule (WorkersRepository),
  *     MatchModule (WorkerSkillsRepository / WorkerSkillsService), AiModule (AiService),
- *     CryptoModule (PiiCryptoService).
+ *     CryptoModule (the PII crypto service, reached only inside `employers/`).
+ *   - EmployersModule — the TD147/WP7 employer-name index the career validator checks against.
  *
  * ADR-0046 T7 — WHY THE SECTION WRITERS ARE PROVIDED HERE. The edit card applies through the
  * SAME writers the forms use, and those writers live in `ProfilesModule`, which imports
@@ -69,6 +72,10 @@ import {
     ConsentModule,
     ResumeModule,
     JobsModule,
+    // TD147/WP7 — the employer-name index the career validator checks answers against. Its own
+    // module because it decrypts employer ORG names through the PII crypto service, which this
+    // leaf may not import (the egress boot test forbids that import under chat-companion/).
+    EmployersModule,
     // ADR-0046 T5 — the v2 stores need Redis and deliberately reuse BullMQ's existing
     // connection rather than opening a second client (`ResumeRateLimit` /
     // `AdminMfaSecretStore` precedent). Registering an existing queue name here only borrows
@@ -86,6 +93,8 @@ import {
     CompanionMemoryStore,
     EditProposalStore,
     FaltuStore,
+    // TD146/WP6 — the one-shot pending intent a task-chip tap leaves for the next message.
+    PendingIntentStore,
     CompanionTurnReplayStore,
     // ADR-0046 T6 — the v2 turn pipeline: the orchestrator, its intent→handler registry and the
     // Phase 1 handlers. Inert while CHAT_COMPANION_V2_ENABLED is off.

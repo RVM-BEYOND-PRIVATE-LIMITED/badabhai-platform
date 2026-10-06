@@ -247,6 +247,17 @@ export const V2_CLARIFY: CopyPair = {
   dev: "समझ नहीं आया। आप इनमें से क्या करना चाहते हैं?",
 };
 
+/**
+ * A DUPLICATE OF A MESSAGE STILL BEING ANSWERED (TD150/WP8). The app re-sent a `submission_id`
+ * whose first request is still in flight, so there is no served turn to replay yet and a second
+ * model call, strike or card would be wrong. The worker is told to wait a moment; the first
+ * request's own answer is on its way. DRAFT — pending owner review, like the other WP lines.
+ */
+export const V2_IN_FLIGHT: CopyPair = {
+  latin: "Aapka message mil gaya. Thodi der mein jawab aayega.",
+  dev: "आपका मैसेज मिल गया। थोड़ी देर में जवाब आएगा।",
+};
+
 /** An edit card was stored: the worker reviews the rows and taps Haan or Nahi. */
 export const V2_EDIT_CARD_INTRO: CopyPair = {
   latin: "Yeh badlav karne hain? Dekh kar Haan dabaiye.",
@@ -492,6 +503,7 @@ export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPai
   ["V2_PHASE_OFF", V2_PHASE_OFF],
   ["V2_JOBS_DEFERRED", V2_JOBS_DEFERRED],
   ["V2_CLARIFY", V2_CLARIFY],
+  ["V2_IN_FLIGHT", V2_IN_FLIGHT],
   ["V2_EDIT_CARD_INTRO", V2_EDIT_CARD_INTRO],
   ["V2_EDIT_NONE", V2_EDIT_NONE],
   ["V2_EDIT_IDENTITY", V2_EDIT_IDENTITY],

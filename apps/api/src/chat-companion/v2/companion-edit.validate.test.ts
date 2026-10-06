@@ -10,7 +10,7 @@ import {
   V2_EDIT_PLACEHOLDER,
   V2_EDIT_UNAVAILABLE,
 } from "../companion-replies";
-import { profileRow, setup, WORKER_ID } from "./companion-edit.fake";
+import { profileRow, setup, storedProposal, WORKER_ID } from "./companion-edit.fake";
 
 const CTX = { correlationId: "c-1", requestId: "r-1" } as never;
 
@@ -249,6 +249,25 @@ describe("CompanionEditService.propose — every drop rule (spec §Edit step 3)"
     const h = setup({ parse: null });
     const { turn } = await h.service.propose(WORKER_ID, profileRow(), "kuch", CTX);
     expect(turn.reply).toBe(V2_EDIT_NONE.latin);
+  });
+
+  it("a new proposal SUPERSEDES the worker's open card and records it (TD150/WP8)", async () => {
+    const previous = storedProposal();
+    const h = setup({
+      parse: parse([row()]),
+      languageEntries: [LANGUAGE_HINDI],
+      proposal: previous,
+    });
+    const { turn } = await h.service.propose(WORKER_ID, profileRow(), "Hindi hata do", CTX);
+    expect(turn.edit_proposal).toBeDefined();
+
+    const cancelled = h.events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; payload: { proposal_id: string; reason: string } })
+      .find((e) => e.event_name === "chat.companion_edit_cancelled_v2");
+    expect(cancelled?.payload).toEqual({
+      proposal_id: previous.proposal_id,
+      reason: "superseded",
+    });
   });
 
   it("a proposal-store refusal offers NO card and claims nothing (contracts §7)", async () => {

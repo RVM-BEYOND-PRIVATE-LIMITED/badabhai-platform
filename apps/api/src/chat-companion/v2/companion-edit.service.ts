@@ -294,9 +294,20 @@ export class CompanionEditService {
       expires_at: expiresAt,
       rows: kept,
     };
+    // WP8: a successful save REPLACES the worker's previous open card, if any (one active card
+    // per worker). Read it BEFORE the save so the replaced id can be recorded: `superseded` —
+    // the reason v1's closed set could not express, which is why proposed − confirmed − cancelled
+    // had a remainder. A Redis miss here is harmless (no previous card to record).
+    const previous = await this.proposals.load(workerId);
     if (!(await this.proposals.save(workerId, proposal))) {
       // Contracts §7: no card is offered, and nothing is claimed to have happened.
       return { turn: v2CopyTurn(V2_EDIT_UNAVAILABLE), outcome: "fallback" };
+    }
+    if (previous !== null) {
+      await this.emit(workerId, ctx, "chat.companion_edit_cancelled_v2", {
+        proposal_id: previous.proposal_id,
+        reason: "superseded",
+      });
     }
 
     await this.emit(workerId, ctx, "chat.companion_edit_proposed", {
@@ -563,6 +574,14 @@ export class CompanionEditService {
           err instanceof Error ? err.name : "UnknownError"
         })`,
       );
+      // TD150/WP8: the rollback gets its own event — v1 recorded nothing but the turn's
+      // `fallback` outcome, so a failed apply was invisible in the edit funnel.
+      await this.emit(workerId, ctx, "chat.companion_edit_rolled_back", {
+        proposal_id: proposalId,
+        row_count: selected.length,
+        sections: sectionsOf(selected),
+        reason: "apply_failed",
+      });
       return this.failed(proposal);
     }
 
@@ -588,7 +607,7 @@ export class CompanionEditService {
       await this.rerender.enqueueLatest(workerId, ctx);
     }
 
-    await this.emit(workerId, ctx, "chat.companion_edit_confirmed", {
+    await this.emit(workerId, ctx, "chat.companion_edit_confirmed_v2", {
       proposal_id: proposalId,
       applied_count: selected.length,
       sections: sectionsOf(selected),
@@ -619,9 +638,9 @@ export class CompanionEditService {
     // refused still cancels — a Nahi writes nothing, so there is nothing to apply twice.
     if ((await this.proposals.claim(workerId, proposalId)) === "held") return { kind: "not_found" };
     await this.proposals.delete(workerId);
-    await this.emit(workerId, ctx, "chat.companion_edit_cancelled", {
+    await this.emit(workerId, ctx, "chat.companion_edit_cancelled_v2", {
       proposal_id: proposalId,
-      reason: "worker",
+      reason: "worker_declined",
     });
     return { kind: "cancelled", turn: v2CopyTurn(V2_EDIT_CANCELLED), proposalId };
   }
@@ -637,7 +656,7 @@ export class CompanionEditService {
     proposalId: string,
     ctx: RequestContext,
   ): Promise<{ readonly kind: "not_found" }> {
-    await this.emit(workerId, ctx, "chat.companion_edit_cancelled", {
+    await this.emit(workerId, ctx, "chat.companion_edit_cancelled_v2", {
       proposal_id: proposalId,
       reason: "expired",
     });
@@ -655,7 +674,7 @@ export class CompanionEditService {
     ctx: RequestContext,
   ): Promise<{ readonly kind: "stale"; readonly turn: CompanionTurn }> {
     await this.proposals.delete(workerId);
-    await this.emit(workerId, ctx, "chat.companion_edit_cancelled", {
+    await this.emit(workerId, ctx, "chat.companion_edit_cancelled_v2", {
       proposal_id: proposalId,
       reason: "stale",
     });
@@ -688,7 +707,7 @@ export class CompanionEditService {
       this.logger.warn(
         `companion edit regeneration not requested for worker ${workerId}: consent is not active`,
       );
-      return "failed";
+      return "skipped_no_consent";
     }
     try {
       return await this.resumes.queueChatEditRegeneration(workerId, profile.id, ctx);
@@ -777,8 +796,9 @@ export class CompanionEditService {
     ctx: RequestContext,
     eventName:
       | "chat.companion_edit_proposed"
-      | "chat.companion_edit_confirmed"
-      | "chat.companion_edit_cancelled",
+      | "chat.companion_edit_confirmed_v2"
+      | "chat.companion_edit_cancelled_v2"
+      | "chat.companion_edit_rolled_back",
     payload: Record<string, unknown>,
   ): Promise<void> {
     try {
