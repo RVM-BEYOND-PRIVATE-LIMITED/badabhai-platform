@@ -36,6 +36,7 @@ class MatchSkillPicker extends StatelessWidget {
     required this.maxSkills,
     required this.onToggleSkill,
     required this.onToggleRelated,
+    this.showReach = true,
   });
 
   /// The selectable demand skills (closed set).
@@ -70,6 +71,12 @@ class MatchSkillPicker extends StatelessWidget {
   /// Toggle a related skill's ticked state (untick removes its reach slice).
   final void Function(String relatedId) onToggleRelated;
 
+  /// Whether to render the live reach meter under the chips. The EDIT form passes
+  /// false (reach is a create-time concern and the edit screen carries no
+  /// debounce), so it keeps the picker without a forever-"Counting workers…"
+  /// meter. Defaults true.
+  final bool showReach;
+
   bool get _atCap => pickedIds.length >= maxSkills;
 
   @override
@@ -103,8 +110,10 @@ class MatchSkillPicker extends StatelessWidget {
               _skillChip(skill),
           ],
         ),
-        const SizedBox(height: AppSpacing.s4),
-        _reachMeter(),
+        if (showReach) ...<Widget>[
+          const SizedBox(height: AppSpacing.s4),
+          _reachMeter(),
+        ],
       ],
     );
   }

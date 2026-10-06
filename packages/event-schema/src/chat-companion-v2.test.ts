@@ -471,3 +471,195 @@ describe("chat.companion_career_answered (ADR-0046 P3)", () => {
     }
   });
 });
+
+// ── TD150 / WP8 — the versioned companions ───────────────────────────────────────────────────
+
+describe("chat.companion_turn_served_v3 (TD150) — intent_source gains `chip`", () => {
+  const v3 = (over: Record<string, unknown> = {}) => ({
+    ...turnV2Payload(),
+    intent_source: "chip",
+    v2_intent: "edit_resume",
+    confidence_bucket: null,
+    ...over,
+  });
+
+  it("is registered v3 and accepts `chip` alongside every v2 source, keeping v2's set intact", () => {
+    expect(EVENT_REGISTRY["chat.companion_turn_served_v3"]).toMatchObject({ version: 3, domain: "chat" });
+    for (const source of ["v1_deterministic", "chip", "lexicon", "llm", "guard", "fallback"]) {
+      expect(
+        validateEvent(envelope("chat.companion_turn_served_v3", 3, v3({ intent_source: source }))).success,
+        source,
+      ).toBe(true);
+    }
+    // v2's five-value set is untouched (no `chip` there), so old rows stay valid.
+    for (const source of INTENT_SOURCES) {
+      expect(
+        validateEvent(envelope("chat.companion_turn_served_v2", 2, { ...turnV2Payload(), intent_source: source })).success,
+        source,
+      ).toBe(true);
+    }
+    expect(validateEvent(envelope("chat.companion_turn_served_v2", 2, { ...turnV2Payload(), intent_source: "chip" })).success).toBe(false);
+  });
+
+  it("repeats v2's jobs refine and stays STRICT", () => {
+    expect(
+      validateEvent(envelope("chat.companion_turn_served_v3", 3, v3({ jobs_scope: null, new_jobs_count: 3 }))).success,
+    ).toBe(false);
+    const smuggled = validateEvent(envelope("chat.companion_turn_served_v3", 3, v3({ text: "mera naam badlo" })));
+    expect(smuggled.success).toBe(false);
+    if (!smuggled.success) expect(smuggled.error.stage).toBe("payload");
+  });
+});
+
+describe("chat.companion_edit_cancelled_v2 (TD150) — the closed four", () => {
+  it("accepts the renamed reasons plus `superseded`", () => {
+    expect(EVENT_REGISTRY["chat.companion_edit_cancelled_v2"]).toMatchObject({ version: 2, domain: "chat" });
+    for (const reason of ["worker_declined", "expired", "stale", "superseded"]) {
+      expect(
+        validateEvent(envelope("chat.companion_edit_cancelled_v2", 2, { proposal_id: UUID_B, reason })).success,
+        reason,
+      ).toBe(true);
+    }
+  });
+
+  it("refuses v1's `worker` and any other word, and stays STRICT", () => {
+    expect(
+      validateEvent(envelope("chat.companion_edit_cancelled_v2", 2, { proposal_id: UUID_B, reason: "worker" })).success,
+    ).toBe(false);
+    const smuggled = validateEvent(
+      envelope("chat.companion_edit_cancelled_v2", 2, { proposal_id: UUID_B, reason: "stale", value: "Tata Motors" }),
+    );
+    expect(smuggled.success).toBe(false);
+  });
+});
+
+describe("chat.companion_edit_confirmed_v2 (TD150) — skipped_no_consent", () => {
+  it("accepts the consent skip alongside the three v1 values", () => {
+    expect(EVENT_REGISTRY["chat.companion_edit_confirmed_v2"]).toMatchObject({ version: 2, domain: "chat" });
+    for (const resume_regen of ["queued", "capped", "failed", "skipped_no_consent"]) {
+      expect(
+        validateEvent(
+          envelope("chat.companion_edit_confirmed_v2", 2, {
+            proposal_id: UUID_B,
+            applied_count: 1,
+            sections: ["languages"],
+            resume_regen,
+          }),
+        ).success,
+        resume_regen,
+      ).toBe(true);
+    }
+  });
+
+  it("keeps applied_count positive and .strict() (no applied value rides along)", () => {
+    expect(
+      validateEvent(
+        envelope("chat.companion_edit_confirmed_v2", 2, {
+          proposal_id: UUID_B,
+          applied_count: 0,
+          sections: ["languages"],
+          resume_regen: "queued",
+        }),
+      ).success,
+    ).toBe(false);
+    const smuggled = validateEvent(
+      envelope("chat.companion_edit_confirmed_v2", 2, {
+        proposal_id: UUID_B,
+        applied_count: 1,
+        sections: ["languages"],
+        resume_regen: "queued",
+        after: "Hindi",
+      }),
+    );
+    expect(smuggled.success).toBe(false);
+  });
+});
+
+describe("chat.companion_edit_rolled_back (TD150) — new v1", () => {
+  it("is registered v1 and accepts the apply_failed rollback", () => {
+    expect(EVENT_REGISTRY["chat.companion_edit_rolled_back"]).toMatchObject({ version: 1, domain: "chat" });
+    expect(
+      validateEvent(
+        envelope("chat.companion_edit_rolled_back", 1, {
+          proposal_id: UUID_B,
+          row_count: 2,
+          sections: ["languages", "skills"],
+          reason: "apply_failed",
+        }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it("refuses an unknown reason, a zero count and smuggled values", () => {
+    for (const bad of [
+      { proposal_id: UUID_B, row_count: 1, sections: ["skills"], reason: "worker" },
+      { proposal_id: UUID_B, row_count: 0, sections: ["skills"], reason: "apply_failed" },
+      { proposal_id: UUID_B, row_count: 1, sections: [], reason: "apply_failed" },
+    ]) {
+      expect(validateEvent(envelope("chat.companion_edit_rolled_back", 1, bad)).success).toBe(false);
+    }
+    const smuggled = validateEvent(
+      envelope("chat.companion_edit_rolled_back", 1, {
+        proposal_id: UUID_B,
+        row_count: 1,
+        sections: ["skills"],
+        reason: "apply_failed",
+        value: "welding",
+      }),
+    );
+    expect(smuggled.success).toBe(false);
+  });
+});
+
+describe("the submission-id v2s (TD150) — faltu strike and career answer", () => {
+  it("faltu_strike_v2 accepts the v1 shape plus a nullable submission_id", () => {
+    expect(EVENT_REGISTRY["chat.companion_faltu_strike_v2"]).toMatchObject({ version: 2, domain: "chat" });
+    for (const submission_id of [null, UUID_C]) {
+      expect(
+        validateEvent(
+          envelope("chat.companion_faltu_strike_v2", 2, {
+            strike_count: 2,
+            cooldown_started: false,
+            submission_id,
+          }),
+        ).success,
+      ).toBe(true);
+    }
+    // The id is a uuid, not free text.
+    expect(
+      validateEvent(
+        envelope("chat.companion_faltu_strike_v2", 2, {
+          strike_count: 2,
+          cooldown_started: false,
+          submission_id: "tum faltu ho",
+        }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it("career_answered_v2 accepts the v1 shape plus a nullable submission_id, STRICT", () => {
+    expect(EVENT_REGISTRY["chat.companion_career_answered_v2"]).toMatchObject({ version: 2, domain: "chat" });
+    for (const submission_id of [null, UUID_C]) {
+      expect(
+        validateEvent(
+          envelope("chat.companion_career_answered_v2", 2, {
+            outcome: "answered",
+            refusal_topic: null,
+            turns_in_memory: 2,
+            submission_id,
+          }),
+        ).success,
+      ).toBe(true);
+    }
+    const smuggled = validateEvent(
+      envelope("chat.companion_career_answered_v2", 2, {
+        outcome: "answered",
+        refusal_topic: null,
+        turns_in_memory: 2,
+        submission_id: null,
+        lines: ["Salary 25000"],
+      }),
+    );
+    expect(smuggled.success).toBe(false);
+  });
+});

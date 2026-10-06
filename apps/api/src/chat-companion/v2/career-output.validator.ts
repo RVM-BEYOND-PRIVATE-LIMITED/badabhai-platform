@@ -69,7 +69,15 @@ const QUESTIONS_MAX = 1;
  *
  * WHY IT MATTERS BEYOND O9: every O10 pattern below is spelled in Latin, so a line in another
  * script would also walk past the money, promise, advice and rating checks.
+ *
+ * TWO UNIT SYMBOLS ARE ALLOWED (TD147(3), 2026-10-05): `µ` (U+00B5 MICRO SIGN, written as the
+ * Greek mu U+03BC too) and `Ω` (U+03A9, or the compatibility OHM SIGN U+2126). They are units a
+ * trade answer legitimately uses ("0.02 µm", "4 Ω") — µ is `Common` but a letter, so the
+ * letter arm barred it; Ω is Greek script, so the script arm did. They are stripped before the
+ * test rather than patched into the regex, because a negated class cannot carry exceptions and
+ * the four code points are exactly the ones a worker or model types for these units.
  */
+const UNIT_SYMBOLS = /[\u00B5\u03BC\u2126\u03A9]/gu;
 const NON_LATIN =
   /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]|(?!\p{Script=Latin})\p{L}|[\u0964\u0965]/u;
 
@@ -189,12 +197,22 @@ function statesMoney(scan: string): boolean {
 const PROMISE = /\b(?:pakka|pakki|guarantee|gaurantee)\b|zaroor milegi|100\s*%/i;
 
 /**
- * SENSITIVE ADVICE (O10): legal, medical and financial terms. Deliberately broad — the cost of
- * a false positive is one fallback line, the cost of a false negative is the platform giving
- * advice it must not give.
+ * SENSITIVE ADVICE (O10): legal, medical and financial terms. Whole-word, context-free matches
+ * only — each listed word is enough on its own.
+ *
+ * NARROWED 2026-10-05 (TD147(2)). Three words were over-blocking ordinary Hinglish career
+ * answers and are REMOVED, each with a must-pass test: `case` ("is case me" = "in this case"),
+ * `policy` ("safety policy" is a first-aid subject), and `doctor` ("doctor ko dikhaiye" is
+ * first-aid advice, not medical advice). Legal and medical questions are still refused by their
+ * unambiguous words: court, vakil, wakil, lawyer, kanoon/kanun, dawai/dawa, ilaaj/ilaj. The
+ * financial list (loan, emi, insurance, bima, invest, share market, sip, fd, rd) is unchanged.
+ *
+ * WHY WHOLE WORDS STILL MATTER: the previous substring forms (`case` inside "safety case",
+ * `fd` inside "fd" only) are the same shape that made the money rule fail "years"/"hours"; `\b`
+ * has held since the 2026-09-30 fix and is what keeps `rd` out of "card" / "hard".
  */
 const SENSITIVE =
-  /\b(?:court|case|vakil|wakil|lawyer|kanoon|kanun|dawai|dawa|ilaaj|ilaj|doctor|loan|emi|insurance|bima|policy|invest|share market|sip|fd|rd)\b/i;
+  /\b(?:court|vakil|wakil|lawyer|kanoon|kanun|dawai|dawa|ilaaj|ilaj|loan|emi|insurance|bima|invest|share market|sip|fd|rd)\b/i;
 
 /**
  * RATING (O10): the worker compared or scored. `aap achhe`/`aap kamzor` phrasings, plus any
@@ -230,7 +248,8 @@ export const CHIP_DROP_REASON = "chip_too_long" satisfies CareerAnswerFailure;
  */
 function contentFailure(text: string): CareerAnswerFailure | null {
   if (text.trim().length === 0) return "empty_line";
-  if (NON_LATIN.test(text)) return "non_latin";
+  // µ and Ω are stripped for the script check only; every other check below reads the raw text.
+  if (NON_LATIN.test(text.replace(UNIT_SYMBOLS, ""))) return "non_latin";
   const scan = scanForm(text);
   if (scan.includes("!")) return "exclamation";
   if (EMOJI.test(text)) return "emoji";
