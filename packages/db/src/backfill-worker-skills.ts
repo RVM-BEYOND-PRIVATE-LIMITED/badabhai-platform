@@ -6,10 +6,18 @@
  * launch — there are no per-job stints yet).
  *
  * THE COARSE RULE (deterministic; no LLM — invariant #4):
- *   skills  = ROLE BRIDGE ∪ SECONDARY-ROLE BRIDGE ∪ ATTRIBUTE BRIDGE
+ *   skills  = ROLE BRIDGE ∪ SECONDARY-ROLE BRIDGE ∪ ATTRIBUTE BRIDGE ∪ PACK-ANSWER BRIDGE
  *             role bridge      : ROLE_TO_MATCH_SKILL[worker_profiles.canonical_role_id]
  *             secondary bridge : ROLE_TO_MATCH_SKILL[each worker_occupation.role_id]  (Layer A (f))
  *             attribute bridge : ATTRIBUTE_TO_MATCH_SKILLS[each id in worker_profiles.skills]
+ *             pack-answer bridge: PACK_ANSWER_SKILLS[pack][key][option] over `worker_attributes`
+ *                                 → corpus ids (attribute bridge) + role ids (role bridge)
+ *
+ * WHO IS DERIVED — the SAME guard as the live rebuild (`WorkerSkillsService.rebuildForWorker`):
+ *   a worker with NO profile row, NO pack evidence and NO declared occupation is skipped (his
+ *   rows are left alone, not pruned). Any one of the three is evidence. A trade-FORM worker has
+ *   pack answers and no profile row — this runner used to skip him outright, and for a worker
+ *   who had both it derived WITHOUT the pack answers and pruned the rows the live path wrote.
  *   months  = floor(experience.total_years * 12 / month_bucket) * month_bucket
  *             — the SAME coarse number on every derived skill, because coarse history
  *               cannot attribute time to one skill over another. Claiming otherwise
@@ -35,21 +43,29 @@
  * DRY-RUN IS THE DEFAULT; `--apply` writes.
  *
  * PRIVACY: reads ONLY faceless signal columns (worker id, canonical_role_id, skills jsonb,
- * experience jsonb, and the closed `worker_occupation` role ids). It never reads phone/name and
- * never logs anything but ids + counts.
+ * experience jsonb, the closed `worker_occupation` role ids, and `worker_attributes` pack id /
+ * key / text values, which are matched only against closed option keys). It never reads
+ * phone/name and never logs anything but ids + counts.
  *
  *   pnpm db:backfill:worker-skills                      # dry run
  *   pnpm db:backfill:worker-skills --apply              # write
  *   pnpm db:backfill:worker-skills --apply --batch-size=1000 --start-after=<uuid>
  */
-import { and, asc, eq, gt, notInArray } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNotNull, notInArray } from "drizzle-orm";
 
-import { bucketMonths, deriveWorkerSkills, DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
+import {
+  bucketMonths,
+  deriveWorkerSkills,
+  DEFAULT_MATCH_CONFIG,
+  workerSkillDeriveInput,
+} from "@badabhai/match-engine";
+import { packAnswerFromStoredRow, type PackAnswer } from "@badabhai/taxonomy";
 
 import { createDbClient, type Database } from "./client";
 import { CURRENT_PROFILE_ORDER } from "./current-profile";
 import {
   matchConfig,
+  workerAttributes,
   workerIndustryTenure,
   workerOccupations,
   workerProfiles,
@@ -97,6 +113,39 @@ async function readMonthBucket(db: Database): Promise<number> {
   return bucket;
 }
 
+/**
+ * Every pack answer for one batch of workers, grouped by worker — ONE query per batch, not per
+ * worker. Only rows that carry a `pack_id` can match the pack-answer bridge, so the rest are not
+ * read. Normalised by the same `packAnswerFromStoredRow` the live repository uses.
+ */
+async function loadPackAnswers(
+  db: Database,
+  workerIds: readonly string[],
+): Promise<Map<string, PackAnswer[]>> {
+  const byWorker = new Map<string, PackAnswer[]>();
+  if (workerIds.length === 0) return byWorker;
+  const rows = await db
+    .select({
+      workerId: workerAttributes.workerId,
+      packId: workerAttributes.packId,
+      attributeKey: workerAttributes.attributeKey,
+      valueText: workerAttributes.valueText,
+      valueTextList: workerAttributes.valueTextList,
+    })
+    .from(workerAttributes)
+    .where(
+      and(inArray(workerAttributes.workerId, [...workerIds]), isNotNull(workerAttributes.packId)),
+    );
+  for (const row of rows) {
+    const answer = packAnswerFromStoredRow(row);
+    if (answer === null) continue;
+    const list = byWorker.get(row.workerId);
+    if (list) list.push(answer);
+    else byWorker.set(row.workerId, [answer]);
+  }
+  return byWorker;
+}
+
 async function main(): Promise<void> {
   const opts = parseCommonCli(NAME);
   printHeader(NAME, opts);
@@ -121,6 +170,7 @@ async function main(): Promise<void> {
     let lastId: string | undefined = cursor;
     let workersSeen = 0;
     let workersWithProfile = 0;
+    let workersDerivedFromPackOnly = 0;
     let workersWithNoDerivedSkills = 0;
     let skillsUpserted = 0;
     let skillsDeleted = 0;
@@ -135,6 +185,10 @@ async function main(): Promise<void> {
         .orderBy(asc(workers.id))
         .limit(opts.batchSize);
       if (batch.length === 0) break;
+      const packAnswersByWorker = await loadPackAnswers(
+        db,
+        batch.map((w) => w.id),
+      );
 
       for (const w of batch) {
         workersSeen += 1;
@@ -156,12 +210,6 @@ async function main(): Promise<void> {
           .orderBy(...CURRENT_PROFILE_ORDER)
           .limit(1);
         const profile = profileRows[0];
-        if (!profile) continue;
-        workersWithProfile += 1;
-
-        // ── The coarse derivation ────────────────────────────────────────────
-        const exp = asObject(profile.experience);
-        const totalYears = exp ? (finiteOrNull(exp.total_years) ?? 0) : 0;
 
         // Layer A (f) — declared secondary occupations join the role bridge, exactly as the live
         // path reads them (`WorkerSkillsRepository.findSecondaryRoleIds`). Without this the batch
@@ -174,6 +222,29 @@ async function main(): Promise<void> {
             .orderBy(asc(workerOccupations.sortOrder))
         ).map((row) => row.roleId);
 
+        // THE SAME ASSEMBLY AS THE LIVE REBUILD (`workerSkillDeriveInput`, @badabhai/match-engine):
+        // profile signals ∪ declared occupations ∪ pack answers, and the same "nothing to derive
+        // from" guard. This runner used to skip every worker with no profile row and never read
+        // pack answers — so a trade-form worker was never repaired, and one who ALSO had a profile
+        // had his pack-derived rows pruned by the stale-row delete below.
+        const exp = asObject(profile?.experience);
+        const totalYears = exp ? (finiteOrNull(exp.total_years) ?? 0) : 0;
+        const input = workerSkillDeriveInput({
+          profile: profile
+            ? {
+                canonicalRoleId: profile.canonicalRoleId,
+                profileSkills: asStringArray(profile.skills),
+                totalYears,
+              }
+            : null,
+          secondaryRoleIds,
+          packAnswers: packAnswersByWorker.get(w.id) ?? [],
+        });
+        // No profile, no pack evidence, no declared occupation → leave his rows exactly as they are.
+        if (input === null) continue;
+        if (profile) workersWithProfile += 1;
+        else workersDerivedFromPackOnly += 1;
+
         // TD120 (paid 2026-08-01): the coarse rule lives in `@badabhai/match-engine` and
         // NOWHERE ELSE. This block used to be a hand-rolled second implementation that
         // agreed with the engine only by coincidence — nothing held them equal, so a future
@@ -182,15 +253,10 @@ async function main(): Promise<void> {
         // different set through moment ①, and a man's rank would change for a reason no ops
         // person could explain. Parity at the swap was measured, not assumed: 7,854 cases
         // (14 roles x 51 attribute sets x 11 experience values), 0 mismatches.
-        const derived: DerivedSkill[] = deriveWorkerSkills(
-          {
-            canonicalRoleId: profile.canonicalRoleId,
-            additionalRoleIds: secondaryRoleIds,
-            profileSkills: asStringArray(profile.skills),
-            totalYears,
-          },
-          { ...DEFAULT_MATCH_CONFIG, monthBucket },
-        ).map((r) => ({
+        const derived: DerivedSkill[] = deriveWorkerSkills(input, {
+          ...DEFAULT_MATCH_CONFIG,
+          monthBucket,
+        }).map((r) => ({
           skillId: r.skillId,
           industryId: r.industryId,
           monthsBucketed: r.monthsBucketed,
@@ -320,6 +386,7 @@ async function main(): Promise<void> {
       "month_bucket in force": monthBucket,
       "workers scanned": workersSeen,
       "workers with a profile": workersWithProfile,
+      "workers derived from pack answers only": workersDerivedFromPackOnly,
       "workers deriving 0 skills": workersWithNoDerivedSkills,
       "worker_skill upserted": skillsUpserted,
       "worker_skill deleted (stale)": skillsDeleted,
