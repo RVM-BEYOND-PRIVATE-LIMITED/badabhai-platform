@@ -343,8 +343,11 @@ describe("W2-A/W3-A · 1 — a head's subtitle sits under its title, grouped in 
     const withActions = wrapped.filter((h) => h.hasActions).map((h) => h.file);
     expect(withActions.some((f) => f.endsWith("payout-panel.tsx"))).toBe(true);
     expect(withActions.some((f) => f.endsWith("dashboard/agent-sections.tsx"))).toBe(true);
-    // /plans' section-level doors (Buy credits, New posting) sit beside the text, not in it.
-    expect(withActions.filter((f) => f.endsWith("plans/page.tsx")).length).toBeGreaterThanOrEqual(2);
+    // /plans' section-level door (New posting) sits beside the text, not in it. (Its Credits
+    // section has no door of its own any more — the shell's balance chip is it, F15.)
+    expect(withActions.filter((f) => f.endsWith("plans/page.tsx")).length).toBeGreaterThanOrEqual(
+      1,
+    );
     // …and the checker can FAIL: each violation it exists for is reported on a known snippet.
     const H = (inner: string) => `<div className="panel__head">${inner}</div>`;
     const T = `<h2 className="panel__title">T</h2>`;
@@ -701,7 +704,7 @@ describe("W3-A · 2b — the back link clears a 44px hit area on phones AND coar
       "(portal)/postings/[id]/applicants/page.tsx",
       "(portal)/postings/[id]/edit/page.tsx",
       "(portal)/postings/[id]/page.tsx",
-      "(portal)/postings/ai/new/page.tsx",
+      // (Post with AI is a MODE of New posting, not a page below it: no back link — F15.)
     ]);
   });
 

@@ -36,9 +36,12 @@ const QUOTA_TABLE_HEADING_ID = "plans-quota-table-title";
  * personas.
  *
  * Naming: one word per concept — "postings", "Hiring capacity" (the concurrent allowance),
- * "Applicant quota" (the per-posting cap), "Credits". One door per destination: the credit packs
- * share ONE "Buy credits" (Credits does not preselect a pack, so per-card buttons were the same
- * link N times) — for an OWNER only, since a recruiter's /credits is a 404; and ONE "New posting".
+ * "Applicant quota" (the per-posting cap), "Credits". One door per destination: an owner reaches
+ * Credits from the rail (Billing) and the header chip on every page, so the credit packs carry no
+ * door and the Credits section adds none — it names the Credits page instead (F15: per-card
+ * buttons were one link N times, and a section "Buy credits" beside the chip was two); a
+ * recruiter's /credits is a 404, so they are told to ask their owner. ONE "New posting". A posting's role title opens the POSTING (F12): a title
+ * always opens the details, and the details carry the "Applicants" action.
  */
 export default async function PlansPage() {
   const session = await requirePayer();
@@ -214,10 +217,7 @@ export default async function PlansPage() {
                     {capacity.postings.map((p) => (
                       <tr key={p.postingId}>
                         <td>
-                          <Link
-                            className="capacity-link"
-                            href={`/postings/${p.postingId}/applicants`}
-                          >
+                          <Link className="capacity-link" href={`/postings/${p.postingId}`}>
                             {p.roleTitle}
                           </Link>
                         </td>
@@ -265,21 +265,16 @@ export default async function PlansPage() {
         <div className="section__head">
           <div className="section__text">
             <h2 className="section__title">Credits</h2>
+            {/* No door here (F15): an owner reaches Credits from the rail (Billing) and the header
+                chip, so the copy names the PAGE — never the chip, which hides when its own read
+                fails. A recruiter has no /credits (Owner-only), so they are told who can buy. */}
             <p className="section__sub">
-              {isOwner ? "Buy credits" : "Ask your account owner to buy credits"} to unlock
-              worker contact details. 1 credit = 1 contact unlock.
+              {isOwner
+                ? "Buy credits on the Credits page, under Billing, to unlock worker contact details."
+                : "Ask your account owner to buy credits to unlock worker contact details."}{" "}
+              1 credit = 1 contact unlock.
             </p>
           </div>
-          {/* ONE door to Credits for the whole section (Credits does not preselect a pack).
-              Owner-only: Credits is `requireOwner()`, so a recruiter is never sent to its 404. */}
-          {isOwner ? (
-            <div className="section__actions">
-              <Link className="bb-btn bb-btn--secondary" href="/credits">
-                <Icon name={ACTION_ICON.credits} />
-                <span>Buy credits</span>
-              </Link>
-            </div>
-          ) : null}
         </div>
         {packs.length === 0 ? (
           <div className="state">

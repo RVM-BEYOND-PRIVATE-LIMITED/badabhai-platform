@@ -10,8 +10,8 @@ import { Badge, Button, Input, Toast } from "../../../components/ds";
  * seed) and the component is rendered to an element tree, then walked. `useTransition` →
  * [pending=false, run-immediately]; `next/navigation` + the server action are mocked.
  *
- * Asserts: the edit affordances (org Input pre-filled, NEW-phone Input, NO email input,
- * email read-only + support helper, role/status Badges); the SUBMIT BODY is built from
+ * Asserts: the edit affordances (org Input pre-filled, NEW-phone Input, NO email input, and
+ * NOTHING read-only — the email, role and status are the page's, F22); the SUBMIT BODY is built from
  * CHANGED fields only with NO `payer_id`; client validation parity (a non-E.164 phone / a
  * 1-char org are rejected BEFORE the action runs); a pristine form keeps Save disabled; and
  * the no-oracle error path renders ONE neutral Toast.
@@ -53,16 +53,10 @@ interface FieldErrors {
 
 const PROPS: {
   orgName: string;
-  email: string;
   phoneLast4: string | null;
-  role: "employer" | "agent";
-  status: "pending" | "active" | "suspended";
 } = {
   orgName: "Acme Tools",
-  email: "ops@acme.example",
   phoneLast4: "1234",
-  role: "employer",
-  status: "active",
 };
 
 // useState call order in the source: orgValue, phoneValue, fieldErrors, error, saved.
@@ -156,24 +150,48 @@ describe("AccountForm — edit affordances", () => {
     expect(textOf(render({}, { phoneLast4: null }))).toContain("Not set");
   });
 
-  it("renders role + status as Badges", () => {
-    const tree = render({}, { role: "agent", status: "suspended" });
-    const text = textOf(tree);
-    expect(text).toContain("Agency");
-    expect(text).toContain("Suspended");
-    expect(findAll(tree, Badge).length).toBeGreaterThanOrEqual(2);
+  it("holds ONLY what can be edited: no read-only Account block (F22 — the page shows it)", () => {
+    // Email, role and status sat in the form between the fields and Save, pushing the page's one
+    // primary to y=1,046 on an 800px screen. They are facts, not fields: the page's "Signed in
+    // as" panel shows them (account/page.test.tsx).
+    const tree = render({});
+    expect(findAll(tree, Badge)).toEqual([]);
+    expect(textOf(tree)).not.toContain(EMAIL_SUPPORT_HELPER);
+    expect(textOf(tree)).not.toContain("Account email");
+    const legends = (function collect(node: ReactNode, out: string[] = []): string[] {
+      if (node === null || node === undefined || typeof node !== "object") return out;
+      if (Array.isArray(node)) {
+        node.forEach((c) => collect(c, out));
+        return out;
+      }
+      const el = node as ReactElement<{ className?: unknown; children?: ReactNode }>;
+      if (el.props?.className === "form__legend") out.push(textOf(el.props.children));
+      if (el.props && "children" in el.props) collect(el.props.children, out);
+      return out;
+    })(tree);
+    expect(legends).toEqual(["Organisation", "Contact phone"]);
+  });
+
+  it("Save follows the editable fields directly (the form's sections, then its actions)", () => {
+    const kids = (p(render({})).children as ReactNode[]).filter(
+      (c): c is ReactElement => typeof c === "object" && c !== null,
+    );
+    expect(kids.map((k) => p(k).className)).toEqual([
+      "form__section",
+      "form__section",
+      "form-actions",
+      "form-status",
+    ]);
   });
 });
 
-describe("AccountForm — email is read-only (no input, support helper present)", () => {
-  it("renders NO email Input and shows the contact-support helper", () => {
+describe("AccountForm — email is read-only (no input; the page shows it with the support helper)", () => {
+  it("renders NO email Input", () => {
     const tree = render({});
     const emailInputs = findAll(tree, Input).filter(
       (el) => p(el).type === "email" || /email/i.test(String(p(el).label ?? "")),
     );
     expect(emailInputs.length).toBe(0);
-    expect(textOf(tree)).toContain(EMAIL_SUPPORT_HELPER);
-    expect(textOf(tree)).toContain("ops@acme.example");
   });
 });
 
