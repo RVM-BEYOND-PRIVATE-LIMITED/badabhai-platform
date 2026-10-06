@@ -16,6 +16,7 @@ import '../../../core/api/api_client.dart'
         WorkPreferencesDto;
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
+import '../../../core/nav/job_feed_invalidation.dart';
 import '../../../core/session/session_repository.dart';
 import '../../../core/storage/signed_object_put.dart';
 import '../domain/profile_edit_models.dart';
@@ -28,16 +29,22 @@ import '../domain/profile_edit_repository.dart';
 ///
 /// [put] is an optional seam for the signed byte PUT: production takes a
 /// [SignedObjectPut], tests inject a fake so no real network is touched.
+///
+/// [feedInvalidation] is told when a confirmed write changes the worker's
+/// match inputs (occupations), so the Jobs feed refetches.
 class ProfileEditRepositoryImpl implements ProfileEditRepository {
   ProfileEditRepositoryImpl(
     this._api,
     this._session, {
     SignedObjectPut? put,
-  }) : _put = put ?? SignedObjectPut();
+    JobFeedInvalidation? feedInvalidation,
+  })  : _put = put ?? SignedObjectPut(),
+        _feedInvalidation = feedInvalidation;
 
   final ApiClient _api;
   final SessionRepository _session;
   final SignedObjectPut _put;
+  final JobFeedInvalidation? _feedInvalidation;
 
   String _requireToken() {
     final String? token = _session.sessionToken;
@@ -107,6 +114,7 @@ class ProfileEditRepositoryImpl implements ProfileEditRepository {
         roleIds: roleIds,
         authToken: _requireToken(),
       );
+      _feedInvalidation?.invalidate();
     } on ApiException catch (error) {
       throw _namedOrMapped(error);
     } catch (error) {

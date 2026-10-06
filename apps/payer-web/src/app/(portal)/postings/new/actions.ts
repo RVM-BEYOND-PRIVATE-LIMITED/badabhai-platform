@@ -4,6 +4,7 @@ import { createPostingInputSchema, matchSelectionInputSchema } from "../../../..
 import { createPosting, publishPostingWithMatchSkills } from "../../../../lib/payer-api";
 import { isPayerValidationError } from "../../../../lib/payer-errors";
 import { mapPostingIssues } from "../../../../lib/posting-field-errors";
+import { reachAfterPublish } from "../../../../lib/published-reach.server";
 import { workerCardGap } from "../../../../lib/worker-card-gap";
 
 /**
@@ -22,9 +23,13 @@ import { workerCardGap } from "../../../../lib/worker-card-gap";
  * TWO CALLS, ONE BUTTON (ADR-0036). `POST /payer/job-postings` creates a DRAFT (with every card
  * field); `PATCH` attaches the match skills and publishes. "Post job" is create → publish. A FAILED
  * PUBLISH IS REPORTED AS A DRAFT, NOT A FAILURE (the posting exists — a retry would create a second).
+ *
+ * `reached` is the published posting's reach ("Reached N workers"), read via reach-preview right
+ * after the publish; null when unpublished or when that read failed (the confirmation then shows
+ * no count, never a guessed one).
  */
 export type CreatePostingResult =
-  | { ok: true; postingId: string; published: boolean }
+  | { ok: true; postingId: string; published: boolean; reached: number | null }
   | {
       ok: false;
       error: string;
@@ -124,9 +129,10 @@ export async function createPostingAction(input: {
   }
 
   try {
-    const published = await publishPostingWithMatchSkills(postingId, selection.data);
-    return { ok: true, postingId, published: published !== null };
+    const published = (await publishPostingWithMatchSkills(postingId, selection.data)) !== null;
+    const reached = published ? await reachAfterPublish(selection.data) : null;
+    return { ok: true, postingId, published, reached };
   } catch {
-    return { ok: true, postingId, published: false };
+    return { ok: true, postingId, published: false, reached: null };
   }
 }
