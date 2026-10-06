@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   TOOLTIP_DISMISSED_ATTRIBUTE,
   dismissTooltipOnEscape,
+  focusWithoutTooltip,
   restoreTooltip,
   warnIfUnlabelled,
   watchEscapeWhileHovered,
@@ -32,6 +33,53 @@ describe("tooltip dismissal (WCAG 1.4.13 — dismissible without moving focus)",
     dismissTooltipOnEscape(c, "Escape");
     restoreTooltip(c);
     expect(c.attrs.has(TOOLTIP_DISMISSED_ATTRIBUTE)).toBe(false);
+  });
+});
+
+describe("focusWithoutTooltip — focus the APP moves never opens a tooltip", () => {
+  /** A focus target: its children's classes, its attributes, and the ORDER of what happened. */
+  function target(childClasses: string[][]) {
+    const log: string[] = [];
+    const attrs = new Set<string>();
+    return {
+      log,
+      attrs,
+      children: childClasses.map((cls) => ({
+        classList: { contains: (c: string) => cls.includes(c) },
+      })),
+      setAttribute: (k: string) => void (attrs.add(k), log.push(`set ${k}`)),
+      focus: () => void log.push(`focus (dismissed=${attrs.has(TOOLTIP_DISMISSED_ATTRIBUTE)})`),
+    };
+  }
+
+  it("an icon-only control is focused with its tooltip ALREADY dismissed (set before focus)", () => {
+    const t = target([
+      ["ph-fill", "ph-x"],
+      ["bb-icon-tip", "bb-icon-tip--bottom-end"],
+    ]);
+    focusWithoutTooltip(t);
+    expect(t.log).toEqual([`set ${TOOLTIP_DISMISSED_ATTRIBUTE}`, "focus (dismissed=true)"]);
+  });
+
+  it("…and its own blur re-arms it, so moving away and back shows it again", () => {
+    // Object.assign, not a spread: the stand-in's `dismissed` is a live getter.
+    const c = Object.assign(fakeControl(new FakeDocument()), {
+      children: [{ classList: { contains: (k: string) => k === "bb-icon-tip" } }],
+      focus: () => {},
+    });
+    focusWithoutTooltip(c);
+    expect(c.dismissed).toBe(true);
+    restoreTooltip(c);
+    expect(c.dismissed).toBe(false);
+  });
+
+  it("a target without a tooltip (a plain button, the dialog itself) is focused untouched", () => {
+    for (const kids of [[], [["ph-fill", "ph-x"]], [["bb-icon-tip-ish"]]]) {
+      const t = target(kids);
+      focusWithoutTooltip(t);
+      expect(t.log).toEqual(["focus (dismissed=false)"]);
+      expect(t.attrs.size).toBe(0);
+    }
   });
 });
 

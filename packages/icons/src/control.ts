@@ -91,6 +91,32 @@ export function restoreTooltip(control: Pick<Element, "removeAttribute">): void 
   control.removeAttribute(TOOLTIP_DISMISSED_ATTRIBUTE);
 }
 
+/** What {@link focusWithoutTooltip} needs from the target (any `HTMLElement` fits). */
+export interface FocusArrivalTarget {
+  readonly children: ArrayLike<{ readonly classList: Pick<DOMTokenList, "contains"> }>;
+  setAttribute(name: string, value: string): void;
+  focus(): void;
+}
+
+/**
+ * Move focus to a control the APP chose — a dialog's first focusable on open, the menu button a
+ * closing drawer hands focus back to — WITHOUT opening that control's tooltip.
+ *
+ * The tooltip shows on keyboard focus (`:focus-visible`), but focus the app put there is not the
+ * user pointing at the control: a dialog opened from the keyboard lands on its ✕, and the "Close"
+ * bubble covered the first line of the body, dismissable only by Escape — which also closes the
+ * dialog (WCAG 1.4.13). So a control with a `.bb-icon-tip` child arrives with the tooltip already
+ * dismissed ({@link TOOLTIP_DISMISSED_ATTRIBUTE}); its own blur / pointer leave re-arm it
+ * ({@link restoreTooltip}), so moving away and back shows it as usual. Any other target is focused
+ * untouched (an attribute nothing would ever clear is never left behind).
+ */
+export function focusWithoutTooltip(target: FocusArrivalTarget): void {
+  if (Array.from(target.children).some((c) => c.classList.contains("bb-icon-tip"))) {
+    target.setAttribute(TOOLTIP_DISMISSED_ATTRIBUTE, "");
+  }
+  target.focus();
+}
+
 /** What {@link watchEscapeWhileHovered} needs from the control (an `HTMLButtonElement` fits). */
 export interface HoverEscapeTarget {
   readonly isConnected: boolean;

@@ -8,7 +8,8 @@
  *
  * A11Y: a real `<button role="switch">` whose `aria-checked` reflects the EFFECTIVE theme
  * (dark = on), with a direction-correct `aria-label` ("Switch to dark/light theme") that the
- * shared tooltip (`.bb-icon-tip`) also shows on hover and keyboard focus (./icon-tip.ts). A small
+ * shared tooltip (`.bb-icon-tip`) also shows on hover and keyboard focus — wired by the shared
+ * `useIconTipHandlers` (@badabhai/icons/button), the same hook IconButtonBase uses. A small
  * "System" button makes the OS-follow preference reachable + obvious; it is `aria-pressed`
  * when active. Both are keyboard-operable with a visible focus ring in BOTH themes (tokens).
  * Changes are announced via a polite live region.
@@ -22,7 +23,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@badabhai/icons";
-import { useIconTipHandlers } from "./icon-tip";
+import { useIconTipHandlers } from "@badabhai/icons/button";
 import {
   applyResolvedTheme,
   readThemeCookieClient,

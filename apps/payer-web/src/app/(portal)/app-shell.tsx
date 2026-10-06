@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { Icon } from "@badabhai/icons";
 import { IconButtonBase } from "@badabhai/icons/button";
 import { SidebarNav } from "./sidebar-nav";
 import { NavSectionsProvider } from "./nav-context";
+import { openDrawer } from "./drawer-focus";
 import type { NavSection } from "./nav-model";
 
 /**
@@ -29,8 +31,13 @@ import type { NavSection } from "./nav-model";
  * labels from 1280px. Each is a Tab stop exactly where it is drawn — the CSS `display: none` that
  * hides it elsewhere already takes it out of the tab order, so neither carries a tabindex.
  *
- * This component is a client boundary ONLY for the collapse/drawer state and the Escape
- * handler. Everything it renders — the nav sections, the identity block, the header slots —
+ * THE DRAWER is a modal overlay while open (./drawer-focus.ts): closed, it is out of the Tab order
+ * (globals.css hides it, not just slides it off-screen); opening it moves focus in and keeps Tab
+ * inside it; Escape, the scrim, a route change or the menu close it, and focus returns to the menu
+ * button.
+ *
+ * This component is a client boundary ONLY for the collapse/drawer state and the drawer's
+ * keyboard model. Everything it renders — the nav sections, the identity block, the header slots —
  * is computed on the server and passed in, so no session or role data is resolved here.
  */
 export function AppShell({
@@ -49,28 +56,41 @@ export function AppShell({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const railId = useId();
+  const menuId = useId();
+  const railRef = useRef<HTMLElement>(null);
+  const scrimRef = useRef<HTMLButtonElement>(null);
   // The collapse toggle's name says what activating it does, so it changes with the state — and
   // the state is therefore `aria-expanded` (are the rail's labels shown?), never `aria-pressed`:
   // a pressed toggle keeps ONE name ("Expand navigation, pressed" contradicts itself).
   const collapseLabel = collapsed ? "Expand navigation" : "Collapse navigation";
 
-  // Escape closes the drawer. Without it the scrim is the only way out, which a keyboard
-  // user cannot reach.
+  // The open drawer's keyboard model: focus in, Tab contained, Escape closes, focus back to the
+  // menu button on close. Whether the rail is a drawer right now is read from the scrim (drawn
+  // only for the open drawer below 1024px), so the breakpoint stays in the stylesheet.
   useEffect(() => {
-    if (!drawerOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setDrawerOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [drawerOpen]);
+    if (!drawerOpen) return undefined;
+    const rail = railRef.current;
+    if (!rail) return undefined;
+    return openDrawer({
+      doc: document,
+      rail,
+      scrim: scrimRef.current,
+      menu: () => document.getElementById(menuId),
+      isModal: () =>
+        scrimRef.current !== null && getComputedStyle(scrimRef.current).display !== "none",
+      close: () => setDrawerOpen(false),
+    });
+  }, [drawerOpen, menuId]);
 
   // A route change should not leave the drawer hanging open over the page the user just
-  // navigated to. `children` changes identity on navigation, which is the signal we have
-  // without wiring a router listener into this presentational shell.
+  // navigated to. Keyed on the PATH: this shell lives in a persistent layout, whose `children`
+  // keeps its identity across navigations — keyed on that, the drawer stayed open over the new
+  // page (measured: /dashboard → a drawer link → /postings/new, still open), and with the drawer's
+  // Tab containment the keyboard would have stayed trapped in it there.
+  const pathname = usePathname();
   useEffect(() => {
     setDrawerOpen(false);
-  }, [children]);
+  }, [pathname]);
 
   const shellClass = [
     "pshell",
@@ -82,7 +102,7 @@ export function AppShell({
 
   return (
     <div className={shellClass}>
-      <aside className="pshell__rail" id={railId}>
+      <aside className="pshell__rail" id={railId} ref={railRef}>
         <div className="pshell__brand">{brand}</div>
 
         <SidebarNav sections={sections} />
@@ -110,6 +130,7 @@ export function AppShell({
       {/* Scrim: interactive only while the drawer is open, and inert to assistive tech the
           rest of the time so it never shows up as a stray button in the reading order. */}
       <button
+        ref={scrimRef}
         className="pshell__scrim"
         type="button"
         tabIndex={drawerOpen ? 0 : -1}
@@ -123,6 +144,7 @@ export function AppShell({
           {/* The shared icon-only control: "Navigation" is its name AND its visible tooltip (on
               hover and keyboard focus, Escape-dismissable), opening inward from the top-left. */}
           <IconButtonBase
+            id={menuId}
             classBase="pshell__menu"
             icon="list"
             label="Navigation"

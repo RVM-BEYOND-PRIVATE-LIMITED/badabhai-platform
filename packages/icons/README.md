@@ -111,6 +111,11 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
    disabled button. If the reason a control is unavailable must stay discoverable, it needs an
    `aria-disabled` variant, which is not built yet.
 
+   A control that must keep its own markup around the tooltip (payer-web's theme switch draws a
+   track and a thumb, not one glyph) renders the `.bb-icon-tip` as its direct child and spreads
+   `useIconTipHandlers()` from `@badabhai/icons/button` onto itself: the same Escape / re-arm
+   wiring `IconButtonBase` is built on. Never copy the handlers.
+
 3. **No glyph or emoji characters as icons.** Don't use `←`, `→`, `✓`, `✕`, `☰`, `•`, a `/`
    separator, the browser's `<summary>` triangle, or any emoji as an icon. Use the matching
    `ACTION_ICON` entry. Characters inside a sentence ("view more → pay more") are prose, not icons.
