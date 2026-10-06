@@ -1010,14 +1010,24 @@ export class UnlockService {
   ): Promise<JobContextResolution> {
     if (jobId === null) return { ok: true, jobContext: null };
     if (policy === "normalise") {
-      return { ok: true, jobContext: (await this.repo.legacyJobExists(jobId)) ? jobId : null };
+      if (await this.repo.legacyJobExists(jobId)) return { ok: true, jobContext: jobId };
+      // ADR-0050 §4.5 (C5) — an agency TWIN id resolves to its SOURCE job, which the FK holds;
+      // any other non-`jobs` id is stored as null exactly as #1903 stores it.
+      return { ok: true, jobContext: await this.repo.findAgencyTwinSourceJobId(jobId) };
     }
     // #1899 — "payer_owned": the SESSION payer must own the reference. An owned `jobs` row is
     // kept (the FK holds it); an owned posting is accepted and stored as null exactly as #1903
     // stores it; unknown and foreign are the same refusal (no id oracle).
     const owned = await this.repo.findOwnedJobRef(jobId, payerId);
-    if (owned === null) return { ok: false };
-    return { ok: true, jobContext: owned.kind === "job" ? owned.id : null };
+    if (owned !== null) return { ok: true, jobContext: owned.kind === "job" ? owned.id : null };
+    // ADR-0050 §4.5 — a twin has no owner (payer_id NULL, C2), so ownership is the SOURCE's: the
+    // agency that owns the agency job may unlock from its twin's context, stored as the source
+    // id. Anyone else gets the same refusal as an unknown or foreign id.
+    const source = await this.repo.findAgencyTwinSourceJobId(jobId);
+    if (source === null) return { ok: false };
+    const ownedSource = await this.repo.findOwnedJobRef(source, payerId);
+    if (ownedSource === null || ownedSource.kind !== "job") return { ok: false };
+    return { ok: true, jobContext: source };
   }
 
   /**

@@ -253,6 +253,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /FEED_POSTINGS_UNION_ENABLED:\s*\$\{\{\s*secrets\.FEED_POSTINGS_UNION_ENABLED\s*\}\}/,
       /envs:[^\n]*\bFEED_POSTINGS_UNION_ENABLED\b/,
     ],
+    // ADR-0050 (#1957) — the agency twin sync's kill switch. A plain boolean on the api only;
+    // the environment secret is its one arming path, so absent it holds the sync disarmed.
+    [
+      "AGENCY_TWIN_SYNC_ENABLED",
+      /AGENCY_TWIN_SYNC_ENABLED:\s*\$\{\{\s*secrets\.AGENCY_TWIN_SYNC_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bAGENCY_TWIN_SYNC_ENABLED\b/,
+    ],
   ])("%s is bridged from the environment's secrets", (_name, fromSecrets, inEnvs) => {
     expect(DEPLOY).toMatch(fromSecrets);
     // …and reaches the container: drone-ssh only exports what `envs:` lists, so a job-level
@@ -307,6 +314,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["MATCH_V1_ENABLED", "false"],
     // #1823 / ADR-0049 — off is today's legacy feed and apply/skip, byte for byte.
     ["FEED_POSTINGS_UNION_ENABLED", "false"],
+    // ADR-0050 — off is the kill switch (twins paused); none exist until it is armed.
+    ["AGENCY_TWIN_SYNC_ENABLED", "false"],
     // #1800 — not a flag but the resolver's redirect destination: the origin serving payer-web's
     // `/i/<code>`. Undeclared, the stale config default (app.badabhai.in, no `/i/`) won.
     ["REFERRAL_SHORT_LINK_BASE", "https://payer.43-204-36-199.sslip.io"],

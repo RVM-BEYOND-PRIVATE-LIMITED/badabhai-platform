@@ -103,6 +103,7 @@ esac
 # missing from this list, so adding one to `envs:` without adding it here turns CI red.
 BRIDGED_BOOLEAN_FLAGS=(
   AGENCY_PAYOUTS_ENABLED
+  AGENCY_TWIN_SYNC_ENABLED
   AI_ENABLE_REAL_CALLS
   CHAT_COMPANION_ENABLED
   CHAT_COMPANION_V2_CAREER_ENABLED

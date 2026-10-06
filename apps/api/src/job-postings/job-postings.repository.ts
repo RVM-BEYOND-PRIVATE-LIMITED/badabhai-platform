@@ -98,6 +98,13 @@ interface JobPostingApi {
   created_at: Date;
   updated_at: Date;
   closed_at: Date | null;
+  /**
+   * ADR-0050 — `'agency_job'` on a system-owned agency TWIN, NULL on every native and
+   * D4-converted posting. Read by the ops write fences (`assertNotAgencyTwin`): a twin is
+   * written by its sync alone. A payer never reads a twin (its `payer_id` is NULL), so on the
+   * payer routes this is always null.
+   */
+  sync_source: string | null;
 }
 
 /** Map a Drizzle camelCase row to the snake_case API shape. */
@@ -140,6 +147,7 @@ function toJobPostingApi(row: JobPosting): JobPostingApi {
     created_at: row.createdAt,
     updated_at: row.updatedAt,
     closed_at: row.closedAt,
+    sync_source: row.syncSource,
   };
 }
 

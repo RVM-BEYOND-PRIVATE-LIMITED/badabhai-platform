@@ -48,6 +48,8 @@ interface SetupOpts {
   jobRowExists?: boolean;
   /** #1899: the job / posting ids each payer OWNS (findOwnedJobRef), keyed by ref id. */
   ownedRefs?: Record<string, { payerId: string; kind: "job" | "posting" }>;
+  /** ADR-0050: agency TWIN posting id → its source `jobs` id (findAgencyTwinSourceJobId). */
+  twins?: Record<string, string>;
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -101,6 +103,8 @@ function setup(opts: SetupOpts = {}) {
       const owned = opts.ownedRefs?.[refId];
       return owned && owned.payerId === payerId ? { kind: owned.kind, id: refId } : null;
     }),
+    // ADR-0050 §4.5: a twin id → its source job id (global-pool, repo-only like the two above).
+    findAgencyTwinSourceJobId: vi.fn(async (id: string) => opts.twins?.[id] ?? null),
     listByPayer: vi.fn(async () => []),
     // reveal() reads the projection (tx-external) BEFORE the lock to run the consent
     // gate; return a worker_id-bearing projection whenever an unlock exists so that
@@ -1246,5 +1250,70 @@ describe("UnlockService — E0 relay resolution (item 1, and C-3's use-time reac
       projection: liveProjection(),
     });
     expect(await svc.resolveRelayForWorker("unlock-1", WORKER)).toBeNull();
+  });
+});
+
+describe("UnlockService — ADR-0050 §4.5: an unlock on an agency TWIN stores the SOURCE job id", () => {
+  const AGENCY = "a9e00000-0000-4000-8000-000000000011";
+  const SOURCE = "a9e00000-0000-4000-8000-0000000000b1"; // the agency's jobs row
+  const TWIN = "a9e00000-0000-4000-8000-0000000000b2"; // its system-owned twin
+  const OTHER = "e3900000-0000-4000-8000-000000000012";
+  const base: SetupOpts = {
+    balance: 5,
+    consentPurposes: ["employer_sharing"],
+    jobRowExists: false,
+    twins: { [TWIN]: SOURCE },
+    ownedRefs: { [SOURCE]: { payerId: AGENCY, kind: "job" } },
+  };
+
+  it("ops ('normalise'): a twin id is stored and evented as its source id — never the twin id", async () => {
+    const t = setup(base);
+    await t.svc.requestUnlock({ payerId: AGENCY, workerId: WORKER, jobId: TWIN }, CTX);
+    expect(t.repo.findAgencyTwinSourceJobId).toHaveBeenCalledWith(TWIN);
+    expect(t.txMethods.upsertGrant).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ jobId: SOURCE }),
+    );
+    expect(JSON.stringify(t.events.emit.mock.calls)).not.toContain(TWIN);
+  });
+
+  it("ops ('normalise'): a non-twin posting id still stores null (#1903 unchanged)", async () => {
+    const t = setup({ ...base, twins: {} });
+    await t.svc.requestUnlock({ payerId: AGENCY, workerId: WORKER, jobId: TWIN }, CTX);
+    expect(t.txMethods.upsertGrant).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ jobId: null }),
+    );
+  });
+
+  it("payer session: the agency that owns the SOURCE may unlock from its twin's context", async () => {
+    const t = setup(base);
+    const out = await t.svc.requestUnlock(
+      { payerId: AGENCY, workerId: WORKER, jobId: TWIN },
+      CTX,
+      "payer_owned",
+    );
+    expect(out).toMatchObject({ ok: true, status: "granted" });
+    expect(t.txMethods.upsertGrant).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ jobId: SOURCE }),
+    );
+  });
+
+  it("payer session: anyone else naming the twin gets the neutral refusal — nothing emitted or written", async () => {
+    const t = setup(base);
+    await t.svc.requestUnlock({ payerId: OTHER, workerId: WORKER, jobId: TWIN }, CTX, "payer_owned");
+    expect(t.events.emit).not.toHaveBeenCalled();
+    expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
+    expect(t.txMethods.upsertGrant).not.toHaveBeenCalled();
+  });
+
+  it("fails closed: a read error on the twin lookup propagates before anything is written", async () => {
+    const t = setup(base);
+    t.repo.findAgencyTwinSourceJobId.mockRejectedValueOnce(new Error("db down"));
+    await expect(
+      t.svc.requestUnlock({ payerId: AGENCY, workerId: WORKER, jobId: TWIN }, CTX),
+    ).rejects.toThrow();
+    expect(t.txMethods.upsertGrant).not.toHaveBeenCalled();
   });
 });

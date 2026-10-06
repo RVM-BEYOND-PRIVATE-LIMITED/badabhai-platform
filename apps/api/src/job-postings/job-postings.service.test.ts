@@ -4,6 +4,7 @@ import { BadRequestException, ConflictException, NotFoundException } from "@nest
 import { fakeAiTraceRecorder } from "../ai/ai-trace-recorder.fake";
 import { EventsService } from "../events/events.service";
 import { JobPostingsService } from "./job-postings.service";
+import { AGENCY_TWIN_READ_ONLY_MESSAGE } from "../common/agency-twin-fence";
 import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
 import {
   CreateJobPostingSchema,
@@ -46,6 +47,8 @@ type Row = {
   untickedRelatedIds: string[];
   /** Migration 0131 — the display role. NULL for every posting nobody picked one for. */
   roleKind: string | null;
+  /** ADR-0050 — 'agency_job' on a system-owned agency twin, NULL on every other posting. */
+  syncSource: string | null;
   createdAt: Date;
   updatedAt: Date;
   closedAt: Date | null;
@@ -67,6 +70,7 @@ function row(overrides: Partial<Row> = {}): Row {
     jobDomainId: null,
     untickedRelatedIds: [],
     roleKind: null,
+    syncSource: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     closedAt: null,
@@ -121,6 +125,7 @@ function toApi(r: Row) {
     created_at: r.createdAt,
     updated_at: r.updatedAt,
     closed_at: r.closedAt,
+    sync_source: r.syncSource,
   };
 }
 
@@ -227,6 +232,7 @@ function make(existing?: Row, opts: { events?: unknown } = {}) {
     reachSkillIds: [],
     appliedUntickedIds: [],
   });
+  const opsWiden = vi.fn().mockResolvedValue({});
   const svc = new JobPostingsService(
     {
       withTransaction,
@@ -257,7 +263,7 @@ function make(existing?: Row, opts: { events?: unknown } = {}) {
     // ADR-0036 moment ③. These cases exercise the ops/payer lifecycle, not reach; a
     // resolving stub keeps `materializeIfNeeded` inert. Reach materialization has its
     // own coverage in `apps/api/src/match/`.
-    { materialize: materializeReach, opsWiden: vi.fn() } as never,
+    { materialize: materializeReach, opsWiden } as never,
     // #1645 — closed-set + cap validation for `match_skill_ids` AT CREATE. Resolves by
     // default so the lifecycle cases stay about the lifecycle; the create-path cases
     // override it to assert that an unknown id 400s on the form rather than at publish.
@@ -266,6 +272,7 @@ function make(existing?: Row, opts: { events?: unknown } = {}) {
   return {
     svc,
     emit,
+    opsWiden,
     TX,
     persisted,
     stage,
@@ -1797,5 +1804,38 @@ describe("migration 0131 — the role_kind CONTRACT on the posting DTOs", () => 
     const both = UpdateJobPostingSchema.safeParse({ role_kind: "welder", clear: ["role_kind"] });
     expect(both.success).toBe(false);
     expect(JSON.stringify(both.error?.issues)).toContain("both set and cleared");
+  });
+});
+
+describe("ADR-0050 §4.3 — the ops write fences refuse an agency TWIN with one identical 409", () => {
+  const twin = () => make(row({ status: "open", syncSource: "agency_job" }));
+
+  it.each([
+    ["update", (d: ReturnType<typeof make>) => d.svc.update(POSTING_ID, { role_title: "X" } as never, CTX as never)],
+    ["close", (d: ReturnType<typeof make>) => d.svc.close(POSTING_ID, CTX as never)],
+    ["verify", (d: ReturnType<typeof make>) => d.svc.verify(POSTING_ID, CTX as never)],
+    ["reject", (d: ReturnType<typeof make>) => d.svc.reject(POSTING_ID, CTX as never)],
+    [
+      "ops widen",
+      (d: ReturnType<typeof make>) =>
+        d.svc.opsWidenReach(POSTING_ID, ["mskill_cnc_turner"], CREATED_BY, CTX as never),
+    ],
+  ] as const)("%s → 409, nothing written, nothing emitted", async (_name, act) => {
+    const d = twin();
+    const err = await act(d).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as Error).message).toBe(AGENCY_TWIN_READ_ONLY_MESSAGE);
+    expect(d.update).not.toHaveBeenCalled();
+    expect(d.close).not.toHaveBeenCalled();
+    expect(d.opsWiden).not.toHaveBeenCalled();
+    expect(d.emit).not.toHaveBeenCalled();
+  });
+
+  it("a NATIVE posting is unaffected (vacuity guard: the same calls go through)", async () => {
+    const d = make(row({ status: "open" }));
+    await d.svc.verify(POSTING_ID, CTX as never);
+    expect(d.update).toHaveBeenCalledTimes(1);
+    await d.svc.opsWidenReach(POSTING_ID, ["mskill_cnc_turner"], CREATED_BY, CTX as never);
+    expect(d.opsWiden).toHaveBeenCalledTimes(1);
   });
 });

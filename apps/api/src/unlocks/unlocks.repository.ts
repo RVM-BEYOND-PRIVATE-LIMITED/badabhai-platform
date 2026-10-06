@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, gte, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, ne, sql } from "drizzle-orm";
 import {
   type Database,
   type Unlock,
@@ -18,6 +18,7 @@ import {
   paymentOrders,
   workers,
   jobs,
+  jobPostings,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { findOwnedJobRef, type OwnedJobRef } from "../payers/owned-job-ref";
@@ -144,6 +145,20 @@ export class UnlocksRepository {
       .where(eq(jobs.id, jobId))
       .limit(1);
     return rows.length > 0;
+  }
+
+  /**
+   * ADR-0050 §4.5 — when `jobPostingId` is a system-owned agency TWIN, the `jobs` id it mirrors;
+   * otherwise null. A NON-tx global-pool read like {@link legacyJobExists}, called BEFORE the
+   * advisory-locked transaction (the same deadlock rule). A read error propagates (fail closed).
+   */
+  async findAgencyTwinSourceJobId(jobPostingId: string): Promise<string | null> {
+    const rows = await this.db
+      .select({ sourceJobId: jobPostings.sourceJobId })
+      .from(jobPostings)
+      .where(and(eq(jobPostings.id, jobPostingId), isNotNull(jobPostings.syncSource)))
+      .limit(1);
+    return rows[0]?.sourceJobId ?? null;
   }
 
   /**

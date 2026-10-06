@@ -317,8 +317,18 @@ export class ApplicationsService {
     throw new NotFoundException("Job not found");
   }
 
-  /** The legacy apply on an agency/seed `jobs` row — today's body, unchanged. */
-  private async applyJob(workerId: string, jobId: string, dto: ApplyJobDto, ctx: RequestContext) {
+  /**
+   * The legacy apply on an agency/seed `jobs` row — today's body, unchanged. ADR-0050 §4.5: a V1
+   * apply on an agency twin lands here too, on the twin's SOURCE id, carrying the V1 `snapshot`
+   * (frozen on insert / skip→apply flip only); a legacy apply passes none and writes as before.
+   */
+  private async applyJob(
+    workerId: string,
+    jobId: string,
+    dto: ApplyJobDto,
+    ctx: RequestContext,
+    snapshot: RankSnapshot | null = null,
+  ) {
     // TD38: read the existing decision BEFORE upsert to detect skip→apply flips.
     const existing = await this.repo.findDecision(workerId, jobId);
 
@@ -329,6 +339,7 @@ export class ApplicationsService {
       reason: null,
       sourceSurface: dto.source_surface,
       rank: dto.rank,
+      ...(snapshot !== null ? { snapshot } : {}),
     });
 
     // Bump the job's denormalized applies counter on a genuine first apply (new
@@ -499,10 +510,33 @@ export class ApplicationsService {
     dto: ApplyJobDto,
     ctx: RequestContext,
   ) {
+    // ADR-0050 §4.5 — resolve an agency twin to its SOURCE before choosing a code path.
+    const source = await this.resolveTwinSource(jobPostingId);
     // Freeze the rank inputs FIRST — it is also the 404 gate, so an ungated apply never
-    // reaches the write.
+    // reaches the write. For a twin the snapshot comes from the TWIN's reach row (the one the
+    // worker was served), and is stored on the source-keyed row (ADR-0036 §5: history not
+    // captured on day one is gone permanently).
     const snapshot = await this.matchApply.buildSnapshot(workerId, jobPostingId);
+    if (source !== null) return this.applyJob(workerId, source, dto, ctx, snapshot);
     return this.recordPostingApply(workerId, jobPostingId, dto, snapshot, ctx);
+  }
+
+  /**
+   * ADR-0050 §4.5 (C5) — an apply or skip that names an agency TWIN runs the `job` path in full
+   * on the twin's SOURCE: `applications.job_id = source` (conflict on (worker_id, job_id)),
+   * `jobs.applicants_received` bumped, `application.submitted` / `.skipped` v1 with subject
+   * `job` and `payload.job_id = source`, the idempotency key byte-identical to a legacy agency
+   * apply (so applies before and after the flip dedupe), TD73 kept. The twin's own id never
+   * becomes an application key.
+   *
+   * Returns the source job id for a twin, null for any other posting. A twin whose source is not
+   * OPEN is the identical neutral 404 — no write, no event (no existence oracle).
+   */
+  private async resolveTwinSource(jobPostingId: string): Promise<string | null> {
+    const twin = await this.repo.findAgencyTwinSource(jobPostingId);
+    if (!twin) return null;
+    if (twin.sourceStatus !== "open") throw new NotFoundException("Job not found");
+    return twin.sourceJobId;
   }
 
   /**
@@ -515,7 +549,9 @@ export class ApplicationsService {
     dto: SkipJobDto,
     ctx: RequestContext,
   ) {
+    const source = await this.resolveTwinSource(jobPostingId); // ADR-0050 §4.5
     await this.matchApply.buildSnapshot(workerId, jobPostingId); // the 404 gate only
+    if (source !== null) return this.skipJob(workerId, source, dto, ctx);
     return this.recordPostingSkip(workerId, jobPostingId, dto, ctx);
   }
 

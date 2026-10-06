@@ -15,6 +15,7 @@ import {
   areRealMemberInvitesEnabled,
   assertMemberInvitesConfig,
   isCapacityEnforcementEnabled,
+  isAgencyTwinSyncEnabled,
   isFeedPostingsUnionEnabled,
   isRealOtpSmsActive,
   isRealPayerEmailActive,
@@ -787,6 +788,25 @@ describe("loadServerConfig", () => {
     expect(isFeedPostingsUnionEnabled(cfg("false", "false"))).toBe(false);
     expect(isFeedPostingsUnionEnabled(cfg("false", "true"))).toBe(false);
     expect(isFeedPostingsUnionEnabled(loadServerConfig({}))).toBe(false);
+  });
+
+  it("AGENCY_TWIN_SYNC_ENABLED (ADR-0050) is OFF by default, for the empty string, 'false' and '0'", () => {
+    // The kill switch: off drives every twin to `paused`. The deploy bridge exports an unset
+    // secret as "", so the empty string must read as OFF rather than throw at boot.
+    const armed = (value?: string) =>
+      isAgencyTwinSyncEnabled(
+        loadServerConfig(value === undefined ? {} : { AGENCY_TWIN_SYNC_ENABLED: value }),
+      );
+    expect(armed()).toBe(false);
+    for (const off of ["", "false", "0"]) expect(armed(off), off).toBe(false);
+    for (const on of ["true", "1"]) expect(armed(on), on).toBe(true);
+    expect(() => loadServerConfig({ AGENCY_TWIN_SYNC_ENABLED: "yes" })).toThrow();
+    // Independent of the V1 gate: arming before the flip pre-stages `draft` twins.
+    expect(
+      isAgencyTwinSyncEnabled(
+        loadServerConfig({ AGENCY_TWIN_SYNC_ENABLED: "true", MATCH_V1_ENABLED: "false" }),
+      ),
+    ).toBe(true);
   });
 
   it("REFERRAL_SHORT_LINK_BASE accepts the interim payer-web origin and refuses a non-https one", () => {

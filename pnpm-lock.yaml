@@ -359,6 +359,12 @@ importers:
         specifier: ^3.4.5
         version: 3.4.9
     devDependencies:
+      '@badabhai/config':
+        specifier: workspace:*
+        version: link:../config
+      '@badabhai/event-schema':
+        specifier: workspace:*
+        version: link:../event-schema
       '@badabhai/validators':
         specifier: workspace:*
         version: link:../validators

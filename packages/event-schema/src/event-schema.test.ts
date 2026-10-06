@@ -3149,8 +3149,10 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 224 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events)", () => {
-    expect(EVENT_NAMES).toHaveLength(224);
+  it("exposes all 225 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events + the ADR-0050 job_posting.twin_synced)", () => {
+    expect(EVENT_NAMES).toHaveLength(225);
+    // ADR-0050 §9 — the agency twin sync's own event (a new name; no schema mutated).
+    expect(isEventName("job_posting.twin_synced")).toBe(true);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -5574,5 +5576,54 @@ describe("chat.free_chat_turn_served / chat.free_chat_mode_changed (ADR-0051, #2
     expect(changed({ ...toResume, from: "resume" })).toBe(false);
     expect(changed({ ...toResume, trigger: "typed" })).toBe(false);
     expect(changed({ ...toResume, text: "resume banana hai" })).toBe(false);
+  });
+});
+
+describe("job_posting.twin_synced (ADR-0050 §9, #1957)", () => {
+  const TWIN = "11111111-1111-4111-8111-111111111111";
+  const SOURCE = "22222222-2222-4222-8222-222222222222";
+  const base = {
+    event_id: "33333333-3333-4333-8333-333333333333",
+    event_name: "job_posting.twin_synced",
+    event_version: 1,
+    occurred_at: "2026-10-06T00:00:00.000Z",
+    actor: { actor_type: "system", actor_id: null },
+    subject: { subject_type: "job_posting", subject_id: TWIN },
+    source: "api",
+    correlation_id: "44444444-4444-4444-8444-444444444444",
+    causation_id: null,
+    metadata: { environment: "test", service: "api", request_id: null },
+  };
+  const valid = {
+    job_posting_id: TWIN,
+    source_job_id: SOURCE,
+    operation: "created",
+    status: "draft",
+    changed_fields: ["role_title", "match_skills", "status"],
+    refused_reason: null,
+  };
+  const ok = (payload: Record<string, unknown>) => validateEvent({ ...base, payload }).success;
+
+  it("validates a create, an update, a status change and each refusal", () => {
+    expect(ok(valid)).toBe(true);
+    expect(ok({ ...valid, operation: "updated", status: "open", changed_fields: ["pay_band"] })).toBe(true);
+    expect(ok({ ...valid, operation: "status_changed", status: "closed", changed_fields: ["status"] })).toBe(true);
+    for (const reason of ["no_match_skills", "unknown_match_skill", "text_screen_failed", "kill_switch"]) {
+      expect(ok({ ...valid, operation: "refused", status: "paused", refused_reason: reason }), reason).toBe(true);
+    }
+  });
+
+  it("ties refused_reason to a refused, paused twin", () => {
+    expect(ok({ ...valid, refused_reason: "no_match_skills" })).toBe(false);
+    expect(ok({ ...valid, operation: "refused", status: "paused", refused_reason: null })).toBe(false);
+    expect(ok({ ...valid, operation: "refused", status: "open", refused_reason: "kill_switch" })).toBe(false);
+  });
+
+  it("is ids and enums only — strict, closed keys, no free text", () => {
+    expect(ok({ ...valid, org_label: "Agency vacancy" })).toBe(false);
+    expect(ok({ ...valid, payer_id: SOURCE })).toBe(false);
+    expect(ok({ ...valid, changed_fields: ["CNC Operator night shift"] })).toBe(false);
+    expect(ok({ ...valid, operation: "deleted" })).toBe(false);
+    expect(ok({ ...valid, refused_reason: "over_cap", operation: "refused", status: "paused" })).toBe(false);
   });
 });

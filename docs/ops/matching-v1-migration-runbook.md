@@ -86,7 +86,8 @@ reads the output of D2/D3/D4; D6 is independent and can run any time after the m
 | D1 | `db:seed:match:vocabulary --apply` | 0052 + 0057 | Seeds the closed match-skill vocabulary + `skill_related` pairs (reference data, deterministic, checked-in — invariant #4) and writes **the single active `match_config` row** — the only writer of that table anywhere in the migration/seed chain. |
 | D2 | `db:backfill:worker-skills --apply` | 0053 | Derives every worker's matchable skill inventory from their latest `worker_profiles` row (coarse launch rule, owner-ruled 2026-07-30: role bridge ∪ attribute bridge; tenure months bucketed and clamped to the worker's stated industry experience — the "E8 clamp"). |
 | D3 | `db:backfill:job-postings --apply` | 0054 | Two idempotent jobs: backfills `published_at = created_at` for non-draft postings missing it, and **proposes** (never guesses) `match_skill_ids` for open postings with none, via normalized keyword match of `role_title` against the vocabulary. |
-| D4 | `db:convert:seed-jobs --apply` | — (cutover continuity, not tied to one migration) | Converts legacy `jobs` rows into `job_postings` (copies open rows across, closes the originals) so the pre-V1 worker feed does not go empty at cutover. Own comment: **"WITHOUT THIS THE WORKER FEED IS EMPTY AT FLAG FLIP."** |
+| Sync | `db:sync:agency-twins --match-v1=on --agency-twin-sync=on --apply` | the ADR-0050 §4.1 migration | **ADR-0050 (agency inventory).** Converges one system-owned `job_postings` TWIN per agency `jobs` row: in the flip window the twins move from `draft` to their mirrored status. The same code the api's sync queue runs (`AGENCY_TWIN_SYNC_ENABLED`). Pre-flip check: every open agency job has a non-empty `jobs.match_skill_ids` — otherwise its twin is `paused` (`refused: no_match_skills`) and the vacancy leaves the deck at the flip. Dry run first. |
+| D4 | `db:convert:seed-jobs --apply` | — (cutover continuity, not tied to one migration) | Converts legacy `jobs` rows into `job_postings` (copies open rows across, closes the originals) so the pre-V1 worker feed does not go empty at cutover. Own comment: **"WITHOUT THIS THE WORKER FEED IS EMPTY AT FLAG FLIP."** **SEED/OPS ROWS ONLY (ADR-0050 §6.2):** an open payer-owned (agency) row is reported and never converted, and `--apply` is refused while any of them has no twin — run the Sync row first. |
 | D5 | `db:materialize:reach --apply` | 0055 | For every open posting, computes and writes the set of workers it can reach into `job_reach` (one `INSERT..SELECT` per posting, no app-side loop). Run once after D2/D3/D4; thereafter the API materializes reach live on publish/edit, and this script becomes the repair/rebuild tool. |
 | D6 | `db:grant:free-tier --apply` | — | Grants every existing payer the V1 free-tier unlock credits (`match_config.free_unlock_credits`, 50 at launch). Exactly-once by a DB constraint (`credit_ledger_idempotency_key_uq` on `idempotency_key = 'free_tier_grant:<payerId>'`), not by a loop invariant — safe to re-run. |
 
@@ -120,7 +121,8 @@ agreement is a continuously-checked property, not a one-time launch gate.
 ```
 0000..0051 (already applied) → 0052..0058 (7-step train) → 0059 (addendum)
   → D1 (vocabulary + match_config) → D2 (worker skills) → D3 (job_postings backfill)
-  → D4 (legacy jobs cutover) → D5 (reach materialization) → D6 (free-tier grant)
+  → Sync (ADR-0050 agency twins) → D4 (seed/ops jobs cutover) → D5 (reach materialization)
+  → D6 (free-tier grant)
   → db:verify:match-v1 (go/no-go)
 ```
 

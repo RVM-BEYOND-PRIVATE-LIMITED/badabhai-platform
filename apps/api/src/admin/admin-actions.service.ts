@@ -7,6 +7,7 @@ import { PayerSessionService } from "../payers/payer-session.service";
 import { AdminRepository } from "./admin.repository";
 import { AdminActionsRepository } from "./admin-actions.repository";
 import { AdminInviteService } from "./admin-invite.service";
+import { assertNotAgencyTwin } from "../common/agency-twin-fence";
 import type {
   AdminActionResult,
   AdminChangeRoleDto,
@@ -351,6 +352,8 @@ export class AdminActionsService {
   ): Promise<AdminActionResult> {
     const current = await this.actions.findPostingStatus(postingId);
     if (!current) throw new NotFoundException("Job posting not found");
+    // ADR-0050 §4.3 — a twin is closed by its source (the agency job), via the sync, never here.
+    assertNotAgencyTwin(current.syncSource);
     // Idempotent: already closed → no-op success, no event.
     if (current.status === "closed") return { target_id: postingId, changed: false };
     let changed = false;

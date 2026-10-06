@@ -1658,6 +1658,15 @@ export const serverEnvSchema = z.object({
   // `city` reach the most-viewed worker surface), and the payer-applicant and unlock legs of
   // tests/e2e/feed-postings-union.e2e.test.ts passing.
   FEED_POSTINGS_UNION_ENABLED: booleanFromString,
+  // ── ADR-0050 — the agency-job V1 twin sync (#1957). THE KILL SWITCH. ──────────────────
+  // A DEPLOY SWITCH, not match tuning (it sits beside MATCH_V1_ENABLED for that reason). Armed,
+  // the sync derives one system-owned `job_postings` twin per agency `jobs` row (event poll +
+  // periodic sweep). Disarmed, the sync does ONE thing only: it drives every non-closed twin to
+  // `paused` in a bounded UPDATE and copies no field, so disarming removes agency inventory from
+  // the V1 deck and a buggy sync stops writing content. Default OFF; booleanFromString so a
+  // falsey string stays OFF, and scripts/deploy/staging-deploy.sh refuses any other value
+  // before a container moves. Read ONLY through `isAgencyTwinSyncEnabled`.
+  AGENCY_TWIN_SYNC_ENABLED: booleanFromString,
 
   // Model routing. Bare provider model ids (no provider prefix); the AI service
   // selects cheap vs capable per task. Cost guardrails are in INR per worker profile.
@@ -2230,6 +2239,16 @@ export function isMatchV1Enabled(config: ServerConfig): boolean {
  */
 export function isFeedPostingsUnionEnabled(c: ServerConfig): boolean {
   return !c.MATCH_V1_ENABLED && c.FEED_POSTINGS_UNION_ENABLED;
+}
+
+/**
+ * ADR-0050 §7 — the agency-twin sync's kill switch. The ONLY reader of
+ * AGENCY_TWIN_SYNC_ENABLED. Independent of MATCH_V1_ENABLED: while V1 is off an armed sync
+ * pre-stages every twin as `draft` (unserved), so arming before the flip changes nothing a
+ * worker sees.
+ */
+export function isAgencyTwinSyncEnabled(c: ServerConfig): boolean {
+  return c.AGENCY_TWIN_SYNC_ENABLED;
 }
 
 /**

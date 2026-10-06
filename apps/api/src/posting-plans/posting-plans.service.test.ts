@@ -4,6 +4,7 @@ import { BadRequestException, ConflictException, NotFoundException } from "@nest
 import { DEFAULT_CATALOG, parseCatalog, type Catalog } from "@badabhai/pricing";
 import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
 import { PostingPlansService } from "./posting-plans.service";
+import { AGENCY_TWIN_READ_ONLY_MESSAGE } from "../common/agency-twin-fence";
 
 const POSTING = "33333333-3333-4333-8333-333333333333";
 const PAYER = "44444444-4444-4444-8444-444444444444";
@@ -15,6 +16,8 @@ function make(
     activeBoost?: boolean;
     couponUsage?: { total: number; perPayer: number };
     postingExists?: boolean;
+    /** ADR-0050 — the posting's `sync_source` ('agency_job' = a system-owned twin). */
+    syncSource?: string | null;
     // Capacity-chokepoint knobs (ADR-0016):
     capacity?: { maxActiveVacancies: number } | null; // null/undefined → no row (config default)
     activeCount?: number; // currently-active plans for the payer
@@ -39,7 +42,10 @@ function make(
         : { total: opts.reachTotal ?? 0, tier1: 0 },
     );
   const extendPostingBoostWindow = vi.fn().mockResolvedValue(new Date());
-  const postingExists = vi.fn().mockResolvedValue(opts.postingExists ?? true);
+  // ADR-0050 §4.3 — the purchases read the posting's sync_source: undefined = no posting.
+  const findPostingSyncSource = vi
+    .fn()
+    .mockResolvedValue(opts.postingExists === false ? undefined : (opts.syncSource ?? null));
   const insertPlan = vi.fn().mockImplementation(async (input: Record<string, unknown>) => ({ id: "p-1", ...input }));
   const insertBoost = vi.fn().mockImplementation(async (input: Record<string, unknown>) => ({ id: "b-1", ...input }));
   const findActiveBoost = vi.fn().mockResolvedValue(opts.activeBoost ? { id: "b-old" } : undefined);
@@ -63,7 +69,7 @@ function make(
   const getActiveCatalog = vi.fn().mockResolvedValue({ catalog: opts.catalog ?? DEFAULT_CATALOG, revision: 1, source: "db" });
   const service = new PostingPlansService(
     {
-      postingExists,
+      findPostingSyncSource,
       insertPlan,
       insertBoost,
       findActiveBoost,
@@ -136,6 +142,26 @@ describe("PostingPlansService.buyPlan", () => {
   it("404s for an unknown posting", async () => {
     const { service } = make({ postingExists: false });
     await expect(service.buyPlan(POSTING, { payer_id: PAYER, tier: "standard" }, CTX)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("ADR-0050 §4.3 — refuses a plan on an agency TWIN with the fence's 409, before any price or write", async () => {
+    const { service, emit } = make({ syncSource: "agency_job" });
+    const err = await service
+      .buyPlan(POSTING, { payer_id: PAYER, tier: "standard" }, CTX)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as Error).message).toBe(AGENCY_TWIN_READ_ONLY_MESSAGE);
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("ADR-0050 §4.3 — refuses a boost on an agency TWIN with the identical 409", async () => {
+    const { service, emit } = make({ syncSource: "agency_job" });
+    const err = await service
+      .buyBoost(POSTING, { payer_id: PAYER, tier: "all_candidates" }, CTX)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as Error).message).toBe(AGENCY_TWIN_READ_ONLY_MESSAGE);
+    expect(emit).not.toHaveBeenCalled();
   });
 
   it("resolves the pro tier (₹2500 / 30 views / 30 days)", async () => {

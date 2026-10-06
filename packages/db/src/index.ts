@@ -172,3 +172,8 @@ export {
   isDemoWorkerPhone,
   parseAllowPhones,
 } from "./demo-phones";
+
+// ADR-0050 — the agency-job V1 twin's shared core (#1957). Exported because the api's sync queue
+// and this package's `db:sync:agency-twins` CLI must run the SAME plan, diff and write, and the
+// api's posting publish runs the same `job_reach` materialization statement.
+export * from "./agency-twin";
