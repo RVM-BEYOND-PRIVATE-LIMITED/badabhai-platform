@@ -164,6 +164,40 @@ describe("Agency job worker-visible free-text guards (ADR-0024 final addendum)",
     }
   });
 
+  // #1942 — the screen reads a fold too, so a fullwidth or invisibly split suffix, phone number
+  // or link is the same 400 as its plain spelling on every agency free-text field.
+  it.each([
+    [
+      "title",
+      { title: "Fitter at Tata Steel \u{FF2C}\u{FF54}\u{FF44}" },
+      "title must not contain a company name",
+    ],
+    [
+      "description",
+      { description: "Tata Steel L\u{200B}td mein apply kariye" },
+      "description must not contain a company name",
+    ],
+    [
+      "a benefits item",
+      { benefits: ["PF + ESI", "Bus from Sharma L\u{1}td"] },
+      "benefits must not contain a company name",
+    ],
+    [
+      "a requirements item",
+      { requirements: ["WhatsApp 98765\u{AD}43210"] },
+      "remove contact details from requirements",
+    ],
+    [
+      "description (link)",
+      { description: "Form at acme\u{FF0E}in" },
+      "description must not contain links",
+    ],
+  ])("#1942: rejects a hidden suffix, phone or link in %s", (_field, patch, message) => {
+    const r = CreateAgencyJobSchema.safeParse({ ...base, ...patch });
+    expect(r.success).toBe(false);
+    if (!r.success) expect(r.error.issues.map((i) => i.message)).toEqual([message]);
+  });
+
   it("rejects an unknown shift value (enum, not free text)", () => {
     expect(CreateAgencyJobSchema.safeParse({ ...base, shift: "evening" }).success).toBe(false);
   });

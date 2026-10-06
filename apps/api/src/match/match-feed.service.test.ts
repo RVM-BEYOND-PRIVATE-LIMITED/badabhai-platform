@@ -54,6 +54,7 @@ function row(id: string, payerKey: string, over: Partial<MatchFeedRow> = {}): Ma
     payType: null,
     shift: "day",
     neededBy: null,
+    roleKind: null,
     ...over,
   };
 }
@@ -405,22 +406,46 @@ describe("MatchFeedService — the card stays faceless (ADR-0036 open org_label 
         "requirements",
         "shift",
         "title",
+        // Owner ruling 2026-10-05 — the card's role illustration. ADDITIVE, nullable.
+        "role_kind",
         "trade_key",
         "via_related",
       ].sort(),
     );
   });
 
-  it("a row that somehow carried role_kind still yields a card WITHOUT it (0131, #1823)", async () => {
-    // The mapper is field-by-field, so an extra column on the row cannot ride onto the card.
-    // The exact-keys test above pins the shape; this pins the specific key the ruling names.
-    const { svc } = setup([
-      { ...row("a1", PAYER_A), roleKind: "welder" } as unknown as MatchFeedRow,
-    ]);
-    const out = await svc.getFeed(WORKER, 5, {}, CTX);
-    expect(out.jobs[0]).not.toHaveProperty("role_kind");
-    expect(out.jobs[0]).not.toHaveProperty("roleKind");
-    expect(JSON.stringify(out)).not.toContain("welder");
+  describe("role_kind — card art, gated to the closed set (owner ruling 2026-10-05)", () => {
+    it("passes a declared kind through", async () => {
+      const { svc } = setup([row("a1", PAYER_A, { roleKind: "welder" })]);
+      const out = await svc.getFeed(WORKER, 5, {}, CTX);
+      expect(out.jobs[0]!.role_kind).toBe("welder");
+    });
+
+    it("is null when the posting has no role picked", async () => {
+      const { svc } = setup([row("a1", PAYER_A)]);
+      const out = await svc.getFeed(WORKER, 5, {}, CTX);
+      expect(out.jobs[0]!.role_kind).toBeNull();
+    });
+
+    it.each(["Welder", "cnc_operator", "welder ", "", "<script>"])(
+      "fails closed to null on an undeclared value (%j)",
+      async (value) => {
+        const { svc } = setup([row("a1", PAYER_A, { roleKind: value })]);
+        const out = await svc.getFeed(WORKER, 5, {}, CTX);
+        expect(out.jobs[0]!.role_kind).toBeNull();
+      },
+    );
+
+    it("never rides feed.shown_v2 (no event schema change)", async () => {
+      const { svc, allEvents } = setup([row("a1", PAYER_A, { roleKind: "welder" })]);
+      await svc.getFeed(WORKER, 5, {}, CTX);
+      const events = allEvents();
+      expect(events.length).toBeGreaterThan(0);
+      for (const e of events) {
+        expect(e.payload).not.toHaveProperty("role_kind");
+        expect(JSON.stringify(e)).not.toContain("welder");
+      }
+    });
   });
 
   it("renders a missing city as the empty string and passes card content through honestly", async () => {

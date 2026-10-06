@@ -99,8 +99,10 @@ The arm orders by `published_at DESC, id ASC` and applies `LIMIT limit`.
 - the server `trade_key` filter (O7);
 - `shift` and `pay_min`. The jobs arm already drops them silently; #1905 applies them to both arms.
 
-**Never projected:** `org_label`, `payer_id`, `created_by`, `location_label`, `verification_status`, `role_kind`,
+**Never projected:** `org_label`, `payer_id`, `created_by`, `location_label`, `verification_status`,
 `boosted_until`, `state`, `vacancy_band` and the skill arrays. `source_job_id` appears in the WHERE clause only.
+(`role_kind` was on this list until the owner ruling of 2026-10-05; it is now projected for the card's art and is
+still never a predicate — see O6.)
 
 **Execution.** Both arms run in parallel. If either read or the wanted-skills lookup rejects, the whole `/feed`
 fails and no event is emitted (fail closed).
@@ -118,8 +120,9 @@ fails and no event is emitted (fail closed).
 
 Every other key comes from the same-named column, verbatim, with nulls preserved: `area`,
 `min_experience_years`, `max_experience_years`, `pay_min`, `pay_max`, `pay_type`, `shift`, `description`,
-`benefits`, `requirements` and `needed_by`. Every payer-web card field except `role_kind` reaches the worker card
-(O6).
+`benefits`, `requirements` and `needed_by`. Since 2026-10-05 `role_kind` reaches the card too, gated to the 21
+declared kinds or `null`, as the role illustration's key (O6, superseded). Every payer-web card field now reaches the
+worker card.
 
 ### 2.3 Ordering
 
@@ -186,7 +189,7 @@ Each question came with a recommended default, and every default was taken.
 | **O3**  | Unverified postings. P9's invariant, "an unverified posting is never visible to any worker" (`docs/agent/phases/P9_BUILD.md`), is unbuilt and false at head. | **Shown, and the P9 deferral is recorded here.** Search, detail and the companion already serve unverified postings, and 0 of 13 production postings are verified, so a verified-only arm would show nothing. This arm is in P9's scope when P9 lands. If P9 places the gate on status, the arm inherits it with no edit.                                                                                                       |
 | **O4**  | Skipped company postings                                                                                                                                     | **Re-served,** as the TD73 ruling of 2026-07-21 already does for agency and seed cards in the same deck. V1's skip exclusion becomes the rule at the V1 flip.                                                                                                                                                                                                                                                                   |
 | **O5**  | Ordering across both sources                                                                                                                                 | **Pure newest-first** on `posted_at`, with an `id ASC` tiebreak. No boost and no per-company interleave on this path. One shared page of up to 50 cards.                                                                                                                                                                                                                                                                        |
-| **O6**  | Does the worker card gain a role line from `role_kind`?                                                                                                      | **No, not this phase.** The posting's role words reach the worker through `title`. A role line later needs a new ADR-0024 ruling; its cheapest form uses the existing `trade_key` slot, with no new key.                                                                                                                                                                                                                        |
+| **O6**  | Does the worker card gain a role line from `role_kind`?                                                                                                      | **Superseded 2026-10-05:** `role_kind` now rides its own additive key as card ART, not a text line ([ADR-0024 addendum 2026-10-05](0024-worker-visible-job-fields-pii.md)). Original answer: **No, not this phase.** The posting's role words reach the worker through `title`. A role line later needs a new ADR-0024 ruling; its cheapest form uses the existing `trade_key` slot, with no new key.                                                                                                                                                                                                                        |
 | **O7**  | The worker trade filter vs company postings                                                                                                                  | **The server `trade_key` filter narrows agency and seed jobs only.** Postings are narrowed only by the client's title-keyword filter. `role_kind` is never a filter input.                                                                                                                                                                                                                                                      |
 | **O8**  | What a company sees on its posting's applicants page while V1 is off                                                                                         | **The posting's actual applicants,** newest first while snapshots are NULL. **Not gated by the union flag,** so disarming never hides people who already applied. Agency jobs keep the weighted full-pool list.                                                                                                                                                                                                                 |
 | **O9**  | The unlock job context when a company unlocks from a posting                                                                                                 | **Store `job_id` NULL** when the id is not a `jobs` row. No migration (#1903).                                                                                                                                                                                                                                                                                                                                                  |
