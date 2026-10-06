@@ -59,7 +59,8 @@ function setup(opts: { live?: boolean; page?: MatchFeedRow[] } = {}) {
     feedRow(P1, 1, "mskill_cnc_turner", { boosted: true }),
   ];
   const repo = {
-    findLiveWorker: vi.fn(async () => (opts.live === false ? undefined : { id: WORKER })),
+    findLiveDemoWorker: vi.fn(async () => (opts.live === false ? undefined : { id: WORKER })),
+    countDemoReachForPosting: vi.fn(async () => ({ total: 7, tier1: 4 })),
     listWorkerSkills: vi.fn(async () => [
       {
         skillId: "mskill_cnc_turner",
@@ -76,7 +77,7 @@ function setup(opts: { live?: boolean; page?: MatchFeedRow[] } = {}) {
           [P2, { roleKind: null, matchSkillIds: ["mskill_cnc_turner"] }],
         ]),
     ),
-    listRecentWorkers: vi.fn(async () => [
+    listRecentDemoWorkers: vi.fn(async () => [
       { workerId: WORKER, createdAt: NOW, topSkillId: "mskill_cnc_turner" },
     ]),
     findPostingHeader: vi.fn(async () => undefined as unknown),
@@ -84,15 +85,16 @@ function setup(opts: { live?: boolean; page?: MatchFeedRow[] } = {}) {
   const feed = { composePage: vi.fn(async () => page), getFeed: vi.fn() };
   const candidates = { listForPosting: vi.fn() };
   const config = { get: vi.fn(async () => DEFAULT_MATCH_CONFIG) };
-  const workerSkills = { countReachForPosting: vi.fn(async () => ({ total: 7, tier1: 4 })) };
+  const DEMO_IDS = [WORKER];
+  const demo = { demoWorkerIds: vi.fn(async () => DEMO_IDS) };
   const svc = new AdminMatchEngineService(
     repo as never,
     feed as never,
     candidates as never,
     config as never,
-    workerSkills as never,
+    demo as never,
   );
-  return { svc, repo, feed, candidates, workerSkills };
+  return { svc, repo, feed, candidates, demo, DEMO_IDS };
 }
 
 describe("AdminMatchEngineService.getWorkerView", () => {
@@ -141,7 +143,13 @@ describe("AdminMatchEngineService.getWorkerView", () => {
     );
   });
 
-  it("is a neutral 404 for an unknown or pending-deletion worker, and reads nothing else", async () => {
+  it("asks the repository for a DEMO worker, with the gate's hash set (fail-closed)", async () => {
+    const { svc, repo } = setup();
+    await svc.getWorkerView(WORKER, NOW);
+    expect(repo.findLiveDemoWorker).toHaveBeenCalledWith(WORKER, [WORKER]);
+  });
+
+  it("is a neutral 404 for an unknown, pending-deletion or non-demo worker, and reads nothing else", async () => {
     const { svc, repo, feed } = setup({ live: false });
     await expect(svc.getWorkerView(WORKER, NOW)).rejects.toBeInstanceOf(NotFoundException);
     expect(feed.composePage).not.toHaveBeenCalled();
@@ -166,9 +174,22 @@ describe("AdminMatchEngineService.getPostingView", () => {
       jobId: P1,
       applicants: [
         {
+          // A REAL applicant ranked above the demo worker: dropped, and must not leave a gap.
+          workerId: P2,
+          applicationId: "a0",
+          rank: 1,
+          matchTier: 1,
+          effectiveTier: 1,
+          skillMonths: 60,
+          industryMonths: 60,
+          lastWorkedAt: null,
+          matchedSkillLabel: null,
+          engineVersion: "v1",
+        },
+        {
           workerId: WORKER,
           applicationId: "a1",
-          rank: 1,
+          rank: 2,
           matchTier: 2,
           effectiveTier: 1,
           skillMonths: 30,
@@ -180,7 +201,7 @@ describe("AdminMatchEngineService.getPostingView", () => {
         {
           workerId: P2,
           applicationId: "a2",
-          rank: 2,
+          rank: 3,
           matchTier: 1,
           effectiveTier: 1,
           skillMonths: 6,
@@ -195,7 +216,11 @@ describe("AdminMatchEngineService.getPostingView", () => {
     expect(view.posted_skills.map((s) => s.skill_id)).toEqual(["mskill_cnc_turner"]);
     expect(view.related_skills.map((s) => s.skill_id)).toEqual(["mskill_cnc_grinding_operator"]);
     expect(view.reach).toEqual({ total: 7, tier1: 4, tier2: 3 });
-    expect(view.candidates.map((c) => c.application_id)).toEqual(["a1", "a2"]);
+    // Real applicants (a0, a2) are dropped; the demo worker is renumbered 1, not the payer's 2 —
+    // a rank gap would count the real applicants above him.
+    expect(view.candidates.map((c) => [c.application_id, c.rank])).toEqual([["a1", 1]]);
+    // Reach is counted over demo workers only.
+    expect(repo.countDemoReachForPosting).toHaveBeenCalledWith(P1, [WORKER]);
     expect(view.candidates[0]!.short_ref).toBe(shortRef(WORKER));
     expect(view.tier_floor_months).toBe(DEFAULT_MATCH_CONFIG.tierFloorMonths);
   });
@@ -227,9 +252,10 @@ describe("pure helpers", () => {
 });
 
 describe("AdminMatchEngineService.listRecentWorkers", () => {
-  it("serves opaque refs with a trade hint and nothing else", async () => {
-    const { svc } = setup();
+  it("serves opaque refs of DEMO workers with a trade hint and nothing else", async () => {
+    const { svc, repo } = setup();
     const { workers } = await svc.listRecentWorkers(20);
+    expect(repo.listRecentDemoWorkers).toHaveBeenCalledWith(20, [WORKER]);
     expect(workers).toEqual([
       {
         worker_id: WORKER,

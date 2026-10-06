@@ -14,7 +14,7 @@ it; for the exact current default/placeholder of any one variable, read `.env.ex
 
 `NEXT_PUBLIC_*` is the **only** prefix Next.js ships to the browser bundle. Everything else in
 `.env.example` is server-only by construction — a secret without that prefix cannot leak into a
-client bundle by Next.js's own build behavior, but nothing stops a developer from *reading* a
+client bundle by Next.js's own build behavior, but nothing stops a developer from _reading_ a
 server var somewhere that then echoes it client-side, so the discipline still has to be kept by
 hand:
 
@@ -33,16 +33,16 @@ hand:
 Every one of these runs **before** `app.listen()` — a violation crashes the boot, it never lets
 the process come up half-configured:
 
-| Assertion | What it refuses |
-|---|---|
-| `assertPiiCryptoConfig` | Dev-default `PII_HASH_PEPPER`/`PII_ENCRYPTION_KEY`, or a malformed/half-set TD22-1 keyring pair, outside development/test — see `docs/pii-key-rotation-runbook.md` |
-| `assertAuthConfig` | Dev-default `JWT_SECRET`, missing/half-set Fast2SMS credentials (worker OTP is real-only — no mock exists), or an unsafe `TEST_LOGIN_ENABLED` configuration, outside development/test/staging |
-| `assertPaymentsConfig` | `PAYMENTS_ENABLE_REAL=true` with any of `PAYMENTS_PROVIDER_KEY` / `PAYMENTS_PROVIDER_SECRET` / `RAZORPAY_WEBHOOK_SECRET` unset or blank (ADR-0010 F-6) |
-| `assertMessagingConfig` | `MESSAGING_ENABLE_REAL=true` without WhatsApp Cloud API credentials (ADR-0020) |
-| `assertPushConfig` | `PUSH_ENABLE_REAL=true` without an FCM credential (ADR-0034) |
-| `assertPayerAuthConfig` | A half-configured payer login method, or a dev-default JWT under the same rule as `assertAuthConfig` (ADR-0019 B) |
-| `assertMemberInvitesConfig` | `MEMBER_INVITES_ENABLE_REAL=true` without real email credentials / `MEMBER_INVITE_ACCEPT_URL` (ADR-0027 B5.4) |
-| `assertAdminAuthConfig` | A dev/shared `ADMIN_JWT_SECRET` (must differ from `JWT_SECRET` — principal separation), or half-set MFA/TOTP, outside development/test (ADR-0025 ADMIN-1) |
+| Assertion                   | What it refuses                                                                                                                                                                               |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assertPiiCryptoConfig`     | Dev-default `PII_HASH_PEPPER`/`PII_ENCRYPTION_KEY`, or a malformed/half-set TD22-1 keyring pair, outside development/test — see `docs/pii-key-rotation-runbook.md`                            |
+| `assertAuthConfig`          | Dev-default `JWT_SECRET`, missing/half-set Fast2SMS credentials (worker OTP is real-only — no mock exists), or an unsafe `TEST_LOGIN_ENABLED` configuration, outside development/test/staging |
+| `assertPaymentsConfig`      | `PAYMENTS_ENABLE_REAL=true` with any of `PAYMENTS_PROVIDER_KEY` / `PAYMENTS_PROVIDER_SECRET` / `RAZORPAY_WEBHOOK_SECRET` unset or blank (ADR-0010 F-6)                                        |
+| `assertMessagingConfig`     | `MESSAGING_ENABLE_REAL=true` without WhatsApp Cloud API credentials (ADR-0020)                                                                                                                |
+| `assertPushConfig`          | `PUSH_ENABLE_REAL=true` without an FCM credential (ADR-0034)                                                                                                                                  |
+| `assertPayerAuthConfig`     | A half-configured payer login method, or a dev-default JWT under the same rule as `assertAuthConfig` (ADR-0019 B)                                                                             |
+| `assertMemberInvitesConfig` | `MEMBER_INVITES_ENABLE_REAL=true` without real email credentials / `MEMBER_INVITE_ACCEPT_URL` (ADR-0027 B5.4)                                                                                 |
+| `assertAdminAuthConfig`     | A dev/shared `ADMIN_JWT_SECRET` (must differ from `JWT_SECRET` — principal separation), or half-set MFA/TOTP, outside development/test (ADR-0025 ADMIN-1)                                     |
 
 The common shape across all eight: **a real-provider flag flipped `true` with its credential(s)
 missing/blank refuses to boot rather than silently running mocked** — this is the "a gate that
@@ -172,6 +172,15 @@ NestJS boot assertion).
   `1`/`0`/empty only; anything else would stop the api booting, so `scripts/deploy/staging-deploy.sh`
   refuses any other value before a container moves. In CI only the `e2e` job's Matching V1 journey step
   sets it, on its own API process (port 3002).
+- **Admin Engine view demo allow-list (owner ruling 2026-10-06, #2014)** —
+  `ADMIN_ENGINE_VIEW_ALLOW_PHONES`, api only. The Engine view (`/admin/match/engine/*`) shows
+  DEMO WORKERS ONLY: phones in the reserved demo block `+910000026xxx`, plus the handsets listed
+  here (comma-separated E.164, `+91` + 10 digits, at most 20). Default empty = the demo block only.
+  Bridged through the GitHub `production` environment secret of the same name (compose
+  `${ADMIN_ENGINE_VIEW_ALLOW_PHONES:-}`, `ci.yml` `env:` + `envs:`); a malformed value fails the api
+  boot, so `scripts/deploy/staging-deploy.sh` refuses it before a container moves.
+  **Every entry must be a handset whose owner has consented to demo use, and adding one is an
+  owner decision** — the list can admit any `+91` number (risks register R60).
 - **Chat / profiling** — `CHAT_TRANSCRIPT_TTL_SECONDS`, `CHAT_ABANDON_AFTER_SECONDS`,
   `CHAT_MAX_TURNS` (the authoritative hard cap — the ai-service mirrors it but holds no
   per-session state, so it can only enforce what the API tells it).

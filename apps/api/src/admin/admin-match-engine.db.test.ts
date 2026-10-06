@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createDbClient, type DbClient } from "@badabhai/db";
+import { createDbClient, hashPhone, type DbClient } from "@badabhai/db";
 
 import type { RequestContext } from "../common/request-context";
 import { MatchCandidatesService } from "../match/match-candidates.service";
@@ -9,6 +9,8 @@ import { MatchConfigService } from "../match/match-config.service";
 import { MatchFeedRepository } from "../match/match-feed.repository";
 import { MatchFeedService } from "../match/match-feed.service";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
+import { WorkersRepository } from "../workers/workers.repository";
+import { AdminEngineDemoGate } from "./admin-engine-demo-gate";
 import { AdminMatchEngineRepository } from "./admin-match-engine.repository";
 import { AdminMatchEngineService } from "./admin-match-engine.service";
 
@@ -43,6 +45,25 @@ const CTX: RequestContext = { correlationId: uuid(0xe9e10001), requestId: "engin
 const WORKER = uuid(0xe9e11001);
 /** Inside the deletion grace window: a neutral 404 and never on the picker (ADR-0031 (b)). */
 const LEAVING = uuid(0xe9e11002);
+/** A REAL worker (not in the demo block, not allow-listed): refused, fail-closed. */
+const REAL = uuid(0xe9e11003);
+/** The owner's demo handset, named in the allow-list: allowed. */
+const ALLOWED = uuid(0xe9e11004);
+
+/** The gate hashes with the server pepper; the fixture hashes its phones with the same one. */
+const PEPPER = "engine-view-db-test-pepper-".repeat(2);
+const DEMO_PHONE = "+910000026901";
+const LEAVING_PHONE = "+910000026902";
+/** Reserved synthetic numbers outside the demo block — never a real SIM. */
+const REAL_PHONE = "+910000017001";
+const ALLOWED_PHONE = "+910000017002";
+const PHONES: Record<string, string> = {
+  [WORKER]: DEMO_PHONE,
+  [LEAVING]: LEAVING_PHONE,
+  [REAL]: REAL_PHONE,
+  [ALLOWED]: ALLOWED_PHONE,
+};
+const ALL_WORKERS = [WORKER, LEAVING, REAL, ALLOWED];
 const PAYER = uuid(0xe9e12001);
 
 const INDUSTRY = "ind_industrial_manufacturing";
@@ -86,7 +107,11 @@ describe.skipIf(!RUN)("Engine view — funnel and feed order against Postgres", 
       feed,
       new MatchCandidatesService(feedRepo, config),
       config,
-      new WorkerSkillsRepository(client.db),
+      new AdminEngineDemoGate(
+        { ADMIN_ENGINE_VIEW_ALLOW_PHONES: [ALLOWED_PHONE] } as never,
+        { hashPhone: (p: string) => hashPhone(p, PEPPER) } as never,
+        new WorkersRepository(client.db),
+      ),
     );
   }, 60_000);
 
@@ -148,6 +173,33 @@ describe.skipIf(!RUN)("Engine view — funnel and feed order against Postgres", 
     expect(applied.candidates.map((c) => c.worker_id)).toContain(WORKER);
   });
 
+  it("DEMO WORKERS ONLY: a real worker is refused with the neutral 404 and is never on the picker", async () => {
+    await expect(engine.getWorkerView(REAL)).rejects.toMatchObject({ status: 404 });
+    const { workers } = await engine.listRecentWorkers(50);
+    expect(workers.map((w) => w.worker_id)).not.toContain(REAL);
+  });
+
+  it("a demo-block worker and an allow-listed handset are both allowed", async () => {
+    expect((await engine.getWorkerView(WORKER)).worker_id).toBe(WORKER);
+    expect((await engine.getWorkerView(ALLOWED)).worker_id).toBe(ALLOWED);
+    const ids = (await engine.listRecentWorkers(50)).workers.map((w) => w.worker_id);
+    expect(ids).toEqual(expect.arrayContaining([WORKER, ALLOWED]));
+  });
+
+  it("a posting's ranked applicants show demo workers only, renumbered from 1", async () => {
+    const view = await engine.getPostingView(P_APPLIED);
+    // REAL (48 skill months) out-ranks WORKER (36) on the payer's list; on this screen he is
+    // absent, and WORKER is rank 1 — no gap betrays him.
+    expect(view.candidates.map((c) => [c.worker_id, c.rank])).toEqual([[WORKER, 1]]);
+  });
+
+  it("a posting's reach counts DEMO workers only", async () => {
+    // P_DIRECT reaches every holder of SKILL_DIRECT: WORKER, REAL and ALLOWED (LEAVING too, but
+    // he is pending deletion). Only the two demo workers are counted.
+    const view = await engine.getPostingView(P_DIRECT);
+    expect(view.reach).toEqual({ total: 2, tier1: 2, tier2: 0 });
+  });
+
   it("a worker pending deletion is a neutral 404 and is never on the picker", async () => {
     await expect(engine.getWorkerView(LEAVING)).rejects.toMatchObject({ status: 404 });
     const { workers } = await engine.listRecentWorkers(50);
@@ -180,14 +232,23 @@ async function seed(client: DbClient): Promise<void> {
   }
 
   // Synthetic markers only — no real phone number exists in this fixture.
-  await sql`
-    INSERT INTO workers (id, phone_e164, phone_hash, status)
-    VALUES (${WORKER}::uuid, 'enc:engine-view', 'hash:engine-view', 'active')
-    ON CONFLICT (id) DO NOTHING
-  `;
+  for (const id of [WORKER, REAL, ALLOWED]) {
+    await sql`
+      INSERT INTO workers (id, phone_e164, phone_hash, status)
+      VALUES (${id}::uuid, ${`enc:engine-view-${id.slice(-4)}`}, ${hashPhone(PHONES[id]!, PEPPER)},
+              'active')
+      ON CONFLICT (id) DO NOTHING
+    `;
+  }
+  for (const id of [REAL, ALLOWED]) {
+    await sql`
+      INSERT INTO worker_skill (worker_id, skill_id, industry_id, months_bucketed, wants, source)
+      VALUES (${id}::uuid, ${SKILL_DIRECT}, ${INDUSTRY}, 24, true, 'interview')
+    `;
+  }
   await sql`
     INSERT INTO workers (id, phone_e164, phone_hash, status, deletion_scheduled_at, created_at)
-    VALUES (${LEAVING}::uuid, 'enc:engine-view-leaving', 'hash:engine-view-leaving', 'active',
+    VALUES (${LEAVING}::uuid, 'enc:engine-view-leaving', ${hashPhone(LEAVING_PHONE, PEPPER)}, 'active',
             now(), now() + interval '1 day')
     ON CONFLICT (id) DO NOTHING
   `;
@@ -260,19 +321,26 @@ async function seed(client: DbClient): Promise<void> {
                               industry_months, engine_version)
     VALUES (${WORKER}::uuid, ${P_APPLIED}::uuid, 'applied', 1, 36, 60, 'v1')
   `;
+  await sql`
+    INSERT INTO applications (worker_id, job_posting_id, action, match_tier, skill_months,
+                              industry_months, engine_version)
+    VALUES (${REAL}::uuid, ${P_APPLIED}::uuid, 'applied', 1, 48, 60, 'v1')
+  `;
 }
 
 async function cleanup(client: DbClient): Promise<void> {
   const { sql } = client;
-  await sql`DELETE FROM applications WHERE worker_id = ${WORKER}::uuid`;
-  await sql`DELETE FROM job_reach WHERE worker_id = ${WORKER}::uuid`;
+  for (const id of ALL_WORKERS) {
+    await sql`DELETE FROM applications WHERE worker_id = ${id}::uuid`;
+    await sql`DELETE FROM job_reach WHERE worker_id = ${id}::uuid`;
+  }
   for (const id of ALL_POSTINGS) {
     await sql`DELETE FROM job_reach WHERE job_posting_id = ${id}::uuid`;
     await sql`DELETE FROM job_postings WHERE id = ${id}::uuid`;
   }
   await sql`DELETE FROM worker_skill WHERE worker_id = ${WORKER}::uuid`;
   await sql`DELETE FROM worker_industry_tenure WHERE worker_id = ${WORKER}::uuid`;
-  for (const id of [WORKER, LEAVING]) {
+  for (const id of ALL_WORKERS) {
     await sql`DELETE FROM worker_skill WHERE worker_id = ${id}::uuid`;
     await sql`DELETE FROM workers WHERE id = ${id}::uuid`;
   }

@@ -116,7 +116,7 @@ describe("Engine view page", () => {
     const html = await render({});
     expect(html).toContain("5eeded00");
     expect(html).toContain("CNC Turning");
-    expect(html).toContain("Pick a worker");
+    expect(html).toContain("Pick a demo worker");
   });
 
   it("renders skills, a funnel that adds up, and cards in the server's order", async () => {
@@ -146,7 +146,7 @@ describe("Engine view page", () => {
     stub.workerFailure = new AdminRequestError(404, "Not found");
     expect(await render({ worker: WORKER_ID })).toContain("not available");
     stub.workerFailure = null;
-    expect(await render({ worker: "not-a-uuid" })).toContain("Pick a worker");
+    expect(await render({ worker: "not-a-uuid" })).toContain("Pick a demo worker");
   });
 
   it("renders a posting's reach by tier and its ranked applicants by short ref", async () => {

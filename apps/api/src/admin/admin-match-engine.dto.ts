@@ -130,8 +130,12 @@ export interface EnginePostingViewDto {
   posted_skills: EngineSkillRefDto[];
   /** Tier 2 — the STORED reach set minus the posted skills. */
   related_skills: EngineSkillRefDto[];
+  /** Workers this posting reaches, counted over DEMO workers only (owner ruling 2026-10-06). */
   reach: { total: number; tier1: number; tier2: number };
-  /** The payer's ranked applicant list, in the order the payer sees it. */
+  /**
+   * The payer's ranked applicant list, in the payer's order, DEMO applicants only, `rank`
+   * renumbered 1..n among them (a payer rank's gaps would count the real applicants above).
+   */
   candidates: EngineCandidateDto[];
   tier_floor_months: number;
   generated_at: string;

@@ -29,6 +29,10 @@ export const metadata = { title: "Engine view" };
  * server component, which re-checks the session and re-reads through `adminFetch`. There is no
  * browser-reachable proxy route and no cached copy — the screen is always the API's answer.
  *
+ * ── DEMO WORKERS ONLY (owner ruling 2026-10-06) ─────────────────────────────────────────
+ * The API serves demo workers only (fail-closed, `AdminEngineDemoGate`); a real worker's id is
+ * the same neutral "not available" as an unknown one. This page adds no second check.
+ *
  * ── NOTHING HERE DECIDES ANYTHING ───────────────────────────────────────────────────────
  * Card order, tiers, funnel counts and the "why" line are the server's (the worker feed's own
  * code path). This page picks WHICH worker or posting to show and nothing else.
@@ -110,7 +114,8 @@ function EngineBody({
   selectedPosting: string | undefined;
 }) {
   if (tab === "worker") {
-    if (!selectedWorker) return <p className="engine__state">Pick a worker to see their feed.</p>;
+    if (!selectedWorker)
+      return <p className="engine__state">Pick a demo worker to see their feed.</p>;
     if (worker === "missing" || worker === null) {
       return <p className="engine__state">That worker is not available.</p>;
     }
@@ -136,7 +141,11 @@ function WorkerPicker({
     return <p className="engine__state">The worker list could not be loaded.</p>;
   }
   if (recent.workers.length === 0) {
-    return <p className="engine__state">No worker has any skills yet.</p>;
+    return (
+      <p className="engine__state">
+        No demo worker has any skills yet. Seed the demo workers first.
+      </p>
+    );
   }
   return (
     <ul className="engine__picker" aria-label="Recent workers">

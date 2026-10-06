@@ -4,7 +4,7 @@ import { MatchFeedService } from "../match/match-feed.service";
 import type { MatchFeedRow } from "../match/match-feed.repository";
 import { MatchCandidatesService } from "../match/match-candidates.service";
 import { MatchConfigService } from "../match/match-config.service";
-import { WorkerSkillsRepository } from "../match/worker-skills.repository";
+import { AdminEngineDemoGate } from "./admin-engine-demo-gate";
 import {
   AdminMatchEngineRepository,
   type EngineCardPostingMeta,
@@ -43,6 +43,17 @@ import {
  * (`admin.worker_journey_viewed`) has a closed `view` enum this surface is not in —
  * reusing it would mislabel the read, widening it is an event-schema change.
  *
+ * ── DEMO WORKERS ONLY (owner ruling 2026-10-06, DPDP purpose limitation) ────────────────
+ * Real workers consented to processing for hiring, not for an investor presentation. Every
+ * worker this service returns — the picker, the per-worker view, the posting's applicants —
+ * must pass {@link AdminEngineDemoGate}; anyone else is the same neutral 404 as an unknown id.
+ * Per-posting reach counts are counted over demo workers too, and the applicant list is
+ * renumbered among demo applicants: an aggregate or a rank gap over real workers is still output
+ * derived from their data. Postings themselves are employer data and are shown as they are.
+ *
+ * ── AUDIT: NONE, BY OWNER RULING 2026-10-06 ─────────────────────────────────────────────
+ * The per-worker skill/feed read is un-audited by owner decision (#2017); if that changes it is a NEW versioned event, never a widened journey enum.
+ *
  * ── FACELESS ────────────────────────────────────────────────────────────────────────────
  * Workers are opaque uuids + an 8-char short ref. No name, phone, org label or company:
  * the feed row's `payerKey` (an opaque company key the interleave needs) is never mapped
@@ -55,11 +66,11 @@ export class AdminMatchEngineService {
     private readonly feed: MatchFeedService,
     private readonly candidates: MatchCandidatesService,
     private readonly config: MatchConfigService,
-    private readonly workerSkills: WorkerSkillsRepository,
+    private readonly demo: AdminEngineDemoGate,
   ) {}
 
   async listRecentWorkers(limit: number): Promise<EngineRecentWorkersResponseDto> {
-    const rows = await this.repo.listRecentWorkers(limit);
+    const rows = await this.repo.listRecentDemoWorkers(limit, await this.demo.demoWorkerIds());
     return {
       workers: rows.map((r) => ({
         worker_id: r.workerId,
@@ -71,8 +82,9 @@ export class AdminMatchEngineService {
   }
 
   async getWorkerView(workerId: string, now: Date = new Date()): Promise<EngineWorkerViewDto> {
-    // 404 FIRST: nothing else is read for an id that is unknown or pending deletion.
-    const worker = await this.repo.findLiveWorker(workerId);
+    // 404 FIRST, fail-closed: nothing else is read for an id that is unknown, pending deletion
+    // or not a demo worker — and the three are the same uniform refusal.
+    const worker = await this.repo.findLiveDemoWorker(workerId, await this.demo.demoWorkerIds());
     if (!worker) throw new NotFoundException("Not found");
 
     const [skills, counts, page] = await Promise.all([
@@ -106,12 +118,17 @@ export class AdminMatchEngineService {
     const posting = await this.repo.findPostingHeader(jobPostingId);
     if (!posting) throw new NotFoundException("Not found");
 
+    // DEMO WORKERS ONLY, counts included (owner ruling 2026-10-06): the reach numbers count
+    // demo workers, and the ranked list keeps the payer's ORDER but shows only demo applicants,
+    // renumbered 1..n among themselves — the payer's own rank would reveal, by its gaps, how many
+    // real applicants sit above a demo worker.
+    const demoIds = await this.demo.demoWorkerIds();
+    const demo = new Set(demoIds);
     const [reach, list, cfg] = await Promise.all([
-      this.workerSkills.countReachForPosting(jobPostingId),
+      this.repo.countDemoReachForPosting(jobPostingId, demoIds),
       this.candidates.listForPosting(jobPostingId),
       this.config.get(),
     ]);
-
     const posted = new Set(posting.matchSkillIds);
     return {
       job_posting_id: posting.id,
@@ -122,18 +139,20 @@ export class AdminMatchEngineService {
       posted_skills: posting.matchSkillIds.map(skillRef),
       related_skills: posting.reachSkillIds.filter((id) => !posted.has(id)).map(skillRef),
       reach: { total: reach.total, tier1: reach.tier1, tier2: reach.total - reach.tier1 },
-      candidates: list.applicants.map((a) => ({
-        rank: a.rank,
-        worker_id: a.workerId,
-        short_ref: shortRef(a.workerId),
-        application_id: a.applicationId,
-        match_tier: a.matchTier,
-        effective_tier: a.effectiveTier,
-        skill_months: a.skillMonths,
-        industry_months: a.industryMonths,
-        last_worked_at: a.lastWorkedAt,
-        matched_skill_label: a.matchedSkillLabel,
-      })),
+      candidates: list.applicants
+        .filter((a) => demo.has(a.workerId))
+        .map((a, index) => ({
+          rank: index + 1,
+          worker_id: a.workerId,
+          short_ref: shortRef(a.workerId),
+          application_id: a.applicationId,
+          match_tier: a.matchTier,
+          effective_tier: a.effectiveTier,
+          skill_months: a.skillMonths,
+          industry_months: a.industryMonths,
+          last_worked_at: a.lastWorkedAt,
+          matched_skill_label: a.matchedSkillLabel,
+        })),
       tier_floor_months: cfg.tierFloorMonths,
       generated_at: now.toISOString(),
     };

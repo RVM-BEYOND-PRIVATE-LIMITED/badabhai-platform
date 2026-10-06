@@ -63,8 +63,12 @@ export interface EnginePostingHeader {
  *     feed runs; the open-posting total is an index-only count on `job_postings_feed_idx`
  *     (leading `status`); the actioned probe is `applications_applied_posting_idx` / the
  *     `(worker_id, job_posting_id)` lookups the feed's NOT EXISTS already uses;
- *   - recent workers — `workers_admin_keyset_idx (created_at DESC, id DESC)` with an
- *     EXISTS probe on the `worker_skill` unique index, LIMIT ≤ 50.
+ *   - recent workers — a primary-key seek for the demo worker ids (≤ ~1,000), an EXISTS probe
+ *     on the `worker_skill` unique index, sorted, LIMIT ≤ 50.
+ *
+ * DEMO WORKERS ONLY (owner ruling 2026-10-06): every worker-returning read here — and every
+ * per-posting reach count — takes the demo worker ids from `AdminEngineDemoGate` and filters on
+ * them, so nothing derived from a real worker reaches the screen.
  *
  * PRIVACY: never selects `full_name`, `phone_*`, `whatsapp_enc`, `org_label` or any
  * encrypted column. Ids, closed-vocabulary skill ids, enums, integers, timestamps.
@@ -74,16 +78,24 @@ export class AdminMatchEngineRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
   /**
-   * The worker, if he exists AND is not pending deletion. A worker inside the deletion grace
-   * window has asked to leave (ADR-0031 (b)); he is a neutral 404 here, exactly as an unknown
-   * id is, so the surface is not an existence oracle for either.
+   * The worker, if he exists, is not pending deletion, AND is a DEMO worker (owner ruling
+   * 2026-10-06 — `AdminEngineDemoGate`). A worker inside the deletion grace window has asked to
+   * leave (ADR-0031 (b)), and a real worker is out of the demo's purpose; both are a neutral 404
+   * here, exactly as an unknown id is, so the surface is not an existence oracle for any of them.
+   *
+   * `demoWorkerIds` comes from `AdminEngineDemoGate` (resolved by phone hash in the workers
+   * domain); this file never names a phone column.
    */
-  async findLiveWorker(workerId: string): Promise<{ id: string } | undefined> {
+  async findLiveDemoWorker(
+    workerId: string,
+    demoWorkerIds: readonly string[],
+  ): Promise<{ id: string } | undefined> {
     const rows = (await this.db.execute(dsql`
       SELECT w.id
       FROM workers w
       WHERE w.id = ${workerId}::uuid
         AND w.deletion_scheduled_at IS NULL
+        AND w.id = ANY(${dsql.param([...demoWorkerIds])}::uuid[])
       LIMIT 1
     `)) as unknown as { id: string }[];
     return rows[0];
@@ -162,8 +174,30 @@ export class AdminMatchEngineRepository {
     return out;
   }
 
-  /** The picker: newest live workers that have at least one `worker_skill` row. */
-  async listRecentWorkers(limit: number): Promise<EngineRecentWorkerRow[]> {
+  /**
+   * One posting's reach, counted over DEMO workers only (owner ruling 2026-10-06): an aggregate
+   * over real workers is still output derived from their data. The `job_reach` primary key
+   * `(job_posting_id, worker_id)` serves it.
+   */
+  async countDemoReachForPosting(
+    jobPostingId: string,
+    demoWorkerIds: readonly string[],
+  ): Promise<{ total: number; tier1: number }> {
+    const rows = (await this.db.execute(dsql`
+      SELECT count(*)::int                                AS total,
+             count(*) FILTER (WHERE jr.match_tier = 1)::int AS tier1
+      FROM job_reach jr
+      WHERE jr.job_posting_id = ${jobPostingId}::uuid
+        AND jr.worker_id = ANY(${dsql.param([...demoWorkerIds])}::uuid[])
+    `)) as unknown as { total: number; tier1: number }[];
+    return { total: Number(rows[0]?.total ?? 0), tier1: Number(rows[0]?.tier1 ?? 0) };
+  }
+
+  /** The picker: newest live DEMO workers that have at least one `worker_skill` row. */
+  async listRecentDemoWorkers(
+    limit: number,
+    demoWorkerIds: readonly string[],
+  ): Promise<EngineRecentWorkerRow[]> {
     const rows = (await this.db.execute(dsql`
       SELECT w.id, w.created_at,
              (SELECT ws.skill_id FROM worker_skill ws
@@ -172,6 +206,7 @@ export class AdminMatchEngineRepository {
                LIMIT 1) AS top_skill_id
       FROM workers w
       WHERE w.deletion_scheduled_at IS NULL
+        AND w.id = ANY(${dsql.param([...demoWorkerIds])}::uuid[])
         AND EXISTS (SELECT 1 FROM worker_skill ws WHERE ws.worker_id = w.id)
       ORDER BY w.created_at DESC, w.id DESC
       LIMIT ${limit}

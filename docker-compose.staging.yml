@@ -567,6 +567,9 @@ services:
       AGENCY_PAYOUTS_ENABLED: ${AGENCY_PAYOUTS_ENABLED:-false}
       # MEMBER_INVITES_ENABLE_REAL: deliberately NOT declared — see the #872 note above.
       MATCH_V1_ENABLED: ${MATCH_V1_ENABLED:-false}
+      # Engine view demo-worker allow-list (owner ruling 2026-10-06): extra E.164 handsets beyond
+      # the reserved demo block +910000026xxx. `:-` so unset means "demo block only".
+      ADMIN_ENGINE_VIEW_ALLOW_PHONES: ${ADMIN_ENGINE_VIEW_ALLOW_PHONES:-}
       # #1823 / ADR-0049 — company postings on the LEGACY feed beside agency/seed jobs (the
       # interim union). Ignored while MATCH_V1_ENABLED is on. OFF is today's feed and
       # apply/skip; `:-false` so an unset or empty secret is off. Arm only after the ADR-0049
