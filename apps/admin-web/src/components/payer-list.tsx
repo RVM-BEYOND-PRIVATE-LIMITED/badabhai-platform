@@ -46,7 +46,7 @@ export function PayerList({
         <h3 className="state__title">{emptyMessage}</h3>
         <p className="state__body">
           There is nothing to search by on this screen. The way in is the other direction —
-          find the posting, then follow it to the account that published it.
+          find the posting, then follow it to the customer that published it.
         </p>
         <div className="state__actions">
           <Link className="btn btn--ghost" href="/jobs">
@@ -61,13 +61,13 @@ export function PayerList({
   return (
     <div className="tablewrap">
       <table className="table">
-        <caption className="sr-only">Accounts, newest first</caption>
+        <caption className="sr-only">Customers, newest first</caption>
         <thead>
           <tr>
             {/* Only in the `named` posture — a dash under this heading would claim the account
                 registered without a business name. */}
             {posture === "named" && <th scope="col">Organisation</th>}
-            <th scope="col">Account</th>
+            <th scope="col">Customer</th>
             <th scope="col">Status</th>
             <th scope="col">Registered</th>
             <th scope="col">Last updated</th>

@@ -127,3 +127,38 @@ describe("the session status chips (owner brief 2026-10-01)", () => {
     expect(out).toMatch(/aria-current="true" class="btn btn--sm btn--selected"[^>]*>All</);
   });
 });
+
+/**
+ * The session list is a PAGED read, and its failure was prose alone ("Reload this page") — with
+ * a stale cursor there was no named way back to page one (sweep AW-15). It now carries the same
+ * two recoveries as every other paged list, keeping the status chip.
+ */
+describe("a failed session list offers the paged list's recoveries", () => {
+  const renderWith = async (searchParams: Record<string, string>) =>
+    renderToStaticMarkup(
+      await WorkerJourneyPage({
+        params: Promise.resolve({ id: WORKER_ID }),
+        searchParams: Promise.resolve(searchParams),
+      }),
+    );
+
+  it("Retry repeats the same page, status and cursor kept; the first page keeps the status", async () => {
+    const out = await renderWith({ status: "ended", cursor: "c2" });
+    expect(out).toContain("The session list could not be loaded");
+    expect(out).toContain(
+      `href="/workers/${WORKER_ID}/journey?status=ended&amp;cursor=c2"><i class="ph-fill ph-arrow-clockwise" aria-hidden="true"></i>Retry</a>`,
+    );
+    expect(out).toContain(
+      `href="/workers/${WORKER_ID}/journey?status=ended"><i class="ph-fill ph-arrow-line-left" aria-hidden="true"></i>Back to the first page</a>`,
+    );
+  });
+
+  it("on page one, Retry alone — and the copy no longer also says reload", async () => {
+    const out = await renderWith({});
+    expect(out).toContain(
+      `href="/workers/${WORKER_ID}/journey"><i class="ph-fill ph-arrow-clockwise" aria-hidden="true"></i>Retry</a>`,
+    );
+    expect(out).not.toContain("Back to the first page");
+    expect(out).not.toContain("Reload this page to try again");
+  });
+});

@@ -53,6 +53,8 @@ export default async function DashboardPage({
    */
   const deniedParam = (await searchParams).denied;
   const denied = Array.isArray(deniedParam) ? deniedParam[0] : deniedParam;
+  /** This page's own address, as it was asked for — what a Retry repeats. */
+  const retryHref = denied ? `/?denied=${encodeURIComponent(denied)}` : "/";
 
   // `allSettled`, not `all`: health is a different service from the events API, and one
   // being down must not blank the whole dashboard. Each region renders its own failure.
@@ -253,9 +255,14 @@ export default async function DashboardPage({
               <p className="state__body">
                 The dashboard summary read failed, so those two sections are MISSING rather
                 than empty — do not read their absence as zero spend or zero volume. The
-                figures above come from separate reads and are unaffected. Reload to try
-                again.
+                figures above come from separate reads and are unaffected.
               </p>
+              <div className="state__actions">
+                <Link className="btn btn--ghost" href={retryHref}>
+                  <Icon name={ACTION_ICON.retry} />
+                  Retry
+                </Link>
+              </div>
             </div>
           </section>
         )

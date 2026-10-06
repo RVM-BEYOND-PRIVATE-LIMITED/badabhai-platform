@@ -40,7 +40,7 @@ export const metadata = { title: "Interview session" };
  * A session id is globally unique and the API is not nested, but the operator arrived from one
  * worker and needs the way back. The response carries its own `worker_id`, and when that
  * disagrees with the id in the path the page SAYS so and links to the right worker rather than
- * silently rendering someone else's session under this breadcrumb.
+ * silently rendering someone else's session under this back link.
  */
 export default async function ChatSessionDetailPage({
   params,
@@ -90,7 +90,7 @@ export default async function ChatSessionDetailPage({
             {shortId(session.worker_id)}
           </Link>
           , not to the worker in this URL. The figures below are that session&rsquo;s own; the
-          breadcrumb above is not.
+          back link above is not.
         </p>
       ) : null}
 
