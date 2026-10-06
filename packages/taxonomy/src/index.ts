@@ -242,6 +242,8 @@ export * from "./skill-corpus";
 // relation, and the three deterministic bridges from today's data into it.
 export * from "./promotable-skills";
 export * from "./match-skills";
+// The fourth bridge — closed-set pack answers → the `skill_*`/`role_*` ids they claim.
+export * from "./pack-answer-skills";
 export * from "./crosswalk-integrity";
 
 // ADR-0030 / TAX-5 — PROPOSED vernacular wedge aliases (RVM ratification-gated).
