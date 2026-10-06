@@ -17,9 +17,11 @@ import type { UpdatePostingActionInput } from "./actions";
 
 const updatePosting = vi.fn();
 const revalidatePath = vi.fn();
+const previewReach = vi.fn();
 
 vi.mock("../../../../../lib/payer-api", () => ({
   updatePosting: (id: unknown, input: unknown, options: unknown) => updatePosting(id, input, options),
+  previewReach: (input: unknown) => previewReach(input),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: (p: string) => revalidatePath(p) }));
 
@@ -72,6 +74,7 @@ const FULL_CARD: Partial<UpdatePostingActionInput> = {
 beforeEach(() => {
   updatePosting.mockReset().mockResolvedValue(POSTING);
   revalidatePath.mockReset();
+  previewReach.mockReset().mockResolvedValue({ reach_total: 42 });
 });
 
 describe("updatePostingAction — validation gates", () => {
@@ -256,5 +259,52 @@ describe("updatePostingAction — outcome mapping", () => {
       });
       expect(res.error).toBe("Check the highlighted fields.");
     }
+  });
+});
+
+describe("updatePostingAction — Reached N workers (post-publish reach)", () => {
+  const PUBLISH = { matchSkillIds: ["mskill_cnc_turning"], untickedRelatedIds: [] as string[] };
+
+  it("a PUBLISH that lands open reads reach-preview with the SAME selection and returns it", async () => {
+    const res = await updatePostingAction({
+      postingId: ID,
+      roleTitle: "CNC Machinist",
+      ...FULL_CARD,
+      initial: INITIAL,
+      publish: PUBLISH,
+    });
+    expect(previewReach).toHaveBeenCalledWith(PUBLISH);
+    expect(res).toEqual({ ok: true, posting: POSTING, reached: 42 });
+  });
+
+  it("a plain SAVE never reads reach (reached: null)", async () => {
+    const res = await updatePostingAction({ postingId: ID, roleTitle: "CNC Machinist", initial: INITIAL });
+    expect(previewReach).not.toHaveBeenCalled();
+    expect(res).toEqual({ ok: true, posting: POSTING, reached: null });
+  });
+
+  it("a failed reach read keeps the publish a SUCCESS with no count (never a fabricated 0)", async () => {
+    previewReach.mockRejectedValueOnce(new Error("down"));
+    const res = await updatePostingAction({
+      postingId: ID,
+      roleTitle: "CNC Machinist",
+      ...FULL_CARD,
+      initial: INITIAL,
+      publish: PUBLISH,
+    });
+    expect(res).toEqual({ ok: true, posting: POSTING, reached: null });
+  });
+
+  it("a publish whose posting did not come back open claims no reach", async () => {
+    updatePosting.mockResolvedValueOnce({ ...POSTING, status: "draft" });
+    const res = await updatePostingAction({
+      postingId: ID,
+      roleTitle: "CNC Machinist",
+      ...FULL_CARD,
+      initial: INITIAL,
+      publish: PUBLISH,
+    });
+    expect(previewReach).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ ok: true, reached: null });
   });
 });
