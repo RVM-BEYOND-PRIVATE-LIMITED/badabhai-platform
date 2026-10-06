@@ -13,7 +13,8 @@
  */
 import { useEffect, useId, useRef } from "react";
 import type { MouseEvent, ReactNode } from "react";
-import { Icon } from "@badabhai/icons";
+import { ACTION_ICON } from "@badabhai/icons";
+import { IconButton } from "./icon-button";
 import { inertOutside, lockPageScroll } from "./page-isolation";
 
 export interface DialogProps {
@@ -144,10 +145,15 @@ export function Dialog({
                 {title}
               </h3>
             )}
+            {/* The shared icon-only control: "Close" is its name and its visible tooltip, which
+                opens inward from the dialog's top-right corner. */}
             {onClose && (
-              <button className="bb-iconbtn" aria-label="Close" onClick={onClose}>
-                <Icon name="x" />
-              </button>
+              <IconButton
+                icon={ACTION_ICON.close}
+                label="Close"
+                tooltipPlacement="bottom-end"
+                onClick={onClose}
+              />
             )}
           </div>
         )}

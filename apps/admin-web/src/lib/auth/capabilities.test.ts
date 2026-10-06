@@ -135,3 +135,11 @@ describe("labels stay in lockstep with the vocabulary", () => {
     );
   });
 });
+
+describe("owner label ruling (#1900) — labels only, keys unchanged", () => {
+  it('the kill-switch capability reads "View kill switch": the portal never toggles one', () => {
+    expect(CAPABILITY_LABELS.toggle_kill_switch).toBe("View kill switch");
+    expect(Object.values(CAPABILITY_LABELS)).not.toContain("Toggle kill switch");
+    expect(ADMIN_CAPABILITIES).toContain("toggle_kill_switch");
+  });
+});

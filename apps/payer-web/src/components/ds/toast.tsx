@@ -8,7 +8,8 @@
  * docs/design/.../components/feedback/Toast.d.ts.
  */
 import type { HTMLAttributes, ReactNode } from "react";
-import { Icon, type IconName } from "@badabhai/icons";
+import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
+import { IconButtonBase } from "@badabhai/icons/button";
 
 const DEFAULT_ICON: Record<NonNullable<ToastProps["tone"]>, IconName> = {
   success: "check-circle",
@@ -40,10 +41,16 @@ export function Toast({ tone = "neutral", icon, title, children, onClose, classN
         {title && <div className="bb-toast__title">{title}</div>}
         {children && <div className="bb-toast__msg">{children}</div>}
       </div>
+      {/* The shared icon-only control in the toast's skin: "Dismiss" is its name and its visible
+          tooltip, opening above and inward from the toast's end edge. */}
       {onClose && (
-        <button className="bb-toast__close" aria-label="Dismiss" onClick={onClose}>
-          <Icon name="x" />
-        </button>
+        <IconButtonBase
+          classBase="bb-toast__close"
+          icon={ACTION_ICON.dismiss}
+          label="Dismiss"
+          tooltipPlacement="top-end"
+          onClick={onClose}
+        />
       )}
     </div>
   );

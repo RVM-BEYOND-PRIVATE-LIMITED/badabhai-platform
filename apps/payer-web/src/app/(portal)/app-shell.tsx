@@ -2,6 +2,8 @@
 
 import { useEffect, useId, useState } from "react";
 import type { ReactNode } from "react";
+import { Icon } from "@badabhai/icons";
+import { IconButtonBase } from "@badabhai/icons/button";
 import { SidebarNav } from "./sidebar-nav";
 import { NavSectionsProvider } from "./nav-context";
 import type { NavSection } from "./nav-model";
@@ -21,6 +23,11 @@ import type { NavSection } from "./nav-model";
  *   1024–1280px  rail is permanent but collapsed to icons by default (labels on hover via
  *                the title tooltip) — at this width labels + content cannot both breathe.
  *   <1024px  rail becomes an overlay drawer, closed by default.
+ *
+ * THE TWO RAIL TOGGLES are disclosures of the same rail (`aria-controls` → the rail's id): the
+ * header's menu button opens the drawer below 1024px, the rail's collapse button shows or hides the
+ * labels from 1280px. Each is a Tab stop exactly where it is drawn — the CSS `display: none` that
+ * hides it elsewhere already takes it out of the tab order, so neither carries a tabindex.
  *
  * This component is a client boundary ONLY for the collapse/drawer state and the Escape
  * handler. Everything it renders — the nav sections, the identity block, the header slots —
@@ -42,6 +49,10 @@ export function AppShell({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const railId = useId();
+  // The collapse toggle's name says what activating it does, so it changes with the state — and
+  // the state is therefore `aria-expanded` (are the rail's labels shown?), never `aria-pressed`:
+  // a pressed toggle keeps ONE name ("Expand navigation, pressed" contradicts itself).
+  const collapseLabel = collapsed ? "Expand navigation" : "Collapse navigation";
 
   // Escape closes the drawer. Without it the scrim is the only way out, which a keyboard
   // user cannot reach.
@@ -82,15 +93,15 @@ export function AppShell({
             className="pshell__collapse"
             type="button"
             onClick={() => setCollapsed((v) => !v)}
-            aria-pressed={collapsed}
-            /* The control is only meaningful where the rail is permanent; below 1024px it
-               is hidden by CSS, and a hidden control must not stay in the tab order. */
-            tabIndex={-1}
+            aria-expanded={!collapsed}
+            aria-controls={railId}
+            aria-label={collapseLabel}
+            /* Collapsed, the button is icon-only. Its tooltip is the rail's own — the title bubble
+               every rail link shows for its hidden label — because the rail scrolls
+               (overflow-y), which would clip the shared `.bb-icon-tip` on the narrow icon rail. */
+            title={collapseLabel}
           >
-            <i
-              className={`ph-fill ph-caret-${collapsed ? "right" : "left"}`}
-              aria-hidden="true"
-            />
+            <Icon name={collapsed ? "caret-right" : "caret-left"} />
             <span className="pnav__label">Collapse</span>
           </button>
         </div>
@@ -109,16 +120,17 @@ export function AppShell({
 
       <div className="pshell__main">
         <header className="pshell__header">
-          <button
-            className="pshell__menu"
-            type="button"
+          {/* The shared icon-only control: "Navigation" is its name AND its visible tooltip (on
+              hover and keyboard focus, Escape-dismissable), opening inward from the top-left. */}
+          <IconButtonBase
+            classBase="pshell__menu"
+            icon="list"
+            label="Navigation"
+            tooltipPlacement="bottom-start"
             onClick={() => setDrawerOpen((v) => !v)}
             aria-expanded={drawerOpen}
             aria-controls={railId}
-          >
-            <i className="ph-fill ph-list" aria-hidden="true" />
-            <span className="sr-only">Navigation</span>
-          </button>
+          />
           {header}
         </header>
 

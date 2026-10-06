@@ -378,7 +378,8 @@ void main() {
 
   // ── ADR-0046 §5.1/§5.2 — THE EDIT CARD ─────────────────────────────────────
   //
-  // The card shows one row per proposed change (all ticked), Haan / Nahi, and
+  // The card shows one row per proposed change (add/edit ticked, delete
+  // UNTICKED — TD151(2)), Haan / Nahi, and
   // disables after `expires_at`. Haan POSTs the ticked rows' server-minted ids
   // to the confirm route; Nahi POSTs the cancel route. The VALUES never leave.
   group('ADR-0046 edit card', () {
@@ -428,7 +429,7 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('renders every row ticked, with Haan / Nahi',
+    testWidgets('renders add/edit rows ticked and a DELETE row UNTICKED',
         (WidgetTester tester) async {
       await pumpWithCard(tester);
 
@@ -437,15 +438,18 @@ void main() {
       // EVERY ROW SAYS WHAT IT DOES. `section_label` names the section only, so
       // "Welding" under "Skills" could equally mean adding or removing it — and
       // a delete row used to be carried by a strikethrough alone, on a card
-      // where every row arrives pre-ticked. A worker tapping Haan without
+      // where every row arrived pre-ticked. A worker tapping Haan without
       // decoding that lost a skill off their own résumé.
       expect(find.textContaining('$kEditOpAdd Welding'), findsOneWidget);
       expect(find.textContaining('$kEditOpDelete Hindi'), findsOneWidget);
 
-      final Iterable<Checkbox> boxes =
-          tester.widgetList<Checkbox>(find.byType(Checkbox));
+      final List<Checkbox> boxes =
+          tester.widgetList<Checkbox>(find.byType(Checkbox)).toList();
       expect(boxes, hasLength(2));
-      expect(boxes.every((Checkbox c) => c.value == true), isTrue);
+      // TD151(2): the add row starts ticked; the destructive row does NOT, so a
+      // Haan alone can never remove a skill / language / trade.
+      expect(boxes[0].value, isTrue, reason: 'the add row starts ticked');
+      expect(boxes[1].value, isFalse, reason: 'the delete row starts unticked');
 
       expect(find.text(kVoiceBooleanYes), findsOneWidget);
       expect(find.text(kVoiceBooleanNo), findsOneWidget);
@@ -535,6 +539,11 @@ void main() {
               ));
       await pumpWithCard(tester);
 
+      // The delete row starts unticked (TD151(2)); tick it deliberately so BOTH
+      // rows are ticked and both ids go to the confirm route.
+      await tester.tap(find.text('Languages'));
+      await tester.pumpAndSettle();
+
       await tester.tap(find.text(kVoiceBooleanYes));
       await tester.pumpAndSettle();
 
@@ -545,7 +554,8 @@ void main() {
       expect(find.byType(Checkbox), findsNothing);
     });
 
-    testWidgets('an UNTICKED row is not sent', (WidgetTester tester) async {
+    testWidgets('a DELETE row left unticked is NOT sent (TD151(2))',
+        (WidgetTester tester) async {
       when(() => repo.confirmCompanionEdit(any(), any(),
               submissionId: any(named: 'submissionId')))
           .thenAnswer((_) async => CompanionEditResult.served(
@@ -553,8 +563,28 @@ void main() {
               ));
       await pumpWithCard(tester);
 
-      // Tapping the row (its label) unticks it.
+      // Haan straight away: the add row is ticked, the delete row is not.
+      await tester.tap(find.text(kVoiceBooleanYes));
+      await tester.pumpAndSettle();
+
+      verify(() => repo.confirmCompanionEdit(proposalId, <String>[rowA],
+          submissionId: any(named: 'submissionId'))).called(1);
+    });
+
+    testWidgets('tapping a row still toggles it — an add row can be unticked',
+        (WidgetTester tester) async {
+      when(() => repo.confirmCompanionEdit(any(), any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => CompanionEditResult.served(
+                _companion('Badlav ho gaya.', const <ChatOption>[]),
+              ));
+      await pumpWithCard(tester);
+
+      // Tapping the row (its label) unticks the add row; tick the delete row so
+      // exactly one row remains ticked.
       await tester.tap(find.text('Skills'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Languages'));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text(kVoiceBooleanYes));
@@ -624,7 +654,13 @@ void main() {
   // text and the classifier routes it (contracts §5.3). Nothing about it may
   // resolve to a client route — the test router has no resume-edit route, so a
   // client-side route would throw instead of POSTing.
-  testWidgets('a task chip POSTS its label as text', (WidgetTester tester) async {
+  // OWNER REQUEST (2026-10-05): the post-completion MENU chips — "Resume badlo" /
+  // "Naya resume" / "Career ki baat" / "Naye jobs dekhein" — are temporarily HIDDEN
+  // via Visibility (`_kShowCompanionMenuChips`), not deleted. The
+  // "server-answered, never client-routed" contract is unchanged in the code;
+  // this pins the hide and that the reply still renders.
+  testWidgets('the task MENU chip is hidden; the reply still renders',
+      (WidgetTester tester) async {
     companionSwitch(true);
     when(() => repo.openCompanion()).thenAnswer(
       (_) async => CompanionOpening(
@@ -644,16 +680,10 @@ void main() {
         ),
       ),
     );
-    when(() => repo.sendCompanionMessage(any(),
-            submissionId: any(named: 'submissionId')))
-        .thenAnswer((_) async => _companion('Theek hai.', const <ChatOption>[]));
     await pumpTab(tester);
 
-    await tester.tap(find.text('Resume badlo'));
-    await tester.pumpAndSettle();
-
-    verify(() => repo.sendCompanionMessage('Resume badlo',
-        submissionId: any(named: 'submissionId'))).called(1);
+    expect(find.text(_recap), findsOneWidget);
+    expect(find.text('Resume badlo'), findsNothing);
   });
 
   // ── ADR-0046 F1 — THE CARD EXPIRES WHILE THE WORKER IS LOOKING AT IT ───────
@@ -723,11 +753,14 @@ void main() {
         CompanionOpenOutcome.companion,
         ChatTurn(
           reply: 'Thodi der ruk jaayein.',
-          followups: const <String>['Naya resume'],
+          followups: const <String>['Kitna kharcha'],
+          // A NON-menu companion chip: the post-completion MENU chips are hidden
+          // by owner request (2026-10-05), so this proves the cool-down leaves
+          // the REMAINING chips tappable.
           suggestedOptions: const <ChatOption>[
             ChatOption(
-              optionKey: kCompanionTaskNewResumeKey,
-              labelText: 'Naya resume',
+              optionKey: 'Kitna kharcha',
+              labelText: 'Kitna kharcha',
             ),
           ],
           questionKind: ChatQuestionKind.disambiguate,
@@ -752,10 +785,10 @@ void main() {
         findsOneWidget);
     expect(find.textContaining('vyast'), findsNothing);
 
-    // THE CHIPS STILL WORK. A cooled-down worker must still reach their résumé.
-    await tester.tap(find.text('Naya resume'));
+    // THE REMAINING CHIPS STILL WORK while the composer is locked.
+    await tester.tap(find.text('Kitna kharcha'));
     await tester.pumpAndSettle();
-    verify(() => repo.sendCompanionMessage('Naya resume',
+    verify(() => repo.sendCompanionMessage('Kitna kharcha',
         submissionId: any(named: 'submissionId'))).called(1);
   });
 
@@ -895,7 +928,9 @@ void main() {
   });
 
   // ── #1821 F2 / #1824 F2 — THE P2 AND P3 TASK CHIPS ─────────────────────────
-  testWidgets('the new-resume and career-talk chips render and post their LABEL',
+  // OWNER REQUEST (2026-10-05): hidden via Visibility for now (not deleted), so
+  // they no longer render. The reply still renders.
+  testWidgets('the new-resume and career-talk MENU chips are hidden',
       (WidgetTester tester) async {
     companionSwitch(true);
     when(() => repo.openCompanion()).thenAnswer(
@@ -919,19 +954,59 @@ void main() {
         ),
       ),
     );
-    when(() => repo.sendCompanionMessage(any(),
-            submissionId: any(named: 'submissionId')))
-        .thenAnswer((_) async => _companion('Theek hai.', const <ChatOption>[]));
     await pumpTab(tester);
 
-    expect(find.text('Naya resume'), findsOneWidget);
-    expect(find.text('Career ki baat'), findsOneWidget);
-    // Neither resolves to a client route — the test router has none, so a
-    // client-side route would throw instead of POSTing.
-    await tester.tap(find.text('Career ki baat'));
-    await tester.pumpAndSettle();
-    verify(() => repo.sendCompanionMessage('Career ki baat',
-        submissionId: any(named: 'submissionId'))).called(1);
+    expect(find.text(_recap), findsOneWidget);
+    expect(find.text('Naya resume'), findsNothing);
+    expect(find.text('Career ki baat'), findsNothing);
+  });
+
+  // OWNER REQUEST (2026-10-05): exactly the four post-completion MENU chips are
+  // hidden; the individual job chip is deliberately left visible.
+  testWidgets('the four MENU chips are hidden; a job chip still renders',
+      (WidgetTester tester) async {
+    companionSwitch(true);
+    when(() => repo.openCompanion()).thenAnswer(
+      (_) async => CompanionOpening(
+        CompanionOpenOutcome.companion,
+        const ChatTurn(
+          reply: _recap,
+          suggestedOptions: <ChatOption>[
+            ChatOption(
+              optionKey: kCompanionTaskEditResumeKey,
+              labelText: 'Resume badlo',
+            ),
+            ChatOption(
+              optionKey: kCompanionTaskNewResumeKey,
+              labelText: 'Naya resume',
+            ),
+            ChatOption(
+              optionKey: kCompanionTaskCareerTalkKey,
+              labelText: 'Career ki baat',
+            ),
+            ChatOption(
+              optionKey: kCompanionNewJobsKey,
+              labelText: 'Naye jobs dekhein',
+            ),
+            ChatOption(
+              optionKey: 'companion_job:00000000-0000-4000-8000-000000000001',
+              labelText: 'CNC Operator — Pune',
+            ),
+          ],
+          questionKind: ChatQuestionKind.disambiguate,
+          companion: true,
+          digestKey: 'k1',
+        ),
+      ),
+    );
+    await pumpTab(tester);
+
+    expect(find.text('Resume badlo'), findsNothing);
+    expect(find.text('Naya resume'), findsNothing);
+    expect(find.text('Career ki baat'), findsNothing);
+    expect(find.text('Naye jobs dekhein'), findsNothing);
+    // The individual job chip is NOT part of the menu — it stays.
+    expect(find.text('CNC Operator — Pune'), findsOneWidget);
   });
 
   // ── ADR-0046 F4 — THE LEVER OFF IS TODAY'S SHIPPED STATE ───────────────────
@@ -1017,60 +1092,35 @@ void main() {
     expect(find.text('Welding'), findsNothing);
   });
 
-  // ── #1884 — THE TWO VISIBLE VOICE CONTROLS MUST READ DIFFERENTLY ───────────
-  testWidgets('the companion voice entry names itself and does not repeat the composer mic',
+  // ── #1884 / OWNER REQUEST (2026-10-05) — THE VOICE PILL IS HIDDEN ───────────
+  testWidgets('the companion voice entry is hidden; the composer mic remains',
       (WidgetTester tester) async {
     companionSwitch(true);
     final SemanticsHandle handle = tester.ensureSemantics();
     await pumpTab(tester);
 
-    // Both are on screen at once. That is the point of the test: they are two
-    // different jobs, so the worker must be able to tell which is which.
-    expect(find.byKey(kCompanionVoiceButtonKey), findsOneWidget);
+    // The "Awaaz note record karein" pill is PERMANENTLY hidden for now
+    // (Visibility, not deleted), so it is not on screen at all.
+    expect(find.byKey(kCompanionVoiceButtonKey), findsNothing);
+    expect(find.text(kCompanionVoiceLabel), findsNothing);
+    // The composer's own dictation mic is untouched.
     expect(find.byTooltip(kComposerDictationLabel), findsOneWidget);
 
-    // The pill carries WORDS, not just a second mic glyph.
-    expect(
-      find.descendant(
-        of: find.byKey(kCompanionVoiceButtonKey),
-        matching: find.text(kCompanionVoiceLabel),
-      ),
-      findsOneWidget,
-    );
-
-    // And a glyph of its own — the bare mic belongs to the dictation slot.
-    expect(
-      find.descendant(
-        of: find.byKey(kCompanionVoiceButtonKey),
-        matching: find.byIcon(Icons.mic),
-      ),
-      findsNothing,
-    );
-
-    // The wording differs. Shipping the same label on both is the bug (#1884).
+    // The two labels are still distinct constants (no copy regression, #1884).
     expect(kCompanionVoiceLabel, isNot(kComposerDictationLabel));
     handle.dispose();
   });
 
-  // ── ADR-0046 F3 — THE COMPANION VOICE BUTTON ───────────────────────────────
-  testWidgets('the voice button opens the voice screen in COMPOSE mode and lands the transcript in the composer',
+  // ── ADR-0046 F3 — THE COMPANION VOICE BUTTON IS HIDDEN (owner request) ─────
+  testWidgets('the hidden companion voice button opens nothing',
       (WidgetTester tester) async {
     companionSwitch(true);
     final SemanticsHandle handle = tester.ensureSemantics();
     await pumpTab(tester);
 
-    await tester.tap(find.bySemanticsLabel(kCompanionVoiceLabel));
-    await tester.pumpAndSettle();
-
-    // `extra: true` reached the route: the stand-in renders its compose face.
-    expect(find.text('COMPOSE VOICE'), findsOneWidget);
-    await tester.tap(find.text('COMPOSE VOICE'));
-    await tester.pumpAndSettle();
-
-    // The transcript is in the composer, unsent — the worker reviews and sends.
-    expect(find.widgetWithText(TextField, 'boli hui baat'), findsOneWidget);
-    verifyNever(() => repo.sendCompanionMessage(any(),
-        submissionId: any(named: 'submissionId')));
+    // The button is gone, so the COMPOSE voice screen is unreachable from here.
+    expect(find.byKey(kCompanionVoiceButtonKey), findsNothing);
+    expect(find.text('COMPOSE VOICE'), findsNothing);
     handle.dispose();
   });
 }

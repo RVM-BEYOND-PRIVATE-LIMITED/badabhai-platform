@@ -355,6 +355,12 @@ services:
       # /name is not — nobody's name would be captured. `:-false` so an unset or empty secret is off.
       CHAT_IDENTITY_INTAKE_ENABLED: ${CHAT_IDENTITY_INTAKE_ENABLED:-false}
 
+      # ---- THE PROFILING-STAGE FREE CHAT'S KILL SWITCH (ADR-0051, #2027).
+      #
+      # The free chat is LIVE ON MERGE: false (unset, empty) keeps it ON. true sends every
+      # profiling session straight to today's interview — no greeting, no classifier call.
+      CHAT_FREE_CHAT_DISABLED: ${CHAT_FREE_CHAT_DISABLED:-false}
+
       # TIERED PROFILING (Easy/Medium/Hard on the Chat path). Off is today's full form and
       # résumé, and nothing reads migration 0126's table or column. Turn on only after 0126 is
       # applied and `db:seed:packs --apply` has run. `:-false` because this bool rejects "".

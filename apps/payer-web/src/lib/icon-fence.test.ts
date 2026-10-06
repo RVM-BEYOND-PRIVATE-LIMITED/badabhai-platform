@@ -20,21 +20,10 @@ import { ALL_ICON_NAMES } from "@badabhai/icons";
  * glyph needs it, whatever way the class string is assembled.
  */
 const RAW_ICON_ALLOWLIST: Readonly<Record<string, number>> = {
-  "app/(portal)/account/account-form.tsx": 1,
   "app/(portal)/agency/referrals/earnings-panel.tsx": 1,
   "app/(portal)/agency/referrals/kyc-panel.tsx": 5,
   "app/(portal)/agency/referrals/payout-panel.tsx": 3,
   "app/(portal)/agency/workers/worker-activity-list.tsx": 1,
-  "app/(portal)/app-shell.tsx": 2,
-  "app/(portal)/error.tsx": 1,
-  "app/(portal)/postings/[id]/page.tsx": 1,
-  "app/(portal)/postings/new/match-skill-picker.tsx": 2,
-  "app/(portal)/team/accept/accept-invite.tsx": 4,
-  "app/(portal)/team/team-manager.tsx": 2,
-  "app/error.tsx": 1,
-  "app/login/login-form.tsx": 1,
-  "app/not-found.tsx": 1,
-  "components/ds/masked-candidate.tsx": 1,
 };
 
 const srcRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
