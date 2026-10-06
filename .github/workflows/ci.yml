@@ -1510,6 +1510,11 @@ jobs:
       #                    even on a bound session some other writer put back to a live status.
       #                    Whether a waiting UPDATE re-checks its WHERE on commit is a property
       #                    of Postgres, so the structural pins cannot show it.
+      #   * demo-matching-seed.db — the Matching V1 stakeholder demo seed (5 personas / 60
+      #                    postings, run through the real CLI + D5): each persona sees exactly
+      #                    its reach with the right tier, and the seed's answer-key order equals
+      #                    the REAL MatchFeedService's — so a V1 feed-order change fails here
+      #                    until the seed's mirror follows. Needs the D1 vocabulary seeded above.
       #
       # They need nothing but a MIGRATED Postgres, which the steps above already built:
       # this job's service container gets the whole chain (journal-driven, 0000 → head —
@@ -1523,7 +1528,7 @@ jobs:
       # with no database and must keep skipping these files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
       # `node` job, and a six-file run cannot meet them.
-      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + unique violations + feed union + job-posting chat publish race)
+      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle + turner reach + unique violations + feed union + job-posting chat publish race + demo matching seed)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -1551,7 +1556,7 @@ jobs:
           # Serialising costs nothing here (the whole step runs in ~4s) and is scoped to
           # THIS step on purpose: `apps/api/vitest.config.ts` stays parallel, because the
           # 2820-test `node` suite is database-free and has no shared state to race on.
-          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db 2>&1 | tee db-gates-raw.log
+          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db demo-matching-seed.db 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
@@ -1566,7 +1571,7 @@ jobs:
           # src/payer-portal/job-posting-chat, and against a regex missing any one of them
           # this loop reports "did not run at all" on a perfectly good run. Widen it whenever a
           # gate lands in a new directory.
-          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db; do
+          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db turner-reach.db unique-violation.db feed-union.db job-posting-chat.repository.db demo-matching-seed.db; do
             line=$(grep -E "src/(ai|admin|applications|common|match|profiles|jobs|resume|payer-portal/job-posting-chat)/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
@@ -1584,8 +1589,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +12 passed \(12\)' db-gates.log; then
-            echo "::error::Expected exactly the 12 gate files to run — the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +13 passed \(13\)' db-gates.log; then
+            echo "::error::Expected exactly the 13 gate files to run — the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi

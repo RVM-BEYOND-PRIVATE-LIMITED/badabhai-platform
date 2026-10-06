@@ -1,49 +1,60 @@
 /**
- * Matching V1 stakeholder DEMO seed — synthetic payers, 1,000+ OPEN postings, 18 personas, and
- * the ANSWER KEY that proves each persona's feed shows only the jobs their skills reach.
+ * Matching V1 stakeholder DEMO seed — synthetic payers, 1,200 OPEN postings across all 21 role
+ * kinds, 10 personas, and the ANSWER KEY that proves each feed shows only the jobs its skills reach.
+ * Runbook: docs/demo/matching-demo-runbook.md.
  *
- * WHAT IT WRITES (all DIRECT inserts; NO events — this is seeded demo data, not business
- * activity; every id is namespaced `de30…`, see `demo-matching-plan.ts`):
+ * WHAT IT WRITES (DIRECT inserts; NO events — seeded demo data, not business activity; every id
+ * is namespaced `de30…`, see `demo-matching-plan.ts`):
  *   payers          25 synthetic employers (org name + `.invalid` email, encrypted + hashed)
  *   workers         one per persona: RESERVED synthetic phone (+9100000 26xxx, the test-login
  *                   range), synthetic name — both encrypted with the API's crypto
  *   worker_profiles one confirmed profile per persona (city, total years, skill labels)
  *   worker_consents one live consent per persona, incl. `employer_sharing`
- *   worker_skill    1-3 rows per persona (wants=true, source='ops', varied months)
- *   job_postings    OPEN, realistic card fields, `published_at` spread over 30 days, ~3% boosted,
- *                   `match_skill_ids` = the posted skills and `reach_skill_ids` resolved by the
- *                   SAME rule publish uses (`resolveReachSet` with the live `match_config`)
+ *   worker_skill    1-2 rows per persona (wants=true, source='ops', varied months)
+ *   job_postings    OPEN, `role_kind` set, realistic card fields, `published_at` over 30 days,
+ *                   ~3% boosted; `match_skill_ids` = the skills onboarding derives for the trade
+ *                   and `reach_skill_ids` resolved by the publish rule (`resolveReachSet` + the
+ *                   live `match_config`), cross-checked against the seeded `skill_related`
  *   job_reach       materialized by D5's own `materializePostingReach` — the statement is NOT
  *                   forked; a posting D5 would skip fails this seed instead
  *
- * Re-running is idempotent (upserts) and SYNCS: demo rows outside the current plan (a smaller
- * re-seed) are removed. `--unseed --apply` deletes only `de30…` rows (cascading their
- * job_reach / applications / consents / skills).
+ * Re-running is idempotent (upserts) and SYNCS: demo rows outside the current plan are removed.
  *
- * THE ANSWER KEY is read back from the database after materialization: per persona the visible
- * total, direct (tier 1) vs related (tier 2), the hidden demo set, and the top 10 cards in FEED
- * ORDER. The order is computed by {@link FEED_ORDER_SQL} — a mirror of
- * `MatchFeedRepository.listFeed` — then `interleaveMaxPerCompany` with the live config, exactly
- * as `MatchFeedService.getFeed` does. The mirror is PINNED to the real service by the DB gate
- * `apps/api/src/match/demo-matching-seed.db.test.ts`, which runs this CLI and compares its key
- * with what the real `MatchFeedService` returns; if the V1 feed order changes, that gate fails
- * until this mirror follows.
+ * MODES
+ *   (default)              dry run: the plan + each persona's expected direct/related/hidden split
+ *   --apply                write, materialize, print + self-check the answer key
+ *   --answer-key-only      read-only: recompute the answer key from the database
+ *   --report-trades        read-only: per occupation (chat role / trade form), the open postings a
+ *                          FRESH worker with that occupation's derived skills would see
+ *   --unseed | --cleanup   (with --apply) delete every `de30…` row, cascading reach/applications
+ *   --reset-live-worker --phone=<E.164> --allow-phones=<file>
+ *                          (with --apply) delete ONE live demo worker's profile, worker_skill and
+ *                          job_reach so the onboarding chat extracts again. The phone must be in
+ *                          the reserved synthetic range AND listed in the file.
  *
- * GUARDS: `parseCommonCli` → `enforceOpsGuard` (same as the E4 fixture): a write to a
- * production-like target, or with NODE_ENV=production, needs BOTH
- * `--i-am-authorised-to-write-to-production` and `OPS_ALLOW_PRODUCTION=seed:demo-matching`.
- * DRY-RUN is the default. Every worker-visible string is screened before anything is written.
- * Logs carry ids, counts, titles and the reserved synthetic phones only.
+ * THE ANSWER KEY is read back after materialization: per persona the visible total, direct
+ * (tier 1) vs related (tier 2), the hidden demo set, and the top 10 cards in FEED ORDER, computed
+ * by `feedOrderSql` — a mirror of `MatchFeedRepository.listFeed` — then `interleaveMaxPerCompany`
+ * with the live config, exactly as `MatchFeedService.getFeed` does. The mirror is PINNED to the
+ * real service by `apps/api/src/match/demo-matching-seed.db.test.ts` (a CI DB gate); if the V1
+ * feed order changes, that gate fails until this mirror follows.
  *
- *   pnpm --filter @badabhai/db db:seed:demo-matching                       # dry run: plan + expected split
+ * GUARDS
+ *   - `parseCommonCli` → `enforceOpsGuard` (as the E4 fixture): a WRITE to a production-like
+ *     target, or with NODE_ENV=production, needs `--i-am-authorised-to-write-to-production` AND
+ *     `OPS_ALLOW_PRODUCTION=seed:demo-matching`.
+ *   - On top: ANY run against a production-like target (even read-only) needs `--target=production`,
+ *     and `--target=production` against a local database is refused as a mismatch.
+ *   - Every worker-visible string is screened (ADR-0024) before anything is written.
+ *   - Logs carry ids, counts, titles and the reserved synthetic phones only.
+ *
  *   pnpm --filter @badabhai/db db:seed:demo-matching --apply --answer-key=/tmp/key.json
- *   pnpm --filter @badabhai/db db:seed:demo-matching --answer-key-only --answer-key=/tmp/key.json
  *   pnpm --filter @badabhai/db db:unseed:demo-matching --apply
  *
- * Options: --personas=N (1..18) --postings=N (>=18) --rng-seed=N --anchor=<ISO time>
+ * Options: --personas=N (1..10) --postings=N (>= one per trade) --rng-seed=N --anchor=<ISO>
  *          --feed-limit=N (the `GET /feed` limit to simulate; default 50, the API default)
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { and, eq, inArray, notInArray, sql as dsql } from "drizzle-orm";
@@ -54,7 +65,7 @@ import {
   resolveReachSet,
   type MatchConfig,
 } from "@badabhai/match-engine";
-import { matchSkillIndustry, matchSkillLabel } from "@badabhai/taxonomy";
+import { ROLE_TO_MATCH_SKILL, matchSkillIndustry, matchSkillLabel } from "@badabhai/taxonomy";
 import { CURRENT_CONSENT_VERSION, type ConsentPurpose } from "@badabhai/types";
 import { workerVisibleTextScreens } from "@badabhai/validators";
 
@@ -63,7 +74,9 @@ import { encryptPii, hashPhone } from "./crypto";
 import {
   buildDemoPlan,
   DEFAULT_DEMO_PLAN,
-  DEMO_PERSONAS,
+  DEMO_TRADES,
+  MAX_DEMO_PERSONAS,
+  RESERVED_TEST_PHONE_PATTERN,
   demoIdLikePattern,
   personaExpectation,
   workerVisibleFields,
@@ -71,8 +84,16 @@ import {
   type DemoPosting,
 } from "./demo-matching-plan";
 import { expandReachSkillIds } from "./match-v1-derive";
-import { argFlag, argValue, parseCommonCli, printCounts, printFooter, printHeader } from "./match-v1-cli";
+import {
+  argFlag,
+  argValue,
+  parseCommonCli,
+  printCounts,
+  printFooter,
+  printHeader,
+} from "./match-v1-cli";
 import { materializePostingReach } from "./materialize-job-reach";
+import { hostClass, isProductionLike } from "./ops-guard";
 import {
   jobPostings,
   matchConfig,
@@ -147,9 +168,13 @@ export async function resolveDemoReachSets(
   plan: DemoPlan,
   config: MatchConfig,
 ): Promise<Map<string, string[]>> {
-  const allSkills = [...new Set(plan.postings.flatMap((p) => p.matchSkillIds).concat(
-    plan.personas.flatMap((p) => p.skills.map((s) => s.skillId)),
-  ))].sort();
+  const allSkills = [
+    ...new Set(
+      plan.postings
+        .flatMap((p) => p.matchSkillIds)
+        .concat(plan.personas.flatMap((p) => p.skills.map((s) => s.skillId))),
+    ),
+  ].sort();
   const present = await db
     .select({ skillId: skills.skillId })
     .from(skills)
@@ -292,7 +317,13 @@ export async function applyDemoSeed(
         })
         .onConflictDoUpdate({
           target: workers.id,
-          set: { phoneE164: phoneEnc, fullName: nameEnc, status: "active", currentCity: w.city, updatedAt: anchor },
+          set: {
+            phoneE164: phoneEnc,
+            fullName: nameEnc,
+            status: "active",
+            currentCity: w.city,
+            updatedAt: anchor,
+          },
         });
 
       const profile = {
@@ -307,7 +338,10 @@ export async function applyDemoSeed(
       await tx
         .insert(workerProfiles)
         .values({ id: w.profileId, workerId: w.workerId, ...profile, skills: [...profile.skills] })
-        .onConflictDoUpdate({ target: workerProfiles.id, set: { ...profile, skills: [...profile.skills] } });
+        .onConflictDoUpdate({
+          target: workerProfiles.id,
+          set: { ...profile, skills: [...profile.skills] },
+        });
 
       await tx
         .insert(workerConsents)
@@ -320,13 +354,19 @@ export async function applyDemoSeed(
         })
         .onConflictDoUpdate({
           target: workerConsents.id,
-          set: { consentVersion: CURRENT_CONSENT_VERSION, purposes: CONSENT_PURPOSES, revokedAt: null },
+          set: {
+            consentVersion: CURRENT_CONSENT_VERSION,
+            purposes: CONSENT_PURPOSES,
+            revokedAt: null,
+          },
         });
 
       const wanted = w.skills.map((s) => s.skillId);
       await tx
         .delete(workerSkills)
-        .where(and(eq(workerSkills.workerId, w.workerId), notInArray(workerSkills.skillId, wanted)));
+        .where(
+          and(eq(workerSkills.workerId, w.workerId), notInArray(workerSkills.skillId, wanted)),
+        );
       for (const s of w.skills) {
         const industryId = matchSkillIndustry(s.skillId);
         if (!industryId) throw new Error(`[${NAME}] ${s.skillId} has no industry in the taxonomy.`);
@@ -363,6 +403,7 @@ export async function applyDemoSeed(
               vacancyBand: p.vacancyBand,
               status: "open" as const,
               industryId: p.industryId,
+              roleKind: p.roleKind,
               matchSkillIds: p.matchSkillIds,
               reachSkillIds: reach.get(p.postingId)!,
               city: p.city,
@@ -395,6 +436,7 @@ export async function applyDemoSeed(
               ["vacancyBand", "vacancy_band"],
               ["status", "status"],
               ["industryId", "industry_id"],
+              ["roleKind", "role_kind"],
               ["matchSkillIds", "match_skill_ids"],
               ["reachSkillIds", "reach_skill_ids"],
               ["city", "city"],
@@ -462,7 +504,10 @@ async function removeDemoRowsOutside(db: Database, plan: DemoPlan): Promise<numb
 /** Remove every demo row. Postings first (cascades job_reach/applications), then workers, payers. */
 export async function unseedDemo(db: Database): Promise<Record<string, number>> {
   return db.transaction(async (tx) => {
-    const del = async (table: "job_postings" | "workers" | "payers", kind: "posting" | "worker" | "payer") =>
+    const del = async (
+      table: "job_postings" | "workers" | "payers",
+      kind: "posting" | "worker" | "payer",
+    ) =>
       rowsOf(
         await tx.execute(
           dsql`DELETE FROM ${dsql.identifier(table)} WHERE id::text LIKE ${demoIdLikePattern(kind)} RETURNING 1`,
@@ -487,8 +532,16 @@ export interface DemoMaterializeResult {
   rowsDeleted: number;
 }
 
-export async function materializeDemoReach(db: Database, plan: DemoPlan): Promise<DemoMaterializeResult> {
-  const out: DemoMaterializeResult = { materialized: 0, rowsInserted: 0, rowsUpdated: 0, rowsDeleted: 0 };
+export async function materializeDemoReach(
+  db: Database,
+  plan: DemoPlan,
+): Promise<DemoMaterializeResult> {
+  const out: DemoMaterializeResult = {
+    materialized: 0,
+    rowsInserted: 0,
+    rowsUpdated: 0,
+    rowsDeleted: 0,
+  };
   for (const p of plan.postings) {
     const outcome = await materializePostingReach(db, p.postingId, { apply: true });
     if (outcome.kind === "skipped") {
@@ -600,12 +653,15 @@ export async function computeDemoAnswerKey(
     reachSkillIds: reach.get(p.postingId) ?? [],
   }));
   const demoIds = new Set(demoPostings.map((p) => p.postingId));
-  const payerNo = new Map(plan.payers.map((p) => [p.payerId, String(p.index + 1).padStart(2, "0")]));
-  const openDemo = rowsOf<{ n: number }>(
-    await db.execute(dsql`
+  const payerNo = new Map(
+    plan.payers.map((p) => [p.payerId, String(p.index + 1).padStart(2, "0")]),
+  );
+  const openDemo =
+    rowsOf<{ n: number }>(
+      await db.execute(dsql`
       SELECT count(*)::int AS n FROM job_postings
       WHERE id::text LIKE ${demoIdLikePattern("posting")} AND status = 'open'`),
-  )[0]?.n ?? 0;
+    )[0]?.n ?? 0;
 
   const personas: AnswerKeyPersona[] = [];
   for (const w of plan.personas) {
@@ -622,10 +678,15 @@ export async function computeDemoAnswerKey(
     const expected = personaExpectation(w, demoPostings);
     const tierById = new Map(reached.filter((r) => demoIds.has(r.id)).map((r) => [r.id, r.tier]));
     const problems: string[] = [];
-    for (const id of expected.direct) if (tierById.get(id) !== 1) problems.push(`${id} expected tier 1, got ${tierById.get(id) ?? "hidden"}`);
-    for (const id of expected.relatedOnly) if (tierById.get(id) !== 2) problems.push(`${id} expected tier 2, got ${tierById.get(id) ?? "hidden"}`);
+    for (const id of expected.direct)
+      if (tierById.get(id) !== 1)
+        problems.push(`${id} expected tier 1, got ${tierById.get(id) ?? "hidden"}`);
+    for (const id of expected.relatedOnly)
+      if (tierById.get(id) !== 2)
+        problems.push(`${id} expected tier 2, got ${tierById.get(id) ?? "hidden"}`);
     const allowed = new Set([...expected.direct, ...expected.relatedOnly]);
-    for (const id of tierById.keys()) if (!allowed.has(id)) problems.push(`${id} visible but outside the persona's reach`);
+    for (const id of tierById.keys())
+      if (!allowed.has(id)) problems.push(`${id} visible but outside the persona's reach`);
     if (problems.length > 0) {
       throw new Error(
         `[${NAME}] answer-key self-check FAILED for ${w.key}: ${problems.slice(0, 5).join("; ")}` +
@@ -644,8 +705,14 @@ export async function computeDemoAnswerKey(
       published_at: Date | string | null;
       role_title: string;
       city: string | null;
-    }>(await db.execute(feedOrderSql(w.workerId, overfetch))).map((r) => ({ ...r, payerKey: r.payer_key }));
-    const page = interleaveMaxPerCompany(candidates, config.maxConsecutiveSameCompany).slice(0, opts.feedLimit);
+    }>(await db.execute(feedOrderSql(w.workerId, overfetch))).map((r) => ({
+      ...r,
+      payerKey: r.payer_key,
+    }));
+    const page = interleaveMaxPerCompany(candidates, config.maxConsecutiveSameCompany).slice(
+      0,
+      opts.feedLimit,
+    );
 
     const visibleDemo = reached.filter((r) => demoIds.has(r.id)).length;
     personas.push({
@@ -656,7 +723,11 @@ export async function computeDemoAnswerKey(
       story: w.story,
       workerId: w.workerId,
       phoneE164: w.phoneE164,
-      skills: w.skills.map((s) => ({ skillId: s.skillId, label: matchSkillLabel(s.skillId) ?? s.skillId, months: s.months })),
+      skills: w.skills.map((s) => ({
+        skillId: s.skillId,
+        label: matchSkillLabel(s.skillId) ?? s.skillId,
+        months: s.months,
+      })),
       visible: reached.length,
       direct: reached.filter((r) => r.tier === 1).length,
       related: reached.filter((r) => r.tier === 2).length,
@@ -717,6 +788,166 @@ function printAnswerKey(key: AnswerKey): void {
 }
 
 // ---------------------------------------------------------------------------
+// Target declaration — a production-like database needs `--target=production` on top of the
+// ops-guard's two signals; a plain run against it refuses even read-only.
+// ---------------------------------------------------------------------------
+
+/** Pure: why this (target, declaration) pair must not run, or null. Never echoes the URL. */
+export function targetDeclarationProblem(
+  databaseUrl: string,
+  declared: string | undefined,
+): string | null {
+  const target = declared ?? "local";
+  if (target !== "local" && target !== "production") {
+    return `--target must be "local" or "production" (got "${target}").`;
+  }
+  const prodLike = isProductionLike(databaseUrl);
+  if (prodLike && target !== "production") {
+    return (
+      `DATABASE_URL is ${hostClass(databaseUrl)} — a production-like target. This demo seed ` +
+      `writes synthetic postings REAL WORKERS WILL SEE. Re-run with --target=production (plus, ` +
+      `for a write, the ops-guard flag + OPS_ALLOW_PRODUCTION=${NAME}) only if the owner asked.`
+    );
+  }
+  if (!prodLike && target === "production") {
+    return `--target=production was declared but DATABASE_URL is ${hostClass(databaseUrl)}; refusing the mismatch.`;
+  }
+  return null;
+}
+
+function assertTargetDeclared(databaseUrl: string, declared: string | undefined): void {
+  const problem = targetDeclarationProblem(databaseUrl, declared);
+  if (problem !== null) throw new Error(`[${NAME}] ${problem}`);
+}
+
+// ---------------------------------------------------------------------------
+// --reset-live-worker — let the owner re-run LIVE onboarding for one allow-listed phone
+// ---------------------------------------------------------------------------
+
+/** One E.164 per line; blank lines and `#` comments ignored. */
+export function parseAllowPhones(text: string): Set<string> {
+  return new Set(
+    text
+      .split(/\r?\n/)
+      .map((l) => l.replace(/#.*/, "").trim())
+      .filter((l) => l.length > 0),
+  );
+}
+
+/** Pure gate: the phone must be in the reserved synthetic range AND on the allow-list. */
+export function resetPhoneProblem(phone: string, allowed: ReadonlySet<string>): string | null {
+  if (!RESERVED_TEST_PHONE_PATTERN.test(phone)) {
+    return `--phone is outside the reserved synthetic range ${RESERVED_TEST_PHONE_PATTERN} — refusing to touch a real worker.`;
+  }
+  if (!allowed.has(phone)) return `--phone is not listed in the --allow-phones file.`;
+  return null;
+}
+
+/**
+ * Remove ONLY the worker's profile, worker_skill and job_reach rows, so the chat extracts again
+ * (extraction is skipped for a worker who already has a profile). The worker row, consents,
+ * chat history and applications stay.
+ */
+export async function resetLiveWorkerRows(
+  db: Database,
+  phoneHash: string,
+): Promise<Record<string, number>> {
+  const found = await db
+    .select({ id: workers.id })
+    .from(workers)
+    .where(eq(workers.phoneHash, phoneHash))
+    .limit(1);
+  const workerId = found[0]?.id;
+  if (workerId === undefined)
+    throw new Error(`[${NAME}] no worker holds that phone — nothing to reset.`);
+  return db.transaction(async (tx) => {
+    const reach = rowsOf(
+      await tx.execute(dsql`DELETE FROM job_reach WHERE worker_id = ${workerId}::uuid RETURNING 1`),
+    ).length;
+    const skillRows = (
+      await tx
+        .delete(workerSkills)
+        .where(eq(workerSkills.workerId, workerId))
+        .returning({ id: workerSkills.id })
+    ).length;
+    const profiles = (
+      await tx
+        .delete(workerProfiles)
+        .where(eq(workerProfiles.workerId, workerId))
+        .returning({ id: workerProfiles.id })
+    ).length;
+    return {
+      [`worker ${workerId}: job_reach deleted`]: reach,
+      "worker_skill deleted": skillRows,
+      "worker_profiles deleted": profiles,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// --report-trades — what a FRESH worker of each occupation would see
+// ---------------------------------------------------------------------------
+
+export interface TradeReportRow {
+  label: string;
+  path: string;
+  skills: string[];
+}
+
+/**
+ * The occupations onboarding can produce, with the match skills each derives (traced
+ * 2026-10-06; see `DemoTrade`). Chat rows come straight from `ROLE_TO_MATCH_SKILL` so they track
+ * the bridge; the form rows record that only the turning form bridges today.
+ */
+export function tradeReportRows(): TradeReportRow[] {
+  const chat = Object.entries(ROLE_TO_MATCH_SKILL).map(([roleId, skillId]) => ({
+    label: roleId.replace(/^role_/, ""),
+    path: "chat (role)",
+    skills: [skillId],
+  }));
+  const forms = [...new Set(DEMO_TRADES.map((t) => t.roleKind))].map((kind) => ({
+    label: kind,
+    path: "trade form",
+    skills: kind === "cnc_turner" ? ["mskill_cnc_turner"] : [],
+  }));
+  return [...chat, ...forms];
+}
+
+async function printTradeReport(db: Database): Promise<void> {
+  console.log(`[${NAME}] TRADE REPORT — open postings a fresh worker of each occupation would see`);
+  console.log(
+    `  ${"occupation".padEnd(30)} ${"path".padEnd(12)} ${"direct".padStart(6)} ${"related".padStart(7)}  (demo d/r)  skills`,
+  );
+  for (const row of tradeReportRows()) {
+    let c = { direct: 0, related: 0, demo_direct: 0, demo_related: 0 };
+    if (row.skills.length > 0) {
+      const ids = dsql.param(row.skills);
+      c =
+        rowsOf<typeof c>(
+          await db.execute(dsql`
+            SELECT count(*) FILTER (WHERE match_skill_ids ?| ${ids}::text[])::int AS direct,
+                   count(*) FILTER (WHERE NOT (match_skill_ids ?| ${ids}::text[])
+                                      AND reach_skill_ids ?| ${ids}::text[])::int AS related,
+                   count(*) FILTER (WHERE id::text LIKE ${demoIdLikePattern("posting")}
+                                      AND match_skill_ids ?| ${ids}::text[])::int AS demo_direct,
+                   count(*) FILTER (WHERE id::text LIKE ${demoIdLikePattern("posting")}
+                                      AND NOT (match_skill_ids ?| ${ids}::text[])
+                                      AND reach_skill_ids ?| ${ids}::text[])::int AS demo_related
+            FROM job_postings WHERE status = 'open'`),
+        )[0] ?? c;
+    }
+    console.log(
+      `  ${row.label.padEnd(30)} ${row.path.padEnd(12)} ${String(c.direct).padStart(6)} ${String(c.related).padStart(7)}` +
+        `  (${c.demo_direct}/${c.demo_related})  ${row.skills.length > 0 ? row.skills.join(",") : "— derives no match skill (sees nothing)"}`,
+    );
+  }
+  console.log(
+    `  Note: chat with STRUCTURED answers writes no role/skills (profile-extraction.processor.ts); the free-text ` +
+      `chat path above is what a live demo uses. Proxy kinds post the nearest skill — see the runbook.`,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
 
@@ -746,32 +977,74 @@ function readCrypto(): DemoCrypto {
 async function main(): Promise<void> {
   const opts = parseCommonCli(NAME);
   printHeader(NAME, opts);
-  const unseedMode = argFlag("unseed");
+  assertTargetDeclared(opts.databaseUrl, argValue("target"));
+  const unseedMode = argFlag("unseed") || argFlag("cleanup");
+  const reportTrades = argFlag("report-trades");
+  const resetLiveWorker = argFlag("reset-live-worker");
   const answerKeyOnly = argFlag("answer-key-only");
   const answerKeyPath = argValue("answer-key");
   const feedLimit = intArg("feed-limit", DEFAULT_FEED_LIMIT, 1, 50);
   const anchorRaw = argValue("anchor");
   const anchor = anchorRaw === undefined ? new Date() : new Date(anchorRaw);
-  if (Number.isNaN(anchor.getTime())) throw new Error(`[${NAME}] --anchor must be an ISO timestamp`);
+  if (Number.isNaN(anchor.getTime()))
+    throw new Error(`[${NAME}] --anchor must be an ISO timestamp`);
 
   const plan = buildDemoPlan({
-    personas: intArg("personas", DEFAULT_DEMO_PLAN.personas, 1, DEMO_PERSONAS.length),
-    postings: intArg("postings", DEFAULT_DEMO_PLAN.postings, 18, 20_000),
+    personas: intArg("personas", DEFAULT_DEMO_PLAN.personas, 1, MAX_DEMO_PERSONAS),
+    postings: intArg("postings", DEFAULT_DEMO_PLAN.postings, DEMO_TRADES.length, 20_000),
     rngSeed: intArg("rng-seed", DEFAULT_DEMO_PLAN.rngSeed, 0, 2 ** 31 - 1),
   });
   assertWorkerVisibleTextClean(plan.postings);
 
   const { db, sql } = createDbClient(opts.databaseUrl, { max: 1 });
   try {
+    if (resetLiveWorker) {
+      const phone = argValue("phone");
+      const allowFile = argValue("allow-phones");
+      if (phone === undefined || allowFile === undefined) {
+        throw new Error(
+          `[${NAME}] --reset-live-worker needs --phone=<E.164> and --allow-phones=<file>.`,
+        );
+      }
+      const allowed = parseAllowPhones(readFileSync(allowFile, "utf8"));
+      const problem = resetPhoneProblem(phone, allowed);
+      if (problem !== null) throw new Error(`[${NAME}] ${problem}`);
+      if (!opts.apply) {
+        console.log(`[${NAME}] --reset-live-worker dry run for ${phone}: re-run with --apply.`);
+        printFooter(NAME, opts, 0);
+        return;
+      }
+      const counts = await resetLiveWorkerRows(db, hashPhone(phone, readCrypto().pepper));
+      printCounts(NAME, counts);
+      printFooter(
+        NAME,
+        opts,
+        Object.values(counts).reduce((a, b) => a + b, 0),
+      );
+      return;
+    }
+
+    if (reportTrades) {
+      await printTradeReport(db);
+      printFooter(NAME, opts, 0);
+      return;
+    }
+
     if (unseedMode) {
       if (!opts.apply) {
-        console.log(`[${NAME}] --unseed dry run: re-run with --apply to remove every de30… demo row.`);
+        console.log(
+          `[${NAME}] --unseed dry run: re-run with --apply to remove every de30… demo row.`,
+        );
         printFooter(NAME, opts, 0);
         return;
       }
       const counts = await unseedDemo(db);
       printCounts(NAME, counts);
-      printFooter(NAME, opts, Object.values(counts).reduce((a, b) => a + b, 0));
+      printFooter(
+        NAME,
+        opts,
+        Object.values(counts).reduce((a, b) => a + b, 0),
+      );
       return;
     }
 

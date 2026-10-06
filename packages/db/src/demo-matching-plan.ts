@@ -14,14 +14,16 @@
  * the plan alone so the plan test can fail before any database is involved.
  *
  * VOCABULARY LIMIT (2026-10-05): the match vocabulary is 18 `mskill_*` ids and has NO
- * electrician. The Manesar showcase is therefore a FITTER (maintenance trade, related to
- * plumber + quality inspector). Adding an electrician is a taxonomy change, not a seed change.
+ * electrician, press, coating or polymer skill. The Manesar showcase is therefore a FITTER, and
+ * those role kinds post a flagged PROXY skill (see {@link DemoTrade}). Closing the gap is a
+ * taxonomy change, not a seed change.
  *
  * TEXT: every worker-visible field (title, area, city, description, benefit and requirement
  * chips) is screened by the writer with `workerVisibleTextScreens` before any row is written,
  * and by the plan test. No phones, emails, company names or links.
  */
 import { MATCH_SKILLS, matchSkillIndustry, relatedMatchSkills } from "@badabhai/taxonomy";
+import type { TradeFormKindName } from "@badabhai/types";
 
 import { makeRng, pickWeighted, type Rng } from "./reach-pool-data";
 
@@ -94,7 +96,11 @@ export const DEMO_CITIES: readonly DemoCity[] = [
     slug: "chennai",
     areas: ["Sriperumbudur", "Ambattur", "Oragadam", "Guindy", "Maraimalai Nagar"],
   },
-  { name: "Ahmedabad", slug: "ahmedabad", areas: ["Sanand", "Changodar", "Naroda", "Vatva", "Odhav"] },
+  {
+    name: "Ahmedabad",
+    slug: "ahmedabad",
+    areas: ["Sanand", "Changodar", "Naroda", "Vatva", "Odhav"],
+  },
   {
     name: "Bengaluru",
     slug: "bengaluru",
@@ -109,12 +115,35 @@ function cityByName(name: string): DemoCity {
 }
 
 // ---------------------------------------------------------------------------
-// Trade catalogue — one entry per match skill (the WHOLE vocabulary: 18 ids)
+// Trade catalogue — VARIANTS keyed by the 21 declared role kinds
 // ---------------------------------------------------------------------------
 
+/**
+ * One posting archetype. `roleKind` is the worker-side role (`job_postings.role_kind`, the
+ * 21-kind `TRADE_FORM_KINDS_ALL` vocabulary — card illustrations key on it); `skillId` is the
+ * ONE match skill it posts. Every kind has at least one variant, so every kind gets postings.
+ *
+ * THE MATCH SKILL IS CHOSEN FROM WHAT ONBOARDING ACTUALLY DERIVES (traced 2026-10-06):
+ *   - chat (mock keyword extractor and real extraction): "welder"/"welding" → `role_welder` →
+ *     `mskill_mig_welder`; "CNC turner" → `mskill_cnc_turner`; "CNC operator" →
+ *     `mskill_cnc_operator_general`; vmc/hmc/setter/programmer/cam/grinding roles → their own
+ *     match skill (`ROLE_TO_MATCH_SKILL`, packages/taxonomy/src/match-skills.ts);
+ *   - trade form: only `qp_cnc_turning` bridges (`PACK_ATTRIBUTE_SKILLS`) → `mskill_cnc_turner`
+ *     (+ programmer / cam by `programming_level`). The other 20 forms derive NOTHING today.
+ * So `welder` postings are mostly MIG (what a live welder holds), and `cnc_turner` postings name
+ * `mskill_cnc_turner`.
+ *
+ * PROXIES. The match vocabulary has 18 skills and no electrician, press, coating or polymer
+ * skill. Those kinds still need postings (illustrations), and D5 skips a posting with no match
+ * skill, so they post the NEAREST match skill and are flagged `proxy: true`. A proxy posting
+ * reaches workers of the proxied skill (e.g. an electrician posting reaches fitters) — that is
+ * disclosed by `--report-trades` and the runbook, and is the honest cost of the vocabulary gap.
+ */
 export interface DemoTrade {
+  roleKind: TradeFormKindName;
   skillId: string;
-  /** Relative posting volume (the wedge trades are common, niche ones thin). */
+  proxy: boolean;
+  /** Relative posting volume. */
   weight: number;
   titles: readonly string[];
   /** Monthly pay floor band [lo, hi] in INR; the posting's pay_min is drawn from it. */
@@ -129,30 +158,67 @@ export interface DemoTrade {
 }
 
 const MACHINE_SHOP = "precision machine shop";
+const PLANT = "auto components plant";
+const PLASTICS = "plastics moulding plant";
+const MACHINING_SHIFTS = [5, 4, 1] as const;
 
 export const DEMO_TRADES: readonly DemoTrade[] = [
+  // ── machining ──
   {
+    roleKind: "cnc_turner",
     skillId: "mskill_cnc_turner",
+    proxy: false,
     weight: 9,
     titles: ["CNC Turner", "CNC Lathe Operator", "CNC Turning Operator"],
     pay: [16000, 26000],
     minExp: [0, 4],
     unit: MACHINE_SHOP,
-    requirements: ["Can read drawings", "Vernier and micrometer use", "Fanuc or Siemens control", "Tool offset setting"],
-    shiftWeights: [5, 4, 1],
+    requirements: [
+      "Can read drawings",
+      "Vernier and micrometer use",
+      "Fanuc or Siemens control",
+      "Tool offset setting",
+    ],
+    shiftWeights: MACHINING_SHIFTS,
   },
   {
+    roleKind: "cnc_turner",
+    skillId: "mskill_cnc_setter_operator",
+    proxy: false,
+    weight: 4,
+    titles: ["CNC Setter cum Operator", "CNC Turning Setter"],
+    pay: [22000, 34000],
+    minExp: [2, 6],
+    unit: MACHINE_SHOP,
+    requirements: [
+      "Program editing",
+      "Tool and fixture setting",
+      "First piece approval",
+      "Fanuc or Siemens control",
+    ],
+    shiftWeights: MACHINING_SHIFTS,
+  },
+  {
+    roleKind: "vmc_milling",
     skillId: "mskill_vmc_operator",
+    proxy: false,
     weight: 8,
     titles: ["VMC Operator", "VMC Machine Operator", "VMC Milling Operator"],
     pay: [16000, 25000],
     minExp: [0, 4],
     unit: MACHINE_SHOP,
-    requirements: ["Job loading and unloading", "Basic G code", "Height gauge and bore gauge", "Fanuc control"],
-    shiftWeights: [5, 4, 1],
+    requirements: [
+      "Job loading and unloading",
+      "Basic G code",
+      "Height gauge and bore gauge",
+      "Fanuc control",
+    ],
+    shiftWeights: MACHINING_SHIFTS,
   },
   {
+    roleKind: "vmc_milling",
     skillId: "mskill_hmc_operator",
+    proxy: false,
     weight: 4,
     titles: ["HMC Operator", "HMC Machine Operator"],
     pay: [18000, 28000],
@@ -162,47 +228,55 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
     shiftWeights: [4, 5, 1],
   },
   {
-    skillId: "mskill_cnc_operator_general",
-    weight: 6,
-    titles: ["CNC Operator", "CNC Machine Operator", "CNC Operator Trainee"],
-    pay: [13000, 20000],
-    minExp: [0, 2],
-    unit: "machining unit",
-    requirements: ["ITI Machinist or Turner", "Job loading", "Basic measuring", "Willing to learn setting"],
-    shiftWeights: [5, 4, 1],
-  },
-  {
+    roleKind: "cnc_grinding",
     skillId: "mskill_cnc_grinding_operator",
+    proxy: false,
     weight: 3,
     titles: ["CNC Grinding Operator", "Cylindrical Grinding Operator"],
     pay: [16000, 26000],
     minExp: [1, 4],
     unit: MACHINE_SHOP,
-    requirements: ["Cylindrical or centreless grinding", "Micron level measuring", "Wheel dressing"],
-    shiftWeights: [5, 4, 1],
+    requirements: [
+      "Cylindrical or centreless grinding",
+      "Micron level measuring",
+      "Wheel dressing",
+    ],
+    shiftWeights: MACHINING_SHIFTS,
   },
   {
+    roleKind: "conventional_machinist",
+    skillId: "mskill_cnc_operator_general",
+    proxy: false,
+    weight: 4,
+    titles: ["CNC Operator", "Lathe Machinist", "Machine Operator Trainee"],
+    pay: [13000, 20000],
+    minExp: [0, 2],
+    unit: "machining unit",
+    requirements: [
+      "ITI Machinist or Turner",
+      "Job loading",
+      "Basic measuring",
+      "Willing to learn setting",
+    ],
+    shiftWeights: MACHINING_SHIFTS,
+  },
+  {
+    roleKind: "tool_die_maker",
     skillId: "mskill_cnc_setter_operator",
-    weight: 5,
-    titles: ["CNC Setter cum Operator", "CNC Setter", "VMC Setter"],
+    proxy: true,
+    weight: 2,
+    titles: ["Tool Room Machinist", "Tool and Die Maker"],
     pay: [22000, 34000],
     minExp: [2, 6],
-    unit: MACHINE_SHOP,
-    requirements: ["Program editing", "Tool and fixture setting", "First piece approval", "Fanuc or Siemens control"],
-    shiftWeights: [5, 4, 1],
-  },
-  {
-    skillId: "mskill_cnc_programmer",
-    weight: 3,
-    titles: ["CNC Programmer", "CNC Programmer cum Setter"],
-    pay: [28000, 42000],
-    minExp: [3, 6],
-    unit: MACHINE_SHOP,
-    requirements: ["Manual G and M code", "Fanuc and Siemens", "Cycle time reduction", "Can read GD&T drawings"],
+    unit: "tool room",
+    requirements: ["Press tool fitting", "Surface grinding", "Can read tool drawings"],
     shiftWeights: [8, 2, 0],
   },
+  // ── design desk ──
   {
+    roleKind: "cam_programmer",
     skillId: "mskill_cam_programmer",
+    proxy: false,
     weight: 2,
     titles: ["CAM Programmer", "Mastercam Programmer"],
     pay: [30000, 45000],
@@ -212,18 +286,39 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
     shiftWeights: [9, 1, 0],
   },
   {
+    roleKind: "cam_programmer",
+    skillId: "mskill_cnc_programmer",
+    proxy: false,
+    weight: 3,
+    titles: ["CNC Programmer", "CNC Programmer cum Setter"],
+    pay: [28000, 42000],
+    minExp: [3, 6],
+    unit: MACHINE_SHOP,
+    requirements: [
+      "Manual G and M code",
+      "Fanuc and Siemens",
+      "Cycle time reduction",
+      "Can read GD&T drawings",
+    ],
+    shiftWeights: [8, 2, 0],
+  },
+  {
+    roleKind: "cad_draughtsman",
     skillId: "mskill_designer",
+    proxy: false,
     weight: 2,
     titles: ["Mechanical Design Draughtsman", "CAD Designer"],
     pay: [22000, 36000],
-    minExp: [1, 4],
+    minExp: [0, 4],
     unit: "design office",
     requirements: ["AutoCAD", "SolidWorks or Creo", "Detail drawings", "Bill of materials"],
     shiftWeights: [10, 0, 0],
   },
   {
+    roleKind: "cad_draughtsman",
     skillId: "mskill_interior_designer",
-    weight: 2,
+    proxy: false,
+    weight: 1,
     titles: ["Interior Design Draughtsman", "Interior Site Designer"],
     pay: [20000, 32000],
     minExp: [1, 4],
@@ -231,84 +326,250 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
     requirements: ["AutoCAD layouts", "Site measurement", "Modular furniture drawings"],
     shiftWeights: [10, 0, 0],
   },
+  // ── fabrication ──
   {
-    skillId: "mskill_arc_welder",
+    roleKind: "welder",
+    skillId: "mskill_mig_welder",
+    proxy: false,
     weight: 8,
+    titles: ["Welder", "MIG Welder", "CO2 Welder"],
+    pay: [16000, 25000],
+    minExp: [0, 4],
+    unit: "sheet metal fabrication shop",
+    requirements: [
+      "MIG or CO2 welding",
+      "Sheet metal and MS",
+      "Jig welding",
+      "Grinding and finishing",
+    ],
+    shiftWeights: [6, 3, 1],
+  },
+  {
+    roleKind: "welder",
+    skillId: "mskill_arc_welder",
+    proxy: false,
+    weight: 5,
     titles: ["Arc Welder", "Stick Welder", "Fabrication Welder"],
     pay: [15000, 24000],
     minExp: [0, 4],
     unit: "fabrication shop",
-    requirements: ["Arc welding on MS plates", "Fillet and butt joints", "Safety shoes and PPE use", "Can read welding symbols"],
+    requirements: [
+      "Arc welding on MS plates",
+      "Fillet and butt joints",
+      "Safety shoes and PPE use",
+      "Can read welding symbols",
+    ],
     shiftWeights: [6, 3, 1],
   },
   {
-    skillId: "mskill_mig_welder",
-    weight: 7,
-    titles: ["MIG Welder", "CO2 Welder", "MIG Welding Operator"],
-    pay: [16000, 25000],
-    minExp: [0, 4],
-    unit: "sheet metal fabrication shop",
-    requirements: ["MIG or CO2 welding", "Sheet metal and MS", "Jig welding", "Grinding and finishing"],
-    shiftWeights: [6, 3, 1],
-  },
-  {
+    roleKind: "welder",
     skillId: "mskill_tig_welder",
-    weight: 5,
+    proxy: false,
+    weight: 4,
     titles: ["TIG Welder", "TIG Welder for SS and Aluminium", "Argon Welder"],
     pay: [18000, 30000],
     minExp: [1, 5],
     unit: "stainless steel fabrication shop",
-    requirements: ["TIG on SS and aluminium", "Thin sheet welding", "Pipe welding", "Clean bead finish"],
+    requirements: [
+      "TIG on SS and aluminium",
+      "Thin sheet welding",
+      "Pipe welding",
+      "Clean bead finish",
+    ],
     shiftWeights: [6, 3, 1],
   },
   {
-    skillId: "mskill_fitter",
-    weight: 7,
-    titles: ["Maintenance Fitter", "Mechanical Fitter", "Assembly Fitter"],
-    pay: [15000, 25000],
-    minExp: [0, 4],
-    unit: "auto components plant",
-    requirements: ["ITI Fitter", "Preventive maintenance", "Bearing and gearbox fitting", "Hydraulics basics"],
+    roleKind: "sheet_metal_worker",
+    skillId: "mskill_mig_welder",
+    proxy: true,
+    weight: 3,
+    titles: ["Sheet Metal Fabricator", "Sheet Metal Worker"],
+    pay: [15000, 23000],
+    minExp: [0, 3],
+    unit: "sheet metal fabrication shop",
+    requirements: ["Bending and shearing", "Spot and MIG welding", "Measurement and marking"],
+    shiftWeights: [6, 3, 1],
+  },
+  {
+    roleKind: "press_operator",
+    skillId: "mskill_cnc_operator_general",
+    proxy: true,
+    weight: 2,
+    titles: ["Power Press Operator", "Press Shop Operator"],
+    pay: [13000, 19000],
+    minExp: [0, 2],
+    unit: "press shop",
+    requirements: ["Power press operation", "Die loading basics", "Safety guard discipline"],
     shiftWeights: [5, 4, 1],
   },
   {
+    roleKind: "painter_coating",
+    skillId: "mskill_cnc_operator_general",
+    proxy: true,
+    weight: 1,
+    titles: ["Powder Coating Operator", "Spray Painter"],
+    pay: [13000, 20000],
+    minExp: [0, 3],
+    unit: "powder coating line",
+    requirements: ["Spray gun handling", "Surface preparation", "Coating thickness check"],
+    shiftWeights: [6, 3, 1],
+  },
+  // ── maintenance & production ──
+  {
+    roleKind: "fitter",
+    skillId: "mskill_fitter",
+    proxy: false,
+    weight: 6,
+    titles: ["Maintenance Fitter", "Mechanical Fitter", "Assembly Fitter"],
+    pay: [15000, 25000],
+    minExp: [0, 4],
+    unit: PLANT,
+    requirements: [
+      "ITI Fitter",
+      "Preventive maintenance",
+      "Bearing and gearbox fitting",
+      "Hydraulics basics",
+    ],
+    shiftWeights: [5, 4, 1],
+  },
+  {
+    roleKind: "fitter",
     skillId: "mskill_plumber",
-    weight: 4,
-    titles: ["Plumber", "Industrial Plumber", "Plumbing Technician"],
+    proxy: false,
+    weight: 3,
+    titles: ["Plumber", "Industrial Plumber", "Pipe Fitter"],
     pay: [14000, 22000],
     minExp: [0, 3],
     unit: "construction site",
-    requirements: ["GI and CPVC pipe fitting", "Leak testing", "Drawing reading", "Own basic tools"],
+    requirements: [
+      "GI and CPVC pipe fitting",
+      "Leak testing",
+      "Drawing reading",
+      "Own basic tools",
+    ],
     shiftWeights: [9, 1, 0],
   },
   {
+    roleKind: "maintenance_technician",
+    skillId: "mskill_fitter",
+    proxy: true,
+    weight: 3,
+    titles: ["Maintenance Technician", "Utility Maintenance Technician"],
+    pay: [16000, 26000],
+    minExp: [1, 4],
+    unit: PLANT,
+    requirements: [
+      "Breakdown maintenance",
+      "Compressor and pump upkeep",
+      "Maintenance log keeping",
+    ],
+    shiftWeights: [4, 5, 1],
+  },
+  {
+    roleKind: "industrial_electrician",
+    skillId: "mskill_fitter",
+    proxy: true,
+    weight: 3,
+    titles: ["Industrial Electrician", "Maintenance Electrician"],
+    pay: [16000, 27000],
+    minExp: [1, 4],
+    unit: PLANT,
+    requirements: [
+      "ITI Electrician",
+      "Panel wiring",
+      "Motor and starter fault finding",
+      "Safety lockout practice",
+    ],
+    shiftWeights: [4, 5, 1],
+  },
+  {
+    roleKind: "assembly_line_worker",
+    skillId: "mskill_fitter",
+    proxy: true,
+    weight: 2,
+    titles: ["Assembly Line Operator", "Production Associate"],
+    pay: [12000, 18000],
+    minExp: [0, 1],
+    unit: PLANT,
+    requirements: ["Line assembly work", "Torque tool use", "Follows work instructions"],
+    shiftWeights: [5, 4, 1],
+  },
+  {
+    roleKind: "quality_inspector",
     skillId: "mskill_quality_inspector",
+    proxy: false,
     weight: 5,
     titles: ["Quality Inspector", "QC Inspector", "Line Quality Inspector"],
     pay: [16000, 26000],
     minExp: [1, 4],
-    unit: "auto components plant",
-    requirements: ["Vernier, micrometer and height gauge", "Inspection reports", "PPAP and first piece basics", "Can read drawings"],
+    unit: PLANT,
+    requirements: [
+      "Vernier, micrometer and height gauge",
+      "Inspection reports",
+      "PPAP and first piece basics",
+      "Can read drawings",
+    ],
     shiftWeights: [5, 4, 1],
   },
+  // ── plastics & rubber (all proxies: no polymer match skill exists) ──
   {
-    skillId: "mskill_carpenter",
-    weight: 4,
-    titles: ["Carpenter", "Furniture Carpenter", "Shuttering Carpenter"],
-    pay: [15000, 24000],
-    minExp: [0, 4],
-    unit: "furniture workshop",
-    requirements: ["Modular furniture fitting", "Power tools use", "Laminate and edge banding", "Measurement and marking"],
-    shiftWeights: [9, 1, 0],
+    roleKind: "injection_moulding_operator",
+    skillId: "mskill_cnc_operator_general",
+    proxy: true,
+    weight: 2,
+    titles: ["Injection Moulding Operator", "Moulding Machine Operator"],
+    pay: [13000, 20000],
+    minExp: [0, 3],
+    unit: PLASTICS,
+    requirements: ["Mould loading", "Cycle monitoring", "Visual defect checks"],
+    shiftWeights: [4, 5, 1],
   },
   {
-    skillId: "mskill_delivery_rider",
-    weight: 6,
-    titles: ["Delivery Rider", "Delivery Partner", "Grocery Delivery Rider"],
-    pay: [15000, 22000],
-    minExp: [0, 1],
-    unit: "quick commerce dark store",
-    requirements: ["Two wheeler and valid licence", "Smartphone", "Knows local routes"],
+    roleKind: "mould_die_maker",
+    skillId: "mskill_cnc_setter_operator",
+    proxy: true,
+    weight: 1,
+    titles: ["Mould Maker", "Mould Maintenance Fitter"],
+    pay: [20000, 32000],
+    minExp: [2, 5],
+    unit: "tool room",
+    requirements: ["Mould polishing and repair", "EDM basics", "Can read mould drawings"],
+    shiftWeights: [8, 2, 0],
+  },
+  {
+    roleKind: "blow_moulding_operator",
+    skillId: "mskill_cnc_operator_general",
+    proxy: true,
+    weight: 1,
+    titles: ["Blow Moulding Operator"],
+    pay: [13000, 19000],
+    minExp: [0, 2],
+    unit: PLASTICS,
+    requirements: ["Parison and mould setting basics", "Bottle quality checks"],
+    shiftWeights: [4, 5, 1],
+  },
+  {
+    roleKind: "rubber_moulding_operator",
+    skillId: "mskill_cnc_operator_general",
+    proxy: true,
+    weight: 1,
+    titles: ["Rubber Moulding Operator", "Compression Moulding Operator"],
+    pay: [13000, 19000],
+    minExp: [0, 2],
+    unit: "rubber products plant",
+    requirements: ["Compression press operation", "Deflashing", "Visual defect checks"],
+    shiftWeights: [4, 5, 1],
+  },
+  {
+    roleKind: "plastic_process_technician",
+    skillId: "mskill_cnc_operator_general",
+    proxy: true,
+    weight: 1,
+    titles: ["Plastic Process Technician"],
+    pay: [18000, 28000],
+    minExp: [1, 4],
+    unit: PLASTICS,
+    requirements: ["Process parameter setting", "Mould trials", "Scrap reduction"],
     shiftWeights: [5, 4, 1],
   },
 ];
@@ -327,7 +588,7 @@ export const DEMO_BENEFITS: readonly string[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Personas — designed, not sampled
+// Personas — designed, not sampled (fallback + side-by-side for the LIVE onboarding demo)
 // ---------------------------------------------------------------------------
 
 export interface DemoPersonaSkill {
@@ -347,11 +608,16 @@ export interface DemoPersonaSpec {
   skills: readonly DemoPersonaSkill[];
 }
 
+/** The owner's cap: the live chat is the main path; personas are the fallback. */
+export const MAX_DEMO_PERSONAS = 10;
+
 /**
- * Showcases FIRST, so a small profile (`--personas=5`) always contains both. Every persona
- * holds at least one skill with `skill_related` neighbours it does not itself want, which is
- * what guarantees a non-empty related-only set (carpenter and delivery rider have no
- * neighbours, so they only ever appear as SECOND skills).
+ * Showcases FIRST, so a small profile (`--personas=5`) always contains both. Skill sets mirror
+ * what onboarding derives, so a persona sits next to a live-created worker of the same trade
+ * and the two feeds can be compared: the welder holds `mskill_mig_welder` (what "welder" in the
+ * chat yields), the turner `mskill_cnc_turner`, the CNC operator `mskill_cnc_operator_general`.
+ * Every persona holds a skill with `skill_related` neighbours it does not itself want, which
+ * guarantees a non-empty related-only set.
  */
 export const DEMO_PERSONAS: readonly DemoPersonaSpec[] = [
   {
@@ -359,15 +625,17 @@ export const DEMO_PERSONAS: readonly DemoPersonaSpec[] = [
     name: "Ravi Demo",
     city: "Pune",
     showcase: true,
-    story: "Arc welder, 4 years. Sees arc welding jobs first, MIG/TIG jobs as related, no machining or delivery jobs.",
-    skills: [{ skillId: "mskill_arc_welder", months: 48 }],
+    story:
+      "Welder, 4 years (what the chat derives for 'welder': MIG). Arc and TIG jobs arrive as related; no machining, plastics or design jobs.",
+    skills: [{ skillId: "mskill_mig_welder", months: 48 }],
   },
   {
     key: "showcase-fitter-manesar",
     name: "Suresh Demo",
     city: "Manesar",
     showcase: true,
-    story: "Maintenance fitter, 5 years (stands in for an electrician — not in the match vocabulary). Plumbing and QC jobs arrive as related.",
+    story:
+      "Maintenance fitter, 5 years. Plumbing and QC jobs arrive as related. (Electrician postings are a fitter proxy — no electrician match skill exists.)",
     skills: [{ skillId: "mskill_fitter", months: 60 }],
   },
   {
@@ -375,19 +643,18 @@ export const DEMO_PERSONAS: readonly DemoPersonaSpec[] = [
     name: "Amit Demo",
     city: "Pune",
     showcase: false,
-    story: "CNC turner, 3 years. VMC, setter, grinding and general CNC jobs arrive as related.",
+    story:
+      "CNC turner, 3 years (what the chat and the turning form derive). VMC, setter, grinding and general CNC jobs arrive as related.",
     skills: [{ skillId: "mskill_cnc_turner", months: 36 }],
   },
   {
-    key: "tig-welder-bengaluru",
-    name: "Manjunath Demo",
-    city: "Bengaluru",
+    key: "cnc-operator-ahmedabad",
+    name: "Bhavesh Demo",
+    city: "Ahmedabad",
     showcase: false,
-    story: "TIG welder who also does arc. MIG-only jobs are related.",
-    skills: [
-      { skillId: "mskill_tig_welder", months: 72 },
-      { skillId: "mskill_arc_welder", months: 12 },
-    ],
+    story:
+      "CNC operator, 1 year (what the chat derives for 'CNC operator'). Grinding, turner and HMC jobs are related.",
+    skills: [{ skillId: "mskill_cnc_operator_general", months: 12 }],
   },
   {
     key: "plumber-ahmedabad",
@@ -396,6 +663,17 @@ export const DEMO_PERSONAS: readonly DemoPersonaSpec[] = [
     showcase: false,
     story: "Plumber, 3 years. Fitter jobs arrive as related.",
     skills: [{ skillId: "mskill_plumber", months: 36 }],
+  },
+  {
+    key: "tig-arc-welder-bengaluru",
+    name: "Manjunath Demo",
+    city: "Bengaluru",
+    showcase: false,
+    story: "TIG welder who also does arc. MIG jobs are related.",
+    skills: [
+      { skillId: "mskill_tig_welder", months: 72 },
+      { skillId: "mskill_arc_welder", months: 12 },
+    ],
   },
   {
     key: "vmc-hmc-chennai",
@@ -409,63 +687,12 @@ export const DEMO_PERSONAS: readonly DemoPersonaSpec[] = [
     ],
   },
   {
-    key: "mig-welder-chennai",
-    name: "Senthil Demo",
-    city: "Chennai",
-    showcase: false,
-    story: "MIG welder, 2.5 years. Arc and TIG jobs are related.",
-    skills: [{ skillId: "mskill_mig_welder", months: 30 }],
-  },
-  {
     key: "qc-inspector-bengaluru",
     name: "Lakshmi Demo",
     city: "Bengaluru",
     showcase: false,
     story: "Quality inspector, 2 years. Fitter jobs are related.",
     skills: [{ skillId: "mskill_quality_inspector", months: 24 }],
-  },
-  {
-    key: "cnc-programmer-bengaluru",
-    name: "Prasad Demo",
-    city: "Bengaluru",
-    showcase: false,
-    story: "CNC programmer, 4 years. CAM and setter jobs are related.",
-    skills: [{ skillId: "mskill_cnc_programmer", months: 48 }],
-  },
-  {
-    key: "cam-programmer-pune",
-    name: "Nikhil Demo",
-    city: "Pune",
-    showcase: false,
-    story: "CAM programmer. CNC programmer and design jobs are related.",
-    skills: [{ skillId: "mskill_cam_programmer", months: 30 }],
-  },
-  {
-    key: "designer-ahmedabad",
-    name: "Hetal Demo",
-    city: "Ahmedabad",
-    showcase: false,
-    story: "Mechanical CAD designer. CAM and interior design jobs are related.",
-    skills: [{ skillId: "mskill_designer", months: 18 }],
-  },
-  {
-    key: "interior-carpenter-bengaluru",
-    name: "Ramesh Demo",
-    city: "Bengaluru",
-    showcase: false,
-    story: "Interior draughtsman who is also a carpenter. Mechanical design jobs are related.",
-    skills: [
-      { skillId: "mskill_interior_designer", months: 24 },
-      { skillId: "mskill_carpenter", months: 36 },
-    ],
-  },
-  {
-    key: "grinding-manesar",
-    name: "Deepak Demo",
-    city: "Manesar",
-    showcase: false,
-    story: "CNC grinding operator. Turner and general CNC jobs are related.",
-    skills: [{ skillId: "mskill_cnc_grinding_operator", months: 30 }],
   },
   {
     key: "setter-chennai",
@@ -476,42 +703,12 @@ export const DEMO_PERSONAS: readonly DemoPersonaSpec[] = [
     skills: [{ skillId: "mskill_cnc_setter_operator", months: 54 }],
   },
   {
-    key: "hmc-fresher-manesar",
-    name: "Vikas Demo",
-    city: "Manesar",
-    showcase: false,
-    story: "HMC operator, 6 months. Setter, VMC and general CNC jobs are related.",
-    skills: [{ skillId: "mskill_hmc_operator", months: 6 }],
-  },
-  {
-    key: "cnc-operator-ahmedabad",
-    name: "Bhavesh Demo",
-    city: "Ahmedabad",
-    showcase: false,
-    story: "CNC operator, 1 year. Grinding, turner and HMC jobs are related.",
-    skills: [{ skillId: "mskill_cnc_operator_general", months: 12 }],
-  },
-  {
-    key: "carpenter-plumber-pune",
-    name: "Santosh Demo",
+    key: "cam-programmer-pune",
+    name: "Nikhil Demo",
     city: "Pune",
     showcase: false,
-    story: "Carpenter who also does plumbing. Fitter jobs are related (via plumbing).",
-    skills: [
-      { skillId: "mskill_carpenter", months: 60 },
-      { skillId: "mskill_plumber", months: 6 },
-    ],
-  },
-  {
-    key: "welder-fitter-manesar",
-    name: "Rajesh Demo",
-    city: "Manesar",
-    showcase: false,
-    story: "Arc welder and fitter. MIG/TIG, plumbing and QC jobs are related.",
-    skills: [
-      { skillId: "mskill_arc_welder", months: 24 },
-      { skillId: "mskill_fitter", months: 12 },
-    ],
+    story: "CAM programmer. CNC programmer and design jobs are related.",
+    skills: [{ skillId: "mskill_cam_programmer", months: 30 }],
   },
 ];
 
@@ -562,6 +759,10 @@ export interface DemoPosting {
   /** The POSTED skills (`match_skill_ids`). The reach set is resolved by the writer at publish rules. */
   matchSkillIds: string[];
   primarySkillId: string;
+  /** `job_postings.role_kind` — one of the 21 declared kinds. */
+  roleKind: TradeFormKindName;
+  /** The kind has no match skill of its own; it posts the nearest one (see DemoTrade). */
+  proxy: boolean;
   industryId: string;
   roleTitle: string;
   city: string;
@@ -633,7 +834,7 @@ export function buildDemoPosting(
       );
   const matchSkillIds = [trade.skillId];
   const neighbours = relatedMatchSkills(trade.skillId);
-  if (!coverage && neighbours.length > 0 && rng.next() < TWO_SKILL_RATE) {
+  if (!coverage && !trade.proxy && neighbours.length > 0 && rng.next() < TWO_SKILL_RATE) {
     matchSkillIds.push(pickOne(neighbours, rng));
   }
   const industryId = matchSkillIndustry(trade.skillId);
@@ -661,7 +862,11 @@ export function buildDemoPosting(
     [...trade.shiftWeights, 1],
     rng,
   );
-  const neededBy = pickWeighted<DemoNeededBy>(["immediate", "soon", "flexible"], [0.4, 0.4, 0.2], rng);
+  const neededBy = pickWeighted<DemoNeededBy>(
+    ["immediate", "soon", "flexible"],
+    [0.4, 0.4, 0.2],
+    rng,
+  );
   const vacancyBand = pickWeighted<DemoVacancyBand>(
     ["1", "2-5", "6-10", "11-25", "25+"],
     [0.2, 0.4, 0.25, 0.1, 0.05],
@@ -686,6 +891,8 @@ export function buildDemoPosting(
     payerIndex,
     matchSkillIds,
     primarySkillId: trade.skillId,
+    roleKind: trade.roleKind,
+    proxy: trade.proxy,
     industryId,
     roleTitle,
     city: city.name,
@@ -722,8 +929,14 @@ export interface DemoPersona extends DemoPersonaSpec {
 }
 
 export function buildDemoPersonas(count: number): DemoPersona[] {
-  if (count < 1 || count > DEMO_PERSONAS.length) {
-    throw new Error(`personas must be in 1..${DEMO_PERSONAS.length} (got ${count})`);
+  if (
+    !Number.isInteger(count) ||
+    count < 1 ||
+    count > Math.min(MAX_DEMO_PERSONAS, DEMO_PERSONAS.length)
+  ) {
+    throw new Error(
+      `personas must be in 1..${Math.min(MAX_DEMO_PERSONAS, DEMO_PERSONAS.length)} (got ${count})`,
+    );
   }
   return DEMO_PERSONAS.slice(0, count).map((spec, i) => ({
     ...spec,
@@ -749,7 +962,7 @@ export interface DemoPlanOptions {
 
 export const DEFAULT_DEMO_PLAN: DemoPlanOptions = Object.freeze({
   personas: DEMO_PERSONAS.length,
-  postings: 1080,
+  postings: 1200,
   rngSeed: 20261005,
 });
 
@@ -769,7 +982,9 @@ export function buildDemoPlan(options: DemoPlanOptions = DEFAULT_DEMO_PLAN): Dem
   const rng = makeRng(options.rngSeed);
   const payers = buildDemoPayers();
   const personas = buildDemoPersonas(options.personas);
-  const postings = Array.from({ length: options.postings }, (_, i) => buildDemoPosting(i, payers, rng));
+  const postings = Array.from({ length: options.postings }, (_, i) =>
+    buildDemoPosting(i, payers, rng),
+  );
   return { options, payers, personas, postings };
 }
 
@@ -796,7 +1011,11 @@ export function workerVisibleFields(p: DemoPosting): Array<[string, string]> {
  */
 export function personaExpectation(
   persona: Pick<DemoPersonaSpec, "skills">,
-  postings: ReadonlyArray<{ postingId: string; matchSkillIds: readonly string[]; reachSkillIds: readonly string[] }>,
+  postings: ReadonlyArray<{
+    postingId: string;
+    matchSkillIds: readonly string[];
+    reachSkillIds: readonly string[];
+  }>,
 ): { direct: string[]; relatedOnly: string[]; hidden: string[] } {
   const wants = new Set(persona.skills.map((s) => s.skillId));
   const out = { direct: [] as string[], relatedOnly: [] as string[], hidden: [] as string[] };
