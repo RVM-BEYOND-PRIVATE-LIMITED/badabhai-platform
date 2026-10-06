@@ -1,3 +1,4 @@
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { Badge } from "../../../../components/ds";
 import type { AgencyWorker } from "../../../../lib/contracts";
 
@@ -39,7 +40,7 @@ export function WorkerActivityList({ workers }: { workers: AgencyWorker[] }) {
     return (
       <div className="state state--prose">
         <span className="state__icon">
-          <i className="ph-fill ph-users-three" aria-hidden="true" />
+          <Icon name={ACTION_ICON.users} />
         </span>
         <h3 className="state__title">No workers to show yet</h3>
         <p className="state__body">

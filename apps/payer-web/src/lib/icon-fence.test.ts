@@ -8,23 +8,20 @@ import { ALL_ICON_NAMES } from "@badabhai/icons";
  * ICON FENCE — every glyph goes through @badabhai/icons (`<Icon>` / the DS primitives).
  *
  * A raw `<i className="ph-fill ph-…">` takes an untyped string, so a typo renders an empty box
- * and nothing notices. New code renders `<Icon name="…">` (typed `IconName`). The raw call sites
- * that predate the shared package are listed below WITH THEIR COUNT, and the list only shrinks:
+ * and nothing notices. Code renders `<Icon name="…">` (typed `IconName`). The raw call sites
+ * that predated the shared package were listed below WITH THEIR COUNT, and the list only shrinks:
  *   - a count going UP fails (a new raw glyph in an allow-listed file),
  *   - a file not on the list with any raw glyph fails,
  *   - a count going DOWN fails until the entry is lowered (or deleted at zero) in the same PR,
  *     so a converted call site can never be silently re-added later.
- * The page-by-page icon PRs convert these files and delete their rows.
+ * The page-by-page icon PRs converted these files and deleted their rows; the last four (the
+ * agency referrals panels and worker activity) went in the agency follow-up. The list is EMPTY:
+ * a raw glyph in ANY shipped source now fails. Do not add a row back — render `<Icon>`.
  *
  * Counted in CODE only (comments stripped), as the bare `ph-fill` class token — every raw fill
  * glyph needs it, whatever way the class string is assembled.
  */
-const RAW_ICON_ALLOWLIST: Readonly<Record<string, number>> = {
-  "app/(portal)/agency/referrals/earnings-panel.tsx": 1,
-  "app/(portal)/agency/referrals/kyc-panel.tsx": 5,
-  "app/(portal)/agency/referrals/payout-panel.tsx": 3,
-  "app/(portal)/agency/workers/worker-activity-list.tsx": 1,
-};
+const RAW_ICON_ALLOWLIST: Readonly<Record<string, number>> = {};
 
 const srcRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 

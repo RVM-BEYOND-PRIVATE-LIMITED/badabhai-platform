@@ -3,8 +3,8 @@ import type { UnlockView } from "./unlock-view";
 
 /**
  * PURE reads over the payer's OWN unlock history (`GET /payer/unlocks`, via getUnlocks) — no
- * I/O, no React. Two screens use it: the company applicant feed (which rows are already
- * unlocked) and the dashboard's Recent unlocks (dates + live/ended status).
+ * I/O, no React. Its readers: the two applicant feeds — a company posting's and an agency job's —
+ * (which rows are already unlocked) and the dashboard's Recent unlocks (dates + live/ended status).
  *
  * WHICH APPLICANT: an unlock is ONE grant per (payer, worker) — ADR-0010 sign-off resolution 1
  * and the `unlocks_payer_worker_uq` index — so a row is matched on `workerId` alone. Nothing here

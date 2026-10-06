@@ -1,3 +1,4 @@
+import { Icon } from "@badabhai/icons";
 import type { AgencyEarnings } from "../../../../lib/contracts";
 import { formatInr } from "../../../../lib/format";
 import { accrualBasisLabel } from "../../../../lib/agency-view";
@@ -42,7 +43,7 @@ export function EarningsPanel({ earnings }: { earnings: AgencyEarnings }) {
 
       {/* Mock-money disclosure — always visible where money is shown. */}
       <div className="alert alert--warning">
-        <i className="ph-fill ph-info alert__icon" aria-hidden="true" />
+        <Icon name="info" className="alert__icon" />
         <div className="alert__text">
           <p className="alert__title">No real money is disbursed</p>
           <p className="alert__body">
