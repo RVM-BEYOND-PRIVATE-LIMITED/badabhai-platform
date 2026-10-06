@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100" data-loop="2">
+  <g data-part="scene">
+    <rect x="0" y="0" width="300" height="100" fill="#05194C"/>
+    <circle cx="252" cy="24" r="32" fill="#F3F5F4" opacity="0.4"/>
+    <rect x="0" y="84" width="300" height="16" fill="#F3F5F4" opacity="0.4"/>
+  </g>
+  <g data-part="machine">
+    <rect x="118" y="34" width="150" height="50" rx="10" fill="#F3F5F4"/>
+    <rect x="148" y="42" width="88" height="32" rx="6" fill="#05194C" opacity="0.8"/>
+    <rect x="172" y="52" width="44" height="8" rx="4" fill="#F3F5F4" opacity="0.6"/>
+    <rect x="200" y="58" width="16" height="10" rx="3" fill="#FFB32C"/>
+    <rect x="242" y="42" width="18" height="32" rx="5" fill="#05194C" opacity="0.4"/>
+    <circle cx="251" cy="50" r="3" fill="#FFB32C"/>
+    <circle cx="251" cy="60" r="3" fill="#05194C"/>
+  </g>
+  <g data-part="figure">
+    <path d="M48 84 V70 A22 22 0 0 1 92 70 V84 Z" fill="#FFB32C"/>
+    <path d="M57 40 A13 13 0 0 1 83 40 V41 A3 3 0 0 1 80 44 H60 A3 3 0 0 1 57 41 Z" fill="#FFB32C"/>
+  </g>
+  <g data-part="arm">
+    <path d="M84 62 Q100 66 116 58" fill="none" stroke="#FFB32C" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g data-part="chuck" data-motion="spin" data-amp="360" data-origin="166 56">
+    <circle cx="166" cy="56" r="11" fill="#F3F5F4"/>
+    <circle cx="166" cy="48" r="3" fill="#FFB32C"/>
+    <circle cx="159" cy="60" r="3" fill="#FFB32C"/>
+    <circle cx="173" cy="60" r="3" fill="#FFB32C"/>
+  </g>
+</svg>

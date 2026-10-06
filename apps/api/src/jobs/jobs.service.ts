@@ -1,6 +1,8 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { JobNeededBy, JobPayType, JobShift, TradeKey } from "@badabhai/db";
+import type { TradeFormKindName } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
+import { toWorkerRoleKind } from "../common/worker-role-kind";
 import { EventsService } from "../events/events.service";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
 import { JobsRepository } from "./jobs.repository";
@@ -82,6 +84,11 @@ export interface WorkerVisibleJob {
   description: string | null;
   benefits: string[] | null;
   requirements: string[] | null;
+  /**
+   * The job's role, for the illustration the detail screen shares with its feed card (owner
+   * ruling 2026-10-05, ADR-0024 addendum). One of the 21 declared kinds or NULL. ADDITIVE.
+   */
+  role_kind: TradeFormKindName | null;
 }
 
 /**
@@ -154,6 +161,8 @@ export class JobsService {
       description: row.description,
       benefits: row.benefits,
       requirements: row.requirements,
+      // Fail closed: only a declared kind or null leaves the API.
+      role_kind: toWorkerRoleKind(row.roleKind),
     };
   }
 

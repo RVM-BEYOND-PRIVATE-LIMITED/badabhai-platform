@@ -420,22 +420,28 @@ describe("#1649 — findOpenJobs orders NEWEST FIRST and projects the posting da
 });
 
 // =============================================================================================
-// Migration 0131 — the posting's display ROLE is on NO worker read (ADR-0024 addendum
-// 2026-09-29, #1823). findOpenJobs is the MATCH_V1-OFF worker feed — the FeedItem source in
-// prod — and names its columns explicitly, so `role_kind` cannot arrive by accident. The V1
-// match-feed, /jobs/search and the job-detail reads have their own pins in
-// jobs.repository.test.ts / match-feed.*.test.ts; this closes the last FeedItem-producing read.
+// Migration 0131 — the job's display ROLE reaches the legacy worker feed as CARD ART (owner
+// ruling 2026-10-05, ADR-0024 addendum; supersedes the 2026-09-29 "on no worker read" pin).
+// It is a PROJECTION only: never a WHERE or ORDER BY input (ADR-0036 addendum 2026-09-29).
 // =============================================================================================
-describe("migration 0131 — findOpenJobs (the legacy worker feed) never selects role_kind", () => {
-  it("omits role_kind from the projection", async () => {
+describe("migration 0131 — findOpenJobs projects role_kind for the card, and never filters on it", () => {
+  it("selects jobs.role_kind", async () => {
     const { repo, captured } = makeDb();
     await repo.findOpenJobs(WORKER, 20);
-    const keys = Object.keys(captured.selection ?? {});
-    // Vacuity guard: the projection really renders columns.
-    expect(keys).toContain("title");
-    expect(keys).not.toContain("roleKind");
-    const projection = Object.values(captured.selection!).map(render).join(" | ");
-    expect(projection).not.toContain("role_kind");
+    expect(col(captured, "roleKind")).toContain('"jobs"."role_kind"');
+  });
+
+  it("keeps role_kind out of the WHERE and the ORDER BY — even with every filter sent", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findOpenJobs(WORKER, 20, {
+      tradeKey: "cnc_operator",
+      city: "Pune",
+      shift: "night",
+      payMin: 20000,
+    });
+    expect(captured.where).toBeDefined(); // vacuity guard
+    expect(render(captured.where)).not.toContain("role_kind");
+    expect((captured.orderBy ?? []).map(render).join(" | ")).not.toContain("role_kind");
   });
 });
 
@@ -449,7 +455,7 @@ const compile = (node: unknown) => {
   return { sql: c.sql.replace(/\s+/g, " "), params: c.params };
 };
 
-/** The card columns plus the id and the sort key — and nothing else. */
+/** The card columns (incl. `roleKind`, 2026-10-05) plus the id and the sort key — and nothing else. */
 const POSTING_FEED_PROJECTION = [
   "area",
   "benefits",
@@ -464,6 +470,7 @@ const POSTING_FEED_PROJECTION = [
   "payType",
   "publishedAt",
   "requirements",
+  "roleKind",
   "roleTitle",
   "shift",
 ];
@@ -487,7 +494,6 @@ describe("#1823 findOpenPostingsForFeed — the projection is the card, and only
     "created_by",
     "location_label",
     "verification_status",
-    "role_kind",
     "boosted_until",
     '"state"',
     "vacancy_band",
@@ -595,6 +601,13 @@ describe("#1823 findOpenPostingsForFeed — the §2.1 predicates, each separate"
     for (const column of ["trade_key", "role_kind"]) {
       expect(text).not.toContain(column);
     }
+  });
+
+  it("never orders by role_kind — it is projected for the card's art only (2026-10-05)", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findOpenPostingsForFeed(WORKER, 50, { wantedSkillIds: [] });
+    expect(captured.orderBy?.length).toBeGreaterThan(0); // vacuity guard
+    expect(captured.orderBy!.map(render).join(" | ")).not.toContain("role_kind");
   });
 
   it("(7) shift + pay floor: the jobs arm's NULL-tolerant predicates, bound, only when sent (#1905)", async () => {

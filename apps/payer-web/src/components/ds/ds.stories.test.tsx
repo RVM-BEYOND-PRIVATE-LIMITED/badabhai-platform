@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -165,25 +165,57 @@ describe("DS0.2 · primitives render with their design-system classes", () => {
     expect(out).toContain("ph-x");
   });
 
-  it("Chip — the remove tooltip is placed as it shows (focus AND hover), kept inside the chip's row", () => {
+  it("Chip — the remove tooltip is placed as it shows (focus AND hover), kept inside the chip's row while it shows", () => {
     const el = Chip({ removeLabel: "Remove CNC", onRemove: () => {}, children: "CNC" }) as ReactElement<
       Record<string, unknown>
     >;
     // The removable chip's own tree: <span class="bb-chip …">…<IconButtonBase …/></span>
-    const tree = (el.type as (p: unknown) => ReactElement<{ children: ReactElement[] }>)(el.props);
+    const tree = (el.type as (p: unknown) => ReactElement<{ children: ReactElement[]; ref?: unknown }>)(el.props);
     const remove = (tree.props.children as ReactElement<Record<string, unknown>>[]).find(
       (c) => c && typeof c === "object" && (c.props as { classBase?: string }).classBase === "bb-chip__remove",
     )!;
     const writes: string[] = [];
+    let shown = true;
     const target = {
       style: { setProperty: (k: string, v: string) => writes.push(`${k}=${v}`), removeProperty: () => "" },
-      querySelector: () => ({ getClientRects: () => [{}], getBoundingClientRect: () => ({ left: -10 }) }),
+      querySelector: () => ({ getClientRects: () => (shown ? [{}] : []), getBoundingClientRect: () => ({ left: -10 }) }),
       closest: () => ({ parentElement: { getBoundingClientRect: () => ({ left: 20 }) } }),
     };
-    for (const handler of ["onFocus", "onPointerEnter"]) {
-      writes.length = 0;
-      (remove.props[handler] as (e: unknown) => void)({ currentTarget: target });
-      expect(writes, handler).toEqual(["--bb-tip-shift=30"]);
+    // …and kept placed on every window resize while it shows, until it hides.
+    const resizeListeners = new Set<() => void>();
+    vi.stubGlobal("window", {
+      addEventListener: (type: string, l: () => void) => type === "resize" && resizeListeners.add(l),
+      removeEventListener: (type: string, l: () => void) => type === "resize" && resizeListeners.delete(l),
+    });
+    try {
+      for (const [show, hide] of [
+        ["onFocus", "onBlur"],
+        ["onPointerEnter", "onPointerLeave"],
+      ] as const) {
+        writes.length = 0;
+        shown = true;
+        (remove.props[show] as (e: unknown) => void)({ currentTarget: target });
+        expect(writes, show).toEqual(["--bb-tip-shift=30"]);
+        expect(resizeListeners.size, `${show} watches resizes`).toBe(1);
+        writes.length = 0;
+        [...resizeListeners].forEach((l) => l());
+        expect(writes, `a resize while shown re-places it (${show})`).toEqual(["--bb-tip-shift=30"]);
+        shown = false;
+        (remove.props[hide] as (e: unknown) => void)({ currentTarget: target });
+        expect(resizeListeners.size, `${hide} ends the watch`).toBe(0);
+      }
+
+      // A chip removed while its tooltip shows gets no blur: its unmount ends the watch.
+      shown = true;
+      (remove.props.onFocus as (e: unknown) => void)({ currentTarget: target });
+      expect(resizeListeners.size).toBe(1);
+      const ref = tree.props.ref as (el: unknown) => (() => void) | undefined;
+      const cleanup = ref({ querySelector: (sel: string) => (sel === ".bb-chip__remove" ? target : null) });
+      expect(typeof cleanup).toBe("function");
+      cleanup!();
+      expect(resizeListeners.size).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 

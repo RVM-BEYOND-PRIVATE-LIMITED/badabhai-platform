@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from "react";
 import { Icon, type IconName } from "@badabhai/icons";
+import { RoleArt } from "@badabhai/role-art";
 import {
   JOB_CARD_CLAMPS,
   toJobCardView,
@@ -28,8 +29,14 @@ import { BadaBhaiLogo } from "./ds";
  * REFERENCE PHONE's height like the real deck card does — with the number of chips that fall
  * below that line stated under the card and a control that shows them all (`job-card-fold.ts`).
  *
+ * THE ROLE ILLUSTRATION heads the card, as on the phone: the animated art for the role the payer
+ * picked (`role_kind`), drawn from the same generated data the worker app paints
+ * (`@badabhai/role-art`), so changing the role in the picker changes the picture on the next
+ * render. No role yet, or one this build has no art for, draws the generic scene. It is
+ * decorative (`aria-hidden`, no text) — the role's NAME is still not a card row.
+ *
  * DELIBERATELY ABSENT (ADR-0024 addendum, #1823; #1651): NO company/org name, NO verified seal,
- * NO spots/openings count, NO boost/urgent flag, NO role-kind row — none of them is on the
+ * NO spots/openings count, NO boost/urgent flag, NO role-kind text row — none of them is on the
  * worker's card. The caption stays EXACTLY "Card preview — built from what you entered".
  *
  * Client component only for the fold's ref callback; it holds NO hooks and NO state — every
@@ -65,6 +72,7 @@ export function JobCardPreview({ fields, draft }: JobCardPreviewProps) {
       <div className="jcp__card">
         <div className="jcp__content" ref={observeChipFold}>
           <div className="jcp__flow">
+            <RoleArt roleKind={fields.role_kind} className="jcp__art" />
             <div className="jcp__titlerow">
               {/* An empty slot keeps the worker's (empty) text; its placeholder is drawn by CSS
                   from data-placeholder, so the card's own text is always the phone's. */}
