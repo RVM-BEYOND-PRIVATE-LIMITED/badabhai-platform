@@ -15,7 +15,8 @@ keeps behaving the way the TypeScript assumes:
   `missing_fields`;
 - a refused field reopened as NEVER asked is served again before the interview wraps up;
 - "no", the word the re-ask tells the payer to send to keep an earlier value or a list, records
-  nothing;
+  nothing, and so do the words a payer answers the hint with instead ("no, keep it", "no more",
+  "that's it", "bas" — #1938), while a real answer that only starts like one is still recorded;
 - a list answer is ADDED to the stored list, and the draft's chips are the stored items as they
   are, so a chip removed from `collected` cannot come back;
 - a tap on a list's bank option is recorded as the option's "+"-separated parts, and a part the
@@ -46,6 +47,7 @@ import pytest
 
 from app.contracts import JobPostingChatState, JobPostingDraft
 from app.job_posting_chat import answers, interview_engine, question_bank
+from app.pseudonymize import pseudonymize
 
 _SCREEN_TS = (
     Path(__file__).resolve().parents[3]
@@ -204,7 +206,7 @@ def test_the_title_re_ask_is_the_bank_retry_wording_verbatim():
 def test_the_keep_word_is_a_refusal_the_engine_records_nothing_for():
     word = _keep_word()
     assert word == "no"
-    assert answers._REFUSAL_RE.match(word)
+    assert answers.is_refusal(word)
 
 
 def test_the_add_word_is_the_same_refusal():
@@ -215,7 +217,26 @@ def test_the_add_chip_is_the_add_word_and_a_refusal():
     """The add-question serves `ADD_CHIP` as a tap; tapping it must record nothing."""
     chip = _ts_string_const("ADD_CHIP")
     assert chip.lower() == _add_word()
-    assert answers._REFUSAL_RE.match(chip)
+    assert answers.is_refusal(chip)
+
+
+def _documented_refusals() -> list[str]:
+    """Every phrase the screen's comments say the engine refuses: the quoted words of each
+    ``(answers.is_refusal, #1938: "...", "...")``, with the comment's line breaks joined."""
+    prose = re.sub(r"\n[ \t]*\* ?", " ", _screen_ts())
+    cited = re.findall(r"\(answers\.is_refusal, #1938: ([^)]*)\)", prose)
+    return [phrase for group in cited for phrase in re.findall(r'"([^"]+)"', group)]
+
+
+def test_every_phrase_the_screen_says_the_engine_refuses_is_refused():
+    """#1938. The screen once told its reader that a typed "no more" or "that's it" was NOT the
+    engine's refusal and would be added as a chip; after #1938 that is false, and a comment saying
+    so steers the next change to work around a gap that is gone. The comments now cite the
+    phrasings the engine refuses, and each one is pinned against the engine here."""
+    phrases = _documented_refusals()
+    assert {"no more", "that's it", "keep it"} <= set(phrases), phrases
+    for phrase in phrases:
+        assert answers.is_refusal(phrase), phrase
 
 
 @pytest.mark.parametrize("field", _LISTS)
@@ -347,6 +368,70 @@ def test_the_keep_word_keeps_a_kept_title_and_the_interview_moves_on():
     assert asked_id == "vacancy"
 
 
+# --- #1938: the hints answered in the payer's own words -----------------------
+# `KEEP_HINT` and `ADD_HINT` ask for "no", but a payer answers a hint in their own words. Each
+# reply below used to be RECORDED: it replaced the kept description, became the title, or was
+# added to the list as a chip, because the engine's refusal was a short list of single words.
+
+
+def _route_turn(state: JobPostingChatState, message: str):
+    """`next_turn` with the inputs the route gives it: the raw message, and the draft text the
+    gateway leaves — the MASKED text when it masked identity. It masks the "Nope" of "Nope, keep
+    it" as a leading name (measured), so the refusal must be read from the payer's own words."""
+    result = pseudonymize(message)
+    draft_text = answers.safe_draft_text(message, result.text, result.placeholder_tokens)
+    return interview_engine.next_turn(state, message, draft_text=draft_text)
+
+
+_KEEP_REPLIES = [
+    "no, keep it",
+    "No keep it",
+    "keep it",
+    "Keep the earlier one",
+    "keep the old one",
+    "Keep it as is",
+    "no change",
+    "nope, keep it",
+    "Nope, keep it",  # masked by the gateway: "[PERSON_1], keep it"
+    "No, that's it",
+    '"no"',  # the hint's word, quotes and all
+    "Okay, keep it",
+    "Bas, that's it",  # masked by the gateway: "[PERSON_1], that's it"
+    "No. Keep it.",  # a phone keyboard's double space types the period
+]
+
+
+@pytest.mark.parametrize("reply", _KEEP_REPLIES)
+def test_the_keep_hint_answered_in_words_keeps_a_kept_description(reply: str):
+    _, asked_id, after, ready = _route_turn(_kept_description_on_screen(), reply)
+    assert after.collected["description"] == _EARLIER
+    assert asked_id is None
+    assert ready
+
+
+@pytest.mark.parametrize("reply", _KEEP_REPLIES)
+def test_the_keep_hint_answered_in_words_keeps_a_kept_title(reply: str):
+    """Before #1938, "no, keep it" BECAME the job title: the title takes a bare answer."""
+    state = JobPostingChatState(
+        turn_count=3,
+        answered_topics=["role_title", "location_label", "city"],
+        asked_question_ids=["location_label", "role_title"],
+        ask_counts={"location_label": 1},
+        collected={"role_title": "CNC Operator", "location_label": "Pune, Chakan", "city": "Pune"},
+    )
+    _, asked_id, after, _ = _route_turn(state, reply)
+    assert after.collected["role_title"] == "CNC Operator"
+    assert asked_id == "vacancy"
+
+
+@pytest.mark.parametrize(
+    "reply", ["Keep records of the daily output", "Keeping the line running on nights"]
+)
+def test_a_real_description_that_starts_like_keep_still_replaces_a_kept_one(reply: str):
+    _, _, after, _ = _route_turn(_kept_description_on_screen(), reply)
+    assert after.collected["description"] == reply
+
+
 # --- #1921: a re-asked chip list ----------------------------------------------
 # The shapes the TS screen suite expects `reaskRefusedFields` to produce for a benefits answer
 # that carried a refused chip: every topic before benefits answered, the requirements question
@@ -422,6 +507,51 @@ def test_the_add_chip_keeps_a_re_asked_list():
     assert asked_id == "requirements"
 
 
+# #1938: the add-question answered in words. Each was added to the list as a chip.
+_NONE_MORE_REPLIES = [
+    "no more",
+    "Nothing more",
+    "no other",
+    "that's it",
+    "That’s all.",
+    "bas",
+    "Bas itna hi",
+    "no, nothing else",
+    "nope, that's all",
+    "Nope, that's all",  # masked by the gateway: "[PERSON_1], that's all"
+    "nahi, bas",
+    "aur kuch nahi",
+    "Bas, that's it",  # masked by the gateway: "[PERSON_1], that's it"
+    "Okay, keep it",
+    "No. Keep it.",
+]
+
+
+@pytest.mark.parametrize("reply", _NONE_MORE_REPLIES)
+def test_the_add_hint_answered_in_words_keeps_a_re_asked_list(reply: str):
+    _, asked_id, after, ready = _route_turn(_benefits_on_screen(["PF", "ESI"]), reply)
+    assert after.collected["benefits"] == ["PF", "ESI"]
+    assert "benefits" in after.answered_topics
+    assert asked_id == "requirements"
+    assert not ready
+    assert interview_engine.build_draft(after).benefits == ["PF", "ESI"]
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Bus",  # transport, not "bas"
+        "basic medical insurance",
+        "bas PF",  # "just PF": an answer, kept whole as typed
+        "no other benefits than PF",
+        "no more than 2 night shifts a week",
+    ],
+)
+def test_a_real_answer_that_starts_like_a_refusal_is_still_added_to_a_re_asked_list(reply: str):
+    _, _, after, _ = _route_turn(_benefits_on_screen(["PF", "ESI"]), reply)
+    assert after.collected["benefits"] == ["PF", "ESI", reply]
+
+
 def test_a_tapped_option_whose_parts_are_all_held_adds_nothing():
     """Why the TS leaves such an option out of the add-question's chips."""
     held = ["pf", "esi", "canteen"]
@@ -433,7 +563,13 @@ def test_a_tapped_option_whose_parts_are_all_held_adds_nothing():
 
 
 @pytest.mark.parametrize(
-    ("message", "recorded"), [("Canteen, transport", ["Canteen", "transport"]), ("no", None)]
+    ("message", "recorded"),
+    [
+        ("Canteen, transport", ["Canteen", "transport"]),
+        ("no", None),
+        ("no more", None),  # #1938
+        ("that's it", None),  # #1938
+    ],
 )
 def test_an_emptied_list_on_screen_takes_the_next_message(message: str, recorded: list[str] | None):
     _, asked_id, after, _ = interview_engine.next_turn(_benefits_on_screen([]), message)
