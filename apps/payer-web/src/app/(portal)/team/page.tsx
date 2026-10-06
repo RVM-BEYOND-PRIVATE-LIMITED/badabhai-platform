@@ -1,5 +1,5 @@
 import { requireOwner } from "../../../lib/auth/org-roles";
-import { listOrgMembers } from "../../../lib/org-members";
+import { listOrgMembers, type OrgMemberView } from "../../../lib/org-members";
 import { PageHeader } from "../../../components/page-header";
 import { TeamManager } from "./team-manager";
 
@@ -12,10 +12,20 @@ export const dynamic = "force-dynamic";
  * nav-only hide — the nav merely omits the link as an affordance; THIS is the decision). The
  * member directory + the invite/remove actions bind to the caller's SERVER-HELD org (XB-A).
  * Faceless: members render with a server-masked email + role + status only — no raw PII.
+ *
+ * A failed members read stays ON the page (F30): it used to throw to the (portal) error boundary,
+ * taking the head and the invite form with it. `null` tells the manager the read failed (never
+ * `[]`, which would say the team is empty); it shows the standard in-place error with a Retry
+ * where the list goes, and keeps the invite form — inviting does not depend on that read.
  */
 export default async function TeamPage() {
   await requireOwner();
-  const members = await listOrgMembers();
+  let members: OrgMemberView[] | null = null;
+  try {
+    members = await listOrgMembers();
+  } catch {
+    members = null;
+  }
 
   // `.team-page` only NAMESPACES this screen's layout rules (the "W3-B" block in globals.css)
   // — it carries no styling of its own.

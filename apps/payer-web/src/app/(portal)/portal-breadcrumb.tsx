@@ -13,17 +13,18 @@ import { navTrail, type NavSection } from "./nav-model";
  * that destination:
  *
  *   /postings                 → Hiring                          (H1 "Postings")
- *   /postings/<id>            → Hiring › Postings   as TEXT     (back link "Postings")
+ *   /postings/<id>            → Hiring                          (back link "Postings")
  *   /postings/<id>/applicants → Hiring › Postings   as a LINK   (back link "<the posting>")
- *   /postings/ai/new          → Hiring › New posting as TEXT    (back link "New posting")
+ *   /postings/ai/new          → Hiring                          (a mode of New posting)
  *   /team/accept (owner)      → Organisation › Team as a LINK   (no back link)
  *   /dashboard, /account      → nothing
  *
- * ONE DOOR PER DESTINATION: a page one level below a destination carries a back link to it
- * (`NavItem.childrenLinkBack`), so on that page the trail names the destination as plain text —
- * the back link is the way up. Deeper pages keep the destination as a link (their back link goes
- * to a nearer parent). A trail with no link is not a navigation landmark, so it renders as plain
- * text, not a `<nav>`.
+ * ONE DOOR PER DESTINATION, ONE NAME PER HEAD: a page one level below a destination is reached
+ * back through the page itself (`NavItem.childrenLinkBack`: its back link, which NAMES the
+ * destination), so there the trail is the group alone — printing the destination too put the
+ * same word twice in the head (F16). Deeper pages keep the destination as a link (their back link
+ * goes to a nearer parent). A trail with no link is not a navigation landmark, so it renders as
+ * plain text, not a `<nav>`.
  *
  * The trail is derived from the SAME nav model the rail renders, so a section can never be named
  * one thing on the left and another thing on top. Ids and view segments are never rendered. A
@@ -38,11 +39,13 @@ export function PortalBreadcrumb({ sections }: { sections: NavSection[] }) {
   if (!owner) return null;
 
   const { depth } = owner;
-  // ON the destination itself, the H1 is its name: only the group is context.
-  if (depth === 0 && !owner.group) return null;
-  const showSection = depth > 0;
-  // One level below a destination whose children link back to it: the back link is the way up.
-  const linkSection = showSection && !(owner.item.childrenLinkBack === true && depth === 1);
+  // ON the destination itself the H1 is its name; one level below a destination whose children
+  // link back to it, the back link names it. Either way only the group is context.
+  const namedByPage = depth === 0 || (owner.item.childrenLinkBack === true && depth === 1);
+  if (namedByPage && !owner.group) return null;
+  // Below that, the destination is a step of the trail — and a LINK (the back link goes nearer),
+  // so only such a trail is a navigation landmark.
+  const showSection = !namedByPage;
 
   const steps = (
     <>
@@ -50,21 +53,17 @@ export function PortalBreadcrumb({ sections }: { sections: NavSection[] }) {
       {showSection ? (
         <span className="pcrumb__step">
           {owner.group ? <Icon name="caret-right" className="pcrumb__sep" /> : null}
-          {linkSection ? (
-            // The label is its own box so IT ellipsizes: an `overflow: hidden` link would clip
-            // the link's own phone hit strip (globals.css).
-            <Link className="pcrumb__link" href={owner.item.href}>
-              <span className="pcrumb__label">{owner.item.label}</span>
-            </Link>
-          ) : (
-            <span className="pcrumb__group">{owner.item.label}</span>
-          )}
+          {/* The label is its own box so IT ellipsizes: an `overflow: hidden` link would clip
+              the link's own phone hit strip (globals.css). */}
+          <Link className="pcrumb__link" href={owner.item.href}>
+            <span className="pcrumb__label">{owner.item.label}</span>
+          </Link>
         </span>
       ) : null}
     </>
   );
 
-  return linkSection ? (
+  return showSection ? (
     <nav className="pcrumb" aria-label="Breadcrumb">
       {steps}
     </nav>

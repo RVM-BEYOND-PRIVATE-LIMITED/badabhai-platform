@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import type { PostingSummary } from "../../../lib/contracts";
 import { Badge, Button, Card } from "../../../components/ds";
 import {
@@ -17,14 +17,17 @@ import {
  *
  * Runs in the BROWSER and sees NO secret. Each posting renders as a DS Card with its
  * real `status` Badge. Its TITLE opens the posting's details (as on the agency list); the row's
- * own links name what they open — "Applicants" (the faceless feed) and "Edit". (XB-A: the
- * Server Actions bind tenancy to the server-held session — the client never passes a payer id,
- * only the posting id.)
+ * own links name what they open — "Applicants" (the faceless feed) and "Edit posting", the same
+ * names every company surface uses (F13). (XB-A: the Server Actions bind tenancy to the
+ * server-held session — the client never passes a payer id, only the posting id.)
  *
  * The trio (pause / resume / add applicant slots) + CLOSE are LIVE payer-authed routes
- * (`POST /payer/job-postings/:id/{pause|resume|quota-topup|close}`, #178/#180). Each
- * action is per-row busy-guarded; a failure renders a retryable inline error in the
- * row's aria-live region — never fake data, never a blanked row.
+ * (`POST /payer/job-postings/:id/{pause|resume|quota-topup|close}`, #178/#180). A row draws
+ * ONLY the actions its status allows (F27): a disabled button cannot say why (no hover on a
+ * disabled control), so Pause is drawn for an OPEN posting only, Resume for a PAUSED one, Close
+ * for a draft or open one, and a closed posting has no action bar at all. Each action is per-row
+ * busy-guarded: the pressed button spins, its siblings are disabled (F39); a failure renders a
+ * retryable inline error in the row's aria-live region — never fake data, never a blanked row.
  *
  * FACELESS: a posting row carries only the payer's OWN fields (role / location / openings
  * band / status / applicant count / created date) — no worker name/phone ever reaches the DOM.
@@ -50,15 +53,54 @@ function statusTone(status: PostingSummary["status"]): "success" | "warning" | "
   return "neutral";
 }
 
+/** The lifecycle action a row is running (its button alone shows the spinner). */
+type RowAction = "pause" | "resume" | "topUp" | "close";
+
 interface RowState {
-  busy: boolean;
+  /** The action in flight for this row, or null when idle. */
+  busy: RowAction | null;
   error: string | null;
   /** A per-row SUCCESS note (e.g. the paid top-up confirmation — the faceless row
    * itself shows no quota column, so the effect must be said out loud). */
   notice: string | null;
 }
 
-const IDLE: RowState = { busy: false, error: null, notice: null };
+const IDLE: RowState = { busy: null, error: null, notice: null };
+
+type LifecycleResult =
+  | { ok: true; posting: PostingSummary | null; notice?: string }
+  | { ok: false; error: string };
+type LifecycleAction = (input: { postingId: string }) => Promise<LifecycleResult>;
+
+/** Each row action's Server Action (each binds tenancy to the session — only the id is sent). */
+const ACTIONS: Record<RowAction, LifecycleAction> = {
+  pause: pausePostingAction,
+  resume: resumePostingAction,
+  topUp: topUpQuotaAction,
+  close: closePostingAction,
+};
+
+/**
+ * The lifecycle actions a posting's status allows, in display order (F27) — an action that does
+ * not apply is not drawn (a disabled one could not say why). Add applicant slots keeps today's
+ * rule (any status but closed); the purchase itself is unchanged.
+ */
+export function rowActions(status: PostingSummary["status"]): RowAction[] {
+  const out: RowAction[] = [];
+  if (status === "open") out.push("pause");
+  if (status === "paused") out.push("resume");
+  if (status !== "closed") out.push("topUp");
+  if (status === "draft" || status === "open") out.push("close");
+  return out;
+}
+
+/** Each action's button face. */
+const ACTION_FACE: Record<RowAction, { label: string; icon: IconName }> = {
+  pause: { label: "Pause", icon: "pause" },
+  resume: { label: "Resume", icon: "play" },
+  topUp: { label: "Add applicant slots", icon: ACTION_ICON.topUpQuota },
+  close: { label: "Close posting", icon: ACTION_ICON.reject },
+};
 
 export function PostingsManager({
   postings,
@@ -81,14 +123,9 @@ export function PostingsManager({
     setState((prev) => ({ ...prev, [id]: { ...(prev[id] ?? IDLE), ...p } }));
   }
 
-  async function run(
-    id: string,
-    action: (input: { postingId: string }) => Promise<
-      | { ok: true; posting: PostingSummary | null; notice?: string }
-      | { ok: false; error: string }
-    >,
-  ) {
-    patchState(id, { busy: true, error: null, notice: null });
+  async function run(id: string, which: RowAction) {
+    const action = ACTIONS[which];
+    patchState(id, { busy: which, error: null, notice: null });
     try {
       const res = await action({ postingId: id });
       if (res.ok) {
@@ -96,14 +133,14 @@ export function PostingsManager({
           const posting = res.posting;
           setFreshRows((prev) => ({ ...prev, [id]: posting }));
         }
-        patchState(id, { busy: false, notice: res.notice ?? null });
+        patchState(id, { busy: null, notice: res.notice ?? null });
       } else {
-        patchState(id, { busy: false, error: res.error });
+        patchState(id, { busy: null, error: res.error });
       }
     } catch {
       // A rejected Server Action promise (offline / deploy mid-session) must not
       // strand the row busy-forever with every button disabled.
-      patchState(id, { busy: false, error: "Could not reach the server. Please retry." });
+      patchState(id, { busy: null, error: "Could not reach the server. Please retry." });
     }
   }
 
@@ -132,6 +169,7 @@ export function PostingsManager({
     <div className="postings-list">
       {rows.map((p) => {
         const rs = rowState(p.id);
+        const actions = rowActions(p.status);
         return (
           <Card key={p.id} padding="md" className="posting-card">
             <div className="posting-card__main">
@@ -166,7 +204,7 @@ export function PostingsManager({
                     <Icon name={ACTION_ICON.users} /> Applicants
                   </Link>{" "}
                   <Link className="postings-link" href={`/postings/${p.id}/edit`}>
-                    <Icon name={ACTION_ICON.edit} /> Edit
+                    <Icon name={ACTION_ICON.edit} /> Edit posting
                   </Link>
                 </div>
               )}
@@ -197,55 +235,23 @@ export function PostingsManager({
               </div>
             </div>
 
-            {readOnly ? null : (
+            {readOnly || actions.length === 0 ? null : (
               <div className="posting-card__actions">
-                {/* LIVE lifecycle trio + close (#178/#180) — per-row busy + inline error. */}
+                {/* LIVE lifecycle (#178/#180) — only what this status allows; per-row busy. */}
                 <div className="posting-card__btns">
-                  {p.status === "paused" ? (
+                  {actions.map((a) => (
                     <Button
+                      key={a}
                       variant="secondary"
                       size="sm"
-                      iconLeft="play"
-                      loading={rs.busy}
-                      disabled={rs.busy}
-                      onClick={() => void run(p.id, resumePostingAction)}
+                      iconLeft={ACTION_FACE[a].icon}
+                      loading={rs.busy === a}
+                      disabled={rs.busy !== null}
+                      onClick={() => void run(p.id, a)}
                     >
-                      Resume
+                      {ACTION_FACE[a].label}
                     </Button>
-                  ) : (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      iconLeft="pause"
-                      loading={rs.busy}
-                      disabled={rs.busy || p.status !== "open"}
-                      onClick={() => void run(p.id, pausePostingAction)}
-                    >
-                      Pause
-                    </Button>
-                  )}
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    iconLeft={ACTION_ICON.topUpQuota}
-                    loading={rs.busy}
-                    disabled={rs.busy || p.status === "closed"}
-                    onClick={() => void run(p.id, topUpQuotaAction)}
-                  >
-                    Add applicant slots
-                  </Button>
-                  {(p.status === "draft" || p.status === "open") && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      iconLeft={ACTION_ICON.reject}
-                      loading={rs.busy}
-                      disabled={rs.busy}
-                      onClick={() => void run(p.id, closePostingAction)}
-                    >
-                      Close posting
-                    </Button>
-                  )}
+                  ))}
                 </div>
               </div>
             )}

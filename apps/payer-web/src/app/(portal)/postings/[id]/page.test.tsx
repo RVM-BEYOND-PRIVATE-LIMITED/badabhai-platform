@@ -57,8 +57,8 @@ const DETAIL = {
   updatedAt: "2026-09-29T10:00:00.000Z",
 };
 
-async function page(): Promise<string> {
-  getPostingDetail.mockResolvedValueOnce(DETAIL);
+async function page(status = "open"): Promise<string> {
+  getPostingDetail.mockResolvedValueOnce({ ...DETAIL, summary: { ...DETAIL.summary, status } });
   const el = (await PostingDetailPage({ params: Promise.resolve({ id: ID }) })) as ReactElement;
   return renderToStaticMarkup(el);
 }
@@ -74,5 +74,39 @@ describe("PostingDetailPage — Posting naming", () => {
     const out = await page();
     expect(out).toContain('<aside class="posting-preview" aria-label="Worker card preview">');
     expect(out).not.toContain('aria-label="Job card"');
+  });
+});
+
+/**
+ * F03 (final sweep) — at 1280x720 the card ended at y=749: the head's actions wrapped under a long
+ * description and pushed the whole layout (card included) down a row. The head now LEADS the
+ * details column, so the card rail starts at the top of the page whatever the title, the
+ * description or the actions measure. Layout itself is pinned in job-card-preview.css.test.ts.
+ */
+describe("PostingDetailPage — the card rail starts at the top of the page (F03)", () => {
+  /** Where each landmark of the page starts in the markup (-1 when absent). */
+  const at = (out: string) => ({
+    grid: out.indexOf('<div class="posting-layout posting-layout--detail">'),
+    head: out.indexOf('<div class="posting-layout__head">'),
+    h1: out.indexOf('<h1 class="page-head__title">'),
+    alert: out.indexOf('<div class="alert alert--info">'),
+    details: out.indexOf('<section class="panel">'),
+    card: out.indexOf('<aside class="posting-preview"'),
+  });
+
+  it("ONE grid holds the head, the details and the card — the head first, the card last", async () => {
+    const i = at(await page());
+    expect(i.grid).toBe(0);
+    expect(i.head).toBeGreaterThan(i.grid);
+    expect(i.h1).toBeGreaterThan(i.head);
+    expect(i.details).toBeGreaterThan(i.h1);
+    expect(i.card).toBeGreaterThan(i.details);
+  });
+
+  it("a draft's note sits in the head, above the details — not above the card", async () => {
+    const i = at(await page("draft"));
+    expect(i.alert).toBeGreaterThan(i.h1);
+    expect(i.alert).toBeLessThan(i.details);
+    expect(i.head).toBeGreaterThan(i.grid);
   });
 });

@@ -1,13 +1,12 @@
 import Link from "next/link";
 import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
-import { getDashboard } from "../../../lib/payer-api";
+import { getCredits, getPostings, getUnlocks } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
 import { getOrgRole } from "../../../lib/auth/org-roles";
 import { agencyFlags } from "../../../lib/config";
 import { getLiveCatalog } from "../../../lib/live-catalog";
 import { unlockUnitPriceInr } from "../../../lib/pricing-config";
 import { postingRoutes } from "../../../lib/posting-routes";
-import type { Dashboard } from "../../../lib/contracts";
 import { Badge, Card, MaskedCandidate, StatTile } from "../../../components/ds";
 import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
@@ -48,16 +47,23 @@ export const dynamic = "force-dynamic";
  *
  * ONE DOOR PER DESTINATION (owner ruling 2026-10-01). "New posting" is the head's one primary
  * action — for an agency it opens the AGENCY form (`jobs`), never the company one. The Postings
- * list is reached from the "Your postings" panel alone. The counters are counts, the balance
- * included (the header chip is the balance's door); the unlock rows are rows. A "Needs your
- * attention" item shows no button of its own when the page already offers that destination
- * (the head's New posting, the Buy credits card). Credits is linked only for an owner:
- * `/credits` is Owner-only and a recruiter would land on a 404. Plans & capacity is a company
- * page (it sells company-posting entitlements), so an agency gets no card for it.
+ * list is reached from the "Your postings" panel alone. A posting card opens THAT POSTING, and its
+ * "Applicants" action opens the feed — the one rule on every surface (F12, as on the agency
+ * dashboard). The counters are counts, the balance included; the unlock rows are rows. The
+ * shell's balance chip is an owner's ONE door to Credits, so this page adds none (F15 — a "Buy
+ * credits" card was a second), and a "Needs your attention" item shows no button of its own for a
+ * destination the page or its header already offers (the head's New posting, the chip). Plans &
+ * capacity is a company page (it sells company-posting entitlements), so an agency gets no card.
  *
- * READS: an agency session never asks for the company postings list (`withPostings: false`) —
- * it shows none, and the backend gate for it is #1885. The per-unlock price comes from the live
- * catalog (the same source as Credits), never a literal.
+ * EACH PART IS READ ON ITS OWN (F29). Credits, unlocks and (for a company) postings are three
+ * reads; one failing used to replace the WHOLE page with "We could not load your account" — the
+ * postings, the needs-you band and the head's New posting with it. Now a failed part is `null`:
+ * its counter shows a neutral "—", its panel its own error state with Retry, and it raises no
+ * needs-you item (an unread balance is not an empty wallet). The head always renders.
+ *
+ * READS: an agency session never asks for the company postings list — it shows none, and the
+ * backend gate for it is #1885. The per-unlock price comes from the live catalog (the same source
+ * as Credits), never a literal.
  */
 export default async function DashboardPage() {
   const session = await requirePayer();
@@ -66,51 +72,32 @@ export default async function DashboardPage() {
   // The agency pages (Revenue, Referrals…) sit behind this flag; their tiles follow it.
   const agencyOn = isAgency && agencyFlags().agencyPortalEnabled;
   const posting = postingRoutes(isAgency);
-  // The per-unlock price (the same source as Credits), read BESIDE the dashboard read rather
-  // than after it. It never rejects (a failed read is the compile-time catalog), so an early
-  // return below leaves nothing unhandled.
+  // The per-unlock price (the same source as Credits), read BESIDE the three reads. It never
+  // rejects (a failed read is the compile-time catalog).
   const catalog = getLiveCatalog();
 
-  let data: Dashboard | null = null;
-  let failed = false;
-  try {
-    data = await getDashboard({ withPostings: !isAgency });
-  } catch {
-    failed = true;
-  }
+  // Three independent reads (F29): one failing never takes the others — or the page — with it.
+  // An agency never reads the company postings list (it shows none).
+  const [creditsRead, unlocksRead, postingsRead] = await Promise.allSettled([
+    getCredits(),
+    getUnlocks(),
+    isAgency ? Promise.resolve([]) : getPostings(),
+  ]);
+  const credits = readValue(creditsRead);
+  const unlocks = readValue(unlocksRead);
+  const postings = readValue(postingsRead);
 
-  if (failed || !data) {
-    return (
-      <>
-        <PageHeader title="Dashboard" />
-        <Card>
-          <div className="state state--error">
-            <span className="state__icon">
-              <Icon name="warning-circle" />
-            </span>
-            <h2 className="state__title">We could not load your account</h2>
-            <p className="state__body">
-              This is usually temporary. Your data is safe — nothing has changed.
-            </p>
-            <div className="state__actions">
-              <RetryButton />
-            </div>
-          </div>
-        </Card>
-      </>
-    );
-  }
-
-  const openCount = data.postings.filter((p) => p.status === "open").length;
   // No caption when the catalog offers no unlock price.
   const unitPrice = unlockUnitPriceInr((await catalog).products);
-  const recentUnlocks = data.unlocks.slice(0, 5);
-  const attention = buildAttentionItems(data, { isAgency, isOwner });
-  const quick = quickActions({ isOwner, isAgency });
-  // The destinations this page already offers: an attention item does not repeat one.
+  const recentUnlocks = (unlocks ?? []).slice(0, 5);
+  const attention = buildAttentionItems({ credits, unlocks, postings }, { isAgency, isOwner });
+  const quick = quickActions({ isAgency });
+  // The destinations this page (and its header) already offer: an attention item does not
+  // repeat one. For an owner the shell's balance chip is the door to Credits.
   const pageDoors = new Set<string>([
     ...(posting ? [posting.create] : []),
     ...quick.map((q) => q.href),
+    ...(isOwner ? ["/credits"] : []),
   ]);
 
   return (
@@ -166,10 +153,12 @@ export default async function DashboardPage() {
             Buy credits card are this page's doors to Credits. */}
         <StatTile
           label="Credit balance"
-          value={data.credits.balance}
+          value={credits?.balance ?? UNREAD}
           icon={ACTION_ICON.credits}
           caption={
-            unitPrice !== null ? (
+            credits === null ? (
+              UNREAD_CAPTION
+            ) : unitPrice !== null ? (
               <>
                 <span className="bb-mono">{formatInr(unitPrice)}</span> per unlock
               </>
@@ -179,9 +168,9 @@ export default async function DashboardPage() {
         {isAgency ? null : (
           <StatTile
             label="Open postings"
-            value={openCount}
+            value={postings === null ? UNREAD : postings.filter((x) => x.status === "open").length}
             icon={ACTION_ICON.posting}
-            caption={`${data.postings.length} total`}
+            caption={postings === null ? UNREAD_CAPTION : `${postings.length} total`}
           />
         )}
         {/* PARKED, not removed. /agency/revenue renders a real page explaining what is
@@ -202,9 +191,9 @@ export default async function DashboardPage() {
         {/* A count, not a door: the postings list it used to open shows no unlocks. */}
         <StatTile
           label="Contacts unlocked"
-          value={data.unlocks.length}
+          value={unlocks?.length ?? UNREAD}
           icon={ACTION_ICON.unlock}
-          caption="1 credit each"
+          caption={unlocks === null ? UNREAD_CAPTION : "1 credit each"}
         />
       </div>
 
@@ -243,7 +232,12 @@ export default async function DashboardPage() {
             </div>
           </div>
           <div className="panel__body">
-            {data.postings.length === 0 ? (
+            {postings === null ? (
+              readFailed(
+                "We couldn’t load your postings",
+                "Nothing has changed — your postings and their applicants are safe. Retry to read them again.",
+              )
+            ) : postings.length === 0 ? (
               <div className="state">
                 <span className="state__icon">
                   <Icon name={ACTION_ICON.posting} />
@@ -257,15 +251,16 @@ export default async function DashboardPage() {
               </div>
             ) : (
               <div className="dash-postings">
-                {data.postings.slice(0, 6).map((post) => (
-                  // Whole-card link to THIS posting's applicants. The id is the posting's OWN
-                  // opaque uuid (never a worker id/phone).
+                {postings.slice(0, 6).map((post) => (
+                  // Whole-card link to THIS posting's details (F12 — a posting's title always
+                  // opens the posting). The id is the posting's OWN opaque uuid (never a worker
+                  // id/phone).
                   <Card
                     key={post.id}
                     padding="sm"
                     className="dash-posting"
-                    href={`/postings/${post.id}/applicants`}
-                    ariaLabel={`${post.roleTitle} — view applicants`}
+                    href={`/postings/${post.id}`}
+                    ariaLabel={`${post.roleTitle} — view posting`}
                   >
                     <div className="dash-posting__main">
                       <div className="dash-posting__title">{post.roleTitle}</div>
@@ -279,11 +274,22 @@ export default async function DashboardPage() {
                       </div>
                     </div>
                     <div className="dash-posting__right">
+                      {/* The posting's "Applicants" action (F12/F13): a real link ABOVE the
+                          card's stretched overlay (z-index in CSS), named for its posting so a
+                          list of them reads apart. The whole card still opens the posting. */}
+                      <Link
+                        className="dash-posting__applicants"
+                        href={`/postings/${post.id}/applicants`}
+                        aria-label={`${post.roleTitle} — Applicants`}
+                      >
+                        <Icon name={ACTION_ICON.users} />
+                        <span>Applicants</span>
+                      </Link>
                       <Badge tone={post.status === "open" ? "success" : "neutral"} upper>
                         {post.status}
                       </Badge>
                       <span className="dash-posting__cta">
-                        View applicants
+                        View posting
                         <Icon name={ACTION_ICON.next} className="dash-view__arrow" />
                       </span>
                     </div>
@@ -306,7 +312,12 @@ export default async function DashboardPage() {
           </div>
         </div>
         <div className="panel__body">
-          {recentUnlocks.length === 0 ? (
+          {unlocks === null ? (
+            readFailed(
+              "We couldn’t load your recent unlocks",
+              "Nothing has changed — your unlocked contacts are safe. Retry to read them again.",
+            )
+          ) : recentUnlocks.length === 0 ? (
             <div className="state">
               <span className="state__icon">
                 <Icon name={ACTION_ICON.unlock} />
@@ -342,6 +353,34 @@ export default async function DashboardPage() {
   );
 }
 
+/** A counter whose read failed: neutral, never a 0 that was not read (F29). */
+const UNREAD = "—";
+const UNREAD_CAPTION = "Not available right now";
+
+/** A settled read's value, or null when it failed (the page shows that part's own state). */
+function readValue<T>(read: PromiseSettledResult<T>): T | null {
+  return read.status === "fulfilled" ? read.value : null;
+}
+
+/**
+ * A panel whose read failed (F29): the shared error state, in place of the panel's content, with
+ * an in-page Retry. Neutral copy — it never carries the backend's reason.
+ */
+function readFailed(title: string, body: string) {
+  return (
+    <div className="state state--error">
+      <span className="state__icon">
+        <Icon name="warning-circle" />
+      </span>
+      <h3 className="state__title">{title}</h3>
+      <p className="state__body">{body}</p>
+      <div className="state__actions">
+        <RetryButton />
+      </div>
+    </div>
+  );
+}
+
 const TONE_ICON: Record<"critical" | "warning" | "info", IconName> = {
   critical: "warning-octagon",
   warning: "warning",
@@ -359,36 +398,18 @@ interface QuickAction {
  * The high-frequency actions that are NOT already on this page. "New posting" is the head's
  * primary, and each posting card opens its posting, so neither is repeated here; an agency's
  * invite tools are its own section below (the inline invite panel, QR, batch links), so there is
- * no second "Invite workers" door to Referrals either. Every card follows its destination's gate:
- * Credits is Owner-only; Plans & capacity is a COMPANY page.
+ * no second "Invite workers" door to Referrals either; and the shell's balance chip is an owner's
+ * door to Credits on every page, so there is no "Buy credits" card (F15). Every card follows its
+ * destination's gate: Plans & capacity is a COMPANY page.
  */
-function quickActions({
-  isOwner,
-  isAgency,
-}: {
-  isOwner: boolean;
-  isAgency: boolean;
-}): QuickAction[] {
+function quickActions({ isAgency }: { isAgency: boolean }): QuickAction[] {
+  if (isAgency) return [];
   return [
-    ...(isOwner
-      ? [
-          {
-            href: "/credits",
-            label: "Buy credits",
-            description: "Add credits so shortlisting never stalls.",
-            icon: ACTION_ICON.credits,
-          },
-        ]
-      : []),
-    ...(isAgency
-      ? []
-      : [
-          {
-            href: "/plans",
-            label: "Plans & capacity",
-            description: "How many postings you can run at once.",
-            icon: "chart-donut" as const,
-          },
-        ]),
+    {
+      href: "/plans",
+      label: "Plans & capacity",
+      description: "How many postings you can run at once.",
+      icon: "chart-donut",
+    },
   ];
 }

@@ -477,3 +477,12 @@ describe("EditPostingForm — the navigating latch (I2: no double save during th
     expect(actionButtons.every((b) => b.props.disabled === true)).toBe(true);
   });
 });
+
+describe("EditPostingForm — owner naming ruling: the entity is a 'posting' (F36)", () => {
+  it("the description hint says 'open the posting', never 'job'", () => {
+    const hint = hosts(render({})).find((e) => e.props.id === "description-msg");
+    expect(hint).toBeDefined();
+    expect(deepText(hint!)).toContain("Workers read this when they open the posting.");
+    expect(deepText(hint!)).not.toMatch(/\bjob\b/i);
+  });
+});

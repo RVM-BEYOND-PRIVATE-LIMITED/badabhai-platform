@@ -562,7 +562,7 @@ export function EditPostingForm({
               value={fields.description}
               error={errorOf("description")}
               aria-invalid={errorOf("description") ? true : undefined}
-              hint="Workers read this when they open the job. No phone number or email."
+              hint="Workers read this when they open the posting. No phone number or email."
               onChange={(e) => set("description", e.target.value)}
               rows={4}
             />

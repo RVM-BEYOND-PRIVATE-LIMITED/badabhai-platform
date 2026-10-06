@@ -9,7 +9,7 @@
  *   * the experience window (`min/max_experience_years`),
  *   * the shift, and the needed-by chip,
  *   * the requirement + benefit chip rows.
- * The DESCRIPTION is not on that card — the worker reads it when they open the job (the detail
+ * The DESCRIPTION is not on that card — the worker reads it when they open the posting (the detail
  * screen). It is still required: a worker who opens a job with no description has nothing to go on.
  *
  * An unstated field is a HOLE, not a tidy omission. So the forms insist on all of them — the
@@ -126,7 +126,7 @@ const CHECKS: readonly GapCheck[] = [
     field: () => "description",
     title: "Add the description",
     message:
-      "Workers read it when they open the job — it is not on the swipe card. Say what the work is.",
+      "Workers read it when they open the posting — it is not on the swipe card. Say what the work is.",
     missing: (i) => i.description.trim() === "",
   },
   {

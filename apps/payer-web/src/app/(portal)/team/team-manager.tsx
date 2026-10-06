@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useTransition, type FormEvent } from "react";
+import { Icon } from "@badabhai/icons";
 import type { OrgMemberView, OrgMemberStatus } from "../../../lib/org-members";
 import type { OrgRole } from "../../../lib/auth/org-roles";
 import { Badge, Button, Input } from "../../../components/ds";
+import { RetryButton } from "../../../components/retry-button";
 import { inviteMemberAction, removeMemberAction } from "./actions";
 
 /**
@@ -22,6 +24,11 @@ import { inviteMemberAction, removeMemberAction } from "./actions";
  * next. The action result is a TONED `alert` band — success (green ✓) or danger (red ⚠) driven by
  * the action's `ok` flag, mirroring accept-invite. The message string is already PII-safe (it
  * never echoes an email), so tone conveys outcome without becoming an enumeration oracle.
+ *
+ * `members === null` means the list read FAILED (F30): the directory shows the standard in-place
+ * error with a Retry, and the invite form stays. On a phone the table is re-laid as one card per
+ * member so Remove is on screen without scrolling it sideways (F38, globals.css); because CSS
+ * re-display can drop a table's semantics in some engines, every part states its role.
  */
 const ROLE_TONE: Record<OrgRole, "brand" | "neutral"> = { owner: "brand", recruiter: "neutral" };
 /** The directory's heading — also the NAME of its scroll region (aria-labelledby). */
@@ -32,7 +39,7 @@ const STATUS_TONE: Record<OrgMemberStatus, "success" | "warning" | "neutral"> = 
   removed: "neutral",
 };
 
-export function TeamManager({ members }: { members: OrgMemberView[] }) {
+export function TeamManager({ members }: { members: OrgMemberView[] | null }) {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
@@ -111,7 +118,21 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
           </div>
         </div>
         <div className="panel__body">
-          {members.length === 0 ? (
+          {members === null ? (
+            <div className="state state--error">
+              <span className="state__icon">
+                <Icon name="warning-circle" />
+              </span>
+              <h3 className="state__title">We couldn&rsquo;t load your team</h3>
+              <p className="state__body">
+                Nothing has changed — everyone still has the access they had. You can still invite a
+                recruiter above; retry to see the list.
+              </p>
+              <div className="state__actions">
+                <RetryButton />
+              </div>
+            </div>
+          ) : members.length === 0 ? (
             <div className="state">
               <span className="state__icon">
                 <i className="ph-fill ph-users-three" aria-hidden="true" />
@@ -134,19 +155,27 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
               role="region"
               aria-labelledby={MEMBERS_HEADING_ID}
             >
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th scope="col">Member</th>
-                    <th scope="col">Role</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Manage</th>
+              <table className="table" role="table">
+                <thead role="rowgroup">
+                  <tr role="row">
+                    <th scope="col" role="columnheader">
+                      Member
+                    </th>
+                    <th scope="col" role="columnheader">
+                      Role
+                    </th>
+                    <th scope="col" role="columnheader">
+                      Status
+                    </th>
+                    <th scope="col" role="columnheader">
+                      Manage
+                    </th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody role="rowgroup">
                   {members.map((m) => (
-                    <tr key={m.memberId}>
-                      <td className="mono">
+                    <tr key={m.memberId} role="row">
+                      <td className="mono" role="cell">
                         {m.emailMasked}
                         {m.isSelf ? (
                           <>
@@ -155,13 +184,13 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
                           </>
                         ) : null}
                       </td>
-                      <td>
+                      <td role="cell">
                         <Badge tone={ROLE_TONE[m.orgRole]}>{m.orgRole}</Badge>
                       </td>
-                      <td>
+                      <td role="cell">
                         <Badge tone={STATUS_TONE[m.status]}>{m.status}</Badge>
                       </td>
-                      <td className="rowactions">
+                      <td className="rowactions" role="cell">
                         {m.isSelf || m.orgRole === "owner" ? (
                           // Decorative placeholder: this row has no remove affordance (own row
                           // or an owner). Hidden from AT so the cell reads as empty, not as "—".

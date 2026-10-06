@@ -171,3 +171,65 @@ describe("TeamManager — W3-B: the directory is a labelled, keyboard-scrollable
     expect(text).not.toContain("harish");
   });
 });
+
+/** Every element of the given host tag, depth-first (the tree is NOT expanded). */
+function byTag(node: ReactNode, tag: string, acc: ReactElement[] = []): ReactElement[] {
+  if (node === null || node === undefined || typeof node !== "object") return acc;
+  if (Array.isArray(node)) {
+    node.forEach((c) => byTag(c, tag, acc));
+    return acc;
+  }
+  const el = node as ReactElement<{ children?: ReactNode }>;
+  if (el.type === tag) acc.push(el);
+  if (el.props && "children" in el.props) byTag(el.props.children, tag, acc);
+  return acc;
+}
+
+describe("TeamManager — a failed members read (F30)", () => {
+  it("keeps the invite form and shows the in-place error with a Retry — never 'No members yet'", async () => {
+    const { RetryButton } = await import("../../../components/retry-button");
+    const tree = TeamManager({ members: null }) as ReactElement;
+    // The invite form still works: inviting does not depend on the list read.
+    expect(gatherButtons(tree)).toContain("Send invite");
+    const errors = findByClass(tree, "state--error");
+    expect(errors).toHaveLength(1);
+    expect(gatherText(errors[0]!)).toContain("We couldn’t load your team");
+    const retry: ReactElement[] = [];
+    (function w(node: ReactNode): void {
+      if (node === null || node === undefined || typeof node !== "object") return;
+      if (Array.isArray(node)) return node.forEach(w);
+      const el = node as ReactElement<{ children?: ReactNode }>;
+      if (el.type === RetryButton) retry.push(el);
+      if (el.props && "children" in el.props) w(el.props.children);
+    })(errors[0]!);
+    expect(retry).toHaveLength(1);
+    // Nothing is claimed about a team that was not read.
+    expect(gatherText(tree)).not.toMatch(/No members yet/i);
+    expect(findByClass(tree, "table")).toHaveLength(0);
+  });
+});
+
+describe("TeamManager — the members table stacks into cards on a phone (F38)", () => {
+  // On a phone the table is re-laid as one card per member (w3b-page-polish.css.test.ts), so
+  // Remove is on screen without scrolling the table sideways. A table re-displayed by CSS can
+  // lose its table semantics in some engines, so the markup states them explicitly.
+  it("every table part carries its explicit table role", () => {
+    const tree = TeamManager({ members: [recruiter, self] }) as ReactElement;
+    const role = (tag: string) => byTag(tree, tag).map((e) => (e.props as { role?: string }).role);
+    expect(role("table")).toEqual(["table"]);
+    expect(role("thead")).toEqual(["rowgroup"]);
+    expect(role("tbody")).toEqual(["rowgroup"]);
+    expect(role("tr")).toEqual(["row", "row", "row"]);
+    expect(role("th")).toEqual(["columnheader", "columnheader", "columnheader", "columnheader"]);
+    expect(role("td")).toEqual(Array(8).fill("cell"));
+  });
+
+  it("the Remove cell is the row's LAST cell (the phone card pins it to the card's end)", () => {
+    const tree = TeamManager({ members: [recruiter] }) as ReactElement;
+    const row = byTag(tree, "tr")[1]!;
+    const cells = byTag(row, "td");
+    expect(cells).toHaveLength(4);
+    expect((cells[3]!.props as { className?: string }).className).toBe("rowactions");
+    expect(gatherButtons(cells[3]!)).toEqual(["Remove"]);
+  });
+});

@@ -15,9 +15,9 @@ import type { Capacity } from "../../lib/contracts";
  *     W3-B CSS block is scoped to these wrappers — see w3b-page-polish.css.test.ts);
  *   · the per-posting table on /plans is a focusable scroll region NAMED BY its panel heading
  *     (aria-labelledby → the heading's id, not a copied aria-label string);
- *   · /plans: credits are bought on /credits through ONE section-level "Buy credits" (Credits
- *     does not preselect a pack, so per-pack buttons were one door N times) — for an OWNER only
- *     (/credits is Owner-only); the pack cards carry no action;
+ *   · /plans: credits are bought on /credits, and the shell's balance chip is an owner's door
+ *     there — so the page adds none of its own (F15; per-pack buttons were one door N times, and
+ *     a section "Buy credits" beside the chip was two); the pack cards carry no action;
  *   · /postings for an AGENT: redirected to their own Postings, unless they own older company
  *     postings, which are shown READ-ONLY (no create action).
  * Env is node: each async Server Component is awaited to an element tree and walked. The
@@ -274,11 +274,11 @@ function hrefs(node: ReactNode, acc: string[] = []): string[] {
   return acc;
 }
 
-describe("W3-B · /plans — credits are bought on /credits, through ONE door", () => {
+describe("W3-B · /plans — credits are bought on /credits, through the shell's ONE door", () => {
   const creditPacks = (tree: ReactElement) =>
     byClass(tree, "plan-card").filter((c) => /\bcredits\b/.test(textOf(c)) && !/Valid for/.test(textOf(c)));
 
-  it("OWNER: one section-level 'Buy credits' → /credits; the pack cards carry no action", async () => {
+  it("OWNER: no in-page door to /credits (the header balance is it — F15); packs carry no action", async () => {
     const tree = (await plans.default()) as ReactElement;
     const packs = creditPacks(tree);
     expect(packs.length).toBeGreaterThan(1);
@@ -286,10 +286,10 @@ describe("W3-B · /plans — credits are bought on /credits, through ONE door", 
       expect(byClass(pack, "bb-btn")).toEqual([]);
       expect(hrefs(pack)).toEqual([]);
     }
-    expect(hrefs(tree).filter((h) => h === "/credits")).toHaveLength(1);
-    const buy = byClass(tree, "bb-btn").filter((b) => props(b).href === "/credits");
-    expect(buy).toHaveLength(1);
-    expect(textOf(buy[0]!)).toBe("Buy credits");
+    expect(hrefs(tree).filter((h) => h === "/credits")).toEqual([]);
+    expect(byClass(tree, "bb-btn").filter((b) => props(b).href === "/credits")).toEqual([]);
+    // …and the section says where buying happens instead.
+    expect(textOf(tree)).toContain("your balance at the top of the page opens Credits");
   });
 
   it("RECRUITER: no link to /credits anywhere (it is Owner-only — a 404 for them)", async () => {
@@ -301,7 +301,7 @@ describe("W3-B · /plans — credits are bought on /credits, through ONE door", 
   });
 });
 
-describe("/plans — one New posting, and the role links open the posting's applicants", () => {
+describe("/plans — one New posting, and the role links open the posting (F12)", () => {
   it("the page offers ONE 'New posting', to the company form", async () => {
     const tree = (await plans.default()) as ReactElement;
     const create = hrefs(tree).filter((h) => h === "/postings/new");
@@ -312,9 +312,10 @@ describe("/plans — one New posting, and the role links open the posting's appl
     expect(hrefs(empty).filter((h) => h === "/postings/new")).toHaveLength(1);
   });
 
-  it("each role in the per-posting table opens that posting's applicants", async () => {
+  it("each role in the per-posting table opens that posting's details, never its applicants", async () => {
     const tree = (await plans.default()) as ReactElement;
-    expect(hrefs(tree)).toContain("/postings/bbbb2222-0000-4000-8000-000000000001/applicants");
+    expect(hrefs(tree)).toContain("/postings/bbbb2222-0000-4000-8000-000000000001");
+    expect(hrefs(tree).filter((h) => h.endsWith("/applicants"))).toEqual([]);
   });
 });
 
@@ -361,5 +362,37 @@ describe("/postings for an AGENT — their own Postings, or their older ones rea
     const head = kids.find((k) => k && typeof k === "object" && "title" in (k.props as object))!;
     expect(props(head).title).toBe("Postings");
     expect(props(head).primaryAction).toMatchObject({ href: "/postings/new", label: "New posting" });
+  });
+});
+
+/**
+ * F30 (final sweep) — a 500 on the members read threw to the (portal) error boundary: "Something
+ * went wrong", with the page head AND the invite form gone. The read is now caught in place.
+ */
+describe("/team — a failed members read stays on the page (F30)", () => {
+  it("renders its head and the manager with NO members list (null), never throwing", async () => {
+    listOrgMembers.mockRejectedValue(new Error("members 500"));
+    const root = (await team.default()) as ReactElement;
+    expect(props(root).className).toBe("team-page");
+    const kids = (props(root).children as ReactNode[]).filter(
+      (c): c is ReactElement => typeof c === "object" && c !== null,
+    );
+    expect(kids.map((k) => (k.type as { name?: string }).name)).toEqual([
+      "PageHeader",
+      "TeamManager",
+    ]);
+    expect(props(kids[0]!).title).toBe("Team");
+    // null = "the read failed" (never [] — that would say the team is empty).
+    expect(props(kids[1]!).members).toBeNull();
+  });
+
+  it("a successful read still hands the members through", async () => {
+    listOrgMembers.mockResolvedValue([{ memberId: "m1" }]);
+    const root = (await team.default()) as ReactElement;
+    const manager = (props(root).children as ReactNode[]).find(
+      (c): c is ReactElement =>
+        typeof c === "object" && c !== null && "members" in (c as ReactElement<object>).props,
+    )!;
+    expect(props(manager).members).toEqual([{ memberId: "m1" }]);
   });
 });

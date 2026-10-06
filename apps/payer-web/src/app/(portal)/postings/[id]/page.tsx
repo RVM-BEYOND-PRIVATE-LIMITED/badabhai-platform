@@ -21,6 +21,11 @@ export const dynamic = "force-dynamic";
  * An AGENT's older company posting is VIEW-ONLY (owner ruling 2026-10-01): no action at all — not
  * Edit (its page sends an agent back here) and not Applicants (that feed unlocks contacts; it
  * sends an agent back here too). The agency's own postings live under /agency/jobs.
+ *
+ * LAYOUT (F03): the head — and a draft's note — LEAD the details column, so the card rail beside
+ * them starts at the top of the page. With the head above the whole layout, a head whose actions
+ * wrapped (1280 / 1366) pushed the card down a row and its brand plate fell below a 720px fold.
+ * On a phone the head still comes first, then the card, then the details (globals.css).
  */
 
 function day(ts: string): string {
@@ -51,9 +56,10 @@ export default async function PostingDetailPage({ params }: { params: Promise<{ 
     label: "Edit posting",
     icon: ACTION_ICON.edit,
   };
+  // One name per destination (F13): the faceless feed is "Applicants" on every company surface.
   const applicants: PageHeaderAction = {
     href: `/postings/${summary.id}/applicants`,
-    label: "View applicants",
+    label: "Applicants",
     icon: ACTION_ICON.users,
   };
   // ONE action per destination: a draft has no applicants yet, so its one action is to finish
@@ -63,74 +69,74 @@ export default async function PostingDetailPage({ params }: { params: Promise<{ 
   const secondaries = readOnly || isDraft ? [] : [edit];
 
   return (
-    <>
-      <PageHeader
-        back={{ href: "/postings", label: readOnly ? "Older postings" : "Postings" }}
-        title={summary.roleTitle}
-        description={
-          readOnly
-            ? "What this older posting says and where it stands — it is view-only."
-            : "What this posting says and where it stands — applicants stay masked until you unlock them."
-        }
-        status={
-          <Badge tone={statusTone(summary.status)} upper>
-            {summary.status}
-          </Badge>
-        }
-        primaryAction={primary}
-        secondaryActions={secondaries}
-      />
+    <div className="posting-layout posting-layout--detail">
+      <div className="posting-layout__head">
+        <PageHeader
+          back={{ href: "/postings", label: readOnly ? "Older postings" : "Postings" }}
+          title={summary.roleTitle}
+          description={
+            readOnly
+              ? "What this older posting says and where it stands — it is view-only."
+              : "What this posting says and where it stands — applicants stay masked until you unlock them."
+          }
+          status={
+            <Badge tone={statusTone(summary.status)} upper>
+              {summary.status}
+            </Badge>
+          }
+          primaryAction={primary}
+          secondaryActions={secondaries}
+        />
 
-      {isDraft ? (
-        <div className="alert alert--info">
-          <i className="ph-fill ph-info alert__icon" aria-hidden="true" />
-          <div className="alert__text">
-            <p className="alert__title">This posting is a draft</p>
-            <p className="alert__body">
-              {readOnly
-                ? "A draft reaches nobody, and older postings are view-only."
-                : "A draft reaches nobody. Finish the card and publish it so workers can find it."}
-            </p>
+        {isDraft ? (
+          <div className="alert alert--info">
+            <i className="ph-fill ph-info alert__icon" aria-hidden="true" />
+            <div className="alert__text">
+              <p className="alert__title">This posting is a draft</p>
+              <p className="alert__body">
+                {readOnly
+                  ? "A draft reaches nobody, and older postings are view-only."
+                  : "A draft reaches nobody. Finish the card and publish it so workers can find it."}
+              </p>
+            </div>
           </div>
-        </div>
-      ) : null}
-
-      <div className="posting-layout">
-        <section className="panel">
-          <div className="panel__head">
-            <h2 className="panel__title">Posting details</h2>
-          </div>
-          <div className="panel__body">
-            {/* Anything the card beside this list ALSO shows is formatted by the card's own mapper
-                (`toJobCardView`), so the two can never disagree about one posting. */}
-            <dl className="kv">
-              <dt className="kv__k">Location</dt>
-              <dd className="kv__v">{view.place || "—"}</dd>
-              <dt className="kv__k">Location note</dt>
-              <dd className="kv__v">{summary.locationLabel ?? "—"}</dd>
-              <dt className="kv__k">Role</dt>
-              <dd className="kv__v">{jobRoleLabel(card.role_kind) ?? "—"}</dd>
-              <dt className="kv__k">Openings</dt>
-              <dd className="kv__v bb-mono">{summary.vacancyBand}</dd>
-              <dt className="kv__k">Applicants</dt>
-              <dd className="kv__v">
-                <span className="bb-mono">{summary.applicantCount}</span> /{" "}
-                <span className="bb-mono">{summary.applicantQuota ?? "—"}</span>
-              </dd>
-              <dt className="kv__k">Posted</dt>
-              <dd className="kv__v bb-mono">{day(summary.createdAt)}</dd>
-              <dt className="kv__k">Description</dt>
-              <dd className="kv__v kv__v--prose">{description ?? "—"}</dd>
-            </dl>
-          </div>
-        </section>
-
-        <aside className="posting-preview" aria-label="Worker card preview">
-          <div className="posting-preview__scroll">
-            <JobCardPreview fields={card} />
-          </div>
-        </aside>
+        ) : null}
       </div>
-    </>
+
+      <section className="panel">
+        <div className="panel__head">
+          <h2 className="panel__title">Posting details</h2>
+        </div>
+        <div className="panel__body">
+          {/* Anything the card beside this list ALSO shows is formatted by the card's own mapper
+              (`toJobCardView`), so the two can never disagree about one posting. */}
+          <dl className="kv">
+            <dt className="kv__k">Location</dt>
+            <dd className="kv__v">{view.place || "—"}</dd>
+            <dt className="kv__k">Location note</dt>
+            <dd className="kv__v">{summary.locationLabel ?? "—"}</dd>
+            <dt className="kv__k">Role</dt>
+            <dd className="kv__v">{jobRoleLabel(card.role_kind) ?? "—"}</dd>
+            <dt className="kv__k">Openings</dt>
+            <dd className="kv__v bb-mono">{summary.vacancyBand}</dd>
+            <dt className="kv__k">Applicants</dt>
+            <dd className="kv__v">
+              <span className="bb-mono">{summary.applicantCount}</span> /{" "}
+              <span className="bb-mono">{summary.applicantQuota ?? "—"}</span>
+            </dd>
+            <dt className="kv__k">Posted</dt>
+            <dd className="kv__v bb-mono">{day(summary.createdAt)}</dd>
+            <dt className="kv__k">Description</dt>
+            <dd className="kv__v kv__v--prose">{description ?? "—"}</dd>
+          </dl>
+        </div>
+      </section>
+
+      <aside className="posting-preview" aria-label="Worker card preview">
+        <div className="posting-preview__scroll">
+          <JobCardPreview fields={card} />
+        </div>
+      </aside>
+    </div>
   );
 }

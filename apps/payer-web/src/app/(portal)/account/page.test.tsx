@@ -32,6 +32,8 @@ const AccountFormMock = vi.fn((_props: Record<string, unknown>) => null);
 vi.mock("./account-form", () => ({ AccountForm: (props: Record<string, unknown>) => AccountFormMock(props) }));
 
 const { default: AccountPage } = await import("./page");
+const { Badge } = await import("../../../components/ds");
+const { EMAIL_SUPPORT_HELPER } = await import("./messages");
 const { AccountForm: MockedAccountForm } = await import("./account-form");
 
 const { PageHeader } = await import("../../../components/page-header");
@@ -119,14 +121,10 @@ describe("AccountPage — identity header + edit form wiring", () => {
     expect(findByClass(head, "page-back")).toEqual([]);
   });
 
-  it("forwards the session's OWN fields into the AccountForm (org/email/phoneLast4/role/status)", async () => {
+  it("forwards the session's OWN editable fields into the AccountForm (org + phoneLast4) only", async () => {
     const props = accountFormProps(await render());
     expect(props).toBeDefined();
-    expect(props!.orgName).toBe("Acme Tools");
-    expect(props!.email).toBe("ops@acme.example");
-    expect(props!.phoneLast4).toBe("1234");
-    expect(props!.role).toBe("employer");
-    expect(props!.status).toBe("active");
+    expect(props).toEqual({ orgName: "Acme Tools", phoneLast4: "1234" });
   });
 
   it("passes phoneLast4 as null (not the full number) when there is no phone on file", async () => {
@@ -134,10 +132,41 @@ describe("AccountPage — identity header + edit form wiring", () => {
     expect(props!.phoneLast4).toBeNull();
   });
 
-  it("forwards agency role + suspended status through to the form", async () => {
-    const props = accountFormProps(await render({ role: "agent", status: "suspended" }));
-    expect(props!.role).toBe("agent");
-    expect(props!.status).toBe("suspended");
+  it("shows agency role + suspended status as Badges in the read-only panel", async () => {
+    const tree = await render({ role: "agent", status: "suspended" });
+    const panel = findByClass(tree, "panel").find((x) => textOf(x).includes("Signed in as"))!;
+    const badges = findAll(panel, Badge).map((b) => textOf(b).trim());
+    expect(badges).toEqual(["Agency", "Suspended"]);
+  });
+});
+
+/**
+ * F22 (final sweep) — "Save changes", the page's one primary, sat at y=1,046 on an 800px screen
+ * (y=1,288 at 375): a read-only identity panel led the page and the form carried a read-only
+ * block between its fields and Save. What you can EDIT now leads; the facts follow it.
+ */
+describe("AccountPage — the editable form leads, the read-only facts follow (F22)", () => {
+  const panels = (tree: ReactElement) =>
+    findByClass(tree, "panel").map((x) => textOf(findByClass(x, "panel__title")[0]!).trim());
+
+  it("'Your details' (the form) comes first, 'Signed in as' after it", async () => {
+    const tree = await render();
+    expect(panels(tree)).toEqual(["Your details", "Signed in as"]);
+    const first = findByClass(tree, "panel")[0]!;
+    expect(findAll(first, MockedAccountForm)).toHaveLength(1);
+  });
+
+  it("the read-only panel holds the login email (mono), role, status and the support helper", async () => {
+    const tree = await render();
+    const panel = findByClass(tree, "panel")[1]!;
+    const text = textOf(panel);
+    for (const k of ["Organisation", "Account email", "Role", "Status"]) expect(text).toContain(k);
+    expect(text).toContain("Acme Tools");
+    expect(textOf(findByClass(panel, "bb-mono")[0]!)).toBe("ops@acme.example");
+    expect(findAll(panel, Badge).map((b) => textOf(b).trim())).toEqual(["Company", "Active"]);
+    expect(text).toContain(EMAIL_SUPPORT_HELPER);
+    // The email is shown ONCE on the page.
+    expect(textOf(tree).match(/ops@acme\.example/g)).toHaveLength(1);
   });
 });
 
