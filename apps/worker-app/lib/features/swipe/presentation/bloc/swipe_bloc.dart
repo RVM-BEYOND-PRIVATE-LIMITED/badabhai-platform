@@ -159,8 +159,13 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
         _reloadQueued = false;
         final List<Completer<void>> served = List<Completer<void>>.of(_waiters);
         _waiters.clear();
-        await _loadFeed(emit, background: background);
-        _complete(served);
+        try {
+          await _loadFeed(emit, background: background);
+        } finally {
+          // Even an unexpected (non-Failure) throw settles its waiters — a
+          // refresh spinner must never outlive the load it was waiting on.
+          _complete(served);
+        }
         // A queued re-run never flashes the loader over a deck just loaded.
         background = true;
       } while (_reloadQueued && !emit.isDone);

@@ -64,10 +64,13 @@ export default async function ApplicantsPage({
 
   let balance: number | null = null;
   let roleTitle: string | null = null;
+  let postingStatus: string | null = null;
   try {
     const dashboard = await getDashboard({ withPostings: true });
     balance = dashboard.credits.balance;
-    roleTitle = dashboard.postings.find((p) => p.id === id)?.roleTitle ?? null;
+    const posting = dashboard.postings.find((p) => p.id === id);
+    roleTitle = posting?.roleTitle ?? null;
+    postingStatus = posting?.status ?? null;
   } catch {
     // Balance unavailable → the feed renders with Unlock enabled; never blank it.
     balance = null;
@@ -109,8 +112,11 @@ export default async function ApplicantsPage({
           Postings is the way out (the header trail is not drawn on the narrowest phones). */}
       <PageHeader {...header} back={notFound ? undefined : header.back} />
 
-      {/* A fresh publish lands HERE with no applicants yet — confirm how many it reached. */}
-      {notFound ? null : <PublishedReachNotice reached={parsePublishedReach(query[PUBLISHED_REACH_PARAM])} />}
+      {/* A fresh publish lands HERE with no applicants yet — confirm how many it reached. Only a
+          posting known to be LIVE claims a reach: a stale link onto a since-paused one shows none. */}
+      {notFound || postingStatus !== "open" ? null : (
+        <PublishedReachNotice reached={parsePublishedReach(query[PUBLISHED_REACH_PARAM])} />
+      )}
 
       {notFound ? (
         // NEUTRAL not-found (XB-A): the copy is the UNION of "does not exist" and "not yours",

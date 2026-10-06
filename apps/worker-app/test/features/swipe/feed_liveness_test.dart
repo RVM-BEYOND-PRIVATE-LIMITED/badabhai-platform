@@ -135,6 +135,21 @@ void main() {
       await done.future.timeout(const Duration(seconds: 1));
     });
 
+    test('done completes even on an unexpected (non-Failure) throw', () async {
+      _stubFeed(repo, () async => throw StateError('bug'));
+      final Completer<void> done = Completer<void>();
+      final List<Object> uncaught = <Object>[];
+      // Bloc reports an uncaught handler error into the zone it was built in,
+      // so build it inside a guarded zone and assert the error surfaced there.
+      runZonedGuarded(() {
+        final SwipeBloc bloc = SwipeBloc(repo);
+        addTearDown(bloc.close);
+        bloc.add(SwipeFeedRequested(background: true, done: done));
+      }, (Object error, StackTrace _) => uncaught.add(error));
+      await done.future.timeout(const Duration(seconds: 1));
+      expect(uncaught.single, isA<StateError>());
+    });
+
     test('a plain request during an in-flight load is coalesced into it',
         () async {
       final Completer<List<FeedItem>> gate = Completer<List<FeedItem>>();

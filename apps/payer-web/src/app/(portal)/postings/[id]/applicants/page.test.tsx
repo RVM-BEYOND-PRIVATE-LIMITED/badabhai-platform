@@ -382,4 +382,10 @@ describe("applicants page — Reached N workers (a fresh publish lands here)", (
     getApplicantFeed.mockResolvedValueOnce(null);
     expect(textOf(await landed({ reached: "18" }))).not.toContain("Reached");
   });
+
+  it("a stale link onto a posting that is no longer open claims no reach", async () => {
+    getApplicantFeed.mockResolvedValueOnce({ ...FEED, applicants: [] });
+    getDashboard.mockResolvedValueOnce(dash(5, [{ id: POSTING, roleTitle: "CNC Turner", status: "paused" }]));
+    expect(textOf(await landed({ reached: "18" }))).not.toContain("Reached");
+  });
 });

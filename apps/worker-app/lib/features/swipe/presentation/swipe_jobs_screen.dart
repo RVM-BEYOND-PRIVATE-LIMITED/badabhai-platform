@@ -109,9 +109,7 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
   /// Whether the Jobs tab is the one on screen. Refetches that fire while the
   /// worker is on another tab are pointless: [TabFocusRefetch] reloads the
   /// moment Jobs comes back into view.
-  bool get _jobsTabVisible =>
-      !locator.isRegistered<TabFocus>() ||
-      locator<TabFocus>().value == TabIndex.jobs;
+  bool get _jobsTabVisible => locator<TabFocus>().value == TabIndex.jobs;
 
   /// The app came back to the foreground. Jobs may have been published (or the
   /// profile edited elsewhere) while it was away, so a visible feed reloads in
