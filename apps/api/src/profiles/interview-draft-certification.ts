@@ -60,7 +60,10 @@ export const MODEL_FREE_TEXT_DRAFT_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 /** Draft fields whose `llm_parse` value is kept only when the city gazetteer recognises it. */
-const GAZETTEER_DRAFT_FIELDS: ReadonlySet<string> = new Set(["current_city", "preferred_locations"]);
+const GAZETTEER_DRAFT_FIELDS: ReadonlySet<string> = new Set([
+  "current_city",
+  "preferred_locations",
+]);
 
 export interface CertifiedInterviewDraft {
   /** The projection's draft with every withheld field removed. Kept values are unchanged. */

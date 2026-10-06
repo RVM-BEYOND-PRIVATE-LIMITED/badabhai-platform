@@ -244,6 +244,8 @@ export * from "./promotable-skills";
 export * from "./match-skills";
 // The fourth bridge — closed-set pack answers → the `skill_*`/`role_*` ids they claim.
 export * from "./pack-answer-skills";
+// #2021 — a generic family pack's `target_field: skills` answers → the `skill_*` ids they claim.
+export * from "./generic-pack-skills";
 export * from "./crosswalk-integrity";
 
 // ADR-0030 / TAX-5 — PROPOSED vernacular wedge aliases (RVM ratification-gated).

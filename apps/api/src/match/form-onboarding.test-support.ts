@@ -157,7 +157,18 @@ export function attributesFor(
   pack: PackRecord,
   answers: Readonly<Record<string, readonly string[]>>,
 ): readonly ProjectedAttribute[] {
-  const records: AnswerRecord[] = Object.entries(answers).map(([questionKey, optionKeys]) => {
+  return projectProfile(answerRecordsFor(pack, answers)).attributes;
+}
+
+/**
+ * Chip answers → the answer-map records the interview's capture writes for them: each option's
+ * stored VALUE, a list for a multi-select, one value for a single-select. Unknown keys throw.
+ */
+export function answerRecordsFor(
+  pack: PackRecord,
+  answers: Readonly<Record<string, readonly string[]>>,
+): AnswerRecord[] {
+  return Object.entries(answers).map(([questionKey, optionKeys]) => {
     const item = pack.items.find((candidate) => candidate.question_key === questionKey);
     if (!item) throw new Error(`${pack.pack_id} has no question ${questionKey}`);
     const values = optionKeys.map((key) => {
@@ -178,5 +189,42 @@ export function attributesFor(
       status: "answered",
     };
   });
-  return projectProfile(records).attributes;
 }
+
+/** One structured chat on a GENERIC family pack (#2021), and the match skills it must derive. */
+export interface GenericPackChatCase {
+  readonly packId: string;
+  /** Chip answers by `question_key` → `option_key`s, as in {@link TradeFormCase}. */
+  readonly answers: Readonly<Record<string, readonly string[]>>;
+  /** Exactly the `mskill_*` set this chat must derive. `[]` = the trade has none. */
+  readonly expected: readonly MatchSkillId[];
+}
+
+/**
+ * Generic-pack chats: welding and plumbing must reach their match skills; a trade with no match
+ * skill must derive nothing; and `furniture` under painting must not borrow carpentry's meaning.
+ * Each bag carries an attribute-kind answer too, so "derives exactly X" is tested against a
+ * realistic chat and not a single chip.
+ */
+export const GENERIC_PACK_CHAT_CASES: readonly GenericPackChatCase[] = [
+  {
+    packId: "qp_welding",
+    answers: { welding_process: ["mig", "arc"], welding_position: ["yes"] },
+    expected: ["mskill_arc_welder", "mskill_mig_welder"],
+  },
+  {
+    packId: "qp_plumbing",
+    answers: { plumbing_scope: ["household", "drainage"], pipe_material: ["pvc"] },
+    expected: ["mskill_plumber"],
+  },
+  {
+    packId: "qp_electrical",
+    answers: { electrical_scope: ["house_wiring", "panel", "motor"] },
+    expected: [],
+  },
+  {
+    packId: "qp_painting",
+    answers: { painting_scope: ["furniture", "building"] },
+    expected: [],
+  },
+];

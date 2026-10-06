@@ -37,7 +37,11 @@ import {
   type ProjectionResult,
 } from "../profiling/answer-map-projector";
 import type { ChatSession, NewWorkerProfile } from "@badabhai/db";
-import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
+import {
+  canonicalGenericPackSkills,
+  SKILL_TAXONOMY_VERSION,
+  type GenericPackAnswer,
+} from "@badabhai/taxonomy";
 import type { ProfileSource } from "@badabhai/types";
 import { EventsService } from "../events/events.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
@@ -1389,7 +1393,11 @@ export class ProfileExtractionProcessor extends WorkerHost {
       `profile projected for job ${job.aiJobId} status=${projection.parseStatus} ` +
         `fields=${Object.keys(projection.draft).length} overlay=${projection.overlayFields.length}`,
     );
-    const extraction = toExtractionOutput(projection, interview, occupation?.label ?? null);
+    const extraction = toExtractionOutput(projection, interview, {
+      pinnedOccupationLabel: occupation?.label ?? null,
+      packId: packPinOf(state).packId,
+      answerMap,
+    });
     this.logWithheldDraftFields(job.aiJobId, extraction.withheldDraftFields);
     return {
       result: extraction.output,
@@ -1504,7 +1512,13 @@ export class ProfileExtractionProcessor extends WorkerHost {
     const projection = projectProfile(answerMap, {}, { split: splitToolsEquipment });
     const employments = await this.employments.loadForResume(job.workerId);
     const pin = readOccupationPin(state?.occupation);
-    const deterministic = toExtractionOutput(projection, null, pin?.label ?? null);
+    // `packId: null` — ADR-0045 R7 keeps the general road's skills off every matching input, so
+    // the #2021 canonicalization does not run here and the canonical `skills` column stays `[]`.
+    const deterministic = toExtractionOutput(projection, null, {
+      pinnedOccupationLabel: pin?.label ?? null,
+      packId: null,
+      answerMap,
+    });
     this.logWithheldDraftFields(job.aiJobId, deterministic.withheldDraftFields);
     const result = buildGeneralRoadExtraction({
       deterministic: deterministic.output,
@@ -2302,15 +2316,53 @@ function availabilityOf(
 }
 
 /** `toExtractionOutput`'s result: the output, plus the draft fields #2004 withheld (ids only). */
-interface InterviewExtraction {
+export interface InterviewExtraction {
   readonly output: ProfileExtractionOutput;
   readonly withheldDraftFields: readonly string[];
 }
 
-function toExtractionOutput(
+/**
+ * What `toExtractionOutput` reads besides the projection and the Phase C overlay.
+ *
+ * `answerMap` and `packId` feed #2021's generic-pack canonicalization; `pinnedOccupationLabel`
+ * feeds #2004's draft certification. A caller that must not canonicalize (the general road,
+ * ADR-0045 R7) passes `packId: null`.
+ */
+export interface ExtractionContext {
+  readonly pinnedOccupationLabel: string | null;
+  readonly packId: string | null;
+  readonly answerMap: readonly AnswerRecord[];
+}
+
+/**
+ * #2021 — the answer map's deterministic `skills` values, per question, as the generic-pack
+ * canonicalizer reads them. ANSWER MAP ONLY: never `skill_labels`, never the parse overlay, never
+ * Phase C. Only `answered` records count, exactly as `projectProfile`'s `liveValues` reads them.
+ */
+function answerMapSkillAnswers(answerMap: readonly AnswerRecord[]): GenericPackAnswer[] {
+  const answers: GenericPackAnswer[] = [];
+  for (const record of answerMap) {
+    if (record.status !== "answered") continue;
+    if ((record.target_field ?? record.question_key) !== "skills") continue;
+    const value = record.value_normalized;
+    const values = Array.isArray(value)
+      ? value
+      : value === null || value === undefined
+        ? []
+        : [value];
+    answers.push({ questionKey: record.question_key, values });
+  }
+  return answers;
+}
+
+/**
+ * EXPORTED FOR THE #2021 DB GATE (`generic-pack-chat-reach.db.test.ts`), which runs this exact seam
+ * against Postgres. Not a public API: the processor is its only production caller.
+ */
+export function toExtractionOutput(
   projection: ProjectionResult,
   interview: InterviewExtractOutput | null,
-  pinnedOccupationLabel: string | null,
+  { pinnedOccupationLabel, packId, answerMap }: ExtractionContext,
 ): InterviewExtraction {
   // #2004 — FIRST, so nothing below can read a value the certification withheld. The rich draft
   // and every profile field built from it (`machines`, `certifications`, `education_*`, the
@@ -2342,12 +2394,15 @@ function toExtractionOutput(
   });
 
   const profile = DraftProfileSchema.parse({
-    // CANONICAL IDS ARE NOT INVENTED HERE. Skill/role canonicalization is the taxonomy's job
-    // and runs on its own path; writing a guess into these columns would put an unvalidated id
-    // in the one place the match engine trusts absolutely.
+    // CANONICAL IDS ARE NOT INVENTED HERE. Writing a guess into these columns would put an
+    // unvalidated id in the one place the match engine trusts absolutely. So the role stays null,
+    // and `skills` holds only what the taxonomy's closed lookup returns for a GENERIC family
+    // pack's answer-map values (#2021): option values the worker tapped, pack-scoped, never the
+    // model's `skill_labels`. `rebuildForWorker` carries them through the attribute bridge. A
+    // pack with no entry (every role pack, every trade with no match skill) yields `[]`, as before.
     canonical_trade_id: null,
     canonical_role_id: null,
-    skills: [],
+    skills: canonicalGenericPackSkills(packId, answerMapSkillAnswers(answerMap)),
     // THE MODEL'S LIST WHEN IT PRODUCED ONE. Was a union with the answer map's skills, which
     // made this a superset in a different order and never the traced array. See `preferModelList`.
     skill_labels: preferModelList(interview?.skills, draft.skills),
