@@ -1,16 +1,26 @@
 import "reflect-metadata";
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { ConflictException } from "@nestjs/common";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   createDbClient,
+  events,
   jobPostings,
   payerJobPostingChatSessions,
   payers,
   type Database,
   type DbClient,
 } from "@badabhai/db";
+import type { RequestContext } from "../../common/request-context";
+import { sqlStateOf, PG_UNIQUE_VIOLATION } from "../../common/db-error";
+import { EventsRepository } from "../../events/events.repository";
+import { EventsService } from "../../events/events.service";
+import { JobPostingsRepository } from "../../job-postings/job-postings.repository";
+import { JobPostingsService } from "../../job-postings/job-postings.service";
+import { PayersRepository } from "../../payers/payers.repository";
 import { JobPostingChatRepository } from "./job-posting-chat.repository";
+import { JobPostingChatService } from "./job-posting-chat.service";
 
 /**
  * #1922 (R52) — A MESSAGE TURN RACING A PUBLISH, AGAINST A REAL POSTGRES.
@@ -34,6 +44,9 @@ import { JobPostingChatRepository } from "./job-posting-chat.repository";
  *
  * The fixtures are one payer and one posting with placeholder text (no PII), tagged per run.
  * The payer delete cascades the sessions; the postings are deleted explicitly (no FK to payers).
+ *
+ * The second block is #1928 — a publish whose `job_posting.created` emit FAILS, run through the
+ * real `JobPostingChatService.publish` and the real `JobPostingsService` (see its header).
  *
  * ── HOW TO RUN ────────────────────────────────────────────────────────────────
  *   RUN_DB_TESTS=1 pnpm --filter @badabhai/api run test job-posting-chat.repository.db
@@ -278,3 +291,186 @@ describe.skipIf(!RUN)("#1922 job-posting chat — a turn racing a publish, again
     expect(reclaimed?.status).toBe("published");
   });
 });
+
+/**
+ * #1928 — A PUBLISH WHOSE `job_posting.created` EMIT FAILS, AGAINST A REAL POSTGRES.
+ *
+ * Before #1928, `JobPostingsService.insertAndEmit` committed the posting row on its own and
+ * emitted afterwards, outside any transaction. A failed emit threw into `publish`, which released
+ * the claim. The release is guarded on "nothing bound", and nothing was (the bind never ran), so
+ * the session went live again, the retry created a SECOND posting, and the first had no
+ * `job_posting.created` on the spine.
+ *
+ * The row and its event are now one transaction. A stubbed executor can only show that the code
+ * passed `tx`. Only Postgres can show that the rollback takes the row with it.
+ *
+ * THE FAILURE IS A REAL POSTGRES ERROR on the events insert. It is raised inside the transaction
+ * AFTER an event row was already written on it: the spy inserts the same event twice, and the
+ * second insert violates `events.id`'s primary key (23505; `ON CONFLICT` arbitrates only the
+ * idempotency key). So the rollback has to take the posting AND that event row.
+ *
+ * Everything on the path is real: `JobPostingChatService.publish`, `JobPostingsService`,
+ * `EventsService` and all four repositories. Only the org-name decrypt is stubbed, because the
+ * fixture payer's `org_name_enc` is a placeholder rather than ciphertext. The ai-service is never
+ * reached: the draft has no skill phrases, a chat publish sends no `match_skill_ids`, and publish
+ * makes no LLM call. Each case gets its own payer (placeholder text, no PII) and correlation id;
+ * afterAll deletes the events by correlation, then the postings and the payers.
+ */
+describe.skipIf(!RUN)(
+  "#1928 job-posting chat publish — a failed job_posting.created leaves no posting, against Postgres",
+  () => {
+    let client!: DbClient;
+    let chat!: JobPostingChatRepository;
+    let eventsRepo!: EventsRepository;
+    let publisher!: JobPostingChatService;
+    const payerIds: string[] = [];
+    const correlationIds: string[] = [];
+
+    beforeAll(async () => {
+      // TWO connections, not one. A write that escaped the transaction then autocommits on the
+      // other connection and is COUNTED below, rather than deadlocking a single connection and
+      // surfacing as a timeout that says nothing about why.
+      client = createDbClient(DATABASE_URL, { max: 2 });
+      chat = new JobPostingChatRepository(client.db);
+      eventsRepo = new EventsRepository(client.db);
+      const eventsService = new EventsService(eventsRepo, { NODE_ENV: "test" } as never);
+      const postings = new JobPostingsService(
+        new JobPostingsRepository(client.db),
+        eventsService,
+        {} as never, // AiService — no skill phrases, so canonicalization returns before any call
+        {} as never, // AiCostRecorder — likewise
+        {} as never, // AiTraceRecorder — likewise
+        {} as never, // PublishReachService — a create never materializes reach
+        {} as never, // MatchSkillsService — a chat publish sends no match_skill_ids
+      );
+      publisher = new JobPostingChatService(
+        chat,
+        eventsService,
+        {} as never, // AiService — publish makes no LLM call
+        {} as never,
+        {} as never,
+        new PayersRepository(client.db, {} as never),
+        { decrypt: () => "Lane Test Works" } as never,
+        postings,
+      );
+    });
+
+    afterAll(async () => {
+      if (client === undefined) return;
+      if (correlationIds.length) {
+        await client.db.delete(events).where(inArray(events.correlationId, correlationIds));
+      }
+      if (payerIds.length) {
+        // Postings have no FK to payers; the payer delete cascades the sessions.
+        await client.db.delete(jobPostings).where(inArray(jobPostings.payerId, payerIds));
+        await client.db.delete(payers).where(inArray(payers.id, payerIds));
+      }
+      await client.sql.end({ timeout: 5 });
+    });
+
+    /** A fresh payer whose session holds a publishable draft, plus a fresh correlation id. */
+    async function readyToPublish(): Promise<{
+      payerId: string;
+      sessionId: string;
+      ctx: RequestContext;
+    }> {
+      const [payer] = await client.db
+        .insert(payers)
+        .values({
+          role: "employer",
+          emailEnc: "jpc-1928-db-test",
+          emailHash: `jpc-1928-db-test-${TAG}-${payerIds.length}`,
+          orgNameEnc: "jpc-1928-db-test",
+        })
+        .returning({ id: payers.id });
+      const payerId = payer!.id;
+      payerIds.push(payerId);
+
+      const session = await chat.createSession(payerId);
+      const stored = await chat.saveTurn(session.id, payerId, {
+        draft: { role_title: "CNC Operator", vacancy_band: "2-5", skills: [] },
+        status: "draft_ready",
+        lastMessageAt: new Date(),
+      });
+      expect(stored).toBe(true);
+
+      const correlationId = randomUUID();
+      correlationIds.push(correlationId);
+      return {
+        payerId,
+        sessionId: session.id,
+        ctx: { correlationId, requestId: `jpc-1928-${TAG}` },
+      };
+    }
+
+    /** Fail the NEXT events insert with a real Postgres error, after its row is written on the tx. */
+    function failNextEventInsert(): void {
+      const real = eventsRepo.insert.bind(eventsRepo);
+      vi.spyOn(eventsRepo, "insert").mockImplementationOnce(async (event, key, executor) => {
+        await real(event, key, executor);
+        return real(event, key, executor); // the same event_id again → 23505 on events.id
+      });
+    }
+
+    const postingsOf = (payerId: string) =>
+      client.db
+        .select({ id: jobPostings.id })
+        .from(jobPostings)
+        .where(eq(jobPostings.payerId, payerId));
+
+    const createdEventsFor = (ctx: RequestContext) =>
+      client.db
+        .select({ subjectId: events.subjectId })
+        .from(events)
+        .where(
+          and(
+            eq(events.correlationId, ctx.correlationId),
+            eq(events.eventName, "job_posting.created"),
+          ),
+        );
+
+    it("CONTROL: a publish whose emit succeeds commits ONE posting, bound, with its one job_posting.created", async () => {
+      const { payerId, sessionId, ctx } = await readyToPublish();
+      const res = await publisher.publish(payerId, sessionId, ctx);
+
+      expect((await postingsOf(payerId)).map((p) => p.id)).toEqual([res.job_posting_id]);
+      expect(await createdEventsFor(ctx)).toEqual([{ subjectId: res.job_posting_id }]);
+      const session = await chat.findOwnedSession(sessionId, payerId);
+      expect(session?.status).toBe("published");
+      expect(session?.publishedJobPostingId).toBe(res.job_posting_id);
+    });
+
+    it("an events insert Postgres rejects inside the transaction takes the posting with it, and the session is released", async () => {
+      const { payerId, sessionId, ctx } = await readyToPublish();
+      failNextEventInsert();
+
+      const err = await publisher.publish(payerId, sessionId, ctx).catch((e: unknown) => e);
+      // The vacuity guard: the failure really is Postgres refusing the events insert.
+      expect(sqlStateOf(err)).toBe(PG_UNIQUE_VIOLATION);
+
+      // Before #1928 the posting had committed here, and the first event row had too.
+      expect(await postingsOf(payerId)).toEqual([]);
+      expect(await createdEventsFor(ctx)).toEqual([]);
+      // The release is now correct: there is no posting for the session to be bound to.
+      const session = await chat.findOwnedSession(sessionId, payerId);
+      expect(session?.status).toBe("draft_ready");
+      expect(session?.publishedJobPostingId).toBeNull();
+      expect(session?.endedAt).toBeNull();
+    });
+
+    it("the retry after that failure creates exactly ONE posting; a further publish is a 409 and creates nothing", async () => {
+      const { payerId, sessionId, ctx } = await readyToPublish();
+      failNextEventInsert();
+      await expect(publisher.publish(payerId, sessionId, ctx)).rejects.toThrow();
+
+      const res = await publisher.publish(payerId, sessionId, ctx);
+      expect((await postingsOf(payerId)).map((p) => p.id)).toEqual([res.job_posting_id]);
+      expect(await createdEventsFor(ctx)).toEqual([{ subjectId: res.job_posting_id }]);
+
+      await expect(publisher.publish(payerId, sessionId, ctx)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(await postingsOf(payerId)).toHaveLength(1);
+    });
+  },
+);
