@@ -80,7 +80,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -129,7 +129,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -149,7 +149,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
       },
       {
         name: "chips",
-        motion: { type: "blink", amp: 0.8, ox: 190, oy: 50, rate: 1, phase: 0.5 },
+        motion: { type: "blink", amp: 0.6, ox: 190, oy: 50, rate: 1, phase: 0.5 },
         shapes: [
           { d: "M173.5 46A2.5 2.5 0 1 1 178.5 46A2.5 2.5 0 1 1 173.5 46Z", colour: "accent", opacity: 1, strokeWidth: 0 },
           { d: "M202.5 45A2.5 2.5 0 1 1 207.5 45A2.5 2.5 0 1 1 202.5 45Z", colour: "accent", opacity: 1, strokeWidth: 0 },
@@ -184,7 +184,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -215,7 +215,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
       },
       {
         name: "sparks",
-        motion: { type: "blink", amp: 0.8, ox: 210, oy: 56, rate: 2, phase: 0 },
+        motion: { type: "blink", amp: 0.6, ox: 210, oy: 56, rate: 1, phase: 0 },
         shapes: [
           { d: "M205 50A3 3 0 1 1 211 50A3 3 0 1 1 205 50Z", colour: "accent", opacity: 1, strokeWidth: 0 },
           { d: "M215.5 46A2.5 2.5 0 1 1 220.5 46A2.5 2.5 0 1 1 215.5 46Z", colour: "accent", opacity: 1, strokeWidth: 0 },
@@ -256,7 +256,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -305,7 +305,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -348,7 +348,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -399,7 +399,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -413,7 +413,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
       },
       {
         name: "sparks",
-        motion: { type: "blink", amp: 0.8, ox: 172, oy: 34, rate: 1, phase: 0 },
+        motion: { type: "blink", amp: 0.6, ox: 172, oy: 34, rate: 1, phase: 0 },
         shapes: [
           { d: "M167 34A3 3 0 1 1 173 34A3 3 0 1 1 167 34Z", colour: "accent", opacity: 1, strokeWidth: 0 },
           { d: "M175.5 26A2.5 2.5 0 1 1 180.5 26A2.5 2.5 0 1 1 175.5 26Z", colour: "accent", opacity: 1, strokeWidth: 0 },
@@ -450,14 +450,14 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
         name: "mask",
         motion: null,
         shapes: [
-          { d: "M78 33L83 33A4 4 0 0 1 87 37L87 40A4 4 0 0 1 83 44L78 44A4 4 0 0 1 74 40L74 37A4 4 0 0 1 78 33Z", colour: "primary", opacity: 0.8, strokeWidth: 0 },
+          { d: "M78 31L83 31A4 4 0 0 1 87 35L87 38A4 4 0 0 1 83 42L78 42A4 4 0 0 1 74 38L74 35A4 4 0 0 1 78 31Z", colour: "primary", opacity: 0.8, strokeWidth: 0 },
         ],
       },
       {
@@ -478,7 +478,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
       },
       {
         name: "sparks",
-        motion: { type: "blink", amp: 0.8, ox: 206, oy: 38, rate: 2, phase: 0.25 },
+        motion: { type: "blink", amp: 0.6, ox: 206, oy: 38, rate: 1, phase: 0.25 },
         shapes: [
           { d: "M207 40A3 3 0 1 1 213 40A3 3 0 1 1 207 40Z", colour: "accent", opacity: 1, strokeWidth: 0 },
           { d: "M215.5 48A2.5 2.5 0 1 1 220.5 48A2.5 2.5 0 1 1 215.5 48Z", colour: "accent", opacity: 1, strokeWidth: 0 },
@@ -509,7 +509,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
           { d: "M200 70A8 8 0 1 1 216 70A8 8 0 1 1 200 70Z", colour: "surface", opacity: 1, strokeWidth: 0 },
           { d: "M171 70A3 3 0 1 1 177 70A3 3 0 1 1 171 70Z", colour: "primary", opacity: 0.8, strokeWidth: 0 },
           { d: "M205 70A3 3 0 1 1 211 70A3 3 0 1 1 205 70Z", colour: "primary", opacity: 0.8, strokeWidth: 0 },
-          { d: "M116 64Q150 62 174 61Q206 60 236 46Q252 36 258 18", colour: "surface", opacity: 1, strokeWidth: 6 },
+          { d: "M116 64Q150 62 174 61Q206 60 236 46Q252 36 258 18", colour: "surface", opacity: 1, strokeWidth: 10 },
         ],
       },
       {
@@ -517,7 +517,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -558,7 +558,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
           { d: "M220 10L224 10A6 6 0 0 1 230 16L230 78A6 6 0 0 1 224 84L220 84A6 6 0 0 1 214 78L214 16A6 6 0 0 1 220 10Z", colour: "surface", opacity: 1, strokeWidth: 0 },
           { d: "M158 8L222 8A8 8 0 0 1 230 16L230 18A8 8 0 0 1 222 26L158 26A8 8 0 0 1 150 18L150 16A8 8 0 0 1 158 8Z", colour: "surface", opacity: 1, strokeWidth: 0 },
           { d: "M163 66L217 66A3 3 0 0 1 220 69L220 73A3 3 0 0 1 217 76L163 76A3 3 0 0 1 160 73L160 69A3 3 0 0 1 163 66Z", colour: "surface", opacity: 0.8, strokeWidth: 0 },
-          { d: "M179 58L201 58A3 3 0 0 1 204 61L204 63A3 3 0 0 1 201 66L179 66A3 3 0 0 1 176 63L176 61A3 3 0 0 1 179 58Z", colour: "accent", opacity: 0.6, strokeWidth: 0 },
+          { d: "M179 58L201 58A3 3 0 0 1 204 61L204 63A3 3 0 0 1 201 66L179 66A3 3 0 0 1 176 63L176 61A3 3 0 0 1 179 58Z", colour: "accent", opacity: 1, strokeWidth: 0 },
           { d: "M115 48L131 48A5 5 0 0 1 136 53L136 53A5 5 0 0 1 131 58L115 58A5 5 0 0 1 110 53L110 53A5 5 0 0 1 115 48Z", colour: "surface", opacity: 0.8, strokeWidth: 0 },
           { d: "M123 56L123 56A3 3 0 0 1 126 59L126 81A3 3 0 0 1 123 84L123 84A3 3 0 0 1 120 81L120 59A3 3 0 0 1 123 56Z", colour: "surface", opacity: 0.6, strokeWidth: 0 },
           { d: "M114.5 53A2.5 2.5 0 1 1 119.5 53A2.5 2.5 0 1 1 114.5 53Z", colour: "accent", opacity: 1, strokeWidth: 0 },
@@ -570,7 +570,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -605,7 +605,6 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M0 0L300 0L300 100L0 100Z", colour: "primary", opacity: 1, strokeWidth: 0 },
-          { d: "M220 24A32 32 0 1 1 284 24A32 32 0 1 1 220 24Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
           { d: "M0 84L300 84L300 100L0 100Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
         ],
       },
@@ -623,7 +622,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -675,7 +674,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -721,7 +720,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -782,7 +781,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -852,7 +851,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -894,7 +893,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -924,7 +923,6 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M0 0L300 0L300 100L0 100Z", colour: "primary", opacity: 1, strokeWidth: 0 },
-          { d: "M220 24A32 32 0 1 1 284 24A32 32 0 1 1 220 24Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
           { d: "M0 84L300 84L300 100L0 100Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
         ],
       },
@@ -946,7 +944,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -976,7 +974,6 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M0 0L300 0L300 100L0 100Z", colour: "primary", opacity: 1, strokeWidth: 0 },
-          { d: "M220 24A32 32 0 1 1 284 24A32 32 0 1 1 220 24Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
           { d: "M0 84L300 84L300 100L0 100Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
         ],
       },
@@ -995,7 +992,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -1016,7 +1013,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
       },
       {
         name: "glint",
-        motion: { type: "blink", amp: 0.8, ox: 150, oy: 42, rate: 2, phase: 0 },
+        motion: { type: "blink", amp: 0.6, ox: 150, oy: 42, rate: 1, phase: 0 },
         shapes: [
           { d: "M147 42A3 3 0 1 1 153 42A3 3 0 1 1 147 42Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
@@ -1031,7 +1028,6 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M0 0L300 0L300 100L0 100Z", colour: "primary", opacity: 1, strokeWidth: 0 },
-          { d: "M220 24A32 32 0 1 1 284 24A32 32 0 1 1 220 24Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
           { d: "M0 84L300 84L300 100L0 100Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
         ],
       },
@@ -1052,7 +1048,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -1081,7 +1077,6 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M0 0L300 0L300 100L0 100Z", colour: "primary", opacity: 1, strokeWidth: 0 },
-          { d: "M220 24A32 32 0 1 1 284 24A32 32 0 1 1 220 24Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
           { d: "M0 84L300 84L300 100L0 100Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
         ],
       },
@@ -1104,7 +1099,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -1133,7 +1128,6 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M0 0L300 0L300 100L0 100Z", colour: "primary", opacity: 1, strokeWidth: 0 },
-          { d: "M220 24A32 32 0 1 1 284 24A32 32 0 1 1 220 24Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
           { d: "M0 84L300 84L300 100L0 100Z", colour: "surface", opacity: 0.4, strokeWidth: 0 },
         ],
       },
@@ -1156,7 +1150,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {
@@ -1220,7 +1214,7 @@ export const ROLE_ART_DATA: Readonly<Record<RoleArtKind, RoleArtDef>> = {
         motion: null,
         shapes: [
           { d: "M48 84L48 70A22 22 0 0 1 92 70L92 84Z", colour: "accent", opacity: 1, strokeWidth: 0 },
-          { d: "M57 42A13 13 0 0 1 83 42L83 43A3 3 0 0 1 80 46L60 46A3 3 0 0 1 57 43Z", colour: "accent", opacity: 1, strokeWidth: 0 },
+          { d: "M57 40A13 13 0 0 1 83 40L83 41A3 3 0 0 1 80 44L60 44A3 3 0 0 1 57 41Z", colour: "accent", opacity: 1, strokeWidth: 0 },
         ],
       },
       {

@@ -426,11 +426,10 @@ importers:
         version: link:../reach-engine
 
   packages/role-art:
-    dependencies:
+    devDependencies:
       '@badabhai/types':
         specifier: workspace:*
         version: link:../types
-    devDependencies:
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.17

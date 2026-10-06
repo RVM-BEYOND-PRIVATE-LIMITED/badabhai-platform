@@ -93,7 +93,7 @@ describe("<RoleArt>", () => {
     expect(out).toContain("bb-role-art--animated");
     expect(out).toContain('data-part="sparks"');
     expect(out).toContain("bb-role-art__part--blink");
-    expect(out).toContain("--ra-dur:1s"); // welder loop 2s, sparks rate 2
+    expect(out).toContain("--ra-dur:2s"); // welder loop 2s, sparks one cycle per loop
     expect(out).not.toMatch(/<text|<title/);
   });
 

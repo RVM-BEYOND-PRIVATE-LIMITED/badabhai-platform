@@ -163,8 +163,9 @@ export function DraftPreview({ draft, draftReady }: DraftPreviewProps) {
 
       {/* The job card's role illustration. The chat interview never picks a role (publish leaves
           `role_kind` NULL — see below), so this is the generic scene until the payer picks one on
-          the posting form, whose card preview then draws that role's art. */}
-      <RoleArt roleKind={null} className="ai-draft__art" />
+          the posting form, whose card preview then draws that role's art. Held still here so the page
+          stays calm while the payer chats. */}
+      <RoleArt roleKind={null} animated={false} className="ai-draft__art" />
 
       {draft === null ? (
         <p className="ai-draft__empty">

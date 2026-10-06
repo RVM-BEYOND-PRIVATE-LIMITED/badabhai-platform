@@ -10,11 +10,11 @@
     <circle cx="208" cy="70" r="8" fill="#F3F5F4"/>
     <circle cx="174" cy="70" r="3" fill="#05194C" opacity="0.8"/>
     <circle cx="208" cy="70" r="3" fill="#05194C" opacity="0.8"/>
-    <path d="M116 64 Q150 62 174 61 Q206 60 236 46 Q252 36 258 18" stroke-width="6" fill="none" stroke="#F3F5F4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M116 64 Q150 62 174 61 Q206 60 236 46 Q252 36 258 18" stroke-width="10" fill="none" stroke="#F3F5F4" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
   <g data-part="figure">
     <path d="M48 84 V70 A22 22 0 0 1 92 70 V84 Z" fill="#FFB32C"/>
-    <path d="M57 42 A13 13 0 0 1 83 42 V43 A3 3 0 0 1 80 46 H60 A3 3 0 0 1 57 43 Z" fill="#FFB32C"/>
+    <path d="M57 40 A13 13 0 0 1 83 40 V41 A3 3 0 0 1 80 44 H60 A3 3 0 0 1 57 41 Z" fill="#FFB32C"/>
   </g>
   <g data-part="arm">
     <path d="M84 62 Q100 66 116 64" stroke-width="9" fill="none" stroke="#FFB32C" stroke-linecap="round" stroke-linejoin="round"/>

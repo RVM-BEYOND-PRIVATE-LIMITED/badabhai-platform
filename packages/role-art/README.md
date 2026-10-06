@@ -26,7 +26,7 @@ and the payer portal's live card preview draw the same picture for the same `rol
 ## Consuming it
 
 - **Web:** `"@badabhai/role-art": "workspace:*"`, add it to `transpilePackages`, `@import
-  "@badabhai/role-art/role-art.css"` once, render `<RoleArt roleKind={…} />`. Motion is CSS
+"@badabhai/role-art/role-art.css"` once, render `<RoleArt roleKind={…} />`. Motion is CSS
   keyframes on the named groups; `prefers-reduced-motion: reduce` holds the rest pose.
 - **Flutter:** `RoleArtBanner(roleKind: …)` from `lib/core/widgets/role_art/role_art.dart` — a
   `CustomPainter` over the generated path data (no `flutter_svg`), one `AnimationController` per

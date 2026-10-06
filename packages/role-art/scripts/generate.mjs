@@ -142,7 +142,9 @@ function normalizePath(file, d) {
   const num = () => {
     const t = tokens[i++];
     if (t === undefined || /[a-zA-Z]/.test(t)) fail(file, `path "${d}" ends mid-command`);
-    return Number(t);
+    const n = Number(t);
+    if (!Number.isFinite(n)) fail(file, `path "${d}" has a non-finite number`);
+    return n;
   };
   while (i < tokens.length) {
     if (/[a-zA-Z]/.test(tokens[i])) {
@@ -194,6 +196,7 @@ function normalizePath(file, d) {
       case "A": {
         const rx = num();
         const ry = num();
+        if (!(rx > 0) || !(ry > 0)) fail(file, "arc radii must be > 0");
         const rot = num();
         const large = num();
         const sweep = num();
@@ -224,6 +227,14 @@ function num(file, attrs, key, fallback) {
   }
   const n = Number(v);
   if (!Number.isFinite(n)) fail(file, `${key}="${v}" is not a number`);
+  // A non-positive radius/size is drawn differently by browsers and Skia — refuse it.
+  if (
+    ["r", "rx", "ry", "width", "height"].includes(key) &&
+    !(n > 0) &&
+    !(key === "rx" && n === 0)
+  ) {
+    fail(file, `${key}="${v}" must be > 0`);
+  }
   return n;
 }
 

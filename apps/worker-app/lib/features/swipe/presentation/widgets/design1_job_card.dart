@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/job_card_brand_footer.dart';
 import '../../../../core/widgets/bb_job_card.dart';
@@ -53,6 +54,7 @@ class Design1JobCard extends StatelessWidget {
     this.onSeeAll,
     this.showDock = true,
     this.showTeaser = true,
+    this.compact = false,
   }) : assert(
          !showDock || (onApply != null && onFeedback != null),
          'showDock needs onApply + onFeedback',
@@ -75,6 +77,11 @@ class Design1JobCard extends StatelessWidget {
   /// job and its own dock owns the actions.
   final bool showDock;
   final bool showTeaser;
+
+  /// The deck box is short (< ~300dp: a 320x568 handset, or any phone in
+  /// landscape — [JobDeck] decides). The role illustration is dropped so the
+  /// clip never eats the salary box: the worker's pay outranks decoration.
+  final bool compact;
 
   // Design1 pastels, measured off the mock. Kept local: they are this
   // card's drawing, not app-wide tokens.
@@ -153,10 +160,13 @@ class Design1JobCard extends StatelessWidget {
             children: <Widget>[
               // The animated role illustration heads the card — the same art,
               // the same place and the same 3:1 size as the payer's live
-              // preview (`job-card-preview.tsx`). An unknown role draws the
-              // generic scene.
-              RoleArtBanner(roleKind: data.roleKind),
-              const SizedBox(height: 12),
+              // preview (`job-card-preview.tsx`), except on a COMPACT deck,
+              // where it is dropped so the salary box always fits. An unknown
+              // role draws the generic scene.
+              if (!compact) ...<Widget>[
+                RoleArtBanner(roleKind: data.roleKind),
+                const SizedBox(height: AppSpacing.s3),
+              ],
               _TitleRow(data: data, onTitleTap: onTitleTap),
               const SizedBox(height: 2),
               _PlaceRow(place: data.place),

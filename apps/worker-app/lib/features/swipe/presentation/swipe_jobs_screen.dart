@@ -538,6 +538,7 @@ class _FeedViewState extends State<_FeedView> {
             onTitleTap: onTitleTap,
             showDock: false,
             showTeaser: false,
+            compact: compact,
           ),
           dockBuilder: (
             BuildContext context, {

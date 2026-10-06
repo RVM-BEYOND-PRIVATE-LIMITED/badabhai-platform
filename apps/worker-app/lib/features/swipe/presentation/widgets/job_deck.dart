@@ -403,12 +403,11 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
           // TickerMode off: the behind card sits under the front one, so its
           // role illustration holds still instead of invalidating this
           // boundary's cached raster every frame (#363). Promoted to the
-          // front, the card is rebuilt there and animates.
-          RepaintBoundary(
-            child: TickerMode(
-              enabled: false,
-              child: _face(context, item, compact, null),
-            ),
+          // front, the card is rebuilt there and animates. OUTSIDE the
+          // boundary, which stays the card's direct parent.
+          TickerMode(
+            enabled: false,
+            child: RepaintBoundary(child: _face(context, item, compact, null)),
           ),
         ),
         builder: (BuildContext ctx, Offset drag, Widget? child) {

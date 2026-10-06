@@ -28,6 +28,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../theme/app_spacing.dart';
+
 part 'role_art_data.g.dart';
 
 /// The art every card without a known `role_kind` draws.
@@ -164,7 +166,7 @@ class RoleArtBanner extends StatefulWidget {
     super.key,
     required this.roleKind,
     this.animate = true,
-    this.borderRadius = 12,
+    this.borderRadius = AppRadii.md,
   });
 
   /// The posting's raw `role_kind`; anything unknown draws the generic art.
@@ -201,6 +203,13 @@ class _RoleArtBannerState extends State<RoleArtBanner>
     if (oldWidget.kind != widget.kind) {
       _def = roleArtDef(widget.kind);
       _controller.duration = _def.loop;
+      // A running repeat() keeps its old period; restart it at the new one
+      // (a reused list slot can swap roles under a live controller).
+      if (_controller.isAnimating) {
+        _controller
+          ..stop()
+          ..repeat();
+      }
     }
     _sync();
   }
@@ -311,7 +320,7 @@ class RoleArtPainter extends CustomPainter {
       case RoleArtMotionProp.opacity:
         // A group opacity, like the web's on the <g>: composited as one.
         canvas.saveLayer(
-          null,
+          const Rect.fromLTWH(0, 0, _kCanvasWidth, _kCanvasHeight),
           Paint()..color = Color.fromRGBO(0, 0, 0, v.clamp(0.0, 1.0)),
         );
         return true;

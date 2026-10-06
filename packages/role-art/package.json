@@ -23,13 +23,11 @@
     "art:verify": "node scripts/generate.mjs --check",
     "clean": "rimraf --glob .turbo *.tsbuildinfo"
   },
-  "dependencies": {
-    "@badabhai/types": "workspace:*"
-  },
   "peerDependencies": {
     "react": "^19.0.0"
   },
   "devDependencies": {
+    "@badabhai/types": "workspace:*",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "react": "^19.0.0",

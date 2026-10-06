@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_spacing.dart';
 import '../theme/onboarding_theme.dart';
 import 'job_card_brand_footer.dart';
 import 'kit/kit_callout.dart';
@@ -257,7 +258,7 @@ class BbJobCard extends StatelessWidget {
                     children: <Widget>[
                       if (showRoleArt) ...<Widget>[
                         RoleArtBanner(roleKind: data.roleKind),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: AppSpacing.s3),
                       ],
                       _HeaderRow(data: data, onTitleTap: onTitleTap),
                       // E18 — the "why am I seeing this" line, only for a

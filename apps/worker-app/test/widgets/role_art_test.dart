@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:badabhai_worker_app/core/widgets/bb_job_card.dart';
 import 'package:badabhai_worker_app/core/widgets/role_art/role_art.dart';
+import 'package:badabhai_worker_app/features/swipe/presentation/widgets/design1_job_card.dart';
 
 /// The role illustrations (`lib/core/widgets/role_art/`): every kind renders,
 /// anything unknown falls back to the generic art, and the motion honours
@@ -125,7 +126,7 @@ void main() {
     expect(tester.hasRunningAnimations, isFalse);
   });
 
-  testWidgets('switching the role swaps the art (and its loop)', (
+  testWidgets('switching the role swaps the art', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(host(const RoleArtBanner(roleKind: 'welder')));
@@ -177,4 +178,42 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets(
+    'a compact deck card (320x568) drops the art so the salary box fits',
+    (WidgetTester tester) async {
+      const BbJobCardData data = BbJobCardData(
+        title: 'CNC Turner',
+        place: 'Chakan, Pune',
+        roleKind: 'cnc_turner',
+      );
+      Future<void> pumpCard({required bool compact}) => tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              // The deck box JobDeck hands the face on a 320x568 handset.
+              child: SizedBox(
+                width: 296,
+                height: 270,
+                child: Design1JobCard(
+                  data: data,
+                  payFull: '₹18,000–26,000/mah',
+                  showDock: false,
+                  showTeaser: false,
+                  compact: compact,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await pumpCard(compact: true);
+      expect(find.byType(RoleArtBanner), findsNothing);
+      final Rect card = tester.getRect(find.byType(Design1JobCard));
+      final Rect band = tester.getRect(find.text('₹18,000–26,000/mah'));
+      expect(band.bottom, lessThanOrEqualTo(card.bottom));
+      await pumpCard(compact: false);
+      expect(find.byType(RoleArtBanner), findsOneWidget);
+    },
+  );
 }
