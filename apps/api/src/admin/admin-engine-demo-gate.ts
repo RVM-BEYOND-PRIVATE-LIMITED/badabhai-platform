@@ -1,23 +1,25 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
+import { DEMO_PHONE_PREFIX } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { WorkersRepository } from "../workers/workers.repository";
 
 /**
- * The reserved DEMO phone block: `+910000026` + three digits. It is the same block the demo seed
- * (`packages/db/src/demo-matching-plan.ts` `DEMO_PHONE_PATTERN`, #2013) gives its personas, and
- * it lies inside the reserved synthetic range no real SIM is issued (`+91` + five zeros + five
- * digits). Duplicated here only until #2013 lands; then import it, so there is one definition.
+ * How many phones the reserved demo block holds: `DEMO_PHONE_PREFIX` + three digits. The block
+ * itself is defined ONCE, in `@badabhai/db` (`packages/db/src/demo-phones.ts`), and shared with
+ * the demo seed (#2013) — this gate enumerates it, it does not redefine it.
  */
-export const DEMO_PHONE_BLOCK_PREFIX = "+910000026";
 export const DEMO_PHONE_BLOCK_SIZE = 1000;
 
-/** Every phone in the demo block, `+910000026000` … `+910000026999`. */
+/**
+ * Every phone in the demo block, `+910000026000` … `+910000026999`. Built from the shared prefix;
+ * `admin-engine-demo-gate.test.ts` pins that it is EXACTLY the set `DEMO_PHONE_PATTERN` matches.
+ */
 export function demoBlockPhones(): string[] {
   return Array.from(
     { length: DEMO_PHONE_BLOCK_SIZE },
-    (_, i) => `${DEMO_PHONE_BLOCK_PREFIX}${String(i).padStart(3, "0")}`,
+    (_, i) => `${DEMO_PHONE_PREFIX}${String(i).padStart(3, "0")}`,
   );
 }
 
