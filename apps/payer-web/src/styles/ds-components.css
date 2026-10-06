@@ -687,6 +687,14 @@
 /* The phone's content box: a fixed height, clipped, no scroll ("the clip IS the contract"). */
 .jcp__content { position: relative; max-height: calc(386 * var(--jcp-u)); overflow: hidden; min-width: 0; }
 .jcp__flow { display: flex; flex-direction: column; min-width: 0; }
+/* The role illustration — the card's header, as on the phone (`RoleArtBanner` in
+   design1_job_card.dart): full content width at the art's 3:1 canvas, 12dp corners, 12dp gap. */
+.jcp__art {
+  display: block;
+  margin-bottom: calc(12 * var(--jcp-u));
+  border-radius: calc(12 * var(--jcp-u));
+  overflow: hidden;
+}
 .jcp__foldline {
   position: absolute; inset-inline: 0; top: calc(386 * var(--jcp-u)); height: 0;
   border-top: calc(2 * var(--border-hairline)) dashed var(--border-strong);

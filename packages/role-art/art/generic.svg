@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100" data-loop="4">
+  <g data-part="scene">
+    <rect x="0" y="0" width="300" height="100" fill="#05194C"/>
+    <circle cx="252" cy="24" r="32" fill="#F3F5F4" opacity="0.4"/>
+    <rect x="0" y="84" width="300" height="16" fill="#F3F5F4" opacity="0.4"/>
+  </g>
+  <g data-part="kit">
+    <rect x="226" y="60" width="44" height="24" rx="6" fill="#FFB32C"/>
+    <path d="M240 60 V53 H256 V60" stroke-width="5" fill="none" stroke="#FFB32C" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="226" y="68" width="44" height="4" rx="2" fill="#05194C" opacity="0.6"/>
+  </g>
+  <g data-part="gear" data-motion="spin" data-amp="360" data-origin="170 52">
+    <circle cx="170" cy="52" r="18" fill="#F3F5F4"/>
+    <circle cx="170" cy="32" r="5" fill="#F3F5F4"/>
+    <circle cx="184" cy="38" r="5" fill="#F3F5F4"/>
+    <circle cx="190" cy="52" r="5" fill="#F3F5F4"/>
+    <circle cx="184" cy="66" r="5" fill="#F3F5F4"/>
+    <circle cx="170" cy="72" r="5" fill="#F3F5F4"/>
+    <circle cx="156" cy="66" r="5" fill="#F3F5F4"/>
+    <circle cx="150" cy="52" r="5" fill="#F3F5F4"/>
+    <circle cx="156" cy="38" r="5" fill="#F3F5F4"/>
+    <circle cx="170" cy="52" r="7" fill="#05194C" opacity="0.8"/>
+  </g>
+  <g data-part="figure">
+    <path d="M48 84 V70 A22 22 0 0 1 92 70 V84 Z" fill="#FFB32C"/>
+    <path d="M57 40 A13 13 0 0 1 83 40 V41 A3 3 0 0 1 80 44 H60 A3 3 0 0 1 57 41 Z" fill="#FFB32C"/>
+  </g>
+  <g data-part="wave" data-motion="nod" data-amp="-12" data-origin="84 58">
+    <path d="M84 58 Q98 46 104 32" stroke-width="9" fill="none" stroke="#FFB32C" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
