@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   decl,
   declaredProperties,
@@ -346,26 +349,48 @@ function ringsLostInForcedColors(rs: Rule[]): string[] {
     .map((r) => r.selector);
 }
 
+/** The token layer's own base `:focus-visible` — the one rule both portals inherit. */
+function tokenFocusBase(): string {
+  const base = rule(TOKENS, ":focus-visible");
+  expect(base, "tokens.css must declare a top-level :focus-visible").not.toBeNull();
+  return base!;
+}
+
 describe("focus in forced colours", () => {
-  it("a transparent outline backs the token layer's shadow-only ring", () => {
-    // tokens.css: `:focus-visible { outline: none; box-shadow: var(--ring-focus) }`. A focusable
-    // scroller (the roles matrix) matched only that, and showed nothing in forced colours.
-    const fallback = body(":focus-visible");
+  it("a transparent outline backs the token layer's shadow-only ring — IN the token layer (#1856)", () => {
+    // tokens.css drew `:focus-visible { outline: none; box-shadow: var(--ring-focus) }`, and
+    // forced colours drop box-shadows: a focusable scroller (the roles matrix) matched only that
+    // and showed nothing. The fallback lived as a copy in this file; it now lives in the shared
+    // base rule, so every app that imports the token layer gets it.
+    const fallback = tokenFocusBase();
     expect(decl(fallback, "outline")).toBe("var(--border-bold) solid transparent");
     expect(decl(fallback, "outline-offset")).toBe("var(--border-bold)");
+    // The normal-mode ring is still the shadow it always was.
+    expect(decl(fallback, "box-shadow")).toBe("var(--ring-focus)");
+    expect(outlineLost(fallback)).toBe(false);
+  });
+
+  it("admin keeps no local copy of it — one fallback, in the token layer", () => {
+    expect(rule(CSS, ":focus-visible")).toBeNull();
+    expect(ALL.filter((r) => r.selector === ":focus-visible").map((r) => r.atRules.join())).toEqual([]);
   });
 
   it("sits BEFORE the admin ring, so the visible ring still wins where both apply", () => {
-    // Both are (0,1,0). Moved after it, the fallback would make every admin ring transparent.
-    const fallback = TOP.findIndex((r) => r.selector === ":focus-visible");
+    // Both are (0,1,0). The token layer is @imported at the top of globals.css, ahead of every
+    // admin rule, so the admin ring wins on source order; a later bare `:focus-visible` here
+    // would make every admin ring transparent.
+    const raw = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "globals.css"), "utf8");
+    const tokensImport = raw.indexOf('@import "@badabhai/design-tokens/tokens.css";');
+    const firstRule = raw.indexOf("{");
+    expect(tokensImport).toBeGreaterThanOrEqual(0);
+    expect(tokensImport).toBeLessThan(firstRule);
     const ring = TOP.findIndex((r) => r.selector === ADMIN_RING);
-    expect(fallback).toBeGreaterThanOrEqual(0);
-    expect(ring).toBeGreaterThan(fallback);
+    expect(ring).toBeGreaterThanOrEqual(0);
     expect(decl(TOP[ring]!.body, "outline")).toBe("2px solid var(--focus-ring)");
   });
 
   it("draws OUTSIDE the element, so no pinned table cell can cover a scroller's ring", () => {
-    expect(decl(body(":focus-visible"), "outline-offset")).not.toMatch(/^-|^calc\(-/);
+    expect(decl(tokenFocusBase(), "outline-offset")).not.toMatch(/^-|^calc\(-/);
     const scrollerOverrides = ALL.filter(
       (r) =>
         r.selector.includes(".tablewrap") &&
@@ -423,5 +448,162 @@ describe("focus in forced colours", () => {
     });
     expect(shadowRings.map((r) => r.selector)).toContain(ADMIN_RING);
     expect(ringsLostInForcedColors(ALL)).toEqual([]);
+  });
+});
+
+// ---- final sweep (PR A): token-layer focus, contrast, the drawer, chips, touch, crumbs ----
+
+describe("the token layer's own rings survive forced colours (AW-24)", () => {
+  it("no ring in tokens.css is shadow-only — the fix is in the shared layer, not each app", () => {
+    const tokenRules = rules(TOKENS, true);
+    // Not vacuous: the base :focus-visible draws the --ring-focus shadow and is checked here.
+    expect(tokenRules.some((r) => r.selector === ":focus-visible")).toBe(true);
+    expect(ringsLostInForcedColors(tokenRules)).toEqual([]);
+  });
+});
+
+/** `fg` text on `fill` laid over the white card, through the token layer (light theme). */
+function textOn(fg: string, fill: string, under = "var(--surface-card)"): number {
+  return contrast(color(fg), over(color(fill), color(under)));
+}
+
+describe("small grey labels on the sunken tint clear AA (AW-03)", () => {
+  it("the fence reproduces the shipped failure: --text-muted on --surface-sunken is under 4.5:1", () => {
+    // Measured in Chrome before the fix: 4.22:1 on the role badge and the muted pills.
+    expect(textOn("var(--text-muted)", "var(--surface-sunken)")).toBeLessThan(4.5);
+  });
+
+  for (const selector of [".topbar__env", ".pill--muted"]) {
+    it(`${selector} text clears 4.5:1 on its own fill, through a token`, () => {
+      const b = body(selector);
+      const fg = decl(b, "color")!;
+      const fill = decl(b, "background")!;
+      expect(fg).toMatch(/^var\(--[\w-]+\)$/);
+      expect(fill).toBe("var(--surface-sunken)");
+      expect(textOn(fg, fill)).toBeGreaterThanOrEqual(4.5);
+    });
+  }
+});
+
+describe("the closed drawer is out of the tab order (AW-04)", () => {
+  const DRAWER = "@media (max-width: 1023px)";
+  const inDrawer = (selector: string) =>
+    ALL.find((r) => r.selector === selector && r.atRules.join() === DRAWER);
+
+  it("below 1024px the closed sidebar is hidden — its 15 off-screen controls take no Tab stop", () => {
+    const closed = inDrawer(".sidebar");
+    expect(closed).toBeDefined();
+    expect(decl(closed!.body, "visibility")).toBe("hidden");
+  });
+
+  it("the open drawer is visible again", () => {
+    const open = inDrawer(".shell--drawer-open .sidebar");
+    expect(open).toBeDefined();
+    expect(decl(open!.body, "visibility")).toBe("visible");
+  });
+
+  it("closing hides it only once the slide-out has finished; opening shows it at once", () => {
+    // `visibility` switches discretely: delayed by the slide's own duration on the way out (the
+    // drawer would vanish mid-slide otherwise), immediate on the way in (a hidden element cannot
+    // take the focus the shell moves into it on open).
+    expect(decl(inDrawer(".sidebar")!.body, "transition")).toContain(
+      "visibility 0s linear var(--duration-base)",
+    );
+    expect(decl(inDrawer(".shell--drawer-open .sidebar")!.body, "transition")).toContain(
+      "visibility 0s",
+    );
+    expect(decl(inDrawer(".shell--drawer-open .sidebar")!.body, "transition")).not.toContain(
+      "linear var(--duration-base)",
+    );
+  });
+
+  it("nothing hides the permanent sidebar at 1024px and up", () => {
+    const leaks = ALL.filter(
+      (r) =>
+        r.selector === ".sidebar" &&
+        r.atRules.join() !== DRAWER &&
+        decl(r.body, "visibility") !== null,
+    );
+    expect(leaks.map((r) => r.atRules.join() || "top level")).toEqual([]);
+  });
+});
+
+describe("a selected filter chip is not a primary action (AW-11)", () => {
+  it("has its own state style, distinct from the primary fill", () => {
+    const selected = body(".btn--selected");
+    expect(decl(selected, "background")).not.toBe(decl(body(".btn--primary"), "background"));
+    expect(decl(selected, "background")).toMatch(/^var\(--[\w-]+\)$/);
+  });
+
+  it("reads at AA on its tint, and its edge clears 3:1 against the card (not colour alone)", () => {
+    const selected = body(".btn--selected");
+    expect(textOn(decl(selected, "color")!, decl(selected, "background")!)).toBeGreaterThanOrEqual(4.5);
+    const edge = contrast(color(decl(selected, "border-color")!), color("var(--surface-card)"));
+    expect(edge).toBeGreaterThanOrEqual(3);
+  });
+
+  it("is the same pairing as payer-web's selected chip (one product, one selected state)", () => {
+    const selected = body(".btn--selected");
+    expect(decl(selected, "background")).toBe("var(--brand-tint)");
+    expect(decl(selected, "color")).toBe("var(--text-accent)");
+    expect(decl(selected, "border-color")).toBe("var(--text-accent)");
+  });
+});
+
+describe("touch targets the first pass missed (AW-18)", () => {
+  it("the checkbox filter's label is a 44px row", () => {
+    const check = touchRule(".field--check");
+    expect(check).toBeDefined();
+    expect(decl(check!.body, "min-block-size")).toBe("var(--control-md)");
+    // The grid-alignment pad moves inside the 44px: label and inputs now share one height.
+    expect(decl(check!.body, "padding-block")).toBe("0");
+  });
+
+  it("a causal-chain link takes the row height itself (chain rows sit --space-3 apart)", () => {
+    const link = touchRule(".chain__item > .link");
+    expect(link).toBeDefined();
+    expect(decl(link!.body, "display")).toBe("inline-flex");
+    expect(decl(link!.body, "align-items")).toBe("center");
+    expect(decl(link!.body, "min-block-size")).toBe("var(--control-md)");
+  });
+
+  it("a feedback thumbnail is 44px with its border (the image grows, it does not float in a gap)", () => {
+    const img = touchRule(".thumb img");
+    expect(img).toBeDefined();
+    const size = "calc(var(--control-md) - 2 * var(--border-hairline))";
+    expect(decl(img!.body, "inline-size")).toBe(size);
+    expect(decl(img!.body, "block-size")).toBe(size);
+    expect(decl(body(".thumb"), "border")).toBe("var(--border-hairline) solid var(--border-default)");
+  });
+
+  it("a table link shorter than 44px is 44px wide — its own box, so a scrolled table cannot clip it", () => {
+    const link = touchRule(".table :is(td, th) > .link");
+    expect(link).toBeDefined();
+    expect(decl(link!.body, "display")).toBe("inline-block");
+    expect(decl(link!.body, "min-inline-size")).toBe("var(--control-md)");
+    const stacked = touchRule(".table :is(td, th) > br + .link, .table :is(td, th) > .link:has(+ br)");
+    expect(stacked).toBeDefined();
+    expect(decl(stacked!.body, "min-inline-size")).toBe("var(--control-md)");
+  });
+});
+
+describe("narrow-screen crumbs and chips (AW-29)", () => {
+  it("a small button is never narrower than a touch target, at any width", () => {
+    expect(lastTopLevel(".btn--sm", "min-inline-size")).toBe("var(--control-md)");
+  });
+
+  it("at 360px and under the crumb trail wraps instead of ellipsizing every step", () => {
+    const wrap = ALL.find(
+      (r) => r.selector === ".crumbs__list" && r.atRules.join() === "@media (max-width: 360px)",
+    );
+    expect(wrap).toBeDefined();
+    expect(decl(wrap!.body, "flex-wrap")).toBe("wrap");
+    // …without the old per-crumb paragraph margin, which stacked once per wrapped line (a 99px
+    // bar at 320, measured; 82px without it).
+    const crumb = ALL.find(
+      (r) => r.selector === ".crumbs .crumb" && r.atRules.join() === "@media (max-width: 360px)",
+    );
+    expect(crumb).toBeDefined();
+    expect(decl(crumb!.body, "margin")).toBe("0");
   });
 });
