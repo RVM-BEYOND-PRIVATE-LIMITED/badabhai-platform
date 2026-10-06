@@ -84,7 +84,6 @@ import {
   DEFAULT_DEMO_PLAN,
   DEMO_TRADES,
   MAX_DEMO_PERSONAS,
-  DEMO_PHONE_PATTERN,
   demoIdLikePattern,
   personaExpectation,
   workerVisibleFields,
@@ -101,6 +100,7 @@ import {
   printHeader,
 } from "./match-v1-cli";
 import { materializePostingReach } from "./materialize-job-reach";
+import { DEMO_PHONE_PATTERN, E164_PATTERN, parseAllowPhones } from "./demo-phones";
 import { hostClass, isProductionLike } from "./ops-guard";
 import {
   jobPostings,
@@ -917,18 +917,7 @@ function assertTargetDeclared(databaseUrl: string, declared: string | undefined)
 // --reset-live-worker — let the owner re-run LIVE onboarding for one allow-listed phone
 // ---------------------------------------------------------------------------
 
-/** One E.164 per line; blank lines and `#` comments ignored. */
-export function parseAllowPhones(text: string): Set<string> {
-  return new Set(
-    text
-      .split(/\r?\n/)
-      .map((l) => l.replace(/#.*/, "").trim())
-      .filter((l) => l.length > 0),
-  );
-}
-
-/** E.164: `+`, a non-zero country digit, 8–15 digits in all. */
-const E164_PATTERN = /^\+[1-9]\d{7,14}$/;
+export { parseAllowPhones };
 
 /**
  * Pure gate for `--reset-live-worker` (owner decision, 2026-10-06):

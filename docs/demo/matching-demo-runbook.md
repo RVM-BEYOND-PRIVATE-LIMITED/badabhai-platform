@@ -194,6 +194,26 @@ applications stay. The phone must be well-formed E.164.
 
 ---
 
+## Who counts as a demo worker (shared definition)
+
+Owner ruling 2026-10-06: demo tooling and demo views act only on:
+
+- the reserved **demo block** `+910000026xxx` (personas, and live demo workers on the local stack);
+- phones the owner lists in an **allow-list file**.
+
+The definition lives in one place: `packages/db/src/demo-phones.ts`, exported from `@badabhai/db`
+as `DEMO_PHONE_PATTERN`, `parseAllowPhones`, `isDemoWorkerPhone` and `E164_PATTERN`. The seed's
+`--reset-live-worker` and the engine view (W4) both gate on it.
+
+**Allow-list file format:**
+
+- UTF-8 text, one E.164 number per line (`+` then 8–15 digits, no spaces);
+- blank lines are ignored;
+- `#` starts a comment;
+- any other line makes the whole file fail closed, with an error naming the line number.
+
+---
+
 ## Showcase personas
 
 | Persona                                   | Phone           | Skills             | Story                                                                                               |

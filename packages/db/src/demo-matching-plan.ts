@@ -58,20 +58,9 @@ export function demoIdLikePattern(kind: DemoIdKind): string {
   return `${DEMO_ID_PREFIX}${KIND_TAG[kind]}00-0000-4000-8000-%`;
 }
 
-/**
- * The reserved synthetic range the local/staging test-login seam serves
- * (`SYNTHETIC_TEST_PHONE_PATTERN`, apps/api/src/auth/auth.dto.ts): `+91` + five zeros + five
- * digits. Re-declared (packages/db must not import apps/api) and pinned by the plan test.
- */
-export const RESERVED_TEST_PHONE_PATTERN = /^\+910{5}\d{5}$/;
-
-/**
- * The DEMO block of the reserved range: `+910000026` + three digits. Personas use 26001…; a live
- * onboarding demo should use a phone from this block too (e.g. 26101) so `--reset-live-worker`
- * can act on it. Narrower than the reserved range on purpose: the reset must never reach the E4
- * fixture (19844) or the smoke worker (00000).
- */
-export const DEMO_PHONE_PATTERN = /^\+910000026\d{3}$/;
+// The demo-phone definitions live in `demo-phones.ts` (shared with the demo views); re-exported
+// here so plan consumers have one import.
+export { DEMO_PHONE_PATTERN, RESERVED_TEST_PHONE_PATTERN } from "./demo-phones";
 
 /** Demo phones: `+910000026001` … (block 26xxx of the reserved range; E4 uses 19844). */
 export function demoPhone(index: number): string {
