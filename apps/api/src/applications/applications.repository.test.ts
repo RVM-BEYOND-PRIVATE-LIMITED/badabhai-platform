@@ -603,6 +603,13 @@ describe("#1823 findOpenPostingsForFeed — the §2.1 predicates, each separate"
     }
   });
 
+  it("never orders by role_kind — it is projected for the card's art only (2026-10-05)", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findOpenPostingsForFeed(WORKER, 50, { wantedSkillIds: [] });
+    expect(captured.orderBy?.length).toBeGreaterThan(0); // vacuity guard
+    expect(captured.orderBy!.map(render).join(" | ")).not.toContain("role_kind");
+  });
+
   it("(7) shift + pay floor: the jobs arm's NULL-tolerant predicates, bound, only when sent (#1905)", async () => {
     const withBoth = await whereOf({ wantedSkillIds: [], shift: "night", payMin: 20000 });
     expect(withBoth.sql).toMatch(
