@@ -365,44 +365,72 @@ def _edit_prompt_rule(opening: str) -> str:
 
 
 def test_the_delete_anchors_the_prompt_names_are_catalogue_fields_that_allow_delete() -> None:
-    """The prompt names three anchor fields for multi-field rows, plus a trade's `role_id`. A
-    catalogue rename on the API side would leave the prompt pointing at a field that no longer
-    exists; the gold catalogue is pinned to `edit-catalogue.ts` by
-    `test_the_gold_catalogue_matches_the_api_catalogue`, so this closes the loop from the prompt to
-    the API."""
+    """The prompt names one anchor field: a trade's `role_id`. A catalogue rename on the API side
+    would leave the prompt pointing at a field that no longer exists; the gold catalogue is pinned
+    to `edit-catalogue.ts` by `test_the_gold_catalogue_matches_the_api_catalogue`, so this closes
+    the loop from the prompt to the API.
+
+    The multi-field qualification anchors are deliberately NOT named any more (TD151(1),
+    2026-10-05): qualifications are edit-only, so naming `certificate_name` / `education_field` /
+    `training_name` as anchors offered a delete the catalogue no longer holds."""
     from app.companion import eval_edit_parse_gold as edit_gold
 
     ops = {(section, field): allowed for section, field, allowed in edit_gold.CATALOGUE}
-    anchors = {
-        ("occupations", "role_id"),
-        ("qualifications", "certificate_name"),
-        ("qualifications", "education_field"),
-        ("qualifications", "training_name"),
-    }
     delete_rule = _edit_prompt_rule('For "delete"')
-    for section, field in anchors:
-        assert f'"{field}"' in delete_rule
-        assert "delete" in ops[(section, field)]
+    assert '"role_id"' in delete_rule
+    assert "delete" in ops[("occupations", "role_id")]
+    for field in ("certificate_name", "education_field", "training_name"):
+        assert f'"{field}"' not in delete_rule
+        assert "delete" not in ops[("qualifications", field)]
 
 
-def test_the_edit_prompt_never_offers_a_job_delete() -> None:
-    """The owner's "Never from chat" ruling (2026-10-01): a whole job is removed only on the
-    Profile screen.
+def test_the_edit_prompt_states_the_list_fields_rule() -> None:
+    """WP4 (2026-10-05): the first eval run's three out-of-catalogue rows were `edit` on
+    preferred_cities / work_types. Lists take members: add the new one, delete the old one."""
+    rule = _edit_prompt_rule("Some fields are LISTS")
+    assert 'take only "add" and "delete", never "edit"' in rule
+    assert '"add" the new one and' in rule
+    # A job's city is not a preferred city (two wrong targets in the same run).
+    city = _edit_prompt_rule('"employment" "employer_city" is the city of ONE job')
+    assert '"preferred_cities" is where the worker' in city
+    assert "edits the employment row" in city
+
+
+def test_the_edit_prompt_routes_a_trade_by_its_verb() -> None:
+    """WP4: "karta hoon" names an occupation, "aata hai" a skill — the two cases the eval missed.
+    Phrased as rules, not quoted gold lines (the no-quoting test checks the whole prompt)."""
+    rule = _edit_prompt_rule("A trade the worker does is an")
+    assert '"occupations" add' in rule
+    assert '"skills" add' in rule
+
+
+def test_the_edit_prompt_states_the_year_only_and_wording_rules() -> None:
+    """WP4: a year-only end date is December (the eval got 2023-01 for a leaving date), the
+    "chahiye / notice / institute" phrasings map to their fields, and values are Latin."""
+    assert "the start month is January and the end month is December" in EDIT_PARSE_SYSTEM_PROMPT
+    assert '"education_institute"' in EDIT_PARSE_SYSTEM_PROMPT
+    assert '"availability_notice_period_days"' in EDIT_PARSE_SYSTEM_PROMPT
+    assert "Write every value in Latin letters" in EDIT_PARSE_SYSTEM_PROMPT
+
+
+def test_the_edit_prompt_never_offers_a_whole_entry_delete() -> None:
+    """"Never from chat": a whole job (owner, 2026-10-01) and a whole certificate, education or
+    training (TD151(1) provisional default, 2026-10-05) are removed only on the Profile screen.
 
     The old delete rule offered "employer_name" as a job's delete anchor, and with the trade shown
     only as a job's `role_label`, "welder hata do" came back as a whole-job delete (3/3 on the
-    production primary). Now no employment field offers `delete`, the delete rule names no
-    employment field, and the prompt routes a job delete to "other"."""
+    production primary). Now no employment or qualification field offers `delete`, the delete rule
+    names none of their fields, and the prompt routes both requests to "other"."""
     from app.companion import eval_edit_parse_gold as edit_gold
 
-    employment = [ops for section, _field, ops in edit_gold.CATALOGUE if section == "employment"]
-    assert employment and all(ops == ("edit",) for ops in employment)
+    for section in ("employment", "qualifications"):
+        ops = [ops for s, _field, ops in edit_gold.CATALOGUE if s == section]
+        assert ops and all(o == ("edit",) for o in ops)
 
     delete_rule = _edit_prompt_rule('For "delete"')
     for section, field, _ops in edit_gold.CATALOGUE:
-        if section == "employment":
+        if section in ("employment", "qualifications"):
             assert f'"{field}"' not in delete_rule, f"{field} is offered as a delete anchor"
-    assert "for a job" not in delete_rule
 
     # Trades and jobs are contrasted, and each request lands on its own section.
     assert _edit_prompt_rule('"occupations" are the trades').startswith(
@@ -411,8 +439,10 @@ def test_the_edit_prompt_never_offers_a_job_delete() -> None:
     trade = _edit_prompt_rule("Removing a trade")
     assert 'is a "delete" of that "occupations" row ONLY' in trade
     assert 'It never touches an "employment" row.' in trade
-    job = _edit_prompt_rule("A job can only be edited here, never removed.")
-    assert 'propose no row for it and put "other" in "unsupported".' in job
+    entry = _edit_prompt_rule(
+        "A job, certificate, education or training can only be EDITED here, never removed."
+    )
+    assert 'propose no row for it and put "other" in "unsupported".' in entry
 
 
 def test_the_routes_are_registered() -> None:

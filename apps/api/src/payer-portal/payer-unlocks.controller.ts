@@ -74,6 +74,7 @@ export class PayerUnlocksController {
     return this.unlocks.requestUnlock(
       { payerId: payer.id, workerId: dto.worker_id, jobId: dto.job_id },
       ctx,
+      "payer_owned", // #1899: job_id must be null or the session payer's own job / posting
     );
   }
 

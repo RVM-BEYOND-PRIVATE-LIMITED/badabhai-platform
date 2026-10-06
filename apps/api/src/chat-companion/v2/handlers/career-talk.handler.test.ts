@@ -25,31 +25,44 @@ function input(over: Partial<HandlerInput> = {}): HandlerInput {
     recentTurns: [],
     ctx: { correlationId: "c-1", requestId: "r-1" } as never,
     now: NOW,
+    submissionId: null,
     ...over,
   };
 }
 
-function setup(out: unknown) {
+function setup(
+  out: unknown,
+  opts: {
+    /** TD147(1) — what the platform employer index answers (`null` = never loaded). */
+    knownEmployer?: boolean | null;
+  } = {},
+) {
   const ai = { companionCareer: vi.fn(async (_input: unknown, _ctx: unknown) => out) };
   const cost = { record: vi.fn(async () => undefined) };
   const events = { emit: vi.fn(async (params: unknown) => params) };
+  const employers = {
+    isKnownEmployer: vi.fn(async () =>
+      opts.knownEmployer === undefined ? false : opts.knownEmployer,
+    ),
+  };
   const config = {
     CHAT_COMPANION_V2_EDIT_ENABLED: true,
     CHAT_COMPANION_V2_NEW_RESUME_ENABLED: true,
     CHAT_COMPANION_V2_CAREER_ENABLED: true,
   } as unknown as ServerConfig;
   return {
-    handler: new CareerTalkHandler(config, ai as never, cost as never, events as never),
+    handler: new CareerTalkHandler(config, ai as never, cost as never, events as never, employers as never),
     ai,
     cost,
     events,
+    employers,
   };
 }
 
 const careerEvent = (events: { emit: { mock: { calls: unknown[][] } } }) =>
   events.emit.mock.calls
     .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
-    .find((e) => e.event_name === "chat.companion_career_answered")!;
+    .find((e) => e.event_name === "chat.companion_career_answered_v2")!;
 
 const META = {
   ai_call_id: "call-1",
@@ -89,6 +102,7 @@ describe("CareerTalkHandler (ADR-0046 P3) — the one model-written answer", () 
       outcome: "answered",
       refusal_topic: null,
       turns_in_memory: 0,
+      submission_id: null,
     });
   });
 
@@ -122,6 +136,73 @@ describe("CareerTalkHandler (ADR-0046 P3) — the one model-written answer", () 
     for (const word of ["कानून", "सेहत", "पैसे", "वकील", "डॉक्टर", "बैंक"]) {
       expect(dev).toContain(word);
     }
+  });
+
+  it("TD150/WP8: the turn's submission_id rides the career event (and keys it)", async () => {
+    const SID = "99999999-9999-4999-8999-999999999999";
+    const h = setup({
+      status: "answer",
+      lines: ["Pehle welding ka certificate kariye."],
+      followup_chips: [],
+      ai_metadata: META,
+    });
+    await h.handler.handle(input({ submissionId: SID }));
+    const event = careerEvent(h.events) as { payload: Record<string, unknown>; idempotencyKey?: string };
+    expect(event.payload).toMatchObject({ outcome: "answered", submission_id: SID });
+    expect(event.idempotencyKey).toBe(`chat.companion_career_answered_v2:${WORKER}:${SID}`);
+  });
+
+  describe("the platform's own employer names (TD147(1), WP7)", () => {
+    it("an answer naming a known employer is NOT served — the fallback line instead", async () => {
+      const h = setup(
+        {
+          status: "answer",
+          lines: ["Dusri company mein try kariye."],
+          followup_chips: ["Maruti ke baare mein"],
+          ai_metadata: META,
+        },
+        { knownEmployer: true },
+      );
+      const { turn, outcome } = await h.handler.handle(input());
+
+      expect(outcome).toBe("fallback");
+      expect(turn.reply).toBe(FALLBACK.latin);
+      expect(careerEvent(h.events).payload).toMatchObject({ outcome: "fallback" });
+      // Every line AND chip runs the check, like every other content rule.
+      expect(h.employers.isKnownEmployer).toHaveBeenCalled();
+    });
+
+    it("a chip naming a known employer rejects the whole answer", async () => {
+      const h = setup(
+        {
+          status: "answer",
+          lines: ["Pehle welding ka certificate kariye."],
+          followup_chips: ["Tata Motors mein kaam"],
+          ai_metadata: META,
+        },
+        { knownEmployer: true },
+      );
+      expect((await h.handler.handle(input())).outcome).toBe("fallback");
+    });
+
+    it("a never-loaded index is recorded and the answer is served — the heuristic still applied", async () => {
+      const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+      const h = setup(
+        {
+          status: "answer",
+          lines: ["Pehle welding ka certificate kariye."],
+          followup_chips: [],
+          ai_metadata: META,
+        },
+        { knownEmployer: null },
+      );
+      const { outcome } = await h.handler.handle(input());
+      expect(outcome).toBe("served");
+      expect(warn.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
+        "career employer index unavailable",
+      );
+      warn.mockRestore();
+    });
   });
 
   it("an answer that fails the validator is NOT served — the fallback line instead", async () => {
@@ -172,6 +253,7 @@ describe("CareerTalkHandler (ADR-0046 P3) — the one model-written answer", () 
         outcome: "answered",
         refusal_topic: null,
         turns_in_memory: 0,
+        submission_id: null,
       });
 
       expect(logs.warn).not.toHaveBeenCalled();
@@ -294,7 +376,7 @@ describe("CareerTalkHandler (ADR-0046 P3) — the one model-written answer", () 
     expect(event.payload).toMatchObject({ turns_in_memory: CAREER_TURNS_MAX });
     // ...which the registered event contract accepts (it caps `turns_in_memory` at six).
     expect(
-      EVENT_REGISTRY["chat.companion_career_answered"].payload.safeParse(event.payload).success,
+      EVENT_REGISTRY["chat.companion_career_answered_v2"].payload.safeParse(event.payload).success,
     ).toBe(true);
   });
 });

@@ -1,8 +1,11 @@
 # ADR-0046: Bada Bhai companion v2 — an LLM task router on the chat tab
 
-- **Status:** **Proposed.** Owner rulings O1–O17 were taken on 2026-09-28 in the design session.
-  Build may start behind flags that default off. **Turning any v2 flag on in production requires
-  the owner's signature at the foot, and requires companion v1 (ADR-0044) to be live first.**
+- **Status:** **Accepted — signed by the owner (CEO / Prakash) on 2026-10-05.** Owner rulings O1–O17
+  were taken on 2026-09-28 in the design session. Build may start behind flags that default off.
+  **Turning any v2 flag on in production required the owner's signature at the foot, and required
+  companion v1 (ADR-0044) to be live first — both are now satisfied** (ADR-0044 signed the same
+  day; companion v1 has been live since 2026-09-27). The v2 flags being ON and the model tasks armed
+  on the box is a separate production action, recorded in the spec README.
 - **Date:** 2026-09-28
 - **Owner:** CEO / Prakash
 - **Amends:** [ADR-0044](0044-post-completion-chat-companion.md) **R7** ("No LLM in V1"). R7 said a later model
@@ -122,5 +125,5 @@ POST /chat/companion/message
 
 ```
 Owner rulings O1–O17 taken 2026-09-28 in the design session; production flag-ON requires this signature.
-Signed (CEO / Prakash): ______________________          Date: __________
+Signed (CEO / Prakash): Prakash          Date: 2026-10-05
 ```

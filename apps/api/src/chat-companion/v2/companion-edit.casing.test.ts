@@ -358,7 +358,7 @@ describe("the counts on the spine are the card's, never inflated by casing (#194
     expect(result.kind).toBe("applied");
     if (result.kind === "applied") expect(result.appliedCount).toBe(1);
     expect(writer.sealed()).toEqual(["Tata Motors", "Rvm Cad"]);
-    expect(eventPayload(h.events.emit, "chat.companion_edit_confirmed")).toMatchObject({
+    expect(eventPayload(h.events.emit, "chat.companion_edit_confirmed_v2")).toMatchObject({
       applied_count: 1,
       sections: ["employment"],
     });

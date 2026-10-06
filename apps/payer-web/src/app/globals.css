@@ -6179,6 +6179,26 @@ body:has(.invite-landing) .chrome-footer {
 [data-theme="ink"] .dash-posting:hover .dash-posting__cta {
   color: var(--brand);
 }
+/* #1956 — a REAL applicants link inside the whole-card link. It rides ABOVE the card's
+   stretched overlay (z-index) so it takes its own click, while the rest of the card still opens
+   the posting. On phones the two-column row has no spare slot, so it hides and the card's own
+   details page carries the applicants entry point. */
+.dash-posting__applicants {
+  position: relative;
+  z-index: calc(var(--z-base) + 2);
+  font-size: var(--ui-body-sm-size);
+  font-weight: var(--weight-semibold);
+  color: var(--text-link);
+  white-space: nowrap;
+}
+.dash-posting__applicants:hover {
+  text-decoration: underline;
+}
+@media (max-width: 560px) {
+  .dash-posting__applicants {
+    display: none;
+  }
+}
 .dash-posting__title {
   font-size: var(--ui-body-lg-size);
   line-height: var(--ui-h3-leading);

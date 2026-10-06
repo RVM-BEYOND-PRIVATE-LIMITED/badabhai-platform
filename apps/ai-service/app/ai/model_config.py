@@ -320,7 +320,14 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
             # rows of five short fields. A generous budget invites commentary the
             # contract does not carry, and a truncated candidate loses the closing
             # brace and fails the contract exactly like a rejected one.
-            max_output_tokens=64 if task_type == "companion_classify" else 512,
+            #
+            # 48 SINCE WP5 (2026-10-05), down from 64. The measured worst case is
+            # `{"intent": "edit_resume", "confidence": 0.95}` (43 chars, ~15 tokens),
+            # so 48 still leaves more than 3x headroom; classify's p95 missed its
+            # 1.5 s bar and an output cap is part of the worst-case latency, so the
+            # smallest safe number is the right one. The prompt was shrunk in the
+            # same change (prompts.py).
+            max_output_tokens=48 if task_type == "companion_classify" else 512,
             temperature=0.0,
             json_mode=json_mode,
             # One retry, the chat surface's own number: these calls sit on a worker's

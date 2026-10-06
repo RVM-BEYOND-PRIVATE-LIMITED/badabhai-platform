@@ -1492,6 +1492,9 @@ def test_mutation_twin_the_floor_is_what_refused_the_rich_draft(
 ) -> None:
     _arm(monkeypatch)
     _floor_off(monkeypatch)
+    # #1788 certifies the stored draft's labels as well, and that certifier withholds a phone on
+    # its own; switched off here so this twin still isolates the floor.
+    monkeypatch.setattr(profile_extractor, "certify_model_labels", lambda draft: (draft, 0))
     out, _recorder = _rich_draft(monkeypatch)
     draft = out["worker_profile_draft"]
     assert draft["primary_role"] == f"Welder {PHONE}"

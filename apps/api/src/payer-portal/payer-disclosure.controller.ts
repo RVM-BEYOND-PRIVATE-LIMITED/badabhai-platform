@@ -60,6 +60,7 @@ export class PayerDisclosureController {
     return this.disclosures.requestDisclosure(
       { payerId: payer.id, workerId: dto.worker_id, jobPostingId: dto.job_posting_id },
       ctx,
+      "payer_owned", // #1899: job_posting_id must be null or the session payer's own posting / job
     );
   }
 

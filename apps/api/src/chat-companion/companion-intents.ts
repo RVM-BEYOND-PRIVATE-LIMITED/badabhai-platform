@@ -138,6 +138,45 @@ const intent = (i: Exclude<CompanionIntent, "resume_menu">): CompanionResolution
   intent: i,
 });
 
+/**
+ * Whether this text is a STATUS question — the "koi update?", "kya hua", "kab banega" shapes.
+ *
+ * Shared with the WP6 route-precedence pre-check so the two can never disagree about what the
+ * status family is: a status question is a NAMED v1 intent (it answers with the recap) and must
+ * keep its zero-model answer, so the pre-check refuses to steal one and the weak-alias diversion
+ * refuses to send one to the classifier.
+ */
+export function isCompanionStatusQuestion(text: string): boolean {
+  const normalized = normalizeResumeMenuText(text);
+  return normalized.length > 0 && STATUS_PHRASES.some((p) => normalized.includes(p));
+}
+
+/**
+ * Whether v1's answer for this text would come from a WEAK alias — the résumé menu's substring
+ * aliases, the résumé / greeting words, or the bare "kaam" — rather than a NAMED intent.
+ *
+ * TD146 / WP6: under `CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED`, only these weak outcomes may
+ * be diverted to the classifier. Every NAMED v1 intent keeps its zero-model answer: an exact chip
+ * (checked first), a guarantee, an apply word, a strong jobs word, or a status question. The menu
+ * alias branch is weak by construction — its substrings ("edit", "update", "location") are exactly
+ * the words that steal edit/career phrasings today; its exact chips are protected above.
+ */
+export function isWeakCompanionAlias(text: string): boolean {
+  const normalized = normalizeResumeMenuText(text);
+  if (normalized.length === 0) return true;
+  if (isCompanionChipTap(normalized)) return false;
+  const words = tokens(normalized);
+  const jobWord = hasAny(words, STRONG_JOBS_WORDS) || hasAny(words, WEAK_JOBS_WORDS);
+  if (hasAny(words, GUARANTEE_WORDS) || (hasAny(words, PROMISE_WORDS) && jobWord)) return false;
+  if (hasAny(words, APPLIED_WORDS)) return false;
+  if (hasAny(words, STRONG_JOBS_WORDS)) return false;
+  if (STATUS_PHRASES.some((p) => normalized.includes(p))) return false;
+  // The menu's aliases: anything it answers with more than its generic root is its claim.
+  if (resolveResumeMenu(text).reply !== RESUME_MENU_ROOT_REPLY) return true;
+  // The weak word lists: résumé words and greetings produce the recap, "kaam" the jobs digest.
+  return hasAny(words, RESUME_WORDS) || hasAny(words, GREETING_WORDS) || hasAny(words, WEAK_JOBS_WORDS);
+}
+
 export function resolveCompanionText(text: string): CompanionResolution {
   const normalized = normalizeResumeMenuText(text);
   if (normalized.length === 0) return intent("digest");
