@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { requireCapability } from "../lib/auth";
+import { requireCapabilities } from "../lib/auth";
 import { getPayer } from "../lib/entities";
 import { isAdminRequestError } from "../lib/admin-http";
 import { EntityTimeline } from "./entity-timeline";
@@ -22,7 +22,11 @@ export async function PayerTimelineRoute({
   kind: "Company" | "Agency";
   cursor?: string;
 }) {
-  await requireCapability("read_events");
+  // BOTH reads' gates, not just the timeline's. The page reads the account first (to learn its
+  // role, for the redirect below) on `read_entities`, then the timeline on `read_events`; gated
+  // on `read_events` alone, a role holding only that would get a page whose header read 403s
+  // into the error boundary instead of a clean refusal. `app/page-gates.test.ts` pins this.
+  await requireCapabilities(["read_events", "read_entities"]);
 
   const expectedRole = kind === "Company" ? "employer" : "agent";
   const basePath = kind === "Company" ? "/companies" : "/agencies";
