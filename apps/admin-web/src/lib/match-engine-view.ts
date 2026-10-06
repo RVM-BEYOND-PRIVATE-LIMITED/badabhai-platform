@@ -242,7 +242,9 @@ export function diffCards(prev: readonly EngineCard[], next: readonly EngineCard
   const nextIds = new Set(next.map((c) => c.job_posting_id));
   const prevIds = new Set(prev.map((c) => c.job_posting_id));
   return {
-    entered: new Set(next.filter((c) => !prevIds.has(c.job_posting_id)).map((c) => c.job_posting_id)),
+    entered: new Set(
+      next.filter((c) => !prevIds.has(c.job_posting_id)).map((c) => c.job_posting_id),
+    ),
     exited: prev
       .map((card, index) => ({ card, index }))
       .filter(({ card }) => !nextIds.has(card.job_posting_id)),

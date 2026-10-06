@@ -217,9 +217,7 @@ describe("MatchFeedService — ranks and the feed.shown_v2 audit line up", () =>
 
     expect(out.jobs).toHaveLength(4);
     expect(allEvents()).toHaveLength(4);
-    expect(allEvents().map((e) => e.payload.job_posting_id)).toEqual(
-      out.jobs.map((j) => j.job_id),
-    );
+    expect(allEvents().map((e) => e.payload.job_posting_id)).toEqual(out.jobs.map((j) => j.job_id));
   });
 
   it("stamps each event with the card's OWN rank and posting id (post-interleave)", async () => {
@@ -393,5 +391,26 @@ describe("MatchFeedService — the card stays faceless (ADR-0036 open org_label 
     expect(card.benefits).toBeNull();
     expect(card.requirements).toBeNull();
     expect(card.needed_by).toBeNull();
+  });
+});
+
+describe("MatchFeedService.composePage — the feed's order with no impression emitted", () => {
+  it("returns exactly the rows getFeed serves, in the same order, and emits nothing itself", async () => {
+    const rows = [
+      row("p1", PAYER_A),
+      row("p2", PAYER_A),
+      row("p3", PAYER_A),
+      row("p4", PAYER_B),
+      row("p5", PAYER_C),
+    ];
+    const { svc, events } = setup(rows);
+
+    const page = await svc.composePage(WORKER, 4, {});
+    expect(events.emitMany).not.toHaveBeenCalled();
+
+    const { jobs } = await svc.getFeed(WORKER, 4, {}, CTX);
+    expect(page.map((r) => r.jobPostingId)).toEqual(jobs.map((j) => j.job_id));
+    // The E14 interleave is applied (not just the repository order).
+    expect(longestRun(page.map((r) => r.payerKey))).toBeLessThanOrEqual(2);
   });
 });

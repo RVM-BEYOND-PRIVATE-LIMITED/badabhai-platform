@@ -177,7 +177,9 @@ export function explainMatch(
 ): string {
   const matched = labelOf(matchedSkillId);
   if (matchTier === 1) return `direct: ${matched}`;
-  const parent = postedSkillIds.find((p) => relatedMatchSkills(p).includes(matchedSkillId as never));
+  const parent = postedSkillIds.find((p) =>
+    relatedMatchSkills(p).includes(matchedSkillId as never),
+  );
   const target =
     parent !== undefined
       ? labelOf(parent)

@@ -18,7 +18,7 @@ describe("nav labels", () => {
     expect(items.some((i) => i.label === "Jobs")).toBe(false);
   });
 
-  it('payment orders are named for what they are, on the unchanged /transactions route', () => {
+  it("payment orders are named for what they are, on the unchanged /transactions route", () => {
     expect(byHref("/transactions")?.label).toBe("Payment orders");
     expect(items.some((i) => i.label === "Transactions")).toBe(false);
   });
@@ -30,7 +30,8 @@ describe("nav labels", () => {
       expect(item.label, item.href).not.toContain("&");
       const words = item.label.split(" ").slice(1);
       // Only an acronym may be capitalised after the first word ("AI calls").
-      for (const w of words) expect(w === w.toLowerCase() || w === w.toUpperCase(), item.label).toBe(true);
+      for (const w of words)
+        expect(w === w.toLowerCase() || w === w.toUpperCase(), item.label).toBe(true);
     }
   });
 
