@@ -11,18 +11,21 @@ import { renderToStaticMarkup } from "react-dom/server";
 const stub = vi.hoisted(() => ({
   matrix: null as unknown,
   failure: null as unknown,
+  capabilities: ["read_entities"] as string[],
+  reads: 0,
 }));
 
 vi.mock("../../../lib/auth", () => ({
   requireSession: async () => ({
     adminId: "a-1",
     role: "ops_admin",
-    capabilities: ["read_entities"],
+    capabilities: stub.capabilities,
   }),
 }));
 
 vi.mock("../../../lib/entities", () => ({
   getCapabilityMatrix: async () => {
+    stub.reads++;
     if (stub.failure) throw stub.failure;
     return stub.matrix;
   },
@@ -44,6 +47,8 @@ const MATRIX = {
 beforeEach(() => {
   stub.matrix = MATRIX;
   stub.failure = null;
+  stub.capabilities = ["read_entities"];
+  stub.reads = 0;
 });
 
 const render = async () => renderToStaticMarkup(await RolesPage());
@@ -99,5 +104,34 @@ describe("the matrix marks are named glyphs, not characters (owner brief 2026-10
     expect(out).toContain('<i class="ph-fill ph-minus" role="img" aria-label="Not granted"></i>');
     expect(out).not.toContain("\u2713");
     expect(out).not.toContain(">\u00b7<");
+  });
+});
+
+/**
+ * #1900: the matrix is served on `read_entities`, the page only needs a session. A role without
+ * `read_entities` keeps "Your access" and is told the matrix is withheld — it is never sent the
+ * read that would 403, and never shown the error state that read would produce.
+ */
+describe("a role without read_entities (#1900)", () => {
+  it("does not request the matrix, and shows a clean withheld state instead of an error", async () => {
+    stub.capabilities = ["read_events"];
+    const out = await render();
+    expect(stub.reads).toBe(0);
+    expect(out).toContain("The full matrix is not available to your role");
+    expect(out).not.toContain("state--error");
+    expect(out).not.toContain("could not be loaded");
+    expect(out).not.toContain("table--matrix");
+  });
+
+  it("still lists its own access, from the session", async () => {
+    stub.capabilities = ["read_events"];
+    const out = await render();
+    expect(out).toContain('<li class="chip">Read events</li>');
+  });
+
+  it("a role holding it still reads the matrix", async () => {
+    const out = await render();
+    expect(stub.reads).toBe(1);
+    expect(out).toContain("table--matrix");
   });
 });

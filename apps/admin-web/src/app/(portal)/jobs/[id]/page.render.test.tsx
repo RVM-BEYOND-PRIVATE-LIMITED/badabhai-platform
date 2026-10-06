@@ -130,6 +130,9 @@ describe("the full projection renders every new card field", () => {
     expect(out).toContain('<dt class="kv__k">Role title</dt>');
     expect(out).not.toContain('<dt class="kv__k">Role</dt>');
     expect(out).toContain('<dt class="kv__k">Area / locality</dt>');
+    // Owner label ruling (#1900): "City", not "Match city".
+    expect(out).toContain('<dt class="kv__k">City</dt>');
+    expect(out).not.toContain("Match city");
     expect(out).toContain('<dt class="kv__k">Openings</dt>');
     expect(out).not.toContain('<dt class="kv__k">Vacancies</dt>');
     expect(out).toContain('<dt class="kv__k">Pay type</dt>');

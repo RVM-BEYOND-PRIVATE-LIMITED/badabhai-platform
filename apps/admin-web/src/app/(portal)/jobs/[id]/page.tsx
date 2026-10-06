@@ -142,7 +142,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               { label: "Role classification", value: roleValue },
               { label: "Published as", value: job.org_label },
               { label: "Location note", value: job.location_label ?? "not stated" },
-              { label: "Match city", value: job.city ?? "not set" },
+              { label: "City", value: job.city ?? "not set" },
               { label: "Area / locality", value: job.area ?? "not stated" },
               { label: "Openings", value: job.vacancy_band },
               { label: "Monthly pay", value: formatPayBand(job.pay_min, job.pay_max) },

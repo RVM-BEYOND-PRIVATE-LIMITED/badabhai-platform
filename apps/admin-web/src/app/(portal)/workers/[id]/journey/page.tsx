@@ -12,6 +12,7 @@ import { StatusPill } from "../../../../../components/status-pill";
 import { PageHeader } from "../../../../../components/page-header";
 import { RetryActions } from "../../../../../components/retry-actions";
 import { queryHref } from "../../../../../lib/query-href";
+import { filterChipClass } from "../../../../../components/filter-chip";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -178,11 +179,12 @@ export default async function WorkerJourneyPage({
           {/* Status filter as plain links, not a client form: the filter belongs in the URL
               (shareable mid-incident) and this screen needs no JavaScript to apply it.
               `aria-current="true"` marks the active one — a class alone would be invisible to a
-              screen reader — and it takes the primary fill, like every other chip set here. */}
+              screen reader — and it takes the selected chip state, like every other chip set here
+              (never the primary fill, which marks a screen's one action — AW-11). */}
           <nav aria-label="Filter sessions by status" className="page__actions">
             <Link
               aria-current={status ? undefined : "true"}
-              className={`btn btn--sm ${status ? "btn--ghost" : "btn--primary"}`}
+              className={filterChipClass(!status)}
               href={`/workers/${id}/journey`}
             >
               All
@@ -190,7 +192,7 @@ export default async function WorkerJourneyPage({
             {SESSION_STATUS_FILTERS.map((s) => (
               <Link
                 aria-current={status === s ? "true" : undefined}
-                className={`btn btn--sm ${status === s ? "btn--primary" : "btn--ghost"}`}
+                className={filterChipClass(status === s)}
                 href={`/workers/${id}/journey?status=${s}`}
                 key={s}
               >

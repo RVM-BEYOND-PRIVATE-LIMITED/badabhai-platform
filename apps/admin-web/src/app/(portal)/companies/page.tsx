@@ -9,6 +9,7 @@ import { PayerList } from "../../../components/payer-list";
 import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Pager } from "../../../components/pager";
 import { PayerFilterBar } from "../../../components/payer-filter-bar";
+import { FilterPanel } from "../../../components/filter-panel";
 import { PageHeader } from "../../../components/page-header";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import {
@@ -95,12 +96,10 @@ export default async function CompaniesPage({
           </>
         }
         filters={
-          <section className="panel" aria-labelledby="cf-heading">
-            <h2 className="sr-only" id="cf-heading">
-              Filter companies
-            </h2>
+          /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */
+          <FilterPanel headingId="cf-heading" heading="Filter companies" activeCount={status ? 1 : 0}>
             <PayerFilterBar basePath="/companies" status={status ?? ""} />
-          </section>
+          </FilterPanel>
         }
       />
 

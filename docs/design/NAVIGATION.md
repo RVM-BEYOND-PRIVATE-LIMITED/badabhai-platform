@@ -67,15 +67,18 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
    have none (a fence in `page-header.render.test.tsx` enforces this). It is the `arrow-left`
    glyph plus text, and 44px tall on touch.
 2. **Title**, then a **one-sentence description** — on detail pages too, the record's own
-   timestamp folded into that sentence. Mechanics and privacy notes go in an alert or notice
-   below the header. `components/page-description.test.ts` holds every description, in every
+   timestamp folded into that sentence. Mechanics and privacy notes go in an alert or notice —
+   on a list, after its rows as a standing footnote, so the first row stays within reach on a
+   phone (final sweep AW-08). `components/page-description.test.ts` holds every description, in every
    branch it can render, to one sentence.
 3. **Actions.** The page's own action first (Flag, Suspend / Reinstate, Force-close, Invite an
    admin, Record a decision), then related views (View journey, View event timeline). Only
    page-relevant actions, each offered once on the screen. The title block grows into the row
    with an 18rem floor, so the actions sit beside the title whenever both fit and wrap below
    it otherwise.
-4. **Filters** directly below the header (`filters` slot), never in the actions slot.
+4. **Filters** directly below the header (`filters` slot), never in the actions slot. A list's
+   filter bar sits in `components/filter-panel.tsx`: unchanged above the phone line, a
+   "Filters (n)" disclosure on a phone — open whenever a filter is set.
 5. **Topbar crumb** (`topbar-crumb.tsx`): an ordered list — the group, then the section once
    the page sits below it, then the named views between the section and the page ("Journey").
    It never repeats the h1, and it never shows a record's id (only the views listed in
@@ -86,7 +89,8 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
    link at the same addresses (`components/fallback-header.tsx`).
 6. **Current location.** The sidebar marks the exact page `aria-current="page"`; on a page
    below it, the item is the current section (`aria-current="true"`). Chip filters mark the
-   active chip `aria-current="true"` and give it the primary fill.
+   active chip `aria-current="true"` and give it the selected tint (`filterChipClass` →
+   `.btn--selected`) — never the primary fill, which marks a screen's one action.
 7. **Tab title.** `metadata.title` names the page. The root template adds " · BadaBhai Admin",
    so a page never includes it itself.
 

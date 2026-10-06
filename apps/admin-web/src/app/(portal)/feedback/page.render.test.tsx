@@ -346,12 +346,15 @@ describe("the category chips", () => {
     const out = await render();
     for (const label of ["Suggestions", "Problems", "Other"]) expect(out).toContain(label);
     expect(out).not.toContain("btn--primary");
+    expect(out).not.toContain("btn--selected");
     expect(out).not.toContain('aria-current="true"');
   });
 
   it("marks the active chip for assistive tech, not by colour alone", async () => {
     const out = await render({ category: "problem" });
-    expect(chip(out, "problem")).toContain("btn--primary");
+    // The selected STATE (AW-11), not the primary fill — that marks a screen's one action.
+    expect(chip(out, "problem")).toContain("btn--selected");
+    expect(chip(out, "problem")).not.toContain("btn--primary");
     expect(chip(out, "problem")).toContain('aria-current="true"');
     expect(chip(out, "other")).toContain("btn--ghost");
     expect(chip(out, "other")).not.toContain("aria-current");
@@ -763,3 +766,23 @@ describe("the images column (#1191)", () => {
 function escapeHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
+
+/**
+ * PAGE HEIGHT (final sweep AW-08): the 288px "A worker's own words" band stood between the
+ * header and the first message at 375px. It is a standing statement about how to read the
+ * screen, so it follows the messages now, inside the same panel.
+ */
+describe("page height: the messages before the explanation (AW-08)", () => {
+  it("'A worker's own words' follows the table", async () => {
+    stub.page = { items: [TAGGED], nextCursor: null };
+    const out = await render();
+    const table = out.indexOf('<div class="tablewrap">');
+    expect(table).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("A worker&#x27;s own words")).toBeGreaterThan(table);
+  });
+
+  it("is still there when nothing was fetched — it describes the screen, not the rows", async () => {
+    const out = await render();
+    expect(out).toContain("A worker&#x27;s own words");
+  });
+});

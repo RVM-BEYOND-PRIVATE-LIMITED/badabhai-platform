@@ -17,6 +17,7 @@ import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
 import { FirstPageAction, RetryActions } from "../../../components/retry-actions";
 import { AiCallFilterBar } from "./filter-bar";
+import { FilterPanel } from "../../../components/filter-panel";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -156,34 +157,20 @@ export default async function AiCallsPage({
         title="AI calls"
         description="Every AI call the platform made on a worker's behalf, newest first."
         filters={
-          <section className="panel" aria-labelledby="ac-filters">
-            <h2 className="sr-only" id="ac-filters">
-              Filter AI calls
-            </h2>
+          /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */
+          <FilterPanel
+            headingId="ac-filters"
+            heading="Filter AI calls"
+            activeCount={[taskType, success, workerId].filter(Boolean).length}
+          >
             <AiCallFilterBar
               taskType={taskType ?? ""}
               success={success ?? ""}
               workerId={workerId ?? ""}
             />
-          </section>
+          </FilterPanel>
         }
       />
-
-      {/* What a row is, and what it is not — the mechanics the one-sentence description leaves
-          out, posture-conditional on whether this session may open a call's text. */}
-      <div className="alert alert--info">
-        <div className="alert__text">
-          <p className="alert__title">Measurements, not text</p>
-          <p className="alert__body">
-            Each row says what the call was for, which model answered, whether a provider was
-            really called, and how long the request and the reply were. The two counts are
-            characters, not the characters themselves.{" "}
-            {mayReadText
-              ? "The text of each call is stored encrypted; opening one is a separate read, capped and recorded."
-              : "The text of each call is stored encrypted and cannot be read from your role — what is on this page are its measurements."}
-          </p>
-        </div>
-      </div>
 
       <section className="panel" aria-labelledby="ac-heading" aria-live="polite">
         <div className="panel__head panel__head--row">
@@ -451,6 +438,24 @@ export default async function AiCallsPage({
           nextCursor={page?.nextCursor}
           note="Paging uses a keyset cursor, so calls completing mid-scan cannot make rows skip or repeat."
         />
+
+        {/* What a row is, and what it is not — the mechanics the one-sentence description leaves
+            out, posture-conditional on whether this session may open a call's text. A standing
+            statement about how to read every row, so it follows the rows with the other standing
+            footnote below (AW-08): above the list it put the first call 818px down at 375. */}
+        <div className="alert alert--info">
+          <div className="alert__text">
+            <p className="alert__title">Measurements, not text</p>
+            <p className="alert__body">
+              Each row says what the call was for, which model answered, whether a provider was
+              really called, and how long the request and the reply were. The two counts are
+              characters, not the characters themselves.{" "}
+              {mayReadText
+                ? "The text of each call is stored encrypted; opening one is a separate read, capped and recorded."
+                : "The text of each call is stored encrypted and cannot be read from your role — what is on this page are its measurements."}
+            </p>
+          </div>
+        </div>
 
         {/* A standing footnote rather than a banner: it is true on every render, and a warning
             at the top of every page load is how an operator learns to skip the one that matters.

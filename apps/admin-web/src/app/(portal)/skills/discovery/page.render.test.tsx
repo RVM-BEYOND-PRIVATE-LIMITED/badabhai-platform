@@ -45,7 +45,7 @@ const stub = vi.hoisted(() => {
     metrics: null as unknown,
     metricsFailure: null as unknown,
     /** The props the page handed the (stubbed) filter bar on the last render. */
-    barProps: null as null | { carry: Record<string, string | undefined> },
+    barProps: null as null | { carry: Record<string, string | undefined>; view?: string },
   };
 });
 
@@ -91,7 +91,7 @@ vi.mock("../../../../lib/skill-discovery", async () => {
 vi.mock("./filter-bar", async () => {
   const { createElement } = await import("react");
   return {
-    SkillDiscoveryFilterBar: (props: { carry: Record<string, string | undefined> }) => {
+    SkillDiscoveryFilterBar: (props: { carry: Record<string, string | undefined>; view?: string }) => {
       stub.barProps = props;
       return createElement("form", { "data-stub": "SkillDiscoveryFilterBar" });
     },
@@ -221,7 +221,7 @@ describe("AC#1 — dashboard tiles render from one metrics request, no client ag
     expect(out).toContain("not a stored column, and nothing decides on it");
   });
 
-  it("degrades to an error tile without blanking the queue below when metrics fails", async () => {
+  it("degrades to an error tile without blanking the queue when metrics fails", async () => {
     stub.metricsFailure = new TypeError("network down");
     stub.page = { items: [ROW], nextCursor: null };
     const out = await render({ view: "flat" });
@@ -248,7 +248,8 @@ describe("#1280 — the grouped view now calls the real GET /admin/skill-discove
   it("renders the real batches — server label, real candidate/undecided counts, no 'on this page' claim", async () => {
     stub.groups = { ...stub.groups, groups: [GROUP], total_groups: 1, total_candidates: 2, total_undecided: 1 };
     const out = await render();
-    expect(out).toContain("<details");
+    // A batch's own disclosure — More filters (AW-02) is a <details> too, so name the batch's.
+    expect(out).toContain('<details class="reviewgroup"');
     expect(out).toContain(GROUP.label);
     expect(out).toContain("2 candidates");
     expect(out).toContain("1 undecided");
@@ -274,10 +275,13 @@ describe("#1280 — the grouped view now calls the real GET /admin/skill-discove
     expect(stub.groupsCalls.length).toBe(0);
   });
 
-  it("the flat view renders one row per candidate in a plain table, no <details>", async () => {
+  it("the flat view renders one row per candidate in a plain table, no batch <details>", async () => {
     stub.page = { items: [ROW], nextCursor: null };
     const out = await render({ view: "flat" });
-    expect(out).not.toContain("<details");
+    // The only disclosure on the flat view is More filters (AW-02) — no review batch.
+    expect(out).not.toContain('<details class="reviewgroup"');
+    expect((out.match(/<details/g) ?? []).length).toBe(1);
+    expect(out).toContain('<details class="disclosure queue-filters"');
     expect(out).toContain("sanitary fixture installation");
   });
 
@@ -693,8 +697,10 @@ describe("hierarchy and rhythm", () => {
     const form = out.indexOf(FILTER_BAR);
     expect(form, "filter bar inside the stack").toBeGreaterThan(start);
     expect(form, "filter bar inside the stack").toBeLessThan(end);
-    // Its LAST child: the form's close is the stack's last markup before the stack closes.
-    expect(out.slice(start, end).endsWith("</form></div>")).toBe(true);
+    // Its LAST content: the form closes the More filters disclosure (AW-02), and the disclosure
+    // is the stack's last child — so the form's close is the stack's last markup but for the
+    // two wrappers that end with it.
+    expect(out.slice(start, end).endsWith("</form></div></details></div>")).toBe(true);
     const at = out.indexOf(results);
     expect(at, results).toBeGreaterThanOrEqual(0);
     expect(at, "results after the stack").toBeGreaterThanOrEqual(end);
@@ -724,7 +730,7 @@ describe("hierarchy and rhythm", () => {
     );
   });
 
-  it("every control sits in one stack ABOVE the results, the tier caption with its tabs", async () => {
+  it("every control sits in one stack ABOVE the results; batch order and the bar inside More filters", async () => {
     stub.groups = { ...stub.groups, groups: [GROUP], total_groups: 1, total_candidates: 2, total_undecided: 1 };
     const out = await render();
     const at = (s: string) => {
@@ -734,16 +740,18 @@ describe("hierarchy and rhythm", () => {
     };
     const order = [
       at('<div class="queue-controls">'),
-      at('aria-label="Status"'),
-      at('<div class="queue-controls__group"><div class="filters--inline" role="group" aria-label="Review tier">'),
+      at('<div class="filters--inline" role="group" aria-label="Status">'),
+      at('<div class="filters--inline" role="group" aria-label="Review tier">'),
+      at('<details class="disclosure queue-filters"'),
       at('aria-label="Batch order"'),
       at(FILTER_BAR),
       at('<ul class="reviewgroups">'),
     ];
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-    // The caption closes the tier group — it explains the tabs directly above it.
-    const group = out.slice(at('<div class="queue-controls__group">'), at('aria-label="Batch order"'));
-    expect(group).toContain('</div><p class="field__help">');
+    // The tier tabs' explanation is a standing note now, after the results (AW-02) — pinned in
+    // "the queue comes first" below; nothing but chips sits between the tabs and the disclosure.
+    const tabs = out.slice(at('aria-label="Review tier"'), at('<details class="disclosure queue-filters"'));
+    expect(tabs).not.toContain('class="field__help"');
     // The filter bar is the stack's LAST child, and the stack closes before the results: outside
     // it, the filter form met the first result with 0px between them (measured).
     expectFilterBarClosesTheStack(out, '<ul class="reviewgroups">');
@@ -801,5 +809,146 @@ describe("what the page hands the filter bar to keep", () => {
     ]) {
       expect(carry, own).not.toHaveProperty(own);
     }
+  });
+});
+
+/**
+ * THE QUEUE COMES FIRST (final sweep AW-02, owner requirement 21). The first batch sat 2325px
+ * below the top of <main> at 375 (1153px at 1280): nine metric tiles, a long panel sub-line,
+ * three chip rows, the tier caption and a ten-field filter form all came before it. Measured
+ * after: see the PR. Status scope and tier stay visible chips; everything else that narrows the
+ * queue is one disclosure, open whenever it holds an active filter.
+ */
+describe("the queue comes first (AW-02)", () => {
+  const details = (out: string) => {
+    const at = out.indexOf('<details class="disclosure queue-filters"');
+    expect(at).toBeGreaterThanOrEqual(0);
+    return { tag: out.slice(at, out.indexOf(">", at) + 1), at, end: out.indexOf("</details>", at) };
+  };
+
+  it("the metrics follow the queue panel instead of preceding it", async () => {
+    stub.groups = { ...stub.groups, groups: [GROUP], total_groups: 1, total_candidates: 2, total_undecided: 1 };
+    const out = await render();
+    expect(out.indexOf('<section class="queue-metrics"')).toBeGreaterThan(
+      out.indexOf('<ul class="reviewgroups">'),
+    );
+    expect(out.indexOf('<section class="queue-metrics"')).toBeGreaterThan(
+      out.indexOf('<div class="queue-notes queue-notes--foot">'),
+    );
+  });
+
+  it("a failed metrics read no longer points the reader at a queue 'below' it", async () => {
+    stub.metricsFailure = new stub.RequestError(503);
+    const out = await render();
+    expect(out).toContain("The queue above is a separate read and may still work.");
+    expect(out).not.toContain("The queue below");
+  });
+
+  it("More filters is closed when none of its fields is set", async () => {
+    for (const sp of [{}, { view: "flat" }, { statusScope: "held" }, { tier: "ambiguous" }, { tier: "all" }]) {
+      const { tag } = details(await render(sp));
+      expect(tag, JSON.stringify(sp)).not.toContain("open");
+      expect(await render(sp), JSON.stringify(sp)).toContain(">More filters</summary>");
+    }
+  });
+
+  it("opens by itself whenever one of its fields is set — an active filter is never hidden", async () => {
+    const cases: Record<string, string>[] = [
+      { band: "high" },
+      { proposedAction: "create" },
+      { tradeFamily: "Welders" },
+      { sourceType: "job_title" },
+      { runId: "sdr_1" },
+      { clusterKey: "k" },
+      { phrase: "arc" },
+      { createdFrom: "2026-09-01" },
+      { createdTo: "2026-09-30" },
+      { view: "flat", sort: "oldest" },
+      { groupSort: "undecided" },
+    ];
+    for (const sp of cases) {
+      const { tag } = details(await render(sp));
+      expect(tag, JSON.stringify(sp)).toContain('open=""');
+    }
+  });
+
+  it("says how many of its fields are set", async () => {
+    const out = await render({ band: "high", phrase: "arc", runId: "sdr_1" });
+    expect(out).toContain(">More filters (3)</summary>");
+  });
+
+  it("the sort order counts only where it applies — the flat view", async () => {
+    // Grouped batches are ordered by the Batch order chips; a carried `sort` changes nothing there.
+    const grouped = details(await render({ sort: "oldest" }));
+    expect(grouped.tag).not.toContain("open");
+  });
+
+  it("status scope and tier chips stay outside it, always visible", async () => {
+    const out = await render();
+    const { at } = details(out);
+    expect(out.indexOf('aria-label="Status"')).toBeLessThan(at);
+    expect(out.indexOf('aria-label="Review tier"')).toBeLessThan(at);
+  });
+
+  it("batch order lives inside it, grouped view only", async () => {
+    const out = await render();
+    const { at, end } = details(out);
+    const batch = out.indexOf('aria-label="Batch order"');
+    expect(batch).toBeGreaterThan(at);
+    expect(batch).toBeLessThan(end);
+    expect(await render({ view: "flat" })).not.toContain('aria-label="Batch order"');
+  });
+
+  it("the filter bar is told which view it serves (the Sort field is flat-only, AW-23)", async () => {
+    await render({ view: "flat" });
+    expect(stub.barProps?.view).toBe("flat");
+    await render();
+    expect(stub.barProps?.view).toBe("grouped");
+  });
+
+  it("the standing explanations sit after the results, in the foot notes", async () => {
+    stub.groups = { ...stub.groups, groups: [GROUP], total_groups: 1, total_candidates: 2, total_undecided: 1 };
+    const grouped = await render();
+    const foot = grouped.indexOf('<div class="queue-notes queue-notes--foot">');
+    expect(foot).toBeGreaterThan(grouped.indexOf('<ul class="reviewgroups">'));
+    for (const note of ["Real review batches over the full filtered population", "Direct candidates are the highest yield"]) {
+      expect(grouped.indexOf(note), note).toBeGreaterThan(foot);
+    }
+    expect(grouped).not.toContain('<p class="panel__sub">Real review batches');
+
+    stub.page = { items: [ROW], nextCursor: null };
+    const flat = await render({ view: "flat" });
+    const flatFoot = flat.indexOf('<div class="queue-notes queue-notes--foot">');
+    expect(flatFoot).toBeGreaterThan(flat.indexOf('<div class="tablewrap">'));
+    for (const note of ["One row per candidate", "Direct candidates are the highest yield"]) {
+      expect(flat.indexOf(note), note).toBeGreaterThan(flatFoot);
+    }
+  });
+});
+
+describe("a selected chip is a state, not the primary action (AW-11)", () => {
+  it("no chip on the page is drawn primary; the selected ones say so to assistive tech", async () => {
+    for (const sp of [{}, { view: "flat" }, { groupSort: "undecided", tier: "derived", ack: "1" }]) {
+      const out = await render(sp);
+      // The stubbed bar renders no Apply, so ANY primary here would be a chip.
+      expect(out, JSON.stringify(sp)).not.toContain("btn--primary");
+      const selected = (out.match(/<a[^>]*btn--selected[^>]*>/g) ?? []);
+      expect(selected.length, JSON.stringify(sp)).toBeGreaterThanOrEqual(3);
+      for (const tag of selected) expect(tag).toContain('aria-current="true"');
+    }
+  });
+});
+
+describe("a batch label wraps inside its row (AW-01)", () => {
+  it("the label and its counts are ONE inline run beside the caret, not separate flex items", async () => {
+    // As separate items, the flex row shrank a short label below its word ("wel/din/g" at 375)
+    // once the label carried the `anywhere` wrap a 95-character anchor needs. One run wraps as
+    // a sentence; the CSS (`.reviewgroup__title`) is fenced in long-text.css.test.ts.
+    stub.groups = { ...stub.groups, groups: [GROUP], total_groups: 1, total_candidates: 2, total_undecided: 1 };
+    const out = await render();
+    const summary = out.slice(out.indexOf("<summary>", out.indexOf('<details class="reviewgroup"')));
+    const body = summary.slice(0, summary.indexOf("</summary>"));
+    expect(body).toContain(`<span class="reviewgroup__title"><strong>${GROUP.label}</strong> · 2 candidates · 1 undecided · ${GROUP.trade_family}</span>`);
+    expect(body).toContain("disclosure__caret");
   });
 });

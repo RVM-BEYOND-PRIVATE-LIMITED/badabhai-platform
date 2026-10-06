@@ -166,3 +166,44 @@ describe("ThemeToggle — polite live region for announcements", () => {
     ).toBe(true);
   });
 });
+
+describe("ThemeToggle — the switch's shared tooltip (final sweep C, F26)", () => {
+  /** The switch's DIRECT children: the shared CSS shows `:focus-visible > .bb-icon-tip`. */
+  const kids = (sw: El): El[] =>
+    ([] as unknown[])
+      .concat(sw.props.children as unknown)
+      .filter((c): c is El => typeof c === "object" && c !== null && "props" in c);
+
+  it.each([
+    ["paper", "Switch to dark theme"],
+    ["ink", "Switch to light theme"],
+  ] as const)("%s: a direct .bb-icon-tip child repeats the switch's name", (seed, label) => {
+    resolvedSeed = seed;
+    const sw = findSwitch(render());
+    expect(sw.props["aria-label"]).toBe(label);
+    const tips = kids(sw).filter((c) => String(c.props["className"]).includes("bb-icon-tip"));
+    expect(tips).toHaveLength(1);
+    expect(tips[0]!.type).toBe("span");
+    expect(tips[0]!.props["className"]).toBe("bb-icon-tip bb-icon-tip--bottom");
+    expect(tips[0]!.props["aria-hidden"]).toBe("true");
+    expect(tips[0]!.props.children).toBe(label);
+  });
+
+  it("Escape on the focused switch dismisses its tooltip; blur re-arms it", () => {
+    resolvedSeed = "paper";
+    const sw = findSwitch(render());
+    const attrs = new Set<string>();
+    const target = {
+      setAttribute: (n: string) => void attrs.add(n),
+      removeAttribute: (n: string) => void attrs.delete(n),
+    };
+    (sw.props["onKeyDown"] as (e: unknown) => void)({ key: "Enter", currentTarget: target });
+    expect(attrs.has("data-tooltip-dismissed")).toBe(false);
+    (sw.props["onKeyDown"] as (e: unknown) => void)({ key: "Escape", currentTarget: target });
+    expect(attrs.has("data-tooltip-dismissed")).toBe(true);
+    (sw.props["onBlur"] as (e: unknown) => void)({ currentTarget: target });
+    expect(attrs.has("data-tooltip-dismissed")).toBe(false);
+    expect(typeof sw.props["onPointerEnter"]).toBe("function");
+    expect(typeof sw.props["onPointerLeave"]).toBe("function");
+  });
+});

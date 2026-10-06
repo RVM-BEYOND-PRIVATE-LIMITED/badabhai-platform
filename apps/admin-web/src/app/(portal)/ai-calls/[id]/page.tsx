@@ -125,21 +125,6 @@ export default async function AiCallDetailPage({
         }
       />
 
-      {/*
-        THE ONE PIECE OF COPY ON THIS SURFACE THAT COULD DO REAL HARM IF IT OVERCLAIMED.
-        Both sentences live in `lib/ai-trace-view.ts` and are pinned by its test: the first
-        refuses to promise the text is clean, the second states the controls that genuinely
-        exist. Neither may be softened into "identifying details are removed" — nothing on this
-        path removes them, and an operator who believes otherwise will paste this somewhere.
-        It is rendered HERE, inside the success branch, because its second half asserts that the
-        audit row for this read has already been committed — which is only true once the server
-        has actually returned text.
-      */}
-      <section className="notice notice--warn" role="status">
-        <strong>Read this as the worker&apos;s own words.</strong> {AI_TRACE_TEXT_CAVEAT}{" "}
-        {AI_TRACE_TEXT_CONTROLS}
-      </section>
-
       <section className="panel" aria-labelledby="ac-call">
         <div className="panel__head">
           <h2 className="panel__title" id="ac-call">
@@ -257,6 +242,24 @@ export default async function AiCallDetailPage({
             { label: "Trace id", value: <span className="mono">{trace.id}</span> },
           ]}
         />
+      </section>
+
+      {/*
+        THE ONE PIECE OF COPY ON THIS SURFACE THAT COULD DO REAL HARM IF IT OVERCLAIMED.
+        Both sentences live in `lib/ai-trace-view.ts` and are pinned by its test: the first
+        refuses to promise the text is clean, the second states the controls that genuinely
+        exist. Neither may be softened into "identifying details are removed" — nothing on this
+        path removes them, and an operator who believes otherwise will paste this somewhere.
+        It is rendered HERE, inside the success branch, because its second half asserts that the
+        audit row for this read has already been committed — which is only true once the server
+        has actually returned text.
+        DIRECTLY ABOVE THE WORDS it qualifies ("the words below"), after the call's scalars: above
+        the scalars it put them 763px down at 375 (final sweep AW-08). It still precedes both
+        halves on every render.
+      */}
+      <section className="notice notice--warn" role="status">
+        <strong>Read this as the worker&apos;s own words.</strong> {AI_TRACE_TEXT_CAVEAT}{" "}
+        {AI_TRACE_TEXT_CONTROLS}
       </section>
 
       <Half

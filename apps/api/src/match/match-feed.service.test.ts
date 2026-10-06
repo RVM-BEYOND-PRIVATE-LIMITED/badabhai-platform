@@ -179,7 +179,7 @@ describe("MatchFeedService — E14: max-2-per-company is a PERMUTATION, not a fi
   it("preserves each company's INTERNAL order (a stable permutation, not a shuffle)", async () => {
     const { svc } = setup(CLUSTERED);
     const out = await svc.getFeed(WORKER, 6, {}, CTX);
-    // Within one company the SQL's boost/recency order is the only order there is —
+    // Within one company the SQL's boost/tier/recency order is the only order there is —
     // the interleave may move a card later, never above its own company's earlier card.
     const aOrder = out.jobs.map((j) => j.job_id).filter((id) => id.startsWith("a"));
     expect(aOrder).toEqual(["a1", "a2", "a3"]);
@@ -192,6 +192,78 @@ describe("MatchFeedService — E14: max-2-per-company is a PERMUTATION, not a fi
     // The rule cannot conjure a second employer; padding or truncating here would be
     // the feed lying about supply.
     expect(out.jobs.map((j) => j.job_id)).toEqual(["a1", "a2", "a3"]);
+  });
+});
+
+describe("MatchFeedService — the interleave over a MIXED-TIER page (direct before related, 2026-10-05)", () => {
+  // Rows arrive in the repository's order: boost, then tier ASC, then recency, then id.
+  // The interleave runs AFTER that fetch; these pin that it is a stable permutation of
+  // that order — it moves a related card above a direct card ONLY when the max-N rule
+  // forces it, and never otherwise.
+
+  it("is the IDENTITY when no company run needs breaking — tier order survives untouched", async () => {
+    const rows = [
+      row("a1", PAYER_A, { matchTier: 1, boosted: true }),
+      row("b1", PAYER_B, { matchTier: 2, boosted: true }),
+      row("c1", PAYER_C, { matchTier: 1 }),
+      row("a2", PAYER_A, { matchTier: 1 }),
+      row("b2", PAYER_B, { matchTier: 2 }),
+      row("c2", PAYER_C, { matchTier: 2 }),
+    ];
+    const { svc } = setup(rows);
+    const out = await svc.getFeed(WORKER, 6, {}, CTX);
+    expect(out.jobs.map((j) => j.job_id)).toEqual(["a1", "b1", "c1", "a2", "b2", "c2"]);
+    expect(out.jobs.map((j) => j.via_related)).toEqual([false, true, false, false, true, true]);
+  });
+
+  it("lifts a related card above a direct one ONLY where the max-2 rule forces it", async () => {
+    // Three direct cards from A lead; the third would be A's third in a row. The
+    // earliest card that does not extend the run is b1 (related), so it is pulled
+    // up exactly one slot — and a3 follows immediately, ahead of c1.
+    const rows = [
+      row("a1", PAYER_A, { matchTier: 1 }),
+      row("a2", PAYER_A, { matchTier: 1 }),
+      row("a3", PAYER_A, { matchTier: 1 }),
+      row("b1", PAYER_B, { matchTier: 2 }),
+      row("c1", PAYER_C, { matchTier: 2 }),
+    ];
+    const { svc } = setup(rows);
+    const out = await svc.getFeed(WORKER, 5, {}, CTX);
+    expect(out.jobs.map((j) => j.job_id)).toEqual(["a1", "a2", "b1", "a3", "c1"]);
+    // Within each tier, the relative order is the fetch order.
+    const direct = out.jobs.filter((j) => !j.via_related).map((j) => j.job_id);
+    const related = out.jobs.filter((j) => j.via_related).map((j) => j.job_id);
+    expect(direct).toEqual(["a1", "a2", "a3"]);
+    expect(related).toEqual(["b1", "c1"]);
+  });
+
+  it("overfetch still feeds the rule: a related card past the page edge fills the forced slot", async () => {
+    // limit 3 → reads 9. b1 sits at position 4, OUTSIDE the page; only the overfetch
+    // lets the rule reach it. Without it the page would be a1,a2,a3 (a run of 3).
+    const rows = [
+      row("a1", PAYER_A, { matchTier: 1 }),
+      row("a2", PAYER_A, { matchTier: 1 }),
+      row("a3", PAYER_A, { matchTier: 1 }),
+      row("b1", PAYER_B, { matchTier: 2 }),
+    ];
+    const { svc, repo } = setup(rows);
+    const out = await svc.getFeed(WORKER, 3, {}, CTX);
+    expect(repo.listFeed).toHaveBeenCalledWith(WORKER, 9, {});
+    expect(out.jobs.map((j) => j.job_id)).toEqual(["a1", "a2", "b1"]);
+    expect(out.jobs.map((j) => j.rank)).toEqual([1, 2, 3]);
+  });
+
+  it("is deterministic — the same fetch yields the same page and the same ranks", async () => {
+    const rows = [
+      row("a1", PAYER_A, { matchTier: 1 }),
+      row("a2", PAYER_A, { matchTier: 1 }),
+      row("a3", PAYER_A, { matchTier: 1 }),
+      row("b1", PAYER_B, { matchTier: 2 }),
+      row("a4", PAYER_A, { matchTier: 2 }),
+    ];
+    const first = await setup(rows).svc.getFeed(WORKER, 5, {}, CTX);
+    const second = await setup(rows).svc.getFeed(WORKER, 5, {}, CTX);
+    expect(second.jobs).toEqual(first.jobs);
   });
 });
 

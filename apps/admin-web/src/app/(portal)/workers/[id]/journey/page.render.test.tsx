@@ -115,14 +115,16 @@ describe("the session status chips (owner brief 2026-10-01)", () => {
 
   it('mark the active chip aria-current="true", like every other chip set — not "page"', async () => {
     const out = await renderWith("ended");
-    expect(out).toMatch(/aria-current="true" class="btn btn--sm btn--primary"[^>]*>Ended</);
+    // The selected STATE (AW-11), not the primary fill.
+    expect(out).toMatch(/aria-current="true" class="btn btn--sm btn--selected"[^>]*>Ended</);
+    expect(out).not.toContain("btn--primary");
     expect((out.match(/aria-current="true"/g) ?? []).length).toBe(1);
     expect(out).not.toContain('aria-current="page"');
   });
 
   it("with no status, All is the current chip", async () => {
     const out = await renderWith();
-    expect(out).toMatch(/aria-current="true" class="btn btn--sm btn--primary"[^>]*>All</);
+    expect(out).toMatch(/aria-current="true" class="btn btn--sm btn--selected"[^>]*>All</);
   });
 });
 

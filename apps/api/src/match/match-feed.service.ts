@@ -152,7 +152,7 @@ export class MatchFeedService {
       benefits: row.benefits,
       requirements: row.requirements,
       needed_by: row.neededBy,
-      // Already the SECOND sort key of this feed (boost, then recency, then id) — it was
+      // Already a sort key of this feed (boost, then tier, then recency, then id) — it was
       // simply never projected, so the client could not see the order it was being served.
       posted_at: row.publishedAt === null ? null : row.publishedAt.toISOString(),
       rank: index + 1,

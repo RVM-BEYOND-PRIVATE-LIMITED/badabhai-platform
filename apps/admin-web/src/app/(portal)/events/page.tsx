@@ -7,6 +7,7 @@ import { EventTable } from "../../../components/event-table";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
 import { EventFilterBar } from "./filter-bar";
+import { FilterPanel } from "../../../components/filter-panel";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import {
   CURSOR_REFUSAL,
@@ -96,17 +97,15 @@ export default async function EventsPage({
         title="Events"
         description="The audit spine: every important state change on the platform is recorded here."
         filters={
-          <section className="panel" aria-labelledby="filters-heading">
-            <h2 className="sr-only" id="filters-heading">
-              Filter events
-            </h2>
+          /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */
+          <FilterPanel headingId="filters-heading" heading="Filter events" activeCount={active.length}>
             <EventFilterBar
               eventName={filters.eventName ?? ""}
               actorType={filters.actorType ?? ""}
               subjectType={filters.subjectType ?? ""}
               correlationId={filters.correlationId ?? ""}
             />
-          </section>
+          </FilterPanel>
         }
       />
 

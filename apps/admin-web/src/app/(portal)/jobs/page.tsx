@@ -9,6 +9,7 @@ import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
 import { JobFilterBar } from "./filter-bar";
+import { FilterPanel } from "../../../components/filter-panel";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import {
   CURSOR_REFUSAL,
@@ -82,16 +83,18 @@ export default async function JobsPage({
         title="Postings"
         description="Every posting on the platform, with company and role text exactly as the poster typed it — the text workers see in the feed."
         filters={
-          <section className="panel" aria-labelledby="jf-heading">
-            <h2 className="sr-only" id="jf-heading">
-              Filter postings
-            </h2>
+          /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */
+          <FilterPanel
+            headingId="jf-heading"
+            heading="Filter postings"
+            activeCount={[status, verificationStatus, payerId].filter(Boolean).length}
+          >
             <JobFilterBar
               status={status ?? ""}
               verificationStatus={verificationStatus ?? ""}
               payerId={payerId ?? ""}
             />
-          </section>
+          </FilterPanel>
         }
       />
 
