@@ -54,6 +54,7 @@ class _ScriptedAgencyApi extends MockPayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    List<String>? matchSkillIds,
     List<AgencyJobClearField>? clear,
   }) async {
     updated.add(id);

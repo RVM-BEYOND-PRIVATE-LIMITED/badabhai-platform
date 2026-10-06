@@ -36,6 +36,7 @@ class _SpyApi extends MockPayerApiClient {
   String? agencyShift;
   List<String>? agencyBenefits;
   List<String>? agencyRequirements;
+  List<String>? agencyMatchSkillIds;
 
   /// Every company PATCH the screen fires AFTER a create (the repair of what the
   /// create schema silently strips).
@@ -149,6 +150,7 @@ class _SpyApi extends MockPayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    List<String>? matchSkillIds,
   }) {
     createdAgency.add((
       title: title,
@@ -161,6 +163,7 @@ class _SpyApi extends MockPayerApiClient {
     agencyShift = shift;
     agencyBenefits = benefits;
     agencyRequirements = requirements;
+    agencyMatchSkillIds = matchSkillIds;
     return super.createAgencyJob(
       tradeKey: tradeKey,
       title: title,
@@ -176,6 +179,7 @@ class _SpyApi extends MockPayerApiClient {
       shift: shift,
       benefits: benefits,
       requirements: requirements,
+      matchSkillIds: matchSkillIds,
     );
   }
 
@@ -643,6 +647,30 @@ void main() {
       // Fail closed at entry: the server would 400 the whole post.
       expect(api.createdAgency, isEmpty);
       expect(find.text('Check the description'), findsOneWidget);
+    });
+
+    // #1960 — the picker is no longer company-only: an agency job's
+    // `match_skill_ids` is the field ADR-0050's twin is served on.
+    testWidgets('the demand-skill pick rides the agency create (V1 live)', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.agency, spy: _V1SpyApi());
+
+      await typeInto(tester, 'Job title', 'Lathe hand');
+      await tapChip(tester, 'CNC / VMC Setter');
+      await fillCardContent(
+        tester,
+        neededBy: 'Immediate',
+        description: 'Turning job work on Fanuc controls.',
+      );
+
+      expect(find.text('Skills this role needs'), findsOneWidget);
+      await tester.tap(find.text('CNC operating'));
+      await tester.pumpAndSettle();
+      await tapPost(tester);
+
+      expect(api.createdAgency, hasLength(1));
+      expect(api.agencyMatchSkillIds, <String>['mskill_cnc_operate']);
     });
   });
 

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/data/models.dart';
+import '../../../core/data/payer_api_client.dart';
+import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -13,6 +15,7 @@ import '../../../core/widgets/bb_toast.dart';
 import 'cubit/agency_jobs_cubit.dart';
 import '../domain/worker_card_fields.dart';
 import 'widgets/job_content_input.dart';
+import 'widgets/match_skill_picker.dart';
 
 /// Edit an existing AGENCY posting (`PATCH /payer/agency/jobs/:id`). The
 /// [AgencyJobView] carries every field the route accepts, so the WHOLE form is
@@ -107,6 +110,65 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
 
 
   bool _saving = false;
+
+  // --- ADR-0050 demand skills (optional; #1960) ------------------------------
+  // The agency job's `match_skill_ids` pick. Loaded lazily and fail-soft: an
+  // unavailable vocabulary (route off / network) simply HIDES the section, never
+  // a free-text fallback whose value could not be sent.
+  List<MatchSkill> _matchSkills = const <MatchSkill>[];
+  bool _matchSkillsLoading = false;
+  bool _matchSkillsFailed = false;
+  late final Set<String> _pickedSkillIds =
+      Set<String>.of(widget.job.matchSkillIds);
+  static const int _matchSkillCapFallback = 5;
+  final int _maxSkillsPerPosting = _matchSkillCapFallback;
+
+  bool get _matchSkillsAvailable =>
+      !_matchSkillsLoading && !_matchSkillsFailed && _matchSkills.isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    // ignore: discarded_futures — fire-and-forget; state updates on done.
+    _loadMatchSkills();
+  }
+
+  Future<void> _loadMatchSkills() async {
+    setState(() => _matchSkillsLoading = true);
+    try {
+      final List<MatchSkill> skills =
+          await locator<PayerApiClient>().fetchMatchSkills();
+      if (!mounted) return;
+      setState(() {
+        _matchSkills = skills;
+        _matchSkillsLoading = false;
+        _matchSkillsFailed = skills.isEmpty;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _matchSkillsLoading = false;
+        _matchSkillsFailed = true;
+      });
+    }
+  }
+
+  void _onToggleSkill(String id) {
+    setState(() {
+      if (_pickedSkillIds.contains(id)) {
+        _pickedSkillIds.remove(id);
+      } else if (_pickedSkillIds.length < _maxSkillsPerPosting) {
+        _pickedSkillIds.add(id);
+      }
+    });
+  }
+
+  /// Order-insensitive set equality, for "did the pick change?".
+  static bool _sameMembers(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    final Set<String> set = a.toSet();
+    return set.length == b.length && b.every(set.contains);
+  }
 
   @override
   void dispose() {
@@ -211,6 +273,11 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
     // was never set and is still empty sends neither.
     final bool areaEmptied =
         area.isEmpty && (widget.job.area ?? '').trim().isNotEmpty;
+    // ADR-0050 — send the demand-skill pick only when it CHANGED (an untouched
+    // pick omits it, leaving the stored set alone). Stripped by the route until
+    // the API field lands (#1960/#1957).
+    final List<String> picked = _pickedSkillIds.toList(growable: false);
+    final bool skillsChanged = !_sameMembers(picked, widget.job.matchSkillIds);
     final JobActionResult result = await widget.cubit.editJob(
       widget.job.id,
       tradeKey: tradeKey,
@@ -237,6 +304,8 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
       benefits: _benefitsTouched ? List<String>.of(_benefits) : null,
       requirements:
           _requirementsTouched ? List<String>.of(_requirements) : null,
+      matchSkillIds:
+          _matchSkillsAvailable && skillsChanged ? picked : null,
       clear: areaEmptied
           ? const <AgencyJobClearField>[AgencyJobClearField.area]
           : null,
@@ -547,6 +616,27 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
                 }),
               ),
             ]),
+            // ADR-0050 — the demand-skill picker (optional). Hidden entire when
+            // the match vocabulary is unavailable, so an edit never blocks on it.
+            if (_matchSkillsAvailable) ...<Widget>[
+              const SizedBox(height: AppSpacing.s4),
+              _sectionCard('Skills & matching', <Widget>[
+                MatchSkillPicker(
+                  skills: _matchSkills,
+                  pickedIds: _pickedSkillIds,
+                  untickedRelatedIds: const <String>{},
+                  reach: null,
+                  reachLoading: false,
+                  reachFailed: false,
+                  onRetryReach: () {},
+                  maxSkills: _maxSkillsPerPosting,
+                  onToggleSkill: _onToggleSkill,
+                  onToggleRelated: (_) {},
+                  // Reach is a create-time concern; the edit form stays quiet.
+                  showReach: false,
+                ),
+              ]),
+            ],
           ],
         ),
       ),

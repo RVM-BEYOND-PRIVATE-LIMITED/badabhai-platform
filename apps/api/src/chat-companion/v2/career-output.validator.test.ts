@@ -64,6 +64,54 @@ describe("validateCareerAnswer (ADR-0046 P3 §2) — every check rejects its own
     expect(validateCareerAnswer(answer(["Bima karwa lijiye."]))).toBe("sensitive_advice");
   });
 
+  /**
+   * TD147(2), 2026-10-05: `case`, `policy` and `doctor` were removed from SENSITIVE because
+   * they over-blocked ordinary Hinglish. Each narrowed word gets BOTH a must-pass and a
+   * must-still-refuse fixture, so the narrowing cannot silently disable the topic.
+   */
+  describe("sensitive advice, narrowed (TD147(2))", () => {
+    it.each([
+      ["is case me", "Is case me pehle practice kariye."],
+      ["safety policy", "Safety policy yaad rakhiye, helmet pehniye."],
+      ["doctor ko dikhaiye", "Chot lage to doctor ko dikhaiye."],
+    ])("%s passes — the word alone is ordinary Hinglish", (_why, text) => {
+      expect(validateCareerAnswer(answer([text]))).toBeNull();
+    });
+
+    it.each([
+      ["court", "Court se salah lijiye."],
+      ["vakil", "Vakil se baat kariye."],
+      ["lawyer", "Lawyer se poochiye."],
+      ["kanoon", "Kanoon ka mamla hai."],
+      ["dawai", "Dawai wahi lijiye jo doctor de."],
+      ["dawa", "Dawa ka kaam medical ka hai."],
+      ["ilaaj", "Ilaaj ke liye aspatal jaiye."],
+      ["ilaj", "Ilaj ka paisa insurance se."],
+      ["loan", "Bank se loan le lijiye."],
+      ["emi", "EMI kam karwaiye."],
+      ["insurance", "Insurance karwa lijiye."],
+      ["bima", "Bima karwa lijiye."],
+      ["invest", "Invest karna samajhdari hai."],
+      ["share market", "Share market se paisa banao."],
+      ["sip", "SIP shuru kar dijiye."],
+      ["fd", "FD karwa lijiye."],
+      ["rd", "RD ka rate sasta hai."],
+    ])("%s still refuses — the unambiguous term is untouched", (_word, text) => {
+      expect(validateCareerAnswer(answer([text]))).toBe("sensitive_advice");
+    });
+
+    it("the removed words do not weaken 'court case' or 'insurance policy'", () => {
+      // "case" and "policy" are gone as bare words, but the legal/insurance words beside them
+      // still refuse the line.
+      expect(validateCareerAnswer(answer(["Court case mein vakil se miliye."]))).toBe(
+        "sensitive_advice",
+      );
+      expect(validateCareerAnswer(answer(["Insurance policy le lijiye."]))).toBe(
+        "sensitive_advice",
+      );
+    });
+  });
+
   it("rating: comparing or scoring the worker", () => {
     expect(validateCareerAnswer(answer(["Aap achhe ho."]))).toBe("worker_rating");
     expect(validateCareerAnswer(answer(["Aapka score 8 out of 10 hai."]))).toBe("worker_rating");
@@ -276,8 +324,18 @@ describe("script: Latin only (O9) — every non-Latin script is barred, not just
     ["a curly apostrophe", "Welder’s helmet hamesha pehniye."],
     ["an accented Latin letter", "Apna résumé update kariye."],
     ["digits, a percent sign and brackets", "Pehle 50% theory, phir practice (roz 2 ghante)."],
+    // TD147(3), 2026-10-05: µ and Ω are trade units, not another script.
+    ["the micro sign as a unit", "Tolerance 0.02 µm tak rakhiye."],
+    ["the Greek mu as a unit", "Vernier se 0.02 μm naapiye."],
+    ["the ohm sign as a unit", "Multimeter se 4 Ω check kariye."],
+    ["the Ohm sign (U+2126)", "Winding ka 8 Ω reading aaya."],
   ])("%s → passes", (_label, text) => {
     expect(line(text)).toBeNull();
+  });
+
+  it("a Greek letter that is NOT a unit is still non_latin", () => {
+    // The allowance is the two unit code points, not the Greek script.
+    expect(line("Apna λ ratio samjhaiye.")).toBe("non_latin");
   });
 });
 

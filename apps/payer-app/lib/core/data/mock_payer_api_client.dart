@@ -754,6 +754,7 @@ class MockPayerApiClient implements PayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    List<String>? matchSkillIds,
   }) async {
     _agencySeq += 1;
     // The worker-visible four used to be kept in a SIDE TABLE here, because
@@ -781,6 +782,8 @@ class MockPayerApiClient implements PayerApiClient {
       benefits: benefits != null && benefits.isNotEmpty ? benefits : null,
       requirements:
           requirements != null && requirements.isNotEmpty ? requirements : null,
+      // ADR-0050 — stored as an array (empty = none picked).
+      matchSkillIds: matchSkillIds ?? const <String>[],
       applicantsReceived: 0,
       createdAt: '2026-07-08T00:00:00Z',
       updatedAt: '2026-07-08T00:00:00Z',
@@ -818,6 +821,7 @@ class MockPayerApiClient implements PayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    List<String>? matchSkillIds,
     List<AgencyJobClearField>? clear,
   }) async {
     final Set<AgencyJobClearField> cleared =
@@ -836,6 +840,7 @@ class MockPayerApiClient implements PayerApiClient {
         shift == null &&
         benefits == null &&
         requirements == null &&
+        matchSkillIds == null &&
         cleared.isEmpty) {
       throw ArgumentError('updateAgencyJob needs at least one field');
     }
@@ -879,6 +884,8 @@ class MockPayerApiClient implements PayerApiClient {
           requirements,
           j.requirements,
         ),
+        // ADR-0050 — a supplied list (even `[]`) replaces; a null leaves it.
+        matchSkillIds: matchSkillIds ?? j.matchSkillIds,
         applicantsReceived: j.applicantsReceived,
         createdAt: j.createdAt,
         updatedAt: '2026-07-08T00:00:00Z',
@@ -911,6 +918,8 @@ class MockPayerApiClient implements PayerApiClient {
           minExperienceYears: j.minExperienceYears,
           maxExperienceYears: j.maxExperienceYears,
           neededBy: j.neededBy,
+          // Lifecycle does not touch the demand skills (#1960).
+          matchSkillIds: j.matchSkillIds,
           applicantsReceived: j.applicantsReceived,
           createdAt: j.createdAt,
           updatedAt: '2026-07-08T00:00:00Z',

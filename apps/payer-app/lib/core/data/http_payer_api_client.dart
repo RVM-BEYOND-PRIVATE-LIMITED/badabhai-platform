@@ -742,6 +742,7 @@ class HttpPayerApiClient implements PayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    List<String>? matchSkillIds,
   }) async {
     // snake_case body — trade_key/pay_min/etc. NEVER a body payer_id (the server
     // derives the tenant from the bearer).
@@ -768,6 +769,11 @@ class HttpPayerApiClient implements PayerApiClient {
       if (benefits != null && benefits.isNotEmpty) 'benefits': benefits,
       if (requirements != null && requirements.isNotEmpty)
         'requirements': requirements,
+      // ADR-0050 — demand skills. On CREATE an empty pick carries no information
+      // the absent key does not (there is nothing stored to clear), so it is
+      // omitted. The route strips it until the API field lands (#1960/#1957).
+      if (matchSkillIds != null && matchSkillIds.isNotEmpty)
+        'match_skill_ids': matchSkillIds,
     };
     final PayerResponse res =
         await _http.send(PayerMethod.post, '/payer/agency/jobs', body: body);
@@ -820,6 +826,7 @@ class HttpPayerApiClient implements PayerApiClient {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    List<String>? matchSkillIds,
     List<AgencyJobClearField>? clear,
   }) async {
     final Map<String, dynamic> body = <String, dynamic>{
@@ -841,6 +848,10 @@ class HttpPayerApiClient implements PayerApiClient {
       // CLEARED server-side; only a null list is omitted.
       if (benefits != null) 'benefits': benefits,
       if (requirements != null) 'requirements': requirements,
+      // ADR-0050 — same list semantics: a passed `match_skill_ids` (even `[]`)
+      // is sent to clear; a null is omitted. Stripped by the route until the API
+      // field lands (#1960/#1957).
+      if (matchSkillIds != null) 'match_skill_ids': matchSkillIds,
     };
     // #1652 — the fields to UNSET, after the values so a contradiction is caught.
     _addClear(body, clear?.map((AgencyJobClearField f) => f.wire));

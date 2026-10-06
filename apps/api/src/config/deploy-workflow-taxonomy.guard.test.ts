@@ -216,6 +216,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /CHAT_COMPANION_V2_CAREER_ENABLED:\s*\$\{\{\s*secrets\.CHAT_COMPANION_V2_CAREER_ENABLED\s*\}\}/,
       /envs:[^\n]*\bCHAT_COMPANION_V2_CAREER_ENABLED\b/,
     ],
+    // TD146 (WP6) — route precedence. A plain boolean flag; default false, so the bridge
+    // holds it off until the environment secret exists and the owner turns it on.
+    [
+      "CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED",
+      /CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED:\s*\$\{\{\s*secrets\.CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED\b/,
+    ],
     // ADR-0047 (owner decision 2026-09-30) — raw text to the model. A plain boolean read by
     // BOTH services, and the owner chose the environment secret as its one arming path, so the
     // bridge is the switch: `gh secret set AI_RAW_PII_ENABLED --env production` plus a redeploy.
@@ -276,12 +283,14 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["CHAT_IDENTITY_INTAKE_ENABLED", "false"],
     ["RESUME_SKINS_ENABLED", "false"],
     ["RESUME_QR_SCAN_ENABLED", "false"],
-    // ADR-0046 — the companion v2 phase gates, all five off by default.
+    // ADR-0046 — the companion v2 phase gates, all five off by default; TD146 (WP6) adds the
+    // route-precedence switch, also off by default (v1 byte-for-byte).
     ["CHAT_COMPANION_V2_ENABLED", "false"],
     ["CHAT_COMPANION_V2_EDIT_ENABLED", "false"],
     ["CHAT_COMPANION_V2_NEW_RESUME_ENABLED", "false"],
     ["CHAT_COMPANION_V2_FALTU_ENABLED", "false"],
     ["CHAT_COMPANION_V2_CAREER_ENABLED", "false"],
+    ["CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED", "false"],
     // ADR-0047 — off is the masked prompt path exactly. Declared on BOTH services; the
     // per-service assertion is ai-raw-pii-flag-compose.guard.test.ts.
     ["AI_RAW_PII_ENABLED", "false"],

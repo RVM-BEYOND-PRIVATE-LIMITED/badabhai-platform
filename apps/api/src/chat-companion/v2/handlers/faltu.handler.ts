@@ -72,11 +72,22 @@ export class FaltuHandler implements CompanionV2Handler {
     cooldownStarted: boolean,
   ): Promise<void> {
     try {
+      // v2 (TD150/WP8): the same count and boolean, plus the turn's submission id when the
+      // client sent one, so a duplicate is recognisable on the spine. v1 stays registered.
       await this.events.emit({
-        event_name: "chat.companion_faltu_strike",
+        event_name: "chat.companion_faltu_strike_v2",
         actor: { actor_type: "worker", actor_id: input.workerId },
         subject: { subject_type: "worker", subject_id: input.workerId },
-        payload: { strike_count: strikeCount, cooldown_started: cooldownStarted },
+        payload: {
+          strike_count: strikeCount,
+          cooldown_started: cooldownStarted,
+          submission_id: input.submissionId,
+        },
+        ...(input.submissionId
+          ? {
+              idempotencyKey: `chat.companion_faltu_strike_v2:${input.workerId}:${input.submissionId}`,
+            }
+          : {}),
         correlationId: input.ctx.correlationId,
         requestId: input.ctx.requestId,
       });
@@ -84,7 +95,7 @@ export class FaltuHandler implements CompanionV2Handler {
       // Best-effort, like every companion event: a failed audit write never costs the worker
       // their answer. Ids and the error CLASS only — never the message.
       this.logger.error(
-        `chat.companion_faltu_strike not recorded for worker ${input.workerId} (${
+        `chat.companion_faltu_strike_v2 not recorded for worker ${input.workerId} (${
           err instanceof Error ? err.name : "UnknownError"
         })`,
       );
