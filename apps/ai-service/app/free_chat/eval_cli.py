@@ -17,14 +17,17 @@ rules, shared rather than copied: an answer from the deterministic mock (is the 
 target's ``AI_REAL_CALL_TASKS``?), a failed call, or an answer from a fallback model
 (``--expect-model`` names the primary, ``--pace-ms`` keeps a rate-limited key under its RPM).
 
-IT SCORES WHAT THE API WOULD ACT ON. A category below the API's confidence floor (0.6, ADR-0051
-§3.2 rule 12) counts as ``unclear``, and an answer slower than the API's classify timeout counts
-as unavailable, as does a blocked input: in résumé mode the API passes all of those to today's
-interview, so none of them is a verdict.
+IT SCORES WHAT THE API WOULD ACT ON. The API counts a verdict only when ``ai_metadata.real_call``
+and ``ai_metadata.success`` are both true and ``blocked`` is false; the shared call layer already
+treats ``real_call`` false or ``success`` false as a mock answer. A category below the API's
+confidence floor (0.6, ADR-0051 §3.2 rule 12) counts as ``unclear``, and an answer slower than the
+API's classify timeout counts as unavailable, as does a blocked input: in résumé mode the API
+passes all of those to today's interview, so none of them is a verdict.
 
-WHAT IT SENDS. Each case's text, mode and question on screen, with no recent turns. Every line is
-fabricated; the service applies its masking policy exactly as in production. Nothing here prints
-a model's raw output: only categories, counts, timings and the fabricated case text.
+WHAT IT SENDS. Each case's text, mode, question on screen and recent turns (most cases carry
+none). Every line is fabricated; the service applies its masking policy exactly as in
+production. Nothing here prints a model's raw output: only categories, counts, timings and the
+fabricated case text.
 """
 
 from __future__ import annotations
@@ -80,15 +83,20 @@ def run_free_classify_eval(
     calls = CallLog(pace_ms=pace_ms, expect_model=expect_model)
     floored = 0
 
-    def predict(text: str, mode: str, question: str | None) -> str | None:
+    def predict(case: gold.Case) -> str | None:
         nonlocal floored
         body = _served(
             _call(
                 base_url,
                 ROUTE,
-                {"text": text, "recent_turns": [], "mode": mode, "pending_question": question},
+                {
+                    "text": case.text,
+                    "recent_turns": [{"role": role, "text": text} for role, text in case.turns],
+                    "mode": case.mode,
+                    "pending_question": case.question,
+                },
                 calls,
-                _label(text),
+                _label(case.text),
                 api_timeout_ms=API_TIMEOUT_MS,
             )
         )

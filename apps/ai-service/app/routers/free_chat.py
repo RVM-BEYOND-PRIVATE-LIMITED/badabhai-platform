@@ -12,10 +12,12 @@ output: ``unclear`` with ``blocked=True`` (which the API reads as "unavailable":
 résumé mode, the clarify line in free mode) or a refusal on ``unsafe_other`` (the API's fallback
 line). A turn or a trade label the gate refuses is dropped, not sent.
 
-``ai_metadata`` IS RETURNED, NEVER DISCARDED. The API records the spend from it, and decides a
-REAL classification from ``ai_metadata.real_call`` being true and ``blocked`` false, so the
-metadata must carry ``real_call`` exactly as the router measured it: false for a mock, and None
-when no provider was reached at all.
+``ai_metadata`` IS RETURNED, NEVER DISCARDED. The API records the spend from it, and counts a
+classification as REAL only when ``ai_metadata.real_call`` is true AND ``ai_metadata.success``
+is true AND ``blocked`` is false. So the metadata rides back exactly as the router measured it:
+``real_call`` false for an unarmed mock, ``real_call`` true with ``success`` false when every
+provider failed and the router served the mock, and ``ai_metadata`` None when the gate blocked
+the input and no provider was reached at all.
 
 MODEL OUTPUT IS UNTRUSTED AND THE ROUTES RETURN IT AS PARSED: the parsers in ``app.free_chat``
 validate and fall back, and the API re-validates every reply line before a worker reads it.
@@ -128,14 +130,15 @@ async def free_chat_reply(body: FreeChatReplyInput) -> FreeChatAnswer | FreeChat
         return FreeChatRefuse(status="refuse", topic="unsafe_other", ai_metadata=None)
 
     # THE CATEGORY PICKS THE PROMPT; the API decided the category, the model never does.
-    prompt_name, fallback_prompt = reply_logic.REPLY_PROMPTS[body.category]
-    resolved = resolve_prompt(prompt_name)
-    system_prompt = resolved.text if resolved is not None else fallback_prompt
+    reply_prompt = reply_logic.REPLY_PROMPTS[body.category]
+    resolved = resolve_prompt(reply_prompt.name)
+    system_prompt = resolved.text if resolved is not None else reply_prompt.text
     messages = build_career_messages(
         result.text,
         mask_recent_turns(body.recent_turns, raw=raw_pii),
         reply_logic.mask_worker_context(body.worker_context, raw=raw_pii),
         system_prompt,
+        message_label=reply_prompt.message_label,
     )
     content, meta = await router.run(
         FREE_REPLY_TASK_TYPE,

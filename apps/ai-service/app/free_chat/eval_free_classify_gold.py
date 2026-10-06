@@ -5,10 +5,13 @@ feature is live on merge (R18). So there is no threshold here and nothing fails 
 The staging CLI (``python -m app.free_chat.eval_cli --base-url ...``) prints the accuracy per
 category and the p95, and refuses only a run that is not evidence (a mock or fallback answer).
 
-WHAT A CASE IS. ``(text, mode, pending_question, category)``: the worker's message, the mode it
-is classified in, the interview question on screen (résumé mode only, ``None`` in free mode) and
-the category a correct classifier returns. In résumé mode ANY answer to the question is
-``resume``, however short; an off-topic message mid-interview carries its own category.
+WHAT A CASE IS. ``(text, mode, pending_question, category[, turns])``: the worker's message, the
+mode it is classified in, the interview question on screen (résumé mode only, ``None`` in free
+mode), the category a correct classifier returns and, optionally, the recent turns the API would
+send with it (oldest first, at most two). In résumé mode ANY answer to the question is
+``resume``, however short; an off-topic message mid-interview carries its own category. A
+self-description ("main welder hoon, 6 saal se") is ``resume`` in either mode. A reply that
+only makes sense after the bot's last line ("haan ji" to "Resume banayein?") carries that line.
 
 THE ANSWERS ARE NOT THE PROMPT'S EXAMPLES. The classify prompt quotes "5 saal", "Pune mein",
 "haan" and "welding"; the cases here are different sentences of the same kind, pinned by a
@@ -22,6 +25,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import NamedTuple
 
 #: Every category a case may carry: mirrors `FREE_CHAT_CATEGORIES` in @badabhai/types (pinned).
 CATEGORIES = (
@@ -50,8 +54,26 @@ Q_JOIN = "Kab se join kar sakte hain?"
 Q_WELDING = "Welding ka kaam karte hain?"
 Q_CERT = "Koi certificate hai, jaise ITI?"
 Q_CONTROL = "Fanuc ya Siemens?"
+Q_LEFT_JOB = "Pichli naukri kyun chhodi?"
 
-Case = tuple[str, str, str | None, str]
+#: The bot's own memory role in a recent turn (`CompanionMemoryRole`), and the free-mode JOBS line
+#: (ADR-0051 §5.1) a worker's next message answers.
+BOT = "bada_bhai"
+JOBS_LINE = (
+    "Jab aapki profile ban jayegi, tab aapke kaam ki jobs dikhayenge. Resume banayein?"
+)
+
+#: One recent turn as the API sends it: (role, text), role "worker" or "bada_bhai".
+Turn = tuple[str, str]
+
+
+class Case(NamedTuple):
+    text: str
+    mode: str
+    question: str | None
+    category: str
+    #: The recent turns sent with the message, oldest first (the contract allows two).
+    turns: tuple[Turn, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -68,29 +90,34 @@ class FreeClassifyScore:
     misses: list[str]
 
 
-def evaluate(predict: Callable[[str, str, str | None], str | None]) -> FreeClassifyScore:
-    """Score ``predict(text, mode, pending_question)`` over the set. No thresholds.
+def evaluate(predict: Callable[[Case], str | None]) -> FreeClassifyScore:
+    """Score ``predict(case)`` over the set. No thresholds.
 
     ``None`` is :data:`UNAVAILABLE`, a miss for every category: the API never acts on a
-    verdict it did not get, so neither does the score.
+    verdict it did not get, so neither does the score. A row may be a plain 4- or 5-tuple; it is
+    read as a :class:`Case`.
     """
     correct = 0
     by_category = {category: [0, 0] for category in CATEGORIES}
     by_mode = {mode: [0, 0] for mode in MODES}
     predicted_counts: Counter[str] = Counter()
     misses: list[str] = []
-    for text, mode, question, expected in CASES:
-        predicted = predict(text, mode, question) or UNAVAILABLE
+    for row in CASES:
+        case = Case(*row)
+        predicted = predict(case) or UNAVAILABLE
         predicted_counts[predicted] += 1
-        hit = predicted == expected
-        by_category[expected][1] += 1
-        by_mode[mode][1] += 1
+        hit = predicted == case.category
+        by_category[case.category][1] += 1
+        by_mode[case.mode][1] += 1
         if hit:
             correct += 1
-            by_category[expected][0] += 1
-            by_mode[mode][0] += 1
+            by_category[case.category][0] += 1
+            by_mode[case.mode][0] += 1
         else:
-            misses.append(f"[{mode}] {text!r}: expected {expected}, got {predicted}")
+            where = f"{case.mode} +turns" if case.turns else case.mode
+            misses.append(
+                f"[{where}] {case.text!r}: expected {case.category}, got {predicted}"
+            )
     return FreeClassifyScore(
         total=len(CASES),
         correct=correct,
@@ -103,9 +130,10 @@ def evaluate(predict: Callable[[str, str, str | None], str | None]) -> FreeClass
 
 
 # fmt: off
-# (text, mode, pending_question, expected category). Hinglish, Devanagari and English mixed.
-CASES: list[Case] = [
-    # ── résumé mode: answers to the question on screen (14) ──
+# (text, mode, pending_question, expected category[, recent turns]). Hinglish, Devanagari and
+# English mixed.
+_ROWS: list[tuple] = [
+    # ── résumé mode: answers to the question on screen (16) ──
     ("5 saal ho gaye", "resume", Q_YEARS, "resume"),
     ("Pune mein rehta hoon", "resume", Q_CITY, "resume"),
     ("haan welding karta hoon", "resume", Q_WELDING, "resume"),
@@ -120,6 +148,10 @@ CASES: list[Case] = [
     ("I can join immediately", "resume", Q_JOIN, "resume"),
     ("Fanuc", "resume", Q_CONTROL, "resume"),
     ("Gurgaon ya Manesar, kahin bhi", "resume", Q_WORK_CITY, "resume"),
+    # A detail that answers a DIFFERENT résumé question is still an answer.
+    ("Nashik mein rehta hoon", "resume", Q_YEARS, "resume"),
+    # Something bad that happened to the worker, told as the answer: not trash.
+    ("malik gaali deta tha, isliye chhoda", "resume", Q_LEFT_JOB, "resume"),
 
     # ── résumé mode: off-topic mid-interview (7) ──
     ("cricket kaun jeeta", "resume", Q_YEARS, "casual"),
@@ -130,12 +162,17 @@ CASES: list[Case] = [
     ("ab sab khatam karna chahta hoon, kuch accha nahi lagta", "resume", Q_YEARS, "distress"),
     ("asdf qwer", "resume", Q_TRADE, "unclear"),
 
-    # ── free mode: resume (5) ──
+    # ── free mode: resume (8) ──
     ("mera resume banana hai", "free", None, "resume"),
     ("profile bana do meri", "free", None, "resume"),
     ("naukri ke liye CV chahiye", "free", None, "resume"),
     ("मेरा बायोडाटा बना दो", "free", None, "resume"),
     ("I want to make my resume", "free", None, "resume"),
+    # Telling us about their own work is the résumé starting, in free mode too.
+    ("main welder hoon, 6 saal se", "free", None, "resume"),
+    ("3 saal Maruti mein fitter tha", "free", None, "resume"),
+    # "Haan" to the JOBS line's "Resume banayein?" is a yes to the résumé.
+    ("haan ji", "free", None, "resume", ((BOT, JOBS_LINE),)),
 
     # ── free mode: career (7) ──
     ("welder ki salary kitni hoti hai", "free", None, "career"),
@@ -153,13 +190,17 @@ CASES: list[Case] = [
     ("app pe apply kaise karte hain", "free", None, "jobs"),
     ("नौकरी दिलाओ", "free", None, "jobs"),
 
-    # ── free mode: casual (6) ──
+    # ── free mode: casual (8) ──
     ("namaste", "free", None, "casual"),
     ("kaise ho aap", "free", None, "casual"),
     ("aaj bahut thak gaya hoon", "free", None, "casual"),
     ("ek joke sunao", "free", None, "casual"),
     ("good morning sir", "free", None, "casual"),
     ("आज मन अच्छा नहीं है", "free", None, "casual"),
+    # News and sports are casual; the casual reply refuses them on `news` (R12).
+    ("kal ka match kaun jeeta", "free", None, "casual"),
+    # A "not now" to the JOBS line's offer is talk, not a résumé start.
+    ("nahi abhi nahi", "free", None, "casual", ((BOT, JOBS_LINE),)),
 
     # ── free mode: trash (4) ──
     ("chup kar bakwas mat kar", "free", None, "trash"),
@@ -187,3 +228,5 @@ CASES: list[Case] = [
     ("...", "free", None, "unclear"),
 ]
 # fmt: on
+
+CASES: list[Case] = [Case(*row) for row in _ROWS]

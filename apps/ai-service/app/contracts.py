@@ -2170,9 +2170,11 @@ class FreeChatClassifyInput(BaseModel):
 class FreeChatClassifyOutput(BaseModel):
     """The classifier's closed category, its confidence and the block flag.
 
-    The API tells a REAL verdict from an unavailable one by ``ai_metadata.real_call`` being true
-    and ``blocked`` being false: a mock, a blocked input, a timeout or a null is "unavailable",
-    which in résumé mode passes the message to today's interview (ADR-0051 §3.2).
+    A verdict is REAL only when ``ai_metadata.real_call`` is true AND ``ai_metadata.success`` is
+    true AND ``blocked`` is false. Anything else is "unavailable": an unarmed mock
+    (``real_call`` false), every provider failing (``real_call`` true, ``success`` false, the
+    mock's ``unclear``), a blocked input, a timeout or a null. In résumé mode "unavailable"
+    passes the message to today's interview (ADR-0051 §3.2).
     """
 
     category: FreeChatCategory

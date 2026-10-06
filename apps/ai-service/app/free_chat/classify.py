@@ -23,8 +23,10 @@ from pydantic import ValidationError
 from ..contracts import FreeChatClassifyOutput
 from ..profiling.canonical_roles import coerce_json_text
 
-#: The deterministic mock-posture answer. Honest: a mock model classified nothing, and the API
-#: reads an unarmed task (``real_call`` false) as "unavailable" whatever this says.
+#: The deterministic mock-posture answer. Honest: a mock model classified nothing. The router also
+#: serves it when every provider fails, with ``real_call`` TRUE and ``success`` false, which is
+#: why the API's real-verdict test needs ``success`` as well as ``real_call``: either way the
+#: API reads it as "unavailable", whatever this says.
 MOCK_RESPONSE = '{"category": "unclear", "confidence": 0.0}'
 
 #: What every unreadable output becomes. One constant, so "the contract missed" and "the model

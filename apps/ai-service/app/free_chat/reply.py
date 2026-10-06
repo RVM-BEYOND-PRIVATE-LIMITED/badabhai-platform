@@ -14,14 +14,15 @@ reach that validator to be judged, not be rejected here with the same outcome an
 diagnosis.
 
 TWO PROMPTS, ONE TASK. The API sends the category it already decided (``casual`` or
-``career``); :data:`REPLY_PROMPTS` maps it to its registry name and its local text. The model
-never picks its own prompt.
+``career``); :data:`REPLY_PROMPTS` maps it to its registry name, its local text and its message
+label. The model never picks its own prompt.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from dataclasses import dataclass
 from types import MappingProxyType
 
 from pydantic import TypeAdapter, ValidationError
@@ -46,13 +47,26 @@ MOCK_RESPONSE = '{"status": "refuse", "topic": "unsafe_other"}'
 #: declined" land on the same reviewed copy by construction.
 REFUSED_FALLBACK = FreeChatRefuse(status="refuse", topic="unsafe_other")
 
-#: category -> (prompt registry name, local prompt text). Read-only, and exhaustive over
-#: `FreeChatReplyCategory` (pinned by a test), so a new reply category cannot silently fall onto
-#: the wrong prompt.
-REPLY_PROMPTS: Mapping[FreeChatReplyCategory, tuple[str, str]] = MappingProxyType(
+@dataclass(frozen=True)
+class ReplyPrompt:
+    """One reply category's prompt: its registry name, its local text, and the label the
+    worker's message carries in the request (a question for career, small talk for casual)."""
+
+    name: str
+    text: str
+    message_label: str
+
+
+#: category -> its :class:`ReplyPrompt`. Read-only, and exhaustive over `FreeChatReplyCategory`
+#: (pinned by a test), so a new reply category cannot silently fall onto the wrong prompt.
+REPLY_PROMPTS: Mapping[FreeChatReplyCategory, ReplyPrompt] = MappingProxyType(
     {
-        "casual": (prompt_registry.FREE_CHAT_CASUAL, CASUAL_SYSTEM_PROMPT),
-        "career": (prompt_registry.FREE_CHAT_CAREER, CAREER_SYSTEM_PROMPT),
+        "casual": ReplyPrompt(
+            prompt_registry.FREE_CHAT_CASUAL, CASUAL_SYSTEM_PROMPT, "WORKER MESSAGE"
+        ),
+        "career": ReplyPrompt(
+            prompt_registry.FREE_CHAT_CAREER, CAREER_SYSTEM_PROMPT, "WORKER QUESTION"
+        ),
     }
 )
 

@@ -44,44 +44,78 @@ def test_the_categories_and_modes_are_the_contracts() -> None:
 
 def test_the_set_is_about_sixty_lines_and_covers_every_category() -> None:
     assert 55 <= len(gold.CASES) <= 70
-    counts = Counter(category for _t, _m, _q, category in gold.CASES)
+    assert all(isinstance(case, gold.Case) for case in gold.CASES)
+    counts = Counter(case.category for case in gold.CASES)
     assert set(counts) == set(gold.CATEGORIES)
     for category in gold.CATEGORIES:
         assert counts[category] >= 3, f"{category}: only {counts[category]} cases"
-    keys = [(text, mode, question) for text, mode, question, _c in gold.CASES]
+    keys = [(case.text, case.mode, case.question, case.turns) for case in gold.CASES]
     assert len(set(keys)) == len(keys), "duplicate cases"
 
 
 def test_resume_mode_is_about_twenty_lines_with_answers_and_off_topic() -> None:
-    resume_mode = [case for case in gold.CASES if case[1] == "resume"]
+    resume_mode = [case for case in gold.CASES if case.mode == "resume"]
     assert 18 <= len(resume_mode) <= 25
-    answers = [case for case in resume_mode if case[3] == "resume"]
-    off_topic = {case[3] for case in resume_mode if case[3] != "resume"}
+    answers = [case for case in resume_mode if case.category == "resume"]
+    off_topic = {case.category for case in resume_mode if case.category != "resume"}
     assert len(answers) >= 10
     # Every non-résumé category appears mid-interview at least once.
     assert off_topic == set(gold.CATEGORIES) - {"resume"}
-    texts = {case[0] for case in resume_mode}
+    texts = {case.text for case in resume_mode}
     for required in ("cricket kaun jeeta", "koi job hai kya"):
         assert required in texts, required
 
 
 def test_every_resume_case_has_a_question_and_no_free_case_does() -> None:
-    for text, mode, question, _category in gold.CASES:
-        assert mode in gold.MODES, text
-        if mode == "resume":
-            assert question, f"{text!r}: résumé mode needs the question on screen"
+    for case in gold.CASES:
+        assert case.mode in gold.MODES, case.text
+        if case.mode == "resume":
+            assert case.question, f"{case.text!r}: résumé mode needs the question on screen"
         else:
-            assert question is None, f"{text!r}: free mode has no question on screen"
+            assert case.question is None, f"{case.text!r}: free mode has no question on screen"
+
+
+def test_the_review_cases_are_in_the_set_with_their_labels() -> None:
+    """The #2041 review's cases: self-descriptions are `resume` in either mode, a detail that
+    answers a different résumé question is still an answer, a bad experience told as an answer
+    is not trash, a news question is casual, and a reply to the JOBS line reads its turn."""
+    by_key = {(case.text, case.mode, case.question): case for case in gold.CASES}
+    assert by_key[("main welder hoon, 6 saal se", "free", None)].category == "resume"
+    assert by_key[("3 saal Maruti mein fitter tha", "free", None)].category == "resume"
+    assert by_key[("Nashik mein rehta hoon", "resume", gold.Q_YEARS)].category == "resume"
+    left = by_key[("malik gaali deta tha, isliye chhoda", "resume", gold.Q_LEFT_JOB)]
+    assert left.category == "resume"
+    assert gold.Q_LEFT_JOB == "Pichli naukri kyun chhodi?"
+    assert by_key[("kal ka match kaun jeeta", "free", None)].category == "casual"
+    after_jobs = ((gold.BOT, gold.JOBS_LINE),)
+    assert by_key[("haan ji", "free", None)] == ("haan ji", "free", None, "resume", after_jobs)
+    assert by_key[("nahi abhi nahi", "free", None)].category == "casual"
+    assert by_key[("nahi abhi nahi", "free", None)].turns == after_jobs
+
+
+def test_recent_turns_are_well_formed_and_carry_the_jobs_line() -> None:
+    with_turns = [case for case in gold.CASES if case.turns]
+    assert len(with_turns) >= 2
+    for case in with_turns:
+        assert len(case.turns) <= 2, case.text  # the classify contract's CLASSIFY_TURNS_MAX
+        for role, text in case.turns:
+            assert role in ("worker", "bada_bhai"), case.text
+            assert text.strip(), case.text
+    # The bot line is the reviewed JOBS copy (ADR-0051 §5.1), verbatim.
+    adr = (_REPO / "docs" / "decisions" / "0051-profiling-stage-free-chat.md").read_text(
+        encoding="utf-8"
+    )
+    assert f"| JOBS | {gold.JOBS_LINE} |" in adr
 
 
 def test_the_set_mixes_hinglish_devanagari_and_english() -> None:
-    texts = [text for text, _m, _q, _c in gold.CASES]
+    texts = [case.text for case in gold.CASES]
     devanagari = [t for t in texts if re.search("[ऀ-ॿ]", t)]
     english = [t for t in texts if t.isascii() and " " in t and re.search(r"\b(?:I|want)\b", t)]
     assert len(devanagari) >= 5, devanagari
     assert len(english) >= 3, english
     # Both modes carry Devanagari, so the script bucket is not only a free-mode measurement.
-    modes = {mode for text, mode, _q, _c in gold.CASES if re.search("[ऀ-ॿ]", text)}
+    modes = {case.mode for case in gold.CASES if re.search("[ऀ-ॿ]", case.text)}
     assert modes == set(gold.MODES)
 
 
@@ -89,7 +123,7 @@ def test_no_case_is_one_of_the_classify_prompts_quoted_examples() -> None:
     """A gold line the prompt quotes is a memory test, not a measurement of the rule."""
     quoted = {q.casefold() for q in re.findall(r'"([^"]+)"', CLASSIFY_SYSTEM_PROMPT)}
     assert {"5 saal", "pune mein", "haan", "welding", "pata nahi"} <= quoted  # non-vacuous
-    echoed = [text for text, _m, _q, _c in gold.CASES if text.casefold() in quoted]
+    echoed = [case.text for case in gold.CASES if case.text.casefold() in quoted]
     assert echoed == []
 
 
@@ -97,8 +131,7 @@ def test_no_case_is_one_of_the_classify_prompts_quoted_examples() -> None:
 
 
 def test_a_perfect_predictor_scores_one_everywhere() -> None:
-    expected = {(t, m, q): c for t, m, q, c in gold.CASES}
-    score = gold.evaluate(lambda t, m, q: expected[(t, m, q)])
+    score = gold.evaluate(lambda case: case.category)
     assert (score.correct, score.total, score.accuracy) == (len(gold.CASES), len(gold.CASES), 1.0)
     assert all(correct == total for correct, total in score.per_category.values())
     assert all(correct == total for correct, total in score.per_mode.values())
@@ -106,16 +139,21 @@ def test_a_perfect_predictor_scores_one_everywhere() -> None:
 
 
 def test_an_unavailable_answer_is_a_miss_for_every_category_never_unclear() -> None:
-    score = gold.evaluate(lambda _t, _m, _q: None)
+    score = gold.evaluate(lambda _case: None)
     assert score.correct == 0
     assert score.predicted == {gold.UNAVAILABLE: len(gold.CASES)}
     # Not folded into `unclear`: the unclear lines score zero too.
     assert score.per_category["unclear"][0] == 0
 
 
+def test_a_miss_after_recent_turns_says_so() -> None:
+    score = gold.evaluate(lambda _case: "jobs")
+    assert "[free +turns] 'haan ji': expected resume, got jobs" in score.misses
+
+
 def test_the_per_category_counts_add_up() -> None:
-    score = gold.evaluate(lambda _t, _m, _q: "unclear")
-    unclear_total = sum(1 for case in gold.CASES if case[3] == "unclear")
+    score = gold.evaluate(lambda _case: "unclear")
+    unclear_total = sum(1 for case in gold.CASES if case.category == "unclear")
     assert score.per_category["unclear"] == (unclear_total, unclear_total)
     assert sum(total for _c, total in score.per_category.values()) == len(gold.CASES)
     assert sum(total for _c, total in score.per_mode.values()) == len(gold.CASES)
@@ -199,6 +237,28 @@ def test_the_cli_sends_the_mode_and_the_question(monkeypatch: pytest.MonkeyPatch
     }
     assert service.calls[1][1]["mode"] == "free"
     assert service.calls[1][1]["pending_question"] is None
+
+
+def test_the_cli_posts_a_cases_recent_turns(monkeypatch: pytest.MonkeyPatch) -> None:
+    turns = ((gold.BOT, gold.JOBS_LINE),)
+    monkeypatch.setattr(gold, "CASES", [gold.Case("haan ji", "free", None, "resume", turns)])
+    service = FakeService(monkeypatch, lambda _p, _b: _verdict("resume"))
+    assert eval_cli.main(["--base-url", _BASE]) == 0
+    assert service.calls[0][1]["recent_turns"] == [{"role": "bada_bhai", "text": gold.JOBS_LINE}]
+
+
+def test_every_real_set_case_is_a_valid_classify_request() -> None:
+    """The bodies the CLI would post parse as the contract the route enforces, turns included,
+    so a staging run cannot fail on a 422 the set itself caused."""
+    from app.contracts import FreeChatClassifyInput
+
+    for case in gold.CASES:
+        FreeChatClassifyInput(
+            text=case.text,
+            mode=case.mode,
+            pending_question=case.question,
+            recent_turns=[{"role": role, "text": text} for role, text in case.turns],
+        )
 
 
 def test_accuracy_is_a_baseline_a_clean_wrong_run_still_exits_zero(
@@ -325,11 +385,17 @@ def test_the_cli_refuses_bad_arguments() -> None:
 
 
 def test_the_api_timeout_is_the_api_clients_own_once_it_calls_the_route() -> None:
-    """ADR-0051 §3.3 says ~2.5 s; the number that counts is the API client's. Until the API
-    change (PR B) calls `/free-chat/classify` there is nothing to pin against, and this skips
-    rather than asserting the ADR's prose; from then on a drift turns it red."""
+    """ADR-0051 §3.3 says ~2.5 s; the number that counts is the API client's.
+
+    It skips ONLY while `ai.service.ts` does not mention the route at all (PR B not merged).
+    Once the route is there, a call this pattern cannot read FAILS rather than skipping: a
+    reshaped call must update the pattern, never silently turn the pin off."""
     source = (_REPO / "apps" / "api" / "src" / "ai" / "ai.service.ts").read_text(encoding="utf-8")
-    found = re.findall(r'this\.post\("/free-chat/classify", input, \w+, ([\d_]+)', source)
-    if not found:
+    if eval_cli.ROUTE not in source:
         pytest.skip("apps/api does not call /free-chat/classify yet (ADR-0051 PR B)")
+    found = re.findall(r'this\.post\(\s*"/free-chat/classify",\s*input,\s*\w+,\s*([\d_]+)', source)
+    assert found, (
+        "ai.service.ts names /free-chat/classify but no `this.post(route, input, Schema, ms)` "
+        "timeout was found: update this pattern to the client's call shape"
+    )
     assert {float(ms.replace("_", "")) for ms in found} == {eval_cli.API_TIMEOUT_MS}
