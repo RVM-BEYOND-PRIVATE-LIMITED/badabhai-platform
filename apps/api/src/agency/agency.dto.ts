@@ -17,6 +17,7 @@ import {
   shiftSchema,
 } from "../common/job-content.schemas";
 import { REQUIRED_TRADE_KEYS } from "../resume/trade-content";
+import { matchSkillIdSchema } from "../match/match.dto";
 
 /**
  * DTOs for the Agency Supply Portal demand slice (ADR-0022). Every field here is a
@@ -105,6 +106,21 @@ const experienceYears = experienceYearsSchema;
 const neededBy = neededBySchema;
 
 /**
+ * ADR-0050 C4 (#1983) — the agency job's EXPLICIT match input: closed `mskill_*` ids the agent
+ * picked. SHAPE only here (the shared `matchSkillIdSchema`, the posting form's own); closed-set
+ * membership and the runtime `match_config.max_skills_per_posting` cap are enforced in the
+ * service by `MatchSkillsService.validateSelection` — the posting form's rule, never a second
+ * copy (a Zod `.max(3)` here would disagree the moment ops change the config). `.max(50)` is an
+ * anti-abuse request-size bound, not the business cap. `.min(1)`: an empty pick is expressed
+ * as OMITTING the key on create (stores `[]`) or as `clear: ["match_skill_ids"]` on edit, so a
+ * client that serialized an untouched empty picker cannot silently erase a stored pick.
+ *
+ * NOT a rank input and never inferred from `trade_key` (ADR-0050 C4): it feeds only the
+ * agency twin's `job_postings.match_skill_ids`.
+ */
+const matchSkillIds = z.array(matchSkillIdSchema).min(1).max(50);
+
+/**
  * Create an OWNED job. `payer_id` is NOT here (session-derived, XB-A). `status` is NOT
  * accepted — every job starts `open` (the service hard-codes it). Pay/experience are
  * supplied as bands and validated for ordering (max >= min) here at the boundary.
@@ -132,6 +148,9 @@ export const CreateAgencyJobSchema = z
     // stays this job's matching classifier; `role_kind` (21 roles) is display / classification
     // only (ADR-0036 addendum 2026-09-29). Optional with no default — omitted stores NULL.
     role_kind: roleKindSchema.optional(),
+    // ADR-0050 §6.1 step 2 (#1983) — optional, so every shipped client keeps working. Omitted
+    // stores `[]` ("not chosen yet"); the agency twin of such a job stays `paused`.
+    match_skill_ids: matchSkillIds.optional(),
   })
   .refine(payBandOrdered, { message: "pay_max must be >= pay_min", path: ["pay_max"] })
   .refine(experienceWindowOrdered, {
@@ -163,6 +182,10 @@ const CLEARABLE_AGENCY_JOB_FIELDS = [
   "requirements",
   // Migration 0131 — `jobs.role_kind` is nullable, so it is clearable (unlike `trade_key`).
   "role_kind",
+  // ADR-0050 (#1983) — THE ONE NOT NULL COLUMN IN THIS LIST, and still safe: clearing it
+  // stores the column's own "not chosen yet" value `[]` (the ADR-0050 §4.1 migration's default), never NULL.
+  // That is the value every row older than that migration and every create without a pick already holds.
+  "match_skill_ids",
 ] as const;
 export type ClearableAgencyJobField = (typeof CLEARABLE_AGENCY_JOB_FIELDS)[number];
 export { CLEARABLE_AGENCY_JOB_FIELDS };
@@ -192,6 +215,11 @@ export const UpdateAgencyJobSchema = z
     requirements: requirements.optional(),
     /** Migration 0131 — the display role; editable and clearable like any card field. */
     role_kind: roleKindSchema.optional(),
+    /**
+     * ADR-0050 (#1983) — REPLACES the stored pick when present (a set, compared order-free);
+     * omitted leaves it unchanged; `clear: ["match_skill_ids"]` resets it to `[]`.
+     */
+    match_skill_ids: matchSkillIds.optional(),
     // #1652 — the fields a payer may UNSET. See `clearFieldSchema`.
     clear: clearFieldSchema(CLEARABLE_AGENCY_JOB_FIELDS),
   })

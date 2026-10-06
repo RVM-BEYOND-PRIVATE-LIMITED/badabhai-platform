@@ -70,7 +70,13 @@ function setup(opts: { cap?: number; redisDown?: boolean } = {}) {
       });
     }),
   };
-  const svc = new AgencyService({} as never, invitesRepo as never, {} as never, { emit } as never);
+  const svc = new AgencyService(
+    {} as never,
+    invitesRepo as never,
+    {} as never,
+    { emit } as never,
+    {} as never,
+  );
   const controller = new AgencyInvitesController(svc, rateLimit, config);
   const payer = { id: PAYER, sid: "s", role: "agent" as const };
 

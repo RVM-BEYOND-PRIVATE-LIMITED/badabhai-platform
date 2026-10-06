@@ -395,14 +395,15 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 > All `/payer/agency/*` routes require `PayerAuthGuard` **+ `PayerRoleGuard` role=`agent`**. A non-agent gets `403` (or no-oracle `404`). `payer_id` is session-derived; never in body. Responses are faceless camelCase views with **no `payer_id`**.
 
 #### `POST /payer/agency/jobs`
-- **Body:** `{ trade_key: enum, title: string (1–200, screened), city: string (1–120, screened as a place), area?: string (1–120, screened as a place), pay_min?: int (0–10M), pay_max?: int (0–10M, ≥pay_min), pay_type?: 'in_hand'|'gross'|'ctc', min_experience_years?: int (0–60), max_experience_years?: int (0–60, ≥min_exp), needed_by?: 'immediate'|'soon'|'flexible', description?: string (1–2000, screened), shift?: 'day'|'night'|'rotational', benefits?: string[] (≤12 × ≤80, screened), requirements?: string[] (same caps), role_kind?: RoleKind }` — `RoleKind` is the same 21-value enum as on `/payer/job-postings`.
-- **Response:** `AgencyJobView { id, status: 'open', tradeKey, title, city, area, payMin, payMax, payType, minExperienceYears, maxExperienceYears, neededBy, description, shift, benefits, requirements, roleKind, applicantsReceived, createdAt, updatedAt }`.
+- **Body:** `{ trade_key: enum, title: string (1–200, screened), city: string (1–120, screened as a place), area?: string (1–120, screened as a place), pay_min?: int (0–10M), pay_max?: int (0–10M, ≥pay_min), pay_type?: 'in_hand'|'gross'|'ctc', min_experience_years?: int (0–60), max_experience_years?: int (0–60, ≥min_exp), needed_by?: 'immediate'|'soon'|'flexible', description?: string (1–2000, screened), shift?: 'day'|'night'|'rotational', benefits?: string[] (≤12 × ≤80, screened), requirements?: string[] (same caps), role_kind?: RoleKind, match_skill_ids?: 'mskill_*'[] (1–50) }` — `RoleKind` is the same 21-value enum as on `/payer/job-postings`.
+- **Response:** `AgencyJobView { id, status: 'open', tradeKey, title, city, area, payMin, payMax, payType, minExperienceYears, maxExperienceYears, neededBy, description, shift, benefits, requirements, roleKind, matchSkillIds, applicantsReceived, createdAt, updatedAt }`.
 - **Events:** `job.created` (PII-free: opaque IDs + coarse bands + `role_kind`, the closed enum value or `null`).
 - **Mobile gotchas:** Starts `open` (no draft). Pay is whole INR (no paise). `201`.
 - **#1647 (2026-09-22) — `description`, `shift`, `benefits` and `requirements` are now RETURNED.** They were accepted and stored by `POST`/`PATCH` and projected by nothing, so a payer could not see what they had posted and the edit screen had to start those inputs empty with an overwrite warning. **That warning can now be removed** — the view prefills.
 - `pay_type` (#1648) states what the ₹ band means; omit it rather than guess. `NULL` renders no pay-type pill.
 - **`city` / `area` are screened as places (#1848)** on `POST` and `PATCH`, with the same messages and the same pincode waiver as `/payer/job-postings` (see "`city` and `area` run the same screen as places" in §4.2). A `PATCH` that omits them does not re-screen the stored values.
 - **`role_kind` (migration 0131, 2026-09-29) — a SECOND classifier beside `trade_key`, not a replacement.** `trade_key` (15 trades) stays required and stays the job's matching classifier; `role_kind` (21 roles) is display / classification only and never a match input; since 2026-10-05 it reaches the worker card as a role illustration only (ADR-0024 addendum). Optional with no default (`roleKind: null` when omitted — never inferred from `trade_key`). Same errors as the posting contract: unknown value or explicit `null` → `400`.
+- **`match_skill_ids` (#1983, ADR-0050 §6.1 step 2) — the job's explicit match input.** The closed `mskill_*` ids the agent picked (the same vocabulary as `GET /payer/match/skills` and the posting form). It feeds only the job's ADR-0050 V1 twin, and it is never inferred from `trade_key`. It is **optional**: omitted stores `[]` (`matchSkillIds: []`, "not chosen yet"). Validation is the **posting form's own**: an id outside the closed set → `400 "unknown match skill id(s): …"`; more than `match_config.max_skills_per_posting` (3 at launch) → `400 "a posting may name at most N skills (got M)"`; `[]` or `null` → `400` (to unset it, use `clear` on PATCH). Duplicates are de-duplicated. `job.created` does **not** carry it (v1 unchanged).
 
 #### `GET /payer/agency/jobs`
 - **Response:** `AgencyJobView[]`, newest-first. No pagination.
@@ -412,11 +413,12 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 
 #### `PATCH /payer/agency/jobs/:jobId`
 - **Body:** any subset of the create fields (≥1 required), plus `clear?: string[]`. Ordering re-validated against the **result** row (handles one-sided edits).
-- **#1652 — `clear: [...]` unsets a field.** Clearable here: `area`, `pay_min`, `pay_max`, `pay_type`, `min_experience_years`, `max_experience_years`, `needed_by`, `description`, `shift`, `benefits`, `requirements`, `role_kind` (0131).
+- **#1652 — `clear: [...]` unsets a field.** Clearable here: `area`, `pay_min`, `pay_max`, `pay_type`, `min_experience_years`, `max_experience_years`, `needed_by`, `description`, `shift`, `benefits`, `requirements`, `role_kind` (0131), `match_skill_ids` (#1983).
+  - **`match_skill_ids` edits (#1983):** when present the set **replaces** the stored pick. It is compared order-free, so re-sending the same skills in another order is no change. Omitted leaves it unchanged. `{ "clear": ["match_skill_ids"] }` resets it to `[]` (never `null`; the column is `NOT NULL`). A changed set is validated exactly as on create and reported as `changed_fields: ["match_skills"]` (the key only, never the ids).
   - **`city`, `title` and `trade_key` are NOT clearable on this contract** — they are `NOT NULL` on `jobs`. Note `city` IS clearable on `/payer/job-postings` because `job_postings.city` is nullable: same word, different table, different answer.
   - Same rules as the posting contract: set-and-clear of one field is a `400`, clearing one end of a band is legal, `clear: ["benefits"]` stores NULL while `benefits: []` stores an empty list, and clearing an already-NULL field is not a change.
 - **Response:** updated `AgencyJobView`.
-- **Events:** `job.updated` (`changed_fields` = keys only; `role_kind` is its own key since 2026-09-29, never reported as `trade_key`).
+- **Events:** `job.updated` (`changed_fields` = keys only; `role_kind` is its own key since 2026-09-29, never reported as `trade_key`; `match_skills` since #1983, an additive key-enum member with no version bump).
 - **Mobile gotchas:** Editing a **closed** job → `400` (terminal). Status is not edited here (use close/pause).
 
 #### `POST /payer/agency/jobs/:jobId/close`
@@ -441,6 +443,14 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 #### `POST /payer/agency/invites/:code/click` — **NOT a primary mobile call (STUB)**
 - **Auth:** agency-scoped stub. **Response:** **VERIFIED CORRECTION:** `{ ok: true }` always (even for unknown code — no-oracle), **not** `{ code, status, clicked_at }`.
 - **Mobile gotchas:** Local funnel metric only; does not attribute a worker. The real invitee click is the public `POST /invites/:code/click` (worker funnel), not this. You generally do not need to call this from the agency app.
+
+#### `PUT /ops/agency-jobs/:jobId/match-skills` — **OPS ONLY, not a payer/mobile route** (#1983)
+- **Auth:** `InternalServiceGuard` **and** `AdminAuthGuard`, both required (the `POST /job-postings/:id/reach/widen` precedent). The recorded actor is the authenticated admin, never a body field.
+- **Body:** `{ match_skill_ids: 'mskill_*'[] (0–50) }` (`.strict()`). This is the full desired set; `[]` resets it to "not chosen yet".
+- **Response:** `{ job_id, match_skill_ids, changed: boolean }`. An unchanged set (in any order) returns `changed: false` with no write and no event.
+- **Errors:** a job that is not an **agency** job (unknown id, a seed/ops row, an employer-owned legacy row) → neutral `404 "Job not found"`. A closed job → `400 "Job is closed and cannot be edited"`. Vocabulary and cap errors are the same as on the agency form.
+- **Events:** one `job.updated` v1, actor `ops` (admin id), `payer_id` = the owning agency, `changed_fields: ["match_skills"]`.
+- **Why:** ADR-0050 §6.3 step (c) requires ops to set match skills on the live agency jobs before the V1 flip.
 
 ### 4.7 Admin posting detail (NOT a payer/mobile route — for reference)
 

@@ -99,7 +99,13 @@ function make(
     stageCountsForOwner: vi.fn(),
   };
 
-  const svc = new AgencyService({} as never, invitesRepo as never, {} as never, { emit } as never);
+  const svc = new AgencyService(
+    {} as never,
+    invitesRepo as never,
+    {} as never,
+    { emit } as never,
+    {} as never,
+  );
   return { svc, emit, invitesRepo, createdCount: () => createCalls };
 }
 
@@ -372,6 +378,7 @@ describe("createInviteBatch — code collision is bounded-retried, never a 500 (
       invitesRepo as never,
       {} as never,
       { emit } as never,
+      {} as never,
     );
     const res = await svc.createInvite(PAYER_A, {}, CTX as never);
 
@@ -391,6 +398,7 @@ describe("createInviteBatch — code collision is bounded-retried, never a 500 (
       invitesRepo as never,
       {} as never,
       { emit } as never,
+      {} as never,
     );
 
     const err = (await svc

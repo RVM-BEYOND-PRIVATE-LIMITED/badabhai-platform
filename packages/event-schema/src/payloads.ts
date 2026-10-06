@@ -2447,6 +2447,10 @@ export const JOB_CHANGED_FIELDS = [
   // declared kinds) was set, changed or cleared. KEY only. Not `trade_key`: that key above is
   // still the one that says the job's matching classifier moved.
   "role_kind",
+  // ADR-0050 §9 (the §4.1 migration) — ADDITIVE, same precedent. The agency job's explicit
+  // `match_skill_ids` were set, changed or cleared (by the agency or by ops). KEY only, never
+  // the ids — the same key `job_posting.updated` already carries for a posting.
+  "match_skills",
 ] as const;
 
 /**

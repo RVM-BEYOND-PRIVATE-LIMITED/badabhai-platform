@@ -76,7 +76,13 @@ describe("AgencyInvitesController exposes NO per-invite readback (C10)", () => {
         return Promise.resolve({ id: `aaaaaaaa-0000-4000-8000-${String(n).padStart(12, "0")}`, code: i.code });
       }),
     };
-    const svc = new AgencyService({} as never, invitesRepo as never, {} as never, { emit } as never);
+    const svc = new AgencyService(
+      {} as never,
+      invitesRepo as never,
+      {} as never,
+      { emit } as never,
+      {} as never,
+    );
     const res = await svc.createInviteBatch(PAYER_A, 3, {}, {
       correlationId: "c",
       requestId: "r",
@@ -102,7 +108,13 @@ describe("referralsSummary stays AGGREGATE-ONLY with the k-anon floor (C10)", ()
     const invitesRepo = {
       stageCountsForOwner: vi.fn().mockResolvedValue({ created: 12, clicked: 4, accepted: 1 }),
     };
-    const svc = new AgencyService({} as never, invitesRepo as never, {} as never, { emit: vi.fn() } as never);
+    const svc = new AgencyService(
+      {} as never,
+      invitesRepo as never,
+      {} as never,
+      { emit: vi.fn() } as never,
+      {} as never,
+    );
     const summary = await svc.referralsSummary(PAYER_A);
 
     expect(summary.minBucket).toBe(AgencyService.MIN_BUCKET);
