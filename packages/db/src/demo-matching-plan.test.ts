@@ -10,6 +10,7 @@ import {
   DEMO_PERSONAS,
   DEMO_TRADES,
   MAX_DEMO_PERSONAS,
+  DEMO_PHONE_PATTERN,
   RESERVED_TEST_PHONE_PATTERN,
   buildDemoPlan,
   demoIdLikePattern,
@@ -20,6 +21,7 @@ import {
 } from "./demo-matching-plan";
 import {
   parseAllowPhones,
+  personaConsentPurposes,
   resetPhoneProblem,
   targetDeclarationProblem,
   tradeReportRows,
@@ -75,7 +77,10 @@ describe("demo-matching plan — determinism and ids", () => {
 
   it("phones are inside the reserved test-login range, distinct, and never collide with E4's", () => {
     const phones = buildDemoPlan().personas.map((p) => p.phoneE164);
-    for (const ph of phones) expect(ph).toMatch(RESERVED_TEST_PHONE_PATTERN);
+    for (const ph of phones) {
+      expect(ph).toMatch(RESERVED_TEST_PHONE_PATTERN);
+      expect(ph).toMatch(DEMO_PHONE_PATTERN);
+    }
     expect(new Set(phones).size).toBe(phones.length);
     expect(phones).not.toContain("+910000019844");
     expect(() => demoPhone(999)).toThrow();
@@ -151,7 +156,7 @@ describe("demo-matching plan — personas", () => {
   it("EVERY persona has direct, related-only and hidden postings — full size and the small CI profile", () => {
     for (const size of [
       DEFAULT_DEMO_PLAN,
-      { personas: 5, postings: 60, rngSeed: DEFAULT_DEMO_PLAN.rngSeed },
+      { personas: 5, postings: 200, rngSeed: DEFAULT_DEMO_PLAN.rngSeed },
     ]) {
       const plan = buildDemoPlan(size);
       const rows = withReach(plan);
@@ -180,13 +185,21 @@ describe("seed-demo-matching guards (pure)", () => {
     expect(targetDeclarationProblem(prod, undefined)).not.toContain("example-host");
   });
 
-  it("--reset-live-worker only touches allow-listed phones in the reserved range", () => {
+  it("employer_sharing is granted to personas on a local target only", () => {
+    expect(personaConsentPurposes("local")).toContain("employer_sharing");
+    expect(personaConsentPurposes("production")).not.toContain("employer_sharing");
+  });
+
+  it("--reset-live-worker only touches allow-listed phones in the demo block", () => {
     const allowed = parseAllowPhones(
       "# demo phones\n+910000026001\n\n+910000026101  # live welder\n",
     );
     expect(resetPhoneProblem("+910000026101", allowed)).toBeNull();
     expect(resetPhoneProblem("+910000026002", allowed)).toMatch(/allow-phones/);
-    expect(resetPhoneProblem("+919876543210", new Set(["+919876543210"]))).toMatch(/reserved/);
+    expect(resetPhoneProblem("+919876543210", new Set(["+919876543210"]))).toMatch(/demo block/);
+    // The E4 fixture and the smoke worker sit in the reserved range but outside the demo block.
+    expect(resetPhoneProblem("+910000019844", new Set(["+910000019844"]))).toMatch(/demo block/);
+    expect(resetPhoneProblem("+910000000000", new Set(["+910000000000"]))).toMatch(/demo block/);
   });
 
   it("the trade report tracks the role bridge and covers every form kind", () => {

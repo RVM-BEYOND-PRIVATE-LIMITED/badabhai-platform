@@ -1510,7 +1510,7 @@ jobs:
       #                    even on a bound session some other writer put back to a live status.
       #                    Whether a waiting UPDATE re-checks its WHERE on commit is a property
       #                    of Postgres, so the structural pins cannot show it.
-      #   * demo-matching-seed.db — the Matching V1 stakeholder demo seed (5 personas / 60
+      #   * demo-matching-seed.db — the Matching V1 stakeholder demo seed (5 personas / 200
       #                    postings, run through the real CLI + D5): each persona sees exactly
       #                    its reach with the right tier, and the seed's answer-key order equals
       #                    the REAL MatchFeedService's — so a V1 feed-order change fails here

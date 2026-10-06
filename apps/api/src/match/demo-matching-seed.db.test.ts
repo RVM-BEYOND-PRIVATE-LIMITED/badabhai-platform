@@ -19,7 +19,7 @@ import { MatchFeedService } from "./match-feed.service";
  * THE MATCHING V1 DEMO SEED, AGAINST A REAL POSTGRES AND THE REAL FEED.
  *
  * Runs the actual CLI (`packages/db/src/seed-demo-matching.ts`) at a small profile — 5 personas,
- * 60 postings — so the ops guard, the publish-rule reach resolution and D5's own
+ * 200 postings — so the ops guard, the publish-rule reach resolution and D5's own
  * `materializePostingReach` are all exercised as shipped. Then, per persona, through the SHIPPED
  * `MatchFeedRepository` / `MatchFeedService`:
  *
@@ -57,6 +57,8 @@ const NO_EVENTS = { emitMany: async () => undefined } as unknown as EventsServic
 interface KeyCard {
   jobPostingId: string;
   tier: 1 | 2;
+  boosted: boolean;
+  publishedAt: string | null;
 }
 interface KeyPersona {
   key: string;
@@ -66,6 +68,7 @@ interface KeyPersona {
   direct: number;
   related: number;
   hidden: number;
+  interleaveChangedTop10: boolean;
   top10: KeyCard[];
 }
 
@@ -111,7 +114,7 @@ describe.skipIf(!RUN)("demo matching seed — reach + real feed order (DB)", () 
       throw new Error("demo-matching-seed.db refuses a non-local DATABASE_URL");
     workDir = mkdtempSync(join(tmpdir(), "demo-seed-"));
     const keyPath = join(workDir, "key.json");
-    runSeed(["--apply", "--personas=5", "--postings=60", `--answer-key=${keyPath}`]);
+    runSeed(["--apply", "--personas=5", "--postings=200", `--answer-key=${keyPath}`]);
     personas = (JSON.parse(readFileSync(keyPath, "utf8")) as { personas: KeyPersona[] }).personas;
 
     client = createDbClient(DATABASE_URL, { max: 1 });
@@ -141,15 +144,15 @@ describe.skipIf(!RUN)("demo matching seed — reach + real feed order (DB)", () 
     }
   }, 120_000);
 
-  it("seeded the small profile: 5 personas, 60 open demo postings", () => {
+  it("seeded the small profile: 5 personas, 200 open demo postings", () => {
     expect(personas).toHaveLength(5);
-    expect(postings.size).toBe(60);
+    expect(postings.size).toBe(200);
   });
 
   it("membership: exactly the persona's reach is visible, with the right tier", async () => {
     for (const p of personas) {
       const wants = new Set(p.skills.map((s) => s.skillId));
-      // The real repository, wide enough to hold the whole set (60 postings < 300).
+      // The real repository, wide enough to hold the whole set (200 postings < 300).
       const rows = await repo.listFeed(p.workerId, 300, {});
       const visible = new Map(
         rows.filter((r) => postings.has(r.jobPostingId)).map((r) => [r.jobPostingId, r]),
@@ -175,9 +178,26 @@ describe.skipIf(!RUN)("demo matching seed — reach + real feed order (DB)", () 
       expect(postings.size - visible.size, `${p.key}: hidden set`).toBeGreaterThan(0);
       // The answer key's counts agree with the real read.
       expect(p.visible).toBe(rows.length);
-      expect(p.direct + p.related).toBe(rows.length);
+      expect(p.direct).toBe(rows.filter((r) => r.matchTier === 1).length);
+      expect(p.related).toBe(rows.filter((r) => r.matchTier === 2).length);
       expect(p.hidden).toBe(postings.size - visible.size);
     }
+  });
+
+  it("the profile is not vacuous: the interleave AND the boost both move somebody's top 10", () => {
+    // Without this the order check below would pass for a seed that dropped the interleave or
+    // the boost key — the profile (200 postings) was chosen so both visibly act.
+    expect(personas.some((p) => p.interleaveChangedTop10)).toBe(true);
+    const boostAboveFresher = personas.some((p) =>
+      p.top10.some(
+        (c, i) =>
+          c.boosted &&
+          p.top10
+            .slice(i + 1)
+            .some((d) => !d.boosted && (d.publishedAt ?? "") > (c.publishedAt ?? "")),
+      ),
+    );
+    expect(boostAboveFresher).toBe(true);
   });
 
   it("order: the answer key's top 10 is what the real MatchFeedService serves", async () => {
@@ -187,6 +207,40 @@ describe.skipIf(!RUN)("demo matching seed — reach + real feed order (DB)", () 
         jobs.slice(0, 10).map((j) => [j.job_id, j.via_related ? 2 : 1]),
         `${p.key}: answer-key order drifted from the V1 feed — update feedOrderSql in packages/db/src/seed-demo-matching.ts`,
       ).toEqual(p.top10.map((c) => [c.jobPostingId, c.tier]));
+    }
+  });
+  it("cleanup: hard unseed refuses while a REAL worker has applied; --close-only takes the demo off feeds", async () => {
+    // A non-demo worker (outside the de30 namespace) applies to one demo posting.
+    const realWorker = "00000000-0000-4000-8000-0000de30a001";
+    const target = [...postings.keys()][0]!;
+    await client.db.execute(dsql`
+      INSERT INTO workers (id, phone_e164, phone_hash, status)
+      VALUES (${realWorker}::uuid, 'not-a-real-ciphertext', 'demo-db-test-real-worker', 'active')
+      ON CONFLICT (id) DO NOTHING`);
+    await client.db.execute(dsql`
+      INSERT INTO applications (worker_id, job_posting_id, action)
+      VALUES (${realWorker}::uuid, ${target}::uuid, 'applied')`);
+    try {
+      expect(() => runSeed(["--unseed", "--apply"])).toThrow();
+      const stillThere = (await client.db.execute(dsql`
+        SELECT count(*)::int AS n FROM applications WHERE worker_id = ${realWorker}::uuid`)) as unknown as Array<{
+        n: number;
+      }>;
+      expect(stillThere[0]!.n).toBe(1);
+
+      runSeed(["--unseed", "--apply", "--close-only"]);
+      const open = (await client.db.execute(dsql`
+        SELECT count(*)::int AS n FROM job_postings
+        WHERE id::text LIKE 'de303000-0000-4000-8000-%' AND status = 'open'`)) as unknown as Array<{
+        n: number;
+      }>;
+      expect(open[0]!.n).toBe(0);
+      expect(await repo.listFeed(personas[0]!.workerId, 300, {})).toEqual(
+        expect.not.arrayContaining([expect.objectContaining({ jobPostingId: target })]),
+      );
+    } finally {
+      // Removing the real worker cascades its application, so afterAll's hard unseed can run.
+      await client.db.execute(dsql`DELETE FROM workers WHERE id = ${realWorker}::uuid`);
     }
   });
 });

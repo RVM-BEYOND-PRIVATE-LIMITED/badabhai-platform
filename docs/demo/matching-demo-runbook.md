@@ -29,9 +29,21 @@ understand what that means:
   - With `MATCH_V1_ENABLED=true`, real welders, turners, fitters and so on will see demo jobs.
   - **They can apply to them.** Those jobs do not exist.
   - Keep the window short and run `--cleanup` right after the demo.
-- **Cleanup deletes applications to demo postings.** `--cleanup` deletes every `de30…` posting,
-  which cascades to its `job_reach` and `applications` rows, including any a real worker made.
+- **Cleanup deletes everything hanging off demo postings.** `--cleanup` deletes every `de30…`
+  posting. The cascade covers:
+  - `job_reach`;
+  - `applications`, including any a real worker made;
+  - `learn_labels`, `job_posting_skill`, `job_reach_widen`, `posting_plans`, `posting_boosts`;
+  - `resume_disclosures.job_posting_id`, which is set to null.
+
   The `application.*` / `feed.shown_v2` events those actions emitted stay in the audit trail.
+
+- **Pause learn exports and training while the demo is live.** Real workers' impressions of demo
+  jobs become `learn_labels` until cleanup. Anything exported in that window keeps the synthetic
+  signal.
+- **Personas get no `employer_sharing` consent on production.** Without it, a real employer whose
+  posting reaches a persona cannot spend a credit unlocking a worker who does not exist. Local
+  seeds still grant it.
 - **`MATCH_V1_ENABLED` is global.** Turning it on switches **every real worker** to the V1 feed,
   and turning it off switches them all back (production-release-runbook #12). After D4 the
   revert is not clean.
@@ -95,6 +107,19 @@ needs both ops-guard signals (same as every Matching V1 runner).
 
 4. **Clean up** right after the demo.
 
+   First, **soft**: close every demo posting. They leave every feed at once and nothing is
+   deleted, so a real worker's application row and its events stay consistent.
+
+   ```bash
+   OPS_ALLOW_PRODUCTION=seed:demo-matching \
+     pnpm --filter @badabhai/db db:unseed:demo-matching -- --apply --close-only --target=production \
+       --i-am-authorised-to-write-to-production
+   ```
+
+   Then, **hard** (deletes every `de30…` row). It **refuses while any real worker has applied** to
+   a demo posting, because those application rows would be deleted and their `application.*`
+   events orphaned. Pass `--delete-real-applications` only if the owner decides they go.
+
    ```bash
    OPS_ALLOW_PRODUCTION=seed:demo-matching \
      pnpm --filter @badabhai/db db:unseed:demo-matching -- --apply --target=production \
@@ -103,8 +128,10 @@ needs both ops-guard signals (same as every Matching V1 runner).
 
    Then check `SELECT count(*) FROM job_postings WHERE id::text LIKE 'de30%'` returns 0.
 
-Re-running the seed is idempotent: it upserts, refreshes `published_at` and boosts from "now",
-and removes `de30…` rows outside the current plan.
+Re-running the seed is idempotent: it upserts and removes `de30…` rows outside the current plan.
+`published_at` and boosts are computed from `--anchor` (default: now). **On production, re-run
+with the anchor the answer key recorded** (`"anchor"` field) so a re-run does not push the demo
+jobs back to the top of real workers' feeds.
 
 ---
 
@@ -127,8 +154,9 @@ Which skills a live worker gets (traced 2026-10-06):
 Run `--report-trades` before the demo and pick a trade with a full feed. **Welder (free-text
 chat) and CNC turner** are the proven paths.
 
-**Re-running a live onboarding.** Extraction is skipped for a worker who already has a profile.
-To reset one demo worker, list their phone in a file (one E.164 per line), then:
+**Re-running a live onboarding (local stack).** Extraction is skipped for a worker who already has
+a profile. Onboard the live worker with a phone from the demo block, `+910000026101`–`…26999`, via
+test-login. To reset them, list the phone in a file (one E.164 per line), then:
 
 ```bash
 pnpm --filter @badabhai/db db:seed:demo-matching -- --reset-live-worker \
@@ -136,11 +164,16 @@ pnpm --filter @badabhai/db db:seed:demo-matching -- --reset-live-worker \
 ```
 
 This deletes only that worker's `worker_profiles`, `worker_skill` and `job_reach` rows. The phone
-must be in the reserved synthetic range **and** in the file.
+must be in the **demo block** of the reserved range (`+910000026xxx`, never the E4 or smoke
+numbers) **and** in the file. A write against a production-like database would also need
+`--target=production`, the ops-guard flag and `OPS_ALLOW_PRODUCTION=seed:demo-matching`.
 
 > On production this cannot reset a worker created with a **real** handset, because the phone is
-> outside the reserved range. That is deliberate: widening it to real phones means deleting a
-> real worker's data, which needs an explicit owner decision.
+> outside the demo block. That is deliberate: widening it to real phones means deleting a real
+> worker's data, which needs an explicit owner decision.
+>
+> Also: an SSH tunnel to the production database on `localhost` would be classified LOCAL by the
+> guard. Run the seed **on** the server with its own `DATABASE_URL`, never through a tunnel.
 
 ---
 

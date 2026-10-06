@@ -9,7 +9,7 @@
  *   workers         one per persona: RESERVED synthetic phone (+9100000 26xxx, the test-login
  *                   range), synthetic name — both encrypted with the API's crypto
  *   worker_profiles one confirmed profile per persona (city, total years, skill labels)
- *   worker_consents one live consent per persona, incl. `employer_sharing`
+ *   worker_consents one live consent per persona (`employer_sharing` on a LOCAL target only)
  *   worker_skill    1-2 rows per persona (wants=true, source='ops', varied months)
  *   job_postings    OPEN, `role_kind` set, realistic card fields, `published_at` over 30 days,
  *                   ~3% boosted; `match_skill_ids` = the skills onboarding derives for the trade
@@ -26,7 +26,10 @@
  *   --answer-key-only      read-only: recompute the answer key from the database
  *   --report-trades        read-only: per occupation (chat role / trade form), the open postings a
  *                          FRESH worker with that occupation's derived skills would see
- *   --unseed | --cleanup   (with --apply) delete every `de30…` row, cascading reach/applications
+ *   --unseed | --cleanup   (with --apply) delete every `de30…` row, cascading reach/applications.
+ *                          REFUSES while non-demo workers hold applications to demo postings,
+ *                          unless --delete-real-applications; `--close-only` instead closes the
+ *                          demo postings (off every feed, nothing deleted)
  *   --reset-live-worker --phone=<E.164> --allow-phones=<file>
  *                          (with --apply) delete ONE live demo worker's profile, worker_skill and
  *                          job_reach so the onboarding chat extracts again. The phone must be in
@@ -76,7 +79,7 @@ import {
   DEFAULT_DEMO_PLAN,
   DEMO_TRADES,
   MAX_DEMO_PERSONAS,
-  RESERVED_TEST_PHONE_PATTERN,
+  DEMO_PHONE_PATTERN,
   demoIdLikePattern,
   personaExpectation,
   workerVisibleFields,
@@ -107,12 +110,15 @@ import {
 
 const NAME = "seed:demo-matching";
 
-const CONSENT_PURPOSES: ConsentPurpose[] = [
-  "profiling",
-  "resume_generation",
-  "communication",
-  "employer_sharing",
-];
+/**
+ * Persona consent purposes. `employer_sharing` (the unlock gate) is granted only on a LOCAL target:
+ * on production a real employer whose posting reaches a persona could otherwise spend a credit
+ * unlocking a worker who does not exist. The feed itself needs no consent purpose.
+ */
+export function personaConsentPurposes(target: "local" | "production"): ConsentPurpose[] {
+  const base: ConsentPurpose[] = ["profiling", "resume_generation", "communication"];
+  return target === "production" ? base : [...base, "employer_sharing"];
+}
 
 /** How long a seeded boost lasts past the anchor. Re-run the seed to refresh it. */
 const BOOST_DAYS = 14;
@@ -271,7 +277,9 @@ export async function applyDemoSeed(
   reach: ReadonlyMap<string, string[]>,
   crypto: DemoCrypto,
   anchor: Date,
+  target: "local" | "production" = "local",
 ): Promise<ApplyDemoSeedResult> {
+  const consentPurposes = personaConsentPurposes(target);
   assertWorkerVisibleTextClean(plan.postings);
   await assertPhonesUnclaimed(db, plan, crypto.pepper);
   const boostedUntil = new Date(anchor.getTime() + BOOST_DAYS * 86_400_000);
@@ -293,6 +301,7 @@ export async function applyDemoSeed(
           target: payers.id,
           set: {
             emailEnc: encryptPii(p.email, crypto.key),
+            emailHash: hashPhone(p.email, crypto.pepper),
             orgNameEnc: encryptPii(p.orgName, crypto.key),
             status: "active",
             updatedAt: anchor,
@@ -318,6 +327,7 @@ export async function applyDemoSeed(
         .onConflictDoUpdate({
           target: workers.id,
           set: {
+            phoneHash: hashPhone(w.phoneE164, crypto.pepper),
             phoneE164: phoneEnc,
             fullName: nameEnc,
             status: "active",
@@ -349,14 +359,14 @@ export async function applyDemoSeed(
           id: w.consentId,
           workerId: w.workerId,
           consentVersion: CURRENT_CONSENT_VERSION,
-          purposes: CONSENT_PURPOSES,
+          purposes: consentPurposes,
           acceptedAt: anchor,
         })
         .onConflictDoUpdate({
           target: workerConsents.id,
           set: {
             consentVersion: CURRENT_CONSENT_VERSION,
-            purposes: CONSENT_PURPOSES,
+            purposes: consentPurposes,
             revokedAt: null,
           },
         });
@@ -501,7 +511,40 @@ async function removeDemoRowsOutside(db: Database, plan: DemoPlan): Promise<numb
   return a + b + c;
 }
 
-/** Remove every demo row. Postings first (cascades job_reach/applications), then workers, payers. */
+/** Applications REAL (non-demo) workers made to demo postings — what a hard cleanup would delete. */
+export async function countRealApplicationsToDemo(db: Database): Promise<number> {
+  return (
+    rowsOf<{ n: number }>(
+      await db.execute(dsql`
+        SELECT count(*)::int AS n FROM applications a
+        WHERE a.job_posting_id::text LIKE ${demoIdLikePattern("posting")}
+          AND a.worker_id::text NOT LIKE ${demoIdLikePattern("worker")}`),
+    )[0]?.n ?? 0
+  );
+}
+
+/**
+ * The SOFT cleanup: close every open demo posting (off every feed at once, `job_reach` and any
+ * real worker's application rows kept, so no business record is deleted and no event is
+ * orphaned). Run the hard `--cleanup` later, once those applications are dealt with.
+ */
+export async function closeDemoPostings(db: Database, now: Date): Promise<number> {
+  return rowsOf(
+    await db.execute(dsql`
+      UPDATE job_postings
+      SET status = 'closed', closed_at = ${now.toISOString()}::timestamptz,
+          updated_at = ${now.toISOString()}::timestamptz
+      WHERE id::text LIKE ${demoIdLikePattern("posting")} AND status <> 'closed'
+      RETURNING 1`),
+  ).length;
+}
+
+/**
+ * Remove every demo row. Postings first (cascades job_reach / applications / learn_labels / …),
+ * then workers, payers. The CLI refuses this while real workers hold applications to demo
+ * postings unless `--delete-real-applications` is passed (see the runbook); `--close-only` is
+ * the non-destructive alternative.
+ */
 export async function unseedDemo(db: Database): Promise<Record<string, number>> {
   return db.transaction(async (tx) => {
     const del = async (
@@ -554,6 +597,28 @@ export async function materializeDemoReach(
     out.rowsDeleted += outcome.rowsDeleted;
   }
   return out;
+}
+
+/**
+ * D5 refreshes only DEMO postings, so a persona that dropped a skill would keep `job_reach` rows on
+ * OTHER (real) postings. Remove them with D5's own stale predicate — the posting's STORED reach
+ * set no longer holds any skill the persona wants — scoped to persona workers. Never adds a row
+ * and never touches a non-persona worker.
+ */
+export async function prunePersonaStaleReach(db: Database, plan: DemoPlan): Promise<number> {
+  const personaIds = dsql.param(plan.personas.map((p) => p.workerId));
+  return rowsOf(
+    await db.execute(dsql`
+      DELETE FROM job_reach jr
+      USING job_postings jp
+      WHERE jr.job_posting_id = jp.id
+        AND jr.worker_id = ANY(${personaIds}::uuid[])
+        AND NOT EXISTS (
+          SELECT 1 FROM worker_skill ws
+          WHERE ws.worker_id = jr.worker_id AND ws.wants AND jp.reach_skill_ids ? ws.skill_id
+        )
+      RETURNING 1`),
+  ).length;
 }
 
 // ---------------------------------------------------------------------------
@@ -623,11 +688,15 @@ export interface AnswerKeyPersona {
   /** Open demo postings this persona does NOT see (their reach misses every wanted skill). */
   hidden: number;
   boostedVisible: number;
+  /** True when the max-per-employer interleave changed this persona's top 10 (it is visible). */
+  interleaveChangedTop10: boolean;
   top10: AnswerKeyCard[];
 }
 
 export interface AnswerKey {
   generatedAt: string;
+  /** The `--anchor` the seed used for `published_at` / boosts (pass it back to reproduce). */
+  anchor: string | null;
   feedLimit: number;
   maxConsecutiveSameCompany: number;
   demoOpenPostings: number;
@@ -644,7 +713,7 @@ export async function computeDemoAnswerKey(
   db: Database,
   plan: DemoPlan,
   reach: ReadonlyMap<string, string[]>,
-  opts: { feedLimit: number; now: Date },
+  opts: { feedLimit: number; now: Date; anchor?: Date },
 ): Promise<AnswerKey> {
   const config = await loadMatchConfig(db);
   const demoPostings = plan.postings.map((p) => ({
@@ -656,18 +725,22 @@ export async function computeDemoAnswerKey(
   const payerNo = new Map(
     plan.payers.map((p) => [p.payerId, String(p.index + 1).padStart(2, "0")]),
   );
+  // Counted against the PLAN's postings, so `--answer-key-only` with a smaller plan than the
+  // database holds does not inflate `hidden` with demo rows outside it.
+  const planIds = dsql.param([...demoIds]);
   const openDemo =
     rowsOf<{ n: number }>(
       await db.execute(dsql`
       SELECT count(*)::int AS n FROM job_postings
-      WHERE id::text LIKE ${demoIdLikePattern("posting")} AND status = 'open'`),
+      WHERE id = ANY(${planIds}::uuid[]) AND status = 'open'`),
     )[0]?.n ?? 0;
 
   const personas: AnswerKeyPersona[] = [];
   for (const w of plan.personas) {
-    const reached = rowsOf<{ id: string; tier: number }>(
+    const reached = rowsOf<{ id: string; tier: number; reach: string[]; boosted: boolean }>(
       await db.execute(dsql`
-        SELECT jp.id::text AS id, jr.match_tier AS tier
+        SELECT jp.id::text AS id, jr.match_tier AS tier, jp.reach_skill_ids AS reach,
+               (jp.boosted_until IS NOT NULL AND jp.boosted_until > now()) AS boosted
         FROM job_reach jr JOIN job_postings jp ON jp.id = jr.job_posting_id
         WHERE jr.worker_id = ${w.workerId}::uuid AND jp.status = 'open'
           AND NOT EXISTS (SELECT 1 FROM applications a
@@ -687,6 +760,11 @@ export async function computeDemoAnswerKey(
     const allowed = new Set([...expected.direct, ...expected.relatedOnly]);
     for (const id of tierById.keys())
       if (!allowed.has(id)) problems.push(`${id} visible but outside the persona's reach`);
+    // Every visible row — demo or not — must be reachable through its STORED set.
+    const wants = new Set(w.skills.map((s) => s.skillId));
+    for (const r of reached)
+      if (!r.reach.some((id) => wants.has(id)))
+        problems.push(`${r.id} visible but its stored reach set holds no wanted skill`);
     if (problems.length > 0) {
       throw new Error(
         `[${NAME}] answer-key self-check FAILED for ${w.key}: ${problems.slice(0, 5).join("; ")}` +
@@ -734,7 +812,16 @@ export async function computeDemoAnswerKey(
       visibleDemo,
       visibleOther: reached.length - visibleDemo,
       hidden: openDemo - visibleDemo,
-      boostedVisible: candidates.filter((c) => c.boosted).length,
+      boostedVisible: reached.filter((r) => r.boosted).length,
+      interleaveChangedTop10:
+        page
+          .slice(0, TOP_N)
+          .map((r) => r.job_posting_id)
+          .join() !==
+        candidates
+          .slice(0, TOP_N)
+          .map((r) => r.job_posting_id)
+          .join(),
       top10: page.slice(0, TOP_N).map((r, i) => ({
         rank: i + 1,
         jobPostingId: r.job_posting_id,
@@ -751,6 +838,7 @@ export async function computeDemoAnswerKey(
 
   return {
     generatedAt: opts.now.toISOString(),
+    anchor: opts.anchor?.toISOString() ?? null,
     feedLimit: opts.feedLimit,
     maxConsecutiveSameCompany: config.maxConsecutiveSameCompany,
     demoOpenPostings: openDemo,
@@ -834,10 +922,10 @@ export function parseAllowPhones(text: string): Set<string> {
   );
 }
 
-/** Pure gate: the phone must be in the reserved synthetic range AND on the allow-list. */
+/** Pure gate: the phone must be in the reserved DEMO block AND on the allow-list. */
 export function resetPhoneProblem(phone: string, allowed: ReadonlySet<string>): string | null {
-  if (!RESERVED_TEST_PHONE_PATTERN.test(phone)) {
-    return `--phone is outside the reserved synthetic range ${RESERVED_TEST_PHONE_PATTERN} — refusing to touch a real worker.`;
+  if (!DEMO_PHONE_PATTERN.test(phone)) {
+    return `--phone is outside the demo block ${DEMO_PHONE_PATTERN} of the reserved synthetic range — refusing to touch any other worker.`;
   }
   if (!allowed.has(phone)) return `--phone is not listed in the --allow-phones file.`;
   return null;
@@ -1038,8 +1126,23 @@ async function main(): Promise<void> {
         printFooter(NAME, opts, 0);
         return;
       }
+      if (argFlag("close-only")) {
+        const closed = await closeDemoPostings(db, new Date());
+        printCounts(NAME, { "demo postings closed (rows kept)": closed });
+        printFooter(NAME, opts, closed);
+        return;
+      }
+      const realApplications = await countRealApplicationsToDemo(db);
+      if (realApplications > 0 && !argFlag("delete-real-applications")) {
+        throw new Error(
+          `[${NAME}] ${realApplications} application(s) by NON-demo workers point at demo postings; a ` +
+            `hard cleanup would delete them (their events would stay, orphaned). Run with --close-only ` +
+            `to take the demo off every feed without deleting anything, or pass ` +
+            `--delete-real-applications if the owner has decided they go. Nothing was written.`,
+        );
+      }
       const counts = await unseedDemo(db);
-      printCounts(NAME, counts);
+      printCounts(NAME, { ...counts, "real applications deleted (cascade)": realApplications });
       printFooter(
         NAME,
         opts,
@@ -1078,8 +1181,26 @@ async function main(): Promise<void> {
 
     if (opts.apply && !answerKeyOnly) {
       const crypto = readCrypto();
-      const seeded = await applyDemoSeed(db, plan, reach, crypto, anchor);
-      const mat = await materializeDemoReach(db, plan);
+      const seeded = await applyDemoSeed(
+        db,
+        plan,
+        reach,
+        crypto,
+        anchor,
+        argValue("target") === "production" ? "production" : "local",
+      );
+      let mat: DemoMaterializeResult;
+      let prunedOther: number;
+      try {
+        mat = await materializeDemoReach(db, plan);
+        prunedOther = await prunePersonaStaleReach(db, plan);
+      } catch (err) {
+        // The postings are committed; their reach may be stale. A re-run repairs it idempotently.
+        throw new Error(
+          `${err instanceof Error ? err.message : String(err)} — postings are written but reach may be ` +
+            `stale; fix the cause and re-run with --apply (idempotent).`,
+        );
+      }
       printCounts(NAME, {
         "payers upserted": seeded.payers,
         "workers upserted": seeded.workers,
@@ -1091,10 +1212,15 @@ async function main(): Promise<void> {
         "job_reach inserted": mat.rowsInserted,
         "job_reach refreshed": mat.rowsUpdated,
         "job_reach deleted (stale)": mat.rowsDeleted,
+        "persona reach pruned (other postings)": prunedOther,
       });
     }
 
-    const key = await computeDemoAnswerKey(db, plan, reach, { feedLimit, now: new Date() });
+    const key = await computeDemoAnswerKey(db, plan, reach, {
+      feedLimit,
+      now: new Date(),
+      anchor: opts.apply && !answerKeyOnly ? anchor : undefined,
+    });
     printAnswerKey(key);
     if (answerKeyPath !== undefined) {
       const out = resolve(answerKeyPath);
