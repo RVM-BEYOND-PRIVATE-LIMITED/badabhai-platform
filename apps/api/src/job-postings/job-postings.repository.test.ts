@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import { jobPostings, type Database } from "@badabhai/db";
@@ -59,5 +59,71 @@ describe("JobPostingsRepository.findByIdAndPayer — ownership lives in the WHER
     await expect(new JobPostingsRepository(db).findByIdAndPayer(POSTING, PAYER)).resolves.toBe(
       undefined,
     );
+  });
+});
+
+/**
+ * #1928 — THE TRANSACTION SEAM. `JobPostingsService.insertAndEmit` commits a posting row and its
+ * `job_posting.created` together by handing `create` the transaction `withTransaction` opened.
+ * If `create` quietly wrote on the injected db instead, the row would autocommit outside the
+ * transaction and a failed emit would leave it behind, which is the #1928 defect. The real-Postgres
+ * proof is in `job-posting-chat.repository.db.test.ts`; these pins run in the database-free suite.
+ */
+describe("JobPostingsRepository.create / withTransaction — the #1928 transaction seam", () => {
+  const INPUT = {
+    createdBy: PAYER,
+    payerId: PAYER,
+    orgLabel: "Org",
+    roleTitle: "Role",
+    vacancyBand: "2-5" as const,
+    status: "draft" as const,
+  };
+
+  function executor(label: string) {
+    const written: { table: unknown; values: unknown }[] = [];
+    const db = {
+      insert: vi.fn((table: unknown) => ({
+        values: (values: unknown) => ({
+          returning: () => {
+            written.push({ table, values });
+            return Promise.resolve([{ id: `${label}-row` }]);
+          },
+        }),
+      })),
+    } as unknown as Database;
+    return { db, written };
+  }
+
+  it("create writes on the executor it is handed, not on the injected db", async () => {
+    const injected = executor("injected");
+    const tx = executor("tx");
+
+    const created = await new JobPostingsRepository(injected.db).create(INPUT, tx.db);
+
+    expect(created.id).toBe("tx-row");
+    expect(tx.written).toEqual([{ table: jobPostings, values: INPUT }]);
+    expect(injected.written).toEqual([]);
+  });
+
+  it("create with no executor writes on the injected db, as every caller outside a transaction expects", async () => {
+    const injected = executor("injected");
+    await new JobPostingsRepository(injected.db).create(INPUT);
+    expect(injected.written).toHaveLength(1);
+  });
+
+  it("withTransaction runs the work inside db.transaction, hands it the tx, and returns its result", async () => {
+    const tx = { executor: "tx" };
+    const transaction = vi.fn(async (work: (t: unknown) => Promise<unknown>) => work(tx));
+    const repo = new JobPostingsRepository({ transaction } as unknown as Database);
+
+    const seen: unknown[] = [];
+    const out = await repo.withTransaction(async (t) => {
+      seen.push(t);
+      return "done";
+    });
+
+    expect(transaction).toHaveBeenCalledOnce();
+    expect(seen).toEqual([tx]);
+    expect(out).toBe("done");
   });
 });
