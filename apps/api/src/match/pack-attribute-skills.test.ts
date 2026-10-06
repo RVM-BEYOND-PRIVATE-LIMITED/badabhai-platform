@@ -82,7 +82,9 @@ describe("the fabrication rule (§5.3) — what this map REFUSES to claim", () =
     // Checking your own first piece, or filling an SPC chart at the machine, is not a QC chair.
     // An unclaimed capability upgrade surfaces at the machine trial and the employer stops
     // trusting BadaBhai rather than the worker - the most damaging failure available to us.
-    expect(PACK_ATTRIBUTE_SKILLS.quality_work).toBeUndefined();
+    // Indexed through the PACK: the map is pack-keyed (R12 §2.1), so a top-level lookup of an
+    // attribute key would pass vacuously.
+    expect(PACK_ATTRIBUTE_SKILLS.qp_cnc_turning?.quality_work).toBeUndefined();
     const everyQualityAnswer = new Map([
       ["quality_work", ["first_piece_check", "in_process", "spc", "rejection"]],
     ]);
@@ -106,13 +108,18 @@ describe("the fabrication rule (§5.3) — what this map REFUSES to claim", () =
   });
 
   it("leaves sector_worked out entirely — §4.3 locks it as display-only", () => {
-    expect(PACK_ATTRIBUTE_SKILLS.sector_worked).toBeUndefined();
+    expect(PACK_ATTRIBUTE_SKILLS.qp_cnc_turning?.sector_worked).toBeUndefined();
   });
 
   it("maps no option that names nothing specific", () => {
-    for (const dead of ["other_machine", "unknown_controller", "no_drawing", "no_advanced"]) {
-      for (const options of Object.values(PACK_ATTRIBUTE_SKILLS)) {
-        expect(options[dead]).toBeUndefined();
+    // Every pack, every question, one level down at the OPTION keys — the level a dead option
+    // would actually be mapped at.
+    const dead = /^(other_|unknown_|no_)|^none$/;
+    for (const [packId, attributes] of Object.entries(PACK_ATTRIBUTE_SKILLS)) {
+      for (const [key, options] of Object.entries(attributes)) {
+        for (const option of Object.keys(options)) {
+          expect(dead.test(option), `${packId}.${key}.${option} maps a non-answer`).toBe(false);
+        }
       }
     }
   });

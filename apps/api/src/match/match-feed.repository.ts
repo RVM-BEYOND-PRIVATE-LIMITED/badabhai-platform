@@ -28,6 +28,12 @@ export interface MatchFeedRow {
   payType: string | null;
   shift: string | null;
   neededBy: string | null;
+  /**
+   * The posting's display role (migration 0131), RAW off the column — the service gates it to
+   * the closed set or null on the way out (`toWorkerRoleKind`). Display only: it is selected,
+   * never filtered or ordered on (ADR-0036 addendum 2026-09-29).
+   */
+  roleKind: string | null;
 }
 
 /**
@@ -153,6 +159,7 @@ export class MatchFeedRepository {
       pay_type: string | null;
       shift: string | null;
       needed_by: string | null;
+      role_kind: string | null;
     }>(dsql`
       SELECT jp.id                                        AS job_posting_id,
              COALESCE(jp.payer_id, jp.created_by)::text   AS payer_key,
@@ -172,7 +179,8 @@ export class MatchFeedRepository {
              jp.pay_max                                   AS pay_max,
              jp.pay_type                                  AS pay_type,
              jp.shift                                     AS shift,
-             jp.needed_by                                 AS needed_by
+             jp.needed_by                                 AS needed_by,
+             jp.role_kind                                 AS role_kind
       FROM job_reach jr
       JOIN job_postings jp ON jp.id = jr.job_posting_id
       WHERE jr.worker_id = ${workerId}::uuid
@@ -219,6 +227,7 @@ export class MatchFeedRepository {
       pay_type: string | null;
       shift: string | null;
       needed_by: string | null;
+      role_kind: string | null;
     }[];
 
     return list.map((r) => ({
@@ -241,6 +250,7 @@ export class MatchFeedRepository {
       payType: r.pay_type,
       shift: r.shift,
       neededBy: r.needed_by,
+      roleKind: r.role_kind,
     }));
   }
 

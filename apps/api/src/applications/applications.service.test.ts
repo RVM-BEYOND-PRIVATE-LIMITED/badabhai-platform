@@ -308,8 +308,8 @@ describe("ApplicationsService — feed", () => {
   // handle. `createdAt` differs on purpose: it is the feed's sort key (#1649) and the
   // source of `posted_at`, so a fixture where both were equal could not observe either.
   const OPEN_JOBS = [
-    { id: "a0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", minExperienceYears: 2, maxExperienceYears: 5, payMin: 18000, payMax: 25000, payType: "in_hand", shift: "night", description: "D1", benefits: ["B1"], requirements: ["R1"], neededBy: "immediate", createdAt: new Date("2026-06-01T00:00:00.000Z") },
-    { id: "a0000000-0000-0000-0000-000000000002", tradeKey: "fitter", title: "T2", city: "Pune", area: null, minExperienceYears: null, maxExperienceYears: null, payMin: null, payMax: null, payType: null, shift: null, description: null, benefits: null, requirements: null, neededBy: null, createdAt: new Date("2026-05-01T00:00:00.000Z") },
+    { id: "a0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", minExperienceYears: 2, maxExperienceYears: 5, payMin: 18000, payMax: 25000, payType: "in_hand", shift: "night", description: "D1", benefits: ["B1"], requirements: ["R1"], neededBy: "immediate", roleKind: "cnc_turner", createdAt: new Date("2026-06-01T00:00:00.000Z") },
+    { id: "a0000000-0000-0000-0000-000000000002", tradeKey: "fitter", title: "T2", city: "Pune", area: null, minExperienceYears: null, maxExperienceYears: null, payMin: null, payMax: null, payType: null, shift: null, description: null, benefits: null, requirements: null, neededBy: null, roleKind: null, createdAt: new Date("2026-05-01T00:00:00.000Z") },
   ];
 
   it("returns coarse PII-free items with 1-based rank and emits one feed.shown per item", async () => {
@@ -317,8 +317,8 @@ describe("ApplicationsService — feed", () => {
     const out = await svc.getFeed(WORKER_ID, 20, {}, CTX);
 
     expect(out.jobs).toEqual([
-      { job_id: OPEN_JOBS[0]!.id, trade_key: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", min_experience_years: 2, max_experience_years: 5, pay_min: 18000, pay_max: 25000, shift: "night", description: "D1", benefits: ["B1"], requirements: ["R1"], needed_by: "immediate", pay_type: "in_hand", posted_at: "2026-06-01T00:00:00.000Z", rank: 1 },
-      { job_id: OPEN_JOBS[1]!.id, trade_key: "fitter", title: "T2", city: "Pune", area: null, min_experience_years: null, max_experience_years: null, pay_min: null, pay_max: null, shift: null, description: null, benefits: null, requirements: null, needed_by: null, pay_type: null, posted_at: "2026-05-01T00:00:00.000Z", rank: 2 },
+      { job_id: OPEN_JOBS[0]!.id, trade_key: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", min_experience_years: 2, max_experience_years: 5, pay_min: 18000, pay_max: 25000, shift: "night", description: "D1", benefits: ["B1"], requirements: ["R1"], needed_by: "immediate", pay_type: "in_hand", posted_at: "2026-06-01T00:00:00.000Z", role_kind: "cnc_turner", rank: 1 },
+      { job_id: OPEN_JOBS[1]!.id, trade_key: "fitter", title: "T2", city: "Pune", area: null, min_experience_years: null, max_experience_years: null, pay_min: null, pay_max: null, shift: null, description: null, benefits: null, requirements: null, needed_by: null, pay_type: null, posted_at: "2026-05-01T00:00:00.000Z", role_kind: null, rank: 2 },
     ]);
 
     // One feed.shown per returned job (per-impression), batched via emitMany.
@@ -332,6 +332,8 @@ describe("ApplicationsService — feed", () => {
       payload: { worker_id: WORKER_ID, job_id: OPEN_JOBS[0]!.id, rank: 1, score: 0, hot: false },
     });
     expect(batch[1]).toMatchObject({ payload: { rank: 2, score: 0, hot: false } });
+    // role_kind is card art only — feed.shown's payload is unchanged (no schema change).
+    for (const e of batch) expect(e.payload).not.toHaveProperty("role_kind");
   });
 
   it("emits nothing when there are no open jobs", async () => {

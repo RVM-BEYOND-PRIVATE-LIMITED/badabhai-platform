@@ -31,6 +31,7 @@ const FEED_ITEM_KEYS = [
   "posted_at",
   "rank",
   "requirements",
+  "role_kind",
   "shift",
   "title",
   "trade_key",
@@ -52,6 +53,7 @@ const JOB_NEW = {
   benefits: ["B1"],
   requirements: ["R1"],
   neededBy: "immediate",
+  roleKind: null,
   createdAt: new Date("2026-10-03T00:00:00.000Z"),
 };
 const JOB_OLD = {
@@ -75,6 +77,7 @@ const POSTING_NEWEST: FeedPostingRow = {
   benefits: null,
   requirements: ["Fanuc control"],
   neededBy: "soon",
+  roleKind: "vmc_milling",
   publishedAt: new Date("2026-10-05T09:30:00.000Z"),
 };
 const POSTING_MIDDLE: FeedPostingRow = {
@@ -155,13 +158,13 @@ describe("union feed — both arms, one newest-first deck", () => {
     expect(repo.findOpenPostingsForFeed.mock.calls[0]![1]).toBe(3);
   });
 
-  it("every card carries EXACTLY the 17 legacy keys — no role_kind, no source, no V1 extras", async () => {
+  it("every card carries EXACTLY the 17 legacy keys + role_kind — no source, no V1 extras", async () => {
     const { svc } = setup();
     const out = await svc.getFeed(WORKER, 20, {}, CTX);
     expect(cardsOf(out).length).toBeGreaterThan(0); // vacuity guard
     for (const card of cardsOf(out)) {
       expect(Object.keys(card).sort()).toEqual(FEED_ITEM_KEYS);
-      for (const extra of ["role_kind", "via_related", "matched_skill_label", "source"]) {
+      for (const extra of ["via_related", "matched_skill_label", "source"]) {
         expect(card).not.toHaveProperty(extra);
       }
     }
@@ -189,6 +192,7 @@ describe("union feed — both arms, one newest-first deck", () => {
       requirements: ["Fanuc control"],
       needed_by: "soon",
       posted_at: "2026-10-05T09:30:00.000Z",
+      role_kind: "vmc_milling",
       rank: 1,
     });
     expect(cardsOf(out).find((c) => c.job_id === POSTING_MIDDLE.id)!.city).toBe("Faridabad");

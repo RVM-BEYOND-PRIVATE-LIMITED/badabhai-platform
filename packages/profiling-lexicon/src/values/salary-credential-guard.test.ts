@@ -173,7 +173,10 @@ describe("the salary credential guard's connector (issue #1933, R54)", () => {
     expect(guarded.length).toBeGreaterThan(0);
   });
 
-  it("gives main's verdict on every slice of 20,000 seeded cue lines", () => {
+  // A correctness sweep, not a timing test: ~0.5 s alone, but over the 5 s default on a shared CI
+  // runner under turbo's parallel `test --coverage` (6.1 s / 5.2 s on #1990). The linear-time
+  // guard is "is linear on a whitespace run after a cue" above, which keeps its own ceiling.
+  it("gives main's verdict on every slice of 20,000 seeded cue lines", { timeout: 30_000 }, () => {
     const next = seeded(1933);
     let hits = 0;
     let sliced = 0;
