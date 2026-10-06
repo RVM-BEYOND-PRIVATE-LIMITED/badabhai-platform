@@ -61,10 +61,13 @@
 .bb-btn--lg .ph-fill { font-size: var(--icon-size-lg); }
 
 .bb-btn--sm { height: var(--control-sm); min-height: var(--control-sm); padding: 0 var(--space-3); font-size: var(--text-sm); border-radius: var(--radius-sm); }
-/* PHONE HIT AREAS (≤600px). The dense 36px `sm` button (page-head actions, "Manage all",
-   Needs-you actions) and the 38px Chip are finger targets. Their HIT AREA — not their drawn
-   size — grows to the md control height (44px), so no phone layout measured around them moves
-   and desktop is untouched. The pseudo is a full-width strip centred on the control: the block
+/* PHONE + TOUCH HIT AREAS (≤600px, and any coarse pointer — a tablet at 768/1024px is a finger
+   target too, as the shell header's controls and the back link already are). The dense 36px `sm`
+   button (page-head actions, "Manage all", Needs-you actions) and the 38px Chip are finger
+   targets. Their HIT AREA — not their drawn size — grows to the md control height (44px), so no
+   layout measured around them moves and a fine-pointer desktop is untouched. (A few screens also
+   lift the sm button's DRAWN height on a coarse pointer above 600px; there the strip is the box.)
+   The pseudo is a full-width strip centred on the control: the block
    inset is negative (it reaches past a short control), the inline inset is 0 on a control
    wider than 44px and negative only on a narrower one (min(), so it never shrinks). Neighbours
    in a row sit ≥ --space-2 apart, so two 3–4px extensions never meet.
@@ -72,7 +75,7 @@
    stacking context): a removable Chip's ✕ is an inner target, and a pseudo painted over it
    would turn every tap on the ✕ into a tap on the chip. Disabled controls keep
    `pointer-events: none`, which the pseudo inherits. */
-@media (max-width: 600px) {
+@media (max-width: 600px), (pointer: coarse) {
   .bb-btn--sm, .bb-chip { position: relative; isolation: isolate; }
   .bb-btn--sm::before, .bb-chip::before {
     content: ""; position: absolute; z-index: calc(var(--z-base) - 1);
@@ -428,7 +431,9 @@
 .bb-avatar__initials { width: 100%; height: 100%; border-radius: var(--radius-round); display: flex; align-items: center; justify-content: center; }
 .bb-avatar--masked .bb-avatar__img,
 .bb-avatar--masked .bb-avatar__initials { filter: blur(5px); }
-.bb-avatar--brand { background: var(--saffron-200); color: var(--vermilion-800); }
+/* Initials on the saffron plate: --vermilion-800 measured 4.42:1 (14px bold — under AA); the
+   900 step is 7.52:1. The plate is the same in both themes, so this holds in ink too. */
+.bb-avatar--brand { background: var(--saffron-200); color: var(--vermilion-900); }
 .bb-avatar__seal { position: absolute; right: -1px; bottom: -1px; color: var(--success); background: var(--surface-card); border-radius: var(--radius-round); display: flex; font-size: 0.46em; line-height: 0; padding: 1px; }
 .bb-avatar__seal .ph-fill { display: block; }
 
@@ -540,7 +545,9 @@
 .bb-toast__content { flex: 1; }
 .bb-toast__title { font-family: var(--font-sans); font-weight: var(--weight-bold); font-size: var(--text-base); }
 .bb-toast__msg { font-size: var(--text-sm); color: var(--ink-200); margin-top: 2px; line-height: 1.4; }
-.bb-toast__close { background: none; border: none; color: var(--ink-300); cursor: pointer; padding: 2px; font-size: var(--text-md); display: inline-flex; border-radius: var(--radius-xs); }
+/* The dismiss ✕ is the shared icon-only control (IconButtonBase): positioned, it anchors the
+   shared tooltip (.bb-icon-tip) that shows its label. */
+.bb-toast__close { position: relative; background: none; border: none; color: var(--ink-300); cursor: pointer; padding: 2px; font-size: var(--text-md); display: inline-flex; border-radius: var(--radius-xs); }
 .bb-toast__close:hover { color: var(--paper-0); }
 
 /* ---------- Tooltip ---------- */
@@ -873,6 +880,11 @@
 .bb-candidate__meta .ph-fill { font-size: var(--text-sm); color: var(--text-faint); }
 .bb-candidate__action { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
 .bb-candidate__unlocked { display: inline-flex; align-items: center; gap: 5px; font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--success); }
+/* Ink: --success is a paper-tuned green (#1e7a3c, 3.25:1 on the ink card — under AA for this 14px
+   text); --green-300, the light end the ink balance chip already uses, is 7.18:1. Paper is untouched. */
+[data-theme="ink"] .bb-candidate__unlocked { color: var(--green-300); }
+/* The verified seal beside the name: the success green, at the sm icon size (<Icon size="sm">). */
+.bb-candidate__verified { color: var(--success); }
 
 /* JUL31 contrast fix — `--text-on-brand` is deep-blue for the HALDI CTA (blue-on-yellow
    is high-contrast). Non-haldi SOLID fills (success/danger/neutral/info + the red nav
