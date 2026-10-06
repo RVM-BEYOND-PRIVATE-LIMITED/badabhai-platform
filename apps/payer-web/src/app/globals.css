@@ -2480,8 +2480,9 @@ textarea.input {
   line-clamp: 2;
   overflow: hidden;
 }
-/* ONE row, never wrapped: the summary takes what the primary leaves, and a long primary label
-   ("Publish anyway — reaches nobody yet") wraps INSIDE its button instead of widening the page. */
+/* ONE unwrapped row while the dock is at least 17rem wide (narrower, it stacks — the @container
+   rule below): the summary takes what the primary leaves, and a long primary label ("Publish
+   anyway — reaches nobody yet") wraps INSIDE its button instead of widening the page. */
 .posting-dock__row {
   display: flex;
   flex-wrap: nowrap;
@@ -2504,6 +2505,17 @@ textarea.input {
   font: inherit;
   text-align: start;
   cursor: pointer;
+}
+/* While a save is pending the summary is disabled (posting-preview-rail.tsx `busy`) and must not
+   read as a control: no pointer, its "Preview the card" cue loses the link underline, and the
+   whole summary steps down to 60% (the brand's 80 / 60 / 40 ladder — the step that keeps the
+   card's title and pay readable while the save runs). */
+.posting-dock__summary:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.posting-dock__summary:disabled .posting-dock__cue {
+  text-decoration: none;
 }
 .posting-dock__title,
 .posting-dock__meta {
@@ -2814,9 +2826,10 @@ textarea.input {
 }
 /* In the form column the header's text keeps a readable measure: unless the column holds 24rem of
    it BESIDE the 315px buttons, the buttons wrap UNDER it (every measured editor column, 403–686px,
-   stacks). With the row's `flex: 1` — a zero basis — the buttons stayed beside it and crushed it
-   (68px wide at 1024: 16 lines of meta); an 18rem basis still left long data 6–7 lines at 768 and
-   at 1600+, where the column fits 18rem beside the buttons but not much more. */
+   stacks). With a zero basis (the row's old `flex: 1`) the buttons stayed beside it and crushed it
+   (68px wide at 1024: 16 lines of meta); an 18rem basis (the plain row's, below) still left long
+   data 6–7 lines here at 768 and at 1600+, where the column fits 18rem beside the buttons but not
+   much more. */
 .agency-job__lead > .agency-job__main {
   flex: 1 1 24rem;
 }
@@ -3181,11 +3194,15 @@ textarea.input {
   gap: var(--space-5);
   flex-wrap: wrap;
 }
+/* The header text keeps an 18rem basis: unless the row holds 18rem of it BESIDE the actions, the
+   actions wrap UNDER it. With `flex: 1` — a zero basis — the actions stayed beside it from 430 to
+   520px and crushed it (6px wide at 440, the Edit button over the title); 18rem keeps the 768+
+   rows as they were (the text already had 334px+ there). In the editor's lead it is 24rem (above). */
 .agency-job__main {
   display: grid;
   gap: var(--space-2);
   min-width: 0;
-  flex: 1;
+  flex: 1 1 18rem;
 }
 .agency-job__head {
   display: flex;
