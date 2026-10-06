@@ -8,6 +8,8 @@ import { TOOLTIP_DISMISSED_ATTRIBUTE } from "./control";
 /** A document stand-in that counts its live keydown listeners. */
 export class FakeDocument extends EventTarget {
   private readonly live = new Set<EventListenerOrEventListenerObject>();
+  /** The focused element — a stand-in's `focus()` sets it when the focus takes. */
+  activeElement: unknown = null;
 
   override addEventListener(
     type: string,
