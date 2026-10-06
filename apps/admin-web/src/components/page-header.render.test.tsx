@@ -3,8 +3,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { PageHeader } from "./page-header";
 import { NAV } from "./nav-model";
+import { CUSTOMER_SECTION_HREF } from "../lib/customer";
 
 /**
  * The ONE page header (owner ruling 2026-10-01): [back link, detail pages only] · title · one
@@ -134,5 +136,137 @@ describe("header fences — the tree", () => {
     // …and the check really looked at the top-level pages.
     const checked = [...PAGES.keys()].filter((f) => topLevel.has(routeOf(f)));
     expect(checked.length).toBe(topLevel.size);
+  });
+  /**
+   * The topbar crumb names a section WITHOUT linking it on a page directly below it, because that
+   * page's back link is the link to the list (sweep AW-16: one target, one link). That is only
+   * sound while every such page — `/<section>/[param]` or a static `/<section>/<view>` — has a
+   * back link TO THAT SECTION. Read from the AST: every `href` in a `back` the page writes (a
+   * prop, or a header object's property), or, for the two pages that delegate to the shared
+   * customer route, the section that route resolves their `kind` to.
+   */
+  it("every page directly below a section links back to exactly that section", () => {
+    const pages = firstLevelPages();
+    const wrong = pages
+      .map(([file, code, section]) => ({ file, section, hrefs: declaredBackHrefs(file, code) }))
+      .filter(({ section, hrefs }) => hrefs.length === 0 || hrefs.some((h) => h !== section))
+      .map(({ file, section, hrefs }) => `${file}: back ${JSON.stringify(hrefs)}, section ${section}`);
+    expect(wrong).toEqual([]);
+    // …and it really looked at the seven detail routes the sweep measured (and any page that
+    // joins them later, static or dynamic, is checked the same way).
+    expect(pages.map(([f]) => routeOf(f))).toEqual(
+      expect.arrayContaining([
+        "/agencies/[id]",
+        "/ai-calls/[id]",
+        "/companies/[id]",
+        "/events/[id]",
+        "/jobs/[id]",
+        "/skills/discovery/[id]",
+        "/workers/[id]",
+      ]),
+    );
+  });
+});
+
+/** The sidebar destinations — the sections a crumb can name. */
+const SECTIONS = new Set(NAV.flatMap((s) => s.items).map((i) => i.href));
+
+/** The section a route sits one segment below, or null — static views and `[param]` alike. */
+function sectionAbove(route: string): string | null {
+  const section = route.slice(0, route.lastIndexOf("/"));
+  return route !== "/" && !SECTIONS.has(route) && SECTIONS.has(section) ? section : null;
+}
+
+/** Every page exactly one segment below a section (and not a sidebar destination itself). */
+function firstLevelPages(): [file: string, code: string, section: string][] {
+  const out: [string, string, string][] = [];
+  for (const [file, code] of PAGES) {
+    const section = sectionAbove(routeOf(file));
+    if (section) out.push([file, code, section]);
+  }
+  return out;
+}
+
+/**
+ * Every href a page declares for its back link: the `href` of each object literal inside a `back`
+ * JSX attribute or a `back:` property, whatever wraps it (a ternary included). A non-literal href
+ * reads as `<expression>`, which matches no section. A page that renders `<PayerDetailRoute
+ * kind="…" />` declares the section that kind resolves to — the route's own mapping, pinned by
+ * `payer-detail-route.render.test.tsx`.
+ */
+function declaredBackHrefs(fileName: string, source: string): string[] {
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const out: string[] = [];
+  const hrefsIn = (node: ts.Node): void => {
+    if (ts.isObjectLiteralExpression(node)) {
+      for (const p of node.properties) {
+        if (ts.isPropertyAssignment(p) && p.name.getText(sf) === "href") {
+          out.push(ts.isStringLiteral(p.initializer) ? p.initializer.text : `<${p.initializer.getText(sf)}>`);
+        }
+      }
+    }
+    ts.forEachChild(node, hrefsIn);
+  };
+  const visit = (node: ts.Node): void => {
+    if (ts.isJsxAttribute(node) && node.name.getText(sf) === "back" && node.initializer) {
+      hrefsIn(node.initializer);
+    } else if (ts.isPropertyAssignment(node) && node.name.getText(sf) === "back") {
+      hrefsIn(node.initializer);
+    } else if (
+      (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
+      node.tagName.getText(sf) === "PayerDetailRoute"
+    ) {
+      const kind = node.attributes.properties.find(
+        (a): a is ts.JsxAttribute => ts.isJsxAttribute(a) && a.name.getText(sf) === "kind",
+      )?.initializer;
+      const value = kind && ts.isStringLiteral(kind) ? kind.text : "";
+      out.push(Object.hasOwn(CUSTOMER_SECTION_HREF, value)
+        ? CUSTOMER_SECTION_HREF[value as keyof typeof CUSTOMER_SECTION_HREF]
+        : `<kind ${value}>`);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+describe("header fences — the back-link reader", () => {
+  const read = (src: string) => declaredBackHrefs("t.tsx", src);
+
+  it("reads a back prop, a header object's back, and one inside a ternary", () => {
+    expect(read('<PageHeader back={{ href: "/events", label: "Events" }} />')).toEqual(["/events"]);
+    expect(read('const header = { back: { href: "/workers", label: "Workers" }, title: t };')).toEqual([
+      "/workers",
+    ]);
+    expect(read('<PageHeader back={b ? { href: "/ai-calls", label: "AI calls" } : undefined} />')).toEqual([
+      "/ai-calls",
+    ]);
+  });
+
+  it("reports a computed href as an expression, never as a section", () => {
+    expect(read("<PageHeader back={{ href: `/workers/${id}`, label: l }} />")).toEqual([
+      "<`/workers/${id}`>",
+    ]);
+  });
+
+  it("ignores hrefs that are not the back link, and a back that is not an object", () => {
+    expect(read('<Link href="/jobs">Jobs</Link>')).toEqual([]);
+    expect(read("<Frame back={false} />")).toEqual([]);
+  });
+
+  it("resolves the customer route's kind to its section", () => {
+    expect(read('<PayerDetailRoute id={id} kind="Company" />')).toEqual(["/companies"]);
+    expect(read('<PayerDetailRoute id={id} kind="Agency" />')).toEqual(["/agencies"]);
+    expect(read('<PayerDetailRoute id={id} kind="Reseller" />')).toEqual(["<kind Reseller>"]);
+  });
+
+  it("finds static first-level children as well as [param] ones", () => {
+    // A static view one segment below a section is held to the same rule as a record page.
+    expect(sectionAbove("/workers/[id]")).toBe("/workers");
+    expect(sectionAbove("/workers/export")).toBe("/workers");
+    expect(sectionAbove("/skills/discovery/[id]")).toBe("/skills/discovery");
+    expect(sectionAbove("/workers")).toBeNull();
+    expect(sectionAbove("/workers/[id]/journey")).toBeNull();
+    expect(sectionAbove("/")).toBeNull();
   });
 });

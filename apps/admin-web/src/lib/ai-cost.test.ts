@@ -14,8 +14,10 @@ import {
   providerLabel,
   providerNote,
   taskTypeLabel,
+  TASK_TYPE_LABELS,
   type CostPerProfileInput,
 } from "./ai-cost";
+import { AI_TRACE_TASK_TYPES } from "./ai-trace-view";
 
 /**
  * How AI spend is allowed to be DESCRIBED.
@@ -176,22 +178,22 @@ describe("describeCostPerProfile — a ratio whose shape hides both of its claim
   it("NAMES the task types it summed, read from the response and not hardcoded", () => {
     /*
      * The operator reconciles this against "By task type" beside it, so the names must be the
-     * ones that table renders — `taskTypeLabel`'s de-snaked form, from the server's own list.
+     * ones that table renders — `taskTypeLabel`'s, from the server's own list.
      * A hardcoded three would go stale the day the API classifies voice spend as profiling,
      * and would go stale SILENTLY: the sentence would still read perfectly.
      */
     const v = view();
-    expect(v.scopeSentence).toContain("profiling chat turn");
-    expect(v.scopeSentence).toContain("profile extraction");
-    expect(v.scopeSentence).toContain("profile parse");
+    expect(v.scopeSentence).toContain("Profiling chat turn");
+    expect(v.scopeSentence).toContain("Profile extraction");
+    expect(v.scopeSentence).toContain("Profile parse");
     expect(v.scopeSentence.toLowerCase()).toContain("excluded");
 
     const withVoice = view({
       per_profile: { ...PER_PROFILE, profiling_task_types: ["stt_transcription"] },
       by_task_type: [{ task_type: "stt_transcription" }],
     });
-    expect(withVoice.scopeSentence).toContain("stt transcription");
-    expect(withVoice.scopeSentence).not.toContain("profile extraction");
+    expect(withVoice.scopeSentence).toContain("Speech-to-text");
+    expect(withVoice.scopeSentence).not.toContain("Profile extraction");
   });
 
   it("names as ROWS only the task types that are actually IN the table below", () => {
@@ -205,11 +207,11 @@ describe("describeCostPerProfile — a ratio whose shape hides both of its claim
      */
     const v = view({ by_task_type: [{ task_type: "profiling_chat_turn" }] });
     expect(v.scopeSentence).toContain(
-      "exactly these rows of By task type below: profiling chat turn.",
+      "exactly these rows of By task type below: Profiling chat turn.",
     );
     // The other two are reported as having recorded nothing — not silently dropped, and not
     // claimed as rows.
-    expect(v.scopeSentence).toContain("profile extraction, profile parse");
+    expect(v.scopeSentence).toContain("Profile extraction, Profile parse");
     expect(v.scopeSentence).toContain("also count as profiling spend but have recorded no call");
 
     // …and it AGREES WITH ITSELF about number. One absent type is "counts"/"has", not
@@ -217,7 +219,7 @@ describe("describeCostPerProfile — a ratio whose shape hides both of its claim
     const one = view({
       by_task_type: [{ task_type: "profiling_chat_turn" }, { task_type: "profile_extraction" }],
     });
-    expect(one.scopeSentence).toContain("profile parse also counts as profiling spend but has");
+    expect(one.scopeSentence).toContain("Profile parse also counts as profiling spend but has");
     expect(one.scopeSentence).not.toContain("also count as");
   });
 
@@ -455,8 +457,40 @@ describe("provider labels — an OPEN set, with `unknown` kept visible", () => {
     expect(providerNote("google")).toBeNull();
   });
 
-  it("de-snakes a task type without mapping it", () => {
-    expect(taskTypeLabel("stt_transcription")).toBe("stt transcription");
+  it("names a known task type the way the console says it — never the raw enum", () => {
+    // The H1 of an AI call read "profiling chat turn" / "stt transcription" (sweep AW-19).
+    expect(taskTypeLabel("profiling_chat_turn")).toBe("Profiling chat turn");
+    expect(taskTypeLabel("stt_transcription")).toBe("Speech-to-text");
+    expect(taskTypeLabel("tts_synthesis")).toBe("Text-to-speech");
+    // One spelling, "Resume"; and the entity noun is "Posting", whatever the id says.
+    expect(taskTypeLabel("resume_generation")).toBe("Resume generation");
+    expect(taskTypeLabel("job_posting_chat_turn")).toBe("Posting chat turn");
+  });
+
+  it("shows a task type this build was never taught as its RAW id, verbatim", () => {
+    // The set is open (`task_type` is `text`), so a new one arrives before this map knows it.
+    // Its raw id is what the filter and the server's logs call it — not a guessed name.
+    expect(taskTypeLabel("some_new_task")).toBe("some_new_task");
+    // An inherited Object key is not a label.
+    expect(taskTypeLabel("constructor")).toBe("constructor");
+    expect(taskTypeLabel("toString")).toBe("toString");
+  });
+
+  it("has a label for every task type the AI-calls filter offers", () => {
+    // The dropdown's options are the console's labels; one missing would show a raw id there.
+    for (const t of AI_TRACE_TASK_TYPES) {
+      expect(Object.hasOwn(TASK_TYPE_LABELS, t), t).toBe(true);
+      expect(taskTypeLabel(t), t).not.toContain("_");
+    }
+  });
+
+  it("names each task type once, sentence case, without a retired word", () => {
+    const labels = Object.values(TASK_TYPE_LABELS);
+    expect(new Set(labels).size).toBe(labels.length);
+    for (const label of labels) {
+      expect(label[0], label).toBe(label[0]!.toUpperCase());
+      expect(label, label).not.toMatch(/\bjob\b|résumé/i);
+    }
   });
 });
 

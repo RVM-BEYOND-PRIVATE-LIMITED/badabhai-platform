@@ -108,7 +108,7 @@ export function LoginForm() {
         >
           {step === "email" && "Admin sign-in"}
           {step === "code" && "Check your email"}
-          {step === "mfa" && (enrollment ? "Set up your authenticator" : "Two-factor code")}
+          {step === "mfa" && (enrollment ? "Set up your authenticator" : "MFA code")}
         </h1>
         <p className="auth-card__sub">
           {step === "email" && "Internal operations console. Authorised administrators only."}

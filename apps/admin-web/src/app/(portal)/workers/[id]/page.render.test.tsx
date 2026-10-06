@@ -24,6 +24,8 @@ const stub = vi.hoisted(() => {
     worker: null as Record<string, unknown> | null,
     /** The props the page handed the (stubbed) client header on the last render. */
     headerProps: null as null | { timelineHref: string | null; journeyHref: string | null },
+    /** Set to make the posting-decisions read fail. */
+    appsFailure: null as unknown,
   };
 });
 
@@ -41,7 +43,10 @@ vi.mock("../../../../lib/admin-http", () => ({
 
 vi.mock("../../../../lib/entities", () => ({
   getWorker: async () => stub.worker,
-  listApplications: async () => ({ items: [], nextCursor: null }),
+  listApplications: async () => {
+    if (stub.appsFailure) throw stub.appsFailure;
+    return { items: [], nextCursor: null };
+  },
 }));
 
 // The header is a Client Component using `useRouter`, which needs an app-router context this
@@ -83,6 +88,7 @@ const FACELESS = {
 beforeEach(() => {
   stub.capabilities = ["read_entities", "read_identity"];
   stub.worker = { ...FACELESS, full_name: "Ramesh Kumar" };
+  stub.appsFailure = null;
 });
 
 const render = async () =>
@@ -244,5 +250,32 @@ describe("the event-timeline link follows read_events (an affordance; the route 
     expect(stub.headerProps?.timelineHref).toBeNull();
     // The journey is a different capability and stays.
     expect(stub.headerProps?.journeyHref).toBe(`/workers/${WORKER_ID}/journey`);
+  });
+});
+
+/**
+ * A worker's apply or skip on a Posting is a POSTING decision — "Job" is a retired noun (owner
+ * ruling 2026-10-01; sweep AW-13). And the decisions table's failure offers a Retry, like the
+ * same state on the posting and customer pages (AW-15): it was prose alone.
+ */
+describe("the posting decisions", () => {
+  it("are named posting decisions — the counter, the table and its empty state", async () => {
+    const out = await render();
+    expect(out).toContain("Posting decisions");
+    expect(out).toContain("Recent posting decisions");
+    expect(out).toContain("No posting decisions yet");
+    expect(out).not.toMatch(/job decisions?/i);
+  });
+
+  it("a failed read says the table is missing, and offers a Retry of this page", async () => {
+    stub.appsFailure = new TypeError("fetch failed");
+    const out = await render();
+    expect(out).toContain("Posting decisions could not be loaded");
+    expect(out).toMatch(
+      /href="\/workers\/5eeded00-0001-4a00-8000-000000000001">(<i [^>]*><\/i>)?Retry<\/a>/,
+    );
+    // One instruction per failure: a Retry button, so the copy no longer also says "reload".
+    expect(out).not.toMatch(/reload/i);
+    expect(out).not.toMatch(/job decisions?/i);
   });
 });

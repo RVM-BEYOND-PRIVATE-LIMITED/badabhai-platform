@@ -580,3 +580,22 @@ describe("409 conflict — DecisionOutcomeNotice renders the code's meaning and 
     expect(out).not.toContain("Action failed");
   });
 });
+
+/**
+ * The header's description is one sentence saying what the page IS (header rule 2) — it was the
+ * two-word classification label, which the Skill candidate panel lists again (sweep AW-20).
+ */
+describe("the header description", () => {
+  it("is a sentence about the page, with the candidate's own timestamp folded in", async () => {
+    const out = await render();
+    const sub = /<p class="page__sub">(.*?)<\/p>/.exec(out)?.[1] ?? "";
+    expect(sub).toContain("One discovery claim — its evidence, matches and decision — recorded");
+    expect(sub).toContain("(2026-08-26 09:00:00Z).");
+    expect(sub).not.toContain(BASE.phrase_class_label);
+  });
+
+  it("leaves the classification to the panel row that already shows it", async () => {
+    const out = await render();
+    expect(out.split(BASE.phrase_class_label).length - 1).toBe(1);
+  });
+});
