@@ -514,3 +514,34 @@ describe("a NARROW phone dock stacks its summary over its button", () => {
     expect(px("17rem")).toBeLessThan(309);
   });
 });
+
+/**
+ * F03 (final sweep) — a company posting's DETAIL page put its head above the layout, so when the
+ * head's actions wrapped (1280 and 1366) the card started a row lower and ended at y=749 on a
+ * 720px screen. The head now leads the FIRST column and the rail spans both rows: on a laptop the
+ * card starts at the top of the page whatever the head measures.
+ */
+describe("a posting's detail page: the card rail starts at the top of the page", () => {
+  const detail = (child: string, at = "") => g(`.posting-layout--detail > ${child}`, at);
+
+  it("desktop: the head and the details share the first column; the rail spans both rows", () => {
+    expect(decl(g(".posting-layout--detail", DESKTOP), "grid-template-rows")).toBe("auto 1fr");
+    expect(decl(detail(".posting-layout__head", DESKTOP), "grid-column")).toBe("1");
+    expect(decl(detail(".posting-layout__head", DESKTOP), "grid-row")).toBe("1");
+    expect(decl(detail(".panel", DESKTOP), "grid-column")).toBe("1");
+    expect(decl(detail(".panel", DESKTOP), "grid-row")).toBe("2");
+    expect(decl(detail(".posting-preview", DESKTOP), "grid-column")).toBe("2");
+    expect(decl(detail(".posting-preview", DESKTOP), "grid-row")).toBe("1 / span 2");
+  });
+
+  it("phone: the head still comes first, then the card, then the details", () => {
+    const head = Number(decl(detail(".posting-layout__head"), "order"));
+    const card = Number(decl(g(".posting-preview"), "order"));
+    expect(head).toBeLessThan(card);
+    expect(card).toBeLessThan(0);
+  });
+
+  it("the head's last block adds no margin: the grid's row gap is the one gap under it", () => {
+    expect(decl(detail(".posting-layout__head > :last-child"), "margin-bottom")).toBe("0");
+  });
+});

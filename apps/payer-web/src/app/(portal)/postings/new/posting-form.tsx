@@ -569,7 +569,7 @@ export function PostingForm({
               value={fields.description}
               error={errorOf("description", fieldErrors.description)}
               aria-invalid={errorOf("description", fieldErrors.description) ? true : undefined}
-              hint="Workers read this when they open the job. Never include a phone number or email — share contact only after you unlock an applicant."
+              hint="Workers read this when they open the posting. Never include a phone number or email — share contact only after you unlock an applicant."
               onChange={(e) => set("description", e.target.value)}
             />
           </div>

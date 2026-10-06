@@ -609,3 +609,65 @@ describe("W3-B · scoping + tokens — the block restyles nothing outside its sc
     expect(decl(rule(".form-status"), "margin-top")).toBeNull();
   });
 });
+
+/* ================================================================== *
+ * Final sweep D — the company screens' own layout fixes (outside the W3-B block where noted)
+ * ================================================================== */
+describe("Post with AI — every resume row has ONE layout (F18)", () => {
+  // A flex row with wrap put one Continue under its meta and the next one beside it.
+  it("the meta takes the row and the Continue its own end column — on every row alike", () => {
+    const r = rule(".ai-chat-resume__item");
+    expect(decl(r, "display")).toBe("grid");
+    expect(decl(r, "grid-template-columns")).toBe("minmax(0, 1fr) auto");
+    expect(decl(r, "flex-wrap")).toBeNull();
+  });
+
+  it("a phone stacks every row the same way: the button under its meta", () => {
+    const r = rule(".ai-chat-resume__item", PHONE);
+    expect(decl(r, "grid-template-columns")).toBe("minmax(0, 1fr)");
+    expect(decl(r, "justify-items")).toBe("start");
+  });
+});
+
+describe("W3-B · /team — on a phone each member is a card, its Remove on screen (F38)", () => {
+  // At 375px the Manage column sat at x≈471 inside a sideways-scrolling table: the destructive
+  // row action was off screen until the table was scrolled.
+  const flat = (v: string | null) => (v ?? "").replace(/\s+/g, " ").trim();
+
+  it("the table and its body leave table layout; each row is a two-line card grid", () => {
+    expect(decl(rule(".team-page .table, .team-page .table tbody", PHONE), "display")).toBe(
+      "block",
+    );
+    const row = rule(".team-page .table tr", PHONE);
+    expect(decl(row, "display")).toBe("grid");
+    expect(flat(decl(row, "grid-template-areas"))).toBe(
+      '"member member manage" "role status manage"',
+    );
+    // Each row is its own grid: the flexible middle track keeps every Remove at its card's end.
+    expect(decl(row, "grid-template-columns")).toBe("auto minmax(0, 1fr) auto");
+  });
+
+  it("each cell takes its area; the Manage cell spans the card's end, beside both lines", () => {
+    expect(decl(rule(".team-page .table td:nth-child(1)", PHONE), "grid-area")).toBe("member");
+    expect(decl(rule(".team-page .table td:nth-child(2)", PHONE), "grid-area")).toBe("role");
+    expect(decl(rule(".team-page .table td:nth-child(3)", PHONE), "grid-area")).toBe("status");
+    expect(decl(rule(".team-page .table td.rowactions", PHONE), "grid-area")).toBe("manage");
+  });
+
+  it("Remove is always drawn on a phone card (never hover-to-reveal)", () => {
+    expect(decl(rule(".team-page .table .rowactions > *", PHONE), "opacity")).toBe("1");
+  });
+
+  it("the column heads leave the layout but stay for assistive tech (never display: none)", () => {
+    const head = rule(".team-page .table thead", PHONE);
+    expect(decl(head, "position")).toBe("absolute");
+    expect(decl(head, "clip-path")).toBe("inset(50%)");
+    expect(decl(head, "display")).toBeNull();
+  });
+
+  it("wider than a phone, the members table is the ordinary table (no rule outside the phone query)", () => {
+    expect(RULES.filter((r) => r.selector.startsWith(".team-page .table") && r.at === "")).toEqual(
+      [],
+    );
+  });
+});

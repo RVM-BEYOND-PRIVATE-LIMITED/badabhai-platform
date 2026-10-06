@@ -5,10 +5,12 @@ import { agencyFlags } from "../../../lib/config";
 import { getAgencyKyc } from "../../../lib/payer-api";
 import { maskLast4 } from "../../../lib/masking";
 import type { AgencyKyc } from "../../../lib/contracts";
+import type { PayerSession } from "../../../lib/auth/types";
 import { Avatar, Badge, Card } from "../../../components/ds";
 import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
 import { AccountForm } from "./account-form";
+import { EMAIL_SUPPORT_HELPER } from "./messages";
 
 export const dynamic = "force-dynamic";
 
@@ -16,11 +18,15 @@ export const dynamic = "force-dynamic";
  * Account (PROF-2 read shell + PROF-4 edit) — the payer's OWN account.
  *
  * Reads the SERVER-HELD session ({@link requirePayer}, which already resolves GET /payer/me
- * server-side and redirects to /login if there is no session). Renders an identity header
- * (org display label + avatar), then the {@link AccountForm} which EDITS org name + contact
- * phone (email is read-only login identity; role/status are read-only display). All the
- * payer's OWN data, shown back to them only — NEVER worker PII; nothing here is logged or
- * eventized (invariant #2).
+ * server-side and redirects to /login if there is no session). Renders the {@link AccountForm}
+ * which EDITS org name + contact phone FIRST, then the read-only "Signed in as" facts (org
+ * display label + avatar, the login email, role, status). All the payer's OWN data, shown back
+ * to them only — NEVER worker PII; nothing here is logged or eventized (invariant #2).
+ *
+ * WHAT YOU CAN EDIT LEADS (F22): "Save changes", the page's one primary, sat at y=1,046 on an
+ * 800px screen (y=1,288 at 375) — a read-only identity panel led the page and the form carried a
+ * read-only block between its fields and Save. The read-only facts now follow the form, once
+ * (the login email used to be shown twice).
  *
  * If the session lacks its account fields (a verify-step session before /payer/me resolves),
  * a neutral retry state renders instead of a blank page — mirroring the dashboard's resilience.
@@ -90,23 +96,6 @@ export default async function AccountPage() {
 
       <section className="panel">
         <div className="panel__head">
-          <h2 className="panel__title">Signed in as</h2>
-          <div className="panel__actions">
-            <Avatar name={session.displayLabel} size={52} brand />
-          </div>
-        </div>
-        <div className="panel__body">
-          <dl className="kv">
-            <dt className="kv__k">Organisation</dt>
-            <dd className="kv__v">{session.displayLabel}</dd>
-            <dt className="kv__k">Account email</dt>
-            <dd className="kv__v bb-mono">{session.email}</dd>
-          </dl>
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="panel__head">
           <div className="panel__text">
             <h2 className="panel__title">Your details</h2>
             <p className="panel__sub">
@@ -115,13 +104,39 @@ export default async function AccountPage() {
           </div>
         </div>
         <div className="panel__body">
-          <AccountForm
-            orgName={session.displayLabel}
-            email={session.email}
-            phoneLast4={session.phoneLast4 ?? null}
-            role={session.role}
-            status={session.status}
-          />
+          <AccountForm orgName={session.displayLabel} phoneLast4={session.phoneLast4 ?? null} />
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel__head">
+          <h2 className="panel__title">Signed in as</h2>
+          <div className="panel__actions">
+            <Avatar name={session.displayLabel} size={52} brand />
+          </div>
+        </div>
+        <div className="panel__body">
+          {/* Read-only display only. Role/status are shown back to the payer; they are NEVER an
+              authorization decision (the server gates every write). */}
+          <dl className="kv">
+            <dt className="kv__k">Organisation</dt>
+            <dd className="kv__v">{session.displayLabel}</dd>
+            <dt className="kv__k">Account email</dt>
+            <dd className="kv__v bb-mono">{session.email}</dd>
+            <dt className="kv__k">Role</dt>
+            <dd className="kv__v">
+              <Badge tone="brand" upper>
+                {ROLE_LABEL[session.role]}
+              </Badge>
+            </dd>
+            <dt className="kv__k">Status</dt>
+            <dd className="kv__v">
+              <Badge tone={STATUS_TONE[session.status]} upper>
+                {STATUS_LABEL[session.status]}
+              </Badge>
+            </dd>
+          </dl>
+          <p className="form__hint">{EMAIL_SUPPORT_HELPER}</p>
         </div>
       </section>
 
@@ -131,6 +146,21 @@ export default async function AccountPage() {
 }
 
 const ACCOUNT_DESCRIPTION = "Your organisation’s details on BadaBhai.";
+
+type Role = PayerSession["role"];
+type Status = PayerSession["status"];
+
+const ROLE_LABEL: Record<Role, string> = { employer: "Company", agent: "Agency" };
+const STATUS_TONE: Record<Status, "success" | "warning" | "danger"> = {
+  active: "success",
+  pending: "warning",
+  suspended: "danger",
+};
+const STATUS_LABEL: Record<Status, string> = {
+  active: "Active",
+  pending: "Pending",
+  suspended: "Suspended",
+};
 
 /**
  * Per-status presentation for the KYC/PAN row: the alert tone modifier + the status Badge

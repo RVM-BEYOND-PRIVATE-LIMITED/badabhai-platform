@@ -24,6 +24,9 @@ vi.mock("../../../lib/org-members", () => ({
   acceptOrgInvite: (i: unknown) => acceptOrgInvite(i),
 }));
 
+const revalidatePath = vi.fn();
+vi.mock("next/cache", () => ({ revalidatePath: (p: string) => revalidatePath(p) }));
+
 const { inviteMemberAction, removeMemberAction, acceptInviteAction } = await import("./actions");
 
 beforeEach(() => {
@@ -31,6 +34,7 @@ beforeEach(() => {
   requirePayer.mockReset().mockResolvedValue({ payerId: "p1", displayLabel: "Acme", role: "employer" });
   inviteOrgMember.mockReset().mockResolvedValue({ ok: true, message: "Invite sent." });
   removeOrgMember.mockReset().mockResolvedValue({ ok: true, message: "Member removed." });
+  revalidatePath.mockReset();
   acceptOrgInvite.mockReset().mockResolvedValue({ ok: true, message: "You've joined the team." });
 });
 
@@ -93,5 +97,26 @@ describe("acceptInviteAction — gates on a logged-in payer, validates the token
     const res = await acceptInviteAction({ token: "tok-raw-0123456789abcdef" });
     expect(acceptOrgInvite).toHaveBeenCalledWith({ token: "tok-raw-0123456789abcdef" });
     expect(res).toEqual({ ok: true, message: "You've joined the team." });
+  });
+});
+
+/**
+ * A successful removal never refreshed the members list (no revalidate, no router refresh), so the
+ * removed member stayed on screen until a reload. The action now revalidates /team on success.
+ */
+describe("removeMemberAction — a successful removal refreshes the Team list", () => {
+  it("revalidates /team after the seam removed the member", async () => {
+    await removeMemberAction({ memberId: "mem-1" });
+    expect(revalidatePath).toHaveBeenCalledTimes(1);
+    expect(revalidatePath).toHaveBeenCalledWith("/team");
+  });
+
+  it("revalidates nothing when the removal failed, was invalid, or was refused", async () => {
+    removeOrgMember.mockResolvedValueOnce({ ok: false, error: "Could not remove that member." });
+    await removeMemberAction({ memberId: "mem-1" });
+    await removeMemberAction({ memberId: "" });
+    requireOwner.mockRejectedValueOnce(NOT_FOUND);
+    await expect(removeMemberAction({ memberId: "mem-1" })).rejects.toBe(NOT_FOUND);
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 });

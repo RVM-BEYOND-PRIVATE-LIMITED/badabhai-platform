@@ -175,3 +175,48 @@ describe("buildAttentionItems", () => {
     expect(out[0]!.id).toBe("credits-empty");
   });
 });
+
+/**
+ * F29 (final sweep) — the dashboard now reads its three parts independently, and a part whose read
+ * FAILED is `null`. A failed read is a statement about the read, never about the account: it may
+ * raise no item (an unknown balance is not an empty wallet; unknown postings are not "all closed").
+ */
+describe("buildAttentionItems — a part that could not be read says nothing", () => {
+  const EMPTY_WALLET = { payerId: "p", balance: 0 };
+  const EXPIRED = [{ ...HEALTHY.unlocks[0]!, status: "expired" as const }];
+  const ALL_CLOSED = [{ ...HEALTHY.postings[0]!, status: "closed" as const }];
+
+  it("an unread balance raises no wallet item (never a guessed 'out of credits')", () => {
+    const out = buildAttentionItems({ ...HEALTHY, credits: null }, EMPLOYER_OWNER);
+    expect(out).toEqual([]);
+    // …while the same account with the balance read still says it.
+    expect(
+      buildAttentionItems({ ...HEALTHY, credits: EMPTY_WALLET }, EMPLOYER_OWNER).map((i) => i.id),
+    ).toEqual(["credits-empty"]);
+  });
+
+  it("unread unlocks raise no expired item; the other parts still speak", () => {
+    const out = buildAttentionItems(
+      { credits: EMPTY_WALLET, unlocks: null, postings: ALL_CLOSED },
+      EMPLOYER_OWNER,
+    );
+    expect(out.map((i) => i.id)).toEqual(["credits-empty", "no-open-postings"]);
+    expect(
+      buildAttentionItems({ ...HEALTHY, unlocks: EXPIRED }, EMPLOYER_OWNER).map((i) => i.id),
+    ).toEqual(["unlocks-expired"]);
+  });
+
+  it("unread postings raise no 'No open postings' item", () => {
+    const out = buildAttentionItems({ ...HEALTHY, postings: null }, EMPLOYER_OWNER);
+    expect(out).toEqual([]);
+    expect(
+      buildAttentionItems({ ...HEALTHY, postings: ALL_CLOSED }, EMPLOYER_OWNER).map((i) => i.id),
+    ).toEqual(["no-open-postings"]);
+  });
+
+  it("nothing read at all → nothing claimed", () => {
+    expect(
+      buildAttentionItems({ credits: null, unlocks: null, postings: null }, EMPLOYER_OWNER),
+    ).toEqual([]);
+  });
+});
