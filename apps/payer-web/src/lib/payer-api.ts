@@ -162,6 +162,9 @@ export async function getUnlocks(): Promise<UnlockHistoryItem[]> {
       status: u.status === "granted" || u.status === "revealed" ? "granted" : "expired",
       createdAt: u.created_at,
       expiresAt: u.expires_at ?? u.created_at,
+      // The current grant's time (a re-grant moves it; created_at does not): the day a Recent
+      // unlocks row prints and is ordered by.
+      grantedAt: u.granted_at,
     }));
 }
 

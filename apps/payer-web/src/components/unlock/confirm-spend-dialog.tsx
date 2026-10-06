@@ -10,6 +10,7 @@
  * beyond "1 credit" (XT5: the unlock action body is ids-only; this dialog sends nothing).
  */
 import type { ReactNode } from "react";
+import { ACTION_ICON } from "@badabhai/icons";
 import { Button, Dialog } from "../ds";
 
 export interface ConfirmSpendDialogProps {
@@ -42,7 +43,8 @@ export function ConfirmSpendDialog({
           <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant="success" onClick={onConfirm}>
+          {/* The same lock-open glyph as the row's Unlock button: one action, one icon. */}
+          <Button variant="success" iconLeft={ACTION_ICON.unlock} onClick={onConfirm}>
             Unlock · 1 credit
           </Button>
         </>

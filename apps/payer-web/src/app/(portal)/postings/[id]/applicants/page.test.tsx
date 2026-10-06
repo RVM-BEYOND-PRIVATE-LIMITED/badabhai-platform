@@ -109,8 +109,8 @@ const dash = (balance: number, postings: unknown[] = POSTINGS) => ({
   postings,
 });
 
-async function html(): Promise<string> {
-  const tree = (await ApplicantsPage({ params: Promise.resolve({ id: POSTING }) })) as ReactElement;
+async function html(id: string = POSTING): Promise<string> {
+  const tree = (await ApplicantsPage({ params: Promise.resolve({ id }) })) as ReactElement;
   return renderToStaticMarkup(tree);
 }
 
@@ -350,6 +350,87 @@ describe("applicants page — NEUTRAL not-found vs a transient error", () => {
     expect(out).toContain("We couldn’t load applicants");
     expect(out).toContain("Retry");
     expect(out).not.toContain("No posting found here");
+  });
+});
+
+describe("applicants page — a MALFORMED id is the neutral not-found, decided before any read (F31)", () => {
+  it("renders 'No posting found here' (not the retry error) and never reaches the API", async () => {
+    // The real API refuses a non-uuid path segment; the page must not turn that into "retry".
+    getApplicantFeed.mockRejectedValue(new Error("upstream 400"));
+    const out = await html("not-a-uuid");
+    expect(out).toContain("No posting found here");
+    expect(out).toContain("It may not exist, or it isn’t one of your postings.");
+    expect(out).not.toContain("couldn’t load applicants");
+    expect(out).not.toContain("Retry");
+    expect(getApplicantFeed).not.toHaveBeenCalled();
+    expect(getDashboard).not.toHaveBeenCalled();
+    // Same shape as the unknown-uuid not-found: no back link; the way out is Postings.
+    expect(out).not.toContain("page-back");
+    const state = out.slice(out.indexOf('class="state"'));
+    expect(Array.from(state.matchAll(/<a href="([^"]*)"/g), (m) => m[1])).toEqual(["/postings"]);
+    expect(out.match(/<h1 /g)).toHaveLength(1);
+  });
+
+  it("the role gate still runs FIRST: an agent with a malformed id is redirected, not shown a 404", async () => {
+    requirePayer.mockResolvedValueOnce({ role: "agent" });
+    await expect(html("not-a-uuid")).rejects.toThrow("NEXT_REDIRECT /postings/not-a-uuid");
+    expect(getApplicantFeed).not.toHaveBeenCalled();
+  });
+});
+
+describe("applicants page — rows the payer already unlocked start unlocked (F10)", () => {
+  const FUTURE = new Date(Date.now() + 7 * 864e5).toISOString();
+  const PAST = new Date(Date.now() - 7 * 864e5).toISOString();
+  const unlock = (workerId: string, over: Record<string, unknown> = {}) => ({
+    unlockId: `${workerId.slice(0, 8)}-1111-4111-8111-111111111111`,
+    workerId,
+    status: "granted",
+    createdAt: "2026-09-01T00:00:00.000Z",
+    expiresAt: FUTURE,
+    jobId: null,
+    ...over,
+  });
+  /** The props the page hands the client pipeline (they ride the RSC payload). */
+  async function feedProps(): Promise<Record<string, unknown>> {
+    const tree = (await ApplicantsPage({ params: Promise.resolve({ id: POSTING }) })) as ReactElement<{
+      children: ReactElement<Record<string, unknown>>;
+    }>;
+    return tree.props.children.props;
+  }
+
+  it("a live grant (job context null, as a company unlock is stored) starts that row unlocked", async () => {
+    getDashboard.mockResolvedValueOnce({ ...dash(5), unlocks: [unlock(A.workerId)] });
+    const out = await html();
+    // A: the granted band, no spend offered. B: the spend, as before.
+    expect(unlockButtonTags(out)).toHaveLength(1);
+    expect(out).toContain("Open routed contact");
+    expect(textOf(out)).toContain(FUTURE.slice(0, 10));
+  });
+
+  it("hands the client ONLY live grants for workers on THIS feed — nothing else from the history", async () => {
+    const OFF_FEED = "c3d4e5f6-0000-4000-8000-000000000003";
+    getDashboard.mockResolvedValueOnce({
+      ...dash(5),
+      unlocks: [
+        unlock(A.workerId),
+        unlock(B.workerId, { expiresAt: PAST }), // lapsed: the stored status still reads granted
+        unlock(OFF_FEED),
+        unlock("d4e5f6a7-0000-4000-8000-000000000004", { status: "expired" }),
+      ],
+    });
+    const props = await feedProps();
+    expect(props.unlocked).toEqual({
+      [A.workerId]: { kind: "granted", unlockId: unlock(A.workerId).unlockId, expiresAt: FUTURE },
+    });
+  });
+
+  it("a lapsed grant offers the spend again; a failed history read starts every row locked", async () => {
+    getDashboard.mockResolvedValueOnce({ ...dash(5), unlocks: [unlock(A.workerId, { expiresAt: PAST })] });
+    expect(unlockButtonTags(await html())).toHaveLength(FEED.applicants.length);
+    getDashboard.mockRejectedValueOnce(new Error("dashboard 503"));
+    const failed = await html();
+    expect(unlockButtonTags(failed)).toHaveLength(FEED.applicants.length);
+    expect(failed).not.toContain("Open routed contact");
   });
 });
 
