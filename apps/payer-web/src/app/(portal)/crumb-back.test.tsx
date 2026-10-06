@@ -254,6 +254,7 @@ const PAGE = {
   agencyJobs: (await import("./agency/jobs/page")) as PageModule,
   agencyJobsNew: (await import("./agency/jobs/new/page")) as PageModule,
   agencyJob: (await import("./agency/jobs/[jobId]/page")) as PageModule,
+  agencyJobApplicants: (await import("./agency/jobs/[jobId]/applicants/page")) as PageModule,
   agencyWorkers: (await import("./agency/workers/page")) as PageModule,
   agencyReferrals: (await import("./agency/referrals/page")) as PageModule,
   agencyQr: (await import("./agency/qr/page")) as PageModule,
@@ -281,6 +282,7 @@ const ROUTES: Route[] = [
   { persona: "agency", path: "/agency/jobs", file: "agency/jobs/page.tsx", mod: PAGE.agencyJobs },
   { persona: "agency", path: "/agency/jobs/new", file: "agency/jobs/new/page.tsx", mod: PAGE.agencyJobsNew },
   { persona: "agency", path: `/agency/jobs/${JOB}`, file: "agency/jobs/[jobId]/page.tsx", mod: PAGE.agencyJob, props: params({ jobId: JOB }) },
+  { persona: "agency", path: `/agency/jobs/${JOB}/applicants`, file: "agency/jobs/[jobId]/applicants/page.tsx", mod: PAGE.agencyJobApplicants, props: params({ jobId: JOB }) },
   { persona: "agency", path: "/agency/workers", file: "agency/workers/page.tsx", mod: PAGE.agencyWorkers },
   { persona: "agency", path: "/agency/referrals", file: "agency/referrals/page.tsx", mod: PAGE.agencyReferrals },
   { persona: "agency", path: "/agency/qr", file: "agency/qr/page.tsx", mod: PAGE.agencyQr },
@@ -357,6 +359,7 @@ describe("the shell's trail and the page's back link never open the same page (e
       [
         `agency /agency/bulk-upload`,
         `agency /agency/jobs/${JOB}`,
+        `agency /agency/jobs/${JOB}/applicants`,
         `agency /postings/${POSTING}`,
         `company /postings/${POSTING}`,
         `company /postings/${POSTING}/applicants`,
@@ -369,6 +372,7 @@ describe("the shell's trail and the page's back link never open the same page (e
     expect(both.map((r) => [r.route.path, r.crumbLinks, r.back])).toEqual([
       [`/postings/${POSTING}/edit`, ["/postings"], `/postings/${POSTING}`],
       [`/postings/${POSTING}/applicants`, ["/postings"], `/postings/${POSTING}`],
+      [`/agency/jobs/${JOB}/applicants`, ["/agency/jobs"], `/agency/jobs/${JOB}`],
     ]);
     expect(withCrumbLink.length).toBeGreaterThanOrEqual(both.length);
   });

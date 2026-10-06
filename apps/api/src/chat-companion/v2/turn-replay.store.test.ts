@@ -5,11 +5,16 @@ import type { Queue } from "bullmq";
 import { REDIS_TIMEOUT_MS } from "../../queue/redis-deadline";
 import { V2_FALTU_REDIRECT } from "../companion-replies";
 import { v2CopyTurn } from "./companion-v2-compose";
-import { CompanionTurnReplayStore, TURN_REPLAY_TTL_SECONDS } from "./turn-replay.store";
+import {
+  CompanionTurnReplayStore,
+  TURN_INFLIGHT_TTL_SECONDS,
+  TURN_REPLAY_TTL_SECONDS,
+} from "./turn-replay.store";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SID = "22222222-2222-4222-8222-222222222222";
 const KEY = `companion:v2:turn:${WORKER}:${SID}`;
+const CLAIM_KEY = `companion:v2:inflight:${WORKER}:${SID}`;
 const TURN = v2CopyTurn(V2_FALTU_REDIRECT);
 
 function setup(redis: Partial<Record<string, unknown>> = {}) {
@@ -74,5 +79,37 @@ describe("CompanionTurnReplayStore (contracts §7) — a retried submission is a
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+/**
+ * TD150/WP8 — THE IN-FLIGHT CLAIM. A duplicate that arrives while the first request still runs
+ * must not run the pipeline a second time.
+ */
+describe("CompanionTurnReplayStore.claim — one request at a time per submission", () => {
+  it("claims with SET NX and the in-flight TTL, and a second claim is `held`", async () => {
+    const set = vi
+      .fn()
+      .mockResolvedValueOnce("OK")
+      .mockResolvedValueOnce(null);
+    const h = setup({ set });
+    expect(await h.store.claim(WORKER, SID)).toBe("claimed");
+    expect(await h.store.claim(WORKER, SID)).toBe("held");
+    expect(set).toHaveBeenNthCalledWith(1, CLAIM_KEY, "1", "EX", TURN_INFLIGHT_TTL_SECONDS, "NX");
+    expect(set).toHaveBeenNthCalledWith(2, CLAIM_KEY, "1", "EX", TURN_INFLIGHT_TTL_SECONDS, "NX");
+  });
+
+  it("releasing deletes the claim key; a released id can be claimed again", async () => {
+    const del = vi.fn(async () => 1);
+    const h = setup({ del });
+    await h.store.release(WORKER, SID);
+    expect(del).toHaveBeenCalledWith(CLAIM_KEY);
+  });
+
+  it("FAILS OPEN: a refusing Redis is `unavailable`, a throwing release resolves", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    expect(await setup({ set: boom() }).store.claim(WORKER, SID)).toBe("unavailable");
+    await expect(setup({ del: boom() }).store.release(WORKER, SID)).resolves.toBeUndefined();
+    warn.mockRestore();
   });
 });

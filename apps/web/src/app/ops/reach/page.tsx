@@ -13,13 +13,18 @@ import { StatusBadge } from "@/components/status-badge";
 export const dynamic = "force-dynamic";
 
 /**
- * Reach — View A: payer applicant list (ADR-0011).
+ * Reach — View A: SUGGESTED WORKERS (ranked pool) (ADR-0011).
  *
  * Landing page for the Reach section. Takes a `jobId` (via the GET form below or a
- * `?jobId=` query param) and renders the ranked, FACELESS applicant pool for that job:
- * opaque `workerId`, `rank`, `score`, a HOT badge when `hot`, a PUSH badge when
+ * `?jobId=` query param) and renders the ranked, FACELESS eligible-worker pool for that
+ * job: opaque `workerId`, `rank`, `score`, a HOT badge when `hot`, a PUSH badge when
  * `pushEligible`, and the explainable `components[]` "why". No contact/name/employer —
  * the API does not return any and this view never fetches or invents it.
+ *
+ * SUGGESTED WORKERS, NOT APPLICANTS (#1962): `GET /reach/jobs/:jobId/applicants` is the
+ * deterministic RANK core's ranked POOL, and most of those workers never applied. The
+ * copy says "workers in pool"; the job's REAL applicants are the separate
+ * `GET /jobs/:jobId/applicants` read, linked per row and on the job page.
  *
  * SORT-NEVER-BLOCK: every worker in the pool appears (`applicants.length === pool
  * length`); a low score means low rank, never exclusion.
@@ -60,22 +65,23 @@ export default async function ReachApplicantsPage({
 
   return (
     <>
-      <h1 className="page-title">Reach · Applicant list (View A)</h1>
+      <h1 className="page-title">Reach · Suggested workers (ranked pool)</h1>
       <p className="page-sub">
-        The ranked applicant pool for one job — faceless rows over the deterministic RANK core.
+        The ranked pool of eligible workers for one job — faceless rows over the deterministic
+        RANK core. These are SUGGESTED workers, not the people who applied.
       </p>
 
       <h2 className="page-sub">Pick a job posting</h2>
       <p className="note">
-        Pick an ops-created posting to open its ranked, faceless applicant pool. Org/role/location
-        text below is ops-entered (internal register) — the faceless rule applies to the applicant
+        Pick an ops-created posting to open its ranked, faceless worker pool. Org/role/location
+        text below is ops-entered (internal register) — the faceless rule applies to the worker
         feed, not to this picker.
       </p>
       <p className="note">
-        Heads-up: ranked applicants only appear once a posting is wired into Reach. That binding is
-        still pending, so a real posting may currently return an{" "}
-        <span className="badge">Unknown job</span> on its applicant page — that&apos;s expected, not
-        an outage.
+        Heads-up: the ranked worker pool only appears once a posting is wired into Reach. That
+        binding is still pending, so a real posting may currently return an{" "}
+        <span className="badge">Unknown job</span> on its pool page — that&apos;s expected, not an
+        outage.
       </p>
 
       {postingsError ? (
@@ -96,6 +102,7 @@ export default async function ReachApplicantsPage({
               <th>Location</th>
               <th>Vacancy band</th>
               <th>Status</th>
+              <th>Suggested workers</th>
               <th>Applicants</th>
             </tr>
           </thead>
@@ -110,7 +117,11 @@ export default async function ReachApplicantsPage({
                   <StatusBadge status={p.status} />
                 </td>
                 <td>
-                  <Link href={`/ops/reach/jobs/${p.id}/applicants`}>View applicants →</Link>
+                  <Link href={`/ops/reach/jobs/${p.id}/applicants`}>View pool →</Link>
+                </td>
+                <td>
+                  {/* The job's REAL applicants — a different read from the suggested pool. */}
+                  <Link href={`/ops/jobs/${p.id}/applicants`}>View applicants →</Link>
                 </td>
               </tr>
             ))}
@@ -133,11 +144,11 @@ export default async function ReachApplicantsPage({
           placeholder="jobId (UUID)"
           aria-label="Job ID"
         />
-        <button type="submit">View applicants</button>
+        <button type="submit">View suggested workers</button>
       </form>
 
       {!jobId ? (
-        <div className="empty">Enter a jobId above to see its ranked applicant pool.</div>
+        <div className="empty">Enter a jobId above to see its ranked worker pool.</div>
       ) : notFound ? (
         <p className="page-sub">
           <span className="badge">Unknown job</span> No job found for{" "}
@@ -151,8 +162,14 @@ export default async function ReachApplicantsPage({
       ) : data ? (
         <>
           <p className="page-sub">
-            Job <span className="mono">{data.jobId}</span> · {data.applicants.length} applicant
-            {data.applicants.length === 1 ? "" : "s"} (whole pool).
+            Job <span className="mono">{data.jobId}</span> ·{" "}
+            <span className="mono">{data.applicants.length}</span> worker
+            {data.applicants.length === 1 ? "" : "s"} in pool.
+          </p>
+          <p className="page-sub">
+            <Link href={`/ops/jobs/${data.jobId}/applicants`}>
+              View the job&rsquo;s real applicants →
+            </Link>
           </p>
           <p className="note">
             <strong>Sort-never-block:</strong> everyone in the pool appears here. A low score

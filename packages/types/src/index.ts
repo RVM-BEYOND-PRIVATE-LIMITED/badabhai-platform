@@ -121,6 +121,21 @@ export const COMPANION_V2_INTENT_SOURCES = [
 ] as const;
 export type CompanionV2IntentSource = (typeof COMPANION_V2_INTENT_SOURCES)[number];
 
+// THE V3 SOURCE SET (TD150, WP8): the v2 set plus `chip`. The old value conflated two routes —
+// an exact task-chip tap and the other deterministic pre-classifier routes (WP6's pending intent
+// and edit pre-check) — so a funnel read could not tell the chip from the rest. The new value is
+// additive in a NEW event version; `chat.companion_turn_served_v2` keeps its five-value set
+// untouched. `v1_deterministic` now means only the non-chip deterministic routes.
+export const COMPANION_V2_INTENT_SOURCES_V3 = [
+  "v1_deterministic",
+  "chip",
+  "lexicon",
+  "llm",
+  "guard",
+  "fallback",
+] as const;
+export type CompanionV2IntentSourceV3 = (typeof COMPANION_V2_INTENT_SOURCES_V3)[number];
+
 // WHAT THE TURN DELIVERED. `served` a normal answer; `proposed` an edit card awaiting Haan/Nahi;
 // `phase_off` the intent's phase flag is off; `clarify` unclear; `cooldown` the Phase 2 strike
 // cool-down; `refused` a Phase 3 career refusal; `fallback` the fail-closed line.

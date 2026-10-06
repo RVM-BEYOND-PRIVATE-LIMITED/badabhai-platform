@@ -16,6 +16,7 @@ function input(now: Date = NOW): HandlerInput {
     recentTurns: [],
     ctx: { correlationId: "c-1", requestId: "r-1" } as never,
     now,
+    submissionId: null,
   };
 }
 
@@ -40,7 +41,14 @@ function setup(opts: { count?: number | null; cooldown?: string | null } = {}) {
 }
 
 const strikeEvents = (events: { emit: { mock: { calls: unknown[][] } } }) =>
-  events.emit.mock.calls.map((c) => c[0] as { event_name: string; payload: Record<string, unknown> });
+  events.emit.mock.calls.map(
+    (c) =>
+      c[0] as {
+        event_name: string;
+        payload: Record<string, unknown>;
+        idempotencyKey?: string;
+      },
+  );
 
 describe("FaltuHandler (ADR-0046 P2, O11)", () => {
   it("strike 1 and 2: the redirect line with the open chips, and a counted strike event", async () => {
@@ -54,10 +62,19 @@ describe("FaltuHandler (ADR-0046 P2, O11)", () => {
       expect(turn.suggested_options.length).toBeGreaterThan(0);
 
       const [event] = strikeEvents(h.events);
-      expect(event!.event_name).toBe("chat.companion_faltu_strike");
-      expect(event!.payload).toEqual({ strike_count: count, cooldown_started: false });
+      expect(event!.event_name).toBe("chat.companion_faltu_strike_v2");
+      expect(event!.payload).toEqual({ strike_count: count, cooldown_started: false, submission_id: null });
       expect(h.faltu.startCooldown).not.toHaveBeenCalled();
     }
+  });
+
+  it("TD150/WP8: the turn's submission_id rides the strike event (and keys it)", async () => {
+    const h = setup({ count: 1 });
+    const SID = "99999999-9999-4999-8999-999999999999";
+    await h.handler.handle({ ...input(), submissionId: SID });
+    const event = strikeEvents(h.events)[0]!;
+    expect(event.payload).toEqual({ strike_count: 1, cooldown_started: false, submission_id: SID });
+    expect(event.idempotencyKey).toBe(`chat.companion_faltu_strike_v2:${WORKER}:${SID}`);
   });
 
   it("strike 3: the cool-down starts, the cool-down line carries cooldown_until, chips stay open", async () => {
@@ -68,7 +85,11 @@ describe("FaltuHandler (ADR-0046 P2, O11)", () => {
     expect(turn.cooldown_until).toBe("2026-09-29T10:30:00.000Z");
     expect(turn.suggested_options.length).toBeGreaterThan(0);
     expect(h.faltu.startCooldown).toHaveBeenCalledWith(WORKER, NOW);
-    expect(strikeEvents(h.events)[0]!.payload).toEqual({ strike_count: 3, cooldown_started: true });
+    expect(strikeEvents(h.events)[0]!.payload).toEqual({
+      strike_count: 3,
+      cooldown_started: true,
+      submission_id: null,
+    });
   });
 
   it("beyond the threshold every strike re-serves the cool-down line (the flag already exists)", async () => {
@@ -102,7 +123,11 @@ describe("FaltuHandler (ADR-0046 P2, O11)", () => {
     expect(outcome).toBe("served");
     expect(turn.reply).toBe(V2_FALTU_REDIRECT.latin);
     expect(turn.cooldown_until).toBeUndefined();
-    expect(strikeEvents(h.events)[0]!.payload).toEqual({ strike_count: 3, cooldown_started: false });
+    expect(strikeEvents(h.events)[0]!.payload).toEqual({
+      strike_count: 3,
+      cooldown_started: false,
+      submission_id: null,
+    });
   });
 
   it("a failed event emit never costs the worker the answer (and logs no text)", async () => {

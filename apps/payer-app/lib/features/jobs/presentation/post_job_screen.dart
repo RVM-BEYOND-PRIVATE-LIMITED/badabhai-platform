@@ -188,14 +188,13 @@ class _PostJobScreenState extends State<PostJobScreen> {
     final String orgName =
         locator<AppSessionCubit>().state?.account.name ?? '';
     _org = TextEditingController(text: orgName);
-    // The picker is a COMPANY-only surface. Load it lazily and fail soft: any
-    // error (route disabled, network) drops us to the free-text fallback.
-    if (!_isAgency) {
-      // ignore: discarded_futures — fire-and-forget load; state updates on done.
-      _loadMatchSkills();
-    } else {
-      _matchV1 = _MatchV1.unavailable;
-    }
+    // Both branches offer the closed-taxonomy picker now (ADR-0050: a V1 twin is
+    // served only on skills the agent picked). Load it lazily and fail soft: any
+    // error (route disabled, network) drops to `unavailable` — the COMPANY branch
+    // then reveals its free-text fallback, while the AGENCY branch simply hides
+    // the section (its skills can only ride `match_skill_ids`; #1960/#1957).
+    // ignore: discarded_futures — fire-and-forget load; state updates on done.
+    _loadMatchSkills();
   }
 
   @override
@@ -813,6 +812,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
         benefits: _benefits.isEmpty ? null : List<String>.of(_benefits),
         requirements:
             _requirements.isEmpty ? null : List<String>.of(_requirements),
+        // ADR-0050 — optional demand skills. Sent only once the picker is live
+        // and the agent picked something; the route strips it until the API field
+        // lands (#1960/#1957), so this is forward-compatible, never a 400.
+        matchSkillIds: _matchV1 == _MatchV1.available && _pickedSkillIds.isNotEmpty
+            ? _pickedSkillIds.toList(growable: false)
+            : null,
       );
       if (!mounted) return;
       showBbToast(
@@ -1312,6 +1317,34 @@ class _PostJobScreenState extends State<PostJobScreen> {
     }
   }
 
+  /// The AGENCY demand-skill area (ADR-0050). Unlike the company branch there is
+  /// NO free-text fallback: an agency job's skills only ever ride the closed
+  /// `match_skill_ids` field, so when the vocabulary is unavailable the section is
+  /// simply absent — never a free-text box whose value could not be sent.
+  List<Widget> _agencySkillsSection() {
+    switch (_matchV1) {
+      case _MatchV1.loading:
+        return <Widget>[_skillsLoading()];
+      case _MatchV1.unavailable:
+        return const <Widget>[];
+      case _MatchV1.available:
+        return <Widget>[
+          MatchSkillPicker(
+            skills: _matchSkills,
+            pickedIds: _pickedSkillIds,
+            untickedRelatedIds: _untickedRelatedIds,
+            reach: _reach,
+            reachLoading: _reachLoading,
+            reachFailed: _reachFailed,
+            onRetryReach: _loadReach,
+            maxSkills: _maxSkillsPerPosting,
+            onToggleSkill: _onToggleSkill,
+            onToggleRelated: _onToggleRelated,
+          ),
+        ];
+    }
+  }
+
   /// Placeholder shown while the demand-skill set loads.
   Widget _skillsLoading() => Container(
         padding: const EdgeInsets.all(AppSpacing.s3),
@@ -1442,6 +1475,13 @@ class _PostJobScreenState extends State<PostJobScreen> {
             ],
           ),
         ]),
+        // ADR-0050 — the closed demand-skill picker (optional for agency; the
+        // twin is served on picked skills). Hidden entirely when the match
+        // vocabulary is off, never a free-text fallback.
+        if (_matchV1 != _MatchV1.unavailable) ...<Widget>[
+          const SizedBox(height: AppSpacing.s4),
+          _sectionCard('Skills & matching', _agencySkillsSection()),
+        ],
         const SizedBox(height: AppSpacing.s4),
         _sectionCard('Pay, experience & timing', <Widget>[
           Row(

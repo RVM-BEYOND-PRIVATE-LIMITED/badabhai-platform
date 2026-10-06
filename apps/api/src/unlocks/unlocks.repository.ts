@@ -20,6 +20,7 @@ import {
   jobs,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import { findOwnedJobRef, type OwnedJobRef } from "../payers/owned-job-ref";
 import { OPS_LIST_CAP } from "../common/pagination";
 
 /**
@@ -143,6 +144,15 @@ export class UnlocksRepository {
       .where(eq(jobs.id, jobId))
       .limit(1);
     return rows.length > 0;
+  }
+
+  /**
+   * #1899 — `jobId` as a `jobs` or `job_postings` row the payer OWNS, or null (unknown and
+   * foreign alike). A NON-tx global-pool read like {@link legacyJobExists}, so the service
+   * calls it BEFORE the advisory-locked transaction (same deadlock rule).
+   */
+  async findOwnedJobRef(jobId: string, payerId: string): Promise<OwnedJobRef | null> {
+    return findOwnedJobRef(this.db, jobId, payerId);
   }
 
   /** The existing unlock for (payer, worker), or undefined. Tx-scoped read. */

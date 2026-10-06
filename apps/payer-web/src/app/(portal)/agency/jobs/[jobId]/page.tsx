@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { z } from "zod";
+import { ACTION_ICON } from "@badabhai/icons";
 import { getAgencyJob } from "../../../../../lib/payer-api";
 import { requireAgent } from "../../../../../lib/auth/roles";
 import { agencyFlags } from "../../../../../lib/config";
@@ -59,6 +60,15 @@ export default async function AgencyJobDetailPage({
             {job.status}
           </Badge>
         }
+        // The REAL applicants for this agency job (#1956) — the feed serves the workers who
+        // applied since #1955. Secondary: the posting itself is this page's subject.
+        secondaryActions={[
+          {
+            href: `/agency/jobs/${jobId}/applicants`,
+            label: "Applicants",
+            icon: ACTION_ICON.users,
+          },
+        ]}
       />
 
       <div className="posting-layout">

@@ -178,17 +178,20 @@ const hrefsOf = (tree: ReactNode) =>
 const classOf = (e: ReactElement) => String((e.props as { className?: unknown }).className ?? "");
 
 describe("AgencyJobsManager — aligned with the company list (2026-10-01)", () => {
-  it("the TITLE opens the posting's details — the row's one link (no separate 'Details')", () => {
+  it("the TITLE opens the posting's details, and the row also links its REAL applicants (#1956)", () => {
     const tree = render([JOB]);
     const title = elementsOf(tree).find((e) => classOf(e).split(/\s+/).includes("agency-job__title"))!;
     expect((title.props as { href?: string }).href).toBe(`/agency/jobs/${JOB.id}`);
-    expect(hrefsOf(tree)).toEqual([`/agency/jobs/${JOB.id}`]);
+    expect(hrefsOf(tree)).toContain(`/agency/jobs/${JOB.id}/applicants`);
     expect(collect(tree).text.join(" ")).not.toMatch(/\bDetails\b/);
   });
 
-  it("never links an agency posting's applicants (no page for them until backend #1898)", () => {
+  it("links each agency posting's REAL applicants (#1956 — the feed serves them since #1955)", () => {
     const tree = render([JOB, { ...JOB, id: "00000001-0000-4000-8000-000000000002" }]);
-    expect(hrefsOf(tree).filter((h) => h.includes("applicants"))).toEqual([]);
+    expect(hrefsOf(tree).filter((h) => h.includes("applicants"))).toEqual([
+      `/agency/jobs/${JOB.id}/applicants`,
+      "/agency/jobs/00000001-0000-4000-8000-000000000002/applicants",
+    ]);
   });
 
   it("the empty list is the shared state block — titled, explained, and with no button", () => {
