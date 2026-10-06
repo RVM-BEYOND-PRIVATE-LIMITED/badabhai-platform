@@ -2705,7 +2705,7 @@ textarea.input {
   gap: var(--space-4);
 }
 
-/* "Also in your posting — not on the worker's card": a divided list, not another card. */
+/* "Also in your posting — not written on the worker's card": a divided list, not another card. */
 .posting-facts {
   display: grid;
   gap: var(--space-2);
