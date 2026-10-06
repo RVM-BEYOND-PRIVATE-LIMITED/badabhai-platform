@@ -148,16 +148,24 @@ const INVISIBLE_RE = /\u200b|\u200c|\u200d|\u2060|\ufeff/g;
 // at 800, 1.96 s at 1,600 (2026-10-03). Each quantifier is now folded into the optional token it
 // follows, the far side's exact text: the same spans on every input, and 0.1 ms on a run of
 // 20,000. Both are exported for `resume-parse-gates.linear.test.ts`, which compares them span for
-// span with main's text; `containsHardIdentifier` stays the only production reader.
+// span with the connector written main's unfolded way; `containsHardIdentifier` stays the only
+// production reader.
+//
+// A DOT AFTER THE CUE AND A ":-" SEPARATOR ARE READ, in both patterns (issue #1950, risks-register
+// R56), and "regn" is a credential cue. "Reg.No.:- 123456", "Regn. No. MH2019CN4471" and
+// "Passport.No: K1234567" were admitted: no connector token started with "." and the separator
+// was one character. Three additive tokens, the far side's exact text: `\.?` straight after the
+// cue word, "regn", and `-?` after the separator. None is whitespace, so the rules stay linear;
+// the language only grows, so nothing that was refused is admitted.
 export const RESUME_CUED_ID_RE =
-  /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:-]\s*)?(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/i;
+  /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\.?\s*(?:(?:no\.?|number|num|id|#)\s*)?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/i;
 const EMAIL_RE =
   /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/;
 // Masked on their CUE rather than their shape — a roll or registration number has no shape
 // that an ordinary alphanumeric token does not also have. The bounded lookahead mirrors the
 // far side's 64-character ceiling, which bounds work per character rather than input size.
 export const CREDENTIAL_ID_RE =
-  /\b(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:-]\s*)?(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/i;
+  /\b(?:roll|reg|regd|regn|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b\.?(?:\s+(?:ka|ki|ke|mera|meri))?\s*(?:(?:no\.?|number|num|#)\s*)?(?:[:-]-?\s*)?(?=[A-Za-z0-9/-]{0,64}\d)[A-Za-z0-9][A-Za-z0-9/-]{5,}/i;
 
 /**
  * Which class of hard identifier appears in `text`, or null. Never throws.

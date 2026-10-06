@@ -23,6 +23,14 @@ cue lines; section 4 checks it end to end through `pseudonymize`, `contains_hard
 back and nothing else touched (`scripts/measure_cued_id_linear.py`, which also reproduces the
 full-corpus and timing numbers; section 5 keeps it measuring these rules).
 
+SINCE #1950 (R56) THE ORACLE IS CALLED UNFOLDED. #1950 added `-?` after the separator, so a
+":-" reads, and the oracle carries that token too: the connector written main's way, each
+whitespace quantifier standing alone, `\\s*(?:no\\.?|number|num|#)?\\s*(?:[:\\-]-?)?\\s*`. So these
+sections still measure the folding and nothing else. #1950's other tokens (the `\\.?` after the cue
+word, the "regn" cue) sit outside the connector, so the swap keeps them. What #1950 itself changed
+is measured against the #1933 rule text in `test_pseudonymize_cued_id_dot.py`. The mutation counts
+below were measured on #1933's text.
+
 Each section was seen to FAIL against a mutation (re-measured 2026-10-03; failures of this file's
 48). Main's connector back in all three copies: 43, including all 13 timing tests. Back in
 `_RESUME_CUED_ID_RE` only: 30 (its 3 timing tests). Back in the lexicon mirror only: 29 (the
@@ -30,7 +38,7 @@ extractor's timing test). `_RESUME_CUED_ID_RE` linear but semantically different
 after the separator or no `id` word: 27 each, and the shared hard-identifier fixture in
 `test_resume_parse` fails too. Each of those also breaks the oracle, which can no longer put
 main's text back, so sections 2-4 were also run with the rules intact and the ORACLE's connector
-changed, in the script and in `_MAIN_CONNECTORS` alike (no `\\s*` before the separator, in all
+changed, in the script and in `_UNFOLDED_CONNECTORS` alike (no `\\s*` before the separator, in all
 three: 8; no `id`: 4). The corpus, the fuzz, the end-to-end run and the known cases each fail on a
 real span difference. The two corpus tests in section 5 fail on the script before it read the
 shared, tracked-only corpus. Stdlib, git and pytest only. All inputs are fabricated.
@@ -71,11 +79,12 @@ def _load_measure_script():
 measure = _load_measure_script()
 _ZWSP = "\u200b"
 
-#: Main's connector, as it stood before #1933: the oracle's one difference from the shipped rules.
-_MAIN_CONNECTORS = {
-    "credential_id": r"\s*(?:no\.?|number|num|#)?\s*[:\-]?\s*",
-    "resume_cued_id": r"\s*(?:no\.?|number|num|id|#)?\s*[:\-]?\s*",
-    "credential_before": r"\s*(?:no\.?|number|num|#)?\s*[:-]?\s*",
+#: The connector written main's way (pre-#1933), carrying #1950's `-?`: the oracle's one
+#: difference from the shipped rules.
+_UNFOLDED_CONNECTORS = {
+    "credential_id": r"\s*(?:no\.?|number|num|#)?\s*(?:[:\-]-?)?\s*",
+    "resume_cued_id": r"\s*(?:no\.?|number|num|id|#)?\s*(?:[:\-]-?)?\s*",
+    "credential_before": r"\s*(?:no\.?|number|num|#)?\s*(?:[:-]-?)?\s*",
 }
 #: What follows the connector in each rule: the value's lookahead, or the guard's identifier tail.
 _VALUE_AFTER = {
@@ -91,15 +100,15 @@ _VALUE_AFTER = {
 @pytest.mark.parametrize("name", sorted(measure.RULES))
 def test_the_connector_folds_each_whitespace_run_into_the_token_it_follows(name):
     shipped = measure.shipped(name)
-    _module, _attribute, main_connector, linear = measure.RULES[name]
-    assert main_connector == _MAIN_CONNECTORS[name]
-    assert main_connector not in shipped.pattern
+    _module, _attribute, unfolded_connector, linear = measure.RULES[name]
+    assert unfolded_connector == _UNFOLDED_CONNECTORS[name]
+    assert unfolded_connector not in shipped.pattern
     # The linear connector, and nothing after it but the value: a trailing `\s*` would put a
     # second whitespace quantifier back beside the first.
     assert linear + _VALUE_AFTER[name] in shipped.pattern
-    # The oracle is the shipped rule with main's connector, and nothing else, put back.
-    oracle = measure.variant(name, "main")
-    assert oracle.pattern == shipped.pattern.replace(linear, main_connector) != shipped.pattern
+    # The oracle is the shipped rule with the unfolded connector, and nothing else, put back.
+    oracle = measure.variant(name, "unfolded")
+    assert oracle.pattern == shipped.pattern.replace(linear, unfolded_connector) != shipped.pattern
     assert oracle.flags == shipped.flags
 
 
@@ -241,8 +250,9 @@ def test_every_cue_is_seen_by_the_prefilter(name):
 def test_no_span_moves_over_the_repo_corpus(cue_bearing):
     """Over every cue-bearing corpus string in each of `measure.VIEWS` (as written, whitespace runs
     stretched, separators spaced): each rule's matches (whole span and every group span) equal
-    main's, and the salary guard gives main's verdict on every slice it is handed. The script runs
-    the whole corpus, upper-cased too. The floors show cued values were met."""
+    the unfolded rule's, and the salary guard gives the unfolded verdict on every slice it is
+    handed. The script runs the whole corpus, upper-cased too. The floors show cued values were
+    met."""
     seen: Counter[str] = Counter()
     moved: list[tuple[str, list[str]]] = []
     for text in cue_bearing:
@@ -267,7 +277,7 @@ def test_no_span_moves_over_the_repo_corpus(cue_bearing):
 def test_property_no_span_moves_over_fuzzed_cue_lines():
     """20,000 samples of the script's seeded generator (`measure.sample`).
 
-    Each rule's matches equal main's, and so does the salary guard on every slice it is handed.
+    Each rule's matches equal the unfolded rule's, and so does the salary guard on every slice.
     The floors show the generator reached every branch that decides a span."""
     rng = random.Random(1933)
     seen: Counter[str] = Counter()
@@ -298,16 +308,16 @@ def test_property_no_span_moves_over_fuzzed_cue_lines():
         assert seen[branch] > 600, seen
 
 
-# --- 4. end to end: the gateway, G1/G2 and the salary detector give main's results --------------
+# --- 4. end to end: the gateway, G1/G2 and the salary detector give the unfolded results -------
 
 
 @pytest.fixture
-def main_rules():
-    """Run ``fn`` with main's three patterns swapped in, nothing else touched. Sound because the
-    three connectors are the only thing #1933 changed."""
+def unfolded_rules():
+    """Run ``fn`` with the three unfolded patterns swapped in, nothing else touched. Sound
+    because the folding of the three connectors is the only thing #1933 changed."""
 
     def run(fn, *args):
-        with measure.rules("main"):
+        with measure.rules("unfolded"):
             return fn(*args)
 
     return run
@@ -319,10 +329,13 @@ def _matched_by_any_rule(text: str) -> bool:
     )
 
 
-def test_end_to_end_results_equal_mains_where_a_rule_matches(cue_bearing, main_rules):
+def test_end_to_end_results_equal_the_unfolded_rules_where_a_rule_matches(
+    cue_bearing, unfolded_rules
+):
     """Every cue-bearing corpus string, in each of `measure.VIEWS`, on which some rule matches
-    (section 2 shows main matches exactly there too): `pseudonymize`, `contains_hard_identifier`
-    and `signals.detect` each give main's result. The script runs every cue-bearing string."""
+    (section 2 shows the unfolded rules match exactly there too): `pseudonymize`,
+    `contains_hard_identifier` and `signals.detect` each give the unfolded result. The script
+    runs every cue-bearing string."""
     views = [
         view
         for text in cue_bearing
@@ -333,10 +346,10 @@ def test_end_to_end_results_equal_mains_where_a_rule_matches(cue_bearing, main_r
     seen: Counter[str] = Counter()
     for view in views:
         result = pseudonymize(view)
-        assert result == main_rules(pseudonymize, view), view[:120]
+        assert result == unfolded_rules(pseudonymize, view), view[:120]
         verdict = contains_hard_identifier(view)
-        assert verdict == main_rules(contains_hard_identifier, view), view[:120]
-        assert signals.detect(view) == main_rules(signals.detect, view), view[:120]
+        assert verdict == unfolded_rules(contains_hard_identifier, view), view[:120]
+        assert signals.detect(view) == unfolded_rules(signals.detect, view), view[:120]
         seen["[ID_n] masked"] += "[ID_" in result.text
         seen["credential_id verdict"] += verdict == "credential_id"
     assert seen["[ID_n] masked"] > 10, seen
@@ -362,12 +375,12 @@ def test_end_to_end_results_equal_mains_where_a_rule_matches(cue_bearing, main_r
         ("roll no 12345", "roll no 12345", None),  # five characters: too short for an ID
     ],
 )
-def test_the_known_cases_mask_and_refuse_as_on_main(text, masked, verdict, main_rules):
+def test_the_known_cases_mask_and_refuse_as_unfolded(text, masked, verdict, unfolded_rules):
     result = pseudonymize(text)
     assert result.text == masked
-    assert result == main_rules(pseudonymize, text)
+    assert result == unfolded_rules(pseudonymize, text)
     assert contains_hard_identifier(text) == verdict
-    assert main_rules(contains_hard_identifier, text) == verdict
+    assert unfolded_rules(contains_hard_identifier, text) == verdict
 
 
 @pytest.mark.parametrize(
@@ -379,35 +392,39 @@ def test_the_known_cases_mask_and_refuse_as_on_main(text, masked, verdict, main_
     ],
 )
 def test_the_salary_guard_still_drops_a_roll_number_and_keeps_a_wage(
-    text, current, expected, main_rules
+    text, current, expected, unfolded_rules
 ):
     sig = signals.detect(text)
     assert (sig.current_salary, sig.expected_salary) == (current, expected)
-    assert sig == main_rules(signals.detect, text)
+    assert sig == unfolded_rules(signals.detect, text)
 
 
 @pytest.mark.parametrize(
-    ("text", "pay"),
+    ("text", "masked"),
     [
-        ("Reg.No.:- 123456", 123456),
-        ("Reg.No.: MH2019CN4471", 4471),
-        ("Reg. No. MH2019CN4471", 4471),
-        ("Regn. No. MH2019CN4471", 4471),
+        ("Reg.No.:- 123456", "Reg.No.:- [ID_1]"),
+        ("Reg.No.: MH2019CN4471", "Reg.No.: [ID_1]"),
+        ("Reg. No. MH2019CN4471", "Reg. No. [ID_1]"),
+        ("Regn. No. MH2019CN4471", "Regn. No. [ID_1]"),
     ],
 )
-def test_KNOWN_RESIDUAL_a_dot_after_the_cue_is_not_read_as_a_connector(text, pay, main_rules):
-    """Tracked as risks-register R56 (open; AI + Security). No connector token starts with "."
-    and "regn" is no cue, so these common certificate spellings never reach their value, on main
-    and here alike. The gateway leaves the ID raw (no seven-digit run for the residual net) in the
-    at-rest copies and the embedding input under both AI_RAW_PII_ENABLED postures, G1/G2 admits
-    it, and the salary detector records its digits as pay. #1933 keeps main's spans exactly, so it
-    neither fixes nor widens this. Reading "." after the cue is a masking widening with its own
-    security review; when R56 lands these cases flip to masked, "credential_id" and no pay."""
-    assert pseudonymize(text).text == text == main_rules(pseudonymize, text).text
-    assert contains_hard_identifier(text) is None
-    assert main_rules(contains_hard_identifier, text) is None
-    assert signals.detect(text).current_salary == pay
-    assert main_rules(signals.detect, text).current_salary == pay
+def test_a_dot_after_the_cue_masks_and_the_unfolded_rules_agree(text, masked, unfolded_rules):
+    """Risks-register R56, fixed by #1950. These four were pinned here as `KNOWN_RESIDUAL`: no
+    connector token started with "." and "regn" was no cue, so they never reached their value, on
+    main and on #1933 alike. The ID stayed raw in the at-rest copies and the embedding input under
+    both AI_RAW_PII_ENABLED postures, G1/G2 admitted it, and the salary detector recorded its
+    digits as pay (123456, and 4471 from MH2019CN4471). #1950 reads a dot after the cue word, a
+    ":-" separator and the "regn" cue, so they mask, refuse as `credential_id` and record no pay.
+    The unfolded rules carry the same tokens and agree, so the folding moves nothing here either.
+    `test_pseudonymize_cued_id_dot.py` pins the widening itself: the shapes, the near misses and
+    the over-mask measurement."""
+    result = pseudonymize(text)
+    assert result.text == masked
+    assert result == unfolded_rules(pseudonymize, text)
+    assert contains_hard_identifier(text) == "credential_id"
+    assert unfolded_rules(contains_hard_identifier, text) == "credential_id"
+    assert signals.detect(text).current_salary is None
+    assert unfolded_rules(signals.detect, text) == signals.detect(text)
 
 
 # --- 5. the measurement script measures these rules ---------------------------------------------
@@ -415,10 +432,10 @@ def test_KNOWN_RESIDUAL_a_dot_after_the_cue_is_not_read_as_a_connector(text, pay
 
 def test_the_script_restores_the_shipped_rules():
     shipped = {name: measure.shipped(name) for name in measure.RULES}
-    with pytest.raises(RuntimeError), measure.rules("main"):
-        assert _MAIN_CONNECTORS["credential_id"] in gateway._CREDENTIAL_ID_RE.pattern
-        assert _MAIN_CONNECTORS["resume_cued_id"] in gateway._RESUME_CUED_ID_RE.pattern
-        assert _MAIN_CONNECTORS["credential_before"] in signals._CREDENTIAL_BEFORE_RE.pattern
+    with pytest.raises(RuntimeError), measure.rules("unfolded"):
+        assert _UNFOLDED_CONNECTORS["credential_id"] in gateway._CREDENTIAL_ID_RE.pattern
+        assert _UNFOLDED_CONNECTORS["resume_cued_id"] in gateway._RESUME_CUED_ID_RE.pattern
+        assert _UNFOLDED_CONNECTORS["credential_before"] in signals._CREDENTIAL_BEFORE_RE.pattern
         raise RuntimeError
     assert {name: measure.shipped(name) for name in measure.RULES} == shipped
 
