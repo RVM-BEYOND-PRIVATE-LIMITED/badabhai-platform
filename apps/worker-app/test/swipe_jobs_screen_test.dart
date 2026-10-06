@@ -301,7 +301,7 @@ void main() {
     await tester.pumpWidget(_harness(bloc));
     await tester.pumpAndSettle();
 
-    expect(find.text('Abhi naye jobs nahi hain.'), findsOneWidget);
+    expect(find.text('Aapki profile se jobs match ho rahi hain.'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, 'Dobara dekhein'), findsOneWidget);
   });
 

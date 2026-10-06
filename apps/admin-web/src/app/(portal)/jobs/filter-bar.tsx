@@ -48,7 +48,7 @@ export function JobFilterBar({
           <option value="draft">Draft</option>
           <option value="open">Open</option>
           <option value="paused">Paused</option>
-          <option value="suspended">Suspended — owner account is suspended</option>
+          <option value="suspended">Suspended — its customer is suspended</option>
           <option value="closed">Closed</option>
         </select>
       </label>
@@ -68,7 +68,7 @@ export function JobFilterBar({
       </label>
 
       <label className="field">
-        <span className="field__label">Owner account id</span>
+        <span className="field__label">Customer id</span>
         <input
           className="field__input mono"
           value={values.payerId}

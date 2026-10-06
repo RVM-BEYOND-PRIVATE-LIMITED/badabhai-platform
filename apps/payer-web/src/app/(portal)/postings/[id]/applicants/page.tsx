@@ -11,6 +11,8 @@ import { liveUnlocksFor } from "../../../../../lib/unlock-history";
 import { Card } from "../../../../../components/ds";
 import { PageHeader } from "../../../../../components/page-header";
 import { RetryButton } from "../../../../../components/retry-button";
+import { PublishedReachNotice } from "../../../../../components/published-reach-notice";
+import { PUBLISHED_REACH_PARAM, parsePublishedReach } from "../../../../../lib/published-reach";
 import { ApplicantActions } from "./applicant-actions";
 
 export const dynamic = "force-dynamic";
@@ -24,8 +26,8 @@ export const dynamic = "force-dynamic";
  *
  * COMPANY postings only. An agent is sent to the posting's details BEFORE any read: an agency's
  * older company postings are view-only (owner ruling 2026-10-01), and this feed unlocks
- * contacts. There is no agency route onto this feed either — an agency posting's applicants are
- * not reachable in the UI until the endpoint behind it serves agency jobs (backend issue #1898).
+ * contacts. An agency's OWN postings have their own feed, `/agency/jobs/<id>/applicants` (#1956),
+ * which the same endpoint serves since #1955 — this company route is never its way in.
  *
  * The page NAMES ITS POSTING (in the back link and the description) from the read it already
  * makes: the dashboard read carries the payer's postings list. No extra fetch; if that read fails
@@ -43,9 +45,17 @@ export const dynamic = "force-dynamic";
  * A malformed id is the same neutral not-found as an unknown one, decided BEFORE any read (the
  * id never reaches the API path), like the posting's detail and edit pages.
  */
-export default async function ApplicantsPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ApplicantsPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  /** `?reached=N` — set by the create form's publish (see `lib/published-reach.ts`). */
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await requirePayer();
   const { id } = await params;
+  const query = (await searchParams) ?? {};
   if (session.role === "agent") redirect(`/postings/${encodeURIComponent(id)}`);
 
   if (!z.string().uuid().safeParse(id).success) {
@@ -73,11 +83,14 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
 
   let balance: number | null = null;
   let roleTitle: string | null = null;
+  let postingStatus: string | null = null;
   let unlocks: UnlockHistoryItem[] = [];
   try {
     const dashboard = await getDashboard({ withPostings: true });
     balance = dashboard.credits.balance;
-    roleTitle = dashboard.postings.find((p) => p.id === id)?.roleTitle ?? null;
+    const posting = dashboard.postings.find((p) => p.id === id);
+    roleTitle = posting?.roleTitle ?? null;
+    postingStatus = posting?.status ?? null;
     unlocks = dashboard.unlocks;
   } catch {
     // Balance unavailable → the feed renders with Unlock enabled; never blank it.
@@ -119,6 +132,12 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
       {/* Not found: there is no posting to go back to, so no back link; the state's own link to
           Postings is the way out (the header trail is not drawn on the narrowest phones). */}
       <PageHeader {...header} back={notFound ? undefined : header.back} />
+
+      {/* A fresh publish lands HERE with no applicants yet — confirm how many it reached. Only a
+          posting known to be LIVE claims a reach: a stale link onto a since-paused one shows none. */}
+      {notFound || postingStatus !== "open" ? null : (
+        <PublishedReachNotice reached={parsePublishedReach(query[PUBLISHED_REACH_PARAM])} />
+      )}
 
       {notFound ? (
         <PostingNotFound />

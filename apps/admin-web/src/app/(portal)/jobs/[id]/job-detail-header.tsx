@@ -17,8 +17,8 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
  * The posting detail header: the shared `PageHeader` with the (capability-gated) Force-close
  * control as its primary action, then the event-timeline link.
  *
- * No "Owner account" link here: the State and reach panel's Owner account row already links the
- * owner, by its id, and the same destination twice on one screen is noise (owner brief
+ * No "Customer" link here: the State and reach panel's Customer row already links the
+ * customer, by its id, and the same destination twice on one screen is noise (owner brief
  * 2026-10-01).
  *
  * `header` is server-built and passed straight through — see `PayerDetailHeader` for why.

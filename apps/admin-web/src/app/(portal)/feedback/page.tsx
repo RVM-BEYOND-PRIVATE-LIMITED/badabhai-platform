@@ -12,7 +12,7 @@ import { formatRelative, formatTimestamp, shortId } from "../../../lib/format";
 import { StatusPill, type Tone } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
-import { RetryActions } from "../../../components/retry-actions";
+import { FirstPageAction, RetryActions } from "../../../components/retry-actions";
 import { filterChipClass } from "../../../components/filter-chip";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
@@ -120,20 +120,34 @@ export default async function FeedbackPage({
      * error, rendered inline rather than tripping the error boundary and losing the whole
      * page. Anything else is our failure, and saying "check your filters" while the API is
      * down would send an operator to fix something that is not broken.
+     *
+     * And only when the address HOLDS something to refuse — a filter or a page cursor. With
+     * neither, a 400 cannot be the operator's, so it is an outage like any other: unavailable,
+     * with Retry (the rule the five entity lists follow).
      */
-    rejected = isAdminRequestError(err) && err.status === 400;
+    rejected =
+      isAdminRequestError(err) && err.status === 400 && Boolean(category || workerId || cursor);
   }
 
   const failed = page === null;
   const filtered = Boolean(category || workerId);
-  /** Something in the URL to undo. With a bare `/feedback` there is nothing to offer. */
-  const resettable = Boolean(category || workerId || cursor);
+  /**
+   * The ONE "Clear filters" on this screen (owner brief 2026-10-01): in the results head while
+   * the list loads, and inside the refusal state when the server refused the filters — there it
+   * is the recovery, so the head does not repeat it.
+   */
+  const clearFilters = filtered ? (
+    <Link className="btn btn--ghost" href="/feedback">
+      <Icon name={ACTION_ICON.clearFilters} />
+      Clear filters
+    </Link>
+  ) : null;
 
   /**
    * One builder for every link back into this list, so a filter cannot be dropped by a
    * control that forgot it existed. That is not hypothetical: this page shipped with three
    * hand-rolled hrefs, and adding a second filter to them one at a time is exactly how the
-   * "Back to the newest" link would have quietly widened a worker-narrowed view into
+   * "Back to the first page" link would have quietly widened a worker-narrowed view into
    * everyone's messages.
    *
    * Named arguments over the CURRENT query — pass `undefined` to keep a filter, `null` to
@@ -181,12 +195,7 @@ export default async function FeedbackPage({
                 : `${page?.items.length ?? 0} message${page?.items.length === 1 ? "" : "s"} on this page.`}
             </p>
           </div>
-          {filtered && (
-            <Link className="btn btn--ghost" href="/feedback">
-              <Icon name={ACTION_ICON.clearFilters} />
-              Clear filters
-            </Link>
-          )}
+          {rejected ? null : clearFilters}
         </div>
 
         <div className="filters filters--inline">
@@ -248,15 +257,14 @@ export default async function FeedbackPage({
               cannot be hand-edited — one of them, as it stands in the address bar, is not
               something this list accepts.
             </p>
-            {/* With a filter set, the results head's "Clear filters" is the way out; only a
-                bad cursor on an unfiltered list needs its own. */}
-            {resettable && !filtered && (
-              <div className="state__actions">
-                <Link className="btn btn--ghost" href="/feedback">
-                  <Icon name="arrow-line-left" />
-                  Back to the first page
-                </Link>
-              </div>
+            {/* No Retry: the server has refused this request and would refuse it again. The API
+                refuses a page cursor only when it is longer than any it issues, so with a filter
+                set it is the FILTER that was refused — keeping it on the first page would be
+                refused again, and the way out is Clear filters. With no filter, the first page. */}
+            {filtered ? (
+              <div className="state__actions">{clearFilters}</div>
+            ) : (
+              <FirstPageAction href={listHref()} cursor={cursor} />
             )}
           </div>
         ) : failed ? (
@@ -456,18 +464,13 @@ export default async function FeedbackPage({
               This page of the list came back empty — either you have reached the end, or the rows
               behind this cursor were removed while you were reading (deleting a worker account
               removes their feedback with it). The list itself is unaffected; start again from the
-              newest submission.
+              first page, newest submission first.
             </p>
-            <div className="state__actions">
-              {/* KEEPS every active filter and drops only the cursor. Widening the query on
-                  the way back would answer a different question than the one being paged —
-                  and on a worker-narrowed view it would hand the operator everyone else's
-                  messages while the copy still said "start again from the newest". */}
-              <Link className="btn btn--ghost" href={listHref()}>
-                <Icon name="arrow-line-left" />
-                Back to the newest
-              </Link>
-            </div>
+            {/* KEEPS every active filter and drops only the cursor. Widening the query on the
+                way back would answer a different question than the one being paged — and on a
+                worker-narrowed view it would hand the operator everyone else's messages while
+                the copy still said "start again from the first page". */}
+            <FirstPageAction href={listHref()} cursor={cursor} />
           </div>
         ) : filtered ? (
           /* AN EMPTY FILTERED PAGE IS NOT ONE CLAIM BUT THREE. "No feedback carries this tag"
@@ -511,12 +514,13 @@ export default async function FeedbackPage({
               the submit path is running at all — every submission records an event, whether or not
               anyone has read the message.
             </p>
-            {/* `/events` is `read_events`; offered only to a reader who holds it. */}
+            {/* `/events` is `read_events`; offered only to a reader who holds it. Named for the
+                slice it opens — "View events" is the whole log (docs/design/NAVIGATION.md). */}
             {mayReadEvents ? (
               <div className="state__actions">
                 <Link className="btn btn--ghost" href="/events?eventName=feedback.submitted">
                   <Icon name={ACTION_ICON.timeline} />
-                  View events
+                  View submission events
                 </Link>
               </div>
             ) : null}

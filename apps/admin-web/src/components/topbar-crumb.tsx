@@ -11,9 +11,12 @@ import { NAV, type NavSection } from "./nav-model";
  * The trail holds the page's ANCESTORS only. The page names itself in its own h1, so the crumb
  * never repeats it:
  *   - a top-level page (`/workers`) shows its sidebar group: `Operations`;
- *   - a page below a section (`/workers/<id>`) adds the section, LINKED: `Operations / Workers`;
- *   - a deeper page adds each NAMED step between the section and itself
- *     (`/workers/<id>/journey/<sid>` reads `Operations / Workers / Journey`).
+ *   - a page directly below a section (`/workers/<id>`) adds the section, UNLINKED:
+ *     `Operations / Workers` — that page's back link already goes to `/workers` (its real parent
+ *     is the section list), and one target is linked once per screen;
+ *   - a deeper page adds the section, LINKED, and each NAMED step between the section and itself
+ *     (`/workers/<id>/journey/<sid>` reads `Operations / Workers / Journey`); its back link goes
+ *     to a record, not the section, so the crumb is the one link to the list.
  * A step is shown only when it is a known view of the record above it (`SEGMENT_LABELS`). Every
  * other segment is a record's id — a uuid, or any other key — and an id in a breadcrumb names
  * nothing a reader can use (on a session route it read like the worker's id). The page's back
@@ -23,8 +26,8 @@ import { NAV, type NavSection } from "./nav-model";
  * left and another on top. It reads the URL and the reader's already-filtered sections only: no
  * session and no entity data is resolved here.
  *
- * The section is LINKED only when it is in `sections` — the sidebar the server filtered by this
- * reader's capabilities. A page can sit below a section its reader cannot open (an analyst on an
+ * Otherwise the section is LINKED only when it is in `sections` — the sidebar the server filtered
+ * by this reader's capabilities. A page can sit below a section its reader cannot open (an analyst on an
  * AI call's denied screen sits under AI calls, which is `read_ai_traces`); there the section is
  * named, not linked, rather than linked to a redirect.
  *
@@ -36,7 +39,9 @@ export function TopbarCrumb({ sections }: { sections: NavSection[] }) {
   const trail = crumbTrail(pathname);
   const sectionHref = trail?.section?.href;
   const linkable =
-    sectionHref !== undefined && sections.some((s) => s.items.some((i) => i.href === sectionHref));
+    sectionHref !== undefined &&
+    !trail?.sectionIsParent &&
+    sections.some((s) => s.items.some((i) => i.href === sectionHref));
 
   return (
     <nav className="crumbs" aria-label="Breadcrumb">
@@ -86,6 +91,11 @@ export interface CrumbTrail {
   group: string;
   /** The nav section, present only when the page sits BELOW it (so it never repeats the h1). */
   section: { href: string; label: string } | null;
+  /**
+   * The page sits DIRECTLY below the section (`/workers/<id>`), so the section list is its real
+   * parent — and its back link (header rule 1, docs/design/NAVIGATION.md) already links it.
+   */
+  sectionIsParent: boolean;
   /** Named views between the section and this page; this page and every id excluded. */
   steps: string[];
 }
@@ -113,7 +123,7 @@ export function crumbTrail(pathname: string): CrumbTrail | null {
     .slice(matched.href === "/" ? 1 : matched.href.length)
     .split("/")
     .filter(Boolean);
-  if (below.length === 0) return { group, section: null, steps: [] };
+  if (below.length === 0) return { group, section: null, sectionIsParent: false, steps: [] };
 
   // The last segment is this page — its h1 names it. Of the ancestors before it, only a known
   // view is named; anything else is an id.
@@ -121,5 +131,5 @@ export function crumbTrail(pathname: string): CrumbTrail | null {
     .slice(0, -1)
     .filter((s) => Object.hasOwn(SEGMENT_LABELS, s))
     .map((s) => SEGMENT_LABELS[s]!);
-  return { group, section: matched, steps };
+  return { group, section: matched, sectionIsParent: below.length === 1, steps };
 }

@@ -374,7 +374,7 @@ void main() {
 
     testWidgets('empty', (WidgetTester tester) async {
       await expectChrome(tester, _feedScreen(jobs: <FeedItem>[]));
-      expect(find.text('Abhi naye jobs nahi hain.'), findsOneWidget);
+      expect(find.text('Aapki profile se jobs match ho rahi hain.'), findsOneWidget);
     });
 
     testWidgets('consent required', (WidgetTester tester) async {

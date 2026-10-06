@@ -354,12 +354,27 @@ function NotRecorded({ children }: { children: ReactNode }) {
 /**
  * The page frame every non-success screen shares. `back` is the list — except on the Denied
  * screen, whose reader cannot open the list (it is `read_ai_traces` too), so that screen has no
- * back link rather than one that bounces them to the dashboard.
+ * back link rather than one that bounces them to the dashboard. The back link is the ONE way to
+ * the list on these screens: a "Back to AI calls" button in the state would be a second link to
+ * the same place. `description` is the one sentence every page header carries — here, what this
+ * screen is in the case it is showing.
  */
-function Frame({ children, back = true }: { children: ReactNode; back?: boolean }) {
+function Frame({
+  children,
+  description,
+  back = true,
+}: {
+  children: ReactNode;
+  description: string;
+  back?: boolean;
+}) {
   return (
     <div className="page">
-      <PageHeader back={back ? { href: "/ai-calls", label: "AI calls" } : undefined} title="AI call" />
+      <PageHeader
+        back={back ? { href: "/ai-calls", label: "AI calls" } : undefined}
+        title="AI call"
+        description={description}
+      />
       {children}
     </div>
   );
@@ -375,7 +390,10 @@ function Frame({ children, back = true }: { children: ReactNode; back?: boolean 
  */
 function Denied() {
   return (
-    <Frame back={false}>
+    <Frame
+      back={false}
+      description="One AI call in full — a read that needs a capability your role does not hold."
+    >
       <section className="state">
         <h3 className="state__title">Your role cannot read AI calls</h3>
         <p className="state__body">
@@ -403,19 +421,13 @@ function Denied() {
 /** The id in the address bar is not the shape a call id takes. */
 function BadId() {
   return (
-    <Frame>
+    <Frame description="One AI call in full, found by the call id in the address.">
       <section className="state">
         <h3 className="state__title">That is not a call id</h3>
         <p className="state__body">
           The value in the address bar is not in the form this table uses, so nothing was looked
           up. Open a call from the list rather than editing the address.
         </p>
-        <div className="state__actions">
-          <Link className="btn btn--ghost" href="/ai-calls">
-            <Icon name={ACTION_ICON.back} />
-            Back to AI calls
-          </Link>
-        </div>
       </section>
     </Frame>
   );
@@ -431,7 +443,7 @@ function BadId() {
  */
 function Unavailable() {
   return (
-    <Frame>
+    <Frame description="One AI call in full — the server returned no text for this id.">
       <section className="state">
         <h3 className="state__title">This call&apos;s text is not available</h3>
         <p className="state__body">
@@ -442,12 +454,6 @@ function Unavailable() {
           enough to be useful would also be specific enough to probe. Nothing has failed, and the
           call&apos;s own record is still on the list.
         </p>
-        <div className="state__actions">
-          <Link className="btn btn--ghost" href="/ai-calls">
-            <Icon name={ACTION_ICON.back} />
-            Back to AI calls
-          </Link>
-        </div>
       </section>
     </Frame>
   );

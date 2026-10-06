@@ -327,9 +327,17 @@ describe("AI spend — what a finished profile costs", () => {
 
   it("names the three task types, so it reconciles against By task type beside it", () => {
     const out = html(<AiSpendPanel cost={COST} />);
-    expect(out).toContain("profiling chat turn");
-    expect(out).toContain("profile extraction");
-    expect(out).toContain("profile parse");
+    expect(out).toContain("Profiling chat turn");
+    expect(out).toContain("Profile extraction");
+    expect(out).toContain("Profile parse");
+  });
+
+  it("names the By task type rows as the AI-calls screens do — not the raw enum", () => {
+    // One task, one name across the console (sweep AW-19): the dashboard row, the AI call's H1,
+    // the list column and the Task filter all read `taskTypeLabel`.
+    const out = html(<AiSpendPanel cost={COST} />);
+    expect(out).toContain('<span class="funnel__label">Speech-to-text</span>');
+    expect(out).not.toContain("stt transcription");
   });
 
   it("does NOT claim a task type is a row below when no such row is rendered", () => {
@@ -355,7 +363,7 @@ describe("AI spend — what a finished profile costs", () => {
         }}
       />,
     );
-    expect(out).toContain("exactly these rows of By task type below: profiling chat turn.");
+    expect(out).toContain("exactly these rows of By task type below: Profiling chat turn.");
     expect(out).toContain("recorded no call");
   });
 
