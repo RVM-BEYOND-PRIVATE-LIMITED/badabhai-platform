@@ -20,9 +20,6 @@ import { compilePattern, loadLexicon, type PatternSpec } from "../internal/regex
 import { parseExperienceYears } from "./experience.js";
 import { detectSalaries } from "./salary.js";
 
-/** Explicit budget for the 20,000-sample correctness sweeps: they check spans, not speed. */
-const PROPERTY_SWEEP_TIMEOUT_MS = 60_000;
-
 interface Matcher {
   readonly shipped: string;
   readonly main: string;
@@ -190,16 +187,13 @@ describe("#1935: the experience and salary matchers read the same spans as main"
     expect(texts.filter((text) => moved(text).length > 0)).toEqual([]);
   });
 
-  it(
-    "reads 20,000 seeded phrases the same",
-    () => {
-      const rand = seeded(1935);
-      const texts = Array.from({ length: 20_000 }, () => sample(rand));
-      expect(texts.filter((text) => moved(text).length > 0)).toEqual([]);
-      // Correctness sweep, not a timing budget — see PROPERTY_SWEEP_TIMEOUT_MS.
-    },
-    PROPERTY_SWEEP_TIMEOUT_MS,
-  );
+  // A correctness sweep, not a timing test: well under 1 s alone, but over vitest's 5 s default on
+  // a shared CI runner under turbo's parallel `test --coverage` (see #2023).
+  it("reads 20,000 seeded phrases the same", { timeout: 30_000 }, () => {
+    const rand = seeded(1935);
+    const texts = Array.from({ length: 20_000 }, () => sample(rand));
+    expect(texts.filter((text) => moved(text).length > 0)).toEqual([]);
+  });
 
   it("sees a connector that does move spans", () => {
     // The harness must be able to fail: the experience connector without its trailing space.

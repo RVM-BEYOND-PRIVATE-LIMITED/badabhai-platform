@@ -11,7 +11,13 @@ export {
   type AdminCapability,
   type AdminRole,
 } from "./capabilities";
-export { currentSession, requireCapability, requireSession, type AdminSession } from "./session";
+export {
+  currentSession,
+  requireCapabilities,
+  requireCapability,
+  requireSession,
+  type AdminSession,
+} from "./session";
 export {
   ADMIN_TOKEN_COOKIE_NAME,
   clearAdminToken,

@@ -199,6 +199,12 @@ const PROFILING_TASK_TYPE_KEYS: Record<AiCostTaskType, boolean> = {
   // for the same reason: it runs on the Bada Bhai tab after the profile is confirmed and
   // builds nothing. Charging it to cost-per-profile would bill a finished worker.
   companion_career_answer: false,
+  // THE PROFILING-STAGE FREE CHAT (ADR-0051, #2027) — split, because the two calls sit on
+  // opposite sides of the ratio. The classifier gates every typed answer in résumé mode (the
+  // lock), so it is spent ON the profiling interview: `true`. The casual/career reply is free
+  // chat that builds nothing in the profile: `false`, same side as the companion's career answer.
+  profiling_free_classify: true,
+  profiling_free_reply: false,
   // ₹0.000000 today — the open classification in the header above.
   domain_match: false,
   stt_transcription: false,

@@ -82,7 +82,9 @@ export const NAV: NavSection[] = [
     ],
   },
   {
-    title: "Skills",
+    // "Matching", not "Skills" (owner ruling, #1900): the single-item Skills group is folded
+    // into Matching — the skill vocabulary reviewed here is what the match engine consumes.
+    title: "Matching",
     items: [
       // `read_entities`, mirroring the three READS on `AdminSkillDiscoveryController` — the
       // queue, the detail read and the metrics tiles all sit on the read floor. The write

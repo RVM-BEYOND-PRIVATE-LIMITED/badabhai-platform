@@ -282,3 +282,24 @@ export type {
   CompanionCareerRefuse,
   CompanionCareerOutput,
 } from "./companion";
+
+// The profiling-stage free chat (ADR-0051, #2027). Mirrored in
+// apps/ai-service/app/contracts.py and pinned by __fixtures__/free-chat.keys.json.
+export {
+  FREE_CHAT_CLASSIFY_MODES,
+  FreeChatClassifyInputSchema,
+  FreeChatClassifyOutputSchema,
+  FreeChatReplyInputSchema,
+  FreeChatAnswerSchema,
+  FreeChatRefuseSchema,
+  FreeChatReplyOutputSchema,
+} from "./free-chat";
+export type {
+  FreeChatClassifyMode,
+  FreeChatClassifyInput,
+  FreeChatClassifyOutput,
+  FreeChatReplyInput,
+  FreeChatAnswer,
+  FreeChatRefuse,
+  FreeChatReplyOutput,
+} from "./free-chat";

@@ -174,6 +174,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /CHAT_IDENTITY_INTAKE_ENABLED:\s*\$\{\{\s*secrets\.CHAT_IDENTITY_INTAKE_ENABLED\s*\}\}/,
       /envs:[^\n]*\bCHAT_IDENTITY_INTAKE_ENABLED\b/,
     ],
+    // ADR-0051 (#2027) — the free chat's KILL SWITCH. The feature is live on merge; the
+    // environment secret is the ONLY way to turn it off in production, so the bridge is the lever.
+    [
+      "CHAT_FREE_CHAT_DISABLED",
+      /CHAT_FREE_CHAT_DISABLED:\s*\$\{\{\s*secrets\.CHAT_FREE_CHAT_DISABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_FREE_CHAT_DISABLED\b/,
+    ],
     // #1801 — résumé skins. A plain boolean flag, turned on in production ONLY by the
     // environment secret, after migration 0128 is applied — so the bridge is the switch.
     [
@@ -281,6 +288,8 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["RESUME_AUTOFILL_ENABLED", "false"],
     ["CHAT_GENERAL_ROAD_ENABLED", "false"],
     ["CHAT_IDENTITY_INTAKE_ENABLED", "false"],
+    // ADR-0051 — the kill switch's absent value is false, which keeps the free chat ON.
+    ["CHAT_FREE_CHAT_DISABLED", "false"],
     ["RESUME_SKINS_ENABLED", "false"],
     ["RESUME_QR_SCAN_ENABLED", "false"],
     // ADR-0046 — the companion v2 phase gates, all five off by default; TD146 (WP6) adds the

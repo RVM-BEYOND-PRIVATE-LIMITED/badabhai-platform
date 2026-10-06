@@ -99,6 +99,44 @@ describe("screenWorkerVisibleText", () => {
 });
 
 /**
+ * #1942 — the screen reads a fold of the text as well as the text, so a suffix, a phone number
+ * or a link written in fullwidth forms or split by an invisible character is refused like its
+ * plain spelling. The fold is detection only: what parses, and so what is stored, is what was
+ * typed. Each invisible is spelled as an escape.
+ */
+describe("screenWorkerVisibleText — fullwidth and invisibly split text (#1942)", () => {
+  const description = screenWorkerVisibleText(z.string().min(1).max(500), NAME);
+  const issues = (value: string): string[] => {
+    const r = description.safeParse(value);
+    return r.success ? [] : r.error.issues.map((i) => i.message);
+  };
+
+  it.each([
+    ["fullwidth letters", "Tata Steel \u{FF2C}\u{FF54}\u{FF44} mein apply kariye"],
+    ["a fullwidth dot", "Sharma Pvt\u{FF0E}Ltd"],
+    ["a zero-width space", "Tata Steel L\u{200B}td mein"],
+    ["a C0 control", "Tata Steel L\u{1}td mein"],
+  ])("the issue's string with %s → the company-name 400", (_label, value) => {
+    expect(issues(value)).toEqual(["widget must not contain a company name"]);
+  });
+
+  it("a fullwidth phone number and a zero-width-split link get their own messages", () => {
+    expect(
+      issues(
+        "Call \u{FF19}\u{FF18}\u{FF17}\u{FF16}\u{FF15} \u{FF14}\u{FF13}\u{FF12}\u{FF11}\u{FF10}",
+      ),
+    ).toEqual(["remove contact details from the widget"]);
+    expect(issues("Apply at acme.i\u{200B}n today")).toEqual(["widget must not contain links"]);
+  });
+
+  it("stores what was typed: a clean value with invisible and fullwidth characters parses unchanged", () => {
+    const typed =
+      "\u{FF23}\u{FF2E}\u{FF23} Operator\u{A0}\u{2014} night shift \u{1F477}\u{200D}\u{2642}\u{FE0F}, \u{935}\u{947}\u{932}\u{94D}\u{921}\u{930}";
+    expect(description.parse(typed)).toBe(typed);
+  });
+});
+
+/**
  * #1924 — the screen never runs on unbounded text. Zod 3 runs a refine after a failed
  * `.max()`, and the old email heuristic was quadratic: ~4.8 s on 100,000 characters, which
  * the JSON body limit alone admitted. A value over the base's cap is refused by the base and

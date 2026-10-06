@@ -130,6 +130,72 @@ export function conversationWorkerPrefix(workerId: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// The fold every free-text shape heuristic below also reads (#1942)
+// ---------------------------------------------------------------------------
+
+// Code points a reader never sees, so one of them hides a suffix or a contact route from the
+// ASCII heuristics below while the worker reads plain text ("Tata Steel L<ZWSP>td mein"). The
+// set the skill certifier and the general-form brief strip (`INVISIBLE_RE`, whose review found
+// \p{Cf} alone was not enough), minus tab, line feed and carriage return:
+//  - \p{Cc} but \t \n \r: the C0 controls, DEL and the C1 controls. NEL (U+0085) can render as a
+//    line break but is not \s to JavaScript. Tab, LF and CR stay, because the org tiers read them
+//    as a space and as line breaks.
+//  - \p{Cf}: the soft hyphen U+00AD; the Arabic and Syriac format marks U+0600-U+0605, U+061C,
+//    U+06DD, U+070F, U+0890-U+0891, U+08E2; U+180E; U+200B-U+200F (zero-width space, the joiners,
+//    LRM, RLM); U+202A-U+202E and U+2066-U+2069 (bidi embeddings, overrides, isolates);
+//    U+2060-U+2064 (word joiner, invisible operators); U+206A-U+206F; the BOM U+FEFF;
+//    U+FFF9-U+FFFB (interlinear annotation); and the astral U+110BD, U+110CD, U+13430-U+1343F,
+//    U+1BCA0-U+1BCA3, U+1D173-U+1D17A, U+E0001 and the tags U+E0020-U+E007F.
+//  - \p{Default_Ignorable_Code_Point} outside Cf, which renders as nothing whatever its category:
+//    the combining grapheme joiner U+034F, the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0,
+//    U+17B4-U+17B5, the Mongolian variation selectors U+180B-U+180D and U+180F, U+2065, the
+//    variation selectors U+FE00-U+FE0F, U+FFF0-U+FFF8, and all of U+E0000-U+E0FFF.
+//  - U+2800, the Braille blank, which renders blank in every font a phone ships.
+// Explicit ranges, never \p{..}: see the browser floor at the top of this file. validators.test.ts
+// compares this class with Node's own Unicode tables over every code point, so a Unicode release
+// that adds a format or ignorable character fails a test rather than slipping past the screen.
+// The combining marks (U+034F, U+17B4-U+17B5, U+180B-U+180F, U+FE00-U+FE0F) lead the class so
+// that no-misleading-character-class reads them as a run, not as marks on the character before.
+const SCREEN_INVISIBLE =
+  // eslint-disable-next-line no-control-regex -- matching control characters is half the job.
+  /[\u{34F}\u{17B4}-\u{17B5}\u{180B}-\u{180F}\u{FE00}-\u{FE0F}\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F\xAD\u{600}-\u{605}\u{61C}\u{6DD}\u{70F}\u{890}-\u{891}\u{8E2}\u{115F}-\u{1160}\u{200B}-\u{200F}\u{202A}-\u{202E}\u{2060}-\u{206F}\u{2800}\u{3164}\u{FEFF}\u{FFA0}\u{FFF0}-\u{FFFB}\u{110BD}\u{110CD}\u{13430}-\u{1343F}\u{1BCA0}-\u{1BCA3}\u{1D173}-\u{1D17A}\u{E0000}-\u{E0FFF}]/gu;
+
+/**
+ * THE FORM THE FREE-TEXT SHAPE HEURISTICS ALSO READ (#1942): `s` with every invisible
+ * character above removed, then NFKC-folded, so a fullwidth "Ｌｔｄ", a fullwidth dot
+ * ("Pvt．Ltd"), fullwidth digits or "＠", and a zero-width or control character inside a
+ * suffix, a phone number or a host all read as their plain ASCII. Stripped before the fold, so
+ * the result is NFKC-normal and holds none of them (NFKC makes no invisible character out of a
+ * visible one; the Hangul fillers it maps to U+1160 are stripped first).
+ *
+ * DETECTION ONLY. {@link looksLikePii}, {@link looksLikeOrgName} and {@link looksLikeUrl}
+ * read it IN ADDITION to the raw text; nothing stores, shows or returns it in place of what
+ * the user typed. Not a cleaner, and not a refusal of invisible characters: an invisible
+ * character that hides nothing still passes the screen.
+ *
+ * What it does NOT reach: a Cyrillic or Greek lookalike ("Ltd" spelled with Cyrillic letters),
+ * Devanagari or other non-ASCII digits (NFKC does not fold them), a combining mark that
+ * composes ("L<U+0301>td" folds to "Ĺtd"), and a VISIBLE splitter ("L.td", "L-td").
+ */
+export function foldForScreening(s: string): string {
+  return s.replace(SCREEN_INVISIBLE, "").normalize("NFKC");
+}
+
+/**
+ * `shape` on the raw text, then on {@link foldForScreening}'s fold when that differs. Both,
+ * not the fold alone, because the fold can also take a verdict AWAY: a vertical tab, a form
+ * feed and the BOM are whitespace to JavaScript, so "Tata Steel<VT>Ltd mein" trips the org
+ * tiers raw and would not once stripped; and NFKC glues a fullwidth digit to a word ("Pvt
+ * Ltd１" folds to "Pvt Ltd1", which breaks the \b after "ltd"). Reading both, the fold only
+ * ever adds a refusal.
+ */
+function rawOrFoldedMatches(s: string, shape: (text: string) => boolean): boolean {
+  if (shape(s)) return true;
+  const folded = foldForScreening(s);
+  return folded !== s && shape(folded);
+}
+
+// ---------------------------------------------------------------------------
 // Best-effort PII shape detection (capture-boundary guard)
 // ---------------------------------------------------------------------------
 
@@ -165,8 +231,19 @@ const ADDRESS_LIKE = /\b(?:house|flat|apartment|street|road|lane|colony|sector|a
  * capitalization shape alone. Callers must still keep free text out of fields
  * that flow into events/logs. See `looksLikeActionContextPii` for the narrower
  * boundary (the actions-context bag) where a stricter name/address check is safe.
+ *
+ * It reads the raw text AND {@link foldForScreening}'s fold of it (#1942), so fullwidth
+ * digits or "＠", and a zero-width or control character between the halves of a phone number,
+ * are caught: "Call ９８７６５４３２１０", "98765<ZWSP>43210", "hr＠acme．in". Devanagari and
+ * other non-ASCII digits are not (NFKC does not fold them). Every caller inherits it: the
+ * job-text screen, the actions-context bag and campaign tags, the résumé cleaners, the
+ * qualification and portfolio DTOs, and payer-web's posting and invite forms.
  */
 export function looksLikePii(s: string): boolean {
+  return rawOrFoldedMatches(s, piiShape);
+}
+
+function piiShape(s: string): boolean {
   const value = s.trim();
   if (!value) return false;
   if (EMAIL_LIKE.test(value)) return true;
@@ -409,12 +486,15 @@ const ORG_LIMITED_ONE_TOKEN = new RegExp(
  *    ORG_NOT_A_NAME_TAIL lacks, before an entity word or a line break ("Night Duty
  *    Limited in winter", "Hostel Facility Limited for female staff"). "facility"
  *    stays off that list on purpose: "XYZ Facilities Limited mein" is a firm;
- *  - it reads ASCII Latin only: a fullwidth, lookalike, Devanagari, control- or
- *    zero-width-split suffix is invisible to it. Callers must NFKC-fold and strip
- *    \p{Cf} and \p{Cc} first (keeping \t, \n and \r, which the tiers read as a
- *    space and line breaks). The career wall scans an NFKD fold and refuses
- *    \p{Cf} outright but does not strip \p{Cc} (#1943); the job-text screen does
- *    neither (#1942);
+ *  - its tiers read ASCII Latin only, so it reads the raw text AND
+ *    {@link foldForScreening}'s fold of it (#1942): a fullwidth suffix ("Tata Steel
+ *    Ｌｔｄ mein", "Sharma Co． mein") or one split by a zero-width, format or control
+ *    character ("Tata Steel L<ZWSP>td mein", "Tata Steel L<SOH>td mein") is flagged
+ *    for every caller. A Cyrillic or Greek lookalike and a Devanagari suffix still
+ *    slip, and so does a NEL (U+0085) between the name and its suffix ("Tata
+ *    Steel<NEL>Ltd mein"): it renders as a line break, which is the line-break price
+ *    below, and the fold glues it into "Tata SteelLtd". The career wall also refuses
+ *    \p{Cf} and \p{Cc} outright (#1943);
  *  - a "co" that opens a compound is not a firm (#1914): "and co-ordinate",
  *    "& co-workers", "and co operative", "co.ordinator" pass, while "Sharma & Co",
  *    "Sharma and Co.", "Sharma & Co, Pune", "Sharma Co.-Pune" and the co-op
@@ -432,9 +512,16 @@ const ORG_LIMITED_ONE_TOKEN = new RegExp(
  * companion-v2 career-answer gate (`named_employer`), the skill certifier's org
  * wall, and the general-form brief's organisation wall. A change here moves all
  * four — and, because a posting edit resends its title and description, a stored
- * posting newly flagged here can be saved again only once its text changes.
+ * posting newly flagged here can be saved again only once its text changes. The
+ * #1942 fold reaches all four too, but only the job-text screen gains from it: the
+ * certifier and the brief already NFKC-fold and strip the same characters, and the
+ * career wall refuses them before it asks.
  */
 export function looksLikeOrgName(s: string): boolean {
+  return rawOrFoldedMatches(s, orgSuffixTiers);
+}
+
+function orgSuffixTiers(s: string): boolean {
   return (
     ORG_SUFFIX_STRONG.test(s) ||
     ORG_CO_FORM.test(s) ||
@@ -464,12 +551,11 @@ export function looksLikeOrgName(s: string): boolean {
 // on purpose: no other single-letter host is skipped. The price, stated: the hosts
 // b.com and m.com themselves slip this tier, with or without a path or port
 // ("b.com/apply") — a scheme or "www." still catches them. A host is read from the
-// last run of ASCII host characters, so ANY other character just before a host
-// that ends in "b" / "m" — a non-ASCII letter ("cafém.com"), an invisible format
-// character (a U+200B before the "m" of "instagram.com"), a fullwidth dot — leaves
-// "b.com" / "m.com"
-// and is skipped. That opens no new class: one invisible character inside the
-// TLD already beat this tier, and job text does not strip \p{Cf} (#1942). No
+// last run of ASCII host characters, so a non-ASCII letter just before a host that
+// ends in "b" / "m" ("cafém.com") leaves "b.com" / "m.com" and is skipped. An
+// invisible character there (a U+200B before the "m" of "instagram.com") or a
+// fullwidth dot ("instagram．m.com") no longer does: looksLikeUrl also reads the
+// #1942 fold, which removes the first and turns the second into ".". No
 // lookbehind: payer-web ships this to Next's default browser target (Safari 12),
 // which predates it.
 const URL_SCHEME = /\bhttps?:\/\//i;
@@ -496,8 +582,16 @@ const URL_TLD =
  * brief keep their own whole-token exemptions (".net", "asp.net", …, "b.com",
  * "m.com") in front of it; their "b.com" / "m.com" entries are now redundant
  * with this skip, and their HOST_WITH_PATH wall still refuses "b.com/anything".
+ *
+ * It reads the raw text AND {@link foldForScreening}'s fold of it (#1942), so a
+ * fullwidth host or scheme ("ａｃｍｅ．ｉｎ", "ｗｗｗ.acme") and one split by a
+ * zero-width or control character ("acme.i<ZWSP>n") are links.
  */
 export function looksLikeUrl(s: string): boolean {
+  return rawOrFoldedMatches(s, urlShape);
+}
+
+function urlShape(s: string): boolean {
   return URL_SCHEME.test(s) || URL_WWW.test(s) || URL_TLD.test(s);
 }
 
@@ -514,6 +608,15 @@ export type WorkerVisibleScreen = "contact_details" | "company_name" | "link";
  * seed-job converter and the seed scripts. A heuristic added here therefore
  * reaches all of them at once, and the api's exhaustive message map stops
  * compiling until the new screen has a message. Names only, never the text.
+ *
+ * NOT ON RAW TEXT ALONE (#1942). Each helper reads the text as typed AND its
+ * {@link foldForScreening} fold, so a fullwidth or invisibly split suffix, phone
+ * number or link ("Tata Steel Ｌｔｄ mein apply kariye", "Sharma Pvt．Ltd", "Tata
+ * Steel L<ZWSP>td mein", "Tata Steel L<SOH>td mein") trips the same screen its
+ * plain spelling does. The fold is in the helpers, not here, because payer-web's
+ * form contracts call the three helpers directly; every caller of either inherits
+ * it. It is for detection only: `s` is never changed, and callers store what was
+ * typed. The fold only adds verdicts, never removes one.
  */
 export function workerVisibleTextScreens(s: string): WorkerVisibleScreen[] {
   const out: WorkerVisibleScreen[] = [];

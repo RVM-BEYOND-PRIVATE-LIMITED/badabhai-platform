@@ -500,3 +500,32 @@ describe("paging", () => {
     expect(await render()).not.toContain("Next page");
   });
 });
+
+/**
+ * PAGE HEIGHT (final sweep AW-08). At 375px the first call sat 818px below the top of <main>:
+ * a 333px filter panel and the 187px "Measurements, not text" band stood in front of it. The
+ * band is a standing statement about how to read every row, so it now sits with the other
+ * standing footnote after the table; the filters fold behind one toggle on a phone.
+ */
+describe("page height: the calls before their explanations (AW-08)", () => {
+  it("'Measurements, not text' follows the table, before the 'not every AI call' footnote", async () => {
+    stub.page = { items: [OK_ROW], nextCursor: null };
+    const out = await render();
+    const table = out.indexOf('<div class="tablewrap">');
+    expect(table).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("Measurements, not text")).toBeGreaterThan(table);
+    expect(out.indexOf("Measurements, not text")).toBeLessThan(out.indexOf("This is not every AI call"));
+  });
+
+  it("…and its posture-conditional sentence still renders for each posture", async () => {
+    stub.page = { items: [OK_ROW], nextCursor: null };
+    expect(await render()).toContain("opening one is a separate read, capped and recorded");
+  });
+
+  it("the filters fold behind a toggle that opens itself when a filter is set", async () => {
+    expect(await render()).toContain('data-open="false"');
+    const filtered = await render({ success: "false", workerId: WORKER_ID });
+    expect(filtered).toContain('data-open="true"');
+    expect(filtered).toContain(">Filters (2)</button>");
+  });
+});

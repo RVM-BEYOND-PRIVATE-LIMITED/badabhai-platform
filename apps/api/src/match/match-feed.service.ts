@@ -2,7 +2,9 @@ import { Injectable } from "@nestjs/common";
 import { interleaveMaxPerCompany } from "@badabhai/match-engine";
 import { matchSkillLabel } from "@badabhai/taxonomy";
 import type { PayloadInputOf } from "@badabhai/event-schema";
+import type { TradeFormKindName } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
+import { toWorkerRoleKind } from "../common/worker-role-kind";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { MatchConfigService } from "./match-config.service";
 import { MatchFeedRepository, type MatchFeedFilters } from "./match-feed.repository";
@@ -65,6 +67,13 @@ export interface MatchFeedItem {
   via_related: boolean;
   /** E18 — the skill that earned the match, for the badge. */
   matched_skill_label: string | null;
+  /**
+   * THE POSTING'S ROLE, FOR THE CARD'S ILLUSTRATION (owner ruling 2026-10-05, ADR-0024 addendum).
+   * One of the 21 declared kinds or NULL ("no role picked" — every pre-0131 and chat-published
+   * posting). ADDITIVE: a client that ignores it renders what it rendered before. Drawn as art,
+   * never as text, and never a match/rank input. Not on `feed.shown_v2`.
+   */
+  role_kind: TradeFormKindName | null;
 }
 
 /**
@@ -143,12 +152,14 @@ export class MatchFeedService {
       benefits: row.benefits,
       requirements: row.requirements,
       needed_by: row.neededBy,
-      // Already the SECOND sort key of this feed (boost, then recency, then id) — it was
+      // Already a sort key of this feed (boost, then tier, then recency, then id) — it was
       // simply never projected, so the client could not see the order it was being served.
       posted_at: row.publishedAt === null ? null : row.publishedAt.toISOString(),
       rank: index + 1,
       via_related: row.matchTier === 2,
       matched_skill_label: matchSkillLabel(row.matchedSkillId) ?? null,
+      // Fail closed: only a declared kind or null leaves the API.
+      role_kind: toWorkerRoleKind(row.roleKind),
     }));
 
     if (page.length > 0) {

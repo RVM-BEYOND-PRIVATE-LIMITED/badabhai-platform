@@ -247,13 +247,16 @@ describe("AgencyJobsManager — Edit / Cancel (toggle or form) keep focus on the
    * the payer pressed and its focus falls to <body> (measured: Enter on Edit → BODY, next Tab →
    * "Details"). The manager refocuses the rebuilt toggle by its stable id. The DOM is faked: rAF
    * queues frames the test runs; `getElementById` hands back the toggle where the LAST commit put
-   * it — inside the editor's lead while editing.
+   * it — inside the editor's lead while editing; `activeElement` is where focus is when a frame
+   * runs — <body> once a rebuild dropped it, or wherever the payer moved while a save was in flight.
    */
   const TOGGLE = `agency-job-edit-${JOB.id}`;
   const HOST = `agency-job-${JOB.id}`;
+  const BODY = { tagName: "BODY" };
   let frames: Array<() => void> = [];
   let log: string[] = [];
   let toggleInLead = false;
+  let activeElement: object | null = BODY;
   const runFrame = () => {
     const now = frames;
     frames = [];
@@ -262,6 +265,7 @@ describe("AgencyJobsManager — Edit / Cancel (toggle or form) keep focus on the
   beforeEach(() => {
     frames = [];
     log = [];
+    activeElement = BODY;
     vi.stubGlobal("window", {
       requestAnimationFrame: (cb: () => void) => {
         frames.push(cb);
@@ -269,6 +273,10 @@ describe("AgencyJobsManager — Edit / Cancel (toggle or form) keep focus on the
       },
     });
     vi.stubGlobal("document", {
+      body: BODY,
+      get activeElement() {
+        return activeElement;
+      },
       getElementById: (id: string) => {
         if (id === HOST) return { scrollIntoView: () => log.push("scroll host") };
         if (id !== TOGGLE) return null;
@@ -322,6 +330,62 @@ describe("AgencyJobsManager — Edit / Cancel (toggle or form) keep focus on the
     (form!.props.onCancel as () => void)();
     runFrame();
     expect(log).toEqual(["focus toggle (in card, preventScroll=false)"]);
+  });
+
+  it("waits while the OLD toggle still holds focus, then refocuses once the rebuild dropped it", () => {
+    const pressed = { id: TOGGLE }; // the toggle the payer pressed, not yet replaced by the commit
+    activeElement = pressed;
+    toggleInLead = false;
+    toggleOf(render([JOB])).props.onClick();
+    runFrame(); // not rebuilt yet: keep waiting, whatever holds focus
+    expect(log).toEqual(["scroll host"]);
+    expect(frames).toHaveLength(1);
+    toggleInLead = true; // committed: the old toggle is gone, its focus fell to <body>
+    activeElement = BODY;
+    runFrame();
+    expect(log).toEqual(["scroll host", "focus toggle (in lead, preventScroll=true)"]);
+  });
+
+  /** Row 1's editor, its submit handler, and the editingId setter of that render. */
+  async function saveFromEditor() {
+    const actions = await import("./jobs-actions");
+    vi.mocked(actions.updateAgencyJobAction).mockResolvedValueOnce({ ok: true, job: JOB });
+    const first = useState.mock.results.length;
+    const tree = render([JOB], {}, JOB.id);
+    // useState order: rows, editingId, busyId, errorById — the editingId setter is the second.
+    const setEditingId = useState.mock.results[first + 1]!.value[1] as ReturnType<typeof vi.fn>;
+    const [form] = find(tree, (el) => el.type === AgencyJobFormMock);
+    const submit = form!.props.onSubmit as (input: unknown) => Promise<{ ok: boolean }>;
+    return { submit, setEditingId };
+  }
+
+  it("a successful save hands focus back to the toggle when the rebuild dropped it to <body>", async () => {
+    toggleInLead = false; // the closed row's header is back in the card
+    const { submit } = await saveFromEditor();
+    await expect(submit({})).resolves.toEqual({ ok: true });
+    runFrame();
+    expect(log).toEqual(["focus toggle (in card, preventScroll=false)"]);
+  });
+
+  it("a save never steals focus the payer moved elsewhere while it was in flight", async () => {
+    toggleInLead = false;
+    const { submit } = await saveFromEditor();
+    activeElement = { id: "title" }; // typing in another row's editor when the save lands
+    await expect(submit({})).resolves.toEqual({ ok: true });
+    runFrame();
+    expect(log).toEqual([]); // no focus, so no scroll to the saved row
+    expect(frames).toEqual([]); // and it does not keep waiting for focus to come back
+  });
+
+  it("a save closes only ITS editor — another row's editor opened meanwhile stays open", async () => {
+    const { submit, setEditingId } = await saveFromEditor();
+    await submit({});
+    expect(setEditingId).toHaveBeenCalledTimes(1);
+    const update = setEditingId.mock.calls[0]![0] as (cur: string | null) => string | null;
+    expect(typeof update).toBe("function");
+    expect(update(JOB.id)).toBeNull();
+    expect(update("00000001-0000-4000-8000-000000000002")).toBe("00000001-0000-4000-8000-000000000002");
+    expect(update(null)).toBeNull();
   });
 
   it("gives up after a bounded number of frames if the toggle never comes back", () => {
