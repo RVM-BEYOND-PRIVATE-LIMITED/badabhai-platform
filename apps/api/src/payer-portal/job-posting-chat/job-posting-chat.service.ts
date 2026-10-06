@@ -619,6 +619,11 @@ export class JobPostingChatService {
       // Give the session back so the payer can fix the draft and try again. Guarded on
       // "no posting bound", so it can never un-publish a session that really produced
       // one. Best-effort: a failure here must not mask the original error.
+      //
+      // A throw from `createForPayer` means NO posting exists (#1928): the row and its
+      // `job_posting.created` commit in one transaction, so an emit that fails after the
+      // insert rolls the insert back. That is what makes releasing here safe. Before #1928
+      // the row could commit before the emit threw, and the retry made a second posting.
       await this.chat
         .releasePublishClaim(sessionId, payerId, session.status)
         .catch(() =>
