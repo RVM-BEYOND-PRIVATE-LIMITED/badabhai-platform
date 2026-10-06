@@ -108,7 +108,16 @@ PAY_TYPES: tuple[str, ...] = ("in_hand", "gross", "ctc")
 NEEDED_BY: tuple[str, ...] = ("immediate", "soon", "flexible")
 
 _WS_RE = re.compile(r"\s+")
-_PHRASE_SPLIT_RE = re.compile(r"[,;/\n|+&]|\s+and\s+|\s+aur\s+", re.IGNORECASE)
+# The "and"/"aur" arm is tried only where a whitespace run STARTS (#1934, R53). Unanchored,
+# `\s+and\s+` started a scan to the run's end at every position of the run, so a long run
+# cost O(k^2). Inside a run it could only ever succeed where the run's first non-newline
+# character also succeeds, and a scan from the left reaches that character first, so the
+# anchor drops no split. It is listed first and opens with `\n*` so that a run that STARTS
+# with a newline still reads as one "and" (before, each newline split alone and the arm
+# then matched from the first space: the same phrases, with extra empty pieces).
+# `[^\S\n]` keeps "PF\nand ESI" as it was: a run of newlines alone before the word was
+# never an "and" separator.
+_PHRASE_SPLIT_RE = re.compile(r"(?<!\s)\n*[^\S\n]\s*(?:and|aur)\s+|[,;/\n|+&]", re.IGNORECASE)
 _HAS_ALNUM_RE = re.compile(r"[0-9A-Za-zऀ-ॿ]")
 # Square brackets are trimmed only when that breaks no pseudonymization token: they
 # are the token's delimiters, and trimming them turned an edge token ("[PERSON_1],
@@ -920,10 +929,14 @@ def _parse_needed_by(text: str) -> str | None:
 
 
 # --- Role title / location -------------------------------------------------
+# The article owns the whitespace after it (#1934, R53). It used to be an optional word
+# followed by its own `\s*`, next to the cue's `\s+`: a whitespace run that failed to
+# match tried every split between the two, O(k^2). It also matched as a word PREFIX, so
+# "need an operator" captured "n operator" and "hiring assistants" "ssistants".
 _ROLE_CUE_RE = re.compile(
     r"\b(?:hiring|hire|need|needs|require|requires|looking for|want|wanted|"
     r"recruiting|opening for|vacancy for|post(?:ing)? for)\b\s+"
-    r"(?:\d+\s+)?(?:a|an|some|few|the)?\s*"
+    r"(?:\d+\s+)?(?:(?:an?|some|few|the)\s+)?"
     r"([A-Za-z][\w./&+-]*(?:\s+[A-Za-z][\w./&+-]*){0,4})",
     re.IGNORECASE,
 )

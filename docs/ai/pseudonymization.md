@@ -276,12 +276,19 @@ walls run the same rule whatever `AI_RAW_PII_ENABLED` says.
       With 300 repeats of `" \t\n"` it took 3.6–7.5 s.
     - `_RESUME_CUED_ID_RE` runs only in `contains_hard_identifier`.
       `contains_hard_identifier("passport" + " " * 800 + "!")` took 3.6–5.9 s.
-  - **Outside the gateway**, six stalls are live through their entry point:
+  - **Outside the gateway**, six stalls were live through their entry point:
     - The job-posting role cue (`_ROLE_CUE_RE`), when the role question is on screen.
-      `detect_answers("need" + " " * 10000 + "5", "role_title")` took 748–801 ms. R53.
+      `detect_answers("need" + " " * 10000 + "5", "role_title")` took 748–801 ms. R53 (a),
+      mitigated by #1934 (2.8 ms).
     - The job-posting phrase splitter (`_PHRASE_SPLIT_RE`), when skills or benefits are on
       screen. Requirements uses the same splitter. Any run of 10,000 spaces took 730–800 ms.
-      R53.
+      R53 (b), mitigated by #1934 (2.0 ms).
+    - Still live, found by the #1934 review: the job-posting label tail (`_LABEL_TAIL_RE`),
+      after a role or location cue matched. `detect_answers("need welder" + " " * 10000 +
+      "x", "role_title")` took 547 ms. R53 (d).
+    - Still live, found by the #1934 review: the job-posting pay-clause splitter
+      (`_PAY_CLAUSE_BOUNDARY_RE`), on any turn with a pay figure. `detect_answers("salary 20k
+      bonus" + " " * 10000 + "x", None)` took 463 ms. R53 (e).
     - The job-posting pay-range parser (`_PAY_RANGE_RE`), on every turn that carries a money
       cue, whatever topic is on screen. `detect_answers("salary 20k 5" + " " * 10000 + "!",
       None)` took 1.9 s, and 0.5 s at 5,000. R53.
