@@ -662,6 +662,7 @@ function feedOrderSql(workerId: string, limit: number) {
           AND a.job_posting_id = jp.id
       )
     ORDER BY (jp.boosted_until IS NOT NULL AND jp.boosted_until > now()) DESC,
+             jr.match_tier ASC,
              jp.published_at DESC NULLS LAST,
              jp.id ASC
     LIMIT ${limit}
@@ -855,7 +856,7 @@ export async function computeDemoAnswerKey(
     maxConsecutiveSameCompany: config.maxConsecutiveSameCompany,
     demoOpenPostings: openDemo,
     orderSource:
-      "listFeed mirror (boost, published_at DESC, id) + interleaveMaxPerCompany; pinned by apps/api demo-matching-seed.db.test.ts",
+      "listFeed mirror (boost, match_tier ASC, published_at DESC, id) + interleaveMaxPerCompany; pinned by apps/api demo-matching-seed.db.test.ts",
     personas,
   };
 }
