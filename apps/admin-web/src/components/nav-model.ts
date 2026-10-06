@@ -97,6 +97,14 @@ export const NAV: NavSection[] = [
         icon: "list-magnifying-glass",
         capability: "read_entities",
       },
+      // The live Matching V1 view (owner-approved investor demo): what one worker's feed holds,
+      // and why. `read_entities`, mirroring all three reads on `AdminMatchEngineController`.
+      {
+        href: "/matching/engine",
+        label: "Engine view",
+        icon: "path",
+        capability: "read_entities",
+      },
     ],
   },
   {

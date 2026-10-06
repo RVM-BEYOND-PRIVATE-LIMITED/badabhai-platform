@@ -18,7 +18,7 @@ describe("nav labels", () => {
     expect(items.some((i) => i.label === "Jobs")).toBe(false);
   });
 
-  it('payment orders are named for what they are, on the unchanged /transactions route', () => {
+  it("payment orders are named for what they are, on the unchanged /transactions route", () => {
     expect(byHref("/transactions")?.label).toBe("Payment orders");
     expect(items.some((i) => i.label === "Transactions")).toBe(false);
   });
@@ -30,7 +30,8 @@ describe("nav labels", () => {
       expect(item.label, item.href).not.toContain("&");
       const words = item.label.split(" ").slice(1);
       // Only an acronym may be capitalised after the first word ("AI calls").
-      for (const w of words) expect(w === w.toLowerCase() || w === w.toUpperCase(), item.label).toBe(true);
+      for (const w of words)
+        expect(w === w.toLowerCase() || w === w.toUpperCase(), item.label).toBe(true);
     }
   });
 
@@ -39,6 +40,14 @@ describe("nav labels", () => {
     expect(section?.title).toBe("Matching");
     expect(NAV.some((s) => s.title === "Skills")).toBe(false);
     expect(byHref("/skills/discovery")?.capability).toBe("read_entities");
+  });
+
+  it('the engine view sits in "Matching" beside skill discovery, on the read floor', () => {
+    const section = NAV.find((s) => s.items.some((i) => i.href === "/matching/engine"));
+    expect(section?.title).toBe("Matching");
+    expect(byHref("/matching/engine")?.label).toBe("Engine view");
+    // Mirrors the three engine reads' `@RequireAdminRole("read_entities")`.
+    expect(byHref("/matching/engine")?.capability).toBe("read_entities");
   });
 
   it("keeps the Company and Agency personas as two sections", () => {
