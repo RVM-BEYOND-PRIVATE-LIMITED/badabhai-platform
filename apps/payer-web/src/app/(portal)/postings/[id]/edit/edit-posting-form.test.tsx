@@ -218,6 +218,18 @@ describe("EditPostingForm — outcomes", () => {
     await submit(render({}));
     expect(setters[5]).toHaveBeenCalledWith("No changes to save.");
   });
+
+  it("a publish that reports its reach lands on the detail with ?reached=N (Reached N workers)", async () => {
+    updatePostingAction.mockResolvedValue({ ok: true, posting: {}, reached: 42 });
+    await submit(render({}));
+    expect(push).toHaveBeenCalledWith(`/postings/${POSTING_ID}?reached=42`);
+  });
+
+  it("no reach count (save, or a failed reach read) → the plain detail URL, no number", async () => {
+    updatePostingAction.mockResolvedValue({ ok: true, posting: {}, reached: null });
+    await submit(render({}));
+    expect(push).toHaveBeenCalledWith(`/postings/${POSTING_ID}`);
+  });
 });
 
 describe("EditPostingForm — what is saved is what the preview showed (readCardForm)", () => {
