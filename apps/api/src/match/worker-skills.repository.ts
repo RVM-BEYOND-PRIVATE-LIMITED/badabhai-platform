@@ -10,6 +10,7 @@ import {
   workerProfiles,
   workerSkills,
 } from "@badabhai/db";
+import { packAnswerFromStoredRow, type PackAnswer } from "@badabhai/taxonomy";
 import { DATABASE } from "../database/database.module";
 
 /** The faceless signal columns the coarse derivation reads off the latest profile. */
@@ -141,9 +142,7 @@ export class WorkerSkillsRepository {
    * PRIVACY: option keys are closed-set enum values authored in the pack JSON. No free text, and
    * nothing a worker typed, ever reaches this path.
    */
-  async findPackAttributeOptions(
-    workerId: string,
-  ): Promise<{ packId: string | null; attributeKey: string; optionKeys: string[] }[]> {
+  async findPackAttributeOptions(workerId: string): Promise<PackAnswer[]> {
     const rows = await this.db
       .select({
         attributeKey: workerAttributes.attributeKey,
@@ -154,22 +153,10 @@ export class WorkerSkillsRepository {
       .from(workerAttributes)
       .where(eq(workerAttributes.workerId, workerId));
 
-    const answers: { packId: string | null; attributeKey: string; optionKeys: string[] }[] = [];
-    for (const row of rows) {
-      const values = Array.isArray(row.valueTextList)
-        ? row.valueTextList.filter(isString)
-        : isString(row.valueText)
-          ? [row.valueText]
-          : [];
-      if (values.length > 0) {
-        answers.push({
-          packId: row.packId,
-          attributeKey: row.attributeKey,
-          optionKeys: values,
-        });
-      }
-    }
-    return answers;
+    return rows.flatMap((row) => {
+      const answer = packAnswerFromStoredRow(row);
+      return answer === null ? [] : [answer];
+    });
   }
 
   /**
