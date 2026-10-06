@@ -188,7 +188,9 @@ describe("listFeed — the company NAME is not in the projection (ADR-0036's ope
     await repo.listFeed(WORKER, 10, {});
     const { sql } = statements[0]!;
     expect(sql).toContain("jp.role_kind AS role_kind");
-    expect(sql.slice(sql.indexOf(" FROM job_reach"))).not.toContain("role_kind");
+    const from = sql.indexOf(" FROM job_reach");
+    expect(from, "statement has the FROM clause").toBeGreaterThan(0); // vacuity guard
+    expect(sql.slice(from)).not.toContain("role_kind");
   });
 
   it("maps role_kind off the row verbatim (the service gates it)", async () => {

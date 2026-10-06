@@ -62,7 +62,7 @@ was deliberately kept off the worker card.
 - **Fail closed:** the API emits only a declared kind or `null`; a client must still treat an
   unrecognised value as `null` (a 22nd kind can be added later, additively).
 - **Art, not text.** Key an illustration on it; never print the slug. The shared card fixture
-  (`packages/types/fixtures/job-card-contract.json`) pins that it adds no text slot.
+  (`packages/types/fixtures/job-card-contract.json`) records that it adds no text slot (documented; consumer enforcement is a Frontend follow-up).
 - **Additive.** Clients that do not read it are unaffected. It is not on `feed.shown` /
   `feed.shown_v2`, and it is never a filter, rank or match input.
 - **Not on `GET /jobs/search`.**

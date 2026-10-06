@@ -316,7 +316,7 @@ above otherwise stands unchanged.
 - **Fail closed.** One outbound gate (`apps/api/src/common/worker-role-kind.ts`) returns the
   value only when it is a declared kind, else `null`, on every path above.
 - **Art, not text.** The worker card draws an illustration, never the slug or a role label;
-  `packages/types/fixtures/job-card-contract.json` pins that a `role_kind` adds no text slot.
+  `packages/types/fixtures/job-card-contract.json` records that a `role_kind` adds no text slot (documented; the payer-web and Dart consumers do not enforce it yet — Frontend follow-up).
 - **Still display only.** Projected, never a `WHERE` / `ORDER BY` / rank / match input (ADR-0036
   addendum 2026-09-29 holds; the repository tests pin it).
 - **No event change.** `feed.shown` and `feed.shown_v2` payloads are unchanged; no migration, no
