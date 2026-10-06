@@ -155,6 +155,23 @@ export class WorkersRepository {
     return rows[0]?.currentCity ?? null;
   }
 
+  /**
+   * The ids of LIVE workers (not pending deletion) whose peppered `phone_hash` is in `phoneHashes`.
+   * A seek on `workers_phone_hash_uq`. Projects ids only — never the hash — so a caller can decide
+   * membership by phone (e.g. the admin Engine view's demo-worker gate) without ever holding a
+   * phone-derived column. An empty input returns empty without a query.
+   */
+  async findLiveIdsByPhoneHashes(phoneHashes: readonly string[]): Promise<string[]> {
+    if (phoneHashes.length === 0) return [];
+    const rows = await this.db
+      .select({ id: workers.id })
+      .from(workers)
+      .where(
+        and(inArray(workers.phoneHash, [...phoneHashes]), isNull(workers.deletionScheduledAt)),
+      );
+    return rows.map((r) => r.id);
+  }
+
   async findByPhoneHash(phoneHash: string): Promise<Worker | undefined> {
     const rows = await this.db
       .select()
