@@ -12,9 +12,38 @@ Both routes are worker-authed: `Authorization: Bearer <worker token>`, guard cha
 ## `GET /feed`
 
 Query (all optional): `limit` (1–50, default 50), `trade_key`, `city`, `shift`
-(`day`|`night`|`rotational`), `pay_min` (₹/month floor, compared to the band's top). Response:
-`{ "jobs": [Card, …] }`, ordered, `rank` = 1-based position. One `feed.shown` (legacy) or
-`feed.shown_v2` (`MATCH_V1_ENABLED`) per card.
+(`day`|`night`|`rotational`), `pay_min` (₹/month floor, compared to the band's top), `cursor`
+(the previous page's `next_cursor`). Response: `{ "jobs": [Card, …], "next_cursor": string | null }`,
+ordered, `rank` = 1-based position in the deck. One `feed.shown` (legacy) or `feed.shown_v2`
+(`MATCH_V1_ENABLED`) per card served on that page.
+
+### Pagination (`cursor` / `next_cursor`, added 2026-10-06, #1961, [ADR-0052](../decisions/0052-feed-cursor-pagination.md))
+
+Additive: a client that never sends `cursor` gets today's first page, unchanged, and can ignore `next_cursor`.
+
+```ts
+// request
+GET /feed?limit=50                      // first page
+GET /feed?limit=50&cursor=<next_cursor> // next page; keep the SAME filters for one scroll
+// response
+{ jobs: Card[]; next_cursor: string | null }
+```
+
+- `next_cursor` is **opaque** (base64url). Pass it back byte-for-byte; never build or edit one.
+- `null` means the end of the deck. A short page always comes with `null`. A full page comes with a cursor,
+  and that cursor may lead to one empty page with `null`.
+- `rank` continues across pages: page 2 of a 50-card page starts at 51. Send that `rank` on apply as today.
+- Each page is a separate scroll position, not a snapshot. Cards applied to in the meantime drop out without
+  shifting the rest. A skipped card is not shown again in the same scroll. It comes back on the next first page
+  (TD73). On the V1 path, a card whose paid boost expired between pages can appear a second time. Deduplicate
+  by `job_id` client-side if needed.
+- Errors (`400`, body `{ message: "Validation failed", issues: [{ path: "cursor", message }] }`):
+  - `cursor is malformed`: not a value the server minted (bad encoding, forged, wrong version, too long).
+  - `cursor was issued for a different feed order; refetch without a cursor`: the feed source flag changed
+    mid-scroll.
+
+  On either error, drop the cursor and refetch the first page. Do not retry the same cursor.
+- `?cursor=` (empty) is treated as no cursor. A repeated `cursor` param is a 400.
 
 `MATCH_V1_ENABLED` selects the source; the envelope and every key below are the same on both
 paths. The V1 card adds `via_related` and `matched_skill_label`.

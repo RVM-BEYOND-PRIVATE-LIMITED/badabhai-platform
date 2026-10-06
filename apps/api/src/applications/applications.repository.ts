@@ -18,6 +18,11 @@ import type { TradeKey } from "@badabhai/taxonomy";
 import { DATABASE } from "../database/database.module";
 import { OPS_LIST_CAP } from "../common/pagination";
 import { feedPayFloorPredicate, feedShiftPredicate } from "./feed-filter.predicates";
+import {
+  postedKeyText,
+  postedKeysetAfter,
+  type PostedKeysetPosition,
+} from "./feed-keyset.predicates";
 
 /**
  * The legacy `/feed` filters {@link ApplicationsRepository.findOpenJobs} applies. Every one is
@@ -110,6 +115,19 @@ export interface FeedPostingRow {
   publishedAt: Date | null;
 }
 
+/**
+ * A {@link FeedJob} plus its keyset position (#1961): `created_at` as microsecond UTC text, the
+ * value a `next_cursor` carries. Never on the card — `posted_at` stays the ISO millisecond form.
+ */
+export interface FeedJobRow extends FeedJob {
+  postedKey: string;
+}
+
+/** A {@link FeedPostingRow} plus its keyset position: `published_at` as microsecond UTC text. */
+export interface FeedPostingKeyedRow extends FeedPostingRow {
+  postedKey: string;
+}
+
 /** An application row joined with its (coarse, PII-free) job fields. */
 export interface ApplicationWithJob {
   // Migration 0056: `applications.job_id` lost its NOT NULL because a V1 application
@@ -196,7 +214,8 @@ export class ApplicationsRepository {
     workerId: string,
     limit: number,
     filters: OpenJobsFilters = {},
-  ): Promise<FeedJob[]> {
+    after?: PostedKeysetPosition,
+  ): Promise<FeedJobRow[]> {
     const conditions: (SQL | undefined)[] = [
       eq(jobs.status, "open"),
       sql`NOT EXISTS (
@@ -214,6 +233,9 @@ export class ApplicationsRepository {
     conditions.push(
       feedShiftPredicate(jobs.shift, filters.shift),
       feedPayFloorPredicate(jobs.payMax, filters.payMin),
+      // #1961 — the next page: strictly after the last served (created_at, id). Absent on the
+      // first page, so its WHERE is unchanged.
+      postedKeysetAfter(jobs.createdAt, jobs.id, after),
     );
 
     return this.db
@@ -238,6 +260,8 @@ export class ApplicationsRepository {
         // #1649 — the posting date the feed never carried. Projected so the card can
         // badge a fresh job and the Jobs-tab header can count today's honestly.
         createdAt: jobs.createdAt,
+        // #1961 — the keyset position at full precision, for `next_cursor`. Not a card field.
+        postedKey: postedKeyText(jobs.createdAt),
       })
       .from(jobs)
       // TD73: exclude applied jobs server-side.
@@ -312,7 +336,8 @@ export class ApplicationsRepository {
       payMin?: number;
       wantedSkillIds: readonly string[];
     },
-  ): Promise<FeedPostingRow[]> {
+    after?: PostedKeysetPosition,
+  ): Promise<FeedPostingKeyedRow[]> {
     const conditions: (SQL | undefined)[] = [
       eq(jobPostings.status, "open"), // (1)
       isNotNull(jobPostings.publishedAt), // (2)
@@ -351,6 +376,9 @@ export class ApplicationsRepository {
     conditions.push(
       feedShiftPredicate(jobPostings.shift, filters.shift), // (7)
       feedPayFloorPredicate(jobPostings.payMax, filters.payMin), // (7)
+      // (8) #1961 — the next page: strictly after this ARM's last served (published_at, id),
+      // the same keyset predicate as the jobs arm. Absent on the first page.
+      postedKeysetAfter(jobPostings.publishedAt, jobPostings.id, after),
     );
 
     // ORDER BY rides `job_postings_feed_idx (status, published_at DESC)`, and it is the same
@@ -375,6 +403,9 @@ export class ApplicationsRepository {
         // Card art only (owner ruling 2026-10-05) — selected, never a predicate (see (5)).
         roleKind: jobPostings.roleKind,
         publishedAt: jobPostings.publishedAt,
+        // #1961 — the keyset position at full precision. `published_at` is NOT NULL here by
+        // (2), so this is never null. Not a card field.
+        postedKey: postedKeyText(jobPostings.publishedAt),
       })
       .from(jobPostings)
       .where(and(...conditions))

@@ -48,8 +48,9 @@ export class ApplicationsController {
 
   /**
    * Worker feed: up to `limit` open jobs, deterministic order, rank = 1-based
-   * position. Emits one `feed.shown` per returned job. PII-free (no pay, no
-   * employer).
+   * position in the deck. Emits one `feed.shown` per returned job. `cursor` (optional) is the
+   * previous page's `next_cursor`; the response carries the next one, `null` at the end
+   * (#1961, ADR-0052). A malformed cursor is a 400.
    */
   @Get("feed")
   @UseGuards(WorkerAuthGuard, ConsentGuard)
@@ -69,7 +70,9 @@ export class ApplicationsController {
         shift: query.shift,
         payMin: query.pay_min,
       },
-      ctx
+      ctx,
+      // #1961 — already decoded and validated by the DTO; absent on the first page.
+      query.cursor,
     );
   }
 
