@@ -31,10 +31,16 @@ import { inviteMemberAction, removeMemberAction } from "./actions";
  * re-display can drop a table's semantics in some engines, every part states its role.
  *
  * REMOVE ASKS FIRST: a row's Remove opens the generic DS Dialog ("Remove <masked email> from your
- * team?" — Cancel / Remove); only its Remove calls the action. The Dialog hands focus back to the
- * trigger on close, but a confirmed removal disables every Remove while it runs — so once the
- * dialog is closed AND the removal has settled, focus is put back on that row's Remove (or, if the
- * row is gone, on the Members heading). Keyboard users land where they were.
+ * team?" — Cancel / Remove); only its Remove calls the action (and only then is the last result
+ * message cleared — asking or cancelling leaves it). A successful removal revalidates /team, so the
+ * row leaves the list.
+ *
+ * FOCUS, ONLY WHEN IT WAS LOST. The Dialog hands focus back to its trigger on close — but a
+ * confirmed removal disables every Remove while it runs, so that restore falls to the body. Once
+ * the dialog is closed and the removal has settled (and, after a SUCCESS, once the refreshed list
+ * has dropped the row), focus goes back to the row's Remove — or to the Members heading when the
+ * row is gone. It is put back only when it is still LOST (on the body): a payer who moved on in the
+ * meantime — typing in the invite field — is left where they are.
  */
 const ROLE_TONE: Record<OrgRole, "brand" | "neutral"> = { owner: "brand", recruiter: "neutral" };
 /** The directory's heading — also the NAME of its scroll region (aria-labelledby). */
@@ -53,15 +59,22 @@ export function TeamManager({ members }: { members: OrgMemberView[] | null }) {
   // The member a Remove is waiting to be confirmed for — the confirm dialog is open while set.
   const [confirming, setConfirming] = useState<OrgMemberView | null>(null);
   const [pending, startTransition] = useTransition();
-  // The control focus returns to once the confirm has closed and any removal has settled.
-  const focusBack = useRef<string | null>(null);
+  // Where focus goes back once the confirm has closed and any removal has settled: the trigger's
+  // id, and — after a successful removal — the member whose row must leave the list first.
+  const focusBack = useRef<{ id: string; untilGone: string | null } | null>(null);
 
   useEffect(() => {
-    if (confirming !== null || pending || focusBack.current === null) return;
-    const id = focusBack.current;
+    const back = focusBack.current;
+    if (back === null || confirming !== null || pending) return;
+    // Removed, but the refreshed list still draws the row: wait for it (never focus the Remove
+    // of a member who is already gone).
+    if (back.untilGone !== null && members?.some((m) => m.memberId === back.untilGone)) return;
     focusBack.current = null;
-    (document.getElementById(id) ?? document.getElementById(MEMBERS_HEADING_ID))?.focus();
-  }, [confirming, pending]);
+    // Only when focus was LOST: the payer may have moved on while it ran — leave them there.
+    const active = document.activeElement;
+    if (active !== null && active !== document.body) return;
+    (document.getElementById(back.id) ?? document.getElementById(MEMBERS_HEADING_ID))?.focus();
+  }, [confirming, pending, members]);
 
   function onInvite(e: FormEvent) {
     e.preventDefault();
@@ -74,18 +87,22 @@ export function TeamManager({ members }: { members: OrgMemberView[] | null }) {
   }
 
   function askRemove(member: OrgMemberView) {
-    setMessage(null);
-    focusBack.current = removeButtonId(member.memberId);
+    focusBack.current = { id: removeButtonId(member.memberId), untilGone: null };
     setConfirming(member);
   }
 
   function confirmRemove() {
     const member = confirming;
     if (member === null) return;
+    setMessage(null);
     setConfirming(null);
     startTransition(async () => {
       const res = await removeMemberAction({ memberId: member.memberId });
       setMessage({ ok: res.ok, text: res.message });
+      // The action revalidated /team: focus waits for the refreshed list to drop the row.
+      if (res.ok && focusBack.current !== null) {
+        focusBack.current = { ...focusBack.current, untilGone: member.memberId };
+      }
     });
   }
 

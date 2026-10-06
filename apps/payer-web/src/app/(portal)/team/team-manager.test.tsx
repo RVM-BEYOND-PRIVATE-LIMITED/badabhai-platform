@@ -349,61 +349,134 @@ describe("TeamManager — Remove asks first (generic DS Dialog), then returns fo
     expect(setters[1]).toHaveBeenCalledWith({ ok: true, text: "Member removed." });
   });
 
-  it("focus returns to the row's Remove — only once the dialog is closed AND the removal settled", () => {
-    reset();
-    const focus = vi.fn();
-    const headingFocus = vi.fn();
-    (globalThis as { document?: unknown }).document = {
+  /**
+   * A stub `document`: where focus IS (`activeElement`, the body when focus was lost) and the two
+   * controls focus may be put on. `focus` records every call.
+   */
+  function stubDocument(rowStillThere = true) {
+    const body = { tag: "body" };
+    const trigger = { focus: vi.fn() };
+    const heading = { focus: vi.fn() };
+    const doc = {
+      body,
+      activeElement: body as unknown,
       getElementById: (id: string) =>
-        id === "team-remove-mem-1"
-          ? { focus }
+        id === "team-remove-mem-1" && rowStillThere
+          ? trigger
           : id === "team-members-title"
-            ? { focus: headingFocus }
+            ? heading
             : null,
     };
-    // Ask (the trigger is remembered), then render the open dialog: nothing moves focus yet.
-    const first = TeamManager({ members: [recruiter] }) as ReactElement;
+    (globalThis as { document?: unknown }).document = doc;
+    return { doc, trigger, heading, removeRow: () => (rowStillThere = false) };
+  }
+  /** Re-render with the given state and run the committed effects (as React would). */
+  function commit(state: unknown[], members: Parameters<typeof TeamManagerImpl>[0]["members"]) {
+    stateQueue = state;
+    const tree = TeamManager({ members }) as ReactElement;
+    effects.forEach((run) => run());
+    return tree;
+  }
+  /** Ask about the recruiter's row, then confirm in the dialog; resolves once the action settled. */
+  async function askThenConfirm() {
+    const first = commit([], [recruiter]);
     expect(props(rowRemove(first)).id).toBe("team-remove-mem-1");
     (props(rowRemove(first)).onClick as () => void)();
-    stateQueue = ["", null, recruiter];
-    TeamManager({ members: [recruiter] });
-    effects.forEach((run) => run());
-    expect(focus).not.toHaveBeenCalled();
-    // Confirmed: closed but still pending (the row's Remove is disabled) — still nothing.
-    stateQueue = ["", null, null];
+    const open = commit(["", null, recruiter], [recruiter]);
+    footerButtons(dialogOf(open))[1]!.onClick();
+    await new Promise((r) => setTimeout(r, 0));
+  }
+
+  it("a FAILED removal: focus returns to the row's Remove once closed AND settled, once", async () => {
+    reset();
+    removeMemberAction.mockResolvedValue({ ok: false, message: "Could not remove that member." });
+    const { trigger, heading } = stubDocument();
+    await askThenConfirm();
+    // Closed but still pending (every Remove is disabled; the Dialog's own restore fell to the
+    // body) — nothing moves focus yet.
     pendingNow = true;
-    TeamManager({ members: [recruiter] });
-    effects.forEach((run) => run());
-    expect(focus).not.toHaveBeenCalled();
-    // Settled: focus lands back on the Remove that opened it, once.
+    commit(["", null, null], [recruiter]);
+    expect(trigger.focus).not.toHaveBeenCalled();
+    // Settled, the row still there (nothing was removed): back on the Remove that opened it, once.
     pendingNow = false;
-    TeamManager({ members: [recruiter] });
-    effects.forEach((run) => run());
-    expect(focus).toHaveBeenCalledTimes(1);
-    TeamManager({ members: [recruiter] });
-    effects.forEach((run) => run());
-    expect(focus).toHaveBeenCalledTimes(1);
-    expect(headingFocus).not.toHaveBeenCalled();
+    commit(["", null, null], [recruiter]);
+    expect(trigger.focus).toHaveBeenCalledTimes(1);
+    commit(["", null, null], [recruiter]);
+    expect(trigger.focus).toHaveBeenCalledTimes(1);
+    expect(heading.focus).not.toHaveBeenCalled();
   });
 
-  it("…and to the Members heading when that row is gone", () => {
+  it("a removal the refreshed list confirms: focus lands ONCE on the Members heading", async () => {
     reset();
-    const headingFocus = vi.fn();
-    (globalThis as { document?: unknown }).document = {
-      getElementById: (id: string) =>
-        id === "team-members-title" ? { focus: headingFocus } : null,
-    };
-    const first = TeamManager({ members: [recruiter] }) as ReactElement;
-    (props(rowRemove(first)).onClick as () => void)();
-    stateQueue = ["", null, null];
-    const tree = TeamManager({ members: [self] }) as ReactElement;
-    effects.forEach((run) => run());
-    expect(headingFocus).toHaveBeenCalledTimes(1);
+    const { trigger, heading, removeRow } = stubDocument();
+    await askThenConfirm();
+    // Settled, but the refreshed list has not arrived yet (the row is still drawn): wait — never
+    // the Remove of a member who is already gone.
+    pendingNow = false;
+    commit(["", null, null], [recruiter]);
+    expect(trigger.focus).not.toHaveBeenCalled();
+    expect(heading.focus).not.toHaveBeenCalled();
+    // The refreshed list drops the row: the heading takes focus, once.
+    removeRow();
+    const tree = commit(["", null, null], [self]);
+    expect(heading.focus).toHaveBeenCalledTimes(1);
+    commit(["", null, null], [self]);
+    expect(heading.focus).toHaveBeenCalledTimes(1);
+    expect(trigger.focus).not.toHaveBeenCalled();
     // The heading can take that focus (programmatically only — it is not a Tab stop).
-    const heading = findByClass(tree, "panel__title").find(
-      (h) => gatherText(h).trim() === "Members",
-    );
-    expect(props(heading!).tabIndex).toBe(-1);
+    const title = findByClass(tree, "panel__title").find((h) => gatherText(h).trim() === "Members");
+    expect(props(title!).tabIndex).toBe(-1);
+  });
+
+  it("B1: a payer who moved on while it ran (typing in the invite field) is left there", async () => {
+    reset();
+    const { doc, trigger, heading, removeRow } = stubDocument();
+    await askThenConfirm();
+    doc.activeElement = { id: "invite-email" }; // focus is somewhere real, not lost
+    pendingNow = false;
+    removeRow();
+    commit(["", null, null], [self]);
+    commit(["", null, null], [self]);
+    expect(trigger.focus).not.toHaveBeenCalled();
+    expect(heading.focus).not.toHaveBeenCalled();
+  });
+
+  it("Cancel / Esc: focus goes back to the trigger — and is not moved when the Dialog already did", () => {
+    reset();
+    const { doc, trigger } = stubDocument();
+    const first = commit([], [recruiter]);
+    (props(rowRemove(first)).onClick as () => void)();
+    const open = commit(["", null, recruiter], [recruiter]);
+    footerButtons(dialogOf(open))[0]!.onClick();
+    // The Dialog put focus back on the trigger itself: nothing more to do.
+    doc.activeElement = trigger;
+    commit(["", null, null], [recruiter]);
+    expect(trigger.focus).not.toHaveBeenCalled();
+    // …and if that restore was lost (focus on the body), the trigger takes it, once.
+    (props(rowRemove(open)).onClick as () => void)();
+    commit(["", null, recruiter], [recruiter]);
+    doc.activeElement = doc.body;
+    commit(["", null, null], [recruiter]);
+    commit(["", null, null], [recruiter]);
+    expect(trigger.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("N1: only CONFIRMING clears the last message — asking and Cancel leave it", async () => {
+    reset();
+    const shown = { ok: true, text: "Invite sent." };
+    stateQueue = ["", shown, null];
+    const withMessage = TeamManager({ members: [recruiter] }) as ReactElement;
+    (props(rowRemove(withMessage)).onClick as () => void)();
+    expect(setters[1]).not.toHaveBeenCalled();
+    stateQueue = ["", shown, recruiter];
+    const open = TeamManager({ members: [recruiter] }) as ReactElement;
+    footerButtons(dialogOf(open))[0]!.onClick();
+    (props(dialogOf(open)).onClose as () => void)();
+    expect(setters[1]).not.toHaveBeenCalled();
+    footerButtons(dialogOf(open))[1]!.onClick();
+    expect(setters[1]!.mock.calls[0]).toEqual([null]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(setters[1]).toHaveBeenLastCalledWith({ ok: true, text: "Member removed." });
   });
 
   it("uses the generic Dialog — never the credit-spend confirm", async () => {

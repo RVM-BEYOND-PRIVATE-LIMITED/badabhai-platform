@@ -398,10 +398,10 @@ interface QuickAction {
 /**
  * The high-frequency actions that are NOT already on this page. "New posting" is the head's
  * primary, and each posting card opens its posting, so neither is repeated here; an agency's
- * "Invite workers" (its one link to Referrals) lives in its own section below, so it is not
- * repeated here either; and Credits is reached from the header chip — and, at an empty or low
- * balance, the needs-you item's "Buy credits" — so there is no "Buy credits" card (F15). Every
- * card follows its destination's gate: Plans & capacity is a COMPANY page, so an agency has none.
+ * invite tools live in its own sections (agent-sections.tsx), and quick actions add none; and
+ * Credits is reached from the header chip — and, at an empty or low balance, the needs-you item's
+ * "Buy credits" — so there is no "Buy credits" card (F15). Every card follows its destination's
+ * gate: Plans & capacity is a COMPANY page, so an agency has none.
  */
 function quickActions({ isAgency }: { isAgency: boolean }): QuickAction[] {
   if (isAgency) return [];
