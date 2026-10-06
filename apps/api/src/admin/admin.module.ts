@@ -8,6 +8,8 @@ import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
 import { StorageModule } from "../storage/storage.module";
 import { PayersModule } from "../payers/payers.module";
+import { MatchModule } from "../match/match.module";
+import { WorkersModule } from "../workers/workers.module";
 import { AdminRepository } from "./admin.repository";
 import { AdminSessionService } from "./admin-session.service";
 import { AdminOtpService } from "./admin-otp.service";
@@ -64,6 +66,10 @@ import { AdminAiTracesController } from "./admin-ai-traces.controller";
 import { AdminSkillDiscoveryRepository } from "./admin-skill-discovery.repository";
 import { AdminSkillDiscoveryService } from "./admin-skill-discovery.service";
 import { AdminSkillDiscoveryController } from "./admin-skill-discovery.controller";
+import { AdminMatchEngineRepository } from "./admin-match-engine.repository";
+import { AdminEngineDemoGate } from "./admin-engine-demo-gate";
+import { AdminMatchEngineService } from "./admin-match-engine.service";
+import { AdminMatchEngineController } from "./admin-match-engine.controller";
 
 /**
  * Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1). The 4th, highly-
@@ -159,6 +165,13 @@ import { AdminSkillDiscoveryController } from "./admin-skill-discovery.controlle
     // revokes their live sessions immediately. PayersModule exports it. One-directional:
     // PayersModule does not import AdminModule, so no forwardRef is needed.
     PayersModule,
+    // The Engine view reads through the match module's OWN read paths (feed composition,
+    // candidate list), never a copy of their ORDER BY.
+    MatchModule,
+    // The Engine view's demo-worker gate resolves demo phones to worker ids through the workers
+    // domain (`WorkersRepository.findLiveIdsByPhoneHashes`), so nothing under admin/** names a
+    // phone column. WorkersModule does not import AdminModule.
+    WorkersModule,
     // Reuse BullMQ's Redis connection (client only) for the admin session/OTP/MFA-secret stores.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
     // The admin session is signed with ITS OWN secret — distinct from the worker/payer JWT.
@@ -184,6 +197,7 @@ import { AdminSkillDiscoveryController } from "./admin-skill-discovery.controlle
     AdminFeedbackController,
     AdminAiTracesController,
     AdminSkillDiscoveryController,
+    AdminMatchEngineController,
   ],
   providers: [
     AdminRepository,
@@ -340,6 +354,9 @@ import { AdminSkillDiscoveryController } from "./admin-skill-discovery.controlle
     // client would return an empty page with no error, and that zero is not evidence.
     AdminSkillDiscoveryRepository,
     AdminSkillDiscoveryService,
+    AdminMatchEngineRepository,
+    AdminEngineDemoGate,
+    AdminMatchEngineService,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })

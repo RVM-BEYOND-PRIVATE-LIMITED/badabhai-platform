@@ -70,6 +70,17 @@ case "${FEED_POSTINGS_UNION_ENABLED-}" in
     ;;
 esac
 
+# Owner ruling 2026-10-06: ADMIN_ENGINE_VIEW_ALLOW_PHONES — the Engine view's demo-handset
+# allow-list. The api's config throws at boot on anything but empty or a comma list of `+91` +
+# 10 digits (at most 20), and a crash-looping api has no automatic rollback — so the grammar is
+# checked here, before any prune, pull or recreate. The value is never echoed.
+if [ -n "${ADMIN_ENGINE_VIEW_ALLOW_PHONES-}" ] &&
+  ! printf '%s' "${ADMIN_ENGINE_VIEW_ALLOW_PHONES}" | tr -d ' ' |
+  grep -Eq '^(\+91[0-9]{10})(,\+91[0-9]{10}){0,19},?$'; then
+  echo "::error::ADMIN_ENGINE_VIEW_ALLOW_PHONES must be empty or a comma-separated list of up to 20 numbers of the form +91XXXXXXXXXX. Fix the production secret and re-run. Nothing was deployed."
+  exit 1
+fi
+
 # #1904 / ADR-0036 §8: MATCH_V1_ENABLED — the same boot-time grammar, the same reason.
 # The api's `booleanFromString` throws at boot on anything but true/false/1/0/empty, the api `up`
 # has no automatic rollback, and the secret cannot be read back — so a typo would take the api

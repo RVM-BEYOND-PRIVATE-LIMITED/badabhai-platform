@@ -30,6 +30,7 @@ class JobDetail extends Equatable {
     this.applicationAction,
     this.sourceSurface = 'feed',
     this.tradeKey,
+    this.roleKind,
     this.payMin,
     this.payMax,
     this.payType,
@@ -58,6 +59,14 @@ class JobDetail extends Equatable {
       city: json['city'] as String?,
       area: json['area'] as String?,
       tradeKey: json['trade_key'] as String?,
+      // #2009 — `role_kind` keys the detail's ROLE ILLUSTRATION. Read as a
+      // String and nothing else: the server sends one of the 21 declared kinds
+      // or null, but a number or an object must land on null rather than reach
+      // a widget, and an unknown slug is the art resolver's problem, not the
+      // parser's (it draws `generic`).
+      roleKind: json['role_kind'] is String
+          ? json['role_kind'] as String
+          : null,
       payMin: (json['pay_min'] as num?)?.toInt(),
       payMax: (json['pay_max'] as num?)?.toInt(),
       payType: json['pay_type'] as String?,
@@ -103,6 +112,12 @@ class JobDetail extends Equatable {
   /// One of the 15 alpha trades — kept as a plain String (no enum). Null on
   /// the light detail.
   final String? tradeKey;
+
+  /// #2009 — the posting's role kind, one of `TRADE_FORM_KINDS_ALL` or null.
+  /// ART, NEVER TEXT: it keys the role illustration and is never drawn as a
+  /// word, so a slug can't leak onto a worker-facing screen. Null, unknown or
+  /// wrong-cased draws the generic scene.
+  final String? roleKind;
 
   /// Monthly pay band in ₹, PII-free by the schema's own rule ("pay bands /
   /// year counts / a coarse timing enum — never an employer"). Either bound
@@ -153,8 +168,13 @@ class JobDetail extends Equatable {
       applicationAction: action,
       sourceSurface: sourceSurface,
       tradeKey: tradeKey,
+      roleKind: roleKind,
       payMin: payMin,
       payMax: payMax,
+      // `payType` was absent here, so every fetch-swap silently reset it to
+      // null and the detail's pay line lost its unit. Carried now — the swap
+      // only replaces the worker's decision, never wire facts.
+      payType: payType,
       minExperienceYears: minExperienceYears,
       maxExperienceYears: maxExperienceYears,
       neededBy: neededBy,
@@ -194,6 +214,7 @@ class JobDetail extends Equatable {
         applicationAction,
         sourceSurface,
         tradeKey,
+        roleKind,
         payMin,
         payMax,
         payType,

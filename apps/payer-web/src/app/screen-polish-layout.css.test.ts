@@ -330,16 +330,26 @@ describe("PR-D2 · /dashboard — quick actions, postings and needs-you on phone
     expect(decl(rule(".dash-posting__cta", "max-width: 560px"), "grid-area")).toBe("cta");
   });
 
-  it("a Recent-unlocks row is not a link, so nothing makes it look like one (no hover lift)", () => {
-    // The row's wrapper zeroes its own surface; the inner row keeps its card look.
-    const wrap = rule(".dash-unlock-link");
-    expect(decl(wrap, "box-shadow")).toBe("none");
-    expect(decl(wrap, "border")).toBe("none");
-    // A hover lift / shadow says "you can click this" — the row opens nothing.
-    const hover = RULES.filter((r) =>
-      r.selector.split(",").some((s) => /\.dash-unlock-link:hover/.test(s)),
-    );
-    expect(hover.map((r) => r.selector)).toEqual([]);
+  it("an UNLINKED Recent-unlocks row has nothing that makes it look like a link (no hover of its own)", () => {
+    // The row is a DS Card laid out as text | status. Only a row that names a posting is a
+    // link, and that one takes the DS whole-card link's lift (`.bb-card--link`); the row's own
+    // rules add no hover, pointer or lift, so a row that opens nothing never looks clickable.
+    const row = rule(".dash-unlock");
+    expect(decl(row, "display")).toBe("flex");
+    expect(decl(row, "flex-wrap")).toBe("wrap");
+    expect(decl(rule(".dash-unlock__main"), "min-width")).toBe("0");
+    // A date wraps whole: at 375px "2026-08-15" broke at its hyphens onto two lines.
+    expect(decl(rule(".dash-unlock__meta .bb-mono"), "white-space")).toBe("nowrap");
+    const own = RULES.filter((r) => r.selector.split(",").some((s) => /\.dash-unlock\b/.test(s)));
+    expect(own.length).toBeGreaterThan(0);
+    expect(own.filter((r) => /:hover|:focus/.test(r.selector)).map((r) => r.selector)).toEqual([]);
+    for (const r of own) {
+      expect(decl(r, "cursor"), r.selector).toBeNull();
+      expect(decl(r, "transform"), r.selector).toBeNull();
+      expect(decl(r, "box-shadow"), r.selector).toBeNull();
+    }
+    // The old zeroed wrapper around a MaskedCandidate is gone with the primitive it wrapped.
+    expect(RULES.filter((r) => r.selector.includes(".dash-unlock-link"))).toEqual([]);
   });
 
   it("≤375px: a needs-you action wraps under its text (the ≤600px wrap is the precondition)", () => {

@@ -3000,15 +3000,24 @@ class _ChatViewState extends State<_ChatView>
     );
   }
 
-  /// #1821 F1 — is the companion still cooling down, right now?
+  /// #1821 F1 / #2030 — is the chat still cooling down, right now?
   ///
-  /// Gated by the v2 lever like every other v2 surface, so a lever-off build
-  /// never locks its composer on a field it would not otherwise render.
-  bool _cooldownActive(ChatState state) =>
-      state.companion &&
-      BbRemoteConfig.instance.chatCompanionV2Enabled &&
-      state.cooldownUntil != null &&
-      state.cooldownUntil!.isAfter(DateTime.now());
+  /// TWO SURFACES, TWO GATES. The companion's cool-down is a v2 surface, so it
+  /// keeps the v2 lever: a lever-off build must never lock its composer on a
+  /// field it would not otherwise render. The profiling chat's is ADR-0051 free
+  /// chat, which is live on merge and behind no lever, so there is nothing to
+  /// gate it on beyond the server having sent an instant that is still ahead.
+  ///
+  /// Either way this locks FREE TEXT ONLY — the chips sit above the composer
+  /// segment and stay tappable, which is what lets a cooled-down worker still
+  /// reach their résumé and the jobs.
+  bool _cooldownActive(ChatState state) {
+    final DateTime? until = state.cooldownUntil;
+    if (until == null || !until.isAfter(DateTime.now())) return false;
+    return state.companion
+        ? BbRemoteConfig.instance.chatCompanionV2Enabled
+        : true;
+  }
 
   /// #1821 F1 — the composer, replaced by a live countdown until [until].
   ///

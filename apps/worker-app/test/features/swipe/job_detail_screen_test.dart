@@ -20,6 +20,7 @@ import 'package:badabhai_worker_app/features/swipe/domain/job_detail.dart';
 import 'package:badabhai_worker_app/features/swipe/domain/jobs_repository.dart';
 import 'package:badabhai_worker_app/features/swipe/domain/swipe_repository.dart';
 import 'package:badabhai_worker_app/features/swipe/presentation/cubit/job_detail_cubit.dart';
+import 'package:badabhai_worker_app/core/widgets/role_art/role_art.dart';
 import 'package:badabhai_worker_app/features/swipe/presentation/job_detail_screen.dart';
 
 /// The REAL job-detail surface (ADR-0024 addendum, 2026-07-16): every present
@@ -81,7 +82,11 @@ JobDetailCubit _cubit(ApiClient api, JobDetail light) {
 /// WIRE-shaped full detail (rich fields, NO applicationAction — `GET
 /// /jobs/:jobId` never carries the worker's decision), so these tests also
 /// prove the applied gate survives the fetch-swap via the cubit's reattach.
-Future<void> _pumpViaLocator(WidgetTester tester, JobDetail light) async {
+Future<void> _pumpViaLocator(
+  WidgetTester tester,
+  JobDetail light, {
+  String? roleKind,
+}) async {
   GoogleFonts.config.allowRuntimeFetching = false;
   await locator.reset();
   final _MockJobsRepository jobs = _MockJobsRepository();
@@ -94,6 +99,9 @@ Future<void> _pumpViaLocator(WidgetTester tester, JobDetail light) async {
       payMin: 16000,
       payMax: 26000,
       shift: 'day',
+      // #2009 — `role_kind` arrives on the FETCHED detail, so the art a test
+      // asserts has to come through the swap, not off the light handover.
+      roleKind: roleKind,
     ),
   );
   locator.registerLazySingleton<JobsRepository>(() => jobs);
@@ -139,6 +147,55 @@ void main() {
     area: 'Waluj',
   );
 
+  group('the role illustration heads the detail (#2009)', () {
+    testWidgets('draws the art for the kind the wire sent, never its slug',
+        (WidgetTester tester) async {
+      await _pumpViaLocator(tester, lightFull, roleKind: 'welder');
+
+      expect(
+        find.byKey(const ValueKey<String>('roleArt:welder')),
+        findsOneWidget,
+      );
+      // `role_kind` is a raw id. It keys the picture and must never be painted
+      // as a word anywhere on a worker-facing screen.
+      expect(_allText(tester).toLowerCase(), isNot(contains('welder')));
+    });
+
+    testWidgets('the art heads the body — above the salary box',
+        (WidgetTester tester) async {
+      await _pumpViaLocator(tester, lightFull, roleKind: 'fitter');
+
+      expect(
+        tester.getTopLeft(find.byType(RoleArtBanner)).dy,
+        lessThan(tester.getTopLeft(find.text('₹16,000–26,000/mah')).dy),
+      );
+    });
+
+    testWidgets('a kind this build does not know draws the generic scene',
+        (WidgetTester tester) async {
+      // An older app must still show a picture for a kind the server adds
+      // later — never a blank header and never an error.
+      await _pumpViaLocator(tester, lightFull, roleKind: 'crane_operator');
+
+      expect(
+        find.byKey(const ValueKey<String>('roleArt:generic')),
+        findsOneWidget,
+      );
+      expect(_allText(tester).toLowerCase(), isNot(contains('crane_operator')));
+    });
+
+    testWidgets('no kind at all still draws a picture',
+        (WidgetTester tester) async {
+      await _pumpViaLocator(tester, lightFull);
+
+      expect(find.byType(RoleArtBanner), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('roleArt:generic')),
+        findsOneWidget,
+      );
+    });
+  });
+
   testWidgets(
       'renders every present section from the REAL canned detail — and '
       'nothing employer-shaped anywhere', (WidgetTester tester) async {
@@ -165,6 +222,14 @@ void main() {
     expect(find.text('Day shift'), findsOneWidget);
     expect(find.text('0–2 yrs experience'), findsOneWidget);
     expect(find.text('Turant chahiye'), findsOneWidget);
+    // The role illustration now heads the body (#2009), so the description
+    // starts below the fold on this viewport. Same lazy-list rule as the
+    // benefits block further down: scroll it in before asserting.
+    await tester.scrollUntilVisible(
+      find.textContaining('CNC lathe par production ka kaam'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.textContaining('CNC lathe par production ka kaam'),
         findsOneWidget);
     expect(find.text('Fanuc control'), findsOneWidget);
