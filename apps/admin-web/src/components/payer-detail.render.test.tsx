@@ -209,6 +209,25 @@ describe("the header (owner ruling 2026-10-01)", () => {
   });
 });
 
+/**
+ * The record panel names a customer the console's way (owner ruling 2026-10-01; sweep AW-12):
+ * "Account" is the payer's own settings page in payer-web, never a label for one here.
+ */
+describe("the record panel", () => {
+  it("is the Customer panel, with the type as Company or Agency", () => {
+    const out = render(FACELESS, ENTITLED);
+    expect(out).toContain('<h2 class="panel__title" id="p-record">Customer</h2>');
+    expect(out).toContain('<dt class="kv__k">Customer type</dt><dd class="kv__v">Company</dd>');
+    expect(out).not.toContain(">Account<");
+    expect(out).not.toContain("Account type");
+  });
+
+  it("reads an agency as Agency", () => {
+    const out = render({ ...FACELESS, role: "agent" }, ENTITLED);
+    expect(out).toContain('<dt class="kv__k">Customer type</dt><dd class="kv__v">Agency</dd>');
+  });
+});
+
 describe("the event-timeline link follows read_events (an affordance; the route keeps its gate)", () => {
   it("is offered with read_events, and only then", () => {
     render(FACELESS, ["read_entities", "read_events"]);

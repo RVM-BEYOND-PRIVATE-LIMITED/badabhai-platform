@@ -61,13 +61,13 @@ export function PayerList({
   return (
     <div className="tablewrap">
       <table className="table">
-        <caption className="sr-only">Accounts, newest first</caption>
+        <caption className="sr-only">Customers, newest first</caption>
         <thead>
           <tr>
             {/* Only in the `named` posture — a dash under this heading would claim the account
                 registered without a business name. */}
             {posture === "named" && <th scope="col">Organisation</th>}
-            <th scope="col">Account</th>
+            <th scope="col">Customer</th>
             <th scope="col">Status</th>
             <th scope="col">Registered</th>
             <th scope="col">Last updated</th>

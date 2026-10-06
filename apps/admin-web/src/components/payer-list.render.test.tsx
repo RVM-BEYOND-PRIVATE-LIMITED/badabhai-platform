@@ -52,6 +52,13 @@ describe("the named posture", () => {
     expect(out.indexOf("Acme Fabrication")).toBeLessThan(out.indexOf(PAYER_ID));
   });
 
+  it("heads the id column Customer — never Account (owner ruling 2026-10-01; sweep AW-12)", () => {
+    const out = render([NAMED], "named");
+    expect(out).toContain('<th scope="col">Customer</th>');
+    expect(out).toContain('<caption class="sr-only">Customers, newest first</caption>');
+    expect(out).not.toContain('<th scope="col">Account</th>');
+  });
+
   it("keeps the id link, which is where the detail page and the spine are reached", () => {
     const out = render([NAMED], "named");
     expect(out).toContain(`href="/companies/${PAYER_ID}"`);

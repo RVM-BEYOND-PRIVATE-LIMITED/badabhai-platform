@@ -319,7 +319,7 @@ describe("the event-timeline link (header and result banner) follows read_events
   it("is not repeated in the no-decisions state — the header carries it", async () => {
     stub.capabilities = ["read_entities", "read_events"];
     const out = await render();
-    expect(out).toContain("No job decisions yet");
+    expect(out).toContain("No posting decisions yet");
     expect(out).not.toContain("/timeline");
   });
 
@@ -343,5 +343,18 @@ describe("the posting page calls the posting a posting (owner ruling 2026-10-01)
     const out = await render();
     expect(out).toContain("The poster published this posting without one");
     expect(out).not.toMatch(/this job\b/i);
+  });
+
+  it("names a worker's apply or skip a posting decision — never a job decision (sweep AW-13)", async () => {
+    const out = await render();
+    expect(out).toContain("Recent posting decisions");
+    expect(out).toContain("No posting decisions yet");
+    expect(out).not.toMatch(/job decisions?/i);
+  });
+
+  it("names the customer who published it 'Customer' — never 'Owner account' (sweep AW-12)", async () => {
+    const out = await render();
+    expect(out).toContain('<dt class="kv__k">Customer</dt>');
+    expect(out).not.toContain("Owner account");
   });
 });

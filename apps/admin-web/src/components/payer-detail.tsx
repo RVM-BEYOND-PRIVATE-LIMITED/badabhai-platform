@@ -3,6 +3,7 @@ import type { JobPostingListItem, PayerDetail } from "../lib/entities";
 import { NAME_UNREADABLE, displayName, identityPosture } from "../lib/identity";
 import { formatCount, formatRelative, formatTimestamp, shortId } from "../lib/format";
 import { can, type AdminCapability } from "../lib/auth/capabilities";
+import { CUSTOMER_KIND_LABELS } from "../lib/customer";
 import { StatusPill } from "./status-pill";
 import { NameCell } from "./name-cell";
 import { IdentityCapNotice } from "./identity-notice";
@@ -110,7 +111,7 @@ export function PayerDetailView({
         <section className="panel" aria-labelledby="p-record">
           <div className="panel__head">
             <h2 className="panel__title" id="p-record">
-              Account
+              Customer
             </h2>
             {/* THREE-VALUED, like the posture — see the worker detail page for the bug this
                 shape replaces: a capped response asserting a name had been decrypted, directly
@@ -136,7 +137,7 @@ export function PayerDetailView({
                   ]
                 : []),
               { label: `${kind} id`, value: <span className="mono">{payer.id}</span> },
-              { label: "Account type", value: payer.role === "agent" ? "Agency" : "Company" },
+              { label: "Customer type", value: CUSTOMER_KIND_LABELS[payer.role] },
               { label: "Status", value: <StatusPill value={payer.status} /> },
               {
                 label: "Status before suspension",

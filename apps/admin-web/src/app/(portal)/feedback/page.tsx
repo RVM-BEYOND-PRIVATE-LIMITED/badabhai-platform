@@ -12,7 +12,7 @@ import { formatRelative, formatTimestamp, shortId } from "../../../lib/format";
 import { StatusPill, type Tone } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
-import { RetryActions } from "../../../components/retry-actions";
+import { FirstPageAction, RetryActions } from "../../../components/retry-actions";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -125,14 +125,12 @@ export default async function FeedbackPage({
 
   const failed = page === null;
   const filtered = Boolean(category || workerId);
-  /** Something in the URL to undo. With a bare `/feedback` there is nothing to offer. */
-  const resettable = Boolean(category || workerId || cursor);
 
   /**
    * One builder for every link back into this list, so a filter cannot be dropped by a
    * control that forgot it existed. That is not hypothetical: this page shipped with three
    * hand-rolled hrefs, and adding a second filter to them one at a time is exactly how the
-   * "Back to the newest" link would have quietly widened a worker-narrowed view into
+   * "Back to the first page" link would have quietly widened a worker-narrowed view into
    * everyone's messages.
    *
    * Named arguments over the CURRENT query — pass `undefined` to keep a filter, `null` to
@@ -264,16 +262,10 @@ export default async function FeedbackPage({
               cannot be hand-edited — one of them, as it stands in the address bar, is not
               something this list accepts.
             </p>
-            {/* With a filter set, the results head's "Clear filters" is the way out; only a
-                bad cursor on an unfiltered list needs its own. */}
-            {resettable && !filtered && (
-              <div className="state__actions">
-                <Link className="btn btn--ghost" href="/feedback">
-                  <Icon name="arrow-line-left" />
-                  Back to the first page
-                </Link>
-              </div>
-            )}
+            {/* With a cursor, the first page of the SAME query — every filter kept, so a stale
+                cursor on a worker-narrowed view does not widen it to everyone's messages. The
+                filters themselves are cleared by the results head's one "Clear filters". */}
+            <FirstPageAction href={listHref()} cursor={cursor} />
           </div>
         ) : failed ? (
           <div className="state state--error">
@@ -472,18 +464,13 @@ export default async function FeedbackPage({
               This page of the list came back empty — either you have reached the end, or the rows
               behind this cursor were removed while you were reading (deleting a worker account
               removes their feedback with it). The list itself is unaffected; start again from the
-              newest submission.
+              first page, newest submission first.
             </p>
-            <div className="state__actions">
-              {/* KEEPS every active filter and drops only the cursor. Widening the query on
-                  the way back would answer a different question than the one being paged —
-                  and on a worker-narrowed view it would hand the operator everyone else's
-                  messages while the copy still said "start again from the newest". */}
-              <Link className="btn btn--ghost" href={listHref()}>
-                <Icon name="arrow-line-left" />
-                Back to the newest
-              </Link>
-            </div>
+            {/* KEEPS every active filter and drops only the cursor. Widening the query on the
+                way back would answer a different question than the one being paged — and on a
+                worker-narrowed view it would hand the operator everyone else's messages while
+                the copy still said "start again from the first page". */}
+            <FirstPageAction href={listHref()} cursor={cursor} />
           </div>
         ) : filtered ? (
           /* AN EMPTY FILTERED PAGE IS NOT ONE CLAIM BUT THREE. "No feedback carries this tag"

@@ -565,6 +565,39 @@ describe("error states", () => {
     expect(out).not.toContain("The queue is unavailable");
   });
 
+  /** The href of the state's "Back to the first page" — "" when there is none. */
+  const firstPageHref = (out: string) =>
+    /href="([^"]*)"><i [^>]*><\/i>Back to the first page<\/a>/.exec(out)?.[1] ?? "";
+
+  it("a 400 on a flat-view CURSOR alone offers the first page, view kept — not a Clear filters", async () => {
+    // `?view=flat&cursor=stale` offered only "Clear filters" → /skills/discovery, which also
+    // dropped `view=flat`: a first-page action wearing the clear-filters name (sweep AW-14).
+    stub.listFailure = new stub.RequestError(400);
+    const out = await render({ view: "flat", cursor: "stale" });
+    expect(out).toContain("The server rejected this request");
+    // …and says what was refused: the cursor, not "one of the filters" that are not set.
+    expect(out).toContain("A page cursor is an opaque value");
+    expect(out).not.toContain("One of the filters");
+    const first = firstPageHref(out);
+    expect(first).toContain("view=flat");
+    expect(first).not.toContain("cursor=");
+    expect(out).not.toContain(">Clear filters<");
+    // A refused request is not retried — it would only be refused again.
+    expect(out).not.toContain(">Retry<");
+  });
+
+  it("a 400 on a flat-view cursor WITH a filter offers both undos, in one row", async () => {
+    stub.listFailure = new stub.RequestError(400);
+    const out = await render({ view: "flat", tradeFamily: "Welders", cursor: "stale" });
+    const first = firstPageHref(out);
+    expect(first).toContain("view=flat");
+    expect(first).toContain("tradeFamily=Welders");
+    expect(first).not.toContain("cursor=");
+    expect(out).toContain(">Clear filters<");
+    const state = out.slice(out.indexOf("The server rejected this request"));
+    expect(state.split('class="state__actions"').length - 1).toBe(1);
+  });
+
   it("anything else (grouped) is our fault, with a retry that repeats the same query", async () => {
     stub.groupsFailure = new TypeError("network down");
     const out = await render({ tradeFamily: "Welders" });

@@ -2,6 +2,8 @@ import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { can } from "../../../lib/auth/capabilities";
 import { listPayers } from "../../../lib/entities";
+import { isAdminRequestError } from "../../../lib/admin-http";
+import { queryHref } from "../../../lib/query-href";
 import { identityPosture } from "../../../lib/identity";
 import { PayerList } from "../../../components/payer-list";
 import { IdentityCapNotice } from "../../../components/identity-notice";
@@ -9,7 +11,11 @@ import { Pager } from "../../../components/pager";
 import { PayerFilterBar } from "../../../components/payer-filter-bar";
 import { PageHeader } from "../../../components/page-header";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
-import { RetryActions } from "../../../components/retry-actions";
+import {
+  CURSOR_REFUSAL,
+  FirstPageAction,
+  RetryActions,
+} from "../../../components/retry-actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Companies" };
@@ -41,11 +47,17 @@ export default async function CompaniesPage({
 
   let page: Awaited<ReturnType<typeof listPayers>> | null = null;
   let failed = false;
+  let refused = false;
   try {
     page = await listPayers({ role: "employer", status, cursor });
-  } catch {
+  } catch (err) {
+    // A REFUSED request (a 400: the address bar) and an UNAVAILABLE one (our fault) are
+    // different screens — "pick a status" over an outage blames a filter that is not broken.
     failed = true;
+    refused = isAdminRequestError(err) && err.status === 400;
   }
+  /** The current query without the cursor — what the recoveries below repeat. */
+  const listHref = queryHref("/companies", { status });
 
   const posture = identityPosture(
     page?.items ?? [],
@@ -59,9 +71,13 @@ export default async function CompaniesPage({
         title="Companies"
         description={
           <>
+            {/* THREE-VALUED, like the detail panel's sub: "named by the organisation" directly
+                above the notice saying names are withheld would contradict it. */}
             {posture === "faceless"
               ? "Company accounts, identified by id — your role does not include name access, so find an account through its postings"
-              : "Company accounts, named by the organisation they registered as — self-declared at signup, not a verified legal name"}
+              : posture === "capped"
+                ? "Company accounts, identified by id while names are withheld (see below)"
+                : "Company accounts, named by the organisation they registered as — self-declared at signup, not a verified legal name"}
             ; email and phone stay encrypted at rest and are served to no one.
           </>
         }
@@ -90,7 +106,9 @@ export default async function CompaniesPage({
             </h2>
             <p className="panel__sub">
               {failed
-                ? "That filter was rejected."
+                ? refused && status
+                  ? "That filter was rejected."
+                  : "Nothing was fetched."
                 : `${page?.items.length ?? 0} compan${page?.items.length === 1 ? "y" : "ies"} on this page.`}
             </p>
           </div>
@@ -102,16 +120,31 @@ export default async function CompaniesPage({
           )}
         </div>
 
-        {failed ? (
+        {refused ? (
           <div className="state state--error">
-            <h3 className="state__title">The server rejected that filter</h3>
+            <h3 className="state__title">
+              {status || !cursor ? "The server rejected that filter" : CURSOR_REFUSAL.title}
+            </h3>
             <p className="state__body">
-              That is not an account status this portal recognises, so nothing was fetched.
-              Pick a status from the list above, or clear the filter and start again.
+              {status || !cursor
+                ? "That is not an account status this portal recognises, so nothing was fetched. Pick a status from the list above, or clear the filter and start again."
+                : CURSOR_REFUSAL.body}
             </p>
-            {/* One "Clear filters" per screen: the results head carries it whenever a filter is
-                set, so this state does not repeat it (owner brief 2026-10-01). */}
-            {status ? null : <RetryActions href="/companies" cursor={cursor} />}
+            {/* Repeating a refused request cannot succeed, so no Retry — only the first page,
+                filter kept, when there is a cursor to drop. Clearing the filter is the results
+                head's one "Clear filters" (owner brief 2026-10-01). */}
+            <FirstPageAction href={listHref} cursor={cursor} />
+          </div>
+        ) : failed ? (
+          <div className="state state--error">
+            <h3 className="state__title">Companies are unavailable</h3>
+            <p className="state__body">
+              The list did not load, and that is a fault on our side rather than anything in the
+              filter.
+            </p>
+            {/* The SAME query — filter and cursor kept — and, past page one, the first page of
+                it. Neither is "Clear filters", which the results head already offers. */}
+            <RetryActions href={listHref} cursor={cursor} />
           </div>
         ) : (
           <PayerList

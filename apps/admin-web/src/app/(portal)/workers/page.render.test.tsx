@@ -16,11 +16,20 @@ import { renderToStaticMarkup } from "react-dom/server";
  * analyst's page must not carry a Name heading at all.
  */
 
-const stub = vi.hoisted(() => ({
-  capabilities: ["read_entities", "read_identity"] as string[],
-  page: null as { items: unknown[]; nextCursor: string | null } | null,
-  failure: null as unknown,
-}));
+const stub = vi.hoisted(() => {
+  /** Stands in for `AdminRequestError`, whose `status` is what separates the two failures. */
+  class RequestError extends Error {
+    constructor(readonly status: number) {
+      super(`the admin API returned ${status}`);
+    }
+  }
+  return {
+    RequestError,
+    capabilities: ["read_entities", "read_identity"] as string[],
+    page: null as { items: unknown[]; nextCursor: string | null } | null,
+    failure: null as unknown,
+  };
+});
 
 vi.mock("../../../lib/auth", () => ({
   requireCapability: async () => ({
@@ -28,6 +37,10 @@ vi.mock("../../../lib/auth", () => ({
     role: "ops_admin",
     capabilities: stub.capabilities,
   }),
+}));
+
+vi.mock("../../../lib/admin-http", () => ({
+  isAdminRequestError: (err: unknown) => err instanceof stub.RequestError,
 }));
 
 vi.mock("../../../lib/entities", () => ({
@@ -192,6 +205,14 @@ describe("an entitled admin whose name budget is spent", () => {
     expect(out).not.toContain("your role does not include name access");
   });
 
+  it("does NOT describe names as shown, directly above the notice saying they are withheld", async () => {
+    // The description was two-valued while the detail panels were three-valued (sweep AW-21):
+    // "Names are shown to your role" sat over "Names are withheld on this page".
+    const out = await render();
+    expect(out).not.toContain("Names are shown to your role");
+    expect(out).toContain("identified by id while names are withheld (see below)");
+  });
+
   it("hides the Name column rather than filling it with dashes", async () => {
     const out = await render();
     expect(out).not.toContain("<th scope=\"col\">Name</th>");
@@ -219,7 +240,7 @@ describe("the states where there is nothing to be named", () => {
   it("a REJECTED filter posts no withheld banner either", async () => {
     // `page` is null, so there is no evidence about names one way or the other, and the honest
     // screen is the filter error alone.
-    stub.failure = new Error("400");
+    stub.failure = new stub.RequestError(400);
     const out = await render({ status: "nonsense" });
     expect(out).toContain("The server rejected these filters");
     expect(out).not.toContain("Names are withheld on this page");
@@ -273,10 +294,73 @@ describe("a failed read: Retry repeats the query, Back to the first page drops t
     expect(out).not.toContain("Back to the first page");
   });
 
-  it("with a filter set, the results head's Clear filters is the way out — once", async () => {
+  it("with a filter set, Retry KEEPS it, and Clear filters stays in the results head — once", async () => {
     stub.failure = new Error("boom");
     const out = await render({ status: "active" });
     expect(out.split(">Clear filters<").length - 1).toBe(1);
+    expect(out).toMatch(/href="\/workers\?status=active">(<i [^>]*><\/i>)?Retry<\/a>/);
+  });
+
+  it("filtered AND past page one: both recoveries, both keeping every filter (sweep AW-06)", async () => {
+    // `/workers?status=active&cursor=c2` with a 500 rendered no Retry and no first page — the
+    // only exit was the head's Clear filters, which drops the filter it was paging.
+    stub.failure = new Error("boom");
+    const out = await render({ status: "active", pendingDeletion: "true", cursor: "c2" });
+    expect(out).toMatch(
+      /href="\/workers\?status=active&amp;pendingDeletion=true&amp;cursor=c2">(<i [^>]*><\/i>)?Retry<\/a>/,
+    );
+    expect(out).toMatch(
+      /href="\/workers\?status=active&amp;pendingDeletion=true">(<i [^>]*><\/i>)?Back to the first page<\/a>/,
+    );
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
+  });
+});
+
+/**
+ * A REFUSED read and an UNAVAILABLE one are different screens (sweep AW-05): a 500 with no
+ * filter in the address read "The server rejected these filters" and "That filter combination
+ * was rejected." — sending the operator to fix filters that did not exist.
+ */
+describe("a failed read is told apart by its cause", () => {
+  it("an outage with no filter says the roster is unavailable — not that filters were rejected", async () => {
+    stub.failure = new TypeError("fetch failed");
+    const out = await render();
+    expect(out).toContain("Workers are unavailable");
+    expect(out).toContain("a fault on our side");
+    expect(out).toContain("Nothing was fetched.");
+    expect(out).not.toContain("rejected");
+  });
+
+  it("a 500 from the API is an outage too, even with a filter set", async () => {
+    stub.failure = new stub.RequestError(500);
+    const out = await render({ status: "active" });
+    expect(out).toContain("Workers are unavailable");
+    expect(out).not.toContain("rejected");
+  });
+
+  it("a 400 with a filter set is the refusal, and offers no Retry — it could only repeat it", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render({ status: "nonsense" });
+    expect(out).toContain("The server rejected these filters");
+    expect(out).toContain("That filter combination was rejected.");
+    expect(out).not.toContain("Workers are unavailable");
     expect(out).not.toContain(">Retry<");
+    expect(out).not.toContain("Back to the first page");
+  });
+
+  it("a 400 past page one offers the first page with the filter kept", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render({ status: "active", cursor: "stale" });
+    expect(out).toMatch(/href="\/workers\?status=active">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
+    expect(out).not.toContain(">Retry<");
+  });
+
+  it("a 400 on a cursor ALONE names the cursor — there are no filters to blame", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render({ cursor: "stale" });
+    expect(out).toContain("The server rejected this page");
+    expect(out).not.toContain("rejected these filters");
+    expect(out).not.toContain("filter combination");
+    expect(out).toMatch(/href="\/workers">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
   });
 });

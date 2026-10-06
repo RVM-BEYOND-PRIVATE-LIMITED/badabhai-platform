@@ -135,4 +135,31 @@ describe("header fences — the tree", () => {
     const checked = [...PAGES.keys()].filter((f) => topLevel.has(routeOf(f)));
     expect(checked.length).toBe(topLevel.size);
   });
+  /**
+   * The topbar crumb names a section WITHOUT linking it on a page directly below it, because that
+   * page's back link is the link to the list (sweep AW-16: one target, one link). That is only
+   * sound while every such page has a back link — so each `/<section>/[param]` page declares one:
+   * a `back` prop, a header object's `back`, or the shared customer route that builds it.
+   */
+  it("every page directly below a section declares a back link — the crumb leaves it unlinked", () => {
+    const sections = new Set(NAV.flatMap((s) => s.items).map((i) => i.href));
+    const firstLevel = [...PAGES].filter(([file]) => {
+      const route = routeOf(file);
+      const cut = route.lastIndexOf("/");
+      return sections.has(route.slice(0, cut)) && /^\[[^\]]+\]$/.test(route.slice(cut + 1));
+    });
+    const declaresBack = (code: string) =>
+      hasBackProp(code) || /\bback:\s*\{/.test(code) || code.includes("<PayerDetailRoute");
+    expect(firstLevel.filter(([, code]) => !declaresBack(code)).map(([f]) => f)).toEqual([]);
+    // …and it really found the seven detail routes the sweep measured.
+    expect(firstLevel.map(([f]) => routeOf(f)).sort()).toEqual([
+      "/agencies/[id]",
+      "/ai-calls/[id]",
+      "/companies/[id]",
+      "/events/[id]",
+      "/jobs/[id]",
+      "/skills/discovery/[id]",
+      "/workers/[id]",
+    ]);
+  });
 });

@@ -111,7 +111,15 @@ export default async function SkillDiscoveryDetailPage({
       <PageHeader
         back={{ href: "/skills/discovery", label: "Skill discovery" }}
         title={candidate.normalized_phrase}
-        description={candidate.phrase_class_label}
+        /* What the page IS, in one sentence, with the record's own timestamp folded in. The
+           classification is not a description of the page — it is a field, and the Skill
+           candidate panel below already lists it. */
+        description={
+          <>
+            One discovery claim — its evidence, matches and decision — recorded{" "}
+            {formatRelative(candidate.created_at)} ({formatTimestamp(candidate.created_at)}).
+          </>
+        }
         primaryAction={
           /* The decision itself lives in its panel at the foot of the page, beneath the
              evidence a reviewer is meant to read first. The header offers the way to it, so

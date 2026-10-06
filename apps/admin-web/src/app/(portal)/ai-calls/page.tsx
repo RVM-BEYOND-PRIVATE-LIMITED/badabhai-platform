@@ -15,7 +15,7 @@ import {
 import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
-import { RetryActions } from "../../../components/retry-actions";
+import { FirstPageAction, RetryActions } from "../../../components/retry-actions";
 import { AiCallFilterBar } from "./filter-bar";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
@@ -111,8 +111,6 @@ export default async function AiCallsPage({
 
   const failed = page === null;
   const filtered = Boolean(taskType || success || workerId);
-  /** Something in the URL to undo. With a bare `/ai-calls` there is nothing to offer. */
-  const resettable = Boolean(taskType || success || workerId || cursor);
 
   /**
    * One builder for every link back into this list, so a filter cannot be dropped by a control
@@ -225,16 +223,9 @@ export default async function AiCallsPage({
               cursor is an opaque value that cannot be hand-edited — one of them, as it stands in
               the address bar, is not something this list accepts.
             </p>
-            {/* With a filter set, the results head's "Clear filters" is the way out; only a
-                bad cursor on an unfiltered list needs its own. */}
-            {resettable && !filtered && (
-              <div className="state__actions">
-                <Link className="btn btn--ghost" href="/ai-calls">
-                  <Icon name="arrow-line-left" />
-                  Back to the first page
-                </Link>
-              </div>
-            )}
+            {/* With a cursor, the first page of the SAME query — every filter kept. The filters
+                themselves are cleared by the results head's one "Clear filters". */}
+            <FirstPageAction href={listHref()} cursor={cursor} />
           </div>
         ) : failed ? (
           <div className="state state--error">
@@ -386,16 +377,11 @@ export default async function AiCallsPage({
               This page of the list came back empty — either you have reached the end, or the rows
               behind this cursor were removed while you were reading (deleting a worker account
               erases their AI calls with it, which is how erasure works here). The list itself is
-              unaffected; start again from the newest call.
+              unaffected; start again from the first page, newest call first.
             </p>
-            <div className="state__actions">
-              {/* KEEPS every active filter and drops only the cursor. Widening the query on the
-                  way back would answer a different question than the one being paged. */}
-              <Link className="btn btn--ghost" href={listHref()}>
-                <Icon name="arrow-line-left" />
-                Back to the newest
-              </Link>
-            </div>
+            {/* KEEPS every active filter and drops only the cursor. Widening the query on the way
+                back would answer a different question than the one being paged. */}
+            <FirstPageAction href={listHref()} cursor={cursor} />
           </div>
         ) : filtered ? (
           <div className="state">

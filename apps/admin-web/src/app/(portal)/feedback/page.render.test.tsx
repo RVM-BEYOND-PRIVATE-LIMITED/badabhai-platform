@@ -536,8 +536,10 @@ describe("the empty states, which are four different claims", () => {
     expect(out).toContain("Nothing further on this page");
     expect(out).not.toContain("No feedback submitted yet");
     // …and it offers a way back, which the old branch did not: Pager renders nothing when
-    // nextCursor is null, so an operator on a dead page had no link at all.
-    expect(out).toContain("Back to the newest");
+    // nextCursor is null, so an operator on a dead page had no link at all. It is named like
+    // every other way back to page one — it used to be "Back to the newest" (sweep AW-14).
+    expect(out).toMatch(/href="\/feedback">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
+    expect(out).not.toContain("Back to the newest");
   });
 
   it("deep-paged, filtered and empty: the way back KEEPS the filter", async () => {
@@ -565,6 +567,18 @@ describe("the two failures, which are also different claims", () => {
     const out = await render({ cursor: "x".repeat(300) });
     expect(out).toContain("Back to the first page");
     expect(out).not.toContain("Clear filter");
+  });
+
+  it("a 400 on a cursor WITH a filter offers the first page of the SAME query (sweep AW-06)", async () => {
+    // It offered nothing: the head's Clear filters was the only exit, and it drops the filter.
+    stub.failure = new stub.RequestError(400);
+    const out = await render({ category: "problem", workerId: WORKER_ID, cursor: "stale" });
+    expect(out).toContain(
+      `href="/feedback?category=problem&amp;workerId=${WORKER_ID}"><i class="ph-fill ph-arrow-line-left" aria-hidden="true"></i>Back to the first page</a>`,
+    );
+    // A refused request is not retried — it would only be refused again.
+    expect(out).not.toContain(">Retry<");
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
   });
 
   it("a 400 with nothing in the URL offers NO action — there is nothing to undo", async () => {

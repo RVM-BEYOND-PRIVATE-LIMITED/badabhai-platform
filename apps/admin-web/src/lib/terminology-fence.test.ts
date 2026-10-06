@@ -12,10 +12,13 @@ import { fileURLToPath } from "node:url";
  *
  *   - one spelling, "Resume" (never "Résumé");
  *   - "MFA", never "second factor" (the button, the column and the stat already said MFA);
- *   - the umbrella for Company + Agency is "Customers" / "account", never "Payer" on screen;
+ *   - the umbrella for Company + Agency is "Customers" / "Customer", never "Payer" on screen;
  *   - "Skill discovery" / "Skill candidate" in sentence case; "Roles and capabilities";
  *   - "View events" for the log, never "Open the event timeline" / "View in event timeline";
- *   - "Show every worker" did two different things and is gone.
+ *   - "Show every worker" did two different things and is gone;
+ *   - and from the final acceptance sweep: "MFA", never "Two-factor"; a worker's apply or skip is
+ *     a "posting decision", never a "job decision"; the payer is a "Customer", never an "Owner
+ *     account"; the way to page one is "Back to the first page", never "Back to the newest".
  *
  * CASE. Each retired phrase is matched in any case — except "Skill Discovery" (whose sentence-case
  * replacement differs only in case) and the lower-case word "payer", which is also a key and a
@@ -57,7 +60,7 @@ const RETIRED: readonly { what: string; found: (v: Visible) => boolean }[] = [
     found: (v) => all(v).some((t) => /second\s+factor/i.test(t)),
   },
   {
-    what: "Payer as a visible name (say Customer / account)",
+    what: "Payer as a visible name (say Customer)",
     found: (v) =>
       all(v).some((t) => /(^|[\s"'`>])Payers?\b/.test(t)) ||
       prose(v).some((t) => /\bpayers?\b/i.test(t)),
@@ -77,6 +80,23 @@ const RETIRED: readonly { what: string; found: (v: Visible) => boolean }[] = [
   {
     what: "Show every worker",
     found: (v) => all(v).some((t) => /show every worker/i.test(t)),
+  },
+  // ── the final acceptance sweep (2026-10-06): one name per concept ───────────────────────
+  {
+    what: "Two-factor (say MFA)",
+    found: (v) => all(v).some((t) => /two[\s-]factor/i.test(t)),
+  },
+  {
+    what: "Job decision(s) (a worker's apply or skip on a Posting is a posting decision)",
+    found: (v) => all(v).some((t) => /\bjob[\s-]decisions?\b/i.test(t)),
+  },
+  {
+    what: "Owner account (the payer is a Customer; Account is their own settings page)",
+    found: (v) => all(v).some((t) => /owner account/i.test(t)),
+  },
+  {
+    what: "Back to the newest (it is Back to the first page, like every other way to page one)",
+    found: (v) => all(v).some((t) => /back to the newest/i.test(t)),
   },
 ];
 
@@ -128,6 +148,16 @@ describe("terminology fence — the detectors", () => {
     expect(hits("<h3>Skill discovery</h3>")).toHaveLength(0);
     expect(hits("<a>show every worker</a>")).toHaveLength(1);
     expect(hits('const a = "open the event timeline";')).toHaveLength(1);
+    expect(hits('const a = "Two-factor code";')).toHaveLength(1);
+    expect(hits("<h1>two factor code</h1>")).toHaveLength(1);
+    expect(hits('const a = "MFA code";')).toHaveLength(0);
+    expect(hits("<h2>Recent job decisions</h2>")).toHaveLength(1);
+    expect(hits('const a = "the job-decisions read failed";')).toHaveLength(1);
+    expect(hits("<h2>Recent posting decisions</h2>")).toHaveLength(0);
+    expect(hits('<th scope="col">Owner account</th>')).toHaveLength(1);
+    expect(hits('<th scope="col">Customer</th>')).toHaveLength(0);
+    expect(hits("<a>Back to the newest</a>")).toHaveLength(1);
+    expect(hits("<a>Back to the first page</a>")).toHaveLength(0);
   });
 
   it("catches a lower-case payer where it can only be prose, and not in a key or a path", () => {

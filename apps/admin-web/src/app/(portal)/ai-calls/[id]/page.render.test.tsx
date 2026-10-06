@@ -243,8 +243,57 @@ describe("the neutral 404", () => {
 
   it("offers the way back rather than a retry that would spend another read", async () => {
     const out = await render();
-    expect(out).toContain("Back to AI calls");
+    // The back link, ONCE: a "Back to AI calls" button in the state was a second link to the
+    // same list on one screen (sweep AW-16).
+    expect(out).toContain('<a class="backlink" href="/ai-calls">');
+    expect(out.split('href="/ai-calls"').length - 1).toBe(1);
+    expect(out).not.toContain("Back to AI calls");
     expect(out).not.toContain(">Retry<");
+  });
+});
+
+/**
+ * Every page header carries one sentence under its title (header rule 2) — the three frames
+ * carried a title alone (sweep AW-20). And a frame's back link is its one way to the list.
+ */
+describe("the three non-success frames each say what the screen is", () => {
+  const subOf = (out: string) => /<p class="page__sub">([^<]*)<\/p>/.exec(out)?.[1] ?? null;
+
+  it("denied: one sentence, and still no way into the list it cannot open", async () => {
+    stub.capabilities = ["read_entities"];
+    const out = await render();
+    expect(subOf(out)).toBe(
+      "One AI call in full — a read that needs a capability your role does not hold.",
+    );
+    expect(out).not.toContain('href="/ai-calls"');
+  });
+
+  it("a malformed id: one sentence, and the back link alone", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render("not-a-uuid");
+    expect(subOf(out)).toBe("One AI call in full, found by the call id in the address.");
+    expect(out.split('href="/ai-calls"').length - 1).toBe(1);
+    expect(out).not.toContain("Back to AI calls");
+  });
+
+  it("the neutral 404: one sentence, naming none of the situations it covers", async () => {
+    stub.failure = new stub.RequestError(404);
+    const out = await render();
+    expect(subOf(out)).toBe("One AI call in full — the server returned no text for this id.");
+  });
+});
+
+describe("the title names the task the way the console does", () => {
+  it("is the task's label — never the raw enum (sweep AW-19)", async () => {
+    // The H1 read "profiling chat turn"; a speech call's read "stt transcription".
+    expect(await render()).toContain('<h1 class="page__title">Profiling chat turn</h1>');
+    stub.trace = { ...TRACE, task_type: "stt_transcription" };
+    expect(await render()).toContain('<h1 class="page__title">Speech-to-text</h1>');
+  });
+
+  it("is the raw id for a task type this build was never taught", async () => {
+    stub.trace = { ...TRACE, task_type: "brand_new_task" };
+    expect(await render()).toContain('<h1 class="page__title">brand_new_task</h1>');
   });
 });
 

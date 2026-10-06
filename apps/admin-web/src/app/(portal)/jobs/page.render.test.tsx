@@ -6,18 +6,31 @@ import { renderToStaticMarkup } from "react-dom/server";
  * entity is "Posting", headcount is "Openings"), its one "Clear filters", its recoveries, and
  * the empty state's link into the events log, offered only to a session that may open it.
  */
-const stub = vi.hoisted(() => ({
-  capabilities: ["read_entities", "read_events"] as string[],
-  page: null as { items: unknown[]; nextCursor: string | null } | null,
-  failure: null as unknown,
-  gates: [] as string[],
-}));
+const stub = vi.hoisted(() => {
+  /** Stands in for `AdminRequestError`, whose `status` is what separates the two failures. */
+  class RequestError extends Error {
+    constructor(readonly status: number) {
+      super(`the admin API returned ${status}`);
+    }
+  }
+  return {
+    RequestError,
+    capabilities: ["read_entities", "read_events"] as string[],
+    page: null as { items: unknown[]; nextCursor: string | null } | null,
+    failure: null as unknown,
+    gates: [] as string[],
+  };
+});
 
 vi.mock("../../../lib/auth", () => ({
   requireCapability: async (capability: string) => {
     stub.gates.push(capability);
     return { adminId: "a-1", role: "ops_admin", capabilities: stub.capabilities };
   },
+}));
+
+vi.mock("../../../lib/admin-http", () => ({
+  isAdminRequestError: (err: unknown) => err instanceof stub.RequestError,
 }));
 
 vi.mock("../../../lib/entities", () => ({
@@ -48,6 +61,7 @@ const POSTING = {
   closed_at: null,
   created_at: "2026-09-20T09:00:00.000Z",
 };
+const PAYER = POSTING.payer_id;
 
 beforeEach(() => {
   stub.capabilities = ["read_entities", "read_events"];
@@ -79,7 +93,10 @@ describe("the names (owner ruling 2026-10-01)", () => {
     const out = await render();
     expect(out).toContain('<th scope="col">Role title</th>');
     expect(out).toContain('<th scope="col">Trust review</th>');
-    expect(out).toContain('<th scope="col">Owner account</th>');
+    // The customer who published it: "Customer", never "Owner account" (owner ruling
+    // 2026-10-01 — "Account" is the payer's own settings page).
+    expect(out).toContain('<th scope="col">Customer</th>');
+    expect(out).not.toContain("Owner account");
     expect(out).not.toContain('<th scope="col">Role</th>');
   });
 });
@@ -117,10 +134,73 @@ describe("a failed read: Retry repeats the query, Back to the first page drops t
     expect(out).toMatch(/href="\/jobs">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
   });
 
-  it("with a filter set, Clear filters in the results head is the way out — once", async () => {
+  it("with a filter set, Retry KEEPS it, and Clear filters stays in the results head — once", async () => {
     stub.failure = new Error("boom");
     const out = await render({ status: "open" });
     expect(out.split(">Clear filters<").length - 1).toBe(1);
+    expect(out).toMatch(/href="\/jobs\?status=open">(<i [^>]*><\/i>)?Retry<\/a>/);
+    expect(out).not.toContain("Back to the first page");
+  });
+
+  it("filtered AND past page one: both recoveries, both keeping every filter (sweep AW-06)", async () => {
+    // The only exit used to be the head's Clear filters, which drops the filters it was paging.
+    stub.failure = new Error("boom");
+    const out = await render({ status: "open", payerId: PAYER, cursor: "Y3Vyc29y" });
+    expect(out).toContain(
+      `href="/jobs?status=open&amp;payerId=${PAYER}&amp;cursor=Y3Vyc29y"><i class="ph-fill ph-arrow-clockwise" aria-hidden="true"></i>Retry</a>`,
+    );
+    expect(out).toContain(`href="/jobs?status=open&amp;payerId=${PAYER}"><i`);
+    expect(out).toContain("Back to the first page</a>");
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
+  });
+});
+
+/**
+ * A REFUSED read and an UNAVAILABLE one are different screens (sweep AW-05). A 500 with no
+ * filter in the address used to read "The server rejected these filters".
+ */
+describe("a failed read is told apart by its cause", () => {
+  it("an outage says the postings are unavailable — never that a filter was rejected", async () => {
+    stub.failure = new TypeError("fetch failed");
+    const out = await render();
+    expect(out).toContain("Postings are unavailable");
+    expect(out).toContain("a fault on our side");
+    expect(out).toContain("Nothing was fetched.");
+    expect(out).not.toContain("rejected");
+  });
+
+  it("a 500 from the API is an outage too, not a refusal", async () => {
+    stub.failure = new stub.RequestError(500);
+    const out = await render({ status: "open" });
+    expect(out).toContain("Postings are unavailable");
+    expect(out).not.toContain("rejected");
+  });
+
+  it("a 400 with a filter set is the refusal — and offers no Retry, which could only repeat it", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render({ payerId: "6155050c" });
+    expect(out).toContain("The server rejected these filters");
+    expect(out).toContain("That filter combination was rejected.");
+    expect(out).toContain("A customer id must be a full UUID");
+    expect(out).not.toContain("Postings are unavailable");
     expect(out).not.toContain(">Retry<");
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
+  });
+
+  it("a 400 past page one offers the first page, filters kept", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render({ status: "open", cursor: "stale" });
+    expect(out).toMatch(/href="\/jobs\?status=open">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
+    expect(out).not.toContain(">Retry<");
+  });
+
+  it("a 400 on a cursor ALONE names the cursor — there are no filters to blame", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render({ cursor: "stale" });
+    expect(out).toContain("The server rejected this page");
+    expect(out).toContain("A page cursor is an opaque value");
+    expect(out).not.toContain("rejected these filters");
+    expect(out).not.toContain("filter combination");
+    expect(out).toMatch(/href="\/jobs">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
   });
 });

@@ -28,7 +28,11 @@ import { StatusPill } from "../../../../components/status-pill";
 import { Pager } from "../../../../components/pager";
 import { Stat } from "../../../../components/stat";
 import { PageHeader } from "../../../../components/page-header";
-import { RetryActions } from "../../../../components/retry-actions";
+import {
+  CURSOR_REFUSAL,
+  FirstPageLink,
+  RetryActions,
+} from "../../../../components/retry-actions";
 import { SkillDiscoveryFilterBar } from "./filter-bar";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
@@ -400,13 +404,23 @@ export default async function SkillDiscoveryPage({
             <p className="state__body">
               {view === "grouped" && badRequestMessage
                 ? badRequestMessage
-                : "Nothing was fetched. One of the filters, as it stands in the address bar, is not a value this queue accepts — a hand-edited status, tier, band or run id."}
+                : view === "flat" && cursor && !filtered
+                  ? CURSOR_REFUSAL.body
+                  : "Nothing was fetched. One of the filters, as it stands in the address bar, is not a value this queue accepts — a hand-edited status, tier, band or run id."}
             </p>
+            {/* Two different undos. With a page cursor, the first page of the SAME query —
+                view and filters kept (only the flat view pages). "Clear filters" goes to the
+                bare queue, so it is offered only when there is a filter to clear: on an
+                unfiltered flat page it would also drop `view=flat`, a first-page action wearing
+                the clear-filters name. */}
             <div className="state__actions">
-              <Link className="btn btn--ghost" href="/skills/discovery">
-                <Icon name={ACTION_ICON.clearFilters} />
-                Clear filters
-              </Link>
+              {view === "flat" && cursor ? <FirstPageLink href={listHref({})} /> : null}
+              {filtered || !(view === "flat" && cursor) ? (
+                <Link className="btn btn--ghost" href="/skills/discovery">
+                  <Icon name={ACTION_ICON.clearFilters} />
+                  Clear filters
+                </Link>
+              ) : null}
             </div>
           </div>
         ) : primaryFailed ? (

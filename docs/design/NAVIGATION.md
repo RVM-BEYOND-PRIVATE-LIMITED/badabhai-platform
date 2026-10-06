@@ -51,7 +51,7 @@ itself. The topbar crumb shows the page's ancestors only (see the header rules).
 | `/workers/[id]/journey/[sessionId]`                   | session short id       | Journey → `/workers/[id]/journey`                                                    | `read_entities`                              |
 | `/ai-calls/[id]`                                      | the call's task        | AI calls → `/ai-calls` (none on the denied screen: that reader cannot open the list) | `read_entities` page; text: `read_ai_traces` |
 | `/companies/[id]`, `/agencies/[id]`                   | organisation or id     | Companies / Agencies → the list                                                      | `read_entities`                              |
-| `/companies/[id]/timeline`, `/agencies/[id]/timeline` | Event timeline         | Company {id} / Agency {id} → the account                                             | `read_events`                                |
+| `/companies/[id]/timeline`, `/agencies/[id]/timeline` | Event timeline         | Company {id} / Agency {id} → the customer                                            | `read_events`                                |
 | `/jobs/[id]`                                          | the role title         | Postings → `/jobs`                                                                   | `read_entities`                              |
 | `/jobs/[id]/timeline`                                 | Event timeline         | Posting {id} → `/jobs/[id]`                                                          | `read_events`                                |
 | `/skills/discovery/[id]`                              | the candidate phrase   | Skill discovery → `/skills/discovery`                                                | `read_entities`                              |
@@ -80,7 +80,10 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
    the page sits below it, then the named views between the section and the page ("Journey").
    It never repeats the h1, and it never shows a record's id (only the views listed in
    `SEGMENT_LABELS` are named). The section is linked only when the reader's sidebar holds it,
-   so a reader is never offered a link that redirects them.
+   so a reader is never offered a link that redirects them — and never on a page directly below
+   it (`/workers/[id]`), whose back link already links the list: one target, one link, and the
+   crumb keeps the section as context. The portal's error and not-found screens keep that back
+   link at the same addresses (`components/fallback-header.tsx`).
 6. **Current location.** The sidebar marks the exact page `aria-current="page"`; on a page
    below it, the item is the current section (`aria-current="true"`). Chip filters mark the
    active chip `aria-current="true"` and give it the primary fill.
@@ -97,13 +100,22 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
 - **"View events"** opens the global log (`/events`). **"View event timeline"** opens one
   record's timeline. Both are offered only to a session holding `read_events`; this is an
   affordance, and each route keeps its own gate.
-- **"Retry"** repeats exactly the current query, page cursor included. **"Back to the first
-  page"** is the same query without the cursor, and appears only when there is one. Every
-  paged list's failed read renders both through `components/retry-actions.tsx` (Workers,
-  Postings, Events, Companies, Agencies, the event timelines, Payment orders, the credit
-  ledger, Skill discovery's flat view, AI calls, Feedback); a test fails if one does not pass
-  its cursor. AI calls and Feedback, which tell a refused request apart, offer only "Back to
-  the first page" in that refusal state.
+- **"Retry"** repeats exactly the current query, page cursor included — filters kept, whether
+  or not a filter is set. **"Back to the first page"** is the same query without the cursor,
+  and appears only when there is one; it is also the name of the way back from an empty page
+  past the first. Every paged list's failed read renders both through
+  `components/retry-actions.tsx` (Workers, Postings, Events, Companies, Agencies, the event
+  timelines, Payment orders, the credit ledger, Skill discovery's flat view, AI calls,
+  Feedback, a worker's interview sessions); a test fails if one does not pass its cursor.
+- **A refused read is not an outage.** A list that tells a 400 apart (Workers, Postings,
+  Events, Companies, Agencies, AI calls, Feedback, Skill discovery) says what was refused —
+  its filters, or the page cursor when no filter is set — and offers only "Back to the first
+  page", filters kept (`FirstPageAction`): a Retry would repeat a request already refused.
+  Anything else is an outage ("Workers are unavailable", "Feedback is unavailable" — a fault
+  on our side, not the filters) and offers both recoveries.
+- **One recovery of each kind per screen.** Two states on one page that would each offer the
+  same link (the credit position and the ledger both failed, or both empty) show it once.
+  The error boundary's button is "Retry" too.
 - **One instruction per failure.** Where a Retry button sits under an error, the copy does not
   also say "reload". A failure with no button (a secondary read on a detail page) says
   "Reload this page".
@@ -114,8 +126,13 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   owner, an AI call's worker, session and correlation id), id chips, the back link and the
   crumb's section link by taking the height themselves. Record rows then align on the text
   baseline, so a 44px link stays beside its label.
-- **Names.** "Resume" (one spelling), "MFA" (never "second factor"), "account" / "Customers"
-  for Company and Agency together (never "Payer" on screen), "Posting" for the job entity.
+- **Names.** "Resume" (one spelling), "MFA" (never "second factor" or "two-factor"),
+  "Customers" / "Customer" for Company and Agency together (never "Payer" on screen; never
+  "Account", which is the payer's own settings page — so "Customer", not "Owner account", and
+  role buckets read Company / Agency, not `employer` / `agent`), "Posting" for the job entity
+  and "posting decision" for a worker's apply or skip on one, "View all admin actions" for
+  the admin directory's one link into the log. AI task types read through `TASK_TYPE_LABELS`
+  (`lib/ai-cost.ts`), the raw id for one this build was not taught.
   `lib/terminology-fence.test.ts` keeps the retired names out of the console's visible text. Event names are data and keep their words (`payer.suspended`); where one is
   shown humanized, its domain reads as the console says it ("Customer · suspended",
   "Posting · created" — `humanizeEventName`).

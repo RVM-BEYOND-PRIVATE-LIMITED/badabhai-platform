@@ -200,7 +200,9 @@ describe("a row", () => {
 
   it("names the task and the model", async () => {
     const out = await render();
-    expect(out).toContain("profiling chat turn");
+    // The console's name for the task, not its raw enum (sweep AW-19).
+    expect(out).toContain("Profiling chat turn");
+    expect(out).not.toContain("profiling chat turn");
     expect(out).toContain("gemini-2.5-flash");
   });
 
@@ -397,7 +399,9 @@ describe("the empty states, which are three different claims", () => {
     // account-deletion sweep between two requests empties the page an operator is standing on.
     const out = await render({ cursor: "Y3Vyc29y" });
     expect(out).toContain("Nothing further on this page");
-    expect(out).toContain("Back to the newest");
+    // Named like every other way back to page one — it was "Back to the newest" (sweep AW-14).
+    expect(out).toMatch(/href="\/ai-calls">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
+    expect(out).not.toContain("Back to the newest");
     expect(out).not.toContain("No AI calls recorded yet");
   });
 
@@ -476,6 +480,18 @@ describe("the two failures, which are different claims", () => {
     const out = await render();
     expect(out).toContain("The server rejected this request");
     expect(out).not.toContain("state__actions");
+  });
+
+  it("a 400 on a cursor WITH a filter offers the first page of the SAME query (sweep AW-06)", async () => {
+    // It offered nothing: the head's Clear filters was the only exit, and it drops the filters.
+    stub.failure = new stub.RequestError(400);
+    const out = await render({ taskType: "profile_parse", success: "false", cursor: "stale" });
+    expect(out).toMatch(
+      /href="\/ai-calls\?taskType=profile_parse&amp;success=false">(<i [^>]*><\/i>)?Back to the first page<\/a>/,
+    );
+    // A refused request is not retried — it would only be refused again.
+    expect(out).not.toContain(">Retry<");
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
   });
 
   it("anything else is our fault and says so, retrying the SAME query", async () => {

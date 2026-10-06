@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
-import { RetryActions } from "./retry-actions";
+import { FirstPageAction, RetryActions } from "./retry-actions";
 
 /**
  * The recoveries under a failed read of a paged list (docs/design/NAVIGATION.md): "Retry"
@@ -46,11 +46,31 @@ describe("RetryActions", () => {
 });
 
 /**
+ * A REFUSED read (a 400) is not retried — the request would only be refused again — so its state
+ * offers the first page alone, filters kept, when there is a cursor to drop.
+ */
+describe("FirstPageAction", () => {
+  it("with a cursor: the first page of the same query, and no Retry", () => {
+    const out = html(<FirstPageAction href="/jobs?status=open" cursor="c2" />);
+    expect(hrefOf(out, "Back to the first page")).toBe("/jobs?status=open");
+    expect(out).not.toContain("Retry");
+    expect(out).toContain('class="state__actions"');
+  });
+
+  it("without one renders nothing — the address already is the first page", () => {
+    expect(html(<FirstPageAction href="/jobs" cursor={undefined} />)).toBe("");
+  });
+});
+
+/**
  * EVERY use passes the page's cursor. A RetryActions without one renders a "Retry" that drops
  * the page the read failed on — exactly the behaviour it exists to replace — and type-checks
  * fine, because `cursor` is optional for the first page of a list. Read with the TypeScript AST.
  */
 const srcRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+/** The recoveries whose `cursor` decides what they offer — every use must pass it. */
+const RECOVERIES = new Set(["RetryActions", "FirstPageAction"]);
 
 function uses(fileName: string, source: string): { line: number; attrs: string[] }[] {
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -61,7 +81,7 @@ function uses(fileName: string, source: string): { line: number; attrs: string[]
       : ts.isJsxElement(node)
         ? node.openingElement
         : null;
-    if (el && el.tagName.getText(sf) === "RetryActions") {
+    if (el && RECOVERIES.has(el.tagName.getText(sf))) {
       found.push({
         line: sf.getLineAndCharacterOfPosition(el.getStart(sf)).line + 1,
         attrs: el.attributes.properties
@@ -96,6 +116,7 @@ describe("every RetryActions carries the page's cursor", () => {
       { line: 1, attrs: ["href", "cursor"] },
     ]);
     expect(uses("t.tsx", 'const a = <RetryActions href="/x" />;')[0]!.attrs).toEqual(["href"]);
+    expect(uses("t.tsx", 'const a = <FirstPageAction href="/x" />;')[0]!.attrs).toEqual(["href"]);
   });
 
   it("is used by every paged list that can fail", () => {
@@ -112,6 +133,7 @@ describe("every RetryActions carries the page's cursor", () => {
       "app/(portal)/skills/discovery/page.tsx",
       "app/(portal)/ai-calls/page.tsx",
       "app/(portal)/feedback/page.tsx",
+      "app/(portal)/workers/[id]/journey/page.tsx",
     ]) {
       expect(files.has(f), f).toBe(true);
     }
