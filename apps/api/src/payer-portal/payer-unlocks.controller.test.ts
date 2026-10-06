@@ -30,6 +30,7 @@ function makeCtrl() {
     requestUnlock: vi.fn(async () => ({ ok: true })),
     reveal: vi.fn(async () => ({ channel: "in_app_relay" })),
     listByPayer: vi.fn(async () => ({ unlocks: [] })),
+    listOwnForPayer: vi.fn(async () => ({ unlocks: [] })),
     getCredits: vi.fn(async () => ({ payer_id: PAYER_A.id, balance: 0 })),
     getCreditLedger: vi.fn(async () => ({ payer_id: PAYER_A.id, ledger: [] })),
     purchaseCredits: vi.fn(async () => ({
@@ -111,9 +112,11 @@ describe("PayerUnlocksController — identity from the session, never the body (
     expect(d.unlocks.reveal).toHaveBeenCalledWith(UNLOCK, CTX, PAYER_A.id);
   });
 
-  it("listOwn + ownCredits scope to the SESSION payer", async () => {
+  it("listOwn (payer-visible list, #2033) + ownCredits scope to the SESSION payer", async () => {
     await d.ctrl.listOwn(PAYER_A);
-    expect(d.unlocks.listByPayer).toHaveBeenCalledWith(PAYER_A.id);
+    expect(d.unlocks.listOwnForPayer).toHaveBeenCalledWith(PAYER_A.id);
+    // The ops list (no visibility filter) is never what the payer route serves.
+    expect(d.unlocks.listByPayer).not.toHaveBeenCalled();
     await d.ctrl.ownCredits(PAYER_A);
     expect(d.unlocks.getCredits).toHaveBeenCalledWith(PAYER_A.id);
   });
