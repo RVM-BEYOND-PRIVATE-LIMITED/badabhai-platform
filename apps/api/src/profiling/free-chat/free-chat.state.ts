@@ -40,6 +40,13 @@ export const FREE_CHAT_STRIKES_FOR_COOLDOWN = 3;
 /** How long typing is blocked once the cool-down starts (R13). Chips still work. */
 export const FREE_CHAT_COOLDOWN_MS = 30 * 60_000;
 
+/**
+ * Résumé-mode deflections one pending question may receive before a further off-topic verdict for
+ * it passes through to the interview — the STUCK-LOOP GUARD. At temperature 0 a worker who retypes
+ * a real answer the classifier misread as off-topic would otherwise be deflected forever.
+ */
+export const FREE_CHAT_MAX_DEFLECTS = 2;
+
 /** The résumé nudge rides every Nth casual reply (R9). */
 export const FREE_CHAT_NUDGE_EVERY = 3;
 
@@ -91,20 +98,35 @@ export interface FreeChatState {
   readonly asides: number;
   readonly held: FreeChatHeldTurn | null;
   /**
-   * The pending question the résumé-mode CLARIFY line was last served for ({@link clarifyKeyOf}),
+   * The pending question the résumé-mode CLARIFY line was last served for ({@link pendingKeyOf}),
    * or null. THE CLARIFY CAP: a model that answers garbage fails the same way every time at
    * temperature 0, and its `unclear` arrives as a real call — so an uncapped clarify would loop
    * the worker on "Samajh nahi aaya" until the aside cap. A second unsure verdict for the SAME
    * question passes through to today's interview instead; a different question resets it.
    */
   readonly clarifiedFor: string | null;
+  /**
+   * How many times the résumé-mode DEFLECT line has been served for one pending question
+   * ({@link pendingKeyOf}), or null. THE STUCK-LOOP GUARD: at most {@link FREE_CHAT_MAX_DEFLECTS}
+   * per question; the next confident off-topic verdict for the SAME question passes through to
+   * today's interview. A different question starts the count again. A sibling of `clarifiedFor`,
+   * keyed the same way, and absent on every envelope written before it existed (null).
+   */
+  readonly deflected: FreeChatDeflections | null;
+}
+
+/** The deflect count for one pending question — see {@link FreeChatState.deflected}. */
+export interface FreeChatDeflections {
+  readonly key: string;
+  readonly count: number;
 }
 
 /**
- * The identity of a pending question for the clarify cap: its pack key when it has one (stable
- * across the retry wording), else its exact text (the opener, a model's question).
+ * The identity of a pending question for the clarify cap and the deflect guard: its pack key when
+ * it has one (stable across the retry wording), else its exact text (the opener, a model's
+ * question).
  */
-export function clarifyKeyOf(question: Pick<FreeChatHeldTurn, "questionKey" | "reply">): string {
+export function pendingKeyOf(question: Pick<FreeChatHeldTurn, "questionKey" | "reply">): string {
   return question.questionKey !== null ? `key:${question.questionKey}` : `text:${question.reply}`;
 }
 
@@ -120,6 +142,7 @@ export function greetingState(): FreeChatState {
     asides: 0,
     held: null,
     clarifiedFor: null,
+    deflected: null,
   };
 }
 
@@ -156,6 +179,7 @@ export function enterMode(
     lockedAt: to === "resume" ? (base.lockedAt ?? now.toISOString()) : base.lockedAt,
     held: null,
     clarifiedFor: null,
+    deflected: null,
   };
 }
 
@@ -261,7 +285,17 @@ export function narrowFreeChat(value: unknown): FreeChatState | null {
       mode === "resume" && typeof v.clarifiedFor === "string" && v.clarifiedFor.length > 0
         ? v.clarifiedFor
         : null,
+    // Unreadable reads as "never deflected" — at most two extra deflections, never a stuck one.
+    deflected: mode === "resume" ? narrowDeflections(v.deflected) : null,
   };
+}
+
+/** A stored deflect count, or null — a key is required, the count is clamped. */
+function narrowDeflections(value: unknown): FreeChatDeflections | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.key !== "string" || v.key.length === 0) return null;
+  return { key: v.key, count: nonNegativeInt(v.count) };
 }
 
 // ---------------------------------------------------------------------------

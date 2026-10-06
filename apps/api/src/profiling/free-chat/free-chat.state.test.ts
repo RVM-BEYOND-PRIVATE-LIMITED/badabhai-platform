@@ -8,6 +8,7 @@ import {
   FREE_CHAT_COOLDOWN_MS,
   greetingState,
   narrowFreeChat,
+  pendingKeyOf,
   readFreeChatLock,
   registerStrike,
   toFreeChatStatePatch,
@@ -107,6 +108,7 @@ describe("narrowFreeChat — read back field by field, failing toward 'no mode y
         inputMode: "text",
       },
       clarifiedFor: "key:primary_trade",
+      deflected: { key: "key:primary_trade", count: 1 },
     };
     expect(narrowFreeChat(JSON.parse(JSON.stringify(state)))).toEqual(state);
   });
@@ -146,7 +148,37 @@ describe("narrowFreeChat — read back field by field, failing toward 'no mode y
       asides: 2,
       held: null,
       clarifiedFor: null,
+      deflected: null,
     });
+  });
+});
+
+describe("the deflect count — narrowed, keyed, and back-compatible", () => {
+  const resume = enterMode(null, "resume", "chip", T0);
+
+  it("reads ABSENT (an envelope written before the field) as null", () => {
+    const { deflected: _gone, ...older } = resume;
+    expect(narrowFreeChat(JSON.parse(JSON.stringify(older)))?.deflected).toBeNull();
+  });
+
+  it("drops a count with no key, clamps a negative count, and keeps it only in résumé mode", () => {
+    expect(narrowFreeChat({ ...resume, deflected: { count: 2 } })?.deflected).toBeNull();
+    expect(
+      narrowFreeChat({ ...resume, deflected: { key: "key:q", count: -3 } })?.deflected,
+    ).toEqual({
+      key: "key:q",
+      count: 0,
+    });
+    expect(
+      narrowFreeChat({ ...greetingState(), deflected: { key: "key:q", count: 1 } })?.deflected,
+    ).toBeNull();
+  });
+
+  it("keys a pending question by its pack key, else by its exact text", () => {
+    expect(
+      pendingKeyOf({ questionKey: "primary_trade", reply: "Aap kaunsa kaam karte hain?" }),
+    ).toBe("key:primary_trade");
+    expect(pendingKeyOf({ questionKey: null, reply: "Theek hai." })).toBe("text:Theek hai.");
   });
 });
 

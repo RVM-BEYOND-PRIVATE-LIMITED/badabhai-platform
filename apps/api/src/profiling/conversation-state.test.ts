@@ -239,6 +239,7 @@ const FULL: ProfilingEnvelope = {
       inputMode: "text",
     },
     clarifiedFor: "key:q_city",
+    deflected: { key: "key:q_city", count: 2 },
   },
 };
 

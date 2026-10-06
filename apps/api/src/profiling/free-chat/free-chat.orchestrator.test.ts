@@ -783,6 +783,55 @@ describe("résumé mode — a deflection re-serves the pending question and spen
     );
   });
 
+  it("deflects AT MOST TWICE per pending question — the third off-topic answer reaches the interview", async () => {
+    const world = makeWorld();
+    await inResumeMode(world);
+    // A real answer the classifier keeps misreading as casual (temperature 0: the same every time).
+    world.classifyAs(verdict("casual"), verdict("casual"), verdict("casual"));
+    const deflected = `${FREE_CHAT_COPY.LOCK_DEFLECT.latin} ${FREE_CHAT_COPY.OPENER.latin}`;
+    expect((await world.say("main welding karta hoon")).reply).toBe(deflected);
+    expect((await world.say("main welding karta hoon")).reply).toBe(deflected);
+    expect(world.saved()!.turnCount).toBe(0);
+    const third = await world.say("main welding karta hoon");
+    // Today's interview answered it: a real turn, the loop broken.
+    expect(world.saved()!.turnCount).toBe(1);
+    expect(third.reply).toBe(TRADE.prompt_text);
+
+    // A NEW question resets the count: two more deflections before the guard passes again.
+    world.classifyAs(verdict("jobs"), verdict("jobs"), verdict("jobs"));
+    const onTrade = `${FREE_CHAT_COPY.LOCK_DEFLECT.latin} ${TRADE.prompt_text}`;
+    expect((await world.say("koi job hai kya")).reply).toBe(onTrade);
+    expect((await world.say("koi job hai kya")).reply).toBe(onTrade);
+    expect(world.saved()!.turnCount).toBe(1);
+    await world.say("koi job hai kya");
+    expect(world.saved()!.turnCount).toBe(2);
+  });
+
+  it("the guard caps deflections only — distress is still served after two of them", async () => {
+    const world = makeWorld();
+    await inResumeMode(world);
+    world.classifyAs(verdict("off_limits"), verdict("off_limits"), verdict("distress"));
+    await world.say("election kaun jeetega");
+    await world.say("election kaun jeetega");
+    // The distress LIST, after two deflections.
+    expect((await world.say("mujhe jeene ka mann nahi")).reply).toBe(FREE_CHAT_COPY.DISTRESS.latin);
+    // And the classifier's distress verdict.
+    expect((await world.say("bahut bura lag raha hai sab")).reply).toBe(
+      FREE_CHAT_COPY.DISTRESS.latin,
+    );
+    expect(world.saved()!.turnCount).toBe(0);
+  });
+
+  it("the guard does not cap trash — the classifier's abuse still takes the de-escalation path", async () => {
+    const world = makeWorld();
+    await inResumeMode(world);
+    world.classifyAs(verdict("casual"), verdict("casual"), verdict("trash"));
+    await world.say("aaj garmi hai");
+    await world.say("aaj garmi hai");
+    expect((await world.say("tu pagal hai kya")).reply).toBe(DE_ESCALATION_REPLY_TEXT);
+    expect(world.envelope().abusiveTurns).toBe(1);
+  });
+
   it("re-asks what the envelope NAMES over a stale held copy (the voice form served a question)", async () => {
     const world = makeWorld();
     await inResumeMode(world);

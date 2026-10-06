@@ -172,11 +172,12 @@ import {
   type FreeChatLine,
 } from "./free-chat/free-chat.copy";
 import {
-  clarifyKeyOf,
   enterMode,
   FREE_CHAT_ASIDE_CAP,
+  FREE_CHAT_MAX_DEFLECTS,
   FREE_CHAT_NUDGE_EVERY,
   greetingState,
+  pendingKeyOf,
   registerStrike,
   type FreeChatHeldTurn,
   type FreeChatState,
@@ -4297,15 +4298,28 @@ export class ProfilingOrchestrator {
         return pass(true);
       case "distress":
         return this.serveResumeDistress(t, state, pending, facts);
-      case "deflect":
-        return this.serveReAsk(t, state, FREE_CHAT_COPY.LOCK_DEFLECT, pending, facts, "deflected");
+      case "deflect": {
+        // THE STUCK-LOOP GUARD: at most twice per pending question. A worker retyping a real answer
+        // the classifier keeps misreading reaches today's interview on the third try.
+        const key = pendingKeyOf(pending);
+        const count = state.deflected?.key === key ? state.deflected.count : 0;
+        if (count >= FREE_CHAT_MAX_DEFLECTS) return pass(false);
+        return this.serveReAsk(
+          t,
+          { ...state, deflected: { key, count: count + 1 } },
+          FREE_CHAT_COPY.LOCK_DEFLECT,
+          pending,
+          facts,
+          "deflected",
+        );
+      }
       case "clarify":
         // THE CLARIFY CAP: at most once per pending question. A second unsure verdict for the same
         // question is today's interview — the deterministic path — never a clarify loop.
-        if (state.clarifiedFor === clarifyKeyOf(pending)) return pass(false);
+        if (state.clarifiedFor === pendingKeyOf(pending)) return pass(false);
         return this.serveReAsk(
           t,
-          { ...state, clarifiedFor: clarifyKeyOf(pending) },
+          { ...state, clarifiedFor: pendingKeyOf(pending) },
           FREE_CHAT_COPY.LOCK_CLARIFY,
           pending,
           facts,

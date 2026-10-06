@@ -309,7 +309,11 @@ export type ResumeModeAction =
   | { readonly kind: "pass" }
   /** Today's de-escalation path and `MAX_ABUSIVE_TURNS` cap: the classifier caught abuse. */
   | { readonly kind: "pass_abusive" }
-  /** "Pehle resume…" + the pending question again; no turn or ask spent. */
+  /**
+   * "Pehle resume…" + the pending question again; no turn or ask spent — AT MOST TWICE per pending
+   * question: the orchestrator passes a third off-topic answer for the same question to the
+   * interview (the stuck-loop guard, `FreeChatState.deflected`).
+   */
   | { readonly kind: "deflect" }
   /**
    * "Samajh nahi aaya…" + the pending question again — AT MOST ONCE per pending question: the

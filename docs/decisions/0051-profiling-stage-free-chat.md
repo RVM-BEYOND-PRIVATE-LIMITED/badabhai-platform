@@ -107,7 +107,7 @@ Everything else is classified:
 | Verdict | Handling |
 |---|---|
 | `resume` (an answer) | today's interview |
-| `career` / `casual` / `jobs` / `off_limits` (confident) | the deflect line + the pending question again. No turn or ask budget is spent. |
+| `career` / `casual` / `jobs` / `off_limits` (confident) | the deflect line + the pending question again. No turn or ask budget is spent. At most twice per pending question; a third off-topic answer passes through to the interview (stuck-loop guard). |
 | below 0.6 | the clarify line + the pending question again — at most once per pending question; a second unsure answer passes through to the interview |
 | `trash` | today's de-escalation path and the `MAX_ABUSIVE_TURNS` cap (forced-abusive capture) |
 | `distress` | the distress line |
