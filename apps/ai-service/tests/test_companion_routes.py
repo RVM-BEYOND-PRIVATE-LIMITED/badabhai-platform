@@ -44,8 +44,10 @@ def test_each_route_is_deterministic_and_small() -> None:
         # TEMPERATURE ZERO: the same worker message must classify the same way on a retry.
         assert route.temperature == 0.0
     # The classifier's whole answer is `{"intent": ..., "confidence": ...}`; the parser's is
-    # at most `max_rows` rows of five short fields.
-    assert classify.max_output_tokens == 64
+    # at most `max_rows` rows of five short fields. 48 (WP5, 2026-10-05, was 64) is the
+    # smallest safe cap: the worst-case answer is ~15 tokens, so it leaves 3x headroom while
+    # keeping the worst-case latency down.
+    assert classify.max_output_tokens == 48
     assert edit.max_output_tokens > classify.max_output_tokens
 
 

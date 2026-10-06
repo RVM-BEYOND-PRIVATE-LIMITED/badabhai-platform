@@ -25,7 +25,12 @@ import {
 } from "./chat-companion.dto";
 import { CompanionEditService } from "./v2/companion-edit.service";
 import { CompanionV2Orchestrator } from "./v2/companion-v2.orchestrator";
-import { isCompanionChipTap, resolveCompanionText } from "./companion-intents";
+import {
+  isCompanionChipTap,
+  isWeakCompanionAlias,
+  resolveCompanionText,
+} from "./companion-intents";
+import { looksLikeEditRequest } from "./v2/edit-precheck";
 import { resolveCompanionTaskChip } from "./v2/companion-task-chips";
 import {
   composeFor,
@@ -177,12 +182,48 @@ export class ChatCompanionService {
         ? await this.v2.cooldownUntil(workerId, now)
         : null;
 
+    // WP6 (TD146) — ROUTE PRECEDENCE, behind its own default-off flag. With it off none of the
+    // helpers below run and the flow is byte-for-byte today's. With it on: a pending intent left
+    // by a chip tap routes the next free-text message straight to its handler, and a narrow
+    // reviewed edit pattern routes edit phrasings to the edit handler — both BEFORE v1 and with
+    // no classifier call. Exact chip taps and every NAMED v1 intent keep their zero-model answers.
+    const precedenceOn =
+      v2On && this.config.CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED === true;
+    const chipTap = isCompanionChipTap(dto.text);
+    // Another chip clears a stale pending intent (the edit/career task chips set their own in
+    // `handleTaskChip`). Best-effort: the chip's answer is served either way.
+    if (precedenceOn && chipTap && taskChip === null) {
+      await this.v2.clearPendingIntent(workerId);
+    }
     const resolution = resolveCompanionText(dto.text);
+    const pending =
+      precedenceOn && taskChip === null && cooling === null && !chipTap
+        ? await this.v2.takePendingIntent(workerId)
+        : null;
+    const editPrecheck =
+      precedenceOn &&
+      pending === null &&
+      taskChip === null &&
+      cooling === null &&
+      !chipTap &&
+      this.config.CHAT_COMPANION_V2_EDIT_ENABLED &&
+      looksLikeEditRequest(dto.text);
     let turn: CompanionTurn;
     if (taskChip !== null) {
       turn = await this.v2.handleTaskChip(workerId, mode.profile, dto, taskChip, ctx, now);
     } else if (cooling !== null) {
       turn = await this.v2.handleCooldown(workerId, dto, ctx, now, cooling);
+    } else if (pending !== null) {
+      // A deterministic v1-bypass route: no v1 resolver, no classifier (WP6).
+      turn = await this.v2.handleDirectIntent(workerId, mode.profile, dto, pending, ctx, now);
+    } else if (editPrecheck) {
+      turn = await this.v2.handleDirectIntent(workerId, mode.profile, dto, "edit_resume", ctx, now);
+    } else if (precedenceOn && !chipTap && isWeakCompanionAlias(dto.text)) {
+      // A v1 WEAK ALIAS is not a named intent: under route precedence it goes to the classifier,
+      // which is how a career phrasing v1 would have swallowed ("welding ka kaam seekhna hai…")
+      // reaches the career handler. Exact chips, jobs/applications/guarantee/status and the
+      // other named answers never arrive here (`isWeakCompanionAlias`).
+      turn = await this.v2.handleMessage(workerId, mode.profile, dto, ctx, now);
     } else if (resolution.kind === "resume_menu") {
       turn = this.menuTurn(resolution.menu);
       await this.record(workerId, ctx, now, "message", "resume_menu", null, null, dto.submission_id ?? null);

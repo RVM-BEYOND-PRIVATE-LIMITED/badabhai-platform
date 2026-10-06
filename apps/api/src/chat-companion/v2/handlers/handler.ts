@@ -27,6 +27,13 @@ export interface HandlerInput {
   readonly recentTurns: readonly CompanionRecentTurn[];
   readonly ctx: RequestContext;
   readonly now: Date;
+  /**
+   * The turn's client-minted idempotency key, when the send carried one (TD150/WP8). Handlers
+   * that emit their own event — the faltu strike and the career answer — carry it so a duplicate
+   * is recognisable on the spine. It is an opaque uuid, never worker text, and null for an older
+   * client or a chip tap (a tap has no submission id).
+   */
+  readonly submissionId: string | null;
 }
 
 /** A handler's product: the turn to serve, and the closed outcome the v2 event records. */

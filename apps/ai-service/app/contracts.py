@@ -1940,8 +1940,10 @@ class EditableField(BaseModel):
     ``field`` is a LOGICAL name (e.g. ``expected_salary``); the API maps it to its
     writer's DTO key itself. ``ops`` is the legal subset for this field — `add` is
     offered only where one field defines the entry (skills, languages,
-    occupations), so employment and qualifications are edit/delete-only in chat.
-    The catalogue is API-authored constants; no worker text is ever in it.
+    occupations), and `delete` only for a single member, so employment and
+    qualifications are edit-only in chat ("Never from chat": a whole job, and since
+    TD151(1) a whole certificate/education/training, is removed only on the Profile
+    screen). The catalogue is API-authored constants; no worker text is ever in it.
     """
 
     section: EditSection

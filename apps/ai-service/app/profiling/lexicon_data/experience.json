@@ -142,7 +142,7 @@
   ],
   "maxPlausibleSalaryInr": 10000000,
   "matcher": {
-    "source": "(?<![0-9०-९.])([0-9०-९]{1,2}(?:\\.[0-9०-९]+)?|{EXP_WORDS})\\s*\\+?\\s*(?:years|year|yrs|yr|saal|sal){WE}",
+    "source": "(?<![0-9०-९.])([0-9०-९]{1,2}(?:\\.[0-9०-९]+)?|{EXP_WORDS})\\s*(?:\\+\\s*)?(?:years|year|yrs|yr|saal|sal){WE}",
     "flags": "i"
   },
   "$comment_matcher": [
@@ -155,6 +155,10 @@
     "The original used \\d, which is Unicode-aware in Python and ASCII-only in JavaScript. Spelled",
     "out as ASCII digits PLUS the Devanagari digit range so both engines agree. Note the UNIT",
     "alternation is deliberately Latin-only, exactly as it shipped: '५ साल' does not match today and",
-    "this extraction does not change that. Widening it is a product decision, not a refactor."
+    "this extraction does not change that. Widening it is a product decision, not a refactor.",
+    "",
+    "THE PLUS OWNS ITS TRAILING SPACE (#1935, R55): `\\s*(?:\\+\\s*)?`, never `\\s*\\+?\\s*`. The",
+    "two read the same strings, but the old one split a plus-less whitespace run between two",
+    "quantifiers: 'adhai' + 5,000 spaces took 1.1 s. Pinned by tests/test_profile_matchers_linear.py."
   ]
 }

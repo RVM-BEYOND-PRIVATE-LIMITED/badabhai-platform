@@ -96,7 +96,10 @@ WorkerCardGap? workerCardGap({
   if (description.trim().isEmpty) {
     return (
       title: 'Add the description',
-      message: 'The card shows your description. Say what the work is.',
+      // Aligned with payer-web's worker-card-gap copy (#1888): the swipe card does NOT show the
+      // description — workers read it when they open the job.
+      message: 'Workers read it when they open the job — it is not on the swipe card. '
+          'Say what the work is.',
     );
   }
   if (requirements.isEmpty) {

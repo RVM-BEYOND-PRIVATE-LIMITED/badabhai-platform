@@ -47,7 +47,7 @@ import '../../../core/util/push_once.dart';
 /// All business logic stays in [SwipeBloc]; this widget renders state and
 /// dispatches events. The real feed contract ([FeedItem] / getFeed) is PII-free
 /// and unchanged — the card shows ONLY real feed fields, no invented
-/// employer/pay (see [_cardData]). List mode's inline apply dispatches
+/// employer/pay (see [feedItemCardData]). List mode's inline apply dispatches
 /// [SwipeCardApplied] (per-card, id-targeted); deck mode's swipe/buttons
 /// dispatch [SwipeApplied] / [SwipeSkipped] (always the head card,
 /// [SwipeState.current]). The title tap opens the detail route exactly the
@@ -455,7 +455,7 @@ class _FeedViewState extends State<_FeedView> {
         itemBuilder: (BuildContext context, int index) {
           final FeedItem item = jobs[index];
           return BbJobCard(
-            data: _cardData(item),
+            data: feedItemCardData(item),
             // The title opens the FULL posting (an accessible ≥48px button,
             // #362); the green "APPLY →" applies to THIS job.
             onTitleTap: () => _openDetail(context, bloc, item),
@@ -501,7 +501,7 @@ class _FeedViewState extends State<_FeedView> {
             for (final FeedItem item in jobs)
               JobDeckItem(
                 id: item.jobId,
-                data: _cardData(item),
+                data: feedItemCardData(item),
                 payFull: payFullFor(item),
               ),
           ],
@@ -891,7 +891,11 @@ int _postedTodayCount(List<FeedItem> jobs) {
 /// The list card wires an inline "APPLY →", so its right-hand meta slot renders
 /// the action rather than the shift; the shift still surfaces on the deck card
 /// and in full on the job detail screen.
-BbJobCardData _cardData(FeedItem item) {
+///
+/// PUBLIC so the job-card contract test (`job_card_contract_test.dart`, #1888)
+/// feeds [Design1JobCard] the EXACT data the screen builds — the fixture and the
+/// card can only agree if both go through this one mapper.
+BbJobCardData feedItemCardData(FeedItem item) {
   final String place = (item.area == null || item.area!.isEmpty)
       ? item.city
       : '${item.area}, ${item.city}';

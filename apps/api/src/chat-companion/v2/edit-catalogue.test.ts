@@ -20,6 +20,7 @@ import {
   isWholeJobDelete,
   normaliseValue,
   opAllowed,
+  wholeEntryDelete,
 } from "./edit-catalogue";
 
 /**
@@ -89,7 +90,7 @@ describe("every catalogue field has a worker-facing field label", () => {
   });
 });
 
-describe("the legal ops per section ('Never from chat', owner ruling 2026-10-01)", () => {
+describe("the legal ops per section ('Never from chat')", () => {
   const opsOf = (section: string) =>
     EDIT_CATALOGUE.filter((e) => e.section === section).map((e) => [e.field, [...e.ops]] as const);
 
@@ -101,8 +102,25 @@ describe("the legal ops per section ('Never from chat', owner ruling 2026-10-01)
     );
   });
 
-  it("every other section is unchanged: qualifications edit/delete, the member lists add/delete", () => {
-    for (const [, ops] of opsOf("qualifications")) expect(ops).toEqual(["edit", "delete"]);
+  it("every qualification field is EDIT-only — a whole-entry delete is Profile-only (TD151(1), 2026-10-05)", () => {
+    expect(opsOf("qualifications")).toEqual(
+      [
+        "certificate_name",
+        "certificate_issuer",
+        "certificate_year",
+        "education_credential",
+        "education_field",
+        "education_council",
+        "education_year",
+        "education_institute",
+        "training_name",
+        "training_provider",
+        "training_year",
+      ].map((field) => [field, ["edit"]]),
+    );
+  });
+
+  it("every other section is unchanged: the member lists add/delete", () => {
     for (const section of ["skills", "languages", "occupations"]) {
       for (const [, ops] of opsOf(section)) expect(ops).toEqual(["add", "delete"]);
     }
@@ -124,18 +142,27 @@ describe("the legal ops per section ('Never from chat', owner ruling 2026-10-01)
     ]);
   });
 
-  it("isWholeJobDelete is exactly (employment, delete) — whatever field, and for untrusted input", () => {
+  it("wholeEntryDelete is exactly (employment|qualifications, delete) — whatever field, for untrusted input", () => {
+    expect(wholeEntryDelete({ section: "employment", op: "delete" })).toBe("employment");
+    expect(wholeEntryDelete({ section: "qualifications", op: "delete" })).toBe("qualification");
+    // isWholeJobDelete stays the employment-specific predicate, derived from the same rule.
     expect(isWholeJobDelete({ section: "employment", op: "delete" })).toBe(true);
-    expect(isWholeJobDelete({ section: "employment", op: "edit" })).toBe(false);
-    expect(isWholeJobDelete({ section: "employment", op: "add" })).toBe(false);
-    expect(isWholeJobDelete({ section: "occupations", op: "delete" })).toBe(false);
     expect(isWholeJobDelete({ section: "qualifications", op: "delete" })).toBe(false);
-    expect(isWholeJobDelete({ section: "Employment", op: "delete" })).toBe(false);
+    for (const section of ["employment", "qualifications"] as const) {
+      expect(wholeEntryDelete({ section, op: "edit" })).toBeNull();
+      expect(wholeEntryDelete({ section, op: "add" })).toBeNull();
+    }
+    expect(wholeEntryDelete({ section: "occupations", op: "delete" })).toBeNull();
+    expect(wholeEntryDelete({ section: "languages", op: "delete" })).toBeNull();
+    expect(wholeEntryDelete({ section: "Employment", op: "delete" })).toBeNull();
+    expect(wholeEntryDelete({ section: "Qualifications", op: "delete" })).toBeNull();
   });
 
-  it("no catalogue entry lets an employment delete through opAllowed", () => {
+  it("no catalogue entry lets a whole-entry delete through opAllowed", () => {
     for (const entry of EDIT_CATALOGUE) {
-      if (entry.section === "employment") expect(opAllowed(entry, "delete")).toBe(false);
+      if (entry.section === "employment" || entry.section === "qualifications") {
+        expect(opAllowed(entry, "delete")).toBe(false);
+      }
     }
   });
 });
@@ -160,8 +187,9 @@ describe("a whole-entry delete names the ENTRY, never its anchor field", () => {
   });
 
   it("the entry kind is the TARGET's list — the entry removed — never the anchor field's (EDIT-ROW-KIND)", () => {
-    // A certificate field anchored on an education: the apply removes the education, so the card
-    // must say so rather than "Yeh poora certificate".
+    // Kept although new proposals can no longer carry a qualification delete: a card stored
+    // before the TD151(1) ruling still renders on a retry, and the label must name the entry
+    // the APPLY will remove. A certificate field anchored on an education: that is the education.
     expect(cardFieldLabel("qualifications", "certificate_name", "delete", target("educations"))).toBe(
       EDIT_ENTRY_LABELS.education.latin,
     );

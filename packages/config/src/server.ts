@@ -330,6 +330,16 @@ export const serverEnvSchema = z.object({
   CHAT_COMPANION_V2_FALTU_ENABLED: booleanFromString,
   // P3 — career answers (Claude, Hinglish only, inside the fixed refusals O10).
   CHAT_COMPANION_V2_CAREER_ENABLED: booleanFromString,
+  // ROUTE PRECEDENCE (TD146; provisional default 2026-10-05, owner sign-off pending) — v1's
+  // keyword resolver answers edit/career phrasings before v2 can see them ("edit my resume",
+  // "location Mumbai kar do", "welding ka kaam seekhna hai, kya karun"), and a task-chip tap is
+  // not remembered. With this ON: a chip tap on `companion_task:edit_resume` / `:career_talk`
+  // stores a pending intent (Redis, per worker, 10-minute TTL, one-shot) so the NEXT free-text
+  // message skips the v1 resolver and the classifier and goes straight to that handler; and a
+  // narrow reviewed edit pattern table routes an edit verb + field word to the edit handler
+  // BEFORE v1. Every NAMED v1 intent (chips, résumé menu, jobs, applications, guarantee, status)
+  // keeps its zero-model answer. Default false: off is today's behaviour byte-for-byte.
+  CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED: booleanFromString,
   // Below this classifier confidence the turn is `unclear` — model failure, invalid output and a
   // blocked input land there too (fail closed, spec §2.1). A 0..1 fraction.
   CHAT_COMPANION_V2_ROUTER_MIN_CONFIDENCE: fractionFromString(0.6),

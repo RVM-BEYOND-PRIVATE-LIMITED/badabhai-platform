@@ -43,7 +43,12 @@ export type SystemResumeTrigger = Extract<
  * refused, before anything was spent. `failed`: nothing will be generated — no readable draft, or
  * the job could not be queued (its slot handed back).
  */
-export type ChatEditRegeneration = "queued" | "capped" | "failed";
+// `skipped_no_consent` (TD150/WP8): the worker's consent does not name `resume_generation`, so
+// no regeneration was ASKED FOR — the edits are written and the confirm re-renders instead. v1's
+// event recorded this as `failed`, which made a deliberate skip look like a defect; the v2 edit
+// event names it. `ResumeService.queueChatEditRegeneration` itself still returns the original
+// three values (it is only reached once consent held); the edit service adds this one before it.
+export type ChatEditRegeneration = "queued" | "capped" | "failed" | "skipped_no_consent";
 
 /** One card on the worker's résumé history (`GET /resume/history`, ADR-0043). */
 export interface ResumeHistoryItem {

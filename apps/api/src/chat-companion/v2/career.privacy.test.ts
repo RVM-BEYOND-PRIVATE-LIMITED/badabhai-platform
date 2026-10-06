@@ -74,7 +74,13 @@ function setup(opts: { career?: unknown; classifyThrows?: boolean } = {}) {
       findLatestByWorker: vi.fn(async () => ({ revokedAt: null, purposes: ["resume_generation"] })),
     } as never),
     new FaltuHandler(config, faltuStore as never, events as never),
-    new CareerTalkHandler(config, ai as never, cost as never, events as never),
+    new CareerTalkHandler(
+      config,
+      ai as never,
+      cost as never,
+      events as never,
+      { isKnownEmployer: vi.fn(async () => false) } as never,
+    ),
     new JobsDeferredHandler(config),
     new PhaseOffHandler(config),
     new UnclearHandler(config),
@@ -83,6 +89,9 @@ function setup(opts: { career?: unknown; classifyThrows?: boolean } = {}) {
   const replayRedis = {
     get: vi.fn(async (_key: string) => null as string | null),
     set: vi.fn(async (_key: string, _value: string, _mode: "EX", _seconds: number) => "OK"),
+    // WP8: the in-flight claim's release (SET NX is a no-op here; `get` never
+    // returns a held value and the orchestrator still processes the message).
+    del: vi.fn(async (_key: string) => 0),
   };
   const replays = new CompanionTurnReplayStore({
     client: Promise.resolve(replayRedis),
@@ -96,6 +105,7 @@ function setup(opts: { career?: unknown; classifyThrows?: boolean } = {}) {
     cost as never,
     faltuStore as never,
     replays,
+    { set: vi.fn(async () => undefined), take: vi.fn(async () => null), clear: vi.fn(async () => undefined) } as never,
   );
   return { orchestrator, ai, memory, events, cost, replayRedis };
 }
@@ -140,10 +150,11 @@ describe("career privacy (ADR-0046 P3)", () => {
 
     const career = h.events.emit.mock.calls
       .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
-      .find((e) => e.event_name === "chat.companion_career_answered")!;
+      .find((e) => e.event_name === "chat.companion_career_answered_v2")!;
     expect(Object.keys(career.payload).sort()).toEqual([
       "outcome",
       "refusal_topic",
+      "submission_id",
       "turns_in_memory",
     ]);
     for (const call of h.events.emit.mock.calls) {
@@ -204,8 +215,12 @@ describe("career privacy (ADR-0046 P3)", () => {
       expect(JSON.stringify(call[0])).not.toContain("Pipe welding");
     }
     expect(JSON.stringify(h.memory.append.mock.calls)).not.toContain("Pipe welding");
-    expect(h.replayRedis.set).toHaveBeenCalledTimes(1);
-    expect(h.replayRedis.set.mock.calls[0]![1]).not.toContain("Pipe welding");
+    // WP8: `set` also carries the in-flight claim; the replay write is found by its key.
+    const replayWrite = h.replayRedis.set.mock.calls.find((c) =>
+      String(c[0]).startsWith("companion:v2:turn:"),
+    );
+    expect(replayWrite).toBeDefined();
+    expect(replayWrite![1]).not.toContain("Pipe welding");
   });
 });
 
@@ -225,8 +240,12 @@ describe("career privacy — the replay cache holds the served answer, never the
       NOW,
     );
     expect(turn.reply).toBe(ANSWER_LINE);
-    expect(h.replayRedis.set).toHaveBeenCalledTimes(1);
-    const [key, value] = h.replayRedis.set.mock.calls[0]!;
+    // WP8: `set` also carries the in-flight claim; the replay write is found by its key.
+    const replayWrite = h.replayRedis.set.mock.calls.find(
+      (c) => c[0] === `companion:v2:turn:${WORKER}:${SID}`,
+    );
+    expect(replayWrite).toBeDefined();
+    const [key, value] = replayWrite!;
     expect(key).toBe(`companion:v2:turn:${WORKER}:${SID}`);
     expect(JSON.parse(value)).toEqual(turn);
     for (const secret of [QUESTION, "Tata Motors", "masked question"]) {
