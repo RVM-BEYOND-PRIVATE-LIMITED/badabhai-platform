@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import get_args
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from app.contracts import (
     AnswerRecord,
@@ -47,6 +47,16 @@ from app.contracts import (
     EditSection,
     EvidenceSpan,
     ExperienceEntry,
+    FreeChatAnswer,
+    FreeChatCategory,
+    FreeChatClassifyInput,
+    FreeChatClassifyMode,
+    FreeChatClassifyOutput,
+    FreeChatRefusalTopic,
+    FreeChatRefuse,
+    FreeChatReplyCategory,
+    FreeChatReplyInput,
+    FreeChatReplyOutput,
     InterviewExtractInput,
     InterviewExtractOutput,
     JobDomainMatch,
@@ -737,4 +747,169 @@ def test_the_companion_contracts_carry_no_identity_pii_field():
     a name, a phone or an address (§2 #2)."""
     banned = {"worker_id", "worker_ref", "worker_name", "name", "phone", "address"}
     for model_name, model in _COMPANION_MODELS.items():
+        assert banned.isdisjoint(set(model.model_fields)), model_name
+
+
+# --- The profiling-stage free chat (ADR-0051, #2027) ------------------------------------------
+#
+# Mirrors `packages/ai-contracts/src/free-chat.ts`. The three closed sets live in `packages/types`
+# (read from source below, the frontier the API's handlers and the event spine share); the
+# classify modes live in the Zod file itself. Every model is pinned to the golden fixture the
+# TypeScript suite reads, and the bounds are asserted as BEHAVIOUR on the Pydantic constraints.
+_FREE_CHAT_FIXTURE = _FIXTURE_DIR / "free-chat.keys.json"
+_FREE_CHAT_TS = _REPO / "packages" / "ai-contracts" / "src" / "free-chat.ts"
+
+_FREE_CHAT_MODELS = {
+    "FreeChatClassifyInput": FreeChatClassifyInput,
+    "FreeChatClassifyOutput": FreeChatClassifyOutput,
+    "FreeChatReplyInput": FreeChatReplyInput,
+    # The two reply members are a discriminated union on `status`; the fixture pins each
+    # member's keys and the union test below pins the discriminant.
+    "FreeChatAnswer": FreeChatAnswer,
+    "FreeChatRefuse": FreeChatRefuse,
+}
+
+
+@pytest.mark.parametrize("name", sorted(_FREE_CHAT_MODELS))
+def test_free_chat_models_match_the_zod_shape(name: str):
+    golden = _read_golden(_FREE_CHAT_FIXTURE)
+    assert name in golden, f"fixture is missing {name}"
+    assert sorted(_FREE_CHAT_MODELS[name].model_fields) == sorted(golden[name])
+
+
+def test_the_free_chat_fixture_declares_no_model_the_python_side_lacks():
+    golden = _read_golden(_FREE_CHAT_FIXTURE)
+    declared = {k for k in golden if not k.startswith("_")}
+    assert declared == set(_FREE_CHAT_MODELS)
+
+
+def test_free_chat_closed_sets_match_the_shared_types_source():
+    """The sets live in `packages/types/src/index.ts`; the API's handlers, its refusal-line map and
+    the `chat.free_chat_turn_served` event read them too. Key-name parity cannot see values."""
+    assert _string_union_in(_TYPES_TS, "FREE_CHAT_CATEGORIES") == list(get_args(FreeChatCategory))
+    assert _string_union_in(_TYPES_TS, "FREE_CHAT_REPLY_CATEGORIES") == list(
+        get_args(FreeChatReplyCategory)
+    )
+    assert _string_union_in(_TYPES_TS, "FREE_CHAT_REFUSAL_TOPICS") == list(
+        get_args(FreeChatRefusalTopic)
+    )
+    assert _string_union_in(_FREE_CHAT_TS, "FREE_CHAT_CLASSIFY_MODES") == list(
+        get_args(FreeChatClassifyMode)
+    )
+    # Non-vacuous: the regex found real members, not an empty list on both sides.
+    assert "off_limits" in _string_union_in(_TYPES_TS, "FREE_CHAT_CATEGORIES")
+    assert "news" in _string_union_in(_TYPES_TS, "FREE_CHAT_REFUSAL_TOPICS")
+    # The reply categories are a subset of the categories: the model only ever answers for a
+    # category the classifier can return.
+    assert set(get_args(FreeChatReplyCategory)) <= set(get_args(FreeChatCategory))
+
+
+def _free_chat_ts_int(const_name: str) -> int:
+    source = _FREE_CHAT_TS.read_text(encoding="utf-8")
+    match = re.search(rf"const {const_name} = (\d+);", source)
+    assert match, f"{const_name} not found in free-chat.ts — the mirror has moved"
+    return int(match.group(1))
+
+
+def test_free_chat_bounds_match_the_zod_source_at_the_boundary():
+    classify_max = _free_chat_ts_int("TEXT_MAX_CLASSIFY")
+    message_max = _free_chat_ts_int("TEXT_MAX_MESSAGE")
+    question_max = _free_chat_ts_int("PENDING_QUESTION_MAX")
+    classify_turns = _free_chat_ts_int("CLASSIFY_TURNS_MAX")
+    reply_turns = _free_chat_ts_int("REPLY_TURNS_MAX")
+    line_max = _free_chat_ts_int("REPLY_LINE_MAX")
+    chip_max = _free_chat_ts_int("REPLY_CHIP_MAX")
+    turn = {"role": "worker", "text": "kuch"}
+
+    FreeChatClassifyInput(text="x" * classify_max, mode="free")
+    with pytest.raises(ValidationError):
+        FreeChatClassifyInput(text="x" * (classify_max + 1), mode="free")
+    with pytest.raises(ValidationError):
+        FreeChatClassifyInput(text="", mode="free")
+    FreeChatClassifyInput(text="x", mode="resume", pending_question="q" * question_max)
+    with pytest.raises(ValidationError):
+        FreeChatClassifyInput(text="x", mode="resume", pending_question="q" * (question_max + 1))
+    with pytest.raises(ValidationError):
+        FreeChatClassifyInput(text="x", mode="resume", pending_question="")  # Zod .min(1)
+    FreeChatClassifyInput(text="x", mode="free", recent_turns=[turn] * classify_turns)
+    with pytest.raises(ValidationError):
+        FreeChatClassifyInput(text="x", mode="free", recent_turns=[turn] * (classify_turns + 1))
+    with pytest.raises(ValidationError):
+        FreeChatClassifyInput(text="x", mode="greeting")  # never sent: read deterministically
+
+    FreeChatReplyInput(category="casual", text="x" * message_max)
+    with pytest.raises(ValidationError):
+        FreeChatReplyInput(category="casual", text="x" * (message_max + 1))
+    FreeChatReplyInput(category="career", text="x", recent_turns=[turn] * reply_turns)
+    with pytest.raises(ValidationError):
+        FreeChatReplyInput(category="career", text="x", recent_turns=[turn] * (reply_turns + 1))
+    with pytest.raises(ValidationError):
+        FreeChatReplyInput(category="jobs", text="x")  # fixed copy, never a model reply
+
+    FreeChatAnswer(status="answer", lines=["x" * line_max] * 4, followup_chips=["c" * chip_max] * 3)
+    with pytest.raises(ValidationError):
+        FreeChatAnswer(status="answer", lines=["x" * (line_max + 1)])
+    with pytest.raises(ValidationError):
+        FreeChatAnswer(status="answer", lines=["ok"], followup_chips=["c" * (chip_max + 1)])
+    with pytest.raises(ValidationError):
+        FreeChatAnswer(status="answer", lines=[])
+    with pytest.raises(ValidationError):
+        FreeChatAnswer(status="answer", lines=["a"] * 5)
+    with pytest.raises(ValidationError):
+        FreeChatAnswer(status="answer", lines=["ok"], followup_chips=["c"] * 4)
+
+    FreeChatClassifyOutput(category="unclear", confidence=0.0)
+    FreeChatClassifyOutput(category="unclear", confidence=1.0)
+    for bad in (-0.1, 1.1):
+        with pytest.raises(ValidationError):
+            FreeChatClassifyOutput(category="unclear", confidence=bad)
+
+
+def test_free_chat_defaults_match_the_zod_source():
+    """Each Zod `.default(...)` has the same Pydantic default, so a far side that omits the field
+    parses to the same value on both sides."""
+    classify = FreeChatClassifyInput(text="x", mode="free")
+    assert classify.recent_turns == []
+    assert classify.pending_question is None
+    out = FreeChatClassifyOutput(category="career", confidence=0.9)
+    assert out.blocked is False
+    assert out.ai_metadata is None
+    reply = FreeChatReplyInput(category="casual", text="x")
+    assert reply.recent_turns == []
+    assert reply.worker_context.model_dump() == {"trade_label": None, "experience_bucket": None}
+    answer = FreeChatAnswer(status="answer", lines=["x"])
+    assert answer.followup_chips == []
+    assert answer.ai_metadata is None
+    assert FreeChatRefuse(status="refuse", topic="news").ai_metadata is None
+
+
+def test_free_chat_reply_output_is_a_status_discriminated_union():
+    """`status` is REQUIRED and picks the member, like the Zod `discriminatedUnion`: a missing or
+    unknown discriminant fails the contract (the route turns that into `refuse/unsafe_other`)."""
+    union = TypeAdapter(FreeChatReplyOutput)
+    assert isinstance(union.validate_python({"status": "answer", "lines": ["x"]}), FreeChatAnswer)
+    refused = union.validate_python({"status": "refuse", "topic": "distress"})
+    assert isinstance(refused, FreeChatRefuse)
+    for bad in (
+        {"lines": ["x"]},  # no discriminant
+        {"status": "maybe", "lines": ["x"]},  # unknown discriminant
+        {"status": "refuse", "topic": "salary_promise"},  # the COMPANION's topic, not ours
+        {"status": "answer", "topic": "news"},  # a refusal body under the answer tag
+    ):
+        with pytest.raises(ValidationError):
+            union.validate_python(bad)
+
+
+def test_the_free_chat_contracts_reuse_the_companion_shapes():
+    """One recent-turn shape and one worker-context shape, as the Zod file imports them."""
+    turns = list[CompanionRecentTurn]
+    assert FreeChatClassifyInput.model_fields["recent_turns"].annotation == turns
+    assert FreeChatReplyInput.model_fields["recent_turns"].annotation == turns
+    context = FreeChatReplyInput.model_fields["worker_context"].annotation
+    assert context is CompanionCareerWorkerContext
+
+
+def test_the_free_chat_contracts_carry_no_identity_pii_field():
+    banned = {"worker_id", "worker_ref", "worker_name", "name", "phone", "address", "city"}
+    for model_name, model in _FREE_CHAT_MODELS.items():
         assert banned.isdisjoint(set(model.model_fields)), model_name

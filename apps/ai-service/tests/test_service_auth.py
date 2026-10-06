@@ -242,11 +242,18 @@ class TestServiceAuthEnabled:
         # 19 -> 20 with ADR-0046 Phase 3: POST /companion/career. The most sensitive of the
         # three - the model's ANSWER is served to the worker - so the same TD67 bearer gates
         # it, and the API's content validator is the second lock.
+        #
+        # 20 -> 22 with ADR-0051 (the profiling-stage free chat): POST /free-chat/classify and
+        # POST /free-chat/reply. Both carry worker free text (the message, the question on
+        # screen, recent turns), and the reply's answer is served to the worker, so both are
+        # gated by the same bearer; the API's validator is the reply's second lock.
         assert post_paths == [
             "/companion/career",
             "/companion/classify",
             "/companion/edit-parse",
             "/embeddings/skill-alias",
+            "/free-chat/classify",
+            "/free-chat/reply",
             "/growth/cluster",
             "/job-posting-chat/opening",
             "/job-posting-chat/respond",
