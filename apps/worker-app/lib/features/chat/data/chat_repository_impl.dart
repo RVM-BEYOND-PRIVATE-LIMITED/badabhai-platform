@@ -291,6 +291,14 @@ class ChatRepositoryImpl implements ChatRepository {
         // #896 — the Devanagari read-aloud script for THIS reply; null on an
         // older API build, and read-aloud then speaks the romanized reply.
         ttsText: reply.ttsText,
+        // #2030 — carried on the INTERVIEW path too, not just the companion's.
+        // The bloc already honours `canReadAloud`; dropping these here meant a
+        // model-written free-chat reply (ADR-0051: `read_aloud: false`, no
+        // `tts_text`) still drew a speaker, which then read its Latin text in a
+        // hi-IN voice. And a trash cool-down the server had already declared
+        // never reached the composer.
+        readAloud: reply.readAloud,
+        cooldownUntil: reply.cooldownUntil,
         // #761 — carried for the optimistic-lookahead reconcile in ChatBloc:
         // asked_question_id attributes THIS turn, lookahead predicts the next.
         askedQuestionId: reply.askedQuestionId,
