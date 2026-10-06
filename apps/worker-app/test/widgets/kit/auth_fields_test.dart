@@ -44,7 +44,8 @@ void main() {
 
       expect(tester.getSize(find.byType(PhoneNumberField)).height, 54);
       expect(find.text('+91'), findsOneWidget);
-      expect(find.text('XXXXXXXXXX'), findsOneWidget);
+      // A valid example number, not a wall of X's.
+      expect(find.text('9876543210'), findsOneWidget);
     });
 
     testWidgets('rings NAVY at 1.8 on focus, never yellow', (

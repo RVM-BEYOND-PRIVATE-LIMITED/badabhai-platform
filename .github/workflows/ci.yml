@@ -239,6 +239,8 @@ jobs:
             # SOURCE with no build step, compiled into BOTH apps by `next build`
             # (`transpilePackages`), and its icons.css (the self-hosted Phosphor font) is
             # `@import`ed by both globals.css files — an edit there changes both images.
+            # @badabhai/role-art (packages/role-art) is the same shape: TS source + role-art.css,
+            # compiled into payer-web by `next build` (`transpilePackages`) for the job-card art.
             payer-web:
               - 'apps/payer-web/**'
               - 'packages/config/**'
@@ -247,6 +249,7 @@ jobs:
               - 'packages/types/**'
               - 'packages/design-tokens/**'
               - 'packages/icons/**'
+              - 'packages/role-art/**'
               - '.github/workflows/ci.yml'
             # apps/admin-web (the INTERNAL admin portal) — same contract as the payer-web
             # filter above, gating ONLY the admin-web leg of `image-gate`. The workspace
@@ -2228,6 +2231,10 @@ jobs:
           # Off is today's opening, and is what an unset or empty secret resolves to through
           # compose's `:-false`. Must be on by the release that unroutes the app's /name screen.
           CHAT_IDENTITY_INTAKE_ENABLED: ${{ secrets.CHAT_IDENTITY_INTAKE_ENABLED }}
+          # The profiling-stage free chat's KILL SWITCH (ADR-0051). Unset/empty resolves to false
+          # through compose's `:-false`, which keeps the free chat ON (live on merge); only an
+          # explicit true restores today's chat.
+          CHAT_FREE_CHAT_DISABLED: ${{ secrets.CHAT_FREE_CHAT_DISABLED }}
           # Tiered profiling (Easy/Medium/Hard). Unset/empty resolves to off at the compose level,
           # which is today's behaviour. Needs migration 0126 + a pack re-seed before it is set.
           PROFILING_TIERS_ENABLED: ${{ secrets.PROFILING_TIERS_ENABLED }}
@@ -2407,7 +2414,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,PROFILING_TIERS_ENABLED,RESUME_SKINS_ENABLED,RESUME_QR_SCAN_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_COMPANION_V2_ENABLED,CHAT_COMPANION_V2_EDIT_ENABLED,CHAT_COMPANION_V2_NEW_RESUME_ENABLED,CHAT_COMPANION_V2_FALTU_ENABLED,CHAT_COMPANION_V2_CAREER_ENABLED,CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED,CHAT_GENERAL_ROAD_ENABLED,CHAT_IDENTITY_INTAKE_ENABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS,AI_RAW_PII_ENABLED,MATCH_V1_ENABLED,FEED_POSTINGS_UNION_ENABLED
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,RESUME_AUTOFILL_ENABLED,PROFILING_TIERS_ENABLED,RESUME_SKINS_ENABLED,RESUME_QR_SCAN_ENABLED,RESUME_CHAT_UPDATE_OFFER_ENABLED,CHAT_COMPANION_ENABLED,CHAT_COMPANION_V2_ENABLED,CHAT_COMPANION_V2_EDIT_ENABLED,CHAT_COMPANION_V2_NEW_RESUME_ENABLED,CHAT_COMPANION_V2_FALTU_ENABLED,CHAT_COMPANION_V2_CAREER_ENABLED,CHAT_COMPANION_V2_ROUTE_PRECEDENCE_ENABLED,CHAT_GENERAL_ROAD_ENABLED,CHAT_IDENTITY_INTAKE_ENABLED,CHAT_FREE_CHAT_DISABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS,AI_RAW_PII_ENABLED,MATCH_V1_ENABLED,FEED_POSTINGS_UNION_ENABLED
           #
           # ⚠ FIVE LINKS, AND A SECRET ONLY BUYS THE FIRST. A value reaches a container by:
           #   1. existing as a GitHub environment secret

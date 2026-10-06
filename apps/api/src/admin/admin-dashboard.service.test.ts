@@ -293,7 +293,12 @@ describe("AI cost — what a finished profile costs", () => {
       // the same document to FILL the profile's form answers; uncounted it flatters the
       // same comparison with the same invisible spend.
       "resume_option_map",
+      // ADR-0051 (#2027) — the free-chat classifier gates every typed answer in résumé mode (the
+      // lock), so it is spent ON the profiling interview. Its sibling `profiling_free_reply`
+      // (casual/career free chat) builds nothing and stays out.
+      "profiling_free_classify",
     ]);
+    expect(asked.profilingTaskTypes).not.toContain("profiling_free_reply");
     expect(asked.profilingTaskTypes).not.toContain("resume_generation");
     // …and the response says which set it used, so the split is auditable from the wire.
     const out = await makeService().summary(DTO);

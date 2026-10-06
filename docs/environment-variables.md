@@ -157,6 +157,15 @@ NestJS boot assertion).
   `${CHAT_IDENTITY_INTAKE_ENABLED:-false}`, `ci.yml` `env:` + `envs:`). **It must be on by the
   release that unroutes the app's `/name` screen** — off with `/name` gone captures nobody's name;
   on with `/name` still routed asks only what `/name` left blank. No migration.
+- **The profiling-stage free chat's kill switch (ADR-0051, #2027)** — `CHAT_FREE_CHAT_DISABLED`
+  (default false, which means the feature is ON: live on merge, owner ruling 2026-10-06). A
+  profiling session opens on a greeting ("Shuru karein?"); résumé mode is today's interview,
+  locked until the résumé is done; free mode classifies and answers every message per category.
+  `true` sends every session straight to today's interview with no greeting and no classifier
+  call, byte for byte the pre-ADR-0051 chat. Bridged through the GitHub `production` environment
+  secret of the same name (compose `${CHAT_FREE_CHAT_DISABLED:-false}`, `ci.yml` `env:` + `envs:`).
+  The two model tasks it calls (`profiling_free_classify`, `profiling_free_reply`) are armed
+  separately, by appending them to the box's `AI_REAL_CALL_TASKS`. No migration.
 - **Matching V1 cutover gate (ADR-0036 §8, #1904)** — `MATCH_V1_ENABLED`, api only
   (`booleanFromString`, default off). Off is the legacy source for the worker feed, apply and the
   payer candidate list (`jobs` + the weighted engine); on is `job_reach` + `job_postings` + the V1

@@ -18,6 +18,7 @@
     "@badabhai/design-tokens": "workspace:*",
     "@badabhai/icons": "workspace:*",
     "@badabhai/pricing": "workspace:*",
+    "@badabhai/role-art": "workspace:*",
     "@badabhai/types": "workspace:*",
     "@badabhai/validators": "workspace:*",
     "next": "^15.5.25",
