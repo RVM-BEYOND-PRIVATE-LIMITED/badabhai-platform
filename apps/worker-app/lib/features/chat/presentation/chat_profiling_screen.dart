@@ -3680,9 +3680,8 @@ class _EditProposalCard extends StatefulWidget {
 }
 
 class _EditProposalCardState extends State<_EditProposalCard> {
-  /// The rows the worker UNTICKED. Everything starts ticked, so an empty set
-  /// needs no initialisation pass — and the card cannot be built before the
-  /// proposal it belongs to exists.
+  /// The rows the worker UNTICKED. Non-destructive rows (`add` / `edit`) start
+  /// TICKED (phase-1 F1), so only the destructive ones are seeded here.
   final Set<String> _unticked = <String>{};
 
   /// Rebuilds once a second so Haan / Nahi disable the moment `expires_at`
@@ -3692,6 +3691,14 @@ class _EditProposalCardState extends State<_EditProposalCard> {
   @override
   void initState() {
     super.initState();
+    // TD151(2) — a DESTRUCTIVE row (`op: "delete"`) starts UNTICKED: removing a
+    // skill / language / trade / saved place must take a DELIBERATE tick, never
+    // a Haan tapped without reading. Non-destructive rows (`add` / `edit`) keep
+    // the all-ticked default. `op` is the authoritative signal (§5.1); the
+    // confirm route still receives only the ticked rows' ids.
+    for (final EditProposalRow row in widget.proposal.rows) {
+      if (row.op == 'delete') _unticked.add(row.rowId);
+    }
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -3917,10 +3924,10 @@ class _EditProposalCardState extends State<_EditProposalCard> {
         return _opLine(kEditOpAdd, after ?? '');
       case 'delete':
         // THE ONE ROW THAT DESTROYS SOMETHING. A strikethrough alone carries
-        // that meaning only to a reader who already knows the convention, and
-        // every row arrives pre-ticked — so a worker who taps Haan without
-        // decoding it loses a skill, a language or a qualification off their own
-        // résumé. The word says so, in the same red the app uses for removal.
+        // that meaning only to a reader who already knows the convention, so the
+        // row now starts UNTICKED (TD151(2)) AND the word says so, in the same
+        // red the app uses for removal — a worker can never lose a skill, a
+        // language or a qualification by tapping Haan without reading.
         return _opLine(
           kEditOpDelete,
           before ?? '',

@@ -378,7 +378,8 @@ void main() {
 
   // ── ADR-0046 §5.1/§5.2 — THE EDIT CARD ─────────────────────────────────────
   //
-  // The card shows one row per proposed change (all ticked), Haan / Nahi, and
+  // The card shows one row per proposed change (add/edit ticked, delete
+  // UNTICKED — TD151(2)), Haan / Nahi, and
   // disables after `expires_at`. Haan POSTs the ticked rows' server-minted ids
   // to the confirm route; Nahi POSTs the cancel route. The VALUES never leave.
   group('ADR-0046 edit card', () {
@@ -428,7 +429,7 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('renders every row ticked, with Haan / Nahi',
+    testWidgets('renders add/edit rows ticked and a DELETE row UNTICKED',
         (WidgetTester tester) async {
       await pumpWithCard(tester);
 
@@ -437,15 +438,18 @@ void main() {
       // EVERY ROW SAYS WHAT IT DOES. `section_label` names the section only, so
       // "Welding" under "Skills" could equally mean adding or removing it — and
       // a delete row used to be carried by a strikethrough alone, on a card
-      // where every row arrives pre-ticked. A worker tapping Haan without
+      // where every row arrived pre-ticked. A worker tapping Haan without
       // decoding that lost a skill off their own résumé.
       expect(find.textContaining('$kEditOpAdd Welding'), findsOneWidget);
       expect(find.textContaining('$kEditOpDelete Hindi'), findsOneWidget);
 
-      final Iterable<Checkbox> boxes =
-          tester.widgetList<Checkbox>(find.byType(Checkbox));
+      final List<Checkbox> boxes =
+          tester.widgetList<Checkbox>(find.byType(Checkbox)).toList();
       expect(boxes, hasLength(2));
-      expect(boxes.every((Checkbox c) => c.value == true), isTrue);
+      // TD151(2): the add row starts ticked; the destructive row does NOT, so a
+      // Haan alone can never remove a skill / language / trade.
+      expect(boxes[0].value, isTrue, reason: 'the add row starts ticked');
+      expect(boxes[1].value, isFalse, reason: 'the delete row starts unticked');
 
       expect(find.text(kVoiceBooleanYes), findsOneWidget);
       expect(find.text(kVoiceBooleanNo), findsOneWidget);
@@ -535,6 +539,11 @@ void main() {
               ));
       await pumpWithCard(tester);
 
+      // The delete row starts unticked (TD151(2)); tick it deliberately so BOTH
+      // rows are ticked and both ids go to the confirm route.
+      await tester.tap(find.text('Languages'));
+      await tester.pumpAndSettle();
+
       await tester.tap(find.text(kVoiceBooleanYes));
       await tester.pumpAndSettle();
 
@@ -545,7 +554,8 @@ void main() {
       expect(find.byType(Checkbox), findsNothing);
     });
 
-    testWidgets('an UNTICKED row is not sent', (WidgetTester tester) async {
+    testWidgets('a DELETE row left unticked is NOT sent (TD151(2))',
+        (WidgetTester tester) async {
       when(() => repo.confirmCompanionEdit(any(), any(),
               submissionId: any(named: 'submissionId')))
           .thenAnswer((_) async => CompanionEditResult.served(
@@ -553,8 +563,28 @@ void main() {
               ));
       await pumpWithCard(tester);
 
-      // Tapping the row (its label) unticks it.
+      // Haan straight away: the add row is ticked, the delete row is not.
+      await tester.tap(find.text(kVoiceBooleanYes));
+      await tester.pumpAndSettle();
+
+      verify(() => repo.confirmCompanionEdit(proposalId, <String>[rowA],
+          submissionId: any(named: 'submissionId'))).called(1);
+    });
+
+    testWidgets('tapping a row still toggles it — an add row can be unticked',
+        (WidgetTester tester) async {
+      when(() => repo.confirmCompanionEdit(any(), any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => CompanionEditResult.served(
+                _companion('Badlav ho gaya.', const <ChatOption>[]),
+              ));
+      await pumpWithCard(tester);
+
+      // Tapping the row (its label) unticks the add row; tick the delete row so
+      // exactly one row remains ticked.
       await tester.tap(find.text('Skills'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Languages'));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text(kVoiceBooleanYes));
