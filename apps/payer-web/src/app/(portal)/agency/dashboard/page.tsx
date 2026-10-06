@@ -15,9 +15,10 @@ export const dynamic = "force-dynamic";
  * `#agency-vacancies` fragment is preserved on the destination, so a deep link to the vacancy
  * manager still lands there.
  *
- * The agency child components (agency-jobs-manager / invite-panel / referral-funnel /
- * parked-modules + their actions) continue to live in this directory and are imported by
- * `/dashboard`'s AgentSections — only this page entry became a redirect.
+ * The agency child components continue to live in this directory: referral-funnel and
+ * parked-modules are imported by `/dashboard`'s AgentSections, agency-jobs-manager by the Postings
+ * page (`/agency/jobs`), agency-job-form by New posting and Edit posting, and the invite + batch
+ * panels by Referrals — only this page entry became a redirect.
  */
 export default function AgencyDashboardRedirect(): never {
   redirect("/dashboard");

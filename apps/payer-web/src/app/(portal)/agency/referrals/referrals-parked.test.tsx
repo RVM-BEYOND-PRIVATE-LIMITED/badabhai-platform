@@ -6,6 +6,7 @@ import { EarningsPanel } from "./earnings-panel";
 import { KycPanel } from "./kyc-panel";
 import { PayoutPanel } from "./payout-panel";
 import { AgencyInvitePanel } from "../dashboard/invite-panel";
+import { AgencyBatchInvitePanel } from "../dashboard/batch-invite-panel";
 
 /**
  * AGENCY "Referrals" page (ADR-0022 Amendment 2) — role gate + LIVE funnel + GATED supply
@@ -260,5 +261,34 @@ describe("agency referrals page — the conversion RATE honours the k-anon floor
     expect(collect(tree).text.join(" ")).toMatch(
       /Conversion appears once both stages clear the\s+privacy floor of/,
     );
+  });
+});
+
+/* ── F19 (final sweep): the funnel first, then the one primary, then the secondary tool ── */
+
+describe("agency referrals page — F19 reading order", () => {
+  /** The page's top-level blocks, by what they are. */
+  async function blocks(): Promise<string[]> {
+    const page = (await AgencyReferralsPage()) as ReactElement<{ children: ReactNode[] }>;
+    return (page.props.children as ReactNode[])
+      .flat()
+      .filter((k): k is ReactElement<Record<string, unknown>> => typeof k === "object" && k !== null)
+      .map((k) => {
+        if (k.type === AgencyInvitePanel) return "invite";
+        if (k.type === AgencyBatchInvitePanel) return "batch";
+        const text = collect(k).text.join(" ");
+        if (/Referral funnel/.test(text)) return "funnel";
+        if (/earnings|payout/i.test(text) || collect(k).components.includes(EarningsPanel)) return "money";
+        return typeof k.type === "string" ? k.type : "header";
+      });
+  }
+
+  it("funnel ABOVE the forms; the invite link (the one primary) before the batch links; money last", async () => {
+    expect(await blocks()).toEqual(["header", "funnel", "invite", "batch", "money"]);
+  });
+
+  it("…and the same order while payouts are off", async () => {
+    getAgencyEarnings.mockResolvedValueOnce(null);
+    expect(await blocks()).toEqual(["header", "funnel", "invite", "batch", "money"]);
   });
 });

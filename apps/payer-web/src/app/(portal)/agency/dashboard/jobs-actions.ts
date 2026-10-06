@@ -45,7 +45,7 @@ export type AgencyJobActionResult =
   | { ok: true; job: AgencyJob }
   | { ok: false; error: string };
 
-/** Create/edit discriminated result — returns the updated job (the manager re-renders it). */
+/** Create/edit discriminated result — returns the saved job (its page then opens its details). */
 export type AgencyJobMutationResult =
   | { ok: true; job: AgencyJob }
   | { ok: false; error: string };
