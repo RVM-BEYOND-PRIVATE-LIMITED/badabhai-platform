@@ -26,11 +26,10 @@ void main() {
 
   tearDown(() {
     // Restore BOTH globals to the SHIPPED state — this suite drives them on
-    // purpose and every other test in the app reads them. `false` is the
-    // restore value: the pubspec bundles the DEAD Baloo 2 / Mukta faces, NOT
-    // Anek, so the bundled path would render the display voice as a system
-    // fallback. Shipping false routes display() through GoogleFonts.anekLatin —
-    // it is what `main()` runs with.
+    // purpose and every other test in the app reads them. `false` is the restore
+    // value: it governs body()/eyebrow(), which route through GoogleFonts.roboto
+    // (the pubspec bundles no Roboto). display() is always the bundled
+    // Kilimanjaro Sans (#1999) and no longer reads this flag.
     AppTypography.bundledBrandFonts = false;
     GoogleFonts.config.allowRuntimeFetching = false;
   });
@@ -40,11 +39,11 @@ void main() {
 
     test('display/body/eyebrow resolve to the named asset families', () {
       // On the bundled branch, display()/body() name a family DIRECTLY (no
-      // google_fonts "_regular" variant suffix). NB: 'Anek' is the family this
-      // branch NAMES, not one the pubspec actually declares — it bundles Baloo 2
-      // / Mukta — which is exactly why shipping this branch `true` rendered the
-      // headline voice as a system fallback. This only pins the branch mechanics.
-      expect(AppTypography.display().fontFamily, 'Anek');
+      // google_fonts "_regular" variant suffix). #1999 — display() is the
+      // bundled brand-kit heading face, Kilimanjaro Sans. body()/eyebrow() name
+      // 'Roboto' (a platform font; the pubspec bundles no Roboto, which is why
+      // this branch is not the shipped default).
+      expect(AppTypography.display().fontFamily, 'Kilimanjaro Sans');
       expect(AppTypography.body().fontFamily, 'Roboto');
       expect(AppTypography.eyebrow().fontFamily, 'Roboto');
     });
@@ -101,7 +100,7 @@ void main() {
       ];
 
       for (final TextStyle? s in slots) {
-        expect(s!.fontFamily, anyOf('Anek', 'Roboto'));
+        expect(s!.fontFamily, anyOf('Kilimanjaro Sans', 'Roboto'));
       }
     });
 
@@ -110,6 +109,14 @@ void main() {
       // binaries we actually ship. A slot asking for a weight with no face gets
       // silently remapped to the nearest one, so the drift is invisible on
       // screen until someone compares against the design system.
+      // #1999 — the display family is Kilimanjaro Sans, one file declared at
+      // 400/600/700/800.
+      const Set<FontWeight> kilimanjaro = <FontWeight>{
+        FontWeight.w400,
+        FontWeight.w600,
+        FontWeight.w700,
+        FontWeight.w800,
+      };
       const Set<FontWeight> baloo = <FontWeight>{
         FontWeight.w600,
         FontWeight.w700,
@@ -129,8 +136,11 @@ void main() {
         t.bodyLarge, t.bodyMedium, t.bodySmall,
         t.labelLarge, t.labelMedium, t.labelSmall,
       ]) {
-        final Set<FontWeight> declared =
-            s!.fontFamily == 'Anek' ? baloo : mukta;
+        final Set<FontWeight> declared = switch (s!.fontFamily) {
+          'Kilimanjaro Sans' => kilimanjaro,
+          'Baloo 2' => baloo,
+          _ => mukta,
+        };
         // Never null: display()/body() both stamp their default weight in.
         expect(declared, contains(s.fontWeight));
       }
@@ -148,11 +158,11 @@ void main() {
 
     testWidgets('falls back to the google_fonts families',
         (WidgetTester tester) async {
-      // Deliberately NOT the asset family name — this is the branch that proves
-      // the bundled assertions above are testing a real switch and not a
-      // constant.
-      expect(AppTypography.display().fontFamily, isNot('Anek'));
-      expect(AppTypography.display().fontFamilyFallback, contains('AnekLatin'));
+      // #1999 — display() is the bundled Kilimanjaro Sans on BOTH branches (it
+      // no longer reads the flag); body()/eyebrow() still route through
+      // google_fonts Roboto when the flag is false.
+      expect(AppTypography.display().fontFamily, 'Kilimanjaro Sans');
+      expect(AppTypography.display().fontFamilyFallback, contains('Baloo 2'));
       expect(AppTypography.body().fontFamilyFallback, contains('Noto Sans Devanagari'));
     });
 
@@ -169,12 +179,13 @@ void main() {
     });
   });
 
-  test('ships via google_fonts by default (Anek is not bundled)', () {
-    // The #350 fix on the payer app: the pubspec carries the dead Baloo 2 /
-    // Mukta faces, NOT Anek, so a `true` flag would render every headline in the
-    // system fallback. The flag MUST ship false, routing display() through
-    // GoogleFonts.anekLatin for the real Anek voice. Declared outside both groups
-    // so no setUp has touched it; tearDown restores this same value.
+  test('ships the flag false — body/eyebrow still come via google_fonts', () {
+    // #350/#1999: the pubspec bundles Baloo 2 / Mukta / Kilimanjaro Sans, NOT
+    // Roboto, so a `true` flag would render every BODY run in the system
+    // fallback. The flag MUST ship false, routing body()/eyebrow() through
+    // GoogleFonts.roboto. display() is the bundled Kilimanjaro Sans either way.
+    // Declared outside both groups so no setUp has touched it; tearDown restores
+    // this same value.
     expect(AppTypography.bundledBrandFonts, isFalse);
   });
 

@@ -5,9 +5,10 @@ import 'app_colors.dart';
 
 /// BadaBhai typography — JUL31 "JOSH" system (LOCKED 2026-07-27).
 ///
-///  - **Anek** (Ek Type) — display & brand voice. Distinctive, Indian; carries
-///    Devanagari (same family). Headlines, buttons, salaries, big moments.
-///    Wired via `GoogleFonts.anekLatin`, mirroring the JUL31 kit.
+///  - **Kilimanjaro Sans** (#1999) — display & brand voice, the brand-kit
+///    heading face. Headlines, buttons, salaries, big moments. Bundled in
+///    `assets/fonts/`; falls back to the bundled Baloo 2 / Mukta for the ₹ and
+///    Devanagari glyphs it does not carry.
 ///  - **Roboto** (+ system Noto Sans Devanagari fallback) — body & all UI.
 ///    Neutral, free, renders perfectly on budget handsets and multilingual copy.
 ///  - **Roboto Mono** — data: wages, IDs, OTP, counts. Tabular numerals.
@@ -25,9 +26,21 @@ class AppTypography {
   /// Self-hosted data font family (declared in pubspec under `fonts:`).
   static const String monoFamily = 'Roboto Mono';
 
-  /// Display family — **Anek**. Resolved through `GoogleFonts.anekLatin`
-  /// (see [bundledBrandFonts]); falls back until the TTF is bundled.
-  static const String displayFamily = 'Anek';
+  /// Display family — the brand-kit heading face, **Kilimanjaro Sans** (#1999),
+  /// bundled in `assets/fonts/` and declared in pubspec. This is the exact
+  /// pubspec `fonts:` family name, so it resolves off the asset with no
+  /// google_fonts call.
+  static const String displayFamily = 'Kilimanjaro Sans';
+
+  /// Display fallbacks: the bundled Baloo 2 (which carries Devanagari), the
+  /// bundled Mukta, then the system Noto Sans Devanagari. Kilimanjaro Sans is
+  /// Latin-display only — no ₹, no Devanagari — so those glyphs fall through to
+  /// a face that carries them rather than rendering tofu.
+  static const List<String> displayFallback = <String>[
+    'Baloo 2',
+    'Mukta',
+    'Noto Sans Devanagari',
+  ];
 
   /// Body/UI family — **Roboto** (system font on Android; Noto Sans Devanagari
   /// fallback for regional copy).
@@ -36,22 +49,21 @@ class AppTypography {
   /// Devanagari fallback for body copy — mirrors the JUL31 kit's `BBType`.
   static const List<String> _devanagariFallback = <String>['Noto Sans Devanagari'];
 
-  /// #350 — whether the display BINARY (Anek) ships inside the APK.
+  /// #350 — whether the BODY binaries ship inside the APK.
   ///
-  /// `false` (current): [display] routes through `GoogleFonts.anekLatin` and
-  /// [body]/[eyebrow] through `GoogleFonts.roboto`, so the real Anek + Roboto
-  /// faces are fetched at runtime on first use — the same delivery the JUL31
-  /// kit and payer-web use.
+  /// #1999 NOTE: [display] is now ALWAYS the bundled Kilimanjaro Sans and no
+  /// longer consults this flag. It governs only [body]/[eyebrow]:
   ///
-  /// `true` is the "binaries bundled" behaviour: [display]/[body]/[eyebrow]
-  /// resolve straight off bundled asset families named [displayFamily]/[bodyFamily]
-  /// and google_fonts is never called. **This must stay FALSE until an ANEK face
-  /// is actually declared under pubspec `fonts:`.** The pubspec here bundles
-  /// Baloo 2 + Mukta (DEAD JUL31-predecessor fonts), NOT Anek — so flipping this
-  /// TRUE makes [display] ask for a family `'Anek'` that does not exist and every
-  /// headline silently renders the system fallback instead of the Anek brand
-  /// voice. (This is the exact bug fixed in the worker-app: flip to FALSE and let
-  /// google_fonts deliver real Anek.)
+  /// `false` (current): [body]/[eyebrow] route through `GoogleFonts.roboto`, so
+  /// the real Roboto face is fetched at runtime on first use.
+  ///
+  /// `true` is the "binaries bundled" behaviour: [body]/[eyebrow] resolve
+  /// straight off the bundled asset family named [bodyFamily] and google_fonts
+  /// is never called. **This must stay FALSE until a ROBOTO face is actually
+  /// declared under pubspec `fonts:`.** The pubspec here bundles Baloo 2 + Mukta
+  /// + Kilimanjaro Sans, NOT Roboto — so flipping this TRUE makes [body] ask for
+  /// a family `'Roboto'` that is only a platform font, and every body run
+  /// silently renders the system fallback.
   ///
   /// Mutable (not `const`) so a test can drive BOTH sides of the seam; restore
   /// it in `tearDown`.
@@ -82,7 +94,10 @@ class AppTypography {
   static const double size3xl = 38;
   static const double size4xl = 48;
 
-  /// Display / headline / button style — **Anek** (via `GoogleFonts.anekLatin`).
+  /// Display / headline / button style — **Kilimanjaro Sans** (#1999), the
+  /// brand-kit heading face, bundled in `assets/fonts/`. NO google_fonts call:
+  /// the face is in the APK, so this never touches the network. The fallback
+  /// chain carries the ₹ and Devanagari glyphs the display cut lacks.
   static TextStyle display({
     double size = sizeXl,
     FontWeight weight = FontWeight.w700,
@@ -90,18 +105,12 @@ class AppTypography {
     double height = 1.1,
     double letterSpacing = -0.3,
   }) {
+    // #350 — on the bundled branch every type entry point slams the google_fonts
+    // network door (a no-op on the fetch branch, where body()/eyebrow() need it).
     _hardenFontLoading();
-    if (bundledBrandFonts) {
-      return TextStyle(
-        fontFamily: displayFamily,
-        fontSize: size,
-        fontWeight: weight,
-        color: color,
-        height: height,
-        letterSpacing: letterSpacing,
-      );
-    }
-    return GoogleFonts.anekLatin(
+    return TextStyle(
+      fontFamily: displayFamily,
+      fontFamilyFallback: displayFallback,
       fontSize: size,
       fontWeight: weight,
       color: color,
