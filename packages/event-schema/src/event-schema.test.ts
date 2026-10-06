@@ -3128,8 +3128,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 222 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions)", () => {
-    expect(EVENT_NAMES).toHaveLength(222);
+  it("exposes all 224 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events + the #1318 safe-field resume.edited_v2 + the #1801 resume.skin_changed + the #1800 profile.qr_scanned + the four ADR-0046 companion-v2 Phase 1 events + the ADR-0046 P2 faltu strike + the ADR-0046 P3 career answer + the E4 match-skill wants event + the ADR-0048 identity-intake step + the six TD150/WP8 companion versions + the two ADR-0051 free-chat events)", () => {
+    expect(EVENT_NAMES).toHaveLength(224);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -5461,5 +5461,97 @@ describe("profile.identity_intake_answered (ADR-0048, #1858)", () => {
     expect(ok({ ...answeredCity, outcome: "declined" })).toBe(false);
     const { session_id: _dropped, ...withoutSession } = answeredCity;
     expect(ok(withoutSession)).toBe(false);
+  });
+});
+
+describe("chat.free_chat_turn_served / chat.free_chat_mode_changed (ADR-0051, #2027)", () => {
+  const envelope = (eventName: string, payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name: eventName,
+    event_version: 1,
+    occurred_at: "2026-10-06T10:00:00.000Z",
+    actor: { actor_type: "worker", actor_id: UUID_B },
+    subject: { subject_type: "chat_session", subject_id: UUID_C },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+  const served = (payload: Record<string, unknown>) =>
+    validateEvent(envelope("chat.free_chat_turn_served", payload)).success;
+  const changed = (payload: Record<string, unknown>) =>
+    validateEvent(envelope("chat.free_chat_mode_changed", payload)).success;
+  const answered = {
+    worker_id: UUID_B,
+    session_id: UUID_C,
+    mode: "free",
+    category: "casual",
+    decided_by: "classifier",
+    confidence_bucket: "70_90",
+    outcome: "answered",
+    refusal_topic: null,
+    strike_count: null,
+    cooldown_started: false,
+    nudge: true,
+    submission_id: UUID_A,
+  };
+
+  it("both are registered at v1 in the chat domain", () => {
+    for (const name of ["chat.free_chat_turn_served", "chat.free_chat_mode_changed"] as const) {
+      expect(isEventName(name)).toBe(true);
+      expect(EVENT_REGISTRY[name].version).toBe(1);
+      expect(EVENT_REGISTRY[name].domain).toBe("chat");
+    }
+  });
+
+  it("accepts the shapes the free chat serves", () => {
+    expect(served(answered)).toBe(true);
+    expect(served({ ...answered, submission_id: null })).toBe(true);
+    // The greeting: decided by the flow, no category, no confidence.
+    expect(
+      served({ ...answered, mode: "greeting", category: null, decided_by: "flow", confidence_bucket: null, outcome: "greeting", nudge: false }),
+    ).toBe(true);
+    // A refusal carries its topic.
+    expect(served({ ...answered, category: "career", outcome: "refused", refusal_topic: "news", nudge: false })).toBe(true);
+    // The strike that starts the cool-down.
+    expect(
+      served({ ...answered, category: "trash", decided_by: "lexicon", confidence_bucket: null, outcome: "cooldown", strike_count: 3, cooldown_started: true, nudge: false }),
+    ).toBe(true);
+    // A résumé-mode deflection.
+    expect(served({ ...answered, mode: "resume", category: "jobs", outcome: "deflected", nudge: false })).toBe(true);
+    // An unavailable classifier in free mode → clarify, decided by the fallback.
+    expect(
+      served({ ...answered, category: null, decided_by: "fallback", confidence_bucket: null, outcome: "clarify", nudge: false }),
+    ).toBe(true);
+  });
+
+  it("ties refusal_topic to a refusal, confidence to the classifier, a cool-down to a strike", () => {
+    expect(served({ ...answered, refusal_topic: "news" })).toBe(false);
+    expect(served({ ...answered, outcome: "refused" })).toBe(false);
+    expect(served({ ...answered, decided_by: "lexicon" })).toBe(false);
+    expect(served({ ...answered, outcome: "cooldown", cooldown_started: true })).toBe(false);
+  });
+
+  it("carries no words — `.strict()` refuses the message or the reply riding along", () => {
+    expect(served({ ...answered, text: "aaj mann nahi lag raha" })).toBe(false);
+    expect(served({ ...answered, reply: "Koi baat nahi." })).toBe(false);
+  });
+
+  it("refuses values outside the closed sets", () => {
+    expect(served({ ...answered, category: "faltu" })).toBe(false);
+    expect(served({ ...answered, mode: "companion" })).toBe(false);
+    expect(served({ ...answered, outcome: "served" })).toBe(false);
+    expect(served({ ...answered, decided_by: "llm" })).toBe(false);
+  });
+
+  it("records a mode change, from null on a first stamp, and never a no-op change", () => {
+    const toResume = { worker_id: UUID_B, session_id: UUID_C, from: "greeting", to: "resume", trigger: "chip" };
+    expect(changed(toResume)).toBe(true);
+    expect(changed({ ...toResume, from: null, trigger: "resume_import" })).toBe(true);
+    expect(changed({ ...toResume, from: "free", trigger: "classifier" })).toBe(true);
+    expect(changed({ ...toResume, from: "resume" })).toBe(false);
+    expect(changed({ ...toResume, trigger: "typed" })).toBe(false);
+    expect(changed({ ...toResume, text: "resume banana hai" })).toBe(false);
   });
 });

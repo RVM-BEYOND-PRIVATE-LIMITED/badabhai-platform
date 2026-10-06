@@ -5,12 +5,24 @@ import profilingKeys from "./__fixtures__/profiling.keys.json";
 import oieKeys from "./__fixtures__/oie.keys.json";
 import aiCallMetadataKeys from "./__fixtures__/ai-call-metadata.keys.json";
 import companionKeys from "./__fixtures__/companion.keys.json";
+import freeChatKeys from "./__fixtures__/free-chat.keys.json";
 import {
   COMPANION_V2_EDIT_OPS,
   COMPANION_V2_EDIT_SECTIONS,
   COMPANION_V2_INTENTS,
   COMPANION_V2_UNSUPPORTED_EDIT_TARGETS,
+  FREE_CHAT_CATEGORIES,
+  FREE_CHAT_REFUSAL_TOPICS,
+  FREE_CHAT_REPLY_CATEGORIES,
 } from "@badabhai/types";
+import {
+  FreeChatAnswerSchema,
+  FreeChatClassifyInputSchema,
+  FreeChatClassifyOutputSchema,
+  FreeChatRefuseSchema,
+  FreeChatReplyInputSchema,
+  FreeChatReplyOutputSchema,
+} from "./free-chat";
 import {
   CompanionCareerAnswerSchema,
   CompanionCareerInputSchema,
@@ -1244,5 +1256,110 @@ describe("Companion v2 contract parity (contracts.py mirror)", () => {
         unsupported: ["identity"],
       }).unsupported,
     ).toEqual(["identity"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The profiling-stage free chat — Zod <-> Pydantic parity (ADR-0051, #2027), against the
+// golden fixture apps/ai-service/tests/test_contract_parity.py reads too.
+// ---------------------------------------------------------------------------
+
+describe("Free chat contract parity (contracts.py mirror)", () => {
+  const shapes: Array<[string, Record<string, unknown>]> = [
+    ["FreeChatClassifyInput", FreeChatClassifyInputSchema.shape],
+    ["FreeChatClassifyOutput", FreeChatClassifyOutputSchema.shape],
+    ["FreeChatReplyInput", FreeChatReplyInputSchema.shape],
+    // The reply union's two members; the union itself is not a `.shape`.
+    ["FreeChatAnswer", FreeChatAnswerSchema.shape],
+    ["FreeChatRefuse", FreeChatRefuseSchema.shape],
+  ];
+
+  it.each(shapes)("%s keys match the golden fixture shared with Pydantic", (name, shape) => {
+    const golden = (freeChatKeys as unknown as Record<string, string[] | string>)[name];
+    expect(golden, `fixture is missing ${name}`).toBeDefined();
+    expect(Array.isArray(golden)).toBe(true);
+    expect(Object.keys(shape).sort()).toEqual([...(golden as string[])].sort());
+  });
+
+  it("the fixture declares no contract the TypeScript side lacks", () => {
+    const declared = Object.keys(freeChatKeys).filter((k) => !k.startsWith("_"));
+    expect(declared.sort()).toEqual(shapes.map(([n]) => n).sort());
+  });
+
+  it("the closed sets come from @badabhai/types, not a private copy", () => {
+    expect(FreeChatClassifyOutputSchema.shape.category.options).toEqual([...FREE_CHAT_CATEGORIES]);
+    expect(FreeChatReplyInputSchema.shape.category.options).toEqual([...FREE_CHAT_REPLY_CATEGORIES]);
+    expect(FreeChatRefuseSchema.shape.topic.options).toEqual([...FREE_CHAT_REFUSAL_TOPICS]);
+    // Non-vacuous: eight categories, two of them model-written.
+    expect(FREE_CHAT_CATEGORIES).toHaveLength(8);
+    expect(FREE_CHAT_REPLY_CATEGORIES).toEqual(["casual", "career"]);
+  });
+
+  it("carries NO identity-capable field, by construction", () => {
+    const banned = ["worker_id", "worker_ref", "worker_name", "name", "phone", "address", "city"];
+    for (const [contractName, shape] of shapes) {
+      for (const field of banned) {
+        expect(Object.keys(shape), `${contractName} must not declare ${field}`).not.toContain(field);
+      }
+    }
+  });
+
+  it("caps the classify text, the turns and the pending question", () => {
+    const turn = { role: "worker", text: "kuch" };
+    const base = { mode: "free" };
+    expect(FreeChatClassifyInputSchema.parse({ ...base, text: "x".repeat(1000) }).text).toHaveLength(1000);
+    expect(() => FreeChatClassifyInputSchema.parse({ ...base, text: "x".repeat(1001) })).toThrow();
+    expect(() =>
+      FreeChatClassifyInputSchema.parse({ ...base, text: "hi", recent_turns: [turn, turn, turn] }),
+    ).toThrow();
+    expect(
+      FreeChatClassifyInputSchema.parse({ mode: "resume", text: "5 saal", pending_question: "q".repeat(500) })
+        .pending_question,
+    ).toHaveLength(500);
+    expect(() =>
+      FreeChatClassifyInputSchema.parse({ mode: "resume", text: "5 saal", pending_question: "q".repeat(501) }),
+    ).toThrow();
+    const replyBase = { category: "casual", text: "kaise ho" };
+    expect(
+      FreeChatReplyInputSchema.parse({ ...replyBase, recent_turns: Array(6).fill(turn) }).recent_turns,
+    ).toHaveLength(6);
+    expect(() =>
+      FreeChatReplyInputSchema.parse({ ...replyBase, recent_turns: Array(7).fill(turn) }),
+    ).toThrow();
+  });
+
+  it("classifies only in free or résumé mode — the greeting is read deterministically", () => {
+    expect(FreeChatClassifyInputSchema.parse({ text: "hi", mode: "free" }).pending_question).toBeNull();
+    expect(() => FreeChatClassifyInputSchema.parse({ text: "hi", mode: "greeting" })).toThrow();
+  });
+
+  it("writes replies only for casual and career; every other category is fixed copy", () => {
+    for (const category of ["jobs", "trash", "off_limits", "distress", "resume", "unclear"]) {
+      expect(() => FreeChatReplyInputSchema.parse({ category, text: "kuch" }), category).toThrow();
+    }
+  });
+
+  it("defaults blocked/ai_metadata so an older far side still parses, and bounds confidence", () => {
+    const out = FreeChatClassifyOutputSchema.parse({ category: "casual", confidence: 0.8 });
+    expect(out.blocked).toBe(false);
+    expect(out.ai_metadata).toBeNull();
+    for (const confidence of [-0.1, 1.1]) {
+      expect(() => FreeChatClassifyOutputSchema.parse({ category: "casual", confidence })).toThrow();
+    }
+  });
+
+  it("the reply is a closed union: an answer of 1-4 lines, or one refusal topic", () => {
+    expect(FreeChatAnswerSchema.parse({ status: "answer", lines: ["Theek hai."] }).followup_chips).toEqual(
+      [],
+    );
+    expect(FreeChatReplyOutputSchema.parse({ status: "answer", lines: ["Theek hai."] }).status).toBe(
+      "answer",
+    );
+    expect(() => FreeChatReplyOutputSchema.parse({ status: "answer", lines: [] })).toThrow();
+    expect(() =>
+      FreeChatReplyOutputSchema.parse({ status: "answer", lines: ["a", "b", "c", "d", "e"] }),
+    ).toThrow();
+    expect(FreeChatReplyOutputSchema.parse({ status: "refuse", topic: "news" }).status).toBe("refuse");
+    expect(() => FreeChatReplyOutputSchema.parse({ status: "refuse", topic: "salary_promise" })).toThrow();
   });
 });
