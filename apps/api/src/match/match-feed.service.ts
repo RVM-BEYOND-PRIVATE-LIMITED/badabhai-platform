@@ -5,7 +5,11 @@ import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { MatchConfigService } from "./match-config.service";
-import { MatchFeedRepository, type MatchFeedFilters } from "./match-feed.repository";
+import {
+  MatchFeedRepository,
+  type MatchFeedFilters,
+  type MatchFeedRow,
+} from "./match-feed.repository";
 
 /**
  * One V1 feed card.
@@ -106,16 +110,7 @@ export class MatchFeedService {
     filters: MatchFeedFilters,
     ctx: RequestContext,
   ): Promise<{ jobs: MatchFeedItem[] }> {
-    const cfg = await this.config.get();
-
-    const overfetch = Math.min(limit * OVERFETCH_MULTIPLIER, OVERFETCH_CAP);
-    const candidates = await this.repo.listFeed(workerId, overfetch, filters);
-
-    // E14 — at most `max_consecutive_same_company` cards in a row from one company.
-    // Keyed on `payer_id`, falling back to `created_by` for ops-created postings, so an
-    // ops actor bulk-loading a register does not flood one worker's feed either.
-    const interleaved = interleaveMaxPerCompany(candidates, cfg.maxConsecutiveSameCompany);
-    const page = interleaved.slice(0, limit);
+    const page = await this.composePage(workerId, limit, filters);
 
     const items: MatchFeedItem[] = page.map((row, index) => ({
       job_id: row.jobPostingId,
@@ -175,6 +170,33 @@ export class MatchFeedService {
     }
 
     return { jobs: items };
+  }
+
+  /**
+   * THE FEED'S ORDER, AND NOTHING ELSE — the rows {@link getFeed} serves, in the order it
+   * serves them, with no event emitted.
+   *
+   * It is the single place the page is composed (the repository's ORDER BY, the overfetch,
+   * the E14 interleave, the truncation), so a read-only consumer — the admin Engine view
+   * (`AdminMatchEngineService`) — shows exactly what the worker is shown without copying
+   * any of it. `getFeed` is this plus `feed.shown_v2`; an admin LOOKING at a worker's feed
+   * is not the worker being shown it, so the admin path must not emit that event.
+   */
+  async composePage(
+    workerId: string,
+    limit: number,
+    filters: MatchFeedFilters,
+  ): Promise<MatchFeedRow[]> {
+    const cfg = await this.config.get();
+
+    const overfetch = Math.min(limit * OVERFETCH_MULTIPLIER, OVERFETCH_CAP);
+    const candidates = await this.repo.listFeed(workerId, overfetch, filters);
+
+    // E14 — at most `max_consecutive_same_company` cards in a row from one company.
+    // Keyed on `payer_id`, falling back to `created_by` for ops-created postings, so an
+    // ops actor bulk-loading a register does not flood one worker's feed either.
+    const interleaved = interleaveMaxPerCompany(candidates, cfg.maxConsecutiveSameCompany);
+    return interleaved.slice(0, limit);
   }
 }
 

@@ -34,6 +34,21 @@ describe("nav labels", () => {
     }
   });
 
+  it('skill discovery sits in "Matching" — there is no single-item "Skills" group (#1900)', () => {
+    const section = NAV.find((s) => s.items.some((i) => i.href === "/skills/discovery"));
+    expect(section?.title).toBe("Matching");
+    expect(NAV.some((s) => s.title === "Skills")).toBe(false);
+    expect(byHref("/skills/discovery")?.capability).toBe("read_entities");
+  });
+
+  it('the engine view sits in "Matching" beside skill discovery, on the read floor', () => {
+    const section = NAV.find((s) => s.items.some((i) => i.href === "/matching/engine"));
+    expect(section?.title).toBe("Matching");
+    expect(byHref("/matching/engine")?.label).toBe("Engine view");
+    // Mirrors the three engine reads' `@RequireAdminRole("read_entities")`.
+    expect(byHref("/matching/engine")?.capability).toBe("read_entities");
+  });
+
   it("keeps the Company and Agency personas as two sections", () => {
     expect(byHref("/companies")?.label).toBe("Companies");
     expect(byHref("/agencies")?.label).toBe("Agencies");
