@@ -2426,7 +2426,8 @@ def certified_clean_skill_labels(labels: list[str]) -> list[str]:
 
     So a label ALSO passes when BOTH hold: the gateway's only placeholders were
     ``[EMPLOYER_n]`` (`_is_employer_only_mask`) AND every token of the label is
-    curated trade/education vocabulary (`_is_known_trade_vocabulary`). Both halves are
+    curated trade/education vocabulary (`_is_employer_rescue_vocabulary`: the curated set
+    plus the rescue-only words of issue #2003). Both halves are
     load-bearing — a company name always carries a token no trade table contains (a
     proper noun, or a legal form like Industries / Pvt / Ltd / Works / Enterprises),
     so "Ramesh Steel Industries" and "Jyoti CNC Industries" still drop. `pseudonymize`
@@ -2446,9 +2447,22 @@ def certified_clean_skill_labels(labels: list[str]) -> list[str]:
         if _certifies_clean(label, result):
             kept.append(label)
             continue
-        if _is_employer_only_mask(result) and _is_known_trade_vocabulary(label):
+        if _is_employer_only_mask(result) and _is_employer_rescue_vocabulary(label):
             kept.append(label)
     return kept
+
+
+def _is_employer_rescue_vocabulary(label: str) -> bool:
+    """The FIX-5 rescue's whole-label vocabulary test: `_is_known_trade_vocabulary` plus the
+    rescue-only words (`signals.EMPLOYER_RESCUE_ONLY_WORDS`, issue #2003). Read by
+    `certified_clean_skill_labels` alone. Deferred import and fail-closed for the same reasons
+    as `_is_known_trade_vocabulary`: any failure drops the label."""
+    try:
+        from .profiling.signals import is_employer_rescue_vocabulary_label
+
+        return is_employer_rescue_vocabulary_label(label)
+    except Exception:  # defensive; degrade to dropping the label (fail closed)
+        return False
 
 
 # ---------------------------------------------------------------------------

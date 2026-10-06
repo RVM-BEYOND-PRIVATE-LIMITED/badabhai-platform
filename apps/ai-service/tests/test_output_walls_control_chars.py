@@ -148,7 +148,7 @@ def test_the_rescue_drops_a_control_character_even_if_the_vocabulary_matched(
 ) -> None:
     """Today the vocabulary rejects "Stainless\\x85Steel" on its own; the certifier must not
     rely on that. With a vocabulary that says yes to everything, the label still drops."""
-    monkeypatch.setattr(pseudonymize_module, "_is_known_trade_vocabulary", lambda _label: True)
+    monkeypatch.setattr(pseudonymize_module, "_is_employer_rescue_vocabulary", lambda _label: True)
     assert pseudonymize_module.pseudonymize("Stainless\x85Steel").placeholder_tokens == [
         "[EMPLOYER_1]"
     ]
