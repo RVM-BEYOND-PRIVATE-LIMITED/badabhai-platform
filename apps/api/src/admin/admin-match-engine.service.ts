@@ -222,7 +222,7 @@ function toCard(
     rank: index + 1,
     job_posting_id: row.jobPostingId,
     role_title: row.roleTitle,
-    role_kind: meta?.roleKind ?? null,
+    role_kind: row.roleKind ?? meta?.roleKind ?? null,
     city: row.city,
     match_tier: row.matchTier,
     matched_skill_id: row.matchedSkillId,

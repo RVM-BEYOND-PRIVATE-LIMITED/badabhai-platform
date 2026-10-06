@@ -42,6 +42,7 @@ function feedRow(
     payType: null,
     shift: null,
     neededBy: null,
+    roleKind: null,
     ...over,
   };
 }
