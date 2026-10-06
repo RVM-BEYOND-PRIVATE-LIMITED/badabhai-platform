@@ -13,7 +13,10 @@ export const dynamic = "force-dynamic";
  * company `job_postings` row — that surface is for companies only.
  *
  * A top-level destination (its own rail item), so its header has no back link; Cancel in the
- * form returns to Postings.
+ * form returns to Postings. The page head LEADS the form column (as on the company form), so the
+ * card-preview rail starts at the top of the content and the worker card and "Publish posting"
+ * are on a laptop screen from the first field (final sweep F01: rendered above the form instead,
+ * the head pushed the rail 76px down and the button below a 720px viewport).
  *
  * SECURITY: `requireAgent()` FIRST, then the agency-portal flag, like every agency page. The
  * create action re-asserts the role itself (a Server Action is independently invocable).
@@ -23,12 +26,13 @@ export default async function NewAgencyPostingPage() {
   if (!agencyFlags().agencyPortalEnabled) notFound();
 
   return (
-    <>
-      <PageHeader
-        title="New posting"
-        description="Describe the role; it goes live for matched workers as soon as you publish it."
-      />
-      <NewAgencyPosting />
-    </>
+    <NewAgencyPosting
+      lead={
+        <PageHeader
+          title="New posting"
+          description="Describe the role; it goes live for matched workers as soon as you publish it."
+        />
+      }
+    />
   );
 }

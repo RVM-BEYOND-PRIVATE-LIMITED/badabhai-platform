@@ -681,8 +681,8 @@ describe("W3-A · 2b — the back link clears a 44px hit area on phones AND coar
       .map(([file]) => file.split("\\").join("/"))
       .sort();
     expect(withBack).toEqual([
-      "(portal)/agency/bulk-upload/page.tsx",
       "(portal)/agency/jobs/[jobId]/applicants/page.tsx",
+      "(portal)/agency/jobs/[jobId]/edit/page.tsx",
       "(portal)/agency/jobs/[jobId]/page.tsx",
       "(portal)/postings/[id]/applicants/page.tsx",
       "(portal)/postings/[id]/edit/page.tsx",

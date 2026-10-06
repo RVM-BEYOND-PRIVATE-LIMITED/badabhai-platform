@@ -3,25 +3,23 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import type { AgencyJob } from "../../../../lib/contracts";
 import {
   day,
   experienceBandLabel,
   isActiveJob,
-  isPausedJob,
+  isEditableJob,
   neededByLabel,
   payBandLabel,
   tradeLabel,
 } from "../../../../lib/agency-view";
 import { bandLabel } from "../../../../lib/masking";
 import { Badge, Button, Card } from "../../../../components/ds";
-import { AgencyJobForm } from "./agency-job-form";
 import {
   closeAgencyJobAction,
   pauseAgencyJobAction,
   resumeAgencyJobAction,
-  updateAgencyJobAction,
   type AgencyJobActionResult,
 } from "./jobs-actions";
 
@@ -30,9 +28,11 @@ import {
  * Postings page (`/agency/jobs`). DS3.1 skin.
  *
  * Runs in the BROWSER and sees NO secret. It calls the Server Actions, which bind to the
- * server-held payer (the payer JWT, XB-A) — the client passes ONLY a job id + coarse,
- * non-PII demand fields, NEVER a payer id. EDIT happens inline; CREATE is its own page
- * (`/agency/jobs/new`, the "New posting" entry point everywhere), so this list carries no
+ * server-held payer (the payer JWT, XB-A) — the client passes ONLY a job id, NEVER a payer id.
+ * The list LINKS the posting's own pages and runs only the lifecycle (pause / resume / close) in
+ * place: EDIT is its own page (`/agency/jobs/<id>/edit`, final sweep F02 — the inline editor it
+ * replaced started the worker card and "Save changes" below a laptop's fold), and CREATE is its own
+ * page (`/agency/jobs/new`, the "New posting" entry point everywhere), so this list carries no
  * second create control. Every posting renders as a DS `Card`: bands + a count + a status
  * `Badge`; no worker identity, no employer name (faceless/coarse). ₹ pay band + counts render
  * in mono tabular (`bb-mono`). A not-found/not-owned action result reads neutrally (no oracle).
@@ -48,60 +48,22 @@ function statusTone(status: string): "success" | "warning" | "neutral" {
   return "neutral";
 }
 
-/** The card that hosts the inline editor: the posting's own row. */
-const rowHostId = (jobId: string) => `agency-job-${jobId}`;
-/** A row's Edit / Cancel toggle — a STABLE id, so focus can find it again (`refocusToggle`). */
-const rowToggleId = (jobId: string) => `agency-job-edit-${jobId}`;
+/** The row lifecycle actions — the one the payer pressed is the one that shows it is running. */
+type LifecycleAction = "pause" | "resume" | "close";
 
-/**
- * Opening an inline editor brings its host card to the preview rail's sticky line (CSS
- * `scroll-margin-top`), so the worker card and the form's actions are on screen from the first
- * field — not 300px down the dashboard. Runs after React has committed the opened form.
- */
-function revealEditor(hostId: string) {
-  if (typeof window === "undefined") return;
-  window.requestAnimationFrame(() => {
-    document.getElementById(hostId)?.scrollIntoView({ block: "start" });
-  });
-}
-
-/**
- * Opening or closing a row's editor MOVES the row's header (it leads the editor's form column
- * while editing), so React rebuilds the header — and the toggle the payer just pressed, whose
- * focus would fall to <body>. Focus goes back to the REBUILT toggle (found by its stable id, and
- * known by where it now sits: inside the editor's lead exactly when the row is editing — a frame
- * that still shows the old one waits for the next, so a slow commit after a save cannot win the
- * race). On open it adds no scroll of its own (`revealEditor`, scheduled first, owns that); on
- * close it scrolls the toggle into view (Cancel or a save can be far down the form).
- *
- * It only puts back focus the rebuild DROPPED (to <body>). A save lands seconds after the press,
- * and a payer who moved on meanwhile — into another row's editor, onto another row's link — keeps
- * their focus and their scroll position: taking it back scrolled the page to the saved row
- * (measured 1428 → 0 at 1280) and the payer's next space pressed that row's Edit.
- */
-function refocusToggle(jobId: string, opts: { editing: boolean; scroll: boolean }) {
-  if (typeof window === "undefined") return;
-  let frames = 0;
-  const attempt = () => {
-    const toggle = document.getElementById(rowToggleId(jobId));
-    const rebuilt = toggle !== null && (toggle.closest(".agency-job__lead") !== null) === opts.editing;
-    if (!rebuilt) {
-      if (++frames < 10) window.requestAnimationFrame(attempt);
-      return;
-    }
-    const active = document.activeElement;
-    if (active === null || active === document.body) toggle.focus({ preventScroll: !opts.scroll });
-  };
-  window.requestAnimationFrame(attempt);
-}
+/** Each lifecycle button's idle label and its running label (F39: say WHICH action runs). */
+const LIFECYCLE_LABEL: Record<LifecycleAction, { idle: string; busy: string }> = {
+  pause: { idle: "Pause", busy: "Pausing…" },
+  resume: { idle: "Resume", busy: "Resuming…" },
+  close: { idle: "Close posting", busy: "Closing…" },
+};
 
 export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
   const router = useRouter();
-  // useState call order (mirrored by agency-jobs-manager.test.tsx): rows, editingId, busyId,
-  // errorById.
+  // useState call order (mirrored by agency-jobs-manager.test.tsx): rows, busy, errorById.
   const [rows, setRows] = useState<AgencyJob[]>(jobs);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  // The ONE lifecycle action in flight: which row, and which of its buttons was pressed.
+  const [busy, setBusy] = useState<{ id: string; action: LifecycleAction } | null>(null);
   const [errorById, setErrorById] = useState<Record<string, string | null>>({});
   const [, startTransition] = useTransition();
 
@@ -119,12 +81,16 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
     });
   }
 
-  function runLifecycle(id: string, action: () => Promise<AgencyJobActionResult>) {
+  function runLifecycle(
+    id: string,
+    action: LifecycleAction,
+    run: () => Promise<AgencyJobActionResult>,
+  ) {
     setError(id, null);
-    setBusyId(id);
+    setBusy({ id, action });
     startTransition(async () => {
-      const res = await action();
-      setBusyId(null);
+      const res = await run();
+      setBusy(null);
       if (res.ok) {
         upsertRow(res.job);
         router.refresh();
@@ -146,21 +112,42 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
             </span>
             <h2 className="state__title">No postings yet</h2>
             <p className="state__body">
-              Matched workers can only find your agency once a role is live — use New posting
-              above. Posting is free through launch.
+              Matched workers can only find your agency once a role is live — use New posting above.
+              Posting is free through launch.
             </p>
           </div>
         </Card>
       ) : (
         <div className="agency-jobs__list">
           {rows.map((j) => {
-            const busy = busyId === j.id;
+            const rowBusy = busy !== null && busy.id === j.id;
             const err = errorById[j.id] ?? null;
             const active = isActiveJob(j);
-            const paused = isPausedJob(j);
-            const editing = editingId === j.id;
-            const header = (
-              <>
+            /**
+             * One lifecycle button: it spins (and says what it is doing) only when IT was pressed;
+             * while any action on this row runs, the row's other buttons are disabled.
+             */
+            const lifecycle = (
+              action: LifecycleAction,
+              icon: IconName,
+              run: () => Promise<AgencyJobActionResult>,
+            ) => {
+              const running = rowBusy && busy?.action === action;
+              return (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={rowBusy}
+                  loading={running}
+                  iconLeft={icon}
+                  onClick={() => runLifecycle(j.id, action, run)}
+                >
+                  {running ? LIFECYCLE_LABEL[action].busy : LIFECYCLE_LABEL[action].idle}
+                </Button>
+              );
+            };
+            return (
+              <Card key={j.id} className="agency-job">
                 <div className="agency-job__main">
                   <div className="agency-job__head">
                     <Link className="agency-job__title" href={`/agency/jobs/${j.id}`}>
@@ -200,57 +187,22 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                     <Icon name={ACTION_ICON.users} />
                     <span>Applicants</span>
                   </Link>
-                  {active || paused ? (
+                  {isEditableJob(j) ? (
                     <div className="agency-job__btns">
-                      <Button
-                        id={rowToggleId(j.id)}
-                        variant="secondary"
-                        size="sm"
-                        disabled={busy}
-                        iconLeft={ACTION_ICON.edit}
-                        onClick={() => {
-                          const opening = !editing;
-                          setEditingId(opening ? j.id : null);
-                          if (opening) revealEditor(rowHostId(j.id));
-                          refocusToggle(j.id, { editing: opening, scroll: !opening });
-                        }}
+                      {/* The posting's own edit page (F02) — the same door its details header offers. */}
+                      <Link
+                        className="bb-btn bb-btn--secondary bb-btn--sm"
+                        href={`/agency/jobs/${j.id}/edit`}
                       >
-                        {/* "Cancel", not "Close edit": "Close" is this row's terminal action. */}
-                        {editing ? "Cancel" : "Edit"}
-                      </Button>
-                      {active ? (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          disabled={busy}
-                          loading={busy}
-                          iconLeft="pause"
-                          onClick={() => runLifecycle(j.id, () => pauseAgencyJobAction({ jobId: j.id }))}
-                        >
-                          {busy ? "Working…" : "Pause"}
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          disabled={busy}
-                          loading={busy}
-                          iconLeft="play"
-                          onClick={() => runLifecycle(j.id, () => resumeAgencyJobAction({ jobId: j.id }))}
-                        >
-                          {busy ? "Working…" : "Resume"}
-                        </Button>
+                        <Icon name={ACTION_ICON.edit} />
+                        <span>Edit</span>
+                      </Link>
+                      {active
+                        ? lifecycle("pause", "pause", () => pauseAgencyJobAction({ jobId: j.id }))
+                        : lifecycle("resume", "play", () => resumeAgencyJobAction({ jobId: j.id }))}
+                      {lifecycle("close", ACTION_ICON.reject, () =>
+                        closeAgencyJobAction({ jobId: j.id }),
                       )}
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled={busy}
-                        loading={busy}
-                        iconLeft={ACTION_ICON.reject}
-                        onClick={() => runLifecycle(j.id, () => closeAgencyJobAction({ jobId: j.id }))}
-                      >
-                        {busy ? "Working…" : "Close posting"}
-                      </Button>
                     </div>
                   ) : (
                     <span className="agency-job__closed">
@@ -261,44 +213,6 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                     {err ? <p className="agency-job__error">{err}</p> : null}
                   </div>
                 </div>
-              </>
-            );
-            return (
-              <Card
-                key={j.id}
-                id={rowHostId(j.id)}
-                className={editing ? "agency-job agency-job--editing" : "agency-job"}
-              >
-                {editing ? (
-                  // EDIT: the row's own header leads the form column, so the preview rail starts
-                  // at the top of the row — level with the header, not below it.
-                  <AgencyJobForm
-                    lead={<div className="agency-job__lead">{header}</div>}
-                    mode="edit"
-                    job={j}
-                    submitLabel="Save changes"
-                    onCancel={() => {
-                      setEditingId(null);
-                      refocusToggle(j.id, { editing: false, scroll: true });
-                    }}
-                    onSubmit={async (input) => {
-                      // Pass the current row as `initial` so the seam computes the clear diff.
-                      const res = await updateAgencyJobAction(j.id, input, j);
-                      if (res.ok) {
-                        upsertRow(res.job);
-                        // Close only THIS editor: the payer may have opened another row's
-                        // editor while the save was in flight.
-                        setEditingId((cur) => (cur === j.id ? null : cur));
-                        refocusToggle(j.id, { editing: false, scroll: true });
-                        router.refresh();
-                        return { ok: true };
-                      }
-                      return { ok: false, error: res.error };
-                    }}
-                  />
-                ) : (
-                  header
-                )}
               </Card>
             );
           })}

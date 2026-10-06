@@ -2621,12 +2621,6 @@ textarea.input {
     flex-direction: column;
     gap: var(--space-3);
   }
-  /* An agency editor sits in a padded card: when the form opens, its host lands on the sticky
-     line and the rail starts one card-padding lower — still wholly on screen, actions included. */
-  .agency-job--editing .posting-preview {
-    max-height: calc(100vh - var(--posting-rail-top) - var(--space-4) - var(--space-5));
-    max-height: calc(100dvh - var(--posting-rail-top) - var(--space-4) - var(--space-5));
-  }
   /* The phone card at 1.125× — title 19px, place 15px, band 22.5px, chips 13.5px: readable on a
      laptop, still within 1.2× of the phone, and the wrap points stay the phone's. */
   .posting-preview .jcp {
@@ -2812,31 +2806,6 @@ textarea.input {
 .panel:has(.posting-layout) {
   overflow: clip;
   display: flow-root;
-}
-/* Editing: the row IS the editor — its header (title, status, actions) leads the form column,
-   so the preview rail starts level with the header, not below it. The row lands on the rail's
-   sticky line when the editor opens (agency-jobs-manager.tsx `revealEditor`); create is its own
-   page, so this row is the only inline editor host. */
-.agency-job--editing {
-  display: block;
-  scroll-margin-top: var(--posting-rail-top);
-}
-.agency-job__lead {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3) var(--space-5);
-  flex-wrap: wrap;
-  margin-bottom: var(--space-5);
-}
-/* In the form column the header's text keeps a readable measure: unless the column holds 24rem of
-   it BESIDE the 315px buttons, the buttons wrap UNDER it (every measured editor column, 403–686px,
-   stacks). With a zero basis (the row's old `flex: 1`) the buttons stayed beside it and crushed it
-   (68px wide at 1024: 16 lines of meta); an 18rem basis (the plain row's, below) still left long
-   data 6–7 lines here at 768 and at 1600+, where the column fits 18rem beside the buttons but not
-   much more. */
-.agency-job__lead > .agency-job__main {
-  flex: 1 1 24rem;
 }
 /* The chip editor's refused-publish reason sits under its row (so Add stays level with the box),
    and a long unbroken chip wraps inside its pill instead of widening the page. */
@@ -3402,46 +3371,72 @@ textarea.input {
 /* COMPACT-1 — the parked "Not in this release" section as an accessible native <details>
    disclosure. Open by default (nothing hidden on first paint); the <summary> is the
    keyboard-operable toggle. Layout/disclosure only — no copy/data change. */
+/* AGENCY DISCLOSURES — one native <details> pattern for the agency surfaces: "Not in this
+   release" on /dashboard, and on /agency/referrals the invite link's Options and the batch-links
+   panel (final sweep F19/F21). The whole summary row is the toggle (≥44px); the default triangle is
+   replaced by the brand caret on the right, which turns when THIS disclosure opens (child
+   combinators, so a disclosure inside another never turns the outer caret). */
 .agency-parked-disclosure {
   margin: 0 0 var(--section-gap);
 }
-.agency-parked-disclosure__summary {
+.agency-disclosure__summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  /* ≥44px target row; the whole summary is the toggle. The default disclosure triangle is
-     removed in favour of the brand caret on the right. */
   min-height: var(--control-md);
   padding: var(--space-1) 0;
   cursor: pointer;
   list-style: none;
   border-radius: var(--radius-sm);
 }
-.agency-parked-disclosure__summary::-webkit-details-marker {
+.agency-disclosure__summary::-webkit-details-marker {
   display: none;
 }
-.agency-parked-disclosure__summary:focus-visible {
+.agency-disclosure__summary:focus-visible {
   outline: var(--focus-outline);
   outline-offset: var(--focus-outline-offset);
   box-shadow: var(--ring-focus);
 }
-.agency-parked-disclosure__summary .agency-section__title {
+.agency-disclosure__summary .agency-section__title {
   margin: 0;
 }
-.agency-parked-disclosure__caret {
+/* The label + its one-line hint ("Campaign tag, link type, role, city — all optional"). */
+.agency-disclosure__text {
+  min-width: 0;
+}
+.agency-disclosure__label {
+  font-weight: var(--weight-semibold);
+  color: var(--text-heading);
+}
+.agency-disclosure__hint {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.agency-disclosure__caret {
   flex: none;
   color: var(--text-muted);
   font-size: var(--text-lg);
   transition: transform var(--duration-fast) var(--ease-out);
 }
-.agency-parked-disclosure[open] .agency-parked-disclosure__caret {
+.agency-disclosure[open] > .agency-disclosure__summary > .agency-disclosure__caret {
   transform: rotate(180deg);
 }
 @media (prefers-reduced-motion: reduce) {
-  .agency-parked-disclosure__caret {
+  .agency-disclosure__caret {
     transition: none;
   }
+}
+/* Inside the disclosures on /agency/referrals: the invite link's four optional fields, and the
+   batch-links panel's body, each one step below its summary. */
+.agency-invite__option-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-top: var(--space-3);
+}
+.agency-disclosure > .agency-batch {
+  margin-top: var(--space-3);
 }
 
 /* Agency SUPPLY money — earnings / KYC / payout (ADR-0022 Amendment 2). Tokens only. The

@@ -19,7 +19,6 @@ import type {
 } from "../../../lib/contracts";
 import { Badge, Card } from "../../../components/ds";
 import { RetryButton } from "../../../components/retry-button";
-import { AgencyInvitePanel } from "../agency/dashboard/invite-panel";
 import { ReferralFunnel } from "../agency/dashboard/referral-funnel";
 import { AgencyParkedModules } from "../agency/dashboard/parked-modules";
 
@@ -43,11 +42,9 @@ import { AgencyParkedModules } from "../agency/dashboard/parked-modules";
  * the referral funnel. NO worker id/phone/name ever enters the DOM or an href.
  *
  * LIVE (honest labelling): the account identity, a glance at the agency's OWN postings
- * (`/payer/agency/jobs`; they are created on `/agency/jobs/new` and managed on `/agency/jobs`),
- * the invite mint
- * (`POST /payer/agency/invites`), and the referral funnel
- * (`/payer/agency/referrals/summary`, aggregate + k-anon) are ALL LIVE payer-authed,
- * agent-role-gated reads/writes (ADR-0022). DATA-COHERENCE: for an agent these AGENCY
+ * (`/payer/agency/jobs`; they are created on `/agency/jobs/new` and managed on `/agency/jobs`)
+ * and the referral funnel (`/payer/agency/referrals/summary`, aggregate + k-anon) are LIVE
+ * payer-authed, agent-role-gated reads (ADR-0022). DATA-COHERENCE: for an agent these AGENCY
  * postings (`jobs.payer_id`) — NOT the employer `job-postings` the shared dashboard top
  * reads — are the source of truth for the posting count + listing; the shared top therefore
  * omits its `job-postings`-derived tile + "Your postings" section for agents so the two never
@@ -56,9 +53,15 @@ import { AgencyParkedModules } from "../agency/dashboard/parked-modules";
  * The credits + unlocked-count stat tiles are NOT repeated here: they are coherent between
  * the two surfaces (same payer-authed reads) and already render in the shared top, so this
  * section adds only the agency-SPECIFIC identity + demand modules.
+ *
+ * A GLANCE, NOT A SECOND RAIL (final sweep F15/F17/F21 — the page was 5,354px tall at 375). No
+ * tile repeats a rail destination (Worker activity, QR invite: the rail opens them); the invite
+ * FORM and the batch links live on Referrals, which the funnel panel links ONCE; the dead "Bulk
+ * invite upload" tile is gone (its explanation page stays, by URL); "Your postings" glances at
+ * three rows; and "Not in this release" starts closed.
  */
-/** How many of the agency's postings the dashboard glances at (the company panel's count). */
-const GLANCE_ROWS = 6;
+/** How many of the agency's postings the dashboard glances at; "All postings" opens the rest. */
+const GLANCE_ROWS = 3;
 
 export async function AgentSections() {
   // 1) SERVER-enforced role gate — employer → neutral 404, before any agency read runs.
@@ -216,28 +219,8 @@ export async function AgentSections() {
               <span className="agency-stat__hint">Across all your roles</span>
             </div>
           </Card>
-          {/* NAV card (not a metric): the faceless engagement view of referred workers.
-              It shows NO count here — a count would itself be a signal about how many
-              referrals consented, and the page's own empty state tells that story
-              honestly. */}
-          <Card
-            className="agency-stat"
-            href="/agency/workers"
-            ariaLabel="Worker activity — how the workers you referred are getting on"
-          >
-            <div className="agency-stat__head">
-              <span className="agency-stat__label">Worker activity</span>
-            </div>
-            <div className="agency-stat__value">View activity</div>
-            <div className="agency-stat__foot">
-              <span className="agency-stat__hint">
-                Referred workers who opted in <Icon name={ACTION_ICON.next} />
-              </span>
-            </div>
-          </Card>
-          {/* No Revenue card here: the shared top's Revenue tile is the dashboard's one way to
-              that (parked) page — two on one screen, one captioned "View earnings" for a page
-              that has none, was the duplicate. */}
+          {/* Counts only. Worker activity is a rail destination (no tile repeats the rail, F15);
+              no Revenue card either — the shared top owns that tile. */}
         </div>
       </section>
 
@@ -328,88 +311,32 @@ export async function AgentSections() {
         </div>
       </section>
 
-      {/* d) INVITE — LIVE faceless mint (opaque code only; consent-first). */}
-      <AgencyInvitePanel />
-
-      {/* d2) INVITE TOOLS — the LIVE ways to hand out invites (QR, batch mint) plus the ONE
-          module that is not available. HONESTY (ADR-0022 Amdt 3): "Bulk invite upload"
-          (module 2) is DEAD with NO gate — it would have the agency upload real people's
-          contacts before consent (invariant #2 + the faceless rails) — so it is NEVER
-          advertised as coming. Batch invite MINTING is the shipped answer to the same need
-          and is the opposite shape: BadaBhai generates anonymous links that identify nobody.
-          The two must stay distinguishable in the copy, not blurred into "bulk unavailable".
-          The bulk card still LINKS to /agency/bulk-upload, which explains the reason (the
-          route stays so the tile never 404s) — and it is the portal's ONE way there: the rail
-          and the parked-modules list no longer show it. */}
-      <section>
-        <div className="section__head">
-          <div className="section__text">
-            <h2 className="section__title">Invite tools</h2>
-            <p className="section__sub">More ways to hand out invite links.</p>
-          </div>
-        </div>
-        <div className="stat-row">
-          <Card
-            className="agency-stat"
-            href="/agency/qr"
-            ariaLabel="Generate a scannable invite QR code"
-          >
-            <div className="agency-stat__head">
-              <span className="agency-stat__label">QR invite</span>
-            </div>
-            <div className="agency-stat__value">Generate QR</div>
-            <div className="agency-stat__foot">
-              <Badge tone="success" upper>Live</Badge>
-              <span className="agency-stat__hint">Share a scannable invite QR</span>
-            </div>
-          </Card>
-          {/* LIVE batch mint — lives on /agency/referrals; this tile is how it is found. */}
-          <Card
-            className="agency-stat"
-            href="/agency/referrals#batch-invites"
-            ariaLabel="Batch invite links — create several anonymous invite links at once"
-          >
-            <div className="agency-stat__head">
-              <span className="agency-stat__label">Batch invites</span>
-            </div>
-            <div className="agency-stat__value">Create links</div>
-            <div className="agency-stat__foot">
-              <Badge tone="success" upper>Live</Badge>
-              <span className="agency-stat__hint">
-                Several anonymous links at once &mdash; each identifies nobody
-              </span>
-            </div>
-          </Card>
-          <Card
-            className="agency-stat"
-            href="/agency/bulk-upload"
-            ariaLabel="Bulk invite upload — not available: consent violation"
-          >
-            <div className="agency-stat__head">
-              <span className="agency-stat__label">Bulk invite upload</span>
-            </div>
-            <div className="agency-stat__value">Not available</div>
-            <div className="agency-stat__foot">
-              <Badge tone="warning" upper>Not available</Badge>
-              <span className="agency-stat__hint">
-                Uploading a list of workers&rsquo; contacts is a consent violation
-              </span>
-            </div>
-          </Card>
-        </div>
-      </section>
-
-      {/* e) REFERRAL FUNNEL — LIVE aggregate, k-anon floored (no per-invitee oracle). */}
+      {/* d) REFERRAL FUNNEL — LIVE aggregate, k-anon floored (no per-invitee oracle) — and the
+          dashboard's ONE door to Referrals, where the invite form and the batch links live
+          (F21: the form used to be repeated here, a second primary 2,595px down the page). */}
       <section className="panel">
         <div className="panel__head">
-          <h2 className="panel__title">Referral funnel</h2>
+          <div className="panel__text">
+            <h2 className="panel__title">Referral funnel</h2>
+            <p className="panel__sub">
+              How the workers you invited are getting on, in aggregate. Invite links are created on
+              Referrals.
+            </p>
+          </div>
+          <div className="panel__actions">
+            <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/agency/referrals">
+              <span>Invite workers</span>
+              <Icon name={ACTION_ICON.next} />
+            </Link>
+          </div>
         </div>
         <div className="panel__body">
           <ReferralFunnel summary={referrals} />
         </div>
       </section>
 
-      {/* f) PARKED MODULE CARDS — disabled, informational, NOT clickable fake flows. */}
+      {/* e) NOT IN THIS RELEASE — closed by default; parked cards are inert, test-mode ones link
+          to Referrals (see parked-modules.tsx). */}
       <AgencyParkedModules flags={flags} />
     </>
   );

@@ -56,7 +56,7 @@ vi.mock("react", async () => {
   };
 });
 
-const { AgencyBatchInvitePanel } = await import("./batch-invite-panel");
+const { AgencyBatchInvitePanel, revealFragmentTarget } = await import("./batch-invite-panel");
 
 interface Collected {
   forms: Array<{ onSubmit?: (e: { preventDefault: () => void }) => void }>;
@@ -393,5 +393,78 @@ describe("AgencyBatchInvitePanel — the links survive a dead clipboard", () => 
     // The single-mint fallback shape: `.agency-invite__dl dd` wraps instead of ellipsising.
     expect(props.some((p) => p.className === "agency-invite__dl")).toBe(true);
     expect(text.filter((t) => t === "/i/bbbbbbbbbbbb").length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+/* ── F19 (final sweep): batch links are the page's SECONDARY tool ── */
+
+/** Every element of the tree in render order (DS fields are not expanded). */
+function elementsOf(node: ReactNode, out: ReactElement<Record<string, unknown>>[] = []) {
+  if (node === null || node === undefined || typeof node !== "object") return out;
+  if (Array.isArray(node)) {
+    for (const c of node) elementsOf(c, out);
+    return out;
+  }
+  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  out.push(el);
+  if (el.props && "children" in el.props) elementsOf(el.props.children, out);
+  return out;
+}
+
+describe("AgencyBatchInvitePanel — F19: a secondary disclosure on Referrals", () => {
+  it("is a disclosure, CLOSED by default, whose summary is the panel's title", () => {
+    const details = elementsOf(render("10")).find((e) => e.type === "details")!;
+    expect(details).toBeDefined();
+    expect(details.props.open).toBeFalsy();
+    const summary = elementsOf(details).find((e) => e.type === "summary")!;
+    expect(collect(summary).text.join(" ")).toContain("Create several invite links at once");
+    // The form waits inside it.
+    expect(elementsOf(details).some((e) => e.type === "form")).toBe(true);
+  });
+
+  it("'Create links' is a SECONDARY button — the page's one primary is 'Create invite link'", () => {
+    const btn = collect(render("10")).props.find((p) => p.type === "submit")!;
+    expect(btn.variant).toBe("secondary");
+  });
+
+  it("#batch-invites sits INSIDE the disclosure, so a link to it opens the panel (and clears the header)", () => {
+    const details = elementsOf(render("10")).find((e) => e.type === "details")!;
+    const target = elementsOf(details).find((e) => e.props.id === "batch-invites")!;
+    expect(target).toBeDefined();
+    expect(target).not.toBe(details);
+    expect(String(target.props.className)).toMatch(/\banchor-target\b/);
+  });
+});
+
+describe("revealFragmentTarget — a client-side link to #batch-invites opens the panel", () => {
+  // A full page load reveals a closed <details> holding the fragment target natively; a Next
+  // `Link` navigation does not (measured: the panel stayed closed). The ref opens it.
+  function fake(hash: string, inside: boolean) {
+    const target = { id: "batch-invites" };
+    const details = { open: false, contains: (n: unknown) => inside && n === target };
+    vi.stubGlobal("window", { location: { hash } });
+    vi.stubGlobal("document", { getElementById: (id: string) => (id === "batch-invites" ? target : null) });
+    return details;
+  }
+
+  it("opens when the fragment names an element inside it", () => {
+    const d = fake("#batch-invites", true);
+    revealFragmentTarget(d as unknown as HTMLDetailsElement);
+    expect(d.open).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("stays closed with no fragment, another fragment, or a target outside it", () => {
+    for (const [hash, inside] of [["", true], ["#hiring-capacity", true], ["#batch-invites", false]] as const) {
+      const d = fake(hash, inside);
+      revealFragmentTarget(d as unknown as HTMLDetailsElement);
+      expect(d.open, `${hash} ${inside}`).toBe(false);
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("is the panel's details ref", () => {
+    const details = elementsOf(render("10")).find((e) => e.type === "details")! as ReactElement<{ ref?: unknown }>;
+    expect(details.props.ref ?? (details as unknown as { ref?: unknown }).ref).toBe(revealFragmentTarget);
   });
 });

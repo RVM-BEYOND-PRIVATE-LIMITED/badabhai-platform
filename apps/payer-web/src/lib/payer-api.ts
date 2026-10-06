@@ -240,8 +240,9 @@ function toMatchCandidate(a: MatchCandidateWire): FacelessApplicant {
  * GET /payer/reach/jobs/:jobId/applicants — the FACELESS ranked applicant list for a
  * job the caller OWNS (LIVE). A job that isn't the payer's returns the SAME neutral
  * 404 as an unknown one (no-oracle) → we map that to `null` and the page renders a
- * neutral not-found. The portal reads it for COMPANY postings only: it does not serve an
- * agency's `jobs` rows correctly yet (backend issue #1898), so no agency page calls it.
+ * neutral not-found. Both personas read it: a company's `job_postings` feed
+ * (`/postings/<id>/applicants`) and, since #1955 made the route serve an agency's own `jobs` rows
+ * (only the workers who applied), the agency feed (`/agency/jobs/<id>/applicants`, #1956).
  *
  * TWO SERVER IMPLEMENTATIONS, ONE CLIENT. Behind `MATCH_V1_ENABLED` the route returns
  * the posting's ACTUAL APPLICANTS ordered by the frozen ADR-0036 rank snapshot; with the

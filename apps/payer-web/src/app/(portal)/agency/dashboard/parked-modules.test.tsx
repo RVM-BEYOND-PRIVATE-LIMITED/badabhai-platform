@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import { AgencyParkedModules } from "./parked-modules";
 import type { AgencyFlags } from "../../../../lib/config";
+import { Card } from "../../../../components/ds";
 
 /**
  * PARKED / DEAD / DEFERRED module cards — informational, NON-interactive.
@@ -15,7 +16,12 @@ import type { AgencyFlags } from "../../../../lib/config";
  *  - NO interactive control exists (no button/input/form/select/textarea/anchor —
  *    they are not clickable fake flows),
  *  - NO commercial term is promised (no ₹500 / 25% / 90d),
- *  - a flipped-ON flag only re-LABELS the card; it never builds the flow.
+ *  - KYC and Payouts are BUILT, as mock launch-gated modules on /agency/referrals (ADR-0022
+ *    Amendment 2, accepted 2026-07-23): with their flag on, the card says so — test mode, no real
+ *    payout — and links to Referrals. The card used to call them "Flagged on — still unbuilt",
+ *    which stopped being true in July. Outcome tracking IS still unbuilt: its flag only re-labels.
+ *  - the disclosure is CLOSED by default (final sweep F21): what is not in this release is the
+ *    page's lowest-priority block, and open it was most of the dashboard's height on a phone.
  */
 
 const OFF: AgencyFlags = {
@@ -87,10 +93,67 @@ describe("AgencyParkedModules — informational, non-interactive", () => {
     expect(joined).not.toMatch(/\b90\s?d\b/i);
   });
 
-  it("a flipped-ON flag only re-labels the card (still unbuilt)", () => {
+  it("is a disclosure that starts CLOSED (F21) — the summary names it, the cards wait inside", () => {
+    const el = AgencyParkedModules({ flags: OFF }) as ReactElement<{ open?: boolean; children: ReactNode }>;
+    expect(el.type).toBe("details");
+    expect(el.props.open).toBeFalsy();
+    expect(collect(el).text.join(" ")).toContain("Not in this release");
+  });
+});
+
+/** Every whole-card link (`Card` with an `href`) in the tree: [href, aria-label]. */
+function cardLinks(node: ReactNode, out: Array<[string, string]> = []): Array<[string, string]> {
+  if (node === null || node === undefined || typeof node !== "object") return out;
+  if (Array.isArray(node)) {
+    for (const c of node) cardLinks(c, out);
+    return out;
+  }
+  const el = node as ReactElement<{ href?: string; ariaLabel?: string; children?: ReactNode }>;
+  if (el.type === Card && typeof el.props.href === "string") out.push([el.props.href, String(el.props.ariaLabel)]);
+  if (el.props && "children" in el.props) cardLinks(el.props.children, out);
+  return out;
+}
+
+describe("AgencyParkedModules — KYC and Payouts are BUILT (mock, launch-gated) — ADR-0022 Amdt 2", () => {
+  it("KYC flag ON: available in TEST MODE, no real payout, and the card opens Referrals", () => {
+    const tree = AgencyParkedModules({ flags: { ...OFF, agencyKycEnabled: true } });
+    const joined = collect(tree).text.join(" ");
+    expect(joined).not.toContain("still unbuilt");
+    expect(joined).toContain("Test mode");
+    expect(joined).toMatch(/no real payout/i);
+    expect(cardLinks(tree)).toEqual([
+      ["/agency/referrals", "Payout details (KYC) — available in test mode on Referrals"],
+    ]);
+  });
+
+  it("Payouts flag ON: the same — test mode, no real payout, a link to Referrals", () => {
+    const tree = AgencyParkedModules({ flags: { ...OFF, agencyPayoutsEnabled: true } });
+    const joined = collect(tree).text.join(" ");
+    expect(joined).not.toContain("still unbuilt");
+    expect(joined).toMatch(/no real (money|payout)/i);
+    expect(cardLinks(tree)).toEqual([["/agency/referrals", "Payouts — available in test mode on Referrals"]]);
+  });
+
+  it("flag OFF: each stays Parked with its reason, and nothing links anywhere", () => {
+    const tree = AgencyParkedModules({ flags: OFF });
+    expect(cardLinks(tree)).toEqual([]);
+    expect(collect(tree).text.filter((t) => t === "Parked")).toHaveLength(3);
+  });
+
+  it("Outcome tracking IS still unbuilt: its flag only re-labels the card (no link)", () => {
+    const tree = AgencyParkedModules({ flags: { ...OFF, agencyOutcomeTrackingEnabled: true } });
+    expect(collect(tree).text.join(" ")).toContain("Flagged on — still unbuilt");
+    expect(cardLinks(tree)).toEqual([]);
+  });
+
+  it("promises NO commercial term with every flag on either (no ₹500 / 25% / 90d)", () => {
     const joined = collect(
-      AgencyParkedModules({ flags: { ...OFF, agencyKycEnabled: true } }),
+      AgencyParkedModules({
+        flags: { ...OFF, agencyKycEnabled: true, agencyPayoutsEnabled: true, agencyOutcomeTrackingEnabled: true },
+      }),
     ).text.join(" ");
-    expect(joined).toContain("Flagged on — still unbuilt");
+    expect(joined).not.toMatch(/₹\s?500/);
+    expect(joined).not.toMatch(/25\s?%/);
+    expect(joined).not.toMatch(/\b90\s?d\b/i);
   });
 });
