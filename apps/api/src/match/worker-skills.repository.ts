@@ -10,7 +10,7 @@ import {
   workerProfiles,
   workerSkills,
 } from "@badabhai/db";
-import { packAnswerFromStoredRow } from "@badabhai/taxonomy";
+import { packAnswerFromStoredRow, type PackAnswer } from "@badabhai/taxonomy";
 import { DATABASE } from "../database/database.module";
 
 /** The faceless signal columns the coarse derivation reads off the latest profile. */
@@ -142,9 +142,7 @@ export class WorkerSkillsRepository {
    * PRIVACY: option keys are closed-set enum values authored in the pack JSON. No free text, and
    * nothing a worker typed, ever reaches this path.
    */
-  async findPackAttributeOptions(
-    workerId: string,
-  ): Promise<{ packId: string | null; attributeKey: string; optionKeys: string[] }[]> {
+  async findPackAttributeOptions(workerId: string): Promise<PackAnswer[]> {
     const rows = await this.db
       .select({
         attributeKey: workerAttributes.attributeKey,
@@ -157,7 +155,7 @@ export class WorkerSkillsRepository {
 
     return rows.flatMap((row) => {
       const answer = packAnswerFromStoredRow(row);
-      return answer === null ? [] : [{ ...answer, optionKeys: [...answer.optionKeys] }];
+      return answer === null ? [] : [answer];
     });
   }
 

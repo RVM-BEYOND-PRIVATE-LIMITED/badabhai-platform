@@ -195,7 +195,7 @@ describe("R12 §2.3 — a trade dictionary is reachable ONLY from its own pack",
   });
 
   it.each(["qp_machining", "qp_vmc_milling"])(
-    "a REAL pack that reuses every turner key — %s — still reaches nothing",
+    "a REAL pack that reuses every turner key — %s — gets nothing through the turner's tables",
     (foreignPackId) => {
       // THE PROBE THE CORPUS COULD NOT PROVIDE, AND ITS ABSENCE WAS A REAL HOLE.
       //

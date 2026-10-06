@@ -40,13 +40,17 @@ export const TRADE_FORM_CASES: readonly TradeFormCase[] = [
   },
   {
     kind: "cnc_grinding",
-    answers: { grinding_experience: ["one_to_three"], grinding_machine: ["cylindrical"] },
+    answers: {
+      grinding_experience: ["one_to_three"],
+      grinding_machine: ["cylindrical"],
+      grinding_type: ["cnc"],
+    },
     expected: ["mskill_cnc_grinding_operator"],
   },
   {
     kind: "conventional_machinist",
     answers: { machining_experience: ["over_seven"], machining_machine: ["centre_lathe"] },
-    expected: ["mskill_cnc_turner"],
+    expected: [],
   },
   {
     kind: "tool_die_maker",

@@ -64,7 +64,8 @@ const FITTER_OCCUPATION = ["skill_fitter_occupation"] as const;
  * `pack_id` → `attribute_key` (= the pack item's `question_key`) → `option_key` → taxonomy ids.
  *
  * The VALUES stored in `worker_attributes` are the option's `value_text`, which equals its
- * `option_key` for every option mapped here (a test reads the pack JSON and asserts it).
+ * `option_key` for every option mapped here — asserted against the pack JSON in
+ * `apps/api/src/match/form-onboarding-match-skills.test.ts`.
  */
 export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
   // ══ CNC TURNING ═════════════════════════════════════════════════════════════════════════════
@@ -135,16 +136,14 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
   },
 
   // ══ VMC / MILLING ═══════════════════════════════════════════════════════════════════════════
-  // "Aap kaunsi milling machine chalate hain?" Every milling machine maps to `skill_milling`, the
-  // same id a chat worker who says "milling" gets — the conventional-mill choice mirrors the
-  // turner's `conventional_lathe` and is listed for the owner in the PR. `hmc` has no corpus id,
-  // so it rides the ROLE bridge to `mskill_hmc_operator`. `spm`/`other_machine` name nothing.
+  // "Aap kaunsi milling machine chalate hain?" `vmc` is a VMC claim (`skill_milling` →
+  // VMC Operator). `hmc` has no corpus id, so it rides the ROLE bridge to `mskill_hmc_operator`.
+  // `conventional_mill` / `bed_mill` are MANUAL machines: a manual miller is not a VMC operator,
+  // and the owner ruled out a nearest-skill proxy — they derive nothing.
   qp_vmc_milling: {
     milling_machine: {
       vmc: ["skill_milling"],
       hmc: ["role_hmc_operator"],
-      conventional_mill: ["skill_milling"],
-      bed_mill: ["skill_milling"],
     },
     // Same question, same two posting-level chips as the turner's.
     programming_level: {
@@ -154,29 +153,14 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
   },
 
   // ══ CNC GRINDING ════════════════════════════════════════════════════════════════════════════
-  // "Aap kaunsi grinding machine chalate hain?" Every named grinder is grinding.
+  // The match skill is CNC Grinding Operator, so the claim that reaches it is the CNC one:
+  // "Machine CNC hai ya conventional?" → `cnc` / `both`. The machine-type question
+  // (cylindrical, surface, tool & cutter…) does not say CNC, and a manual grinder is not a CNC
+  // grinding operator — `conventional` derives nothing (no proxy).
   qp_cnc_grinding: {
-    grinding_machine: {
-      cylindrical: ["skill_grinding_ops"],
-      surface: ["skill_grinding_ops"],
-      centreless: ["skill_grinding_ops"],
-      internal: ["skill_grinding_ops"],
-      tool_cutter: ["skill_grinding_ops"],
-    },
-  },
-
-  // ══ CONVENTIONAL MACHINING ═══════════════════════════════════════════════════════════════════
-  // Only the lathe and the mill reach: drilling, boring, shaping and slotting have no postable
-  // skill (their corpus ids map to `[]`), so they are left out rather than emitted inert.
-  qp_conventional_machining: {
-    machining_machine: {
-      centre_lathe: ["skill_turning"],
-      vertical_milling: ["skill_milling"],
-    },
-    machining_operation: {
-      turning_facing: ["skill_turning"],
-      knurling: ["skill_turning"],
-      milling_slotting: ["skill_milling"],
+    grinding_type: {
+      cnc: ["skill_grinding_ops"],
+      both: ["skill_grinding_ops"],
     },
   },
 
@@ -259,7 +243,7 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
       in_process_patrol: ["skill_quality_control"],
       final_inspection: ["skill_quality_control"],
       layout_inspection: ["skill_quality_control"],
-      gauge_rr: ["skill_quality_control"],
+      // `gauge_rr` ("Gauge R&R me madad") is helping with a study, not an inspection stage.
     },
     measuring_tools: {
       cmm: ["skill_cmm"],
@@ -282,6 +266,9 @@ export const PACK_ANSWER_SKILLS: Readonly<Record<string, PackMap>> = {
  * pins that a fully-answered form for each of these derives nothing.
  */
 export const PACKS_WITHOUT_MATCH_SKILL = [
+  // Manual lathe / mill / drill. CNC Turner and VMC Operator are the only machining match
+  // skills, and mapping a manual machinist to them is exactly the proxy the ruling forbids.
+  "qp_conventional_machining",
   "qp_tool_die_making",
   "qp_sheet_metal_fab",
   "qp_press_operation",

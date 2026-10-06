@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { deriveWorkerSkills } from "@badabhai/match-engine";
+import { deriveWorkerSkills, workerSkillDeriveInput } from "@badabhai/match-engine";
 import {
   PACK_ANSWER_SKILLS,
   PACKS_WITHOUT_MATCH_SKILL,
-  packAnswerEvidence,
   packAnswerFromStoredRow,
 } from "@badabhai/taxonomy";
 
@@ -41,15 +40,19 @@ function derive(
     });
     return answer ? [answer] : [];
   });
-  const pack = packAnswerEvidence(answers);
-  return deriveWorkerSkills({
-    // Both surfaces leave the canonical role null — `toExtractionOutput` hardcodes it, and the
-    // form writes no profile row at all.
-    canonicalRoleId: null,
-    additionalRoleIds: pack.roleIds,
-    profileSkills: pack.corpusSkillIds,
-    totalYears: profile?.totalYears ?? null,
-  })
+  // THE SHARED ASSEMBLY both writers call — not a hand-built input — so this test exercises the
+  // exact code the live rebuild and the backfill run. Both surfaces leave the canonical role
+  // null (`toExtractionOutput` hardcodes it; the form writes no profile row at all).
+  const input = workerSkillDeriveInput({
+    profile:
+      profile === null
+        ? null
+        : { canonicalRoleId: null, profileSkills: [], totalYears: profile.totalYears },
+    secondaryRoleIds: [],
+    packAnswers: answers,
+  });
+  if (input === null) return [];
+  return deriveWorkerSkills(input)
     .map((row) => row.skillId)
     .sort();
 }
@@ -131,7 +134,6 @@ describe("the reachable set per mapped pack — every chip, exhaustively", () =>
       "mskill_vmc_operator",
     ],
     qp_cnc_grinding: ["mskill_cnc_grinding_operator"],
-    qp_conventional_machining: ["mskill_cnc_turner", "mskill_vmc_operator"],
     qp_cam_programming: ["mskill_cam_programmer", "mskill_cnc_programmer"],
     qp_cad_drafting: ["mskill_designer"],
     qp_welding_trade: ["mskill_arc_welder", "mskill_mig_welder", "mskill_tig_welder"],
