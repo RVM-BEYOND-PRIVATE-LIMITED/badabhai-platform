@@ -237,7 +237,18 @@ describe("/agency/jobs/<id>/edit — the dedicated edit page (F02, replaces the 
       getAgencyJob.mockResolvedValueOnce({ ...JOB, status });
       await expect(edit.default(params(JOB.id))).rejects.toThrow(`NEXT_REDIRECT /agency/jobs/${JOB.id}`);
     }
-    expect(EditAgencyPostingStub).not.toHaveBeenCalled();
+    // Both redirects went to the details page, after reading the posting (not before).
+    expect(redirect.mock.calls).toEqual([[`/agency/jobs/${JOB.id}`], [`/agency/jobs/${JOB.id}`]]);
+    expect(getAgencyJob).toHaveBeenCalledTimes(2);
+  });
+
+  it("an open or paused posting is NOT redirected — the form is the page", async () => {
+    for (const status of ["open", "paused"] as const) {
+      getAgencyJob.mockResolvedValueOnce({ ...JOB, status });
+      const tree = (await edit.default(params(JOB.id))) as ReactElement;
+      expect(tree.type, status).toBe(EditAgencyPostingStub);
+    }
+    expect(redirect).not.toHaveBeenCalled();
   });
 });
 

@@ -43,6 +43,7 @@ const notFound = vi.fn(() => {
 const getAgencyAccount = vi.fn();
 const listAgencyJobs = vi.fn();
 const getAgencyReferralsSummary = vi.fn();
+const getAgencyEarnings = vi.fn();
 const flags = {
   agencyPortalEnabled: true,
   agencySupplyEnabled: false,
@@ -60,6 +61,7 @@ vi.mock("../../../lib/payer-api", () => ({
   getAgencyAccount: () => getAgencyAccount(),
   listAgencyJobs: () => listAgencyJobs(),
   getAgencyReferralsSummary: () => getAgencyReferralsSummary(),
+  getAgencyEarnings: () => getAgencyEarnings(),
 }));
 // next/link renders an <a>; stub to a plain anchor so the walk sees it.
 vi.mock("next/link", () => ({
@@ -166,6 +168,8 @@ beforeEach(() => {
   getAgencyReferralsSummary
     .mockReset()
     .mockResolvedValue({ created: 7, clicked: 0, accepted: 0, minBucket: 5 });
+  // The server's payouts gate is OFF by default (the earnings route 404s → the seam's null).
+  getAgencyEarnings.mockReset().mockResolvedValue(null);
 });
 
 describe("agent sections — role + flag gating (defence-in-depth)", () => {
@@ -174,6 +178,7 @@ describe("agent sections — role + flag gating (defence-in-depth)", () => {
     await expect(AgentSections()).rejects.toThrow("NEXT_NOT_FOUND");
     expect(getAgencyAccount).not.toHaveBeenCalled();
     expect(listAgencyJobs).not.toHaveBeenCalled();
+    expect(getAgencyEarnings).not.toHaveBeenCalled();
   });
 
   /**
@@ -199,6 +204,54 @@ describe("agent sections — role + flag gating (defence-in-depth)", () => {
     expect(getAgencyAccount).not.toHaveBeenCalled();
     expect(listAgencyJobs).not.toHaveBeenCalled();
     expect(getAgencyReferralsSummary).not.toHaveBeenCalled();
+    expect(getAgencyEarnings).not.toHaveBeenCalled();
+  });
+});
+
+describe("agent sections — review M1: the KYC/payout cards follow the SERVER's payouts answer", () => {
+  // /agency/referrals draws the KYC, earnings and payout panels exactly when the earnings read
+  // answers (a 404 → null means AGENCY_PAYOUTS_ENABLED is off). The dashboard makes the SAME read
+  // and hands its answer to the parked cards — never the public NEXT_PUBLIC_* flags.
+  const EARNINGS = {
+    totalAccruedInr: 0,
+    requestableInr: 0,
+    inRequestInr: 0,
+    paidInr: 0,
+    accrualCount: 0,
+    kycStatus: "not_submitted",
+    thresholdInr: 500,
+    basisInr: 40,
+    rateBps: 2500,
+    windowDays: 90,
+    payoutsEnabled: true,
+    canRequest: false,
+    blockedReason: "kyc_not_verified",
+  };
+  const parkedProps = async () => {
+    const tree = await AgentSections();
+    const [parked] = findAll(tree, ParkedModulesStub);
+    expect(parked, "the parked cards mount").toBeDefined();
+    return { tree, props: prop(parked!) };
+  };
+
+  it("the earnings read answered → payoutsAvailable", async () => {
+    getAgencyEarnings.mockResolvedValueOnce(EARNINGS);
+    expect((await parkedProps()).props.payoutsAvailable).toBe(true);
+    expect(getAgencyEarnings).toHaveBeenCalledTimes(1);
+  });
+
+  it("the server's gate is off (404 → null) → not available, even with the public flags on", async () => {
+    agencyFlags.mockReturnValue({ ...flags, agencyKycEnabled: true, agencyPayoutsEnabled: true });
+    expect((await parkedProps()).props.payoutsAvailable).toBe(false);
+  });
+
+  it("a FAILED earnings read → not available, and no error: the rest of the dashboard is untouched", async () => {
+    getAgencyEarnings.mockRejectedValueOnce(new Error("upstream 503"));
+    const { tree, props } = await parkedProps();
+    expect(props.payoutsAvailable).toBe(false);
+    // Not a "Some signals unavailable" alert: the cards simply stay parked.
+    expect(collect(tree).text.join(" ")).not.toContain("Some signals unavailable");
+    expect(collect(tree).text.join(" ")).toContain("Your postings");
   });
 });
 
@@ -353,7 +406,8 @@ describe("CARDS-1 · agent tiles are whole-card links to their REAL routes (face
     expect(prop(byLabel("Account")!).href).toBe("/account");
     // The demand tile is a count; "All postings" on the panel is the one door to the list.
     expect(prop(byLabel("Total postings")!).href).toBeUndefined();
-    // The Revenue card is gone: the shared top's tile is the dashboard's one way to it.
+    // No Revenue card: Revenue is a rail destination (the rail is its door; PR D #2037 also
+    // removed the shared top's "Coming soon" tile).
     expect(byLabel("Revenue")).toBeUndefined();
     expect(cards.map((c) => prop(c).href)).not.toContain("/agency/revenue");
     // F15: Worker activity and QR invite are rail destinations — the rail is their door.

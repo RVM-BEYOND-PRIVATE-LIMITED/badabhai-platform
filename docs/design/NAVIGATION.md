@@ -171,11 +171,12 @@ is New posting (`/agency/jobs/new`). "Your postings" shows three rows — each c
 posting's details, and its "Applicants" link its feed — and "All postings" opens `/agency/jobs`. The
 Account tile opens `/account`. The Referral funnel panel's "Invite workers" is the dashboard's one
 door to `/agency/referrals`, where the invite form and the batch links live. "Not in this release"
-starts closed; with its flag on, Payout details (KYC) and Payouts read "Test mode" (built as mocks,
-ADR-0022 Amendment 2 — no real payout) and open Referrals. Removed (they repeated the rail or led
-nowhere): the Worker activity, QR invite, Batch invites and Bulk invite upload tiles, and the inline
-invite form. (The shared top's Revenue "Coming soon" tile is `dashboard/page.tsx`'s, not these
-sections'.)
+starts closed; Payout details (KYC) and Payouts read "Available on Referrals — payouts are
+simulated" and open Referrals only when the SERVER has payouts on (`AGENCY_PAYOUTS_ENABLED`, read
+the way Referrals reads it: the earnings route answers) — the public `NEXT_PUBLIC_ENABLE_AGENCY_*`
+flags never claim it. Removed (they repeated the rail or led nowhere): the Worker activity, QR
+invite, Batch invites and Bulk invite upload tiles, and the inline invite form. Revenue is a rail
+destination; the agency sections link it nowhere.
 
 **Referrals** (`/agency/referrals`, final sweep F19) reads: the funnel, then "Invite workers" — its
 one primary, "Create invite link", directly under the consent note, with the four optional settings

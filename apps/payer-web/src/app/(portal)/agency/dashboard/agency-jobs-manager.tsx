@@ -60,10 +60,11 @@ const LIFECYCLE_LABEL: Record<LifecycleAction, { idle: string; busy: string }> =
 
 export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
   const router = useRouter();
-  // useState call order (mirrored by agency-jobs-manager.test.tsx): rows, busy, errorById.
+  // useState call order (mirrored by agency-jobs-manager.test.tsx): rows, busyById, errorById.
   const [rows, setRows] = useState<AgencyJob[]>(jobs);
-  // The ONE lifecycle action in flight: which row, and which of its buttons was pressed.
-  const [busy, setBusy] = useState<{ id: string; action: LifecycleAction } | null>(null);
+  // The lifecycle action in flight on EACH row (review L3): a row's press and its finish touch only
+  // that row's entry, so two rows working at once never overwrite each other's state.
+  const [busyById, setBusyById] = useState<Record<string, LifecycleAction>>({});
   const [errorById, setErrorById] = useState<Record<string, string | null>>({});
   const [, startTransition] = useTransition();
 
@@ -87,10 +88,14 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
     run: () => Promise<AgencyJobActionResult>,
   ) {
     setError(id, null);
-    setBusy({ id, action });
+    setBusyById((prev) => ({ ...prev, [id]: action }));
     startTransition(async () => {
       const res = await run();
-      setBusy(null);
+      setBusyById((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       if (res.ok) {
         upsertRow(res.job);
         router.refresh();
@@ -120,7 +125,8 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
       ) : (
         <div className="agency-jobs__list">
           {rows.map((j) => {
-            const rowBusy = busy !== null && busy.id === j.id;
+            const rowAction = busyById[j.id];
+            const rowBusy = rowAction !== undefined;
             const err = errorById[j.id] ?? null;
             const active = isActiveJob(j);
             /**
@@ -132,7 +138,7 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
               icon: IconName,
               run: () => Promise<AgencyJobActionResult>,
             ) => {
-              const running = rowBusy && busy?.action === action;
+              const running = rowAction === action;
               return (
                 <Button
                   variant="secondary"
@@ -189,14 +195,24 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                   </Link>
                   {isEditableJob(j) ? (
                     <div className="agency-job__btns">
-                      {/* The posting's own edit page (F02) — the same door its details header offers. */}
-                      <Link
-                        className="bb-btn bb-btn--secondary bb-btn--sm"
-                        href={`/agency/jobs/${j.id}/edit`}
-                      >
-                        <Icon name={ACTION_ICON.edit} />
-                        <span>Edit</span>
-                      </Link>
+                      {/* The posting's own edit page (F02) — the same door its details header
+                          offers. NOT a door while this row's action runs (review L2): Close, then
+                          Edit, opened an edit page whose save could never succeed. The disabled
+                          stand-in keeps the row's layout and takes no click or focus. */}
+                      {rowBusy ? (
+                        <span className="bb-btn bb-btn--secondary bb-btn--sm" aria-disabled="true">
+                          <Icon name={ACTION_ICON.edit} />
+                          <span>Edit</span>
+                        </span>
+                      ) : (
+                        <Link
+                          className="bb-btn bb-btn--secondary bb-btn--sm"
+                          href={`/agency/jobs/${j.id}/edit`}
+                        >
+                          <Icon name={ACTION_ICON.edit} />
+                          <span>Edit</span>
+                        </Link>
+                      )}
                       {active
                         ? lifecycle("pause", "pause", () => pauseAgencyJobAction({ jobId: j.id }))
                         : lifecycle("resume", "play", () => resumeAgencyJobAction({ jobId: j.id }))}

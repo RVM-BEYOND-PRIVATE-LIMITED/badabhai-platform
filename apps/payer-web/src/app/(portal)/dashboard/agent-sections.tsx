@@ -4,6 +4,7 @@ import { requireAgent } from "../../../lib/auth/roles";
 import { agencyFlags } from "../../../lib/config";
 import {
   getAgencyAccount,
+  getAgencyEarnings,
   getAgencyReferralsSummary,
   listAgencyJobs,
 } from "../../../lib/payer-api";
@@ -44,7 +45,8 @@ import { AgencyParkedModules } from "../agency/dashboard/parked-modules";
  * LIVE (honest labelling): the account identity, a glance at the agency's OWN postings
  * (`/payer/agency/jobs`; they are created on `/agency/jobs/new` and managed on `/agency/jobs`)
  * and the referral funnel (`/payer/agency/referrals/summary`, aggregate + k-anon) are LIVE
- * payer-authed, agent-role-gated reads (ADR-0022). DATA-COHERENCE: for an agent these AGENCY
+ * payer-authed, agent-role-gated reads (ADR-0022); the earnings read only tells "Not in this
+ * release" whether the server has payouts on. DATA-COHERENCE: for an agent these AGENCY
  * postings (`jobs.payer_id`) — NOT the employer `job-postings` the shared dashboard top
  * reads — are the source of truth for the posting count + listing; the shared top therefore
  * omits its `job-postings`-derived tile + "Your postings" section for agents so the two never
@@ -113,6 +115,17 @@ export async function AgentSections() {
     );
   } catch {
     readError = true;
+  }
+  // The SERVER's payouts gate (`AGENCY_PAYOUTS_ENABLED`), read the way /agency/referrals reads it
+  // before it draws the KYC, earnings and payout panels: the earnings route answers (a 404 is the
+  // seam's `null` = off). It only decides whether "Not in this release" may call those modules
+  // available (review M1), so a failure is "not available" — never an error state, never the
+  // "Some signals unavailable" alert. The seam crosses assertNoAgencyPII; only a boolean is kept.
+  let payoutsAvailable = false;
+  try {
+    payoutsAvailable = (await getAgencyEarnings()) !== null;
+  } catch {
+    payoutsAvailable = false;
   }
 
   const demand = jobs ? summarizeAgencyJobs(jobs) : null;
@@ -219,8 +232,8 @@ export async function AgentSections() {
               <span className="agency-stat__hint">Across all your roles</span>
             </div>
           </Card>
-          {/* Counts only. Worker activity is a rail destination (no tile repeats the rail, F15);
-              no Revenue card either — the shared top owns that tile. */}
+          {/* Counts only. Worker activity and Revenue are rail destinations — the rail is their
+              door (no tile repeats the rail, F15). */}
         </div>
       </section>
 
@@ -335,9 +348,9 @@ export async function AgentSections() {
         </div>
       </section>
 
-      {/* e) NOT IN THIS RELEASE — closed by default; parked cards are inert, test-mode ones link
-          to Referrals (see parked-modules.tsx). */}
-      <AgencyParkedModules flags={flags} />
+      {/* e) NOT IN THIS RELEASE — closed by default; parked cards are inert, and KYC + Payouts
+          link to Referrals only when the server has payouts on (see parked-modules.tsx). */}
+      <AgencyParkedModules flags={flags} payoutsAvailable={payoutsAvailable} />
     </>
   );
 }

@@ -3,33 +3,37 @@ import type { AgencyFlags } from "../../../../lib/config";
 import { Badge, Card } from "../../../../components/ds";
 
 /**
- * "NOT IN THIS RELEASE" — the agency modules that are parked, deferred, or live only as a MOCK —
- * DS3.1 re-skin onto the BadaBhai Design System (VISUAL layer only).
+ * "NOT IN THIS RELEASE" — the agency modules that are parked or deferred, and the two that are
+ * built but switched on per environment — DS3.1 re-skin onto the BadaBhai Design System.
  *
- * Two kinds of card, by what is TRUE of the module (each tied to its public flag, all default OFF;
- * no flag logic lives here — a flag only chooses which true sentence is shown):
+ * Two kinds of card, by what is TRUE of the module (no flag logic lives here — the inputs only
+ * choose which true sentence is shown):
  *
- *  - PARKED / DEFERRED (flag off, or a module with nothing built): an informational, NON-interactive
- *    card that names the module and its gate. Matching / outcome tracking is product-locked and
- *    unbuilt, so its flag being on only re-labels it ("Flagged on — still unbuilt").
- *  - TEST MODE (KYC or Payouts with its flag on): ADR-0022 Amendment 2 (accepted 2026-07-23) BUILT
- *    both as MOCK, launch-gated modules — KYC is checked by hand (no real registry) and a payout
- *    request moves no money. They render on /agency/referrals, so the card says it is available in
- *    test mode and links there. Until this was corrected the card called them "still unbuilt".
+ *  - AVAILABLE (Payout details (KYC), Payouts): ADR-0022 Amendment 2 BUILT both, with simulated
+ *    payouts, behind the SERVER flag `AGENCY_PAYOUTS_ENABLED`. /agency/referrals draws their panels
+ *    exactly when the earnings read answers (a 404 means off), so `payoutsAvailable` is that same
+ *    answer, read by the dashboard (review M1). Only then does the card say they are available and
+ *    link to Referrals. The public `NEXT_PUBLIC_ENABLE_AGENCY_KYC/PAYOUTS` flags gate nothing those
+ *    panels do, so they never make that claim (they used to: the card promised a panel Referrals
+ *    then did not draw).
+ *  - PARKED / DEFERRED (everything else, and KYC/Payouts while the server says off or its read
+ *    failed): an informational, NON-interactive card naming the module and its gate. Matching /
+ *    outcome tracking is product-locked and unbuilt, so its public flag only re-labels it
+ *    ("Flagged on — still unbuilt").
  *
  * NOT LISTED: bulk invite upload. It is DEAD — a consent violation that will never be built
  * (ADR-0022 Amendment 3) — so it does not belong in a list of modules "not in this release",
  * where a "Parked" badge would frame it as coming. Its explanation page is reachable by its URL.
  *
- * NEVER promise payouts / ₹500 / 25% / 90d / any commercial term. The cards name the module, its
- * gate or its test-mode status ONLY.
+ * NEVER promise payouts / ₹500 / 25% / 90d / any commercial term, and never call KYC a "test":
+ * details entered there are stored (encrypted, ADR-0022 Amdt 2) — only the payouts are simulated.
  *
  * A parked card is the UI-1 `soon-card` primitive marked `aria-disabled` — the one visual language
  * for "not open yet": a dashed, colourless placeholder, never broken and never interactive. Its
  * status pill stays a DS `Badge` rather than the `soon-badge`, because "Soon" is precisely the
  * promise these cards must NEVER make: each is gated on a legal, money or product decision, not on
- * engineering readiness. A test-mode card is a real door, so it is the dashboard's whole-card link
- * tile instead. Tokens only (no raw hex/px).
+ * engineering readiness. An available card is a real door, so it is the dashboard's whole-card
+ * link tile instead. Tokens only (no raw hex/px).
  *
  * CLOSED BY DEFAULT (final sweep F21): this is the page's lowest-priority block; open, it was most
  * of the agency dashboard's height on a phone. The native <summary> keeps it one keypress away.
@@ -39,37 +43,43 @@ interface ModuleCard {
   title: string;
   /** Why it is not here (shown while parked). */
   parkedNote: string;
-  /** Whether its public flag is on. */
-  flaggedOn: boolean;
-  /**
-   * What is true once the flag is on and the module is BUILT as a mock (ADR-0022 Amdt 2) — absent
-   * for a module that is still unbuilt, whose flag only re-labels the card.
-   */
-  testModeNote?: string;
+  /** Available now (the server answered for a built module) — a linked card, not a parked one. */
+  available: boolean;
+  /** A public flag that only RE-LABELS a still-unbuilt module. */
+  flaggedOn?: boolean;
 }
 
-/** Where the mock KYC + payout panels render (ADR-0022 Amendment 2). */
+/** Where the KYC + payout panels render (ADR-0022 Amendment 2). */
 const REFERRALS_HREF = "/agency/referrals";
+const AVAILABLE_NOTE = "Available on Referrals — payouts are simulated; no money is paid out yet.";
 
-export function AgencyParkedModules({ flags }: { flags: AgencyFlags }) {
+export function AgencyParkedModules({
+  flags,
+  payoutsAvailable,
+}: {
+  flags: AgencyFlags;
+  /**
+   * The SERVER's answer: the agency earnings read returned (`AGENCY_PAYOUTS_ENABLED` on) — the same
+   * check /agency/referrals makes before it draws the KYC, earnings and payout panels. A failed
+   * read is `false` (the cards stay parked, never an error).
+   */
+  payoutsAvailable: boolean;
+}) {
   const cards: ModuleCard[] = [
     {
       title: "Payout details (KYC)",
       parkedNote: "Parked: legal/DPDP sign-off required",
-      flaggedOn: flags.agencyKycEnabled,
-      testModeNote:
-        "Available in test mode on Referrals: details are checked by hand, not against a real registry, and no real payout is made.",
+      available: payoutsAvailable,
     },
     {
       title: "Payouts",
       parkedNote: "Parked: real payments + product-ratified params required",
-      flaggedOn: flags.agencyPayoutsEnabled,
-      testModeNote:
-        "Available in test mode on Referrals: a payout request is recorded but no real payout is made.",
+      available: payoutsAvailable,
     },
     {
       title: "Matching / Outcome Tracking",
       parkedNote: "Deferred by product lock",
+      available: false,
       flaggedOn: flags.agencyOutcomeTrackingEnabled,
     },
   ];
@@ -84,26 +94,26 @@ export function AgencyParkedModules({ flags }: { flags: AgencyFlags }) {
       </summary>
       <p className="section__sub">
         These modules are gated on legal, money or product decisions — not engineering readiness.
-        One that is switched on runs in test mode only: no real payout is made.
+        Where payouts are switched on they are simulated: no money is paid out yet.
       </p>
       <div className="stat-row">
         {cards.map((c) =>
-          c.flaggedOn && c.testModeNote ? (
+          c.available ? (
             <Card
               key={c.title}
               className="agency-stat"
               href={REFERRALS_HREF}
-              ariaLabel={`${c.title} — available in test mode on Referrals`}
+              ariaLabel={`${c.title} — available on Referrals`}
             >
               <div className="agency-stat__head">
                 <span className="agency-stat__label">{c.title}</span>
               </div>
               <div className="agency-stat__foot">
                 <Badge tone="info" upper>
-                  Test mode
+                  Available
                 </Badge>
                 <span className="agency-stat__hint">
-                  {c.testModeNote} <Icon name={ACTION_ICON.next} />
+                  {AVAILABLE_NOTE} <Icon name={ACTION_ICON.next} />
                 </span>
               </div>
             </Card>

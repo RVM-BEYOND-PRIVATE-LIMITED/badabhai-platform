@@ -375,10 +375,11 @@ body {
   box-shadow: var(--shadow-sticky);
 }
 /* In-page link targets — the element a URL fragment names (`/plans#hiring-capacity`, the
-   `/agency/referrals#batch-invites` tile, the legacy `#agency-vacancies` deep link). The browser
-   (and the router, on an in-app link) scrolls that element to the top of the viewport — UNDER
-   the sticky header above, which hid its title (measured: "Hiring capacity" at y=0-22px behind
-   the 61px header at 375/768/1280). This margin lands it below the header, a block gap clear.
+   `/agency/referrals#batch-invites` batch-links panel, the legacy `#agency-vacancies` deep link).
+   The browser (and the router, on an in-app link) scrolls that element to the top of the
+   viewport — UNDER the sticky header above, which hid its title (measured: "Hiring capacity" at
+   y=0-22px behind the 61px header at 375/768/1280). This margin lands it below the header, a
+   block gap clear.
    Opt-in per target: on every [id] it would also offset an option a listbox scrolls into view
    inside its own menu. */
 .anchor-target {
@@ -3395,9 +3396,6 @@ textarea.input {
   line-height: var(--leading-normal);
 }
 
-/* COMPACT-1 — the parked "Not in this release" section as an accessible native <details>
-   disclosure. Open by default (nothing hidden on first paint); the <summary> is the
-   keyboard-operable toggle. Layout/disclosure only — no copy/data change. */
 /* AGENCY DISCLOSURES — one native <details> pattern for the agency surfaces: "Not in this
    release" on /dashboard, and on /agency/referrals the invite link's Options and the batch-links
    panel (final sweep F19/F21). The whole summary row is the toggle (≥44px); the default triangle is

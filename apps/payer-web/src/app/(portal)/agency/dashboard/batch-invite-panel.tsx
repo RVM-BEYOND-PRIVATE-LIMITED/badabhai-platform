@@ -73,7 +73,14 @@ const COPY_FAILED =
  */
 export function revealFragmentTarget(details: HTMLDetailsElement | null): void {
   if (details === null || typeof window === "undefined") return;
-  const id = decodeURIComponent(window.location.hash.slice(1));
+  let id: string;
+  try {
+    id = decodeURIComponent(window.location.hash.slice(1));
+  } catch {
+    // A malformed fragment (`#%`) names nothing; thrown from a ref it would take the page into
+    // the error boundary (review L1).
+    return;
+  }
   if (id === "") return;
   const target = document.getElementById(id);
   if (target !== null && details.contains(target)) details.open = true;
@@ -191,7 +198,7 @@ export function AgencyBatchInvitePanel() {
     <section className="agency-section">
       <details className="agency-disclosure" ref={revealFragmentTarget}>
         <summary className="agency-disclosure__summary">
-          <h2 className="agency-section__title">Create several invite links at once</h2>
+          <span className="agency-section__title">Create several invite links at once</span>
           <Icon name={ACTION_ICON.disclosure} className="agency-disclosure__caret" />
         </summary>
         {/* The in-page anchor target (`.anchor-target` clears the sticky header). */}

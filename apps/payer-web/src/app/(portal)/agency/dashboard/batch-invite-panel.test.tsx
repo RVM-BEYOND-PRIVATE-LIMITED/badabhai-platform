@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 
@@ -418,6 +418,9 @@ describe("AgencyBatchInvitePanel — F19: a secondary disclosure on Referrals", 
     expect(details.props.open).toBeFalsy();
     const summary = elementsOf(details).find((e) => e.type === "summary")!;
     expect(collect(summary).text.join(" ")).toContain("Create several invite links at once");
+    // No heading INSIDE the summary (some screen readers drop a heading nested in its button
+    // role) — the parked-modules pattern: the title is a styled span.
+    expect(collect(summary).types.filter((t) => /^h[1-6]$/.test(t))).toEqual([]);
     // The form waits inside it.
     expect(elementsOf(details).some((e) => e.type === "form")).toBe(true);
   });
@@ -443,23 +446,42 @@ describe("revealFragmentTarget — a client-side link to #batch-invites opens th
     const target = { id: "batch-invites" };
     const details = { open: false, contains: (n: unknown) => inside && n === target };
     vi.stubGlobal("window", { location: { hash } });
-    vi.stubGlobal("document", { getElementById: (id: string) => (id === "batch-invites" ? target : null) });
+    vi.stubGlobal("document", {
+      getElementById: (id: string) => (id === "batch-invites" ? target : null),
+    });
     return details;
   }
+  // Every test stubs the globals; a failing assertion must not leak them into the next test.
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
   it("opens when the fragment names an element inside it", () => {
     const d = fake("#batch-invites", true);
     revealFragmentTarget(d as unknown as HTMLDetailsElement);
     expect(d.open).toBe(true);
-    vi.unstubAllGlobals();
   });
 
   it("stays closed with no fragment, another fragment, or a target outside it", () => {
-    for (const [hash, inside] of [["", true], ["#hiring-capacity", true], ["#batch-invites", false]] as const) {
+    const cases = [
+      ["", true],
+      ["#hiring-capacity", true],
+      ["#batch-invites", false],
+    ] as const;
+    for (const [hash, inside] of cases) {
       const d = fake(hash, inside);
       revealFragmentTarget(d as unknown as HTMLDetailsElement);
       expect(d.open, `${hash} ${inside}`).toBe(false);
-      vi.unstubAllGlobals();
+    }
+  });
+
+  it("review L1: a malformed fragment (`#%`, `#%E0%A4`) is ignored — it never throws", () => {
+    // `decodeURIComponent("%")` throws URIError; thrown from a ref it took /agency/referrals into
+    // the error boundary.
+    for (const hash of ["#%", "#%E0%A4", "#batch-invites%"]) {
+      const d = fake(hash, true);
+      expect(() => revealFragmentTarget(d as unknown as HTMLDetailsElement), hash).not.toThrow();
+      expect(d.open, hash).toBe(false);
     }
   });
 

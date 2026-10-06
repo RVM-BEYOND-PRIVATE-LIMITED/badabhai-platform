@@ -5,24 +5,28 @@ import type { AgencyFlags } from "../../../../lib/config";
 import { Card } from "../../../../components/ds";
 
 /**
- * PARKED / DEAD / DEFERRED module cards — informational, NON-interactive.
- * Each card is the UI-1 `soon-card` primitive + a status `Badge` (the Badge, not the
- * `soon-badge`: "Soon" is the one promise these cards must never make). The assertions are
- * UNCHANGED by the re-skin — the walk records only native string element types and the
- * rendered text in `children`, and a `soon-card` is a plain <div>, so the
- * no-interactive-control + no-commercial-term + re-label guards all still hold. Asserts:
- *  - the three parked/deferred modules render with their gate note, and the DEAD one (bulk
- *    invite upload, ADR-0022 Amdt 3) is NOT among them — it is never framed as parked,
- *  - NO interactive control exists (no button/input/form/select/textarea/anchor —
- *    they are not clickable fake flows),
+ * "NOT IN THIS RELEASE" module cards. A parked card is the UI-1 `soon-card` primitive + a status
+ * `Badge` (the Badge, not the `soon-badge`: "Soon" is the one promise these cards must never make);
+ * the walk records native element types and the rendered text in `children`. Asserts:
+ *  - the three modules render with their gate note, and the DEAD one (bulk invite upload, ADR-0022
+ *    Amdt 3) is NOT among them — it is never framed as parked,
+ *  - while nothing is available, NO interactive control exists (no button/input/form/select/
+ *    textarea/anchor — the cards are not clickable fake flows),
  *  - NO commercial term is promised (no ₹500 / 25% / 90d),
- *  - KYC and Payouts are BUILT, as mock launch-gated modules on /agency/referrals (ADR-0022
- *    Amendment 2, accepted 2026-07-23): with their flag on, the card says so — test mode, no real
- *    payout — and links to Referrals. The card used to call them "Flagged on — still unbuilt",
- *    which stopped being true in July. Outcome tracking IS still unbuilt: its flag only re-labels.
+ *  - KYC and Payouts are BUILT, as mock modules gated by the SERVER flag `AGENCY_PAYOUTS_ENABLED`
+ *    (ADR-0022 Amendment 2): the card calls them available — and links to Referrals — ONLY when
+ *    the server answered (`payoutsAvailable`, the read /agency/referrals makes before it draws
+ *    those panels). The public `NEXT_PUBLIC_ENABLE_AGENCY_KYC/PAYOUTS` flags gate nothing, so they
+ *    never claim availability (review M1). The copy never says "test mode" about KYC data, and
+ *    never implies entered details are not stored. Outcome tracking IS still unbuilt: its public
+ *    flag only re-labels it.
  *  - the disclosure is CLOSED by default (final sweep F21): what is not in this release is the
  *    page's lowest-priority block, and open it was most of the dashboard's height on a phone.
  */
+
+/** Render with the public flags and the server's payouts answer (default: not available). */
+const parked = (flags: AgencyFlags, payoutsAvailable = false) =>
+  AgencyParkedModules({ flags, payoutsAvailable });
 
 const OFF: AgencyFlags = {
   agencyPortalEnabled: true,
@@ -61,7 +65,7 @@ function collect(node: ReactNode): Collected {
 
 describe("AgencyParkedModules — informational, non-interactive", () => {
   it("renders the three parked/deferred modules with their gate note", () => {
-    const joined = collect(AgencyParkedModules({ flags: OFF })).text.join(" ");
+    const joined = collect(parked(OFF)).text.join(" ");
     expect(joined).toContain("Payout details (KYC)");
     expect(joined).toContain("Parked: legal/DPDP sign-off required");
     expect(joined).toContain("Payouts");
@@ -72,7 +76,7 @@ describe("AgencyParkedModules — informational, non-interactive", () => {
   it("never lists bulk invite upload — it is dead, not parked, whatever its flag says", () => {
     for (const agencyBulkUploadEnabled of [false, true]) {
       const joined = collect(
-        AgencyParkedModules({ flags: { ...OFF, agencyBulkUploadEnabled } }),
+        parked({ ...OFF, agencyBulkUploadEnabled }),
       ).text.join(" ");
       expect(joined).not.toMatch(/bulk/i);
       expect(joined).not.toMatch(/consent violation/i);
@@ -80,21 +84,21 @@ describe("AgencyParkedModules — informational, non-interactive", () => {
   });
 
   it("has NO interactive control (not clickable fake flows)", () => {
-    const { types } = collect(AgencyParkedModules({ flags: OFF }));
+    const { types } = collect(parked(OFF));
     for (const t of ["button", "input", "form", "select", "textarea", "a"]) {
       expect(types).not.toContain(t);
     }
   });
 
   it("promises NO commercial term (no ₹500 / 25% / 90d)", () => {
-    const joined = collect(AgencyParkedModules({ flags: OFF })).text.join(" ");
+    const joined = collect(parked(OFF)).text.join(" ");
     expect(joined).not.toMatch(/₹\s?500/);
     expect(joined).not.toMatch(/25\s?%/);
     expect(joined).not.toMatch(/\b90\s?d\b/i);
   });
 
   it("is a disclosure that starts CLOSED (F21) — the summary names it, the cards wait inside", () => {
-    const el = AgencyParkedModules({ flags: OFF }) as ReactElement<{ open?: boolean; children: ReactNode }>;
+    const el = parked(OFF) as ReactElement<{ open?: boolean; children: ReactNode }>;
     expect(el.type).toBe("details");
     expect(el.props.open).toBeFalsy();
     expect(collect(el).text.join(" ")).toContain("Not in this release");
@@ -114,46 +118,55 @@ function cardLinks(node: ReactNode, out: Array<[string, string]> = []): Array<[s
   return out;
 }
 
-describe("AgencyParkedModules — KYC and Payouts are BUILT (mock, launch-gated) — ADR-0022 Amdt 2", () => {
-  it("KYC flag ON: available in TEST MODE, no real payout, and the card opens Referrals", () => {
-    const tree = AgencyParkedModules({ flags: { ...OFF, agencyKycEnabled: true } });
+describe("AgencyParkedModules — KYC and Payouts follow the SERVER's payouts answer (review M1)", () => {
+  const AVAILABLE = "Available on Referrals — payouts are simulated; no money is paid out yet.";
+
+  it("server answered: KYC and Payouts are available on Referrals (payouts simulated) and link there", () => {
+    const tree = parked(OFF, true);
     const joined = collect(tree).text.join(" ");
+    expect(joined.split(AVAILABLE)).toHaveLength(3);
     expect(joined).not.toContain("still unbuilt");
-    expect(joined).toContain("Test mode");
-    expect(joined).toMatch(/no real payout/i);
     expect(cardLinks(tree)).toEqual([
-      ["/agency/referrals", "Payout details (KYC) — available in test mode on Referrals"],
+      ["/agency/referrals", "Payout details (KYC) — available on Referrals"],
+      ["/agency/referrals", "Payouts — available on Referrals"],
     ]);
   });
 
-  it("Payouts flag ON: the same — test mode, no real payout, a link to Referrals", () => {
-    const tree = AgencyParkedModules({ flags: { ...OFF, agencyPayoutsEnabled: true } });
-    const joined = collect(tree).text.join(" ");
-    expect(joined).not.toContain("still unbuilt");
-    expect(joined).toMatch(/no real (money|payout)/i);
-    expect(cardLinks(tree)).toEqual([["/agency/referrals", "Payouts — available in test mode on Referrals"]]);
+  it("server off (or its read failed): both Parked with their reasons — even with the public flags ON", () => {
+    // The public KYC/payout flags gate nothing (the Referrals panels follow AGENCY_PAYOUTS_ENABLED
+    // only), so with them on the card used to promise a panel Referrals then did not draw.
+    for (const flags of [OFF, { ...OFF, agencyKycEnabled: true, agencyPayoutsEnabled: true }]) {
+      const tree = parked(flags, false);
+      expect(cardLinks(tree)).toEqual([]);
+      const joined = collect(tree).text.join(" ");
+      expect(joined).toContain("Parked: legal/DPDP sign-off required");
+      expect(joined).toContain("Parked: real payments + product-ratified params required");
+      expect(joined).not.toMatch(/available|still unbuilt/i);
+      expect(collect(tree).text.filter((t) => t === "Parked")).toHaveLength(3);
+    }
   });
 
-  it("flag OFF: each stays Parked with its reason, and nothing links anywhere", () => {
-    const tree = AgencyParkedModules({ flags: OFF });
-    expect(cardLinks(tree)).toEqual([]);
-    expect(collect(tree).text.filter((t) => t === "Parked")).toHaveLength(3);
+  it("never 'test mode' about KYC, never a hint that entered details are not kept", () => {
+    const joined = collect(parked({ ...OFF, agencyKycEnabled: true }, true)).text.join(" ");
+    expect(joined).not.toMatch(/test mode/i);
+    expect(joined).not.toMatch(/not (stored|kept|saved)|no data|discarded|deleted/i);
   });
 
-  it("Outcome tracking IS still unbuilt: its flag only re-labels the card (no link)", () => {
-    const tree = AgencyParkedModules({ flags: { ...OFF, agencyOutcomeTrackingEnabled: true } });
+  it("Outcome tracking IS still unbuilt: its public flag only re-labels the card (no link)", () => {
+    const tree = parked({ ...OFF, agencyOutcomeTrackingEnabled: true }, true);
     expect(collect(tree).text.join(" ")).toContain("Flagged on — still unbuilt");
-    expect(cardLinks(tree)).toEqual([]);
+    expect(cardLinks(tree).map(([, label]) => label)).not.toContain(
+      "Matching / Outcome Tracking — available on Referrals",
+    );
   });
 
-  it("promises NO commercial term with every flag on either (no ₹500 / 25% / 90d)", () => {
-    const joined = collect(
-      AgencyParkedModules({
-        flags: { ...OFF, agencyKycEnabled: true, agencyPayoutsEnabled: true, agencyOutcomeTrackingEnabled: true },
-      }),
-    ).text.join(" ");
-    expect(joined).not.toMatch(/₹\s?500/);
-    expect(joined).not.toMatch(/25\s?%/);
-    expect(joined).not.toMatch(/\b90\s?d\b/i);
+  it("promises NO commercial term in any state (no ₹500 / 25% / 90d)", () => {
+    const all = { ...OFF, agencyKycEnabled: true, agencyPayoutsEnabled: true, agencyOutcomeTrackingEnabled: true };
+    for (const available of [false, true]) {
+      const joined = collect(parked(all, available)).text.join(" ");
+      expect(joined).not.toMatch(/₹\s?500/);
+      expect(joined).not.toMatch(/25\s?%/);
+      expect(joined).not.toMatch(/\b90\s?d\b/i);
+    }
   });
 });

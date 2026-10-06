@@ -25,8 +25,9 @@ import { Button } from "../../../../components/ds";
  * F39: a lifecycle press shows loading on THAT button only; the row's other buttons are disabled.
  *
  * Env is node (no DOM); React state is injected via a mocked `useState` (source order: rows,
- * busy, errorById — `editingId` left with the inline editor, so `busy` and `errorById` moved up one
- * position; `busy` is now `{ id, action }`, not a bare id). `useTransition` → [false, run-now].
+ * busyById, errorById — `editingId` left with the inline editor, so the busy slot and `errorById`
+ * moved up one position; the busy slot is now `Record<jobId, action>` — PER ROW, so two rows
+ * working at once never overwrite each other (review L3)). `useTransition` → [false, run-now].
  */
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
@@ -100,14 +101,10 @@ function collect(tree: ReactNode): Collected {
   return acc;
 }
 
-type Busy = { id: string; action: "pause" | "resume" | "close" } | null;
+type Busy = Record<string, "pause" | "resume" | "close">;
 
-function render(
-  jobs: AgencyJob[],
-  errorById: Record<string, string | null> = {},
-  busy: Busy = null,
-) {
-  // useState order: rows, busy, errorById.
+function render(jobs: AgencyJob[], errorById: Record<string, string | null> = {}, busy: Busy = {}) {
+  // useState order: rows, busyById, errorById.
   stateQueue = [jobs, busy, errorById];
   stateCursor = 0;
   return AgencyJobsManager({ jobs }) as ReactElement;
@@ -263,7 +260,7 @@ describe("AgencyJobsManager — F39: loading shows on the pressed button only", 
   });
 
   it("pausing: ONLY Pause spins (and says so); Close posting is disabled, not loading", () => {
-    const [pause, close] = lifecycleButtons(render([JOB], {}, { id: JOB.id, action: "pause" }));
+    const [pause, close] = lifecycleButtons(render([JOB], {}, { [JOB.id]: "pause" }));
     expect(labelOf(pause!)).toBe("Pausing…");
     expect(pause!.loading).toBe(true);
     expect(labelOf(close!)).toBe("Close posting");
@@ -272,7 +269,7 @@ describe("AgencyJobsManager — F39: loading shows on the pressed button only", 
   });
 
   it("closing: ONLY Close posting spins; Pause keeps its label and is disabled", () => {
-    const [pause, close] = lifecycleButtons(render([JOB], {}, { id: JOB.id, action: "close" }));
+    const [pause, close] = lifecycleButtons(render([JOB], {}, { [JOB.id]: "close" }));
     expect(labelOf(close!)).toBe("Closing…");
     expect(close!.loading).toBe(true);
     expect(labelOf(pause!)).toBe("Pause");
@@ -282,9 +279,7 @@ describe("AgencyJobsManager — F39: loading shows on the pressed button only", 
 
   it("resuming a paused row: ONLY Resume spins", () => {
     const paused = { ...JOB, status: "paused" as const };
-    const [resume, close] = lifecycleButtons(
-      render([paused], {}, { id: JOB.id, action: "resume" }),
-    );
+    const [resume, close] = lifecycleButtons(render([paused], {}, { [JOB.id]: "resume" }));
     expect(labelOf(resume!)).toBe("Resuming…");
     expect(resume!.loading).toBe(true);
     expect(close!.loading).toBe(false);
@@ -292,7 +287,7 @@ describe("AgencyJobsManager — F39: loading shows on the pressed button only", 
   });
 
   it("another row's buttons stay live while one row works", () => {
-    const buttons = lifecycleButtons(render([JOB, JOB2], {}, { id: JOB.id, action: "pause" }));
+    const buttons = lifecycleButtons(render([JOB, JOB2], {}, { [JOB.id]: "pause" }));
     const [, , pause2, close2] = buttons;
     for (const b of [pause2!, close2!]) {
       expect(b.loading).toBe(false);
@@ -301,17 +296,102 @@ describe("AgencyJobsManager — F39: loading shows on the pressed button only", 
     expect(labelOf(pause2!)).toBe("Pause");
   });
 
-  it("pressing a button records WHICH action is running, then calls that action", () => {
+  /** The busy-slot setter of the render that starts at `first` (useState order: rows, busyById, …). */
+  const busySetter = (first: number) =>
+    useState.mock.results[first + 1]!.value[1] as ReturnType<typeof vi.fn>;
+  /** Apply every functional update the setter received, in order, to `start`. */
+  const applyUpdates = (setter: ReturnType<typeof vi.fn>, start: Busy): Busy =>
+    setter.mock.calls.reduce((acc: Busy, [u]) => (typeof u === "function" ? u(acc) : u), start);
+
+  it("pressing a button records WHICH action is running on THAT row, then calls that action", () => {
     const first = useState.mock.results.length;
     const tree = render([JOB]);
-    // useState order: rows, busy, errorById — the busy setter is the second.
-    const setBusy = useState.mock.results[first + 1]!.value[1] as ReturnType<typeof vi.fn>;
-    const [pause, close] = lifecycleButtons(tree);
+    const setBusy = busySetter(first);
+    const [pause] = lifecycleButtons(tree);
     pause!.onClick();
-    expect(setBusy).toHaveBeenCalledWith({ id: JOB.id, action: "pause" });
+    expect(applyUpdates(setBusy, {})).toEqual({ [JOB.id]: "pause" });
     expect(vi.mocked(actions.pauseAgencyJobAction)).toHaveBeenCalledWith({ jobId: JOB.id });
+    const [, close] = lifecycleButtons(render([JOB]));
     close!.onClick();
-    expect(setBusy).toHaveBeenCalledWith({ id: JOB.id, action: "close" });
     expect(vi.mocked(actions.closeAgencyJobAction)).toHaveBeenCalledWith({ jobId: JOB.id });
+  });
+});
+
+describe("AgencyJobsManager — review L3: the busy state is PER ROW", () => {
+  const busySetter = (first: number) =>
+    useState.mock.results[first + 1]!.value[1] as ReturnType<typeof vi.fn>;
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it("two rows working at once each show THEIR own action", () => {
+    const [pause1, close1, pause2, close2] = lifecycleButtons(
+      render([JOB, JOB2], {}, { [JOB.id]: "pause", [JOB2.id]: "close" }),
+    );
+    expect(labelOf(pause1!)).toBe("Pausing…");
+    expect(pause1!.loading).toBe(true);
+    expect(close1!.loading).toBe(false);
+    expect(close1!.disabled).toBe(true);
+    expect(labelOf(close2!)).toBe("Closing…");
+    expect(close2!.loading).toBe(true);
+    expect(pause2!.loading).toBe(false);
+    expect(pause2!.disabled).toBe(true);
+  });
+
+  it("a press marks its row and leaves another row's running action in place", () => {
+    const first = useState.mock.results.length;
+    const tree = render([JOB, JOB2], {}, { [JOB2.id]: "close" });
+    const setBusy = busySetter(first);
+    const [pause1] = lifecycleButtons(tree);
+    pause1!.onClick();
+    const update = setBusy.mock.calls[0]![0] as (b: Busy) => Busy;
+    expect(typeof update).toBe("function");
+    expect(update({ [JOB2.id]: "close" })).toEqual({ [JOB2.id]: "close", [JOB.id]: "pause" });
+  });
+
+  it("a finished action clears ONLY its own row — the other row keeps spinning", async () => {
+    const first = useState.mock.results.length;
+    const tree = render([JOB, JOB2], {}, { [JOB2.id]: "close" });
+    const setBusy = busySetter(first);
+    const [pause1] = lifecycleButtons(tree);
+    pause1!.onClick();
+    await flush();
+    const updates = setBusy.mock.calls.map(([u]) => u as (b: Busy) => Busy);
+    expect(updates).toHaveLength(2);
+    expect(updates[1]!({ [JOB.id]: "pause", [JOB2.id]: "close" })).toEqual({ [JOB2.id]: "close" });
+  });
+});
+
+describe("AgencyJobsManager — review L2: no edit door while the row works", () => {
+  /** The row's Edit control: [element type, href, aria-disabled]. */
+  function editOf(tree: ReactNode, jobId: string) {
+    const rows = elementsOf(tree).filter((e) => classOf(e).split(/\s+/).includes("agency-job"));
+    const row = rows.find((r) =>
+      elementsOf(r).some((e) => (e.props as { href?: string }).href === `/agency/jobs/${jobId}`),
+    )!;
+    const edit = elementsOf(row).find(
+      (e) =>
+        collect((e.props as { children?: ReactNode }).children)
+          .text.join("")
+          .trim() === "Edit" && classOf(e).includes("bb-btn"),
+    )!;
+    const p = edit.props as { href?: string; "aria-disabled"?: string };
+    return { href: p.href, ariaDisabled: p["aria-disabled"] };
+  }
+
+  it("idle: Edit is a link to the posting's edit page", () => {
+    expect(editOf(render([JOB]), JOB.id)).toEqual({
+      href: `/agency/jobs/${JOB.id}/edit`,
+      ariaDisabled: undefined,
+    });
+  });
+
+  it("while Close (or any action) runs, Edit is NOT a link — it is shown disabled", () => {
+    // Close, then Edit, landed on an edit page whose save can never succeed (closed is terminal).
+    for (const action of ["close", "pause"] as const) {
+      const tree = render([JOB, JOB2], {}, { [JOB.id]: action });
+      expect(editOf(tree, JOB.id), action).toEqual({ href: undefined, ariaDisabled: "true" });
+      expect(hrefsOf(tree)).not.toContain(`/agency/jobs/${JOB.id}/edit`);
+      // …the other row keeps its door.
+      expect(editOf(tree, JOB2.id).href).toBe(`/agency/jobs/${JOB2.id}/edit`);
+    }
   });
 });
