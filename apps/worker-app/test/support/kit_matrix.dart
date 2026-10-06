@@ -164,6 +164,11 @@ double widthOf(WidgetTester tester, Finder finder) =>
 /// whether or not the paragraph painted it.
 Future<void> loadKitFonts() async {
   const Map<String, List<String>> families = <String, List<String>>{
+    // #1999 — the display family is now Kilimanjaro Sans; Anek Latin stays loaded
+    // as its first fallback.
+    'Kilimanjaro Sans': <String>[
+      'assets/fonts/KilimanjaroSans-Regular.otf',
+    ],
     'Anek Latin': <String>[
       'assets/fonts/AnekLatin-SemiBold.ttf',
       'assets/fonts/AnekLatin-Bold.ttf',

@@ -235,37 +235,43 @@ describe("looksLikePii — the email shape (#1924)", () => {
     expect(pre1924LooksLikePii(s)).toBe(false);
   });
 
-  it("agrees with the pre-#1924 oracle on 20,000 seeded emails and near-misses", () => {
-    const rng = mulberry32(0x1924);
-    const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rng() * xs.length)]!;
-    const chars = [..."abcxyzABC019._+-%!#'~\u00e9\u0915"];
-    const run = (min: number, max: number): string => {
-      let out = "";
-      for (let n = min + Math.floor(rng() * (max - min + 1)); n > 0; n--) out += pick(chars);
-      return out;
-    };
-    let flagged = 0;
-    for (let i = 0; i < 20_000; i++) {
-      const s =
-        pick(["", "Mail ", "contact:", "CNC operator\n", "\u00a0", "(", "@", "."]) +
-        (rng() < 0.05 ? run(64, 300) : run(0, 10)) +
-        (rng() < 0.8 ? "@" : pick(["@@", " @", "@ ", "\uff20", "(at)"])) +
-        (rng() < 0.05 ? run(64, 300) : run(0, 10)) +
-        (rng() < 0.75 ? "." : pick(["..", ". ", " .", "\u3002", ""])) +
-        pick(["com", "in", "co.in", "x", ""]) +
-        pick(["", ".", "@", "@x", ")", " now", "\tPF + ESI", "\u2003"]);
-      const verdict = looksLikePii(s);
-      // looksLikePii reads the #1942 fold as well, so the oracle does too: a fullwidth "＠"
-      // (U+FF20, in this alphabet) folds to "@". The fold is the same on both sides, so this
-      // still pins EMAIL_LIKE against the pre-#1924 pattern.
-      const oracle = pre1924LooksLikePii(s) || pre1924LooksLikePii(foldForScreening(s));
-      expect(verdict, JSON.stringify(s)).toBe(oracle);
-      if (verdict) flagged++;
-    }
-    // Not vacuous: both verdicts are well represented.
-    expect(flagged).toBeGreaterThan(4_000);
-    expect(flagged).toBeLessThan(16_000);
-  });
+  // A correctness sweep, not a timing test: well under 1 s alone, but over vitest's 5 s default on
+  // a shared CI runner under turbo's parallel `test --coverage` (see #2023).
+  it(
+    "agrees with the pre-#1924 oracle on 20,000 seeded emails and near-misses",
+    { timeout: 30_000 },
+    () => {
+      const rng = mulberry32(0x1924);
+      const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rng() * xs.length)]!;
+      const chars = [..."abcxyzABC019._+-%!#'~\u00e9\u0915"];
+      const run = (min: number, max: number): string => {
+        let out = "";
+        for (let n = min + Math.floor(rng() * (max - min + 1)); n > 0; n--) out += pick(chars);
+        return out;
+      };
+      let flagged = 0;
+      for (let i = 0; i < 20_000; i++) {
+        const s =
+          pick(["", "Mail ", "contact:", "CNC operator\n", "\u00a0", "(", "@", "."]) +
+          (rng() < 0.05 ? run(64, 300) : run(0, 10)) +
+          (rng() < 0.8 ? "@" : pick(["@@", " @", "@ ", "\uff20", "(at)"])) +
+          (rng() < 0.05 ? run(64, 300) : run(0, 10)) +
+          (rng() < 0.75 ? "." : pick(["..", ". ", " .", "\u3002", ""])) +
+          pick(["com", "in", "co.in", "x", ""]) +
+          pick(["", ".", "@", "@x", ")", " now", "\tPF + ESI", "\u2003"]);
+        const verdict = looksLikePii(s);
+        // looksLikePii reads the #1942 fold as well, so the oracle does too: a fullwidth "＠"
+        // (U+FF20, in this alphabet) folds to "@". The fold is the same on both sides, so this
+        // still pins EMAIL_LIKE against the pre-#1924 pattern.
+        const oracle = pre1924LooksLikePii(s) || pre1924LooksLikePii(foldForScreening(s));
+        expect(verdict, JSON.stringify(s)).toBe(oracle);
+        if (verdict) flagged++;
+      }
+      // Not vacuous: both verdicts are well represented.
+      expect(flagged).toBeGreaterThan(4_000);
+      expect(flagged).toBeLessThan(16_000);
+    },
+  );
 
   it("matches ONE character before the @, never a run that re-scans from every start", () => {
     // The #1875 precedent: pin the pattern's shape, not only its cost. Classes collapse to

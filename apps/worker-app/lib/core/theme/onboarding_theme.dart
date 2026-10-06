@@ -346,11 +346,17 @@ class OnboardingLayout {
 class OnboardingTypography {
   OnboardingTypography._();
 
-  static const String displayFamily = 'Anek Latin';
+  // #1999 — the brand kit's heading face (Kilimanjaro Sans), bundled in
+  // `assets/fonts/` and declared in pubspec. It is Latin-display only (no ₹, no
+  // Devanagari), so Anek Latin (the previous display face) leads the fallback
+  // chain, then the bundled Baloo 2 — which carries Devanagari — then the system
+  // Noto Sans Devanagari. A glyph the display cut lacks falls through, never tofu.
+  static const String displayFamily = 'Kilimanjaro Sans';
   static const String bodyFamily = 'Inter';
   static const String monoFamily = 'Roboto Mono';
 
   static const List<String> displayFallback = <String>[
+    'Anek Latin',
     'Baloo 2',
     'Noto Sans Devanagari',
   ];

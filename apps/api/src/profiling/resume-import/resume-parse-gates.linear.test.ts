@@ -205,7 +205,9 @@ describe("the cued-identifier connector (issue #1933, R54)", () => {
     expect(differing).toEqual([]);
   });
 
-  it("matches main span for span over 20,000 seeded cue lines", () => {
+  // A correctness sweep, not a timing test: well under 1 s alone, but over vitest's 5 s default on
+  // a shared CI runner under turbo's parallel `test --coverage` (see #2023).
+  it("matches main span for span over 20,000 seeded cue lines", { timeout: 30_000 }, () => {
     const next = seeded(1933);
     const seen = { credential: 0, resume: 0 };
     for (let i = 0; i < 20_000; i += 1) {

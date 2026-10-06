@@ -1,0 +1,28 @@
+KILIMANJARO SANS — LICENCE RECORD
+=================================
+
+The font binaries in this folder (`The Fonts/...`) are a COMMERCIAL typeface.
+No licence file shipped with the brand-kit hand-off, so this file records the
+terms already on record in the repo rather than restating them from memory.
+
+The shared token layer records the licence as:
+
+    "Nicky Laatz 2022 – All rights reserved"
+
+See `packages/design-tokens/tokens.css` (the `@font-face` block for
+"Kilimanjaro Sans" and the header comment that cites the licence).
+
+OWNER RULING (2026-09-29)
+-------------------------
+The owner ruled that this commercial font may ship in this repository, accepting
+the licensing consequence. That ruling is what put the following in-tree:
+
+  * `packages/design-tokens/fonts/KilimanjaroSans-Regular.woff`
+    (converted from `The Fonts/Kilimanjaro Sans/Kilimanjaro Sans.otf`), the web
+    display face for payer-web and admin-web; and
+  * `apps/worker-app/assets/fonts/KilimanjaroSans-Regular.otf` and
+    `apps/payer-app/assets/fonts/KilimanjaroSans-Regular.otf`, the Flutter
+    display family (#1999).
+
+Raised from #1993 / #1999. Do not redistribute this face outside the platform
+without re-checking the licence.
