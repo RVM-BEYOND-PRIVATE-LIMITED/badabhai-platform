@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { FacelessApplicant } from "../../../../../lib/contracts";
 import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
+import { isoDay, type GrantedUnlock } from "../../../../../lib/unlock-history";
 import { Avatar, Badge, Button, Card, Tabs } from "../../../../../components/ds";
 import { PageHeader, type PageHeaderProps } from "../../../../../components/page-header";
 import { bandLabel, monthsLabel, opaqueId } from "../../../../../lib/masking";
@@ -31,11 +32,20 @@ import { maskedResumeAction, revealContactAction, unlockAction } from "./actions
  * (we only filter the already-sorted feed by stage) and the engine's `hot` boolean is rendered
  * AS-IS — we NEVER recompute a percentile or re-sort client-side (ranking is backend-owned).
  *
- * CONTACT (GATED): Call / WhatsApp stay DISABLED until the existing Unlock → reveal flow has
- * returned a ROUTED relay handle for that row (`row.contact.kind === "routed"`). They reuse
- * that relay — NEVER a phone (ADR-0010 F-4: ContactView has no phone/number field; the channel
- * is only `in_app_relay` / `proxy_number`). "Mark as contacted" rides the SAME already-confirmed
- * spend (the unlock) — it never re-spends, re-prompts, or calls the network.
+ * CONTACT: the routed-contact card (relay handle · channel · access until) is the row's ONE
+ * contact read-out — NEVER a phone (ADR-0010 F-4: ContactView has no phone/number field; the
+ * channel is only `in_app_relay` / `proxy_number`). There are no Call / WhatsApp buttons: the
+ * routed channel is not open yet (the card says so — "nothing to dial or message today") and no
+ * field on the contract says when it is, so a Call button could only ever be a control that does
+ * nothing. They come back with the backend change that opens the channel. "Mark as contacted"
+ * shows once a routed handle exists and rides the SAME already-confirmed spend (the unlock) — it
+ * never re-spends, re-prompts, or calls the network.
+ *
+ * ALREADY UNLOCKED: `unlocked` carries the payer's LIVE grants for this feed's workers (read by
+ * the page from the payer's own unlock history). A row in it starts in the granted state — the
+ * "Unlocked until" band with Open routed contact — so a reload never offers a fresh spend on an
+ * applicant the payer already holds. An unlock is one grant per (payer, worker) (ADR-0010
+ * sign-off 1), so the worker id alone identifies the row. Session state for the row layers on top.
  *
  * LOADING: busy / contactBusy / resumeBusy each surface the Button `loading` spinner + `aria-busy`
  * + disabled on their OWN action while it is pending; the error region stays aria-live for SRs.
@@ -66,8 +76,6 @@ interface RowState {
   resumeBusy: boolean;
   resume: RevealView | null;
   resumeError: string | null;
-  /** Which routed-relay modality the payer chose to reach out on (LOCAL; never a phone). */
-  reach: "call" | "whatsapp" | null;
   /** LOCAL "contacted" marker — set after a routed reveal; rides the already-spent unlock. */
   contacted: boolean;
 }
@@ -82,14 +90,8 @@ const EMPTY: RowState = {
   resumeBusy: false,
   resume: null,
   resumeError: null,
-  reach: null,
   contacted: false,
 };
-
-function day(ts: string): string {
-  const d = new Date(ts);
-  return Number.isNaN(d.getTime()) ? ts : d.toISOString().slice(0, 10);
-}
 
 export function ApplicantActions({
   header,
@@ -97,6 +99,7 @@ export function ApplicantActions({
   applicants,
   balance,
   canBuyCredits = false,
+  unlocked = {},
 }: {
   /** The screen's head text (back link, H1, description); the tabs are added as its toolbar. */
   header: Pick<PageHeaderProps, "back" | "title" | "description">;
@@ -109,6 +112,12 @@ export function ApplicantActions({
    * a caller that cannot say who is looking never links anyone to a page that may 404.
    */
   canBuyCredits?: boolean;
+  /**
+   * The payer's LIVE grants for this feed's workers, keyed by worker id (see liveUnlocksFor).
+   * Default none — a caller that did not read the unlock history starts every row locked (the
+   * server decides any Unlock pressed there; for a live grant it does not debit twice, F-6).
+   */
+  unlocked?: Record<string, GrantedUnlock>;
 }) {
   const [rows, setRows] = useState<Record<string, RowState>>({});
   // Confirm-on-spend (C11): confirm only the FIRST unlock per row this session — a retry
@@ -127,8 +136,23 @@ export function ApplicantActions({
   // upstream useState order (rows, confirmedUnlock, stages, activeStage, confirmWorker) is intact.
   const [result, setResult] = useState<UnlockResultKind | null>(null);
 
+  // A row's state before anything happened to it this session: granted when the payer already
+  // holds a live grant on this worker (the page's unlock-history read), else locked. Derived from
+  // props on every render — not copied into state — so session changes layer over it.
+  function baseRow(workerId: string): RowState {
+    const held = unlocked[workerId];
+    return held ? { ...EMPTY, unlock: held } : EMPTY;
+  }
+
+  function rowOf(workerId: string): RowState {
+    return rows[workerId] ?? baseRow(workerId);
+  }
+
   function patch(workerId: string, p: Partial<RowState>) {
-    setRows((prev) => ({ ...prev, [workerId]: { ...(prev[workerId] ?? EMPTY), ...p } }));
+    setRows((prev) => ({
+      ...prev,
+      [workerId]: { ...(prev[workerId] ?? baseRow(workerId)), ...p },
+    }));
   }
 
   function stageOf(workerId: string): RowStage {
@@ -141,13 +165,6 @@ export function ApplicantActions({
   }
   function onPass(workerId: string) {
     setStages((prev) => ({ ...prev, [workerId]: "passed" }));
-  }
-
-  // Call / WhatsApp: choose a routed-relay modality. LOCAL — only enabled once a routed
-  // handle exists; it records the chosen modality and reuses the relay shown above. It
-  // NEVER dials a phone (there is none) and makes no network call.
-  function onReach(workerId: string, modality: "call" | "whatsapp") {
-    patch(workerId, { reach: modality });
   }
 
   // Mark-as-contacted: a LOCAL visual transition (the sibling of Keep→Shortlist). It is reachable
@@ -266,17 +283,13 @@ export function ApplicantActions({
         </div>
       ) : null}
 
-      {/* THE PRIVACY BOUNDARY, stated once, before the data — one sentence, so the feed starts
-          high on a phone. The row controls (Keep / Pass / Unlock / Call) carry their own
-          labels. */}
+      {/* THE PRIVACY BOUNDARY, stated once, before the data — ONE short line (no title row; one
+          line from 360px up), so the first card's Unlock sits above the fold on a 375 × 812
+          phone. The head's description already says the rest; the price is on every Unlock. */}
       <div className="alert alert--info">
         <Icon name="mask-happy" className="alert__icon" />
         <div className="alert__text">
-          <p className="alert__title">Applicants are faceless</p>
-          <p className="alert__body">
-            Each row is an opaque id and its match signals — who it is stays hidden until you
-            unlock its routed contact for 1 credit.
-          </p>
+          <p className="alert__body">Applicants are faceless until unlocked.</p>
         </div>
       </div>
 
@@ -323,12 +336,15 @@ export function ApplicantActions({
         </Card>
       ) : (
         <div className="applicants-list">
-          {visible.map((a) => {
-            const row = rows[a.workerId] ?? EMPTY;
+          {visible.map((a, i) => {
+            const row = rowOf(a.workerId);
             const granted = row.unlock?.kind === "granted" ? row.unlock : null;
             const routed = row.contact?.kind === "routed" ? row.contact : null;
             const stage = stageOf(a.workerId);
             const tags = a.skills && a.skills.length > 0 ? a.skills : a.signals;
+            // The visible line that says why Unlock is disabled (a real zero balance). Keyed by
+            // position, not the worker id, so no full id lands in a DOM attribute.
+            const unlockHintId = `applicant-${i}-unlock-hint`;
             return (
               <Card key={a.workerId} className="applicant">
                 <div className="applicant__head">
@@ -408,10 +424,10 @@ export function ApplicantActions({
                   </ul>
                 ) : null}
 
-                {/* The row's SECONDARY actions, grouped so they read as one toolbar: triage
-                    (Keep / Pass) beside the gated contact pair (Call / WhatsApp). Layout only —
-                    the two groups and every handler are exactly as before. The PRIMARY action
-                    (Unlock) is the footer band below, the card's one focal point. */}
+                {/* The row's SECONDARY actions — the triage toolbar (Keep / Pass, then "Mark as
+                    contacted" once a routed handle exists). The PRIMARY action (Unlock) is the
+                    footer band below, the card's one focal point. No Call / WhatsApp: see the
+                    CONTACT note at the top of this file. */}
                 <div className="applicant__actions">
                   <div className="applicant__pipeline">
                     {/* Keep/Pass are LOCAL; "Mark as contacted" shows only after a routed
@@ -419,11 +435,21 @@ export function ApplicantActions({
                     {stage === "shortlist" ? (
                       <Badge tone="success">Shortlisted</Badge>
                     ) : (
-                      <Button variant="secondary" size="sm" onClick={() => onKeep(a.workerId)}>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        iconLeft="bookmark-simple"
+                        onClick={() => onKeep(a.workerId)}
+                      >
                         Keep
                       </Button>
                     )}
-                    <Button variant="ghost" size="sm" onClick={() => onPass(a.workerId)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      iconLeft={ACTION_ICON.reject}
+                      onClick={() => onPass(a.workerId)}
+                    >
                       Pass
                     </Button>
                     {routed ? (
@@ -435,43 +461,12 @@ export function ApplicantActions({
                         <Button
                           variant="secondary"
                           size="sm"
+                          iconLeft="check-circle"
                           onClick={() => onContacted(a.workerId)}
                         >
                           Mark as contacted
                         </Button>
                       )
-                    ) : null}
-                  </div>
-
-                  <div className="applicant__reach">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={!routed}
-                      title={routed ? undefined : "Unlock & open the routed contact to enable"}
-                      onClick={() => onReach(a.workerId, "call")}
-                    >
-                      Call
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={!routed}
-                      title={routed ? undefined : "Unlock & open the routed contact to enable"}
-                      onClick={() => onReach(a.workerId, "whatsapp")}
-                    >
-                      WhatsApp
-                    </Button>
-                    {routed && row.reach ? (
-                      <p className="applicant__hint">
-                        {row.reach === "call" ? "Voice" : "Chat"} relay ready — reach this applicant
-                        through the <strong>routed relay</strong> shown below. It&rsquo;s an opaque
-                        in-app relay, <strong>never a phone number</strong>.
-                      </p>
-                    ) : !routed ? (
-                      <p className="applicant__hint">
-                        Call / WhatsApp open after you unlock and open the routed contact.
-                      </p>
                     ) : null}
                   </div>
                 </div>
@@ -485,7 +480,7 @@ export function ApplicantActions({
                       <div className="applicant__granted-head">
                         <Badge tone="success">Unlocked</Badge>
                         <span className="applicant__until">
-                          until <span className="bb-mono">{day(granted.expiresAt)}</span>
+                          until <span className="bb-mono">{isoDay(granted.expiresAt)}</span>
                         </span>
                       </div>
                       <div className="applicant__reveal">
@@ -558,13 +553,16 @@ export function ApplicantActions({
                   ) : (
                     <div className="applicant__unlock">
                       <div className="applicant__unlock-actions">
+                        {/* A disabled button takes no hover, so a `title` here was never shown:
+                            the reason is the visible line below, tied to the button. */}
                         <Button
                           variant="primary"
                           size="md"
+                          iconLeft={ACTION_ICON.unlock}
                           disabled={row.busy || balance === 0}
                           loading={row.busy}
                           aria-busy={row.busy}
-                          title={balance === 0 ? "No credits left" : undefined}
+                          aria-describedby={balance === 0 ? unlockHintId : undefined}
                           onClick={() => onUnlock(a.workerId)}
                         >
                           {row.busy
@@ -589,7 +587,7 @@ export function ApplicantActions({
                           band's one way to /credits (a second link to the same page was a
                           redundant tab stop on every card). */}
                       {balance === 0 ? (
-                        <p className="applicant__hint">
+                        <p className="applicant__hint" id={unlockHintId}>
                           {canBuyCredits
                             ? "Buy credits to unlock."
                             : "Ask your account owner to buy credits."}{" "}

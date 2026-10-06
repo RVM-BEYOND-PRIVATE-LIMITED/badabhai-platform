@@ -308,7 +308,7 @@ describe("phones: no rail above the form — a sticky dock and a sheet", () => {
     ]);
   });
 
-  it("the dock is ONE unwrapped row whose primary shrinks and wraps its label (no sideways scroll)", () => {
+  it("from 17rem the dock is ONE unwrapped row whose primary shrinks and wraps its label (narrower, it stacks — below)", () => {
     expect(decl(g(".posting-dock"), "flex-direction")).toBe("column");
     expect(decl(g(".posting-dock__row"), "flex-wrap")).toBe("nowrap");
     expect(decl(g(".posting-dock__summary"), "flex")).toBe("1 1 0");
@@ -321,6 +321,16 @@ describe("phones: no rail above the form — a sticky dock and a sheet", () => {
     expect(decl(label, "height")).toBe("auto");
     // In the dock the zero-reach detail is visually hidden (it stays in the accessible name).
     expect(decl(g(".posting-dock .posting-cta__detail"), "clip")).toBe("rect(0, 0, 0, 0)");
+  });
+
+  it("while a save is pending the summary reads as inert: no pointer, no link underline, a 60% step", () => {
+    expect(decl(g(".posting-dock__summary"), "cursor")).toBe("pointer");
+    const off = g(".posting-dock__summary:disabled");
+    expect(decl(off, "cursor")).toBe("not-allowed");
+    expect(decl(off, "opacity")).toBe("0.6"); // a step of the brand's 80 / 60 / 40 ladder
+    // The cue is underlined at rest (it reads as a link); disabled, it is plain text.
+    expect(decl(g(".posting-dock__cue"), "text-decoration")).toBe("underline");
+    expect(decl(g(".posting-dock__summary:disabled .posting-dock__cue"), "text-decoration")).toBe("none");
   });
 
   it("a detail page's card still leads on a phone (only the EDITOR's rail is replaced)", () => {
@@ -431,7 +441,15 @@ describe("CR-L1 — a removable chip's remove is a real, sized, named button", (
     // width is its content's, capped (the shared tip is `nowrap` — this one may wrap).
     expect(decl(tip, "white-space")).toBe("normal");
     expect(decl(tip, "width")).toBe("max-content");
-    expect(decl(tip, "max-width")).toBe("min(20rem, 100cqi, calc(100vw - 2 * var(--space-4)))");
+    // Every engine keeps the 20rem / page cap …
+    expect(decl(tip, "max-width")).toBe("min(20rem, calc(100vw - 2 * var(--space-4)))");
+    // … and the ROW cap is added only where container units exist: a var() keeps the declaration
+    // past parse time, so an engine without `cqi` computes it to `max-width: none` — no cap.
+    const rowCapped = d(".bb-chip__remove > .bb-icon-tip", "@supports (width: 1cqi)");
+    expect(decl(rowCapped, "max-width")).toBe("min(20rem, 100cqi, calc(100vw - 2 * var(--space-4)))");
+    // No container unit anywhere outside that guard (the fallback must stay unit-free).
+    const unguarded = D.filter((r) => !r.at.includes("1cqi") && /\d(cqi|cqw|cqb|cqh|cqmin|cqmax)\b/.test(r.body));
+    expect(unguarded.map((r) => r.selector)).toEqual([]);
     // …and it slides right by the overrun chip-tip.ts measures (0 until measured).
     expect(decl(tip, "translate")).toBe("calc(var(--bb-tip-shift, 0) * 1px) 0");
     // The row is the container its `100cqi` reads.
@@ -455,12 +473,19 @@ describe("L4/L5 — focusing the sticky dock never scrolls the page", () => {
   });
 });
 
-describe("an agency row's header keeps a readable measure while it leads the editor", () => {
+describe("an agency row's header keeps a readable measure — plain, and while it leads the editor", () => {
   it("the header text has a 24rem basis in the lead, so the buttons wrap under it (not crush it)", () => {
     expect(decl(g(".agency-job__lead"), "flex-wrap")).toBe("wrap");
     expect(decl(g(".agency-job__lead > .agency-job__main"), "flex")).toBe("1 1 24rem");
-    // The plain row keeps its zero-basis text (full-width row: the buttons always fit beside it).
-    expect(decl(g(".agency-job__main"), "flex")).toBe("1");
+  });
+
+  it("the plain (unedited) row's text has an 18rem basis too, so its actions wrap under it", () => {
+    // A zero basis (`flex: 1`) kept the actions beside the text from 430 to 520px and crushed it
+    // (6px wide at 440, the Edit button over the title). The row wraps; beside the actions the
+    // text never shrinks below 18rem.
+    expect(decl(g(".agency-job"), "flex-wrap")).toBe("wrap");
+    expect(decl(g(".agency-job__main"), "flex")).toBe("1 1 18rem");
+    expect(decl(g(".agency-job__main"), "min-width")).toBe("0");
   });
 });
 

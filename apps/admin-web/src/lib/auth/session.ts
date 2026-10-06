@@ -89,7 +89,22 @@ export async function requireSession(): Promise<AdminSession> {
  * `can(...)`, so an operator sees a coherent screen rather than a wall.
  */
 export async function requireCapability(capability: AdminCapability): Promise<AdminSession> {
+  return requireCapabilities([capability]);
+}
+
+/**
+ * Require EVERY listed capability — the gate for a page whose reads sit on more than one.
+ *
+ * A page is gated on the union of the capabilities its reads need (pinned by
+ * `app/page-gates.test.ts`), so a role missing one of them is turned away cleanly here
+ * rather than shown a page whose second read 403s into an error state. The redirect names
+ * the FIRST missing capability, which is what the dashboard's denial notice explains.
+ */
+export async function requireCapabilities(
+  capabilities: readonly [AdminCapability, ...AdminCapability[]],
+): Promise<AdminSession> {
   const session = await requireSession();
-  if (!session.capabilities.includes(capability)) redirect("/?denied=" + capability);
+  const missing = capabilities.find((c) => !session.capabilities.includes(c));
+  if (missing) redirect("/?denied=" + missing);
   return session;
 }

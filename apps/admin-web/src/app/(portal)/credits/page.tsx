@@ -17,6 +17,7 @@ import { Pager } from "../../../components/pager";
 import { Stat } from "../../../components/stat";
 import { PageHeader } from "../../../components/page-header";
 import { RetryActions } from "../../../components/retry-actions";
+import { filterChipClass } from "../../../components/filter-chip";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -88,7 +89,7 @@ export default async function CreditsPage({
             {WINDOWS.map((w) => (
               <Link
                 aria-current={w === windowDays ? "true" : undefined}
-                className={`btn ${w === windowDays ? "btn--primary" : "btn--ghost"}`}
+                className={filterChipClass(w === windowDays, "md")}
                 /* Keeps the ledger's reason filter; the two rows used to reset each other. */
                 href={`/credits?windowDays=${w}${reason ? `&reason=${encodeURIComponent(reason)}` : ""}`}
                 key={w}
@@ -290,7 +291,7 @@ export default async function CreditsPage({
           {["pack_purchase", "grant", "unlock_debit", "refund"].map((r) => (
             <Link
               aria-current={r === reason ? "true" : undefined}
-              className={`btn btn--sm ${r === reason ? "btn--primary" : "btn--ghost"}`}
+              className={filterChipClass(r === reason)}
               href={`/credits?windowDays=${windowDays}&reason=${r}`}
               key={r}
             >

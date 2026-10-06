@@ -500,9 +500,17 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
         ),
       );
     }
+    // `additional_entries` hides jobs BEYOND the current one (server policy:
+    // `previous_jobs` is Medium, `profiling-tier.policy.ts`). The CURRENT job is
+    // Easy, so the control that enters it must still render while the list is
+    // EMPTY — otherwise an Easy worker lands on this page with no way to add
+    // even their current job (the page rendered title-only). Once one card
+    // exists, Easy hides the control as intended.
+    final bool canAddEntry =
+        _entries.isEmpty || !widget.tierScope.hides(kTierFieldAdditionalEntries);
     if (isLastPage &&
         _entries.length < kTradeFormMaxEmployers &&
-        !widget.tierScope.hides(kTierFieldAdditionalEntries)) {
+        canAddEntry) {
       // #1516 — offered exactly where "add" is offered, because accepting one
       // IS adding a job: never past the cap, and never on a tier that does not
       // ask for more jobs.

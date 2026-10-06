@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import { isFeedPostingsUnionEnabled, isMatchV1Enabled, type ServerConfig } from "@badabhai/config";
 import type { JobShift } from "@badabhai/db";
+import type { TradeFormKindName } from "@badabhai/types";
 import { isTradeKey, matchSkillLabel, type TradeKey } from "@badabhai/taxonomy";
 import type { RequestContext } from "../common/request-context";
 import { SERVER_CONFIG } from "../config/config.module";
@@ -80,6 +81,13 @@ export interface FeedItem {
    * the V1 shape, where an unpublished-but-served posting genuinely has none.
    */
   posted_at: string | null;
+  /**
+   * THE JOB'S ROLE, FOR THE CARD'S ILLUSTRATION (owner ruling 2026-10-05, ADR-0024 addendum) —
+   * the twin of `MatchFeedItem.role_kind`, same key on both feed shapes. One of the 21 declared
+   * kinds or NULL. ADDITIVE; drawn as art, never text; never a filter/rank input; not on
+   * `feed.shown`.
+   */
+  role_kind: TradeFormKindName | null;
   rank: number;
 }
 

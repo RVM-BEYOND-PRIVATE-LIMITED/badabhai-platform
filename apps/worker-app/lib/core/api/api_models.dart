@@ -81,6 +81,7 @@ class FeedItem extends Equatable {
     this.neededBy,
     this.payType,
     this.postedAt,
+    this.roleKind,
   });
 
   final String jobId;
@@ -164,6 +165,14 @@ class FeedItem extends Equatable {
   /// server sent it the header was claiming a recency it had no field for.
   final DateTime? postedAt;
 
+  /// The posting's ROLE (one of the 21 declared role kinds, snake_case, e.g.
+  /// 'welder') — the RAW wire string, or null. ADDITIVE and nullable: the
+  /// server adds it to the feed card (W3-BE), so an older server, a posting
+  /// made before the role picker and every chat-published posting all read
+  /// null. DISPLAY ONLY — it picks the card's role illustration
+  /// (`resolveRoleArtKind`, unknown → generic) and is never a match input.
+  final String? roleKind;
+
   factory FeedItem.fromJson(Map<String, dynamic> json) => FeedItem(
         jobId: json['job_id'] as String,
         tradeKey: json['trade_key'] as String? ?? '',
@@ -188,6 +197,10 @@ class FeedItem extends Equatable {
         neededBy: json['needed_by'] as String?,
         payType: json['pay_type'] as String?,
         postedAt: _utcDate(json['posted_at']),
+        // A non-string (or absent) value reads as null — never a crash.
+        roleKind: json['role_kind'] is String
+            ? json['role_kind'] as String
+            : null,
       );
 
   /// One ISO-8601 wire timestamp → a local [DateTime], or null. A malformed or
@@ -230,6 +243,7 @@ class FeedItem extends Equatable {
         neededBy,
         payType,
         postedAt,
+        roleKind,
       ];
 }
 

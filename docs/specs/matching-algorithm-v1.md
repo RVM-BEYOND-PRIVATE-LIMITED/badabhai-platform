@@ -58,6 +58,11 @@ counter is the control.**
 **Feed order:** newest first, boosted jobs lifted, maximum 2 consecutive cards from the
 same company.
 
+> **[repo note — owner ruling 2026-10-05]** Feed order is amended: within each boost band,
+> a job reached through the **posted** skill (tier 1) comes before one reached only through a
+> **related** skill (tier 2); recency orders within a tier. Boost stays first. See moment ④
+> below and [ADR-0036 addendum (2026-10-05)](../decisions/0036-matching-algorithm-v1.md).
+
 ## Part 3 · Filters — the worker's, not ours
 
 | Filter | Default |
@@ -211,6 +216,19 @@ WHERE  r.worker_id = :me AND j.status = 'open'
 AND    <his filters> AND NOT EXISTS (applied / passed)
 ORDER  BY j.boosted DESC, j.published_at DESC;
 ```
+
+> **[repo note — owner ruling 2026-10-05]** Moment ④'s order is amended to **direct before
+> related** (Prakash, 2026-10-05). As implemented in `MatchFeedRepository.listFeed`:
+>
+> ```sql
+> ORDER BY (jp.boosted_until IS NOT NULL AND jp.boosted_until > now()) DESC, jr.match_tier ASC,
+>          jp.published_at DESC NULLS LAST, jp.id ASC
+> ```
+>
+> Boost stays the first key (Policy 13 and the ADR-0036 §7 fences are unchanged). `match_tier`
+> is the raw tier written at moment ③, a two-value column and not a score; there is no
+> tier-floor `CASE` here (the floor orders the company's list, moment ⑥, not the feed).
+> `id ASC` keeps it a total order (Policy 7). The ratified line above is kept as history.
 
 ⑤ **Worker swipes apply.** Snapshot the rank inputs onto the application row and freeze
 them with `engine_version`.

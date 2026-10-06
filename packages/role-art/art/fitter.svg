@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100" data-loop="3">
+  <g data-part="scene">
+    <rect x="0" y="0" width="300" height="100" fill="#05194C"/>
+    <circle cx="252" cy="24" r="32" fill="#F3F5F4" opacity="0.4"/>
+    <rect x="0" y="84" width="300" height="16" fill="#F3F5F4" opacity="0.4"/>
+  </g>
+  <g data-part="pipe">
+    <rect x="128" y="48" width="146" height="14" rx="7" fill="#F3F5F4"/>
+    <rect x="200" y="36" width="12" height="38" rx="4" fill="#F3F5F4" opacity="0.8"/>
+    <rect x="252" y="62" width="12" height="22" rx="4" fill="#F3F5F4" opacity="0.6"/>
+    <rect x="140" y="62" width="12" height="22" rx="4" fill="#F3F5F4" opacity="0.6"/>
+  </g>
+  <g data-part="figure">
+    <path d="M48 84 V70 A22 22 0 0 1 92 70 V84 Z" fill="#FFB32C"/>
+    <path d="M57 40 A13 13 0 0 1 83 40 V41 A3 3 0 0 1 80 44 H60 A3 3 0 0 1 57 41 Z" fill="#FFB32C"/>
+  </g>
+  <g data-part="arm">
+    <path d="M84 62 Q120 74 160 74" stroke-width="9" fill="none" stroke="#FFB32C" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g data-part="wrench" data-motion="swing" data-amp="8" data-origin="206 55">
+    <path d="M206 55 L164 74" stroke-width="7" fill="none" stroke="#FFB32C" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="206" cy="55" r="9" fill="#FFB32C"/>
+    <circle cx="206" cy="55" r="4" fill="#05194C"/>
+  </g>
+</svg>

@@ -38,6 +38,8 @@ export interface WorkerVisibleJobRow {
   description: string | null;
   benefits: string[] | null;
   requirements: string[] | null;
+  /** Display role (migration 0131), RAW — the service gates it to the closed set or null. */
+  roleKind: string | null;
 }
 
 /**
@@ -143,6 +145,9 @@ export class JobsRepository {
         description: jobs.description,
         benefits: jobs.benefits,
         requirements: jobs.requirements,
+        // Card art (owner ruling 2026-10-05, ADR-0024 addendum) — the detail screen opened
+        // from a feed card draws the same illustration.
+        roleKind: jobs.roleKind,
       })
       .from(jobs)
       .where(and(eq(jobs.id, jobId), eq(jobs.status, "open")))
@@ -182,6 +187,7 @@ export class JobsRepository {
         description: jobPostings.description,
         benefits: jobPostings.benefits,
         requirements: jobPostings.requirements,
+        roleKind: jobPostings.roleKind,
       })
       .from(jobPostings)
       .where(and(eq(jobPostings.id, jobId), eq(jobPostings.status, "open")))

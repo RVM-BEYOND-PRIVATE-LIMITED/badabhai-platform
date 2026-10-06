@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
-import { Icon } from "@badabhai/icons";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { OrgMemberView, OrgMemberStatus } from "../../../lib/org-members";
 import type { OrgRole } from "../../../lib/auth/org-roles";
 import { Badge, Button, Dialog, Input } from "../../../components/ds";
@@ -120,9 +120,9 @@ export function TeamManager({ members }: { members: OrgMemberView[] | null }) {
           <div aria-live="polite" className="form-status">
             {message ? (
               <div className={`alert ${message.ok ? "alert--success" : "alert--danger"}`}>
-                <i
-                  className={`ph-fill ${message.ok ? "ph-check-circle" : "ph-warning-circle"} alert__icon`}
-                  aria-hidden="true"
+                <Icon
+                  name={message.ok ? "check-circle" : "warning-circle"}
+                  className="alert__icon"
                 />
                 <div className="alert__text">
                   <p className="alert__body">{message.text}</p>
@@ -163,7 +163,7 @@ export function TeamManager({ members }: { members: OrgMemberView[] | null }) {
           ) : members.length === 0 ? (
             <div className="state">
               <span className="state__icon">
-                <i className="ph-fill ph-users-three" aria-hidden="true" />
+                <Icon name={ACTION_ICON.users} />
               </span>
               <h3 className="state__title">No members yet</h3>
               <p className="state__body">

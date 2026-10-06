@@ -396,3 +396,18 @@ describe("the correlation id links into /events only for a session holding read_
     expect(out).toContain('<span class="mono">req-9fd0b09</span>');
   });
 });
+
+/**
+ * PAGE HEIGHT (final sweep AW-08): the 416px caveat stood above the call's scalars at 375px.
+ * What it qualifies is the WORDS, so it now sits directly above them — after "The call", before
+ * the request — and the invariant it exists for (caveat above the words) is unchanged.
+ */
+describe("page height: the caveat sits directly above the words it qualifies (AW-08)", () => {
+  it("follows the call's scalars and precedes both halves", async () => {
+    const out = await render();
+    const caveat = out.indexOf("Read this as the worker&#x27;s own words.");
+    expect(caveat).toBeGreaterThan(out.indexOf('id="ac-call"'));
+    expect(caveat).toBeLessThan(out.indexOf('id="ac-request"'));
+    expect(caveat).toBeLessThan(out.indexOf('id="ac-reply"'));
+  });
+});
