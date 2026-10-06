@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Icon } from "@badabhai/icons";
 import { Card } from "../components/ds";
 
 /**
@@ -20,7 +21,7 @@ export default function NotFound() {
       <Card>
         <div className="state">
           <span className="state__icon">
-            <i className="ph-fill ph-compass" aria-hidden="true" />
+            <Icon name="compass" />
           </span>
           <h1 className="state__title">Not found</h1>
           <p className="state__body">

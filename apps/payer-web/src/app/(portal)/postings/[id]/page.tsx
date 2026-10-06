@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { z } from "zod";
-import { ACTION_ICON } from "@badabhai/icons";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { getPostingDetail } from "../../../../lib/payer-api";
 import { requirePayer } from "../../../../lib/auth";
 import { Badge } from "../../../../components/ds";
@@ -83,7 +83,7 @@ export default async function PostingDetailPage({ params }: { params: Promise<{ 
 
       {isDraft ? (
         <div className="alert alert--info">
-          <i className="ph-fill ph-info alert__icon" aria-hidden="true" />
+          <Icon name="info" className="alert__icon" />
           <div className="alert__text">
             <p className="alert__title">This posting is a draft</p>
             <p className="alert__body">

@@ -7,7 +7,8 @@
  * theme is a per-user display preference, never tied to employer/agent.
  *
  * A11Y: a real `<button role="switch">` whose `aria-checked` reflects the EFFECTIVE theme
- * (dark = on), with a direction-correct `aria-label` ("Switch to dark/light theme"). A small
+ * (dark = on), with a direction-correct `aria-label` ("Switch to dark/light theme") that the
+ * shared tooltip (`.bb-icon-tip`) also shows on hover and keyboard focus (./icon-tip.ts). A small
  * "System" button makes the OS-follow preference reachable + obvious; it is `aria-pressed`
  * when active. Both are keyboard-operable with a visible focus ring in BOTH themes (tokens).
  * Changes are announced via a polite live region.
@@ -21,6 +22,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@badabhai/icons";
+import { useIconTipHandlers } from "./icon-tip";
 import {
   applyResolvedTheme,
   readThemeCookieClient,
@@ -51,6 +53,7 @@ export function ThemeToggle() {
   const [announce, setAnnounce] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
   const hydrated = useRef(false);
+  const tip = useIconTipHandlers();
 
   // After mount, sync state to the real persisted preference + the live DOM theme. This runs
   // only on the client (post-hydration), so it never causes an SSR/client markup divergence.
@@ -132,11 +135,15 @@ export function ThemeToggle() {
         aria-label={toggleLabel}
         className="theme-toggle__switch"
         onClick={onToggle}
+        {...tip}
       >
         <span className="theme-toggle__track" aria-hidden="true">
           <span className="theme-toggle__thumb">
             <Icon name={isDark ? "moon" : "sun"} />
           </span>
+        </span>
+        <span className="bb-icon-tip bb-icon-tip--bottom" aria-hidden="true">
+          {toggleLabel}
         </span>
       </button>
 
