@@ -358,3 +358,28 @@ describe("applicants page — W2-B layout namespace", () => {
     expect(await html()).toMatch(/^<div class="applicants-page">/);
   });
 });
+
+describe("applicants page — Reached N workers (a fresh publish lands here)", () => {
+  async function landed(query: Record<string, string>): Promise<string> {
+    const tree = (await ApplicantsPage({
+      params: Promise.resolve({ id: POSTING }),
+      searchParams: Promise.resolve(query),
+    })) as ReactElement;
+    return renderToStaticMarkup(tree);
+  }
+
+  it("the empty feed of a just-published posting confirms its reach", async () => {
+    getApplicantFeed.mockResolvedValueOnce({ ...FEED, applicants: [] });
+    const out = await landed({ reached: "18" });
+    expect(textOf(out)).toContain("Posting published");
+    expect(textOf(out)).toContain("Reached 18 workers");
+    expect(textOf(out)).toContain("No applicants on this posting yet");
+  });
+
+  it("no param → no count; a not-found posting never claims one", async () => {
+    getApplicantFeed.mockResolvedValueOnce({ ...FEED, applicants: [] });
+    expect(textOf(await landed({}))).not.toContain("Reached");
+    getApplicantFeed.mockResolvedValueOnce(null);
+    expect(textOf(await landed({ reached: "18" }))).not.toContain("Reached");
+  });
+});

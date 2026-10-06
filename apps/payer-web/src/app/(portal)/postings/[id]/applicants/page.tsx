@@ -9,6 +9,8 @@ import { COMPANY_POSTING_ROUTES } from "../../../../../lib/posting-routes";
 import { Card } from "../../../../../components/ds";
 import { PageHeader } from "../../../../../components/page-header";
 import { RetryButton } from "../../../../../components/retry-button";
+import { PublishedReachNotice } from "../../../../../components/published-reach-notice";
+import { PUBLISHED_REACH_PARAM, parsePublishedReach } from "../../../../../lib/published-reach";
 import { ApplicantActions } from "./applicant-actions";
 
 export const dynamic = "force-dynamic";
@@ -34,9 +36,17 @@ export const dynamic = "force-dynamic";
  * balance never does) — it does not print it a second time. The org role only decides whether a
  * zero balance may LINK to the Owner-only Credits page.
  */
-export default async function ApplicantsPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ApplicantsPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  /** `?reached=N` — set by the create form's publish (see `lib/published-reach.ts`). */
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await requirePayer();
   const { id } = await params;
+  const query = (await searchParams) ?? {};
   if (session.role === "agent") redirect(`/postings/${encodeURIComponent(id)}`);
 
   // The two concerns are DECOUPLED (C2): a failure fetching the balance/dashboard must
@@ -98,6 +108,9 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
       {/* Not found: there is no posting to go back to, so no back link; the state's own link to
           Postings is the way out (the header trail is not drawn on the narrowest phones). */}
       <PageHeader {...header} back={notFound ? undefined : header.back} />
+
+      {/* A fresh publish lands HERE with no applicants yet — confirm how many it reached. */}
+      {notFound ? null : <PublishedReachNotice reached={parsePublishedReach(query[PUBLISHED_REACH_PARAM])} />}
 
       {notFound ? (
         // NEUTRAL not-found (XB-A): the copy is the UNION of "does not exist" and "not yours",
