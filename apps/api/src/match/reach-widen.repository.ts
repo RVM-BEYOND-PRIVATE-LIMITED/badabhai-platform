@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, inArray, isNull, lte, notInArray, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lte, notInArray, sql } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
 import { jobPostings, jobReachWiden } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
@@ -111,6 +111,33 @@ export class ReachWidenRepository {
       if (Array.isArray(r.addedSkillIds)) for (const id of r.addedSkillIds) out.add(id);
     }
     return out;
+  }
+
+  /**
+   * Ids held by the posting's IN-FORCE widen grants: un-retracted AND not yet expired.
+   * Read by `PublishReachService.materialize` so a publish/unpause/edit rebuild keeps
+   * what ops widened (Policy 27 "never narrow", #1953).
+   *
+   * `expires_at > now()` is deliberate: an expired-but-unswept row is the sweep's to
+   * retract (with its `reach_widen_expired` event); re-adding it here would extend a
+   * grant past its expiry. Served by `job_reach_widen_posting_idx`.
+   */
+  async activeIdsForPosting(jobPostingId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ addedSkillIds: jobReachWiden.addedSkillIds })
+      .from(jobReachWiden)
+      .where(
+        and(
+          eq(jobReachWiden.jobPostingId, jobPostingId),
+          isNull(jobReachWiden.retractedAt),
+          gt(jobReachWiden.expiresAt, sql`now()`),
+        ),
+      );
+    const out = new Set<string>();
+    for (const r of rows) {
+      if (Array.isArray(r.addedSkillIds)) for (const id of r.addedSkillIds) out.add(id);
+    }
+    return [...out].sort();
   }
 
   /**
