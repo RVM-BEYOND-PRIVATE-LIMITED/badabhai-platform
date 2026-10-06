@@ -1,0 +1,25 @@
+# Declared order of the art (= TRADE_FORM_KINDS_ALL in @badabhai/types, then the fallback).
+# The generator fails if this list and art/*.svg disagree; the package test fails if it and
+# TRADE_FORM_KINDS_ALL disagree.
+cnc_turner
+vmc_milling
+cnc_grinding
+cam_programmer
+cad_draughtsman
+conventional_machinist
+tool_die_maker
+welder
+sheet_metal_worker
+press_operator
+painter_coating
+fitter
+maintenance_technician
+industrial_electrician
+assembly_line_worker
+quality_inspector
+injection_moulding_operator
+mould_die_maker
+blow_moulding_operator
+rubber_moulding_operator
+plastic_process_technician
+generic

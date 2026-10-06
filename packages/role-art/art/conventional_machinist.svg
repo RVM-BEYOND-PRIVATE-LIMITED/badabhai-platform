@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100" data-loop="3">
+  <g data-part="scene">
+    <rect x="0" y="0" width="300" height="100" fill="#05194C"/>
+    <circle cx="252" cy="24" r="32" fill="#F3F5F4" opacity="0.4"/>
+    <rect x="0" y="84" width="300" height="16" fill="#F3F5F4" opacity="0.4"/>
+  </g>
+  <g data-part="lathe">
+    <rect x="160" y="62" width="14" height="22" rx="4" fill="#F3F5F4" opacity="0.8"/>
+    <rect x="246" y="62" width="14" height="22" rx="4" fill="#F3F5F4" opacity="0.8"/>
+    <rect x="118" y="50" width="152" height="14" rx="6" fill="#F3F5F4"/>
+    <rect x="118" y="26" width="38" height="38" rx="8" fill="#F3F5F4"/>
+    <rect x="236" y="34" width="28" height="20" rx="6" fill="#F3F5F4" opacity="0.8"/>
+    <rect x="156" y="38" width="80" height="8" rx="4" fill="#F3F5F4" opacity="0.6"/>
+    <rect x="186" y="44" width="30" height="10" rx="3" fill="#FFB32C"/>
+  </g>
+  <g data-part="figure">
+    <path d="M48 84 V70 A22 22 0 0 1 92 70 V84 Z" fill="#FFB32C"/>
+    <path d="M57 40 A13 13 0 0 1 83 40 V41 A3 3 0 0 1 80 44 H60 A3 3 0 0 1 57 41 Z" fill="#FFB32C"/>
+  </g>
+  <g data-part="arm">
+    <path d="M84 62 Q104 70 124 72" stroke-width="9" fill="none" stroke="#FFB32C" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g data-part="handwheel" data-motion="spin" data-amp="-360" data-origin="134 72">
+    <circle cx="134" cy="72" r="10" stroke-width="5" fill="none" stroke="#F3F5F4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M134 64 V80 M126 72 H142" stroke-width="4" fill="none" stroke="#F3F5F4" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+    <circle cx="134" cy="64" r="3" fill="#FFB32C"/>
+  </g>
+</svg>

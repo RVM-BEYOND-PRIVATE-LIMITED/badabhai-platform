@@ -66,8 +66,9 @@ export const REFERENCE_PHONE = {
 /**
  * The collected card fields, snake_case (the shared wire vocabulary). One entry per row the
  * card can draw — no `org_label`, no seal, no boost, no spots. `role_kind` rides along because
- * the payer picked it, but it is NOT a card row (no worker read carries it, ADR-0024 addendum
- * #1823) — it is listed under the preview as "Also in your posting", never on the card.
+ * the payer picked it: it picks the card's ROLE ILLUSTRATION (`@badabhai/role-art`, the same art
+ * the worker's card paints), but its NAME is NOT a card row — it is listed under the preview as
+ * "Also in your posting", never as text on the card.
  */
 export interface CardFields {
   role_title: string | null;

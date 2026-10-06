@@ -14,6 +14,8 @@
  * per-segment layouts would invert the cascade order above and add a render-blocking request
  * to every other page. Details at the import in icons.css. */
 @import "@badabhai/icons/icons.css";
+/* The job-card role illustrations: their keyframes + the reduce-motion hold (@badabhai/role-art). */
+@import "@badabhai/role-art/role-art.css";
 
 /* BadaBhai brand token layer — the foundation (colors / type / spacing / radii /
  * elevation / motion / base). Imported before every rule below so each resolves from tokens.
@@ -5259,6 +5261,11 @@ img.agency-qr__code,
 .ai-draft {
   display: grid;
   gap: var(--space-3);
+}
+/* The role illustration above the draft (@badabhai/role-art) — a header strip, rounded like the card. */
+.ai-draft__art {
+  border-radius: var(--radius-md);
+  overflow: hidden;
 }
 .ai-draft__head {
   display: flex;
