@@ -21,8 +21,8 @@
    FIRST, as in payer-web: a library's rules precede the app's, so an app rule that ties with
    Phosphor's `.ph-fill` base rule wins; the size tokens are var() aliases of the token layer,
    which resolve whatever the import order.
-   KNOWN COST, TRACKED (issue #1893, follow-up to PR #1886): the whole fill sheet is render-blocking and
-   the build emits three unused font formats; the planned fix is a generated subset. Details at
+   SUBSET (#1893): the glyph sheet is generated for the IconName union only, with a woff2-only
+   @font-face, so the build emits one font file and no glyph rule nothing can name. Details at
    the import in packages/icons/icons.css. */
 @import "@badabhai/icons/icons.css";
 @import "@badabhai/design-tokens/tokens.css";

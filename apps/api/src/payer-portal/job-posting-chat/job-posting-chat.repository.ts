@@ -194,9 +194,7 @@ export class JobPostingChatRepository {
    * writer ever put a bound session back to a live status, a second claim still matches
    * nothing, so there is no second posting and the bound id is never overwritten. It is
    * defence in depth behind {@link saveTurn}'s own status guard, which is what stops a
-   * racing turn reopening the session in the first place. BOUND, not merely produced: a
-   * posting whose row committed but whose `job_posting.created` emit then threw is never
-   * bound, so the claim is released and a retry can create a second one (#1928).
+   * racing turn reopening the session in the first place.
    *
    * The claim is released by {@link releasePublishClaim} if the create then fails.
    */
@@ -244,6 +242,13 @@ export class JobPostingChatRepository {
    * Guarded on `published_job_posting_id IS NULL` so it can only ever revert a claim
    * that produced nothing — it can never un-publish a session that really did create a
    * posting, even if called by mistake.
+   *
+   * "UNBOUND" MEANS "NOTHING WAS CREATED" ONLY BECAUSE THE CREATE IS ATOMIC (#1928). The bind
+   * runs after `createForPayer` returns, so a create that threw never binds. Before #1928 a
+   * create could throw AFTER its row committed (the `job_posting.created` emit ran outside the
+   * transaction). This release then reopened a session whose posting existed, and the retry
+   * created a second one. `JobPostingsService` now commits the row and its event in one
+   * transaction, so a throw leaves no posting and this guard tells the truth.
    */
   async releasePublishClaim(
     sessionId: string,

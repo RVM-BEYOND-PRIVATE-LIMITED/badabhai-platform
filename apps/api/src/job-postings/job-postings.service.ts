@@ -656,7 +656,28 @@ export class JobPostingsService {
     };
   }
 
-  /** Insert a posting (always status=draft) and emit the created event for the actor. */
+  /**
+   * Insert a posting (always status=draft) and emit the created event for the actor, as ONE
+   * transaction (#1928).
+   *
+   * WHY ONE TRANSACTION. The row used to commit on its own, and the emit ran after it with no
+   * transaction. When the emit threw (`createEvent` rejecting the payload, or a failed `events`
+   * insert), the posting stayed committed with no `job_posting.created` on the spine, which
+   * breaks invariant #1. The chat publish then saw the throw and released its claim. The release
+   * is guarded on "no posting bound", and the bind never ran, so the session went live again and
+   * a retry created a second posting. Now the event row is written on the posting's transaction
+   * (`EmitParams.tx`): either both commit or neither does. A throw here means nothing was
+   * created, and every caller's retry is safe. That covers the ops create, the payer form, and
+   * the chat publish. The one exception is an in-doubt COMMIT, where the connection drops after
+   * Postgres committed; no transaction can close that, and the row then has its event.
+   *
+   * WHAT STAYS OUT OF THE TRANSACTION. Skill canonicalization (an ai-service round trip per
+   * phrase, plus a cost record each) and the `match_skill_ids` closed-set check run in the
+   * callers, BEFORE this method. They are evaluated as its arguments, so no transaction is held
+   * open across a network call. Nothing follows the emit: a create makes a DRAFT, so it has no
+   * reach to materialize and nothing to enqueue. A post-commit side effect added later belongs
+   * after `withTransaction` resolves, never inside it, or a rollback would leave it behind.
+   */
   private async insertAndEmit(
     input: {
       createdBy: string;
@@ -673,21 +694,26 @@ export class JobPostingsService {
     actor: JobPostingActor,
     ctx: RequestContext,
   ): Promise<JobPostingApi> {
-    // status is ALWAYS draft on create — any client-supplied status is ignored.
-    const row = await this.repo.create({ ...input, status: "draft" });
+    return this.repo.withTransaction(async (tx) => {
+      // status is ALWAYS draft on create — any client-supplied status is ignored.
+      const row = await this.repo.create({ ...input, status: "draft" }, tx);
 
-    const payload: PayloadInputOf<"job_posting.created"> = {
-      job_posting_id: row.id,
-      vacancy_band: row.vacancy_band,
-      status: "draft",
-      created_by: row.created_by,
-      has_location: row.location_label != null,
-      has_description: row.description != null,
-      // Migration 0131 — a closed 21-slug enum (or null), PII-free like `vacancy_band`.
-      role_kind: row.role_kind,
-    };
-    await this.events.emit(this.emitParams("job_posting.created", row.id, actor, payload, ctx));
-    return row;
+      const payload: PayloadInputOf<"job_posting.created"> = {
+        job_posting_id: row.id,
+        vacancy_band: row.vacancy_band,
+        status: "draft",
+        created_by: row.created_by,
+        has_location: row.location_label != null,
+        has_description: row.description != null,
+        // Migration 0131 — a closed 21-slug enum (or null), PII-free like `vacancy_band`.
+        role_kind: row.role_kind,
+      };
+      await this.events.emit({
+        ...this.emitParams("job_posting.created", row.id, actor, payload, ctx),
+        tx,
+      });
+      return row;
+    });
   }
 
   /**
