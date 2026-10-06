@@ -56,8 +56,13 @@ describe("demo-matching plan — determinism and ids", () => {
 
   it("every id is a v4-shaped uuid in its kind's namespace, and unique", () => {
     const plan = buildDemoPlan();
-    const like = (kind: Parameters<typeof demoIdLikePattern>[0]) =>
-      new RegExp(`^${demoIdLikePattern(kind).replace("%", ".*")}$`);
+    // The LIKE pattern is a fixed prefix + a trailing `%`; compare as a prefix (no dynamic RegExp).
+    const prefixOf = (kind: Parameters<typeof demoIdLikePattern>[0]) => {
+      const pattern = demoIdLikePattern(kind);
+      expect(pattern.endsWith("%")).toBe(true);
+      expect(pattern.slice(0, -1)).not.toMatch(/[%_]/);
+      return pattern.slice(0, -1);
+    };
     const ids = [
       ...plan.payers.map((p) => [p.payerId, "payer"] as const),
       ...plan.personas.flatMap((p) => [
@@ -69,10 +74,10 @@ describe("demo-matching plan — determinism and ids", () => {
     ];
     for (const [id, kind] of ids) {
       expect(id).toMatch(UUID_V4);
-      expect(id).toMatch(like(kind));
+      expect(id.startsWith(prefixOf(kind))).toBe(true);
     }
     expect(new Set(ids.map(([id]) => id)).size).toBe(ids.length);
-    expect(demoUuid("worker", 0)).not.toMatch(like("posting"));
+    expect(demoUuid("worker", 0).startsWith(prefixOf("posting"))).toBe(false);
   });
 
   it("phones are inside the reserved test-login range, distinct, and never collide with E4's", () => {
