@@ -17,6 +17,7 @@ import '../../../core/widgets/kit/kit_salary_box.dart';
 import '../../../core/widgets/kit/kit_square_icon_button.dart';
 import '../../../core/widgets/onboarding/questionnaire_bottom_bar.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
+import '../../../core/widgets/role_art/role_art.dart';
 import '../domain/job_detail.dart';
 import '../domain/jobs_repository.dart';
 import '../domain/swipe_repository.dart';
@@ -155,6 +156,16 @@ class _JobDetailViewState extends State<_JobDetailView> {
   List<Widget> _blocks(BuildContext context, JobDetailState state) {
     final JobDetail d = state.detail;
     final List<Widget> blocks = <Widget>[];
+
+    // #2009 — the ROLE ILLUSTRATION heads the body, the same art the swipe card
+    // paints for the same `role_kind` (packages/role-art), so a job looks like
+    // itself on both surfaces. ART, NEVER TEXT: absent, null, unknown or
+    // wrong-cased draws the generic scene, so there is always a picture and a
+    // slug can never reach the screen as a word.
+    //
+    // Unconditional, unlike every block below it: a card whose art appeared only
+    // for some postings would read as a loading failure on the others.
+    blocks.add(RoleArtBanner(roleKind: d.roleKind));
 
     // The employer's OFFERED band — hence 'Salary', not 'Expected salary'
     // (that label belongs to the worker's own asking figure on the resume).
