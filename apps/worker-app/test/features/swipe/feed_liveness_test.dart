@@ -240,6 +240,48 @@ void main() {
       expect(find.byKey(const Key('jobFeedRefreshing')), findsNothing);
     });
 
+    testWidgets('while refreshing, the slot stays a labelled, disabled button '
+        '(screen readers hear that jobs are loading)', (
+      WidgetTester tester,
+    ) async {
+      _tallSurface(tester);
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      final Completer<void> gate = Completer<void>();
+      int calls = 0;
+      final MockClient client = MockClient((http.Request req) async {
+        calls++;
+        if (calls > 1) await gate.future;
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'jobs': <Map<String, dynamic>>[_job('j1', 'CNC Operator')],
+          }),
+          200,
+        );
+      });
+      final SessionRepository session = SessionRepository()
+        ..setWorker(
+          phone: '+910000000000',
+          workerId: 'worker-1',
+          sessionToken: 'test-token',
+        );
+      await tester.pumpWidget(_harness(SwipeBloc(SwipeRepositoryImpl(
+        ApiClient(baseUrl: 'http://test', client: client),
+        session,
+      ))));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('jobFeedRefresh')));
+      await tester.pump();
+
+      expect(find.byKey(const Key('jobFeedRefresh')), findsNothing);
+      expect(find.bySemanticsLabel('Naye jobs aa rahe hain'), findsOneWidget);
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('jobFeedRefresh')), findsOneWidget);
+      semantics.dispose();
+    });
+
     testWidgets('app resume refetches a visible feed', (
       WidgetTester tester,
     ) async {

@@ -662,8 +662,7 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
       icon: Icons.work_history_outlined,
       iconColor: OnboardingColors.shiftBlue,
       title: 'Aapki profile se jobs match ho rahi hain.',
-      subtitle: 'Naye jobs aate hi yahan dikhenge. Thodi der baad dobara '
-          'dekhein.',
+      subtitle: 'Naye jobs aate hi yahan dikhenge.',
       action: FilledButton(
         onPressed: () =>
             context.read<SwipeBloc>().add(const SwipeFeedRequested()),
@@ -722,6 +721,11 @@ class _FeedViewState extends State<_FeedView> with WidgetsBindingObserver {
 /// The deck-mode header "refresh jobs" action: the glyph while idle, a small
 /// spinner in the same 48dp slot while the reload is in flight (disabled, so a
 /// second tap cannot stack a load).
+///
+/// The busy slot stays a labelled, disabled button in the semantics tree (and a
+/// live region), so a TalkBack user who just tapped refresh hears that jobs are
+/// loading instead of losing the focused control. With system animations off it
+/// shows the still glyph at the 60% step rather than spinning.
 class _RefreshAction extends StatelessWidget {
   const _RefreshAction({required this.refreshing, required this.onPressed});
 
@@ -738,16 +742,31 @@ class _RefreshAction extends StatelessWidget {
         onPressed: onPressed,
       );
     }
-    return const SizedBox(
-      key: Key('jobFeedRefreshing'),
-      width: OnboardingLayout.tapTarget,
-      height: OnboardingLayout.tapTarget,
-      child: Center(
-        child: SizedBox.square(
-          dimension: 20,
-          child: CircularProgressIndicator(
-            strokeWidth: 2.5,
-            color: OnboardingColors.safetyYellow,
+    final bool still = MediaQuery.disableAnimationsOf(context);
+    return Semantics(
+      key: const Key('jobFeedRefreshing'),
+      button: true,
+      enabled: false,
+      liveRegion: true,
+      label: 'Naye jobs aa rahe hain',
+      child: ExcludeSemantics(
+        child: SizedBox(
+          width: OnboardingLayout.tapTarget,
+          height: OnboardingLayout.tapTarget,
+          child: Center(
+            child: still
+                ? Icon(
+                    Icons.refresh_rounded,
+                    size: 22,
+                    color: OnboardingColors.textOnBlue.withValues(alpha: 0.6),
+                  )
+                : const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: OnboardingColors.safetyYellow,
+                    ),
+                  ),
           ),
         ),
       ),
