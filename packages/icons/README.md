@@ -98,6 +98,10 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
    - Escape dismisses the tooltip whether it was opened by focus (keydown on the button) or by
      hover (a keydown listener on the document, added on pointer enter and removed on pointer
      leave and on unmount). Escape is never swallowed: a drawer or dialog still gets it.
+   - Focus the APP moves (a dialog's first control on open, the menu button a closing drawer
+     returns to) goes through `focusWithoutTooltip` (`@badabhai/icons`): the tooltip stays quiet
+     for that keyboard focus until the user moves focus, while a mouse hovering the control still
+     sees it (pointer enter re-arms it).
    - `tooltipPlacement`: `top` (default), `bottom`, `start`, `end`, or an edge-aligned
      `top-start` / `top-end` / `bottom-start` / `bottom-end` for a control near a viewport edge
      (`bottom-end` for a dialog ✕ in the top-right corner).

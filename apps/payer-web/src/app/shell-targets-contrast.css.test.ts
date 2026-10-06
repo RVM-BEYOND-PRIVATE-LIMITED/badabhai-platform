@@ -290,6 +290,29 @@ describe("review · below 1024px the closed drawer is hidden, not just off-scree
     expect(decl(one(G, ".pshell__rail"), "visibility")).toBeNull();
   });
 
+  it("under reduced motion neither drawer state slides — the open rule is more specific", () => {
+    // Measured before: the reset listed `.pshell__rail` alone, and the open drawer's own rule
+    // (0,2,0) kept its transform transition under prefers-reduced-motion.
+    const REDUCE = "@media (prefers-reduced-motion: reduce)";
+    const reset = G.filter(
+      (r) =>
+        r.at === REDUCE && decl(r, "transition") === "none" && r.selector.includes("pshell__rail"),
+    );
+    expect(reset).toHaveLength(1);
+    const covered = new Set(reset[0]!.selector.split(",").map((p) => p.trim()));
+    // Every rule that gives the rail a transition — outside the motion-gated contexts — is reset.
+    const moving = G.filter(
+      (r) =>
+        r.at !== REDUCE &&
+        !r.at.includes("prefers-reduced-motion: no-preference") &&
+        decl(r, "transition") !== null,
+    )
+      .flatMap((r) => r.selector.split(",").map((p) => p.trim()))
+      .filter((p) => p.includes("pshell__rail"));
+    expect(moving).toEqual([".pshell__rail", ".pshell--drawer-open .pshell__rail"]);
+    for (const sel of moving) expect(covered.has(sel), sel).toBe(true);
+  });
+
   it("nothing inside the hidden drawer opts back in (`visibility: visible` would leak a Tab stop)", () => {
     const visible = [...G, ...D]
       .filter((r) => decl(r, "visibility") === "visible")

@@ -736,8 +736,11 @@ body {
   }
 }
 
+/* No slide under reduced motion — the open drawer's rule included: it is more specific than the
+   bare rail's, so it escaped a `.pshell__rail`-only reset and kept its transform transition. */
 @media (prefers-reduced-motion: reduce) {
-  .pshell__rail {
+  .pshell__rail,
+  .pshell--drawer-open .pshell__rail {
     transition: none;
   }
   .pshell__content {

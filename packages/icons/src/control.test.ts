@@ -37,35 +37,51 @@ describe("tooltip dismissal (WCAG 1.4.13 — dismissible without moving focus)",
 });
 
 describe("focusWithoutTooltip — focus the APP moves never opens a tooltip", () => {
-  /** A focus target: its children's classes, its attributes, and the ORDER of what happened. */
-  function target(childClasses: string[][]) {
+  /**
+   * A focus target: its children's classes, its attributes, and the ORDER of what happened. It
+   * takes focus (becomes its document's activeElement) unless `focusable` is false — a control
+   * that is `display: none` right now.
+   */
+  function target(childClasses: string[][], { focusable = true } = {}) {
     const log: string[] = [];
     const attrs = new Set<string>();
-    return {
+    const ownerDocument = { activeElement: null as unknown };
+    const t = {
       log,
       attrs,
+      ownerDocument,
       children: childClasses.map((cls) => ({
         classList: { contains: (c: string) => cls.includes(c) },
       })),
       setAttribute: (k: string) => void (attrs.add(k), log.push(`set ${k}`)),
-      focus: () => void log.push(`focus (dismissed=${attrs.has(TOOLTIP_DISMISSED_ATTRIBUTE)})`),
+      removeAttribute: (k: string) => void (attrs.delete(k), log.push(`remove ${k}`)),
+      focus: (options?: FocusOptions) => {
+        log.push(
+          `focus (dismissed=${attrs.has(TOOLTIP_DISMISSED_ATTRIBUTE)}${options?.preventScroll ? ", preventScroll" : ""})`,
+        );
+        if (focusable) ownerDocument.activeElement = t;
+      },
     };
+    return t;
   }
+  const TIP = [
+    ["ph-fill", "ph-x"],
+    ["bb-icon-tip", "bb-icon-tip--bottom-end"],
+  ];
 
   it("an icon-only control is focused with its tooltip ALREADY dismissed (set before focus)", () => {
-    const t = target([
-      ["ph-fill", "ph-x"],
-      ["bb-icon-tip", "bb-icon-tip--bottom-end"],
-    ]);
+    const t = target(TIP);
     focusWithoutTooltip(t);
     expect(t.log).toEqual([`set ${TOOLTIP_DISMISSED_ATTRIBUTE}`, "focus (dismissed=true)"]);
+    expect(t.attrs.has(TOOLTIP_DISMISSED_ATTRIBUTE)).toBe(true);
   });
 
   it("…and its own blur re-arms it, so moving away and back shows it again", () => {
     // Object.assign, not a spread: the stand-in's `dismissed` is a live getter.
-    const c = Object.assign(fakeControl(new FakeDocument()), {
+    const doc = new FakeDocument();
+    const c = Object.assign(fakeControl(doc), {
       children: [{ classList: { contains: (k: string) => k === "bb-icon-tip" } }],
-      focus: () => {},
+      focus: () => void (doc.activeElement = c),
     });
     focusWithoutTooltip(c);
     expect(c.dismissed).toBe(true);
@@ -73,12 +89,34 @@ describe("focusWithoutTooltip — focus the APP moves never opens a tooltip", ()
     expect(c.dismissed).toBe(false);
   });
 
+  it("a focus that does not take (display:none) takes the flag back — it would never be cleared", () => {
+    // Measured: the drawer open at 900px, the window widened past 1024px, then Escape — focus went
+    // to the menu button, now display:none; the flag stayed, and back below 1024px its tooltip
+    // never showed again.
+    const t = target(TIP, { focusable: false });
+    focusWithoutTooltip(t);
+    expect(t.log).toEqual([
+      `set ${TOOLTIP_DISMISSED_ATTRIBUTE}`,
+      "focus (dismissed=true)",
+      `remove ${TOOLTIP_DISMISSED_ATTRIBUTE}`,
+    ]);
+    expect(t.attrs.size).toBe(0);
+  });
+
+  it("passes focus options through (preventScroll for a control sliding in from off-screen)", () => {
+    const t = target(TIP);
+    focusWithoutTooltip(t, { preventScroll: true });
+    expect(t.log).toContain("focus (dismissed=true, preventScroll)");
+  });
+
   it("a target without a tooltip (a plain button, the dialog itself) is focused untouched", () => {
     for (const kids of [[], [["ph-fill", "ph-x"]], [["bb-icon-tip-ish"]]]) {
-      const t = target(kids);
-      focusWithoutTooltip(t);
-      expect(t.log).toEqual(["focus (dismissed=false)"]);
-      expect(t.attrs.size).toBe(0);
+      for (const focusable of [true, false]) {
+        const t = target(kids, { focusable });
+        focusWithoutTooltip(t);
+        expect(t.log).toEqual(["focus (dismissed=false)"]);
+        expect(t.attrs.size).toBe(0);
+      }
     }
   });
 });

@@ -31,10 +31,12 @@ import type { NavSection } from "./nav-model";
  * labels from 1280px. Each is a Tab stop exactly where it is drawn — the CSS `display: none` that
  * hides it elsewhere already takes it out of the tab order, so neither carries a tabindex.
  *
- * THE DRAWER is a modal overlay while open (./drawer-focus.ts): closed, it is out of the Tab order
- * (globals.css hides it, not just slides it off-screen); opening it moves focus in and keeps Tab
- * inside it; Escape, the scrim, a route change or the menu close it, and focus returns to the menu
- * button.
+ * THE DRAWER is MODAL while open (./drawer-focus.ts): closed, it is out of the Tab order
+ * (globals.css hides it, not just slides it off-screen); open, it is a labelled `role="dialog"`
+ * with `aria-modal`, the page behind it is `inert`, focus moves in and Tab stays inside it. Escape,
+ * the scrim, a link in it, a route change or widening past the drawer breakpoint close it, and
+ * focus returns to the menu button. (The menu button itself sits in the inert page while the drawer
+ * is open, so it cannot close it.)
  *
  * This component is a client boundary ONLY for the collapse/drawer state and the drawer's
  * keyboard model. Everything it renders — the nav sections, the identity block, the header slots —
@@ -64,15 +66,17 @@ export function AppShell({
   // a pressed toggle keeps ONE name ("Expand navigation, pressed" contradicts itself).
   const collapseLabel = collapsed ? "Expand navigation" : "Collapse navigation";
 
-  // The open drawer's keyboard model: focus in, Tab contained, Escape closes, focus back to the
-  // menu button on close. Whether the rail is a drawer right now is read from the scrim (drawn
-  // only for the open drawer below 1024px), so the breakpoint stays in the stylesheet.
+  // The open drawer's keyboard model: focus in, Tab contained, Escape / a link / leaving drawer
+  // mode close it, focus back to the menu button on close. Whether the rail is a drawer right now
+  // is read from the scrim (drawn only for the open drawer below 1024px), so the breakpoint stays
+  // in the stylesheet.
   useEffect(() => {
     if (!drawerOpen) return undefined;
     const rail = railRef.current;
     if (!rail) return undefined;
     return openDrawer({
       doc: document,
+      view: window,
       rail,
       scrim: scrimRef.current,
       menu: () => document.getElementById(menuId),
@@ -102,7 +106,17 @@ export function AppShell({
 
   return (
     <div className={shellClass}>
-      <aside className="pshell__rail" id={railId} ref={railRef}>
+      {/* Open, the rail is a drawer — the only way it opens is the menu button, drawn below 1024px,
+          and leaving drawer mode closes it — so it is a labelled modal dialog then; otherwise it
+          is the plain rail landmark. */}
+      <aside
+        className="pshell__rail"
+        id={railId}
+        ref={railRef}
+        role={drawerOpen ? "dialog" : undefined}
+        aria-modal={drawerOpen ? true : undefined}
+        aria-label={drawerOpen ? "Navigation" : undefined}
+      >
         <div className="pshell__brand">{brand}</div>
 
         <SidebarNav sections={sections} />
@@ -127,19 +141,23 @@ export function AppShell({
         </div>
       </aside>
 
-      {/* Scrim: interactive only while the drawer is open, and inert to assistive tech the
-          rest of the time so it never shows up as a stray button in the reading order. */}
+      {/* Scrim: a POINTER target while the drawer is open, hidden from assistive tech the rest of
+          the time so it never shows up as a stray button in the reading order. Never a Tab stop:
+          it covers the viewport, so its focus ring would be drawn off-screen; the open drawer
+          keeps Tab inside itself, and Escape closes it from the keyboard. */}
       <button
         ref={scrimRef}
         className="pshell__scrim"
         type="button"
-        tabIndex={drawerOpen ? 0 : -1}
+        tabIndex={-1}
         aria-hidden={!drawerOpen}
         aria-label="Close navigation"
         onClick={() => setDrawerOpen(false)}
       />
 
-      <div className="pshell__main">
+      {/* Behind the open drawer the page is `inert`: no Tab stop, no pointer target, nothing a
+          screen reader can wander into — the modal half of the drawer. */}
+      <div className="pshell__main" inert={drawerOpen}>
         <header className="pshell__header">
           {/* The shared icon-only control: "Navigation" is its name AND its visible tooltip (on
               hover and keyboard focus, Escape-dismissable), opening inward from the top-left. */}

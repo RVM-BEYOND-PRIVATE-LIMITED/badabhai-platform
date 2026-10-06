@@ -202,18 +202,21 @@ describe("the open drawer arms its keyboard model (review of final sweep C)", ()
     const menuId = attr(element(html, "button", "pshell__menu").open, "id");
     // The effect runs in a browser: the document it hands over finds the menu button by its id.
     const doc = { getElementById: (id: string) => (id === menuId ? menuEl : null) };
+    const view = { el: "window" };
     vi.stubGlobal("document", doc);
+    vi.stubGlobal("window", view);
     const armed = effects.filter((e) => e.deps?.length === 2 && e.deps[0] === drawerOpen);
     expect(armed).toHaveLength(1);
-    return { doc, menuId, cleanup: armed[0]!.effect() };
+    return { doc, view, menuId, cleanup: armed[0]!.effect() };
   }
 
   it("open: arms it with the rail, the scrim, the menu button (by its id) and a close; disarms on close", () => {
-    const { doc, menuId, cleanup } = run(true);
+    const { doc, view, menuId, cleanup } = run(true);
     expect(menuId).toBeTruthy();
     expect(openDrawer).toHaveBeenCalledTimes(1);
     const parts = openDrawer.mock.calls[0]![0] as {
       doc: unknown;
+      view: unknown;
       rail: unknown;
       scrim: unknown;
       menu: () => unknown;
@@ -221,6 +224,8 @@ describe("the open drawer arms its keyboard model (review of final sweep C)", ()
       close: () => void;
     };
     expect(parts.doc).toBe(doc);
+    // Resizes are heard on the window (leaving drawer mode closes it).
+    expect(parts.view).toBe(view);
     expect(parts.rail).toBe(rail);
     expect(parts.scrim).toBe(scrim);
     expect(parts.menu()).toBe(menuEl);
@@ -241,5 +246,36 @@ describe("the open drawer arms its keyboard model (review of final sweep C)", ()
     const { cleanup } = run(false);
     expect(cleanup).toBeUndefined();
     expect(openDrawer).not.toHaveBeenCalled();
+  });
+});
+
+describe("the open drawer is a MODAL for assistive tech (review of final sweep C)", () => {
+  it("open: the rail is a labelled role=dialog with aria-modal, and the page behind it is inert", () => {
+    seeds.drawerOpen = true;
+    const html = render();
+    const aside = element(html, "aside", "pshell__rail").open;
+    expect(attr(aside, "role")).toBe("dialog");
+    expect(attr(aside, "aria-modal")).toBe("true");
+    expect(attr(aside, "aria-label")).toBe("Navigation");
+    expect(attr(element(html, "div", "pshell__main").open, "inert")).toBe("");
+  });
+
+  it("closed (and at ≥1024px, where it never opens): the plain rail landmark, the page live", () => {
+    seeds.drawerOpen = false;
+    const html = render();
+    const aside = element(html, "aside", "pshell__rail").open;
+    expect(attr(aside, "role")).toBeNull();
+    expect(attr(aside, "aria-modal")).toBeNull();
+    expect(attr(aside, "aria-label")).toBeNull();
+    expect(attr(element(html, "div", "pshell__main").open, "inert")).toBeNull();
+  });
+
+  it("the scrim is never a Tab stop (it covers the viewport; its ring would be off-screen)", () => {
+    for (const drawerOpen of [false, true]) {
+      seeds.drawerOpen = drawerOpen;
+      const scrim = element(render(), "button", "pshell__scrim").open;
+      expect(attr(scrim, "tabindex"), `open=${drawerOpen}`).toBe("-1");
+      expect(attr(scrim, "aria-hidden")).toBe(String(!drawerOpen));
+    }
   });
 });

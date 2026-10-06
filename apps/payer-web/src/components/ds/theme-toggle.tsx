@@ -36,6 +36,23 @@ import {
 
 const RESOLVED_LABEL: Record<ResolvedTheme, string> = { paper: "Light", ink: "Dark" };
 
+/** The class an explicit switch puts on `<html>` for the cross-fade (globals.css `html.theme-anim`). */
+export const THEME_ANIM_CLASS = "theme-anim";
+/**
+ * How long after the fade's own duration the class stays: a little slack, so it is never taken off
+ * while the last frame of the fade is still running.
+ */
+export const THEME_ANIM_SETTLE_MS = 50;
+
+/** A CSS time (`220ms`, `0.22s`) in milliseconds; 0 when empty or unreadable. */
+export function cssTimeMs(value: string): number {
+  const v = value.trim();
+  const n = Number.parseFloat(v);
+  if (!Number.isFinite(n)) return 0;
+  if (v.endsWith("ms")) return n;
+  return v.endsWith("s") ? n * 1000 : 0;
+}
+
 /** Does the environment allow motion right now? (false → instant switch, no sweep.) */
 function motionAllowed(): boolean {
   return (
@@ -54,6 +71,8 @@ export function ThemeToggle() {
   const [announce, setAnnounce] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
   const hydrated = useRef(false);
+  // The pending end of the current cross-fade (a second switch inside it restarts the clock).
+  const fadeEnd = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tip = useIconTipHandlers();
 
   // After mount, sync state to the real persisted preference + the live DOM theme. This runs
@@ -87,8 +106,21 @@ export function ThemeToggle() {
 
     const run = () => {
       // Enable the token-driven color cross-fade ONLY for an explicit switch (never first
-      // paint) and only when motion is allowed — the CSS itself is reduced-motion-gated too.
-      if (animate) document.documentElement.classList.add("theme-anim");
+      // paint) and only when motion is allowed — the CSS itself is reduced-motion-gated too —
+      // and END it once it has run: `html.theme-anim` re-points the transitions of everything
+      // it lists (globals.css), the nav drawer's slide among them, so left on after one switch
+      // the drawer never slid again. Its length is the `--duration-base` token the fade spends,
+      // read live, so the stylesheet stays the one source of it.
+      if (animate) {
+        const root = document.documentElement;
+        root.classList.add(THEME_ANIM_CLASS);
+        if (fadeEnd.current !== null) clearTimeout(fadeEnd.current);
+        const fadeMs = cssTimeMs(getComputedStyle(root).getPropertyValue("--duration-base"));
+        fadeEnd.current = setTimeout(() => {
+          root.classList.remove(THEME_ANIM_CLASS);
+          fadeEnd.current = null;
+        }, fadeMs + THEME_ANIM_SETTLE_MS);
+      }
       applyResolvedTheme(nextResolved);
       setPref(next);
       setResolved(nextResolved);

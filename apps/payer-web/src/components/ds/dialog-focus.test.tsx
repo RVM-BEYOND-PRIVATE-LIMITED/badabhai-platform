@@ -12,8 +12,10 @@ import { TOOLTIP_DISMISSED_ATTRIBUTE } from "@badabhai/icons";
  * helpers are no-ops. The stand-in ✕ records the ORDER of what happened to it.
  */
 const log: string[] = [];
+const ownerDocument = { activeElement: null as unknown };
 const closeButton = {
   offsetParent: {},
+  ownerDocument,
   attrs: new Set<string>(),
   children: [
     { classList: { contains: (c: string) => c === "ph-fill" } },
@@ -23,8 +25,13 @@ const closeButton = {
     this.attrs.add(k);
     log.push(`set ${k}`);
   },
+  removeAttribute(k: string) {
+    this.attrs.delete(k);
+    log.push(`remove ${k}`);
+  },
   focus() {
     log.push(`focus ✕ (tooltip dismissed: ${this.attrs.has(TOOLTIP_DISMISSED_ATTRIBUTE)})`);
+    ownerDocument.activeElement = this;
   },
 };
 const dialogEl = {
@@ -53,6 +60,7 @@ const { Dialog } = await import("./dialog");
 beforeEach(() => {
   log.length = 0;
   closeButton.attrs.clear();
+  ownerDocument.activeElement = null;
   vi.stubGlobal("document", {
     activeElement: null,
     body: {},

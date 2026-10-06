@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as ReactModule from "react";
 import type { ReactElement } from "react";
 import { FakeDocument, fakeControl } from "./test-doubles";
+import { focusWithoutTooltip } from "./control";
 
 /**
  * IconButtonBase behaviour, without a DOM: the node env cannot mount React, so `useRef` /
@@ -83,6 +84,15 @@ describe("Escape on a HOVER-opened tooltip (the button is not focused)", () => {
     expect(control.dismissed).toBe(false);
     doc.pressKey("Escape");
     expect(control.dismissed).toBe(false);
+  });
+
+  it("pointer enter re-arms a tooltip dismissed earlier: a new hover shows it", () => {
+    const { on, doc, control, ev } = mount();
+    control.setAttribute("data-tooltip-dismissed", "");
+    on.onPointerEnter(ev());
+    expect(control.dismissed).toBe(false);
+    doc.pressKey("Escape");
+    expect(control.dismissed).toBe(true);
   });
 
   it("re-entering never stacks listeners", () => {
@@ -176,6 +186,40 @@ describe("useIconTipHandlers — the wiring on its own", () => {
     on.onPointerEnter(ev());
     expect(doc.keydownListeners).toBe(1);
     unmount();
+    expect(doc.keydownListeners).toBe(0);
+  });
+
+  /** A control the app can move focus to: it takes focus, and carries the shared tooltip. */
+  function focusTarget(doc: FakeDocument) {
+    const control = Object.assign(fakeControl(doc), {
+      children: [{ classList: { contains: (c: string) => c === "bb-icon-tip" } }],
+      focus: () => void (doc.activeElement = control),
+    });
+    return control;
+  }
+
+  it("app-moved focus keeps the tip quiet for the KEYBOARD until focus moves (blur re-arms)", () => {
+    const { on } = hook();
+    const doc = new FakeDocument();
+    const control = focusTarget(doc);
+    focusWithoutTooltip(control); // a dialog opened from the keyboard lands on its ✕
+    on.onKeyDown({ currentTarget: control, key: "Tab" });
+    expect(control.dismissed).toBe(true);
+    on.onBlur({ currentTarget: control });
+    expect(control.dismissed).toBe(false);
+  });
+
+  it("…but not for the MOUSE: hovering shows it; Escape while hovering dismisses it again", () => {
+    const { on } = hook();
+    const doc = new FakeDocument();
+    const control = focusTarget(doc);
+    focusWithoutTooltip(control);
+    expect(control.dismissed).toBe(true);
+    on.onPointerEnter({ currentTarget: control });
+    expect(control.dismissed).toBe(false);
+    doc.pressKey("Escape");
+    expect(control.dismissed).toBe(true);
+    on.onPointerLeave({ currentTarget: control });
     expect(doc.keydownListeners).toBe(0);
   });
 });

@@ -68,7 +68,10 @@ export interface IconTipHandlers {
  *   - Escape dismisses it whether it was opened by keyboard focus (the control's own keydown) or
  *     by hover (a capture-phase document listener added on pointer enter — the hovered control is
  *     usually not focused — and removed on pointer leave and on unmount);
- *   - blur / pointer leave re-arm it for the next hover or focus.
+ *   - blur / pointer leave re-arm it for the next hover or focus, and pointer ENTER re-arms it
+ *     too: a new hover is a new request, so a tip kept quiet for focus the app moved there
+ *     (`focusWithoutTooltip`, a dialog's ✕ on open) still shows to the mouse. Escape while
+ *     hovering dismisses it again.
  * Escape is never swallowed: an enclosing drawer or dialog that closes on Escape still does.
  *
  * `IconButtonBase` is built on it; a control that keeps its own markup spreads it:
@@ -91,6 +94,7 @@ export function useIconTipHandlers(): IconTipHandlers {
     },
     onBlur: (e) => restoreTooltip(e.currentTarget),
     onPointerEnter: (e) => {
+      restoreTooltip(e.currentTarget);
       stopHoverEscape.current?.();
       stopHoverEscape.current = watchEscapeWhileHovered(e.currentTarget);
     },
