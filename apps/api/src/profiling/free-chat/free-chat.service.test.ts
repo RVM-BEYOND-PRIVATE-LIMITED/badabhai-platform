@@ -220,7 +220,64 @@ describe("classify — a VERDICT needs a real, unblocked, successful call", () =
   });
 });
 
+describe("G2 — the helper's edge cases, on every free-chat input field", () => {
+  it("a FIRST-NAME-ONLY worker is redacted from the text, the turns and the pending question", async () => {
+    const { service, ai, ctx } = make("Ramesh");
+    await service.classify(
+      {
+        text: "main Ramesh hoon",
+        mode: "resume",
+        pendingQuestion: "Ramesh ji, aapka kaam kya hai?",
+        messages: [line("worker", "ramesh bol raha hoon")],
+      },
+      ctx,
+    );
+    const sent = ai.freeChatClassify.mock.calls[0]![0] as Record<string, unknown>;
+    expect(JSON.stringify(sent).toLowerCase()).not.toContain("ramesh");
+    expect(sent).toMatchObject({
+      text: "main [NAME] hoon",
+      pending_question: "[NAME] ji, aapka kaam kya hai?",
+      recent_turns: [{ role: "worker", text: "[NAME] bol raha hoon" }],
+    });
+  });
+
+  it("a DEVANAGARI-stored name typed in Devanagari is redacted from all three", async () => {
+    const { service, ai, ctx } = make("रमेश कुमार");
+    await service.classify(
+      {
+        text: "मेरा नाम रमेश है",
+        mode: "resume",
+        pendingQuestion: "रमेश जी, आप कौन सा काम करते हैं?",
+        messages: [line("worker", "रमेश कुमार बोल रहा हूँ")],
+      },
+      ctx,
+    );
+    const sent = ai.freeChatClassify.mock.calls[0]![0] as Record<string, unknown>;
+    expect(JSON.stringify(sent)).not.toMatch(/रमेश|कुमार/);
+    expect(sent).toMatchObject({
+      text: "मेरा नाम [NAME] है",
+      pending_question: "[NAME] जी, आप कौन सा काम करते हैं?",
+      recent_turns: [{ role: "worker", text: "[NAME] बोल रहा हूँ" }],
+    });
+  });
+});
+
 describe("reply — G2 and the ledger", () => {
+  it("redacts the worker's own name out of worker_context.trade_label too", async () => {
+    const { service, ai, ctx } = make();
+    await service.reply(
+      {
+        category: "career",
+        text: "welding seekhni hai",
+        messages: [],
+        workerContext: { trade_label: "Ramesh Kumar welding", experience_bucket: null },
+      },
+      ctx,
+    );
+    const sent = ai.freeChatReply.mock.calls[0]![0] as { worker_context: { trade_label: string } };
+    expect(sent.worker_context.trade_label).toBe("[NAME] welding");
+  });
+
   it("redacts the message and every turn, sends six turns at most and the closed context", async () => {
     const { service, ai, cost, ctx } = make();
     const messages = Array.from({ length: 9 }, (_, i) =>

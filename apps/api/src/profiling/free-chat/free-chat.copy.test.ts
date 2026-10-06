@@ -96,6 +96,11 @@ describe("every line has a Devanagari twin a voice can read", () => {
     expect(ttsTextFor(`${FREE_CHAT_COPY.LOCK_CLARIFY.latin} ${FREE_CHAT_COPY.OPENER.latin}`)).toBe(
       `${FREE_CHAT_COPY.LOCK_CLARIFY.dev} ${FREE_CHAT_COPY.OPENER.dev}`,
     );
+    // A classifier-only trash re-ask leads with the de-escalation line, whose twin is already held.
+    const deEscalation = "Aap se vinamra rehne ki request hai. Kaam ki baat karte hain.";
+    expect(ttsTextFor(`${deEscalation} ${FREE_CHAT_COPY.OPENER.latin}`)).toBe(
+      `${ttsTextFor(deEscalation)} ${FREE_CHAT_COPY.OPENER.dev}`,
+    );
     // Half Devanagari, half roman is worse than the roman line the client already speaks.
     expect(
       ttsTextFor(`${FREE_CHAT_COPY.LOCK_DEFLECT.latin} Kya aap chandrayaan udate hain?`),

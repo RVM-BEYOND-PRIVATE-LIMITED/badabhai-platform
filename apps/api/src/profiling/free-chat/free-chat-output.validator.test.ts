@@ -1,7 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { screenCareerAnswer } from "../../chat-companion/v2/career-output.validator";
 import { FREE_CHAT_WALLS, screenFreeChatAnswer } from "./free-chat-output.validator";
+
+// The real G1 scanner, except that one sentinel makes it THROW — the fail-closed branch.
+vi.mock("../resume-import/resume-parse-gates", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../resume-import/resume-parse-gates")>();
+  return {
+    ...actual,
+    containsHardIdentifier: (raw: string) => {
+      if (raw.includes("SCANNER_BOOM")) throw new Error("scanner exploded");
+      return actual.containsHardIdentifier(raw);
+    },
+  };
+});
 
 /**
  * The free chat's reply gate (ADR-0051 §3.4): the companion career validator with the MONEY and
@@ -76,6 +88,30 @@ describe("the abuse lexicon on model output — a jailbroken reply never serves 
 
   it("leaves shop-floor vocabulary alone (the lexicon is high-precision)", () => {
     expect(failure(["Bastard file se finishing kariye."])).toBeNull();
+  });
+});
+
+describe("the G1 floor — a hard identifier never leaves in a model line or chip (ADR-0047)", () => {
+  it.each([
+    "PAN ABCDE1234F hai.",
+    "GST 27ABCDE1234F1Z5 dekhiye.",
+    "Call 98765,43210 karein.",
+    "Number 98765–43210 hai.",
+    "Gaadi ka reg no MH12AB345 likhiye.",
+  ])("rejects the line %j — `looksLikePii` alone misses it", (line) => {
+    expect(failure([line])).toBe("pii");
+  });
+
+  it("checks the chips too", () => {
+    expect(failure(["Theek hai."], ["98765;43210"])).toBe("pii");
+  });
+
+  it("a scanner that THROWS rejects — fail closed", () => {
+    expect(failure(["SCANNER_BOOM theek hai."])).toBe("pii");
+  });
+
+  it("still serves an ordinary career line with a ₹ range (R11)", () => {
+    expect(failure(["Shuru mein aam taur par ₹15,000 se ₹25,000 milta hai."])).toBeNull();
   });
 });
 

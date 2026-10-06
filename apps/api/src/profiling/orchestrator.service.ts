@@ -143,13 +143,7 @@ import { parseDurationMonths } from "./duration-months";
 import { WorkersRepository } from "../workers/workers.repository";
 import type { KnownNameSource } from "../common/redact-known-name";
 import { seedFromWorkerRecord } from "./worker-record-seed";
-import {
-  captureAnswer,
-  hasFieldNormalizer,
-  matchOptions,
-  mayCommit,
-  type Capture,
-} from "./answer-capture";
+import { captureAnswer, hasFieldNormalizer, matchOptions, mayCommit } from "./answer-capture";
 // ADR-0051 — the profiling-stage free chat. `FreeChatService` is a VALUE import: it is a
 // constructor parameter below, and Nest resolves it from the emitted `design:paramtypes`.
 import {
@@ -174,6 +168,7 @@ import {
 import {
   enterMode,
   FREE_CHAT_ASIDE_CAP,
+  FREE_CHAT_MAX_DEESCALATIONS,
   FREE_CHAT_MAX_DEFLECTS,
   FREE_CHAT_NUDGE_EVERY,
   greetingState,
@@ -666,15 +661,12 @@ interface FreeChatTurn {
 /**
  * What the free chat made of a message: SERVED it (an aside — the decision is final) or PASSED it
  * to today's interview, with the envelope it may have updated (a mode stamped, a held turn
- * cleared) and, when the classifier caught abuse in résumé mode, the forced-abusive capture.
+ * cleared). A pass is today's interview exactly: nothing the classifier said changes how it reads
+ * the message.
  */
 type FreeChatRouted =
   | { readonly kind: "serve"; readonly decided: Decided }
-  | {
-      readonly kind: "pass";
-      readonly envelope: ProfilingEnvelope;
-      readonly forceAbusive: boolean;
-    };
+  | { readonly kind: "pass"; readonly envelope: ProfilingEnvelope };
 
 /** The event facts a classifier verdict contributes — see `verdictFacts`. */
 interface VerdictFacts {
@@ -1768,13 +1760,11 @@ export class ProfilingOrchestrator {
     // pending state is on the résumé-mode skip list anyway.
     //
     // It SERVES the turn (an aside: no turn, no ask, no model state spent) or PASSES it to the
-    // interview below, unchanged except for an updated envelope — and, when the classifier caught
-    // abuse the lexicon missed in résumé mode, a forced-abusive capture, which puts the message on
-    // today's de-escalation path and `MAX_ABUSIVE_TURNS` cap.
+    // interview below, unchanged except for an updated envelope. A model verdict never feeds the
+    // interview's own counters: abuse only the classifier saw is answered as an aside, uncounted.
     //
     // CHAT ONLY: the voice form passes no `freeChat`, and an orchestrator built without the
     // service never routes — both are today's interview exactly.
-    let forceAbusive = false;
     const fc = this.freeChatInputOf(input);
     if (fc !== null && this.freeChat !== undefined) {
       const routed = await this.routeFreeChat({
@@ -1792,7 +1782,6 @@ export class ProfilingOrchestrator {
       });
       if (routed.kind === "serve") return routed.decided;
       envelope = routed.envelope;
-      forceAbusive = routed.forceAbusive;
     }
 
     // --- The résumé-update offer, answered (ADR-0043, ruling R3) -------------
@@ -1899,7 +1888,7 @@ export class ProfilingOrchestrator {
       );
     }
 
-    const capture = forceAbusive ? FORCED_ABUSIVE_CAPTURE : captureAnswer(input.text, askedItem);
+    const capture = captureAnswer(input.text, askedItem);
     let answers = answersOf(envelope);
     let next: ProfilingEnvelope = stampUniversalPointer(
       {
@@ -4273,29 +4262,43 @@ export class ProfilingOrchestrator {
    * passes — an AI outage never degrades the interview.
    */
   private async routeResumeMode(t: FreeChatTurn, state: FreeChatState): Promise<FreeChatRouted> {
-    const pass = (forceAbusive: boolean): FreeChatRouted => ({
+    const pass = (): FreeChatRouted => ({
       kind: "pass",
       // A pass is an interview turn: the question it answers is no longer held for a re-ask.
       envelope:
         state.held === null ? t.envelope : { ...t.envelope, freeChat: { ...state, held: null } },
-      forceAbusive,
     });
-    if (!t.fc.enabled) return pass(false);
+    if (!t.fc.enabled) return pass();
 
     const pending = this.pendingQuestion(t, state);
     const pre = preClassifyResume(t.input.text, this.resumeSkipFacts(t, state, pending));
     if (pre.kind === "distress")
       return this.serveResumeDistress(t, state, pending, LEXICON_DISTRESS);
-    if (pre.kind === "pass" || pending === null) return pass(false);
+    if (pre.kind === "pass" || pending === null) return pass();
 
     const verdict = await this.classifyMemo(t, "resume", pending);
     const facts = verdictFacts(verdict);
     const action = postClassifyResume(verdict);
     switch (action.kind) {
       case "pass":
-        return pass(false);
-      case "pass_abusive":
-        return pass(true);
+        return pass();
+      case "de_escalate": {
+        // CLASSIFIER-ONLY ABUSE (the lexicon flagged nothing): today's de-escalation line and the
+        // question again, NEVER counted toward `MAX_ABUSIVE_TURNS` — a model verdict alone must not
+        // close profiling (CLAUDE.md §3). Capped like a deflection: a third trash verdict for the
+        // same question passes to the interview, which reads the words deterministically.
+        const key = pendingKeyOf(pending);
+        const count = state.deescalated?.key === key ? state.deescalated.count : 0;
+        if (count >= FREE_CHAT_MAX_DEESCALATIONS) return pass();
+        return this.serveReAsk(
+          t,
+          { ...state, deescalated: { key, count: count + 1 } },
+          DE_ESCALATION_REPLY,
+          pending,
+          facts,
+          "fixed_line",
+        );
+      }
       case "distress":
         return this.serveResumeDistress(t, state, pending, facts);
       case "deflect": {
@@ -4303,11 +4306,11 @@ export class ProfilingOrchestrator {
         // the classifier keeps misreading reaches today's interview on the third try.
         const key = pendingKeyOf(pending);
         const count = state.deflected?.key === key ? state.deflected.count : 0;
-        if (count >= FREE_CHAT_MAX_DEFLECTS) return pass(false);
+        if (count >= FREE_CHAT_MAX_DEFLECTS) return pass();
         return this.serveReAsk(
           t,
           { ...state, deflected: { key, count: count + 1 } },
-          FREE_CHAT_COPY.LOCK_DEFLECT,
+          FREE_CHAT_COPY.LOCK_DEFLECT.latin,
           pending,
           facts,
           "deflected",
@@ -4316,11 +4319,11 @@ export class ProfilingOrchestrator {
       case "clarify":
         // THE CLARIFY CAP: at most once per pending question. A second unsure verdict for the same
         // question is today's interview — the deterministic path — never a clarify loop.
-        if (state.clarifiedFor === pendingKeyOf(pending)) return pass(false);
+        if (state.clarifiedFor === pendingKeyOf(pending)) return pass();
         return this.serveReAsk(
           t,
           { ...state, clarifiedFor: pendingKeyOf(pending) },
-          FREE_CHAT_COPY.LOCK_CLARIFY,
+          FREE_CHAT_COPY.LOCK_CLARIFY.latin,
           pending,
           facts,
           "clarify",
@@ -4537,7 +4540,7 @@ export class ProfilingOrchestrator {
       ...t.envelope,
       freeChat: enterMode(t.envelope.freeChat ?? null, "resume", "classifier", t.input.now),
     };
-    return { kind: "pass", envelope: this.stampGeneralRoad(entered, t.input), forceAbusive: false };
+    return { kind: "pass", envelope: this.stampGeneralRoad(entered, t.input) };
   }
 
   /** A counted trash strike (R13): the warning, or — the third today — the cool-down. */
@@ -4653,7 +4656,8 @@ export class ProfilingOrchestrator {
   }
 
   /**
-   * A résumé-mode deflection or clarify: the lead line + the pending question again, in ONE bubble,
+   * A résumé-mode deflection, clarify or de-escalation: the lead line + the pending question again,
+   * in ONE bubble,
    * with the question's own chips and shape — so `lastTurn` describes the question still on screen
    * and every reader of it (the option match, the escape tap, a reopen) keeps working. No turn, no
    * ask, no model state is spent; `servedQuestionKey` is untouched, so the next answer is captured
@@ -4662,14 +4666,14 @@ export class ProfilingOrchestrator {
   private serveReAsk(
     t: FreeChatTurn,
     state: FreeChatState,
-    line: FreeChatLine,
+    lead: string,
     pending: FreeChatHeldTurn,
     facts: VerdictFacts,
     outcome: FreeChatOutcome,
   ): FreeChatRouted {
     const answers = answersOf(t.envelope);
     const result: TurnResult = {
-      reply: `${line.latin} ${pending.reply}`,
+      reply: `${lead} ${pending.reply}`,
       kind: pending.kind,
       questionKey: pending.questionKey,
       options: [...pending.options],
@@ -6603,20 +6607,6 @@ function intakeRefOf(input: TurnInput): IntakeRef {
 // ---------------------------------------------------------------------------
 // THE PROFILING-STAGE FREE CHAT (ADR-0051) — the pure halves of its turns
 // ---------------------------------------------------------------------------
-
-/**
- * The capture a résumé-mode message gets when the CLASSIFIER called it trash (ADR-0051 §3.2): the
- * shape `captureAnswer` returns for a message the abuse lexicon caught, so it takes today's
- * de-escalation path and counts toward `MAX_ABUSIVE_TURNS` — buffered for the audit, excluded from
- * the model, never captured as an answer.
- */
-const FORCED_ABUSIVE_CAPTURE: Capture = {
-  turnClass: "abusive",
-  values: [],
-  excludeFromParse: true,
-  declined: false,
-  correcting: false,
-};
 
 /** A free-chat chip in the shape the client already renders — the label IS what it posts back. */
 function chipOption(key: string, label: string): QuestionPackOption {

@@ -47,6 +47,14 @@ export const FREE_CHAT_COOLDOWN_MS = 30 * 60_000;
  */
 export const FREE_CHAT_MAX_DEFLECTS = 2;
 
+/**
+ * Classifier-only trash re-asks one pending question may receive before a further trash verdict
+ * for it passes through to the interview — the same stuck-loop guard for a real answer the model
+ * keeps misreading as abuse. Never counted toward `MAX_ABUSIVE_TURNS`: a model verdict alone must
+ * not close profiling (CLAUDE.md §3).
+ */
+export const FREE_CHAT_MAX_DEESCALATIONS = 2;
+
 /** The résumé nudge rides every Nth casual reply (R9). */
 export const FREE_CHAT_NUDGE_EVERY = 3;
 
@@ -113,6 +121,12 @@ export interface FreeChatState {
    * keyed the same way, and absent on every envelope written before it existed (null).
    */
   readonly deflected: FreeChatDeflections | null;
+  /**
+   * How many times a CLASSIFIER-ONLY trash verdict has been answered with the de-escalation line for
+   * one pending question, or null — {@link deflected}'s shape and rule, capped at
+   * {@link FREE_CHAT_MAX_DEESCALATIONS}. Absent on every envelope written before it reads as null.
+   */
+  readonly deescalated: FreeChatDeflections | null;
 }
 
 /** The deflect count for one pending question — see {@link FreeChatState.deflected}. */
@@ -143,6 +157,7 @@ export function greetingState(): FreeChatState {
     held: null,
     clarifiedFor: null,
     deflected: null,
+    deescalated: null,
   };
 }
 
@@ -180,6 +195,7 @@ export function enterMode(
     held: null,
     clarifiedFor: null,
     deflected: null,
+    deescalated: null,
   };
 }
 
@@ -287,6 +303,7 @@ export function narrowFreeChat(value: unknown): FreeChatState | null {
         : null,
     // Unreadable reads as "never deflected" — at most two extra deflections, never a stuck one.
     deflected: mode === "resume" ? narrowDeflections(v.deflected) : null,
+    deescalated: mode === "resume" ? narrowDeflections(v.deescalated) : null,
   };
 }
 

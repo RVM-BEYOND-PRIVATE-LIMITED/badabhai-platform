@@ -176,7 +176,7 @@ export class FreeChatService {
       category: req.category,
       text: clip(redactKnownName(req.text, name), REPLY_TEXT_MAX),
       recent_turns: recentTurnsOf(req.messages, REPLY_TURNS, name),
-      worker_context: req.workerContext,
+      worker_context: workerContextFor(req.workerContext, name),
     });
     if (!input.success) {
       this.logger.warn(
@@ -332,6 +332,23 @@ export function recentTurnsOf(
     turns.push({ role: message.role === "worker" ? "worker" : "bada_bhai", text });
   }
   return turns.slice(-limit);
+}
+
+/**
+ * The worker context with the worker's own name redacted out of the trade label (G2): the label
+ * is a retrieval pin or the worker's settled answer, and a worker who typed his name as his trade
+ * must not hand it to the model through this field either.
+ */
+function workerContextFor(
+  context: CompanionCareerWorkerContext,
+  knownName: string | null,
+): CompanionCareerWorkerContext {
+  if (context.trade_label === null) return context;
+  const label = clip(
+    redactKnownName(context.trade_label, knownName).trim(),
+    TRADE_LABEL_MAX,
+  ).trim();
+  return { ...context, trade_label: label.length > 0 ? label : null };
 }
 
 /** The pending question as the classifier reads it, or null when there is none. */

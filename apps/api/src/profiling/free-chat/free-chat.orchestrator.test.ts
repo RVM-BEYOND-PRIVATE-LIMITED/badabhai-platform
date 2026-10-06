@@ -822,14 +822,16 @@ describe("résumé mode — a deflection re-serves the pending question and spen
     expect(world.saved()!.turnCount).toBe(0);
   });
 
-  it("the guard does not cap trash — the classifier's abuse still takes the de-escalation path", async () => {
+  it("the deflect guard does not cap trash — two deflections later, trash is still de-escalated", async () => {
     const world = makeWorld();
     await inResumeMode(world);
     world.classifyAs(verdict("casual"), verdict("casual"), verdict("trash"));
     await world.say("aaj garmi hai");
     await world.say("aaj garmi hai");
-    expect((await world.say("tu pagal hai kya")).reply).toBe(DE_ESCALATION_REPLY_TEXT);
-    expect(world.envelope().abusiveTurns).toBe(1);
+    expect((await world.say("tu pagal hai kya")).reply).toBe(
+      `${DE_ESCALATION_REPLY_TEXT} ${FREE_CHAT_COPY.OPENER.latin}`,
+    );
+    expect(world.envelope().abusiveTurns).toBe(0);
   });
 
   it("re-asks what the envelope NAMES over a stale held copy (the voice form served a question)", async () => {
@@ -893,13 +895,42 @@ describe("résumé mode — a deflection re-serves the pending question and spen
     );
   });
 
-  it("trash the lexicon missed takes today's de-escalation path and counts toward the cap", async () => {
+  it("a CLASSIFIER-ONLY trash verdict never counts toward MAX_ABUSIVE_TURNS (CLAUDE.md §3)", async () => {
     const world = makeWorld();
     await inResumeMode(world);
-    world.classifyAs(verdict("trash"));
-    const turn = await world.say("tu pagal hai kya");
+    world.classifyAs(verdict("trash"), verdict("trash"), verdict("trash"));
+    // The lexicon flags nothing here; only the model called it trash.
+    const reAsk = `${DE_ESCALATION_REPLY_TEXT} ${FREE_CHAT_COPY.OPENER.latin}`;
+    expect((await world.say("tu pagal hai kya")).reply).toBe(reAsk);
+    expect((await world.say("tu pagal hai kya")).reply).toBe(reAsk);
+    expect(world.envelope().abusiveTurns).toBe(0);
+    expect(world.saved()!.turnCount).toBe(0);
+    // The third for the same question passes to the interview — still uncounted.
+    await world.say("tu pagal hai kya");
+    expect(world.saved()!.turnCount).toBe(1);
+    expect(world.envelope().abusiveTurns).toBe(0);
+    const served = world.emitted("chat.free_chat_turn_served").slice(-2);
+    expect(served.map((e) => e.payload)).toEqual([
+      expect.objectContaining({
+        category: "trash",
+        decided_by: "classifier",
+        outcome: "fixed_line",
+      }),
+      expect.objectContaining({
+        category: "trash",
+        decided_by: "classifier",
+        outcome: "fixed_line",
+      }),
+    ]);
+  });
+
+  it("abuse the LEXICON flags keeps today's behaviour exactly: counted, with no model call", async () => {
+    const world = makeWorld();
+    await inResumeMode(world);
+    const turn = await world.say("chutiya");
     expect(turn.reply).toBe(DE_ESCALATION_REPLY_TEXT);
     expect(world.envelope().abusiveTurns).toBe(1);
+    expect(world.ai.freeChatClassify).not.toHaveBeenCalled();
   });
 
   it("the distress list answers alone, and the interview resumes where it paused", async () => {

@@ -109,6 +109,7 @@ describe("narrowFreeChat — read back field by field, failing toward 'no mode y
       },
       clarifiedFor: "key:primary_trade",
       deflected: { key: "key:primary_trade", count: 1 },
+      deescalated: { key: "key:primary_trade", count: 2 },
     };
     expect(narrowFreeChat(JSON.parse(JSON.stringify(state)))).toEqual(state);
   });
@@ -149,6 +150,7 @@ describe("narrowFreeChat — read back field by field, failing toward 'no mode y
       held: null,
       clarifiedFor: null,
       deflected: null,
+      deescalated: null,
     });
   });
 });

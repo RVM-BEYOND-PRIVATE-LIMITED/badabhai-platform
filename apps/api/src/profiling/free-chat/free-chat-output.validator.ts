@@ -18,10 +18,17 @@
  * deterministic list that strikes a worker) is rejected: a jailbroken casual reply must never serve
  * the worker vulgar text, whatever the persona scan missed.
  *
+ * AND THE G1 FLOOR (ADR-0047), on top of `looksLikePii`: `containsHardIdentifier` — the same scanner
+ * the résumé parse gates and the companion's edit card apply — drops a PAN, a GSTIN, a cued or
+ * credential ID, and a phone number split by `,` `;` `_` `|`, a dash, a middle dot or a danda, none
+ * of which `looksLikePii` sees. A scanner that errors rejects too: fail closed.
+ *
  * ANY FAILURE SERVES `REPLY_FALLBACK`; the caller logs the closed reason, never a line.
  */
 
 import { isAbusive } from "@badabhai/profiling-lexicon";
+
+import { containsHardIdentifier } from "../resume-import/resume-parse-gates";
 
 import {
   screenAnswerWith,
@@ -44,8 +51,9 @@ export type FreeChatScreenResult =
 const TEMPLATE_TOKEN = /\{\{|\}\}/;
 
 /**
- * Screen one model reply. The template and abuse checks run over EVERY line and chip first — a
- * chip the length rule would drop is still model text, and either finding in it rejects the answer,
+ * Screen one model reply. The template, abuse and hard-identifier checks run over EVERY line and
+ * chip first — a chip the length rule would drop is still model text, and any finding in it rejects
+ * the answer,
  * the same "a dropped chip cannot launder unsafe text" rule the career gate applies to its content
  * checks.
  */
@@ -55,5 +63,15 @@ export function screenFreeChatAnswer(answer: CareerAnswerText): FreeChatScreenRe
     return { kind: "reject", failure: "template_token" };
   }
   if (texts.some((text) => isAbusive(text))) return { kind: "reject", failure: "abusive" };
+  if (texts.some(carriesHardIdentifier)) return { kind: "reject", failure: "pii" };
   return screenAnswerWith(answer, FREE_CHAT_WALLS);
+}
+
+/** The G1 floor over one line or chip. A scanner that throws counts as a hit — fail closed. */
+function carriesHardIdentifier(text: string): boolean {
+  try {
+    return containsHardIdentifier(text) !== null;
+  } catch {
+    return true;
+  }
 }

@@ -192,10 +192,12 @@ export type FreeModePre =
 /**
  * Free mode's deterministic rules (ADR-0051 §3.2, rules 1-4, and the §3.6 cap).
  *
- * THE ORDER, and the one place it departs from the §3.2 table: the chips come first because they
- * "still work" during a cool-down (R13), and DISTRESS comes before the cool-down, so a worker who
- * is blocked from typing and writes a distress phrase is given the helpline rather than the
- * cool-down line. Then the cool-down (no model call), the per-session cap, and the abuse lexicon.
+ * THE ORDER, and where it departs from the §3.2 table: DISTRESS IS FIRST, before every chip and the
+ * cool-down — a worker who writes "haan, suicide" at the greeting, or a distress phrase while
+ * blocked from typing, is given the helpline, never the opener or the cool-down line. No chip's key
+ * or label can match a distress phrase, so nothing a chip means is lost. Then the chips (they
+ * "still work" during a cool-down, R13), the cool-down (no model call), the per-session cap, and the
+ * abuse lexicon.
  */
 export function preClassifyFree(input: {
   readonly mode: "greeting" | "free";
@@ -203,12 +205,12 @@ export function preClassifyFree(input: {
   readonly state: FreeChatState;
   readonly now: Date;
 }): FreeModePre {
+  if (matchesDistress(input.text)) return { kind: "distress" };
   if (input.mode === "greeting") {
     const choice = readGreetingChoice(input.text);
     if (choice !== null) return { kind: choice };
   }
   if (isResumeChip(input.text)) return { kind: "start" };
-  if (matchesDistress(input.text)) return { kind: "distress" };
   if (coolingDown(input.state, input.now)) return { kind: "cooldown" };
   if (input.state.asides >= FREE_CHAT_ASIDE_CAP) return { kind: "aside_cap" };
   if (isAbusive(input.text)) return { kind: "strike" };
@@ -307,8 +309,14 @@ export function preClassifyResume(text: string, facts: ResumeSkipFacts): ResumeM
 export type ResumeModeAction =
   /** Today's interview, unchanged. */
   | { readonly kind: "pass" }
-  /** Today's de-escalation path and `MAX_ABUSIVE_TURNS` cap: the classifier caught abuse. */
-  | { readonly kind: "pass_abusive" }
+  /**
+   * The classifier called it trash and the abuse LEXICON did not: today's de-escalation line + the
+   * pending question again, as an aside that is NOT counted toward `MAX_ABUSIVE_TURNS` — a model
+   * verdict alone never ends profiling (CLAUDE.md §3). At most twice per pending question; the
+   * orchestrator passes a third to the interview (`FreeChatState.deescalated`). Abuse the lexicon
+   * DID flag never reaches the classifier: the skip list hands it to today's counted path.
+   */
+  | { readonly kind: "de_escalate" }
   /**
    * "Pehle resume…" + the pending question again; no turn or ask spent — AT MOST TWICE per pending
    * question: the orchestrator passes a third off-topic answer for the same question to the
@@ -332,7 +340,7 @@ export function postClassifyResume(verdict: FreeChatVerdict): ResumeModeAction {
     case "resume":
       return { kind: "pass" };
     case "trash":
-      return { kind: "pass_abusive" };
+      return { kind: "de_escalate" };
     case "distress":
       return { kind: "distress" };
     case "unclear":

@@ -1217,9 +1217,18 @@ export function ttsTextFor(reply: string | null | undefined): string | undefined
   );
 }
 
-/** The free chat's lead lines, normalized, beside their twins — see {@link composeFreeChatLead}. */
-const FREE_CHAT_LEADS: ReadonlyArray<readonly [roman: string, devanagari: string]> =
-  FREE_CHAT_LEAD_LINES.map((line) => [normalizeReplyText(line.latin), line.dev] as const);
+/**
+ * The free chat's lead lines, normalized, beside their twins — see {@link composeFreeChatLead}. The
+ * de-escalation line leads a re-ask too (a classifier-only trash verdict in résumé mode), and its
+ * twin is the one this table already holds.
+ */
+const FREE_CHAT_LEADS: ReadonlyArray<readonly [roman: string, devanagari: string]> = [
+  ...FREE_CHAT_LEAD_LINES.map((line) => [normalizeReplyText(line.latin), line.dev] as const),
+  ...[normalizeReplyText(DE_ESCALATION_REPLY_TEXT)].flatMap((roman) => {
+    const devanagari = TTS_TEXT_BY_REPLY.get(roman);
+    return devanagari === undefined ? [] : [[roman, devanagari] as const];
+  }),
+];
 
 /**
  * A free-chat résumé-mode aside's twin (ADR-0051): "Pehle resume…" or "Samajh nahi aaya…" followed

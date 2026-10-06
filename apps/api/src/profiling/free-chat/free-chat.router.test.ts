@@ -101,6 +101,29 @@ describe("free mode — the deterministic rules come first", () => {
     expect(pre("Haan", FREE, "free")).toBe("classify");
   });
 
+  it.each([
+    "haan suicide",
+    "ok khudkushi",
+    "yes kill myself",
+    "baad mein suicide",
+    "abhi nahi, marna chahta",
+  ])("DISTRESS comes before the greeting's choice: %j → distress", (text) => {
+    expect(pre(text, greetingState(), "greeting")).toBe("distress");
+  });
+
+  it("no chip key or label is a distress phrase, so distress-first costs a chip nothing", () => {
+    for (const chip of [
+      "Haan, shuru karein",
+      "free_chat_start",
+      "Baad mein",
+      "free_chat_later",
+      "Resume banayein",
+      "free_chat_resume",
+    ]) {
+      expect(matchesDistress(chip)).toBe(false);
+    }
+  });
+
   it("the résumé chip, distress, the abuse lexicon, then the classifier", () => {
     expect(pre("Resume banayein")).toBe("start");
     expect(pre("mujhe suicide karna hai")).toBe("distress");
@@ -190,7 +213,7 @@ describe("résumé mode — the skip list, then the classifier", () => {
   it.each([
     [UNAVAILABLE_VERDICT, "pass"],
     [v("resume"), "pass"],
-    [v("trash"), "pass_abusive"],
+    [v("trash"), "de_escalate"],
     [v("distress"), "distress"],
     [v("unclear"), "clarify"],
     [v("resume", 0.59), "clarify"],
