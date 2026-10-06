@@ -166,6 +166,7 @@ export type { ClassifierRule, PhraseClass } from "./skill-discovery-classify";
 // `--reset-live-worker`, the engine view) gates on the SAME rule. Pure, dependency-free.
 export {
   DEMO_PHONE_PATTERN,
+  DEMO_PHONE_PREFIX,
   E164_PATTERN,
   RESERVED_TEST_PHONE_PATTERN,
   isDemoWorkerPhone,

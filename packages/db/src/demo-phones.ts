@@ -25,6 +25,9 @@ export const RESERVED_TEST_PHONE_PATTERN = /^\+910{5}\d{5}$/;
  */
 export const DEMO_PHONE_PATTERN = /^\+910000026\d{3}$/;
 
+/** The demo block's fixed prefix (`DEMO_PHONE_PATTERN` = this + exactly 3 digits). */
+export const DEMO_PHONE_PREFIX = "+910000026";
+
 /** E.164: `+`, a non-zero country digit, 8–15 digits in all. */
 export const E164_PATTERN = /^\+[1-9]\d{7,14}$/;
 

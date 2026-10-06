@@ -61,13 +61,17 @@ export function demoIdLikePattern(kind: DemoIdKind): string {
 // The demo-phone definitions live in `demo-phones.ts` (shared with the demo views); re-exported
 // here so plan consumers have one import.
 export { DEMO_PHONE_PATTERN, RESERVED_TEST_PHONE_PATTERN } from "./demo-phones";
+import { DEMO_PHONE_PATTERN, DEMO_PHONE_PREFIX } from "./demo-phones";
 
 /** Demo phones: `+910000026001` … (block 26xxx of the reserved range; E4 uses 19844). */
 export function demoPhone(index: number): string {
   if (!Number.isInteger(index) || index < 0 || index > 998) {
     throw new Error(`demoPhone: index ${index} outside 0..998`);
   }
-  return `+910000026${String(index + 1).padStart(3, "0")}`;
+  const phone = `${DEMO_PHONE_PREFIX}${String(index + 1).padStart(3, "0")}`;
+  if (!DEMO_PHONE_PATTERN.test(phone))
+    throw new Error(`demoPhone: ${index} is outside the demo block`);
+  return phone;
 }
 
 // ---------------------------------------------------------------------------

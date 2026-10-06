@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEMO_PHONE_PATTERN,
+  DEMO_PHONE_PREFIX,
   RESERVED_TEST_PHONE_PATTERN,
   isDemoWorkerPhone,
   parseAllowPhones,
@@ -21,6 +22,11 @@ describe("demo phones — the shared demo-worker definition", () => {
     for (const p of ["+910000019844", "+910000000000", "+9100000260011"]) {
       expect(p).not.toMatch(DEMO_PHONE_PATTERN);
     }
+  });
+
+  it("the prefix and the pattern agree (prefix + exactly 3 digits)", () => {
+    expect(`${DEMO_PHONE_PREFIX}000`).toMatch(DEMO_PHONE_PATTERN);
+    expect(`${DEMO_PHONE_PREFIX}0000`).not.toMatch(DEMO_PHONE_PATTERN);
   });
 
   it("parses the allow-list format: one E.164 per line, blanks and # comments ignored", () => {
