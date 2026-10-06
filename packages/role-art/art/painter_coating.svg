@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100" data-loop="3">
+  <g data-part="scene">
+    <rect x="0" y="0" width="300" height="100" fill="#05194C"/>
+    <circle cx="252" cy="24" r="32" fill="#F3F5F4" opacity="0.4"/>
+    <rect x="0" y="84" width="300" height="16" fill="#F3F5F4" opacity="0.4"/>
+  </g>
+  <g data-part="panel">
+    <path d="M206 4 V16" stroke-width="4" fill="none" stroke="#F3F5F4" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+    <rect x="182" y="16" width="48" height="58" rx="8" fill="#F3F5F4"/>
+    <rect x="182" y="16" width="20" height="58" rx="8" fill="#FFB32C" opacity="0.6"/>
+  </g>
+  <g data-part="figure">
+    <path d="M48 84 V70 A22 22 0 0 1 92 70 V84 Z" fill="#FFB32C"/>
+    <path d="M57 42 A13 13 0 0 1 83 42 V43 A3 3 0 0 1 80 46 H60 A3 3 0 0 1 57 43 Z" fill="#FFB32C"/>
+  </g>
+  <g data-part="gun">
+    <path d="M84 62 Q104 52 122 50" stroke-width="9" fill="none" stroke="#FFB32C" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="124" y="46" width="8" height="16" rx="3" fill="#F3F5F4" opacity="0.8"/>
+    <rect x="118" y="38" width="26" height="11" rx="5" fill="#F3F5F4"/>
+    <rect x="142" y="40" width="8" height="7" rx="2" fill="#FFB32C"/>
+  </g>
+  <g data-part="spray" data-motion="pulse" data-amp="0.25" data-origin="152 44">
+    <circle cx="157" cy="44" r="3" fill="#FFB32C"/>
+    <circle cx="165" cy="38" r="3.5" fill="#FFB32C"/>
+    <circle cx="166" cy="50" r="3" fill="#FFB32C"/>
+    <circle cx="174" cy="44" r="4" fill="#FFB32C"/>
+  </g>
+</svg>

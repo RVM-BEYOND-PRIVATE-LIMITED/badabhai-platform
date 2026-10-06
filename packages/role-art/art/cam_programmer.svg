@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100" data-loop="3">
+  <g data-part="scene">
+    <rect x="0" y="0" width="300" height="100" fill="#05194C"/>
+    <circle cx="252" cy="24" r="32" fill="#F3F5F4" opacity="0.4"/>
+    <rect x="0" y="84" width="300" height="16" fill="#F3F5F4" opacity="0.4"/>
+  </g>
+  <g data-part="desk">
+    <rect x="108" y="60" width="172" height="8" rx="4" fill="#F3F5F4" opacity="0.8"/>
+    <rect x="118" y="66" width="8" height="18" rx="3" fill="#F3F5F4" opacity="0.6"/>
+    <rect x="262" y="66" width="8" height="18" rx="3" fill="#F3F5F4" opacity="0.6"/>
+    <rect x="148" y="16" width="100" height="40" rx="7" fill="#F3F5F4"/>
+    <rect x="155" y="22" width="86" height="28" rx="4" fill="#05194C"/>
+    <rect x="190" y="56" width="16" height="4" rx="2" fill="#F3F5F4"/>
+    <rect x="116" y="54" width="28" height="6" rx="3" fill="#F3F5F4"/>
+    <path d="M164 42 L178 30 L194 42 L210 30 L230 42" fill="none" stroke="#FFB32C" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g data-part="figure">
+    <path d="M48 84 V70 A22 22 0 0 1 92 70 V84 Z" fill="#FFB32C"/>
+    <path d="M57 42 A13 13 0 0 1 83 42 V43 A3 3 0 0 1 80 46 H60 A3 3 0 0 1 57 43 Z" fill="#FFB32C"/>
+  </g>
+  <g data-part="arm">
+    <path d="M84 62 Q102 60 122 56" fill="none" stroke="#FFB32C" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g data-part="cutter" data-motion="slide" data-amp="26" data-origin="197 36">
+    <circle cx="197" cy="36" r="5" fill="#F3F5F4"/>
+    <circle cx="197" cy="36" r="2" fill="#FFB32C"/>
+  </g>
+</svg>

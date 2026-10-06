@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100" data-loop="3">
+  <g data-part="scene">
+    <rect x="0" y="0" width="300" height="100" fill="#05194C"/>
+    <circle cx="252" cy="24" r="32" fill="#F3F5F4" opacity="0.4"/>
+    <rect x="0" y="84" width="300" height="16" fill="#F3F5F4" opacity="0.4"/>
+  </g>
+  <g data-part="board">
+    <rect x="150" y="70" width="8" height="14" rx="3" fill="#F3F5F4" opacity="0.6"/>
+    <rect x="248" y="70" width="8" height="14" rx="3" fill="#F3F5F4" opacity="0.6"/>
+    <path d="M132 72 L150 22 H258 L264 72 Z" fill="#F3F5F4"/>
+    <path d="M132 72 L150 22 H258 L264 72 Z" fill="none" stroke="#F3F5F4" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M164 36 H222 M160 48 H206 M156 60 H196" fill="none" stroke="#05194C" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+    <circle cx="236" cy="46" r="9" fill="none" stroke="#05194C" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+  </g>
+  <g data-part="figure">
+    <path d="M48 84 V70 A22 22 0 0 1 92 70 V84 Z" fill="#FFB32C"/>
+    <path d="M57 42 A13 13 0 0 1 83 42 V43 A3 3 0 0 1 80 46 H60 A3 3 0 0 1 57 43 Z" fill="#FFB32C"/>
+  </g>
+  <g data-part="arm" data-motion="nod" data-amp="-6" data-origin="84 60">
+    <path d="M84 60 Q140 74 186 62" fill="none" stroke="#FFB32C" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M190 64 L204 48" fill="none" stroke="#05194C" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

@@ -239,5 +239,36 @@
         { "slot": "chip", "kind": "benefit", "text": "कैंटीन" }
       ]
     }
-  ]
+  ],
+  "role_art": {
+    "$comment": "role_kind on the GET /feed card (nullable, snake_case) → the ROLE ILLUSTRATION heading the card (packages/role-art; art = the illustration id each client stamps). Every declared kind draws its own art; anything else — absent, null, unknown, malformed — draws `generic`, never an error or a blank. Consumers: the same two tests as `cases`.",
+    "cases": [
+      { "name": "cnc_turner", "input": { "role_kind": "cnc_turner" }, "art": "cnc_turner" },
+      { "name": "vmc_milling", "input": { "role_kind": "vmc_milling" }, "art": "vmc_milling" },
+      { "name": "cnc_grinding", "input": { "role_kind": "cnc_grinding" }, "art": "cnc_grinding" },
+      { "name": "cam_programmer", "input": { "role_kind": "cam_programmer" }, "art": "cam_programmer" },
+      { "name": "cad_draughtsman", "input": { "role_kind": "cad_draughtsman" }, "art": "cad_draughtsman" },
+      { "name": "conventional_machinist", "input": { "role_kind": "conventional_machinist" }, "art": "conventional_machinist" },
+      { "name": "tool_die_maker", "input": { "role_kind": "tool_die_maker" }, "art": "tool_die_maker" },
+      { "name": "welder", "input": { "role_kind": "welder" }, "art": "welder" },
+      { "name": "sheet_metal_worker", "input": { "role_kind": "sheet_metal_worker" }, "art": "sheet_metal_worker" },
+      { "name": "press_operator", "input": { "role_kind": "press_operator" }, "art": "press_operator" },
+      { "name": "painter_coating", "input": { "role_kind": "painter_coating" }, "art": "painter_coating" },
+      { "name": "fitter", "input": { "role_kind": "fitter" }, "art": "fitter" },
+      { "name": "maintenance_technician", "input": { "role_kind": "maintenance_technician" }, "art": "maintenance_technician" },
+      { "name": "industrial_electrician", "input": { "role_kind": "industrial_electrician" }, "art": "industrial_electrician" },
+      { "name": "assembly_line_worker", "input": { "role_kind": "assembly_line_worker" }, "art": "assembly_line_worker" },
+      { "name": "quality_inspector", "input": { "role_kind": "quality_inspector" }, "art": "quality_inspector" },
+      { "name": "injection_moulding_operator", "input": { "role_kind": "injection_moulding_operator" }, "art": "injection_moulding_operator" },
+      { "name": "mould_die_maker", "input": { "role_kind": "mould_die_maker" }, "art": "mould_die_maker" },
+      { "name": "blow_moulding_operator", "input": { "role_kind": "blow_moulding_operator" }, "art": "blow_moulding_operator" },
+      { "name": "rubber_moulding_operator", "input": { "role_kind": "rubber_moulding_operator" }, "art": "rubber_moulding_operator" },
+      { "name": "plastic_process_technician", "input": { "role_kind": "plastic_process_technician" }, "art": "plastic_process_technician" },
+      { "name": "absent role_kind (every posting made before the role picker, and every chat publish)", "input": {}, "art": "generic" },
+      { "name": "explicit null", "input": { "role_kind": null }, "art": "generic" },
+      { "name": "a kind this build does not know", "input": { "role_kind": "crane_operator" }, "art": "generic" },
+      { "name": "wrong case is not a kind", "input": { "role_kind": "WELDER" }, "art": "generic" },
+      { "name": "not a string", "input": { "role_kind": 7 }, "art": "generic" }
+    ]
+  }
 }

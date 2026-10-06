@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100" data-loop="3">
+  <g data-part="scene">
+    <rect x="0" y="0" width="300" height="100" fill="#05194C"/>
+    <circle cx="252" cy="24" r="32" fill="#F3F5F4" opacity="0.4"/>
+    <rect x="0" y="84" width="300" height="16" fill="#F3F5F4" opacity="0.4"/>
+  </g>
+  <g data-part="rolls">
+    <rect x="150" y="30" width="82" height="54" rx="10" fill="#F3F5F4" opacity="0.6"/>
+    <circle cx="174" cy="70" r="8" fill="#F3F5F4"/>
+    <circle cx="208" cy="70" r="8" fill="#F3F5F4"/>
+    <circle cx="174" cy="70" r="3" fill="#05194C" opacity="0.8"/>
+    <circle cx="208" cy="70" r="3" fill="#05194C" opacity="0.8"/>
+    <path d="M116 64 Q150 62 174 61 Q206 60 236 46 Q252 36 258 18" stroke-width="6" fill="none" stroke="#F3F5F4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g data-part="figure">
+    <path d="M48 84 V70 A22 22 0 0 1 92 70 V84 Z" fill="#FFB32C"/>
+    <path d="M57 42 A13 13 0 0 1 83 42 V43 A3 3 0 0 1 80 46 H60 A3 3 0 0 1 57 43 Z" fill="#FFB32C"/>
+  </g>
+  <g data-part="arm">
+    <path d="M84 62 Q100 66 116 64" stroke-width="9" fill="none" stroke="#FFB32C" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g data-part="top-roll" data-motion="spin" data-amp="360" data-origin="191 48">
+    <circle cx="191" cy="48" r="11" fill="#F3F5F4"/>
+    <circle cx="191" cy="48" r="4" fill="#05194C" opacity="0.8"/>
+    <circle cx="191" cy="40" r="2.5" fill="#FFB32C"/>
+  </g>
+</svg>

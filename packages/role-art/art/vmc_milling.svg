@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100" data-loop="3">
+  <g data-part="scene">
+    <rect x="0" y="0" width="300" height="100" fill="#05194C"/>
+    <circle cx="252" cy="24" r="32" fill="#F3F5F4" opacity="0.4"/>
+    <rect x="0" y="84" width="300" height="16" fill="#F3F5F4" opacity="0.4"/>
+  </g>
+  <g data-part="machine">
+    <rect x="130" y="12" width="120" height="72" rx="10" fill="#F3F5F4"/>
+    <rect x="146" y="22" width="88" height="52" rx="6" fill="#05194C" opacity="0.8"/>
+    <rect x="158" y="62" width="64" height="6" rx="3" fill="#F3F5F4" opacity="0.6"/>
+    <rect x="176" y="52" width="28" height="10" rx="3" fill="#FFB32C"/>
+  </g>
+  <g data-part="figure">
+    <path d="M48 84 V70 A22 22 0 0 1 92 70 V84 Z" fill="#FFB32C"/>
+    <path d="M57 42 A13 13 0 0 1 83 42 V43 A3 3 0 0 1 80 46 H60 A3 3 0 0 1 57 43 Z" fill="#FFB32C"/>
+  </g>
+  <g data-part="arm">
+    <path d="M84 62 Q106 64 128 56" fill="none" stroke="#FFB32C" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g data-part="spindle" data-motion="bob" data-amp="5" data-origin="190 34">
+    <rect x="180" y="22" width="20" height="18" rx="5" fill="#F3F5F4" opacity="0.6"/>
+    <rect x="187" y="38" width="6" height="9" rx="3" fill="#FFB32C"/>
+  </g>
+  <g data-part="chips" data-motion="blink" data-amp="0.8" data-origin="190 50" data-phase="0.5">
+    <circle cx="176" cy="46" r="2.5" fill="#FFB32C"/>
+    <circle cx="205" cy="45" r="2.5" fill="#FFB32C"/>
+    <circle cx="211" cy="50" r="2" fill="#FFB32C"/>
+  </g>
+</svg>

@@ -4,6 +4,7 @@ import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/job_card_brand_footer.dart';
 import '../../../../core/widgets/bb_job_card.dart';
 import '../../../../core/widgets/kit/kit_square_icon_button.dart';
+import '../../../../core/widgets/role_art/role_art.dart';
 import 'job_deck.dart' show kSkipSemanticLabel;
 
 /// DESIGN1 — the Jobs-tab single job card, pixel-drawn from
@@ -18,6 +19,9 @@ import 'job_deck.dart' show kSkipSemanticLabel;
 ///    "Duty & Suvidhayein" chips; empty hides the section.
 ///  - [next] is the REAL next job in the queue (or null); its teaser
 ///    advances the pager via [onNextTap] — no backend decision is recorded.
+///
+/// The ROLE ILLUSTRATION ([RoleArtBanner], from [BbJobCardData.roleKind])
+/// heads the face; it is decorative and never prints the role as text.
 ///
 /// Static chrome labels ("MAHINE KI SALARY", "Duty & Suvidhayein",
 /// "AAPKE LIYE AUR OPTIONS", "Feedback", "Apply", "Dekhein", "Sab dekhein")
@@ -147,6 +151,12 @@ class Design1JobCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
+              // The animated role illustration heads the card — the same art,
+              // the same place and the same 3:1 size as the payer's live
+              // preview (`job-card-preview.tsx`). An unknown role draws the
+              // generic scene.
+              RoleArtBanner(roleKind: data.roleKind),
+              const SizedBox(height: 12),
               _TitleRow(data: data, onTitleTap: onTitleTap),
               const SizedBox(height: 2),
               _PlaceRow(place: data.place),

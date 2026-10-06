@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart';
 import 'package:badabhai_worker_app/core/util/pay_format.dart';
+import 'package:badabhai_worker_app/core/widgets/role_art/role_art.dart';
 import 'package:badabhai_worker_app/features/swipe/presentation/swipe_jobs_screen.dart';
 import 'package:badabhai_worker_app/features/swipe/presentation/widgets/design1_job_card.dart';
 
@@ -88,6 +89,60 @@ void main() {
         }
         lastTop = top;
       }
+    });
+  }
+
+  // role_kind on the feed card → the role illustration heading the card. The
+  // SAME cases the payer-web preview is held to (job-card-contract.test.tsx).
+  final List<Map<String, dynamic>> artCases =
+      ((fixture['role_art'] as Map<String, dynamic>)['cases'] as List<dynamic>)
+          .cast<Map<String, dynamic>>();
+
+  test('the role_art cases cover every illustrated kind', () {
+    final Set<Object?> kinds = artCases
+        .map(
+          (Map<String, dynamic> c) =>
+              (c['input'] as Map<String, dynamic>)['role_kind'],
+        )
+        .toSet();
+    for (final String kind in kRoleArtKinds) {
+      if (kind == kRoleArtFallback) continue;
+      expect(kinds, contains(kind));
+    }
+  });
+
+  for (int i = 0; i < artCases.length; i++) {
+    final Map<String, dynamic> c = artCases[i];
+    testWidgets('card contract · role art · ${c['name']}', (
+      WidgetTester tester,
+    ) async {
+      final FeedItem item = FeedItem.fromJson(<String, dynamic>{
+        'title': 'Any job',
+        'city': 'Pune',
+        ...(c['input'] as Map<String, dynamic>),
+        'job_id': 'art-$i',
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: Design1JobCard(
+                data: feedItemCardData(item),
+                payFull: null,
+                showDock: false,
+                showTeaser: false,
+              ),
+            ),
+          ),
+        ),
+      );
+      final String art = c['art'] as String;
+      expect(find.byKey(ValueKey<String>('roleArt:$art')), findsOneWidget);
+      // The art heads the card: above the title.
+      expect(
+        tester.getTopLeft(find.byType(RoleArtBanner)).dy,
+        lessThan(tester.getTopLeft(find.text('Any job')).dy),
+      );
     });
   }
 }

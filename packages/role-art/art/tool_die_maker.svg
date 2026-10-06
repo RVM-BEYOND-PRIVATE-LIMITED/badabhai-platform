@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100" data-loop="2">
+  <g data-part="scene">
+    <rect x="0" y="0" width="300" height="100" fill="#05194C"/>
+    <circle cx="252" cy="24" r="32" fill="#F3F5F4" opacity="0.4"/>
+    <rect x="0" y="84" width="300" height="16" fill="#F3F5F4" opacity="0.4"/>
+  </g>
+  <g data-part="bench">
+    <rect x="118" y="58" width="152" height="8" rx="4" fill="#F3F5F4" opacity="0.6"/>
+    <rect x="128" y="64" width="8" height="20" rx="3" fill="#F3F5F4" opacity="0.6"/>
+    <rect x="252" y="64" width="8" height="20" rx="3" fill="#F3F5F4" opacity="0.6"/>
+    <rect x="136" y="40" width="64" height="18" rx="6" fill="#F3F5F4"/>
+    <rect x="154" y="46" width="28" height="7" rx="3" fill="#05194C" opacity="0.8"/>
+    <rect x="214" y="30" width="44" height="28" rx="6" fill="#F3F5F4" opacity="0.8"/>
+    <rect x="222" y="38" width="28" height="6" rx="3" fill="#05194C" opacity="0.4"/>
+  </g>
+  <g data-part="figure">
+    <path d="M48 84 V70 A22 22 0 0 1 92 70 V84 Z" fill="#FFB32C"/>
+    <path d="M57 42 A13 13 0 0 1 83 42 V43 A3 3 0 0 1 80 46 H60 A3 3 0 0 1 57 43 Z" fill="#FFB32C"/>
+  </g>
+  <g data-part="hammer" data-motion="nod" data-amp="-16" data-origin="84 60">
+    <path d="M84 60 Q108 44 128 36" stroke-width="9" fill="none" stroke="#FFB32C" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M128 36 L152 30" stroke-width="5" fill="none" stroke="#F3F5F4" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="148" y="18" width="14" height="22" rx="4" fill="#F3F5F4"/>
+  </g>
+  <g data-part="sparks" data-motion="blink" data-amp="0.8" data-origin="172 34">
+    <circle cx="170" cy="34" r="3" fill="#FFB32C"/>
+    <circle cx="178" cy="26" r="2.5" fill="#FFB32C"/>
+    <circle cx="182" cy="36" r="2" fill="#FFB32C"/>
+  </g>
+</svg>
