@@ -586,11 +586,13 @@ describe("MERGE-1 · single role-aware dashboard composition (agent vs employer)
     // agents (the agency Demand summary + manager in AgentSections are the source of truth),
     // so they can never contradict.
     const tiles = findAll(tree, StatTile);
-    expect(tiles.length).toBe(3); // Credit balance + Revenue (agent-only) + Contacts unlocked
+    expect(tiles.length).toBe(2); // Credit balance + Contacts unlocked
     const labels = tiles.map((t) => p(t).label);
-    expect(labels).toContain("Revenue"); // agent-only tile, no posting-derived data
-    // The ONE way to Revenue on the dashboard (AgentSections no longer repeats it).
-    expect(hrefsOf(tree).filter((h) => h === "/agency/revenue")).toHaveLength(1);
+    expect(labels).toEqual(["Credit balance", "Contacts unlocked"]);
+    // No "Revenue — Coming soon" placeholder in the KPI row (F21): the parked page is reached
+    // from the rail's "Coming soon" group, not from a tile with no figure.
+    expect(labels).not.toContain("Revenue");
+    expect(hrefsOf(tree)).not.toContain("/agency/revenue");
     expect(labels).not.toContain("Open postings");
     expect(labels).not.toContain("Open vacancies");
     // the employer-postings list does NOT render for an agent (no contradictory second list)
@@ -700,6 +702,20 @@ describe("AGENCY posting entry point — the agency form, never the company one"
     expect(hrefs.filter((h) => h.startsWith("/agency"))).toEqual([]);
     expect(hrefs.filter((h) => h.startsWith("/postings"))).toEqual([]);
     expect(findAll(tree, StatTile).map((t) => p(t).label)).not.toContain("Revenue");
+  });
+
+  it("the KPI row holds only counts that were read — no placeholder tile (F21)", async () => {
+    for (const role of ["employer", "agent"] as const) {
+      const tiles = findAll(await render(undefined, role), StatTile);
+      for (const t of tiles) {
+        // Every read succeeded here, so every tile carries a real figure and no door.
+        expect(p(t).value, `${role} ${String(p(t).label)}`).not.toBe("—");
+        expect(textOf(p(t).caption as ReactNode), `${role} ${String(p(t).label)}`).not.toMatch(
+          /coming soon/i,
+        );
+        expect(p(t).href, `${role} ${String(p(t).label)}`).toBeUndefined();
+      }
+    }
   });
 
   it("a company dashboard never shows agency vocabulary", async () => {

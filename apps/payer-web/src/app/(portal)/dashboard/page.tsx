@@ -3,7 +3,6 @@ import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import { getCredits, getPostings, getUnlocks } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
 import { getOrgRole } from "../../../lib/auth/org-roles";
-import { agencyFlags } from "../../../lib/config";
 import { getLiveCatalog } from "../../../lib/live-catalog";
 import { unlockUnitPriceInr } from "../../../lib/pricing-config";
 import { postingRoutes } from "../../../lib/posting-routes";
@@ -72,8 +71,6 @@ export default async function DashboardPage() {
   const session = await requirePayer();
   const isAgency = session.role === "agent";
   const isOwner = getOrgRole(session) === "owner";
-  // The agency pages (Revenue, Referrals…) sit behind this flag; their tiles follow it.
-  const agencyOn = isAgency && agencyFlags().agencyPortalEnabled;
   const posting = postingRoutes(isAgency);
   // The per-unlock price (the same source as Credits), read BESIDE the three reads. It never
   // rejects (a failed read is the compile-time catalog).
@@ -179,21 +176,9 @@ export default async function DashboardPage() {
             caption={postings === null ? UNREAD_CAPTION : `${postings.length} total`}
           />
         )}
-        {/* PARKED, not removed. /agency/revenue renders a real page explaining what is
-            coming, so the tile stays a link to that explanation rather than vanishing —
-            an agent looking for earnings should find an answer, not silence. It follows the
-            agency-portal flag its page checks (off → that page 404s, so no tile). This is the
-            dashboard's ONE way to Revenue. */}
-        {agencyOn ? (
-          <StatTile
-            label="Revenue"
-            value="—"
-            icon="currency-inr"
-            href="/agency/revenue"
-            ariaLabel="Revenue — coming soon"
-            caption="Coming soon"
-          />
-        ) : null}
+        {/* No "Revenue — Coming soon" tile (F21): the KPI row holds counts that were read, never
+            a placeholder. The parked Revenue page is reached from the rail's "Coming soon"
+            group, behind the same agency-portal flag. */}
         {/* A count, not a door: the postings list it used to open shows no unlocks. */}
         <StatTile
           label="Contacts unlocked"
@@ -413,10 +398,10 @@ interface QuickAction {
 /**
  * The high-frequency actions that are NOT already on this page. "New posting" is the head's
  * primary, and each posting card opens its posting, so neither is repeated here; an agency's
- * invite tools are its own section below (the inline invite panel, QR, batch links), so there is
- * no second "Invite workers" door to Referrals either; and the shell's balance chip is an owner's
- * door to Credits on every page, so there is no "Buy credits" card (F15). Every card follows its
- * destination's gate: Plans & capacity is a COMPANY page.
+ * "Invite workers" (its one link to Referrals) lives in its own section below, so it is not
+ * repeated here either; and Credits is reached from the header chip — and, at an empty or low
+ * balance, the needs-you item's "Buy credits" — so there is no "Buy credits" card (F15). Every
+ * card follows its destination's gate: Plans & capacity is a COMPANY page, so an agency has none.
  */
 function quickActions({ isAgency }: { isAgency: boolean }): QuickAction[] {
   if (isAgency) return [];
