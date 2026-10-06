@@ -1041,7 +1041,7 @@ describe("ApplicantActions — the screen's head: ONE PageHeader, the stage tabs
     expect(elements(tree).filter((e) => e.type === "h2" || e.type === "h1")).toEqual([]);
     const notes = elements(tree).filter((e) => hasClass(e, "alert--info"));
     expect(notes).toHaveLength(1);
-    // One sentence: what a row is, and what unlocking it costs.
+    // One sentence: rows are faceless until unlocked (the price is on every Unlock button).
     const body = gatherText(notes[0]!.props.children as ReactNode);
     expect(body).toContain("Applicants are faceless");
     expect(body.replace("Applicants are faceless", "")).not.toMatch(/[.!?]\s+[A-Z]/);

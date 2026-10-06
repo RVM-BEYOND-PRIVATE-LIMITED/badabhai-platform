@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { FacelessApplicant } from "../../../../../lib/contracts";
 import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
-import type { GrantedUnlock } from "../../../../../lib/unlock-history";
+import { isoDay, type GrantedUnlock } from "../../../../../lib/unlock-history";
 import { Avatar, Badge, Button, Card, Tabs } from "../../../../../components/ds";
 import { PageHeader, type PageHeaderProps } from "../../../../../components/page-header";
 import { bandLabel, monthsLabel, opaqueId } from "../../../../../lib/masking";
@@ -92,11 +92,6 @@ const EMPTY: RowState = {
   resumeError: null,
   contacted: false,
 };
-
-function day(ts: string): string {
-  const d = new Date(ts);
-  return Number.isNaN(d.getTime()) ? ts : d.toISOString().slice(0, 10);
-}
 
 export function ApplicantActions({
   header,
@@ -485,7 +480,7 @@ export function ApplicantActions({
                       <div className="applicant__granted-head">
                         <Badge tone="success">Unlocked</Badge>
                         <span className="applicant__until">
-                          until <span className="bb-mono">{day(granted.expiresAt)}</span>
+                          until <span className="bb-mono">{isoDay(granted.expiresAt)}</span>
                         </span>
                       </div>
                       <div className="applicant__reveal">

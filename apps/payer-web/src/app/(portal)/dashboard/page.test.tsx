@@ -46,8 +46,8 @@ const DATA = {
       status: "granted",
       createdAt: "2026-06-20T00:00:00.000Z",
       expiresAt: "2026-12-20T00:00:00.000Z",
-      // No job context: a company unlock is stored without one (#1903).
-      jobId: null as string | null,
+      // As getUnlocks maps the wire: the current grant's time, and no job/posting context.
+      grantedAt: "2026-06-20T00:00:00.000Z" as string | null,
     },
     {
       unlockId: "u2",
@@ -55,7 +55,7 @@ const DATA = {
       status: "expired",
       createdAt: "2026-05-01T00:00:00.000Z",
       expiresAt: "2026-06-01T00:00:00.000Z",
-      jobId: null as string | null,
+      grantedAt: "2026-05-01T00:00:00.000Z" as string | null,
     },
   ],
   postings: [
@@ -321,34 +321,28 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
     expect(cards.every((c) => String(p(c).ariaLabel ?? "").includes("view applicants"))).toBe(true);
   });
 
-  it("a Recent-unlock row links ONLY to a posting of yours it names (whose applicants show it)", async () => {
-    // No job context (how a company unlock is stored today): the row is NOT a link.
-    const plain = await render();
-    const rows = findByClass(plain, "dash-unlock");
-    expect(rows.length).toBe(2);
-    expect(rows.every((l) => p(l).href === undefined && p(l).ariaLabel === undefined)).toBe(true);
-    // Context that IS one of your postings → that posting's applicants, named; anything else
-    // (an id that is not one of your postings) → still no link.
-    const named = await render({
-      unlocks: [
-        { ...DATA.unlocks[0]!, jobId: "j1" },
-        { ...DATA.unlocks[1]!, jobId: "not-one-of-yours" },
-      ],
-    });
-    const [a, b] = findByClass(named, "dash-unlock");
-    expect(p(a!).href).toBe("/postings/j1/applicants");
-    expect(p(a!).ariaLabel).toBe("CNC Operator — view applicants");
-    expect(textOf(a!)).toContain("CNC Operator");
-    expect(p(b!).href).toBeUndefined();
-    expect(p(b!).ariaLabel).toBeUndefined();
+  it("a Recent-unlock row is NOT a link and names no posting — for a company AND an agency", async () => {
+    // A company unlock is stored without its posting (#1903; the context arrives with #2033), and
+    // the page does not read an agency's job titles — so no row can name or open a posting. Both
+    // personas have postings/jobs the row could have been wrongly tied to.
+    for (const role of ["employer", "agent"] as const) {
+      const tree = await render(undefined, role);
+      const rows = findByClass(tree, "dash-unlock");
+      expect(rows.length, role).toBe(2);
+      for (const r of rows) {
+        expect(p(r).href, role).toBeUndefined();
+        expect(p(r).ariaLabel, role).toBeUndefined();
+        expect(textOf(r)).toContain("Unlocked contact");
+        expect(textOf(r)).not.toMatch(/CNC Operator|VMC Setter|View applicants/);
+      }
+    }
   });
 
   it("NO worker PII (uuid / phone-shaped / +91) appears in ANY generated href", async () => {
-    // One unlock names a posting, so the unlock rows generate an href too.
-    const tree = await render({ unlocks: [{ ...DATA.unlocks[0]!, jobId: "j1" }, DATA.unlocks[1]!] });
+    const tree = await render();
     const cards = findByClass(tree, "dash-posting");
     const unlockLinks = findByClass(tree, "dash-unlock");
-    expect(unlockLinks.filter((l) => typeof p(l).href === "string")).toHaveLength(1);
+    expect(unlockLinks).toHaveLength(2);
     const tileHrefs = findAll(tree, StatTile).map((t) => p(t).href as string | undefined);
     const cardHrefs = cards.map((c) => p(c).href as string | undefined);
     const unlockHrefs = unlockLinks.map((l) => p(l).href as string | undefined);
@@ -412,29 +406,42 @@ describe("F37 · a recent-unlock row says what, when, and whether access is stil
     ]);
   });
 
-  it("each row carries its unlock day and its window end (mono), and the posting title when named", async () => {
+  it("each row carries its unlock day (the GRANT day) and its window end, as mono figures", async () => {
     const tree = await render({
       unlocks: [
         {
           ...DATA.unlocks[0]!,
-          jobId: "j2",
+          // A re-grant: the record is older than the grant it now holds.
           createdAt: "2026-05-01T00:00:00.000Z",
           expiresAt: day(7),
           grantedAt: "2026-10-01T10:00:00.000Z",
-        } as (typeof DATA.unlocks)[number],
+        },
         { ...DATA.unlocks[1]!, expiresAt: "2026-06-01T00:00:00.000Z" },
       ],
     });
-    const [named, plain] = findByClass(tree, "dash-unlock");
-    const t1 = textOf(named!).replace(/\s+/g, " ");
-    expect(t1).toContain("VMC Setter");
+    const [live, ended] = findByClass(tree, "dash-unlock");
+    const t1 = textOf(live!).replace(/\s+/g, " ");
+    expect(t1).toContain("Unlocked contact");
     expect(t1).toContain(`Unlocked 2026-10-01 · until ${day(7).slice(0, 10)}`);
-    const t2 = textOf(plain!).replace(/\s+/g, " ");
-    expect(t2).toContain("Unlocked contact");
+    const t2 = textOf(ended!).replace(/\s+/g, " ");
     expect(t2).toContain("Unlocked 2026-05-01 · ended 2026-06-01");
     // The dates are mono figures, like every other date in the portal.
-    const mono = findByClass(named!, "bb-mono").map((m) => textOf(m));
+    const mono = findByClass(live!, "bb-mono").map((m) => textOf(m));
     expect(mono).toEqual(["2026-10-01", day(7).slice(0, 10)]);
+  });
+
+  it("rows run newest first BY THE DAY THEY PRINT, not by the API's record-creation order", async () => {
+    // The API lists newest-created first; a re-grant moves granted_at, not created_at.
+    const tree = await render({
+      unlocks: [
+        { ...DATA.unlocks[0]!, unlockId: "fresh", createdAt: "2026-09-20T09:00:00.000Z", grantedAt: "2026-09-20T09:00:00.000Z" },
+        { ...DATA.unlocks[0]!, unlockId: "regrant", createdAt: "2026-07-01T09:00:00.000Z", grantedAt: "2026-10-05T09:00:00.000Z" },
+      ],
+    });
+    const printed = findByClass(tree, "dash-unlock").map(
+      (r) => findByClass(r, "bb-mono").map((m) => textOf(m))[0],
+    );
+    expect(printed).toEqual(["2026-10-05", "2026-09-20"]);
   });
 });
 

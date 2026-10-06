@@ -49,9 +49,9 @@ export type CreditBalance = z.infer<typeof creditBalanceSchema>;
  *
  * An unlock is ONE grant per (payer, worker) — ADR-0010 sign-off resolution 1 ("per candidate
  * profile, not per (worker, job)"), held by the `unlocks_payer_worker_uq` index — so `workerId`
- * alone says which applicant it opens. `jobId` is optional CONTEXT, not identity: the backend
- * keeps an owned agency `jobs` id there and stores a company posting's id as null (#1903/#1899).
- * `jobId` / `grantedAt` are optional so older callers and fixtures that predate them still type.
+ * alone says which applicant it opens. The wire's `job_id` is not carried: a company unlock is
+ * stored without its posting (#1903/#1899), so it could not name one; the posting context comes
+ * with #2033. `grantedAt` is optional so callers and fixtures that predate it still type.
  */
 export const unlockHistoryItemSchema = z.object({
   unlockId: z.string().uuid(),
@@ -59,7 +59,6 @@ export const unlockHistoryItemSchema = z.object({
   status: z.enum(["granted", "expired"]),
   createdAt: z.string(),
   expiresAt: z.string(),
-  jobId: z.string().uuid().nullable().optional(),
   /** When the current grant was made (a re-grant after a lapse moves it; `createdAt` does not). */
   grantedAt: z.string().nullable().optional(),
 });

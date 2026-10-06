@@ -129,7 +129,7 @@ describe("requestUnlock — tenancy (XB-A): no client payer_id is ever sent", ()
   });
 });
 
-describe("getUnlocks — the payer's own history, with its job context and grant day passed through", () => {
+describe("getUnlocks — the payer's own history, with its grant day passed through", () => {
   const row = (over: Record<string, unknown> = {}) => ({
     unlock_id: "22222222-2222-4222-8222-222222222222",
     payer_id: "11111111-1111-4111-8111-111111111111",
@@ -143,7 +143,7 @@ describe("getUnlocks — the payer's own history, with its job context and grant
     ...over,
   });
 
-  it("maps job_id → jobId (null kept null) and granted_at → grantedAt; no payer id leaves the seam", async () => {
+  it("maps granted_at → grantedAt (null kept null); carries NO job context and no payer id", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
         unlocks: [
@@ -166,7 +166,6 @@ describe("getUnlocks — the payer's own history, with its job context and grant
         status: "granted",
         createdAt: "2026-08-01T09:00:00.000Z",
         expiresAt: "2026-10-15T09:00:00.000Z",
-        jobId: null,
         grantedAt: "2026-10-01T09:00:00.000Z",
       },
       {
@@ -175,11 +174,14 @@ describe("getUnlocks — the payer's own history, with its job context and grant
         status: "granted",
         createdAt: "2026-08-01T09:00:00.000Z",
         expiresAt: "2026-10-15T09:00:00.000Z",
-        jobId: "55555555-5555-4555-8555-555555555555",
         grantedAt: null,
       },
     ]);
     expect(JSON.stringify(out)).not.toContain("11111111-1111-4111-8111-111111111111");
+    // An agency unlock's `jobs` id is on the wire, but no screen can use it yet (a company unlock
+    // carries none, #1903): it is not carried, so nothing can claim a posting it cannot reach.
+    expect(JSON.stringify(out)).not.toContain("55555555-5555-4555-8555-555555555555");
+    for (const u of out) expect(u).not.toHaveProperty("jobId");
   });
 });
 
