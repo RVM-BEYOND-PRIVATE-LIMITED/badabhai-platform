@@ -10,7 +10,7 @@ import { jobRoleLabel } from "./job-roles";
  * Labels only — a role kind or a skill id is never echoed raw (an unknown one is "Not set").
  */
 
-/** One line of "Also in your posting — not on the worker's card". */
+/** One line of "Also in your posting — not written on the worker's card". */
 export interface PostingFact {
   label: string;
   /** The value, or null when the payer has not set it (drawn as a muted "Not set"). */

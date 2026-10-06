@@ -142,6 +142,58 @@ void main() {
     });
   });
 
+  group('JobDetail.roleKind (#2009)', () {
+    test('reads a declared kind from the wire', () {
+      expect(
+        JobDetail.fromJson(<String, dynamic>{
+          'job_id': 'a',
+          'title': 'MIG Welder',
+          'role_kind': 'welder',
+        }).roleKind,
+        'welder',
+      );
+    });
+
+    test('absent, null and non-string all land on null, never on a widget', () {
+      for (final Object? raw in <Object?>[null, 7, <String>['welder'], true]) {
+        final Map<String, dynamic> json = <String, dynamic>{
+          'job_id': 'a',
+          'title': 'T',
+        };
+        if (raw != null) json['role_kind'] = raw;
+        expect(JobDetail.fromJson(json).roleKind, isNull, reason: '$raw');
+      }
+    });
+
+    test('an unknown slug is carried, not scrubbed — the art resolver decides',
+        () {
+      // The parser does not police the vocabulary: `RoleArtBanner` maps
+      // anything it does not know to the generic scene, so a kind added
+      // server-side still draws a picture on an older build.
+      expect(
+        JobDetail.fromJson(<String, dynamic>{
+          'job_id': 'a',
+          'title': 'T',
+          'role_kind': 'crane_operator',
+        }).roleKind,
+        'crane_operator',
+      );
+    });
+
+    test('withApplicationAction keeps roleKind and payType', () {
+      const JobDetail d = JobDetail(
+        jobId: 'a',
+        title: 'T',
+        roleKind: 'fitter',
+        payType: 'in_hand',
+      );
+      final JobDetail swapped = d.withApplicationAction('applied');
+      expect(swapped.roleKind, 'fitter');
+      expect(swapped.payType, 'in_hand');
+      expect(swapped.applicationAction, 'applied');
+    });
+  });
+
   group('JobDetail.place', () {
     test('builds place honestly from what exists', () {
       expect(
