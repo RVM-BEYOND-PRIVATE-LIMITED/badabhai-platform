@@ -15,8 +15,8 @@
  *
  * VOCABULARY LIMIT (2026-10-05): the match vocabulary is 18 `mskill_*` ids and has NO
  * electrician, press, coating or polymer skill. The Manesar showcase is therefore a FITTER, and
- * those role kinds post a flagged PROXY skill (see {@link DemoTrade}). Closing the gap is a
- * taxonomy change, not a seed change.
+ * role kinds without a real match skill get NO postings ({@link SKIPPED_ROLE_KINDS}). Closing the
+ * gap is a taxonomy change, not a seed change.
  *
  * TEXT: every worker-visible field (title, area, city, description, benefit and requirement
  * chips) is screened by the writer with `workerVisibleTextScreens` before any row is written,
@@ -123,13 +123,13 @@ function cityByName(name: string): DemoCity {
 }
 
 // ---------------------------------------------------------------------------
-// Trade catalogue — VARIANTS keyed by the 21 declared role kinds
+// Trade catalogue — VARIANTS keyed by the role kinds that have a REAL match skill
 // ---------------------------------------------------------------------------
 
 /**
  * One posting archetype. `roleKind` is the worker-side role (`job_postings.role_kind`, the
  * 21-kind `TRADE_FORM_KINDS_ALL` vocabulary — card illustrations key on it); `skillId` is the
- * ONE match skill it posts. Every kind has at least one variant, so every kind gets postings.
+ * ONE match skill it posts.
  *
  * THE MATCH SKILL IS CHOSEN FROM WHAT ONBOARDING ACTUALLY DERIVES (traced 2026-10-06):
  *   - chat (mock keyword extractor and real extraction): "welder"/"welding" → `role_welder` →
@@ -141,16 +141,31 @@ function cityByName(name: string): DemoCity {
  * So `welder` postings are mostly MIG (what a live welder holds), and `cnc_turner` postings name
  * `mskill_cnc_turner`.
  *
- * PROXIES. The match vocabulary has 18 skills and no electrician, press, coating or polymer
- * skill. Those kinds still need postings (illustrations), and D5 skips a posting with no match
- * skill, so they post the NEAREST match skill and are flagged `proxy: true`. A proxy posting
- * reaches workers of the proxied skill (e.g. an electrician posting reaches fitters) — that is
- * disclosed by `--report-trades` and the runbook, and is the honest cost of the vocabulary gap.
+ * NO PROXIES (owner decision, 2026-10-06). The vocabulary has 18 skills and none for the
+ * electrician, maintenance-technician, assembly, press, coating, sheet-metal, tool/mould-making
+ * or polymer kinds. Those 12 kinds are SKIPPED rather than posted under a "nearest" skill: a
+ * worker must never see an irrelevant job. {@link SKIPPED_ROLE_KINDS} names them; the plan test
+ * pins that the catalogue covers exactly the other 9.
  */
+/** Role kinds with no match skill of their own — no demo postings (see above). */
+export const SKIPPED_ROLE_KINDS: readonly TradeFormKindName[] = [
+  "tool_die_maker",
+  "sheet_metal_worker",
+  "press_operator",
+  "painter_coating",
+  "maintenance_technician",
+  "industrial_electrician",
+  "assembly_line_worker",
+  "injection_moulding_operator",
+  "mould_die_maker",
+  "blow_moulding_operator",
+  "rubber_moulding_operator",
+  "plastic_process_technician",
+];
+
 export interface DemoTrade {
   roleKind: TradeFormKindName;
   skillId: string;
-  proxy: boolean;
   /** Relative posting volume. */
   weight: number;
   titles: readonly string[];
@@ -167,7 +182,6 @@ export interface DemoTrade {
 
 const MACHINE_SHOP = "precision machine shop";
 const PLANT = "auto components plant";
-const PLASTICS = "plastics moulding plant";
 const MACHINING_SHIFTS = [5, 4, 1] as const;
 
 export const DEMO_TRADES: readonly DemoTrade[] = [
@@ -175,7 +189,7 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
   {
     roleKind: "cnc_turner",
     skillId: "mskill_cnc_turner",
-    proxy: false,
+
     weight: 9,
     titles: ["CNC Turner", "CNC Lathe Operator", "CNC Turning Operator"],
     pay: [16000, 26000],
@@ -192,7 +206,7 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
   {
     roleKind: "cnc_turner",
     skillId: "mskill_cnc_setter_operator",
-    proxy: false,
+
     weight: 4,
     titles: ["CNC Setter cum Operator", "CNC Turning Setter"],
     pay: [22000, 34000],
@@ -209,7 +223,7 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
   {
     roleKind: "vmc_milling",
     skillId: "mskill_vmc_operator",
-    proxy: false,
+
     weight: 8,
     titles: ["VMC Operator", "VMC Machine Operator", "VMC Milling Operator"],
     pay: [16000, 25000],
@@ -226,7 +240,7 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
   {
     roleKind: "vmc_milling",
     skillId: "mskill_hmc_operator",
-    proxy: false,
+
     weight: 4,
     titles: ["HMC Operator", "HMC Machine Operator"],
     pay: [18000, 28000],
@@ -238,7 +252,7 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
   {
     roleKind: "cnc_grinding",
     skillId: "mskill_cnc_grinding_operator",
-    proxy: false,
+
     weight: 3,
     titles: ["CNC Grinding Operator", "Cylindrical Grinding Operator"],
     pay: [16000, 26000],
@@ -254,7 +268,7 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
   {
     roleKind: "conventional_machinist",
     skillId: "mskill_cnc_operator_general",
-    proxy: false,
+
     weight: 4,
     titles: ["CNC Operator", "Lathe Machinist", "Machine Operator Trainee"],
     pay: [13000, 20000],
@@ -269,22 +283,9 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
     shiftWeights: MACHINING_SHIFTS,
   },
   {
-    roleKind: "tool_die_maker",
-    skillId: "mskill_cnc_setter_operator",
-    proxy: true,
-    weight: 2,
-    titles: ["Tool Room Machinist", "Tool and Die Maker"],
-    pay: [22000, 34000],
-    minExp: [2, 6],
-    unit: "tool room",
-    requirements: ["Press tool fitting", "Surface grinding", "Can read tool drawings"],
-    shiftWeights: [8, 2, 0],
-  },
-  // ── design desk ──
-  {
     roleKind: "cam_programmer",
     skillId: "mskill_cam_programmer",
-    proxy: false,
+
     weight: 2,
     titles: ["CAM Programmer", "Mastercam Programmer"],
     pay: [30000, 45000],
@@ -296,7 +297,7 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
   {
     roleKind: "cam_programmer",
     skillId: "mskill_cnc_programmer",
-    proxy: false,
+
     weight: 3,
     titles: ["CNC Programmer", "CNC Programmer cum Setter"],
     pay: [28000, 42000],
@@ -313,7 +314,7 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
   {
     roleKind: "cad_draughtsman",
     skillId: "mskill_designer",
-    proxy: false,
+
     weight: 2,
     titles: ["Mechanical Design Draughtsman", "CAD Designer"],
     pay: [22000, 36000],
@@ -325,7 +326,7 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
   {
     roleKind: "cad_draughtsman",
     skillId: "mskill_interior_designer",
-    proxy: false,
+
     weight: 1,
     titles: ["Interior Design Draughtsman", "Interior Site Designer"],
     pay: [20000, 32000],
@@ -338,7 +339,7 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
   {
     roleKind: "welder",
     skillId: "mskill_mig_welder",
-    proxy: false,
+
     weight: 8,
     titles: ["Welder", "MIG Welder", "CO2 Welder"],
     pay: [16000, 25000],
@@ -355,7 +356,7 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
   {
     roleKind: "welder",
     skillId: "mskill_arc_welder",
-    proxy: false,
+
     weight: 5,
     titles: ["Arc Welder", "Stick Welder", "Fabrication Welder"],
     pay: [15000, 24000],
@@ -372,7 +373,7 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
   {
     roleKind: "welder",
     skillId: "mskill_tig_welder",
-    proxy: false,
+
     weight: 4,
     titles: ["TIG Welder", "TIG Welder for SS and Aluminium", "Argon Welder"],
     pay: [18000, 30000],
@@ -387,46 +388,9 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
     shiftWeights: [6, 3, 1],
   },
   {
-    roleKind: "sheet_metal_worker",
-    skillId: "mskill_mig_welder",
-    proxy: true,
-    weight: 3,
-    titles: ["Sheet Metal Fabricator", "Sheet Metal Worker"],
-    pay: [15000, 23000],
-    minExp: [0, 3],
-    unit: "sheet metal fabrication shop",
-    requirements: ["Bending and shearing", "Spot and MIG welding", "Measurement and marking"],
-    shiftWeights: [6, 3, 1],
-  },
-  {
-    roleKind: "press_operator",
-    skillId: "mskill_cnc_operator_general",
-    proxy: true,
-    weight: 2,
-    titles: ["Power Press Operator", "Press Shop Operator"],
-    pay: [13000, 19000],
-    minExp: [0, 2],
-    unit: "press shop",
-    requirements: ["Power press operation", "Die loading basics", "Safety guard discipline"],
-    shiftWeights: [5, 4, 1],
-  },
-  {
-    roleKind: "painter_coating",
-    skillId: "mskill_cnc_operator_general",
-    proxy: true,
-    weight: 1,
-    titles: ["Powder Coating Operator", "Spray Painter"],
-    pay: [13000, 20000],
-    minExp: [0, 3],
-    unit: "powder coating line",
-    requirements: ["Spray gun handling", "Surface preparation", "Coating thickness check"],
-    shiftWeights: [6, 3, 1],
-  },
-  // ── maintenance & production ──
-  {
     roleKind: "fitter",
     skillId: "mskill_fitter",
-    proxy: false,
+
     weight: 6,
     titles: ["Maintenance Fitter", "Mechanical Fitter", "Assembly Fitter"],
     pay: [15000, 25000],
@@ -443,7 +407,7 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
   {
     roleKind: "fitter",
     skillId: "mskill_plumber",
-    proxy: false,
+
     weight: 3,
     titles: ["Plumber", "Industrial Plumber", "Pipe Fitter"],
     pay: [14000, 22000],
@@ -458,54 +422,9 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
     shiftWeights: [9, 1, 0],
   },
   {
-    roleKind: "maintenance_technician",
-    skillId: "mskill_fitter",
-    proxy: true,
-    weight: 3,
-    titles: ["Maintenance Technician", "Utility Maintenance Technician"],
-    pay: [16000, 26000],
-    minExp: [1, 4],
-    unit: PLANT,
-    requirements: [
-      "Breakdown maintenance",
-      "Compressor and pump upkeep",
-      "Maintenance log keeping",
-    ],
-    shiftWeights: [4, 5, 1],
-  },
-  {
-    roleKind: "industrial_electrician",
-    skillId: "mskill_fitter",
-    proxy: true,
-    weight: 3,
-    titles: ["Industrial Electrician", "Maintenance Electrician"],
-    pay: [16000, 27000],
-    minExp: [1, 4],
-    unit: PLANT,
-    requirements: [
-      "ITI Electrician",
-      "Panel wiring",
-      "Motor and starter fault finding",
-      "Safety lockout practice",
-    ],
-    shiftWeights: [4, 5, 1],
-  },
-  {
-    roleKind: "assembly_line_worker",
-    skillId: "mskill_fitter",
-    proxy: true,
-    weight: 2,
-    titles: ["Assembly Line Operator", "Production Associate"],
-    pay: [12000, 18000],
-    minExp: [0, 1],
-    unit: PLANT,
-    requirements: ["Line assembly work", "Torque tool use", "Follows work instructions"],
-    shiftWeights: [5, 4, 1],
-  },
-  {
     roleKind: "quality_inspector",
     skillId: "mskill_quality_inspector",
-    proxy: false,
+
     weight: 5,
     titles: ["Quality Inspector", "QC Inspector", "Line Quality Inspector"],
     pay: [16000, 26000],
@@ -517,67 +436,6 @@ export const DEMO_TRADES: readonly DemoTrade[] = [
       "PPAP and first piece basics",
       "Can read drawings",
     ],
-    shiftWeights: [5, 4, 1],
-  },
-  // ── plastics & rubber (all proxies: no polymer match skill exists) ──
-  {
-    roleKind: "injection_moulding_operator",
-    skillId: "mskill_cnc_operator_general",
-    proxy: true,
-    weight: 2,
-    titles: ["Injection Moulding Operator", "Moulding Machine Operator"],
-    pay: [13000, 20000],
-    minExp: [0, 3],
-    unit: PLASTICS,
-    requirements: ["Mould loading", "Cycle monitoring", "Visual defect checks"],
-    shiftWeights: [4, 5, 1],
-  },
-  {
-    roleKind: "mould_die_maker",
-    skillId: "mskill_cnc_setter_operator",
-    proxy: true,
-    weight: 1,
-    titles: ["Mould Maker", "Mould Maintenance Fitter"],
-    pay: [20000, 32000],
-    minExp: [2, 5],
-    unit: "tool room",
-    requirements: ["Mould polishing and repair", "EDM basics", "Can read mould drawings"],
-    shiftWeights: [8, 2, 0],
-  },
-  {
-    roleKind: "blow_moulding_operator",
-    skillId: "mskill_cnc_operator_general",
-    proxy: true,
-    weight: 1,
-    titles: ["Blow Moulding Operator"],
-    pay: [13000, 19000],
-    minExp: [0, 2],
-    unit: PLASTICS,
-    requirements: ["Parison and mould setting basics", "Bottle quality checks"],
-    shiftWeights: [4, 5, 1],
-  },
-  {
-    roleKind: "rubber_moulding_operator",
-    skillId: "mskill_cnc_operator_general",
-    proxy: true,
-    weight: 1,
-    titles: ["Rubber Moulding Operator", "Compression Moulding Operator"],
-    pay: [13000, 19000],
-    minExp: [0, 2],
-    unit: "rubber products plant",
-    requirements: ["Compression press operation", "Deflashing", "Visual defect checks"],
-    shiftWeights: [4, 5, 1],
-  },
-  {
-    roleKind: "plastic_process_technician",
-    skillId: "mskill_cnc_operator_general",
-    proxy: true,
-    weight: 1,
-    titles: ["Plastic Process Technician"],
-    pay: [18000, 28000],
-    minExp: [1, 4],
-    unit: PLASTICS,
-    requirements: ["Process parameter setting", "Mould trials", "Scrap reduction"],
     shiftWeights: [5, 4, 1],
   },
 ];
@@ -643,7 +501,7 @@ export const DEMO_PERSONAS: readonly DemoPersonaSpec[] = [
     city: "Manesar",
     showcase: true,
     story:
-      "Maintenance fitter, 5 years. Plumbing and QC jobs arrive as related. (Electrician postings are a fitter proxy — no electrician match skill exists.)",
+      "Maintenance fitter, 5 years. Plumbing and QC jobs arrive as related. (No electrician match skill exists, so electrician jobs are not seeded.)",
     skills: [{ skillId: "mskill_fitter", months: 60 }],
   },
   {
@@ -767,10 +625,8 @@ export interface DemoPosting {
   /** The POSTED skills (`match_skill_ids`). The reach set is resolved by the writer at publish rules. */
   matchSkillIds: string[];
   primarySkillId: string;
-  /** `job_postings.role_kind` — one of the 21 declared kinds. */
+  /** `job_postings.role_kind` — one of the declared kinds that has a real match skill. */
   roleKind: TradeFormKindName;
-  /** The kind has no match skill of its own; it posts the nearest one (see DemoTrade). */
-  proxy: boolean;
   industryId: string;
   roleTitle: string;
   city: string;
@@ -825,11 +681,20 @@ function shiftLine(shift: DemoShift | null): string {
   }
 }
 
-export function buildDemoPosting(
-  index: number,
-  payers: readonly DemoPayer[],
-  rng: Rng,
-): DemoPosting {
+/**
+ * Who posts, and when. Employers post in BATCHES (one employer, 1–4 jobs, minutes apart) — as
+ * they do on the platform — which is also what makes same-employer runs, and so the feed's
+ * max-2-consecutive interleave, visible in a demo feed.
+ */
+export interface DemoPostingBatch {
+  payerIndex: number;
+  publishedMinutesAgo: number;
+}
+
+const MAX_BATCH = 4;
+const BATCH_SPACING_MINUTES = 3;
+
+export function buildDemoPosting(index: number, batch: DemoPostingBatch, rng: Rng): DemoPosting {
   // COVERAGE PASS: the first |trades| postings name each trade once, single-skill — so even a
   // tiny profile has a direct AND a related-only posting for every persona.
   const coverage = index < DEMO_TRADES.length;
@@ -842,17 +707,13 @@ export function buildDemoPosting(
       );
   const matchSkillIds = [trade.skillId];
   const neighbours = relatedMatchSkills(trade.skillId);
-  if (!coverage && !trade.proxy && neighbours.length > 0 && rng.next() < TWO_SKILL_RATE) {
+  if (!coverage && neighbours.length > 0 && rng.next() < TWO_SKILL_RATE) {
     matchSkillIds.push(pickOne(neighbours, rng));
   }
   const industryId = matchSkillIndustry(trade.skillId);
   if (!industryId) throw new Error(`${trade.skillId} has no industry in the taxonomy`);
 
-  const payerIndex = pickWeighted(
-    payers.map((p) => p.index),
-    payers.map((p) => p.weight),
-    rng,
-  );
+  const { payerIndex, publishedMinutesAgo } = batch;
   const city = pickOne(DEMO_CITIES, rng);
   const area = pickOne(city.areas, rng);
   const roleTitle = pickOne(trade.titles, rng);
@@ -885,7 +746,6 @@ export function buildDemoPosting(
   const maxExperienceYears = minExperienceYears + 2 + Math.floor(rng.next() * 4);
   const benefits = pickDistinct(DEMO_BENEFITS, 2 + Math.floor(rng.next() * 3), rng);
   const requirements = pickDistinct(trade.requirements, 2 + Math.floor(rng.next() * 2), rng);
-  const publishedMinutesAgo = Math.floor(rng.next() * PUBLISH_WINDOW_MINUTES);
   const boosted = rng.next() < BOOST_RATE;
 
   const description =
@@ -900,7 +760,6 @@ export function buildDemoPosting(
     matchSkillIds,
     primarySkillId: trade.skillId,
     roleKind: trade.roleKind,
-    proxy: trade.proxy,
     industryId,
     roleTitle,
     city: city.name,
@@ -990,9 +849,28 @@ export function buildDemoPlan(options: DemoPlanOptions = DEFAULT_DEMO_PLAN): Dem
   const rng = makeRng(options.rngSeed);
   const payers = buildDemoPayers();
   const personas = buildDemoPersonas(options.personas);
-  const postings = Array.from({ length: options.postings }, (_, i) =>
-    buildDemoPosting(i, payers, rng),
-  );
+  const postings: DemoPosting[] = [];
+  let batch: DemoPostingBatch | null = null;
+  let leftInBatch = 0;
+  for (let i = 0; i < options.postings; i++) {
+    if (leftInBatch === 0 || batch === null) {
+      batch = {
+        payerIndex: pickWeighted(
+          payers.map((p) => p.index),
+          payers.map((p) => p.weight),
+          rng,
+        ),
+        publishedMinutesAgo: Math.floor(rng.next() * PUBLISH_WINDOW_MINUTES),
+      };
+      leftInBatch = 1 + Math.floor(rng.next() * MAX_BATCH);
+    }
+    postings.push(buildDemoPosting(i, batch, rng));
+    leftInBatch -= 1;
+    batch = {
+      ...batch,
+      publishedMinutesAgo: Math.max(0, batch.publishedMinutesAgo - BATCH_SPACING_MINUTES),
+    };
+  }
   return { options, payers, personas, postings };
 }
 

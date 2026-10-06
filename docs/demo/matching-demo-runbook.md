@@ -10,8 +10,12 @@ CI gate: `apps/api/src/match/demo-matching-seed.db.test.ts`.
 The seed writes:
 
 - 25 synthetic employers;
-- **1,200 open postings** across all **21 role kinds**, spread over 5 cities (Pune, Manesar,
-  Chennai, Ahmedabad, Bengaluru), with `published_at` spread over 30 days and about 3% boosted;
+- **1,200 open postings** across the **9 role kinds that have a real match skill**, spread over
+  5 cities (Pune, Manesar, Chennai, Ahmedabad, Bengaluru);
+  - `published_at` is spread over 30 days, in per-employer batches minutes apart, so the
+    max-2-per-employer interleave is visible;
+  - about 3% are boosted;
+  - the other 12 role kinds get **no** postings (see Known gaps);
 - **10 personas**, each with 1–2 wanted skills.
 
 Reach rows are then materialized with D5's own function. Every seeded id starts with `de30`.
@@ -154,24 +158,37 @@ Which skills a live worker gets (traced 2026-10-06):
 Run `--report-trades` before the demo and pick a trade with a full feed. **Welder (free-text
 chat) and CNC turner** are the proven paths.
 
-**Re-running a live onboarding (local stack).** Extraction is skipped for a worker who already has
-a profile. Onboard the live worker with a phone from the demo block, `+910000026101`–`…26999`, via
-test-login. To reset them, list the phone in a file (one E.164 per line), then:
+**Re-running a live onboarding.** Extraction is skipped for a worker who already has a profile.
+`--reset-live-worker` deletes **only** that worker's `worker_profiles`, `worker_skill` and
+`job_reach` rows, so the chat extracts again. The worker row, consents, chat history and
+applications stay. The phone must be well-formed E.164.
 
-```bash
-pnpm --filter @badabhai/db db:seed:demo-matching -- --reset-live-worker \
-  --phone=+910000026101 --allow-phones=demo-phones.txt --apply
-```
+- **Local stack.**
+  - Onboard the live worker with a phone from the demo block, `+910000026101`–`…26999`, via
+    test-login.
+  - The phone must be in the demo block (never the E4 or smoke numbers) **and** in the allow-list
+    file.
 
-This deletes only that worker's `worker_profiles`, `worker_skill` and `job_reach` rows. The phone
-must be in the **demo block** of the reserved range (`+910000026xxx`, never the E4 or smoke
-numbers) **and** in the file. A write against a production-like database would also need
-`--target=production`, the ops-guard flag and `OPS_ALLOW_PRODUCTION=seed:demo-matching`.
+  ```bash
+  pnpm --filter @badabhai/db db:seed:demo-matching -- --reset-live-worker \
+    --phone=+910000026101 --allow-phones=demo-phones.txt --apply
+  ```
 
-> On production this cannot reset a worker created with a **real** handset, because the phone is
-> outside the demo block. That is deliberate: widening it to real phones means deleting a real
-> worker's data, which needs an explicit owner decision.
->
+- **Production server** (owner decision, 2026-10-06): the allow-list file is the **only**
+  authority.
+  - The owner creates it on the server: one E.164 per line, `#` comments allowed.
+  - A real number may be reset **only if it is listed**. Every other number is refused.
+  - Personas keep the reserved demo block.
+
+  ```bash
+  OPS_ALLOW_PRODUCTION=seed:demo-matching \
+    pnpm --filter @badabhai/db db:seed:demo-matching -- --reset-live-worker --target=production \
+      --phone=+91XXXXXXXXXX --allow-phones=/path/on/server/demo-phones.txt --apply \
+      --i-am-authorised-to-write-to-production
+  ```
+
+  This deletes that real worker's profile and skills. List only the owner's own demo handset(s).
+
 > Also: an SSH tunnel to the production database on `localhost` would be classified LOCAL by the
 > guard. Run the seed **on** the server with its own `DATABASE_URL`, never through a tunnel.
 
@@ -179,13 +196,13 @@ numbers) **and** in the file. A write against a production-like database would a
 
 ## Showcase personas
 
-| Persona                                   | Phone           | Skills             | Story                                                                                                    |
-| ----------------------------------------- | --------------- | ------------------ | -------------------------------------------------------------------------------------------------------- |
-| ★ `showcase-welder-pune` (Ravi Demo)      | `+910000026001` | MIG welder, 48 mo  | What "welder" in the chat yields. MIG jobs direct; arc and TIG related; no machining, plastics or design |
-| ★ `showcase-fitter-manesar` (Suresh Demo) | `+910000026002` | fitter, 60 mo      | Plumbing and QC jobs related. Stands in for an electrician: there is **no electrician match skill**      |
-| `cnc-turner-pune`                         | `+910000026003` | CNC turner, 36 mo  | Side-by-side with a live CNC turner                                                                      |
-| `cnc-operator-ahmedabad`                  | `+910000026004` | general CNC, 12 mo | Side-by-side with a live "CNC operator"                                                                  |
-| … 6 more                                  | `…005`–`…010`   | see the answer key |                                                                                                          |
+| Persona                                   | Phone           | Skills             | Story                                                                                               |
+| ----------------------------------------- | --------------- | ------------------ | --------------------------------------------------------------------------------------------------- |
+| ★ `showcase-welder-pune` (Ravi Demo)      | `+910000026001` | MIG welder, 48 mo  | What "welder" in the chat yields. MIG jobs direct; arc and TIG related; no machining or design jobs |
+| ★ `showcase-fitter-manesar` (Suresh Demo) | `+910000026002` | fitter, 60 mo      | Plumbing and QC jobs related. Not an electrician: there is **no electrician match skill**           |
+| `cnc-turner-pune`                         | `+910000026003` | CNC turner, 36 mo  | Side-by-side with a live CNC turner                                                                 |
+| `cnc-operator-ahmedabad`                  | `+910000026004` | general CNC, 12 mo | Side-by-side with a live "CNC operator"                                                             |
+| … 6 more                                  | `…005`–`…010`   | see the answer key |                                                                                                     |
 
 The answer key (`--answer-key=<file>`) holds, per persona:
 
@@ -205,16 +222,19 @@ The answer key (`--answer-key=<file>`) holds, per persona:
 
 ## Known gaps (disclosed, not fixed here)
 
-- **Proxy role kinds.**
-  - The vocabulary has 18 match skills and none for an electrician, press work, coating or polymer
-    trades.
-  - `industrial_electrician`, `maintenance_technician` and `assembly_line_worker` post
-    `mskill_fitter`.
-  - `press_operator`, `painter_coating` and the plastics kinds post `mskill_cnc_operator_general`.
-  - `tool_die_maker` and `mould_die_maker` post `mskill_cnc_setter_operator`.
-  - `sheet_metal_worker` posts `mskill_mig_welder`.
-  - So a fitter sees electrician cards as direct matches. Closing this is a taxonomy change.
+- **Role kinds without a real match skill are skipped** (owner decision, 2026-10-06: a worker must
+  never see an irrelevant job).
+  - The vocabulary has 18 match skills and none for these 12 kinds, so they get **no demo
+    postings**: `industrial_electrician`, `maintenance_technician`, `assembly_line_worker`,
+    `press_operator`, `painter_coating`, `sheet_metal_worker`, `tool_die_maker`,
+    `mould_die_maker`, and the four plastics/rubber kinds.
+  - The other 9 kinds — `cnc_turner`, `vmc_milling`, `cnc_grinding`, `conventional_machinist`,
+    `cam_programmer`, `cad_draughtsman`, `welder`, `fitter`, `quality_inspector` — post only
+    their own real skill.
+  - Closing the gap is a taxonomy change.
 - **Trade forms other than CNC turning derive no match skill**, so a form-onboarded welder sees an
-  empty feed. This is a backend change in `pack-attribute-skills.ts`.
+  empty feed. A chat with structured answers derives none either. The fix is a separate backend
+  PR (owner decision): `pack-attribute-skills.ts`, and `toExtractionOutput` in
+  `profile-extraction.processor.ts`.
 - **Carpenter and delivery rider** have match skills but no role kind, so they get no demo
   postings. A live "carpenter" sees 0.

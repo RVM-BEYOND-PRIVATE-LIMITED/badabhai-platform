@@ -1,6 +1,6 @@
 /**
- * Matching V1 stakeholder DEMO seed — synthetic payers, 1,200 OPEN postings across all 21 role
- * kinds, 10 personas, and the ANSWER KEY that proves each feed shows only the jobs its skills reach.
+ * Matching V1 stakeholder DEMO seed — synthetic payers, 1,200 OPEN postings across the 9 role
+ * kinds that have a real match skill, 10 personas, and the ANSWER KEY that proves each feed shows only the jobs its skills reach.
  * Runbook: docs/demo/matching-demo-runbook.md.
  *
  * WHAT IT WRITES (DIRECT inserts; NO events — seeded demo data, not business activity; every id
@@ -32,8 +32,9 @@
  *                          demo postings (off every feed, nothing deleted)
  *   --reset-live-worker --phone=<E.164> --allow-phones=<file>
  *                          (with --apply) delete ONE live demo worker's profile, worker_skill and
- *                          job_reach so the onboarding chat extracts again. The phone must be in
- *                          the reserved synthetic range AND listed in the file.
+ *                          job_reach so the onboarding chat extracts again. Local: the phone must
+ *                          be in the demo block AND in the file. Production: the file is the only
+ *                          authority (a real number may be reset iff the owner listed it).
  *
  * THE ANSWER KEY is read back after materialization: per persona the visible total, direct
  * (tier 1) vs related (tier 2), the hidden demo set, and the top 10 cards in FEED ORDER, computed
@@ -69,7 +70,11 @@ import {
   type MatchConfig,
 } from "@badabhai/match-engine";
 import { ROLE_TO_MATCH_SKILL, matchSkillIndustry, matchSkillLabel } from "@badabhai/taxonomy";
-import { CURRENT_CONSENT_VERSION, type ConsentPurpose } from "@badabhai/types";
+import {
+  CURRENT_CONSENT_VERSION,
+  TRADE_FORM_KINDS_ALL,
+  type ConsentPurpose,
+} from "@badabhai/types";
 import { workerVisibleTextScreens } from "@badabhai/validators";
 
 import { createDbClient, type Database } from "./client";
@@ -922,12 +927,26 @@ export function parseAllowPhones(text: string): Set<string> {
   );
 }
 
-/** Pure gate: the phone must be in the reserved DEMO block AND on the allow-list. */
-export function resetPhoneProblem(phone: string, allowed: ReadonlySet<string>): string | null {
-  if (!DEMO_PHONE_PATTERN.test(phone)) {
+/** E.164: `+`, a non-zero country digit, 8–15 digits in all. */
+const E164_PATTERN = /^\+[1-9]\d{7,14}$/;
+
+/**
+ * Pure gate for `--reset-live-worker` (owner decision, 2026-10-06):
+ *   - LOCAL target: the phone must be in the reserved DEMO block AND on the allow-list;
+ *   - PRODUCTION target: the allow-list file the owner creates on the server is the ONLY
+ *     authority — a real number may be reset iff it is listed; everything else is refused.
+ * The phone must be well-formed E.164 in both cases. Personas keep the demo block.
+ */
+export function resetPhoneProblem(
+  phone: string,
+  allowed: ReadonlySet<string>,
+  target: "local" | "production" = "local",
+): string | null {
+  if (!E164_PATTERN.test(phone)) return `--phone must be an E.164 number (e.g. +91XXXXXXXXXX).`;
+  if (target === "local" && !DEMO_PHONE_PATTERN.test(phone)) {
     return `--phone is outside the demo block ${DEMO_PHONE_PATTERN} of the reserved synthetic range — refusing to touch any other worker.`;
   }
-  if (!allowed.has(phone)) return `--phone is not listed in the --allow-phones file.`;
+  if (!allowed.has(phone)) return `--phone is not listed in the --allow-phones file — refusing.`;
   return null;
 }
 
@@ -993,7 +1012,7 @@ export function tradeReportRows(): TradeReportRow[] {
     path: "chat (role)",
     skills: [skillId],
   }));
-  const forms = [...new Set(DEMO_TRADES.map((t) => t.roleKind))].map((kind) => ({
+  const forms = TRADE_FORM_KINDS_ALL.map((kind) => ({
     label: kind,
     path: "trade form",
     skills: kind === "cnc_turner" ? ["mskill_cnc_turner"] : [],
@@ -1031,7 +1050,7 @@ async function printTradeReport(db: Database): Promise<void> {
   }
   console.log(
     `  Note: chat with STRUCTURED answers writes no role/skills (profile-extraction.processor.ts); the free-text ` +
-      `chat path above is what a live demo uses. Proxy kinds post the nearest skill — see the runbook.`,
+      `chat path above is what a live demo uses. Role kinds with no real match skill get no demo postings.`,
   );
 }
 
@@ -1095,7 +1114,11 @@ async function main(): Promise<void> {
         );
       }
       const allowed = parseAllowPhones(readFileSync(allowFile, "utf8"));
-      const problem = resetPhoneProblem(phone, allowed);
+      const problem = resetPhoneProblem(
+        phone,
+        allowed,
+        argValue("target") === "production" ? "production" : "local",
+      );
       if (problem !== null) throw new Error(`[${NAME}] ${problem}`);
       if (!opts.apply) {
         console.log(`[${NAME}] --reset-live-worker dry run for ${phone}: re-run with --apply.`);

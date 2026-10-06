@@ -12,6 +12,7 @@ import {
   MAX_DEMO_PERSONAS,
   DEMO_PHONE_PATTERN,
   RESERVED_TEST_PHONE_PATTERN,
+  SKIPPED_ROLE_KINDS,
   buildDemoPlan,
   demoIdLikePattern,
   demoPhone,
@@ -93,15 +94,19 @@ describe("demo-matching plan — determinism and ids", () => {
 });
 
 describe("demo-matching plan — catalogue", () => {
-  it("covers every one of the 21 declared role kinds, with valid match skills", () => {
+  it("covers exactly the declared role kinds that have a real match skill — no proxies", () => {
     const kinds = new Set(DEMO_TRADES.map((t) => t.roleKind));
-    expect([...kinds].sort()).toEqual([...TRADE_FORM_KINDS_ALL].sort());
+    const expected = TRADE_FORM_KINDS_ALL.filter((k) => !SKIPPED_ROLE_KINDS.includes(k));
+    expect([...kinds].sort()).toEqual([...expected].sort());
+    for (const k of SKIPPED_ROLE_KINDS) expect(TRADE_FORM_KINDS_ALL).toContain(k);
     for (const t of DEMO_TRADES) expect(isMatchSkillId(t.skillId)).toBe(true);
   });
 
   it("every role kind appears on at least one seeded posting, even at the smallest size", () => {
     const plan = buildDemoPlan({ ...DEFAULT_DEMO_PLAN, postings: DEMO_TRADES.length });
-    expect(new Set(plan.postings.map((p) => p.roleKind)).size).toBe(TRADE_FORM_KINDS_ALL.length);
+    const kinds = new Set(plan.postings.map((p) => p.roleKind));
+    expect(kinds.size).toBe(TRADE_FORM_KINDS_ALL.length - SKIPPED_ROLE_KINDS.length);
+    for (const k of SKIPPED_ROLE_KINDS) expect(kinds.has(k)).toBe(false);
   });
 
   it("welder and CNC postings name the skills onboarding derives (ROLE_TO_MATCH_SKILL)", () => {
@@ -113,10 +118,9 @@ describe("demo-matching plan — catalogue", () => {
     expect(named("conventional_machinist").has(ROLE_TO_MATCH_SKILL.role_cnc_operator)).toBe(true);
   });
 
-  it("proxy postings post a single skill (never a second related one)", () => {
-    for (const p of buildDemoPlan().postings.filter((x) => x.proxy)) {
-      expect(p.matchSkillIds).toHaveLength(1);
-    }
+  it("a skipped (no-real-skill) role kind never appears on any posting", () => {
+    const skipped = new Set<string>(SKIPPED_ROLE_KINDS);
+    expect(buildDemoPlan().postings.filter((p) => skipped.has(p.roleKind))).toEqual([]);
   });
 
   it("every worker-visible string passes the ADR-0024 screens", () => {
@@ -205,6 +209,14 @@ describe("seed-demo-matching guards (pure)", () => {
     // The E4 fixture and the smoke worker sit in the reserved range but outside the demo block.
     expect(resetPhoneProblem("+910000019844", new Set(["+910000019844"]))).toMatch(/demo block/);
     expect(resetPhoneProblem("+910000000000", new Set(["+910000000000"]))).toMatch(/demo block/);
+    // PRODUCTION: the owner's allow-list is the only authority — a real number iff listed.
+    const real = "+919876543210";
+    expect(resetPhoneProblem(real, new Set([real]), "production")).toBeNull();
+    expect(resetPhoneProblem(real, new Set(), "production")).toMatch(/allow-phones/);
+    expect(resetPhoneProblem("+910000026101", new Set(), "production")).toMatch(/allow-phones/);
+    expect(resetPhoneProblem("9876543210", new Set(["9876543210"]), "production")).toMatch(
+      /E\.164/,
+    );
   });
 
   it("the trade report tracks the role bridge and covers every form kind", () => {
