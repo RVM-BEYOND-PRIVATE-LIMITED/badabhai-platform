@@ -10,8 +10,15 @@ import { CompanionTurnSchema, type CompanionTurn } from "../chat-companion.dto";
  * `EditProposalStore` uses (ioredis at runtime, BullMQ's interface declares less).
  */
 interface RedisKvClient {
-  set(key: string, value: string, expiryMode: "EX", seconds: number): Promise<unknown>;
+  set(
+    key: string,
+    value: string,
+    expiryMode: "EX",
+    seconds: number,
+    condition?: "NX",
+  ): Promise<string | null>;
   get(key: string): Promise<string | null>;
+  del(key: string): Promise<number>;
 }
 
 /**
@@ -20,6 +27,14 @@ interface RedisKvClient {
  * card lifetime, so a replayed card is never older than the card itself could be.
  */
 export const TURN_REPLAY_TTL_SECONDS = 600;
+
+/**
+ * How long the IN-FLIGHT claim lives (TD150/WP8). It only needs to cover the turn's own duration
+ * while the first request runs — longer than the slowest path (a career classify + 10 s answer),
+ * short enough that a process death releases the id quickly. A stray claim that lapses early is
+ * harmless: the replay cache (600 s) is the second wall.
+ */
+export const TURN_INFLIGHT_TTL_SECONDS = 60;
 
 /**
  * THE SERVED-TURN REPLAY CACHE (contracts §7) — what makes a RETRIED message idempotent.
@@ -59,6 +74,11 @@ export class CompanionTurnReplayStore {
     return `companion:v2:turn:${workerId}:${submissionId}`;
   }
 
+  /** `companion:v2:inflight:{workerId}:{submissionId}` — the WP8 one-at-a-time claim. */
+  private static claimKey(workerId: string, submissionId: string): string {
+    return `companion:v2:inflight:${workerId}:${submissionId}`;
+  }
+
   private async client(): Promise<RedisKvClient> {
     return (await this.queue.client) as unknown as RedisKvClient;
   }
@@ -79,6 +99,51 @@ export class CompanionTurnReplayStore {
         })`,
       );
       return null;
+    }
+  }
+
+  /**
+   * Claim a submission id for the turn's duration (SET NX EX). `claimed` — this request owns it;
+   * `held` — a duplicate is ALREADY being processed, so this one must not run the pipeline again;
+   * `unavailable` — Redis refused, and the caller proceeds (fail open, like every read here).
+   */
+  async claim(
+    workerId: string,
+    submissionId: string,
+  ): Promise<"claimed" | "held" | "unavailable"> {
+    try {
+      const result = await withinRedisDeadline(async () =>
+        (await this.client()).set(
+          CompanionTurnReplayStore.claimKey(workerId, submissionId),
+          "1",
+          "EX",
+          TURN_INFLIGHT_TTL_SECONDS,
+          "NX",
+        ),
+      );
+      return result === "OK" ? "claimed" : "held";
+    } catch (err) {
+      this.logger.warn(
+        `companion in-flight claim unavailable for worker ${workerId}; processing the message (${
+          err instanceof Error ? err.name : "UnknownError"
+        })`,
+      );
+      return "unavailable";
+    }
+  }
+
+  /** Release the in-flight claim once the turn has been routed (or has thrown). Best-effort. */
+  async release(workerId: string, submissionId: string): Promise<void> {
+    try {
+      await withinRedisDeadline(async () =>
+        (await this.client()).del(CompanionTurnReplayStore.claimKey(workerId, submissionId)),
+      );
+    } catch (err) {
+      this.logger.warn(
+        `companion in-flight claim not released for worker ${workerId} (${
+          err instanceof Error ? err.name : "UnknownError"
+        })`,
+      );
     }
   }
 

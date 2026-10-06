@@ -23,6 +23,7 @@ import {
   COMPANION_JOBS_SCOPES,
   COMPANION_V2_INTENTS,
   COMPANION_V2_INTENT_SOURCES,
+  COMPANION_V2_INTENT_SOURCES_V3,
   COMPANION_V2_OUTCOMES,
   COMPANION_V2_EDIT_SECTIONS,
   COMPANION_V2_UNSUPPORTED_EDIT_TARGETS,
@@ -4827,6 +4828,133 @@ export const ChatCompanionCareerAnsweredPayload = z
   })
   .strict();
 export type ChatCompanionCareerAnsweredPayload = z.infer<typeof ChatCompanionCareerAnsweredPayload>;
+
+// ── TD150 / WP8 — the versioned companions of the above, plus the rollback event ─────────────
+//
+// WHY EVERY CHANGE IS A NEW VERSION, NEVER A WIDENED ONE. `validateEvent` allows one version per
+// NAME, so a changed payload is a new registry key (the house `_v2`/`_v3` pattern). v1 stays
+// registered with its definition and its old emitter compatibility; consumers migrate at leisure.
+// All payloads remain `.strict()`, counters/enums/ids only, and carry no worker text.
+
+/**
+ * THE V3 TURN (TD150). The v2 fields, with `intent_source` widened by `chip`: an exact
+ * task-chip tap is its own value, and `v1_deterministic` means the other deterministic
+ * pre-classifier routes (WP6's pending intent and edit pre-check). A NEW NAME
+ * (`chat.companion_turn_served_v3`), so v2's five-value enum stays exactly as shipped.
+ */
+export const ChatCompanionTurnServedV3Payload = z
+  .object({
+    worker_id: uuidSchema,
+    trigger: z.enum(COMPANION_TRIGGERS),
+    intent: z.enum(COMPANION_INTENTS),
+    applied_count: z.number().int().nonnegative().nullable(),
+    new_jobs_count: z.number().int().nonnegative().nullable(),
+    jobs_scope: z.enum(COMPANION_JOBS_SCOPES).nullable(),
+    job_chips_count: z.number().int().nonnegative(),
+    resume_source: resumeSource.nullable(),
+    nudge: z.enum(COMPANION_NUDGES).nullable(),
+    day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "day must be a UTC day bucket YYYY-MM-DD"),
+    /** Who chose the intent: an exact chip tap (`chip`), the other deterministic routes, lexicon, classifier, guard, fallback. */
+    intent_source: z.enum(COMPANION_V2_INTENT_SOURCES_V3),
+    /** The intent the turn was routed on (chip / pending / pre-check / lexicon / classifier); null on the guard and fail-closed paths. */
+    v2_intent: z.enum(COMPANION_V2_INTENTS).nullable(),
+    /** Coarse confidence bucket; null unless the classifier answered. Never the raw score. */
+    confidence_bucket: z.enum(COMPANION_V2_CONFIDENCE_BUCKETS).nullable(),
+    /** What was delivered — a proposed card, the phase-off line, clarify, … (contracts §1). */
+    outcome: z.enum(COMPANION_V2_OUTCOMES),
+  })
+  .strict()
+  .refine((v) => (v.jobs_scope === "profile") === (v.new_jobs_count !== null), {
+    message:
+      "new_jobs_count is set iff jobs_scope is 'profile' — null scope (not read), 'unavailable' " +
+      "(read failed) and 'no_skills' (no claim) carry no count",
+  });
+export type ChatCompanionTurnServedV3Payload = z.infer<typeof ChatCompanionTurnServedV3Payload>;
+
+/**
+ * THE CARD WAS DISMISSED WITHOUT WRITING, v2 (TD150). The v1 reasons renamed into one closed
+ * vocabulary, plus the one v1 could not express: `superseded` — a new proposal replaced the
+ * worker's older open card (v1 had no reason for it, so the funnel's
+ * proposed − confirmed − cancelled had a remainder). `worker` becomes `worker_declined`;
+ * `expired` and `stale` keep their names.
+ */
+export const ChatCompanionEditCancelledV2Payload = z
+  .object({
+    proposal_id: uuidSchema,
+    reason: z.enum(["worker_declined", "expired", "stale", "superseded"]),
+  })
+  .strict();
+export type ChatCompanionEditCancelledV2Payload = z.infer<
+  typeof ChatCompanionEditCancelledV2Payload
+>;
+
+/**
+ * THE WORKER TAPPED HAAN AND THE SELECTED ROWS APPLIED, v2 (TD150). v1's fields, with the
+ * consent case named honestly: `resume_regen` gains `skipped_no_consent` — the edits ARE written
+ * but no regeneration was asked for, because the worker's consent does not name
+ * `resume_generation`. v1 recorded this as `failed`, which made a deliberate skip look like a
+ * defect.
+ */
+export const ChatCompanionEditConfirmedV2Payload = z
+  .object({
+    proposal_id: uuidSchema,
+    applied_count: z.number().int().positive(),
+    sections: z.array(z.enum(COMPANION_V2_EDIT_SECTIONS)).min(1),
+    resume_regen: z.enum(["queued", "capped", "failed", "skipped_no_consent"]),
+  })
+  .strict();
+export type ChatCompanionEditConfirmedV2Payload = z.infer<
+  typeof ChatCompanionEditConfirmedV2Payload
+>;
+
+/**
+ * A CONFIRM ROLLED BACK BEFORE ANYTHING WAS COMMITTED (TD150) — the writer transaction threw and
+ * every staged write was undone; the card is still stored and served again, so the worker may tap
+ * Haan once more. New in v1: v1 recorded only the turn event's `fallback` outcome and had no
+ * dedicated event, so a rollback was invisible in the edit funnel.
+ */
+export const ChatCompanionEditRolledBackPayload = z
+  .object({
+    proposal_id: uuidSchema,
+    row_count: z.number().int().positive(),
+    sections: z.array(z.enum(COMPANION_V2_EDIT_SECTIONS)).min(1),
+    reason: z.enum(["apply_failed"]),
+  })
+  .strict();
+export type ChatCompanionEditRolledBackPayload = z.infer<
+  typeof ChatCompanionEditRolledBackPayload
+>;
+
+/**
+ * A FALTU STRIKE WAS COUNTED, v2 (TD150) — v1's count and boolean, plus the idempotency key the
+ * strike belongs to when the client sent one. Nullable because an older client sends none; the
+ * replay cache already makes a RETRY one strike, and this key is what lets a duplicate that
+ * arrives WHILE the first request still runs be recognised (the WP8 in-flight claim).
+ */
+export const ChatCompanionFaltuStrikeV2Payload = z
+  .object({
+    strike_count: z.number().int().positive(),
+    cooldown_started: z.boolean(),
+    submission_id: uuidSchema.nullable(),
+  })
+  .strict();
+export type ChatCompanionFaltuStrikeV2Payload = z.infer<typeof ChatCompanionFaltuStrikeV2Payload>;
+
+/**
+ * A CAREER ANSWER WAS SERVED, v2 (TD150) — v1's disposition plus the submission id when the
+ * client sent one (same contract as the faltu v2 above).
+ */
+export const ChatCompanionCareerAnsweredV2Payload = z
+  .object({
+    outcome: z.enum(["answered", "refused", "fallback"]),
+    refusal_topic: z.enum(COMPANION_V2_CAREER_REFUSAL_TOPICS).nullable(),
+    turns_in_memory: z.number().int().min(0).max(6),
+    submission_id: uuidSchema.nullable(),
+  })
+  .strict();
+export type ChatCompanionCareerAnsweredV2Payload = z.infer<
+  typeof ChatCompanionCareerAnsweredV2Payload
+>;
 
 // ── THE GENERAL ROAD (ADR-0045) ──────────────────────────────────────────────────────────────
 //

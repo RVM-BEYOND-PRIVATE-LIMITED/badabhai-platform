@@ -797,6 +797,7 @@ class AgencyJobView extends Equatable {
     this.shift,
     this.benefits,
     this.requirements,
+    this.matchSkillIds = const <String>[],
     this.createdAt,
     this.updatedAt,
   });
@@ -823,6 +824,9 @@ class AgencyJobView extends Equatable {
         shift: row['shift'] as String?,
         benefits: _optionalStringList(row['benefits']),
         requirements: _optionalStringList(row['requirements']),
+        // ADR-0050 — the closed-set demand skills (`match_skill_ids`), returned
+        // as an array once the API serves it; absent stays `[]` (no skills).
+        matchSkillIds: _optionalStringList(row['match_skill_ids']) ?? const <String>[],
         applicantsReceived: (row['applicantsReceived'] as num?)?.toInt() ?? 0,
         createdAt: row['createdAt'] as String?,
         updatedAt: row['updatedAt'] as String?,
@@ -857,6 +861,10 @@ class AgencyJobView extends Equatable {
   final String? shift;
   final List<String>? benefits;
   final List<String>? requirements;
+
+  /// The closed-set demand skills this agency job asks for (`match_skill_ids`,
+  /// ADR-0050). Empty when none picked / the API does not serve it yet.
+  final List<String> matchSkillIds;
   final int applicantsReceived;
   final String? createdAt;
   final String? updatedAt;
@@ -910,6 +918,7 @@ class AgencyJobView extends Equatable {
         shift,
         benefits,
         requirements,
+        matchSkillIds,
         applicantsReceived,
         createdAt,
         updatedAt,

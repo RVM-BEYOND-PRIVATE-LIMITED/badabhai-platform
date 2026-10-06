@@ -62,6 +62,9 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
     String? shift,
     List<String>? benefits,
     List<String>? requirements,
+    /// ADR-0050 — the demand-skill pick (`match_skill_ids`). Null omits it (the
+    /// stored set survives); a passed list (including `[]`) replaces it.
+    List<String>? matchSkillIds,
     List<AgencyJobClearField>? clear,
   }) =>
       _lifecycle(
@@ -81,6 +84,7 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
           shift: shift,
           benefits: benefits,
           requirements: requirements,
+          matchSkillIds: matchSkillIds,
           clear: clear,
         ),
         okMessage: 'Job updated.',
