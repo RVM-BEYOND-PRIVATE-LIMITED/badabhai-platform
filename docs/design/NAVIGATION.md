@@ -194,7 +194,7 @@ users today. No link to an O route is rendered for a non-owner.
 | Company | Hiring       | New posting      | `/postings/new`     | `postings/new/page.tsx`     | Create a company posting (`job_postings`)                  | P; agent → redirected to `/agency/jobs/new`    |
 | Company | Hiring       | Postings         | `/postings`         | `postings/page.tsx`         | List + pause / resume / add applicant slots / close        | P; agent → see "Agency on the company surface" |
 | Agency  | Demand       | New posting      | `/agency/jobs/new`  | `agency/jobs/new/page.tsx`  | Create an agency posting (`jobs`, the worker feed's table) | A + F; nav-F                                   |
-| Agency  | Demand       | Postings         | `/agency/jobs`      | `agency/jobs/page.tsx`      | List + edit / pause / resume / close the agency's postings | A + F; nav-F                                   |
+| Agency  | Demand       | Postings         | `/agency/jobs`      | `agency/jobs/page.tsx`      | List + pause / resume / close; links details, applicants, edit | A + F; nav-F                               |
 | Agency  | Supply       | Worker activity  | `/agency/workers`   | `agency/workers/page.tsx`   | Faceless funnel of the workers the agency referred         | A + F; nav-F                                   |
 | Agency  | Supply       | Referrals        | `/agency/referrals` | `agency/referrals/page.tsx` | Invite link, batch links, funnel, earnings / KYC / payouts | A + F; nav-F                                   |
 | Agency  | Supply       | QR invite        | `/agency/qr`        | `agency/qr/page.tsx`        | Printable QR invite sheet                                  | A + F; nav-F                                   |
@@ -204,8 +204,26 @@ users today. No link to an O route is rendered for a non-owner.
 | Agency  | Coming soon  | Revenue (Soon)   | `/agency/revenue`   | `agency/revenue/page.tsx`   | Parked explainer (no data)                                 | A + F; nav-F                                   |
 
 Not in the rail, on purpose: **Bulk invite upload** (`/agency/bulk-upload`). It is dead — a consent
-violation that will never be built (ADR-0022 Amendment 3) — and is never framed as coming. Its one
-way in is the dashboard's Invite tools card, which says why it is not available.
+violation that will never be built (ADR-0022 Amendment 3) — and is never framed as coming. Nothing in
+the portal links to it (final sweep F17: the dashboard's "not available" tile was a dead end, and is
+gone); the route stays so an old link lands on its explanation, which points at batch invite links.
+
+**Agency dashboard doors** (final sweep F15/F21 — a glance, not a second rail). The head's primary
+is New posting (`/agency/jobs/new`). "Your postings" shows three rows — each card opens that
+posting's details, and its "Applicants" link its feed — and "All postings" opens `/agency/jobs`. The
+Account tile opens `/account`. The Referral funnel panel's "Invite workers" is the dashboard's one
+door to `/agency/referrals`, where the invite form and the batch links live. "Not in this release"
+starts closed; Payout details (KYC) and Payouts read "Available on Referrals — payouts are
+simulated" and open Referrals only when the SERVER has payouts on (`AGENCY_PAYOUTS_ENABLED`, read
+the way Referrals reads it: the earnings route answers) — the public `NEXT_PUBLIC_ENABLE_AGENCY_*`
+flags never claim it. Removed (they repeated the rail or led nowhere): the Worker activity, QR
+invite, Batch invites and Bulk invite upload tiles, and the inline invite form. Revenue is a rail
+destination; the agency sections link it nowhere.
+
+**Referrals** (`/agency/referrals`, final sweep F19) reads: the funnel, then "Invite workers" — its
+one primary, "Create invite link", directly under the consent note, with the four optional settings
+in an "Options" disclosure (closed while empty, open whenever one is set) — then the batch links in
+a closed disclosure with a secondary "Create links", then earnings / payouts.
 
 **Plans & capacity is a Company page** (2026-10-01, a consequence of ruling 2): everything it sells
 is an entitlement on company postings (`job_postings`) — concurrent capacity, per-posting applicant
@@ -248,6 +266,8 @@ reopen. The applicants page's "No posting found here" state links to Postings.
 | `/postings/<id>/edit`        | "Hiring › **Postings**" (link)   | Posting details           |
 | `/postings/<id>/applicants`  | "Hiring › **Postings**" (link)   | the posting, by its title |
 | `/agency/jobs/<id>`          | "Demand › Postings" (text)       | Postings                  |
+| `/agency/jobs/<id>/edit`     | "Demand › **Postings**" (link)   | Posting details           |
+| `/agency/jobs/<id>/applicants` | "Demand › **Postings**" (link)   | the posting, by its title |
 | `/team/accept` (owner)       | "Organisation › **Team**" (link) | —                         |
 | `/dashboard`, `/account`     | none                             | —                         |
 
@@ -267,17 +287,24 @@ toolbar. Top-level pages (rail or account menu) have no back link.
 | Company | `/postings/<id>`            | the role title     | Postings                                                | status · View applicants · Edit posting (draft: Edit posting only) | P (owned posting)             |
 | Company | `/postings/<id>/edit`       | Edit posting       | Posting details                                         | — (Save / Publish posting in the form)                             | P; agent → `/postings/<id>`   |
 | Company | `/postings/<id>/applicants` | Applicants         | the posting, by its title ("Posting details" if unread) | toolbar: New / Shortlist tabs                                      | P; agent → `/postings/<id>`   |
-| Agency  | `/agency/jobs/<id>`         | the posting title  | Postings                                                | status                                                             | A + F                         |
-| Agency  | `/agency/bulk-upload`       | Bulk invite upload | Dashboard                                               | —                                                                  | A + F                         |
+| Agency  | `/agency/jobs/<id>`         | the posting title  | Postings                                                | status · Applicants · Edit posting (closed / suspended: Applicants) | A + F                         |
+| Agency  | `/agency/jobs/<id>/edit`    | Edit posting       | Posting details                                         | — (Save changes / Cancel in the form)                              | A + F; closed / suspended → `/agency/jobs/<id>` |
+| Agency  | `/agency/jobs/<id>/applicants` | Applicants         | the posting, by its title                               | —                                                                  | A + F                         |
 
-**An agency posting's applicants are not reachable in the UI** (D1, 2026-10-01). The applicant
-endpoint behind the feed (`GET /payer/reach/jobs/:jobId/applicants`) does not serve agency `jobs`
-rows correctly yet — backend issue #1898. Until it does there is no `/agency/jobs/<id>/applicants`
-route and nothing links to one; an agency posting's details show its applicant COUNT only.
+**An agency posting's applicants** are its own feed (`/agency/jobs/<id>/applicants`, #1956): since
+#1955 the applicant endpoint serves an agency's `jobs` rows — only the workers who applied — so the
+posting's details (primary "Applicants"), its Postings row and its dashboard card all link it.
+
+**An agency posting is edited on its own page** (`/agency/jobs/<id>/edit`, final sweep F02), headed
+like the company edit page, with the head leading the form column so the card preview starts at
+the top. It replaced the inline editor in the Postings row. Its details header and its Postings row
+offer it for an open or paused posting only (`isEditableJob`); a closed or suspended one's edit URL
+lands on its details.
 
 Top-level pages outside the rail (no back link): `/account` (H1 "Account", the account menu's
-item; P) and `/team/accept` (H1 "Join a team", the invite email's link; P — its trail is
-"Organisation › Team" for an owner, none for a recruiter).
+item; P), `/team/accept` (H1 "Join a team", the invite email's link; P — its trail is
+"Organisation › Team" for an owner, none for a recruiter) and `/agency/bulk-upload` (H1 "Bulk invite
+upload", reached by URL only; A + F).
 
 Redirects (kept so old links resolve): `/` → `/dashboard` or `/login`; `/profile` → `/account`;
 `/agency/dashboard` → `/dashboard`; `/capacity` → `/plans#hiring-capacity` (the Hiring capacity

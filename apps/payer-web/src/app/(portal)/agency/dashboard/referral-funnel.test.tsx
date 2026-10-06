@@ -74,7 +74,7 @@ describe("ReferralFunnel — each stage is a COUNT, not a door (one way to Refer
     return acc;
   }
 
-  it("renders the three stage cards with no link (the Invite tools card is the dashboard's door)", () => {
+  it("renders the three stage cards with no link (the funnel panel's \"Invite workers\" is the door)", () => {
     const summary: AgencyReferralsSummary = { created: 30, clicked: 12, accepted: 5, minBucket: 5 };
     const cards = findCards(ReferralFunnel({ summary }));
     expect(cards.length).toBe(3);

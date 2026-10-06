@@ -111,24 +111,10 @@ export default async function AgencyReferralsPage() {
         description="Share your referral link, track your consent-safe funnel (aggregate counts, never a per-worker breakdown) and, where enabled, your mock referral earnings."
       />
 
-      {/* a) REFERRAL LINK — LIVE faceless mint (opaque code/link + copy; consent-first). */}
-      <AgencyInvitePanel />
-
       {/*
-        a2) BATCH MINT — the same faceless mint, N at a time (≤50) for a gate drive or a
-        print run. Cardinality-shaped: the ONLY inputs are a count and one shared non-PII
-        tag. This is NOT the parked "Bulk Invite Upload" (dead by design — it ingests worker
-        contacts); nothing here accepts, stores or sends a worker identity.
-
-        `id` is the in-page anchor target for the dashboard's "Batch invites" tile
-        (/agency/referrals#batch-invites) — the batch mint's entry point from "Invite tools".
-      */}
-      <div id="batch-invites" className="anchor-target">
-        <AgencyBatchInvitePanel />
-      </div>
-
-      {/*
-        b) REFERRAL FUNNEL — LIVE aggregate, k-anon floored (no per-invitee oracle).
+        a) REFERRAL FUNNEL — LIVE aggregate, k-anon floored (no per-invitee oracle). FIRST (final
+        sweep F19): it is what the page reports, and above the forms it puts "Create invite link"
+        on screen sooner than the forms' own fields and prose did (measured at 1280 / 375).
 
         A `.section` (not a `.panel`): the body is a run of StatTiles that already carry their
         own surface, so a bordered frame around them would be a box inside a box. The k-anon
@@ -200,7 +186,20 @@ export default async function AgencyReferralsPage() {
         )}
       </section>
 
-      {/* c) SUPPLY MONEY — earnings + KYC + payout, gated behind AGENCY_PAYOUTS_ENABLED. */}
+      {/* b) REFERRAL LINK — LIVE faceless mint (opaque code/link + copy; consent-first). Its
+          "Create invite link" is this page's ONE primary, right under the consent note. */}
+      <AgencyInvitePanel />
+
+      {/*
+        c) BATCH MINT — the same faceless mint, N at a time (≤50) for a gate drive or a print
+        run. Cardinality-shaped: the ONLY inputs are a count and one shared non-PII tag. This is
+        NOT the dead "Bulk Invite Upload" (it ingests worker contacts); nothing here accepts,
+        stores or sends a worker identity. The page's SECONDARY tool: a closed disclosure whose
+        "Create links" is a secondary button. It owns the `#batch-invites` fragment target.
+      */}
+      <AgencyBatchInvitePanel />
+
+      {/* d) SUPPLY MONEY — earnings + KYC + payout, gated behind AGENCY_PAYOUTS_ENABLED. */}
       {earningsError ? (
         <section className="section">
           <div className="section__head">

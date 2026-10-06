@@ -26,8 +26,8 @@ export const dynamic = "force-dynamic";
  *
  * COMPANY postings only. An agent is sent to the posting's details BEFORE any read: an agency's
  * older company postings are view-only (owner ruling 2026-10-01), and this feed unlocks
- * contacts. There is no agency route onto this feed either — an agency posting's applicants are
- * not reachable in the UI until the endpoint behind it serves agency jobs (backend issue #1898).
+ * contacts. An agency's OWN postings have their own feed, `/agency/jobs/<id>/applicants` (#1956),
+ * which the same endpoint serves since #1955 — this company route is never its way in.
  *
  * The page NAMES ITS POSTING (in the back link and the description) from the read it already
  * makes: the dashboard read carries the payer's postings list. No extra fetch; if that read fails

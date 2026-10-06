@@ -491,3 +491,78 @@ describe("AgencyJobForm — the editor's lead, the refused create's reason, and 
     expect(bad!.disabled).toBe(true);
   });
 });
+
+describe("AgencyJobForm — copy (final sweep F36: one name per concept)", () => {
+  /** Every field's `hint` prop, in form order (the DS fields are not expanded). */
+  function hintsOf(node: ReactNode, out: string[] = []): string[] {
+    if (node === null || node === undefined || typeof node !== "object") return out;
+    if (Array.isArray(node)) {
+      for (const c of node) hintsOf(c, out);
+      return out;
+    }
+    const el = node as ReactElement<{ hint?: unknown; children?: ReactNode }>;
+    if (typeof el.props.hint === "string") out.push(el.props.hint);
+    if ("children" in el.props) hintsOf(el.props.children, out);
+    return out;
+  }
+
+  it("the field hints say 'posting' and 'company name' — never 'job' or 'employer name'", () => {
+    const hints = hintsOf(render({ fields: VALID_FIELDS, fieldErrors: {} })).join(" ");
+    expect(hints).toContain("never a company name or contact details");
+    expect(hints).toContain("workers read it when they open the posting");
+    expect(hints).not.toMatch(/employer name/i);
+    expect(hints).not.toMatch(/open the job/i);
+  });
+});
+
+describe("AgencyJobForm — a saved form stays busy while its page navigates away (F02)", () => {
+  // Both hosts leave the page on success (create → the new posting, edit → its details). Until the
+  // navigation lands, the button must not offer a second save of the same values.
+  // useState order: fields, fieldErrors, error, requirements, benefits, reqDraft, benDraft, gap,
+  // revealed, navigating (APPENDED).
+  const NAVIGATING = 9;
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it("a successful save marks the form as navigating (setter called with true)", async () => {
+    const first = useState.mock.results.length;
+    const tree = renderWith(FULL_AGENCY, { mode: "edit", chips: [["Fanuc control"], ["Canteen"], "", ""] });
+    const setNavigating = useState.mock.results[first + NAVIGATING]!.value[1] as ReturnType<typeof vi.fn>;
+    await formOf(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    await flush();
+    expect(setNavigating).toHaveBeenCalledWith(true);
+  });
+
+  it("a refused save does NOT (the payer stays to fix it)", async () => {
+    const first = useState.mock.results.length;
+    const tree = renderWith(FULL_AGENCY, {
+      mode: "edit",
+      chips: [["Fanuc control"], ["Canteen"], "", ""],
+      onSubmit: (async () => ({ ok: false, error: "nope" })) as never,
+    });
+    const setNavigating = useState.mock.results[first + NAVIGATING]!.value[1] as ReturnType<typeof vi.fn>;
+    await formOf(tree)!.props.onSubmit({ preventDefault: () => undefined });
+    await flush();
+    expect(setNavigating).not.toHaveBeenCalled();
+  });
+
+  it("while navigating, every submit button is disabled and reads 'Saving…'", () => {
+    stateQueue = [FULL_AGENCY, {}, null, ["Fanuc control"], ["Canteen"], "", "", null, {}, true];
+    stateCursor = 0;
+    const tree = AgencyJobForm({
+      mode: "edit",
+      job: JOB as never,
+      submitLabel: "Save changes",
+      onSubmit: async () => ({ ok: true }),
+      onCancel: () => undefined,
+    }) as ReactElement;
+    const submits = collect(tree).buttons.filter((b) => b.type === "submit");
+    expect(submits.length).toBeGreaterThan(0);
+    for (const b of submits) {
+      expect(b.disabled).toBe(true);
+      expect(b.text).toContain("Saving…");
+    }
+    const cancels = collect(tree).buttons.filter((b) => b.text === "Cancel");
+    expect(cancels.length).toBeGreaterThan(0);
+    for (const b of cancels) expect(b.disabled).toBe(true);
+  });
+});

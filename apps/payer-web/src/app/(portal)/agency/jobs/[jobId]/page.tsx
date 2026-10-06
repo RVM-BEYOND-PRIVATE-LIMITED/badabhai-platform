@@ -4,7 +4,7 @@ import { ACTION_ICON } from "@badabhai/icons";
 import { getAgencyJob } from "../../../../../lib/payer-api";
 import { requireAgent } from "../../../../../lib/auth/roles";
 import { agencyFlags } from "../../../../../lib/config";
-import { day, tradeLabel } from "../../../../../lib/agency-view";
+import { day, isEditableJob, tradeLabel } from "../../../../../lib/agency-view";
 import {
   cardFieldsFromAgencyJob,
   experienceLabel,
@@ -32,6 +32,10 @@ export const dynamic = "force-dynamic";
  * plain not-found for any non-agent session (no role leak); an unknown OR not-owned
  * job is the SAME neutral 404 (no-oracle) → `notFound()`. FACELESS by construction:
  * ids / status / bands / counts only — no worker identity on this page, ever.
+ *
+ * HEADER (final sweep F14 — the company detail's contract): status · primary "Applicants" (the
+ * posting's REAL applicants, #1956) · secondary "Edit posting" (its own page, F02). Edit is offered
+ * only where the Postings row offers it (`isEditableJob`: open or paused).
  */
 export default async function AgencyJobDetailPage({
   params,
@@ -61,14 +65,23 @@ export default async function AgencyJobDetailPage({
           </Badge>
         }
         // The REAL applicants for this agency job (#1956) — the feed serves the workers who
-        // applied since #1955. Secondary: the posting itself is this page's subject.
-        secondaryActions={[
-          {
-            href: `/agency/jobs/${jobId}/applicants`,
-            label: "Applicants",
-            icon: ACTION_ICON.users,
-          },
-        ]}
+        // applied since #1955.
+        primaryAction={{
+          href: `/agency/jobs/${jobId}/applicants`,
+          label: "Applicants",
+          icon: ACTION_ICON.users,
+        }}
+        secondaryActions={
+          isEditableJob(job)
+            ? [
+                {
+                  href: `/agency/jobs/${jobId}/edit`,
+                  label: "Edit posting",
+                  icon: ACTION_ICON.edit,
+                },
+              ]
+            : []
+        }
       />
 
       <div className="posting-layout">

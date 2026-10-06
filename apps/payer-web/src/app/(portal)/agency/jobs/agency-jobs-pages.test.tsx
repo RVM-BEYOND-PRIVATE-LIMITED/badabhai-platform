@@ -8,11 +8,13 @@ import type * as ConfigModule from "../../../../lib/config";
  * The AGENCY posting pages (owner ruling 2026-10-01: an agency posts agency `jobs` only):
  *   /agency/jobs        "Postings"    — its own postings, managed in one place;
  *   /agency/jobs/new    "New posting" — every agency "post" entry point opens it;
- *   /agency/jobs/<id>   "Posting details".
+ *   /agency/jobs/<id>   "Posting details";
+ *   /agency/jobs/<id>/edit "Edit posting" (final sweep F02 — it replaced the inline row editor).
  * Each gates like every agency page: `requireAgent()` FIRST (anyone else gets the neutral 404),
  * then the agency-portal flag (off → the route does not exist) — both BEFORE any read. The
- * details page also refuses a non-uuid id before the read, and offers a secondary link to the
- * posting's REAL applicants (#1956 — the feed serves them since #1955).
+ * details and edit pages also refuse a non-uuid id before the read. The details header has the
+ * company detail's contract (F14): the primary opens the posting's REAL applicants (#1956 — the
+ * feed serves them since #1955), the secondary edits it.
  */
 
 const AGENT: PayerSession = {
@@ -35,13 +37,22 @@ vi.mock("../../../../lib/config", async (importOriginal) => {
   const actual = await importOriginal<typeof ConfigModule>();
   return { ...actual, agencyFlags: () => flags };
 });
-vi.mock("next/navigation", () => ({ notFound: () => notFound() }));
+const redirect = vi.fn((to: string) => {
+  throw new Error(`NEXT_REDIRECT ${to}`);
+});
+vi.mock("next/navigation", () => ({
+  notFound: () => notFound(),
+  redirect: (to: string) => redirect(to),
+}));
 vi.mock("../../../../lib/payer-api", () => ({
   listAgencyJobs: () => listAgencyJobs(),
   getAgencyJob: (id: string) => getAgencyJob(id),
 }));
 vi.mock("../dashboard/agency-jobs-manager", () => ({ AgencyJobsManager: () => null }));
-vi.mock("./new/new-agency-posting", () => ({ NewAgencyPosting: () => null }));
+const NewAgencyPostingStub = vi.fn(() => null);
+vi.mock("./new/new-agency-posting", () => ({ NewAgencyPosting: NewAgencyPostingStub }));
+const EditAgencyPostingStub = vi.fn(() => null);
+vi.mock("./[jobId]/edit/edit-agency-posting", () => ({ EditAgencyPosting: EditAgencyPostingStub }));
 vi.mock("../../../../components/job-card-preview", () => ({ JobCardPreview: () => null }));
 vi.mock("../../../../components/retry-button", () => ({ RetryButton: () => null }));
 
@@ -49,6 +60,7 @@ const { PageHeader } = await import("../../../../components/page-header");
 const list = await import("./page");
 const create = await import("./new/page");
 const detail = await import("./[jobId]/page");
+const edit = await import("./[jobId]/edit/page");
 
 const JOB: AgencyJob = {
   id: "00000001-0000-4000-8000-000000000001",
@@ -68,6 +80,7 @@ const JOB: AgencyJob = {
 };
 const params = (jobId: string) => ({ params: Promise.resolve({ jobId }) });
 
+/** The page's ONE PageHeader — in its children, or in the `lead` it hands a posting form. */
 function head(tree: unknown): Record<string, unknown> {
   const found: ReactElement[] = [];
   (function walk(node: ReactNode): void {
@@ -76,9 +89,10 @@ function head(tree: unknown): Record<string, unknown> {
       node.forEach(walk);
       return;
     }
-    const el = node as ReactElement<{ children?: ReactNode }>;
+    const el = node as ReactElement<{ children?: ReactNode; lead?: ReactNode }>;
     if (el.type === PageHeader) found.push(el);
     if (el.props && "children" in el.props) walk(el.props.children);
+    if (el.props && "lead" in el.props) walk(el.props.lead);
   })(tree as ReactNode);
   expect(found).toHaveLength(1);
   return found[0]!.props as Record<string, unknown>;
@@ -88,6 +102,8 @@ beforeEach(() => {
   requireAgent.mockReset().mockResolvedValue(AGENT);
   flags.agencyPortalEnabled = true;
   notFound.mockClear();
+  redirect.mockClear();
+  EditAgencyPostingStub.mockClear();
   listAgencyJobs.mockReset().mockResolvedValue([JOB]);
   getAgencyJob.mockReset().mockImplementation(async (id) => (id === JOB.id ? JOB : null));
 });
@@ -96,6 +112,7 @@ const PAGES = [
   ["/agency/jobs", () => list.default()],
   ["/agency/jobs/new", () => create.default()],
   ["/agency/jobs/<id>", () => detail.default(params(JOB.id))],
+  ["/agency/jobs/<id>/edit", () => edit.default(params(JOB.id))],
 ] as const;
 
 describe("agency posting pages — requireAgent, then the flag, both before any read", () => {
@@ -137,15 +154,101 @@ describe("the heads — Posting naming, one door each", () => {
     expect(h.primaryAction).toBeUndefined();
   });
 
-  it("Posting details: back to Postings, plus a secondary link to its REAL applicants (#1956)", async () => {
+  it("New posting (F01): the head LEADS the form column, so the card rail starts at the top", async () => {
+    // Rendered above the form instead, the head pushed the rail 76px down and the publish button
+    // out of a 720px viewport (measured: rail top 161 vs the company form's 85).
+    const tree = (await create.default()) as ReactElement<{ lead?: ReactNode }>;
+    expect(tree.type).toBe(NewAgencyPostingStub);
+    const lead = tree.props.lead as ReactElement<{ title: string }>;
+    expect(lead.type).toBe(PageHeader);
+    expect(lead.props.title).toBe("New posting");
+  });
+
+  it("Posting details (F14): status · primary Applicants (#1956) · secondary Edit posting", async () => {
     const tree = await detail.default(params(JOB.id));
     const h = head(tree);
     expect(h.title).toBe("CNC Operator");
     expect(h.back).toEqual({ href: "/agency/jobs", label: "Postings" });
-    expect(h.primaryAction).toBeUndefined();
+    expect(h.status).toBeDefined();
+    expect(h.primaryAction).toEqual({
+      href: `/agency/jobs/${JOB.id}/applicants`,
+      label: "Applicants",
+      icon: "users-three",
+    });
     expect(h.secondaryActions).toEqual([
-      { href: `/agency/jobs/${JOB.id}/applicants`, label: "Applicants", icon: "users-three" },
+      { href: `/agency/jobs/${JOB.id}/edit`, label: "Edit posting", icon: "pencil-simple" },
     ]);
+  });
+
+  it("Posting details: a closed or suspended posting offers no edit door (as on its list row)", async () => {
+    for (const status of ["closed", "suspended"] as const) {
+      getAgencyJob.mockResolvedValueOnce({ ...JOB, status });
+      const h = head(await detail.default(params(JOB.id)));
+      expect(h.primaryAction).toMatchObject({ label: "Applicants" });
+      expect(h.secondaryActions, status).toEqual([]);
+    }
+  });
+
+  it("Edit posting (F02): back to the posting's details, H1 'Edit posting', no header action", async () => {
+    const h = head(await edit.default(params(JOB.id)));
+    expect(h.back).toEqual({ href: `/agency/jobs/${JOB.id}`, label: "Posting details" });
+    expect(h.title).toBe("Edit posting");
+    expect(h.primaryAction).toBeUndefined();
+    expect(h.secondaryActions ?? []).toEqual([]);
+  });
+});
+
+describe("/agency/jobs/<id>/edit — the dedicated edit page (F02, replaces the inline row editor)", () => {
+  type FormProps = { job: AgencyJob; lead: ReactNode };
+  async function form(): Promise<ReactElement<FormProps>> {
+    const tree = (await edit.default(params(JOB.id))) as ReactElement<FormProps>;
+    expect(tree.type).toBe(EditAgencyPostingStub);
+    return tree;
+  }
+
+  it("hands the form the posting it read, and its head as the form column's LEAD (rail at the top)", async () => {
+    const el = await form();
+    expect(el.props.job).toEqual(JOB);
+    expect((el.props.lead as ReactElement).type).toBe(PageHeader);
+  });
+
+  it("keys the form on the saved revision — a newer copy of the posting is a NEW form", async () => {
+    const first = await form();
+    getAgencyJob.mockResolvedValueOnce({ ...JOB, updatedAt: "2026-09-02T00:00:00.000Z" });
+    const second = await form();
+    expect(first.key).toBe(JOB.updatedAt);
+    expect(second.key).toBe("2026-09-02T00:00:00.000Z");
+  });
+
+  it("a non-uuid id is a 404 BEFORE the read", async () => {
+    await expect(edit.default(params("../credits"))).rejects.toThrow("NEXT_NOT_FOUND");
+    expect(getAgencyJob).not.toHaveBeenCalled();
+  });
+
+  it("an unknown or not-owned job is the same neutral 404", async () => {
+    await expect(edit.default(params("00000001-0000-4000-8000-0000000000ff"))).rejects.toThrow(
+      "NEXT_NOT_FOUND",
+    );
+    expect(getAgencyJob).toHaveBeenCalledTimes(1);
+  });
+
+  it("a closed or suspended posting is not edited here — the page sends the payer to its details", async () => {
+    for (const status of ["closed", "suspended"] as const) {
+      getAgencyJob.mockResolvedValueOnce({ ...JOB, status });
+      await expect(edit.default(params(JOB.id))).rejects.toThrow(`NEXT_REDIRECT /agency/jobs/${JOB.id}`);
+    }
+    // Both redirects went to the details page, after reading the posting (not before).
+    expect(redirect.mock.calls).toEqual([[`/agency/jobs/${JOB.id}`], [`/agency/jobs/${JOB.id}`]]);
+    expect(getAgencyJob).toHaveBeenCalledTimes(2);
+  });
+
+  it("an open or paused posting is NOT redirected — the form is the page", async () => {
+    for (const status of ["open", "paused"] as const) {
+      getAgencyJob.mockResolvedValueOnce({ ...JOB, status });
+      const tree = (await edit.default(params(JOB.id))) as ReactElement;
+      expect(tree.type, status).toBe(EditAgencyPostingStub);
+    }
+    expect(redirect).not.toHaveBeenCalled();
   });
 });
 

@@ -46,7 +46,11 @@ import { PostingActions, PostingPreviewRail } from "../../../../components/posti
  *
  * The workerCardGap rule fires on CREATE (an agency job goes live immediately — create == publish),
  * blocking a thin card. On EDIT of a live job the gaps are HIGHLIGHTED, never blocked (owner ruling).
- * NO employer-name field, NO worker field (faceless/coarse); the session payer is stamped server-side.
+ * NO company-name field, NO worker field (faceless/coarse); the session payer is stamped server-side.
+ *
+ * Two hosts, each on its own page: New posting (`/agency/jobs/new`) and Edit posting
+ * (`/agency/jobs/<id>/edit`). Each passes its page head as `lead` and LEAVES the page when the save
+ * succeeds — so a saved form stays busy until it is gone (no second save of the same values).
  */
 
 const ROLE_GROUPS = roleOptionGroups();
@@ -91,9 +95,10 @@ type FieldKey = "title" | "city";
 type FieldErrors = Partial<Record<FieldKey, string>>;
 
 /**
- * DOM ids that differ from their field's name. The agent dashboard draws this form beside the
- * invite panel, which has its own `#city`: two `#city`s gave the job form's label, its description
- * and a refused create's focus to the wrong box. Focus (`controlId`) goes by these ids.
+ * DOM ids that differ from their field's name. The invite panel has its own `#city`, and the agency
+ * dashboard once drew this form beside it: two `#city`s gave the job form's label, its description
+ * and a refused create's focus to the wrong box. The id stays distinct so the two can never collide
+ * again. Focus (`controlId`) goes by these ids.
  */
 const CONTROL_ID: Readonly<Partial<Record<string, string>>> = { city: "job-city" };
 const controlId = (field: string): string => CONTROL_ID[field] ?? field;
@@ -154,13 +159,13 @@ export function AgencyJobForm({
   onCancel?: () => void;
   submitLabel: string;
   /**
-   * What heads the form column — the create card's heading, or the vacancy row's own header on
-   * edit — so the preview rail starts level with the top of the host, not below it.
+   * What heads the form column — the page's own header on New posting and Edit posting — so the
+   * preview rail starts level with the top of the page's content, not below the header.
    */
   lead?: ReactNode;
 }) {
   // useState call order (mirrored by agency-job-form.test.tsx): fields, fieldErrors, error,
-  // requirements, benefits, reqDraft, benDraft, gap, revealed. APPEND new state only.
+  // requirements, benefits, reqDraft, benDraft, gap, revealed, navigating. APPEND new state only.
   const [fields, setFields] = useState<FormFields>(job ? fromJob(job) : BLANK);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
@@ -170,10 +175,13 @@ export function AgencyJobForm({
   const [benDraft, setBenDraft] = useState("");
   const [gap, setGap] = useState<WorkerCardGap | null>(null);
   const [revealed, setRevealed] = useState<RevealedNumbers>({});
+  // Set once a save SUCCEEDED: the host is navigating away, so the form stays busy until it unmounts.
+  const [navigating, setNavigating] = useState(false);
   const [pending, startTransition] = useTransition();
+  const busy = pending || navigating;
 
-  // One form per job on the page (the create form and each row's edit form never coexist, but the
-  // id stays unique regardless) — the rail's buttons submit it through the `form` attribute.
+  // One form per page; the id names the job regardless — the rail's buttons submit it through the
+  // `form` attribute.
   const formId = `agency-job-form-${job?.id ?? "new"}`;
 
   // THE ONE READ — the preview, the inline errors, the gap rule and the submit all use it.
@@ -271,17 +279,15 @@ export function AgencyJobForm({
         setError(res.error);
         return;
       }
-      if (mode === "create") {
-        setFields(BLANK);
-        setRequirements([]);
-        setBenefits([]);
-      }
+      // The host leaves the page (create → the new posting, edit → its details). The values stay
+      // as saved — the card does not blank under the payer — and nothing can be saved twice.
+      setNavigating(true);
     });
   }
 
   const primary = (
-    <Button type="submit" form={formId} disabled={pending || !isValid} loading={pending}>
-      {pending ? "Saving…" : submitLabel}
+    <Button type="submit" form={formId} disabled={busy || !isValid} loading={busy}>
+      {busy ? "Saving…" : submitLabel}
     </Button>
   );
   // ONE status: the rail footer on desktop, the dock below 1024px (the form's end repeats only
@@ -310,7 +316,7 @@ export function AgencyJobForm({
     <>
       {primary}
       {onCancel ? (
-        <Button variant="secondary" type="button" disabled={pending} onClick={onCancel}>
+        <Button variant="secondary" type="button" disabled={busy} onClick={onCancel}>
           Cancel
         </Button>
       ) : null}
@@ -343,7 +349,7 @@ export function AgencyJobForm({
             ))}
           </Select>
 
-          <Input id="title" label="Role title" placeholder="CNC Operator — Night Shift" value={fields.title} error={fieldErrors.title} aria-invalid={fieldErrors.title ? true : undefined} hint="The heading of the worker's card — a generic role title, never an employer name or contact details." onChange={(e) => set("title", e.target.value)} />
+          <Input id="title" label="Role title" placeholder="CNC Operator — Night Shift" value={fields.title} error={fieldErrors.title} aria-invalid={fieldErrors.title ? true : undefined} hint="The heading of the worker's card — a generic role title, never a company name or contact details." onChange={(e) => set("title", e.target.value)} />
 
           <div className="agency-job-form__pair">
             <Input id={controlId("city")} label="City" placeholder="Pune" value={fields.city} error={errorOf("city", fieldErrors.city)} aria-invalid={errorOf("city", fieldErrors.city) ? true : undefined} onChange={(e) => set("city", e.target.value)} />
@@ -388,7 +394,7 @@ export function AgencyJobForm({
             </Select>
           </div>
 
-          <Textarea id="description" label="Description" value={fields.description} rows={3} onFocus={revealWholeControl} error={errorOf("description")} aria-invalid={errorOf("description") ? true : undefined} hint="What the work is — workers read it when they open the job. Never a phone/email or a company name." onChange={(e) => set("description", e.target.value)} />
+          <Textarea id="description" label="Description" value={fields.description} rows={3} onFocus={revealWholeControl} error={errorOf("description")} aria-invalid={errorOf("description") ? true : undefined} hint="What the work is — workers read it when they open the posting. Never a phone/email or a company name." onChange={(e) => set("description", e.target.value)} />
 
           <ChipEditor
             id="requirements"
@@ -435,7 +441,7 @@ export function AgencyJobForm({
         primary={primary}
         status={statusLine}
         outcome={outcomeLine}
-        busy={pending}
+        busy={busy}
       />
     </div>
   );
