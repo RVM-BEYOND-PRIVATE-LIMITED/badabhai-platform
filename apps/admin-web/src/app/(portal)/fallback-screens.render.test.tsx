@@ -39,6 +39,16 @@ describe("the error boundary", () => {
     expect(out).not.toContain('<h1 class="state__title">');
   });
 
+  it("its alert region says what failed on its own — the h1 sits outside it", () => {
+    // Assistive tech announces a role="alert" region's own text. With the title moved into the
+    // page header, the region opened on "It does not mean your session ended" — a reassurance
+    // about a failure it never named.
+    const out = renderError();
+    const alert = out.slice(out.indexOf('role="alert"'));
+    const body = /<p class="state__body">([^<]*)<\/p>/.exec(alert)?.[1] ?? "";
+    expect(body.startsWith("This screen failed to load.")).toBe(true);
+  });
+
   it("names its button Retry — never Try again", () => {
     const out = renderError();
     expect(out).toMatch(/<button[^>]*>(<i [^>]*><\/i>)?Retry<\/button>/);

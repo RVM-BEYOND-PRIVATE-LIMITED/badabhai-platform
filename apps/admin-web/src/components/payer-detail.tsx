@@ -55,6 +55,9 @@ export function PayerDetailView({
   const posture = identityPosture([payer], "org_name", can(capabilities, "read_identity"));
   const orgName = displayName(payer.org_name);
 
+  /** What this page calls the customer in a sentence — never "account" (owner ruling 2026-10-01). */
+  const noun = kind === "Company" ? "company" : "agency";
+
   // The id keeps its `mono` treatment; an organisation name does not get one.
   const header = {
     back: { href: backHref, label: kind === "Company" ? "Companies" : "Agencies" },
@@ -62,7 +65,7 @@ export function PayerDetailView({
     titleMono: orgName === null,
     description: (
       <>
-        One {kind === "Company" ? "company" : "agency"} account — what it has posted and
+        One {noun} — what it has posted and
         spent{orgName === null ? ", not who registered it" : ""} —{" "}
         {postings === null ? (
           /* The postings read FAILED (the panel below says so). "No postings yet" would be a
@@ -93,7 +96,7 @@ export function PayerDetailView({
 
       {posture === "capped" && (
         <IdentityCapNotice>
-          Your role may see this account&apos;s registered name, so the heading above falls back
+          Your role may see this {noun}&apos;s registered name, so the heading above falls back
           to its id: this admin account has spent its hourly name budget.
         </IdentityCapNotice>
       )}
@@ -103,7 +106,7 @@ export function PayerDetailView({
           <strong>Suspended.</strong> Their postings are hidden from the worker feed and
           their sessions are revoked. Reinstating restores each posting to the state it held
           before the suspension
-          {payer.previous_status ? ` (the account returns to ${payer.previous_status})` : ""}.
+          {payer.previous_status ? ` (the ${noun} returns to ${payer.previous_status})` : ""}.
         </section>
       )}
 
@@ -193,7 +196,7 @@ export function PayerDetailView({
             <h2 className="panel__title" id="p-postings">
               Postings
             </h2>
-            <p className="panel__sub">The most recent postings this account has created.</p>
+            <p className="panel__sub">The most recent postings this {noun} has created.</p>
           </div>
           {payer.posting_count > 0 && (
             <Link className="btn btn--ghost" href={`/jobs?payerId=${payer.id}`}>
@@ -207,9 +210,9 @@ export function PayerDetailView({
           <div className="state state--error">
             <h3 className="state__title">Their postings could not be loaded</h3>
             <p className="state__body">
-              The account record above loaded, but the postings read failed — so this table
+              The {noun} record above loaded, but the postings read failed — so this table
               is missing, not empty. The same read supplies the self-declared labels in the
-              header, which is why this account is described without one.
+              header, which is why this {noun} is described without one.
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href={`${backHref}/${payer.id}`}>
@@ -222,15 +225,15 @@ export function PayerDetailView({
           <div className="state">
             <h3 className="state__title">No postings yet</h3>
             <p className="state__body">
-              This account has never created one, so it has published nothing to workers and
-              carries no self-declared label. A registered account that never posts is the
+              This {noun} has never created one, so it has published nothing to workers and
+              carries no self-declared label. A registered {noun} that never posts is the
               normal shape of an abandoned signup — its event timeline shows how far it got.
             </p>
           </div>
         ) : (
           <div className="tablewrap">
             <table className="table">
-              <caption className="sr-only">Postings for this account</caption>
+              <caption className="sr-only">Postings for this {noun}</caption>
               <thead>
                 <tr>
                   <th scope="col">Role title</th>

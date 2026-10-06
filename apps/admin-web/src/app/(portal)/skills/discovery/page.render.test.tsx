@@ -576,7 +576,7 @@ describe("error states", () => {
     const out = await render({ view: "flat", cursor: "stale" });
     expect(out).toContain("The server rejected this request");
     // …and says what was refused: the cursor, not "one of the filters" that are not set.
-    expect(out).toContain("A page cursor is an opaque value");
+    expect(out).toContain("not one this list ever issued");
     expect(out).not.toContain("One of the filters");
     const first = firstPageHref(out);
     expect(first).toContain("view=flat");
@@ -586,16 +586,16 @@ describe("error states", () => {
     expect(out).not.toContain(">Retry<");
   });
 
-  it("a 400 on a flat-view cursor WITH a filter offers both undos, in one row", async () => {
+  it("a 400 on a flat-view cursor WITH a filter offers Clear filters alone — the filter was refused", async () => {
+    // The API refuses a page cursor only when it is longer than any it issues, so with a filter
+    // set it is the FILTER that was refused: a first page keeping it would be refused again.
     stub.listFailure = new stub.RequestError(400);
-    const out = await render({ view: "flat", tradeFamily: "Welders", cursor: "stale" });
-    const first = firstPageHref(out);
-    expect(first).toContain("view=flat");
-    expect(first).toContain("tradeFamily=Welders");
-    expect(first).not.toContain("cursor=");
-    expect(out).toContain(">Clear filters<");
+    const out = await render({ view: "flat", tradeFamily: "Welders", cursor: "c2" });
+    expect(firstPageHref(out)).toBe("");
+    expect(out).not.toContain("Back to the first page");
     const state = out.slice(out.indexOf("The server rejected this request"));
-    expect(state.split('class="state__actions"').length - 1).toBe(1);
+    expect(state.split(">Clear filters<").length - 1).toBe(1);
+    expect(out).not.toContain(">Retry<");
   });
 
   it("anything else (grouped) is our fault, with a retry that repeats the same query", async () => {

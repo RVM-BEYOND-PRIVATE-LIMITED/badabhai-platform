@@ -195,3 +195,52 @@ describe("a failed read is told apart by its cause, on both rosters", () => {
     expect(out).not.toContain(">Retry<");
   });
 });
+
+/**
+ * Review of #2031. A 400 with the status filter set is the FILTER's (the API refuses a page
+ * cursor only when it is longer than any it issues), so the refusal carries Clear filters — the
+ * screen's one — and never a first page that keeps the refused filter. A 400 with nothing in the
+ * address cannot be the operator's at all: it is an outage, with Retry.
+ */
+describe("a refused filter is cleared from the refusal itself, on both rosters", () => {
+  const stateOf = (out: string) => out.slice(out.indexOf('class="state state--error"'));
+
+  it.each(PAGES)("%s: the 400's way out is Clear filters, in the state, once", async (name, page) => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render(page, { status: "nonsense", cursor: "c2" });
+    expect(stateOf(out)).toContain(`href="/${name}"><i class="ph-fill ph-funnel-x" aria-hidden="true"></i>Clear filters</a>`);
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
+    expect(out).not.toContain("Back to the first page");
+  });
+
+  it.each(PAGES)("%s: a 400 with nothing in the address is an outage, with Retry", async (name, page) => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render(page);
+    expect(out).toContain(`${name === "companies" ? "Companies" : "Agencies"} are unavailable`);
+    expect(out).not.toContain("The server rejected");
+    expect(out).toContain(`href="/${name}"><i class="ph-fill ph-arrow-clockwise" aria-hidden="true"></i>Retry</a>`);
+  });
+});
+
+/** "Account" is the payer's own settings page; a customer is a company or an agency here. */
+describe("the rosters call a customer a company or an agency — never an account", () => {
+  it.each(PAGES)("%s: in every posture's description and in the empty state", async (_name, page) => {
+    for (const capabilities of [["read_entities"], ["read_entities", "read_identity"]]) {
+      stub.capabilities = capabilities;
+      for (const items of [[NAMED], [FACELESS], []]) {
+        stub.page = { items, nextCursor: null };
+        const out = await render(page);
+        const header = out.slice(0, out.indexOf("</header>"));
+        expect(header, JSON.stringify({ capabilities, n: items.length })).not.toMatch(/\baccounts?\b/i);
+        const state = out.indexOf('class="state"');
+        if (state >= 0) expect(out.slice(state)).not.toMatch(/\baccounts?\b/i);
+      }
+    }
+  });
+
+  it.each(PAGES)("%s: a refused status is not 'an account status'", async (_name, page) => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render(page, { status: "nonsense" });
+    expect(out).toContain("That is not a customer status this portal recognises");
+  });
+});

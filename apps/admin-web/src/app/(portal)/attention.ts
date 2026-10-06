@@ -81,7 +81,8 @@ export function buildAdminAttention(input: AttentionInput): AttentionItem[] {
   // events" to `/events` here was the same link twice. When ONE kind of cap tripped, the item
   // links straight to that event, which is the more specific answer to "which caps tripped";
   // when several did, `/events` filters by one name at a time, so there is no single narrower
-  // target and the item carries no link of its own.
+  // target and the item carries no link of its own. The link is named for what it opens —
+  // "View events" is the whole log (docs/design/NAVIGATION.md), and this is one event's slice.
   const tripped = (input.metrics?.breaches ?? []).filter((b) => b.count > 0);
   const breachTotal = tripped.reduce((sum, b) => sum + b.count, 0);
   if (breachTotal > 0) {
@@ -94,7 +95,7 @@ export function buildAdminAttention(input: AttentionInput): AttentionItem[] {
       ...(only
         ? {
             href: `/events?eventName=${encodeURIComponent(only.key)}`,
-            linkLabel: "View events",
+            linkLabel: "View these breaches",
             linkIcon: ACTION_ICON.timeline,
           }
         : {}),

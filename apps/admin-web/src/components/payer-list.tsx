@@ -46,7 +46,7 @@ export function PayerList({
         <h3 className="state__title">{emptyMessage}</h3>
         <p className="state__body">
           There is nothing to search by on this screen. The way in is the other direction —
-          find the posting, then follow it to the account that published it.
+          find the posting, then follow it to the customer that published it.
         </p>
         <div className="state__actions">
           <Link className="btn btn--ghost" href="/jobs">

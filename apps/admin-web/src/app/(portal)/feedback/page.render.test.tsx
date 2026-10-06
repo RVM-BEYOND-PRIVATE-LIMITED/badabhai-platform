@@ -569,16 +569,20 @@ describe("the two failures, which are also different claims", () => {
     expect(out).not.toContain("Clear filter");
   });
 
-  it("a 400 on a cursor WITH a filter offers the first page of the SAME query (sweep AW-06)", async () => {
-    // It offered nothing: the head's Clear filters was the only exit, and it drops the filter.
+  it("a 400 with a filter — past page one too — is cleared from the refusal itself", async () => {
+    // The API refuses a page cursor only when it is longer than any it issues, so with a filter
+    // set it is the FILTER that was refused: a first page that kept it would be refused again.
     stub.failure = new stub.RequestError(400);
-    const out = await render({ category: "problem", workerId: WORKER_ID, cursor: "stale" });
-    expect(out).toContain(
-      `href="/feedback?category=problem&amp;workerId=${WORKER_ID}"><i class="ph-fill ph-arrow-line-left" aria-hidden="true"></i>Back to the first page</a>`,
+    const out = await render({ category: "problem", workerId: WORKER_ID, cursor: "c2" });
+    const state = out.slice(out.indexOf('class="state state--error"'));
+    expect(state).toContain(
+      'href="/feedback"><i class="ph-fill ph-funnel-x" aria-hidden="true"></i>Clear filters</a>',
     );
+    // ONE Clear filters on the screen — the results head does not repeat it.
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
+    expect(out).not.toContain("Back to the first page");
     // A refused request is not retried — it would only be refused again.
     expect(out).not.toContain(">Retry<");
-    expect(out.split(">Clear filters<").length - 1).toBe(1);
   });
 
   it("a 400 with nothing in the URL offers NO action — there is nothing to undo", async () => {

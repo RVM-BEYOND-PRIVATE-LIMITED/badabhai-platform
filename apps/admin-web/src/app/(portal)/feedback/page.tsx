@@ -125,6 +125,17 @@ export default async function FeedbackPage({
 
   const failed = page === null;
   const filtered = Boolean(category || workerId);
+  /**
+   * The ONE "Clear filters" on this screen (owner brief 2026-10-01): in the results head while
+   * the list loads, and inside the refusal state when the server refused the filters — there it
+   * is the recovery, so the head does not repeat it.
+   */
+  const clearFilters = filtered ? (
+    <Link className="btn btn--ghost" href="/feedback">
+      <Icon name={ACTION_ICON.clearFilters} />
+      Clear filters
+    </Link>
+  ) : null;
 
   /**
    * One builder for every link back into this list, so a filter cannot be dropped by a
@@ -195,12 +206,7 @@ export default async function FeedbackPage({
                 : `${page?.items.length ?? 0} message${page?.items.length === 1 ? "" : "s"} on this page.`}
             </p>
           </div>
-          {filtered && (
-            <Link className="btn btn--ghost" href="/feedback">
-              <Icon name={ACTION_ICON.clearFilters} />
-              Clear filters
-            </Link>
-          )}
+          {rejected ? null : clearFilters}
         </div>
 
         <div className="filters filters--inline">
@@ -262,10 +268,15 @@ export default async function FeedbackPage({
               cannot be hand-edited — one of them, as it stands in the address bar, is not
               something this list accepts.
             </p>
-            {/* With a cursor, the first page of the SAME query — every filter kept, so a stale
-                cursor on a worker-narrowed view does not widen it to everyone's messages. The
-                filters themselves are cleared by the results head's one "Clear filters". */}
-            <FirstPageAction href={listHref()} cursor={cursor} />
+            {/* No Retry: the server has refused this request and would refuse it again. The API
+                refuses a page cursor only when it is longer than any it issues, so with a filter
+                set it is the FILTER that was refused — keeping it on the first page would be
+                refused again, and the way out is Clear filters. With no filter, the first page. */}
+            {filtered ? (
+              <div className="state__actions">{clearFilters}</div>
+            ) : (
+              <FirstPageAction href={listHref()} cursor={cursor} />
+            )}
           </div>
         ) : failed ? (
           <div className="state state--error">

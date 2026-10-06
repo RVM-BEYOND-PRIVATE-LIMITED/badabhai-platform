@@ -147,14 +147,14 @@ describe("when the account never recorded one", () => {
     // surfaces keep the "No name on record" copy, because their name columns really are
     // nullable and routinely unset.
     const out = render(UNNAMED, ENTITLED);
-    expect(out).toContain('title="No readable name is stored for this account."');
+    expect(out).toContain('title="No readable name is stored for this customer."');
     expect(out).not.toContain("No name on record");
   });
 
   it("a BLANK registered name behaves exactly as a null one", () => {
     const out = render({ ...FACELESS, org_name: " " }, ENTITLED);
     expect(out).toContain('<h1 class="page__title mono">6155050c…</h1>');
-    expect(out).toContain('title="No readable name is stored for this account."');
+    expect(out).toContain('title="No readable name is stored for this customer."');
   });
 });
 
@@ -256,5 +256,59 @@ describe("the description when the postings read FAILED (owner brief 2026-10-01)
     const out = render(FACELESS, ENTITLED, []);
     expect(out).toContain("with no postings yet");
     expect(out).not.toContain("could not be loaded, so no self-declared label");
+  });
+});
+
+/**
+ * "Account" is the payer's own settings page (owner ruling 2026-10-01); on this console a customer
+ * is a company or an agency. Every state of the page is read for it — the one "account" left is
+ * the ADMIN's own ("this admin account has spent its hourly name budget"), which is correct.
+ */
+describe("the page never calls the customer an account", () => {
+  const SUSPENDED: PayerDetail = { ...FACELESS, status: "suspended", previous_status: "active" };
+  const renderAs = (
+    kind: "Company" | "Agency",
+    payer: PayerDetail,
+    capabilities: AdminCapability[],
+    postings: JobPostingListItem[] | null,
+  ) =>
+    renderToStaticMarkup(
+      <PayerDetailView
+        payer={payer}
+        postings={postings}
+        kind={kind}
+        backHref={kind === "Company" ? "/companies" : "/agencies"}
+        capabilities={capabilities}
+      />,
+    );
+  const customerAccount = (out: string) =>
+    out.replace(/this admin account/g, "").match(/\baccounts?\b/gi) ?? [];
+
+  it.each(["Company", "Agency"] as const)("%s: in every posture, state and banner", (kind) => {
+    const named: PayerDetail = { ...SUSPENDED, org_name: "Acme Fabrication Pvt Ltd" };
+    for (const [payer, caps] of [
+      [named, ENTITLED],
+      [SUSPENDED, ENTITLED],
+      [SUSPENDED, ANALYST],
+    ] as const) {
+      for (const postings of [[POSTING], [], null]) {
+        const out = renderAs(kind, payer, [...caps], postings);
+        expect(
+          customerAccount(out),
+          `${kind} ${caps.join("+")} ${JSON.stringify(postings?.length)}`,
+        ).toEqual([]);
+      }
+    }
+  });
+
+  it("names the persona in the description, the notices and the postings states", () => {
+    const capped = renderAs("Agency", SUSPENDED, ENTITLED, null);
+    expect(capped).toContain("One agency — what it has posted and spent");
+    expect(capped).toContain("Your role may see this agency&#x27;s registered name");
+    expect(capped).toContain("(the agency returns to active)");
+    expect(capped).toContain("The agency record above loaded");
+    const empty = renderAs("Company", FACELESS, ENTITLED, []);
+    expect(empty).toContain("This company has never created one");
+    expect(empty).toContain("A registered company that never posts");
   });
 });

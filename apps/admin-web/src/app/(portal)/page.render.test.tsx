@@ -86,6 +86,9 @@ describe("one link to the whole events log", () => {
     expect(out).toContain("2 cap breaches");
     expect(out).toContain('href="/events?eventName=ai.spend_cap_exceeded"');
     expect(eventsLinks(out)).toBe(1);
+    // "View events" names the whole log, once; the filtered link is named for its slice.
+    expect(out.split(">View events<").length - 1).toBe(1);
+    expect(out).toContain(">View these breaches<");
   });
 
   it("with several kinds tripped, the attention item carries no second link to the log", async () => {

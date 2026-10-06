@@ -111,8 +111,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
 
       {job.status === "suspended" && (
         <section className="notice notice--bad" role="status">
-          <strong>Hidden by a suspension.</strong> The owning account is suspended, so this
-          posting is out of the worker feed. Reinstating the account restores it to{" "}
+          <strong>Hidden by a suspension.</strong> Its customer is suspended, so this
+          posting is out of the worker feed. Reinstating the customer restores it to{" "}
           <strong>{job.previous_status ?? "its previous state"}</strong> rather than forcing
           it open — a posting the customer had paused stays paused.
         </section>
@@ -215,7 +215,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
                     {shortId(job.payer_id)}
                   </Link>
                 ) : (
-                  "ops-created (no customer account)"
+                  "ops-created (no customer)"
                 ),
               },
               {

@@ -11,8 +11,9 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
  *     one: a stale or hand-edited cursor is a failure "Retry" would only repeat.
  *
  * With a cursor present both are offered, because from a failed read a refused cursor and an
- * outage can look the same. A page that does tell a 400 apart shows {@link FirstPageAction}
- * alone in its refusal state: repeating a request the server has refused cannot succeed.
+ * outage can look the same. A page that does tell a 400 apart offers no Retry in its refusal
+ * state — repeating a request the server has refused cannot succeed — but the way out of the
+ * refused FILTERS ("Clear filters") or, with no filter set, {@link FirstPageAction}.
  *
  * `href` is the current query without the cursor; `cursor` is the page cursor, if any.
  */
@@ -32,9 +33,9 @@ export function RetryActions({ href, cursor }: { href: string; cursor?: string }
 }
 
 /**
- * "Back to the first page", alone — for a REFUSED read (a 400), and for a page past the first
- * that came back empty. Rendered only when there is a cursor to drop; with none, the address
- * already IS the first page and the link would go nowhere.
+ * "Back to the first page", alone — for a refused page CURSOR (a 400 with no filter set), and
+ * for a page past the first that came back empty. Rendered only when there is a cursor to drop;
+ * with none, the address already IS the first page and the link would go nowhere.
  *
  * `href` is the current query without the cursor, so every filter is kept: going back widens
  * nothing. `cursor` is required (it may be undefined) so a caller cannot forget to pass it.
@@ -65,8 +66,11 @@ export function FirstPageLink({ href }: { href: string }) {
  * A refused read of an UNFILTERED list: the page cursor is the only thing in the address to
  * refuse, so the copy names it rather than telling the operator to fix filters that are not
  * set. Shared by the lists whose refusal copy otherwise talks about their own filter values.
+ *
+ * Worded for what the API actually refuses: a cursor it cannot parse is not refused at all (it
+ * falls back to page one); only one longer than any it issues earns a 400.
  */
 export const CURSOR_REFUSAL = {
   title: "The server rejected this page",
-  body: "Nothing was fetched. A page cursor is an opaque value from the server — it cannot be hand-edited, and one copied from another list or an older read is not accepted — so start again from the first page.",
+  body: "Nothing was fetched. The page cursor in the address is not one this list ever issued — a cursor is an opaque value from the server, never something to type or edit — so start again from the first page.",
 } as const;

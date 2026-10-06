@@ -45,6 +45,8 @@ export default async function JobsPage({
   const payerId = one(sp.payerId);
   const cursor = one(sp.cursor);
 
+  const filtered = Boolean(status || verificationStatus || payerId);
+
   let page: Awaited<ReturnType<typeof listJobPostings>> | null = null;
   let failed = false;
   let refused = false;
@@ -55,12 +57,24 @@ export default async function JobsPage({
     // malformed customer uuid — the operator's to correct. Anything else is our fault, and
     // telling them to correct a value over an outage blames a filter that is not broken.
     failed = true;
-    refused = isAdminRequestError(err) && err.status === 400;
+    // A 400 is the operator's address only when the address holds something to refuse — a
+    // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too.
+    refused = isAdminRequestError(err) && err.status === 400 && Boolean(filtered || cursor);
   }
 
-  const filtered = Boolean(status || verificationStatus || payerId);
   /** The current query without the cursor — what the recoveries below repeat. */
   const listHref = queryHref("/jobs", { status, verificationStatus, payerId });
+  /**
+   * The ONE "Clear filters" on this screen (owner brief 2026-10-01): in the results head while
+   * the list loads, and inside the refusal state when the server refused the filters — there it
+   * is the recovery, so the head does not repeat it.
+   */
+  const clearFilters = filtered ? (
+    <Link className="btn btn--ghost" href="/jobs">
+      <Icon name={ACTION_ICON.clearFilters} />
+      Clear filters
+    </Link>
+  ) : null;
 
   return (
     <div className="page">
@@ -95,28 +109,29 @@ export default async function JobsPage({
                 : `${page?.items.length ?? 0} posting${page?.items.length === 1 ? "" : "s"} on this page.`}
             </p>
           </div>
-          {filtered && (
-            <Link className="btn btn--ghost" href="/jobs">
-              <Icon name={ACTION_ICON.clearFilters} />
-              Clear filters
-            </Link>
-          )}
+          {refused ? null : clearFilters}
         </div>
 
         {refused ? (
           <div className="state state--error">
             <h3 className="state__title">
-              {filtered || !cursor ? "The server rejected these filters" : CURSOR_REFUSAL.title}
+              {filtered ? "The server rejected these filters" : CURSOR_REFUSAL.title}
             </h3>
             <p className="state__body">
-              {filtered || !cursor
+              {filtered
                 ? "Nothing was fetched. A customer id must be a full UUID — a short id copied from a table cell will not do. Correct the value above, or clear the filters and start again."
                 : CURSOR_REFUSAL.body}
             </p>
-            {/* Repeating a refused request cannot succeed, so no Retry — only the first page,
-                filters kept, when there is a cursor to drop. Clearing the filters is the
-                results head's one "Clear filters" (owner brief 2026-10-01). */}
-            <FirstPageAction href={listHref} cursor={cursor} />
+            {/* Repeating a refused request cannot succeed, so there is no Retry. The API refuses a
+                page cursor only when it is longer than any it issues (a malformed one falls back
+                to page one), so with a filter set the FILTER is what was refused — keeping it on
+                the first page would be refused again, and the way out is Clear filters. With no
+                filter, the cursor was refused: the first page. */}
+            {filtered ? (
+              <div className="state__actions">{clearFilters}</div>
+            ) : (
+              <FirstPageAction href={listHref} cursor={cursor} />
+            )}
           </div>
         ) : failed ? (
           <div className="state state--error">

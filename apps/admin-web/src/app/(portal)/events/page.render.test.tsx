@@ -99,13 +99,30 @@ describe("a 400 is the operator's address, and says so", () => {
     expect(out).not.toContain("Back to the first page");
   });
 
-  it("past page one: the first page, filters kept", async () => {
+  it("with a filter set, its way out is Clear filters — in the refusal, once on the screen", async () => {
     stub.failure = new stub.RequestError(400);
-    const out = await render({ subjectType: "worker", cursor: "stale" });
-    expect(out).toMatch(
-      /href="\/events\?subjectType=worker">(<i [^>]*><\/i>)?Back to the first page<\/a>/,
-    );
+    const out = await render({ correlationId: "abc" });
+    const state = out.slice(out.indexOf('class="state state--error"'));
+    expect(state).toMatch(/href="\/events">(<i [^>]*><\/i>)?Clear filters<\/a>/);
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
+  });
+
+  it("filtered and past page one: Clear filters — never a first page that keeps the refused filter", async () => {
+    // The API refuses a page cursor only when it is longer than any it issues, so with a filter
+    // set the FILTER was refused, and its first page would be refused again.
+    stub.failure = new stub.RequestError(400);
+    const out = await render({ subjectType: "nonsense", cursor: "c2" });
+    expect(out).not.toContain("Back to the first page");
     expect(out).not.toContain(">Retry<");
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
+  });
+
+  it("with NOTHING in the address: cannot be the operator's — an outage, with Retry", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render();
+    expect(out).toContain("Events are unavailable");
+    expect(out).not.toContain("The server rejected");
+    expect(out).toMatch(/href="\/events">(<i [^>]*><\/i>)?Retry<\/a>/);
   });
 
   it("on a cursor ALONE: names the cursor — there is no correlation id to correct", async () => {

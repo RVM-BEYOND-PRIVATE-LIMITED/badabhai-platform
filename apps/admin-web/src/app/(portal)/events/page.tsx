@@ -49,6 +49,14 @@ export default async function EventsPage({
     limit: 50,
   };
 
+  const active = Object.entries({
+    eventName: filters.eventName,
+    actorType: filters.actorType,
+    subjectType: filters.subjectType,
+    correlationId: filters.correlationId,
+  }).filter(([, v]) => Boolean(v));
+  const filtered = active.length > 0;
+
   let page: Awaited<ReturnType<typeof listEvents>> | null = null;
   let failed = false;
   let refused = false;
@@ -59,17 +67,24 @@ export default async function EventsPage({
     // (e.g. a malformed correlation uuid) 400s — the operator's to correct. Anything else is
     // our fault, and "correct the value above" over an outage blames a filter that is fine.
     failed = true;
-    refused = isAdminRequestError(err) && err.status === 400;
+    // A 400 is the operator's address only when the address holds something to refuse — a
+    // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too.
+    refused = isAdminRequestError(err) && err.status === 400 && Boolean(filtered || filters.cursor);
   }
 
-  const active = Object.entries({
-    eventName: filters.eventName,
-    actorType: filters.actorType,
-    subjectType: filters.subjectType,
-    correlationId: filters.correlationId,
-  }).filter(([, v]) => Boolean(v));
   /** The current query without the cursor — what the recoveries below repeat. */
   const listHref = queryHref("/events", Object.fromEntries(active));
+  /**
+   * The ONE "Clear filters" on this screen (owner brief 2026-10-01): in the results head while
+   * the list loads, and inside the refusal state when the server refused the filters — there it
+   * is the recovery, so the head does not repeat it.
+   */
+  const clearFilters = filtered ? (
+    <Link className="btn btn--ghost" href="/events">
+      <Icon name={ACTION_ICON.clearFilters} />
+      Clear filters
+    </Link>
+  ) : null;
 
   // The cursor is deliberately dropped when building the "next" link's base, so paging
   // never stacks cursors and a filter change always restarts at page one. `Pager` is the
@@ -103,36 +118,35 @@ export default async function EventsPage({
             </h2>
             <p className="panel__sub">
               {failed
-                ? refused && active.length > 0
+                ? refused && filtered
                   ? "That filter combination was rejected."
                   : "Nothing was fetched."
                 : `${page?.events.length ?? 0} event${page?.events.length === 1 ? "" : "s"} on this page.`}
             </p>
           </div>
-          {active.length > 0 && (
-            <Link className="btn btn--ghost" href="/events">
-              <Icon name={ACTION_ICON.clearFilters} />
-              Clear filters
-            </Link>
-          )}
+          {refused ? null : clearFilters}
         </div>
 
         {refused ? (
           <div className="state state--error">
             <h3 className="state__title">
-              {active.length > 0 || !filters.cursor
-                ? "The server rejected these filters"
-                : CURSOR_REFUSAL.title}
+              {filtered ? "The server rejected these filters" : CURSOR_REFUSAL.title}
             </h3>
             <p className="state__body">
-              {active.length > 0 || !filters.cursor
+              {filtered
                 ? "Nothing was fetched. A correlation id must be a full UUID — the short id shown in the table is only the first segment. Correct the value above, or clear the filters and start again."
                 : CURSOR_REFUSAL.body}
             </p>
-            {/* Repeating a refused request cannot succeed, so no Retry — only the first page,
-                filters kept, when there is a cursor to drop. Clearing the filters is the
-                results head's one "Clear filters" (owner brief 2026-10-01). */}
-            <FirstPageAction href={listHref} cursor={filters.cursor} />
+            {/* Repeating a refused request cannot succeed, so there is no Retry. The API refuses a
+                page cursor only when it is longer than any it issues (a malformed one falls back
+                to page one), so with a filter set the FILTER is what was refused — keeping it on
+                the first page would be refused again, and the way out is Clear filters. With no
+                filter, the cursor was refused: the first page. */}
+            {filtered ? (
+              <div className="state__actions">{clearFilters}</div>
+            ) : (
+              <FirstPageAction href={listHref} cursor={filters.cursor} />
+            )}
           </div>
         ) : failed ? (
           <div className="state state--error">

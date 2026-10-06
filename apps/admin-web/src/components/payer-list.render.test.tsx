@@ -33,7 +33,7 @@ const render = (payers: PayerListItem[], posture: IdentityPosture) =>
     <PayerList
       payers={payers}
       basePath="/companies"
-      emptyMessage="No company accounts registered yet."
+      emptyMessage="No companies registered yet."
       posture={posture}
     />,
   );
@@ -72,13 +72,13 @@ describe("the named posture", () => {
     // null rather than 500ing an operations list). Telling an operator that a paying customer
     // never supplied a name, on a screen with a suspend button, would be a lie shaped like data.
     const out = render([UNNAMED], "named");
-    expect(out).toContain('title="No readable name is stored for this account.">—</span>');
+    expect(out).toContain('title="No readable name is stored for this customer.">—</span>');
     expect(out).not.toContain("No name on record");
   });
 
   it("dashes a BLANK one rather than leaving the cell empty", () => {
     const out = render([{ ...FACELESS, org_name: "  " }], "named");
-    expect(out).toContain('title="No readable name is stored for this account.">—</span>');
+    expect(out).toContain('title="No readable name is stored for this customer.">—</span>');
   });
 
   it("keeps header and row widths in step", () => {
@@ -138,7 +138,7 @@ describe("the empty state", () => {
     // moment a name column exists. What stayed true is that this screen has no SEARCH.
     for (const posture of ["named", "capped", "faceless"] as const) {
       const out = render([], posture);
-      expect(out).toContain("No company accounts registered yet.");
+      expect(out).toContain("No companies registered yet.");
       expect(out).toContain("nothing to search by on this screen");
       expect(out).not.toContain("opaque on this screen by design");
       expect(out).toContain('href="/jobs"');

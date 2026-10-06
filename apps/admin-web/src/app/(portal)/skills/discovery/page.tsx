@@ -408,19 +408,21 @@ export default async function SkillDiscoveryPage({
                   ? CURSOR_REFUSAL.body
                   : "Nothing was fetched. One of the filters, as it stands in the address bar, is not a value this queue accepts — a hand-edited status, tier, band or run id."}
             </p>
-            {/* Two different undos. With a page cursor, the first page of the SAME query —
-                view and filters kept (only the flat view pages). "Clear filters" goes to the
-                bare queue, so it is offered only when there is a filter to clear: on an
-                unfiltered flat page it would also drop `view=flat`, a first-page action wearing
-                the clear-filters name. */}
+            {/* ONE way out, and never a Retry of a refused request. A refused page cursor on an
+                unfiltered flat view goes back to the first page with `view=flat` kept — the bare
+                queue "Clear filters" goes to would drop it, a first-page action wearing the
+                clear-filters name. Anything else is the filters: the API refuses a cursor only
+                when it is longer than any it issues, so keeping the filters on the first page
+                would be refused again. */}
             <div className="state__actions">
-              {view === "flat" && cursor ? <FirstPageLink href={listHref({})} /> : null}
-              {filtered || !(view === "flat" && cursor) ? (
+              {view === "flat" && cursor && !filtered ? (
+                <FirstPageLink href={listHref({})} />
+              ) : (
                 <Link className="btn btn--ghost" href="/skills/discovery">
                   <Icon name={ACTION_ICON.clearFilters} />
                   Clear filters
                 </Link>
-              ) : null}
+              )}
             </div>
           </div>
         ) : primaryFailed ? (

@@ -92,14 +92,17 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
 
 ### Link and label conventions
 
-- **One "Clear filters" per list**, in the results head, shown whenever a filter is set. It
-  clears every filter (the bare route). A clear that removes one filter and keeps the rest is
+- **One "Clear filters" per list**, in the results head, shown whenever a filter is set — or,
+  when the server refused the filters, inside that refusal state instead (it is the way out
+  there, and the head does not repeat it). It clears every filter (the bare route). A clear that removes one filter and keeps the rest is
   named for that filter: "Clear the worker filter", "Clear the tag filter", "Clear the reason
   filter" (the credit ledger, which keeps the reporting window). Empty and error states offer
   only a recovery that nothing else on screen offers.
 - **"View events"** opens the global log (`/events`). **"View event timeline"** opens one
-  record's timeline. Both are offered only to a session holding `read_events`; this is an
-  affordance, and each route keeps its own gate.
+  record's timeline. A link to a filtered slice of the log is named for that slice ("View
+  these breaches" on the dashboard's cap-breach item, "View all admin actions" on Admin
+  users). All are offered only to a session holding `read_events`; this is an affordance, and
+  each route keeps its own gate.
 - **"Retry"** repeats exactly the current query, page cursor included — filters kept, whether
   or not a filter is set. **"Back to the first page"** is the same query without the cursor,
   and appears only when there is one; it is also the name of the way back from an empty page
@@ -108,11 +111,22 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   timelines, Payment orders, the credit ledger, Skill discovery's flat view, AI calls,
   Feedback, a worker's interview sessions); a test fails if one does not pass its cursor.
 - **A refused read is not an outage.** A list that tells a 400 apart (Workers, Postings,
-  Events, Companies, Agencies, AI calls, Feedback, Skill discovery) says what was refused —
-  its filters, or the page cursor when no filter is set — and offers only "Back to the first
-  page", filters kept (`FirstPageAction`): a Retry would repeat a request already refused.
+  Events, Companies, Agencies, AI calls, Feedback, Skill discovery) never offers Retry in its
+  refusal — the request would only be refused again — and says what was refused:
+  - **a filter is set** → the filters. The API refuses a page cursor only when it is longer
+    than any it issues (a malformed one falls back to page one), so with a filter set the
+    filter is at fault and its first page would be refused too: the state's action is "Clear
+    filters", the screen's one.
+  - **no filter, a page cursor** → the cursor: "Back to the first page" (`FirstPageAction`;
+    Skill discovery's flat view lays out the bare `FirstPageLink`, keeping `view=flat`).
+  - **nothing in the address** → it cannot be the operator's. Workers, Postings, Events,
+    Companies and Agencies read it as an outage; AI calls and Feedback say the request was
+    refused and offer no action; Skill discovery shows the server's own reason (its grouped
+    view refuses a result too large to group) with "Clear filters".
+
   Anything else is an outage ("Workers are unavailable", "Feedback is unavailable" — a fault
   on our side, not the filters) and offers both recoveries.
+
 - **One recovery of each kind per screen.** Two states on one page that would each offer the
   same link (the credit position and the ledger both failed, or both empty) show it once.
   The error boundary's button is "Retry" too.
@@ -133,7 +147,13 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   and "posting decision" for a worker's apply or skip on one, "View all admin actions" for
   the admin directory's one link into the log. AI task types read through `TASK_TYPE_LABELS`
   (`lib/ai-cost.ts`), the raw id for one this build was not taught.
-  `lib/terminology-fence.test.ts` keeps the retired names out of the console's visible text. Event names are data and keep their words (`payer.suspended`); where one is
+  `lib/terminology-fence.test.ts` keeps the retired names out of the console's visible text:
+  Résumé, second factor, two-factor, Payer, Owner account, job decision(s), Back to the newest,
+  Skill Discovery / Skill Candidate, Roles & capabilities, Open the event timeline, Show every
+  worker. The word "account" is NOT fenced — it is right for an admin's own account ("this
+  admin account has spent its hourly name budget") — so a customer is kept out of it by the
+  render tests of the customer screens (Companies, Agencies, a customer's page, its credits
+  panel, a posting's page), not by the fence. Event names are data and keep their words (`payer.suspended`); where one is
   shown humanized, its domain reads as the console says it ("Customer · suspended",
   "Posting · created" — `humanizeEventName`).
 - **Icons** come from `@badabhai/icons` only (`<Icon>`, `ACTION_ICON`). Key actions show icon

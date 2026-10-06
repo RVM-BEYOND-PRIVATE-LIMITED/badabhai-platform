@@ -111,6 +111,17 @@ export default async function AiCallsPage({
 
   const failed = page === null;
   const filtered = Boolean(taskType || success || workerId);
+  /**
+   * The ONE "Clear filters" on this screen (owner brief 2026-10-01): in the results head while
+   * the list loads, and inside the refusal state when the server refused the filters — there it
+   * is the recovery, so the head does not repeat it.
+   */
+  const clearFilters = filtered ? (
+    <Link className="btn btn--ghost" href="/ai-calls">
+      <Icon name={ACTION_ICON.clearFilters} />
+      Clear filters
+    </Link>
+  ) : null;
 
   /**
    * One builder for every link back into this list, so a filter cannot be dropped by a control
@@ -179,12 +190,7 @@ export default async function AiCallsPage({
                 : `${page?.items.length ?? 0} call${page?.items.length === 1 ? "" : "s"} on this page.`}
             </p>
           </div>
-          {filtered && (
-            <Link className="btn btn--ghost" href="/ai-calls">
-              <Icon name={ACTION_ICON.clearFilters} />
-              Clear filters
-            </Link>
-          )}
+          {rejected ? null : clearFilters}
         </div>
 
         {workerId && !failed ? (
@@ -223,9 +229,15 @@ export default async function AiCallsPage({
               cursor is an opaque value that cannot be hand-edited — one of them, as it stands in
               the address bar, is not something this list accepts.
             </p>
-            {/* With a cursor, the first page of the SAME query — every filter kept. The filters
-                themselves are cleared by the results head's one "Clear filters". */}
-            <FirstPageAction href={listHref()} cursor={cursor} />
+            {/* No Retry: the server has refused this request and would refuse it again. The API
+                refuses a page cursor only when it is longer than any it issues, so with a filter
+                set it is the FILTER that was refused — keeping it on the first page would be
+                refused again, and the way out is Clear filters. With no filter, the first page. */}
+            {filtered ? (
+              <div className="state__actions">{clearFilters}</div>
+            ) : (
+              <FirstPageAction href={listHref()} cursor={cursor} />
+            )}
           </div>
         ) : failed ? (
           <div className="state state--error">

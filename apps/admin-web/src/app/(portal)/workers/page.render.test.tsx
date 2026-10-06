@@ -348,11 +348,30 @@ describe("a failed read is told apart by its cause", () => {
     expect(out).not.toContain("Back to the first page");
   });
 
-  it("a 400 past page one offers the first page with the filter kept", async () => {
+  it("a 400 with a filter offers Clear filters IN the refusal — once on the screen", async () => {
+    // The API refuses a page cursor only when it is longer than any it issues, so a 400 with a
+    // filter set is the filter's — and the way out is clearing it, right where the refusal is.
     stub.failure = new stub.RequestError(400);
-    const out = await render({ status: "active", cursor: "stale" });
-    expect(out).toMatch(/href="\/workers\?status=active">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
+    const out = await render({ status: "nonsense" });
+    const state = out.slice(out.indexOf('class="state state--error"'));
+    expect(state).toMatch(/href="\/workers">(<i [^>]*><\/i>)?Clear filters<\/a>/);
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
+  });
+
+  it("a 400 with a filter past page one: Clear filters — not a first page that keeps the refused filter", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render({ status: "active", cursor: "c2" });
+    expect(out).not.toContain("Back to the first page");
     expect(out).not.toContain(">Retry<");
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
+  });
+
+  it("a 400 with NOTHING in the address cannot be the operator's: it is an outage, with Retry", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render();
+    expect(out).toContain("Workers are unavailable");
+    expect(out).not.toContain("rejected");
+    expect(out).toMatch(/href="\/workers">(<i [^>]*><\/i>)?Retry<\/a>/);
   });
 
   it("a 400 on a cursor ALONE names the cursor — there are no filters to blame", async () => {

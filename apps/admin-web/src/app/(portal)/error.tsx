@@ -33,10 +33,12 @@ export default function PortalError({
         title="Something went wrong"
         description="This screen could not be loaded, which usually means the admin API is unreachable or returned an unexpected response."
       />
+      {/* The alert region speaks for itself: assistive tech announces its text on its own, so
+          it opens with what happened rather than relying on the header above it. */}
       <div className="state state--error" role="alert">
         <p className="state__body">
-          It does not mean your session ended. Retry; if it keeps failing, quote the reference
-          below when you report it.
+          This screen failed to load. That does not mean your session ended. Retry; if it keeps
+          failing, quote the reference below when you report it.
         </p>
         {error.digest && (
           <p className="field__help">

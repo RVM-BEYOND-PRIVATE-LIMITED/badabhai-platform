@@ -84,7 +84,9 @@ describe("buildAdminAttention", () => {
       },
     });
     expect(out[0]!.href).toBe("/events?eventName=ai.spend_cap_exceeded");
-    expect(out[0]!.linkLabel).toBe("View events");
+    // Named for what it opens: "View events" is the WHOLE log (NAVIGATION.md), and this link
+    // is one event's slice of it.
+    expect(out[0]!.linkLabel).toBe("View these breaches");
     expect(out[0]!.linkIcon).toBeDefined();
   });
 

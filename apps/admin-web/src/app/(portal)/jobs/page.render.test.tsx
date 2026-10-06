@@ -185,20 +185,34 @@ describe("a failed read is told apart by its cause", () => {
     expect(out).not.toContain("Postings are unavailable");
     expect(out).not.toContain(">Retry<");
     expect(out.split(">Clear filters<").length - 1).toBe(1);
+    // …and that one Clear filters is IN the refusal, where the way out belongs.
+    const state = out.slice(out.indexOf('class="state state--error"'));
+    expect(state).toMatch(/href="\/jobs">(<i [^>]*><\/i>)?Clear filters<\/a>/);
   });
 
-  it("a 400 past page one offers the first page, filters kept", async () => {
+  it("a 400 with filters past page one: Clear filters — not a first page that keeps the refused filters", async () => {
+    // The API refuses a page cursor only when it is longer than any it issues, so with filters
+    // set the FILTERS were refused, and their first page would be refused again.
     stub.failure = new stub.RequestError(400);
-    const out = await render({ status: "open", cursor: "stale" });
-    expect(out).toMatch(/href="\/jobs\?status=open">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
+    const out = await render({ status: "open", cursor: "c2" });
+    expect(out).not.toContain("Back to the first page");
     expect(out).not.toContain(">Retry<");
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
+  });
+
+  it("a 400 with NOTHING in the address cannot be the operator's: it is an outage, with Retry", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render();
+    expect(out).toContain("Postings are unavailable");
+    expect(out).not.toContain("The server rejected");
+    expect(out).toMatch(/href="\/jobs">(<i [^>]*><\/i>)?Retry<\/a>/);
   });
 
   it("a 400 on a cursor ALONE names the cursor — there are no filters to blame", async () => {
     stub.failure = new stub.RequestError(400);
     const out = await render({ cursor: "stale" });
     expect(out).toContain("The server rejected this page");
-    expect(out).toContain("A page cursor is an opaque value");
+    expect(out).toContain("not one this list ever issued");
     expect(out).not.toContain("rejected these filters");
     expect(out).not.toContain("filter combination");
     expect(out).toMatch(/href="\/jobs">(<i [^>]*><\/i>)?Back to the first page<\/a>/);

@@ -54,10 +54,23 @@ export default async function CompaniesPage({
     // A REFUSED request (a 400: the address bar) and an UNAVAILABLE one (our fault) are
     // different screens — "pick a status" over an outage blames a filter that is not broken.
     failed = true;
-    refused = isAdminRequestError(err) && err.status === 400;
+    // A 400 is the operator's address only when the address holds something to refuse — a
+    // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too.
+    refused = isAdminRequestError(err) && err.status === 400 && Boolean(status || cursor);
   }
   /** The current query without the cursor — what the recoveries below repeat. */
   const listHref = queryHref("/companies", { status });
+  /**
+   * The ONE "Clear filters" on this screen (owner brief 2026-10-01): in the results head while
+   * the list loads, and inside the refusal state when the server refused the filters — there it
+   * is the recovery, so the head does not repeat it.
+   */
+  const clearFilters = status ? (
+    <Link className="btn btn--ghost" href="/companies">
+      <Icon name={ACTION_ICON.clearFilters} />
+      Clear filters
+    </Link>
+  ) : null;
 
   const posture = identityPosture(
     page?.items ?? [],
@@ -74,10 +87,10 @@ export default async function CompaniesPage({
             {/* THREE-VALUED, like the detail panel's sub: "named by the organisation" directly
                 above the notice saying names are withheld would contradict it. */}
             {posture === "faceless"
-              ? "Company accounts, identified by id — your role does not include name access, so find an account through its postings"
+              ? "Companies, identified by id — your role does not include name access, so find one through its postings"
               : posture === "capped"
-                ? "Company accounts, identified by id while names are withheld (see below)"
-                : "Company accounts, named by the organisation they registered as — self-declared at signup, not a verified legal name"}
+                ? "Companies, identified by id while names are withheld (see below)"
+                : "Companies, named by the organisation they registered as — self-declared at signup, not a verified legal name"}
             ; email and phone stay encrypted at rest and are served to no one.
           </>
         }
@@ -112,28 +125,29 @@ export default async function CompaniesPage({
                 : `${page?.items.length ?? 0} compan${page?.items.length === 1 ? "y" : "ies"} on this page.`}
             </p>
           </div>
-          {status && (
-            <Link className="btn btn--ghost" href="/companies">
-              <Icon name={ACTION_ICON.clearFilters} />
-              Clear filters
-            </Link>
-          )}
+          {refused ? null : clearFilters}
         </div>
 
         {refused ? (
           <div className="state state--error">
             <h3 className="state__title">
-              {status || !cursor ? "The server rejected that filter" : CURSOR_REFUSAL.title}
+              {status ? "The server rejected that filter" : CURSOR_REFUSAL.title}
             </h3>
             <p className="state__body">
-              {status || !cursor
-                ? "That is not an account status this portal recognises, so nothing was fetched. Pick a status from the list above, or clear the filter and start again."
+              {status
+                ? "That is not a customer status this portal recognises, so nothing was fetched. Pick a status from the list above, or clear the filter and start again."
                 : CURSOR_REFUSAL.body}
             </p>
-            {/* Repeating a refused request cannot succeed, so no Retry — only the first page,
-                filter kept, when there is a cursor to drop. Clearing the filter is the results
-                head's one "Clear filters" (owner brief 2026-10-01). */}
-            <FirstPageAction href={listHref} cursor={cursor} />
+            {/* Repeating a refused request cannot succeed, so there is no Retry. The API refuses a
+                page cursor only when it is longer than any it issues (a malformed one falls back
+                to page one), so with a filter set the FILTER is what was refused — keeping it on
+                the first page would be refused again, and the way out is Clear filters. With no
+                filter, the cursor was refused: the first page. */}
+            {status ? (
+              <div className="state__actions">{clearFilters}</div>
+            ) : (
+              <FirstPageAction href={listHref} cursor={cursor} />
+            )}
           </div>
         ) : failed ? (
           <div className="state state--error">
@@ -152,7 +166,7 @@ export default async function CompaniesPage({
             basePath="/companies"
             posture={posture}
             emptyMessage={
-              status ? "No companies match this filter." : "No company accounts registered yet."
+              status ? "No companies match this filter." : "No companies registered yet."
             }
           />
         )}

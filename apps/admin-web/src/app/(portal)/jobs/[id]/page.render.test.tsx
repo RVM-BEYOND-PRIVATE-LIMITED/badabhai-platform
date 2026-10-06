@@ -358,3 +358,21 @@ describe("the posting page calls the posting a posting (owner ruling 2026-10-01)
     expect(out).not.toContain("Owner account");
   });
 });
+
+/** "Account" is the payer's own settings page; the posting's publisher is its customer. */
+describe("the posting page calls its publisher the customer — never an account", () => {
+  it("in the suspension notice", async () => {
+    stub.job = { ...BASE, status: "suspended", previous_status: "open" };
+    const out = await render();
+    expect(out).toContain("Its customer is suspended");
+    expect(out).toContain("Reinstating the customer restores it to");
+    expect(out).not.toMatch(/\baccounts?\b/i);
+  });
+
+  it("for a posting ops created directly", async () => {
+    stub.job = { ...BASE, payer_id: null };
+    const out = await render();
+    expect(out).toContain("ops-created (no customer)");
+    expect(out).not.toMatch(/\baccounts?\b/i);
+  });
+});
