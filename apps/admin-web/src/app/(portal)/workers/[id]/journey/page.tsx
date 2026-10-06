@@ -10,6 +10,8 @@ import { JourneyFunnel } from "../../../../../components/journey-funnel";
 import { Pager } from "../../../../../components/pager";
 import { StatusPill } from "../../../../../components/status-pill";
 import { PageHeader } from "../../../../../components/page-header";
+import { RetryActions } from "../../../../../components/retry-actions";
+import { queryHref } from "../../../../../lib/query-href";
 import { filterChipClass } from "../../../../../components/filter-chip";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
@@ -91,6 +93,8 @@ export default async function WorkerJourneyPage({
 
   const journey = journeyRes.status === "fulfilled" ? journeyRes.value : null;
   const sessions = sessionsRes.status === "fulfilled" ? sessionsRes.value : null;
+  /** The session list's current query without the cursor — what its recoveries repeat. */
+  const sessionsHref = queryHref(`/workers/${id}/journey`, { status });
 
   return (
     <div className="page">
@@ -204,8 +208,10 @@ export default async function WorkerJourneyPage({
             <p className="state__body">
               The interview-sessions read failed. The funnel above came from a separate read and is
               unaffected — but the interview count it shows has no list beside it right now.
-              Reload this page to try again.
             </p>
+            {/* The SAME query — status and page cursor kept — and, past page one, the first page
+                of it, so a stale cursor has a named way back that keeps the status. */}
+            <RetryActions href={sessionsHref} cursor={cursor} />
           </div>
         ) : sessions.items.length === 0 ? (
           <div className="state">

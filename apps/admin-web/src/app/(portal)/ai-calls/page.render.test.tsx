@@ -200,7 +200,9 @@ describe("a row", () => {
 
   it("names the task and the model", async () => {
     const out = await render();
-    expect(out).toContain("profiling chat turn");
+    // The console's name for the task, not its raw enum (sweep AW-19).
+    expect(out).toContain("Profiling chat turn");
+    expect(out).not.toContain("profiling chat turn");
     expect(out).toContain("gemini-2.5-flash");
   });
 
@@ -334,14 +336,25 @@ describe("the Text column moves with the session, not with the page gate", () =>
 });
 
 describe("links into the events log follow read_events (an affordance; the route keeps its gate)", () => {
-  it("drops the empty state's View events for a session without read_events", async () => {
+  it("drops the empty state's events link for a session without read_events", async () => {
     stub.capabilities = ["read_ai_traces"];
     stub.page = { items: [], nextCursor: null };
     const out = await render();
     expect(out).not.toContain("/events?eventName=ai.cost_recorded");
+    expect(out).not.toContain(">View AI cost events<");
     expect(out).not.toContain(">View events<");
     // …and keeps the recovery that IS open to them.
     expect(out).toContain(">View provider switches<");
+  });
+
+  it("names the empty state's link for the slice it opens — View events is the WHOLE log", async () => {
+    stub.capabilities = ["read_ai_traces", "read_events"];
+    stub.page = { items: [], nextCursor: null };
+    const out = await render();
+    expect(out).toMatch(
+      /href="\/events\?eventName=ai\.cost_recorded">(<i [^>]*><\/i>)?View AI cost events<\/a>/,
+    );
+    expect(out).not.toContain(">View events<");
   });
 });
 
@@ -397,7 +410,9 @@ describe("the empty states, which are three different claims", () => {
     // account-deletion sweep between two requests empties the page an operator is standing on.
     const out = await render({ cursor: "Y3Vyc29y" });
     expect(out).toContain("Nothing further on this page");
-    expect(out).toContain("Back to the newest");
+    // Named like every other way back to page one — it was "Back to the newest" (sweep AW-14).
+    expect(out).toMatch(/href="\/ai-calls">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
+    expect(out).not.toContain("Back to the newest");
     expect(out).not.toContain("No AI calls recorded yet");
   });
 
@@ -471,11 +486,28 @@ describe("the two failures, which are different claims", () => {
     expect(out).not.toContain("AI calls are unavailable");
   });
 
-  it("a 400 with nothing in the URL offers NO action — there is nothing to undo", async () => {
+  it("a 400 with nothing in the URL cannot be the operator's: it is an outage, with Retry", async () => {
+    // It read "The server rejected this request" with no action at all — a refusal of an address
+    // that held nothing to refuse. Now the same rule as the five entity lists.
     stub.failure = new stub.RequestError(400);
     const out = await render();
-    expect(out).toContain("The server rejected this request");
-    expect(out).not.toContain("state__actions");
+    expect(out).toContain("AI calls are unavailable");
+    expect(out).not.toContain("The server rejected this request");
+    expect(out).toMatch(/href="\/ai-calls">(<i [^>]*><\/i>)?Retry<\/a>/);
+  });
+
+  it("a 400 with filters — past page one too — is cleared from the refusal itself", async () => {
+    // The API refuses a page cursor only when it is longer than any it issues, so with filters
+    // set it is the FILTERS that were refused: a first page that kept them would be refused again.
+    stub.failure = new stub.RequestError(400);
+    const out = await render({ taskType: "profile_parse", success: "false", cursor: "c2" });
+    const state = out.slice(out.indexOf('class="state state--error"'));
+    expect(state).toMatch(/href="\/ai-calls">(<i [^>]*><\/i>)?Clear filters<\/a>/);
+    // ONE Clear filters on the screen — the results head does not repeat it.
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
+    expect(out).not.toContain("Back to the first page");
+    // A refused request is not retried — it would only be refused again.
+    expect(out).not.toContain(">Retry<");
   });
 
   it("anything else is our fault and says so, retrying the SAME query", async () => {

@@ -98,6 +98,10 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
    - Escape dismisses the tooltip whether it was opened by focus (keydown on the button) or by
      hover (a keydown listener on the document, added on pointer enter and removed on pointer
      leave and on unmount). Escape is never swallowed: a drawer or dialog still gets it.
+   - Focus the APP moves (a dialog's first control on open, the menu button a closing drawer
+     returns to) goes through `focusWithoutTooltip` (`@badabhai/icons`): the tooltip stays quiet
+     for that keyboard focus until the user moves focus, while a mouse hovering the control still
+     sees it (pointer enter re-arms it).
    - `tooltipPlacement`: `top` (default), `bottom`, `start`, `end`, or an edge-aligned
      `top-start` / `top-end` / `bottom-start` / `bottom-end` for a control near a viewport edge
      (`bottom-end` for a dialog ✕ in the top-right corner).
@@ -110,6 +114,11 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
    A natively `disabled` icon button cannot show its tooltip: browsers neither hover nor focus a
    disabled button. If the reason a control is unavailable must stay discoverable, it needs an
    `aria-disabled` variant, which is not built yet.
+
+   A control that must keep its own markup around the tooltip (payer-web's theme switch draws a
+   track and a thumb, not one glyph) renders the `.bb-icon-tip` as its direct child and spreads
+   `useIconTipHandlers()` from `@badabhai/icons/button` onto itself: the same Escape / re-arm
+   wiring `IconButtonBase` is built on. Never copy the handlers.
 
 3. **No glyph or emoji characters as icons.** Don't use `←`, `→`, `✓`, `✕`, `☰`, `•`, a `/`
    separator, the browser's `<summary>` triangle, or any emoji as an icon. Use the matching

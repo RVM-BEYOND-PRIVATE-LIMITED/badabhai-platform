@@ -255,3 +255,68 @@ describe("F26 · the shared tooltip's anchors are positioned at every width", ()
     expect(decl(one(file === "globals.css" ? G : D, sel), "position")).toBe("relative");
   });
 });
+
+/* ================================================================== *
+ * Review — the CLOSED drawer is out of the Tab order (and the accessibility tree).
+ * ================================================================== */
+describe("review · below 1024px the closed drawer is hidden, not just off-screen", () => {
+  const DRAWER = "@media (max-width: 1023px)";
+
+  it("closed: visibility hidden — after the slide-out (a delay of the slide's duration)", () => {
+    // Measured before: translateX(-100%) alone kept its 7 links as Tab stops 1–7 at 375 / 900px.
+    const closed = one(G, ".pshell__rail", DRAWER);
+    expect(decl(closed, "transform")).toBe("translateX(-100%)");
+    expect(decl(closed, "visibility")).toBe("hidden");
+    expect(decl(closed, "transition")!.replace(/\s+/g, " ")).toBe(
+      "transform var(--duration-base) var(--ease-out), visibility 0s linear var(--duration-base)",
+    );
+  });
+
+  it("open: visible at once (visibility is not transitioned on the way in)", () => {
+    const open = one(G, ".pshell--drawer-open .pshell__rail", DRAWER);
+    expect(decl(open, "transform")).toBe("translateX(0)");
+    expect(decl(open, "visibility")).toBe("visible");
+    expect(decl(open, "transition")).toBe("transform var(--duration-base) var(--ease-out)");
+  });
+
+  it("≥1024px the rail is untouched: no rule outside the drawer query hides it", () => {
+    const hiding = G.filter(
+      (r) => r.selector.includes("pshell__rail") && decl(r, "visibility") !== null,
+    ).map((r) => `${r.selector} (${r.at || "top"})`);
+    expect(hiding).toEqual([
+      `.pshell__rail (${DRAWER})`,
+      `.pshell--drawer-open .pshell__rail (${DRAWER})`,
+    ]);
+    expect(decl(one(G, ".pshell__rail"), "visibility")).toBeNull();
+  });
+
+  it("under reduced motion neither drawer state slides — the open rule is more specific", () => {
+    // Measured before: the reset listed `.pshell__rail` alone, and the open drawer's own rule
+    // (0,2,0) kept its transform transition under prefers-reduced-motion.
+    const REDUCE = "@media (prefers-reduced-motion: reduce)";
+    const reset = G.filter(
+      (r) =>
+        r.at === REDUCE && decl(r, "transition") === "none" && r.selector.includes("pshell__rail"),
+    );
+    expect(reset).toHaveLength(1);
+    const covered = new Set(reset[0]!.selector.split(",").map((p) => p.trim()));
+    // Every rule that gives the rail a transition — outside the motion-gated contexts — is reset.
+    const moving = G.filter(
+      (r) =>
+        r.at !== REDUCE &&
+        !r.at.includes("prefers-reduced-motion: no-preference") &&
+        decl(r, "transition") !== null,
+    )
+      .flatMap((r) => r.selector.split(",").map((p) => p.trim()))
+      .filter((p) => p.includes("pshell__rail"));
+    expect(moving).toEqual([".pshell__rail", ".pshell--drawer-open .pshell__rail"]);
+    for (const sel of moving) expect(covered.has(sel), sel).toBe(true);
+  });
+
+  it("nothing inside the hidden drawer opts back in (`visibility: visible` would leak a Tab stop)", () => {
+    const visible = [...G, ...D]
+      .filter((r) => decl(r, "visibility") === "visible")
+      .map((r) => r.selector);
+    expect(visible).toEqual([".pshell--drawer-open .pshell__rail"]);
+  });
+});

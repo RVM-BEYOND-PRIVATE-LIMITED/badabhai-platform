@@ -29,18 +29,25 @@ export interface Bucket {
   count: number;
 }
 
-/** `job_posting` → `job posting`. Enum members are snake_case machine labels. */
-function bucketLabel(key: string): string {
-  return key.replace(/_/g, " ");
+/**
+ * The console's name for a bucket: from `labels` when the figure has one (a payer role is
+ * "Company", never `employer`), else the key de-snaked — `job_posting` → `job posting`. Enum
+ * members are snake_case machine labels.
+ */
+function bucketLabel(key: string, labels: Readonly<Record<string, string>> | undefined): string {
+  return labels && Object.hasOwn(labels, key) ? labels[key]! : key.replace(/_/g, " ");
 }
 
 export function BucketList({
   buckets,
   labelledBy,
+  labels,
 }: {
   buckets: readonly Bucket[];
   /** Id of the heading this list belongs to, so the list is announced with its section. */
   labelledBy?: string;
+  /** The console's names for the keys, where they differ from the stored value. */
+  labels?: Readonly<Record<string, string>>;
 }) {
   const rows = buckets.filter((b) => b.key !== OTHER_BUCKET_KEY || b.count > 0);
 
@@ -55,7 +62,7 @@ export function BucketList({
         return (
           <li className="funnel__row" key={b.key}>
             <span className="funnel__label">
-              {isOther ? "other (not a known value)" : bucketLabel(b.key)}
+              {isOther ? "other (not a known value)" : bucketLabel(b.key, labels)}
             </span>
             <span className="funnel__nums">
               <span className="funnel__distinct">{formatCount(b.count)}</span>

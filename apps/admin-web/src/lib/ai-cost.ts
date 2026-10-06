@@ -478,9 +478,45 @@ export function providerNote(provider: string): string | null {
   return null;
 }
 
-/** `stt_transcription` → `stt transcription`. An open set: de-snaked, never mapped. */
+/**
+ * The name the console gives each AI task type — the H1 of an AI call, its column on the list,
+ * the Task filter's options and the AI-spend rows on the dashboard all read from here, so one
+ * task never reads two ways. Keyed by `aiTaskType` in `@badabhai/event-schema` (mirrored by hand,
+ * like every server vocabulary this portal pins). The entity noun is "Posting", so the payer
+ * composer's turn is a "Posting chat turn" even though its id says `job_posting`.
+ */
+export const TASK_TYPE_LABELS = {
+  profiling_chat_turn: "Profiling chat turn",
+  profile_extraction: "Profile extraction",
+  profile_parse: "Profile parse",
+  resume_generation: "Resume generation",
+  domain_match: "Domain match",
+  work_history_polish: "Work history polish",
+  resume_parse: "Resume parse",
+  resume_profile_summary: "Resume profile summary",
+  resume_option_map: "Resume option mapping",
+  companion_classify: "Companion classification",
+  companion_edit_parse: "Companion edit parse",
+  companion_career_answer: "Companion career answer",
+  stt_transcription: "Speech-to-text",
+  tts_synthesis: "Text-to-speech",
+  skill_embedding: "Skill embedding",
+  job_posting_chat_turn: "Posting chat turn",
+} as const satisfies Readonly<Record<string, string>>;
+
+/** A task type this build has a name for. */
+export type KnownAiTaskType = keyof typeof TASK_TYPE_LABELS;
+
+/**
+ * The task type's name — or, for one this build has not been taught, its RAW id, verbatim. The
+ * set is open (`task_type` is `text` with no IN-list CHECK, so the ai-service can add one without
+ * a migration), and the raw id is the honest label for a new one: it is exactly what the filter
+ * and the server's logs call it, rather than a guessed name that reads as if it were reviewed.
+ */
 export function taskTypeLabel(taskType: string): string {
-  return taskType.replace(/_/g, " ");
+  return Object.hasOwn(TASK_TYPE_LABELS, taskType)
+    ? TASK_TYPE_LABELS[taskType as KnownAiTaskType]
+    : taskType;
 }
 
 /**

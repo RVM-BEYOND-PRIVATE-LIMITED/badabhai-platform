@@ -41,6 +41,7 @@ vi.mock("../../../lib/entities", () => ({
   },
   listLedger: async () => {
     stub.order.push("ledger");
+    if (stub.ledger instanceof Error) throw stub.ledger;
     return stub.ledger;
   },
 }));
@@ -182,5 +183,60 @@ describe("the window and reason chips keep each other", () => {
     const out = await renderWith({ windowDays: "7", reason: "grant" });
     expect(out).toMatch(/href="\/credits\?windowDays=7">(<i [^>]*><\/i>)?Clear the reason filter<\/a>/);
     expect(out).not.toContain(">Clear filters<");
+  });
+});
+
+/**
+ * ONE LINK PER TARGET (sweep AW-16). On a fresh platform the balances and the ledger are both
+ * empty and each offered "Open payment orders"; in an outage both reads fail and each offered a
+ * "Retry" to the same address. The ledger owns both — the paged list, where a purchase lands —
+ * and the position offers its copy only when the ledger is not showing one.
+ */
+describe("credits — each recovery once on the screen", () => {
+  const renderWith = async (sp: Record<string, string> = {}) =>
+    renderToStaticMarkup(await CreditsPage({ searchParams: Promise.resolve(sp) }));
+  const count = (out: string, s: string) => out.split(s).length - 1;
+
+  it("both empty: one Open payment orders, in the empty ledger", async () => {
+    stub.summary = { ...summary(MOCK), by_reason: [], top_balances: [] };
+    stub.ledger = { ...ledger(MOCK), items: [] };
+    const out = await renderWith();
+    expect(out).toContain("No customer holds a credit balance yet");
+    expect(out).toContain("No credit movements recorded yet");
+    expect(count(out, ">Open payment orders<")).toBe(1);
+    expect(out.indexOf(">Open payment orders<")).toBeGreaterThan(
+      out.indexOf("No credit movements recorded yet"),
+    );
+  });
+
+  it("no balances but a ledger with rows: the balances state keeps its own link", async () => {
+    stub.summary = { ...summary(MOCK), top_balances: [] };
+    const out = await renderWith();
+    expect(count(out, ">Open payment orders<")).toBe(1);
+  });
+
+  it("both reads failed: one Retry, the ledger's, and the position says so", async () => {
+    stub.summary = new Error("summary read failed");
+    stub.ledger = new Error("ledger read failed");
+    const out = await renderWith({ windowDays: "7", reason: "grant", cursor: "c2" });
+    expect(count(out, ">Retry<")).toBe(1);
+    expect(out).toMatch(
+      /href="\/credits\?windowDays=7&amp;reason=grant&amp;cursor=c2">(<i [^>]*><\/i>)?Retry<\/a>/,
+    );
+    expect(out).toContain("its Retry reads both again");
+    expect(out).not.toContain("is unaffected");
+  });
+
+  it("only the position failed: its own Retry, and the ledger is said to be unaffected", async () => {
+    stub.summary = new Error("summary read failed");
+    const out = await renderWith({ windowDays: "7" });
+    expect(count(out, ">Retry<")).toBe(1);
+    expect(out).toContain("The credit ledger below is a separate read and is unaffected.");
+  });
+
+  it("names the holder of a balance or a movement 'Customer' — never 'Account' (sweep AW-12)", async () => {
+    const out = await renderWith();
+    expect(count(out, '<th scope="col">Customer</th>')).toBe(2);
+    expect(out).not.toContain('<th scope="col">Account</th>');
   });
 });

@@ -76,3 +76,26 @@ describe("PostingDetailPage — Posting naming", () => {
     expect(out).not.toContain('aria-label="Job card"');
   });
 });
+
+describe("PostingDetailPage — Reached N workers (post-publish confirmation)", () => {
+  async function landed(reached: string | undefined, status = "open"): Promise<string> {
+    getPostingDetail.mockResolvedValueOnce({ ...DETAIL, summary: { ...DETAIL.summary, status } });
+    const el = (await PostingDetailPage({
+      params: Promise.resolve({ id: ID }),
+      searchParams: Promise.resolve(reached === undefined ? {} : { reached }),
+    })) as ReactElement;
+    return renderToStaticMarkup(el);
+  }
+
+  it("a publish landing with ?reached=N confirms the real count", async () => {
+    const out = await landed("23");
+    expect(out).toContain("Posting published");
+    expect(out).toContain("Reached 23 workers");
+  });
+
+  it("no param, a malformed one, or a posting that is not live → no count at all", async () => {
+    expect(await landed(undefined)).not.toContain("Reached");
+    expect(await landed("lots")).not.toContain("Reached");
+    expect(await landed("23", "draft")).not.toContain("Reached");
+  });
+});

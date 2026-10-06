@@ -160,3 +160,15 @@ export {
 } from "./lifecycle-writer-scan";
 export type { SpineTable, SpineWriterRoot, WriterScan } from "./lifecycle-writer-scan";
 export type { ClassifierRule, PhraseClass } from "./skill-discovery-classify";
+
+// The Matching V1 demo's "who is a demo worker" definition (owner ruling 2026-10-06): the reserved
+// demo phone block plus an owner allow-list file. Exported so every demo surface (the demo seed's
+// `--reset-live-worker`, the engine view) gates on the SAME rule. Pure, dependency-free.
+export {
+  DEMO_PHONE_PATTERN,
+  DEMO_PHONE_PREFIX,
+  E164_PATTERN,
+  RESERVED_TEST_PHONE_PATTERN,
+  isDemoWorkerPhone,
+  parseAllowPhones,
+} from "./demo-phones";

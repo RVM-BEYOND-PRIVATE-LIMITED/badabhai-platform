@@ -13,14 +13,15 @@ export const dynamic = "force-dynamic";
  * never consented — it would make BadaBhai hold a contactable list before invariant #6 can
  * even be evaluated — so no flag revives it and it must never be shown as "coming soon".
  *
- * The route is KEPT (not deleted) so the dashboard tile and any bookmark land on this
- * explanation instead of a 404, and so the reader is pointed at BATCH INVITE MINTING — the
- * shipped, opposite-direction answer to the same need (anonymous links that identify nobody).
- * Names the module + its reason only; no commercial or legal language.
+ * The route is KEPT (not deleted) so an old link or bookmark lands on this explanation instead of
+ * a 404, and so the reader is pointed at BATCH INVITE MINTING — the shipped, opposite-direction
+ * answer to the same need (anonymous links that identify nobody). Names the module + its reason
+ * only; no commercial or legal language.
  *
- * Not in the nav (2026-10-01): the rail listed it under "Coming soon", which is exactly the
- * framing it must never have. Its one way in is the dashboard's Invite tools card, so that is
- * the parent its header points back to.
+ * Nothing in the portal links here (final sweep F17): the rail listed it under "Coming soon"
+ * (2026-10-01, the framing it must never have), and the dashboard's "not available" tile that
+ * replaced it was a dead end. So it is not a child of any page, and its header has no back link —
+ * the rail is the way out, as on any page outside the rail's tree.
  */
 export default async function BulkUploadPage() {
   // Auth/role gate only — this parked shell renders no session data.
@@ -31,7 +32,6 @@ export default async function BulkUploadPage() {
   return (
     <>
       <PageHeader
-        back={{ href: "/dashboard", label: "Dashboard" }}
         title="Bulk invite upload"
         description="This module is not available, and it will not be built."
       />

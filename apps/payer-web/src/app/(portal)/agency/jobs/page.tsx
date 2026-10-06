@@ -14,9 +14,9 @@ export const dynamic = "force-dynamic";
 
 /**
  * Agency "Postings" (owner ruling 2026-10-01) — the agency's OWN postings, i.e. rows of the
- * `jobs` table the worker feed reads (ADR-0022), managed in one place: edit, pause, resume,
- * close, and each posting's details. (An agency posting's applicants have no page yet — the
- * applicant endpoint does not serve agency jobs correctly; backend issue #1898.) "New posting"
+ * `jobs` table the worker feed reads (ADR-0022), managed in one place: pause, resume and close in
+ * the row, and links to each posting's details, applicants (`/agency/jobs/<id>/applicants`, the
+ * workers who applied — #1955/#1956) and edit page (`/agency/jobs/<id>/edit`). "New posting"
  * (`/agency/jobs/new`) creates one.
  *
  * An agency posts AGENCY jobs only: the company posting surface (`/postings*`, `job_postings`)

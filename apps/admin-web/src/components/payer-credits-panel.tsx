@@ -39,7 +39,7 @@ export function PayerCreditsPanel({
 }: {
   payerId: string;
   suspended: boolean;
-  /** This account's event timeline, or null for a reader without `read_events`. */
+  /** This customer's event timeline, or null for a reader without `read_events`. */
   timelineHref: string | null;
 }) {
   const router = useRouter();
@@ -81,7 +81,7 @@ export function PayerCreditsPanel({
 
       {suspended ? (
         <p className="field__help">
-          This account is suspended. Reinstate it before granting credits.
+          This customer is suspended. Reinstate it before granting credits.
         </p>
       ) : (
         <form className="form" onSubmit={(e) => e.preventDefault()}>
