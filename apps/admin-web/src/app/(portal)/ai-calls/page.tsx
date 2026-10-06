@@ -15,8 +15,9 @@ import {
 import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
-import { RetryActions } from "../../../components/retry-actions";
+import { FirstPageAction, RetryActions } from "../../../components/retry-actions";
 import { AiCallFilterBar } from "./filter-bar";
+import { FilterPanel } from "../../../components/filter-panel";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -105,14 +106,30 @@ export default async function AiCallsPage({
      * the address bar is not a value this list accepts — a user error, rendered inline rather
      * than tripping the error boundary. Anything else is our failure, and saying "check your
      * filters" while the API is down sends an operator to fix something that is not broken.
+     *
+     * And only when the address HOLDS something to refuse — a filter or a page cursor. With
+     * neither, a 400 cannot be the operator's, so it is an outage like any other: unavailable,
+     * with Retry (the rule the five entity lists follow).
      */
-    rejected = isAdminRequestError(err) && err.status === 400;
+    rejected =
+      isAdminRequestError(err) &&
+      err.status === 400 &&
+      Boolean(taskType || success || workerId || cursor);
   }
 
   const failed = page === null;
   const filtered = Boolean(taskType || success || workerId);
-  /** Something in the URL to undo. With a bare `/ai-calls` there is nothing to offer. */
-  const resettable = Boolean(taskType || success || workerId || cursor);
+  /**
+   * The ONE "Clear filters" on this screen (owner brief 2026-10-01): in the results head while
+   * the list loads, and inside the refusal state when the server refused the filters — there it
+   * is the recovery, so the head does not repeat it.
+   */
+  const clearFilters = filtered ? (
+    <Link className="btn btn--ghost" href="/ai-calls">
+      <Icon name={ACTION_ICON.clearFilters} />
+      Clear filters
+    </Link>
+  ) : null;
 
   /**
    * One builder for every link back into this list, so a filter cannot be dropped by a control
@@ -140,34 +157,20 @@ export default async function AiCallsPage({
         title="AI calls"
         description="Every AI call the platform made on a worker's behalf, newest first."
         filters={
-          <section className="panel" aria-labelledby="ac-filters">
-            <h2 className="sr-only" id="ac-filters">
-              Filter AI calls
-            </h2>
+          /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */
+          <FilterPanel
+            headingId="ac-filters"
+            heading="Filter AI calls"
+            activeCount={[taskType, success, workerId].filter(Boolean).length}
+          >
             <AiCallFilterBar
               taskType={taskType ?? ""}
               success={success ?? ""}
               workerId={workerId ?? ""}
             />
-          </section>
+          </FilterPanel>
         }
       />
-
-      {/* What a row is, and what it is not — the mechanics the one-sentence description leaves
-          out, posture-conditional on whether this session may open a call's text. */}
-      <div className="alert alert--info">
-        <div className="alert__text">
-          <p className="alert__title">Measurements, not text</p>
-          <p className="alert__body">
-            Each row says what the call was for, which model answered, whether a provider was
-            really called, and how long the request and the reply were. The two counts are
-            characters, not the characters themselves.{" "}
-            {mayReadText
-              ? "The text of each call is stored encrypted; opening one is a separate read, capped and recorded."
-              : "The text of each call is stored encrypted and cannot be read from your role — what is on this page are its measurements."}
-          </p>
-        </div>
-      </div>
 
       <section className="panel" aria-labelledby="ac-heading" aria-live="polite">
         <div className="panel__head panel__head--row">
@@ -181,12 +184,7 @@ export default async function AiCallsPage({
                 : `${page?.items.length ?? 0} call${page?.items.length === 1 ? "" : "s"} on this page.`}
             </p>
           </div>
-          {filtered && (
-            <Link className="btn btn--ghost" href="/ai-calls">
-              <Icon name={ACTION_ICON.clearFilters} />
-              Clear filters
-            </Link>
-          )}
+          {rejected ? null : clearFilters}
         </div>
 
         {workerId && !failed ? (
@@ -225,15 +223,14 @@ export default async function AiCallsPage({
               cursor is an opaque value that cannot be hand-edited — one of them, as it stands in
               the address bar, is not something this list accepts.
             </p>
-            {/* With a filter set, the results head's "Clear filters" is the way out; only a
-                bad cursor on an unfiltered list needs its own. */}
-            {resettable && !filtered && (
-              <div className="state__actions">
-                <Link className="btn btn--ghost" href="/ai-calls">
-                  <Icon name="arrow-line-left" />
-                  Back to the first page
-                </Link>
-              </div>
+            {/* No Retry: the server has refused this request and would refuse it again. The API
+                refuses a page cursor only when it is longer than any it issues, so with a filter
+                set it is the FILTER that was refused — keeping it on the first page would be
+                refused again, and the way out is Clear filters. With no filter, the first page. */}
+            {filtered ? (
+              <div className="state__actions">{clearFilters}</div>
+            ) : (
+              <FirstPageAction href={listHref()} cursor={cursor} />
             )}
           </div>
         ) : failed ? (
@@ -386,16 +383,11 @@ export default async function AiCallsPage({
               This page of the list came back empty — either you have reached the end, or the rows
               behind this cursor were removed while you were reading (deleting a worker account
               erases their AI calls with it, which is how erasure works here). The list itself is
-              unaffected; start again from the newest call.
+              unaffected; start again from the first page, newest call first.
             </p>
-            <div className="state__actions">
-              {/* KEEPS every active filter and drops only the cursor. Widening the query on the
-                  way back would answer a different question than the one being paged. */}
-              <Link className="btn btn--ghost" href={listHref()}>
-                <Icon name="arrow-line-left" />
-                Back to the newest
-              </Link>
-            </div>
+            {/* KEEPS every active filter and drops only the cursor. Widening the query on the way
+                back would answer a different question than the one being paged. */}
+            <FirstPageAction href={listHref()} cursor={cursor} />
           </div>
         ) : filtered ? (
           <div className="state">
@@ -426,10 +418,11 @@ export default async function AiCallsPage({
                 <Icon name="gauge" />
                 View provider switches
               </Link>
+              {/* Named for the slice it opens — "View events" is the whole log. */}
               {mayReadEvents ? (
                 <Link className="btn btn--ghost" href="/events?eventName=ai.cost_recorded">
                   <Icon name={ACTION_ICON.timeline} />
-                  View events
+                  View AI cost events
                 </Link>
               ) : null}
             </div>
@@ -445,6 +438,24 @@ export default async function AiCallsPage({
           nextCursor={page?.nextCursor}
           note="Paging uses a keyset cursor, so calls completing mid-scan cannot make rows skip or repeat."
         />
+
+        {/* What a row is, and what it is not — the mechanics the one-sentence description leaves
+            out, posture-conditional on whether this session may open a call's text. A standing
+            statement about how to read every row, so it follows the rows with the other standing
+            footnote below (AW-08): above the list it put the first call 818px down at 375. */}
+        <div className="alert alert--info">
+          <div className="alert__text">
+            <p className="alert__title">Measurements, not text</p>
+            <p className="alert__body">
+              Each row says what the call was for, which model answered, whether a provider was
+              really called, and how long the request and the reply were. The two counts are
+              characters, not the characters themselves.{" "}
+              {mayReadText
+                ? "The text of each call is stored encrypted; opening one is a separate read, capped and recorded."
+                : "The text of each call is stored encrypted and cannot be read from your role — what is on this page are its measurements."}
+            </p>
+          </div>
+        </div>
 
         {/* A standing footnote rather than a banner: it is true on every render, and a warning
             at the top of every page load is how an operator learns to skip the one that matters.

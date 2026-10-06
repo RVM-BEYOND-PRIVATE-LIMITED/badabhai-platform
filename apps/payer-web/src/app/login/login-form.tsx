@@ -8,7 +8,7 @@ import { requestCodeAction, signupAction, verifyCodeAction } from "./actions";
 import { looksLikeLoginEmail } from "./email-shape";
 import { INVALID_ORG_NAME, INVALID_PHONE, SEND_CONFIRMATION } from "./messages";
 import type { PayerRole } from "../../lib/auth";
-import type { IconName } from "@badabhai/icons";
+import { Icon, type IconName } from "@badabhai/icons";
 
 /**
  * Client auth form (AUTH-1) — a tri-axis state machine over the design system, presented as a
@@ -487,7 +487,7 @@ export function LoginForm() {
           </Button>
 
           <p className="login-trust">
-            <i className="ph-fill ph-lock-key" aria-hidden="true" />
+            <Icon name="lock-key" />
             Secure one-time-code sign-in — no passwords. We’ll never share your details.
           </p>
           {statusRegion}

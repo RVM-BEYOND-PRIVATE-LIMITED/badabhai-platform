@@ -338,6 +338,18 @@ body {
   font-size: var(--text-md);
   line-height: 1;
 }
+/* RAIL TARGETS on touch and below the full rail. The dense 36px rows (--control-sm) are a mouse
+   rail's; the drawer (<1024px), the icon rail (1024–1279px, where a tablet in landscape lands) and
+   any coarse pointer take the md control height, 44px, as a DRAWN minimum. Not the out-of-flow
+   strip the small buttons use: the rows sit 2px apart, so two strips would overlap, and a row
+   clips its own overflow (the label truncates), which would clip a pseudo strip too. The ≥1280px
+   fine-pointer rail keeps its density. */
+@media (max-width: 1279px), (pointer: coarse) {
+  .pnav__link,
+  .pshell__collapse {
+    min-height: var(--control-md);
+  }
+}
 
 /* ---- main column ---- */
 .pshell__main {
@@ -373,6 +385,7 @@ body {
   scroll-margin-top: calc(var(--shell-header-h) + var(--space-4));
 }
 .pshell__menu {
+  position: relative; /* anchors the shared tooltip (.bb-icon-tip) */
   display: none;
   align-items: center;
   justify-content: center;
@@ -1754,13 +1767,42 @@ textarea.input {
 .dash-posting:hover .dash-view__arrow {
   color: var(--text-accent);
 }
-/* The wrapper Card around a Recent-unlock MaskedCandidate: its own surface is zeroed (no double
-   border/shadow/pad) so only the inner .bb-candidate row shows. The row is NOT a link (the list
-   it used to open shows no unlocks), so it has no hover lift — a lift says "you can click this". */
-.dash-unlock-link {
-  border: none;
-  background: none;
-  box-shadow: none;
+/* A Recent-unlocks row (a DS Card): when the contact was unlocked and whether access is still
+   open. It is not a link (no posting context is reachable yet — see the dashboard), so it has NO
+   hover rule here: a lift says "you can click this". */
+.dash-unlock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}
+/* 12rem is an optical basis (a title + its date line), not a spacing: below it the status
+   wraps under the text instead of squeezing it. */
+.dash-unlock__main {
+  min-width: 0;
+  flex: 1 1 12rem;
+}
+.dash-unlock__title {
+  font-size: var(--ui-body-size);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.dash-unlock__meta {
+  margin-top: var(--space-1);
+  font-size: var(--ui-body-sm-size);
+  color: var(--text-muted);
+}
+/* A date wraps as a whole, never at its hyphens ("2026-08-" / "15" at 375px). */
+.dash-unlock__meta .bb-mono {
+  white-space: nowrap;
+}
+.dash-unlock__right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
 }
 .dash-empty,
 .dash-state {
@@ -2104,28 +2146,21 @@ textarea.input {
   padding: 0;
   list-style: none;
 }
-/* One toolbar: triage (Keep / Pass) beside the gated contact pair (Call / WhatsApp); the
-   contact pair wraps under the triage pair when the card is too narrow for both. */
+/* One toolbar: triage (Keep / Pass, then "Mark as contacted" once a routed handle exists). The
+   Call / WhatsApp group it used to sit beside is gone until the routed channel opens. */
 .applicant__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   gap: var(--space-3) var(--space-6);
 }
-.applicant__pipeline,
-.applicant__reach {
+.applicant__pipeline {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
   min-width: 0;
-}
-.applicant__pipeline {
   flex: 0 1 auto;
-}
-/* 16rem is an optical basis (two small buttons + the start of the hint), not a spacing. */
-.applicant__reach {
-  flex: 1 1 16rem;
 }
 .applicant__hint {
   flex-basis: 100%;
@@ -2194,14 +2229,6 @@ textarea.input {
    takes the light end of the ramp, as `.req` and `.state--error` already do. */
 [data-theme="ink"] .applicant__error {
   color: var(--red-300);
-}
-/* Wide cards: a hairline separates the two toolbar groups. Only from 768px, where both groups
-   always fit one row (so the rule never lands on a wrapped, left-edge group). */
-@media (min-width: 768px) {
-  .applicant__reach {
-    padding-left: var(--space-5);
-    border-left: var(--border-hairline) solid var(--border-subtle);
-  }
 }
 /* Phones: identity keeps the width, relevance drops under it, the pipeline control spans the
    row, and the spend + reveal actions go full-width thumb targets. The relevance cluster takes
@@ -2705,7 +2732,7 @@ textarea.input {
   gap: var(--space-4);
 }
 
-/* "Also in your posting — not on the worker's card": a divided list, not another card. */
+/* "Also in your posting — not written on the worker's card": a divided list, not another card. */
 .posting-facts {
   display: grid;
   gap: var(--space-2);
@@ -4853,6 +4880,7 @@ img.agency-qr__code,
   gap: var(--space-2);
 }
 .theme-toggle__switch {
+  position: relative; /* anchors the shared tooltip (.bb-icon-tip) */
   display: inline-flex;
   align-items: center;
   padding: var(--space-1);
@@ -4867,7 +4895,11 @@ img.agency-qr__code,
   outline-offset: var(--focus-outline-offset);
   box-shadow: var(--ring-focus);
 }
-/* The track: a pill that fills brand-tinted when "on" (dark). */
+/* The track: a pill that fills brand-tinted when "on" (dark). Its BOUNDARY is what shows a switch
+   is there (SC 1.4.11: 3:1 against the header). The fills are tints (1.18:1 / 1.29:1), and the
+   old hairline was --border-default (1.35:1 on the paper header) / --brand-border (2.65:1 on the
+   ink one). Off, it takes the control line, --border-control (4.97:1 on the paper card, 5.62:1 on
+   the ink card); on (which is the ink theme), the solid accent. */
 .theme-toggle__track {
   display: inline-flex;
   align-items: center;
@@ -4876,14 +4908,14 @@ img.agency-qr__code,
   padding: var(--space-1);
   border-radius: var(--radius-pill);
   background: var(--surface-sunken);
-  border: var(--border-hairline) solid var(--border-default);
+  border: var(--border-hairline) solid var(--border-control);
   transition:
     background-color var(--duration-fast) var(--ease-out),
     border-color var(--duration-fast) var(--ease-out);
 }
 .theme-toggle__switch[aria-checked="true"] .theme-toggle__track {
   background: var(--brand-tint);
-  border-color: var(--brand-border);
+  border-color: var(--brand);
 }
 /* The thumb slides right when "on"; carries the sun/moon glyph. */
 .theme-toggle__thumb {
@@ -5184,6 +5216,23 @@ img.agency-qr__code,
 }
 .ai-chat-intro__alt {
   font-size: var(--text-sm);
+}
+/* …and on a phone or a coarse pointer it is a 44px target: the text-link HIT STRIP (the
+   `.reveal-card__ext` / `.postings-link` recipe), an out-of-flow pseudo centred on the link, so the
+   actions row does not grow and the focus ring stays on the text. It reaches only up and down (the
+   link is wider than 44px), never into the Start button beside it. Measured 190x21px. */
+@media (max-width: 600px), (pointer: coarse) {
+  .ai-chat-intro__alt {
+    position: relative;
+    isolation: isolate;
+  }
+  .ai-chat-intro__alt::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0%, calc((100% - var(--control-md)) / 2));
+  }
 }
 
 /* --- Conversation + live draft (two columns on wide viewports) --- */
@@ -5573,23 +5622,26 @@ body:has(.invite-landing) .chrome-footer {
   .stat-row--kpi > * {
     flex-basis: 100%;
   }
-  /* W3-A — the label/caption pair sits between two equal `1fr` spacer rows, so it is centred on
-     the tile exactly like the icon and the figure beside it. With only the two content rows, a
-     tile WITHOUT a caption (the referral funnel, the earnings tiles) left its label at the
-     bottom of row 1 — above the centre line the figure sits on. An absent caption's row now
-     collapses to 0 and the label alone is centred. The spacer cells are EMPTY grid cells, which
-     auto-placement fills — so every child the tile can render has a named area of its own
-     (incl. the trend `delta`, under the caption; an absent one's row is 0 too). */
+  /* W3-A — the text block sits between two equal `1fr` spacer rows, so it is centred on the tile
+     like the icon beside it. With only the two content rows, a tile WITHOUT a caption (the
+     referral funnel, the earnings tiles) left its label at the bottom of row 1. An absent
+     caption's row collapses to 0. The spacer cells are EMPTY grid cells, which auto-placement
+     fills, so every child the tile can render has a named area of its own (incl. the trend
+     `delta`, under the caption; an absent one's row is 0 too).
+     The FIGURE reads with its LABEL ("Credit balance … 5"), so it sits on the label's row and the
+     two share one centre line. Spanning all five rows, it centred on the TILE instead, and a
+     caption under the label left the label one caption line (9.5px) or two (18px) above the
+     figure's centre (measured at 375px on /dashboard and /plans). */
   .stat-row--kpi .bb-stat {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-rows: 1fr auto auto auto 1fr;
     grid-template-areas:
-      "icon . value"
+      "icon . ."
       "icon label value"
-      "icon caption value"
-      "icon delta value"
-      "icon . value";
+      "icon caption ."
+      "icon delta ."
+      "icon . .";
     align-items: center;
     column-gap: var(--space-3);
     padding: var(--space-3) var(--space-4);
@@ -6221,6 +6273,23 @@ body:has(.invite-landing) .chrome-footer {
 @media (max-width: 560px) {
   .dash-posting__applicants {
     display: none;
+  }
+}
+/* …and where it shows on touch (a 768/1024px tablet) it is a 44px target: the text-link HIT
+   STRIP, centred on the link, reaching 12px up and down into the card's own padding. The link is
+   already positioned with its own z-index (a stacking context above the card's stretched link),
+   so the strip sits behind its text and above the card: a tap in the strip opens the applicants,
+   anywhere else on the card still opens the posting. No `display` here: ≤560px hides the link. */
+@media (max-width: 600px), (pointer: coarse) {
+  .dash-posting__applicants {
+    isolation: isolate;
+  }
+  .dash-posting__applicants::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0%, calc((100% - var(--control-md)) / 2));
   }
 }
 .dash-posting__title {

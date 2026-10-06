@@ -346,12 +346,15 @@ describe("the category chips", () => {
     const out = await render();
     for (const label of ["Suggestions", "Problems", "Other"]) expect(out).toContain(label);
     expect(out).not.toContain("btn--primary");
+    expect(out).not.toContain("btn--selected");
     expect(out).not.toContain('aria-current="true"');
   });
 
   it("marks the active chip for assistive tech, not by colour alone", async () => {
     const out = await render({ category: "problem" });
-    expect(chip(out, "problem")).toContain("btn--primary");
+    // The selected STATE (AW-11), not the primary fill — that marks a screen's one action.
+    expect(chip(out, "problem")).toContain("btn--selected");
+    expect(chip(out, "problem")).not.toContain("btn--primary");
     expect(chip(out, "problem")).toContain('aria-current="true"');
     expect(chip(out, "other")).toContain("btn--ghost");
     expect(chip(out, "other")).not.toContain("aria-current");
@@ -477,7 +480,11 @@ describe("the empty states, which are four different claims", () => {
   it("unfiltered and empty: nothing has been submitted, and the spine is where to check", async () => {
     const out = await render();
     expect(out).toContain("No feedback submitted yet");
-    expect(out).toContain("/events?eventName=feedback.submitted");
+    // Named for the slice it opens: "View events" is the WHOLE log (NAVIGATION.md).
+    expect(out).toMatch(
+      /href="\/events\?eventName=feedback\.submitted">(<i [^>]*><\/i>)?View submission events<\/a>/,
+    );
+    expect(out).not.toContain(">View events<");
     // Nothing to clear, so nothing is offered — the link used to point at the page you were
     // already on, which is the emptiest recovery action there is.
     expect(out).not.toContain("Clear filter");
@@ -488,6 +495,7 @@ describe("the empty states, which are four different claims", () => {
     const out = await render();
     expect(out).toContain("No feedback submitted yet");
     expect(out).not.toContain("/events?eventName=feedback.submitted");
+    expect(out).not.toContain("View submission events");
     expect(out).not.toContain("View events");
   });
 
@@ -536,8 +544,10 @@ describe("the empty states, which are four different claims", () => {
     expect(out).toContain("Nothing further on this page");
     expect(out).not.toContain("No feedback submitted yet");
     // …and it offers a way back, which the old branch did not: Pager renders nothing when
-    // nextCursor is null, so an operator on a dead page had no link at all.
-    expect(out).toContain("Back to the newest");
+    // nextCursor is null, so an operator on a dead page had no link at all. It is named like
+    // every other way back to page one — it used to be "Back to the newest" (sweep AW-14).
+    expect(out).toMatch(/href="\/feedback">(<i [^>]*><\/i>)?Back to the first page<\/a>/);
+    expect(out).not.toContain("Back to the newest");
   });
 
   it("deep-paged, filtered and empty: the way back KEEPS the filter", async () => {
@@ -567,11 +577,30 @@ describe("the two failures, which are also different claims", () => {
     expect(out).not.toContain("Clear filter");
   });
 
-  it("a 400 with nothing in the URL offers NO action — there is nothing to undo", async () => {
+  it("a 400 with a filter — past page one too — is cleared from the refusal itself", async () => {
+    // The API refuses a page cursor only when it is longer than any it issues, so with a filter
+    // set it is the FILTER that was refused: a first page that kept it would be refused again.
+    stub.failure = new stub.RequestError(400);
+    const out = await render({ category: "problem", workerId: WORKER_ID, cursor: "c2" });
+    const state = out.slice(out.indexOf('class="state state--error"'));
+    expect(state).toContain(
+      'href="/feedback"><i class="ph-fill ph-funnel-x" aria-hidden="true"></i>Clear filters</a>',
+    );
+    // ONE Clear filters on the screen — the results head does not repeat it.
+    expect(out.split(">Clear filters<").length - 1).toBe(1);
+    expect(out).not.toContain("Back to the first page");
+    // A refused request is not retried — it would only be refused again.
+    expect(out).not.toContain(">Retry<");
+  });
+
+  it("a 400 with nothing in the URL cannot be the operator's: it is an outage, with Retry", async () => {
+    // It read "The server rejected this request" with no action at all — a refusal of an address
+    // that held nothing to refuse. Now the same rule as the five entity lists.
     stub.failure = new stub.RequestError(400);
     const out = await render();
-    expect(out).toContain("The server rejected this request");
-    expect(out).not.toContain("state__actions");
+    expect(out).toContain("Feedback is unavailable");
+    expect(out).not.toContain("The server rejected this request");
+    expect(out).toMatch(/href="\/feedback">(<i [^>]*><\/i>)?Retry<\/a>/);
   });
 
   it("anything else is our fault and says so, retrying the SAME query", async () => {
@@ -737,3 +766,23 @@ describe("the images column (#1191)", () => {
 function escapeHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
+
+/**
+ * PAGE HEIGHT (final sweep AW-08): the 288px "A worker's own words" band stood between the
+ * header and the first message at 375px. It is a standing statement about how to read the
+ * screen, so it follows the messages now, inside the same panel.
+ */
+describe("page height: the messages before the explanation (AW-08)", () => {
+  it("'A worker's own words' follows the table", async () => {
+    stub.page = { items: [TAGGED], nextCursor: null };
+    const out = await render();
+    const table = out.indexOf('<div class="tablewrap">');
+    expect(table).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("A worker&#x27;s own words")).toBeGreaterThan(table);
+  });
+
+  it("is still there when nothing was fetched — it describes the screen, not the rows", async () => {
+    const out = await render();
+    expect(out).toContain("A worker&#x27;s own words");
+  });
+});

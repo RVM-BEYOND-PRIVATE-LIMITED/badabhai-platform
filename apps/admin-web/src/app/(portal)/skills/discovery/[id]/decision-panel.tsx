@@ -16,6 +16,7 @@ import {
   type SkillDecisionRequest,
 } from "../../../../../lib/skill-discovery-vocabulary";
 import { searchCanonicalSkillsAction, submitSkillDecisionAction } from "./actions";
+import { filterChipClass } from "../../../../../components/filter-chip";
 import { ACTION_ICON, Icon, type CanonicalIconName } from "@badabhai/icons";
 
 /** How long to wait after the last keystroke before searching — long enough that a fast typist
@@ -141,7 +142,7 @@ export function SkillDecisionPanel({
             key={decision}
             type="button"
             aria-pressed={selected === decision}
-            className={`btn btn--sm ${selected === decision ? "btn--primary" : "btn--ghost"}`}
+            className={filterChipClass(selected === decision)}
             onClick={() => setSelected(decision)}
             disabled={pending}
           >

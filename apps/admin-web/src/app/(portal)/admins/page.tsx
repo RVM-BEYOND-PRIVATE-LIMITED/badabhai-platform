@@ -11,6 +11,8 @@ import { Stat } from "../../../components/stat";
 import { InviteAdminForm } from "./invite-admin-form";
 import { AdminRowActions } from "./admin-row-actions";
 import { PageHeader } from "../../../components/page-header";
+import { ALL_ADMIN_ACTIONS_LINK } from "../../../components/admin-action-result-banner";
+import { filterChipClass } from "../../../components/filter-chip";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -130,9 +132,9 @@ export default async function AdminsPage({
            offers no way to go and read them. */
         secondaryActions={
           mayReadEvents ? (
-            <Link className="btn btn--ghost" href="/events?eventName=admin.action_performed">
+            <Link className="btn btn--ghost" href={ALL_ADMIN_ACTIONS_LINK.href}>
               <Icon name={ACTION_ICON.timeline} />
-              View all admin actions
+              {ALL_ADMIN_ACTIONS_LINK.label}
             </Link>
           ) : null
         }
@@ -208,7 +210,7 @@ export default async function AdminsPage({
           {ADMIN_ROLES.map((r) => (
             <Link
               aria-current={r === role ? "true" : undefined}
-              className={`btn btn--sm ${r === role ? "btn--primary" : "btn--ghost"}`}
+              className={filterChipClass(r === role)}
               /* Keeps a status narrowing (`?status=`); a chip used to drop it. */
               href={`/admins?role=${r}${status ? `&status=${encodeURIComponent(status)}` : ""}`}
               key={r}

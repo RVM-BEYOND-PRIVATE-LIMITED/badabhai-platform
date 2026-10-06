@@ -17,6 +17,7 @@ import { Pager } from "../../../components/pager";
 import { Stat } from "../../../components/stat";
 import { PageHeader } from "../../../components/page-header";
 import { RetryActions } from "../../../components/retry-actions";
+import { filterChipClass } from "../../../components/filter-chip";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -76,6 +77,20 @@ export default async function CreditsPage({
   // a rupee, so there is no unlabelled money on the page.
   const posture = summary?.payments ?? ledger?.payments ?? null;
 
+  /**
+   * ONE LINK PER TARGET ON THE SCREEN. Both of these states can render at once — on a fresh
+   * platform the balances AND the ledger are empty, and in an outage both reads fail — and each
+   * used to carry its own copy of the same action.
+   *  - The empty ledger owns "Open payment orders": a purchase is what fills it, so that is
+   *    where the link answers the question. The empty balances state offers it only when the
+   *    ledger is not showing it.
+   *  - The ledger's failure owns "Retry": it is the paged list, and its Retry repeats this whole
+   *    address, cursor included — which re-reads the summary too. The summary's failure offers
+   *    its own Retry only when the ledger is not showing one.
+   */
+  const ledgerOffersOrders = ledger !== null && ledger.items.length === 0 && !reason;
+  const ledgerOffersRetry = ledger === null;
+
   return (
     <div className="page">
       <PageHeader
@@ -88,7 +103,7 @@ export default async function CreditsPage({
             {WINDOWS.map((w) => (
               <Link
                 aria-current={w === windowDays ? "true" : undefined}
-                className={`btn ${w === windowDays ? "btn--primary" : "btn--ghost"}`}
+                className={filterChipClass(w === windowDays, "md")}
                 /* Keeps the ledger's reason filter; the two rows used to reset each other. */
                 href={`/credits?windowDays=${w}${reason ? `&reason=${encodeURIComponent(reason)}` : ""}`}
                 key={w}
@@ -198,15 +213,17 @@ export default async function CreditsPage({
                 <div className="state">
                   <h3 className="state__title">No customer holds a credit balance yet</h3>
                   <p className="state__body">
-                    Nothing has been granted or purchased, so no account has credits to
+                    Nothing has been granted or purchased, so no customer has credits to
                     spend on an unlock. The ledger below is the place to confirm that.
                   </p>
-                  <div className="state__actions">
-                    <Link className="btn btn--ghost" href="/transactions">
-                      <Icon name="receipt" />
-                      Open payment orders
-                    </Link>
-                  </div>
+                  {ledgerOffersOrders ? null : (
+                    <div className="state__actions">
+                      <Link className="btn btn--ghost" href="/transactions">
+                        <Icon name="receipt" />
+                        Open payment orders
+                      </Link>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="tablewrap">
@@ -214,7 +231,7 @@ export default async function CreditsPage({
                     <caption className="sr-only">Largest credit balances</caption>
                     <thead>
                       <tr>
-                        <th scope="col">Account</th>
+                        <th scope="col">Customer</th>
                         <th scope="col">Balance</th>
                       </tr>
                     </thead>
@@ -252,16 +269,18 @@ export default async function CreditsPage({
           <div className="state state--error">
             <h3 className="state__title">The credit position is unavailable</h3>
             <p className="state__body">
-              The finance summary did not load, so the outstanding balance and the movement
-              breakdown are missing. The credit ledger below is a separate read and is
-              unaffected.
+              {ledgerOffersRetry
+                ? "The finance summary did not load, so the outstanding balance and the movement breakdown are missing. The credit ledger below did not load either; its Retry reads both again."
+                : "The finance summary did not load, so the outstanding balance and the movement breakdown are missing. The credit ledger below is a separate read and is unaffected."}
             </p>
-            <div className="state__actions">
-              <Link className="btn btn--ghost" href={retryHref}>
-                <Icon name={ACTION_ICON.retry} />
-                Retry
-              </Link>
-            </div>
+            {ledgerOffersRetry ? null : (
+              <div className="state__actions">
+                <Link className="btn btn--ghost" href={retryHref}>
+                  <Icon name={ACTION_ICON.retry} />
+                  Retry
+                </Link>
+              </div>
+            )}
           </div>
         </section>
       )}
@@ -290,7 +309,7 @@ export default async function CreditsPage({
           {["pack_purchase", "grant", "unlock_debit", "refund"].map((r) => (
             <Link
               aria-current={r === reason ? "true" : undefined}
-              className={`btn btn--sm ${r === reason ? "btn--primary" : "btn--ghost"}`}
+              className={filterChipClass(r === reason)}
               href={`/credits?windowDays=${windowDays}&reason=${r}`}
               key={r}
             >
@@ -303,8 +322,9 @@ export default async function CreditsPage({
           <div className="state state--error">
             <h3 className="state__title">The ledger is unavailable</h3>
             <p className="state__body">
-              The credit movements did not load. The position above is a separate read and
-              is unaffected, so a balance shown there is still current.
+              {summary
+                ? "The credit movements did not load. The position above is a separate read and is unaffected, so a balance shown there is still current."
+                : "The credit movements did not load, and neither did the position above. Retry reads both again."}
             </p>
             {/* The ledger is the paged list on this page: Retry keeps its cursor, and with one
                 in the query the first page is offered too. */}
@@ -344,7 +364,7 @@ export default async function CreditsPage({
               <thead>
                 <tr>
                   <th scope="col">When</th>
-                  <th scope="col">Account</th>
+                  <th scope="col">Customer</th>
                   <th scope="col">Reason</th>
                   <th scope="col">Credits</th>
                   <th scope="col">Amount</th>

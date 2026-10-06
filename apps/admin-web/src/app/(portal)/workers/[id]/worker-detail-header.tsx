@@ -95,9 +95,13 @@ export function WorkerDetailHeader({
                 action={() => flagWorkerAction(workerId, reasonCode)}
                 onSettled={handleSettled}
               />
+              {/* The REINSTATE glyph, not a second flag (final sweep AW-17): the two opposite
+                  verbs drew one icon side by side. Unflag reverses a restriction exactly as
+                  Reinstate reverses Suspend, so it wears that action's icon (one concept, one
+                  icon). Both stay offered — the read model has no flag state to choose by. */}
               <AdminActionButton
                 label="Unflag"
-                icon="flag"
+                icon={ACTION_ICON.reinstate}
                 confirmLabel="Confirm unflag?"
                 variant="primary"
                 action={() => unflagWorkerAction(workerId)}

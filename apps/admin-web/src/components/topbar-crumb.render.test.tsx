@@ -21,14 +21,25 @@ beforeEach(() => {
 
 describe("crumbTrail — ancestors only", () => {
   it("a top-level page shows its group alone: the h1 names the page", () => {
-    expect(crumbTrail("/workers")).toEqual({ group: "Operations", section: null, steps: [] });
-    expect(crumbTrail("/")).toEqual({ group: "Overview", section: null, steps: [] });
+    expect(crumbTrail("/workers")).toEqual({
+      group: "Operations",
+      section: null,
+      sectionIsParent: false,
+      steps: [],
+    });
+    expect(crumbTrail("/")).toEqual({
+      group: "Overview",
+      section: null,
+      sectionIsParent: false,
+      steps: [],
+    });
   });
 
-  it("a detail page adds the section, linked, and no id", () => {
+  it("a detail page adds the section — its PARENT, which its back link already links — and no id", () => {
     expect(crumbTrail(`/workers/${WORKER}`)).toEqual({
       group: "Operations",
       section: { href: "/workers", label: "Workers" },
+      sectionIsParent: true,
       steps: [],
     });
   });
@@ -42,6 +53,7 @@ describe("crumbTrail — ancestors only", () => {
     expect(crumbTrail(`/workers/${WORKER}/journey/${SESSION}`)).toEqual({
       group: "Operations",
       section: { href: "/workers", label: "Workers" },
+      sectionIsParent: false,
       steps: ["Journey"],
     });
   });
@@ -109,22 +121,58 @@ describe("TopbarCrumb — markup", () => {
 });
 
 describe("TopbarCrumb — never links a section the reader cannot open", () => {
+  // A page BELOW the section's detail page, so the parent rule further down is not what decides.
+  const DEEP = `/workers/${WORKER}/timeline`;
+
   it("names it instead, when the reader's filtered sidebar does not hold it", () => {
-    // An analyst on an AI call's denied screen: /ai-calls is read_ai_traces, so the server
-    // dropped it from their sidebar, and a crumb link there would only redirect them.
-    nav.pathname = "/ai-calls/aa000000-0001-4a00-8000-000000000001";
-    const withoutAiCalls = NAV.map((s) => ({
+    // A reader whose role lost /workers: the server dropped it from their sidebar, and a crumb
+    // link there would only redirect them.
+    nav.pathname = DEEP;
+    const withoutWorkers = NAV.map((s) => ({
       ...s,
-      items: s.items.filter((i) => i.href !== "/ai-calls"),
+      items: s.items.filter((i) => i.href !== "/workers"),
     }));
-    const out = renderToStaticMarkup(<TopbarCrumb sections={withoutAiCalls} />);
-    expect(out).toContain('<span class="crumb">AI calls</span>');
-    expect(out).not.toContain('href="/ai-calls"');
+    const out = renderToStaticMarkup(<TopbarCrumb sections={withoutWorkers} />);
+    expect(out).toContain('<span class="crumb">Workers</span>');
+    expect(out).not.toContain('href="/workers"');
   });
 
   it("links it when the reader may open it", () => {
-    nav.pathname = "/ai-calls/aa000000-0001-4a00-8000-000000000001";
+    nav.pathname = DEEP;
     const out = renderToStaticMarkup(<TopbarCrumb sections={NAV} />);
-    expect(out).toContain('<a class="crumb crumb__link" href="/ai-calls">AI calls</a>');
+    expect(out).toContain('<a class="crumb crumb__link" href="/workers">Workers</a>');
+  });
+});
+
+/**
+ * ONE LINK PER TARGET (sweep AW-16). A page directly below a section has the section list as
+ * its real parent, so its back link (header rule 1) already goes there — measured on all seven
+ * first-level detail routes, where crumb and back link both linked the list. The crumb keeps
+ * the section as context and leaves the linking to the back link.
+ */
+describe("TopbarCrumb — the section a back link already links", () => {
+  /** The seven sections with an `/<section>/[id]` detail page — every one measured. */
+  const FIRST_LEVEL = [
+    "/workers",
+    "/jobs",
+    "/companies",
+    "/agencies",
+    "/events",
+    "/ai-calls",
+    "/skills/discovery",
+  ] as const;
+  const labelOf = (href: string) => NAV.flatMap((s) => s.items).find((i) => i.href === href)!.label;
+
+  it.each(FIRST_LEVEL)("on %s/<id> it is named, not linked", (href) => {
+    nav.pathname = `${href}/aa000000-0001-4a00-8000-000000000001`;
+    const out = renderToStaticMarkup(<TopbarCrumb sections={NAV} />);
+    expect(out).toContain(`<span class="crumb">${labelOf(href)}</span>`);
+    expect(out).not.toContain("<a ");
+  });
+
+  it("a page whose back link goes to a RECORD still gets the section as a link", () => {
+    nav.pathname = `/companies/${WORKER}/timeline`;
+    const out = renderToStaticMarkup(<TopbarCrumb sections={NAV} />);
+    expect(out).toContain('<a class="crumb crumb__link" href="/companies">Companies</a>');
   });
 });

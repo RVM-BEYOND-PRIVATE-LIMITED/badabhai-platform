@@ -334,7 +334,7 @@ it and are live from their merge: the payer posting-applicants list, the ops
    `job_posting.created` payloads lacked the `role_kind` key that #1840 always writes, which
    suggests the running image lags `main`.
 3. **The posting free-text screen (B3, defined in ADR-0049 §5) is merged and deployed.** It is
-   built in its own PR under #1823 (branch `fix/1823-posting-text-screen`). Posting `role_title`,
+   built in its own PR under #1823 (merged as #1918). Posting `role_title`,
    `description` and the `benefits` / `requirements` chip arrays must be screened at write with
    `looksLikePii` + `looksLikeOrgName` + `looksLikeUrl`
    ([ADR-0024](../decisions/0024-worker-visible-job-fields-pii.md) addendum 2026-10-01). Without
@@ -364,14 +364,15 @@ it and are live from their merge: the payer posting-applicants list, the ops
    ```
 
 6. **The feed-union e2e legs for the company loop pass.** `tests/e2e/feed-postings-union.e2e.test.ts`
-   defers two legs until their changes land: the payer applicants list
-   (`/payer/reach/jobs/:jobId/applicants` serving a posting while V1 is off, the payer
-   posting-applicants change) and the unlock grant from a posting (#1903). Both changes must be
-   merged AND deployed (item 2), and both legs appended to the suite and passing.
+   carries both legs (2026-10-05): the payer applicants list (`/payer/reach/jobs/:jobId/applicants`
+   serving a posting while V1 is off) and the unlock grant from a posting with a NULL job context
+   (#1903). Check they pass in the CI `e2e` job's union step on the `main` commit being deployed;
+   both underlying changes must also be deployed (item 2).
 7. **Posting `city` / `area` screening is decided.** Neither is screened at the server, though a
    worker sees both verbatim (pre-existing, #1848, outside B3). Decide before arming whether #1848
    is a precondition. Recommended: yes, with security-engineer's ruling on the pincode
-   false-positive trade-off.
+   false-positive trade-off. _Status 2026-10-05: #1848 merged as #1973 (a server screen with a
+   pincode waiver); the arming decision itself is unchanged._
 8. **The payer-app parses the posting-applicant row (#1913).** The payer-app Find tab is a second
    consumer of `/payer/reach/jobs/:jobId/applicants`, called for each of the payer's open
    postings. Once the payer posting-applicants change merges, an owned company posting returns

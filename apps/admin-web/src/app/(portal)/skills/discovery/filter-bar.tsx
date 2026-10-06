@@ -76,10 +76,17 @@ export function filterBarHref(
  */
 export function SkillDiscoveryFilterBar({
   basePath,
+  view,
   carry,
   initial,
 }: {
   basePath: string;
+  /**
+   * The queue view this bar serves. The Sort field orders the FLAT view's keyset pages only;
+   * grouped batches are ordered by the Batch order chips, so the grouped view does not show it
+   * (final sweep AW-23). Its value is still the bar's own and still travels on Apply.
+   */
+  view: "grouped" | "flat";
   /**
    * The controls above this bar that it must not drop — view, statusScope/status, tier, batch
    * order. Never the bar's own fields (ignored if present); the cursor is never carried.
@@ -221,17 +228,19 @@ export function SkillDiscoveryFilterBar({
         />
       </label>
 
-      <label className="field">
-        <span className="field__label">Sort</span>
-        <select
-          className="field__input"
-          value={values.sort}
-          onChange={(e) => set("sort", e.target.value as AdminSkillDiscoverySort)}
-        >
-          <option value="newest">Newest first</option>
-          <option value="oldest">Oldest first — the backlog's own risk order</option>
-        </select>
-      </label>
+      {view === "flat" && (
+        <label className="field">
+          <span className="field__label">Sort</span>
+          <select
+            className="field__input"
+            value={values.sort}
+            onChange={(e) => set("sort", e.target.value as AdminSkillDiscoverySort)}
+          >
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first — the backlog's own risk order</option>
+          </select>
+        </label>
+      )}
 
       <div className="filters__actions">
         <button className="btn btn--primary" type="submit">

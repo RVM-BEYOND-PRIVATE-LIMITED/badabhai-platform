@@ -15,6 +15,7 @@ import { Pager } from "../../../components/pager";
 import { Stat } from "../../../components/stat";
 import { PageHeader } from "../../../components/page-header";
 import { RetryActions } from "../../../components/retry-actions";
+import { filterChipClass } from "../../../components/filter-chip";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -163,7 +164,7 @@ export default async function TransactionsPage({
           {STATUSES.map((s) => (
             <Link
               aria-current={s === status ? "true" : undefined}
-              className={`btn btn--sm ${s === status ? "btn--primary" : "btn--ghost"}`}
+              className={filterChipClass(s === status)}
               /* Keeps an account narrowing (`?payerId=`); a chip used to drop it. */
               href={`/transactions?status=${s}${payerId ? `&payerId=${encodeURIComponent(payerId)}` : ""}`}
               key={s}
@@ -242,7 +243,7 @@ export default async function TransactionsPage({
               <thead>
                 <tr>
                   <th scope="col">When</th>
-                  <th scope="col">Account</th>
+                  <th scope="col">Customer</th>
                   <th scope="col">Pack</th>
                   <th scope="col">Amount</th>
                   <th scope="col">Credits</th>

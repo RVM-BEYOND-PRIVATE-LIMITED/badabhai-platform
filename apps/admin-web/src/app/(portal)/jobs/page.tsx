@@ -2,13 +2,20 @@ import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { can } from "../../../lib/auth/capabilities";
 import { listJobPostings } from "../../../lib/entities";
+import { isAdminRequestError } from "../../../lib/admin-http";
+import { queryHref } from "../../../lib/query-href";
 import { formatPayBand, formatRelative, formatTimestamp, shortId } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
 import { JobFilterBar } from "./filter-bar";
+import { FilterPanel } from "../../../components/filter-panel";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
-import { RetryActions } from "../../../components/retry-actions";
+import {
+  CURSOR_REFUSAL,
+  FirstPageAction,
+  RetryActions,
+} from "../../../components/retry-actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Postings" };
@@ -19,7 +26,7 @@ export const metadata = { title: "Postings" };
  * This is the only entity list with human-readable text on it (`org_label`, `role_title`,
  * `location_label`), because those are poster-typed fields already shown to every worker
  * in the feed. That makes this the screen where an operator actually FINDS things: a spam
- * or misleading posting is identifiable here, and its owner account is one click away.
+ * or misleading posting is identifiable here, and its customer is one click away.
  * Workers, Companies and Agencies are opaque by design and are reached through here.
  */
 export default async function JobsPage({
@@ -39,17 +46,36 @@ export default async function JobsPage({
   const payerId = one(sp.payerId);
   const cursor = one(sp.cursor);
 
+  const filtered = Boolean(status || verificationStatus || payerId);
+
   let page: Awaited<ReturnType<typeof listJobPostings>> | null = null;
   let failed = false;
+  let refused = false;
   try {
     page = await listJobPostings({ status, verificationStatus, payerId, cursor });
-  } catch {
-    // Most likely a malformed payer uuid. A user error renders inline; it does not take
-    // the screen down.
+  } catch (err) {
+    // Rendered inline either way; it does not take the screen down. A 400 is most likely a
+    // malformed customer uuid — the operator's to correct. Anything else is our fault, and
+    // telling them to correct a value over an outage blames a filter that is not broken.
     failed = true;
+    // A 400 is the operator's address only when the address holds something to refuse — a
+    // filter, or a page cursor. With neither, it cannot be theirs: that is an outage too.
+    refused = isAdminRequestError(err) && err.status === 400 && Boolean(filtered || cursor);
   }
 
-  const filtered = Boolean(status || verificationStatus || payerId);
+  /** The current query without the cursor — what the recoveries below repeat. */
+  const listHref = queryHref("/jobs", { status, verificationStatus, payerId });
+  /**
+   * The ONE "Clear filters" on this screen (owner brief 2026-10-01): in the results head while
+   * the list loads, and inside the refusal state when the server refused the filters — there it
+   * is the recovery, so the head does not repeat it.
+   */
+  const clearFilters = filtered ? (
+    <Link className="btn btn--ghost" href="/jobs">
+      <Icon name={ACTION_ICON.clearFilters} />
+      Clear filters
+    </Link>
+  ) : null;
 
   return (
     <div className="page">
@@ -57,16 +83,18 @@ export default async function JobsPage({
         title="Postings"
         description="Every posting on the platform, with company and role text exactly as the poster typed it — the text workers see in the feed."
         filters={
-          <section className="panel" aria-labelledby="jf-heading">
-            <h2 className="sr-only" id="jf-heading">
-              Filter postings
-            </h2>
+          /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */
+          <FilterPanel
+            headingId="jf-heading"
+            heading="Filter postings"
+            activeCount={[status, verificationStatus, payerId].filter(Boolean).length}
+          >
             <JobFilterBar
               status={status ?? ""}
               verificationStatus={verificationStatus ?? ""}
               payerId={payerId ?? ""}
             />
-          </section>
+          </FilterPanel>
         }
       />
 
@@ -78,29 +106,46 @@ export default async function JobsPage({
             </h2>
             <p className="panel__sub">
               {failed
-                ? "That filter combination was rejected."
+                ? refused && filtered
+                  ? "That filter combination was rejected."
+                  : "Nothing was fetched."
                 : `${page?.items.length ?? 0} posting${page?.items.length === 1 ? "" : "s"} on this page.`}
             </p>
           </div>
-          {filtered && (
-            <Link className="btn btn--ghost" href="/jobs">
-              <Icon name={ACTION_ICON.clearFilters} />
-              Clear filters
-            </Link>
-          )}
+          {refused ? null : clearFilters}
         </div>
 
-        {failed ? (
+        {refused ? (
           <div className="state state--error">
-            <h3 className="state__title">The server rejected these filters</h3>
+            <h3 className="state__title">
+              {filtered ? "The server rejected these filters" : CURSOR_REFUSAL.title}
+            </h3>
             <p className="state__body">
-              Nothing was fetched. An owner account id must be a full UUID — a short id
-              copied from a table cell will not do. Correct the value above, or clear the
-              filters and start again.
+              {filtered
+                ? "Nothing was fetched. A customer id must be a full UUID — a short id copied from a table cell will not do. Correct the value above, or clear the filters and start again."
+                : CURSOR_REFUSAL.body}
             </p>
-            {/* One "Clear filters" per screen: the results head carries it whenever a filter is
-                set, so this state does not repeat it (owner brief 2026-10-01). */}
-            {filtered ? null : <RetryActions href="/jobs" cursor={cursor} />}
+            {/* Repeating a refused request cannot succeed, so there is no Retry. The API refuses a
+                page cursor only when it is longer than any it issues (a malformed one falls back
+                to page one), so with a filter set the FILTER is what was refused — keeping it on
+                the first page would be refused again, and the way out is Clear filters. With no
+                filter, the cursor was refused: the first page. */}
+            {filtered ? (
+              <div className="state__actions">{clearFilters}</div>
+            ) : (
+              <FirstPageAction href={listHref} cursor={cursor} />
+            )}
+          </div>
+        ) : failed ? (
+          <div className="state state--error">
+            <h3 className="state__title">Postings are unavailable</h3>
+            <p className="state__body">
+              The list did not load, and that is a fault on our side rather than anything in the
+              filters.
+            </p>
+            {/* The SAME query — filters and cursor kept — and, past page one, the first page of
+                it. Neither is "Clear filters", which the results head already offers. */}
+            <RetryActions href={listHref} cursor={cursor} />
           </div>
         ) : page && page.items.length > 0 ? (
           <div className="tablewrap">
@@ -114,7 +159,7 @@ export default async function JobsPage({
                   <th scope="col">Pay</th>
                   <th scope="col">Status</th>
                   <th scope="col">Trust review</th>
-                  <th scope="col">Owner account</th>
+                  <th scope="col">Customer</th>
                   <th scope="col">Created</th>
                 </tr>
               </thead>

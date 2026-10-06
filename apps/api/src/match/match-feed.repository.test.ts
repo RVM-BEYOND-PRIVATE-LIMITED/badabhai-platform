@@ -71,26 +71,44 @@ function orderByOf(sql: string): string {
  * listFeed — MOMENT ④.
  * ══════════════════════════════════════════════════════════════════════════ */
 
-describe("listFeed — the order is boost, then recency, then a STABLE tiebreak", () => {
-  it("orders by boosted DESC, published_at DESC NULLS LAST, id ASC — in that sequence", async () => {
+describe("listFeed — the order is boost, then tier, then recency, then a STABLE tiebreak", () => {
+  it("orders by boosted DESC, match_tier ASC, published_at DESC NULLS LAST, id ASC — in that sequence", async () => {
     const { repo, statements } = makeDb();
     await repo.listFeed(WORKER, 10, {});
 
     // ADR-0036 §7: boost "permutes order within what the worker already qualified for"
-    // and does NOTHING else. Recency second. The `id ASC` tail is not decoration — it
-    // is what makes this a TOTAL order, and without it two postings published in the
+    // and stays FIRST — a paid placement is never outranked by tier. Then DIRECT BEFORE
+    // RELATED (owner ruling 2026-10-05): a posted-skill match (tier 1) above a
+    // related-skill match (tier 2). Recency third. The `id ASC` tail is not decoration —
+    // it is what makes this a TOTAL order, and without it two postings published in the
     // same transaction swap places on every fetch (E11/Policy 7: "a feed that reorders
-    // between page loads is a bug"). Asserted as a SEQUENCE, because getting the three
+    // between page loads is a bug"). Asserted as a SEQUENCE, because getting the four
     // keys present but in the wrong order is the failure that still looks plausible.
     const order = orderByOf(statements[0]!.sql);
     const boostAt = order.indexOf("boosted_until");
+    const tierAt = order.indexOf("jr.match_tier ASC");
     const publishedAt = order.indexOf("jp.published_at DESC NULLS LAST");
     const idAt = order.indexOf("jp.id ASC");
 
+    expect(tierAt, "jr.match_tier ASC must be in the ORDER BY").toBeGreaterThan(-1);
     expect(publishedAt, "published_at DESC NULLS LAST must be in the ORDER BY").toBeGreaterThan(-1);
     expect(idAt, "the id ASC total-order tiebreak must be in the ORDER BY").toBeGreaterThan(-1);
-    expect(boostAt).toBeLessThan(publishedAt);
+    expect(boostAt).toBeGreaterThan(-1);
+    expect(boostAt).toBeLessThan(tierAt);
+    expect(tierAt).toBeLessThan(publishedAt);
     expect(publishedAt).toBeLessThan(idAt);
+  });
+
+  it("is EXACTLY the four ruled keys — nothing scored, weighted or added", async () => {
+    const { repo, statements } = makeDb();
+    await repo.listFeed(WORKER, 10, {});
+    // Pinned verbatim: a fifth key, a CASE, a COALESCE or an arithmetic expression here
+    // would be a ranking change nobody ruled on (ADR-0036 §5 — the feed order is a
+    // signed decision, not a tuning surface).
+    expect(orderByOf(statements[0]!.sql)).toBe(
+      "ORDER BY (jp.boosted_until IS NOT NULL AND jp.boosted_until > now()) DESC, " +
+        "jr.match_tier ASC, jp.published_at DESC NULLS LAST, jp.id ASC",
+    );
   });
 
   it("ranks by boost EXPIRY, never by a boolean column that could go stale", async () => {

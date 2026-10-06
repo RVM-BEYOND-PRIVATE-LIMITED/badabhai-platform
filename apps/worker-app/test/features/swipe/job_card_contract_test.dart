@@ -143,6 +143,55 @@ void main() {
         tester.getTopLeft(find.byType(RoleArtBanner)).dy,
         lessThan(tester.getTopLeft(find.text('Any job')).dy),
       );
+
+      // ART, NEVER TEXT (#2009). The fixture's own rule: a case carrying
+      // `role_kind` draws exactly the slots the same input WITHOUT it draws —
+      // the illustration adds no text slot. Asserted by pumping the same card
+      // twice and comparing every string it painted, which needs no label table
+      // to stay true when the kinds or their wording change.
+      final List<String> withKind = _drawnText(tester);
+
+      final Map<String, dynamic> bare =
+          Map<String, dynamic>.from(c['input'] as Map<String, dynamic>)
+            ..remove('role_kind');
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: Design1JobCard(
+                data: feedItemCardData(
+                  FeedItem.fromJson(<String, dynamic>{
+                    'title': 'Any job',
+                    'city': 'Pune',
+                    ...bare,
+                    'job_id': 'bare-$i',
+                  }),
+                ),
+                payFull: null,
+                showDock: false,
+                showTeaser: false,
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(withKind, _drawnText(tester));
+
+      // And the slug itself is never painted — not as a row, not inside one.
+      // `role_kind` is a raw id; a worker must never be shown one.
+      final Object? kind = (c['input'] as Map<String, dynamic>)['role_kind'];
+      if (kind is String && kind.isNotEmpty) {
+        for (final String drawn in withKind) {
+          expect(drawn.toLowerCase(), isNot(contains(kind.toLowerCase())));
+        }
+      }
     });
   }
 }
+
+/// Every string the pumped card is currently painting, in paint order.
+List<String> _drawnText(WidgetTester tester) => tester
+    .widgetList<Text>(find.byType(Text))
+    .map((Text t) => t.data ?? t.textSpan?.toPlainText() ?? '')
+    .where((String s) => s.isNotEmpty)
+    .toList(growable: false);

@@ -3,7 +3,10 @@
 import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AdminActionButton } from "../../../components/admin-action-button";
-import { AdminActionResultBanner } from "../../../components/admin-action-result-banner";
+import {
+  ALL_ADMIN_ACTIONS_LINK,
+  AdminActionResultBanner,
+} from "../../../components/admin-action-result-banner";
 import { inviteAdminAction } from "./actions";
 import { ADMIN_ROLES, ROLE_LABELS, type AdminRole } from "../../../lib/auth/capabilities";
 import { looksLikeAdminEmail } from "../../../lib/email-shape";
@@ -83,7 +86,7 @@ export function InviteAdminForm({
         </div>
         <div className="form-actions">
           <AdminActionButton
-            label="Invite admin"
+            label="Invite an admin"
             icon="user-plus"
             confirmLabel={`Confirm invite for ${email || "this address"}?`}
             variant="primary"
@@ -96,11 +99,7 @@ export function InviteAdminForm({
       {outcome && (
         <AdminActionResultBanner
           outcome={outcome}
-          eventsLink={
-            mayReadEvents
-              ? { href: "/events?eventName=admin.action_performed", label: "View events" }
-              : null
-          }
+          eventsLink={mayReadEvents ? ALL_ADMIN_ACTIONS_LINK : null}
         />
       )}
       {outcome?.ok && outcome.acceptUrl ? (
