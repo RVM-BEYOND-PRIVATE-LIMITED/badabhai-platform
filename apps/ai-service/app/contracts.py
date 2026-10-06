@@ -2106,3 +2106,119 @@ class CompanionCareerRefuse(BaseModel):
     status: Literal["refuse"]
     topic: CompanionCareerRefusalTopic
     ai_metadata: AICallMetadata | None = None
+
+
+# --- The profiling-stage free chat (ADR-0051, #2027) -----------------------------------------
+#
+# Mirrors `packages/ai-contracts/src/free-chat.ts`; both suites assert against the golden fixture
+# `free-chat.keys.json`. Two endpoints: `POST /free-chat/classify` (one message -> one closed
+# category) and `POST /free-chat/reply` (one casual or career message -> 1-4 Hinglish lines, or a
+# closed refusal topic).
+#
+# PRIVACY: `text`, `pending_question`, the recent turns and the trade label are model inputs; the
+# endpoints apply the masking policy in force (ADR-0047) before AIRouter, and the API redacts the
+# worker's own name first (G2). The model's output is UNTRUSTED: the API maps a category to a
+# deterministic handler and re-validates every reply line before a worker reads it (ADR-0051 §4).
+#
+# The closed sets are the ones `packages/types` declares (`FREE_CHAT_CATEGORIES`,
+# `FREE_CHAT_REPLY_CATEGORIES`, `FREE_CHAT_REFUSAL_TOPICS`); the parity suite reads that source.
+# The recent-turn and worker-context shapes are the companion's: one shape, not two.
+
+#: The modes a message is classified IN. `greeting` is never sent: the API reads the greeting's
+#: Haan / Baad mein deterministically and classifies anything else typed there as `free`.
+FreeChatClassifyMode = Literal["free", "resume"]
+FreeChatCategory = Literal[
+    "resume",
+    "career",
+    "jobs",
+    "casual",
+    "trash",
+    "off_limits",
+    "distress",
+    "unclear",
+]
+#: The categories the model writes a reply for; every other one is answered with fixed copy.
+FreeChatReplyCategory = Literal["casual", "career"]
+FreeChatRefusalTopic = Literal[
+    "legal_medical_financial",
+    "news",
+    "off_limits",
+    "distress",
+    "unsafe_other",
+]
+#: The free-chat contract's own character caps (`REPLY_LINE_MAX`, `REPLY_CHIP_MAX` in
+#: free-chat.ts). Equal to the career caps today, declared apart so the two contracts can move
+#: independently. Like the career caps they only stop a pathological payload: the
+#: words-per-line bound is the API validator's.
+FreeChatReplyLine = Annotated[str, Field(min_length=1, max_length=300)]
+FreeChatReplyChip = Annotated[str, Field(min_length=1, max_length=60)]
+
+
+class FreeChatClassifyInput(BaseModel):
+    """One message to classify, with at most two recent turns.
+
+    ``pending_question`` is the interview question on screen (résumé mode only), so an answer
+    like "5 saal" reads as ``resume`` rather than chit-chat. Null in free mode.
+    """
+
+    text: str = Field(min_length=1, max_length=1000)
+    recent_turns: list[CompanionRecentTurn] = Field(default_factory=list, max_length=2)
+    mode: FreeChatClassifyMode
+    pending_question: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class FreeChatClassifyOutput(BaseModel):
+    """The classifier's closed category, its confidence and the block flag.
+
+    The API tells a REAL verdict from an unavailable one by ``ai_metadata.real_call`` being true
+    and ``blocked`` being false: a mock, a blocked input, a timeout or a null is "unavailable",
+    which in résumé mode passes the message to today's interview (ADR-0051 §3.2).
+    """
+
+    category: FreeChatCategory
+    confidence: float = Field(ge=0.0, le=1.0)
+    blocked: bool = False
+    # `None` on the blocked path: no provider was called, so there is no cost to record.
+    ai_metadata: AICallMetadata | None = None
+
+
+class FreeChatReplyInput(BaseModel):
+    """One casual or career message plus up to six recent turns and the closed worker context."""
+
+    category: FreeChatReplyCategory
+    text: str = Field(min_length=1, max_length=4000)
+    recent_turns: list[CompanionRecentTurn] = Field(default_factory=list, max_length=6)
+    worker_context: CompanionCareerWorkerContext = Field(
+        default_factory=CompanionCareerWorkerContext
+    )
+
+
+class FreeChatAnswer(BaseModel):
+    """The model's reply: 1-4 short Hinglish lines plus up to three follow-up chips.
+
+    NOTHING here is trusted, and the caps are deliberately loose: a bad answer must reach the
+    API's validator to be judged, not be rejected at the transport with the same outcome and a
+    worse diagnosis.
+    """
+
+    status: Literal["answer"]
+    lines: list[FreeChatReplyLine] = Field(min_length=1, max_length=4)
+    followup_chips: list[FreeChatReplyChip] = Field(default_factory=list, max_length=3)
+    ai_metadata: AICallMetadata | None = None
+
+
+class FreeChatRefuse(BaseModel):
+    """The model refused: one closed topic, and the API serves that topic's fixed line.
+
+    ``unsafe_other`` is the catch-all, including for output that fails the schema.
+    """
+
+    status: Literal["refuse"]
+    topic: FreeChatRefusalTopic
+    ai_metadata: AICallMetadata | None = None
+
+
+#: The reply union, discriminated on ``status`` like the Zod `discriminatedUnion`: a missing or
+#: unknown discriminant fails the contract rather than defaulting into a shape the model did not
+#: mean.
+FreeChatReplyOutput = Annotated[FreeChatAnswer | FreeChatRefuse, Field(discriminator="status")]

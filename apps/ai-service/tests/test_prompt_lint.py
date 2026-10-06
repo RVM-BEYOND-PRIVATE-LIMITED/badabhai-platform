@@ -30,7 +30,16 @@ PROMPT_FILES = [
     APP / "profiling" / "parse_prompt.py",
     APP / "job_posting_chat" / "prompts.py",
     APP / "extraction.py",
+    # ADR-0051 — the free chat's classifier and its two reply prompts.
+    APP / "free_chat" / "prompts.py",
 ]
+
+
+def _key(path: Path) -> str:
+    """A prompt file's key: its path under `app/`, NOT its bare name. Three files here are
+    `prompts.py`, and keyed by name a violation in any of them sheltered behind the known
+    conflict that belongs to `profiling/prompts.py` alone."""
+    return path.relative_to(APP).as_posix()
 
 # The forbidden asks, as the verb a prompt would actually use. Each maps to the §8.5 clause it
 # implements; the phrasing is deliberately narrow so the lint flags instructions rather than
@@ -75,7 +84,7 @@ FORBIDDEN = {
 # next person cannot miss it — and the test below asserts the list is EXACTLY this, so a second
 # violation cannot hide behind the first.
 # ---------------------------------------------------------------------------
-KNOWN_CONFLICTS = {("prompts.py", "summarise the worker")}
+KNOWN_CONFLICTS = {("profiling/prompts.py", "summarise the worker")}
 
 
 def _prompt_text(path: Path) -> str:
@@ -95,21 +104,27 @@ def _violations() -> set[tuple[str, str]]:
         text = _prompt_text(path)
         for clause, pattern in FORBIDDEN.items():
             if re.search(pattern, text, re.IGNORECASE):
-                found.add((path.name, clause))
+                found.add((_key(path), clause))
     return found
 
 
 def test_every_prompt_file_the_lint_names_still_exists():
     # A lint over a moved file is a lint over nothing, and it would stay green forever.
-    missing = [p.name for p in PROMPT_FILES if not p.exists()]
+    missing = [_key(p) for p in PROMPT_FILES if not p.exists()]
     assert missing == []
 
 
-@pytest.mark.parametrize("path", PROMPT_FILES, ids=lambda p: p.name)
+def test_every_prompt_file_has_its_own_key():
+    keys = [_key(p) for p in PROMPT_FILES]
+    assert len(set(keys)) == len(keys)
+
+
+@pytest.mark.parametrize("path", PROMPT_FILES, ids=_key)
 def test_no_prompt_asks_the_model_to_do_what_8_5_forbids(path: Path):
-    hits = {(f, c) for (f, c) in _violations() if f == path.name} - KNOWN_CONFLICTS
+    hits = {(f, c) for (f, c) in _violations() if f == _key(path)} - KNOWN_CONFLICTS
     assert hits == set(), (
-        f"{path.name} instructs the model to do what §8.5 forbids: {sorted(c for _, c in hits)}. "
+        f"{_key(path)} instructs the model to do what §8.5 forbids: "
+        f"{sorted(c for _, c in hits)}. "
         "The model may extract, classify and generate; it may never rate, rank, judge or guess."
     )
 
