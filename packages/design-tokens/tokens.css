@@ -659,8 +659,16 @@ a:hover {
   color: var(--navy-900);
 }
 
+/* The base focus ring is the --ring-focus SHADOW. Windows forced-colors mode drops every
+   box-shadow, so this rule used to leave anything that matched only it (a focusable scroller,
+   which Chrome makes a tab stop of its own) with no indicator at all there. The outline under
+   it is TRANSPARENT — invisible in normal mode, so nothing changes — and forced colours repaint
+   it in the system colour (#1856). Offset one ring-width, where the shadow's outer band sits.
+   payer-web overrides the outline with its `--focus-outline` pair (system Highlight under forced
+   colours); admin-web used to keep a copy of this fallback and now inherits it from here. */
 :focus-visible {
-  outline: none;
+  outline: var(--border-bold) solid transparent;
+  outline-offset: var(--border-bold);
   box-shadow: var(--ring-focus);
   border-radius: var(--radius-sm);
 }

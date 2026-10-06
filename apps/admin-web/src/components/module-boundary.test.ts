@@ -79,6 +79,7 @@ describe("nav-model is server-readable data", () => {
 const CLIENT_COMPONENTS = [
   "nav.tsx",
   "shell.tsx",
+  "filter-panel.tsx",
   "sign-out-button.tsx",
   "admin-action-button.tsx",
   "payer-detail-header.tsx",

@@ -10,6 +10,7 @@ import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
 import { WorkerFilterBar } from "./filter-bar";
+import { FilterPanel } from "../../../components/filter-panel";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { RetryActions } from "../../../components/retry-actions";
 
@@ -85,12 +86,14 @@ export default async function WorkersPage({
           </>
         }
         filters={
-          <section className="panel" aria-labelledby="wf-heading">
-            <h2 className="sr-only" id="wf-heading">
-              Filter workers
-            </h2>
+          /* Folds behind a "Filters (n)" toggle on a phone (AW-08); unchanged above it. */
+          <FilterPanel
+            headingId="wf-heading"
+            heading="Filter workers"
+            activeCount={[Boolean(status), pendingDeletion].filter(Boolean).length}
+          >
             <WorkerFilterBar status={status ?? ""} pendingDeletion={pendingDeletion} />
-          </section>
+          </FilterPanel>
         }
       />
 
