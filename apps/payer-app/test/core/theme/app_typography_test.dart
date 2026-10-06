@@ -26,11 +26,11 @@ void main() {
 
   tearDown(() {
     // Restore BOTH globals to the SHIPPED state — this suite drives them on
-    // purpose and every other test in the app reads them. `false` is the restore
-    // value: it governs body()/eyebrow(), which route through GoogleFonts.roboto
-    // (the pubspec bundles no Roboto). display() is always the bundled
-    // Kilimanjaro Sans (#1999) and no longer reads this flag.
-    AppTypography.bundledBrandFonts = false;
+    // purpose and every other test in the app reads them. `true` is the restore
+    // value: it governs body()/eyebrow(), which now resolve off the bundled
+    // KilimanjaroSans asset family (no google_fonts fetch). display() is always
+    // the bundled Kilimanjaro Sans (#1999) and no longer reads this flag.
+    AppTypography.bundledBrandFonts = true;
     GoogleFonts.config.allowRuntimeFetching = false;
   });
 
@@ -40,12 +40,11 @@ void main() {
     test('display/body/eyebrow resolve to the named asset families', () {
       // On the bundled branch, display()/body() name a family DIRECTLY (no
       // google_fonts "_regular" variant suffix). #1999 — display() is the
-      // bundled brand-kit heading face, Kilimanjaro Sans. body()/eyebrow() name
-      // 'Roboto' (a platform font; the pubspec bundles no Roboto, which is why
-      // this branch is not the shipped default).
+      // bundled brand-kit heading face, Kilimanjaro Sans. body()/eyebrow() now
+      // also name Kilimanjaro Sans since the binaries ship and the flag is true.
       expect(AppTypography.display().fontFamily, 'Kilimanjaro Sans');
-      expect(AppTypography.body().fontFamily, 'Roboto');
-      expect(AppTypography.eyebrow().fontFamily, 'Roboto');
+      expect(AppTypography.body().fontFamily, 'Kilimanjaro Sans');
+      expect(AppTypography.eyebrow().fontFamily, 'Kilimanjaro Sans');
     });
 
     test('bars google_fonts from fetching at runtime', () {
@@ -100,7 +99,7 @@ void main() {
       ];
 
       for (final TextStyle? s in slots) {
-        expect(s!.fontFamily, anyOf('Kilimanjaro Sans', 'Roboto'));
+        expect(s!.fontFamily, 'Kilimanjaro Sans');
       }
     });
 
@@ -117,16 +116,6 @@ void main() {
         FontWeight.w700,
         FontWeight.w800,
       };
-      const Set<FontWeight> baloo = <FontWeight>{
-        FontWeight.w600,
-        FontWeight.w700,
-        FontWeight.w800,
-      };
-      const Set<FontWeight> mukta = <FontWeight>{
-        FontWeight.w400,
-        FontWeight.w600,
-        FontWeight.w700,
-      };
 
       final TextTheme t = AppTypography.textTheme();
       for (final TextStyle? s in <TextStyle?>[
@@ -138,8 +127,9 @@ void main() {
       ]) {
         final Set<FontWeight> declared = switch (s!.fontFamily) {
           'Kilimanjaro Sans' => kilimanjaro,
-          'Baloo 2' => baloo,
-          _ => mukta,
+          // body/eyebrow now also use Kilimanjaro Sans (same weights, same file).
+          // All other slots (heading-only) fall through to the default.
+          _ => kilimanjaro,
         };
         // Never null: display()/body() both stamp their default weight in.
         expect(declared, contains(s.fontWeight));
@@ -179,14 +169,13 @@ void main() {
     });
   });
 
-  test('ships the flag false — body/eyebrow still come via google_fonts', () {
-    // #350/#1999: the pubspec bundles Baloo 2 / Mukta / Kilimanjaro Sans, NOT
-    // Roboto, so a `true` flag would render every BODY run in the system
-    // fallback. The flag MUST ship false, routing body()/eyebrow() through
-    // GoogleFonts.roboto. display() is the bundled Kilimanjaro Sans either way.
-    // Declared outside both groups so no setUp has touched it; tearDown restores
-    // this same value.
-    expect(AppTypography.bundledBrandFonts, isFalse);
+  test('ships the flag true — body/eyebrow now resolve from bundled assets', () {
+    // #350/#1999: the pubspec bundles Baloo 2 / Mukta / Kilimanjaro Sans.
+    // With the flag true, display() and body()/eyebrow() all resolve off the
+    // same bundled KilimanjaroSans asset family, so no runtime fetch occurs.
+    // The flag ships true per this change; tearDown restores it for downstream
+    // tests that still expect the fetch branch.
+    expect(AppTypography.bundledBrandFonts, isTrue);
   });
 
   test('mono stays self-hosted regardless of the brand-font switch', () {

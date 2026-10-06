@@ -42,32 +42,27 @@ class AppTypography {
     'Noto Sans Devanagari',
   ];
 
-  /// Body/UI family — **Roboto** (system font on Android; Noto Sans Devanagari
-  /// fallback for regional copy).
-  static const String bodyFamily = 'Roboto';
+  /// Body/UI family — **Kilimanjaro Sans** (#1999), the brand-kit heading face,
+  /// now also used for body copy so the font is consistent across the app
+  /// (headings + body all render from the same bundled asset). Latin-display only:
+  /// the fallback chain carries the ₹ and Devanagari glyphs the display cut lacks.
+  static const String bodyFamily = 'Kilimanjaro Sans';
 
   /// Devanagari fallback for body copy — mirrors the JUL31 kit's `BBType`.
+  /// Kilimanjaro Sans lacks Devanagari glyphs, so Noto Sans Devanagari carries
+  /// them rather than rendering tofu.
   static const List<String> _devanagariFallback = <String>['Noto Sans Devanagari'];
 
-  /// #350 — whether the BODY binaries ship inside the APK.
+  /// #350 — brand binaries are bundled, so slam the network door: google_fonts
+  /// must never quietly fetch a font over HTTP at runtime.
   ///
-  /// #1999 NOTE: [display] is now ALWAYS the bundled Kilimanjaro Sans and no
-  /// longer consults this flag. It governs only [body]/[eyebrow]:
+  /// #1999: [display] and [body] now both resolve off the bundled
+  /// `KilimanjaroSans` asset family name, so this flag is always `true` —
+  /// no runtime fetch, no crash on flaky links for our low-connectivity audience.
   ///
-  /// `false` (current): [body]/[eyebrow] route through `GoogleFonts.roboto`, so
-  /// the real Roboto face is fetched at runtime on first use.
-  ///
-  /// `true` is the "binaries bundled" behaviour: [body]/[eyebrow] resolve
-  /// straight off the bundled asset family named [bodyFamily] and google_fonts
-  /// is never called. **This must stay FALSE until a ROBOTO face is actually
-  /// declared under pubspec `fonts:`.** The pubspec here bundles Baloo 2 + Mukta
-  /// + Kilimanjaro Sans, NOT Roboto — so flipping this TRUE makes [body] ask for
-  /// a family `'Roboto'` that is only a platform font, and every body run
-  /// silently renders the system fallback.
-  ///
-  /// Mutable (not `const`) so a test can drive BOTH sides of the seam; restore
+  /// Mutable (not `const`) so a test can drive both sides of the seam; restore
   /// it in `tearDown`.
-  static bool bundledBrandFonts = false;
+  static bool bundledBrandFonts = true;
 
   /// #350 — the binaries are bundled, so slam the network door: google_fonts
   /// must never quietly fetch a family we already ship.
