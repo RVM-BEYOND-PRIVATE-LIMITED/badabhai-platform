@@ -16,9 +16,13 @@
  * company create/publish, the agency create — through this ONE ordered list, because two copies
  * of the rule (one for the first gap, one for all of them) would drift the moment a row changed.
  *
- * WEB EXTENSION: `roleKind` is checked FIRST. It is not on the worker's card (no worker read
- * carries it, ADR-0024 addendum #1823); it files the posting under the right role, and the form
- * asks for it first, so "Pick the role" is named first. The rest is the Dart order.
+ * WEB EXTENSION: `roleKind` is checked FIRST. It files the posting under the right role, and the
+ * form asks for it first, so "Pick the role" is named first. The rest is the Dart order.
+ *
+ * It IS on the worker's card now — as the role ILLUSTRATION, keyed by `role_kind`, which both
+ * `GET /feed` and `GET /jobs/:jobId` carry since the owner ruling of 2026-10-05 (ADR-0024
+ * addendum, #2009). Never as words. The older note here said no worker read carried it, which
+ * stopped being true when the art shipped.
  *
  * OWNER RULING: this rule is enforced on CREATE + PUBLISH only — editing a LIVE posting saves
  * with the gaps highlighted, never blocked. The API stays permissive (publish never refuses a
