@@ -1979,6 +1979,74 @@ describe("the answer map is the profile, and the LLM is an overlay on it", () =>
     ).not.toContain("profile.parse_gates_rejected");
   });
 
+  // #2004 — the parse overlay is model-written. Its free text passes gates 1-5 here and a
+  // pass-through gate 6, never the #1788 certifier, so it must not be stored.
+  describe("#2004 — the stored draft keeps no uncertified model-written free text", () => {
+    const WORKER_LINE =
+      "lathe aur Ramesh Engineering Works ka VMC chalata hoon, ITI Suresh sir se kiya, " +
+      "10th pass, mechanical, pachees hazaar chahiye";
+    const cited = (value: unknown, quote: string) => ({
+      value,
+      evidence: { message_index: 0, quote },
+      source: "transcript",
+      normalization: "verbatim",
+      confidence: 0.9,
+    });
+    const overlay = () => ({
+      ...withMap(),
+      messages: [{ direction: "inbound", bodyText: WORKER_LINE }],
+      parsed: {
+        fields: {
+          skills: cited(["Ramesh Engineering Works"], "Ramesh Engineering Works"),
+          tools_equipment: cited(["lathe", "Ramesh Engineering Works ka VMC"], "lathe aur Ramesh"),
+          certifications: cited(["ITI Suresh sir"], "ITI Suresh sir se kiya"),
+          education_level: cited("10th pass", "10th pass"),
+          education_field: cited("mechanical", "mechanical"),
+          salary_expected: cited(25000, "pachees hazaar chahiye"),
+        },
+        unparsed_field_ids: [],
+        notes: [],
+      },
+    });
+
+    it("withholds every model-written free-text field from rich_profile_draft", async () => {
+      const { proc, profiles } = make(overlay());
+      await proc.process(makeJob());
+      const row = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+      const rich = row.richProfileDraft as Record<string, unknown>;
+      expect(rich.skills).toEqual([]);
+      expect(rich.machines).toEqual([]);
+      expect(rich.controllers).toEqual([]);
+      expect(rich.certifications).toEqual([]);
+      expect(rich.education_level).toBeNull();
+      expect(rich.education_field).toBeNull();
+      const stored = JSON.stringify(rich);
+      expect(stored).not.toContain("Ramesh");
+      expect(stored).not.toContain("Suresh");
+    });
+
+    it("and from the profile columns built from the same draft", async () => {
+      const { proc, profiles } = make(overlay());
+      await proc.process(makeJob());
+      const row = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+      expect(row.machines).toEqual([]);
+      const raw = JSON.stringify(row.rawProfile ?? row);
+      expect(raw).not.toContain("Ramesh");
+      expect(raw).not.toContain("Suresh");
+    });
+
+    it("still stores the gate-3-closed number the same overlay carried", async () => {
+      const { proc, profiles } = make(overlay());
+      await proc.process(makeJob());
+      const row = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+      const rich = row.richProfileDraft as Record<string, unknown>;
+      expect(rich.expected_salary).toBe(25000);
+      // The answer map's own values are untouched; its trade is the pinned catalogue label.
+      expect(rich.primary_role).toBe("darzi");
+      expect(rich.current_city).toBe("Pune");
+    });
+  });
+
   it("does not emit a disagreement when the model and the map agree", async () => {
     const { proc, events } = make(withMap());
     await proc.process(makeJob());
@@ -2099,10 +2167,13 @@ describe("ProfileExtractionProcessor — G2 on the parse call's answer map", () 
     });
     await proc.process(makeJob());
 
-    // The deterministic value stands — captured from the worker, not written by the model.
+    // The model's echo never reaches the profile: gate 4 discards it. The answer-map trade it
+    // contradicted is not stored either (#2004): it is not the pinned catalogue label, and a
+    // trade record cannot say whether the worker or the Phase A model wrote it.
     const rich = (profiles.create.mock.calls[0]![0] as Record<string, unknown>)
       .richProfileDraft as Record<string, unknown>;
-    expect(rich.primary_role).toBe("Suresh CNC operator");
+    expect(rich.primary_role).toBeNull();
+    expect(JSON.stringify(rich)).not.toContain("[NAME]");
     const disagreement = events.emit.mock.calls
       .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
       .find((e) => e.event_name === "profile.parse_disagreement");
