@@ -156,13 +156,49 @@ function chipListSchema(kind: "requirement" | "benefit") {
 export const requirementsInputSchema = chipListSchema("requirement");
 export const benefitsInputSchema = chipListSchema("benefit");
 
+// PARITY (#1971): the constants and `pincodeExplainsContactRefusal` below MIRROR the server's
+// `PINCODE_TOKEN` / `PHONE_MIN_DIGITS` / `pincodeExplainsContactRefusal`, which back
+// `workerVisiblePlaceScreens` in apps/api/src/common/job-content.schemas.ts (#1848). Change
+// one, change the other — `place-pincode-waiver.test.ts` pins the shared cases.
+//
+// A standalone six-digit Indian pincode (never starts with 0), bounded by whitespace, a comma
+// or the value's ends. NOT `\b`: that treats "@" and "." as boundaries, so it would find
+// "411026" inside "hr@411026.xyz" and cutting it out would hide the email.
+const PINCODE_TOKEN = /(^|[\s,])([1-9]\d{5})(?=$|[\s,])/;
+// The shortest Indian phone number a worker could dial: a ten-digit mobile.
+const PHONE_MIN_DIGITS = 10;
+
+/**
+ * True when a pincode alone explains the `looksLikePii` refusal of a place value
+ * ("Sector 63 201301" reads as the eight-digit run "63201301" once spaces are stripped).
+ * Fail-closed, ALL must hold: no "@"; fewer than ten digits in total; a standalone pincode
+ * token; `looksLikePii` passes once that token is replaced by a space.
+ */
+function pincodeExplainsContactRefusal(s: string): boolean {
+  if (s.includes("@")) return false;
+  if ((s.match(/\d/g)?.length ?? 0) >= PHONE_MIN_DIGITS) return false;
+  const pincode = PINCODE_TOKEN.exec(s);
+  if (!pincode) return false;
+  const start = pincode.index + pincode[1]!.length;
+  return !looksLikePii(`${s.slice(0, start)} ${s.slice(start + pincode[2]!.length)}`);
+}
+
+/**
+ * The contact-details screen for a PLACE: `looksLikePii`, minus the pincode waiver the server
+ * applies to city/area (#1848). Only this screen is waived; company-name and link are not.
+ */
+export function placeLooksLikeContact(s: string): boolean {
+  return looksLikePii(s) && !pincodeExplainsContactRefusal(s);
+}
+
 /**
  * A worker-visible PLACE label (city or area) — shown VERBATIM on the job card via
  * `placeLabel` ("area, city"), so it is screened fail-closed with the SAME three heuristics as
- * the chips (`looksLikePii` + `looksLikeOrgName` + `looksLikeUrl`). Coarse locality only — a
- * payer must not be able to smuggle a phone number, a company name or a link onto the worker
- * surface through the location (invariant #2 / the reveal-gate). The server re-validates and
- * stays the authority. `max` mirrors each caller's existing cap.
+ * the chips (`looksLikePii` + `looksLikeOrgName` + `looksLikeUrl`), with the server's one
+ * pincode waiver on the contact-details screen ({@link placeLooksLikeContact}). Coarse
+ * locality only — a payer must not be able to smuggle a phone number, a company name or a
+ * link onto the worker surface through the location (invariant #2 / the reveal-gate). The
+ * server re-validates and stays the authority. `max` mirrors each caller's existing cap.
  */
 function placeFieldSchema(label: string, max: number) {
   return z
@@ -170,7 +206,7 @@ function placeFieldSchema(label: string, max: number) {
     .trim()
     .min(1)
     .max(max)
-    .refine((s) => !looksLikePii(s), { message: `Remove contact details from the ${label}.` })
+    .refine((s) => !placeLooksLikeContact(s), { message: `Remove contact details from the ${label}.` })
     .refine((s) => !looksLikeOrgName(s), { message: `Don't put a company name in the ${label}.` })
     .refine((s) => !looksLikeUrl(s), { message: `Don't put links in the ${label}.` });
 }
