@@ -85,6 +85,45 @@ void main() {
     }
   }
 
+  // ── #2030 — the trash cool-down locks the PROFILING composer too ──────────
+  testWidgets(
+      'a cool-down on the interview path replaces the composer and leaves the '
+      'chips tappable', (WidgetTester tester) async {
+    when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+        .thenAnswer((_) async => ChatTurn(
+              reply: 'Thoda ruk jaayein.',
+              // No `companion: true` — this is the ordinary interview/free-chat
+              // path, which carried no cool-down gate at all before #2030.
+              cooldownUntil: DateTime.now().add(const Duration(minutes: 2)),
+              suggestedOptions: const <ChatOption>[
+                ChatOption(
+                  optionKey: 'free_chat_resume',
+                  labelText: 'Resume banayein',
+                ),
+              ],
+            ));
+
+    await pumpScreen(tester);
+    await tester.enterText(find.byType(TextField), 'faltu');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pumpAndSettle();
+
+    // Free text is gone, and the bar says HOW LONG rather than just "later".
+    expect(find.byType(TextField), findsNothing);
+    expect(
+      find.textContaining('minute baad aap dobara likh sakte hain'),
+      findsOneWidget,
+    );
+
+    // THE CHIPS STILL WORK. The cool-down must never strand a worker: the way
+    // out of free chat is a chip, so locking those would trap them.
+    expect(find.text('Resume banayein'), findsOneWidget);
+    await tester.tap(find.text('Resume banayein'));
+    await tester.pumpAndSettle();
+    verify(() => repo.sendMessage('Resume banayein',
+        submissionId: any(named: 'submissionId'))).called(1);
+  });
+
   testWidgets('own message always snaps the list to the bottom', (
     WidgetTester tester,
   ) async {
