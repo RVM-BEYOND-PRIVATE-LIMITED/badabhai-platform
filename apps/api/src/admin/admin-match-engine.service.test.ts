@@ -212,10 +212,10 @@ describe("pure helpers", () => {
     expect(shortRef(WORKER)).toBe("5eeded00");
   });
 
-  it("toFunnel never reports a negative hidden count", () => {
+  it("toFunnel does not hide drift behind a clamp — the page flags an unbalanced funnel", () => {
     expect(
       toFunnel({ openPostings: 1, reachedDirect: 2, reachedRelated: 0, alreadyActioned: 0 }).hidden,
-    ).toBe(0);
+    ).toBe(-1);
   });
 
   it("explainMatch names every posted skill when a widen put the skill outside the curated map", () => {

@@ -13,7 +13,9 @@ export interface EngineSkillRow {
 
 /**
  * The four numbers of the reach funnel for ONE worker, read in ONE statement so they come
- * from one MVCC snapshot and therefore always add up (`hidden` is derived from them).
+ * from one MVCC snapshot and therefore always add up (`hidden` is derived from them). The
+ * snapshot covers the COUNTS only: the cards are a separate read, so on a live screen the two
+ * can disagree for one 3-second tick.
  */
 export interface EngineFunnelCounts {
   openPostings: number;

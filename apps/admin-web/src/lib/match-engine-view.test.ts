@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  NO_DIFF,
+  advanceLiveDiff,
   changedFunnelKeys,
   diffCards,
   engineHref,
@@ -123,5 +125,43 @@ describe("engineHref", () => {
       "/matching/engine?worker=w1&tab=posting&posting=p1",
     );
     expect(engineHref({ worker: "a&b" })).toBe("/matching/engine?worker=a%26b");
+  });
+});
+
+describe("advanceLiveDiff — what stays highlighted across polls", () => {
+  const worker = (cards: EngineCard[], funnel: EngineFunnel = FUNNEL, id = "w1") => ({
+    worker_id: id,
+    short_ref: id,
+    skills: [],
+    funnel,
+    cards,
+    card_cap: 50,
+    generated_at: "2026-10-05T10:00:00.000Z",
+  });
+
+  it("a change produces a fresh diff of arrivals, departures and moved numbers", () => {
+    const d = advanceLiveDiff(
+      worker([card("a", 1), card("b", 2)]),
+      worker([card("a", 1), card("c", 2)], { ...FUNNEL, reached_direct: 4, hidden: 4 }),
+      NO_DIFF,
+    );
+    expect([...d.entered]).toEqual(["c"]);
+    expect(d.exited.map((e) => e.card.job_posting_id)).toEqual(["b"]);
+    expect([...d.changed].sort()).toEqual(["hidden", "reached_direct"]);
+  });
+
+  it("a poll that changes nothing keeps the CURRENT highlight object (the reset timer is not re-armed or cancelled)", () => {
+    const current = advanceLiveDiff(worker([card("a", 1)]), worker([card("b", 1)]), NO_DIFF);
+    const same = worker([card("b", 1)]);
+    expect(advanceLiveDiff(same, { ...same }, current)).toBe(current);
+    expect(advanceLiveDiff(same, { ...same }, NO_DIFF)).toBe(NO_DIFF);
+  });
+
+  it("switching worker is a new screen, never an animated change", () => {
+    const current = advanceLiveDiff(worker([card("a", 1)]), worker([card("b", 1)]), NO_DIFF);
+    expect(
+      advanceLiveDiff(worker([card("b", 1)]), worker([card("z", 1)], FUNNEL, "w2"), current),
+    ).toBe(NO_DIFF);
+    expect(advanceLiveDiff(null, worker([card("a", 1)]), current)).toBe(NO_DIFF);
   });
 });

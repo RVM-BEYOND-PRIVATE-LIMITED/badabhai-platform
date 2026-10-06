@@ -306,3 +306,32 @@ export function engineHref(sel: EngineSelection): string {
   const s = q.toString();
   return s ? `${ENGINE_PATH}?${s}` : ENGINE_PATH;
 }
+
+/** What is highlighted right now: arrivals, departures (in place) and moved funnel numbers. */
+export interface LiveDiff {
+  entered: Set<string>;
+  exited: { card: EngineCard; index: number }[];
+  changed: Set<keyof EngineFunnel>;
+}
+
+/** The empty highlight. One shared object, so "no change" is an identity check. */
+export const NO_DIFF: LiveDiff = { entered: new Set(), exited: [], changed: new Set() };
+
+/**
+ * The highlight after a new answer arrives.
+ *
+ *  - another worker (or none) → a new screen, not a change: {@link NO_DIFF};
+ *  - nothing moved → the CURRENT highlight, the same object, so a pending reset is left alone;
+ *  - something moved → a fresh diff against the previous answer.
+ */
+export function advanceLiveDiff(
+  prev: EngineWorker | null,
+  next: EngineWorker | null,
+  current: LiveDiff,
+): LiveDiff {
+  if (!prev || !next || prev.worker_id !== next.worker_id) return NO_DIFF;
+  const cards = diffCards(prev.cards, next.cards);
+  const changed = changedFunnelKeys(prev.funnel, next.funnel);
+  if (cards.entered.size === 0 && cards.exited.length === 0 && changed.size === 0) return current;
+  return { entered: cards.entered, exited: cards.exited, changed };
+}

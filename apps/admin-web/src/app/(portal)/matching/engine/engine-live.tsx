@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@badabhai/icons";
 import {
-  changedFunnelKeys,
+  NO_DIFF,
+  advanceLiveDiff,
   clockTime,
-  diffCards,
   engineHref,
   funnelBalances,
   funnelSteps,
@@ -18,6 +18,7 @@ import {
   tierBadgeTone,
   withExiting,
   type EngineCard,
+  type LiveDiff,
   type EngineFunnel,
   type EnginePosting,
   type EngineWorker,
@@ -27,6 +28,11 @@ import {
 export const ENGINE_POLL_MS = 3000;
 /** How long an arrival / departure / changed number stays highlighted. */
 const HIGHLIGHT_MS = 1800;
+/**
+ * An unattended projector must not poll (and keep the admin session warm) forever: after this
+ * long live it pauses itself, and one press of Resume carries on.
+ */
+export const ENGINE_AUTO_PAUSE_MS = 30 * 60 * 1000;
 
 /**
  * The LIVE half of the Engine view. It owns no data: every tick is a `router.refresh()`, which
@@ -34,7 +40,7 @@ const HIGHLIGHT_MS = 1800;
  * this component adds is the presenter layer — the live indicator, pause, and the diff between
  * two consecutive answers so a change on the phone is visible on the projector.
  *
- * Polling stops while the tab is hidden and while paused. Motion is CSS-only and keyed on
+ * Polling stops while the tab is hidden (and refreshes at once on return) and while paused. Motion is CSS-only and keyed on
  * classes; under `prefers-reduced-motion` the tokens zero every duration and the keyframes are
  * dropped, so a change is shown as a static highlight instead of an animation.
  */
@@ -54,23 +60,51 @@ export function EngineLive({
 
   useEffect(() => {
     if (paused) return;
-    const tick = () => {
-      if (document.visibilityState === "visible") router.refresh();
+    let id: number | undefined;
+    const start = () => {
+      if (id !== undefined || document.visibilityState !== "visible") return;
+      id = window.setInterval(() => router.refresh(), ENGINE_POLL_MS);
     };
-    const id = window.setInterval(tick, ENGINE_POLL_MS);
-    return () => window.clearInterval(id);
+    const stop = () => {
+      window.clearInterval(id);
+      id = undefined;
+    };
+    // Hidden tab: no polling at all. Back in view: refresh at once, then resume the cadence.
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        router.refresh();
+        start();
+      } else {
+        stop();
+      }
+    };
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [paused, router]);
+
+  useEffect(() => {
+    if (paused) return;
+    const id = window.setTimeout(() => setPaused(true), ENGINE_AUTO_PAUSE_MS);
+    return () => window.clearTimeout(id);
+  }, [paused]);
 
   const generatedAt = worker?.generated_at ?? posting?.generated_at ?? null;
 
   return (
     <section className="engine__live" aria-label="Live engine view">
-      <div className="engine__status" role="status" aria-live="polite">
+      <div className="engine__status">
         <span
           className={paused ? "engine__dot engine__dot--paused" : "engine__dot"}
           aria-hidden="true"
         />
-        <span className="engine__status-text">{paused ? "Paused" : "Live"}</span>
+        {/* Only the mode is a live region; the clock would be re-announced on every poll. */}
+        <span className="engine__status-text" role="status" aria-live="polite">
+          {paused ? "Paused" : "Live"}
+        </span>
         {generatedAt ? (
           <span className="engine__status-time">Updated {clockTime(generatedAt)}</span>
         ) : null}
@@ -95,36 +129,35 @@ export function EngineLive({
 // The diff between two polls
 // ---------------------------------------------------------------------------
 
-interface LiveDiff {
-  entered: Set<string>;
-  exited: { card: EngineCard; index: number }[];
-  changed: Set<keyof EngineFunnel>;
-}
-
-const NO_DIFF: LiveDiff = { entered: new Set(), exited: [], changed: new Set() };
-
 /**
- * Compare each new answer to the previous one FOR THE SAME WORKER. Switching worker is a new
- * screen, not a change, so it resets instead of animating the whole feed in.
+ * The highlight state, DERIVED DURING RENDER from the previous props (React's "store information
+ * from previous renders" pattern) so the first paint of a new answer already shows its arrivals
+ * and its departing cards in place — no one-frame jump.
+ *
+ * The reset timer is keyed on the diff OBJECT, not on the props: a poll that changes nothing
+ * keeps the same diff (see `advanceLiveDiff`), so it neither re-arms nor cancels the pending
+ * reset, and a highlight can never get stuck however the refreshes are spaced.
  */
 function useLiveDiff(worker: EngineWorker | null): LiveDiff {
-  const prev = useRef<EngineWorker | null>(null);
-  const [diff, setDiff] = useState<LiveDiff>(NO_DIFF);
+  const [state, setState] = useState<{ prev: EngineWorker | null; diff: LiveDiff }>({
+    prev: worker,
+    diff: NO_DIFF,
+  });
+
+  let { diff } = state;
+  if (state.prev !== worker) {
+    diff = advanceLiveDiff(state.prev, worker, state.diff);
+    setState({ prev: worker, diff });
+  }
 
   useEffect(() => {
-    const before = prev.current;
-    prev.current = worker;
-    if (!worker || !before || before.worker_id !== worker.worker_id) {
-      setDiff(NO_DIFF);
-      return;
-    }
-    const cards = diffCards(before.cards, worker.cards);
-    const changed = changedFunnelKeys(before.funnel, worker.funnel);
-    if (cards.entered.size === 0 && cards.exited.length === 0 && changed.size === 0) return;
-    setDiff({ entered: cards.entered, exited: cards.exited, changed });
-    const id = window.setTimeout(() => setDiff(NO_DIFF), HIGHLIGHT_MS);
+    if (diff === NO_DIFF) return;
+    const id = window.setTimeout(
+      () => setState((s) => (s.diff === diff ? { ...s, diff: NO_DIFF } : s)),
+      HIGHLIGHT_MS,
+    );
     return () => window.clearTimeout(id);
-  }, [worker]);
+  }, [diff]);
 
   return diff;
 }
@@ -237,6 +270,7 @@ function FeedPanel({ worker, diff }: { worker: EngineWorker; diff: LiveDiff }) {
                 diff.entered.has(card.job_posting_id) ? "engine-card--entered" : "",
               ].join(" ")}
               aria-hidden={exiting ? true : undefined}
+              inert={exiting ? true : undefined}
             >
               <FeedCard card={card} workerId={worker.worker_id} />
             </li>
@@ -244,7 +278,7 @@ function FeedPanel({ worker, diff }: { worker: EngineWorker; diff: LiveDiff }) {
         </ol>
       )}
       {worker.cards.length >= worker.card_cap ? (
-        <p className="engine__note">Showing the first {worker.card_cap} cards.</p>
+        <p className="engine__note">At most {worker.card_cap} cards are shown.</p>
       ) : null}
     </section>
   );
@@ -318,7 +352,10 @@ function PostingPanels({ posting, workerId }: { posting: EnginePosting; workerId
         </p>
       </section>
 
-      <section className="engine__panel" aria-labelledby="engine-candidates">
+      <section
+        className="engine__panel engine__panel--candidates"
+        aria-labelledby="engine-candidates"
+      >
         <h2 id="engine-candidates" className="engine__panel-title">
           Ranked applicants
         </h2>
@@ -359,9 +396,10 @@ function PostingPanels({ posting, workerId }: { posting: EnginePosting; workerId
           </div>
         )}
         {workerId ? (
-          <p className="engine__note">
-            <Link href={engineHref({ worker: workerId })}>Back to the worker</Link>
-          </p>
+          <Link className="btn btn--ghost engine__back" href={engineHref({ worker: workerId })}>
+            <Icon name="arrow-left" />
+            Back to the worker
+          </Link>
         ) : null}
       </section>
     </div>

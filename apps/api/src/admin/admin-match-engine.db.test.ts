@@ -41,6 +41,8 @@ function uuid(n: number): string {
 const CTX: RequestContext = { correlationId: uuid(0xe9e10001), requestId: "engine-view-db" };
 
 const WORKER = uuid(0xe9e11001);
+/** Inside the deletion grace window: a neutral 404 and never on the picker (ADR-0031 (b)). */
+const LEAVING = uuid(0xe9e11002);
 const PAYER = uuid(0xe9e12001);
 
 const INDUSTRY = "ind_industrial_manufacturing";
@@ -146,6 +148,12 @@ describe.skipIf(!RUN)("Engine view — funnel and feed order against Postgres", 
     expect(applied.candidates.map((c) => c.worker_id)).toContain(WORKER);
   });
 
+  it("a worker pending deletion is a neutral 404 and is never on the picker", async () => {
+    await expect(engine.getWorkerView(LEAVING)).rejects.toMatchObject({ status: 404 });
+    const { workers } = await engine.listRecentWorkers(50);
+    expect(workers.map((w) => w.worker_id)).not.toContain(LEAVING);
+  });
+
   it("the recent-worker picker lists the fixture worker by short ref only", async () => {
     const { workers } = await engine.listRecentWorkers(50);
     const me = workers.find((w) => w.worker_id === WORKER);
@@ -176,6 +184,16 @@ async function seed(client: DbClient): Promise<void> {
     INSERT INTO workers (id, phone_e164, phone_hash, status)
     VALUES (${WORKER}::uuid, 'enc:engine-view', 'hash:engine-view', 'active')
     ON CONFLICT (id) DO NOTHING
+  `;
+  await sql`
+    INSERT INTO workers (id, phone_e164, phone_hash, status, deletion_scheduled_at, created_at)
+    VALUES (${LEAVING}::uuid, 'enc:engine-view-leaving', 'hash:engine-view-leaving', 'active',
+            now(), now() + interval '1 day')
+    ON CONFLICT (id) DO NOTHING
+  `;
+  await sql`
+    INSERT INTO worker_skill (worker_id, skill_id, industry_id, months_bucketed, wants, source)
+    VALUES (${LEAVING}::uuid, ${SKILL_DIRECT}, ${INDUSTRY}, 24, true, 'interview')
   `;
   for (const [skill, months, wants] of [
     [SKILL_DIRECT, 36, true],
@@ -254,5 +272,8 @@ async function cleanup(client: DbClient): Promise<void> {
   }
   await sql`DELETE FROM worker_skill WHERE worker_id = ${WORKER}::uuid`;
   await sql`DELETE FROM worker_industry_tenure WHERE worker_id = ${WORKER}::uuid`;
-  await sql`DELETE FROM workers WHERE id = ${WORKER}::uuid`;
+  for (const id of [WORKER, LEAVING]) {
+    await sql`DELETE FROM worker_skill WHERE worker_id = ${id}::uuid`;
+    await sql`DELETE FROM workers WHERE id = ${id}::uuid`;
+  }
 }

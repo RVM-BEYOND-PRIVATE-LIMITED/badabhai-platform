@@ -8,6 +8,7 @@ import { WorkerSkillsRepository } from "../match/worker-skills.repository";
 import {
   AdminMatchEngineRepository,
   type EngineCardPostingMeta,
+  type EngineFunnelCounts,
 } from "./admin-match-engine.repository";
 import {
   ENGINE_CARD_CAP,
@@ -19,7 +20,6 @@ import {
   type EngineSkillRefDto,
   type EngineWorkerViewDto,
 } from "./admin-match-engine.dto";
-import type { EngineFunnelCounts } from "./admin-match-engine.repository";
 
 /**
  * The admin ENGINE VIEW — Matching V1 made visible, read-only.
@@ -37,8 +37,9 @@ import type { EngineFunnelCounts } from "./admin-match-engine.repository";
  * `composePage` emits nothing, deliberately: an admin looking at a worker's feed is not the
  * worker being shown it, and a `feed.shown_v2` from here would corrupt the impressions the
  * ranking analytics are built on. No admin audit event either: this is the entity-detail
- * data class (opaque ids, closed-vocabulary skills, integers) that `read_entities` serves
- * un-audited everywhere else, and the only existing admin read audit
+ * data class (opaque ids, closed-vocabulary skills, integers) the other `read_entities` entity
+ * reads serve un-audited — though the skill rows themselves are new on the floor (see the
+ * controller header; owner ruling requested) — and the only existing admin read audit
  * (`admin.worker_journey_viewed`) has a closed `view` enum this surface is not in —
  * reusing it would mislabel the read, widening it is an event-schema change.
  *
@@ -152,13 +153,17 @@ function skillRef(skillId: string): EngineSkillRefDto {
   return { skill_id: skillId, label: labelOf(skillId) };
 }
 
-/** `hidden` is the remainder, so the funnel adds up by construction. Never negative. */
+/**
+ * `hidden` is the remainder, so the funnel adds up by construction. NOT clamped: `job_reach`'s
+ * (posting, worker) key makes direct + related ≤ open, so a negative value can only mean drift —
+ * and the page flags a funnel that does not balance instead of having it hidden here.
+ */
 export function toFunnel(c: EngineFunnelCounts): EngineFunnelDto {
   return {
     open_postings: c.openPostings,
     reached_direct: c.reachedDirect,
     reached_related: c.reachedRelated,
-    hidden: Math.max(0, c.openPostings - c.reachedDirect - c.reachedRelated),
+    hidden: c.openPostings - c.reachedDirect - c.reachedRelated,
     already_actioned: c.alreadyActioned,
   };
 }

@@ -2548,12 +2548,28 @@ textarea.field__input {
    and dropped entirely under prefers-reduced-motion (the token durations already zero there).
    ============================================================ */
 .engine {
+  /* Focus on the navy stage: a Safety Yellow ring with no white halo (the sidebar's pattern);
+     the Ivory panels below restore the navy ring. */
+  --focus-ring: var(--text-on-ink-active);
   background: var(--color-brand-primary);
   color: var(--text-on-ink);
   border-radius: var(--radius-2xl);
   padding: var(--space-7);
   display: grid;
   gap: var(--space-6);
+}
+.engine :where(a, button, input):focus-visible {
+  box-shadow: none;
+}
+.engine__panel:not(.engine__panel--funnel) {
+  --focus-ring: var(--color-brand-primary);
+}
+/* Short refs are ids, but on a projector they must read: Inter with tabular figures, not the
+   portal's 12px mono. Scoped to the stage so the rest of the console is untouched. */
+.engine .mono {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-md);
 }
 .engine__head {
   display: grid;
@@ -2608,9 +2624,10 @@ textarea.field__input {
   color: var(--text-on-brand);
 }
 .engine__pick-date {
+  white-space: nowrap;
   color: inherit;
   opacity: 0.8;
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
 }
 
 .engine__posting-form {
@@ -2685,7 +2702,8 @@ textarea.field__input {
   min-width: 0;
 }
 .engine__panel--funnel {
-  background: var(--navy-800);
+  background: var(--color-brand-primary);
+  border: var(--border-hairline) solid var(--color-brand-accent-40);
   color: var(--text-on-ink);
 }
 .engine__panel-title {
@@ -2695,10 +2713,9 @@ textarea.field__input {
   margin: 0;
   color: inherit;
 }
-/* A short ref is an id: it keeps its case (and stays Inter-mono), even inside an uppercase title. */
+/* A short ref is an id: it keeps its case even inside an uppercase title. */
 .engine__panel-title .mono {
   text-transform: none;
-  font-size: var(--text-md);
 }
 .engine__subhead {
   font-size: var(--text-md);
@@ -2741,7 +2758,7 @@ textarea.field__input {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
 }
 .engine__switch {
   padding-inline: var(--space-2);
@@ -2785,21 +2802,21 @@ textarea.field__input {
   text-transform: uppercase;
 }
 .engine__step-blurb {
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--text-on-ink-muted);
 }
 .engine__step--hidden .engine__step-value {
   color: var(--text-on-ink-muted);
 }
 .engine__step--changed {
-  background: var(--color-brand-accent-40);
+  outline: var(--border-bold) solid var(--color-brand-accent);
 }
 .engine__bar {
   grid-column: 1 / -1;
   margin-block-start: var(--space-2);
   block-size: var(--space-3);
   border-radius: var(--radius-pill);
-  background: rgb(var(--brand-accent-rgb) / 0.15);
+  background: var(--color-brand-accent-40);
   overflow: hidden;
 }
 .engine__bar-fill {
@@ -2810,7 +2827,7 @@ textarea.field__input {
   transition: width var(--duration-slower) var(--ease-out);
 }
 .engine__step--hidden .engine__bar-fill {
-  background: var(--color-brand-accent-40);
+  background: var(--color-brand-accent-60);
 }
 
 .engine__cards {
@@ -2828,7 +2845,7 @@ textarea.field__input {
   min-height: var(--control-md);
   padding: var(--space-4);
   border-radius: var(--radius-xl);
-  background: var(--paper-0);
+  background: var(--color-brand-surface);
   color: var(--color-brand-primary);
   text-decoration: none;
   border: var(--border-hairline) solid var(--color-brand-primary-40);
@@ -2857,23 +2874,24 @@ textarea.field__input {
 .engine-card__title {
   font-size: var(--text-lg);
   font-weight: var(--weight-bold);
+  overflow-wrap: anywhere;
 }
 .engine-card__meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
 }
 .engine-card__why {
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--color-brand-primary-80);
 }
 .engine-tier {
   display: inline-block;
   padding: 0 var(--space-2);
   border-radius: var(--radius-pill);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   font-weight: var(--weight-bold);
 }
 .engine-tier--direct {
@@ -2897,10 +2915,23 @@ textarea.field__input {
   opacity: 0.4;
   animation: engine-out var(--duration-slower) var(--ease-in) forwards;
 }
+/* Posting tab: skills and reach side by side, the ranked table on its own full-width row so
+   every rank-key column is visible without a sideways scroll. */
 @media (min-width: 1280px) {
   .engine__grid--posting {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
+  .engine__panel--candidates {
+    grid-column: 1 / -1;
+  }
+}
+.engine__back {
+  min-height: var(--control-md);
+  justify-self: start;
+  color: var(--color-brand-primary);
+}
+.engine__table a {
+  color: var(--color-brand-primary);
 }
 .engine__table th,
 .engine__table td {
@@ -2948,5 +2979,11 @@ textarea.field__input {
   }
   .engine__step-value {
     font-size: var(--text-3xl);
+  }
+  .engine-card__link {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .engine-card__art {
+    display: none;
   }
 }

@@ -18,11 +18,16 @@ import {
  * (reach set by tier → ranked candidates).
  *
  * ══ RBAC: `read_entities` ═══════════════════════════════════════════════════════════════
- * The data class is the entity floor's: opaque uuids (and an 8-char prefix of one),
- * closed-vocabulary skill ids and labels, enums, integers, timestamps, posting role titles —
- * all of which `GET /admin/workers/:id`, `GET /admin/job-postings/:id` and the skill-discovery
- * reads already serve to every role on `read_entities`. Nothing here is identity (no
- * `read_identity`), contact (no `reveal_pii`) or a write. No new capability is minted.
+ * Faceless: opaque uuids (and an 8-char prefix of one), closed-vocabulary skill ids and labels,
+ * enums, integers, timestamps, posting role titles and cities. No identity (`read_identity`), no
+ * contact (`reveal_pii`), no write, and no new capability.
+ *
+ * ⚠ HONEST STATEMENT OF WHAT IS NEW: no other admin read serves a worker's `worker_skill` rows
+ * (skill, wants, months, source) or his personalised feed. That is new per-worker exposure on the
+ * read floor, analyst included. It is a STATE snapshot, not a behavioural profile (the reason
+ * `admin.worker_journey_viewed` exists), so it is un-audited like the other entity reads — an
+ * owner ruling is requested on the PR; if it must be audited, that is a NEW versioned event
+ * (e.g. `admin.match_engine_viewed`), never a widened `worker_journey_viewed` enum.
  *
  * HTTP only: validation is the zod pipe, the decision is the service's.
  */
