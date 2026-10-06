@@ -18,6 +18,7 @@ import { IdentityCapNotice } from "../../../../components/identity-notice";
 import { DetailList } from "../../../../components/detail-list";
 import { Stat } from "../../../../components/stat";
 import { WorkerDetailHeader } from "./worker-detail-header";
+import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Worker details" };
@@ -185,7 +186,7 @@ export default async function WorkerDetailPage({
             <p className="panel__sub">Counts across the whole account lifetime.</p>
           </div>
           <div className="stats stats--compact">
-            <Stat label="Job decisions" value={formatCount(worker.application_count)} />
+            <Stat label="Posting decisions" value={formatCount(worker.application_count)} />
             <Stat label="Contact unlocks" value={formatCount(worker.unlock_count)} />
           </div>
           <DetailList
@@ -207,29 +208,33 @@ export default async function WorkerDetailPage({
       <section className="panel" aria-labelledby="w-apps">
         <div className="panel__head">
           <h2 className="panel__title" id="w-apps">
-            Recent job decisions
+            Recent posting decisions
           </h2>
           <p className="panel__sub">The ten most recent applies and skips.</p>
         </div>
 
         {apps === null ? (
-          // No retry LINK on this screen, unlike the other detail pages: the retry target is
-          // this page's own URL, which carries the worker id, and nothing on the faceless
-          // side of the portal grows a new worker-id-bearing href for a convenience. The
-          // recovery instruction is in the body instead.
+          // A Retry, like the posting and customer pages. Its target is this page's own URL —
+          // a worker-id-bearing href this page already renders (the journey and timeline links
+          // carry the same id), so the control adds no new disclosure.
           <div className="state state--error">
-            <h3 className="state__title">Job decisions could not be loaded</h3>
+            <h3 className="state__title">Posting decisions could not be loaded</h3>
             <p className="state__body">
-              The worker record above loaded, but the job-decisions read failed — so this
-              table is missing, not empty. The &ldquo;Job decisions&rdquo; counter above is
-              read from the worker record and is still the true total. Reload this page; if
-              it keeps failing, the event timeline holds the same applies and skips as audit
-              records.
+              The worker record above loaded, but the posting-decisions read failed — so this
+              table is missing, not empty. The &ldquo;Posting decisions&rdquo; counter above is
+              read from the worker record and is still the true total. If a retry keeps
+              failing, the event timeline holds the same applies and skips as audit records.
             </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href={`/workers/${worker.id}`}>
+                <Icon name={ACTION_ICON.retry} />
+                Retry
+              </Link>
+            </div>
           </div>
         ) : apps.items.length === 0 ? (
           <div className="state">
-            <h3 className="state__title">No job decisions yet</h3>
+            <h3 className="state__title">No posting decisions yet</h3>
             <p className="state__body">
               This worker has not applied to or skipped a posting. Nothing is broken — it is
               the normal state of a new account, but it also means matching has no
@@ -239,7 +244,7 @@ export default async function WorkerDetailPage({
         ) : (
           <div className="tablewrap">
             <table className="table">
-              <caption className="sr-only">Recent job decisions</caption>
+              <caption className="sr-only">Recent posting decisions</caption>
               <thead>
                 <tr>
                   <th scope="col">When</th>

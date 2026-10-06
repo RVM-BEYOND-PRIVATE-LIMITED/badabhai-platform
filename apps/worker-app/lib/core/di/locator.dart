@@ -13,6 +13,7 @@ import '../otp/sms_otp_autofill.dart';
 import '../referral/pending_referral_store.dart';
 import '../auth/account_deleted_signal.dart';
 import '../auth/reauth_signal.dart';
+import '../nav/job_feed_invalidation.dart';
 import '../nav/tab_focus.dart';
 import '../auth/secure_token_store.dart';
 import '../config/app_config.dart';
@@ -230,6 +231,11 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // mounted, so a tab root's create:/initState runs once and never again — this
   // is the signal that lets each tab refetch when it comes back into view.
   locator.registerLazySingleton<TabFocus>(() => TabFocus());
+  // Fired by the match-input writers (occupations, match-skill toggles) so the
+  // Jobs feed refetches after a trade/skill edit.
+  locator.registerLazySingleton<JobFeedInvalidation>(
+    () => JobFeedInvalidation(),
+  );
 
   // ONE ApiClient app-wide: MOCK vs REAL via the createApiClient factory
   // (kUseMocks), with the x-session-token rolling refresh wired to the session.
@@ -331,7 +337,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // E4 (#1828) — stateless (caches nothing), so no logout teardown needed.
   locator.registerLazySingleton<MatchSkillsRepository>(
     () => MatchSkillsRepositoryImpl(
-        locator<ApiClient>(), locator<SessionRepository>()),
+          locator<ApiClient>(),
+          locator<SessionRepository>(),
+          feedInvalidation: locator<JobFeedInvalidation>(),
+        ),
   );
   // ADR-0032 profile photo: mint/confirm/read/delete ride the ApiClient (so the
   // MockApiClient covers them in mock mode); ONLY the raw byte-PUT to the signed
@@ -357,7 +366,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // Layer A profile surfaces (ADR-0042 D9, issue #1545).
   locator.registerLazySingleton<ProfileEditRepository>(
     () => ProfileEditRepositoryImpl(
-        locator<ApiClient>(), locator<SessionRepository>()),
+          locator<ApiClient>(),
+          locator<SessionRepository>(),
+          feedInvalidation: locator<JobFeedInvalidation>(),
+        ),
   );
   // Extracted-profile review + correction surface (issue #1595, §8.4).
   locator.registerLazySingleton<ExtractedReviewRepository>(

@@ -403,6 +403,61 @@ void main() {
     expect(turn.ttsText, 'आप कौनसा काम करते हैं?');
   });
 
+  // ── #2030 — read_aloud / cooldown_until on the INTERVIEW path ─────────────
+  test('sendMessage carries read_aloud and cooldown_until onto the turn',
+      () async {
+    final SessionRepository session = SessionRepository()
+      ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok')
+      ..setSession('s1');
+    final ChatRepositoryImpl repo = ChatRepositoryImpl(
+      ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async => http.Response(
+              jsonEncode(<String, dynamic>{
+                'reply': 'Theek hai',
+                // ADR-0051: a model-written free-chat reply says do not speak
+                // it, and sends no Devanagari script to speak.
+                'read_aloud': false,
+                'cooldown_until': '2099-01-01T00:00:00Z',
+              }),
+              201,
+            )),
+      ),
+      session,
+    );
+
+    final ChatTurn turn = await repo.sendMessage('hi');
+    // Dropped here before #2030, so a model reply still drew a speaker that
+    // read its Latin text aloud in a hi-IN voice, and a cool-down the server
+    // had declared never reached the composer.
+    expect(turn.readAloud, isFalse);
+    expect(turn.cooldownUntil, isNotNull);
+    expect(turn.cooldownUntil!.isAfter(DateTime.now()), isTrue);
+  });
+
+  test('sendMessage leaves both null when the server sends neither', () async {
+    final SessionRepository session = SessionRepository()
+      ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok')
+      ..setSession('s1');
+    final ChatRepositoryImpl repo = ChatRepositoryImpl(
+      ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async => http.Response(
+              jsonEncode(<String, dynamic>{'reply': 'Theek hai'}),
+              201,
+            )),
+      ),
+      session,
+    );
+
+    final ChatTurn turn = await repo.sendMessage('hi');
+    // Null, not false: "the server said nothing" must stay distinguishable
+    // from "the server said do not speak this", or every ordinary interview
+    // turn would lose its speaker.
+    expect(turn.readAloud, isNull);
+    expect(turn.cooldownUntil, isNull);
+  });
+
   test('sendMessage with no tts_text yields a null-ttsText turn (older build)',
       () async {
     final SessionRepository session = SessionRepository()

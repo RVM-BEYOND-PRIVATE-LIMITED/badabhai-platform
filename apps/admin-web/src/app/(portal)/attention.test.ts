@@ -38,7 +38,11 @@ describe("buildAdminAttention", () => {
   it("puts a DOWN dependency ahead of everything else on the screen", () => {
     const out = buildAdminAttention({
       ...HEALTHY,
-      metrics: { breaches: [{ count: 4 }], by_event_name: [], window_days: 7 },
+      metrics: {
+        breaches: [{ key: "ai.spend_cap_exceeded", count: 4 }],
+        by_event_name: [],
+        window_days: 7,
+      },
       health: { environment: "staging", checks: { db: "down", sms: "mock" } },
     });
     // down → breaches → mock. An outage outranks a tripped cap outranks a simulated provider.
@@ -46,21 +50,71 @@ describe("buildAdminAttention", () => {
     expect(out[0]!.tone).toBe("critical");
   });
 
-  it("counts cap breaches across buckets and links to the events spine", () => {
+  it("counts cap breaches across buckets", () => {
     const out = buildAdminAttention({
       ...HEALTHY,
-      metrics: { breaches: [{ count: 2 }, { count: 3 }], by_event_name: [], window_days: 14 },
+      metrics: {
+        breaches: [
+          { key: "ai.spend_cap_exceeded", count: 2 },
+          { key: "unlock.cap_exceeded", count: 3 },
+        ],
+        by_event_name: [],
+        window_days: 14,
+      },
     });
     expect(out).toHaveLength(1);
     expect(out[0]!.title).toContain("5 cap breaches");
     expect(out[0]!.title).toContain("14 days");
-    expect(out[0]!.href).toBe("/events");
+  });
+
+  /**
+   * ONE LINK PER TARGET (sweep AW-16). The Recent activity panel, on screen whenever this item
+   * can be, already links `/events`; this item used to link it a second time.
+   */
+  it("when ONE kind of cap tripped, links straight to that event — never the bare log", () => {
+    const out = buildAdminAttention({
+      ...HEALTHY,
+      metrics: {
+        breaches: [
+          { key: "worker.otp_send_cap_exceeded", count: 0 },
+          { key: "ai.spend_cap_exceeded", count: 3 },
+        ],
+        by_event_name: [],
+        window_days: 7,
+      },
+    });
+    expect(out[0]!.href).toBe("/events?eventName=ai.spend_cap_exceeded");
+    // Named for what it opens: "View events" is the WHOLE log (NAVIGATION.md), and this link
+    // is one event's slice of it.
+    expect(out[0]!.linkLabel).toBe("View these breaches");
+    expect(out[0]!.linkIcon).toBeDefined();
+  });
+
+  it("when several kinds tripped, carries no link — there is no one narrower target", () => {
+    const out = buildAdminAttention({
+      ...HEALTHY,
+      metrics: {
+        breaches: [
+          { key: "ai.spend_cap_exceeded", count: 2 },
+          { key: "unlock.cap_exceeded", count: 3 },
+        ],
+        by_event_name: [],
+        window_days: 7,
+      },
+    });
+    expect(out[0]!.id).toBe("breaches");
+    expect(out[0]!.href).toBeUndefined();
+    expect(out[0]!.linkLabel).toBeUndefined();
   });
 
   it("uses the singular for exactly one breach", () => {
     const out = buildAdminAttention({
       ...HEALTHY,
-      metrics: { breaches: [{ count: 1 }], by_event_name: [], window_days: 7 },
+      metrics: {
+        breaches: [{ key: "unlock.cap_exceeded", count: 1 }],
+        by_event_name: [],
+        window_days: 7,
+      },
     });
     expect(out[0]!.title).toContain("1 cap breach");
     expect(out[0]!.title).not.toContain("breaches");
@@ -202,7 +256,7 @@ describe("feedback waiting to be read", () => {
     const out = buildAdminAttention({
       ...HEALTHY,
       metrics: {
-        breaches: [{ count: 1 }],
+        breaches: [{ key: "unlock.cap_exceeded", count: 1 }],
         by_event_name: [{ key: "feedback.submitted", count: 2 }],
         window_days: 7,
       },

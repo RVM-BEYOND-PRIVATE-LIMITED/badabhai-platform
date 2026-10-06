@@ -111,8 +111,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
 
       {job.status === "suspended" && (
         <section className="notice notice--bad" role="status">
-          <strong>Hidden by a suspension.</strong> The owning account is suspended, so this
-          posting is out of the worker feed. Reinstating the account restores it to{" "}
+          <strong>Hidden by a suspension.</strong> Its customer is suspended, so this
+          posting is out of the worker feed. Reinstating the customer restores it to{" "}
           <strong>{job.previous_status ?? "its previous state"}</strong> rather than forcing
           it open — a posting the customer had paused stays paused.
         </section>
@@ -209,13 +209,13 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               { label: "Status", value: <StatusPill value={job.status} /> },
               { label: "Trust review", value: <StatusPill value={job.verification_status} /> },
               {
-                label: "Owner account",
+                label: "Customer",
                 value: job.payer_id ? (
                   <Link className="link mono" href={`/companies/${job.payer_id}`}>
                     {shortId(job.payer_id)}
                   </Link>
                 ) : (
-                  "ops-created (no customer account)"
+                  "ops-created (no customer)"
                 ),
               },
               {
@@ -257,7 +257,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
       <section className="panel" aria-labelledby="j-decisions">
         <div className="panel__head">
           <h2 className="panel__title" id="j-decisions">
-            Recent job decisions
+            Recent posting decisions
           </h2>
           <p className="panel__sub">
             The ten most recent. Workers are opaque ids — no contact detail is served here.
@@ -266,9 +266,9 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
 
         {decisions === null ? (
           <div className="state state--error">
-            <h3 className="state__title">Job decisions could not be loaded</h3>
+            <h3 className="state__title">Posting decisions could not be loaded</h3>
             <p className="state__body">
-              The posting above loaded, but the job-decisions read failed — so this table is
+              The posting above loaded, but the posting-decisions read failed — so this table is
               missing, not empty. The Applied and Skipped tiles come from the posting record
               and are still the true totals.
             </p>
@@ -281,7 +281,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
           </div>
         ) : decisions.items.length === 0 ? (
           <div className="state">
-            <h3 className="state__title">No job decisions yet</h3>
+            <h3 className="state__title">No posting decisions yet</h3>
             <p className="state__body">
               No worker has applied to this posting or skipped it.{" "}
               {job.status === "open"
@@ -292,7 +292,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         ) : (
           <div className="tablewrap">
             <table className="table">
-              <caption className="sr-only">Recent job decisions on this posting</caption>
+              <caption className="sr-only">Recent decisions on this posting</caption>
               <thead>
                 <tr>
                   <th scope="col">When</th>

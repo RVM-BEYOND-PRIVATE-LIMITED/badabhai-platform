@@ -110,3 +110,37 @@ describe("PostingDetailPage — the card rail starts at the top of the page (F03
     expect(i.head).toBeGreaterThan(i.grid);
   });
 });
+
+describe("PostingDetailPage — Reached N workers (post-publish confirmation)", () => {
+  async function landed(reached: string | undefined, status = "open"): Promise<string> {
+    getPostingDetail.mockResolvedValueOnce({ ...DETAIL, summary: { ...DETAIL.summary, status } });
+    const el = (await PostingDetailPage({
+      params: Promise.resolve({ id: ID }),
+      searchParams: Promise.resolve(reached === undefined ? {} : { reached }),
+    })) as ReactElement;
+    return renderToStaticMarkup(el);
+  }
+
+  it("a publish landing with ?reached=N confirms the real count", async () => {
+    const out = await landed("23");
+    expect(out).toContain("Posting published");
+    expect(out).toContain("Reached 23 workers");
+  });
+
+  it("no param, a malformed one, or a posting that is not live → no count at all", async () => {
+    expect(await landed(undefined)).not.toContain("Reached");
+    expect(await landed("lots")).not.toContain("Reached");
+    expect(await landed("23", "draft")).not.toContain("Reached");
+  });
+
+  it("the notice sits in the head, under the title and above the details — never above the card rail (F03)", async () => {
+    // In the head column it adds height to the details column only, so on a laptop the card
+    // still starts at the top of the page; on a phone it follows the title, before the card.
+    const out = await landed("23");
+    const notice = out.indexOf('<div class="alert alert--success" role="status">');
+    expect(notice).toBeGreaterThan(out.indexOf('<div class="posting-layout__head">'));
+    expect(notice).toBeGreaterThan(out.indexOf('<h1 class="page-head__title">'));
+    expect(notice).toBeLessThan(out.indexOf('<section class="panel">'));
+    expect(out.indexOf('<div class="posting-layout posting-layout--detail">')).toBe(0);
+  });
+});

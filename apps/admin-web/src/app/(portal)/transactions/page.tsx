@@ -243,7 +243,7 @@ export default async function TransactionsPage({
               <thead>
                 <tr>
                   <th scope="col">When</th>
-                  <th scope="col">Account</th>
+                  <th scope="col">Customer</th>
                   <th scope="col">Pack</th>
                   <th scope="col">Amount</th>
                   <th scope="col">Credits</th>

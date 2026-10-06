@@ -8,6 +8,8 @@ import { PageHeader, type PageHeaderAction } from "../../../../components/page-h
 import { JobCardPreview } from "../../../../components/job-card-preview";
 import { toJobCardView } from "../../../../lib/job-card-view";
 import { jobRoleLabel } from "../../../../lib/job-roles";
+import { PUBLISHED_REACH_PARAM, parsePublishedReach } from "../../../../lib/published-reach";
+import { PublishedReachNotice } from "../../../../components/published-reach-notice";
 
 export const dynamic = "force-dynamic";
 
@@ -39,9 +41,17 @@ function statusTone(status: string): "success" | "warning" | "neutral" {
   return "neutral";
 }
 
-export default async function PostingDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function PostingDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  /** `?reached=N` — set by the edit page's PUBLISH (see `lib/published-reach.ts`). */
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await requirePayer();
   const { id } = await params;
+  const query = (await searchParams) ?? {};
   if (!z.string().uuid().safeParse(id).success) notFound();
   const detail = await getPostingDetail(id);
   if (!detail) notFound();
@@ -86,6 +96,15 @@ export default async function PostingDetailPage({ params }: { params: Promise<{ 
           }
           primaryAction={primary}
           secondaryActions={secondaries}
+        />
+
+        {/* Only a LIVE posting can claim a reach — a stale link onto a since-paused one shows none.
+            It sits in the head (the details column), so on a laptop it never pushes the card rail
+            down (F03); on a phone it follows the title, before the card. */}
+        <PublishedReachNotice
+          reached={
+            summary.status === "open" ? parsePublishedReach(query[PUBLISHED_REACH_PARAM]) : null
+          }
         />
 
         {isDraft ? (

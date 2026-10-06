@@ -124,4 +124,4 @@ export const NO_NAME_ON_RECORD = "No name on record for this account.";
  * a name, when the truth is that the platform can no longer read the one it holds — a difference
  * that matters on a screen with a suspend button on it.
  */
-export const NAME_UNREADABLE = "No readable name is stored for this account.";
+export const NAME_UNREADABLE = "No readable name is stored for this customer.";
