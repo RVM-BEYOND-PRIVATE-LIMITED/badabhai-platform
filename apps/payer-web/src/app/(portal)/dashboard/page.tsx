@@ -8,7 +8,8 @@ import { getLiveCatalog } from "../../../lib/live-catalog";
 import { unlockUnitPriceInr } from "../../../lib/pricing-config";
 import { postingRoutes } from "../../../lib/posting-routes";
 import type { Dashboard } from "../../../lib/contracts";
-import { Badge, Card, MaskedCandidate, StatTile } from "../../../components/ds";
+import { recentUnlockRows } from "../../../lib/unlock-history";
+import { Badge, Card, StatTile } from "../../../components/ds";
 import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
 import { formatInr } from "../../../lib/format";
@@ -35,7 +36,7 @@ export const dynamic = "force-dynamic";
  *
  * UNCHANGED: the authz path (requirePayer → XB-A binds every read to the server-held payer
  * id), the role branching, and the FACELESS invariant — no worker name, phone or opaque id
- * ever reaches the DOM; recent unlocks still render through MaskedCandidate.
+ * ever reaches the DOM; a recent-unlock row carries its dates and status only.
  *
  * MERGE-1 (agent branch): when `session.role === "agent"` the agency demand modules render
  * INLINE below via {@link AgentSections}, a SERVER component that re-asserts requireAgent(),
@@ -104,7 +105,8 @@ export default async function DashboardPage() {
   const openCount = data.postings.filter((p) => p.status === "open").length;
   // No caption when the catalog offers no unlock price.
   const unitPrice = unlockUnitPriceInr((await catalog).products);
-  const recentUnlocks = data.unlocks.slice(0, 5);
+  // Newest first by the day each row prints (a re-grant moves it; the API's order does not).
+  const recentUnlocks = recentUnlockRows(data.unlocks, Date.now());
   const attention = buildAttentionItems(data, { isAgency, isOwner });
   const quick = quickActions({ isOwner, isAgency });
   // The destinations this page already offers: an attention item does not repeat one.
@@ -318,17 +320,27 @@ export default async function DashboardPage() {
             </div>
           ) : (
             <div className="dash-candlist">
-              {recentUnlocks.map((u) => (
-                // FACELESS: a row names nobody — no worker id/phone/name reaches the DOM. Not a
-                // link: the postings list it used to open shows no unlocks. The wrapper's own
-                // surface is zeroed so only the inner MaskedCandidate row shows.
-                <Card key={u.unlockId} variant="flat" padding="none" className="dash-unlock-link">
-                  <MaskedCandidate
-                    masked={false}
-                    verified={u.status === "granted"}
-                    name="Unlocked contact"
-                    experience={u.status === "granted" ? "Active access" : "Access expired"}
-                  />
+              {recentUnlocks.map((row) => (
+                // FACELESS: a row names nobody — no worker id/phone/name reaches the DOM. It says
+                // WHEN and whether access is still open — an ended window is a neutral "Expired",
+                // never a green "Unlocked". It is NOT a link and names no posting: a company
+                // unlock is stored without its posting, so the title and the link to that
+                // posting's applicants arrive with #2033's posting-context field. An agency
+                // unlock keeps its job id, but this page does not read the agency's jobs (their
+                // titles), and the agency applicant feed does not show held unlocks yet.
+                <Card key={row.key} padding="sm" className="dash-unlock">
+                  <div className="dash-unlock__main">
+                    <div className="dash-unlock__title">Unlocked contact</div>
+                    <div className="dash-unlock__meta">
+                      Unlocked <span className="bb-mono">{row.unlockedOn}</span> ·{" "}
+                      {row.live ? "until" : "ended"} <span className="bb-mono">{row.endsOn}</span>
+                    </div>
+                  </div>
+                  <div className="dash-unlock__right">
+                    <Badge tone={row.live ? "success" : "neutral"} upper>
+                      {row.live ? "Unlocked" : "Expired"}
+                    </Badge>
+                  </div>
                 </Card>
               ))}
             </div>

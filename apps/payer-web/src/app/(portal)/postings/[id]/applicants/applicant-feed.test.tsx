@@ -21,8 +21,10 @@ import { Badge, Button } from "../../../../../components/ds";
  * Actions and `next/link` are mocked.
  *
  * Acceptance covered:
- *  (a) Call/WhatsApp are DISABLED pre-unlock and stay disabled after unlock-but-before-reveal;
- *      they ENABLE only once a mocked reveal returns a routed relay handle.
+ *  (a) There is NO Call / WhatsApp control at any stage (the routed channel is not open — the
+ *      routed card says so); the reveal's routed card is the one contact read-out.
+ *  (a') An applicant the payer already holds a live grant on starts unlocked: Open routed
+ *      contact reveals THAT grant with no unlock, no confirm and no spend.
  *  (b) No phone-number / full-name string appears in the rendered output (incl. the reveal card).
  *  (c) Keep moves a row New→Shortlist with NO network call.
  *  (d) Rows render in backend feed order (no client re-sort).
@@ -82,7 +84,11 @@ const B: FacelessApplicant = { workerId: "bbbbbbbb-0000-4000-8000-000000000002",
 const C: FacelessApplicant = { workerId: "cccccccc-0000-4000-8000-000000000003", rank: 3, score: 0.6, hot: true, signals: ["city"], tradeLabel: "Fitter", experienceBand: "3-5 yrs", cityLabel: "pune" };
 
 /** Render the component fresh, wiring the stateful re-render loop. */
-function mount(applicants: FacelessApplicant[], balance = 5) {
+function mount(
+  applicants: FacelessApplicant[],
+  balance = 5,
+  unlocked?: Record<string, { kind: "granted"; unlockId: string; expiresAt: string }>,
+) {
   cells = [];
   renderFn = () => {
     cursor = 0;
@@ -91,6 +97,7 @@ function mount(applicants: FacelessApplicant[], balance = 5) {
       postingId: POSTING,
       applicants,
       balance,
+      ...(unlocked ? { unlocked } : {}),
     }) as ReactElement;
   };
   renderFn();
@@ -237,34 +244,56 @@ async function driveUnlock() {
   await findStarts("Unlock · 1 credit")!.onClick!();
 }
 
-describe("applicant feed — (a) Call/WhatsApp enable ONLY after a mocked reveal returns a relay handle", () => {
-  it("disabled pre-unlock → disabled after unlock-but-before-reveal → enabled after the reveal", async () => {
+describe("applicant feed — (a) no Call/WhatsApp at any stage; the routed card is the contact read-out", () => {
+  it("none pre-unlock → none after the unlock → none after the reveal, which renders the relay card", async () => {
     unlockAction.mockResolvedValue(GRANTED);
     revealContactAction.mockResolvedValue(ROUTED);
     mount([A]);
+    const reach = () => buttons().filter((b) => /^(Call|WhatsApp)$/.test(b.text));
 
-    // Pre-unlock: both contact affordances are present but DISABLED.
-    expect(find("Call")!.disabled).toBe(true);
-    expect(find("WhatsApp")!.disabled).toBe(true);
-    expect(revealContactAction).not.toHaveBeenCalled();
+    // Pre-unlock: no contact control, and nothing promises one.
+    expect(reach()).toEqual([]);
+    expect(deepText()).not.toMatch(/Call|WhatsApp/);
 
-    // Drive the unlock (spend confirmed via the dialog) → granted. Call/WhatsApp must STILL be
-    // disabled (a granted unlock alone is not a routed reveal).
+    // Drive the unlock (spend confirmed via the dialog) → granted: still none.
     await driveUnlock();
     expect(unlockAction).toHaveBeenCalledTimes(1);
-    expect(find("Call")!.disabled).toBe(true);
-    expect(find("WhatsApp")!.disabled).toBe(true);
+    expect(reach()).toEqual([]);
     expect(findStarts("Open routed contact")).toBeDefined();
 
-    // Drive the reveal → routed relay handle. NOW Call/WhatsApp enable.
+    // Drive the reveal → routed relay handle: still none. The card is the read-out, and its own
+    // words say why there is nothing to press.
     await findStarts("Open routed contact")!.onClick!();
     expect(revealContactAction).toHaveBeenCalledTimes(1);
-    expect(find("Call")!.disabled).toBeFalsy();
-    expect(find("WhatsApp")!.disabled).toBeFalsy();
-    // The opaque relay handle + channel rendered; clicking Call is local (no re-reveal).
+    expect(reach()).toEqual([]);
     expect(deepText()).toContain("RELAY-7h3k9q");
-    await find("Call")!.onClick!();
-    expect(revealContactAction).toHaveBeenCalledTimes(1); // unchanged — no network re-call
+    expect(deepText()).toContain("nothing to dial or message today");
+    expect(deepText()).not.toMatch(/Call|WhatsApp|relay ready/);
+  });
+});
+
+describe("applicant feed — (a') a held grant starts the row unlocked (F10)", () => {
+  const HELD = {
+    kind: "granted" as const,
+    unlockId: "66666666-6666-4666-8666-666666666666",
+    expiresAt: "2026-11-04T09:30:00.000Z",
+  };
+
+  it("Open routed contact reveals the HELD grant; no unlock, no confirm, no spend; the card renders", async () => {
+    revealContactAction.mockResolvedValue(ROUTED);
+    mount([A, B], 5, { [A.workerId]: HELD });
+    // A starts granted; B is offered the spend as usual.
+    expect(buttons().filter((b) => b.text === "Unlock contact (1 credit)")).toHaveLength(1);
+    expect(deepText()).toContain("2026-11-04");
+    await findStarts("Open routed contact")!.onClick!();
+    expect(revealContactAction).toHaveBeenCalledWith({ unlockId: HELD.unlockId });
+    expect(unlockAction).not.toHaveBeenCalled();
+    // The confirm dialog never opened: confirmWorker (state cell 4 — rows, confirmedUnlock,
+    // stages, activeStage, confirmWorker, result) is still null.
+    expect(cells[4]).toBeNull();
+    // The session's reveal layered over the held grant: the routed card renders, still Unlocked.
+    expect(deepText()).toContain("RELAY-7h3k9q");
+    expect(deepText()).toContain("Unlocked");
   });
 });
 

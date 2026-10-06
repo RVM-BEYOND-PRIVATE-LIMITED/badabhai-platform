@@ -1767,13 +1767,42 @@ textarea.input {
 .dash-posting:hover .dash-view__arrow {
   color: var(--text-accent);
 }
-/* The wrapper Card around a Recent-unlock MaskedCandidate: its own surface is zeroed (no double
-   border/shadow/pad) so only the inner .bb-candidate row shows. The row is NOT a link (the list
-   it used to open shows no unlocks), so it has no hover lift — a lift says "you can click this". */
-.dash-unlock-link {
-  border: none;
-  background: none;
-  box-shadow: none;
+/* A Recent-unlocks row (a DS Card): when the contact was unlocked and whether access is still
+   open. It is not a link (no posting context is reachable yet — see the dashboard), so it has NO
+   hover rule here: a lift says "you can click this". */
+.dash-unlock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}
+/* 12rem is an optical basis (a title + its date line), not a spacing: below it the status
+   wraps under the text instead of squeezing it. */
+.dash-unlock__main {
+  min-width: 0;
+  flex: 1 1 12rem;
+}
+.dash-unlock__title {
+  font-size: var(--ui-body-size);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.dash-unlock__meta {
+  margin-top: var(--space-1);
+  font-size: var(--ui-body-sm-size);
+  color: var(--text-muted);
+}
+/* A date wraps as a whole, never at its hyphens ("2026-08-" / "15" at 375px). */
+.dash-unlock__meta .bb-mono {
+  white-space: nowrap;
+}
+.dash-unlock__right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
 }
 .dash-empty,
 .dash-state {
@@ -2117,28 +2146,21 @@ textarea.input {
   padding: 0;
   list-style: none;
 }
-/* One toolbar: triage (Keep / Pass) beside the gated contact pair (Call / WhatsApp); the
-   contact pair wraps under the triage pair when the card is too narrow for both. */
+/* One toolbar: triage (Keep / Pass, then "Mark as contacted" once a routed handle exists). The
+   Call / WhatsApp group it used to sit beside is gone until the routed channel opens. */
 .applicant__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   gap: var(--space-3) var(--space-6);
 }
-.applicant__pipeline,
-.applicant__reach {
+.applicant__pipeline {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
   min-width: 0;
-}
-.applicant__pipeline {
   flex: 0 1 auto;
-}
-/* 16rem is an optical basis (two small buttons + the start of the hint), not a spacing. */
-.applicant__reach {
-  flex: 1 1 16rem;
 }
 .applicant__hint {
   flex-basis: 100%;
@@ -2207,14 +2229,6 @@ textarea.input {
    takes the light end of the ramp, as `.req` and `.state--error` already do. */
 [data-theme="ink"] .applicant__error {
   color: var(--red-300);
-}
-/* Wide cards: a hairline separates the two toolbar groups. Only from 768px, where both groups
-   always fit one row (so the rule never lands on a wrapped, left-edge group). */
-@media (min-width: 768px) {
-  .applicant__reach {
-    padding-left: var(--space-5);
-    border-left: var(--border-hairline) solid var(--border-subtle);
-  }
 }
 /* Phones: identity keeps the width, relevance drops under it, the pipeline control spans the
    row, and the spend + reveal actions go full-width thumb targets. The relevance cluster takes
