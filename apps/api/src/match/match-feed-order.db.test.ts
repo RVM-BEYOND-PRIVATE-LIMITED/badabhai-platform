@@ -18,8 +18,9 @@ import { MatchFeedRepository } from "./match-feed.repository";
  * published at the same instant. Each key is made to DISAGREE with the one after it, so a
  * swapped pair of keys produces a different permutation rather than a lucky pass:
  *
- *   - the boosted tier-2 card is the OLDEST in the fixture (boost beats tier and recency);
- *   - every tier-2 card is published AFTER every tier-1 card in its band (tier beats
+ *   - the unboosted tier-2 cards are the NEWEST in the fixture, yet sort below every
+ *     boosted card (boost beats recency) and every unboosted tier-1 card;
+ *   - in BOTH bands, every tier-2 card is published AFTER every tier-1 card (tier beats
  *     recency — a recency-first order would put them on top);
  *   - two tier-1 cards share one `published_at` and are inserted in REVERSE id order
  *     (only the id key can order them).
@@ -41,7 +42,7 @@ function uuid(n: number): string {
   return `00000000-0000-4000-8000-${n.toString(16).padStart(12, "0")}`;
 }
 
-const WORKER = uuid(9301);
+const WORKER = uuid(47301);
 const SKILL = "mskill_vmc_operator";
 
 interface Fixture {
@@ -56,22 +57,22 @@ interface Fixture {
 // Ids are numbered so that `id ASC` alone would give a DIFFERENT order from the ruled one.
 // One payer per posting: this is the repository's order, before any interleave.
 const P = {
-  boostT1New: uuid(9110),
-  boostT1Old: uuid(9109),
-  boostT2: uuid(9101), // the oldest posting in the fixture, and still second band
-  t1Tie_lowId: uuid(9104),
-  t1Tie_highId: uuid(9105),
-  t1Old: uuid(9103),
-  t1Expired: uuid(9102), // boost window closed: sorts exactly as unboosted
-  t1Unpublished: uuid(9106),
-  t2New: uuid(9108),
-  t2Old: uuid(9107),
+  boostT1New: uuid(47110),
+  boostT1Old: uuid(47109),
+  boostT2: uuid(47101), // the newest BOOSTED card, still below both boosted tier-1 cards
+  t1Tie_lowId: uuid(47104),
+  t1Tie_highId: uuid(47105),
+  t1Old: uuid(47103),
+  t1Expired: uuid(47102), // boost window closed: sorts exactly as unboosted
+  t1Unpublished: uuid(47106),
+  t2New: uuid(47108),
+  t2Old: uuid(47107),
 };
 
 const FIXTURES: Fixture[] = [
   { id: P.boostT1New, tier: 1, boost: "active", ageHours: 30 },
   { id: P.boostT1Old, tier: 1, boost: "active", ageHours: 40 },
-  { id: P.boostT2, tier: 2, boost: "active", ageHours: 200 },
+  { id: P.boostT2, tier: 2, boost: "active", ageHours: 10 },
   // Two tier-1 postings at ONE instant; the higher id is inserted first.
   { id: P.t1Tie_highId, tier: 1, boost: null, ageHours: 50 },
   { id: P.t1Tie_lowId, tier: 1, boost: null, ageHours: 50 },

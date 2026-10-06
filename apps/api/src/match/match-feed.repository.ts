@@ -114,7 +114,8 @@ export class MatchFeedRepository {
    *            jp.published_at DESC NULLS LAST, jp.id ASC
    *
    * NO SCORE, NO WEIGHTS — the order is boost, then match tier, then recency, then a
-   * stable id tiebreak. Every key is a plain column comparison; nothing is computed.
+   * stable id tiebreak: a lexicographic tuple of one boolean (boost live?) and plain
+   * columns, with no formula over them.
    *
    * DIRECT BEFORE RELATED (owner ruling, Prakash, 2026-10-05). Within each boost band, a
    * job the worker reaches through the POSTED skill (`match_tier` 1) ranks above one he

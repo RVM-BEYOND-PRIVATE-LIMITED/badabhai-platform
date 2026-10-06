@@ -221,7 +221,7 @@ ORDER  BY j.boosted DESC, j.published_at DESC;
 > related** (Prakash, 2026-10-05). As implemented in `MatchFeedRepository.listFeed`:
 >
 > ```sql
-> ORDER BY (jp.boosted_until > now()) DESC, jr.match_tier ASC,
+> ORDER BY (jp.boosted_until IS NOT NULL AND jp.boosted_until > now()) DESC, jr.match_tier ASC,
 >          jp.published_at DESC NULLS LAST, jp.id ASC
 > ```
 >

@@ -178,7 +178,7 @@ describe("MatchFeedService — E14: max-2-per-company is a PERMUTATION, not a fi
   it("preserves each company's INTERNAL order (a stable permutation, not a shuffle)", async () => {
     const { svc } = setup(CLUSTERED);
     const out = await svc.getFeed(WORKER, 6, {}, CTX);
-    // Within one company the SQL's boost/recency order is the only order there is —
+    // Within one company the SQL's boost/tier/recency order is the only order there is —
     // the interleave may move a card later, never above its own company's earlier card.
     const aOrder = out.jobs.map((j) => j.job_id).filter((id) => id.startsWith("a"));
     expect(aOrder).toEqual(["a1", "a2", "a3"]);
