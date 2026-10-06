@@ -179,6 +179,9 @@ describe.skipIf(!RUN)("Alpha swipe-to-apply (e2e, ADR-0009)", () => {
           "posted_at",
           "rank",
           "requirements",
+          // Owner ruling 2026-10-05 (ADR-0024 addendum) — the card's role ILLUSTRATION key:
+          // one of 21 closed occupation slugs or null. PII-free; not on feed.shown.
+          "role_kind",
           "shift",
           "title",
           "trade_key",

@@ -180,15 +180,26 @@ describe("listFeed — the company NAME is not in the projection (ADR-0036's ope
     expect(sql).not.toContain("location_label");
   });
 
-  it("never selects role_kind — the posting's display role is on NO worker read (0131, #1823)", async () => {
-    // ADR-0024 addendum 2026-09-29: the payer's role pick is display / classification for the
-    // payer portal only this phase. Selecting it here is the first step of putting it on the
-    // worker card, which is #1823's decision, not a mapper edit's.
+  it("selects role_kind for the card's art, and never filters or orders on it (2026-10-05)", async () => {
+    // Owner ruling 2026-10-05 (ADR-0024 addendum): the posting's role reaches the worker card
+    // as an illustration. It is a PROJECTION only — ADR-0036's addendum still bars it as a
+    // match, rank or visibility input, so it must not appear after FROM.
     const { repo, statements } = makeDb();
     await repo.listFeed(WORKER, 10, {});
     const { sql } = statements[0]!;
-    expect(sql).toContain("jp.role_title");
-    expect(sql).not.toContain("role_kind");
+    expect(sql).toContain("jp.role_kind AS role_kind");
+    const from = sql.indexOf(" FROM job_reach");
+    expect(from, "statement has the FROM clause").toBeGreaterThan(0); // vacuity guard
+    expect(sql.slice(from)).not.toContain("role_kind");
+  });
+
+  it("maps role_kind off the row verbatim (the service gates it)", async () => {
+    const { repo } = makeDb([
+      { job_posting_id: POSTING, payer_key: "p", match_tier: 1, published_at: null, role_kind: "fitter" },
+      { job_posting_id: WORKER, payer_key: "p", match_tier: 1, published_at: null, role_kind: null },
+    ]);
+    const rows = await repo.listFeed(WORKER, 10, {});
+    expect(rows.map((r) => r.roleKind)).toEqual(["fitter", null]);
   });
 });
 

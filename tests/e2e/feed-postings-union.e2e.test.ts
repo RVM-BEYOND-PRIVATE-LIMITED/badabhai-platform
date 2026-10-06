@@ -16,7 +16,7 @@ import { mintPayerSession } from "./helpers/payer-session";
  *
  *   payer creates a posting with every card field -> publishes it with a match skill -> a
  *   FRESH worker (no wanted skills, so the #1240 rule serves him every posting) sees it on
- *   `GET /feed` with every field verbatim on the legacy 17 keys -> applies (200, a
+ *   `GET /feed` with every field verbatim on the legacy 17 keys + role_kind -> applies (200, a
  *   `job_posting_id` row) -> the Applied tab and the ops applicant read both list it -> the
  *   spine carries `feed.shown` and `application.submitted` on subject `job_posting`, and no
  *   `feed.shown_v2` -> the PAYER's `/payer/reach/jobs/:id/applicants` serves that posting and
@@ -77,6 +77,7 @@ const FEED_ITEM_KEYS = [
   "posted_at",
   "rank",
   "requirements",
+  "role_kind",
   "shift",
   "title",
   "trade_key",
@@ -84,7 +85,8 @@ const FEED_ITEM_KEYS = [
 
 /**
  * Every payer-web `CardField` (apps/payer-web/src/lib/job-card-view.ts) plus the description.
- * `role_kind` is sent on purpose: it must NOT reach the worker card (ADR-0024 addendum, O6).
+ * `role_kind` is sent on purpose: since the owner ruling of 2026-10-05 (ADR-0024 addendum) it
+ * reaches the worker card on its OWN key, for the role illustration — never as `trade_key`.
  */
 const CARD = {
   role_title: "VMC Operator (union e2e)",
@@ -172,7 +174,7 @@ describe.skipIf(!RUN)("Company postings on the legacy feed (e2e, #1823 interim u
     expect(row.publishedAt).not.toBeNull();
   });
 
-  it("a FRESH worker sees it on GET /feed — every field verbatim, on exactly the 17 legacy keys", async () => {
+  it("a FRESH worker sees it on GET /feed — every field verbatim, on the 17 legacy keys + role_kind", async () => {
     const login = await req("POST", "/auth/test-login", {
       body: { phone: syntheticPhone() },
       testLogin: true,
@@ -210,9 +212,10 @@ describe.skipIf(!RUN)("Company postings on the legacy feed (e2e, #1823 interim u
       description: CARD.description,
       // No trade column on a posting; never the role, never a skill id.
       trade_key: "",
+      // Card art (owner ruling 2026-10-05) — its own additive key, never folded into trade_key.
+      role_kind: CARD.role_kind,
     });
     expect(typeof card!.posted_at).toBe("string");
-    expect(JSON.stringify(card)).not.toContain(CARD.role_kind);
     expect(JSON.stringify(card)).not.toContain("E2E Union Works");
   });
 
