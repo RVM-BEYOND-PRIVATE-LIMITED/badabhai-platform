@@ -23,10 +23,14 @@ import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/widgets/flying_name.dart';
+import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
+import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
 import 'package:badabhai_worker_app/router.dart';
 import 'package:badabhai_worker_app/core/util/devanagari_guard.dart';
 
 class MockChatRepository extends Mock implements ChatRepository {}
+
+class MockResumeEditRepository extends Mock implements ResumeEditRepository {}
 
 void main() {
   late MockChatRepository repo;
@@ -1236,8 +1240,9 @@ void main() {
               const ChatTurn(reply: 'Shukriya.', askedQuestionId: null));
 
       await pumpScreen(tester);
-      expect(find.text('Feedback'), findsOneWidget,
-          reason: 'the action is Feedback until a name is entered');
+      // The action is no longer the Feedback button (owner request): it shows
+      // the worker's name and nothing else, so it is EMPTY until one is entered.
+      expect(find.text('Feedback'), findsNothing);
 
       await tester.enterText(find.byType(TextField), 'ramesh kumar');
       await tester.testTextInput.receiveAction(TextInputAction.send);
@@ -1259,6 +1264,28 @@ void main() {
       expect(find.text('Feedback'), findsNothing);
       // The bubble remains — the name was copied to the header, not moved out.
       expect(find.text('ramesh kumar'), findsOneWidget);
+    });
+
+    // OWNER REQUEST (2026-10-05): the BadaBhai tab runs no identity intake, so
+    // the header reads the worker's own name from the profile instead.
+    testWidgets('with no captured name, the header reads the profile name',
+        (WidgetTester tester) async {
+      final MockResumeEditRepository resumeRepo = MockResumeEditRepository();
+      when(() => resumeRepo.load()).thenAnswer(
+        (_) async => const ResumeSafeFields(
+          displayName: 'Ramesh Kumar',
+          showPhoto: true,
+          nightShiftReady: false,
+        ),
+      );
+      locator.registerSingleton<ResumeEditRepository>(resumeRepo);
+
+      await pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ramesh Kumar'), findsOneWidget,
+          reason: 'the header shows the profile name on the tab');
+      expect(find.text('Feedback'), findsNothing);
     });
 
     testWidgets('a later surname flies the COMPLETE name, not just the surname',
@@ -1283,13 +1310,13 @@ void main() {
       await pumpScreen(tester);
 
       // First name: the server still wants the surname, so NO flight fires and
-      // the action stays 'Feedback' — one animation, after BOTH names.
+      // the action stays empty — one animation, after BOTH names.
       await tester.enterText(find.byType(TextField), 'rishi');
       await tester.testTextInput.receiveAction(TextInputAction.send);
       await tester.pump();
       await tester.pumpAndSettle();
       expect(find.byType(FlyingName), findsNothing);
-      expect(find.text('Feedback'), findsOneWidget);
+      expect(find.text('Feedback'), findsNothing);
 
       // Surname — the WHOLE name lifts off, not just the freshly-typed word.
       await tester.enterText(find.byType(TextField), 'ojha');

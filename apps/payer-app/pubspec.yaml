@@ -112,3 +112,21 @@ flutter:
           weight: 600
         - asset: assets/fonts/Mukta-Bold.ttf
           weight: 700
+    # BRAND-KIT HEADING FACE (#1999) — Kilimanjaro Sans, the same face payer-web
+    # and admin-web ship (converted from the brand kit's OTF). It is the DISPLAY
+    # family now; Baloo 2 / Mukta / Noto Sans Devanagari stay in the fallback
+    # chain for the ₹ and Devanagari glyphs this 182-glyph display cut does not
+    # carry. ONE file declared across the weights the display styles ask for
+    # (600/700/800), so a heavy headline uses the real face, not a synthesized
+    # bold. LICENCE: commercial ("Nicky Laatz 2022 – All rights reserved"); the
+    # owner ruled 2026-09-29 to ship it in this repo (see the brand-kit LICENCE).
+    - family: Kilimanjaro Sans
+      fonts:
+        - asset: assets/fonts/KilimanjaroSans-Regular.otf
+          weight: 400
+        - asset: assets/fonts/KilimanjaroSans-Regular.otf
+          weight: 600
+        - asset: assets/fonts/KilimanjaroSans-Regular.otf
+          weight: 700
+        - asset: assets/fonts/KilimanjaroSans-Regular.otf
+          weight: 800
