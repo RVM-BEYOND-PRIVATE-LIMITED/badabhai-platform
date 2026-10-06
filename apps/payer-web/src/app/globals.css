@@ -7,9 +7,12 @@
  * then merges the token and component layers into one stylesheet again — imported between them,
  * the sheet split the CSS into five requests on every page, measured on /i/<code>. Its size
  * tokens are var() aliases of the token layer, which resolve whatever the import order.
- * KNOWN COST, TRACKED (issue #1893, follow-up to PR #1886): the whole fill sheet is render-blocking here
- * too — +12.3 KB gzipped on /i/<code>, which paints no glyph — and the build emits three unused
- * font formats; the planned fix is a generated subset. Details at the import in icons.css. */
+ * SUBSET (#1893): the glyph sheet is generated for the IconName union only (≤1.7 KB gzipped, not
+ * the full ~11.8 KB) with a woff2-only @font-face, so the build emits one font file instead of
+ * four and this import no longer gets a CSS chunk of its own. It stays here, root-level, on
+ * purpose: /i/<code> paints no glyph (so never downloads the font), and moving the sheet into
+ * per-segment layouts would invert the cascade order above and add a render-blocking request
+ * to every other page. Details at the import in icons.css. */
 @import "@badabhai/icons/icons.css";
 
 /* BadaBhai brand token layer — the foundation (colors / type / spacing / radii /

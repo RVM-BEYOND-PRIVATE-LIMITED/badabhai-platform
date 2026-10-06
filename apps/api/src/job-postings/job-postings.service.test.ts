@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import { fakeAiTraceRecorder } from "../ai/ai-trace-recorder.fake";
+import { EventsService } from "../events/events.service";
 import { JobPostingsService } from "./job-postings.service";
 import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
 import {
@@ -123,11 +124,37 @@ function toApi(r: Row) {
   };
 }
 
-function make(existing?: Row) {
+type PostingApi = ReturnType<typeof toApi>;
+
+function make(existing?: Row, opts: { events?: unknown } = {}) {
   const emit = vi.fn().mockResolvedValue(undefined);
+  // #1928 — A TRANSACTION THAT BEHAVES LIKE ONE. A posting written on the `tx` handed to the
+  // `withTransaction` callback is returned at once but PERSISTS only when the callback
+  // resolves; a throw discards it, as a ROLLBACK would. A write with NO executor autocommits,
+  // which is what `create` did before #1928 — so "no posting survives a failed emit" fails
+  // against a service that writes the row outside the transaction.
+  const TX = { executor: "job-postings-test-tx" };
+  const persisted: PostingApi[] = [];
+  let pending: PostingApi[] | null = null;
+  const stage = (posting: PostingApi, tx?: unknown): Promise<PostingApi> => {
+    if (tx === undefined) persisted.push(posting);
+    else if (tx === TX && pending !== null) pending.push(posting);
+    else throw new Error("posting written on an executor that is not the open transaction");
+    return Promise.resolve(posting);
+  };
+  const withTransaction = vi.fn(async (work: (tx: unknown) => Promise<unknown>) => {
+    pending = [];
+    try {
+      const out = await work(TX);
+      persisted.push(...pending);
+      return out;
+    } finally {
+      pending = null;
+    }
+  });
   const create = vi
     .fn()
-    .mockImplementation((input: Partial<Row>) => Promise.resolve(toApi(row(input))));
+    .mockImplementation((input: Partial<Row>, tx?: unknown) => stage(toApi(row(input)), tx));
   const findById = vi.fn().mockResolvedValue(existing ? toApi(existing) : undefined);
   const update = vi
     .fn()
@@ -202,6 +229,7 @@ function make(existing?: Row) {
   });
   const svc = new JobPostingsService(
     {
+      withTransaction,
       create,
       findById,
       update,
@@ -213,7 +241,9 @@ function make(existing?: Row) {
       closeOwned,
       transitionOwned,
     } as never,
-    { emit } as never,
+    // #1928: a test can pass the REAL EventsService (over a fake events repository) to prove
+    // the transaction reaches the events insert; every other test counts calls on `emit`.
+    (opts.events ?? { emit }) as never,
     // TAX-6: AiService stub — canonicalize returns UNRESOLVED unless a test overrides.
     { canonicalizeSkill: canonicalize } as never,
     // #745: one `ai.cost_recorded` per canonicalized phrase. Stubbed so a test can count
@@ -236,6 +266,10 @@ function make(existing?: Row) {
   return {
     svc,
     emit,
+    TX,
+    persisted,
+    stage,
+    withTransaction,
     resolveForPublish,
     canonicalize,
     recordAiCost,
@@ -395,6 +429,116 @@ describe("JobPostingsService.create", () => {
     expect(JSON.stringify(arg.payload)).not.toContain("vacancies");
     expect(JSON.stringify(arg.payload)).not.toContain(":7");
     assertNoFreeText(arg.payload);
+  });
+});
+
+/**
+ * #1928 — THE POSTING ROW AND ITS `job_posting.created` COMMIT TOGETHER, OR NEITHER DOES.
+ *
+ * The insert used to commit on its own, and the emit ran after it outside any transaction. An
+ * emit that threw (`createEvent` rejecting the payload, or a failed `events` insert) left a
+ * committed posting with no `job_posting.created` on the spine. The chat publish saw the throw,
+ * released its claim, and a retry created a SECOND posting.
+ *
+ * `make()`'s repository fake models a transaction (see there). These cases run both create
+ * surfaces, because both go through the one `insertAndEmit` chokepoint and both inherit the
+ * atomicity. The real-Postgres proof, through the chat publish, is the #1928 block in
+ * `job-posting-chat.repository.db.test.ts`.
+ */
+describe("#1928 — create commits the posting row and job_posting.created atomically", () => {
+  const OPS_DTO = {
+    created_by: CREATED_BY,
+    org_label: ORG,
+    role_title: ROLE,
+    vacancy_band: "2-5" as const,
+  };
+  const PAYER_DTO = { org_label: ORG, role_title: ROLE, vacancy_band: "2-5" as const };
+  type Svc = ReturnType<typeof make>["svc"];
+  const SURFACES: [string, (svc: Svc) => Promise<{ id: string }>][] = [
+    ["ops create", (svc) => svc.create(OPS_DTO, CTX as never)],
+    ["payer createForPayer", (svc) => svc.createForPayer(PAYER_ID, PAYER_DTO, CTX as never)],
+  ];
+
+  it.each(SURFACES)(
+    "%s: an emit that throws AFTER the insert persists no posting, and the error reaches the caller",
+    async (_surface, run) => {
+      const d = make();
+      d.emit.mockRejectedValueOnce(new Error("events insert failed"));
+
+      await expect(run(d.svc)).rejects.toThrow("events insert failed");
+      // The insert DID run. This is the after-the-insert case the issue names, not a refusal
+      // before it, so an empty store means the row was rolled back, not never written.
+      expect(d.create).toHaveBeenCalledOnce();
+      expect(d.emit).toHaveBeenCalledOnce();
+      expect(d.persisted).toEqual([]);
+    },
+  );
+
+  it.each(SURFACES)(
+    "%s: the event rides the SAME transaction as the row, and both persist on success",
+    async (_surface, run) => {
+      const d = make();
+      const created = await run(d.svc);
+
+      expect(d.withTransaction).toHaveBeenCalledOnce();
+      expect(d.create.mock.calls[0]![1]).toBe(d.TX);
+      expect(d.emit).toHaveBeenCalledOnce();
+      expect(d.emit.mock.calls[0]![0].event_name).toBe("job_posting.created");
+      expect(d.emit.mock.calls[0]![0].tx).toBe(d.TX);
+      expect(d.persisted.map((p) => p.id)).toEqual([created.id]);
+    },
+  );
+
+  it("through the REAL EventsService: the transaction is the events insert's executor, and a failed insert persists no posting", async () => {
+    const insert = vi.fn(
+      async (_event: unknown, _key?: string | null, _executor?: unknown): Promise<boolean> => {
+        throw new Error("could not write to the events table");
+      },
+    );
+    const events = new EventsService({ insert } as never, { NODE_ENV: "test" } as never);
+    const d = make(undefined, { events });
+
+    await expect(d.svc.createForPayer(PAYER_ID, PAYER_DTO, CTX as never)).rejects.toThrow(
+      "could not write to the events table",
+    );
+    expect(insert).toHaveBeenCalledOnce();
+    // `EmitParams.tx` reached `EventsRepository.insert`, so the event row is written on the
+    // posting's transaction rather than standalone on the injected db.
+    expect(insert.mock.calls[0]![2]).toBe(d.TX);
+    expect(d.persisted).toEqual([]);
+  });
+
+  it("through the REAL EventsService: a payload createEvent() rejects after the insert persists no posting", async () => {
+    const insert = vi.fn(async (): Promise<boolean> => true);
+    const events = new EventsService({ insert } as never, { NODE_ENV: "test" } as never);
+    const d = make(undefined, { events });
+    // A stored value the event registry does not accept, e.g. a role added to the column
+    // before the event enum learned it. The row exists, then building its event throws.
+    d.create.mockImplementationOnce((input: Partial<Row>, tx?: unknown) =>
+      d.stage({ ...toApi(row(input)), role_kind: "not_a_registered_role" }, tx),
+    );
+
+    await expect(d.svc.createForPayer(PAYER_ID, PAYER_DTO, CTX as never)).rejects.toThrow();
+    expect(d.create).toHaveBeenCalledOnce();
+    expect(insert).not.toHaveBeenCalled();
+    expect(d.persisted).toEqual([]);
+  });
+
+  it("opens the transaction only AFTER the ai-service fan-out and the closed-set check, so no transaction is held across a network call", async () => {
+    const d = make();
+    await d.svc.createForPayer(
+      PAYER_ID,
+      { ...PAYER_DTO, skills: ["welding"], match_skill_ids: ["mskill_welding"] },
+      CTX as never,
+    );
+
+    const opened = d.withTransaction.mock.invocationCallOrder[0]!;
+    expect(opened).toBeDefined();
+    // canonicalize is an ai-service round trip (up to the client timeout per phrase), and the
+    // cost record is a write of its own. Neither may run while the posting's transaction is open.
+    expect(d.canonicalize.mock.invocationCallOrder[0]!).toBeLessThan(opened);
+    expect(d.recordAiCost.mock.invocationCallOrder[0]!).toBeLessThan(opened);
+    expect(d.resolveForPublish.mock.invocationCallOrder[0]!).toBeLessThan(opened);
   });
 });
 
@@ -721,15 +865,17 @@ describe("UpdateJobPostingSchema status guard", () => {
 // ---------------------------------------------------------------------------
 describe("JobPostingsService — payer self-serve (*ForPayer)", () => {
   it("createForPayer stamps the SESSION payer as owner AND created_by, status=draft", async () => {
-    const { svc, create } = make();
+    const { svc, create, TX } = make();
     await svc.createForPayer(
       PAYER_ID,
       { org_label: ORG, role_title: ROLE, vacancy_band: "2-5" },
       CTX as never,
     );
-    // The row is created with payerId = createdBy = the session payer; status draft.
+    // The row is created with payerId = createdBy = the session payer; status draft — on the
+    // transaction its `job_posting.created` rides (#1928).
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ payerId: PAYER_ID, createdBy: PAYER_ID, status: "draft" }),
+      TX,
     );
   });
 

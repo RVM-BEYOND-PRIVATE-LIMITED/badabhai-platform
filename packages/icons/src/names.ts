@@ -3,11 +3,14 @@
  *
  * A closed union, not `string`: a misspelt glyph used to render an EMPTY BOX silently (the
  * webfont has no fallback glyph and nothing type-checked the name). Every entry here is proven
- * to exist in the installed `@phosphor-icons/web` fill sheet by `names.test.ts`, so a name that
- * compiles is a name that renders.
+ * to exist in the generated subset sheet (`phosphor-fill.subset.css`, built from the installed
+ * `@phosphor-icons/web` fill sheet) by `names.test.ts`, so a name that compiles is a name that
+ * renders.
  *
- * ADDING A GLYPH: add it here (keep the list sorted — the test enforces it) and run this
- * package's tests. Prefer an existing entry: one concept, one icon (see `ACTION_ICON`).
+ * ADDING A GLYPH: add it here (keep the list sorted — the test enforces it), run
+ * `pnpm --filter @badabhai/icons generate:subset`, and run this package's tests. Prefer an
+ * existing entry: one concept, one icon (see `ACTION_ICON`). This file is also run natively by
+ * that script, so keep it erasable-only TypeScript (no enum / namespace, no imports).
  *
  * FILL ONLY. The brand allows solid, rounded silhouettes and nothing thinner, so this package
  * loads the fill sheet alone; there is no weight parameter anywhere in the API.
