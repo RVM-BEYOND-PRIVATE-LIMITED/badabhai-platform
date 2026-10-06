@@ -30,7 +30,12 @@ export type { MatchSkillRef, WorkerSkillRow, RankInputs, FeedRow } from "./types
 
 export { bucketMonths, bucketMonthValue } from "./months";
 
-export { deriveWorkerSkills, type DeriveWorkerSkillsInput } from "./derive";
+export {
+  deriveWorkerSkills,
+  workerSkillDeriveInput,
+  type DeriveWorkerSkillsInput,
+  type WorkerSkillEvidence,
+} from "./derive";
 
 export {
   computeIndustryTenure,

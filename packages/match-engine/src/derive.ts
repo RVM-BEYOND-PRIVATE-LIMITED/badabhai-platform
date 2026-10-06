@@ -19,7 +19,9 @@ import {
   matchSkillForRole,
   matchSkillIndustry,
   matchSkillsForAttribute,
+  packAnswerEvidence,
   type MatchSkillId,
+  type PackAnswer,
 } from "@badabhai/taxonomy";
 import { DEFAULT_MATCH_CONFIG, type MatchConfig } from "./config";
 import { bucketMonths } from "./months";
@@ -94,4 +96,60 @@ export function deriveWorkerSkills(
       };
     })
     .filter((row): row is WorkerSkillRow => row !== undefined);
+}
+
+/** The evidence one worker's rebuild reads, exactly as the two writers load it. */
+export interface WorkerSkillEvidence {
+  /** The CURRENT `worker_profiles` row's signals, or `null` when he has none (every form worker). */
+  profile: {
+    canonicalRoleId: string | null;
+    profileSkills: readonly string[];
+    totalYears: number | null;
+  } | null;
+  /** Declared secondary `role_*` ids (migration 0114), in the worker's own order. */
+  secondaryRoleIds: readonly string[];
+  /** His stored pack answers (`worker_attributes`), each carrying its own row's `pack_id`. */
+  packAnswers: readonly PackAnswer[];
+}
+
+/**
+ * ONE ASSEMBLY OF THE DERIVATION INPUT, for BOTH writers of `worker_skill`.
+ *
+ * The live rebuild (`WorkerSkillsService.rebuildForWorker`) and the batch repair
+ * (`db:backfill:worker-skills`) each load the same three sources and must derive the same set.
+ * They used to assemble the input separately, and they disagreed: the batch skipped every worker
+ * with no profile row and never read pack answers, so for a form-onboarded worker the nightly
+ * repair either did nothing or PRUNED the rows the live path wrote. Assembling it here makes
+ * parity a property of construction.
+ *
+ * `null` means "nothing to derive from" — no profile, no pack evidence, no declared occupation.
+ * Both callers then leave the worker's rows untouched: the rebuild is delete-then-insert, and
+ * running it on no evidence would DELETE rows a worker mid-extraction already has.
+ *
+ * Pure: the pack bridge is a closed-set table lookup (`@badabhai/taxonomy`), no inference.
+ */
+export function workerSkillDeriveInput(
+  evidence: WorkerSkillEvidence,
+): DeriveWorkerSkillsInput | null {
+  const pack = packAnswerEvidence(evidence.packAnswers);
+  if (
+    evidence.profile === null &&
+    pack.corpusSkillIds.length === 0 &&
+    pack.roleIds.length === 0 &&
+    evidence.secondaryRoleIds.length === 0
+  ) {
+    return null;
+  }
+  return {
+    canonicalRoleId: evidence.profile?.canonicalRoleId ?? null,
+    // Declared occupations first, in the worker's order; pack-implied roles after. Order does not
+    // change the derived SET (the output is sorted) — it only keeps a debug dump readable.
+    additionalRoleIds: [...new Set([...evidence.secondaryRoleIds, ...pack.roleIds])],
+    // UNION, never replace: a worker can have both an extracted profile and a completed pack,
+    // and whichever arrived second must not silently delete the other's evidence.
+    profileSkills: [
+      ...new Set([...(evidence.profile?.profileSkills ?? []), ...pack.corpusSkillIds]),
+    ].sort(),
+    totalYears: evidence.profile?.totalYears ?? null,
+  };
 }
