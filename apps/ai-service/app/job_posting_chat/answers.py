@@ -186,11 +186,67 @@ def _drop_unbalanced_brackets(text: str) -> str:
 # topics: an essential answered with "no" must stay unanswered so the bounded re-ask
 # fires and the gap is declared, rather than silently shipping a draft that the
 # publish DTO will reject.
+#
+# It is also what the API's re-ask hints ask for (#1911 `KEEP_HINT`, #1921 `ADD_HINT`:
+# 'Reply "no" ...'), so the ways a payer says "nothing more" or "keep it" are refusals too
+# — "no more", "no other", "that's it", "bas", "no, keep it" (#1938). Missing them made
+# them chips on the list topics, and the payer's description on the keep re-ask.
+#
+# THE WHOLE MESSAGE, never a part of one. A real answer that STARTS like a refusal is
+# the answer it is: "no more than 5 years", "no other benefits than PF", "bas PF" ("just
+# PF"), "bus". Matched (with `fullmatch`) against :func:`_refusal_form`, which leaves one
+# space between words and every clause break as ONE spaced comma " , ", so each space
+# below is ONE literal space and nothing in the pattern is quantified but a lone "'" or a
+# bounded group: linear by construction, never a whitespace-run stall (#1891, R53).
 _REFUSAL_RE = re.compile(
-    r"^(?:no|none|nope|nothing|nothing else|na|n/a|not applicable|nil|skip|"
-    r"no thanks|that'?s all|nahi|kuch nahi)[.!]?$",
+    # A leading word before the refusal: "no, nothing else", "nope that's it", "Bas, that's
+    # it", "Okay, keep it". Never a refusal alone: "ok" agrees, "bas" is caught below.
+    r"(?:(?:no|nope|nah|nahi|nahin|bas|ok|okay) (?:, )?)?"
+    r"(?:no|none|nope|nah|na|n/a|nil|skip|not applicable|"
+    r"nothing(?: else| more| further)?(?: to add)?|"
+    r"no (?:more|other|others|change|changes|thanks|thank you)|"
+    r"that'?s (?:all|it)|that is (?:all|it)|"
+    # The #1911 keep hint answered in words: "keep it", "keep the earlier one".
+    r"keep(?: it| that| this| (?:the )?(?:earlier|old|previous|same|existing)(?: one)?)?"
+    r"(?: as is)?|"
+    r"(?:kuch |aur kuch |kuch aur |aur |koi |aur koi )?nahin?(?: hai)?|"
+    r"bas(?: itna| itna hi| yahi)?|itna hi)"
+    # A trailing thanks: "that's all, thanks".
+    r"(?: (?:, )?(?:thanks|thank you))?",
     re.IGNORECASE,
 )
+# Refusal-shaped words that are something else when typed in capitals. "BAS" (a building
+# automation system) is a skill an HVAC employer lists; "bas" / "Bas" is "enough".
+_REFUSAL_ACRONYMS: frozenset[str] = frozenset({"BAS"})
+# Stripped from both ends of a refusal: the space, the end punctuation, and the quotes a
+# payer copies from the hint ('"no"').
+_REFUSAL_EDGE = " .!,\"'`“”"
+# Read as the comma it stands for between the words of a refusal: "No. Keep it." (a phone
+# keyboard's double space types that period), "no; that's it", "No... that's it", "No… keep
+# it", "No! Keep it". The curly apostrophes become the one "'" the pattern spells. A "?"
+# is NOT a break: "no more?" asks, it does not refuse.
+_REFUSAL_TRANSLATION = str.maketrans({".": ",", ";": ",", "!": ",", "…": ",", "’": "'", "‘": "'"})
+
+
+def _refusal_form(message: str) -> str:
+    """``message`` as :data:`_REFUSAL_RE` reads it: one apostrophe, every run of clause
+    breaks ONE comma spaced " , ", single spaces, the edge punctuation and quotes gone. A "?"
+    stays, so "no more?" is a question back, never a refusal. Plain string work and one
+    ``\\s+``: linear."""
+    spaced = _WS_RE.sub(" ", message.translate(_REFUSAL_TRANSLATION))
+    clauses = (clause.strip() for clause in spaced.split(","))
+    return " , ".join(clause for clause in clauses if clause).strip(_REFUSAL_EDGE)
+
+
+def is_refusal(message: str) -> bool:
+    """Is the WHOLE of ``message`` an explicit "nothing (more) to give here"?
+
+    The engine records nothing for it: a non-essential topic closes empty, and an earlier
+    value the API's re-ask offered to keep stays as it was.
+    """
+    form = _refusal_form(message or "")
+    return form not in _REFUSAL_ACRONYMS and _REFUSAL_RE.fullmatch(form) is not None
+
 
 # Chatter that is NOT a label. A short first-person/greeting line is a payer opening
 # a conversation, not a job title or a city — accepting it would stamp "I want to
@@ -1082,7 +1138,7 @@ def _parse_city(text: str) -> str | None:
 
 # --- Topic dispatch --------------------------------------------------------
 # Topics whose value must be PARSED to count as answered. A refusal ("no") on one of
-# these leaves it unanswered on purpose — see _REFUSAL_RE.
+# these leaves it unanswered on purpose — see is_refusal.
 _VALUE_REQUIRED: frozenset[str] = frozenset({"role_title", "location_label", "city", "vacancy"})
 
 # The ONLY topics read cross-topic (i.e. when a DIFFERENT question was on screen).
@@ -1161,7 +1217,11 @@ def _parse_topic(
 
 
 def detect_answers(
-    message: str, last_asked: str | None, *, pay_text: str | None = None
+    message: str,
+    last_asked: str | None,
+    *,
+    pay_text: str | None = None,
+    raw_message: str | None = None,
 ) -> dict[str, object | None]:
     """What did the payer just answer?
 
@@ -1172,6 +1232,13 @@ def detect_answers(
     ``pay_text`` (#1731) is the raw pay answer `pay_text_for` released, or None. It is
     read by the PAY parsers only — the pay band and the pay type read in passing — and only
     when the pay question is on screen; every other topic reads ``message``.
+
+    ``raw_message`` (#1938) is the payer's unmasked message when ``message`` is the masked
+    draft text. Only the refusal check reads it. The gateway's leading-name rule masks the
+    "Nope" of "Nope, that's all" ("[PERSON_1], that's all", measured) and the "Bas" of "Bas,
+    that's it", which turned the refusal into a chip. A refusal records NOTHING, and every
+    value is still parsed from ``message``, so reading the payer's own words for it never
+    puts an unmasked one on the draft.
 
     Local only. Never calls the network, never mutates its inputs.
     """
@@ -1192,7 +1259,7 @@ def detect_answers(
 
     # 1. Attribution — the question that was actually on screen.
     if last_asked:
-        if _REFUSAL_RE.match(text):
+        if is_refusal(text) or (raw_message is not None and is_refusal(raw_message)):
             if last_asked not in _VALUE_REQUIRED:
                 found[last_asked] = None
         else:
