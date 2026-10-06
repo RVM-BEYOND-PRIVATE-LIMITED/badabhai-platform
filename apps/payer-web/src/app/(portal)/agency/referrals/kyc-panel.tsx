@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Icon } from "@badabhai/icons";
 import { agencyKycInputSchema, type AgencyKyc } from "../../../../lib/contracts";
 import { maskLast4 } from "../../../../lib/masking";
 import { Badge, Button, Input } from "../../../../components/ds";
@@ -147,7 +148,7 @@ export function KycPanel({ kyc }: { kyc: AgencyKyc }) {
             <div aria-live="polite" className="form-status">
               {submitError ? (
                 <div className="alert alert--danger">
-                  <i className="ph-fill ph-warning-circle alert__icon" aria-hidden="true" />
+                  <Icon name="warning-circle" className="alert__icon" />
                   <div className="alert__text">
                     <p className="alert__title">We couldn&rsquo;t save your payout details</p>
                     <p className="alert__body">{submitError}</p>
@@ -175,7 +176,7 @@ function statusBanner(status: AgencyKyc["status"], rejectReason?: string) {
   if (status === "verified") {
     return (
       <div className="alert alert--success">
-        <i className="ph-fill ph-seal-check alert__icon" aria-hidden="true" />
+        <Icon name="seal-check" className="alert__icon" />
         <div className="alert__text">
           <p className="alert__title">Verified</p>
           <p className="alert__body">
@@ -189,7 +190,7 @@ function statusBanner(status: AgencyKyc["status"], rejectReason?: string) {
   if (status === "pending") {
     return (
       <div className="alert alert--warning">
-        <i className="ph-fill ph-hourglass-medium alert__icon" aria-hidden="true" />
+        <Icon name="hourglass-medium" className="alert__icon" />
         <div className="alert__text">
           <p className="alert__title">Under review</p>
           <p className="alert__body">
@@ -202,7 +203,7 @@ function statusBanner(status: AgencyKyc["status"], rejectReason?: string) {
   if (status === "rejected") {
     return (
       <div className="alert alert--danger">
-        <i className="ph-fill ph-warning-circle alert__icon" aria-hidden="true" />
+        <Icon name="warning-circle" className="alert__icon" />
         <div className="alert__text">
           <p className="alert__title">Rejected</p>
           <p className="alert__body">
@@ -215,7 +216,7 @@ function statusBanner(status: AgencyKyc["status"], rejectReason?: string) {
   // not_submitted
   return (
     <div className="alert alert--info">
-      <i className="ph-fill ph-info alert__icon" aria-hidden="true" />
+      <Icon name="info" className="alert__icon" />
       <div className="alert__text">
         <p className="alert__title">Add your payout details</p>
         <p className="alert__body">
