@@ -724,6 +724,33 @@ FAMILIES: list[tuple[str, list[tuple[str, str | None]]]] = [
         ("200 lakh chahiye", "₹2,00,00,000 is over the plausibility ceiling"),
         ("5 crore", "'crore' is not a unit this matcher knows"),
     ]),
+    # ----------------------------- salary: a PHONE's groups are not pay (issue #2050) --
+    ("salph", [
+        ("mera number 98765 43210 hai",
+         "a SPACED PHONE: its first group recorded a 98,765 current salary"),
+        ("phone 98765-43210", "a dashed phone, same defect"),
+        ("mera number 987 654 3210", "a 3-3-4 phone: its last group recorded 3,210"),
+        ("+91 98765 43210", "a country code makes the run longer, not money"),
+        ("job chahiye mera number 98765 43210",
+         "the want cue made the first group the EXPECTED salary, which reached "
+         "salary_expectation, the reach score and the resume"),
+        ("number 98765 43210, salary 25000",
+         "the phone's first group took the current slot and the real wage was lost "
+         "(first writer wins); now the wage is recorded"),
+        ("९८७६५ ४३२१० mera number hai", "Devanagari digits in a phone"),
+        ("15000-20000 chahiye",
+         "a round, rising pay range is phone-shaped but is pay: #1731's rule"),
+        ("salary 15000 18000",
+         "DECIDED (owner, 2026-10-07): a SPACE-joined round rising pair is a range too"),
+        ("salary 25000 98765 43210",
+         "a wage glued to a phone by a space is part of a 15-digit run: no number rather "
+         "than a wrong one"),
+        ("5000 6000 milta hai", "eight digits: below the phone length, read as before"),
+        ("salary 20000 3000 overtime alag",
+         "DECIDED (owner, 2026-10-07): the run is TEN digits, an Indian mobile number, so a "
+         "wage next to a small count (nine digits) is read as before"),
+        ("(987) 654-3210", "brackets are a phone's separators too (security review of #2050)"),
+    ]),
     # --------------------------------------------- salary: both slots, lines, script --
     ("sal2", [
         ("abhi 21000 milta hai, 31000 chahiye",
