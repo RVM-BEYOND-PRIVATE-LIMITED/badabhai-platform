@@ -926,6 +926,13 @@
       "when": 1790687181089,
       "tag": "0131_job_role_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1791293023546,
+      "tag": "0132_unlocks_job_posting_id",
+      "breakpoints": true
     }
   ]
 }

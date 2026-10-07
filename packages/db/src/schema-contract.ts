@@ -765,6 +765,25 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "(column does not exist). Old builds on a migrated database are fine (a superset); new " +
       "builds on an unmigrated one are not, which is why this is APPLY-BEFORE-DEPLOY",
   },
+  // 0132: the company-posting context of an unlock (#2033). Unconditional — no flag — because
+  // `unlocks` is read through bare `select()` / `.returning()`, which name every model column.
+  // The FK is applied in the same transaction as the column, so the column answers for it.
+  {
+    id: "0132-unlocks-job-posting-id",
+    migration: "0132_unlocks_job_posting_id",
+    kind: "column",
+    table: "unlocks",
+    object: "job_posting_id",
+    requiredBy:
+      "UnlocksRepository's bare `select()` / `.returning()` (findByPayerWorker, findByIdForUpdate, " +
+      "upsertGrant, recordDeny, listByPayer, listByPayerWithStatus, getProjection) — every unlock " +
+      "request, reveal and unlock list, ops and payer",
+    failureMode:
+      "every contact-unlock route 500s (column does not exist): POST /payer/unlocks, the reveal, " +
+      "GET /payer/unlocks and the ops /unlocks routes. Old builds on a migrated database are fine " +
+      "(a superset); new builds on an unmigrated one are not, which is why this is " +
+      "APPLY-BEFORE-DEPLOY",
+  },
   {
     id: "0125-resume-history-generation-source",
     migration: "0125_resume_history",

@@ -234,6 +234,12 @@ export const unlocks = pgTable(
     workerId: uuid("worker_id").references(() => workers.id, { onDelete: "set null" }),
     // Optional job context (per-profile granularity, so nullable). FK to jobs.
     jobId: uuid("job_id").references(() => jobs.id, { onDelete: "set null" }),
+    // #2033 (migration 0132) — optional COMPANY-posting context, the `job_postings` twin of
+    // `job_id`. A payer-session unlock made from one of the payer's own postings stores that
+    // posting here (job_id stays null — its FK can only hold a `jobs` id, #1903). At most one
+    // of the two is set by the writer. Same posture as `resume_disclosures.job_posting_id`:
+    // nullable, SET NULL on a posting delete, no backfill (older rows read null = "no context").
+    jobPostingId: uuid("job_posting_id").references(() => jobPostings.id, { onDelete: "set null" }),
     status: text("status").$type<UnlockStatus>().notNull().default("requested"),
     // INTERNAL audit only — NEVER returned to a payer (no-oracle, §D4). Null unless
     // status='denied' (enforced by the CHECK below).

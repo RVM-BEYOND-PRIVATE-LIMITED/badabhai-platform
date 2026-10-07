@@ -1,0 +1,51 @@
+-- ===========================================================================
+-- 0132 - unlocks.job_posting_id (#2033)
+--
+-- PURELY ADDITIVE. One nullable uuid column (no default, no backfill) and its FK to
+-- `job_postings.id` ON DELETE SET NULL. Nothing existing is altered, dropped or rewritten.
+--
+-- WHAT IT IS. The COMPANY-posting context of a contact unlock - the `job_postings` twin of
+-- `unlocks.job_id`. `job_id` is an FK to the legacy `jobs` table, so since #1903/#1899 an
+-- unlock a payer makes from one of their OWN company postings has been stored with
+-- `job_id = null`, and GET /payer/unlocks could not tell the payer which posting a grant came
+-- from. The payer-session unlock path (UnlockService.requestUnlock, policy "payer_owned")
+-- now writes the OWNED posting id here; an owned agency `jobs` row still goes to `job_id`.
+-- The writer sets at most one of the two. It is the posture `resume_disclosures.job_posting_id`
+-- already has (migration 0016): nullable, SET NULL on a posting delete.
+--
+-- WHAT IT IS NOT. Not on any event: `unlock.*` / `profile.viewed_v2` payloads are unchanged
+-- (an event schema is never mutated). Not a match, rank or cap input. NULL = "no posting
+-- context" (search, the ops route, an agency job, or a row written before this migration) -
+-- never a guessed posting, so every existing row reads honestly without a backfill.
+--
+-- PRIVACY: an opaque posting id the payer already owns. No worker or employer identity.
+--
+-- APPLY-BEFORE-DEPLOY. Drizzle's bare `select()` / `.returning()` name EVERY model column, and
+-- `unlocks` is read that way on live paths - UnlocksRepository (findByPayerWorker,
+-- findByIdForUpdate, upsertGrant, recordDeny, listByPayer, listByPayerWithStatus,
+-- getProjection). A build carrying this change against a database without the column 500s
+-- every unlock request, reveal and unlock list, ops and payer alike ("column job_posting_id
+-- does not exist"). An OLD build on a migrated database is fine (a superset). Registered as
+-- `0132-unlocks-job-posting-id` in `schema-contract.ts`; run
+-- `pnpm --filter @badabhai/db db:audit:schema-contract` first.
+--
+-- LOCKS. Nullable `ADD COLUMN` with no default is catalog-only. `ADD CONSTRAINT ... FOREIGN
+-- KEY` takes SHARE ROW EXCLUSIVE on BOTH `unlocks` and `job_postings` and validates under it;
+-- over a column that is NULL on every row the check is trivially true and `unlocks` is small,
+-- so the scan is milliseconds. The real risk is QUEUEING behind a long transaction on
+-- `job_postings` (read by every worker feed/search request). Applied by hand: wrap both
+-- statements in ONE `BEGIN; SET LOCAL lock_timeout = '3s'; ... COMMIT;` and retry on 55P03
+-- (the 0077/0080/0109/0116/0131 precedent). `db:migrate` applies every pending file in one
+-- transaction, so set a session `lock_timeout` there too.
+--
+-- ROLLBACK. A CODE rollback needs no schema change: an older build never names the column,
+-- and it is inert without it - prefer leaving it (CLAUDE.md §10). A schema rollback DESTROYS
+-- the stored posting context of every company-posting unlock (the only copy), so only on a
+-- database where
+--   SELECT count(*) FROM "unlocks" WHERE "job_posting_id" IS NOT NULL;   -- expect 0
+-- and only AFTER the code that names the column is rolled back (or the reads above 500):
+--   ALTER TABLE "unlocks" DROP CONSTRAINT "unlocks_job_posting_id_job_postings_id_fk";
+--   ALTER TABLE "unlocks" DROP COLUMN "job_posting_id";
+-- ===========================================================================
+ALTER TABLE "unlocks" ADD COLUMN "job_posting_id" uuid;--> statement-breakpoint
+ALTER TABLE "unlocks" ADD CONSTRAINT "unlocks_job_posting_id_job_postings_id_fk" FOREIGN KEY ("job_posting_id") REFERENCES "public"."job_postings"("id") ON DELETE set null ON UPDATE no action;
