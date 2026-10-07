@@ -36,6 +36,7 @@ const PAYER_ID = "aaaaaaaa-0000-4000-8000-000000000001";
 const WORKER_ID = "bbbbbbbb-0000-4000-8000-000000000002";
 const JOB_ID = "cccccccc-0000-4000-8000-000000000003";
 const UNLOCK_ID = "dddddddd-0000-4000-8000-000000000004";
+const POSTING_ID = "ffffffff-0000-4000-8000-000000000006";
 
 interface InsertCall {
   table: unknown;
@@ -289,6 +290,7 @@ describe("UnlocksRepository.upsertGrant — idempotent GRANT upsert on (payer, w
     payerId: PAYER_ID,
     workerId: WORKER_ID,
     jobId: JOB_ID,
+    jobPostingId: null,
     routingTokenRef: "eeeeeeee-0000-4000-8000-000000000005",
     grantedAt: new Date("2026-07-31T00:00:00.000Z"),
     expiresAt: new Date("2026-08-14T00:00:00.000Z"),
@@ -321,6 +323,14 @@ describe("UnlocksRepository.upsertGrant — idempotent GRANT upsert on (payer, w
     });
   });
 
+  it("#2033 — writes the posting context on insert AND on the re-grant conflict set", async () => {
+    const { db, tx, captured } = makeDb({ rows: [{ id: UNLOCK_ID }] });
+    await new UnlocksRepository(db).upsertGrant(tx, { ...input, jobId: null, jobPostingId: POSTING_ID });
+    expect(captured.insertValues).toMatchObject({ jobId: null, jobPostingId: POSTING_ID });
+    const conflict = captured.conflict as { set: Record<string, unknown> };
+    expect(conflict.set).toMatchObject({ jobId: null, jobPostingId: POSTING_ID });
+  });
+
   it("throws if the insert/upsert somehow returns no row", async () => {
     const { db, tx } = makeDb({ rows: [] });
     await expect(new UnlocksRepository(db).upsertGrant(tx, input)).rejects.toThrow(
@@ -330,7 +340,13 @@ describe("UnlocksRepository.upsertGrant — idempotent GRANT upsert on (payer, w
 });
 
 describe("UnlocksRepository.recordDeny — idempotent DENY upsert that never downgrades a live grant", () => {
-  const input = { payerId: PAYER_ID, workerId: WORKER_ID, jobId: JOB_ID, denyReason: "capped" as const };
+  const input = {
+    payerId: PAYER_ID,
+    workerId: WORKER_ID,
+    jobId: JOB_ID,
+    jobPostingId: null,
+    denyReason: "capped" as const,
+  };
 
   it("inserts a DENIED row with the reason", async () => {
     const { db, tx, captured } = makeDb({ rows: [{ id: UNLOCK_ID, status: "denied" }] });
@@ -357,6 +373,24 @@ describe("UnlocksRepository.recordDeny — idempotent DENY upsert that never dow
     const reasonSql = text(conflict.set.denyReason);
     expect(reasonSql).toContain("case when");
     expect(reasonSql).toContain("in ('granted','revealed')");
+  });
+
+  it("#2033 — a kept grant keeps its job context: job_id / job_posting_id are CASEd, not overwritten", async () => {
+    const { db, tx, captured } = makeDb({ rows: [{ id: UNLOCK_ID }] });
+    await new UnlocksRepository(db).recordDeny(tx, { ...input, jobId: null, jobPostingId: POSTING_ID });
+    const conflict = captured.conflict as { set: Record<string, unknown> };
+    const job = compile(conflict.set.jobId);
+    expect(job.sql).toBe(
+      `case when "unlocks"."status" in ('granted','revealed') then "unlocks"."job_id" else $1::uuid end`,
+    );
+    expect(job.params).toEqual([null]);
+    const posting = compile(conflict.set.jobPostingId);
+    expect(posting.sql).toBe(
+      `case when "unlocks"."status" in ('granted','revealed') then "unlocks"."job_posting_id" else $1::uuid end`,
+    );
+    expect(posting.params).toEqual([POSTING_ID]);
+    // And a NEW deny row carries the context it was requested under.
+    expect(captured.insertValues).toMatchObject({ jobId: null, jobPostingId: POSTING_ID });
   });
 
   it("throws if nothing came back", async () => {
@@ -750,6 +784,7 @@ describe("UnlocksRepository.listByPayer — PII-free ops list, newest first, cap
       payerId: PAYER_ID,
       workerId: WORKER_ID,
       jobId: JOB_ID,
+      jobPostingId: null,
       status: "granted",
       revealCount: 1,
       grantedAt: created,
@@ -770,6 +805,7 @@ describe("UnlocksRepository.listByPayer — PII-free ops list, newest first, cap
         payer_id: PAYER_ID,
         worker_id: WORKER_ID,
         job_id: JOB_ID,
+        job_posting_id: null,
         status: "granted",
         reveal_count: 1,
         granted_at: created,
@@ -777,6 +813,45 @@ describe("UnlocksRepository.listByPayer — PII-free ops list, newest first, cap
         created_at: created,
       },
     ]);
+  });
+});
+
+describe("UnlocksRepository.listByPayerWithStatus — #2033, status filter in SQL, newest first, capped", () => {
+  it("scopes to payer_id AND the given statuses, so excluded rows never consume the cap", async () => {
+    const created = new Date("2026-07-31T00:00:00.000Z");
+    const row = {
+      id: UNLOCK_ID,
+      payerId: PAYER_ID,
+      workerId: WORKER_ID,
+      jobId: null,
+      jobPostingId: POSTING_ID,
+      status: "granted",
+      revealCount: 0,
+      grantedAt: created,
+      expiresAt: created,
+      createdAt: created,
+    };
+    const { db, captured } = makeDb({ rows: [row] });
+    const out = await new UnlocksRepository(db).listByPayerWithStatus(PAYER_ID, [
+      "granted",
+      "revealed",
+      "expired",
+    ]);
+    expect(captured.selectTable).toBe(unlocks);
+    expect(text(captured.where)).toBe(
+      '("unlocks"."payer_id" = $1 and "unlocks"."status" in ($2, $3, $4))',
+    );
+    expect(params(captured.where)).toEqual([PAYER_ID, "granted", "revealed", "expired"]);
+    expect(text(captured.orderBy)).toBe('"unlocks"."created_at" desc');
+    expect(typeof captured.limit).toBe("number");
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ unlock_id: UNLOCK_ID, job_id: null, job_posting_id: POSTING_ID });
+  });
+
+  it("an empty status set reads nothing (no invalid `in ()`)", async () => {
+    const { db, captured } = makeDb({ rows: [{ id: UNLOCK_ID }] });
+    expect(await new UnlocksRepository(db).listByPayerWithStatus(PAYER_ID, [])).toEqual([]);
+    expect(captured.selectTable).toBeUndefined();
   });
 });
 
@@ -788,6 +863,7 @@ describe("UnlocksRepository.getProjection — single PII-free projection by id",
       payerId: PAYER_ID,
       workerId: null,
       jobId: null,
+      jobPostingId: POSTING_ID,
       status: "revealed",
       revealCount: 2,
       grantedAt: created,
@@ -806,6 +882,7 @@ describe("UnlocksRepository.getProjection — single PII-free projection by id",
       payer_id: PAYER_ID,
       worker_id: null,
       job_id: null,
+      job_posting_id: POSTING_ID,
       status: "revealed",
       reveal_count: 2,
       granted_at: created,
