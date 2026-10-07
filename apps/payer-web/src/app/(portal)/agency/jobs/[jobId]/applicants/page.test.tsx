@@ -225,8 +225,9 @@ describe("agency applicants page — rows the agency already unlocked stay unloc
       { workerId: B, rank: 2, score: 0.6, hot: false, signals: [] },
     ],
   };
-  // As getUnlocks maps the wire: revealed folds into granted, and no job/posting context is
-  // carried (one grant per payer × worker — ADR-0010 — so the worker id alone names the row).
+  // As getUnlocks maps the wire: revealed folds into granted, and an agency unlock carries no
+  // posting context (its `jobs` id is not mapped). Context never picks a row anyway: one grant
+  // per payer × worker — ADR-0010 — so the worker id alone names the row.
   const unlock = (workerId: string, over: Partial<UnlockHistoryItem> = {}): UnlockHistoryItem => ({
     unlockId: `${workerId.slice(0, 8)}-1111-4111-8111-111111111111`,
     workerId,

@@ -74,6 +74,9 @@ vi.mock("../../../components/job-card-preview", () => ({ JobCardPreview: () => n
 vi.mock("../../../components/retry-button", () => ({ RetryButton: () => null }));
 
 const { PageHeader } = await import("../../../components/page-header");
+const { PostingsManager } = await import("./postings-manager");
+const { quotaTopUpTier } = await import("../../../lib/pricing-config");
+const { formatInr } = await import("../../../lib/format");
 const list = await import("./page");
 const create = await import("./new/page");
 const ai = await import("./ai/new/page");
@@ -266,6 +269,67 @@ describe("/postings — an agent's own Postings, or its older company postings v
   });
 });
 
+/**
+ * Owner ruling 2026-10-07 (F11): Add applicant slots shows its price. The price must be the one the
+ * charge is resolved from — `topUpQuotaAction` → `topUpPostingQuota` buys `quotaTopUpTier()` of the
+ * LIVE catalog — so the page reads that same tier and hands its ₹ + slots to the manager. Never a
+ * literal, never the posting tiers' quota step.
+ */
+describe("/postings — the slot top-up on offer comes from the live catalog tier the charge uses", () => {
+  // An ops-EDITED live catalog: the top-up tiers re-priced and re-sized (a compile-time
+  // DEFAULT_CATALOG read could not show this), while the posting tiers are left alone.
+  const EDITED = DEFAULT_CATALOG.products.map((p) =>
+    p.kind === "quota_topup"
+      ? {
+          ...p,
+          tiers: p.tiers.map((t) => ({
+            ...t,
+            priceInr: t.priceInr + 250,
+            additionalVisibilityQuota: t.additionalVisibilityQuota + 5,
+          })),
+        }
+      : p,
+  );
+  const managerProps = (tree: unknown) => {
+    const found: ReactElement[] = [];
+    (function walk(node: ReactNode): void {
+      if (node === null || node === undefined || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+        return;
+      }
+      const el = node as ReactElement<{ children?: ReactNode }>;
+      if (el.type === PostingsManager) found.push(el);
+      if (el.props && "children" in el.props) walk(el.props.children);
+    })(tree as ReactNode);
+    expect(found).toHaveLength(1);
+    return found[0]!.props as { topUpOffer: unknown; readOnly?: boolean };
+  };
+
+  it("hands the manager the live tier's price and slots — an ops re-price shows without a rebuild", async () => {
+    getLiveCatalog.mockResolvedValue({ products: EDITED, live: true });
+    const tree = await list.default();
+    const tier = quotaTopUpTier(EDITED)!;
+    expect(managerProps(tree).topUpOffer).toEqual({
+      priceInr: tier.priceInr,
+      additionalViews: tier.additionalViews,
+    });
+    expect(tier.priceInr).not.toBe(quotaTopUpTier(DEFAULT_CATALOG.products)!.priceInr);
+    // The page's quota note names the SAME slots and price as the button.
+    const note = text(tree).replace(/\s+/g, " ");
+    expect(note).toContain(`adds ${tier.additionalViews} more applicant slots`);
+    expect(note).toContain(formatInr(tier.priceInr));
+  });
+
+  it("no top-up tier in the catalog → no offer (the manager draws no purchase it cannot price)", async () => {
+    getLiveCatalog.mockResolvedValue({
+      products: DEFAULT_CATALOG.products.filter((p) => p.kind !== "quota_topup"),
+      live: true,
+    });
+    expect(managerProps(await list.default()).topUpOffer).toBeNull();
+  });
+});
+
 describe("/postings/<id> — Posting details", () => {
   it("a non-uuid id is a 404 BEFORE the read", async () => {
     await expect(detail.default(params("not-a-uuid"))).rejects.toThrow("NEXT_NOT_FOUND");
@@ -331,10 +395,13 @@ describe("/postings/<id>/edit — Edit posting", () => {
     expect(listMatchSkills).not.toHaveBeenCalled();
   });
 
-  it("a company edits it, with the way back to its details", async () => {
+  it("a company edits it, with the way back to the posting by its own name", async () => {
     const h = head(await edit.default(params(ID)));
     expect(redirect).not.toHaveBeenCalled();
-    expect(h.back).toEqual({ href: `/postings/${ID}`, label: "Posting details" });
+    // One label per destination: the link back to a posting is its title — the details page's H1
+    // and the label the applicants page's back link uses — never a generic "Posting details".
+    expect(h.back).toEqual({ href: `/postings/${ID}`, label: "CNC Turner" });
+    expect((h.back as { label: string }).label).toBe(head(await detail.default(params(ID))).title);
     expect(h.title).toBe("Edit posting");
   });
 });

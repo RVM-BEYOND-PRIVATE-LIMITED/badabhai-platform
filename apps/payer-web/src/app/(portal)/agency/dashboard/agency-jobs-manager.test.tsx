@@ -17,8 +17,8 @@ import { Button } from "../../../../components/ds";
  * Guardrails: the rendered manager carries only coarse/faceless cells (opaque id, bands, counts) —
  * no worker name/phone/email/employer, and no role-named "forbidden" oracle string.
  *
- * FINAL SWEEP (F02/F28): the inline row editor is RETIRED — a row's "Edit" is a link to the
- * posting's own edit page (`/agency/jobs/<id>/edit`), whose tests carry the editor's save
+ * FINAL SWEEP (F02/F28): the inline row editor is RETIRED — a row's "Edit posting" is a link to
+ * the posting's own edit page (`/agency/jobs/<id>/edit`), whose tests carry the editor's save
  * assertions (edit mode, the posting as the clear-diff `initial`, the page head as the form's
  * lead). The editor's focus hand-back tests (toggle ↔ rebuilt header) and its "a save closes only
  * ITS editor" test went with it: there is no toggle, no header rebuild and one form per page.
@@ -151,6 +151,25 @@ describe("AgencyJobsManager — Posting naming, one create entry point", () => {
     expect(idle).toContain("Edit");
     expect(idle).not.toContain("Cancel");
     expect(idle).not.toContain("Close edit");
+  });
+
+  it("the row's edit door reads 'Edit posting' — the words its details header and the company list use (R2)", () => {
+    /** The text of every DS button in the tree (links, buttons and the disabled stand-in). */
+    const buttonLabels = (tree: ReactNode) =>
+      elementsOf(tree)
+        .filter((e) => classOf(e).split(/\s+/).includes("bb-btn"))
+        .map((e) =>
+          collect((e.props as { children?: ReactNode }).children)
+            .text.join("")
+            .trim(),
+        );
+    const idle = buttonLabels(render([JOB]));
+    expect(idle).toContain("Edit posting");
+    expect(idle).not.toContain("Edit");
+    // …and the disabled stand-in shown while the row works says the same.
+    const busy = buttonLabels(render([JOB], {}, { [JOB.id]: "close" }));
+    expect(busy).toContain("Edit posting");
+    expect(busy).not.toContain("Edit");
   });
 
   it("an empty list points at New posting in words (no vacancy vocabulary)", () => {
@@ -371,7 +390,7 @@ describe("AgencyJobsManager — review L2: no edit door while the row works", ()
       (e) =>
         collect((e.props as { children?: ReactNode }).children)
           .text.join("")
-          .trim() === "Edit" && classOf(e).includes("bb-btn"),
+          .trim() === "Edit posting" && classOf(e).includes("bb-btn"),
     )!;
     const p = edit.props as { href?: string; "aria-disabled"?: string };
     return { href: p.href, ariaDisabled: p["aria-disabled"] };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@badabhai/icons";
 import { Badge, Button, Card, Dialog, Toast } from "../../../components/ds";
@@ -11,18 +11,44 @@ import { upgradeCapacityAction } from "./actions";
  * Client capacity-tier picker (the QUOTA-PAUSE "Stream A" upgrade leg) — DS2.3 re-skin
  * onto the BadaBhai Design System (VISUAL layer only). Tiers come from CONFIG (passed in
  * as props from the server page) — never hardcoded here. Price + the vacancy allowance are
- * DISPLAY-only; selecting sends ONLY the tier CODE to the (mock-money) Server Action
- * (XT5: the client NEVER sends a price/amount/quota). There is no payment form, no card
- * field, no real money — the backend mock-upgrades (real_call:false).
+ * DISPLAY-only; selecting sends ONLY the tier CODE to the Server Action (XT5: the client
+ * NEVER sends a price/amount/quota). There is no payment form and no card field here.
  *
  * Each tier renders as a DS Card with the ₹ price + concurrent-vacancy allowance in mono
- * tabular and a DS Button wired to the EXISTING live POST /payer/capacity action. A DS
- * Dialog confirm step precedes the buy (mock-money copy) instead of a native window.confirm,
- * the buttons disable while submitting, and the result region is aria-live='polite' (DS Toast).
+ * tabular and a DS Button wired to the EXISTING live POST /payer/capacity action.
+ *
+ * PRICE ON THE TRIGGER, THEN A CONFIRM (owner rulings 2026-10-07 — F11 "one tap should have a
+ * price shown with confirmation", F35 no "mock" wording). The button reads "Upgrade · ₹X"; it
+ * opens the generic DS Dialog (never a ConfirmSpendDialog — that stays the unlock's alone), which
+ * asks a neutral priced question — what is bought, for how much, like the credits confirm; it
+ * claims no charge (review B1) — with Cancel and a priced confirm. Only that confirm sends. While it runs, the confirmed tier's button alone spins (the rest are just
+ * disabled), and the result region is aria-live='polite' (DS Toast). Who may buy is unchanged.
+ *
+ * FOCUS, ONLY WHEN IT WAS LOST (the team Remove pattern): the Dialog hands focus back to its
+ * trigger on close, but a confirmed upgrade disables every tier button while it runs, so that
+ * restore falls to the body. Once closed and settled, focus goes back to the tier's button — only
+ * if it is still lost.
+ *
+ * A TIER THE PLAN ALREADY COVERS IS NOT SOLD (review N2). The backend keeps the LARGER allowance
+ * (`greatest()` in the capacity upsert), so a tier at or below the payer's current allowance would
+ * be paid for and grant nothing. The page passes the allowance it already read (GET
+ * /payer/capacity) as `currentAllowance`; such a tier shows "Your plan already allows N live
+ * postings" instead of a button. `null` (that read failed) rules nothing out — every tier stays on
+ * sale, as before. This is an affordance: the server still decides what a purchase grants.
  */
 export type CapacityTier = { code: string; priceInr: number; maxActiveVacancies: number };
 
-export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
+/** A tier's button — where focus returns once its confirmed upgrade has settled. */
+const tierButtonId = (code: string) => `capacity-tier-${code}`;
+
+export function CapacityPanel({
+  tiers,
+  currentAllowance,
+}: {
+  tiers: CapacityTier[];
+  /** The payer's live concurrent allowance as the page read it, or null when that read failed. */
+  currentAllowance: number | null;
+}) {
   const router = useRouter();
   const [pendingCode, setPendingCode] = useState<string | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<CapacityTier | null>(null);
@@ -39,6 +65,19 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
   // re-tap dedupes into a replay, and reset on success / a genuinely new tier. A ref (survives
   // re-renders, no render on reuse). PII-free (`crypto.randomUUID()`), no payer id (XB-A).
   const purchaseKeyRef = useRef<{ key: string; tier: string } | null>(null);
+  // The tier whose button opened the confirm: focus goes back there once the dialog is closed and
+  // the upgrade has settled — only if focus was lost meanwhile.
+  const focusBack = useRef<string | null>(null);
+
+  useEffect(() => {
+    const code = focusBack.current;
+    if (code === null || pendingConfirm !== null || pendingCode !== null) return;
+    focusBack.current = null;
+    // Only when focus was LOST: the payer may have moved on while it ran — leave them there.
+    const active = document.activeElement;
+    if (active !== null && active !== document.body) return;
+    document.getElementById(tierButtonId(code))?.focus();
+  }, [pendingConfirm, pendingCode]);
 
   /** Reuse the pending key for a retry of the SAME tier; mint a fresh one otherwise. */
   function idempotencyKeyFor(tier: string): string {
@@ -55,15 +94,16 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
       ? tiers.reduce((a, b) => (a.maxActiveVacancies >= b.maxActiveVacancies ? a : b)).code
       : null;
 
-  /** Clicking a tier ARMS a DS confirm Dialog (no native window.confirm). */
+  /** Clicking a tier ARMS a DS confirm Dialog (no native window.confirm) — nothing is sent. */
   function onUpgrade(tier: CapacityTier) {
     setError(null);
     setMessage(null);
     setNotice(null);
+    focusBack.current = tier.code;
     setPendingConfirm(tier);
   }
 
-  /** The dialog's Confirm — mock-upgrade the armed tier, then refresh. */
+  /** The dialog's Confirm — the ONLY path to the upgrade; buy the armed tier, then refresh. */
   function confirmUpgrade(): void {
     const tier = pendingConfirm;
     if (!tier) return;
@@ -131,15 +171,30 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
               <p className="capacity-tier__allowance">
                 <span className="bb-mono">{t.maxActiveVacancies}</span> concurrent postings
               </p>
-              <Button
-                variant="primary"
-                block
-                disabled={pendingCode !== null}
-                loading={pendingCode === t.code}
-                onClick={() => onUpgrade(t)}
-              >
-                {pendingCode === t.code ? "Recording…" : "Buy (mock)"}
-              </Button>
+              {currentAllowance !== null && t.maxActiveVacancies <= currentAllowance ? (
+                // Already covered: buying it would grant nothing (the larger allowance is kept).
+                <p className="capacity-tier__included">
+                  Your plan already allows <span className="bb-mono">{currentAllowance}</span> live
+                  postings
+                </p>
+              ) : (
+                <Button
+                  id={tierButtonId(t.code)}
+                  variant="primary"
+                  block
+                  disabled={pendingCode !== null}
+                  loading={pendingCode === t.code}
+                  onClick={() => onUpgrade(t)}
+                >
+                  {pendingCode === t.code ? (
+                    "Recording…"
+                  ) : (
+                    <>
+                      Upgrade · <span className="bb-mono">{formatInr(t.priceInr)}</span>
+                    </>
+                  )}
+                </Button>
+              )}
             </Card>
           ))}
         </div>
@@ -151,8 +206,9 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
         {error ? <Toast tone="danger">{error}</Toast> : null}
       </div>
 
-      {/* Confirm-on-spend — the DS Dialog replaces the native window.confirm. Copy names the
-          tier allowance + price (mock-money); the post-confirm logic lives on Confirm. */}
+      {/* Confirm-on-spend — the generic DS Dialog (never the credit-spend confirm). A neutral
+          priced question (what is bought, for how much — it claims no charge); its confirm
+          carries the price. */}
       <Dialog
         open={pendingConfirm !== null}
         onClose={() => setPendingConfirm(null)}
@@ -164,6 +220,12 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
             </Button>
             <Button variant="primary" onClick={confirmUpgrade}>
               Upgrade
+              {pendingConfirm ? (
+                <>
+                  {" "}
+                  · <span className="bb-mono">{formatInr(pendingConfirm.priceInr)}</span>
+                </>
+              ) : null}
             </Button>
           </>
         }
@@ -171,9 +233,7 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
         {pendingConfirm ? (
           <>
             Upgrade to the <span className="bb-mono">{pendingConfirm.maxActiveVacancies}</span>
-            -posting tier for{" "}
-            <span className="bb-mono">{formatInr(pendingConfirm.priceInr)}</span>? This is a mock
-            upgrade — no real payment is taken.
+            -posting tier for <span className="bb-mono">{formatInr(pendingConfirm.priceInr)}</span>?
           </>
         ) : null}
       </Dialog>

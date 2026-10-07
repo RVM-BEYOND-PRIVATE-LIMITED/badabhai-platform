@@ -263,6 +263,15 @@ const OPTION_IDS = ["campaign", "medium", "role", "city"];
 const optionsOf = (tree: ReactNode) => elementsOf(tree).find((e) => e.type === "details")!;
 
 describe("AgencyInvitePanel — F19: 'Create invite link' right under the consent note", () => {
+  it("its root carries `agency-invite`: the hook Referrals lifts it by on a phone (re-sweep)", () => {
+    const section = render("") as ReactElement<{ className?: string }>;
+    expect(section.type).toBe("section");
+    expect(String(section.props.className).split(/\s+/)).toEqual([
+      "agency-section",
+      "agency-invite",
+    ]);
+  });
+
   it("the form opens with the submit row — no field, no prose between the note and the button", () => {
     const section = render("") as ReactElement<{ children: ReactNode[] }>;
     const kids = (section.props.children as ReactNode[]).filter(

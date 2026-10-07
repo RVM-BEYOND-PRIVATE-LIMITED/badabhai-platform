@@ -1,5 +1,6 @@
 import { ACTION_ICON, type IconName } from "@badabhai/icons";
 import type { CreditBalance, PostingSummary, UnlockHistoryItem } from "../../../lib/contracts";
+import { lowBalanceThreshold } from "../../../lib/pricing-config";
 
 /**
  * "What needs me right now?" — derived from the payer's OWN dashboard read.
@@ -38,12 +39,6 @@ export interface AttentionItem {
   actionIcon?: IconName;
 }
 
-/**
- * Below this many unlock credits the wallet is worth flagging BEFORE it blocks the loop.
- * A payer who discovers an empty wallet mid-shortlist has already lost the thread.
- */
-export const LOW_BALANCE_THRESHOLD = 10;
-
 export function buildAttentionItems(
   data: AttentionInput,
   opts: { isAgency: boolean; isOwner: boolean },
@@ -58,6 +53,9 @@ export function buildAttentionItems(
 
   // 1. The wallet — an empty one stops the core loop outright, so it outranks everything.
   //    (An unread balance says nothing: the shell's chip hides on the same failure.)
+  //    "Low" is flagged BEFORE it blocks the loop (a payer who finds an empty wallet
+  //    mid-shortlist has already lost the thread), from the ONE number /credits warns from: the
+  //    pricing config's (N7 — the dashboard used to keep its own 10 against /credits' 5).
   const balance = data.credits?.balance ?? null;
   if (balance !== null && balance <= 0) {
     items.push({
@@ -69,7 +67,7 @@ export function buildAttentionItems(
         : "Ask your account owner to buy credits — applicants stay masked until then.",
       ...walletAction,
     });
-  } else if (balance !== null && balance < LOW_BALANCE_THRESHOLD) {
+  } else if (balance !== null && balance < lowBalanceThreshold()) {
     items.push({
       id: "credits-low",
       tone: "warning",

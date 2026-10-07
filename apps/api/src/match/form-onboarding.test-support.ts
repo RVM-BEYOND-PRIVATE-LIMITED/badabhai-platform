@@ -205,8 +205,9 @@ export interface GenericPackChatCase {
 }
 
 /**
- * Generic-pack chats: welding and plumbing must reach their match skills; a trade with no match
- * skill must derive nothing; and `furniture` under painting must not borrow carpentry's meaning.
+ * Generic-pack chats: welding and plumbing must reach their match skills; electrical reaches the
+ * industrial electrician only from `industrial` / `panel` (#2075); a trade with no match skill must
+ * derive nothing; and `furniture` under painting must not borrow carpentry's meaning.
  * Each bag carries an attribute-kind answer too, so "derives exactly X" is tested against a
  * realistic chat and not a single chip.
  */
@@ -221,9 +222,20 @@ export const GENERIC_PACK_CHAT_CASES: readonly GenericPackChatCase[] = [
     answers: { plumbing_scope: ["household", "drainage"], pipe_material: ["pvc"] },
     expected: ["mskill_plumber"],
   },
+  // #2075 (owner ruling 2026-10-07): `industrial` / `panel` claim the industrial electrician,
+  // through the separate pack-only path, never through `worker_profiles.skills`.
   {
     packId: "qp_electrical",
-    answers: { electrical_scope: ["house_wiring", "panel", "motor"] },
+    answers: {
+      electrical_scope: ["house_wiring", "panel", "motor"],
+      voltage_level: ["three_phase"],
+    },
+    expected: ["mskill_industrial_electrician"],
+  },
+  // House wiring and motor winding are not plant work: no proxy.
+  {
+    packId: "qp_electrical",
+    answers: { electrical_scope: ["house_wiring", "motor"] },
     expected: [],
   },
   {

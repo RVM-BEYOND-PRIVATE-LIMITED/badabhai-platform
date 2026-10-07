@@ -36,6 +36,13 @@ import {
  *     → `WorkerSkillsService.rebuildForWorker` → `worker_skill` + `job_reach` → the V1 feed.
  * Reverting the seam to `skills: []` fails the welding and plumbing cases.
  *
+ * #2075 — the PACK-ONLY half. The profile row carries the `ai_job_id` the processor stamps, the job
+ * names its session in `input_ref`, and the session's `conversation_state` holds the answer map and
+ * the provenance stamp, exactly as persisted in production. The rebuild follows that chain
+ * (`PROFILE_SOURCE_SESSION_ANSWERS`) to derive `mskill_industrial_electrician` from a worker-only
+ * `qp_electrical` `industrial`/`panel` answer, without touching `worker_profiles.skills`. Dropping
+ * `genericPackChatMatchSkills` from `workerSkillDeriveInput` fails the electrical case.
+ *
  * THE ORDER IS THE LIVE ORDER: postings are published first, then the worker is profiled.
  *
  * ── HOW TO RUN ────────────────────────────────────────────────────────────────
@@ -57,11 +64,22 @@ function uuid(n: number): string {
 const PAYER = uuid(0x8d01);
 const chatWorker = (i: number): string => uuid(0x8e00 + i);
 const postingFor = (i: number): string => uuid(0x8f00 + i);
+/** #2075 — each worker's interview session and extraction job (disjoint 0x18Exx / 0x28Exx). */
+const sessionFor = (workerId: string): string => uuid(0x10000 + parseInt(workerId.slice(-12), 16));
+const aiJobFor = (workerId: string): string => uuid(0x20000 + parseInt(workerId.slice(-12), 16));
 /** One open posting per match skill, so a worker's feed is exactly the postings his skills reach. */
 const POSTINGS = MATCH_SKILLS.map((skill, i) => ({ id: postingFor(i), skillId: skill.skillId }));
 /** The LLM-led welding chat (#2021 worker-only ruling) — an index no case uses. */
 const LLM_LED_WORKER = chatWorker(0x40);
-const ALL_WORKERS = [...GENERIC_PACK_CHAT_CASES.map((_, i) => chatWorker(i)), LLM_LED_WORKER];
+/** #2075 — the same electrical answers in an LLM-led session, and in a legacy (unstamped) one. */
+const LLM_LED_ELECTRICIAN = chatWorker(0x41);
+const LEGACY_ELECTRICIAN = chatWorker(0x42);
+const ALL_WORKERS = [
+  ...GENERIC_PACK_CHAT_CASES.map((_, i) => chatWorker(i)),
+  LLM_LED_WORKER,
+  LLM_LED_ELECTRICIAN,
+  LEGACY_ELECTRICIAN,
+];
 
 /**
  * The provenance stamp `ChatService.flushInterview` writes into `conversation_state`
@@ -120,10 +138,27 @@ describe.skipIf(!RUN)(
       VALUES (${workerId}::uuid, ${`enc:generic-reach-${workerId}`},
               ${`hash:generic-reach-${workerId}`}, 'active')
     `;
-      // The columns `ProfileExtractionProcessor` writes from `output.profile`, as it writes them.
+      // #2075 — the interview's persisted state, as the flush writes it: the pack pin, the answer
+      // map and the provenance stamp, inside `chat_sessions.conversation_state`. Then the
+      // extraction job that names the session in `input_ref`, as `ProfilesService.extract` mints it.
+      const sessionId = sessionFor(workerId);
+      const aiJobId = aiJobFor(workerId);
       await client.sql`
-      INSERT INTO worker_profiles (worker_id, canonical_role_id, skills, experience, profile_status)
-      VALUES (${workerId}::uuid, ${output.profile.canonical_role_id},
+      INSERT INTO chat_sessions (id, worker_id, status, conversation_state)
+      VALUES (${sessionId}::uuid, ${workerId}::uuid, 'ended',
+              ${JSON.stringify({ pack_id: packId, answer_map: answerMap, ...conversationState })}::jsonb)
+    `;
+      await client.sql`
+      INSERT INTO ai_jobs (id, job_type, status, input_ref)
+      VALUES (${aiJobId}::uuid, 'profile_extraction', 'completed',
+              ${JSON.stringify({ worker_id: workerId, session_id: sessionId })}::jsonb)
+    `;
+      // The columns `ProfileExtractionProcessor` writes from `output.profile`, as it writes them,
+      // plus the `ai_job_id` it stamps (the link the rebuild follows back to the session).
+      await client.sql`
+      INSERT INTO worker_profiles (worker_id, ai_job_id, canonical_role_id, skills, experience,
+                                   profile_status)
+      VALUES (${workerId}::uuid, ${aiJobId}::uuid, ${output.profile.canonical_role_id},
               ${JSON.stringify(output.profile.skills)}::jsonb,
               ${JSON.stringify({ total_years: 5 })}::jsonb, 'extracted')
     `;
@@ -173,6 +208,33 @@ describe.skipIf(!RUN)(
       expect(await repo.listSkillRows(LLM_LED_WORKER)).toEqual([]);
       expect(await feed.listFeed(LLM_LED_WORKER, 100, {})).toEqual([]);
     });
+
+    // #2075 — the pack-only path follows the SAME gate. `industrial` + `panel` derive the
+    // industrial electrician in a worker-only session (the qp_electrical case above); here the
+    // identical answers sit in a session the model led, and in one finalized before the stamps.
+    it.each([
+      { workerId: LLM_LED_ELECTRICIAN, stamp: LLM_LED_STAMP, label: "LLM-led" },
+      { workerId: LEGACY_ELECTRICIAN, stamp: {}, label: "legacy (unstamped)" },
+    ])("a $label qp_electrical chat derives nothing", async ({ workerId, stamp }) => {
+      await profileFromChat(
+        workerId,
+        "qp_electrical",
+        { electrical_scope: ["industrial", "panel"] },
+        stamp,
+      );
+      expect(await repo.listSkillRows(workerId)).toEqual([]);
+      expect(await feed.listFeed(workerId, 100, {})).toEqual([]);
+    });
+
+    it("the electrician's skill is NOT written into worker_profiles.skills (option c)", async () => {
+      const i = GENERIC_PACK_CHAT_CASES.findIndex(
+        (c) => c.packId === "qp_electrical" && c.expected.length > 0,
+      );
+      const rows = await client.sql<{ skills: unknown }[]>`
+        SELECT skills FROM worker_profiles WHERE worker_id = ${chatWorker(i)}::uuid
+      `;
+      expect(rows.map((row) => row.skills)).toEqual([[]]);
+    });
   },
 );
 
@@ -219,5 +281,7 @@ async function cleanup(client: DbClient): Promise<void> {
   await sql`DELETE FROM worker_skill WHERE worker_id = ANY(${ALL_WORKERS}::uuid[])`;
   await sql`DELETE FROM worker_attributes WHERE worker_id = ANY(${ALL_WORKERS}::uuid[])`;
   await sql`DELETE FROM worker_profiles WHERE worker_id = ANY(${ALL_WORKERS}::uuid[])`;
+  await sql`DELETE FROM ai_jobs WHERE id = ANY(${ALL_WORKERS.map(aiJobFor)}::uuid[])`;
+  await sql`DELETE FROM chat_sessions WHERE worker_id = ANY(${ALL_WORKERS}::uuid[])`;
   await sql`DELETE FROM workers WHERE id = ANY(${ALL_WORKERS}::uuid[])`;
 }

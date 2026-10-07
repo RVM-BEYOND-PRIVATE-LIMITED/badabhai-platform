@@ -8,7 +8,7 @@ import type * as ConfigModule from "../../../../lib/config";
  * The AGENCY posting pages (owner ruling 2026-10-01: an agency posts agency `jobs` only):
  *   /agency/jobs        "Postings"    — its own postings, managed in one place;
  *   /agency/jobs/new    "New posting" — every agency "post" entry point opens it;
- *   /agency/jobs/<id>   "Posting details";
+ *   /agency/jobs/<id>   the posting's details (its H1 and every back link to it: its title);
  *   /agency/jobs/<id>/edit "Edit posting" (final sweep F02 — it replaced the inline row editor).
  * Each gates like every agency page: `requireAgent()` FIRST (anyone else gets the neutral 404),
  * then the agency-portal flag (off → the route does not exist) — both BEFORE any read. The
@@ -189,9 +189,12 @@ describe("the heads — Posting naming, one door each", () => {
     }
   });
 
-  it("Edit posting (F02): back to the posting's details, H1 'Edit posting', no header action", async () => {
+  it("Edit posting (F02): back to the posting by its own name, H1 'Edit posting', no header action", async () => {
     const h = head(await edit.default(params(JOB.id)));
-    expect(h.back).toEqual({ href: `/agency/jobs/${JOB.id}`, label: "Posting details" });
+    // One label per destination: the link back to a posting is its title — the details page's H1
+    // and the label the applicants page's back link uses — never a generic "Posting details".
+    expect(h.back).toEqual({ href: `/agency/jobs/${JOB.id}`, label: "CNC Operator" });
+    expect((h.back as { label: string }).label).toBe(head(await detail.default(params(JOB.id))).title);
     expect(h.title).toBe("Edit posting");
     expect(h.primaryAction).toBeUndefined();
     expect(h.secondaryActions ?? []).toEqual([]);

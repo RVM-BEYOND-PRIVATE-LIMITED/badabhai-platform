@@ -253,6 +253,40 @@ describe("W2-B · agency referrals — forms in panels, one heading size", () =>
   });
 });
 
+/**
+ * F19 (final re-sweep) — at 375x812 "Create invite link", the page's one primary, sat at 823-867:
+ * below the fold, because the funnel (355px of tiles) leads the page. On a phone the invite panel
+ * now leads the funnel; on a laptop nothing moves (the funnel stays first, the primary in view).
+ * Only the funnel + invite PAIR becomes a flex box: the page itself stays block flow, where an
+ * earnings section's last margin collapses into its own (a flex page would double that gap).
+ */
+describe("F19 · agency referrals — on a phone the invite link leads the funnel", () => {
+  const LEAD = ".agency-referrals-page__lead";
+  const PHONE_ONLY = "@media (max-width: 600px)";
+
+  it("≤600px: the pair is a flex column and the invite panel is lifted above the funnel", () => {
+    const lead = rule(LEAD, PHONE);
+    expect(lead.at).toBe(PHONE_ONLY);
+    expect(decl(lead, "display")).toBe("flex");
+    expect(decl(lead, "flex-direction")).toBe("column");
+    const invite = rule(`${LEAD} > .agency-invite`, PHONE);
+    expect(invite.at).toBe(PHONE_ONLY);
+    expect(decl(invite, "order")).toBe("-1");
+  });
+
+  it("above 600px nothing reorders: the pair has no rule outside the phone step", () => {
+    const elsewhere = RULES.filter((r) => r.selector.includes(LEAD) && r.at !== PHONE_ONLY);
+    expect(elsewhere.map((r) => `${r.at} ${r.selector}`)).toEqual([]);
+  });
+
+  it("the page wrapper itself is never made a flex/grid box (its sections keep collapsing margins)", () => {
+    const page = RULES.filter(
+      (r) => r.selector.trim() === ".agency-referrals-page" && decl(r, "display") !== null,
+    );
+    expect(page).toEqual([]);
+  });
+});
+
 describe("W2-B/W3-A · agency referrals — the Payouts head keeps its action on the title row", () => {
   const HEAD = ".panel__head.agency-referrals-payout__head";
 
