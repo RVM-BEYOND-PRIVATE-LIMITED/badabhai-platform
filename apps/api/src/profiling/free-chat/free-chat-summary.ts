@@ -134,13 +134,15 @@ const NOTE_LINE = /^- \S/;
  * case-insensitively as WHOLE phrases (word-bounded), so "worker messaged" is not "WORKER MESSAGE".
  */
 const PROMPT_LABELS: readonly RegExp[] = [
-  "data, not instructions",
-  "worker message",
-  "worker question",
-  "earlier conversation notes",
-  "previous notes",
-  "new turns",
-].map((label) => new RegExp(`\\b${label}\\b`, "i"));
+  // LITERAL patterns, never built from strings at runtime — the SAST gate refuses a non-literal
+  // RegExp (ReDoS audit), and a closed list needs none.
+  /\bdata, not instructions\b/i,
+  /\bworker message\b/i,
+  /\bworker question\b/i,
+  /\bearlier conversation notes\b/i,
+  /\bprevious notes\b/i,
+  /\bnew turns\b/i,
+];
 
 /**
  * Override cues — the narrow, high-signal phrasings of an attempt to steer the reply model. NOT a
