@@ -177,7 +177,6 @@ function render(opts: {
   confirmWorker?: string | null;
   applicants?: FacelessApplicant[];
   balance?: number;
-  canBuyCredits?: boolean;
   /** The page's LIVE grants for this feed (omitted → the component's own default). */
   unlocked?: Record<string, GrantedUnlock>;
 }) {
@@ -196,8 +195,7 @@ function render(opts: {
     postingId: "33333333-3333-4333-8333-333333333333",
     applicants: opts.applicants ?? [APPLICANT],
     balance: opts.balance ?? 5,
-    // An OWNER by default (the viewer who may open /credits); the recruiter case is explicit.
-    canBuyCredits: opts.canBuyCredits ?? true,
+    // No viewer/role input: every member can open Credits (owner ruling 2026-10-07).
     ...(opts.unlocked ? { unlocked: opts.unlocked } : {}),
   }) as ReactElement;
 }
@@ -951,7 +949,7 @@ describe("ApplicantActions — W3-A zero balance: an enabled Buy credits beside 
         e.props.href === "/credits" && hasClass(e, "bb-btn") && hasClass(e, "bb-btn--secondary"),
     );
 
-  it("balance 0 (owner): one secondary Buy credits link to /credits per card, in the action row", () => {
+  it("balance 0: one secondary Buy credits link to /credits per card, in the action row", () => {
     const all = elements(render({ applicants: [A, B], balance: 0 }));
     const rows = all.filter((e) => hasClass(e, "applicant__unlock-actions"));
     expect(rows).toHaveLength(2);
@@ -996,28 +994,24 @@ describe("ApplicantActions — W3-A zero balance: an enabled Buy credits beside 
     expect(topUps(tree)).toEqual([]);
   });
 
-  it("balance 0 for a RECRUITER: no link to /credits anywhere (it 404s for them), Unlock still disabled", () => {
-    // `/credits` is requireOwner(); a recruiter sent there meets a neutral 404. The band and the
-    // alert still say what is wrong — in words that point at the person who can fix it.
-    const tree = render({ applicants: [A, B], balance: 0, canBuyCredits: false });
-    expect(elements(tree).filter((e) => e.props.href === "/credits")).toEqual([]);
+  it("balance 0 for ANY viewer: the doors to /credits are there and nobody is sent to an owner", () => {
+    // Every member can buy (owner ruling 2026-10-07) — the component takes no viewer role, so a
+    // recruiter sees exactly what an owner sees. Unlock stays disabled at a real 0.
+    const tree = render({ applicants: [A, B], balance: 0 });
+    // One per card's band + the alert's own link.
+    expect(elements(tree).filter((e) => e.props.href === "/credits")).toHaveLength(3);
     expect(buttonInfo(tree, "Unlock contact")!.disabled).toBe(true);
     const text = gatherText(tree);
-    // The alert and each row's hint say who can fix it — and offer no button (L7).
-    expect(text).toContain("Ask your account owner to buy credits to unlock");
-    expect(text).toContain("Ask your account owner to buy credits.");
-    expect(text).not.toMatch(/\bBuy credits\b/);
+    expect(text).not.toMatch(/account owner/i);
     expect(text).toContain("not a signal about any applicant");
   });
 
-  it("the alert's own link to /credits exists for an owner only", () => {
-    const alertLinks = (canBuyCredits: boolean) =>
-      elements(render({ balance: 0, canBuyCredits }))
-        .filter((e) => hasClass(e, "alert"))
-        .flatMap((a) => elements(a.props.children as ReactNode))
-        .filter((e) => e.props.href === "/credits");
-    expect(alertLinks(true)).toHaveLength(1);
-    expect(alertLinks(false)).toEqual([]);
+  it("the alert's own link to /credits is always there at a zero balance", () => {
+    const alertLinks = elements(render({ balance: 0 }))
+      .filter((e) => hasClass(e, "alert"))
+      .flatMap((a) => elements(a.props.children as ReactNode))
+      .filter((e) => e.props.href === "/credits");
+    expect(alertLinks).toHaveLength(1);
   });
 });
 

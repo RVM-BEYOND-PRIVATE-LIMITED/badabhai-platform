@@ -1,4 +1,5 @@
 import "server-only";
+import { PAYER_STATUSES } from "./list-filter-values";
 import { z } from "zod";
 import { adminFetch } from "./admin-http";
 
@@ -115,8 +116,8 @@ export const payerListItemSchema = z.object({
    */
   org_name: z.string().nullable().optional(),
   role: payerRoleSchema,
-  status: z.enum(["pending", "active", "suspended"]),
-  previous_status: z.enum(["pending", "active", "suspended"]).nullable(),
+  status: z.enum(PAYER_STATUSES),
+  previous_status: z.enum(PAYER_STATUSES).nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 });

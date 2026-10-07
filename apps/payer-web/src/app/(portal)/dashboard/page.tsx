@@ -2,7 +2,6 @@ import Link from "next/link";
 import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import { getCredits, getPostings, getUnlocks } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
-import { getOrgRole } from "../../../lib/auth/org-roles";
 import { getLiveCatalog } from "../../../lib/live-catalog";
 import { unlockUnitPriceInr } from "../../../lib/pricing-config";
 import { postingRoutes } from "../../../lib/posting-routes";
@@ -54,11 +53,12 @@ export const dynamic = "force-dynamic";
  * dashboard). The counters are counts, the balance included; an unlock row is a door only to the
  * applicants of the own posting it names (where that worker shows unlocked). There is
  * no standing door to Credits on the page (F15 — a "Buy credits" card repeated the header's balance
- * chip): an owner whose balance is empty or low gets the needs-you item's own contextual "Buy
+ * chip): a member whose balance is empty or low gets the needs-you item's own contextual "Buy
  * credits" — the one labelled way to buy, shown exactly when it matters. A needs-you item shows no
  * button for a destination the page itself already offers (the head's New posting, a quick
- * action). Credits is Owner-only: a recruiter is told to ask, never linked to its 404. Plans &
- * capacity is a company page (it sells company-posting entitlements), so an agency gets no card.
+ * action). Credits is open to every member, Owner or Recruiter (owner ruling 2026-10-07), so the
+ * page takes no org role at all. Plans & capacity is a company page (it sells company-posting
+ * entitlements), so an agency gets no card.
  *
  * EACH PART IS READ ON ITS OWN (F29). Credits, unlocks and (for a company) postings are three
  * reads; one failing used to replace the WHOLE page with "We could not load your account" — the
@@ -73,7 +73,6 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const session = await requirePayer();
   const isAgency = session.role === "agent";
-  const isOwner = getOrgRole(session) === "owner";
   const posting = postingRoutes(isAgency);
   // The per-unlock price (the same source as Credits), read BESIDE the three reads. It never
   // rejects (a failed read is the compile-time catalog).
@@ -97,12 +96,12 @@ export default async function DashboardPage() {
   // names a posting only from the postings list this page already read (no read of its own): an
   // agency reads none, and a failed postings read leaves every row plain.
   const recentUnlocks = recentUnlockRows(unlocks ?? [], postings ?? [], Date.now());
-  const attention = buildAttentionItems({ credits, unlocks, postings }, { isAgency, isOwner });
+  const attention = buildAttentionItems({ credits, unlocks, postings }, { isAgency });
   const quick = quickActions({ isAgency });
   // The destinations this page ALREADY offers — the head's primary and the quick actions it
   // renders: an attention item does not repeat one. (The shell's balance chip is not one: it
-  // shows a number, it hides when its read fails, and a recruiter's is not a link — so an owner's
-  // empty/low-balance item keeps its own labelled "Buy credits".)
+  // shows a number and hides when its read fails — so the empty/low-balance item keeps its own
+  // labelled "Buy credits".)
   const pageDoors = new Set<string>([
     ...(posting ? [posting.create] : []),
     ...quick.map((q) => q.href),
@@ -158,7 +157,7 @@ export default async function DashboardPage() {
           ledger row per tile on a phone so the counters stay secondary to bands 1 and 3. */}
       <div className="stat-row stat-row--kpi">
         {/* A count like its neighbours, never a door: Credits is reached from the header chip
-            (an owner's link) and, when the balance is empty or low, the needs-you item. */}
+            and, when the balance is empty or low, the needs-you item. */}
         <StatTile
           label="Credit balance"
           value={credits?.balance ?? UNREAD}

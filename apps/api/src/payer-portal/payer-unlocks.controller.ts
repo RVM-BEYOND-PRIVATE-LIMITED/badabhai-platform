@@ -17,7 +17,6 @@ import { Ctx, type RequestContext } from "../common/request-context";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers/payer-auth.guard";
-import { PayerOrgRoleGuard, OrgRoles } from "../payers/payer-org-role.guard";
 import { PayerDisclosureRateLimit } from "../payers/payer-disclosure-rate-limit.service";
 import { UnlockService } from "../unlocks/unlocks.service";
 import {
@@ -45,13 +44,15 @@ import {
  * carries `payer_id` (XB-A). It REUSES the {@link UnlockService} chokepoint unchanged —
  * fail-closed ordering, no-oracle neutral bodies, PII-free `unlock.*`/`payment.*` events.
  *
- * BILLING IS OWNER-ONLY (#2079, ADR-0027 / B5.3): the three credit-PURCHASE routes
- * (`POST /payer/credits`, `/credits/order`, `/credits/verify`) add {@link PayerOrgRoleGuard} +
- * `@OrgRoles("owner")` at the method level, so a `recruiter` (or a payer with no active org
- * membership) gets a 403 — the payer-web Credits gate is a mirror, not the only check. The
- * guard reads the CURRENT role from `payer_members` per request (never the JWT claim), so a
- * demoted owner loses purchase rights on their very next request. Balance/ledger reads and
- * unlock/reveal stay open to every member (a recruiter's job is to unlock).
+ * ANY AUTHENTICATED PAYER MAY BUY CREDITS (owner ruling 2026-10-07; ADR-0027 D3 "Buy credits —
+ * owner ✅ recruiter ✅"). The three credit-PURCHASE routes (`POST /payer/credits`,
+ * `/credits/order`, `/credits/verify`) carry ONLY the class-level {@link PayerAuthGuard} — no
+ * org-role gate, whatever the caller's `org_role`, and with or without an active org membership.
+ * #2098 had added `PayerOrgRoleGuard` + `@OrgRoles("owner")` here; BOTH were removed, not just the
+ * decorator: that guard refuses a payer with no active membership (403) before it ever reads
+ * `@OrgRoles`, so leaving it mounted would still lock those payers out. These handlers never read
+ * `@CurrentOrg()` — the purchase binds to the SESSION `payer_id` (XB-A), not an org. Team
+ * management (`POST/DELETE /payer/org/members`) stays owner-only.
  *
  * SECURITY GATE: this opens an external untrusted boundary — a `bb-security-review` PASS
  * (XB-A…XB-H) is required before merge. Mock + staging-only (PAYMENTS_ENABLE_REAL=false).
@@ -156,8 +157,6 @@ export class PayerUnlocksController {
    */
   @Post("credits")
   @HttpCode(201)
-  @UseGuards(PayerOrgRoleGuard)
-  @OrgRoles("owner")
   async buyPack(
     @Body(new ZodValidationPipe(PayerBuyPackSchema)) dto: PayerBuyPackDto,
     @CurrentPayer() payer: AuthenticatedPayer,
@@ -220,8 +219,6 @@ export class PayerUnlocksController {
    */
   @Post("credits/order")
   @HttpCode(201)
-  @UseGuards(PayerOrgRoleGuard)
-  @OrgRoles("owner")
   async createOrder(
     @Body(new ZodValidationPipe(CreateCreditOrderSchema)) dto: CreateCreditOrderDto,
     @CurrentPayer() payer: AuthenticatedPayer,
@@ -256,8 +253,6 @@ export class PayerUnlocksController {
    */
   @Post("credits/verify")
   @HttpCode(200)
-  @UseGuards(PayerOrgRoleGuard)
-  @OrgRoles("owner")
   async verifyPayment(
     @Body(new ZodValidationPipe(VerifyCreditPaymentSchema)) dto: VerifyCreditPaymentDto,
     @CurrentPayer() payer: AuthenticatedPayer,

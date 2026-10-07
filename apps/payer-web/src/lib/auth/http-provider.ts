@@ -25,6 +25,11 @@ import { API_TOKEN_COOKIE_NAME, sessionCookieOptions } from "./session-cookie";
  *  - `currentSession()` validates the token by calling `GET /payer/me` server-side;
  *    a 401 → null (fail closed). The session carries ONLY the opaque payerId + role
  *    + the payer's own org label — no email/phone (invariant #2 / B-R2).
+ *  - ORG ROLE (#2079): the session's `orgRole` is `GET /payer/me` `orgRole` from THIS read —
+ *    the backend's per-request DB answer. The JWT's `org_role` claim is NEVER decoded here:
+ *    payer-web cannot verify its signature (it holds no signing key), so reading it would mean
+ *    trusting a cookie the browser can rewrite — and it would add nothing, because this read
+ *    already happens on every `requirePayer()` and is fresher than any claim.
  *  - login failure returns ONE neutral error (no enumeration oracle, XB-H).
  */
 
@@ -165,5 +170,8 @@ function sessionFromMe(me: z.infer<typeof payerMeWireSchema>): PayerSession {
     email: me.email,
     phoneLast4: me.phoneLast4 ?? null,
     status: me.status,
+    // #2079 — the CURRENT org role (per-request DB read on the API). Absent (older API, or the
+    // verify-step session built from /payer/login/verify) normalizes to null = least privilege.
+    orgRole: me.orgRole ?? null,
   };
 }

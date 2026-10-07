@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { SubmitPendingCue, usePendingPush } from "./nav-pending";
 import { useUrlState } from "./use-url-state";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
@@ -12,12 +12,14 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
  * cursor applied to a new filter returns an arbitrary slice of it.
  */
 export function PayerFilterBar({ basePath, status }: { basePath: string; status: string }) {
-  const router = useRouter();
+  // Navigates in a transition, so Apply can show that the new list is on its way — the same
+  // signal a link gives, with no loading boundary (components/nav-pending.tsx).
+  const [pending, push] = usePendingPush();
   const [value, setValue] = useUrlState(status);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    router.push(value ? `${basePath}?status=${encodeURIComponent(value)}` : basePath);
+    push(value ? `${basePath}?status=${encodeURIComponent(value)}` : basePath);
   }
 
   return (
@@ -39,6 +41,7 @@ export function PayerFilterBar({ basePath, status }: { basePath: string; status:
         <button className="btn btn--primary" type="submit">
           <Icon name={ACTION_ICON.filter} />
           Apply
+          <SubmitPendingCue pending={pending} message="Applying the filters…" />
         </button>
       </div>
     </form>

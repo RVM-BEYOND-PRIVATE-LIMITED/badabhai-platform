@@ -66,3 +66,17 @@ describe("SidebarNav", () => {
     expect(other).not.toContain("is-active");
   });
 });
+
+/**
+ * Each sidebar link carries the navigation PENDING CUE (review of #2095): with no loading boundary
+ * in the console, the link that started a navigation is what shows it is under way.
+ */
+describe("SidebarNav — the pending cue", () => {
+  it("every link holds the cue after its label, hidden from assistive tech — the link's name is unchanged", () => {
+    for (const href of ["/workers", "/jobs"]) {
+      expect(linkTo(out, href)).toMatch(
+        /<span class="sidebar__label">[^<]+<\/span><span class="nav-pending" aria-hidden="true"><\/span>$/,
+      );
+    }
+  });
+});

@@ -178,7 +178,10 @@ def variants() -> dict[str, dict[str, re.Pattern[str]]]:
 
 
 def masked_spans(pattern: re.Pattern[str], text: str) -> list[tuple[int, int]]:
-    """What the gateway masks with `_CREDENTIAL_ID_RE`: its value group, match by match."""
+    """What the gateway masked with `_CREDENTIAL_ID_RE` when #1950 shipped: its value group, match
+    by match (a non-overlapping scan). Since #2049 the gateway masks the value from every cue
+    start and grows one through a phone it cuts (`measure_cued_id_monotone.py`); this compares
+    the rules, PRE against shipped, as #1950 did."""
     return [m.span(1) for m in pattern.finditer(text)]
 
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { SubmitPendingCue, usePendingPush } from "../../../components/nav-pending";
 import { useUrlState } from "../../../components/use-url-state";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
@@ -21,7 +21,9 @@ export function JobFilterBar({
   verificationStatus: string;
   payerId: string;
 }) {
-  const router = useRouter();
+  // Navigates in a transition, so Apply can show that the new list is on its way — the same
+  // signal a link gives, with no loading boundary (components/nav-pending.tsx).
+  const [pending, push] = usePendingPush();
   const [values, setValues] = useUrlState({ status, verificationStatus, payerId });
 
   function submit(e: React.FormEvent) {
@@ -32,7 +34,7 @@ export function JobFilterBar({
       if (t) q.set(k, t);
     }
     const qs = q.toString();
-    router.push(qs ? `/jobs?${qs}` : "/jobs");
+    push(qs ? `/jobs?${qs}` : "/jobs");
   }
 
   return (
@@ -83,6 +85,7 @@ export function JobFilterBar({
         <button className="btn btn--primary" type="submit">
           <Icon name={ACTION_ICON.filter} />
           Apply
+          <SubmitPendingCue pending={pending} message="Applying the filters…" />
         </button>
       </div>
     </form>

@@ -1,15 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import type { PayerSession } from "./types";
 
 /**
  * ORG-RBAC gate tests (Owner vs Recruiter) — the SECOND role dimension, mirroring roles.test.ts:
- *  (a) getOrgRole FAILS CLOSED to `recruiter` with no claim; the dev-only Owner override is
- *      honored ONLY under isDevEnv() (ignored in production);
+ *  (a) getOrgRole FAILS CLOSED to `recruiter` with no role on the session; the dev-only Owner
+ *      override is honored ONLY under isDevEnv() (ignored in production);
  *  (b) requireOwner 404s a Recruiter NEUTRALLY (server gate, no "forbidden" oracle);
  *  (d) the GATE is the authorization (it decides off the SERVER getOrgRole, not a client flag);
- *  (f) the seam carries the wire-to-Divyanshu STUB TODO.
+ *  (e) getOrgRole reads the session's `orgRole` (#2079 — `GET /payer/me`) and grants Owner ONLY
+ *      for an explicit "owner".
+ *
+ * These drive getOrgRole/requireOwner with HAND-BUILT sessions. The same rules through the real
+ * `GET /payer/me` → session chain (demotion, failed read, forged/legacy cookie claim, older API)
+ * are in org-roles.session.test.ts.
  *
  * isDevEnv (from @badabhai/config/shared) reads RAW NODE_ENV; vitest defaults it to "test" (dev),
  * so the preview override is honored unless we stub NODE_ENV="production". notFound() throws.
@@ -42,7 +45,7 @@ afterEach(() => {
 });
 
 describe("(a) getOrgRole — fail-closed default + dev-only preview override", () => {
-  it("defaults to recruiter (least privilege) with no claim + no override", () => {
+  it("defaults to recruiter (least privilege) with no org role on the session + no override", () => {
     // vitest runs NODE_ENV=test (isDevEnv true) but no PAYER_DEV_ORG_ROLE ⇒ still recruiter.
     expect(getOrgRole(session)).toBe("recruiter");
   });
@@ -69,7 +72,7 @@ describe("(a) getOrgRole — fail-closed default + dev-only preview override", (
   });
 });
 
-describe("(b)/(d) requireOwner — server gate (Owner-only: billing/wallet + user management)", () => {
+describe("(b)/(d) requireOwner — server gate (Owner-only: user management / Team)", () => {
   it("admits an Owner session (dev override) and does not 404", async () => {
     vi.stubEnv("PAYER_DEV_ORG_ROLE", "owner");
     await expect(requireOwner()).resolves.toEqual(session);
@@ -96,13 +99,42 @@ describe("(c)/(d) requireRecruiter — member area: Owner ⊇ Recruiter (admits 
   });
 });
 
-describe("(f) org-role seam carries the wire-to-Divyanshu STUB TODO (source)", () => {
-  const src = readFileSync(fileURLToPath(new URL("./org-roles.ts", import.meta.url)), "utf8");
+describe("(e) getOrgRole reads the session's orgRole (#2079) — only an explicit 'owner' is Owner", () => {
+  const withRole = (orgRole: unknown): PayerSession => ({ ...session, orgRole }) as PayerSession;
 
-  it("getOrgRole is flagged STUB + names the org API owner + the XB-A session-claim wiring", () => {
-    expect(src).toMatch(/STUB/);
-    expect(src).toMatch(/Divyanshu/);
-    expect(src).toMatch(/XB-A/);
-    expect(src).toMatch(/org-role not yet in the signed session/i);
+  it("an 'owner' session is Owner in PRODUCTION — the real role, not the dev override", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    expect(getOrgRole(withRole("owner"))).toBe("owner");
+  });
+
+  it("'recruiter', null, absent and any unexpected value are all least privilege", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    for (const value of ["recruiter", null, undefined, "OWNER", "admin", 1, true]) {
+      expect(getOrgRole(withRole(value)), String(value)).toBe("recruiter");
+    }
+  });
+
+  it("requireOwner admits a real Owner session in production and 404s a real Recruiter", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    requirePayer.mockResolvedValueOnce(withRole("owner"));
+    await expect(requireOwner()).resolves.toMatchObject({ orgRole: "owner" });
+
+    requirePayer.mockResolvedValueOnce(withRole("recruiter"));
+    await expect(requireOwner()).rejects.toBe(NOT_FOUND);
+  });
+
+  it("the dev override still wins over the real role in dev/test (preview either UI)", () => {
+    vi.stubEnv("PAYER_DEV_ORG_ROLE", "recruiter");
+    expect(getOrgRole(withRole("owner"))).toBe("recruiter");
+    vi.stubEnv("PAYER_DEV_ORG_ROLE", "owner");
+    expect(getOrgRole(withRole("recruiter"))).toBe("owner");
+  });
+
+  it("outside dev the override can neither grant nor revoke — the real role stands", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PAYER_DEV_ORG_ROLE", "owner");
+    expect(getOrgRole(withRole("recruiter"))).toBe("recruiter");
+    vi.stubEnv("PAYER_DEV_ORG_ROLE", "recruiter");
+    expect(getOrgRole(withRole("owner"))).toBe("owner");
   });
 });

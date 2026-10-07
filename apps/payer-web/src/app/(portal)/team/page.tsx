@@ -33,7 +33,7 @@ export default async function TeamPage() {
     <div className="team-page">
       <PageHeader
         title="Team"
-        description="Invite recruiters to your hiring desk and manage who can post, search and unlock — billing and credits stay with owners."
+        description="Invite recruiters to your hiring desk and manage who is on it — every member can post, search, unlock and buy credits."
       />
 
       <TeamManager members={members} />

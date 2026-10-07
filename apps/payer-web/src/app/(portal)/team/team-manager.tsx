@@ -125,7 +125,7 @@ export function TeamManager({ members }: { members: OrgMemberView[] | null }) {
               autoComplete="off"
             />
             <p className="form__hint">
-              Recruiters can post, search, and unlock. Billing &amp; user management stay with
+              Recruiters can post, search, unlock and buy credits. Managing the team stays with
               owners.
             </p>
             <div className="form-actions">

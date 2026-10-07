@@ -195,7 +195,8 @@ describe("a failed read is told apart by its cause", () => {
     // The API refuses a page cursor only when it is longer than any it issues, so with filters
     // set the FILTERS were refused, and their first page would be refused again.
     stub.failure = new stub.RequestError(400);
-    const out = await render({ status: "open", cursor: "c2" });
+    // A status the API refuses — a valid one beside a cursor leaves the CURSOR refused.
+    const out = await render({ status: "nonsense", cursor: "c2" });
     expect(out).not.toContain("Back to the first page");
     expect(out).not.toContain(">Retry<");
     expect(out.split(">Clear filters<").length - 1).toBe(1);
@@ -272,5 +273,25 @@ describe("the customer cell links the customer's own section", () => {
     expect(out).toContain('<span class="table__meta">ops-created</span>');
     expect(out).not.toContain(`href="/companies/`);
     expect(out).not.toContain(`href="/agencies/`);
+  });
+});
+
+/** Statuses the filters offer and a real customer id are never the refused part (delta review of #2095). */
+describe("valid filters with a refused cursor get the cursor's copy", () => {
+  it("a real status, verification and customer id beside an over-long cursor: the page was refused", async () => {
+    stub.failure = new stub.RequestError(400);
+    const out = await render({
+      status: "open",
+      verificationStatus: "verified",
+      payerId: "6155050c-c91b-4c6e-96a7-8da023f1d2d2",
+      cursor: "x".repeat(300),
+    });
+    expect(out).toContain("The server rejected this page");
+    expect(out).not.toContain("The server rejected these filters");
+    const state = out.slice(out.indexOf('class="state state--error"'));
+    const first = /href="([^"]*)"><i [^>]*><\/i>Back to the first page<\/a>/.exec(state)?.[1] ?? "";
+    expect(first).toContain("status=open");
+    expect(first).not.toContain("cursor=");
+    expect(state).not.toContain(">Clear filters<");
   });
 });

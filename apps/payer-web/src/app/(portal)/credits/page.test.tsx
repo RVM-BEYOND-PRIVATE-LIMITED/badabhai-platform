@@ -31,11 +31,18 @@ vi.mock("../../../lib/payer-api", () => ({
   createCreditOrder: vi.fn(),
   verifyCreditPayment: vi.fn(),
 }));
-// Billing/wallet is an OWNER-only surface (org-RBAC). The page calls requireOwner() FIRST; mock
-// it through a referenced spy so the render tests ADMIT (default) and a dedicated test can make
-// it 404. The deep gate logic itself is tested in lib/auth/org-roles.test.ts.
-const requireOwner = vi.fn();
-vi.mock("../../../lib/auth/org-roles", () => ({ requireOwner: () => requireOwner() }));
+// Credits is open to EVERY payer member (owner ruling 2026-10-07): the page's gate is
+// requirePayer() — signed in, any org role. Mocked through a referenced spy so the render tests
+// ADMIT (default) and a dedicated test can make it redirect to /login.
+const requirePayer = vi.fn();
+vi.mock("../../../lib/auth", () => ({ requirePayer: () => requirePayer() }));
+// The OWNER gate must no longer be consulted. It is mocked to refuse exactly as it would for a
+// Recruiter, so a page that still called it would 404 every test below.
+const requireOwner = vi.fn(() => Promise.reject(new Error("NEXT_NOT_FOUND")));
+vi.mock("../../../lib/auth/org-roles", () => ({
+  requireOwner: () => requireOwner(),
+  getOrgRole: () => "recruiter",
+}));
 // The LIVE catalog seam (D-6). Default: live catalog = the default products (the tests
 // below assert the rendered figures EQUAL the pricing-config outputs over these products);
 // dedicated tests re-point it at an ops-EDITED catalog (live) or the fallback (live:false).
@@ -146,12 +153,15 @@ beforeEach(() => {
   getCreditTopUps.mockReset();
   // Default: the LIVE catalog resolved (D-6) with the default products.
   getLiveCatalog.mockReset().mockResolvedValue({ products: DEFAULT_CATALOG.products, live: true });
-  // Default: ADMIT an Owner so the render tests below exercise the page body.
-  requireOwner.mockReset().mockResolvedValue({
+  // Default: a signed-in RECRUITER — the least-privileged member must see the whole page.
+  requirePayer.mockReset().mockResolvedValue({
     payerId: "11111111-1111-4111-8111-111111111111",
     displayLabel: "Acme",
     role: "employer",
+    status: "active",
+    orgRole: "recruiter",
   });
+  requireOwner.mockClear();
   // Default: MOCK payments (the launch-gate default). Real mode is opted into per-test.
   payerServerConfig.mockReset().mockReturnValue({
     apiBaseUrl: "http://localhost:3001",
@@ -163,13 +173,20 @@ afterEach(() => {
   delete process.env.PAYER_LOW_BALANCE_THRESHOLD;
 });
 
-describe("credits page — OWNER-gated billing/wallet (server gate, not nav)", () => {
-  it("calls requireOwner() FIRST and propagates its neutral 404 (a Recruiter never renders)", async () => {
-    const NOT_FOUND = new Error("NEXT_NOT_FOUND");
-    requireOwner.mockReset().mockRejectedValue(NOT_FOUND);
+describe("credits page — open to every payer member (owner ruling 2026-10-07)", () => {
+  it("a RECRUITER renders Credits, packs included — the owner gate is never consulted", async () => {
+    const { panelPacks, flat } = await render({ balance: 50 });
+    expect(requireOwner).not.toHaveBeenCalled();
+    expect(panelPacks).toEqual(offeredCreditPacks(DEFAULT_CATALOG.products));
+    expect(flat).toMatch(/50/);
+  });
+
+  it("calls requirePayer() FIRST and propagates the /login redirect (no session never renders)", async () => {
+    const REDIRECT = new Error("NEXT_REDIRECT");
+    requirePayer.mockReset().mockRejectedValue(REDIRECT);
     setData({ balance: 50 });
-    // The gate runs before any fetch/render — the page rejects with the not-found sentinel.
-    await expect(CreditsPage()).rejects.toBe(NOT_FOUND);
+    // The gate runs before any fetch/render — the page rejects with the redirect sentinel.
+    await expect(CreditsPage()).rejects.toBe(REDIRECT);
     expect(getDashboard).not.toHaveBeenCalled();
   });
 
