@@ -2423,6 +2423,90 @@ textarea.input {
     justify-content: center;
   }
 }
+
+/* ------------------------------------------------------------------
+ * CANDIDATES (/candidates) — every applicant across the payer's postings. The page renders the
+ * APPLICANT FEED card above (its wrapper is `.applicants-page.candidates-page`, so that block's
+ * card and touch rules apply unchanged); only what is its own lives here: the posting filter in
+ * the head's toolbar row, the line naming each card's posting, and the pager. Tokens only.
+ * ------------------------------------------------------------------ */
+.candidates-filter {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+/* The select takes the line and "Show" sits on its row (aligned to the control, under the
+   label); the button drops beneath only when the two cannot share a line. */
+.candidates-filter__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+.candidates-filter__form .bb-field {
+  flex: 1 1 var(--stat-min);
+  min-width: 0;
+  max-inline-size: calc(var(--stat-min) * 2);
+}
+.candidates-filter__note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+/* The posting this card's applicant applied to: a supporting line under the identity, its title
+   in the link colour (plain heading-weight text when this session has no page for it). A long
+   title wraps rather than widening the card. */
+.applicant__posting {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  overflow-wrap: anywhere;
+}
+.applicant__posting-link {
+  font-weight: var(--weight-semibold);
+  color: var(--text-link);
+  text-decoration: underline;
+  text-decoration-color: var(--link-underline);
+}
+.applicant__posting-title {
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+/* …a 44px target on a phone or a coarse pointer: the text-link HIT STRIP recipe (as
+   `.reveal-card__ext`) — an out-of-flow strip centred on the link, so the line does not grow and
+   the focus ring stays on the text. */
+@media (max-width: 600px), (pointer: coarse) {
+  .applicant__posting-link {
+    position: relative;
+    isolation: isolate;
+  }
+  .applicant__posting-link::before {
+    content: "";
+    position: absolute;
+    z-index: calc(var(--z-base) - 1);
+    inset-block: calc((100% - var(--control-md)) / 2);
+    inset-inline: min(0%, calc((100% - var(--control-md)) / 2));
+  }
+}
+/* Keyset paging under the list: First page · Next page, right-aligned; on a phone the two share
+   the row as equal thumb targets (each a md control — the 44px floor). */
+.candidates-pager {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--section-gap);
+}
+@media (max-width: 600px) {
+  .candidates-pager > .bb-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+  }
+}
+
 .reveal-card {
   width: 100%;
 }

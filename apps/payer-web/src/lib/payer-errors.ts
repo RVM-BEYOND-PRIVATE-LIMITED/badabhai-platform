@@ -82,3 +82,13 @@ export class PriceMismatchError extends Error {
     this.currentPriceInr = currentPriceInr;
   }
 }
+
+/**
+ * A 429 from the payer API: a per-payer hourly cap (the reach bucket, the disclosure bucket …)
+ * or the same cap failing closed while Redis is down — one status for both, and no reason in the
+ * body (the transport never surfaces one). Read from the transport's class-only message
+ * (`payer API <path> returned 429`), so a page can say "too many requests" instead of "failed".
+ */
+export function isPayerRateLimited(e: unknown): boolean {
+  return e instanceof Error && e.message.endsWith(" returned 429");
+}

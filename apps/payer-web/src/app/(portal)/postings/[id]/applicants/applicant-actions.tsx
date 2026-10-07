@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { FacelessApplicant } from "../../../../../lib/contracts";
+import type { ApplicantPosting } from "../../../../../lib/candidate-inbox";
 import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
 import { isoDay, type GrantedUnlock } from "../../../../../lib/unlock-history";
 import { Avatar, Badge, Button, Card, Tabs } from "../../../../../components/ds";
@@ -61,10 +62,62 @@ import { maskedResumeAction, revealContactAction, unlockAction } from "./actions
  * them; no branch here infers the cause). A transient action FAILURE renders a retryable inline
  * error and NEVER blanks the row or the feed. NO-LOG: nothing logs the result / handle / payer
  * id. Confirm-on-spend (C11): only the FIRST unlock per row prompts, via a DS Dialog.
+ *
+ * TWO CALLERS, ONE CARD. A posting's Applicants page passes `postingId`: ONE posting's feed, with
+ * the New / Shortlist board. The Candidates tab (`/candidates`, the cross-posting inbox) passes no
+ * `postingId`; each row carries its OWN `posting` instead, and:
+ *  - the row's posting is the unlock's `job_id` and the masked resume's context — per row, so the
+ *    confirm dialog remembers WHICH row asked (a worker who applied to two postings is two rows);
+ *  - the card names its posting ("Applied to …"), linked to its details when this session has one;
+ *  - there is NO board: no stage tabs, no Keep / Pass / Mark as contacted. Stages are this page's
+ *    local state and nothing persists them, so over a paged, filtered inbox they would be a filter
+ *    that silently forgets — the head's toolbar is the caller's posting filter instead;
+ *  - a row whose posting is `viewOnly` (its own Applicants page offers this session no unlock)
+ *    offers none here either.
+ * Row state stays keyed by worker id in both modes: an unlock is one grant per (payer, worker), so
+ * unlocking him on one row shows him unlocked on his other row too. The ONE ConfirmSpendDialog,
+ * the balance affordance and the toast are shared by both.
  */
 
 type Stage = "new" | "shortlist";
 type RowStage = Stage | "passed";
+
+/** A Candidates row: the faceless applicant plus the posting it applied to (see candidate-inbox). */
+export type CandidateRow = FacelessApplicant & { posting: ApplicantPosting };
+
+/** One rendered card: who, which posting it names (inbox only), and its actions' posting context. */
+interface FeedRow {
+  applicant: FacelessApplicant;
+  posting: ApplicantPosting | null;
+  /** The posting an unlock / resume disclosure on this row names. */
+  context: string;
+  /** Unique per card — in the inbox one worker can be two rows (two postings). */
+  key: string;
+}
+
+type FeedProps =
+  /** ONE posting's feed (its Applicants page): every row's context is that posting; the board. */
+  | { postingId: string; applicants: FacelessApplicant[] }
+  /** The Candidates inbox: each row names its own posting; no board. */
+  | { postingId?: undefined; applicants: CandidateRow[] };
+
+function feedRows(feed: FeedProps): FeedRow[] {
+  if (feed.postingId !== undefined) {
+    const postingId = feed.postingId;
+    return feed.applicants.map((applicant) => ({
+      applicant,
+      posting: null,
+      context: postingId,
+      key: applicant.workerId,
+    }));
+  }
+  return feed.applicants.map(({ posting, ...applicant }) => ({
+    applicant,
+    posting,
+    context: posting.id,
+    key: `${posting.id}:${applicant.workerId}`,
+  }));
+}
 
 interface RowState {
   busy: boolean;
@@ -93,17 +146,12 @@ const EMPTY: RowState = {
   contacted: false,
 };
 
-export function ApplicantActions({
-  header,
-  postingId,
-  applicants,
-  balance,
-  unlocked = {},
-}: {
-  /** The screen's head text (back link, H1, description); the tabs are added as its toolbar. */
-  header: Pick<PageHeaderProps, "back" | "title" | "description">;
-  postingId: string;
-  applicants: FacelessApplicant[];
+export type ApplicantActionsProps = FeedProps & {
+  /**
+   * The screen's head (back link, H1, description). On a posting's feed the New / Shortlist tabs
+   * are its toolbar; in the inbox the caller's `toolbar` (the posting filter) is.
+   */
+  header: Pick<PageHeaderProps, "back" | "title" | "description" | "toolbar">;
   balance: number;
   /**
    * The payer's LIVE grants for this feed's workers, keyed by worker id (see liveUnlocksFor).
@@ -111,7 +159,13 @@ export function ApplicantActions({
    * server decides any Unlock pressed there; for a live grant it does not debit twice, F-6).
    */
   unlocked?: Record<string, GrantedUnlock>;
-}) {
+};
+
+export function ApplicantActions(props: ApplicantActionsProps) {
+  const { header, balance, unlocked = {} } = props;
+  const feed = feedRows(props);
+  // ONE posting's feed carries the New / Shortlist board; the inbox does not (see the top).
+  const board = props.postingId !== undefined;
   const [rows, setRows] = useState<Record<string, RowState>>({});
   // Confirm-on-spend (C11): confirm only the FIRST unlock per row this session — a retry
   // after a transient failure (or a later reveal) does not re-prompt. Reveal/resume are
@@ -128,6 +182,11 @@ export function ApplicantActions({
   // confirmation of the spend outcome — never names a candidate, never logs. Added LAST so the
   // upstream useState order (rows, confirmedUnlock, stages, activeStage, confirmWorker) is intact.
   const [result, setResult] = useState<UnlockResultKind | null>(null);
+  // The posting context of the row whose first unlock is awaiting confirmation (set with
+  // confirmWorker). On a posting's feed every row's is that posting; in the inbox the same worker
+  // can sit on two rows, so the worker id alone cannot say which posting the spend names. Added
+  // LAST, after `result`, so every upstream useState keeps its position.
+  const [confirmContext, setConfirmContext] = useState<string | null>(null);
 
   // A row's state before anything happened to it this session: granted when the payer already
   // holds a live grant on this worker (the page's unlock-history read), else locked. Derived from
@@ -171,7 +230,7 @@ export function ApplicantActions({
   // success action AND by a retry on an already-confirmed row (no re-prompt). On resolution it
   // raises a transient RESULT toast — granted on a granted view, else the ONE neutral failure
   // line (an unavailable view AND a transient error both surface the same no-cause toast, XB-C).
-  async function runUnlock(workerId: string) {
+  async function runUnlock(workerId: string, postingId: string) {
     patch(workerId, { busy: true, unlockError: null });
     const res = await unlockAction({ postingId, workerId });
     if (res.ok) {
@@ -183,25 +242,33 @@ export function ApplicantActions({
     }
   }
 
-  function onUnlock(workerId: string) {
+  function onUnlock(row: FeedRow) {
+    const workerId = row.applicant.workerId;
     // First unlock for this row → OPEN the confirm dialog (the spend gate). A row already
     // confirmed this session (e.g. a retry after a transient failure) unlocks directly — no
     // re-prompt. The dialog copy is MOCK-neutral and names NO candidate detail (faceless).
     if (confirmedUnlock[workerId]) {
-      void runUnlock(workerId);
+      void runUnlock(workerId, row.context);
       return;
     }
     setConfirmWorker(workerId);
+    setConfirmContext(row.context);
   }
 
   // The confirm dialog's success action: mark the row confirmed, close the dialog, then run
   // the (ids-only) unlock. Fires at most once per row — a later retry/reveal never re-prompts.
+  // The posting it names is the asking row's; absent that (state seeded without it), the
+  // worker's first row's — on a posting's feed, that posting.
   function onConfirmUnlock() {
     const workerId = confirmWorker;
     if (workerId === null) return;
+    const context =
+      confirmContext ?? feed.find((r) => r.applicant.workerId === workerId)?.context ?? null;
+    if (context === null) return;
     setConfirmedUnlock((prev) => ({ ...prev, [workerId]: true }));
     setConfirmWorker(null);
-    void runUnlock(workerId);
+    setConfirmContext(null);
+    void runUnlock(workerId, context);
   }
 
   async function onRevealContact(unlockId: string, workerId: string) {
@@ -211,27 +278,31 @@ export function ApplicantActions({
     else patch(workerId, { contactBusy: false, contactError: res.error });
   }
 
-  async function onMaskedResume(unlockId: string, workerId: string) {
+  async function onMaskedResume(unlockId: string, workerId: string, postingId: string) {
     patch(workerId, { resumeBusy: true, resumeError: null });
-    // postingId = the disclosure's audit context (the posting whose applicants these are).
+    // postingId = the disclosure's audit context: the posting this row's applicant applied to.
     const res = await maskedResumeAction({ unlockId, workerId, postingId });
     if (res.ok) patch(workerId, { resumeBusy: false, resume: res.view });
     else patch(workerId, { resumeBusy: false, resumeError: res.error });
   }
 
   // Filter the ALREADY best-first feed by the active stage (order preserved; never re-sorted).
-  const visible = applicants.filter((a) => stageOf(a.workerId) === activeStage);
-  const counts = applicants.reduce(
-    (acc, a) => {
-      acc[stageOf(a.workerId)] += 1;
+  // The inbox has no board: every row it was given is shown, in the server's order.
+  const visible = board
+    ? feed.filter((r) => stageOf(r.applicant.workerId) === activeStage)
+    : feed;
+  const counts = feed.reduce(
+    (acc, r) => {
+      acc[stageOf(r.applicant.workerId)] += 1;
       return acc;
     },
     { new: 0, shortlist: 0, passed: 0 } as Record<RowStage, number>,
   );
 
   // Two-stage pipeline tabs. Keep moves New→Shortlist; Pass dismisses (both LOCAL). They are the
-  // screen's filter, so they sit in the page head's toolbar row.
-  const pipeline = (
+  // screen's filter, so they sit in the page head's toolbar row. The inbox has no board: its
+  // toolbar row is the caller's own (the posting filter).
+  const pipeline = board ? (
     <div className="applicants-pipeline">
       <Tabs
         variant="segmented"
@@ -247,6 +318,8 @@ export function ApplicantActions({
         <span className="applicants-pipeline__note">{counts.passed} passed</span>
       ) : null}
     </div>
+  ) : (
+    header.toolbar
   );
 
   return (
@@ -277,7 +350,7 @@ export function ApplicantActions({
         </div>
       </div>
 
-      {visible.length === 0 ? (
+      {board && visible.length === 0 ? (
         // Per-stage empty copy: New and Shortlist each show their OWN neutral message (the
         // page-level "no applicants on this posting yet" lives in page.tsx). Faceless — no PII.
         // The recovery action is the OTHER stage: it is a LOCAL tab switch (the same state the
@@ -320,7 +393,8 @@ export function ApplicantActions({
         </Card>
       ) : (
         <div className="applicants-list">
-          {visible.map((a, i) => {
+          {visible.map((r, i) => {
+            const a = r.applicant;
             const row = rowOf(a.workerId);
             const granted = row.unlock?.kind === "granted" ? row.unlock : null;
             const routed = row.contact?.kind === "routed" ? row.contact : null;
@@ -330,7 +404,7 @@ export function ApplicantActions({
             // position, not the worker id, so no full id lands in a DOM attribute.
             const unlockHintId = `applicant-${i}-unlock-hint`;
             return (
-              <Card key={a.workerId} className="applicant">
+              <Card key={r.key} className="applicant">
                 <div className="applicant__head">
                   {/* Faceless identity: a MASKED avatar (no photo, no name) + the truncated
                       opaque id; bands are banded taxonomy only — never PII. */}
@@ -389,6 +463,22 @@ export function ApplicantActions({
                   </div>
                 </div>
 
+                {/* INBOX ONLY — the posting this applicant applied to (his #rank above is his
+                    place on IT). The payer's own title; linked to its details when this session
+                    has that page, plain text when it does not (an agency's older company posting). */}
+                {r.posting ? (
+                  <p className="applicant__posting">
+                    <span className="applicant__posting-lead">Applied to</span>{" "}
+                    {r.posting.href ? (
+                      <Link className="applicant__posting-link" href={r.posting.href}>
+                        {r.posting.title}
+                      </Link>
+                    ) : (
+                      <span className="applicant__posting-title">{r.posting.title}</span>
+                    )}
+                  </p>
+                ) : null}
+
                 {/* Static taxonomy TAGS, not controls: a list of outline Badges (the outline
                     keeps them visibly distinct from the soft rank badge). They were disabled
                     toggle Chips, which a screen reader announced as "toggle button, not
@@ -411,52 +501,62 @@ export function ApplicantActions({
                 {/* The row's SECONDARY actions — the triage toolbar (Keep / Pass, then "Mark as
                     contacted" once a routed handle exists). The PRIMARY action (Unlock) is the
                     footer band below, the card's one focal point. No Call / WhatsApp: see the
-                    CONTACT note at the top of this file. */}
-                <div className="applicant__actions">
-                  <div className="applicant__pipeline">
-                    {/* Keep/Pass are LOCAL; "Mark as contacted" shows only after a routed
-                        reveal and rides the already-spent unlock (no network). */}
-                    {stage === "shortlist" ? (
-                      <Badge tone="success">Shortlisted</Badge>
-                    ) : (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        iconLeft="bookmark-simple"
-                        onClick={() => onKeep(a.workerId)}
-                      >
-                        Keep
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      iconLeft={ACTION_ICON.reject}
-                      onClick={() => onPass(a.workerId)}
-                    >
-                      Pass
-                    </Button>
-                    {routed ? (
-                      row.contacted ? (
-                        <Badge tone="brand" variant="solid">
-                          Contacted
-                        </Badge>
+                    CONTACT note at the top of this file. The board is a posting's feed's own:
+                    the inbox has none (see TWO CALLERS at the top). */}
+                {board ? (
+                  <div className="applicant__actions">
+                    <div className="applicant__pipeline">
+                      {/* Keep/Pass are LOCAL; "Mark as contacted" shows only after a routed
+                          reveal and rides the already-spent unlock (no network). */}
+                      {stage === "shortlist" ? (
+                        <Badge tone="success">Shortlisted</Badge>
                       ) : (
                         <Button
                           variant="secondary"
                           size="sm"
-                          iconLeft="check-circle"
-                          onClick={() => onContacted(a.workerId)}
+                          iconLeft="bookmark-simple"
+                          onClick={() => onKeep(a.workerId)}
                         >
-                          Mark as contacted
+                          Keep
                         </Button>
-                      )
-                    ) : null}
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        iconLeft={ACTION_ICON.reject}
+                        onClick={() => onPass(a.workerId)}
+                      >
+                        Pass
+                      </Button>
+                      {routed ? (
+                        row.contacted ? (
+                          <Badge tone="brand" variant="solid">
+                            Contacted
+                          </Badge>
+                        ) : (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            iconLeft="check-circle"
+                            onClick={() => onContacted(a.workerId)}
+                          >
+                            Mark as contacted
+                          </Button>
+                        )
+                      ) : null}
+                    </div>
                   </div>
-                </div>
+                ) : null}
 
                 <div className="applicant__contact">
-                  {granted ? (
+                  {r.posting?.viewOnly ? (
+                    // Its posting's own Applicants page offers this session no unlock, so
+                    // neither does its card (candidate-inbox.ts). A constant line, never a
+                    // statement about this applicant.
+                    <p className="applicant__neutral">
+                      View only — applicants to this posting can&rsquo;t be unlocked here.
+                    </p>
+                  ) : granted ? (
                     <div className="applicant__granted">
                       {/* The UNLOCK status only. "Contacted" is a pipeline stage and shows once,
                           in the toolbar where "Mark as contacted" was (W3-A: it was repeated
@@ -514,7 +614,7 @@ export function ApplicantActions({
                             disabled={row.resumeBusy}
                             loading={row.resumeBusy}
                             aria-busy={row.resumeBusy}
-                            onClick={() => onMaskedResume(granted.unlockId, a.workerId)}
+                            onClick={() => onMaskedResume(granted.unlockId, a.workerId, r.context)}
                           >
                             {row.resumeBusy
                               ? "Loading…"
@@ -551,7 +651,7 @@ export function ApplicantActions({
                           loading={row.busy}
                           aria-busy={row.busy}
                           aria-describedby={balance === 0 ? unlockHintId : undefined}
-                          onClick={() => onUnlock(a.workerId)}
+                          onClick={() => onUnlock(r)}
                         >
                           {row.busy
                             ? "Unlocking…"
