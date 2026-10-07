@@ -4,6 +4,7 @@ import { PayerPortalModule } from "./payer-portal.module";
 import { PayerAuthController } from "./payer-auth.controller";
 import { PayerUnlocksController } from "./payer-unlocks.controller";
 import { PayerReachController } from "./payer-reach.controller";
+import { PayerApplicantInboxController } from "./payer-applicant-inbox.controller";
 import { PayerDisclosureController } from "./payer-disclosure.controller";
 import { PayerJobPostingsController } from "./payer-job-postings.controller";
 import { PayerPricingController } from "./payer-pricing.controller";
@@ -109,6 +110,15 @@ describe("PayerPortalModule wiring (cross-module DI regression guard)", () => {
     // MatchModule is @Global, so no import edge is needed — but it must still export it.
     expect(Reflect.getMetadata("__module:global__", MatchModule)).toBe(true);
     expect(getMeta("exports", MatchModule)).toContain(MatchCandidatesService);
+  });
+
+  it("declares the cross-posting inbox (GET /payer/reach/applicants) with its service + repository", () => {
+    // The inbox injects ReachService (exported by ReachModule, asserted above) and
+    // MatchCandidatesService (the @Global MatchModule), plus its own repository on DATABASE.
+    expect(getMeta("controllers", PayerPortalModule)).toContain(PayerApplicantInboxController);
+    expect(providerTokens()).toContain("PayerApplicantInboxService");
+    expect(providerTokens()).toContain("PayerApplicantInboxRepository");
+    expect(getMeta("__guards__", PayerApplicantInboxController)).toContain(PayerAuthGuard);
   });
 
   it("provides the config-selected channel + WhatsApp provider tokens (the factory seams)", () => {

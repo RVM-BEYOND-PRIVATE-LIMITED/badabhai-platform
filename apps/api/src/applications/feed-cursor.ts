@@ -154,3 +154,14 @@ export function decodeFeedCursor(raw: string): FeedCursor | null {
   const parsed = FeedCursorSchema.safeParse(json);
   return parsed.success ? parsed.data : null;
 }
+
+/**
+ * The cursor primitives, shared with the payer inbox cursor
+ * (`payer-portal/payer-applicant-inbox.cursor.ts`) so "a keyset timestamp" and "a served id" are
+ * one definition, not two that can drift.
+ */
+export {
+  UUID as LOWERCASE_UUID_SCHEMA,
+  PG_TIMESTAMP_UTC as PG_TIMESTAMP_UTC_SCHEMA,
+  BASE64URL as BASE64URL_PATTERN,
+};

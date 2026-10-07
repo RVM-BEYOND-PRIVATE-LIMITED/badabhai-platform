@@ -262,3 +262,59 @@ describe("MatchCandidatesService.toRankInputs — the null semantics the SQL enc
     expect(ordered).toEqual(["related-36", "exact-12", "related-35"]);
   });
 });
+
+describe("MatchCandidatesService.rowsForOwnedApplications — the payer inbox's company rows", () => {
+  const PAYER = "aaaaaaaa-0000-4000-8000-00000000000a";
+
+  function inboxSetup(rows: Array<CandidateRow & { jobPostingId: string; rank: number }>) {
+    const repo = {
+      listCandidates: vi.fn(async () => rows),
+      listRankedCandidatesByApplication: vi.fn(async () => rows),
+    };
+    const config = { get: vi.fn(async () => DEFAULT_MATCH_CONFIG) };
+    return { svc: new MatchCandidatesService(repo as never, config as never), repo, config };
+  }
+
+  it("builds each row with the SAME mapper as listForPosting, carrying the repository's posting rank", async () => {
+    const a = { ...candidate("a", { matchTier: 2, skillMonths: 40 }), jobPostingId: JOB, rank: 1 };
+    const b = { ...candidate("b"), jobPostingId: JOB, rank: 2 };
+    const { svc } = inboxSetup([a, b]);
+    const list = await svc.listForPosting(JOB);
+    const byApp = await svc.rowsForOwnedApplications(PAYER, [
+      { applicationId: "b", postingId: JOB },
+      { applicationId: "a", postingId: JOB },
+    ]);
+    // listForPosting ranks by position; the inbox by the window rank. Same rows → same DTOs.
+    expect(byApp.get("a")).toStrictEqual(list.applicants[0]);
+    expect(byApp.get("b")).toStrictEqual(list.applicants[1]);
+  });
+
+  it("the rank is the repository's posting rank, never the order the rows came back in", async () => {
+    const { svc } = inboxSetup([{ ...candidate("z"), jobPostingId: JOB, rank: 417 }]);
+    const byApp = await svc.rowsForOwnedApplications(PAYER, [
+      { applicationId: "z", postingId: JOB },
+    ]);
+    expect(byApp.get("z")!.rank).toBe(417);
+  });
+
+  it("scopes the read to the payer, de-duplicates postings, binds the configured floor", async () => {
+    const { svc, repo } = inboxSetup([]);
+    await svc.rowsForOwnedApplications(PAYER, [
+      { applicationId: "a", postingId: JOB },
+      { applicationId: "b", postingId: JOB },
+    ]);
+    expect(repo.listRankedCandidatesByApplication).toHaveBeenCalledWith(
+      PAYER,
+      [JOB],
+      ["a", "b"],
+      DEFAULT_MATCH_CONFIG.tierFloorMonths,
+    );
+  });
+
+  it("no refs → no config read and no query", async () => {
+    const { svc, repo, config } = inboxSetup([]);
+    expect((await svc.rowsForOwnedApplications(PAYER, [])).size).toBe(0);
+    expect(config.get).not.toHaveBeenCalled();
+    expect(repo.listRankedCandidatesByApplication).not.toHaveBeenCalled();
+  });
+});

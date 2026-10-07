@@ -362,17 +362,7 @@ export class MatchFeedRepository {
     tierFloorMonths: number,
     limit: number,
   ): Promise<CandidateRow[]> {
-    const rows = await this.db.execute<{
-      id: string;
-      worker_id: string;
-      match_tier: number | null;
-      skill_months: number | null;
-      industry_months: number | null;
-      last_worked_at: string | null;
-      created_at: Date;
-      engine_version: string | null;
-      matched_skill_id: string | null;
-    }>(dsql`
+    const rows = await this.db.execute<CandidateSqlRow>(dsql`
       SELECT a.id, a.worker_id, a.match_tier, a.skill_months, a.industry_months,
              a.last_worked_at, a.created_at, a.engine_version,
              jr.matched_skill_id
@@ -388,7 +378,109 @@ export class MatchFeedRepository {
       WHERE a.job_posting_id = ${jobPostingId}::uuid
         AND a.action = 'applied'
         AND w.deletion_scheduled_at IS NULL
-      ORDER BY CASE
+      ORDER BY ${candidateRankKeys(tierFloorMonths)}
+      LIMIT ${limit}
+    `);
+
+    return (rows as unknown as CandidateSqlRow[]).map(toCandidateRow);
+  }
+
+  /**
+   * The payer's cross-posting applicant inbox (`GET /payer/reach/applicants`) — the SAME
+   * candidate row {@link listCandidates} serves, for a given set of applications, each carrying
+   * the 1-based rank it holds on ITS OWN posting's list.
+   *
+   * THE RANK IS NOT A THIRD COPY OF THE RULE. It is `row_number()` over
+   * {@link candidateRankKeys} — the one SQL spelling of the rank tuple, shared with
+   * {@link listCandidates} — partitioned by posting, over EXACTLY that list's membership
+   * (`job_posting_id`, `action = 'applied'`, not pending deletion, the badge a LEFT JOIN). So an
+   * applicant's rank here is the position `listCandidates` puts him at, whatever page of the
+   * inbox he is on. The window covers every applicant of each named posting (not just the
+   * page's), because a rank is a position in the whole list; the cost is the same sort the
+   * per-posting list does, once per posting on the page.
+   *
+   * The per-posting list stops at `OPS_LIST_CAP` (a buffer bound on an unpaginated read, not a
+   * withholding rule); this read is page-bounded by the caller instead, so a 501st applicant
+   * gets rank 501 rather than vanishing.
+   *
+   * OWNERSHIP, AGAIN, HERE: `job_postings.payer_id = payerId` is re-asserted in the SQL even
+   * though the caller only names postings its own ownership-scoped page read returned —
+   * defence in depth, at the cost of one PK join. It filters whole postings, so within an owned
+   * posting the window's membership is exactly the per-posting list's.
+   */
+  async listRankedCandidatesByApplication(
+    payerId: string,
+    jobPostingIds: readonly string[],
+    applicationIds: readonly string[],
+    tierFloorMonths: number,
+  ): Promise<RankedCandidateRow[]> {
+    if (jobPostingIds.length === 0 || applicationIds.length === 0) return [];
+    const rows = await this.db.execute<CandidateSqlRow & RankedSqlColumns>(dsql`
+      SELECT r.id, r.worker_id, r.job_posting_id, r.match_tier, r.skill_months,
+             r.industry_months, r.last_worked_at, r.created_at, r.engine_version,
+             r.matched_skill_id, r.candidate_rank
+      FROM (
+        SELECT a.id, a.worker_id, a.job_posting_id, a.match_tier, a.skill_months,
+               a.industry_months, a.last_worked_at, a.created_at, a.engine_version,
+               jr.matched_skill_id,
+               (row_number() OVER (PARTITION BY a.job_posting_id
+                                   ORDER BY ${candidateRankKeys(tierFloorMonths)}))::int
+                 AS candidate_rank
+        FROM applications a
+        INNER JOIN job_postings jp ON jp.id = a.job_posting_id
+        INNER JOIN workers w ON w.id = a.worker_id
+        LEFT JOIN job_reach jr
+          ON jr.job_posting_id = a.job_posting_id AND jr.worker_id = a.worker_id
+        WHERE a.job_posting_id = ANY(${dsql.param([...jobPostingIds])}::uuid[])
+          AND jp.payer_id = ${payerId}::uuid
+          AND a.action = 'applied'
+          AND w.deletion_scheduled_at IS NULL
+      ) r
+      WHERE r.id = ANY(${dsql.param([...applicationIds])}::uuid[])
+    `);
+
+    return (rows as unknown as (CandidateSqlRow & RankedSqlColumns)[]).map((r) => ({
+      ...toCandidateRow(r),
+      jobPostingId: r.job_posting_id,
+      rank: Number(r.candidate_rank),
+    }));
+  }
+}
+
+/** One candidate row as `pg` hands it back (dates may arrive as strings over the wire). */
+type CandidateSqlRow = {
+  id: string;
+  worker_id: string;
+  match_tier: number | null;
+  skill_months: number | null;
+  industry_months: number | null;
+  last_worked_at: string | Date | null;
+  created_at: Date | string;
+  engine_version: string | null;
+  matched_skill_id: string | null;
+};
+
+/** The two extra columns {@link MatchFeedRepository.listRankedCandidatesByApplication} reads. */
+type RankedSqlColumns = {
+  job_posting_id: string;
+  candidate_rank: number | string;
+};
+
+/** A {@link CandidateRow} with its posting and its 1-based rank on that posting's list. */
+export interface RankedCandidateRow extends CandidateRow {
+  jobPostingId: string;
+  rank: number;
+}
+
+/**
+ * THE RANK TUPLE'S ONE SQL SPELLING (ADR-0036 §2) — the key list, without `ORDER BY`, so the
+ * candidate list's `ORDER BY` and the inbox's `row_number() OVER (… ORDER BY …)` read the same
+ * text. `rankKeyCompare` in `@badabhai/match-engine` is the other half, pinned to this one by
+ * `rank-parity.test.ts`. See {@link MatchFeedRepository.listCandidates} for why each key is
+ * where it is; change it there, in the ruling, never here alone.
+ */
+export function candidateRankKeys(tierFloorMonths: number) {
+  return dsql`CASE
                  WHEN a.match_tier > 1 AND COALESCE(a.skill_months, 0) >= ${tierFloorMonths}::int
                    THEN 1
                  ELSE COALESCE(a.match_tier, 2)
@@ -397,39 +489,27 @@ export class MatchFeedRepository {
                COALESCE(a.industry_months, -1) DESC,
                a.last_worked_at DESC NULLS LAST,
                a.created_at DESC,
-               a.id ASC
-      LIMIT ${limit}
-    `);
+               a.id ASC`;
+}
 
-    const list = rows as unknown as {
-      id: string;
-      worker_id: string;
-      match_tier: number | null;
-      skill_months: number | null;
-      industry_months: number | null;
-      last_worked_at: string | Date | null;
-      created_at: Date | string;
-      engine_version: string | null;
-      matched_skill_id: string | null;
-    }[];
-
-    return list.map((r) => ({
-      applicationId: r.id,
-      workerId: r.worker_id,
-      matchTier: r.match_tier,
-      skillMonths: r.skill_months,
-      industryMonths: r.industry_months,
-      lastWorkedAt:
-        r.last_worked_at === null
-          ? null
-          : r.last_worked_at instanceof Date
-            ? r.last_worked_at.toISOString().slice(0, 10)
-            : String(r.last_worked_at).slice(0, 10),
-      createdAt: r.created_at instanceof Date ? r.created_at : new Date(r.created_at),
-      engineVersion: r.engine_version,
-      matchedSkillId: r.matched_skill_id,
-    }));
-  }
+/** The candidate row mapping, shared by both reads so a row means one thing on both. */
+function toCandidateRow(r: CandidateSqlRow): CandidateRow {
+  return {
+    applicationId: r.id,
+    workerId: r.worker_id,
+    matchTier: r.match_tier,
+    skillMonths: r.skill_months,
+    industryMonths: r.industry_months,
+    lastWorkedAt:
+      r.last_worked_at === null
+        ? null
+        : r.last_worked_at instanceof Date
+          ? r.last_worked_at.toISOString().slice(0, 10)
+          : String(r.last_worked_at).slice(0, 10),
+    createdAt: r.created_at instanceof Date ? r.created_at : new Date(r.created_at),
+    engineVersion: r.engine_version,
+    matchedSkillId: r.matched_skill_id,
+  };
 }
 
 /**

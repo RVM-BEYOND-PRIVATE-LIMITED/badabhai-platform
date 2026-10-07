@@ -77,27 +77,40 @@ export class MatchCandidatesService {
 
     return {
       jobId: jobPostingId,
-      applicants: rows.map((row, index) => ({
-        workerId: row.workerId,
-        applicationId: row.applicationId,
-        rank: index + 1,
-        matchTier: row.matchTier,
-        effectiveTier:
-          row.matchTier === null
-            ? null
-            : effectiveTier(
-                row.matchTier === 1 ? 1 : 2,
-                row.skillMonths ?? 0,
-                cfg.tierFloorMonths,
-              ),
-        skillMonths: row.skillMonths,
-        industryMonths: row.industryMonths,
-        lastWorkedAt: row.lastWorkedAt,
-        matchedSkillLabel:
-          row.matchedSkillId === null ? null : (matchSkillLabel(row.matchedSkillId) ?? null),
-        engineVersion: row.engineVersion,
-      })),
+      applicants: rows.map((row, index) =>
+        toMatchCandidateRowDto(row, index + 1, cfg.tierFloorMonths),
+      ),
     };
+  }
+
+  /**
+   * The cross-posting inbox's company rows (`GET /payer/reach/applicants`): for each named
+   * application on a posting the session payer owns, the row {@link listForPosting} would show
+   * for it — built by the SAME mapper, with the rank it holds on its own posting's list (the
+   * repository's `row_number()` over the shared rank keys). Keyed by application id.
+   *
+   * An application that is not (or no longer) on its posting's list — another payer's posting,
+   * a skip, a worker who entered the deletion grace window since the page was read — is simply
+   * absent from the map. Nothing here re-sorts or re-ranks.
+   */
+  async rowsForOwnedApplications(
+    payerId: string,
+    refs: ReadonlyArray<{ applicationId: string; postingId: string }>,
+  ): Promise<Map<string, MatchCandidateRowDto>> {
+    if (refs.length === 0) return new Map();
+    const cfg = await this.config.get();
+    const rows = await this.repo.listRankedCandidatesByApplication(
+      payerId,
+      [...new Set(refs.map((r) => r.postingId))],
+      refs.map((r) => r.applicationId),
+      cfg.tierFloorMonths,
+    );
+    return new Map(
+      rows.map((row) => [
+        row.applicationId,
+        toMatchCandidateRowDto(row, row.rank, cfg.tierFloorMonths),
+      ]),
+    );
   }
 
   /**
@@ -119,6 +132,36 @@ export class MatchCandidatesService {
       id: row.applicationId,
     }));
   }
+}
+
+/**
+ * ONE candidate row → the faceless {@link MatchCandidateRowDto}. The ONLY place that shape is
+ * built: the per-posting list and the cross-posting inbox both call it, so a field added here
+ * reaches both and a field added beside it reaches one (which
+ * `payer-applicant-inbox.service.test.ts` reports). `effectiveTier` only LABELS the order the
+ * SQL produced; nothing here sorts.
+ */
+export function toMatchCandidateRowDto(
+  row: CandidateRow,
+  rank: number,
+  tierFloorMonths: number,
+): MatchCandidateRowDto {
+  return {
+    workerId: row.workerId,
+    applicationId: row.applicationId,
+    rank,
+    matchTier: row.matchTier,
+    effectiveTier:
+      row.matchTier === null
+        ? null
+        : effectiveTier(row.matchTier === 1 ? 1 : 2, row.skillMonths ?? 0, tierFloorMonths),
+    skillMonths: row.skillMonths,
+    industryMonths: row.industryMonths,
+    lastWorkedAt: row.lastWorkedAt,
+    matchedSkillLabel:
+      row.matchedSkillId === null ? null : (matchSkillLabel(row.matchedSkillId) ?? null),
+    engineVersion: row.engineVersion,
+  };
 }
 
 /** Re-exported for the parity test so it names one source for the label lookup. */
