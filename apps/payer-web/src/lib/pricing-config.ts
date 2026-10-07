@@ -4,41 +4,94 @@ import { VACANCY_BANDS, type VacancyBand } from "./contracts";
 
 /**
  * Pricing sourced FROM CONFIG ONLY (§HARD CONSTRAINTS — no invented/hardcoded
- * prices). Every reader here is a PURE function over the catalog `products` the
- * caller passes in — since D-6 that is the LIVE catalog from the API
- * (`lib/live-catalog.ts` → `GET /payer/pricing/catalog`), with the compile-time
- * `DEFAULT_CATALOG` only as its documented fetch-failure fallback. Nothing is
- * literal'd in this file, and nothing here reads `DEFAULT_CATALOG` directly any
- * more — an ops price edit reaches the portal WITHOUT a rebuild.
+ * prices). Every reader here is a PURE function over the catalog the caller passes
+ * in — since D-6 that is the LIVE catalog from the API (`lib/live-catalog.ts` →
+ * `GET /payer/pricing/catalog`), with the compile-time `DEFAULT_CATALOG` only as its
+ * documented fetch-failure fallback. Nothing is literal'd in this file, and nothing
+ * here reads `DEFAULT_CATALOG` directly any more — an ops price edit reaches the
+ * portal WITHOUT a rebuild.
  *
- * The real backend still resolves every price server-side at purchase via the
- * pricing engine (`GET /pricing/quote` / the plan-boost stream) — these readers
- * RENDER the offer; the mock top-up still grants by the config'd pack, never a
- * client-supplied amount (XT5: server-side amount).
+ * SHOWN == CHARGED (#2085). Every price a reader returns is the price a purchase of that
+ * tier is CHARGED — the catalog's `prices[]` (computed by the same function every purchase
+ * route charges through, so it already carries any active offer). That is the number a tile,
+ * a trigger and a confirm show, and the number a purchase sends back as `expected_price_inr`.
+ * The server still resolves the charge itself; it uses that number only to refuse a purchase
+ * whose price changed since the payer saw it (409 `price_mismatch`).
  */
 
-/** The contact-unlock credit packs OFFERED for purchase — straight from the catalog. */
-export function offeredCreditPacks(products: readonly Product[]): CreditPack[] {
-  const product = products.find((p) => p.kind === "credit_pack" && p.code === "contact_unlock");
+/** One tier's effective charge price, as `GET /payer/pricing/catalog` reports it (`prices[]`, #2085). */
+export interface TierPrice {
+  readonly productCode: string;
+  readonly tierCode: string;
+  /** The catalog list price. */
+  readonly basePriceInr: number;
+  /** What a purchase of the tier is charged now, without a coupon (after any active offer). */
+  readonly priceInr: number;
+  readonly discountInr: number;
+  /** The automatic offer the charge applies right now, or null. */
+  readonly offer: { readonly code: string; readonly endsAt: string } | null;
+}
+
+/**
+ * The catalog every price reader takes. `prices` null/absent means the API sent no `prices[]`
+ * (an API older than #2085, or the cached-pricing fallback): each tier then shows its catalog
+ * price, which is what such an API charges.
+ */
+export interface PricedCatalog {
+  readonly products: readonly Product[];
+  readonly prices?: readonly TierPrice[] | null;
+}
+
+/** A tier's price as the payer sees and confirms it. */
+export interface ChargedPrice {
+  /** What a purchase is charged — the ONE number shown on a trigger/confirm and sent back. */
+  priceInr: number;
+  /** The catalog list price, present ONLY when an active offer lowers the charge below it. */
+  listPriceInr?: number;
+}
+
+/**
+ * The price a purchase of `tier` is charged. With `prices[]` present the tier's row is the
+ * answer, and a tier the API did not price is NOT ON OFFER (null) — the portal never invents a
+ * price. With no `prices[]` at all, the tier's catalog price is the answer.
+ */
+export function chargedPrice(
+  catalog: PricedCatalog,
+  productCode: string,
+  tier: { code: string; priceInr: number },
+): ChargedPrice | null {
+  const prices = catalog.prices;
+  if (prices === undefined || prices === null) return { priceInr: tier.priceInr };
+  const row = prices.find((p) => p.productCode === productCode && p.tierCode === tier.code);
+  if (!row) return null;
+  return row.priceInr < row.basePriceInr
+    ? { priceInr: row.priceInr, listPriceInr: row.basePriceInr }
+    : { priceInr: row.priceInr };
+}
+
+/** The contact-unlock credit packs OFFERED for purchase, at the price each is charged. */
+export function offeredCreditPacks(catalog: PricedCatalog): CreditPack[] {
+  const product = catalog.products.find(
+    (p) => p.kind === "credit_pack" && p.code === "contact_unlock",
+  );
   if (!product || product.kind !== "credit_pack") return [];
-  return product.tiers.map((t) => ({
-    code: t.code,
-    priceInr: t.priceInr,
-    credits: t.credits,
-  }));
+  return product.tiers.flatMap((t) => {
+    const price = chargedPrice(catalog, product.code, t);
+    return price === null ? [] : [{ code: t.code, ...price, credits: t.credits }];
+  });
 }
 
 /** Resolve one offered pack by code (mock top-up grants by THIS, never a client amount). */
-export function findCreditPack(products: readonly Product[], code: string): CreditPack | null {
-  return offeredCreditPacks(products).find((p) => p.code === code) ?? null;
+export function findCreditPack(catalog: PricedCatalog, code: string): CreditPack | null {
+  return offeredCreditPacks(catalog).find((p) => p.code === code) ?? null;
 }
 
 /**
  * The §3A per-unlock unit price, derived from the smallest offered pack's
  * ₹/credit ratio (config-derived, not hardcoded). Used only for display copy.
  */
-export function unlockUnitPriceInr(products: readonly Product[]): number | null {
-  const packs = offeredCreditPacks(products);
+export function unlockUnitPriceInr(catalog: PricedCatalog): number | null {
+  const packs = offeredCreditPacks(catalog);
   if (packs.length === 0) return null;
   const smallest = packs.reduce((a, b) => (a.credits <= b.credits ? a : b));
   return Math.round(smallest.priceInr / smallest.credits);
@@ -58,17 +111,16 @@ export function postingIsFreeThroughLaunch(): boolean {
   return flag !== "false";
 }
 
-/** The post-launch paid posting tiers (for transparency copy only). Config-sourced. */
+/** The post-launch paid posting tiers (for transparency copy only), at their charge price. */
 export function postingPaidTiers(
-  products: readonly Product[],
-): { code: string; priceInr: number; validityDays: number }[] {
-  const product = products.find((p) => p.kind === "posting" && p.code === "job_posting");
+  catalog: PricedCatalog,
+): ({ code: string; validityDays: number } & ChargedPrice)[] {
+  const product = catalog.products.find((p) => p.kind === "posting" && p.code === "job_posting");
   if (!product || product.kind !== "posting") return [];
-  return product.tiers.map((t) => ({
-    code: t.code,
-    priceInr: t.priceInr,
-    validityDays: t.validityDays,
-  }));
+  return product.tiers.flatMap((t) => {
+    const price = chargedPrice(catalog, product.code, t);
+    return price === null ? [] : [{ code: t.code, ...price, validityDays: t.validityDays }];
+  });
 }
 
 /* ── Applicant-quota config (job management + capacity) ──────────────────────────
@@ -95,26 +147,42 @@ export function applicantQuotaStep(products: readonly Product[]): number | null 
 
 /**
  * The catalog `quota_topup` TIER one top-up purchases (B2 "view more → pay more") —
- * the SMALLEST tier, straight from config (no literal code/price/amount here). The
- * LIVE `POST /payer/job-postings/:id/quota-topup` body carries ONLY this tier CODE;
- * the backend re-resolves price + grant through the pricing engine (XT5: the client
- * can never supply an amount). Returns null if the catalog has no top-up tiers.
+ * the SMALLEST priced tier, straight from config (no literal code/price/amount here),
+ * at the price it is charged. The LIVE `POST /payer/job-postings/:id/quota-topup` body
+ * carries this tier CODE and the price the payer confirmed; the backend re-resolves
+ * price + grant through the pricing engine (XT5) and refuses a changed price (#2085).
+ * Returns null if the catalog has no priced top-up tier.
  */
-export function quotaTopUpTier(
-  products: readonly Product[],
-): { code: string; priceInr: number; additionalViews: number } | null {
-  const product = products.find((p) => p.kind === "quota_topup" && p.code === "quota_topup");
-  if (!product || product.kind !== "quota_topup") return null;
-  const smallest = [...product.tiers].sort(
-    (a, b) => a.additionalVisibilityQuota - b.additionalVisibilityQuota,
-  )[0];
-  return smallest
-    ? {
-        code: smallest.code,
-        priceInr: smallest.priceInr,
-        additionalViews: smallest.additionalVisibilityQuota,
-      }
-    : null;
+export function quotaTopUpTier(catalog: PricedCatalog): QuotaTopUpTier | null {
+  return quotaTopUpTiers(catalog)[0] ?? null;
+}
+
+/** One priced quota top-up tier: its code, the slots it adds, and the price it is charged. */
+export type QuotaTopUpTier = { code: string; additionalViews: number } & ChargedPrice;
+
+/**
+ * The catalog `quota_topup` tier with `code`, at its charge price — or null when it is not on
+ * offer (absent, or unpriced in a present `prices[]`). The top-up seam checks the tier the payer
+ * CONFIRMED against the live catalog through this, rather than re-picking one (#2085 L1).
+ */
+export function findQuotaTopUpTier(catalog: PricedCatalog, code: string): QuotaTopUpTier | null {
+  return quotaTopUpTiers(catalog).find((t) => t.code === code) ?? null;
+}
+
+/** Every priced `quota_topup` tier, smallest grant first. */
+function quotaTopUpTiers(catalog: PricedCatalog): QuotaTopUpTier[] {
+  const product = catalog.products.find(
+    (p) => p.kind === "quota_topup" && p.code === "quota_topup",
+  );
+  if (!product || product.kind !== "quota_topup") return [];
+  return product.tiers
+    .flatMap((t) => {
+      const price = chargedPrice(catalog, product.code, t);
+      return price === null
+        ? []
+        : [{ code: t.code, ...price, additionalViews: t.additionalVisibilityQuota }];
+    })
+    .sort((a, b) => a.additionalViews - b.additionalViews);
 }
 
 /**
@@ -160,23 +228,29 @@ export function bandForVacancies(count: number): VacancyBand {
  * `maxActiveVacancies` — config-driven, never a hardcoded headcount.
  */
 
-/** The ascending hiring-capacity tiers from the catalog (allowance + price). */
-export function hiringCapacityTiers(products: readonly Product[]): {
-  code: string;
-  priceInr: number;
-  maxActiveVacancies: number;
-}[] {
-  const product = products.find((p) => p.kind === "capacity" && p.code === "hiring_capacity");
+/** The ascending hiring-capacity tiers on offer (allowance + the price each is charged). */
+export function hiringCapacityTiers(
+  catalog: PricedCatalog,
+): ({ code: string; maxActiveVacancies: number } & ChargedPrice)[] {
+  const product = catalog.products.find(
+    (p) => p.kind === "capacity" && p.code === "hiring_capacity",
+  );
   if (!product || product.kind !== "capacity") return [];
   return product.tiers
-    .map((t) => ({ code: t.code, priceInr: t.priceInr, maxActiveVacancies: t.maxActiveVacancies }))
+    .flatMap((t) => {
+      const price = chargedPrice(catalog, product.code, t);
+      return price === null
+        ? []
+        : [{ code: t.code, ...price, maxActiveVacancies: t.maxActiveVacancies }];
+    })
     .sort((a, b) => a.maxActiveVacancies - b.maxActiveVacancies);
 }
 
 /** The baseline concurrent active-vacancy allowance (smallest capacity tier). */
 export function baselineActiveVacancyAllowance(products: readonly Product[]): number | null {
-  const tiers = hiringCapacityTiers(products);
-  return tiers.length > 0 ? tiers[0]!.maxActiveVacancies : null;
+  const product = products.find((p) => p.kind === "capacity" && p.code === "hiring_capacity");
+  if (!product || product.kind !== "capacity" || product.tiers.length === 0) return null;
+  return Math.min(...product.tiers.map((t) => t.maxActiveVacancies));
 }
 
 /* ── Low-balance nudge threshold (config, never hardcoded in the page) ────────────

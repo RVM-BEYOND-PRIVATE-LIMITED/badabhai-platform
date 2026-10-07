@@ -11,10 +11,10 @@ import {
   offeredCreditPacks,
   postingPaidTiers,
 } from "../../../lib/pricing-config";
-import { formatInr } from "../../../lib/format";
 import type { Capacity } from "../../../lib/contracts";
 import { Badge, Card, StatTile } from "../../../components/ds";
 import { CachedPricingNote } from "../../../components/cached-pricing-note";
+import { priceFigure } from "../../../components/price-figure";
 import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
 import { CapacityPanel } from "../capacity/capacity-panel";
@@ -51,10 +51,13 @@ export default async function PlansPage() {
   const session = await requirePayer();
   if (session.role === "agent") redirect("/dashboard");
 
-  const { products, live } = await getLiveCatalog();
-  const packs = offeredCreditPacks(products);
-  const tiers = hiringCapacityTiers(products);
-  const postingTiers = postingPaidTiers(products);
+  // Every price here is what the tier is charged (#2085 — the catalog's `prices[]`), so a tile
+  // and the purchase it leads to can never disagree.
+  const catalog = await getLiveCatalog();
+  const { live } = catalog;
+  const packs = offeredCreditPacks(catalog);
+  const tiers = hiringCapacityTiers(catalog);
+  const postingTiers = postingPaidTiers(catalog);
 
   let capacity: Capacity | null = null;
   let capacityError: string | null = null;
@@ -299,7 +302,7 @@ export default async function PlansPage() {
                 <div className="plan-card__head">
                   <span className="plan-card__name">{p.code.replace(/_/g, " ")}</span>
                 </div>
-                <div className="plan-card__price bb-mono">{formatInr(p.priceInr)}</div>
+                <div className="plan-card__price bb-mono">{priceFigure(p)}</div>
                 <p className="plan-card__detail">
                   <span className="bb-mono">{p.credits}</span> credits
                 </p>

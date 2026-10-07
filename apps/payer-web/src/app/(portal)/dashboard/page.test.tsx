@@ -201,7 +201,7 @@ describe("DS1.2 · StatTiles read live counts (mono tabular)", () => {
     const balance = findAll(tree, StatTile).find((t) => p(t).label === "Credit balance")!;
     const monos = findByClass(p(balance).caption as ReactNode, "bb-mono");
     expect(monos.length).toBeGreaterThan(0);
-    const unit = unlockUnitPriceInr(DEFAULT_CATALOG.products)!;
+    const unit = unlockUnitPriceInr({ products: DEFAULT_CATALOG.products })!;
     expect(monos.map((m) => textOf(p(m).children as ReactNode)).join("")).toContain(`₹${unit}`);
   });
 
@@ -212,8 +212,8 @@ describe("DS1.2 · StatTiles read live counts (mono tabular)", () => {
         ? { ...x, tiers: x.tiers.map((t) => ({ ...t, priceInr: t.priceInr * 2 })) }
         : x,
     );
-    const before = unlockUnitPriceInr(DEFAULT_CATALOG.products)!;
-    const after = unlockUnitPriceInr(EDITED)!;
+    const before = unlockUnitPriceInr({ products: DEFAULT_CATALOG.products })!;
+    const after = unlockUnitPriceInr({ products: EDITED })!;
     expect(after).not.toBe(before);
     getLiveCatalog.mockResolvedValue({ products: EDITED, live: true });
     const tree = await render();

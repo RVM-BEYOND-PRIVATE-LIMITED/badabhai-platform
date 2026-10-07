@@ -137,8 +137,7 @@ body {
      a rail-coloured separation band, then the accent (legible on navy). */
   --focus-ring: var(--brand);
   --ring-focus:
-    0 0 0 var(--border-bold) var(--surface-ink),
-    0 0 0 calc(2 * var(--border-bold)) var(--brand);
+    0 0 0 var(--border-bold) var(--surface-ink), 0 0 0 calc(2 * var(--border-bold)) var(--brand);
   --ring-focus-tight: var(--ring-focus);
 }
 
@@ -4786,6 +4785,21 @@ img.agency-qr__code,
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* #2085 — a list price an active offer lowers, struck before the price that is charged
+   (`priceFigure`). Muted and lighter so the charged figure stays the one to read; on a tile
+   it steps down to a sub-figure size. Tokens only. */
+.price-was {
+  color: var(--text-muted);
+  font-weight: var(--weight-regular);
+  text-decoration: line-through;
+  margin-inline-end: var(--space-1);
+}
+.credit-pack__price .price-was,
+.capacity-tier__price .price-was,
+.plan-card__price .price-was {
+  font-size: var(--text-lg);
 }
 
 /* ------------------------------------------------------------------

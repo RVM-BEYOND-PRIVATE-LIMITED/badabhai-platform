@@ -2,7 +2,12 @@ import "server-only";
 import type { z } from "zod";
 import { payerServerConfig } from "./server-config";
 import { readApiToken } from "./auth/session-cookie";
-import { PayerValidationError, type ApiFieldIssue } from "./payer-errors";
+import {
+  PayerConflictError,
+  PayerValidationError,
+  PriceMismatchError,
+  type ApiFieldIssue,
+} from "./payer-errors";
 
 /**
  * SERVER-ONLY HTTP transport to the payer-authed NestJS endpoints (ADR-0019 LC-1).
@@ -44,9 +49,10 @@ interface RequestOptions<T> {
   /** When true, omit the Authorization header (public auth endpoints). */
   public?: boolean;
   /**
-   * Optional `Idempotency-Key` for a MUTATING purchase (POST /payer/credits, /payer/capacity —
-   * #1046/#1148). When present the SAME key across a re-tap makes the backend charge ONCE and
-   * replay the first result; a second in-flight duplicate answers 409 with no renderable figure.
+   * Optional `Idempotency-Key` for a MUTATING purchase (POST /payer/credits, /payer/capacity,
+   * /payer/job-postings/:id/quota-topup — #1046/#1148/#2085). When present the SAME key across
+   * a re-tap makes the backend charge ONCE and replay the first result; a second in-flight
+   * duplicate answers 409 with no renderable figure.
    * PII-free (a random UUID minted per purchase). Absent ⇒ the header is OMITTED and the call
    * behaves exactly as before (backward compatible — the header is optional by design).
    */
@@ -87,6 +93,10 @@ export async function payerFetch<T>(path: string, opts: RequestOptions<T>): Prom
       const issues = await readFieldIssues(res);
       if (issues.length > 0) throw new PayerValidationError(path, issues);
     }
+    // A 409 is read too (#2085): a `price_mismatch` must reach the payer as "the price
+    // changed", and must never be read as a purchase seam's other 409s. Nothing from the
+    // body is rendered except the API's current price.
+    if (res.status === 409) throw await readConflict(path, res);
     // Body may carry a deny reason — do NOT surface it (no-oracle / no PII). Class only.
     throw new Error(`payer API ${path} returned ${res.status}`);
   }
@@ -96,6 +106,35 @@ export async function payerFetch<T>(path: string, opts: RequestOptions<T>): Prom
   const text = await res.text();
   const json: unknown = text.length > 0 ? JSON.parse(text) : {};
   return opts.schema.parse(json);
+}
+
+/**
+ * Classify a 409 body, defensively. The API's exception filter nests the thrown payload under
+ * `error` (`{ statusCode, error: { reason, message, current_price_inr, … }, requestId, … }`); a
+ * flat body is accepted too. `reason: "price_mismatch"` → {@link PriceMismatchError}; anything
+ * else (including an unreadable body) → {@link PayerConflictError}, whose message is the
+ * historic `returned 409` shape.
+ */
+async function readConflict(path: string, res: Response): Promise<Error> {
+  let fields: Record<string, unknown> = {};
+  try {
+    const body: unknown = await res.json();
+    if (typeof body === "object" && body !== null) {
+      const nested = (body as { error?: unknown }).error;
+      fields = (typeof nested === "object" && nested !== null ? nested : body) as Record<
+        string,
+        unknown
+      >;
+    }
+  } catch {
+    fields = {};
+  }
+  if (fields.reason === "price_mismatch") {
+    const current = fields.current_price_inr;
+    const usable = typeof current === "number" && Number.isInteger(current) && current >= 0;
+    return new PriceMismatchError(path, usable ? current : null);
+  }
+  return new PayerConflictError(path, typeof fields.message === "string" ? fields.message : null);
 }
 
 /**
