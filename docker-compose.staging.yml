@@ -686,13 +686,15 @@ services:
       AI_JOBS_RETENTION_DELETE_ENABLED: ${AI_JOBS_RETENTION_DELETE_ENABLED:-false}
       AI_ENABLE_REAL_CALLS: ${AI_ENABLE_REAL_CALLS:-false}
 
-      # ---- KNOWN-SURVIVING DEV VALUE (deliberate for now — R27 owner queue). The base
-      # file's `PAYER_LOGIN_METHOD: whatsapp` survives this merge, and the WhatsApp
-      # channel is the MOCK provider (ADR-0020) — so payer/agency login is functionally
-      # DEAD on this box even though the API boots clean in production mode. NOT
-      # silently overridden here: the owner decides whether to pin a real method +
-      # its creds (e.g. email_otp -> ZeptoMail set as `${VAR:?}`) or accept a dead
-      # payer login on this box for now.
+      # ---- Payer/agency login channel (#2122, owner-authorised). Env-driven, never a
+      # literal: unset/empty resolves to `email_otp`, the real ZeptoMail delivery path
+      # (EMAIL_PROVIDER + ZEPTOMAIL_* + EMAIL_FROM_ADDRESS above). This line also stops the
+      # base file's dev default (`whatsapp`, the ADR-0020 MOCK channel, which sends
+      # nothing) surviving the merge. Bridged from the `production` secret of the same
+      # name; staging-deploy.sh's preflight rejects any value outside
+      # email_otp|whatsapp|supabase and, for email_otp, refuses to deploy without the
+      # four ZeptoMail values (assertPayerAuthConfig would otherwise crash the api at boot).
+      PAYER_LOGIN_METHOD: ${PAYER_LOGIN_METHOD:-email_otp}
 
   # ---- TD81(a): the FastAPI AI service, ON THE BOX ----
   # The base file's ai-service is the dev-laptop form (a `:latest` local build).

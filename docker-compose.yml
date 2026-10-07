@@ -218,12 +218,23 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://badabhai:badabhai@postgres:5432/badabhai}
       REDIS_URL: redis://redis:6379
       # Boot guards require these present, but the render path never sends SMS/email —
-      # dummy values satisfy the guards. `PAYER_LOGIN_METHOD=whatsapp` avoids needing
-      # real ZeptoMail email creds just to boot.
+      # dummy values satisfy the guards.
       FAST2SMS_API_KEY: ${FAST2SMS_API_KEY:-dev-dummy}
       FAST2SMS_SENDER_ID: ${FAST2SMS_SENDER_ID:-BBHAII}
       FAST2SMS_DLT_TEMPLATE_ID: ${FAST2SMS_DLT_TEMPLATE_ID:-0000000000000000000}
-      PAYER_LOGIN_METHOD: whatsapp
+      # Payer/agency login (#2122): env-driven, default `email_otp` — the same channel as
+      # production, never a mock. `assertPayerAuthConfig` then requires the ZeptoMail set at
+      # boot, so the three it checks carry dummy defaults exactly like FAST2SMS_* above:
+      # the api boots, and with no ZEPTOMAIL_API_URL a send is refused before any network
+      # call (no delivery locally). For a readable local code, run the api on the host with
+      # EMAIL_PROVIDER=smtp against the `mailpit` service below. The staging overlay
+      # re-declares every one of these as a real pass-through, so no dummy reaches the box.
+      PAYER_LOGIN_METHOD: ${PAYER_LOGIN_METHOD:-email_otp}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-zeptomail}
+      ZEPTOMAIL_API_URL: ${ZEPTOMAIL_API_URL:-}
+      ZEPTOMAIL_API_TOKEN: ${ZEPTOMAIL_API_TOKEN:-dev-dummy}
+      ZEPTOMAIL_MAIL_AGENT: ${ZEPTOMAIL_MAIL_AGENT:-dev-dummy}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-no-reply@badabhai.local}
       # ---- Resume PDF render (the point of this service) ----
       RESUME_RENDER_ENABLED: "true"
       RESUMES_BUCKET: ${RESUMES_BUCKET:-worker-resumes}

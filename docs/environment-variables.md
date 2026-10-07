@@ -71,6 +71,18 @@ NestJS boot assertion).
   `docs/otp-throttles-runbook.md`.
 - **Payer auth** — `PAYER_LOGIN_METHOD`, `EMAIL_PROVIDER`/`ZEPTOMAIL_*`/`SMTP_*` (real-only email
   OTP), `PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY`.
+  `PAYER_LOGIN_METHOD` (`email_otp` | `whatsapp` | `supabase`) is env-driven in both compose
+  files and never a literal (#2122): `${PAYER_LOGIN_METHOD:-email_otp}` on `api` in
+  `docker-compose.yml` and `docker-compose.staging.yml`. `whatsapp` is the ADR-0020 **mock**
+  channel and delivers nothing, so it is never a default. On the box it is bridged from the
+  GitHub `production` environment secret of the same name (`ci.yml` `env:` + `envs:`); **absent =
+  `email_otp`**. `email_otp` with `EMAIL_PROVIDER` unset or `zeptomail` requires the
+  `production` secrets `ZEPTOMAIL_API_URL`, `ZEPTOMAIL_API_TOKEN`, `ZEPTOMAIL_MAIL_AGENT` and
+  `EMAIL_FROM_ADDRESS` (all bridged): `assertPayerAuthConfig` fails the api closed at boot
+  without the last three, and no send leaves the box without the URL. `scripts/deploy/staging-deploy.sh`
+  refuses, before a container moves, both an unknown method and `email_otp` with any of the four
+  empty (names only in the error). Locally, the base compose `api` carries dummy ZeptoMail values
+  so it boots; with no `ZEPTOMAIL_API_URL` it sends nothing (use `mailpit` for a readable code).
 - **PIN unlock** — `PIN_PEPPER` (ADR-0026 Phase 3).
 - **Admin auth** — `ADMIN_JWT_SECRET` (ADR-0025, must differ from `JWT_SECRET`).
 - **AI routing** — `GEMINI_FLASH_API_KEY`, `AI_ENABLE_REAL_CALLS` (master kill-switch, default
