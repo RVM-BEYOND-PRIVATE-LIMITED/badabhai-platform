@@ -6,6 +6,8 @@ import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PayerRequestUnlockSchema } from "./payer-unlocks.dto";
 import type { Request } from "express";
 import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
+import { caught, renderedError } from "../common/idempotency/replay-fidelity.test-support";
+import { assertExpectedPrice } from "../pricing/charge-price";
 import { PayerUnlocksController } from "./payer-unlocks.controller";
 import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import type { RequestContext } from "../common/request-context";
@@ -478,6 +480,34 @@ describe("#1046 — POST /payer/credits is idempotent on Idempotency-Key", () =>
       status: 404,
     });
     expect(unlocks.purchaseCredits).toHaveBeenCalledTimes(1);
+  });
+
+  it("#2103: a replayed price_mismatch 409 carries the IDENTICAL structured body", async () => {
+    const { ctrl, purchaseCredits } = ctrlWithRealSeam();
+    // The REAL price guard, so the body under test is exactly what production throws.
+    purchaseCredits.mockImplementationOnce(async () => {
+      assertExpectedPrice(1, 299);
+      throw new Error("unreachable");
+    });
+    const dto = { pack_code: "starter", expected_price_inr: 1 };
+    const first = await caught(ctrl.buyPack(dto, PAYER_A, withKey("purchase-pm"), CTX));
+    const replay = await caught(ctrl.buyPack(dto, PAYER_A, withKey("purchase-pm"), CTX));
+    expect(purchaseCredits).toHaveBeenCalledTimes(1);
+    expect(replay).toMatchObject({ status: 409 });
+    expect(renderedError(replay)).toStrictEqual(renderedError(first));
+    expect(renderedError(replay)).toMatchObject({
+      reason: "price_mismatch",
+      expected_price_inr: 1,
+      current_price_inr: 299,
+    });
+  });
+
+  it("#2103: a replayed 404 (unknown pack) renders the SAME error body as the first", async () => {
+    const { ctrl, unlocks } = ctrlWithRealSeam();
+    (unlocks.purchaseCredits as ReturnType<typeof vi.fn>).mockResolvedValue(null as never);
+    const first = await caught(ctrl.buyPack({ pack_code: "nope" }, PAYER_A, withKey("p-404"), CTX));
+    const replay = await caught(ctrl.buyPack({ pack_code: "nope" }, PAYER_A, withKey("p-404"), CTX));
+    expect(renderedError(replay)).toStrictEqual(renderedError(first));
   });
 
   it("THE REAL-PAYMENTS 404 IS NOT STORED — it is a config gate, not a request outcome", async () => {

@@ -145,6 +145,9 @@ _TASK_TRACE: dict[str, tuple[str, str]] = {
     # is "what does the free chat cost and how often does it serve a model line".
     "profiling_free_classify": ("classify-free-chat-message", "free_chat"),
     "profiling_free_reply": ("answer-free-chat-message", "free_chat"),
+    # Release 2 (§8): the rolling summary, folded after the reply is served. Same feature tag:
+    # its cost is part of "what does the free chat cost", and it builds nothing in the profile.
+    "profiling_free_summary": ("summarize-free-chat-turns", "free_chat"),
 }
 
 #: Workflow names — the ROOT trace names. Business operations, not AI tasks: a workflow is

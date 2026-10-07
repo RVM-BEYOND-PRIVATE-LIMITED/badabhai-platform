@@ -1,8 +1,9 @@
-"""The free-chat parsers (ADR-0051 §3.4): model output is untrusted, and every miss is ONE value.
+"""The free-chat parsers (ADR-0051 §3.4, §8): model output is untrusted; every miss is ONE value.
 
 The classifier's miss is ``unclear`` / 0.0 / not blocked; the reply's miss is a refusal on
-``unsafe_other``. Both mock responses must parse to exactly those values, so a development
-environment shows the same reviewed copy a broken model would.
+``unsafe_other``; the rolling summary's miss is a null summary, which keeps the previous one. Each
+mock response must parse to exactly that value, so a development environment behaves the way a
+broken model would.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import pytest
 
 from app.free_chat import classify as classify_logic
 from app.free_chat import reply as reply_logic
+from app.free_chat import summary as summary_logic
 
 # ── the classifier ──────────────────────────────────────────────────────────────────────────
 
@@ -151,4 +153,66 @@ def test_the_reply_mock_is_the_unsafe_other_refusal() -> None:
     assert reply_logic.MOCK_RESPONSE == '{"status": "refuse", "topic": "unsafe_other"}'
     assert reply_logic.parse_reply_output(reply_logic.MOCK_RESPONSE) == (
         reply_logic.REFUSED_FALLBACK
+    )
+
+
+# ── the rolling summary (Release 2, §8) ──────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "",  # nothing
+        "- welder hai\n- course poocha",  # prose notes, no object
+        "[]",  # not an object
+        '"- welder hai"',  # a bare string
+        "null",
+        "{}",  # no summary key
+        '{"notes": "- welder hai"}',  # the wrong key
+        '{"summary": null}',  # the model kept nothing
+        '{"summary": 7}',  # not a string
+        '{"summary": ["- welder hai"]}',  # a list of notes, not one string
+        '{"summary": {"text": "- welder hai"}}',
+        '{"summary": ""}',  # empty
+        '{"summary": "  \\n\\t "}',  # whitespace only
+        '{"summary": "null"}',  # a null WORD instead of JSON null
+        '{"summary": " None "}',
+        '{"summary": "N/A"}',
+        json.dumps({"summary": "x" * 2001}),  # past the transport cap
+        '{"summary": "- welder hai"',  # truncated (max_output_tokens)
+    ],
+)
+def test_summary_junk_becomes_a_null_summary(content: str) -> None:
+    parsed = summary_logic.parse_summary_output(content)
+    assert parsed == summary_logic.NO_SUMMARY
+    assert (parsed.summary, parsed.ai_metadata) == (None, None)
+
+
+def test_a_valid_summary_is_kept_with_its_lines_and_a_fence_is_not_a_failure() -> None:
+    notes = "- welder hai, 3 saal\n- course ke baare mein poocha"
+    parsed = summary_logic.parse_summary_output(json.dumps({"summary": notes}))
+    assert parsed.summary == notes
+    fenced = "```json\n" + json.dumps({"summary": f"\n  {notes}  \n"}) + "\n```"
+    # Stripped at the ends only; the inner lines are the model's.
+    assert summary_logic.parse_summary_output(fenced).summary == notes
+
+
+def test_an_over_long_summary_is_passed_on_for_the_api_to_reject() -> None:
+    """1200 is the API's storage cap and a refusal there is the event outcome `rejected`; refusing
+    it here would report it as `unavailable` and hide why."""
+    parsed = summary_logic.parse_summary_output(json.dumps({"summary": "x" * 1500}))
+    assert parsed.summary == "x" * 1500
+
+
+def test_only_the_summary_is_the_models() -> None:
+    parsed = summary_logic.parse_summary_output(
+        json.dumps({"summary": "- welder hai", "ai_metadata": {"real_call": True}, "extra": 1})
+    )
+    assert (parsed.summary, parsed.ai_metadata) == ("- welder hai", None)
+
+
+def test_the_summary_mock_is_the_null_summary() -> None:
+    assert summary_logic.MOCK_RESPONSE == '{"summary": null}'
+    assert summary_logic.parse_summary_output(summary_logic.MOCK_RESPONSE) == (
+        summary_logic.NO_SUMMARY
     )

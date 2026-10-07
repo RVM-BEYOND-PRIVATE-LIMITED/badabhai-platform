@@ -2111,14 +2111,17 @@ class CompanionCareerRefuse(BaseModel):
 # --- The profiling-stage free chat (ADR-0051, #2027) -----------------------------------------
 #
 # Mirrors `packages/ai-contracts/src/free-chat.ts`; both suites assert against the golden fixture
-# `free-chat.keys.json`. Two endpoints: `POST /free-chat/classify` (one message -> one closed
-# category) and `POST /free-chat/reply` (one casual or career message -> 1-4 Hinglish lines, or a
-# closed refusal topic).
+# `free-chat.keys.json`. Three endpoints: `POST /free-chat/classify` (one message -> one closed
+# category), `POST /free-chat/reply` (one casual or career message -> 1-4 Hinglish lines, or a
+# closed refusal topic) and, Release 2 (§8), `POST /free-chat/summarize` (aged-out free-chat turns
+# folded into the rolling conversation summary).
 #
-# PRIVACY: `text`, `pending_question`, the recent turns and the trade label are model inputs; the
-# endpoints apply the masking policy in force (ADR-0047) before AIRouter, and the API redacts the
-# worker's own name first (G2). The model's output is UNTRUSTED: the API maps a category to a
-# deterministic handler and re-validates every reply line before a worker reads it (ADR-0051 §4).
+# PRIVACY: `text`, `pending_question`, the recent turns, the trade label, the reply's `summary`
+# and the summarizer's `previous_summary` and `turns` are model inputs; the endpoints apply the
+# masking policy in force (ADR-0047) before AIRouter, and the API redacts the worker's own name
+# first (G2). The model's output is UNTRUSTED: the API maps a category to a deterministic handler,
+# re-validates every reply line before a worker reads it (ADR-0051 §4) and re-validates every
+# summary before it stores one (§8).
 #
 # The closed sets are the ones `packages/types` declares (`FREE_CHAT_CATEGORIES`,
 # `FREE_CHAT_REPLY_CATEGORIES`, `FREE_CHAT_REFUSAL_TOPICS`); the parity suite reads that source.
@@ -2152,6 +2155,12 @@ FreeChatRefusalTopic = Literal[
 #: words-per-line bound is the API validator's.
 FreeChatReplyLine = Annotated[str, Field(min_length=1, max_length=300)]
 FreeChatReplyChip = Annotated[str, Field(min_length=1, max_length=60)]
+#: Release 2's summary caps (`SUMMARY_MAX`, `SUMMARY_OUTPUT_MAX` in free-chat.ts). An INPUT summary
+#: is one the API stored, so it is held to the API's own cap; the OUTPUT cap is looser on purpose,
+#: so an over-long summary reaches the API's validator to be judged (and rejected, an event outcome
+#: of its own) rather than failing at the transport as "unavailable".
+FreeChatSummaryText = Annotated[str, Field(min_length=1, max_length=1200)]
+FreeChatSummaryOutputText = Annotated[str, Field(min_length=1, max_length=2000)]
 
 
 class FreeChatClassifyInput(BaseModel):
@@ -2193,6 +2202,10 @@ class FreeChatReplyInput(BaseModel):
     worker_context: CompanionCareerWorkerContext = Field(
         default_factory=CompanionCareerWorkerContext
     )
+    # Release 2 (§8, R24): the worker's rolling free-chat summary, so a reply stays continuous
+    # across returns. Model-written, validated by the API before it was stored, never shown to the
+    # worker, and still gated here like every other model input. Additive and defaulted.
+    summary: FreeChatSummaryText | None = None
 
 
 class FreeChatAnswer(BaseModel):
@@ -2224,3 +2237,32 @@ class FreeChatRefuse(BaseModel):
 #: unknown discriminant fails the contract rather than defaulting into a shape the model did not
 #: mean.
 FreeChatReplyOutput = Annotated[FreeChatAnswer | FreeChatRefuse, Field(discriminator="status")]
+
+
+# --- Release 2: the rolling conversation summary (ADR-0051 §8) ---
+
+
+class FreeChatSummarizeInput(BaseModel):
+    """Fold free-chat turns into the worker's summary (R21, R22).
+
+    ``previous_summary`` is null on the first fold; ``turns`` are the 1-24 free-chat lines that
+    have just aged out of the reply's recent-turn window, own name already redacted by the API.
+    Free-chat talk only: interview answers live in the profile and are never sent here.
+    """
+
+    previous_summary: FreeChatSummaryText | None = None
+    turns: list[CompanionRecentTurn] = Field(min_length=1, max_length=24)
+
+
+class FreeChatSummarizeOutput(BaseModel):
+    """The updated summary, or null when the model produced nothing usable.
+
+    Null means "keep the previous one": the mock, a blocked input, a failed call or an unreadable
+    output all land here, and the API records them as ``unavailable``. A non-null summary is
+    UNTRUSTED: the API re-validates it (identifiers, the worker's own name, length, template
+    tokens) before storing it.
+    """
+
+    summary: FreeChatSummaryOutputText | None = None
+    # `None` on the blocked path: no provider was called, so there is no cost to record.
+    ai_metadata: AICallMetadata | None = None

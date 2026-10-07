@@ -141,6 +141,38 @@ describe("ChatTranscriptBuffer — round trip", () => {
     store.set(KEY, JSON.stringify(raw));
     expect("aside" in (await buffer.load(SESSION))!.messages[1]!).toBe(false);
   });
+
+  it("carries the foldable flag (ADR-0051 Release 2) — a literal true only, absent otherwise", async () => {
+    // Dropped on load, a casual exchange would never age into the rolling summary; invented on
+    // load, a fixed line or a deflection would be summarised. A line without it stays keyless.
+    const { buffer, store } = make();
+    const at = "2026-10-07T00:00:00.000Z";
+    await buffer.save(
+      SESSION,
+      sample({
+        messages: [
+          { role: "worker", text: "kaise ho", at, voiceNoteId: null, aside: true, foldable: true },
+          {
+            role: "assistant",
+            text: "Main theek hoon.",
+            at,
+            voiceNoteId: null,
+            aside: true,
+            foldable: true,
+          },
+          { role: "assistant", text: "Resume banayein?", at, voiceNoteId: null, aside: true },
+        ],
+      }),
+    );
+    const loaded = await buffer.load(SESSION);
+    expect(loaded!.messages.map((m) => m.foldable)).toEqual([true, true, undefined]);
+    expect("foldable" in loaded!.messages[2]!).toBe(false);
+
+    const raw = JSON.parse(store.get(KEY)!) as { messages: Record<string, unknown>[] };
+    raw.messages[0]!.foldable = "true";
+    store.set(KEY, JSON.stringify(raw));
+    expect("foldable" in (await buffer.load(SESSION))!.messages[0]!).toBe(false);
+  });
 });
 
 describe("ChatTranscriptBuffer — fails closed", () => {
