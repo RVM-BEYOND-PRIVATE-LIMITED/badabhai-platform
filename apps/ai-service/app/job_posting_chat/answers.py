@@ -447,7 +447,8 @@ _MONEY_CUE_RE = re.compile(
     r"\bstipend\b|\bper month\b|\bpm\b|\bmonthly\b|\bp\.m\.?\b|\bmonth\b|\d\s*k\b",
     re.IGNORECASE,
 )
-_SUFFIX = r"(k|thousand|hazar|hazaar|lakh|lakhs|lac|lacs)?"
+_SUFFIX_WORD = r"(k|thousand|hazar|hazaar|lakh|lakhs|lac|lacs)"
+_SUFFIX = _SUFFIX_WORD + "?"
 # Decimals are allowed because "1.5 lakh" is how the amount is actually written here.
 _NUMBER = r"(?<![\d.])(\d[\d,]*(?:\.\d+)?)"
 _AMOUNT_RE = re.compile(_NUMBER + r"\s*" + _SUFFIX, re.IGNORECASE)
@@ -458,9 +459,16 @@ _AMOUNT_RE = re.compile(_NUMBER + r"\s*" + _SUFFIX, re.IGNORECASE)
 # WHOLE message turned "we need 5 MIG welders ... 20-25k" into pay_min 5000, because
 # the vacancy count 5 was < 1000 and inherited the "k". The multiplier now travels
 # one hop, between the two halves of an actual range, and nowhere else.
+#
+# The optional suffix and the optional currency each OWN the whitespace before (or after)
+# them (#1995, R53 (c)). Written `\s*` + optional token + `\s*`, a figure followed by a
+# whitespace run that no range completes tried every split of the run between the two
+# quantifiers: O(k^2) ("salary 20k 5" + 10,000 spaces took 3.5 s in detect_answers). No
+# suffix word starts like a separator, so the capture groups, the span and `figure.end`
+# are unchanged; the trailing `\s*` + suffix is left as it was (nothing follows it).
 _PAY_RANGE_RE = re.compile(
-    _NUMBER + r"\s*" + _SUFFIX + r"\s*(?:-|–|—|to|se|and|upto|up to)\s*"
-    r"(?:₹|rs\.?|inr)?\s*" + _NUMBER + r"\s*" + _SUFFIX,
+    _NUMBER + r"(?:\s*" + _SUFFIX_WORD + r")?\s*(?:-|–|—|to|se|and|upto|up to)\s*"
+    r"(?:(?:₹|rs\.?|inr)\s*)?" + _NUMBER + r"\s*" + _SUFFIX,
     re.IGNORECASE,
 )
 _MULTIPLIERS: dict[str, int] = {
@@ -499,8 +507,15 @@ def _scale(digits: str, suffix: str | None, partner: str | None) -> int | None:
 # The CLAUSE an amount sits in, for the add-on screen below: the shared boundaries plus
 # "+", "plus" and " and " — "Salary 20k + 2k bonus" is two statements. A boundary inside
 # a RANGE ("between 18000 and 22000", "18,000 - 22,000") is not one.
+#
+# The " and " arm is tried only where a whitespace run STARTS, and is listed first, as in
+# `_PHRASE_SPLIT_RE` (#1995, R53 (e)). Unanchored, `\s+and\s+` scanned to the run's end
+# from every position of the run: O(k^2). A run that starts with newlines before an "and"
+# is now one boundary where it was a boundary per newline plus the arm; the boundaries
+# are adjacent and hold no figure, so every clause `_pay_clause` returns is unchanged.
 _PAY_CLAUSE_BOUNDARY_RE = re.compile(
-    r"[;\n]|(?<!\d),|,(?!\d)|\+|(?<![A-Za-z])plus(?![A-Za-z])|\s+and\s+", re.IGNORECASE
+    r"(?<!\s)\n*[^\S\n]\s*and\s+|[;\n]|(?<!\d),|,(?!\d)|\+|(?<![A-Za-z])plus(?![A-Za-z])",
+    re.IGNORECASE,
 )
 # An amount in a clause about an ADD-ON — overtime, a bonus, an allowance, a statutory
 # deduction, a perk — is not the wage. Folded into the band it became the band's
@@ -998,8 +1013,11 @@ _ROLE_CUE_RE = re.compile(
 )
 # Where a captured label phrase stops. "5 CNC operators in Pune at 20k" must yield
 # "CNC operators", and "the plant is in Chakan for a client" must yield "Chakan".
+# Anchored on the whitespace run's start (#1995, R53 (d)): `\b` after `\s+` forces the
+# run's end, so a match from inside a run is the match from its start, which `.sub()`
+# reaches first. Unanchored, every position of the run started an O(k) scan: O(k^2).
 _LABEL_TAIL_RE = re.compile(
-    r"\s+\b(?:in|at|for|with|on|near|from|starting|salary|pay|shift|urgently|"
+    r"(?<!\s)\s+\b(?:in|at|for|with|on|near|from|starting|salary|pay|shift|urgently|"
     r"immediately|asap)\b.*$",
     re.IGNORECASE,
 )

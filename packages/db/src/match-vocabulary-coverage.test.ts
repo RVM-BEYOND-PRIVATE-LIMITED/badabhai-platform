@@ -253,7 +253,9 @@ describe("the tripwire itself still decides nothing", () => {
   it("MATCH_SKILLS was NOT expanded to make the batch fit", () => {
     // 62 of the 96 are in trades the vocabulary does not represent. The owner ruled they stay
     // unmatched rather than earning new concepts; vocabulary expansion is a separate decision.
-    expect(MATCH_SKILLS).toHaveLength(18);
+    // The artifact is the dated record (18). #2022 (owner ruling 2026-10-06) later APPENDED eight
+    // skills for trade forms that derived nothing; no promotable skill maps to any of them.
+    expect(MATCH_SKILLS).toHaveLength(18 + 8);
     expect(artifact.match_vocabulary_size).toBe(18);
   });
 

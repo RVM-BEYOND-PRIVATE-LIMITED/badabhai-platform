@@ -10,12 +10,12 @@ CI gate: `apps/api/src/match/demo-matching-seed.db.test.ts`.
 The seed writes:
 
 - 25 synthetic employers;
-- **1,200 open postings** across the **8 role kinds that have a real match skill**, spread over
+- **1,200 open postings** across the **16 role kinds that have a real match skill**, spread over
   5 cities (Pune, Manesar, Chennai, Ahmedabad, Bengaluru);
   - `published_at` is spread over 30 days, in per-employer batches minutes apart, so the
     max-2-per-employer interleave is visible;
   - about 3% are boosted;
-  - the other 13 role kinds get **no** postings (see Known gaps);
+  - the other 5 role kinds (moulding and plastics) get **no** postings (see Known gaps);
 - **10 personas**, each with 1–2 wanted skills.
 
 Reach rows are then materialized with D5's own function. Every seeded id starts with `de30`.
@@ -70,7 +70,7 @@ All commands run from the repo root, with `DATABASE_URL`, `PII_ENCRYPTION_KEY` a
 ```bash
 docker compose up -d
 pnpm --filter @badabhai/db db:migrate
-pnpm --filter @badabhai/db db:seed:match:vocabulary --apply     # the 18 match skills + skill_related + match_config
+pnpm --filter @badabhai/db db:seed:match:vocabulary --apply     # the 26 match skills + skill_related + match_config
 pnpm --filter @badabhai/db db:seed:demo-matching                 # dry run: plan + expected split per persona
 pnpm --filter @badabhai/db db:seed:demo-matching --apply --answer-key=/tmp/demo-key.json
 pnpm --filter @badabhai/db db:materialize:reach                  # D5 dry run over ALL open postings: expect 0 SKIPPED
@@ -159,8 +159,15 @@ Which skills a live worker gets (traced 2026-10-06; trade forms per #2019):
   - CNC turning → turner (+ programmer / CAM);
   - VMC → VMC / HMC (+ programmer / CAM);
   - CNC grinding, CAM, CAD, fitter and QC → their own skills.
-  - The 8 packs in `PACKS_WITHOUT_MATCH_SKILL` (manual machining, tool & die, sheet metal, press,
-    coating, maintenance tech, electrician, assembly) derive **nothing**, and so see nothing.
+  - Since #2022 (owner ruling 2026-10-06) the other eight forms derive their **own** skill:
+    manual machining → `mskill_conventional_machinist` (a manual lathe / mill also reaches CNC
+    turner / VMC), tool & die → `mskill_tool_die_maker`, sheet metal →
+    `mskill_sheet_metal_worker`, press → `mskill_press_operator`, coating →
+    `mskill_painter_coater`, maintenance tech → `mskill_maintenance_technician`, electrician →
+    `mskill_industrial_electrician`, assembly → `mskill_assembly_line_worker`. A manual grinder
+    (`grinding_type=conventional`) reaches CNC grinding. `PACKS_WITHOUT_MATCH_SKILL` is empty.
+  - Free-text chat does **not** reach those eight skills yet: they have no role or corpus
+    anchor, so a chat-only electrician still derives nothing.
 
 Run `--report-trades` before the demo and pick a trade with a full feed. Form rows show a
 **fully-answered** form, an upper bound; a real worker derives the subset his chips claim.
@@ -227,7 +234,7 @@ as `DEMO_PHONE_PATTERN`, `parseAllowPhones`, `isDemoWorkerPhone` and `E164_PATTE
 | Persona                                   | Phone           | Skills             | Story                                                                                               |
 | ----------------------------------------- | --------------- | ------------------ | --------------------------------------------------------------------------------------------------- |
 | ★ `showcase-welder-pune` (Ravi Demo)      | `+910000026001` | MIG welder, 48 mo  | What "welder" in the chat yields. MIG jobs direct; arc and TIG related; no machining or design jobs |
-| ★ `showcase-fitter-manesar` (Suresh Demo) | `+910000026002` | fitter, 60 mo      | Plumbing and QC jobs related. Not an electrician: there is **no electrician match skill**           |
+| ★ `showcase-fitter-manesar` (Suresh Demo) | `+910000026002` | fitter, 60 mo      | Maintenance-tech, plumbing and QC jobs related. Electrician jobs are seeded but **not** related     |
 | `cnc-turner-pune`                         | `+910000026003` | CNC turner, 36 mo  | Side-by-side with a live CNC turner                                                                 |
 | `cnc-operator-ahmedabad`                  | `+910000026004` | general CNC, 12 mo | Side-by-side with a live "CNC operator"                                                             |
 | … 6 more                                  | `…005`–`…010`   | see the answer key |                                                                                                     |
@@ -252,17 +259,20 @@ The answer key (`--answer-key=<file>`) holds, per persona:
 
 - **Role kinds without a real match skill are skipped** (owner decision, 2026-10-06: a worker must
   never see an irrelevant job).
-  - The vocabulary has 18 match skills and none for these 13 kinds, so they get **no demo
-    postings**: `industrial_electrician`, `maintenance_technician`, `assembly_line_worker`,
-    `press_operator`, `painter_coating`, `sheet_metal_worker`, `tool_die_maker`,
-    `conventional_machinist` (manual machining), `mould_die_maker`, and the four
-    plastics/rubber kinds. This agrees with `PACKS_WITHOUT_MATCH_SKILL` (#2019).
-  - The other 8 kinds — `cnc_turner`, `vmc_milling`, `cnc_grinding`, `cam_programmer`,
-    `cad_draughtsman`, `welder`, `fitter`, `quality_inspector` — post only real skills.
+  - The vocabulary has 26 match skills and none for these 5 kinds, so they get **no demo
+    postings**: `mould_die_maker` and the four plastics/rubber kinds.
+  - The other 16 kinds post only their own real skills. Since #2022 that includes
+    `industrial_electrician`, `maintenance_technician`, `assembly_line_worker`, `press_operator`,
+    `painter_coating`, `sheet_metal_worker`, `tool_die_maker` and `conventional_machinist`, each
+    under its own minted skill — never a "nearest" one (an electrician job is not a fitter job).
+    Before #2022 those eight were skipped; no seeded posting ever carried a proxy skill.
   - General-CNC-operator postings (`mskill_cnc_operator_general`) use the `cnc_turner` card
     illustration. The role vocabulary has no general-CNC kind; the match skill itself is real.
   - Closing the gap is a taxonomy change.
-- **Form onboarding** was fixed on main by #2019: welder, grinding, VMC, CAM, CAD, fitter and QC
-  forms now derive real skills. The packs without a match skill still derive nothing, by design.
+- **Form onboarding** was fixed on main by #2019 (welder, grinding, VMC, CAM, CAD, fitter, QC)
+  and #2022 (the other eight trade forms). Every shipped trade form now derives a real skill.
+- **Seed-job conversion (`TRADE_TO_MATCH_SKILL`)** still lands `maintenance_technician` and
+  `assembly_technician` on `mskill_fitter`. It is a one-time conversion of the ADR-0009 fixtures,
+  not a runtime path, and is left unchanged by #2022; re-pointing it is a separate decision.
 - **Carpenter and delivery rider** have match skills but no role kind, so they get no demo
   postings. A live "carpenter" sees 0.

@@ -593,12 +593,78 @@ def is_curated_vocabulary_label(label: str) -> bool:
 
     This function grants nothing on its own.
     """
+    return _is_label_within(label, VOCABULARY_TOKENS)
+
+
+def _is_label_within(label: str, vocabulary: frozenset[str]) -> bool:
+    """True when ``label`` is printable ASCII and EVERY token of it is in ``vocabulary``."""
     if not isinstance(label, str) or not _PRINTABLE_ASCII_RE.fullmatch(label):
         return False
     tokens = _LABEL_TOKEN_RE.findall(label.lower())
     if not tokens:
         return False
-    return all(tok in VOCABULARY_TOKENS for tok in tokens)
+    return all(tok in vocabulary for tok in tokens)
+
+
+# --- The EMPLOYER-RESCUE-ONLY words (issue #2003) -------------------------------------------
+#
+# `_COMPANY_SUFFIX` masks Title-Case trade phrases as `[EMPLOYER_1]` ("Carbon Steel", "Power
+# Tools", "Electrical Engineering"), and the FIX-5 rescue keeps such a label only when every
+# word is vocabulary. MEASURED on main: each of these words was missing, so the label was
+# dropped from the stored profile, the rich draft and the résumé (`materials_handled` has no
+# other copy). The model writes Title Case, so the lowercase forms that survive do not help.
+#
+# HAND-LISTED, unlike `VOCABULARY_TOKENS`, and deliberately SCOPED TO THE RESCUE ALONE: they
+# are read only by `is_employer_rescue_vocabulary_label`, which only
+# `pseudonymize.certified_clean_skill_labels` calls, on a label whose ONLY mask was an
+# EMPLOYER. They do NOT join `VOCABULARY_TOKENS`, so the no-cue leading-name guess (#1728)
+# and the clean-or-withhold condition (d) are unchanged, and the checksum pin in
+# `test_lexicon_parity.py` does not move. Not one is an Indian first name or surname, and a
+# company name still drops: it carries a proper noun or a legal form ("Industries", "Pvt",
+# "Works") that is in neither set — "Ramesh Steel Industries", "Ramesh Power Tools" and
+# "Power Tools Pvt Ltd" are pinned as dropped in `tests/test_rescue_vocabulary.py`, which also
+# pins this set exactly.
+#
+# Beyond the issue's list, measured: "tools" and "fitter" are not derived vocabulary either
+# ("Hand Tools", "Structural Steel Fitter" still dropped without them), "hot" / "cold" are
+# needed for "Hot/Cold Rolled Steel", and "galvanised" is the Indian-English spelling.
+EMPLOYER_RESCUE_ONLY_WORDS: frozenset[str] = frozenset(
+    {
+        # materials and their treatments
+        "carbon",
+        "alloy",
+        "structural",
+        "galvanized",
+        "galvanised",
+        "spring",
+        "rolled",
+        "hot",
+        "cold",
+        "hardened",
+        # tool classes
+        "pneumatic",
+        "hand",
+        "power",
+        "cutting",
+        "measuring",
+        "tools",
+        # discipline and role
+        "electrical",
+        "fitter",
+    }
+)
+
+_EMPLOYER_RESCUE_VOCABULARY: frozenset[str] = VOCABULARY_TOKENS | EMPLOYER_RESCUE_ONLY_WORDS
+
+
+def is_employer_rescue_vocabulary_label(label: str) -> bool:
+    """`is_curated_vocabulary_label`, widened by `EMPLOYER_RESCUE_ONLY_WORDS`.
+
+    ONLY for the FIX-5 rescue in `pseudonymize.certified_clean_skill_labels`, which asks it
+    about a label the gateway masked as an EMPLOYER and nothing else. Never a substitute for
+    `is_curated_vocabulary_label` anywhere else: that one also decides which leading words the
+    gateway does not guess as person names. Grants nothing on its own."""
+    return _is_label_within(label, _EMPLOYER_RESCUE_VOCABULARY)
 
 
 # P1-3(a): DECIMAL-SAFE experience.
