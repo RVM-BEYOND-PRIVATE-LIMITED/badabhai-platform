@@ -283,15 +283,15 @@ walls run the same rule whatever `AI_RAW_PII_ENABLED` says.
     - The job-posting phrase splitter (`_PHRASE_SPLIT_RE`), when skills or benefits are on
       screen. Requirements uses the same splitter. Any run of 10,000 spaces took 730–800 ms.
       R53 (b), mitigated by #1934 (2.0 ms).
-    - Still live, found by the #1934 review: the job-posting label tail (`_LABEL_TAIL_RE`),
-      after a role or location cue matched. `detect_answers("need welder" + " " * 10000 +
-      "x", "role_title")` took 547 ms. R53 (d).
-    - Still live, found by the #1934 review: the job-posting pay-clause splitter
+    - Found by the #1934 review: the job-posting label tail (`_LABEL_TAIL_RE`), after a role
+      or location cue matched. `detect_answers("need welder" + " " * 10000 + "x",
+      "role_title")` took 547 ms. R53 (d), mitigated by #1995 (2.3 ms).
+    - Found by the #1934 review: the job-posting pay-clause splitter
       (`_PAY_CLAUSE_BOUNDARY_RE`), on any turn with a pay figure. `detect_answers("salary 20k
-      bonus" + " " * 10000 + "x", None)` took 463 ms. R53 (e).
+      bonus" + " " * 10000 + "x", None)` took 463 ms. R53 (e), mitigated by #1995 (2.0 ms).
     - The job-posting pay-range parser (`_PAY_RANGE_RE`), on every turn that carries a money
       cue, whatever topic is on screen. `detect_answers("salary 20k 5" + " " * 10000 + "!",
-      None)` took 1.9 s, and 0.5 s at 5,000. R53.
+      None)` took 1.9 s, and 0.5 s at 5,000. R53 (c), mitigated by #1995 (5.3 ms).
     - The profiling experience matcher (`_EXPERIENCE_RE`), in `/profile/extract`'s heuristic
       pass over the worker's own text. `"adhai" + " " * 5000 + "5"` took 1.4 s, and 6–24 s at
       10,000 spaces. R55.

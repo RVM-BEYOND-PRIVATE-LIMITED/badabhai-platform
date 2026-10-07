@@ -4,6 +4,7 @@ import type { PgColumn } from "drizzle-orm/pg-core";
 import {
   creditLedger,
   payerCredits,
+  payers,
   paymentOrders,
   type CreditReason,
   type Database,
@@ -124,6 +125,9 @@ export class AdminFinanceRepository {
       .select({
         id: creditLedger.id,
         payerId: creditLedger.payerId,
+        // #2032 — role via LEFT JOIN on the `payers` PK (no N+1; an orphaned opaque id
+        // still lists, role null). Role only — no other payers column is read.
+        payerRole: payers.role,
         delta: creditLedger.delta,
         reason: creditLedger.reason,
         unlockId: creditLedger.unlockId,
@@ -132,6 +136,7 @@ export class AdminFinanceRepository {
         createdAt: creditLedger.createdAt,
       })
       .from(creditLedger)
+      .leftJoin(payers, eq(payers.id, creditLedger.payerId))
       .where(clauses.length > 0 ? and(...clauses) : undefined)
       .orderBy(desc(creditLedger.createdAt), desc(creditLedger.id))
       .limit(limit);
@@ -139,6 +144,7 @@ export class AdminFinanceRepository {
     return rows.map((r) => ({
       id: r.id,
       payer_id: r.payerId,
+      payer_role: r.payerRole,
       delta: r.delta,
       reason: r.reason,
       unlock_id: r.unlockId,
@@ -191,6 +197,9 @@ export class AdminFinanceRepository {
       .select({
         id: paymentOrders.id,
         payerId: paymentOrders.payerId,
+        // #2032 — role via LEFT JOIN on the `payers` PK (no N+1; an orphaned opaque id
+        // still lists, role null). Role only — no other payers column is read.
+        payerRole: payers.role,
         packCode: paymentOrders.packCode,
         amountInr: paymentOrders.amountInr,
         creditsGranted: paymentOrders.creditsGranted,
@@ -200,6 +209,7 @@ export class AdminFinanceRepository {
         updatedAt: paymentOrders.updatedAt,
       })
       .from(paymentOrders)
+      .leftJoin(payers, eq(payers.id, paymentOrders.payerId))
       .where(clauses.length > 0 ? and(...clauses) : undefined)
       .orderBy(desc(paymentOrders.createdAt), desc(paymentOrders.id))
       .limit(limit);
@@ -207,6 +217,7 @@ export class AdminFinanceRepository {
     return rows.map((r) => ({
       id: r.id,
       payer_id: r.payerId,
+      payer_role: r.payerRole,
       pack_code: r.packCode,
       amount_inr: r.amountInr,
       credits_granted: r.creditsGranted,

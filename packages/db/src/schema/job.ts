@@ -242,7 +242,7 @@ export const jobPostings = pgTable(
     // second attempt to convert the same legacy job conflicts instead of duplicating it.
     // ON DELETE SET NULL: deleting a legacy job must never delete the live posting.
     sourceJobId: uuid("source_job_id").references(() => jobs.id, { onDelete: "set null" }),
-    // ADR-0050 §4.1 (migration 0132) — marks a row as a DERIVED agency-job TWIN, written only
+    // ADR-0050 §4.1 (migration 0133) — marks a row as a DERIVED agency-job TWIN, written only
     // by the agency-twin sync. NULL on every native posting and on every D4 seed conversion:
     // a conversion also carries `source_job_id`, but its source is closed and the posting is
     // the entity, while a twin's source stays open and is the truth — `source_job_id` alone
@@ -399,13 +399,13 @@ export const jobPostings = pgTable(
       "job_postings_role_kind_chk",
       sql`${t.roleKind} IS NULL OR ${t.roleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician')`,
     ),
-    // Migration 0132 (ADR-0050 §4.1) — the closed provenance set. NULL-tolerant: every native
+    // Migration 0133 (ADR-0050 §4.1) — the closed provenance set. NULL-tolerant: every native
     // posting and every D4 conversion is NULL.
     check(
       "job_postings_sync_source_chk",
       sql`${t.syncSource} IS NULL OR ${t.syncSource} = 'agency_job'`,
     ),
-    // Migration 0132 (ADR-0050 §4.1, C2) — a twin is system-owned (payer_id NULL) and always
+    // Migration 0133 (ADR-0050 §4.1, C2) — a twin is system-owned (payer_id NULL) and always
     // linked to its source job. Enforced in the DB so no writer, present or future, can mint
     // an agent-owned or orphaned twin.
     check(
@@ -590,9 +590,9 @@ export const jobs = pgTable(
     // job's matching classifier (15 trade keys) and is untouched by this; `role_kind` is the
     // 21-kind display role. Nullable, no default, no backfill; NULL = "no role picked".
     roleKind: text("role_kind").$type<TradeFormKindName>(),
-    // ADR-0050 §4.1 C4 (migration 0132) — the agency job's EXPLICIT match input: the closed
+    // ADR-0050 §4.1 C4 (migration 0133) — the agency job's EXPLICIT match input: the closed
     // `mskill_*` ids an agent picked on the agency job form or ops set. `[]` = "not chosen
-    // yet" (every pre-0132 row). Validated in the service against the active vocabulary and
+    // yet" (every pre-0133 row). Validated in the service against the active vocabulary and
     // capped by `match_config.max_skills_per_posting`, exactly like the posting form. NOT a
     // rank input and never inferred from `trade_key` / `TRADE_TO_MATCH_SKILL`: it feeds only
     // the agency twin's `job_postings.match_skill_ids`. PII-free: closed-set ids.
@@ -645,7 +645,7 @@ export const jobs = pgTable(
       "jobs_role_kind_chk",
       sql`${t.roleKind} IS NULL OR ${t.roleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician')`,
     ),
-    // Migration 0132 (ADR-0050 §4.1) — the column is always a JSON array (`[]` or ids), never
+    // Migration 0133 (ADR-0050 §4.1) — the column is always a JSON array (`[]` or ids), never
     // a scalar or object a careless write could store.
     check("jobs_match_skill_ids_array_chk", sql`jsonb_typeof(${t.matchSkillIds}) = 'array'`),
   ],

@@ -90,6 +90,7 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     llmDraft: { domain_label: null, role_label: null, skills: [], experiences: [] },
     llmAsks: 0,
     llmLedTurns: 0,
+    llmDraftSettled: false,
     llmFallback: false,
     llmGateOpen: false,
     llmGateAsked: false,
@@ -429,6 +430,28 @@ describe("ChatService.postMessage — deterministic, in-process, zero LLM calls"
         Record<string, unknown>,
       ];
       expect(state.prefilled_keys).toEqual(["current_city"]);
+    });
+
+    it("#2021: carries the LLM provenance stamp, which toConversationStatePatch does not", async () => {
+      // Same REPLACING write as `prefilled_keys` above: without the carry a checkpoint would drop
+      // the stamp the extraction processor's worker-only gate reads.
+      const { chat } = await run({
+        turn: { checkpointDue: true },
+        written: {
+          profiling: envelope({
+            phase: "occupation_specific",
+            llmLedTurns: 3,
+            llmDraftSettled: true,
+          }),
+        },
+      });
+
+      const [, state] = chat.saveConversationState.mock.calls[0] as [
+        string,
+        Record<string, unknown>,
+      ];
+      expect(state.llm_led_turns).toBe(3);
+      expect(state.llm_draft_settled).toBe(true);
     });
 
     it("does NOT double-write when the same turn also completes the interview", async () => {
@@ -2350,6 +2373,33 @@ describe("ChatService — the general road (ADR-0045)", () => {
     });
     const state = chat.endSession.mock.calls[0]![2] as Record<string, unknown>;
     expect(has(state, "general_road")).toBe(false);
+  });
+
+  it("#2021: the flush persists the LLM provenance stamp beside form_kind", async () => {
+    const clean = await run({
+      buffer: {},
+      written: COMPLETED,
+      turn: { complete: true, questionKey: null, completionReason: "fields_complete" },
+    });
+    const cleanState = clean.chat.endSession.mock.calls[0]![2] as Record<string, unknown>;
+    expect(cleanState.llm_led_turns).toBe(0);
+    expect(cleanState.llm_draft_settled).toBe(false);
+
+    const led = await run({
+      buffer: {},
+      written: {
+        ...COMPLETED,
+        profiling: envelope({
+          answerMap: [answer()] as never,
+          llmLedTurns: 4,
+          llmDraftSettled: true,
+        }),
+      },
+      turn: { complete: true, questionKey: null, completionReason: "fields_complete" },
+    });
+    const ledState = led.chat.endSession.mock.calls[0]![2] as Record<string, unknown>;
+    expect(ledState.llm_led_turns).toBe(4);
+    expect(ledState.llm_draft_settled).toBe(true);
   });
 
   it("the gate's checkpoint carries the stamp — that write REPLACES the column", async () => {

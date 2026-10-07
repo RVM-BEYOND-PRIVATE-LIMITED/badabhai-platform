@@ -62,8 +62,23 @@ export function captureQueries(rows: unknown[] = []): CapturedQuery {
       capture(src);
       return chain;
     },
-    innerJoin: () => chain,
-    leftJoin: () => chain,
+    /**
+     * Joins are CAPTURED — the join KIND, the table and the ON clause — for the same reason as
+     * FROM: "this read LEFT JOINs `payers` on its primary key" is a property of the read
+     * (#2032). An INNER join there would silently drop rows whose opaque payer_id is orphaned.
+     */
+    innerJoin: (table: unknown, on: unknown) => {
+      statements.push("INNER JOIN");
+      capture(table);
+      capture(on);
+      return chain;
+    },
+    leftJoin: (table: unknown, on: unknown) => {
+      statements.push("LEFT JOIN");
+      capture(table);
+      capture(on);
+      return chain;
+    },
     groupBy: (...args: unknown[]) => {
       args.forEach(capture);
       return chain;

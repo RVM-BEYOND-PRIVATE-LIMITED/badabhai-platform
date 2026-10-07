@@ -113,6 +113,8 @@ function setup(opts: {
   // Provenance store (migration 0090). Default: every insert succeeds, nothing is due.
   const widenRepo = {
     insertGrant: vi.fn(async (_g: unknown) => undefined),
+    // In-force (un-retracted, unexpired) grant ids for one posting. Default: none.
+    activeIdsForPosting: vi.fn(async (_id: string): Promise<string[]> => []),
     findDueBatch: vi.fn(async (_limit: number): Promise<DueGrantFixture[]> => []),
     countDue: vi.fn(async () => 0),
     activeIdsForPostings: vi.fn(
@@ -728,14 +730,16 @@ describe("retractExpiredWidens — Policy 27's expiring leg, pure subtraction", 
     expect(t.events.emitOnce).not.toHaveBeenCalled();
   });
 
-  it("an id NOT in the current reach set is dropped silently (already re-materialized away)", async () => {
+  it("an id NOT in the current reach set subtracts nothing and emits no shrink event", async () => {
     const t = dueSetup({
       existing: posting({ matchSkillIds: [VMC], reachSkillIds: [VMC] }),
     });
     const summary = await t.svc.retractExpiredWidens(100);
 
-    // A publish/unpause between widen and expiry already rebuilt the set without HMC;
-    // subtracting nothing must not emit a lying "reach shrank" event.
+    // Since #1953 a publish/unpause/edit rebuild KEEPS an in-force widen, so a lifecycle
+    // action no longer produces this shape. It is still reachable (a set rebuilt before
+    // #1953 shipped), and the sweep must stay pure subtraction: subtracting nothing must
+    // not emit a lying "reach shrank" event.
     expect(summary.postingsShrunk).toBe(0);
     expect(t.events.emitOnce).not.toHaveBeenCalled();
   });
@@ -756,4 +760,113 @@ describe("retractExpiredWidens — Policy 27's expiring leg, pure subtraction", 
     expect(alerts).toHaveLength(1);
     expect(alerts[0]?.payload.reason).toBe("zero_reach");
   });
+});
+
+describe("materialize — a lifecycle rebuild KEEPS in-force ops widens (Policy 27 'never narrow', #1953)", () => {
+  const rebuild = (
+    svc: PublishReachService,
+    trigger: "publish" | "unpause" | "edit",
+    matchSkillIds: string[] = [VMC],
+    untickedIds: string[] = [],
+  ) =>
+    svc.materialize(
+      POSTING,
+      { matchSkillIds, untickedIds, trigger, actor: { actor_type: "payer", actor_id: PAYER } },
+      CTX,
+    );
+
+  /** The base VMC reach set with HMC unticked, so a widen of HMC is observable. */
+  const VMC_WITHOUT_HMC = [SETTER, TURNER, VMC];
+
+  it("UNPAUSE keeps an active widen in the persisted AND materialized reach set", async () => {
+    const t = setup();
+    t.widenRepo.activeIdsForPosting.mockResolvedValue([PLUMBER]);
+    const result = await rebuild(t.svc, "unpause");
+
+    const expected = [...VMC_FULL_REACH, PLUMBER].sort();
+    expect(t.widenRepo.activeIdsForPosting).toHaveBeenCalledWith(POSTING);
+    expect(result.reachSkillIds).toEqual(expected);
+    expect(persisted(t.repo)[2]).toEqual(expected);
+    expect(t.repo.materializeReachForPosting.mock.calls[0]?.[2]).toEqual(expected);
+  });
+
+  it("EDIT keeps an active widen, even when the edit changes the posted skills", async () => {
+    const t = setup();
+    t.widenRepo.activeIdsForPosting.mockResolvedValue([HMC]);
+    // The payer re-posts the job as a plumber role; the ops grant of HMC is still in force.
+    const result = await rebuild(t.svc, "edit", [PLUMBER]);
+
+    expect(result.matchSkillIds).toEqual([PLUMBER]);
+    expect(result.reachSkillIds).toContain(HMC);
+    expect(result.reachSkillIds).toContain(PLUMBER);
+    expect(persisted(t.repo)[2]).toContain(HMC);
+  });
+
+  it("PUBLISH keeps a widen granted while the posting was still a draft", async () => {
+    const t = setup({ existing: posting({ publishedAt: null }) });
+    t.widenRepo.activeIdsForPosting.mockResolvedValue([PLUMBER]);
+    const result = await rebuild(t.svc, "publish");
+    expect(result.reachSkillIds).toContain(PLUMBER);
+  });
+
+  it("a widened-in id joins the REACH set only, never the posted set (stays tier 2, E18)", async () => {
+    const t = setup();
+    t.widenRepo.activeIdsForPosting.mockResolvedValue([PLUMBER]);
+    await rebuild(t.svc, "unpause");
+
+    expect(persisted(t.repo)[1]).toEqual([VMC]);
+    expect(t.repo.materializeReachForPosting.mock.calls[0]?.[1]).toEqual([VMC]);
+  });
+
+  it("an ops widen of an id the payer unticked outranks the untick (as on the opsWiden path)", async () => {
+    const t = setup();
+    t.widenRepo.activeIdsForPosting.mockResolvedValue([HMC]);
+    const result = await rebuild(t.svc, "edit", [VMC], [HMC]);
+    expect(result.reachSkillIds).toEqual(VMC_FULL_REACH);
+  });
+
+  it("does NOT re-add an expired-but-unswept or retracted widen (only the in-force read counts)", async () => {
+    const t = setup();
+    // The sweep's broader read still sees HMC (expired, not yet swept); the in-force read
+    // used by materialize does not. A rebuild must not extend a grant past its expiry.
+    t.widenRepo.activeIdsForPostings.mockResolvedValue(new Set([HMC]));
+    t.widenRepo.activeIdsForPosting.mockResolvedValue([]);
+    const result = await rebuild(t.svc, "unpause", [VMC], [HMC]);
+
+    expect(result.reachSkillIds).toEqual(VMC_WITHOUT_HMC);
+    expect(persisted(t.repo)[2]).not.toContain(HMC);
+  });
+
+  it("drops a provenance id outside the closed skill set (defence in depth)", async () => {
+    const t = setup();
+    t.widenRepo.activeIdsForPosting.mockResolvedValue(["mskill_not_a_real_skill", PLUMBER]);
+    const result = await rebuild(t.svc, "unpause");
+    expect(result.reachSkillIds).not.toContain("mskill_not_a_real_skill");
+    expect(result.reachSkillIds).toContain(PLUMBER);
+  });
+
+  it("the audit event's reach_skill_count counts the kept widen", async () => {
+    const t = setup();
+    t.widenRepo.activeIdsForPosting.mockResolvedValue([PLUMBER]);
+    await rebuild(t.svc, "unpause");
+    expect(emittedOne(t.events, "job_posting.reach_materialized").payload.reach_skill_count).toBe(
+      VMC_FULL_REACH.length + 1,
+    );
+  });
+
+  it.each(["publish", "unpause", "edit"] as const)(
+    "%s: reach_skill_ids stays a superset of match_skill_ids, sorted, with no duplicates",
+    async (trigger) => {
+      const t = setup();
+      // Overlaps a posted skill AND a related one: neither may appear twice.
+      t.widenRepo.activeIdsForPosting.mockResolvedValue([VMC, HMC, PLUMBER]);
+      await rebuild(t.svc, trigger, [VMC, TURNER]);
+
+      const [, match, reach] = persisted(t.repo);
+      for (const id of match) expect(reach).toContain(id);
+      expect(reach).toContain(PLUMBER);
+      expect(new Set(reach).size).toBe(reach.length);
+      expect([...reach]).toEqual([...reach].sort());
+    },
+  );
 });

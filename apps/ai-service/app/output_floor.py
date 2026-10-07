@@ -36,6 +36,11 @@ source instead: apps/api's `redactKnownName` runs in profile extraction whatever
 (ADR-0047 G2). Nor does the floor catch a number spelled out in words (R30); neither does the
 gateway.
 
+A CONTROL CHARACTER IS DROPPED TOO (#1984, R59). A value carrying any Unicode Cc character other
+than tab, LF and CR reads as carrying an identifier (`CONTROL_CHARACTER_REFUSAL`), because no
+pattern sees through one: "call 9876\\x00543210" used to pass. Cf characters (ZWJ / ZWNJ) are a
+separate decision — Devanagari conjuncts use them.
+
 Never raises, never logs, never returns what it dropped.
 """
 

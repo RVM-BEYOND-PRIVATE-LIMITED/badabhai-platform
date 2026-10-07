@@ -1,5 +1,5 @@
 /**
- * Migration 0132 — `jobs.match_skill_ids` + `job_postings.sync_source` (ADR-0050 §4.1, #1957).
+ * Migration 0133 — `jobs.match_skill_ids` + `job_postings.sync_source` (ADR-0050 §4.1, #1957).
  *
  * Pinned beyond the drift check: additive-only (two columns, three CHECKs, nothing dropped,
  * nothing rewritten, no backfill), each column's nullability/default exactly as the ADR states,
@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import { SCHEMA_REQUIREMENTS } from "./schema-contract";
 import { JOB_POSTING_SYNC_SOURCES, jobPostings, jobs } from "./schema/job";
 
-const TAG = "0132_agency_twin_match_skills";
+const TAG = "0133_agency_twin_match_skills";
 const RAW = readFileSync(join(__dirname, "..", "migrations", `${TAG}.sql`), "utf8");
 const DDL = RAW.replace(/--[^\n]*/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ");
 const FLAT = DDL.replace(/\s+/g, " ");
@@ -40,7 +40,7 @@ describe("the fixture is real", () => {
   });
 });
 
-describe("0132 is additive", () => {
+describe("0133 is additive", () => {
   it("is exactly two ADD COLUMN and three ADD CONSTRAINT — and nothing else", () => {
     expect(statements).toHaveLength(5);
     expect((FLAT.match(/ADD COLUMN/g) ?? []).length).toBe(2);
@@ -143,7 +143,7 @@ describe("the operator instructions, the manifest and the slot", () => {
   });
 
   it("is registered in the schema contract under the ids the header names", () => {
-    for (const id of ["0132-jobs-match-skill-ids", "0132-job-postings-sync-source"]) {
+    for (const id of ["0133-jobs-match-skill-ids", "0133-job-postings-sync-source"]) {
       expect(RAW, id).toContain(id);
       const entry = SCHEMA_REQUIREMENTS.find((r) => r.id === id);
       expect(entry?.migration, id).toBe(TAG);
@@ -166,13 +166,13 @@ describe("the operator instructions, the manifest and the slot", () => {
     expect(RAW).toContain('ALTER TABLE "job_postings" DROP COLUMN "sync_source"');
   });
 
-  it("holds the only 0132 slot, after 0131, with a later `when`", () => {
+  it("holds the only 0133 slot, after 0132, with a later `when`", () => {
     const entry = JOURNAL.entries.find((e) => e.tag === TAG);
-    expect(entry?.idx).toBe(132);
-    expect(JOURNAL.entries.filter((e) => e.idx === 132)).toHaveLength(1);
+    expect(entry?.idx).toBe(133);
+    expect(JOURNAL.entries.filter((e) => e.idx === 133)).toHaveLength(1);
     const sorted = [...JOURNAL.entries].sort((a, b) => a.idx - b.idx);
     const at = sorted.findIndex((e) => e.tag === TAG);
-    expect(sorted[at - 1]?.idx).toBe(131);
+    expect(sorted[at - 1]?.idx).toBe(132);
     expect(sorted[at]!.when).toBeGreaterThan(sorted[at - 1]!.when);
   });
 });

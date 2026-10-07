@@ -255,3 +255,55 @@ describe("job-posting detail — the card content and the display role (0131)", 
     });
   });
 });
+
+describe("job postings carry the payer's role (#2032)", () => {
+  const PAYER = "44444444-4444-4444-8444-444444444444";
+  const LIST_ROW = {
+    id: "55555555-5555-4555-8555-555555555555",
+    payerId: PAYER,
+    payerRole: "agent",
+    orgLabel: "Agency",
+    roleTitle: "Fitter",
+    locationLabel: null,
+    city: "Pune",
+    status: "open",
+    verificationStatus: "unverified",
+    vacancyBand: "1",
+    payMin: null,
+    payMax: null,
+    publishedAt: null,
+    closedAt: null,
+    createdAt: new Date("2026-10-01T00:00:00.000Z"),
+  };
+
+  /** Both reads: one LEFT JOIN on the payers PK, projecting `role` and no other payers column. */
+  function expectRoleJoin(c: ReturnType<typeof captureQueries>): void {
+    const text = c.sql();
+    expect(text).toContain('LEFT JOIN | "payers" | ');
+    expect(text).not.toContain("INNER JOIN");
+    expect(text).toContain('"payers"."id" = "job_postings"."payer_id"');
+    expect(text).toContain('"payers"."role"');
+    expect(text).not.toMatch(/"payers"\."(status|previous_status|created_at|updated_at)"/);
+    expectNoProjectedPii(c);
+  }
+
+  it("the list read joins payers on its PK and maps role → payer_role", async () => {
+    const c = captureQueries([LIST_ROW]);
+    const out = await new AdminEntitiesRepository(c.db).listJobPostings({}, null, 10);
+    expectRoleJoin(c);
+    expect(out[0]).toMatchObject({ payer_id: PAYER, payer_role: "agent" });
+  });
+
+  it("the detail read joins payers on its PK and maps role → payer_role", async () => {
+    const c = captureQueries([{ ...LIST_ROW, payerRole: "employer" }]);
+    const out = await new AdminEntitiesRepository(c.db).findJobPosting(LIST_ROW.id);
+    expectRoleJoin(c);
+    expect(out).toMatchObject({ payer_id: PAYER, payer_role: "employer" });
+  });
+
+  it("a null or orphaned payer_id lists with payer_role null (LEFT, not INNER, join)", async () => {
+    const c = captureQueries([{ ...LIST_ROW, payerId: null, payerRole: null }]);
+    const out = await new AdminEntitiesRepository(c.db).listJobPostings({}, null, 10);
+    expect(out[0]).toMatchObject({ payer_id: null, payer_role: null });
+  });
+});

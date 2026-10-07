@@ -26,13 +26,26 @@ beforeEach(() => {
 });
 
 function answerValue(store: Map<string, unknown>, key: string): unknown {
-  const held = store.get(SESSION) as { profiling?: { answerMap: readonly { question_key: string; value_normalized: unknown }[] } } | undefined;
+  const held = store.get(SESSION) as
+    | { profiling?: { answerMap: readonly { question_key: string; value_normalized: unknown }[] } }
+    | undefined;
   return held?.profiling?.answerMap.find((a) => a.question_key === key)?.value_normalized;
 }
 
 function isSettled(store: Map<string, unknown>, key: string): boolean {
-  const held = store.get(SESSION) as { profiling?: { answerMap: readonly { question_key: string; status: string }[] } } | undefined;
-  return held?.profiling?.answerMap.some((a) => a.question_key === key && a.status === "answered") ?? false;
+  const held = store.get(SESSION) as
+    | { profiling?: { answerMap: readonly { question_key: string; status: string }[] } }
+    | undefined;
+  return (
+    held?.profiling?.answerMap.some((a) => a.question_key === key && a.status === "answered") ??
+    false
+  );
+}
+
+/** #2021 — the envelope's sticky "settleFromLlmDraft wrote here" stamp. */
+function llmDraftSettled(store: Map<string, unknown>): boolean | undefined {
+  const held = store.get(SESSION) as { profiling?: { llmDraftSettled?: boolean } } | undefined;
+  return held?.profiling?.llmDraftSettled;
 }
 
 describe("#1505-1: the sum of resolved jobs ALWAYS wins over the opener's stated total", () => {
@@ -78,13 +91,24 @@ describe("#1505-1: the sum of resolved jobs ALWAYS wins over the opener's stated
 
     // Turn 2 — job 1. The worker's own sentence must NOT cross-fill a competing experience_years
     // (a per-job model question is on screen: `phaseALeads` is true here).
-    await world.orchestrator.takeTurn(turnInput("Welder tha, teen saal", new Date(T0.getTime() + 1000)));
+    await world.orchestrator.takeTurn(
+      turnInput("Welder tha, teen saal", new Date(T0.getTime() + 1000)),
+    );
 
     // Turn 3 — "Haan", job 2.
-    await world.orchestrator.takeTurn(turnInput("Haan, fitter bhi tha do saal", new Date(T0.getTime() + 2000)));
+    await world.orchestrator.takeTurn(
+      turnInput("Haan, fitter bhi tha do saal", new Date(T0.getTime() + 2000)),
+    );
+
+    // #2021 — nothing has been SETTLED from the draft yet (turn 1's cross-fill is the worker's own
+    // words), so the provenance stamp is still clean.
+    expect(llmDraftSettled(world.store)).toBe(false);
 
     // Turn 4 — "Nahi" closes Phase A; `settleFromLlmDraft` runs THIS turn.
     await world.orchestrator.takeTurn(turnInput("Nahi", new Date(T0.getTime() + 3000)));
+
+    // #2021 — the settlement wrote into the answer map, so the session is no longer worker-only.
+    expect(llmDraftSettled(world.store)).toBe(true);
 
     // THE RULING: sum of resolved jobs (36 + 24 months = 5 years) OVERRIDES the opener's "10".
     expect(answerValue(world.store, "experience_years")).toBe(5);
@@ -254,9 +278,7 @@ describe("#1505 F1: cross-fill drops pages-owned facts unconditionally, even on 
     // BEFORE Phase A is ever consulted, so nothing here depends on a scripted model turn.
     const world = buildReplayWorld({ enabled: false });
 
-    await world.orchestrator.takeTurn(
-      turnInput("Mumbai mein rehta hoon, 25000 chahiye salary"),
-    );
+    await world.orchestrator.takeTurn(turnInput("Mumbai mein rehta hoon, 25000 chahiye salary"));
 
     expect(answerValue(world.store, "salary_expected")).toBeUndefined();
     expect(isSettled(world.store, "salary_expected")).toBe(false);
@@ -269,15 +291,27 @@ describe("#1505 F3: the RI-5 confirm bubble only ever lists chat-owned facts", (
     const suggestions = new Map([
       [
         "current_city",
-        { values: { option_keys: [], text: "Mumbai", number: null, bool: null }, source: "resume" as const, confidence: 0.9 },
+        {
+          values: { option_keys: [], text: "Mumbai", number: null, bool: null },
+          source: "resume" as const,
+          confidence: 0.9,
+        },
       ],
       [
         "salary_expected",
-        { values: { option_keys: [], text: null, number: 25000, bool: null }, source: "resume" as const, confidence: 0.9 },
+        {
+          values: { option_keys: [], text: null, number: 25000, bool: null },
+          source: "resume" as const,
+          confidence: 0.9,
+        },
       ],
       [
         "education",
-        { values: { option_keys: ["tenth"], text: null, number: null, bool: null }, source: "resume" as const, confidence: 0.9 },
+        {
+          values: { option_keys: ["tenth"], text: null, number: null, bool: null },
+          source: "resume" as const,
+          confidence: 0.9,
+        },
       ],
     ]);
     const world = buildReplayWorld({

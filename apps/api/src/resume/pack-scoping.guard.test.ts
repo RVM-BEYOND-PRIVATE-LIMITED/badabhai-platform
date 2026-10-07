@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   corpusSkillsForPackAttributes,
   PACK_ATTRIBUTE_SKILLS,
+  packAnswerEvidence,
 } from "../match/pack-attribute-skills";
 import { buildFresherRows } from "./resume-fresher-rows";
 import { descriptorForPack } from "../profiling/roles/role-registry";
@@ -186,7 +187,10 @@ describe("R12 §2.3 — a trade dictionary is reachable ONLY from its own pack",
       attributeKey,
       optionKeys,
     }));
-    const skills = corpusSkillsForPackAttributes(answers);
+    // Every id the pack table emits, whichever route it rides: a corpus attribute, a role, or (for
+    // the trades minted in #2022, which have neither) a pack-only match skill named directly.
+    const evidence = packAnswerEvidence(answers);
+    const skills = [...evidence.corpusSkillIds, ...evidence.roleIds, ...evidence.matchSkillIds];
     if (Object.keys(PACK_ATTRIBUTE_SKILLS).includes(packId)) {
       expect(skills.length, `${packId} owns a skill map but derived nothing`).toBeGreaterThan(0);
     } else {
