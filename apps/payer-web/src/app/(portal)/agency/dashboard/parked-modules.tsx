@@ -104,6 +104,7 @@ export function AgencyParkedModules({
               className="agency-stat"
               href={REFERRALS_HREF}
               ariaLabel={`${c.title} — available on Referrals`}
+              pendingLabel="Referrals"
             >
               <div className="agency-stat__head">
                 <span className="agency-stat__label">{c.title}</span>

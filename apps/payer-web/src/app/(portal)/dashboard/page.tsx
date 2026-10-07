@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { ACTION_ICON, Icon, type IconName } from "@badabhai/icons";
 import { getCredits, getPostings, getUnlocks } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
@@ -7,7 +6,7 @@ import { unlockUnitPriceInr } from "../../../lib/pricing-config";
 import { postingRoutes } from "../../../lib/posting-routes";
 import { recentUnlockRows } from "../../../lib/unlock-history";
 import { Badge, Card, StatTile } from "../../../components/ds";
-import { NavPendingCue } from "../../../components/nav-pending";
+import { PortalLink } from "../../../components/portal-link";
 import { PageHeader } from "../../../components/page-header";
 import { RetryButton } from "../../../components/retry-button";
 import { formatInr } from "../../../lib/format";
@@ -138,14 +137,15 @@ export default async function DashboardPage() {
                   <p className="attention__title">{item.title}</p>
                   <p className="attention__body">{item.body}</p>
                 </div>
-                {item.actionHref && !pageDoors.has(item.actionHref) ? (
-                  <Link
+                {item.action && !pageDoors.has(item.action.href) ? (
+                  <PortalLink
                     className="bb-btn bb-btn--secondary bb-btn--sm attention__action"
-                    href={item.actionHref}
+                    href={item.action.href}
+                    pendingLabel={item.action.pendingLabel}
                   >
-                    {item.actionIcon ? <Icon name={item.actionIcon} /> : null}
-                    <span>{item.actionLabel}</span>
-                  </Link>
+                    <Icon name={item.action.icon} />
+                    <span>{item.action.label}</span>
+                  </PortalLink>
                 ) : null}
               </li>
             ))}
@@ -201,13 +201,13 @@ export default async function DashboardPage() {
           </h2>
           <div className="quick__grid">
             {quick.map((q) => (
-              <Link className="quick__card" href={q.href} key={q.href}>
+              <PortalLink className="quick__card" href={q.href} key={q.href} pendingLabel={q.label}>
                 <span className="quick__icon">
                   <Icon name={q.icon} />
                 </span>
                 <span className="quick__label">{q.label}</span>
                 <span className="quick__desc">{q.description}</span>
-              </Link>
+              </PortalLink>
             ))}
           </div>
         </section>
@@ -221,10 +221,14 @@ export default async function DashboardPage() {
             <div className="panel__actions">
               {/* The dashboard's ONE link to the Postings list, named as the rail item and the
                   list's H1 name it: one label per destination. */}
-              <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/postings">
+              <PortalLink
+                className="bb-btn bb-btn--secondary bb-btn--sm"
+                href="/postings"
+                pendingLabel="Postings"
+              >
                 <span>Postings</span>
                 <Icon name={ACTION_ICON.next} />
-              </Link>
+              </PortalLink>
             </div>
           </div>
           <div className="panel__body">
@@ -257,6 +261,7 @@ export default async function DashboardPage() {
                     className="dash-posting"
                     href={`/postings/${post.id}`}
                     ariaLabel={`${post.roleTitle} — view posting`}
+                    pendingLabel={post.roleTitle}
                   >
                     <div className="dash-posting__main">
                       <div className="dash-posting__title">{post.roleTitle}</div>
@@ -273,15 +278,15 @@ export default async function DashboardPage() {
                       {/* The posting's "Applicants" action (F12/F13): a real link ABOVE the
                           card's stretched overlay (z-index in CSS), named for its posting so a
                           list of them reads apart. The whole card still opens the posting. */}
-                      <Link
+                      <PortalLink
                         className="dash-posting__applicants"
                         href={`/postings/${post.id}/applicants`}
+                        pendingLabel="Applicants"
                         aria-label={`${post.roleTitle} — Applicants`}
                       >
                         <Icon name={ACTION_ICON.users} />
                         <span>Applicants</span>
-                        <NavPendingCue label="Applicants" />
-                      </Link>
+                      </PortalLink>
                       <Badge tone={post.status === "open" ? "success" : "neutral"} upper>
                         {post.status}
                       </Badge>
@@ -341,6 +346,7 @@ export default async function DashboardPage() {
                   ? {
                       href: `/postings/${row.posting.id}/applicants`,
                       ariaLabel: `${row.posting.title} — Applicants`,
+                      pendingLabel: "Applicants",
                     }
                   : {};
                 return (

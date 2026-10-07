@@ -7,8 +7,8 @@
  * (Chip is interactive and lives in ./chip.tsx as a client primitive.)
  */
 import type { ElementType, HTMLAttributes, ReactNode } from "react";
-import Link from "next/link";
 import { Icon, type IconName } from "@badabhai/icons";
+import { PortalLink } from "../portal-link";
 
 /* ---------- Whole-surface link (Card + StatTile) ---------- */
 /**
@@ -16,7 +16,9 @@ import { Icon, type IconName } from "@badabhai/icons";
  * overlay is an EMPTY `<a>` (it carries no text of its own), so an `href` without a name would
  * ship an unnamed link — screen readers announce it as the bare URL, or just "link" (WCAG 2.4.4
  * / 4.1.2). With no `href` there is no link to name, so an `ariaLabel` is refused rather than
- * silently dropped.
+ * silently dropped. `pendingLabel` travels with them too: the overlay is a `PortalLink`, so a
+ * click on a slow backend shows the navigation pending cue (components/portal-link.tsx) — a dot
+ * inside the surface's top-right corner, and the shell's bar and "Opening …" status line.
  */
 type SurfaceLinkProps =
   | {
@@ -33,8 +35,13 @@ type SurfaceLinkProps =
        * the visible label (e.g. `"Credit balance 247 — open wallet"`).
        */
       ariaLabel: string;
+      /**
+       * What the pending cue names while the navigation is under way ("Opening {pendingLabel}…")
+       * — the destination's own name (a posting's title, "Account"), not the whole `ariaLabel`.
+       */
+      pendingLabel: string;
     }
-  | { href?: never; ariaLabel?: never };
+  | { href?: never; ariaLabel?: never; pendingLabel?: never };
 
 /* ---------- Card ---------- */
 interface CardOwnProps extends HTMLAttributes<HTMLElement> {
@@ -56,6 +63,7 @@ export function Card({
   as,
   href,
   ariaLabel,
+  pendingLabel,
   className = "",
   children,
   ...rest
@@ -75,7 +83,14 @@ export function Card({
 
   return (
     <Tag className={cls} {...rest}>
-      {isLink && <Link className="bb-stretched-link" href={href} aria-label={ariaLabel} />}
+      {isLink && (
+        <PortalLink
+          className="bb-stretched-link"
+          href={href}
+          aria-label={ariaLabel}
+          pendingLabel={pendingLabel}
+        />
+      )}
       {children}
     </Tag>
   );
@@ -151,6 +166,7 @@ export function StatTile({
   caption,
   href,
   ariaLabel,
+  pendingLabel,
   className = "",
   ...rest
 }: StatTileProps) {
@@ -160,7 +176,14 @@ export function StatTile({
   const cls = ["bb-stat", isLink ? "bb-stat--link" : "", className].filter(Boolean).join(" ");
   return (
     <div className={cls} {...rest}>
-      {isLink && <Link className="bb-stretched-link" href={href} aria-label={ariaLabel} />}
+      {isLink && (
+        <PortalLink
+          className="bb-stretched-link"
+          href={href}
+          aria-label={ariaLabel}
+          pendingLabel={pendingLabel}
+        />
+      )}
       <div className="bb-stat__head">
         <span className="bb-stat__label">{label}</span>
         {icon && (

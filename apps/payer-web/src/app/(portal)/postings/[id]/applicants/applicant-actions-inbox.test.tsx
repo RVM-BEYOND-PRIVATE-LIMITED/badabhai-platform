@@ -43,9 +43,9 @@ vi.mock("next/link", () => ({
     props: { href, className, children },
   }),
 }));
-// The posting link carries the navigation pending cue, a client component with an effect, which
+// The posting link is a PortalLink, whose pending cue is a client component with an effect, which
 // this walk (it calls components outside a renderer) cannot run; its own behaviour is
-// components/nav-pending.render.test.tsx. Matched below by this stand-in's identity.
+// components/portal-link.test.tsx. linkCues below reads each link's `pendingLabel`.
 vi.mock("../../../../../components/nav-pending", () => ({ NavPendingCue: () => null }));
 vi.mock("./actions", () => ({
   unlockAction: (i: unknown) => unlockAction(i),
@@ -73,7 +73,6 @@ vi.mock("react", async () => {
 });
 
 const { ApplicantActions } = await import("./applicant-actions");
-const { NavPendingCue } = await import("../../../../../components/nav-pending");
 const { linkCues } = await import("../../../../../../test/link-cues");
 
 const P1 = "11111111-0000-4000-8000-000000000001";
@@ -412,7 +411,7 @@ describe("inbox mode — each card names its posting", () => {
 
   it("each posting link carries the navigation pending cue, named for its posting", () => {
     mount([ROW_A, ROW_C]);
-    const cues = linkCues(currentTree, NavPendingCue);
+    const cues = linkCues(currentTree);
     expect(cues.get(`/postings/${P1}`)).toEqual(["CNC Turner"]);
     expect(cues.get(`/agency/jobs/${J1}`)).toEqual(["Fitter"]);
   });

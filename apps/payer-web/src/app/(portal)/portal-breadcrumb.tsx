@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@badabhai/icons";
-import { NavPendingCue } from "../../components/nav-pending";
+import { PortalLink } from "../../components/portal-link";
 import { navTrail, type NavSection } from "./nav-model";
 
 /**
@@ -56,10 +55,13 @@ export function PortalBreadcrumb({ sections }: { sections: NavSection[] }) {
           {owner.group ? <Icon name="caret-right" className="pcrumb__sep" /> : null}
           {/* The label is its own box so IT ellipsizes: an `overflow: hidden` link would clip
               the link's own phone hit strip (globals.css). */}
-          <Link className="pcrumb__link" href={owner.item.href}>
+          <PortalLink
+            className="pcrumb__link"
+            href={owner.item.href}
+            pendingLabel={owner.item.label}
+          >
             <span className="pcrumb__label">{owner.item.label}</span>
-            <NavPendingCue label={owner.item.label} />
-          </Link>
+          </PortalLink>
         </span>
       ) : null}
     </>

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requireAgent } from "../../../lib/auth/roles";
 import { agencyFlags } from "../../../lib/config";
@@ -19,7 +18,7 @@ import type {
   AgencyReferralsSummary,
 } from "../../../lib/contracts";
 import { Badge, Card } from "../../../components/ds";
-import { NavPendingCue } from "../../../components/nav-pending";
+import { PortalLink } from "../../../components/portal-link";
 import { RetryButton } from "../../../components/retry-button";
 import { ReferralFunnel } from "../agency/dashboard/referral-funnel";
 import { AgencyParkedModules } from "../agency/dashboard/parked-modules";
@@ -167,6 +166,7 @@ export async function AgentSections() {
             className="agency-stat"
             href="/account"
             ariaLabel={`Account ${account?.displayLabel ?? "Your agency"} — manage account`}
+            pendingLabel="Account"
           >
             <div className="agency-stat__head">
               <span className="agency-stat__label">Account</span>
@@ -251,10 +251,14 @@ export async function AgentSections() {
           </div>
           <div className="panel__actions">
             {/* Named as the rail item and the list's H1 name it: one label per destination. */}
-            <Link className="bb-btn bb-btn--secondary bb-btn--sm" href={AGENCY_POSTING_ROUTES.list}>
+            <PortalLink
+              className="bb-btn bb-btn--secondary bb-btn--sm"
+              href={AGENCY_POSTING_ROUTES.list}
+              pendingLabel="Postings"
+            >
               <span>Postings</span>
               <Icon name={ACTION_ICON.next} />
-            </Link>
+            </PortalLink>
           </div>
         </div>
         <div className="panel__body">
@@ -294,6 +298,7 @@ export async function AgentSections() {
                   className="dash-posting"
                   href={`${AGENCY_POSTING_ROUTES.list}/${j.id}`}
                   ariaLabel={`${j.title} — view posting`}
+                  pendingLabel={j.title}
                 >
                   <div className="dash-posting__main">
                     <div className="dash-posting__title">{j.title}</div>
@@ -305,13 +310,13 @@ export async function AgentSections() {
                   <div className="dash-posting__right">
                     {/* A real link ABOVE the card's stretched overlay (z-index in CSS): the
                         whole card still opens the posting; this opens its applicants. */}
-                    <Link
+                    <PortalLink
                       className="dash-posting__applicants"
                       href={`${AGENCY_POSTING_ROUTES.list}/${j.id}/applicants`}
+                      pendingLabel="Applicants"
                     >
                       Applicants
-                      <NavPendingCue label="Applicants" />
-                    </Link>
+                    </PortalLink>
                     <Badge tone={j.status === "open" ? "success" : "neutral"} upper>
                       {j.status}
                     </Badge>
@@ -340,10 +345,14 @@ export async function AgentSections() {
             </p>
           </div>
           <div className="panel__actions">
-            <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/agency/referrals">
+            <PortalLink
+              className="bb-btn bb-btn--secondary bb-btn--sm"
+              href="/agency/referrals"
+              pendingLabel="Referrals"
+            >
               <span>Invite workers</span>
               <Icon name={ACTION_ICON.next} />
-            </Link>
+            </PortalLink>
           </div>
         </div>
         <div className="panel__body">

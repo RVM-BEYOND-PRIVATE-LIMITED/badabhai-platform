@@ -2,7 +2,6 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type { PayerSession } from "../../../lib/auth/types";
 import { Card } from "../../../components/ds";
-import { NavPendingCue } from "../../../components/nav-pending";
 import { linkCues } from "../../../../test/link-cues";
 
 /**
@@ -65,13 +64,6 @@ vi.mock("../../../lib/payer-api", () => ({
   getAgencyReferralsSummary: () => getAgencyReferralsSummary(),
   getAgencyEarnings: () => getAgencyEarnings(),
 }));
-// next/link renders an <a>; stub to a plain anchor so the walk sees it.
-vi.mock("next/link", () => ({
-  default: ({ children, href }: { children: ReactNode; href: string }) => ({
-    type: "a",
-    props: { href, children },
-  }),
-}));
 // The child Server/Client components are unit-tested directly; here we render the SECTION's
 // own composition, so stub the children (which live under ../agency/dashboard/) to plain
 // markers. The manual node render does not invoke nested components.
@@ -84,7 +76,8 @@ vi.mock("../agency/dashboard/referral-funnel", () => ({ ReferralFunnel: Referral
 vi.mock("../agency/dashboard/parked-modules", () => ({ AgencyParkedModules: ParkedModulesStub }));
 
 const { AgentSections } = await import("./agent-sections");
-const { default: LinkStub } = await import("next/link");
+// Every in-app link is a PortalLink (components/portal-link.tsx); the walk does not expand it.
+const { PortalLink } = await import("../../../components/portal-link");
 
 interface Collected {
   types: string[];
@@ -273,7 +266,7 @@ describe("agent sections — renders identity / demand summary / child modules",
   it("F21: the invite FORM is not on the dashboard — one link to Referrals, where it lives", async () => {
     const tree = await AgentSections();
     expect(collect(tree).components).not.toContain(InvitePanelStub);
-    const toReferrals = findAll(tree, LinkStub).filter((a) =>
+    const toReferrals = findAll(tree, PortalLink).filter((a) =>
       String(prop(a).href).startsWith("/agency/referrals"),
     );
     expect(toReferrals.map((a) => prop(a).href)).toEqual(["/agency/referrals"]);
@@ -294,7 +287,7 @@ describe("agent sections — renders identity / demand summary / child modules",
 
   it("links an agency posting's REAL applicants (#1956 — #1955 made the feed serve them)", async () => {
     const tree = await AgentSections();
-    const hrefs = [...findAll(tree, LinkStub), ...findAll(tree, Card)]
+    const hrefs = [...findAll(tree, PortalLink), ...findAll(tree, Card)]
       .map((a) => prop(a).href)
       .filter((h): h is string => typeof h === "string");
     expect(hrefs).toContain(`/agency/jobs/${JOB.id}/applicants`);
@@ -305,7 +298,7 @@ describe("agent sections — renders identity / demand summary / child modules",
 
   it("offers ONE way to Referrals, not one per funnel stage or invite tool", async () => {
     const tree = await AgentSections();
-    const hrefs = [...findAll(tree, LinkStub), ...findAll(tree, Card)]
+    const hrefs = [...findAll(tree, PortalLink), ...findAll(tree, Card)]
       .map((a) => prop(a).href)
       .filter((h): h is string => typeof h === "string");
     expect(hrefs.filter((h) => h.startsWith("/agency/referrals"))).toEqual(["/agency/referrals"]);
@@ -322,7 +315,7 @@ describe("agent sections — renders identity / demand summary / child modules",
       String(prop(c).className ?? "").split(/\s+/).includes("dash-posting"),
     );
     expect(cards).toHaveLength(3);
-    const toList = [...findAll(tree, LinkStub), ...findAll(tree, Card)].filter(
+    const toList = [...findAll(tree, PortalLink), ...findAll(tree, Card)].filter(
       (a) => prop(a).href === "/agency/jobs",
     );
     expect(toList).toHaveLength(1);
@@ -332,7 +325,7 @@ describe("agent sections — renders identity / demand summary / child modules",
     // One label per destination: a navigation link says where it goes in the destination's own
     // name ("All postings" was a second name for the same page).
     const tree = await AgentSections();
-    const toList = findAll(tree, LinkStub).filter((a) => prop(a).href === "/agency/jobs");
+    const toList = findAll(tree, PortalLink).filter((a) => prop(a).href === "/agency/jobs");
     expect(toList).toHaveLength(1);
     expect(collect(prop(toList[0]!).children as ReactNode).text.join("").trim()).toBe("Postings");
   });
@@ -342,7 +335,7 @@ describe("agent sections — renders identity / demand summary / child modules",
     const joined = collect(tree).text.join(" ");
     expect(joined).not.toMatch(/Post a vacancy|Post vacancy/);
     const hrefs = [
-      ...findAll(tree, LinkStub).map((a) => prop(a).href),
+      ...findAll(tree, PortalLink).map((a) => prop(a).href),
       ...findAll(tree, Card).map((c) => prop(c).href),
     ].filter((h): h is string => typeof h === "string");
     expect(hrefs).toContain("/agency/jobs");
@@ -390,13 +383,13 @@ describe("F15/F17 · no tile mirrors a rail destination, and no door to a dead m
     expect(joined).not.toMatch(/upload multiple invites/i);
     expect(joined).not.toMatch(/\bat scale\b/i);
     expect(joined).not.toMatch(/bulk/i);
-    const hrefs = [...findAll(tree, LinkStub), ...findAll(tree, Card)].map((a) => prop(a).href);
+    const hrefs = [...findAll(tree, PortalLink), ...findAll(tree, Card)].map((a) => prop(a).href);
     expect(hrefs).not.toContain("/agency/bulk-upload");
   });
 
   it("no tile repeats the rail: Worker activity, QR invite and batch links are the rail's (or Referrals')", async () => {
     const tree = await AgentSections();
-    const hrefs = [...findAll(tree, LinkStub), ...findAll(tree, Card)].map((a) => prop(a).href);
+    const hrefs = [...findAll(tree, PortalLink), ...findAll(tree, Card)].map((a) => prop(a).href);
     for (const railOnly of ["/agency/workers", "/agency/qr", "/agency/referrals#batch-invites"]) {
       expect(hrefs, railOnly).not.toContain(railOnly);
     }
@@ -462,9 +455,18 @@ describe("CARDS-1 · agent tiles are whole-card links to their REAL routes (face
   });
 });
 
-describe("the navigation pending cue on an agency posting card (components/nav-pending.tsx)", () => {
-  it("the card's Applicants link carries it", async () => {
-    const cues = linkCues(await AgentSections(), NavPendingCue);
+describe("the navigation pending cue on the agency sections (components/portal-link.tsx)", () => {
+  it("a posting card — its whole-card link and its Applicants link — carries it", async () => {
+    const cues = linkCues(await AgentSections());
+    expect(cues.get(`/agency/jobs/${JOB.id}`)).toEqual([JOB.title]);
     expect(cues.get(`/agency/jobs/${JOB.id}/applicants`)).toEqual(["Applicants"]);
+  });
+
+  it("so does every other link: Account, Postings, Referrals — none goes without one", async () => {
+    const cues = linkCues(await AgentSections());
+    expect(cues.get("/account")).toEqual(["Account"]);
+    expect(cues.get("/agency/jobs")).toEqual(["Postings"]);
+    expect(cues.get("/agency/referrals")).toEqual(["Referrals"]);
+    expect([...cues].filter(([, labels]) => labels.length === 0)).toEqual([]);
   });
 });

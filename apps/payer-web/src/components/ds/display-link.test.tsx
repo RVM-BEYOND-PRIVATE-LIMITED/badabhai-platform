@@ -16,11 +16,16 @@ import type { ReactElement, ReactNode } from "react";
  * semantics (Enter activates; the parent renders the keyboard-only ring in CSS via
  * `:has(> .bb-stretched-link:focus-visible)`).
  *
- * The overlay `<a>` is EMPTY, so `ariaLabel` is its only name: `href` without `ariaLabel` is a
+ * The overlay `<a>` has no TEXT, so `ariaLabel` is its only name: `href` without `ariaLabel` is a
  * TYPE error (see the compile-time block at the foot — enforced by `pnpm typecheck`, which
- * includes this file), not a runtime case to render.
+ * includes this file), not a runtime case to render. Its one child is the navigation pending cue
+ * (the overlay is a `PortalLink`, components/portal-link.tsx) — an empty, `aria-hidden` span named
+ * by `pendingLabel`, which travels with `href` the same way (follow-up to #2115: the dashboard's
+ * whole-card links answered a slow click with nothing at all).
  */
+const link = vi.hoisted(() => ({ pending: false }));
 vi.mock("next/link", () => ({
+  useLinkStatus: () => ({ pending: link.pending }),
   default: ({
     children,
     href,
@@ -46,7 +51,7 @@ const anchorCount = (s: string): number => (s.match(/<a\b/g) || []).length;
 describe("CARDS-1 · Card link affordance (stretched-link)", () => {
   it("WITH href: renders exactly ONE stretched-link <a> with the supplied aria-label", () => {
     const out = html(
-      <Card href="/credits" ariaLabel="Credit balance 247 — open wallet">
+      <Card href="/credits" ariaLabel="Credit balance 247 — open wallet" pendingLabel="Credits">
         <span>Balance</span>
       </Card>,
     );
@@ -75,7 +80,14 @@ describe("CARDS-1 · Card link affordance (stretched-link)", () => {
 
   it("preserves existing Card props (variant/padding/as) alongside href", () => {
     const out = html(
-      <Card href="/x" ariaLabel="Open x" variant="flat" padding="none" as="section">
+      <Card
+        href="/x"
+        ariaLabel="Open x"
+        pendingLabel="X"
+        variant="flat"
+        padding="none"
+        as="section"
+      >
         body
       </Card>,
     );
@@ -88,7 +100,7 @@ describe("CARDS-1 · Card link affordance (stretched-link)", () => {
 
   it("the overlay is a DIRECT child of the root (the CSS ring keys on `:has(> .bb-stretched-link…)`)", () => {
     const card = html(
-      <Card href="/credits" ariaLabel="Open wallet">
+      <Card href="/credits" ariaLabel="Open wallet" pendingLabel="Credits">
         <div>
           <span>nested</span>
         </div>
@@ -96,14 +108,20 @@ describe("CARDS-1 · Card link affordance (stretched-link)", () => {
     );
     expect(card).toMatch(/^<div class="bb-card bb-card--link"><a [^>]*class="bb-stretched-link"/);
     const stat = html(
-      <StatTile label="Balance" value={1} href="/credits" ariaLabel="Open wallet" />,
+      <StatTile
+        label="Balance"
+        value={1}
+        href="/credits"
+        ariaLabel="Open wallet"
+        pendingLabel="Credits"
+      />,
     );
     expect(stat).toMatch(/^<div class="bb-stat bb-stat--link"><a [^>]*class="bb-stretched-link"/);
   });
 
   it("an inner Badge-as-status (non-interactive) does NOT add a second link", () => {
     const out = html(
-      <Card href="/postings" ariaLabel="CNC Operator — view applicants">
+      <Card href="/postings" ariaLabel="CNC Operator — view applicants" pendingLabel="Postings">
         <span className="bb-badge bb-badge--success">open</span>
       </Card>,
     );
@@ -120,6 +138,7 @@ describe("CARDS-1 · StatTile link affordance (stretched-link)", () => {
         icon="briefcase"
         href="/postings"
         ariaLabel="Open postings 3 — manage postings"
+        pendingLabel="Postings"
       />,
     );
     expect(anchorCount(out)).toBe(1);
@@ -142,6 +161,56 @@ describe("CARDS-1 · StatTile link affordance (stretched-link)", () => {
   });
 });
 
+describe("the whole-surface link carries the navigation pending cue (follow-up to #2115)", () => {
+  const CUE_IDLE = '<span class="nav-pending" aria-hidden="true"></span>';
+  const CUE_ON = '<span class="nav-pending nav-pending--on" aria-hidden="true"></span>';
+  /** What the overlay `<a>` holds, for a surface whose markup has exactly one. */
+  const overlay = (s: string): string =>
+    s.slice(s.indexOf(">", s.indexOf("<a ")) + 1, s.indexOf("</a>"));
+
+  it("a Card's overlay holds the cue and nothing else — no text, so its name is still ariaLabel", () => {
+    const out = html(
+      <Card href="/postings/p1" ariaLabel="CNC Turner — view posting" pendingLabel="CNC Turner">
+        <span>CNC Turner</span>
+      </Card>,
+    );
+    expect(overlay(out)).toBe(CUE_IDLE);
+    expect(out).toContain('aria-label="CNC Turner — view posting"');
+  });
+
+  it("a StatTile's overlay holds it too", () => {
+    const out = html(
+      <StatTile
+        label="Account"
+        value="Acme"
+        href="/account"
+        ariaLabel="Account"
+        pendingLabel="Account"
+      />,
+    );
+    expect(overlay(out)).toBe(CUE_IDLE);
+  });
+
+  it("while the surface's navigation is pending, the cue is on", () => {
+    link.pending = true;
+    try {
+      const card = html(
+        <Card href="/postings/p1" ariaLabel="Open" pendingLabel="CNC Turner">
+          body
+        </Card>,
+      );
+      expect(overlay(card)).toBe(CUE_ON);
+    } finally {
+      link.pending = false;
+    }
+  });
+
+  it("a surface with no href has no link — and so no cue", () => {
+    expect(html(<Card>body</Card>)).not.toContain("nav-pending");
+    expect(html(<StatTile label="Balance" value={1} />)).not.toContain("nav-pending");
+  });
+});
+
 /**
  * Compile-time contract: a link surface is never unnamed. Each `@ts-expect-error` below FAILS
  * `pnpm typecheck` ("unused directive") the moment its line compiles — i.e. if `ariaLabel` ever
@@ -161,7 +230,17 @@ describe("CARDS-1 · href without an accessible name does not compile", () => {
       <Card key="orphan" ariaLabel="Open wallet">
         Balance
       </Card>,
+      // @ts-expect-error — a link with no pendingLabel would answer a slow click with nothing
+      <Card key="uncued" href="/credits" ariaLabel="Open wallet">
+        Balance
+      </Card>,
+      // @ts-expect-error — a link with no pendingLabel would answer a slow click with nothing
+      <StatTile key="uncued-stat" label="Open" value={3} href="/postings" ariaLabel="Open" />,
+      // @ts-expect-error — pendingLabel without href names no navigation
+      <Card key="orphan-cue" pendingLabel="Credits">
+        Balance
+      </Card>,
     ];
-    expect(rejected).toHaveLength(3);
+    expect(rejected).toHaveLength(6);
   });
 });

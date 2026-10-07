@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { requirePayer } from "../../../lib/auth";
@@ -27,8 +26,8 @@ import {
   type PostingOption,
 } from "../../../lib/candidate-inbox";
 import { Card } from "../../../components/ds";
-import { NavPendingCue } from "../../../components/nav-pending";
 import { PageHeader } from "../../../components/page-header";
+import { PortalLink } from "../../../components/portal-link";
 import { RetryButton } from "../../../components/retry-button";
 import { ApplicantActions } from "../postings/[id]/applicants/applicant-actions";
 import { CandidateFilter } from "./candidate-filter";
@@ -234,21 +233,24 @@ function Pager({
   return (
     <nav className="candidates-pager" aria-label="Candidate pages">
       {cursor ? (
-        <Link className="bb-btn bb-btn--secondary" href={candidatesHref({ postingId })}>
+        <PortalLink
+          className="bb-btn bb-btn--secondary"
+          href={candidatesHref({ postingId })}
+          pendingLabel="First page"
+        >
           <Icon name={ACTION_ICON.back} />
           <span>First page</span>
-          <NavPendingCue label="First page" />
-        </Link>
+        </PortalLink>
       ) : null}
       {nextCursor ? (
-        <Link
+        <PortalLink
           className="bb-btn bb-btn--secondary"
           href={candidatesHref({ postingId, cursor: nextCursor })}
+          pendingLabel="Next page"
         >
           <span>Next page</span>
           <Icon name={ACTION_ICON.next} />
-          <NavPendingCue label="Next page" />
-        </Link>
+        </PortalLink>
       ) : null}
     </nav>
   );
@@ -270,11 +272,14 @@ function LoadErrorState({ firstPage }: { firstPage: string | null }) {
           <RetryButton />
           {/* A later page's link can go stale; the newest page is always a way back in. */}
           {firstPage ? (
-            <Link className="bb-btn bb-btn--secondary" href={firstPage}>
+            <PortalLink
+              className="bb-btn bb-btn--secondary"
+              href={firstPage}
+              pendingLabel="First page"
+            >
               <Icon name={ACTION_ICON.back} />
               <span>First page</span>
-              <NavPendingCue label="First page" />
-            </Link>
+            </PortalLink>
           ) : null}
         </div>
       </div>
@@ -301,11 +306,10 @@ function CursorRefusedState({ firstPage }: { firstPage: string }) {
           first page.
         </p>
         <div className="state__actions">
-          <Link className="bb-btn bb-btn--secondary" href={firstPage}>
+          <PortalLink className="bb-btn bb-btn--secondary" href={firstPage} pendingLabel="First page">
             <Icon name={ACTION_ICON.back} />
             <span>First page</span>
-            <NavPendingCue label="First page" />
-          </Link>
+          </PortalLink>
         </div>
       </div>
     </Card>
@@ -346,11 +350,14 @@ function FilteredEmptyState() {
           Nobody has applied to it yet, or it isn&rsquo;t one of your postings.
         </p>
         <div className="state__actions">
-          <Link className="bb-btn bb-btn--secondary" href={candidatesHref({})}>
+          <PortalLink
+            className="bb-btn bb-btn--secondary"
+            href={candidatesHref({})}
+            pendingLabel="All postings"
+          >
             <Icon name={ACTION_ICON.clearFilters} />
             <span>All postings</span>
-            <NavPendingCue label="All postings" />
-          </Link>
+          </PortalLink>
         </div>
       </div>
     </Card>
@@ -392,15 +399,23 @@ function EmptyState({ isAgency, hasPostings }: { isAgency: boolean; hasPostings:
         {routes ? (
           <div className="state__actions">
             {hasPostings ? (
-              <Link className="bb-btn bb-btn--secondary" href={routes.list}>
+              <PortalLink
+                className="bb-btn bb-btn--secondary"
+                href={routes.list}
+                pendingLabel="Postings"
+              >
                 <Icon name={ACTION_ICON.posting} />
                 <span>Postings</span>
-              </Link>
+              </PortalLink>
             ) : (
-              <Link className="bb-btn bb-btn--secondary" href={routes.create}>
+              <PortalLink
+                className="bb-btn bb-btn--secondary"
+                href={routes.create}
+                pendingLabel="New posting"
+              >
                 <Icon name={ACTION_ICON.create} />
                 <span>New posting</span>
-              </Link>
+              </PortalLink>
             )}
           </div>
         ) : null}

@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
+import { PortalLink } from "../../components/portal-link";
 import { navTrail } from "./nav-model";
 import { useNavSections } from "./nav-context";
 
@@ -45,16 +45,24 @@ export default function PortalError({ reset }: { error: Error; reset: () => void
           <span>Try again</span>
         </button>
         {section ? (
-          <Link className="bb-btn bb-btn--secondary" href={section.href}>
+          <PortalLink
+            className="bb-btn bb-btn--secondary"
+            href={section.href}
+            pendingLabel={section.label}
+          >
             <Icon name={ACTION_ICON.back} />
             <span>{section.label}</span>
-          </Link>
+          </PortalLink>
         ) : null}
         {toDashboard ? (
-          <Link className="bb-btn bb-btn--secondary" href="/dashboard">
+          <PortalLink
+            className="bb-btn bb-btn--secondary"
+            href="/dashboard"
+            pendingLabel="Dashboard"
+          >
             <Icon name="squares-four" />
             <span>Dashboard</span>
-          </Link>
+          </PortalLink>
         ) : null}
       </div>
     </div>

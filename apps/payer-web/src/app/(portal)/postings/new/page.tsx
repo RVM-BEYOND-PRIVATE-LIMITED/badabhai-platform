@@ -1,9 +1,9 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requirePayer } from "../../../../lib/auth";
 import { agentPostingRedirect } from "../../../../lib/posting-routes";
 import { HIRING_CAPACITY_HREF } from "../../../../lib/billing-routes";
 import { PageHeader } from "../../../../components/page-header";
+import { PortalLink } from "../../../../components/portal-link";
 import { getLiveCatalog } from "../../../../lib/live-catalog";
 import {
   applicantQuotaStep,
@@ -89,10 +89,14 @@ export default async function NewPostingPage() {
           </p>
         </div>
         <div className="alert__actions">
-          <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/postings/ai/new">
+          <PortalLink
+            className="bb-btn bb-btn--secondary bb-btn--sm"
+            href="/postings/ai/new"
+            pendingLabel="Post with AI"
+          >
             <span>Post with AI</span>
             <Icon name={ACTION_ICON.next} />
-          </Link>
+          </PortalLink>
         </div>
       </div>
 
@@ -103,7 +107,10 @@ export default async function NewPostingPage() {
             <p className="alert__title">At capacity</p>
             <p className="alert__body">
               You are at capacity; this posting may be paused until you{" "}
-              <Link href={HIRING_CAPACITY_HREF}>add capacity</Link>.
+              <PortalLink href={HIRING_CAPACITY_HREF} pendingLabel="Plans & capacity">
+                add capacity
+              </PortalLink>
+              .
             </p>
           </div>
         </div>

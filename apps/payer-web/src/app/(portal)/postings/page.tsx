@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { getPostings } from "../../../lib/payer-api";
@@ -15,6 +14,7 @@ import { Card } from "../../../components/ds";
 import { CachedPricingNote } from "../../../components/cached-pricing-note";
 import { priceFigure } from "../../../components/price-figure";
 import { PageHeader } from "../../../components/page-header";
+import { PortalLink } from "../../../components/portal-link";
 import { RetryButton } from "../../../components/retry-button";
 import { PostingsManager, type TopUpOffer } from "./postings-manager";
 
@@ -99,10 +99,14 @@ export default async function PostingsPage() {
               </p>
             </div>
             <div className="alert__actions">
-              <Link className="bb-btn bb-btn--secondary bb-btn--sm" href={agencyPostings.list}>
+              <PortalLink
+                className="bb-btn bb-btn--secondary bb-btn--sm"
+                href={agencyPostings.list}
+                pendingLabel="Postings"
+              >
                 <span>Go to Postings</span>
                 <Icon name={ACTION_ICON.next} />
-              </Link>
+              </PortalLink>
             </div>
           </div>
         ) : null
