@@ -6,7 +6,7 @@ import { Icon } from "@badabhai/icons";
 import { Badge, Button, Card, Dialog, Toast } from "../../../components/ds";
 import { formatInr } from "../../../lib/format";
 import type { ChargedPrice } from "../../../lib/pricing-config";
-import { priceChangedMessage } from "../../../lib/price-confirmation";
+import { earlierPurchaseMessage, priceChangedMessage } from "../../../lib/purchase-messages";
 import { priceFigure } from "../../../components/price-figure";
 import { upgradeCapacityAction } from "./actions";
 
@@ -74,7 +74,8 @@ export function CapacityPanel({
   // (`greatest()`). Minted on the confirm below, held across every retry of the SAME tier so a
   // re-tap dedupes into a replay, and reset on success / a genuinely new tier. A ref (survives
   // re-renders, no render on reuse). PII-free (`crypto.randomUUID()`), no payer id (XB-A).
-  const purchaseKeyRef = useRef<{ key: string; tier: string } | null>(null);
+  // It also remembers the price it was first confirmed at (#2085 L2 — see confirmUpgrade).
+  const purchaseKeyRef = useRef<{ key: string; tier: string; priceInr: number } | null>(null);
   // The tier whose button opened the confirm: focus goes back there once the dialog is closed and
   // the upgrade has settled — only if focus was lost meanwhile.
   const focusBack = useRef<string | null>(null);
@@ -90,9 +91,9 @@ export function CapacityPanel({
   }, [pendingConfirm, pendingCode]);
 
   /** Reuse the pending key for a retry of the SAME tier; mint a fresh one otherwise. */
-  function idempotencyKeyFor(tier: string): string {
-    if (purchaseKeyRef.current === null || purchaseKeyRef.current.tier !== tier) {
-      purchaseKeyRef.current = { key: crypto.randomUUID(), tier };
+  function idempotencyKeyFor(tier: CapacityTier): string {
+    if (purchaseKeyRef.current === null || purchaseKeyRef.current.tier !== tier.code) {
+      purchaseKeyRef.current = { key: crypto.randomUUID(), tier: tier.code, priceInr: tier.priceInr };
     }
     return purchaseKeyRef.current.key;
   }
@@ -121,9 +122,22 @@ export function CapacityPanel({
     setError(null);
     setMessage(null);
     setNotice(null);
+    // ONE KEY, ONE CONFIRMED PRICE (#2085 L2). A key still held for this tier belongs to an earlier
+    // attempt whose outcome is unknown (still processing, a failure, a dropped connection). Reusing
+    // it is what stops a retry buying twice — the API replays the FIRST attempt — so it is never
+    // swapped for a fresh key while held. But that replay is the first attempt's purchase, at the
+    // first attempt's price: sent after the payer confirmed a DIFFERENT price, the panel would
+    // announce a purchase this dialog never described. So that confirm is not sent; the payer is
+    // told an earlier purchase may still be processing. Deliberate: a hold (until the page is
+    // reloaded and the earlier attempt's effect shows) over a second charge or a mislabelled one.
+    const held = purchaseKeyRef.current;
+    if (held !== null && held.tier === tier.code && held.priceInr !== tier.priceInr) {
+      setNotice(earlierPurchaseMessage(held.priceInr));
+      return;
+    }
     setPendingCode(tier.code);
     // One key per purchase, reused across a retry of THIS tier (safe re-tap after a timeout).
-    const idempotencyKey = idempotencyKeyFor(tier.code);
+    const idempotencyKey = idempotencyKeyFor(tier);
     startTransition(async () => {
       // The tier CODE (XT5 / XB-A) and the price this dialog showed (#2085) — never an amount
       // to charge, never the allowance.

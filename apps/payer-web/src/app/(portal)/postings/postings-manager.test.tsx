@@ -77,7 +77,7 @@ vi.mock("react", async () => {
 const { PostingsManager } = await import("./postings-manager");
 
 /** The one slot top-up on offer — what the server page reads from the live catalog tier. */
-const OFFER = { priceInr: 1000, additionalViews: 10 };
+const OFFER = { code: "topup_10", priceInr: 1000, additionalViews: 10 };
 /** Its trigger's face: the slots AND the price (owner ruling 2026-10-07 — F11). */
 const TOP_UP = "Add 10 applicant slots · ₹1,000";
 
@@ -365,6 +365,7 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
     footerButtons(dialogOf(open))[1]!.onClick();
     expect(topUpQuotaAction).toHaveBeenCalledWith({
       postingId: OPEN.id,
+      tier: { code: "topup_10", additionalViews: 10 },
       expectedPriceInr: 1000,
       idempotencyKey: "key-1",
     });
@@ -432,7 +433,7 @@ describe("PostingsManager — Add applicant slots shows its price and asks first
   });
 
   it("the price follows the offer it is given (an ops re-price shows on the button)", () => {
-    const tree = render([OPEN], {}, false, { offer: { priceInr: 1500, additionalViews: 25 } });
+    const tree = render([OPEN], {}, false, { offer: { code: "topup_25", priceInr: 1500, additionalViews: 25 } });
     expect(collect(tree).buttons.map((b) => b.text)).toContain("Add 25 applicant slots · ₹1,500");
   });
 
@@ -493,10 +494,16 @@ describe("PostingsManager — Add applicant slots shows its price and asks first
     footerButtons(dialog)[1]!.onClick();
     expect(setters[2]).toHaveBeenCalledWith(null); // the dialog closes
     expect(topUpQuotaAction).toHaveBeenCalledTimes(1);
-    // #2085: the confirmed price rides along as a guard (the server still prices the charge).
-    // EXACTLY these three keys — XB-A: never a payer id; never an amount to charge.
+    // #2085: the confirmed tier and price ride along (the seam buys that tier or nothing; the
+    // server still prices the charge). EXACTLY these keys — XB-A: never a payer id; never an
+    // amount to charge.
     const sent = topUpQuotaAction.mock.calls[0]![0] as Record<string, unknown>;
-    expect(sent).toStrictEqual({ postingId: OPEN.id, expectedPriceInr: 1000, idempotencyKey: "key-1" });
+    expect(sent).toStrictEqual({
+      postingId: OPEN.id,
+      tier: { code: "topup_10", additionalViews: 10 },
+      expectedPriceInr: 1000,
+      idempotencyKey: "key-1",
+    });
     expect(JSON.stringify(sent)).not.toMatch(/payer|amount/i);
     const update = setters[1]!.mock.calls[0]![0] as (
       prev: Record<string, unknown>,
@@ -742,7 +749,7 @@ describe("PostingsManager — #2085: the price shown is the price sent, under on
     roleTitle: "VMC Operator",
   };
   /** The top-up under an active offer: charged ₹750, list ₹1,000. */
-  const OFFER_750 = { priceInr: 750, listPriceInr: 1000, additionalViews: 10 };
+  const OFFER_750 = { code: "topup_10", priceInr: 750, listPriceInr: 1000, additionalViews: 10 };
   const rupees = (s: string) => Number(s.replace(/[₹,\s]/g, ""));
   type Row = { busy: unknown; error: unknown; notice: unknown; info: unknown };
 
@@ -874,5 +881,102 @@ describe("PostingsManager — #2085: the price shown is the price sent, under on
     (dialog.props as { onClose: () => void }).onClose();
     expect(topUpQuotaAction).not.toHaveBeenCalled();
     expect(uuidCounter).toBe(0);
+  });
+});
+
+/**
+ * #2085 L1 + L2 on the row.
+ *  - L1: the confirm sends the tier it described; the seam's "this option changed" refusal is a
+ *    neutral row note, and a key minted for that confirm (never sent) is dropped.
+ *  - L2: a key held for a posting after an attempt whose outcome is unknown is never sent under a
+ *    different confirmed offer (price OR tier) — the API would replay the first purchase. The row
+ *    says an earlier purchase may still be processing; the key is kept, a confirm of the SAME offer
+ *    still reuses it, and another posting is unaffected.
+ */
+describe("PostingsManager — #2085 L1/L2: the confirmed tier, and one key per confirmed offer", () => {
+  const SECOND: PostingSummary = {
+    ...OPEN,
+    id: "bbbb2222-0000-4000-8000-000000000002",
+    roleTitle: "VMC Operator",
+  };
+  const HELD = "An earlier purchase at ₹1,000 may still be processing — check back in a moment.";
+  type Row = { busy: unknown; error: unknown; notice: unknown; info: unknown };
+
+  async function confirmOn(postingId: string, offer: typeof OFFER): Promise<Row> {
+    const tree = render([OPEN, SECOND], {}, false, { confirming: postingId, offer });
+    footerButtons(dialogOf(tree))[1]!.onClick();
+    const setRows = setters[1]!;
+    await new Promise((r) => setTimeout(r, 0));
+    const rows = setRows.mock.calls.reduce(
+      (acc, [update]) => (update as (p: Record<string, Row>) => Record<string, Row>)(acc),
+      {} as Record<string, Row>,
+    );
+    return rows[postingId]!;
+  }
+  const sent = () =>
+    topUpQuotaAction.mock.calls.map(
+      (c) => c[0] as { postingId: string; tier: unknown; idempotencyKey?: string },
+    );
+
+  it("L1: the confirm sends the tier its dialog described — code and slots", async () => {
+    topUpQuotaAction.mockResolvedValueOnce({ ok: true, posting: OPEN, notice: "Applicant slots added." });
+    await confirmOn(OPEN.id, { code: "topup_30", priceInr: 2500, additionalViews: 30 });
+    expect(sent()[0]!.tier).toStrictEqual({ code: "topup_30", additionalViews: 30 });
+  });
+
+  it("L1: 'this option changed' is a neutral row note; the key minted for that confirm is dropped", async () => {
+    topUpQuotaAction.mockResolvedValueOnce({ ok: false, optionChanged: true });
+    const row = await confirmOn(OPEN.id, OFFER);
+    expect(row).toEqual({
+      busy: null,
+      error: null,
+      notice: null,
+      info: "This option changed — review and confirm again.",
+    });
+    topUpQuotaAction.mockResolvedValueOnce({ ok: true, posting: OPEN, notice: "Applicant slots added." });
+    await confirmOn(OPEN.id, { code: "topup_10", priceInr: 1000, additionalViews: 5 });
+    expect(sent().map((s) => s.idempotencyKey)).toEqual(["key-1", "key-2"]);
+  });
+
+  it("L2: after 'still processing' at ₹1,000, a confirm at a NEW price sends nothing and says so; the same offer reuses the key", async () => {
+    topUpQuotaAction.mockResolvedValueOnce({ ok: false, pending: true });
+    await confirmOn(OPEN.id, OFFER); // key-1 held for topup_10 @ ₹1,000
+    const row = await confirmOn(OPEN.id, { ...OFFER, priceInr: 1200 });
+    expect(row).toEqual({ busy: null, error: null, notice: null, info: HELD });
+    expect(topUpQuotaAction).toHaveBeenCalledTimes(1);
+
+    topUpQuotaAction.mockResolvedValueOnce({ ok: true, posting: OPEN, notice: "Applicant slots added." });
+    await confirmOn(OPEN.id, OFFER);
+    expect(sent().map((s) => s.idempotencyKey)).toEqual(["key-1", "key-1"]);
+  });
+
+  it("L2: a different TIER at the same price is held too — the replay would be the first tier", async () => {
+    // Each case differs from the held offer in ONE field only, so each comparison is pinned alone.
+    for (const other of [
+      { ...OFFER, code: "topup_10_v2" }, // another tier code, same slots and price
+      { ...OFFER, additionalViews: 12 }, // the same code re-sized, same price
+    ]) {
+      topUpQuotaAction.mockReset().mockResolvedValueOnce({
+        ok: false,
+        error: "Could not add applicant slots right now. Please retry.",
+      });
+      refs = []; // a fresh manager: no key held yet
+      await confirmOn(OPEN.id, OFFER);
+      const row = await confirmOn(OPEN.id, other);
+      expect(row.info, JSON.stringify(other)).toBe(HELD);
+      expect(topUpQuotaAction, JSON.stringify(other)).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("L2: another posting's purchase is unaffected by a key held on this one", async () => {
+    topUpQuotaAction
+      .mockResolvedValueOnce({ ok: false, pending: true })
+      .mockResolvedValueOnce({ ok: true, posting: SECOND, notice: "Applicant slots added." });
+    await confirmOn(OPEN.id, OFFER);
+    await confirmOn(SECOND.id, { ...OFFER, priceInr: 1200 });
+    expect(sent().map((s) => [s.postingId, s.idempotencyKey])).toEqual([
+      [OPEN.id, "key-1"],
+      [SECOND.id, "key-2"],
+    ]);
   });
 });

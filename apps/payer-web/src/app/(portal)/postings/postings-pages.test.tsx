@@ -310,7 +310,9 @@ describe("/postings — the slot top-up on offer comes from the live catalog tie
     getLiveCatalog.mockResolvedValue({ products: EDITED, live: true });
     const tree = await list.default();
     const tier = quotaTopUpTier({ products: EDITED })!;
+    // …and its CODE, which the confirm sends back so exactly this tier is bought (#2085 L1).
     expect(managerProps(tree).topUpOffer).toEqual({
+      code: tier.code,
       priceInr: tier.priceInr,
       additionalViews: tier.additionalViews,
     });
@@ -462,7 +464,12 @@ describe("/postings — #2085: the slot offer is the charged price", () => {
       live: true,
     });
     const tree = await list.default();
-    expect(offerOf(tree)).toEqual({ priceInr: 750, listPriceInr: 1000, additionalViews: 10 });
+    expect(offerOf(tree)).toEqual({
+      code: "topup_10",
+      priceInr: 750,
+      listPriceInr: 1000,
+      additionalViews: 10,
+    });
     expect(struck(tree)).toEqual(["₹1,000"]);
     expect(text(tree)).toContain("₹750");
   });
@@ -470,7 +477,7 @@ describe("/postings — #2085: the slot offer is the charged price", () => {
   it("no prices[] (an older API): the catalog price, nothing struck", async () => {
     getLiveCatalog.mockResolvedValue({ products: DEFAULT_CATALOG.products, prices: null, live: true });
     const tree = await list.default();
-    expect(offerOf(tree)).toEqual({ priceInr: 1000, additionalViews: 10 });
+    expect(offerOf(tree)).toEqual({ code: "topup_10", priceInr: 1000, additionalViews: 10 });
     expect(struck(tree)).toEqual([]);
   });
 });

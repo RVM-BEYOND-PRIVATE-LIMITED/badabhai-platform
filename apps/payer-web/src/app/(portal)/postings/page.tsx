@@ -30,8 +30,9 @@ export const dynamic = "force-dynamic";
  * `POST /payer/job-postings/:id/{pause|resume|quota-topup|close}` routes (#178/#180),
  * wired in the manager with per-row busy state + inline retryable errors. ADD APPLICANT SLOTS is
  * a purchase: its button shows its slots and ₹ and asks first (owner ruling 2026-10-07, F11). That
- * offer is `quotaTopUpTier()` of the LIVE catalog — the very tier `topUpQuotaAction` charges by —
- * so the button, the dialog and the quota note below all name what is actually bought (D-6; fetch
+ * offer is `quotaTopUpTier()` of the LIVE catalog, and the confirm sends that tier back — the
+ * seam buys exactly it or nothing (#2085 L1) — so the button, the dialog and the quota note below
+ * all name what is actually bought (D-6; fetch
  * failure ⇒ compile-time defaults + the cached-pricing note). Never a hardcoded price or quota.
  *
  * AN AGENT (owner ruling 2026-10-01): agencies post AGENCY jobs only, so this company surface
@@ -48,17 +49,9 @@ export default async function PostingsPage() {
   const agencyPostings = isAgency ? postingRoutes(true) : null;
   const catalog = await getLiveCatalog();
   const { live } = catalog;
-  // The slot top-up on offer: the SAME tier the action charges by, at the price it is charged
-  // (#2085) — the price the row's confirm shows and sends back.
-  const tier = quotaTopUpTier(catalog);
-  const topUpOffer: TopUpOffer | null =
-    tier !== null
-      ? {
-          priceInr: tier.priceInr,
-          ...(tier.listPriceInr !== undefined ? { listPriceInr: tier.listPriceInr } : {}),
-          additionalViews: tier.additionalViews,
-        }
-      : null;
+  // The slot top-up on offer, at the price it is charged (#2085): its code, slots and price are
+  // what the row's confirm shows AND sends back — the seam buys exactly this tier or nothing.
+  const topUpOffer: TopUpOffer | null = quotaTopUpTier(catalog);
 
   let postings: PostingSummary[] | null = null;
   let error: string | null = null;

@@ -10,7 +10,7 @@ import {
   PurchaseConflictError,
   QuotaTopUpNoPlanError,
 } from "../../../lib/payer-api";
-import { PriceMismatchError } from "../../../lib/payer-errors";
+import { PriceMismatchError, PurchaseOptionChangedError } from "../../../lib/payer-errors";
 import {
   PRICE_UNREADABLE_MESSAGE,
   readExpectedPrice,
@@ -82,7 +82,18 @@ export type TopUpQuotaActionResult =
   | { ok: false; pending: true }
   // A 409 `price_mismatch` (#2085): the confirmed price is not the price now — nothing bought.
   | PriceChangedResult
+  // The confirmed tier is gone or no longer what the dialog described (#2085 L1) — nothing bought.
+  | { ok: false; optionChanged: true }
   | { ok: false; error: string };
+
+/**
+ * The tier the payer confirmed (#2085 L1): its catalog code and the slots the dialog said it adds.
+ * Required — the seam checks it against the live catalog and never picks one itself.
+ */
+const confirmedTierSchema = z.object({
+  code: z.string().min(1).max(64),
+  additionalViews: z.number().int().positive(),
+});
 
 /**
  * The per-purchase idempotency key (#2085) — a client-minted `crypto.randomUUID()`, validated
@@ -93,11 +104,13 @@ const idempotencyKeySchema = z.string().uuid();
 
 /**
  * Add applicant slots to one of the caller's OWN postings — a purchase (#180). The client sends
- * the posting id, the price the payer confirmed in the dialog (#2085, `expected_price_inr`) and
- * the purchase's idempotency key; the seam picks the tier and the server prices it (XT5).
+ * the posting id, the tier and price the payer confirmed in the dialog (#2085) and the purchase's
+ * idempotency key; the seam buys THAT tier or nothing, and the server prices it (XT5).
  */
 export async function topUpQuotaAction(input: {
   postingId: string;
+  /** The tier the payer confirmed in the dialog (#2085 L1). */
+  tier: { code: string; additionalViews: number };
   /** The ₹ the payer confirmed in the dialog (#2085). */
   expectedPriceInr?: number;
   /** One key per confirmed purchase, reused by its retries (#2085). */
@@ -105,6 +118,9 @@ export async function topUpQuotaAction(input: {
 }): Promise<TopUpQuotaActionResult> {
   const valid = parseId(input.postingId);
   if (!valid.ok) return valid;
+  // A missing or malformed tier is refused like a changed one: never sent, never guessed.
+  const tier = confirmedTierSchema.safeParse(input.tier);
+  if (!tier.success) return { ok: false, optionChanged: true };
   const confirmed = readExpectedPrice(input.expectedPriceInr);
   if (!confirmed.ok) return { ok: false, error: PRICE_UNREADABLE_MESSAGE };
   const idempotencyKey =
@@ -114,6 +130,7 @@ export async function topUpQuotaAction(input: {
   try {
     const outcome = await topUpPostingQuota({
       postingId: input.postingId,
+      tier: tier.data,
       expectedPriceInr: confirmed.value,
       idempotencyKey,
     });
@@ -132,6 +149,12 @@ export async function topUpQuotaAction(input: {
     if (e instanceof PriceMismatchError) {
       revalidatePath("/postings");
       return { ok: false, priceChanged: true, currentPriceInr: e.currentPriceInr };
+    }
+    // #2085 L1 — the confirmed tier changed under the payer. Nothing was sent; re-render so the
+    // current option is what the row offers, and let the payer confirm THAT.
+    if (e instanceof PurchaseOptionChangedError) {
+      revalidatePath("/postings");
+      return { ok: false, optionChanged: true };
     }
     // The same confirmed purchase is still in flight: never re-post, never claim it is done.
     if (e instanceof PurchaseConflictError) {

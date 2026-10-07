@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { formatInr } from "./format";
 
 /**
  * PRICE CONFIRMATION (#2085) — the client half of "shown == charged".
@@ -8,8 +7,9 @@ import { formatInr } from "./format";
  * on the trigger, where there is no confirm). The server never charges it — it resolves the
  * charge itself (XT5) — but refuses with a 409 `price_mismatch`, BEFORE any write or event,
  * when the price changed since the payer saw it. The payer is then told the new price and must
- * confirm again; nothing retries on its own. Shared by every purchase action and surface so the
- * guard and its copy are the same everywhere.
+ * confirm again; nothing retries on its own. Shared by every purchase Server Action so the guard is
+ * the same everywhere. SERVER-SIDE ONLY in practice (it carries a zod schema): the copy the panels
+ * render lives in the schema-free `purchase-messages.ts`, so zod never rides in for a message.
  */
 
 /** Mirrors the API's `expectedPriceInrSchema` (apps/api/src/pricing/charge-price.ts). */
@@ -36,13 +36,6 @@ export interface PriceChangedResult {
   priceChanged: true;
   /** The API's current price, or null when its refusal carried none. */
   currentPriceInr: number | null;
-}
-
-/** The neutral, in-place copy for a refused price: the new price, and a fresh confirm. */
-export function priceChangedMessage(currentPriceInr: number | null): string {
-  return currentPriceInr === null
-    ? "The price changed. Review the new price and confirm again."
-    : `The price changed to ${formatInr(currentPriceInr)}. Review and confirm again.`;
 }
 
 /** Copy for a refused confirmed price that was malformed before it was ever sent. */

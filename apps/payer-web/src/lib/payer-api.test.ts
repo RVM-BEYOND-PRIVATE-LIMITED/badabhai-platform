@@ -67,6 +67,8 @@ function catalogResponse(products: unknown = DEFAULT_CATALOG.products): Response
  * mapper must DROP them so they never reach the faceless PostingSummary the UI consumes.
  */
 const POSTING_ID = "bbbb2222-0000-4000-8000-000000000001";
+/** The top-up tier a payer confirmed off the default catalog (#2085 L1): code + slots. */
+const TOPUP_10 = { code: "topup_10", additionalViews: 10 };
 
 function jobPostingRow(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -820,9 +822,9 @@ describe("posting lifecycle — LIVE pause/resume/quota-topup (XB-A, Bearer only
     expect(JSON.stringify(paused)).not.toMatch(/orgLabel|description/);
   });
 
-  it("quota-topup resolves the tier from the LIVE catalog, POSTs ONLY that code, then re-reads the row", async () => {
-    // D-6: the seam fetches the LIVE catalog FIRST (the tier code/views come from the
-    // API's active catalog, not the compile-time default) — branch the mock per URL.
+  it("quota-topup POSTs the CONFIRMED tier code (checked against the LIVE catalog), then re-reads the row", async () => {
+    // D-6 + #2085 L1: the seam reads the LIVE catalog FIRST — to CHECK the tier the payer
+    // confirmed, never to pick one — so branch the mock per URL.
     fetchMock.mockImplementation((url: string) => {
       if (url.endsWith("/payer/pricing/catalog")) return Promise.resolve(catalogResponse());
       if (url.endsWith("/quota-topup")) {
@@ -831,7 +833,7 @@ describe("posting lifecycle — LIVE pause/resume/quota-topup (XB-A, Bearer only
       return Promise.resolve(jsonResponse(jobPostingRow({ status: "open" })));
     });
     const { topUpPostingQuota } = await import("./payer-api");
-    const outcome = await topUpPostingQuota({ postingId: POSTING_ID });
+    const outcome = await topUpPostingQuota({ postingId: POSTING_ID, tier: TOPUP_10 });
     expect(outcome?.posting?.id).toBe(POSTING_ID);
     // The added views come from the CATALOG tier (config), never the wire (XT5).
     expect(outcome?.addedViews).toBe(10);
@@ -846,7 +848,7 @@ describe("posting lifecycle — LIVE pause/resume/quota-topup (XB-A, Bearer only
     expect(body.tier).toBe("topup_10");
   });
 
-  it("D-6: an ops-EDITED live tier drives the body code + views (no compile-time tier left)", async () => {
+  it("D-6: a tier confirmed off the ops-EDITED live catalog is bought as confirmed (no compile-time tier left)", async () => {
     const editedProducts = DEFAULT_CATALOG.products.map((p) =>
       p.kind === "quota_topup"
         ? {
@@ -865,7 +867,11 @@ describe("posting lifecycle — LIVE pause/resume/quota-topup (XB-A, Bearer only
       return Promise.resolve(jsonResponse(jobPostingRow({ status: "open" })));
     });
     const { topUpPostingQuota } = await import("./payer-api");
-    const outcome = await topUpPostingQuota({ postingId: POSTING_ID });
+    // The page read this tier off the same live catalog; a DEFAULT_CATALOG check would refuse it.
+    const outcome = await topUpPostingQuota({
+      postingId: POSTING_ID,
+      tier: { code: "topup_25_live", additionalViews: 25 },
+    });
     // The LIVE tier's views — a DEFAULT_CATALOG read would still say 10.
     expect(outcome?.addedViews).toBe(25);
     const topupCall = fetchMock.mock.calls.find((c) => (c[0] as string).endsWith("/quota-topup"));
@@ -886,7 +892,7 @@ describe("posting lifecycle — LIVE pause/resume/quota-topup (XB-A, Bearer only
       return Promise.resolve(jsonResponse({ message: "boom" }, 503));
     });
     const { topUpPostingQuota } = await import("./payer-api");
-    const outcome = await topUpPostingQuota({ postingId: POSTING_ID });
+    const outcome = await topUpPostingQuota({ postingId: POSTING_ID, tier: TOPUP_10 });
     // The charge committed on the quota-topup call; the failed re-read must not look like a failure.
     expect(outcome).toEqual({ posting: null, addedViews: 10 });
     // Exactly ONE quota-topup POST — the degrade path never re-buys.
@@ -899,7 +905,7 @@ describe("posting lifecycle — LIVE pause/resume/quota-topup (XB-A, Bearer only
   it("maps a 409 (no active plan) to QuotaTopUpNoPlanError — actionable, not neutral", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ message: "no active plan" }, 409));
     const { topUpPostingQuota, QuotaTopUpNoPlanError } = await import("./payer-api");
-    await expect(topUpPostingQuota({ postingId: POSTING_ID })).rejects.toBeInstanceOf(
+    await expect(topUpPostingQuota({ postingId: POSTING_ID, tier: TOPUP_10 })).rejects.toBeInstanceOf(
       QuotaTopUpNoPlanError,
     );
   });
@@ -1514,7 +1520,10 @@ describe("#2085 — expected_price_inr, price_mismatch, and the idempotent quota
   it("quota-topup sends the confirmed price and the purchase's Idempotency-Key header, verbatim", async () => {
     topUpRoutes(() => jsonResponse({ plan: { id: "p1" }, quote: {} }, 201));
     const { topUpPostingQuota } = await import("./payer-api");
-    await topUpPostingQuota({ postingId: POSTING_ID, expectedPriceInr: 1000, idempotencyKey: KEY });
+    await topUpPostingQuota({
+      postingId: POSTING_ID,
+      tier: TOPUP_10,
+      expectedPriceInr: 1000, idempotencyKey: KEY });
     const call = callTo("/quota-topup") as [string, RequestInit];
     expect(bodyOf(call)).toStrictEqual({ tier: "topup_10", expected_price_inr: 1000 });
     expect((call[1].headers as Record<string, string>)["Idempotency-Key"]).toBe(KEY);
@@ -1523,7 +1532,10 @@ describe("#2085 — expected_price_inr, price_mismatch, and the idempotent quota
   it("quota-topup without a key sends no Idempotency-Key header (the header stays optional)", async () => {
     topUpRoutes(() => jsonResponse({ plan: { id: "p1" }, quote: {} }, 201));
     const { topUpPostingQuota } = await import("./payer-api");
-    await topUpPostingQuota({ postingId: POSTING_ID, expectedPriceInr: 1000 });
+    await topUpPostingQuota({
+      postingId: POSTING_ID,
+      tier: TOPUP_10,
+      expectedPriceInr: 1000 });
     const call = callTo("/quota-topup") as [string, RequestInit];
     expect(call[1].headers as Record<string, string>).not.toHaveProperty("Idempotency-Key");
   });
@@ -1534,6 +1546,7 @@ describe("#2085 — expected_price_inr, price_mismatch, and the idempotent quota
     const { PriceMismatchError } = await import("./payer-errors");
     const err = await topUpPostingQuota({
       postingId: POSTING_ID,
+      tier: TOPUP_10,
       expectedPriceInr: 1000,
       idempotencyKey: KEY,
     }).catch((e: unknown) => e);
@@ -1553,6 +1566,7 @@ describe("#2085 — expected_price_inr, price_mismatch, and the idempotent quota
       await import("./payer-api");
     const err = await topUpPostingQuota({
       postingId: POSTING_ID,
+      tier: TOPUP_10,
       expectedPriceInr: 1000,
       idempotencyKey: KEY,
     }).catch((e: unknown) => e);
@@ -1564,7 +1578,95 @@ describe("#2085 — expected_price_inr, price_mismatch, and the idempotent quota
     topUpRoutes(() => conflict({ message: "no active plan to top up for this posting" }));
     const { topUpPostingQuota, QuotaTopUpNoPlanError } = await import("./payer-api");
     await expect(
-      topUpPostingQuota({ postingId: POSTING_ID, expectedPriceInr: 1000, idempotencyKey: KEY }),
+      topUpPostingQuota({
+      postingId: POSTING_ID,
+      tier: TOPUP_10,
+      expectedPriceInr: 1000, idempotencyKey: KEY }),
     ).rejects.toBeInstanceOf(QuotaTopUpNoPlanError);
+  });
+});
+
+/**
+ * #2085 L1 — the quota top-up buys the tier the payer CONFIRMED, or nothing. The seam used to
+ * re-pick "the smallest top-up tier" from a fresh catalog at submit, so an ops edit between the
+ * dialog and the confirm bought something else — and `expected_price_inr` cannot catch a
+ * same-price swap. Now the confirmed tier is checked against the live catalog: a tier that is
+ * gone, unpriced or re-sized is refused BEFORE any request; another tier is never substituted.
+ */
+describe("#2085 L1 — topUpPostingQuota buys the confirmed tier or nothing", () => {
+  const topUpProduct = (tiers: { code: string; priceInr: number; additionalVisibilityQuota: number }[]) =>
+    DEFAULT_CATALOG.products.map((p) => (p.kind === "quota_topup" ? { ...p, tiers } : p));
+  /** Answer the catalog with `products` (+ optional prices[]), the top-up with 201, the re-read with the row. */
+  function routes(products: unknown, prices?: unknown[]) {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/payer/pricing/catalog")) {
+        return Promise.resolve(
+          jsonResponse({ revision: 2, source: "db", products, ...(prices ? { prices } : {}) }),
+        );
+      }
+      if (url.endsWith("/quota-topup")) {
+        return Promise.resolve(jsonResponse({ plan: { id: "p1" }, quote: {} }, 201));
+      }
+      return Promise.resolve(jsonResponse(jobPostingRow({ status: "open" })));
+    });
+  }
+  const topUpPosts = () => fetchMock.mock.calls.filter((c) => (c[0] as string).endsWith("/quota-topup"));
+
+  it("a SAME-PRICE tier added since the dialog (now the smallest) does not displace the confirmed one", async () => {
+    routes(
+      topUpProduct([
+        { code: "topup_5", priceInr: 1000, additionalVisibilityQuota: 5 },
+        { code: "topup_10", priceInr: 1000, additionalVisibilityQuota: 10 },
+      ]),
+    );
+    const { topUpPostingQuota } = await import("./payer-api");
+    const outcome = await topUpPostingQuota({
+      postingId: POSTING_ID,
+      tier: TOPUP_10,
+      expectedPriceInr: 1000,
+    });
+    expect(topUpPosts()).toHaveLength(1);
+    const body = JSON.parse((topUpPosts()[0] as [string, RequestInit])[1].body as string);
+    expect(body).toStrictEqual({ tier: "topup_10", expected_price_inr: 1000 });
+    expect(outcome?.addedViews).toBe(10);
+  });
+
+  it("the confirmed tier RE-SIZED since the dialog is refused — PurchaseOptionChangedError, nothing posted", async () => {
+    routes(topUpProduct([{ code: "topup_10", priceInr: 1000, additionalVisibilityQuota: 5 }]));
+    const { topUpPostingQuota } = await import("./payer-api");
+    const { PurchaseOptionChangedError } = await import("./payer-errors");
+    await expect(
+      topUpPostingQuota({ postingId: POSTING_ID, tier: TOPUP_10, expectedPriceInr: 1000 }),
+    ).rejects.toBeInstanceOf(PurchaseOptionChangedError);
+    expect(topUpPosts()).toEqual([]);
+  });
+
+  it("the confirmed tier GONE from the catalog is refused the same way — never another tier", async () => {
+    routes(topUpProduct([{ code: "topup_30", priceInr: 2500, additionalVisibilityQuota: 30 }]));
+    const { topUpPostingQuota } = await import("./payer-api");
+    const { PurchaseOptionChangedError } = await import("./payer-errors");
+    await expect(
+      topUpPostingQuota({ postingId: POSTING_ID, tier: TOPUP_10, expectedPriceInr: 1000 }),
+    ).rejects.toBeInstanceOf(PurchaseOptionChangedError);
+    expect(topUpPosts()).toEqual([]);
+  });
+
+  it("the confirmed tier UNPRICED in a present prices[] is not on offer — refused, nothing posted", async () => {
+    routes(DEFAULT_CATALOG.products, [
+      {
+        product_code: "quota_topup",
+        tier_code: "topup_30",
+        base_price_inr: 2500,
+        price_inr: 2500,
+        discount_inr: 0,
+        offer: null,
+      },
+    ]);
+    const { topUpPostingQuota } = await import("./payer-api");
+    const { PurchaseOptionChangedError } = await import("./payer-errors");
+    await expect(
+      topUpPostingQuota({ postingId: POSTING_ID, tier: TOPUP_10, expectedPriceInr: 1000 }),
+    ).rejects.toBeInstanceOf(PurchaseOptionChangedError);
+    expect(topUpPosts()).toEqual([]);
   });
 });

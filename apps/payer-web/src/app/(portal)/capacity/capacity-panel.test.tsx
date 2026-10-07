@@ -541,3 +541,29 @@ describe("capacity panel — #2085: the price shown is the price sent; a refused
     expect(sentKeys()).toEqual(["key-1", "key-2"]);
   });
 });
+
+/**
+ * #2085 L2 — ONE KEY, ONE CONFIRMED PRICE (capacity). A key held for a tier after an attempt whose
+ * outcome is unknown is never sent under a different confirmed price (the API would replay the
+ * first purchase, at its price); the panel says an earlier purchase may still be processing, keeps
+ * the key, and a confirm at the held price still reuses it.
+ */
+describe("capacity panel — #2085 L2: a held key is never sent under a different price", () => {
+  const REPRICED: CapacityTier = { ...TIER_B, priceInr: 5499 };
+
+  it("after 'still processing' at ₹4,999, a confirm at ₹5,499 sends NOTHING and says so; ₹4,999 reuses the key", async () => {
+    upgradeCapacityAction.mockResolvedValueOnce({ ok: false, pending: true, allowance: 10 });
+    await confirmUpgrade(TIER_B); // key-1, held at ₹4,999
+    await confirmUpgrade(REPRICED); // re-rendered at ₹5,499 — held, not sent
+    expect(upgradeCapacityAction).toHaveBeenCalledTimes(1);
+    expect(argsOf(stateSetters[NOTICE_IDX]!)).toContain(
+      "An earlier purchase at ₹4,999 may still be processing — check back in a moment.",
+    );
+    expect(argsOf(stateSetters[ERROR_IDX]!)).toEqual([null]);
+    expect(stateSetters[0]).not.toHaveBeenCalled(); // no spinner: nothing is running
+
+    upgradeCapacityAction.mockResolvedValueOnce({ ok: true, resumedCount: 0, allowance: 10 });
+    await confirmUpgrade(TIER_B);
+    expect(sentKeys()).toEqual(["key-1", "key-1"]);
+  });
+});

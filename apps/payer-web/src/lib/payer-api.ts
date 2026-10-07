@@ -83,13 +83,17 @@ import { revealResultSchema } from "./contracts";
 import { assertNoAgencyPII } from "./assert-no-agency-pii";
 import { cardFieldsFromPostingWire, type CardFields } from "./job-card-view";
 import { payerFetch } from "./payer-http";
-import { PayerConflictError, PriceMismatchError } from "./payer-errors";
+import {
+  PayerConflictError,
+  PriceMismatchError,
+  PurchaseOptionChangedError,
+} from "./payer-errors";
 import { getLiveCatalog } from "./live-catalog";
 // `findCreditPack` is deliberately NOT imported here: the credit HISTORY renders the ₹
 // stamped on each ledger row at purchase, never a lookup against the current catalog
 // (D-6 — that re-priced the past whenever ops edited a price). The remaining catalog read
-// below is the quota-topup TIER for a NEW charge, which correctly uses live config.
-import { quotaTopUpTier } from "./pricing-config";
+// below CHECKS the quota-topup tier the payer confirmed against live config (#2085 L1).
+import { findQuotaTopUpTier } from "./pricing-config";
 
 /**
  * The PAYER DATA SEAM (ADR-0019 Phase 1).
@@ -1611,10 +1615,18 @@ export async function resumePosting(input: { postingId: string }): Promise<Posti
 /**
  * POST /payer/job-postings/:id/quota-topup — top up applicant-visibility quota on the
  * caller's OWN ACTIVE PLAN for this posting (LIVE, B2 #180 — "view more → pay more").
- * The body carries the config'd catalog tier CODE ({@link quotaTopUpTier} — XT5: the
- * backend re-resolves price + grant through the pricing engine; the client never sends
- * an amount to charge) and, when the payer confirmed one, `expected_price_inr` (#2085).
- * Session identity only (XB-A). Unknown/not-owned → neutral 404 → `null`.
+ * The body carries the catalog tier CODE the payer CONFIRMED (XT5: the backend re-resolves
+ * price + grant through the pricing engine; the client never sends an amount to charge) and,
+ * when the payer confirmed one, `expected_price_inr` (#2085). Session identity only (XB-A).
+ * Unknown/not-owned → neutral 404 → `null`.
+ *
+ * THE CONFIRMED OPTION, OR NOTHING (#2085 L1). This seam used to RE-PICK the tier from a fresh
+ * catalog at submit, so an ops edit between the dialog and the confirm (a re-sized `topup_10`, or
+ * a new same-price tier that became the smallest) bought something other than what the dialog
+ * described — and `expected_price_inr` cannot catch a same-price swap. Now the dialog's tier is
+ * checked against the live catalog ({@link findQuotaTopUpTier}): if it is gone, unpriced, or no
+ * longer adds the slots the payer saw, {@link PurchaseOptionChangedError} is thrown BEFORE any
+ * request. Another tier is never substituted.
  *
  * THREE 409s, three answers:
  *  - `price_mismatch` → {@link PriceMismatchError} (nothing bought; the payer re-confirms);
@@ -1638,6 +1650,8 @@ export interface QuotaTopUpOutcome {
 
 export async function topUpPostingQuota(input: {
   postingId: string;
+  /** The tier the payer confirmed: its catalog code and the slots the dialog said it adds. */
+  tier: { code: string; additionalViews: number };
   /** The ₹ the payer confirmed for one top-up (#2085). */
   expectedPriceInr?: number;
   /**
@@ -1647,14 +1661,14 @@ export async function topUpPostingQuota(input: {
    */
   idempotencyKey?: string;
 }): Promise<QuotaTopUpOutcome | null> {
-  // The LIVE catalog (D-6): the tier CODE + display views come from the API's active
-  // catalog (an ops tier edit reaches this body without a rebuild), falling open to
-  // the compile-time defaults on fetch failure — the backend re-resolves price + grant
-  // through the pricing engine either way (XT5), so a stale code at worst 400s or (with a
-  // confirmed price that no longer matches) 409s, never mis-charges.
-  const catalog = await getLiveCatalog();
-  const tier = quotaTopUpTier(catalog);
-  if (!tier) throw new Error("no quota top-up tier configured"); // fail-closed, config-sourced
+  // The LIVE catalog (D-6), falling open to the compile-time defaults on fetch failure. It is
+  // read only to CHECK the confirmed tier, never to choose one: gone / unpriced / re-sized ⇒
+  // refused before any request (nothing bought). The price itself is the API's to check
+  // (`expected_price_inr` ⇒ 409 price_mismatch).
+  const tier = findQuotaTopUpTier(await getLiveCatalog(), input.tier.code);
+  if (tier === null || tier.additionalViews !== input.tier.additionalViews) {
+    throw new PurchaseOptionChangedError();
+  }
   try {
     await payerFetch(`/payer/job-postings/${input.postingId}/quota-topup`, {
       method: "POST",

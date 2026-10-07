@@ -53,6 +53,18 @@ export class PayerConflictError extends Error {
 }
 
 /**
+ * The catalog option the payer confirmed is gone, or no longer what the dialog described (e.g.
+ * ops re-sized or removed the quota top-up tier between the confirm and the submit). Raised
+ * BEFORE any purchase request, so nothing was bought. The seam never substitutes another option.
+ */
+export class PurchaseOptionChangedError extends Error {
+  constructor() {
+    super("the confirmed purchase option changed");
+    this.name = "PurchaseOptionChangedError";
+  }
+}
+
+/**
  * A 409 `price_mismatch` (#2085): the `expected_price_inr` the payer confirmed is not the price
  * the purchase would be charged, so the API refused BEFORE any write or event. Nothing was bought.
  *

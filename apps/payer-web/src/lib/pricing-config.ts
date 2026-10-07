@@ -153,20 +153,36 @@ export function applicantQuotaStep(products: readonly Product[]): number | null 
  * price + grant through the pricing engine (XT5) and refuses a changed price (#2085).
  * Returns null if the catalog has no priced top-up tier.
  */
-export function quotaTopUpTier(
-  catalog: PricedCatalog,
-): ({ code: string; additionalViews: number } & ChargedPrice) | null {
+export function quotaTopUpTier(catalog: PricedCatalog): QuotaTopUpTier | null {
+  return quotaTopUpTiers(catalog)[0] ?? null;
+}
+
+/** One priced quota top-up tier: its code, the slots it adds, and the price it is charged. */
+export type QuotaTopUpTier = { code: string; additionalViews: number } & ChargedPrice;
+
+/**
+ * The catalog `quota_topup` tier with `code`, at its charge price — or null when it is not on
+ * offer (absent, or unpriced in a present `prices[]`). The top-up seam checks the tier the payer
+ * CONFIRMED against the live catalog through this, rather than re-picking one (#2085 L1).
+ */
+export function findQuotaTopUpTier(catalog: PricedCatalog, code: string): QuotaTopUpTier | null {
+  return quotaTopUpTiers(catalog).find((t) => t.code === code) ?? null;
+}
+
+/** Every priced `quota_topup` tier, smallest grant first. */
+function quotaTopUpTiers(catalog: PricedCatalog): QuotaTopUpTier[] {
   const product = catalog.products.find(
     (p) => p.kind === "quota_topup" && p.code === "quota_topup",
   );
-  if (!product || product.kind !== "quota_topup") return null;
-  const priced = product.tiers.flatMap((t) => {
-    const price = chargedPrice(catalog, product.code, t);
-    return price === null
-      ? []
-      : [{ code: t.code, ...price, additionalViews: t.additionalVisibilityQuota }];
-  });
-  return [...priced].sort((a, b) => a.additionalViews - b.additionalViews)[0] ?? null;
+  if (!product || product.kind !== "quota_topup") return [];
+  return product.tiers
+    .flatMap((t) => {
+      const price = chargedPrice(catalog, product.code, t);
+      return price === null
+        ? []
+        : [{ code: t.code, ...price, additionalViews: t.additionalVisibilityQuota }];
+    })
+    .sort((a, b) => a.additionalViews - b.additionalViews);
 }
 
 /**

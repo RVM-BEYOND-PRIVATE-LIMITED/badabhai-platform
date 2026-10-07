@@ -7,7 +7,11 @@ import type { PostingSummary } from "../../../lib/contracts";
 import { Badge, Button, Card, Dialog } from "../../../components/ds";
 import { formatInr } from "../../../lib/format";
 import type { ChargedPrice } from "../../../lib/pricing-config";
-import { priceChangedMessage } from "../../../lib/price-confirmation";
+import {
+  earlierPurchaseMessage,
+  OPTION_CHANGED_MESSAGE,
+  priceChangedMessage,
+} from "../../../lib/purchase-messages";
 import {
   closePostingAction,
   pausePostingAction,
@@ -60,6 +64,9 @@ import {
  * nothing was bought: the row says so neutrally with the new price, the page re-renders with it,
  * and the key is retired — the next confirm is a new purchase. A duplicate still in flight is a
  * neutral "still processing", and keeps the key. Nothing retries on its own.
+ *
+ * THE TIER TOO (#2085 L1). The confirm sends the tier it described (code + slots); the seam buys
+ * exactly that tier or refuses with "This option changed" — it never picks another one.
  */
 
 const NONE = "—";
@@ -71,6 +78,8 @@ const NONE = "—";
  * as the confirmed price; the server still resolves the charge itself (XT5).
  */
 export interface TopUpOffer extends ChargedPrice {
+  /** The catalog tier code — sent back on the confirm, so exactly this tier is bought (L1). */
+  code: string;
   /** Applicant slots one purchase adds. */
   additionalViews: number;
 }
@@ -78,6 +87,27 @@ export interface TopUpOffer extends ChargedPrice {
 /** The neutral notice for a top-up whose first attempt is still running (#2085). */
 const TOP_UP_PENDING =
   "Purchase is still processing — check this posting's applicant slots in a moment.";
+
+/** A posting's live purchase key, and the offer it was first confirmed for (#2085 L2). */
+interface HeldTopUpKey {
+  key: string;
+  code: string;
+  additionalViews: number;
+  priceInr: number;
+}
+
+/** What a confirm committed to: the tier (code + slots) and the price. */
+function confirmedOffer(offer: TopUpOffer): Omit<HeldTopUpKey, "key"> {
+  return { code: offer.code, additionalViews: offer.additionalViews, priceInr: offer.priceInr };
+}
+
+function sameOffer(held: HeldTopUpKey, offer: TopUpOffer): boolean {
+  return (
+    held.code === offer.code &&
+    held.additionalViews === offer.additionalViews &&
+    held.priceInr === offer.priceInr
+  );
+}
 
 /** A row's slot button — where focus returns once its confirmed purchase has settled. */
 const topUpButtonId = (postingId: string) => `posting-topup-${postingId}`;
@@ -184,7 +214,7 @@ export function PostingsManager({
   // ONE idempotency key per confirmed slot purchase, PER POSTING (#2085): reused by every retry of
   // that posting's purchase, dropped on success or a refused price. A ref — reusing a key must not
   // render. PII-free (`crypto.randomUUID()`), no payer id (XB-A).
-  const topUpKeys = useRef<Map<string, string>>(new Map());
+  const topUpKeys = useRef<Map<string, HeldTopUpKey>>(new Map());
   const rows = postings.map((p) => freshRows[p.id] ?? p);
 
   useEffect(() => {
@@ -231,21 +261,28 @@ export function PostingsManager({
     return run(id, which, () => action({ postingId: id }));
   }
 
-  /** This posting's purchase key: the pending one for a retry, a fresh one for a new purchase. */
-  function topUpKeyFor(id: string): string {
-    const pending = topUpKeys.current.get(id);
-    if (pending !== undefined) return pending;
-    const key = crypto.randomUUID();
-    topUpKeys.current.set(id, key);
-    return key;
-  }
-
-  /** Buy one slot top-up at the price the confirm showed (`offer`), under this purchase's key. */
+  /** Buy one slot top-up — the tier and price the confirm showed (`offer`) — under its key. */
   async function buyTopUp(id: string, offer: TopUpOffer): Promise<LifecycleResult> {
+    // ONE KEY, ONE CONFIRMED OFFER (#2085 L2). A key still held here belongs to an earlier attempt
+    // whose outcome is unknown (still processing, a failure, a dropped connection). Reusing it is
+    // what keeps a retry from buying twice — the API replays the FIRST attempt — so it is never
+    // replaced by a fresh key while held. But that replay is the first attempt's purchase: sent
+    // under a different price or tier, the payer would be told "added" for something other than
+    // what this dialog just showed. So a confirm that differs from what the held key was first
+    // confirmed for is NOT sent; the row says an earlier purchase may still be processing. The
+    // trade-off is deliberate: a stale-looking hold (until the page is reloaded and the earlier
+    // attempt's effect is visible) over a second charge or a mislabelled one.
+    const held = topUpKeys.current.get(id);
+    if (held !== undefined && !sameOffer(held, offer)) {
+      return { ok: false, info: earlierPurchaseMessage(held.priceInr) };
+    }
+    const key = held?.key ?? crypto.randomUUID();
+    topUpKeys.current.set(id, { key, ...confirmedOffer(offer) });
     const res = await topUpQuotaAction({
       postingId: id,
+      tier: { code: offer.code, additionalViews: offer.additionalViews },
       expectedPriceInr: offer.priceInr,
-      idempotencyKey: topUpKeyFor(id),
+      idempotencyKey: key,
     });
     if (res.ok) {
       topUpKeys.current.delete(id); // DONE — a genuine next purchase gets a fresh key
@@ -256,6 +293,12 @@ export function PostingsManager({
       // replay this refusal). The action re-rendered the page with the new price.
       topUpKeys.current.delete(id);
       return { ok: false, info: priceChangedMessage(res.currentPriceInr) };
+    }
+    if ("optionChanged" in res) {
+      // Refused before any request. A key minted for THIS confirm was never sent — drop it; a key
+      // held from an earlier attempt still names that attempt, so it stays.
+      if (held === undefined) topUpKeys.current.delete(id);
+      return { ok: false, info: OPTION_CHANGED_MESSAGE };
     }
     // Still in flight: KEEP the key, so a re-tap replays the first attempt instead of buying again.
     if ("pending" in res) return { ok: false, info: TOP_UP_PENDING };

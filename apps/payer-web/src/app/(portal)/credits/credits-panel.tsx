@@ -6,7 +6,7 @@ import { ACTION_ICON, Icon } from "@badabhai/icons";
 import type { CreditPack } from "../../../lib/contracts";
 import { Badge, Button, Card, Dialog, Toast } from "../../../components/ds";
 import { formatInr } from "../../../lib/format";
-import { priceChangedMessage } from "../../../lib/price-confirmation";
+import { earlierPurchaseMessage, priceChangedMessage } from "../../../lib/purchase-messages";
 import { priceFigure } from "../../../components/price-figure";
 import { createOrderAction, topUpAction, verifyPaymentAction } from "./actions";
 import { loadCheckoutScript, openCheckout } from "./razorpay-checkout";
@@ -55,12 +55,17 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
   // re-tap into a replay (charged once), and reset on success or a genuinely new pack so a real
   // second purchase gets a FRESH key. A ref, not state: reusing a key must not trigger a render,
   // and the value must survive re-renders. PII-free (`crypto.randomUUID()`), no payer id (XB-A).
-  const purchaseKeyRef = useRef<{ key: string; packCode: string } | null>(null);
+  // It also remembers the price it was first confirmed at (#2085 L2 — see confirmMockTopUp).
+  const purchaseKeyRef = useRef<{ key: string; packCode: string; priceInr: number } | null>(null);
 
   /** Reuse the pending key for a retry of the SAME pack; mint a fresh one otherwise. */
-  function idempotencyKeyFor(packCode: string): string {
-    if (purchaseKeyRef.current === null || purchaseKeyRef.current.packCode !== packCode) {
-      purchaseKeyRef.current = { key: crypto.randomUUID(), packCode };
+  function idempotencyKeyFor(pack: CreditPack): string {
+    if (purchaseKeyRef.current === null || purchaseKeyRef.current.packCode !== pack.code) {
+      purchaseKeyRef.current = {
+        key: crypto.randomUUID(),
+        packCode: pack.code,
+        priceInr: pack.priceInr,
+      };
     }
     return purchaseKeyRef.current.key;
   }
@@ -94,9 +99,22 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
     if (!pack) return;
     setPendingConfirm(null);
     resetBanners();
+    // ONE KEY, ONE CONFIRMED PRICE (#2085 L2). A key still held for this pack belongs to an earlier
+    // attempt whose outcome is unknown (still processing, a failure, a dropped connection). Reusing
+    // it is what stops a retry buying twice — the API replays the FIRST attempt — so it is never
+    // swapped for a fresh key while held. But that replay is the first attempt's purchase, at the
+    // first attempt's price: sent after the payer confirmed a DIFFERENT price, the panel would
+    // announce a purchase this dialog never described. So that confirm is not sent; the payer is
+    // told an earlier purchase may still be processing. Deliberate: a hold (until the page is
+    // reloaded and the earlier attempt's effect shows) over a second charge or a mislabelled one.
+    const held = purchaseKeyRef.current;
+    if (held !== null && held.packCode === pack.code && held.priceInr !== pack.priceInr) {
+      setNotice(earlierPurchaseMessage(held.priceInr));
+      return;
+    }
     setPendingCode(pack.code);
     // One key per purchase, reused across a retry of THIS pack (safe re-tap after a timeout).
-    const idempotencyKey = idempotencyKeyFor(pack.code);
+    const idempotencyKey = idempotencyKeyFor(pack);
     startTransition(async () => {
       // The price sent back is the one the dialog showed for this pack (#2085).
       const res = await topUpAction({

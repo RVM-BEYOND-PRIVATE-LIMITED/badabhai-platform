@@ -450,3 +450,34 @@ describe("credits panel — #2085: the price shown is the price sent; a refused 
     expect(topUpAction).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * #2085 L2 — ONE KEY, ONE CONFIRMED PRICE. A key still held for a pack belongs to an earlier attempt
+ * whose outcome is unknown; reusing it makes the API replay THAT attempt (at its price). So when
+ * the payer confirms a DIFFERENT price for the pack under a held key, nothing is sent — the panel
+ * says an earlier purchase may still be processing. The key itself is kept (a fresh one could
+ * double-charge), and a confirm at the held price still reuses it.
+ */
+describe("credits panel — #2085 L2: a held key is never sent under a different price", () => {
+  const REPRICED: CreditPack = { ...PACK_A, priceInr: 2400 };
+  const HELD = "An earlier purchase at ₹2,000 may still be processing — check back in a moment.";
+
+  for (const [label, first] of [
+    ["still processing", { ok: false, pending: true, balance: 71 }],
+    ["a failure", { ok: false, error: "Purchase failed (service unavailable). Please retry." }],
+  ] as const) {
+    it(`after ${label} at ₹2,000, a confirm at ₹2,400 sends NOTHING and says so; ₹2,000 still reuses the key`, async () => {
+      topUpAction.mockResolvedValueOnce(first);
+      await confirmBuy(PACK_A); // key-1, held at ₹2,000
+      await confirmBuy(REPRICED); // the page re-rendered at ₹2,400 — held, not sent
+      expect(topUpAction).toHaveBeenCalledTimes(1);
+      expect(argsOf(stateSetters[NOTICE_IDX]!)).toContain(HELD);
+      expect(argsOf(stateSetters[ERROR_IDX]!)).toEqual([null]); // neutral, not a failure
+      expect(stateSetters[0]).not.toHaveBeenCalled(); // no spinner: nothing is running
+
+      topUpAction.mockResolvedValueOnce({ ok: true, balance: 60, creditsAdded: 50 });
+      await confirmBuy(PACK_A); // the SAME confirmed purchase — reuses the held key
+      expect(sentKeys()).toEqual(["key-1", "key-1"]);
+    });
+  }
+});
