@@ -219,6 +219,13 @@ describe("touch targets — 44px on a phone or any coarse pointer", () => {
     expect(decl(strip!.body, "inset-inline")).toBe("min(0px, calc((100% - var(--control-md)) / 2))");
   });
 
+  it("an event chain link and a scoping line's actions take the height themselves", () => {
+    const links = touchRule(".chain__item > .link, .field__help > .link");
+    expect(links).toBeDefined();
+    expect(decl(links!.body, "display")).toBe("inline-flex");
+    expect(decl(links!.body, "min-block-size")).toBe("var(--control-md)");
+  });
+
   it("the drawn desktop density is untouched — both stay --control-sm at every width", () => {
     expect(lastTopLevel(".sidebar__link", "min-height")).toBe("var(--control-sm)");
     expect(lastTopLevel(".btn--sm", "min-height")).toBe("var(--control-sm)");
