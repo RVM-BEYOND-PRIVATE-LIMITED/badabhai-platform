@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { ReactElement, ReactNode } from "react";
+import { isValidElement, type ReactElement, type ReactNode } from "react";
 import type * as ReactModule from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { CandidateInbox, CandidateInboxRow } from "../../../lib/contracts";
@@ -73,6 +73,7 @@ vi.mock("../../../components/retry-button", async () => {
 
 const mod = await import("./page");
 const CandidatesPage = mod.default;
+const { CandidateFilter } = await import("./candidate-filter");
 const { ApplicantActions } = await import("../postings/[id]/applicants/applicant-actions");
 
 const P1 = "11111111-0000-4000-8000-000000000001";
@@ -590,5 +591,40 @@ describe("candidates page — states (the head and filter never blank)", () => {
     expect(state).toContain('data-retry="">Try again</button>');
     expect(out).not.toContain("couldn’t load");
     expect(textOf(state)).not.toMatch(/limit|hour|\d/);
+  });
+});
+
+describe("candidates page — the filter shows the posting the list is filtered by", () => {
+  /** The key React reconciles the filter by, found wherever the page passes it (a header prop). */
+  const filterKey = (node: unknown, seen = new Set<unknown>()): string | null | undefined => {
+    if (node === null || typeof node !== "object" || seen.has(node)) return undefined;
+    seen.add(node);
+    if (isValidElement(node)) {
+      if (node.type === CandidateFilter) return node.key;
+      return filterKey(node.props, seen);
+    }
+    for (const v of Object.values(node)) {
+      const k = filterKey(v, seen);
+      if (k !== undefined) return k;
+    }
+    return undefined;
+  };
+
+  it("a new selection remounts the filter: a kept <select> never applies a changed defaultValue", async () => {
+    // Filtered-empty -> "All postings" -> empty: Next keeps the page mounted across a query-only
+    // navigation and both states render the same head, so without a key the select would keep
+    // showing the old posting above the unfiltered list.
+    const empty = { applicants: [], nextCursor: null };
+    getCandidateInbox.mockResolvedValueOnce(empty);
+    const onP1 = filterKey(await tree({ postingId: P1 }));
+    getCandidateInbox.mockResolvedValueOnce(empty);
+    const onAll = filterKey(await tree());
+    getCandidateInbox.mockResolvedValueOnce(empty);
+    const onP2 = filterKey(await tree({ postingId: P2 }));
+    expect(onP1).not.toBeUndefined();
+    expect(new Set([onP1, onAll, onP2]).size).toBe(3);
+    // The same selection keeps the same key (paging within a filter is not a new selection).
+    getCandidateInbox.mockResolvedValueOnce(empty);
+    expect(filterKey(await tree({ postingId: P1.toUpperCase() }))).toBe(onP1);
   });
 });

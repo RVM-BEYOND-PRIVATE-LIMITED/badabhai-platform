@@ -109,6 +109,9 @@ export default async function CandidatesPage({
     ...HEAD,
     toolbar: (
       <CandidateFilter
+        // A query-only navigation keeps this mounted, and a kept <select> ignores a new
+        // defaultValue — so a new selection remounts it, or it would show the old posting.
+        key={selected ?? ""}
         options={withSelectedOption(options ?? [], selected, inboxRows)}
         selected={selected}
         unavailable={options === null}
