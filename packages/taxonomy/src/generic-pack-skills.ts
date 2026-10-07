@@ -104,9 +104,16 @@ export const GENERIC_PACK_SKILLS: Readonly<Record<string, Readonly<Record<string
 };
 
 /**
- * Generic family packs whose trade question DELIBERATELY derives nothing. The V1 vocabulary has
- * no `mskill_*` for the trade, and the owner ruled out a proxy (2026-10-06). Closing a row means
- * minting a match skill first (a taxonomy decision). A test pins that each derives nothing.
+ * Generic family packs whose trade question DELIBERATELY derives nothing. No corpus `skill_*`
+ * bridges the trade to a match skill, and the owner ruled out a proxy (2026-10-06). A test pins
+ * that each derives nothing.
+ *
+ * #2022 minted `mskill_industrial_electrician` and `mskill_painter_coater`, but PACK-ONLY: they
+ * are reached from the trade's own role pack (`qp_industrial_electrician`, …) through
+ * `PACK_ANSWER_SKILLS`, never from a corpus id. This table emits only corpus ids, and the generic
+ * packs' chips do not literally claim those narrower trades ("Ghar ki wiring" is not plant work;
+ * a building painter is not a powder coater). Mapping a generic chip to one of them is a taxonomy
+ * decision for the owner, not a default here.
  */
 export const GENERIC_PACKS_WITHOUT_MATCH_SKILL = [
   "qp_electrical",
