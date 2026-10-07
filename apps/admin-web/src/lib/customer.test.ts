@@ -114,10 +114,17 @@ describe("customer address fence — the console", () => {
     expect(SOURCES.has("lib/customer.ts")).toBe(true);
   });
 
-  it("no shipped file builds /companies/… or /agencies/… by hand — customerHref does", () => {
-    const offenders = [...SOURCES].flatMap(([file, src]) =>
-      handBuiltCustomerHrefs(file, src).map((hit) => `${file}:${hit}`),
-    );
-    expect(offenders).toEqual([]);
-  });
+  // EXPLICIT TIMEOUT: this scans every shipped source, and CI runs all packages' tests at once —
+  // it measured 6.2 s there and timed out at vitest's 5 s default whenever a shared-package change
+  // missed admin-web's turbo cache (same fix as #2023 / #2026).
+  it(
+    "no shipped file builds /companies/… or /agencies/… by hand — customerHref does",
+    () => {
+      const offenders = [...SOURCES].flatMap(([file, src]) =>
+        handBuiltCustomerHrefs(file, src).map((hit) => `${file}:${hit}`),
+      );
+      expect(offenders).toEqual([]);
+    },
+    30_000,
+  );
 });
