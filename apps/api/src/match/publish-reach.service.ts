@@ -90,10 +90,15 @@ export class PublishReachService {
     const existing = await this.repo.findPostingSkillSets(jobPostingId);
     if (!existing) throw new NotFoundException("Job posting not found");
 
+    // POLICY 27 "never narrow" (#1953): a lifecycle rebuild keeps every IN-FORCE ops
+    // widen. Applied on every trigger (publish included) because `opsWiden` does not
+    // gate on status, so a grant can already exist on a draft.
+    const reachSkillIds = await this.withActiveWidens(jobPostingId, resolved.reachSkillIds);
+
     await this.repo.setPostingSkillSets(
       jobPostingId,
       resolved.postedSkillIds,
-      resolved.reachSkillIds,
+      reachSkillIds,
       // FIRST OPEN ONLY.
       input.trigger === "publish" && existing.publishedAt === null ? new Date() : null,
     );
@@ -101,14 +106,14 @@ export class PublishReachService {
     await this.repo.materializeReachForPosting(
       jobPostingId,
       resolved.postedSkillIds,
-      resolved.reachSkillIds,
+      reachSkillIds,
     );
 
     const counts = await this.repo.countReachForPosting(jobPostingId);
     const result: MaterializeResult = {
       jobPostingId,
       matchSkillIds: resolved.postedSkillIds,
-      reachSkillIds: resolved.reachSkillIds,
+      reachSkillIds,
       appliedUntickedIds: resolved.appliedUntickedIds,
       reachTotal: counts.total,
       reachTier1: counts.tier1,
@@ -119,7 +124,7 @@ export class PublishReachService {
     const materialized: PayloadInputOf<"job_posting.reach_materialized"> = {
       job_posting_id: jobPostingId,
       match_skill_count: resolved.postedSkillIds.length,
-      reach_skill_count: resolved.reachSkillIds.length,
+      reach_skill_count: reachSkillIds.length,
       unticked_count: resolved.appliedUntickedIds.length,
       reach_total: result.reachTotal,
       reach_tier1: result.reachTier1,
@@ -137,6 +142,33 @@ export class PublishReachService {
 
     await this.emitAlertIfShort(result, ctx);
     return result;
+  }
+
+  /**
+   * The resolved reach set ∪ the posting's in-force widen ids (un-retracted, unexpired),
+   * sorted so the stored set stays byte-stable.
+   *
+   * WHY: `resolveForPublish` knows posted skills, related skills and unticks — nothing
+   * about `job_reach_widen`. Overwriting `reach_skill_ids` with it alone silently dropped
+   * an active grant on unpause/edit while its provenance row still said "in force", with
+   * no event for the narrowing (#1953). A grant now ends ONLY by its expiry (the sweep,
+   * evented `reach_widen_expired`) — an EDIT that changes the posted skills keeps it too.
+   *
+   * Widened-in ids join the REACH set only, never the posted set, so they stay tier 2
+   * (E18). An ops widen also outranks a payer untick of the same id, exactly as it does
+   * on the `opsWiden` path. Expired-but-unswept rows are excluded by the repository; the
+   * sweep retracts them. Ids are re-checked against the closed set (defence in depth —
+   * provenance is validated at the widen entrypoint).
+   */
+  private async withActiveWidens(
+    jobPostingId: string,
+    resolvedReach: readonly string[],
+  ): Promise<string[]> {
+    const widened = (await this.widenRepo.activeIdsForPosting(jobPostingId)).filter((id) =>
+      isMatchSkillId(id),
+    );
+    if (widened.length === 0) return [...resolvedReach];
+    return [...new Set<string>([...resolvedReach, ...widened])].sort();
   }
 
   /**
@@ -244,9 +276,9 @@ export class PublishReachService {
    *   new_reach = current_reach_skill_ids − removed
    *
    * The reach set is NEVER re-derived from the taxonomy here. A re-derivation would
-   * resurrect unticked related skills (the unticks were baked into the stored set at
-   * publish time and are not persisted anywhere else) and would race any concurrent
-   * publish edit; subtracting from the STORED set can only remove what a due grant
+   * need the unticks (persisted in `job_postings.unticked_related_ids` since migration
+   * 0121) and the other active grants re-applied, and would race any concurrent publish
+   * edit; subtracting from the STORED set can only remove what a due grant
    * demonstrably added and nothing else protects. `materializeReachForPosting`'s purge
    * then drops the `job_reach` rows that only those skills qualified — including the
    * apply-gate rows, so an expired widen fails CLOSED for its workers.
