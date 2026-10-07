@@ -1122,6 +1122,33 @@ describe("ApplicantActions — every row control leads with its icon (F08)", () 
   it("'Mark as contacted' (routed rows) carries one too, so the toolbar reads as one set", () => {
     expect(iconOf(render({ rows: routedRowState() }), "Mark as contacted")).toBe("check-circle");
   });
+
+  it("an unlocked row's two reveals lead with the VIEW icon — idle and retry alike (N2)", () => {
+    // Both open a read-out of what the unlock already granted: no spend (not the unlock glyph),
+    // no new tab (not `external`), and nothing to message or dial yet (no chat / phone glyph).
+    const held: GrantedUnlock = {
+      kind: "granted",
+      unlockId: "66666666-6666-4666-8666-666666666666",
+      expiresAt: "2026-11-04T09:30:00.000Z",
+    };
+    const idle = render({ unlocked: { [WORKER]: held } });
+    expect(iconOf(idle, "Open routed contact")).toBe(ACTION_ICON.view);
+    expect(iconOf(idle, "View masked resume")).toBe(ACTION_ICON.view);
+    // A session row REPLACES the held base row, so it carries the grant itself.
+    const failed = render({
+      rows: {
+        [WORKER]: {
+          ...routedRowState()[WORKER],
+          unlock: held,
+          contact: null,
+          contactError: "x",
+          resumeError: "y",
+        },
+      },
+    });
+    expect(iconOf(failed, "Retry — open routed contact")).toBe(ACTION_ICON.view);
+    expect(iconOf(failed, "Retry — view masked resume")).toBe(ACTION_ICON.view);
+  });
 });
 
 describe("ApplicantActions — a disabled Unlock says WHY in visible text, not a dead title (F27)", () => {

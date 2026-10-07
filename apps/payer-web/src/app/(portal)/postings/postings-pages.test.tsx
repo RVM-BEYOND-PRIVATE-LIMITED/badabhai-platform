@@ -395,10 +395,13 @@ describe("/postings/<id>/edit — Edit posting", () => {
     expect(listMatchSkills).not.toHaveBeenCalled();
   });
 
-  it("a company edits it, with the way back to its details", async () => {
+  it("a company edits it, with the way back to the posting by its own name", async () => {
     const h = head(await edit.default(params(ID)));
     expect(redirect).not.toHaveBeenCalled();
-    expect(h.back).toEqual({ href: `/postings/${ID}`, label: "Posting details" });
+    // One label per destination: the link back to a posting is its title — the details page's H1
+    // and the label the applicants page's back link uses — never a generic "Posting details".
+    expect(h.back).toEqual({ href: `/postings/${ID}`, label: "CNC Turner" });
+    expect((h.back as { label: string }).label).toBe(head(await detail.default(params(ID))).title);
     expect(h.title).toBe("Edit posting");
   });
 });

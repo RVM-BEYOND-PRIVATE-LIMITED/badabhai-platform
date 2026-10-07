@@ -3669,6 +3669,23 @@ textarea.input {
 .agency-referrals-page .panel:not(.panel--table) > .panel__body > * {
   margin: 0;
 }
+/* THE LEAD PAIR, PHONES ONLY (F19). The funnel leads the page (it is what the page reports), and
+   on a laptop that keeps "Create invite link" in view — but on a 375x812 phone its 355px of
+   tiles pushed the one primary to 823-867, under the fold. So ≤600px the invite panel is lifted
+   above the funnel. Only the PAIR (`__lead`, nothing else in it) is a flex box, never the page:
+   as flex items, the funnel's and the panel's margins no longer collapse, and both end on 0 (the
+   funnel on its bar, sub or state; the panel is a margin-free grid), so the 24px steps stay
+   24px. A flex PAGE would also stop an earnings section's last stat row from collapsing its
+   margin into the section's own — a 48px gap. Above 600px this box is plain block flow. */
+@media (max-width: 600px) {
+  .agency-referrals-page__lead {
+    display: flex;
+    flex-direction: column;
+  }
+  .agency-referrals-page__lead > .agency-invite {
+    order: -1;
+  }
+}
 /* Payouts head, PHONES ONLY. The shared `.panel__text` pattern keeps "Request payout" on the
    title row at every width — but on a phone that leaves the text column ~110px beside the
    ~165px button, and the mock-money description would stack seven lines deep in it. So ≤600px

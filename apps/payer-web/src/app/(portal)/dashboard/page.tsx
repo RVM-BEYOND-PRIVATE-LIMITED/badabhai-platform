@@ -219,9 +219,10 @@ export default async function DashboardPage() {
           <div className="panel__head">
             <h2 className="panel__title">Your postings</h2>
             <div className="panel__actions">
-              {/* The dashboard's ONE link to the Postings list. */}
+              {/* The dashboard's ONE link to the Postings list, named as the rail item and the
+                  list's H1 name it: one label per destination. */}
               <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/postings">
-                <span>All postings</span>
+                <span>Postings</span>
                 <Icon name={ACTION_ICON.next} />
               </Link>
             </div>

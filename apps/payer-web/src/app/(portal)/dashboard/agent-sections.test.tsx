@@ -326,6 +326,15 @@ describe("agent sections — renders identity / demand summary / child modules",
     expect(toList).toHaveLength(1);
   });
 
+  it("that one link names the list as the rail item and its H1 do: 'Postings'", async () => {
+    // One label per destination: a navigation link says where it goes in the destination's own
+    // name ("All postings" was a second name for the same page).
+    const tree = await AgentSections();
+    const toList = findAll(tree, LinkStub).filter((a) => prop(a).href === "/agency/jobs");
+    expect(toList).toHaveLength(1);
+    expect(collect(prop(toList[0]!).children as ReactNode).text.join("").trim()).toBe("Postings");
+  });
+
   it("offers NO create control and never the company posting surface", async () => {
     const tree = await AgentSections();
     const joined = collect(tree).text.join(" ");
@@ -404,7 +413,7 @@ describe("CARDS-1 · agent tiles are whole-card links to their REAL routes (face
     const byLabel = (l: string) => cards.find((c) => labelOf(c) === l);
 
     expect(prop(byLabel("Account")!).href).toBe("/account");
-    // The demand tile is a count; "All postings" on the panel is the one door to the list.
+    // The demand tile is a count; "Postings" on the panel is the one door to the list.
     expect(prop(byLabel("Total postings")!).href).toBeUndefined();
     // No Revenue card: Revenue is a rail destination (the rail is its door; PR D #2037 also
     // removed the shared top's "Coming soon" tile).
