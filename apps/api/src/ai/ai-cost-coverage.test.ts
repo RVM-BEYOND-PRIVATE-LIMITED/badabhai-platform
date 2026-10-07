@@ -153,7 +153,13 @@ const ALL_TASK_TYPES = AiCostRecordedPayload.shape.task_type.options as readonly
  * narrated here: a source-text matcher must not be coupled to a variable name, and an entry on
  * this list is a claim about TODAY that has to be re-derived, not inherited.
  */
-const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = ["domain_match", "tts_synthesis"];
+const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = [
+  "domain_match",
+  "tts_synthesis",
+  // ADR-0051 Release 2 — TEMPORARY within the Release 2 PR: the contract commit names the task
+  // before the API commit wires its emitter, which moves it to the emitted list above.
+  "profiling_free_summary",
+];
 
 describe("every task type that can spend is either emitted or named as unledgered (#738)", () => {
   it("finds the real emitter call sites — without this the coverage check is vacuous", () => {

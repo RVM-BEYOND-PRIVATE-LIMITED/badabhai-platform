@@ -291,7 +291,43 @@ Any widening of this list follows the same review as the copy.
 7. **Rollback:** set the `production` environment secret `CHAT_FREE_CHAT_DISABLED=true` and redeploy.
    The switch writes nothing; sessions started while it was on keep their mode and lock.
 
+## 8. Release 2 — the rolling conversation summary (owner rulings 2026-10-07)
+
+Release 1 went live on 2026-10-07 (deploy run 37577845893; a read-only probe showed `real_call=true` for both
+tasks). Release 2 adds the cross-session summary deferred by R19.
+
+| # | Ruling |
+|---|---|
+| **R21** | **Rolling.** When free-chat lines age out of the reply's recent-turn window, they are folded into the summary. |
+| **R22** | **Free-chat talk only.** Only free-mode casual and career exchanges are summarised. Interview answers already live in the profile and are never sent. |
+| **R23** | **Kept indefinitely** until account erasure. It is read only by this chat; after confirmation the companion never reads it. |
+| **R24** | **Reply only.** The casual/career reply prompt gets the summary. The classifier never does. |
+
+**How it works:**
+- **Model task.** `profiling_free_summary` (`POST /free-chat/summarize`) runs on the cheap tier, temperature 0.
+  - **Input:** the previous summary plus the aged-out turns (1–24, own name redacted).
+  - **Output:** the new summary or null. Its mock returns null, so an unarmed task stores nothing.
+  - The summary is model-facing context in compact English notes and is never shown to the worker.
+- **When it runs.** The fold runs **after** the reply is served (never on the worker's critical path), at most one
+  per session at a time. Failure keeps the previous summary.
+- **Validation.** The API validates the summary before storing it:
+  - G1 `containsHardIdentifier` → rejected
+  - the worker's own name redacted
+  - `{{` / `}}` → rejected
+  - more than 1200 characters → rejected
+- **Storage.** It is stored as a `free_chat_summary {v:1, text, updated_at, session_id, folded_lines}` sibling key in
+  `chat_sessions.conversation_state`, by jsonb merge, with no migration. The whole-column writers carry it the same
+  way as `free_chat_lock`: the row's copy first, then the envelope's. At session open it is read from the worker's
+  latest session that carries one. `folded_lines` counts only the current session's lines.
+- **Event.** `chat.free_chat_summary_updated` v1 (updated / rejected / unavailable, `folded_lines`,
+  `summary_chars`); never the text.
+- **Kill switch.** It stops folding as well.
+- **Erasure.** The summary lives on `chat_sessions`, which account erasure already removes.
+- **Arming.** Append `profiling_free_summary` to the box's `AI_REAL_CALL_TASKS`. Until then the mock folds nothing,
+  so merging first is safe.
+
 ```
 Owner rulings R1–R20 taken 2026-10-06 in the design session; plan and copy approved the same day.
 Signed (Divyanshu): Divyanshu          Date: 2026-10-06
+Release 2 rulings R21–R24 taken 2026-10-07 (§8).
 ```
