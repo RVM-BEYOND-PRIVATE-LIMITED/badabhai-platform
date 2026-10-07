@@ -54,6 +54,7 @@ import '../../voice_form/presentation/widgets/voice_choice_chips.dart'
 import '../domain/chat_message.dart';
 import '../domain/chat_multi_select.dart';
 import '../domain/chat_companion_keys.dart';
+import '../domain/chat_free_chat_keys.dart';
 import '../domain/chat_identity_questions.dart';
 import 'widgets/chat_location_card.dart';
 import 'widgets/flying_name.dart';
@@ -1131,6 +1132,20 @@ class _ChatViewState extends State<_ChatView>
   /// more", and routes through [_confirmEarlyFinish] instead of straight to the
   /// preview. Nothing here can leave the worker stuck.
   Widget _doneCta(ChatState state) {
+    // #2030 ask 2 — IN FREE CHAT THIS BUTTON IS THE WAY BACK, not the way out.
+    //
+    // The interview CTA must not stand here: its not-ready path
+    // ([_confirmEarlyFinish]) would finish a profile from a transcript the
+    // server excluded from extraction, so it would extract NOTHING and hand the
+    // worker an empty profile.
+    //
+    // REPLACED, not hidden (the issue allows either). Hiding it leaves a
+    // distress turn with no route onward at all: that is the one free-mode turn
+    // the server attaches no "Resume banayein" chip to (R9), so the chip cannot
+    // be relied on as the only exit. This keeps a visible, full-width exit on
+    // every single free-mode turn and posts the server's OWN label, which its
+    // `isResumeChip` reads by label or by key.
+    if (state.freeChat) return _freeChatResumeCta(sending: state.sending);
     final bool ready = state.extractionReady;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -1157,6 +1172,42 @@ class _ChatViewState extends State<_ChatView>
         ),
       ),
     );
+  }
+
+  /// #2030 ask 2 — the free-chat exit, drawn in [_doneCta]'s slot while the
+  /// worker is in free chat.
+  ///
+  /// Sends the résumé chip the way a chip is always sent: the LABEL as the
+  /// message text, with the stable `option_key` carried for the mode machine.
+  /// So this is byte-identical to the worker tapping "Resume banayein"
+  /// themselves, and it ends free mode through the same path.
+  Widget _freeChatResumeCta({required bool sending}) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s4,
+        0,
+        AppSpacing.s4,
+        AppSpacing.s3,
+      ),
+      child: _capped(
+        PrimaryActionButton(
+          buttonKey: kFreeChatResumeCtaKey,
+          label: kFreeChatResumeLabel,
+          onPressed: sending ? null : _sendFreeChatResume,
+        ),
+      ),
+    );
+  }
+
+  /// Leaves free chat for the interview (#2030 ask 2).
+  void _sendFreeChatResume() {
+    context.read<ChatBloc>().add(
+          const ChatMessageSent(
+            kFreeChatResumeLabel,
+            optionKey: kFreeChatResumeKey,
+            servedOption: true,
+          ),
+        );
   }
 
   /// The handover card (#1339/#1340) — drawn INSTEAD OF [_doneCta] on the one
@@ -3632,6 +3683,10 @@ String kCooldownComposerText(DateTime until) {
 /// The companion composer's mic (ADR-0046 F3) — keyed because this screen draws
 /// three mics and only this one is gated by the v2 lever.
 const Key kCompanionVoiceButtonKey = ValueKey<String>('companion-voice-button');
+
+/// #2030 ask 2 — the free-chat exit CTA, keyed so a test can assert that the
+/// interview's "build my profile" button is NOT what stands in free mode.
+const Key kFreeChatResumeCtaKey = ValueKey<String>('free-chat-resume-cta');
 
 /// What the two VISIBLE voice controls say, and why they must never say the
 /// same thing.
