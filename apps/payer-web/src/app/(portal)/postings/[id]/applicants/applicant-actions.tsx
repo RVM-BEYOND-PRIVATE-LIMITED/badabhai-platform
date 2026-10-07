@@ -98,7 +98,6 @@ export function ApplicantActions({
   postingId,
   applicants,
   balance,
-  canBuyCredits = false,
   unlocked = {},
 }: {
   /** The screen's head text (back link, H1, description); the tabs are added as its toolbar. */
@@ -106,12 +105,6 @@ export function ApplicantActions({
   postingId: string;
   applicants: FacelessApplicant[];
   balance: number;
-  /**
-   * Owner-only AFFORDANCE: a zero balance links to the Credits page only for a viewer who can
-   * open it (`/credits` is `requireOwner()`; a recruiter would land on a 404). Default false —
-   * a caller that cannot say who is looking never links anyone to a page that may 404.
-   */
-  canBuyCredits?: boolean;
   /**
    * The payer's LIVE grants for this feed's workers, keyed by worker id (see liveUnlocksFor).
    * Default none — a caller that did not read the unlock history starts every row locked (the
@@ -266,18 +259,9 @@ export function ApplicantActions({
           <div className="alert__text">
             <p className="alert__title">0 credits</p>
             <p className="alert__body">
-              {canBuyCredits ? (
-                <>
-                  <Link href="/credits">Buy credits</Link> to unlock an applicant&rsquo;s routed
-                  contact.
-                </>
-              ) : (
-                <>
-                  Ask your account owner to buy credits to unlock an applicant&rsquo;s routed
-                  contact.
-                </>
-              )}{" "}
-              This is your own balance — not a signal about any applicant.
+              {/* Every member can open Credits (owner ruling 2026-10-07) — no viewer check. */}
+              <Link href="/credits">Buy credits</Link> to unlock an applicant&rsquo;s routed
+              contact. This is your own balance — not a signal about any applicant.
             </p>
           </div>
         </div>
@@ -577,10 +561,10 @@ export function ApplicantActions({
                         </Button>
                         {/* A REAL zero balance only — an unread balance arrives here as 1 (the
                             page's affordance default), so Unlock stays enabled and this never
-                            shows. For a viewer who can open Credits, the disabled Unlock gets an
-                            enabled next step beside it; it is about the payer's own balance,
-                            never a signal about this applicant. */}
-                        {balance === 0 && canBuyCredits ? (
+                            shows. Every member can open Credits, so the disabled Unlock always
+                            gets an enabled next step beside it; it is about the payer's own
+                            balance, never a signal about this applicant. */}
+                        {balance === 0 ? (
                           <Link className="bb-btn bb-btn--secondary" href="/credits">
                             <Icon name={ACTION_ICON.credits} />
                             <span>Buy credits</span>
@@ -592,11 +576,8 @@ export function ApplicantActions({
                           redundant tab stop on every card). */}
                       {balance === 0 ? (
                         <p className="applicant__hint" id={unlockHintId}>
-                          {canBuyCredits
-                            ? "Buy credits to unlock."
-                            : "Ask your account owner to buy credits."}{" "}
-                          Guidance only — this is your own balance, never a signal about this
-                          applicant.
+                          Buy credits to unlock. Guidance only — this is your own balance, never a
+                          signal about this applicant.
                         </p>
                       ) : null}
                       {/* Transient unlock failure: retryable inline error (the Unlock button

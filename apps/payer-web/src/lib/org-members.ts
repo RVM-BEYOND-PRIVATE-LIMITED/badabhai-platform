@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { payerFetch } from "./payer-http";
+import { orgRoleWireSchema } from "./contracts";
 import type { OrgRole } from "./auth/org-roles";
 
 /**
@@ -16,13 +17,12 @@ import type { OrgRole } from "./auth/org-roles";
  * only on invite and is never persisted/logged/echoed here.
  */
 
-const orgRoleSchema = z.enum(["owner", "recruiter"]);
 const orgMemberStatusSchema = z.enum(["invited", "active", "removed"]);
 
 /** The API's masked member view (ids + role + status + MASKED email — no raw PII). */
 const orgMemberWireSchema = z.object({
   member_id: z.string(),
-  org_role: orgRoleSchema,
+  org_role: orgRoleWireSchema,
   status: orgMemberStatusSchema,
   email_masked: z.string(),
   invited_at: z.string(),

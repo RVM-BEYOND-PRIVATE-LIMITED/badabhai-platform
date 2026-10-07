@@ -137,20 +137,20 @@ describe("nav model — which paths light which item up", () => {
 });
 
 describe("nav model — role shapes the affordances, not the gates", () => {
-  it("a recruiter is shown neither Credits nor Team", () => {
-    const hrefs = allItems(navSections({ isAgency: false, isOwner: false, ...ON })).map(
-      (i) => i.href,
-    );
-    expect(hrefs).not.toContain("/credits");
-    expect(hrefs).not.toContain("/team");
+  it("a recruiter is shown Credits (any member can buy — ruling 2026-10-07) but not Team", () => {
+    for (const isAgency of [false, true]) {
+      const hrefs = allItems(navSections({ isAgency, isOwner: false, ...ON })).map((i) => i.href);
+      expect(hrefs, `agency ${isAgency}`).toContain("/credits");
+      expect(hrefs, `agency ${isAgency}`).not.toContain("/team");
+    }
   });
 
   it("an owner is shown both", () => {
-    const hrefs = allItems(navSections({ isAgency: false, isOwner: true, ...ON })).map(
-      (i) => i.href,
-    );
-    expect(hrefs).toContain("/credits");
-    expect(hrefs).toContain("/team");
+    for (const isAgency of [false, true]) {
+      const hrefs = allItems(navSections({ isAgency, isOwner: true, ...ON })).map((i) => i.href);
+      expect(hrefs, `agency ${isAgency}`).toContain("/credits");
+      expect(hrefs, `agency ${isAgency}`).toContain("/team");
+    }
   });
 
   it("the parked Revenue page stays a link, badged parked", () => {
@@ -215,9 +215,33 @@ describe("nav model — Posting naming, and an agency posts AGENCY jobs only (20
     }
   });
 
-  it("an agency recruiter's rail has no Billing group at all (Credits is owner-only)", () => {
-    const sections = navSections({ isAgency: true, isOwner: false, ...ON });
-    expect(sections.map((s) => s.title)).not.toContain("Billing");
+  it("a recruiter's rail keeps the Billing group (Credits) and drops only Organisation (Team)", () => {
+    for (const isAgency of [false, true]) {
+      const sections = navSections({ isAgency, isOwner: false, ...ON });
+      const titles = sections.map((s) => s.title);
+      expect(titles, `agency ${isAgency}`).toContain("Billing");
+      expect(titles, `agency ${isAgency}`).not.toContain("Organisation");
+    }
+  });
+
+  it("the recruiter rails, in order — the owner rails minus Team", () => {
+    expect(labelsOf(navSections({ isAgency: false, isOwner: false, ...ON }))).toEqual([
+      "Dashboard",
+      "New posting",
+      "Postings",
+      "Plans & capacity",
+      "Credits",
+    ]);
+    expect(labelsOf(navSections({ isAgency: true, isOwner: false, ...ON }))).toEqual([
+      "Dashboard",
+      "New posting",
+      "Postings",
+      "Worker activity",
+      "Referrals",
+      "QR invite",
+      "Credits",
+      "Revenue",
+    ]);
   });
 
   it("an agency's posting items open the AGENCY surface; nothing in its rail opens /postings*", () => {
@@ -265,9 +289,13 @@ describe("nav model — the nav follows the page gate (agency-portal flag)", () 
     const off = hrefs(false);
     for (const h of FLAG_GATED) expect(off, h).not.toContain(h);
     expect(off).toEqual(["/dashboard", "/credits", "/team"]);
+    // A recruiter keeps Credits with the flag off too — only Team is owner-only.
+    expect(hrefs(false, false)).toEqual(["/dashboard", "/credits"]);
     // …and no empty group heading is left behind.
-    const sections = navSections({ isAgency: true, isOwner: true, agencyPortalEnabled: false });
-    for (const s of sections) expect(s.items.length, s.title ?? "lead").toBeGreaterThan(0);
+    for (const isOwner of [false, true]) {
+      const sections = navSections({ isAgency: true, isOwner, agencyPortalEnabled: false });
+      for (const s of sections) expect(s.items.length, s.title ?? "lead").toBeGreaterThan(0);
+    }
   });
 
   it("the flag never touches the company rail", () => {
