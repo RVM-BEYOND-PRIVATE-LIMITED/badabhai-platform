@@ -23,14 +23,15 @@ import { NavPendingCue } from "./nav-pending";
  * accessible name is its children (or its `aria-label`) exactly as before.
  *
  * Not for links that leave the app or the page's own fragments — an external URL, `mailto:` /
- * `tel:`, a hash-only `#id` or a `download`: none of those is a pending in-app navigation, and
- * they stay plain `<a>` elements.
+ * `tel:`, a hash-only `#id`, a `download` or a new tab: none of those is a pending in-app
+ * navigation, and they stay plain `<a>` elements. Conversely a plain `<a>` to an in-app path is a
+ * full reload with no cue — the fence rejects that too.
  *
  * No `"use client"`: a server component renders it as it is (the `Link` and the cue are the
  * client parts), and a client component imports it like any other.
  */
 export type PortalLinkProps = Omit<ComponentProps<typeof Link>, "href"> & {
-  /** An in-app path ("/postings/<id>", "/agency/referrals#batch-invites"). */
+  /** An in-app path ("/postings/<id>", "/agency/referrals#batch-invites") or a query ("?cursor=…"). */
   href: string;
   /** The destination the pending cue names ("Opening {pendingLabel}…"). */
   pendingLabel: string;

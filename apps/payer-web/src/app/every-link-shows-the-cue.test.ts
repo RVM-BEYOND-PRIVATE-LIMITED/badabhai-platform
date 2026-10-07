@@ -3,6 +3,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
+import { loadsModule, portalLinkTags } from "../../test/portal-link-usage";
 
 /**
  * EVERY IN-APP LINK SHOWS THE NAVIGATION PENDING CUE (follow-up to #2115).
@@ -23,11 +24,17 @@ import ts from "typescript";
  *    `{ default as … }` import, `import … = require`, a re-export of it (`export { default } from`,
  *    `export * as`), `require("next/link")` or `import("next/link")`, under any of the specifiers
  *    that load it. A type-only import and the named `useLinkStatus` are fine.
- *  - NO module but the wrapper places `NavPendingCue` itself (one way to cue a link).
+ *  - NO module but the wrapper places `NavPendingCue` itself (one way to cue a link) — under any
+ *    specifier for it (`./nav-pending`, `./nav-pending.tsx`, `@/components/nav-pending.js`).
  *  - A `PortalLink` is for a pending IN-APP navigation only: a literal `href` must be an app path
- *    ("/…", not "//…"), and it takes no `download` or `target`. An external URL, `mailto:` / `tel:`,
- *    a hash-only `#id`, a download or a new tab is a plain `<a>` — none of those leaves a
- *    navigation pending here. And its `pendingLabel` is never blank.
+ *    ("/…", not "//…") or a query on this page ("?…", a soft navigation too), and it takes no
+ *    `download` or `target`. An external URL, `mailto:` / `tel:`, a hash-only `#id`, a download or
+ *    a new tab is a plain `<a>` — none of those leaves a navigation pending here. And its
+ *    `pendingLabel` is never blank. However the wrapper is named (`{ PortalLink as L }`,
+ *    `<P.PortalLink>` after `import * as P`).
+ *  - And the converse (review of #2125): a plain `<a>` to an in-app path ("/…" or "?…") is a full
+ *    page reload with no cue at all — it is a `PortalLink`, unless it downloads or opens a new
+ *    tab, or `MAY_ANCHOR_RAW` names it with a reason.
  * Read from the syntax tree, so a comment or a string never counts. Whole `src/`, generically: a
  * route added later (the Candidates inbox, #2121) is covered the day it lands.
  *
@@ -56,19 +63,20 @@ const WRAPPER = "components/portal-link.tsx";
 const MAY_LINK_RAW: ReadonlyMap<string, string> = new Map([
   [WRAPPER, "the wrapper itself: it renders Link with the cue inside, for every other module"],
 ]);
+/**
+ * Plain `<a>`s to an in-app path that must stay plain — `[file, the href's literal start, WHY]`
+ * (e.g. a route handler that answers with a redirect or a file, not a page). None today.
+ */
+const MAY_ANCHOR_RAW: ReadonlyArray<readonly [string, string, string]> = [];
 
 const moduleName = (node: ts.Node | undefined): string | null =>
   node && ts.isStringLiteralLike(node) ? node.text : null;
 const isLinkModule = (node: ts.Node | undefined) => LINK_MODULES.has(moduleName(node) ?? "");
-/** `./nav-pending`, `../../components/nav-pending`, `@/components/nav-pending` … */
-const isCueModule = (node: ts.Node | undefined) => {
-  const m = moduleName(node);
-  return m !== null && (m === "nav-pending" || m.endsWith("/nav-pending"));
-};
-const isWrapperModule = (node: ts.Node | undefined) => {
-  const m = moduleName(node);
-  return m !== null && (m === "portal-link" || m.endsWith("/portal-link"));
-};
+/** `./nav-pending`, `../../components/nav-pending.tsx`, `@/components/nav-pending.js` … */
+const isCueModule = (node: ts.Node | undefined) => loadsModule(moduleName(node), "nav-pending");
+/** An in-app destination a navigation can be pending on: a path, or a query on this page. */
+const isInAppHref = (prefix: string) =>
+  (prefix.startsWith("/") && !prefix.startsWith("//")) || prefix.startsWith("?");
 const textOf = (n: ts.PropertyName | ts.ModuleExportName) =>
   ts.isIdentifier(n) || ts.isStringLiteralLike(n) ? n.text : null;
 
@@ -97,8 +105,8 @@ function linkFindings(code: string, file = "x.tsx"): string[] {
   };
   const RAW = "next/link's Link outside the wrapper";
   const CUE = "NavPendingCue placed by hand";
-  /** Local names bound to the wrapper (`import { PortalLink as L }`). */
-  const wrappers = new Set<string>();
+  /** Is a JSX tag the wrapper, however this file names it. */
+  const isPortalLink = portalLinkTags(sf);
 
   const visit = (node: ts.Node) => {
     if (ts.isImportDeclaration(node) && !node.importClause?.isTypeOnly) {
@@ -120,11 +128,6 @@ function linkFindings(code: string, file = "x.tsx"): string[] {
         }
       }
       if (isCueModule(node.moduleSpecifier) && named && ts.isNamespaceImport(named)) hit(node, CUE);
-      if (isWrapperModule(node.moduleSpecifier) && named && ts.isNamedImports(named)) {
-        for (const el of named.elements) {
-          if (textOf(el.propertyName ?? el.name) === "PortalLink") wrappers.add(el.name.text);
-        }
-      }
     }
     if (
       ts.isImportEqualsDeclaration(node) &&
@@ -155,11 +158,24 @@ function linkFindings(code: string, file = "x.tsx"): string[] {
         (ts.isIdentifier(callee) && callee.text === "require");
       if (loader && isLinkModule(node.arguments[0])) hit(node, RAW);
     }
-    // How a PortalLink is used.
+    // A plain <a> to an in-app path: a full reload, with no cue (unless it downloads or opens a tab).
     if (
       (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
       ts.isIdentifier(node.tagName) &&
-      wrappers.has(node.tagName.text)
+      node.tagName.text === "a"
+    ) {
+      const attrs = node.attributes.properties.filter(ts.isJsxAttribute);
+      const named = (n: string) => attrs.find((a) => ts.isIdentifier(a.name) && a.name.text === n);
+      const href = named("href");
+      const prefix = href ? hrefPrefix(href.initializer) : null;
+      if (prefix !== null && isInAppHref(prefix) && !named("download") && !named("target")) {
+        hit(href!, `a raw <a> to "${prefix}" (a full reload with no pending cue: use PortalLink)`);
+      }
+    }
+    // How a PortalLink is used.
+    if (
+      (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+      isPortalLink(node.tagName)
     ) {
       for (const attr of node.attributes.properties) {
         if (!ts.isJsxAttribute(attr)) continue;
@@ -169,8 +185,11 @@ function linkFindings(code: string, file = "x.tsx"): string[] {
         }
         if (name === "href") {
           const prefix = hrefPrefix(attr.initializer);
-          if (prefix !== null && (!prefix.startsWith("/") || prefix.startsWith("//"))) {
-            hit(attr, `a PortalLink to "${prefix}" (not an app path: use <a>)`);
+          if (prefix !== null && !isInAppHref(prefix)) {
+            hit(
+              attr,
+              `a PortalLink to "${prefix}" (an in-app link takes an absolute path "/…" or a query "?…"; one that leaves the app is a plain <a>)`,
+            );
           }
         }
         if (name === "pendingLabel") {
@@ -266,6 +285,61 @@ describe("the detector", () => {
     }
   });
 
+  it("finds the cue whatever extension its specifier carries (review of #2125)", () => {
+    expect(linkFindings('import { NavPendingCue } from "./nav-pending.tsx";')).toHaveLength(1);
+    expect(
+      linkFindings('import { NavPendingCue } from "@/components/nav-pending.js";'),
+    ).toHaveLength(1);
+    expect(linkFindings('export * from "../components/nav-pending.ts";')).toHaveLength(1);
+    expect(linkFindings('import { NavPendingCue } from "./nav-pending-store";')).toEqual([]);
+  });
+
+  it("checks a PortalLink named through a namespace import (review of #2125)", () => {
+    const ns = (jsx: string) =>
+      linkFindings(`import * as P from "../components/portal-link";\nconst x = ${jsx};`);
+    expect(
+      ns('<P.PortalLink href="mailto:help@badabhai.ai" pendingLabel="Mail">M</P.PortalLink>'),
+    ).toHaveLength(1);
+    expect(ns('<P.PortalLink href="/x.pdf" download pendingLabel="X" />')).toHaveLength(1);
+    expect(ns('<P.PortalLink href="/postings" pendingLabel="Postings" />')).toEqual([]);
+    // Another namespace's PortalLink is not the wrapper.
+    expect(ns('<Q.PortalLink href="mailto:x" pendingLabel="X" />')).toEqual([]);
+  });
+
+  it("a query on this page is an in-app link (a soft navigation, cued) — review of #2125", () => {
+    const use = (jsx: string) =>
+      linkFindings(`import { PortalLink } from "./portal-link";\nconst x = ${jsx};`);
+    expect(use('<PortalLink href="?page=2" pendingLabel="Next page">Next</PortalLink>')).toEqual(
+      [],
+    );
+    expect(use('<PortalLink href={`?cursor=${c}`} pendingLabel="Next page" />')).toEqual([]);
+  });
+
+  it("finds a plain <a> to an in-app path — a full reload with no cue (review of #2125)", () => {
+    for (const jsx of [
+      '<a href="/postings">Postings</a>',
+      "<a href={`/postings/${id}`}>Posting</a>",
+      '<a href="?page=2">Next</a>',
+      '<a className="x" href={"/credits"}>Credits</a>',
+    ]) {
+      expect(linkFindings(`const x = ${jsx};`), jsx).toHaveLength(1);
+    }
+  });
+
+  it("leaves a plain <a> that is not an in-app navigation alone", () => {
+    for (const jsx of [
+      '<a href="https://badabhai.ai">Site</a>',
+      '<a href="//cdn.example/x">X</a>',
+      '<a href="#invite-email">Invite</a>',
+      '<a href="mailto:help@badabhai.ai">Mail</a>',
+      '<a href="/resume.pdf" download>Resume</a>',
+      '<a href="/postings" target="_blank">Postings</a>',
+      "<a href={invite.url}>Invite</a>",
+    ]) {
+      expect(linkFindings(`const x = ${jsx};`), jsx).toEqual([]);
+    }
+  });
+
   it("leaves an in-app PortalLink alone, literal or not", () => {
     const use = (jsx: string) =>
       linkFindings(`import { PortalLink } from "@/components/portal-link";\nconst x = ${jsx};`);
@@ -290,12 +364,31 @@ describe("every in-app link in the portal shows the pending cue", () => {
     .filter((f) => /\.(tsx?|jsx?|mjs|cjs)$/.test(f) && !/\.test\.[jt]sx?$/.test(f))
     .map((f) => [rel(f), readFileSync(f, "utf8")] as const);
 
-  it("no module but the wrapper renders next/link's Link or places the cue by hand", () => {
+  /** A finding the raw-anchor allowlist excuses (its file, and the href it names). */
+  const excused = (finding: string) =>
+    MAY_ANCHOR_RAW.some(
+      ([file, href]) =>
+        finding.startsWith(`${file}:`) && finding.includes(`a raw <a> to "${href}"`),
+    );
+
+  it("no module but the wrapper renders next/link's Link or places the cue by hand — and no plain <a> goes to an in-app path", () => {
     expect(sources.length).toBeGreaterThan(50);
     const findings = sources
       .filter(([f]) => !MAY_LINK_RAW.has(f))
-      .flatMap(([f, code]) => linkFindings(code, f));
+      .flatMap(([f, code]) => linkFindings(code, f))
+      .filter((x) => !excused(x));
     expect(findings).toEqual([]);
+  });
+
+  it("every raw-anchor exception still names a real <a> (no stale entry), each with a reason", () => {
+    const all = sources.flatMap(([f, code]) => linkFindings(code, f));
+    for (const [file, href, why] of MAY_ANCHOR_RAW) {
+      expect(why.trim().length, `${file} ${href}`).toBeGreaterThan(0);
+      expect(
+        all.some((x) => x.startsWith(`${file}:`) && x.includes(`a raw <a> to "${href}"`)),
+        `${file} ${href}`,
+      ).toBe(true);
+    }
   });
 
   it("the scan reads the real tree: the wrapper's own Link and cue imports are seen (and still needed)", () => {

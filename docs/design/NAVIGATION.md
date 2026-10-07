@@ -447,13 +447,20 @@ That brought in the dashboard's quick card, attention action and panel links, th
 `StatTile` whole-surface overlay (its dot sits inside the card's top-right corner, in the heading
 colour — the overlay itself is transparent; the card's layout and hover lift are untouched), every
 row's "Edit posting", the plans and posting-form links, the account menu's Account item, the AI
-chat's "manual form" link, the error boundary's and the 404's way out. The account menu's panel
-now stays mounted while closed (`hidden`): its link must outlive the click that closes the menu,
-or the bar and the status line go with it (the dot is hidden with the panel; the bar is the cue
-there, as on a phone's drawer). Not a `PortalLink`, by design: an external URL, `mailto:` /
-`tel:`, a hash-only `#id`, a download or a new tab — plain `<a>`, since none leaves an in-app
-navigation pending (the fence rejects a `PortalLink` to any of them). Measured on a production
-build, 1.5s per read, on eight of them (quick card, panel "Postings", a card's whole-card link,
+chat's "manual form" link, the error boundary's and the 404's way out, and on Candidates the empty
+state's Postings / New posting beside its pager, state and "Applied to" links. A needs-you item's
+action names its destination ("Opening Credits…" for "Buy credits"): it is one typed object
+(href, label, pendingLabel, icon), so an item cannot offer a door the cue cannot name. The
+account menu's panel now stays mounted while closed (`hidden`): its link must outlive the click
+that closes the menu, or the bar and the status line go with it (the dot is hidden with the
+panel; the bar is the cue there, as on a phone's drawer). A `PortalLink` takes an absolute path
+or a query on the same page ("?cursor=…" — a soft navigation, cued like any other). Not a
+`PortalLink`, by design: an external URL, `mailto:` / `tel:`, a hash-only `#id`, a download or a
+new tab — plain `<a>`, since none leaves an in-app navigation pending (the fence rejects a
+`PortalLink` to any of them). The converse holds too: a plain `<a>` to an in-app path is a full
+reload with no cue, and the fence rejects it unless it downloads, opens a new tab, or is named in
+its allowlist with a reason (none today). Measured on a production build, 1.5s per read, on eight
+of them (quick card, panel "Postings", a card's whole-card link,
 the Account item, a plans row title, plans "New posting", both rows' "Edit posting") at 1280 and
 375, five clicks each: 80/80 committed; the cue showed at 190–213ms (the Account item: its bar
 and status line, at 195–210ms); 0px shift of the clicked link, its ancestors or the page; nothing

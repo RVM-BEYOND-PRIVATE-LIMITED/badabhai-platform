@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
 import { decl, parseRules, stripComments, type Rule } from "../../test/css-rules";
+import { portalLinkTags } from "../../test/portal-link-usage";
 
 /**
  * The navigation pending cue's DECLARED rules (components/nav-pending.tsx; the node env has no
@@ -182,18 +183,15 @@ function classesOf(compound: string): string[] {
 }
 
 /**
- * Every class a cued link can carry: the `className` of each `<PortalLink>` in src (the only
- * in-app link — app/every-link-shows-the-cue.test.ts), read from the syntax tree — each string
- * piece of it, so a conditional or template class (`pnav__link--active`, `bb-btn--primary`'s
- * stem) counts too.
+ * The classes `code` gives its `<PortalLink>`s — however it names the wrapper
+ * (`{ PortalLink as L }`, `<P.PortalLink>`; test/portal-link-usage.ts) — read from the syntax
+ * tree: each string piece of a `className`, so a conditional or template class
+ * (`pnav__link--active`, `bb-btn--primary`'s stem) counts too.
  */
-function cuedLinkClasses(): Set<string> {
-  const src = join(here, "..");
-  const walk = (dir: string): string[] =>
-    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
-      e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)],
-    );
+function portalLinkClasses(code: string, file = "x.tsx"): Set<string> {
   const out = new Set<string>();
+  const sf = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const isPortalLink = portalLinkTags(sf);
   const strings = (node: ts.Node) => {
     if (ts.isStringLiteralLike(node)) node.text.split(/\s+/).forEach((c) => c && out.add(c));
     if (ts.isTemplateExpression(node)) {
@@ -203,26 +201,58 @@ function cuedLinkClasses(): Set<string> {
     }
     ts.forEachChild(node, strings);
   };
-  for (const f of walk(src).filter((p) => p.endsWith(".tsx") && !p.endsWith(".test.tsx"))) {
-    const code = readFileSync(f, "utf8");
-    if (!code.includes("<PortalLink")) continue;
-    const sf = ts.createSourceFile(f, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-    const visit = (node: ts.Node) => {
-      if (
-        (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
-        node.tagName.getText(sf) === "PortalLink"
-      ) {
-        for (const a of node.attributes.properties) {
-          if (ts.isJsxAttribute(a) && a.name.getText(sf) === "className" && a.initializer) {
-            strings(a.initializer);
-          }
+  const visit = (node: ts.Node) => {
+    if (
+      (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+      isPortalLink(node.tagName)
+    ) {
+      for (const a of node.attributes.properties) {
+        if (ts.isJsxAttribute(a) && a.name.getText(sf) === "className" && a.initializer) {
+          strings(a.initializer);
         }
       }
-      ts.forEachChild(node, visit);
-    };
-    visit(sf);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+/**
+ * Every class a cued link can carry: those of each `PortalLink` in src (the only in-app link —
+ * app/every-link-shows-the-cue.test.ts).
+ */
+function cuedLinkClasses(): Set<string> {
+  const src = join(here, "..");
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)],
+    );
+  const out = new Set<string>();
+  for (const f of walk(src).filter((p) => p.endsWith(".tsx") && !p.endsWith(".test.tsx"))) {
+    const code = readFileSync(f, "utf8");
+    if (!code.includes("portal-link")) continue;
+    for (const c of portalLinkClasses(code, f)) out.add(c);
   }
   return out;
+}
+
+/**
+ * Does a rule take its subject out of positioning? `static`, and every keyword that computes to it
+ * on a link (`initial`, `unset`, `revert`, `revert-layer`; `inherit` from a static parent) — or an
+ * `all` reset, which takes `position` with it (review of #2125).
+ */
+const STATIC_POSITIONS: ReadonlySet<string> = new Set([
+  "static",
+  "initial",
+  "unset",
+  "revert",
+  "revert-layer",
+  "inherit",
+]);
+function unanchors(r: Rule): boolean {
+  const position = decl(r, "position");
+  return (position !== null && STATIC_POSITIONS.has(position)) || decl(r, "all") !== null;
 }
 
 describe("every cued link stays the dot's anchor (re-review of #2115, nit)", () => {
@@ -271,10 +301,41 @@ describe("every cued link stays the dot's anchor (re-review of #2115, nit)", () 
     // link's own position wins: the card overlay stays absolute). So any rule that names a cued
     // link and says `static` beats it, and the dot would hang off the nearest positioned
     // ancestor instead — far from the link that was clicked.
-    const offenders = LINK_RULES.filter(
-      ([, r]) => decl(r, "position") === "static" || decl(r, "all") !== null,
-    ).map(([sheet, r]) => `${sheet}: ${r.selector} (${r.at || "top"})`);
+    const offenders = LINK_RULES.filter(([, r]) => unanchors(r)).map(
+      ([sheet, r]) => `${sheet}: ${r.selector} (${r.at || "top"})`,
+    );
     expect(offenders).toEqual([]);
+  });
+
+  it("every keyword that computes to static counts, not only the word itself (review of #2125)", () => {
+    const rule = (body: string): Rule => ({ selector: ".x", body, at: "" });
+    for (const p of ["static", "initial", "unset", "revert", "revert-layer", "inherit"]) {
+      expect(unanchors(rule(`position: ${p};`)), p).toBe(true);
+    }
+    expect(unanchors(rule("all: unset;"))).toBe(true);
+    for (const p of ["relative", "absolute", "sticky", "fixed"]) {
+      expect(unanchors(rule(`position: ${p};`)), p).toBe(false);
+    }
+    expect(unanchors(rule("color: red;"))).toBe(false);
+  });
+
+  it("a cued link's classes are read however the file names the wrapper (review of #2125)", () => {
+    expect(
+      portalLinkClasses(
+        'import { PortalLink as L } from "../components/portal-link";\nconst x = <L className="aliased-link" href="/x" pendingLabel="X" />;',
+      ),
+    ).toEqual(new Set(["aliased-link"]));
+    expect(
+      portalLinkClasses(
+        'import * as P from "@/components/portal-link.tsx";\nconst x = <P.PortalLink className={`ns-link ${on ? "ns-link--on" : ""}`} href="/x" pendingLabel="X" />;',
+      ),
+    ).toEqual(new Set(["ns-link", "ns-link--on"]));
+    // A component that merely shares the name is not the wrapper.
+    expect(
+      portalLinkClasses(
+        'import { PortalLink } from "./other";\nconst x = <PortalLink className="not-a-link" />;',
+      ),
+    ).toEqual(new Set());
   });
 
   it("a card's whole-surface overlay keeps its own absolute position (it IS the dot's anchor)", () => {

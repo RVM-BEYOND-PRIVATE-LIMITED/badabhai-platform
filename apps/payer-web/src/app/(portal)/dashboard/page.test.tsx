@@ -273,6 +273,8 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
       expect(doors.all, `balance ${balance}`).toEqual(["/credits"]);
       expect(doors.inAction, `balance ${balance}`).toHaveLength(1);
       expect(textOf(doors.inAction[0]!).trim(), `balance ${balance}`).toBe("Buy credits");
+      // …and its pending cue names where it goes, not what it says (review of #2125).
+      expect(linkCues(tree).get("/credits"), `balance ${balance}`).toEqual(["Credits"]);
     }
     // An agency owner the same.
     const agency = await render(

@@ -137,14 +137,14 @@ export default async function DashboardPage() {
                   <p className="attention__title">{item.title}</p>
                   <p className="attention__body">{item.body}</p>
                 </div>
-                {item.actionHref && item.actionLabel && !pageDoors.has(item.actionHref) ? (
+                {item.action && !pageDoors.has(item.action.href) ? (
                   <PortalLink
                     className="bb-btn bb-btn--secondary bb-btn--sm attention__action"
-                    href={item.actionHref}
-                    pendingLabel={item.actionLabel}
+                    href={item.action.href}
+                    pendingLabel={item.action.pendingLabel}
                   >
-                    {item.actionIcon ? <Icon name={item.actionIcon} /> : null}
-                    <span>{item.actionLabel}</span>
+                    <Icon name={item.action.icon} />
+                    <span>{item.action.label}</span>
                   </PortalLink>
                 ) : null}
               </li>

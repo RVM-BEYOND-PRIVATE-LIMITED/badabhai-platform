@@ -18,7 +18,17 @@ let openState = false;
 // is rendered when we want to assert its contents. The other hooks are replaced with
 // inert stand-ins so the component can be invoked as a plain function in the node env
 // (real React hooks throw "Invalid hook call" outside a render).
-const useState = vi.fn(() => [openState, vi.fn()] as [unknown, (v: unknown) => void]);
+// Its setter writes `openState`, so a handler that closes the menu is seen by the next render.
+const useState = vi.fn(
+  () =>
+    [
+      openState,
+      (v: unknown) => {
+        openState =
+          typeof v === "function" ? (v as (o: boolean) => boolean)(openState) : Boolean(v);
+      },
+    ] as [unknown, (v: unknown) => void],
+);
 // `useTransition` returns [isPending, startTransition]; the stand-in runs the callback
 // synchronously so the Sign-out onClick path can be exercised in the node env.
 const startTransition = vi.fn((cb: () => void) => cb());
@@ -141,6 +151,21 @@ describe("AccountMenu — collapsed trigger (a11y)", () => {
     expect(panels[0]!["hidden"]).toBe(true);
     openState = true;
     expect(collect(render()).hosts.find((p) => p["role"] === "menu")!["hidden"]).toBe(false);
+  });
+});
+
+describe("AccountMenu — choosing Account closes the menu, and the link stays mounted (review of #2125)", () => {
+  it("the Account item's click hides the panel — the only close, since the link outlives it", () => {
+    openState = true;
+    const open = collect(render()).hosts;
+    expect(open.find((p) => p["role"] === "menu")!["hidden"]).toBe(false);
+    const account = open.find((p) => p["href"] === "/account" && p["role"] === "menuitem")!;
+    (account["onClick"] as () => void)();
+    expect(openState).toBe(false);
+    const after = collect(render()).hosts;
+    expect(after.find((p) => p["role"] === "menu")!["hidden"]).toBe(true);
+    // Still in the tree: its navigation's pending cue (bar + status line) keeps running.
+    expect(after.some((p) => p["href"] === "/account")).toBe(true);
   });
 });
 
