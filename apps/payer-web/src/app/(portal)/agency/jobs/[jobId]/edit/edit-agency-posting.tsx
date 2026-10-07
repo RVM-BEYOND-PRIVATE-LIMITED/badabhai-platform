@@ -1,8 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import type { AgencyJob } from "../../../../../../lib/contracts";
+import { usePortalNavigation } from "../../../../../../components/portal-navigation";
 import { AgencyJobForm } from "../../../dashboard/agency-job-form";
 import { updateAgencyJobAction } from "../../../dashboard/jobs-actions";
 
@@ -15,10 +15,11 @@ import { updateAgencyJobAction } from "../../../dashboard/jobs-actions";
  * (XB-A) and re-checks the role itself. The loaded posting is passed as `initial`, so the seam
  * diffs it into the `clear` list — a card field the payer blanked is unset, not kept. On success
  * the payer lands on the posting's details (refreshed, so a later Back never restores the
- * pre-save form); Cancel returns there too.
+ * pre-save form); Cancel returns there too — each with the shell's "Opening <title>…" cue while
+ * the page renders.
  */
 export function EditAgencyPosting({ job, lead }: { job: AgencyJob; lead: ReactNode }) {
-  const router = useRouter();
+  const { navigate } = usePortalNavigation();
   const detailHref = `/agency/jobs/${job.id}`;
   return (
     <AgencyJobForm
@@ -26,12 +27,11 @@ export function EditAgencyPosting({ job, lead }: { job: AgencyJob; lead: ReactNo
       job={job}
       lead={lead}
       submitLabel="Save changes"
-      onCancel={() => router.push(detailHref)}
+      onCancel={() => navigate(detailHref, { pendingLabel: job.title })}
       onSubmit={async (input) => {
         const res = await updateAgencyJobAction(job.id, input, job);
         if (!res.ok) return { ok: false, error: res.error };
-        router.push(detailHref);
-        router.refresh();
+        navigate(detailHref, { pendingLabel: res.job.title, refresh: true });
         return { ok: true };
       }}
     />

@@ -2,7 +2,6 @@
 
 import { useState, useTransition } from "react";
 import type { ReactNode } from "react";
-import { useRouter } from "next/navigation";
 import { looksLikePii } from "@badabhai/validators";
 import { Button, Input, Select, Textarea } from "../../../../../components/ds";
 import { ChipEditor } from "../../../../../components/chip-editor";
@@ -38,6 +37,7 @@ import type { PostingEditInitial } from "../../../../../lib/payer-api";
 import { MatchSkillPicker, type MatchSelection } from "../../new/match-skill-picker";
 import { updatePostingAction } from "./actions";
 import { withPublishedReach } from "../../../../../lib/published-reach";
+import { usePortalNavigation } from "../../../../../components/portal-navigation";
 
 /**
  * Edit a posting (EMPLOYER self-serve; LIVE `PATCH /payer/job-postings/:id`). Every card field +
@@ -96,7 +96,6 @@ export function EditPostingForm({
   /** The page head, drawn at the top of the form column (the rail starts beside it). */
   lead?: ReactNode;
 }) {
-  const router = useRouter();
   // useState order (mirrored positionally by edit-posting-form.test.tsx): fields, requirements,
   // benefits, reqDraft, benDraft, error, selection, preview, revealed, navigating, problem,
   // submitting. APPEND new state only.
@@ -138,6 +137,9 @@ export function EditPostingForm({
   // prefix (the test mirrors the earlier states positionally).
   const [serverFieldErrors, setServerFieldErrors] = useState<Record<string, string>>({});
   const [pending, startTransition] = useTransition();
+  // A saved form lands on the posting with the shell's "Opening <title>…" cue; its button stays
+  // pending (`navigating`) until the page is gone.
+  const { navigate } = usePortalNavigation();
 
   const isDraft = status === "draft";
 
@@ -276,8 +278,10 @@ export function EditPostingForm({
         setNavigating(true);
         // Refresh as well as navigate: the router cache must not hand a later Back the pre-save
         // edit page (and its pre-save `initial`, which drives the clear diff).
-        router.push(withPublishedReach(`/postings/${postingId}`, res.reached));
-        router.refresh();
+        navigate(withPublishedReach(`/postings/${postingId}`, res.reached), {
+          pendingLabel: res.posting.roleTitle,
+          refresh: true,
+        });
       } else {
         // #1912 — a server validation 400 names the refused field; show it inline at its control.
         if (res.fieldErrors) setServerFieldErrors(res.fieldErrors);

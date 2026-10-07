@@ -6,7 +6,8 @@ import { IconButtonBase } from "@badabhai/icons/button";
 /**
  * EditPostingForm tests (PR-B) — the BAND-DOWNGRADE GUARD still lives here: an UNTOUCHED vacancies
  * count is OMITTED from the action input, a changed one is sent. Also pins: empty optionals →
- * undefined, `initial` threaded to the action (the clear diff), success → router.push to detail,
+ * undefined, `initial` threaded to the action (the clear diff), success → the detail (through the
+ * shared navigation helper, naming the posting for the shell's "Opening …" cue),
  * client validate() blocks. Env is node; state injected via mocked useState (source order: fields,
  * requirements, benefits, reqDraft, benDraft, error, selection, preview, revealed); useTransition
  * runs inline. The card fields reach the action through the shared `readCardForm` — the same read
@@ -14,12 +15,13 @@ import { IconButtonBase } from "@badabhai/icons/button";
  */
 
 const updatePostingAction = vi.fn();
-const push = vi.fn();
-const refresh = vi.fn();
+// The save navigates through components/portal-navigation.ts (its router mechanics — push, the
+// refresh, the cue — are that module's own suite); here: where to, named what, refreshed or not.
+const navigate = vi.fn();
 
 vi.mock("./actions", () => ({ updatePostingAction: (i: unknown) => updatePostingAction(i) }));
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: (p: string) => push(p), refresh: () => refresh() }),
+vi.mock("../../../../../components/portal-navigation", () => ({
+  usePortalNavigation: () => ({ pending: false, navigate }),
 }));
 // The interactive picker is only rendered on the draft path; stub it hookless.
 vi.mock("../../new/match-skill-picker", () => ({ MatchSkillPicker: () => ({ type: "div", props: {} }) }));
@@ -44,6 +46,11 @@ vi.mock("react", async () => {
 });
 
 const { EditPostingForm } = await import("./edit-posting-form");
+
+/** The posting a successful save returns (only its title reaches the navigation's cue). */
+const SAVED = { roleTitle: "CNC Machinist" };
+/** Where a successful save lands, named for the cue — and refreshed (no pre-save Back). */
+const LANDING = { pendingLabel: "CNC Machinist", refresh: true };
 
 const POSTING_ID = "bbbb2222-0000-4000-8000-000000000001";
 const INITIAL = {
@@ -135,9 +142,8 @@ async function submit(tree: ReactElement) {
 }
 
 beforeEach(() => {
-  updatePostingAction.mockReset().mockResolvedValue({ ok: true, posting: {} });
-  push.mockReset();
-  refresh.mockReset();
+  updatePostingAction.mockReset().mockResolvedValue({ ok: true, posting: SAVED });
+  navigate.mockReset();
 });
 
 describe("EditPostingForm — the band-downgrade guard (vacancies omission)", () => {
@@ -212,7 +218,7 @@ describe("EditPostingForm — card fields + validation", () => {
 describe("EditPostingForm — outcomes", () => {
   it("success routes back to the posting detail; failure surfaces the action error", async () => {
     await submit(render({}));
-    expect(push).toHaveBeenCalledWith(`/postings/${POSTING_ID}`);
+    expect(navigate).toHaveBeenCalledWith(`/postings/${POSTING_ID}`, LANDING);
 
     updatePostingAction.mockResolvedValue({ ok: false, error: "No changes to save." });
     await submit(render({}));
@@ -220,15 +226,15 @@ describe("EditPostingForm — outcomes", () => {
   });
 
   it("a publish that reports its reach lands on the detail with ?reached=N (Reached N workers)", async () => {
-    updatePostingAction.mockResolvedValue({ ok: true, posting: {}, reached: 42 });
+    updatePostingAction.mockResolvedValue({ ok: true, posting: SAVED, reached: 42 });
     await submit(render({}));
-    expect(push).toHaveBeenCalledWith(`/postings/${POSTING_ID}?reached=42`);
+    expect(navigate).toHaveBeenCalledWith(`/postings/${POSTING_ID}?reached=42`, LANDING);
   });
 
   it("no reach count (save, or a failed reach read) → the plain detail URL, no number", async () => {
-    updatePostingAction.mockResolvedValue({ ok: true, posting: {}, reached: null });
+    updatePostingAction.mockResolvedValue({ ok: true, posting: SAVED, reached: null });
     await submit(render({}));
-    expect(push).toHaveBeenCalledWith(`/postings/${POSTING_ID}`);
+    expect(navigate).toHaveBeenCalledWith(`/postings/${POSTING_ID}`, LANDING);
   });
 });
 
@@ -258,8 +264,20 @@ describe("EditPostingForm — what is saved is what the preview showed (readCard
 
   it("a successful save navigates AND refreshes, so Back never restores the pre-save form", async () => {
     await submit(render({}));
-    expect(push).toHaveBeenCalledWith(`/postings/${POSTING_ID}`);
-    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate.mock.calls[0]![1]).toMatchObject({ refresh: true });
+  });
+
+  it("the shell's cue names the SAVED posting ('Opening <its title>…'), not the form's draft title", async () => {
+    updatePostingAction.mockResolvedValue({
+      ok: true,
+      posting: { ...SAVED, roleTitle: "Senior CNC Machinist" },
+    });
+    await submit(render({}));
+    expect(navigate).toHaveBeenCalledWith(`/postings/${POSTING_ID}`, {
+      pendingLabel: "Senior CNC Machinist",
+      refresh: true,
+    });
   });
 
   it("the role kind and the openings label are sent through the same read", async () => {
@@ -478,7 +496,7 @@ describe("EditPostingForm — the navigating latch (I2: no double save during th
   it("a successful save latches navigating (index 9) before navigating", async () => {
     await submit(render({}));
     expect(setters[9]).toHaveBeenCalledWith(true);
-    expect(push).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledTimes(1);
   });
 
   it("while navigating, every save/publish button is disabled", () => {

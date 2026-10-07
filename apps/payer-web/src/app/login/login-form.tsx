@@ -2,10 +2,10 @@
 
 import { useEffect, useState, useTransition } from "react";
 import type { FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import { Badge, Button, Input, OtpInput, Tabs, Toast, tabId, tabPanelId } from "../../components/ds";
 import { requestCodeAction, signupAction, verifyCodeAction } from "./actions";
 import { looksLikeLoginEmail } from "./email-shape";
+import { usePortalNavigation } from "../../components/portal-navigation";
 import { INVALID_ORG_NAME, INVALID_PHONE, SEND_CONFIRMATION } from "./messages";
 import type { PayerRole } from "../../lib/auth";
 import { Icon, type IconName } from "@badabhai/icons";
@@ -74,7 +74,6 @@ const ROLE_COPY: Record<
 };
 
 export function LoginForm() {
-  const router = useRouter();
   // useState call order (kept stable for the node-env render test seeding):
   // role, mode, step, email, orgName, phone, code, emailError, orgError, phoneError,
   // codeError, error, info, cooldown.  (Any NEW state is appended AFTER cooldown so the
@@ -97,6 +96,9 @@ export function LoginForm() {
   // `succeeded` shows a brief success affordance between a correct code and the redirect.
   const [succeeded, setSucceeded] = useState(false);
   const [pending, startTransition] = useTransition();
+  // A verified code lands on the dashboard with the page's "Opening Dashboard…" cue (the button
+  // already reads "Signed in" — `succeeded` — until the page is gone).
+  const { navigate } = usePortalNavigation();
 
   // Stable element ids used only for focus management on step change (a11y). We target by id
   // via the DOM rather than a React ref so this stays hook-free (the DS Input is not a
@@ -239,8 +241,7 @@ export function LoginForm() {
       if (res.ok) {
         setSucceeded(true);
         setInfo(res.isNewPayer ? "Account created — welcome!" : "Welcome back!");
-        router.replace("/dashboard");
-        router.refresh();
+        navigate("/dashboard", { pendingLabel: "Dashboard", replace: true, refresh: true });
       } else {
         setError(res.error);
       }

@@ -36,7 +36,8 @@ import type { OrgRole, PayerSession } from "./types";
  * FAIL-CLOSED (least privilege): only an explicit `"owner"` grants Owner. `null` (no active
  * membership), an absent field (an API older than #2079) and a value outside the enum (degraded
  * to `null` by the wire schema) all read as `recruiter`; a failed /me read yields no session at
- * all (→ /login). A dev-only override (gated by {@link isDevEnv}, which reads RAW `NODE_ENV` and
+ * all (→ /login). The out-of-enum case never reaches {@link getOrgRole} as itself (it arrives as
+ * `null`), so the session read logs it as a contract drift instead (org-role-drift.ts). A dev-only override (gated by {@link isDevEnv}, which reads RAW `NODE_ENV` and
  * fails closed in staging/prod) lets us PREVIEW either role locally — it can NEVER grant Owner in
  * staging/production.
  */

@@ -30,8 +30,9 @@ const startJobPostingChatAction = vi.fn();
 const sendJobPostingChatMessageAction = vi.fn();
 const resumeJobPostingChatAction = vi.fn();
 const publishJobPostingChatAction = vi.fn();
-const push = vi.fn();
-const refresh = vi.fn();
+// The publish navigates through components/portal-navigation.ts (the shell's "Opening …" cue);
+// its router mechanics are that module's own suite.
+const navigate = vi.fn();
 
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: ReactNode; href: string }) => ({
@@ -42,7 +43,9 @@ vi.mock("next/link", () => ({
 // The walker calls every function component, and the pending cue (inside every PortalLink) runs
 // effects — a real hook outside a render. It draws nothing while idle, so it renders nothing here.
 vi.mock("../../../../../components/nav-pending", () => ({ NavPendingCue: () => null }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push, refresh }) }));
+vi.mock("../../../../../components/portal-navigation", () => ({
+  usePortalNavigation: () => ({ pending: false, navigate }),
+}));
 vi.mock("./actions", () => ({
   startJobPostingChatAction: () => startJobPostingChatAction(),
   sendJobPostingChatMessageAction: (i: unknown) => sendJobPostingChatMessageAction(i),
@@ -218,8 +221,7 @@ beforeEach(() => {
   sendJobPostingChatMessageAction.mockReset();
   resumeJobPostingChatAction.mockReset();
   publishJobPostingChatAction.mockReset();
-  push.mockReset();
-  refresh.mockReset();
+  navigate.mockReset();
 });
 
 /* ── 1. Cross-device pickup ─────────────────────────────────────────────────────── */
@@ -429,7 +431,12 @@ describe("publish — gated on the ENGINE's readiness, routes to the existing de
     await flush();
     // PR-B: publish leaves role_kind + the card fields the interview does not collect NULL, so
     // the chat routes to /edit (where workerCardGaps are highlighted), never the read-only detail.
-    expect(push).toHaveBeenCalledWith(`/postings/${POSTING_ID}/edit`);
+    // Named for the shell's cue ("Opening Edit posting…", the rows' own name for that page) and
+    // refreshed, so the edit page reads the just-published posting.
+    expect(navigate).toHaveBeenCalledWith(`/postings/${POSTING_ID}/edit`, {
+      pendingLabel: "Edit posting",
+      refresh: true,
+    });
   });
 
   it("stays disabled across the success→navigation window (no double publish)", () => {
@@ -441,7 +448,7 @@ describe("publish — gated on the ENGINE's readiness, routes to the existing de
     publishJobPostingChatAction.mockResolvedValue({ ok: false, error: "Could not publish" });
     button(render({ convo: { ...CONVO, draftReady: true } }), "Publish")?.onClick?.();
     await flush();
-    expect(push).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 });
 

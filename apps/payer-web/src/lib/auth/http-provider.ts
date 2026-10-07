@@ -10,6 +10,7 @@ import type {
 import { payerFetch, isPayerUnauthorized } from "../payer-http";
 import { payerMeWireSchema } from "../contracts";
 import { API_TOKEN_COOKIE_NAME, sessionCookieOptions } from "./session-cookie";
+import { rawOrgRoleOf, reportUnexpectedOrgRole } from "./org-role-drift";
 
 /**
  * REAL (api) PayerAuth provider — the LIVE Phase-1 login (ADR-0019 LC-1 / R16).
@@ -29,7 +30,9 @@ import { API_TOKEN_COOKIE_NAME, sessionCookieOptions } from "./session-cookie";
  *    the backend's per-request DB answer. The JWT's `org_role` claim is NEVER decoded here:
  *    payer-web cannot verify its signature (it holds no signing key), so reading it would mean
  *    trusting a cookie the browser can rewrite — and it would add nothing, because this read
- *    already happens on every `requirePayer()` and is fresher than any claim.
+ *    already happens on every `requirePayer()` and is fresher than any claim. A value outside
+ *    the mirrored enum reads as least privilege (the wire schema degrades it to null) and is
+ *    LOGGED once as a contract drift (org-role-drift.ts) — the one place the raw value exists.
  *  - login failure returns ONE neutral error (no enumeration oracle, XB-H).
  */
 
@@ -133,8 +136,13 @@ export const httpPayerAuthProvider: PayerAuthProvider = {
 
   async currentSession(): Promise<PayerSession | null> {
     try {
-      const me = await payerFetch("/payer/me", { schema: payerMeWireSchema });
-      return sessionFromMe(me);
+      // Read the body raw, then parse it here: the wire schema degrades an unknown `orgRole` to
+      // null, so the raw body is the only place a contract drift is visible. Same failures as
+      // before — a non-2xx throws in the transport, a malformed body throws in the parse.
+      const body = await payerFetch("/payer/me", { schema: z.unknown() });
+      const session = sessionFromMe(payerMeWireSchema.parse(body));
+      reportUnexpectedOrgRole(rawOrgRoleOf(body));
+      return session;
     } catch (err) {
       if (isPayerUnauthorized(err)) return null;
       // A transient API error should not masquerade as "logged out" silently here;

@@ -1587,6 +1587,131 @@ describe("#2085 — expected_price_inr, price_mismatch, and the idempotent quota
 });
 
 /**
+ * #2111 — a purchase 409's machine-readable REASON (#2135): `reason: "in_flight"` on every purchase
+ * route, `reason: "no_active_plan"` on the quota top-up, nested on the wire as
+ * `{ statusCode, error: { statusCode, error, message, reason }, requestId, path, timestamp }`.
+ * The seams decide on the reason when the API names one — a reason they do not know is never
+ * guessed into "still processing" or "buy a plan first" — and keep their old reading for an API
+ * from before #2135 (no reason; payer-web may deploy first): a bare 409 is the in-flight duplicate
+ * on credits / capacity, and the quota top-up tells its two 409s apart by the documented message.
+ * (Those reason-ABSENT paths are the #1165 / #2085 suites above.)
+ */
+describe("#2111 — a purchase 409's reason (#2135) decides; an API without it still works", () => {
+  const KEY = "5f9d1c2e-1a2b-4c3d-8e4f-0a1b2c3d4e5f";
+  /** A 409 exactly as `AllExceptionsFilter` serialises a thrown ConflictException payload. */
+  function conflict(payload: Record<string, unknown>): Response {
+    return jsonResponse(
+      {
+        statusCode: 409,
+        error: { statusCode: 409, error: "Conflict", ...payload },
+        requestId: "req-1",
+        path: "/payer/x",
+        timestamp: "2026-10-07T09:00:00.000Z",
+      },
+      409,
+    );
+  }
+  /** quota-topup routes: the catalog read, the POST (answered by `topup`), the posting re-read. */
+  function topUpRoutes(topup: () => Response) {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/payer/pricing/catalog")) return Promise.resolve(catalogResponse());
+      if (url.endsWith("/quota-topup")) return Promise.resolve(topup());
+      return Promise.resolve(jsonResponse(jobPostingRow({ status: "open" })));
+    });
+  }
+  const topUpQuota = async () => {
+    const { topUpPostingQuota } = await import("./payer-api");
+    return topUpPostingQuota({
+      postingId: POSTING_ID,
+      tier: TOPUP_10,
+      expectedPriceInr: 1000,
+      idempotencyKey: KEY,
+    }).catch((e: unknown) => e);
+  };
+
+  it("credits: reason in_flight is the in-flight duplicate, whatever the message says", async () => {
+    fetchMock.mockResolvedValue(conflict({ reason: "in_flight", message: "Busy" }));
+    const { topUp, PurchaseConflictError } = await import("./payer-api");
+    await expect(topUp({ packCode: "pack_50", idempotencyKey: KEY })).rejects.toBeInstanceOf(
+      PurchaseConflictError,
+    );
+  });
+
+  it("credits: a 409 naming ANOTHER reason is not read as in flight — it propagates (the action's retryable failure)", async () => {
+    fetchMock.mockResolvedValue(
+      conflict({ reason: "pack_retired", message: "This purchase is already being processed" }),
+    );
+    const { topUp, PurchaseConflictError } = await import("./payer-api");
+    const { PayerConflictError } = await import("./payer-errors");
+    const err = await topUp({ packCode: "pack_50", idempotencyKey: KEY }).catch((e: unknown) => e);
+    expect(err).not.toBeInstanceOf(PurchaseConflictError);
+    expect(err).toBeInstanceOf(PayerConflictError);
+    expect((err as InstanceType<typeof PayerConflictError>).reason).toBe("pack_retired");
+  });
+
+  it("capacity: reason in_flight is the in-flight duplicate (never the neutral 'retry')", async () => {
+    fetchMock.mockResolvedValue(conflict({ reason: "in_flight", message: "Busy" }));
+    const { buyCapacity, PurchaseConflictError } = await import("./payer-api");
+    await expect(buyCapacity({ tier: "growth", idempotencyKey: KEY })).rejects.toBeInstanceOf(
+      PurchaseConflictError,
+    );
+  });
+
+  it("capacity: a 409 naming ANOTHER reason is the neutral failure, not 'still processing'", async () => {
+    fetchMock.mockResolvedValue(conflict({ reason: "tier_retired", message: "x" }));
+    const { buyCapacity } = await import("./payer-api");
+    await expect(buyCapacity({ tier: "growth", idempotencyKey: KEY })).resolves.toEqual({
+      ok: false,
+      error: "Capacity upgrade failed (service unavailable). Please retry.",
+    });
+  });
+
+  it("credits + capacity: a 409 with NO reason (an API before #2135) is still the in-flight duplicate", async () => {
+    const { topUp, buyCapacity, PurchaseConflictError } = await import("./payer-api");
+    fetchMock.mockResolvedValue(conflict({ message: "This purchase is already being processed" }));
+    await expect(topUp({ packCode: "pack_50", idempotencyKey: KEY })).rejects.toBeInstanceOf(
+      PurchaseConflictError,
+    );
+    await expect(buyCapacity({ tier: "growth", idempotencyKey: KEY })).rejects.toBeInstanceOf(
+      PurchaseConflictError,
+    );
+  });
+
+  it("quota-topup: reason no_active_plan → 'buy a plan first' — even under the in-flight message", async () => {
+    topUpRoutes(() =>
+      conflict({
+        reason: "no_active_plan",
+        message: "This quota top-up is already being processed; check the posting before trying again",
+      }),
+    );
+    const { PurchaseConflictError, QuotaTopUpNoPlanError } = await import("./payer-api");
+    const err = await topUpQuota();
+    expect(err).toBeInstanceOf(QuotaTopUpNoPlanError);
+    expect(err).not.toBeInstanceOf(PurchaseConflictError);
+  });
+
+  it("quota-topup: reason in_flight → 'still processing' — even under the no-plan message", async () => {
+    topUpRoutes(() =>
+      conflict({ reason: "in_flight", message: "no active plan to top up for this posting" }),
+    );
+    const { PurchaseConflictError, QuotaTopUpNoPlanError } = await import("./payer-api");
+    const err = await topUpQuota();
+    expect(err).toBeInstanceOf(PurchaseConflictError);
+    expect(err).not.toBeInstanceOf(QuotaTopUpNoPlanError);
+  });
+
+  it("quota-topup: a reason it does not know is neither answer — it propagates", async () => {
+    topUpRoutes(() => conflict({ reason: "plan_frozen", message: "no active plan to top up" }));
+    const { PurchaseConflictError, QuotaTopUpNoPlanError } = await import("./payer-api");
+    const { PayerConflictError } = await import("./payer-errors");
+    const err = await topUpQuota();
+    expect(err).toBeInstanceOf(PayerConflictError);
+    expect(err).not.toBeInstanceOf(PurchaseConflictError);
+    expect(err).not.toBeInstanceOf(QuotaTopUpNoPlanError);
+  });
+});
+
+/**
  * #2085 L1 — the quota top-up buys the tier the payer CONFIRMED, or nothing. The seam used to
  * re-pick "the smallest top-up tier" from a fresh catalog at submit, so an ops edit between the
  * dialog and the confirm bought something else — and `expected_price_inr` cannot catch a
