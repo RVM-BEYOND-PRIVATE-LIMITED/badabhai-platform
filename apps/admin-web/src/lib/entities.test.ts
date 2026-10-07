@@ -15,6 +15,7 @@ import {
   orderRowSchema,
   payerListItemSchema,
   qs,
+  topBalanceRowSchema,
   workerDetailSchema,
   workerListItemSchema,
   workersPageSchema,
@@ -259,6 +260,8 @@ const ORDER_ROW = {
   updated_at: "2026-08-04T12:00:00.000Z",
 };
 
+const BALANCE_ROW = { payer_id: "p1", balance: 100 };
+
 const MOCK_POSTURE = { mode: "mock", blocked_reason: "PAYMENTS_ENABLE_REAL is false" };
 
 describe("finance schemas — money never arrives without its provenance", () => {
@@ -376,6 +379,7 @@ const ROWS_WITH_A_PAYER = [
   { name: "a posting detail", schema: jobPostingDetailSchema, row: POSTING_DETAIL },
   { name: "a ledger row", schema: ledgerRowSchema, row: LEDGER_ROW },
   { name: "an order row", schema: orderRowSchema, row: ORDER_ROW },
+  { name: "a top balance row (#2106)", schema: topBalanceRowSchema, row: BALANCE_ROW },
 ] as const;
 
 describe("payer_role (#2032) on every row that carries a payer_id", () => {
@@ -402,6 +406,31 @@ describe("payer_role (#2032) on every row that carries a payer_id", () => {
     expect(
       ordersPageSchema.parse(page({ ...ORDER_ROW, payer_role: "employer" })).items[0],
     ).toHaveProperty("payer_role", "employer");
+  });
+
+  it("reaches the parsed summary's top balances (#2106), and stays absent when not served", () => {
+    const summary = (top_balances: unknown[]) => ({
+      payments: MOCK_POSTURE,
+      window_days: 30,
+      outstanding_credits: 300,
+      payers_with_balance: 3,
+      by_reason: [],
+      paid_orders: { count: 0, credits: 0, amount_inr: 0 },
+      unsettled_orders: { count: 0, amount_inr: 0 },
+      failed_orders: { count: 0 },
+      top_balances,
+    });
+    const parsed = financeSummarySchema.parse(
+      summary([
+        { ...BALANCE_ROW, payer_role: "agent" },
+        { ...BALANCE_ROW, payer_id: "p2", payer_role: "employer" },
+        { ...BALANCE_ROW, payer_id: "p3", payer_role: null },
+      ]),
+    );
+    expect(parsed.top_balances.map((b) => b.payer_role)).toEqual(["agent", "employer", null]);
+    // An API that predates #2106 serves no key at all: the summary still parses.
+    const older = financeSummarySchema.parse(summary([BALANCE_ROW]));
+    expect(older.top_balances[0]).not.toHaveProperty("payer_role");
   });
 });
 

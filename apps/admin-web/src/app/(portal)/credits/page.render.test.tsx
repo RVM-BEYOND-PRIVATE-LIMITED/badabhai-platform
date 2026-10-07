@@ -256,8 +256,9 @@ describe("credits — each recovery once on the screen", () => {
 
 /**
  * THE CUSTOMER CELLS (#2032, sweep AW-28). A ledger movement carries `payer_role`, so its cell
- * goes straight to the customer's own section and names the persona. A top balance does not —
- * the summary never served a role — so it keeps the address that redirects an agency on.
+ * goes straight to the customer's own section and names the persona. The default fixture's top
+ * balance carries none (an API that predates #2106), so here it keeps the address that redirects
+ * an agency on; the top balance's own role is pinned in the next block.
  */
 describe("credits — a customer cell links the customer's own section", () => {
   const withLedgerRole = (payer_role: unknown) => {
@@ -265,7 +266,7 @@ describe("credits — a customer cell links the customer's own section", () => {
     stub.ledger = { ...page, items: page.items.map((row) => ({ ...row, payer_role })) };
   };
   const count = (out: string, s: string) => out.split(s).length - 1;
-  /** The top balance's cell: never a role, so always the fallback, never a persona. */
+  /** The top balance's cell with no role served: the fallback, never a persona. */
   const BALANCE = customerCell(PAYER, `/companies/${PAYER}`, null, "</td>");
 
   it("an agency's movement links /agencies/<id> directly, named Agency", async () => {
@@ -295,6 +296,51 @@ describe("credits — a customer cell links the customer's own section", () => {
     const out = await render();
     expect(ledger(MOCK).items[0]).not.toHaveProperty("payer_role");
     expect(count(out, BALANCE)).toBe(2);
+  });
+});
+
+/**
+ * A TOP BALANCE'S CUSTOMER CELL (#2106). The summary serves `payer_role` on each top balance, so
+ * the cell links the customer's own section like every other customer cell — an Agency no longer
+ * takes the redirect hop through `/companies/<id>`. A null role (an orphaned id) or an absent one
+ * (an API that predates the field) keeps that fallback and claims no persona. Asserted inside the
+ * balances panel only: the ledger below renders a cell for the same payer.
+ */
+describe("credits — a top balance links the customer's own section (#2106)", () => {
+  const withBalanceRole = (payer_role: unknown) => {
+    const s = summary(MOCK);
+    stub.summary = { ...s, top_balances: s.top_balances.map((b) => ({ ...b, payer_role })) };
+  };
+  const holdersPanel = (out: string) =>
+    out.slice(out.indexOf('id="cr-holders"'), out.indexOf('id="cr-ledger"'));
+  const FALLBACK = customerCell(PAYER, `/companies/${PAYER}`, null, "</td>");
+
+  it("an agency's balance links /agencies/<id> directly, named Agency", async () => {
+    withBalanceRole("agent");
+    const panel = holdersPanel(await render());
+    expect(panel).toContain(customerCell(PAYER, `/agencies/${PAYER}`, "Agency", "</td>"));
+    expect(panel).not.toContain(`href="/companies/${PAYER}"`);
+  });
+
+  it("a company's balance links /companies/<id>, named Company", async () => {
+    withBalanceRole("employer");
+    const panel = holdersPanel(await render());
+    expect(panel).toContain(customerCell(PAYER, `/companies/${PAYER}`, "Company", "</td>"));
+    expect(panel).not.toContain(`href="/agencies/${PAYER}"`);
+  });
+
+  it("a null role (an orphaned id) falls back to /companies/<id>, claiming no persona", async () => {
+    withBalanceRole(null);
+    const panel = holdersPanel(await render());
+    expect(panel).toContain(FALLBACK);
+    expect(panel).not.toContain('class="table__meta"');
+  });
+
+  it("an absent role (an API before #2106) falls back the same way", async () => {
+    expect(summary(MOCK).top_balances[0]).not.toHaveProperty("payer_role");
+    const panel = holdersPanel(await render());
+    expect(panel).toContain(FALLBACK);
+    expect(panel).not.toContain('class="table__meta"');
   });
 });
 

@@ -347,6 +347,17 @@ export const reasonBucketSchema = z.object({
 });
 export type ReasonBucket = z.infer<typeof reasonBucketSchema>;
 
+/**
+ * One of the summary's largest balances. `payer_role` arrived with #2106, after the ledger and
+ * order rows carried it: the same `payerRoleRefSchema`, so a summary from an API that predates it
+ * still parses and its cells take the `/companies/:id` fallback.
+ */
+export const topBalanceRowSchema = z.object({
+  payer_id: z.string(),
+  payer_role: payerRoleRefSchema,
+  balance: z.number(),
+});
+
 export const financeSummarySchema = z.object({
   payments: paymentsPostureSchema,
   window_days: z.number(),
@@ -356,7 +367,7 @@ export const financeSummarySchema = z.object({
   paid_orders: z.object({ count: z.number(), credits: z.number(), amount_inr: z.number() }),
   unsettled_orders: z.object({ count: z.number(), amount_inr: z.number() }),
   failed_orders: z.object({ count: z.number() }),
-  top_balances: z.array(z.object({ payer_id: z.string(), balance: z.number() })),
+  top_balances: z.array(topBalanceRowSchema),
 });
 export type FinanceSummary = z.infer<typeof financeSummarySchema>;
 
