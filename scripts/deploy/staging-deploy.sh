@@ -93,6 +93,38 @@ case "${MATCH_V1_ENABLED-}" in
     ;;
 esac
 
+# #2122: PAYER_LOGIN_METHOD — the payer/agency login channel. The api's config is
+# z.enum(email_otp|whatsapp|supabase) and throws at boot on anything else; empty resolves to
+# email_otp through compose's `${PAYER_LOGIN_METHOD:-email_otp}`. For email_otp on ZeptoMail
+# (EMAIL_PROVIDER unset counts as zeptomail, the compose default), the api's
+# assertPayerAuthConfig fails closed at boot without the ZeptoMail set, and ZEPTOMAIL_API_URL
+# is needed for any send to leave the box. The api `up` has no automatic rollback, so both are
+# checked here, before any prune, pull or recreate. Values are never echoed — only names.
+case "${PAYER_LOGIN_METHOD-}" in
+  "" | email_otp | whatsapp | supabase) ;;
+  *)
+    echo "::error::PAYER_LOGIN_METHOD must be exactly email_otp, whatsapp, supabase or empty (empty means email_otp). Fix the production secret and re-run. Nothing was deployed."
+    exit 1
+    ;;
+esac
+if [ "${PAYER_LOGIN_METHOD:-email_otp}" = "email_otp" ] &&
+  { [ -z "${EMAIL_PROVIDER-}" ] || [ "${EMAIL_PROVIDER}" = "zeptomail" ]; }; then
+  _missing_email=()
+  for _name in ZEPTOMAIL_API_URL ZEPTOMAIL_API_TOKEN ZEPTOMAIL_MAIL_AGENT EMAIL_FROM_ADDRESS; do
+    if [ -z "${!_name-}" ]; then
+      _missing_email+=("${_name}")
+    fi
+  done
+  if [ "${#_missing_email[@]}" -ne 0 ]; then
+    _missing_list="$(
+      IFS=,
+      printf '%s' "${_missing_email[*]}"
+    )"
+    echo "::error::PAYER_LOGIN_METHOD=email_otp (ZeptoMail) needs these production secrets, which are empty: ${_missing_list}. The api would fail closed at boot. Set them (or set PAYER_LOGIN_METHOD deliberately) and re-run. Nothing was deployed."
+    exit 1
+  fi
+fi
+
 # EVERY OTHER BRIDGED BOOLEAN — the same boot-time grammar, the same reason. Each name below is
 # in the deploy job's `envs:` list in ci.yml AND parsed by the api's `booleanFromString`
 # (packages/config/src/server.ts), which throws at boot on anything but true/false/1/0/empty.
