@@ -109,17 +109,13 @@ case "${PAYER_LOGIN_METHOD-}" in
 esac
 if [ "${PAYER_LOGIN_METHOD:-email_otp}" = "email_otp" ] &&
   { [ -z "${EMAIL_PROVIDER-}" ] || [ "${EMAIL_PROVIDER}" = "zeptomail" ]; }; then
-  _missing_email=()
+  _missing_list=""
   for _name in ZEPTOMAIL_API_URL ZEPTOMAIL_API_TOKEN ZEPTOMAIL_MAIL_AGENT EMAIL_FROM_ADDRESS; do
     if [ -z "${!_name-}" ]; then
-      _missing_email+=("${_name}")
+      _missing_list="${_missing_list:+${_missing_list},}${_name}"
     fi
   done
-  if [ "${#_missing_email[@]}" -ne 0 ]; then
-    _missing_list="$(
-      IFS=,
-      printf '%s' "${_missing_email[*]}"
-    )"
+  if [ -n "${_missing_list}" ]; then
     echo "::error::PAYER_LOGIN_METHOD=email_otp (ZeptoMail) needs these production secrets, which are empty: ${_missing_list}. The api would fail closed at boot. Set them (or set PAYER_LOGIN_METHOD deliberately) and re-run. Nothing was deployed."
     exit 1
   fi
