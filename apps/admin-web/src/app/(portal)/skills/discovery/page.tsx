@@ -34,7 +34,7 @@ import {
   RetryActions,
 } from "../../../../components/retry-actions";
 import { SkillDiscoveryFilterBar } from "./filter-bar";
-import { filterChipClass } from "../../../../components/filter-chip";
+import { FilterChip } from "../../../../components/filter-chip-link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -185,7 +185,18 @@ export default async function SkillDiscoveryPage({
     primaryRes.status === "rejected" && isAdminRequestError(primaryRes.reason)
       ? primaryRes.reason
       : null;
-  const badRequest = primaryError !== null && primaryError.status === 400;
+  /**
+   * A 400 is a REFUSAL only when the address holds something to refuse (final re-sweep NEW-07) —
+   * the console's one rule. The flat view with nothing in the address read a 400 as "one of the
+   * filters" when none was set, and its "Clear filters" switched views instead of clearing
+   * anything: there it is an outage, with Retry. The grouped view keeps its documented exception:
+   * its route refuses a result too large to group even with nothing set, and says so.
+   */
+  const flatWithNothingSet = view === "flat" && !filtered && !cursor;
+  const badRequest =
+    primaryError !== null && primaryError.status === 400 && !flatWithNothingSet;
+  /** The grouped view's own refusal with no filter to clear: the way out is the Flat view. */
+  const groupedRefusedUnfiltered = badRequest && view === "grouped" && !filtered;
   // The GROUPS route's 400 names the exact count and how to narrow it — rendered verbatim
   // rather than folded into the generic filter-refusal copy below, per the API's own contract:
   // "render the message; it tells the reviewer what to narrow".
@@ -299,22 +310,18 @@ export default async function SkillDiscoveryPage({
             Review queue
           </h2>
           <div className="page__actions">
-            <Link
-              aria-current={view === "grouped" ? "true" : undefined}
-              className={filterChipClass(view === "grouped")}
+            <FilterChip
+              cursor={cursor}
+              selected={view === "grouped"}
               href={listHref({ view: undefined, cursor: undefined })}
             >
               <Icon name="rows" />
               Grouped
-            </Link>
-            <Link
-              aria-current={view === "flat" ? "true" : undefined}
-              className={filterChipClass(view === "flat")}
-              href={listHref({ view: "flat", cursor: undefined })}
-            >
+            </FilterChip>
+            <FilterChip selected={view === "flat"} href={listHref({ view: "flat", cursor: undefined })} cursor={cursor}>
               <Icon name="list-bullets" />
               Flat
-            </Link>
+            </FilterChip>
           </div>
         </div>
 
@@ -323,14 +330,14 @@ export default async function SkillDiscoveryPage({
           {/* ── status scope chips ────────────────────────────────────────────────────── */}
           <div className="filters--inline" role="group" aria-label="Status">
             {(["awaiting", "held", "decided", "all"] as const).map((s) => (
-              <Link
+              <FilterChip
+                cursor={cursor}
                 key={s}
-                aria-current={statusScope === s ? "true" : undefined}
-                className={filterChipClass(statusScope === s)}
+                selected={statusScope === s}
                 href={listHref({ statusScope: s, cursor: undefined })}
               >
                 {STATUS_SCOPE_LABELS[s]}
-              </Link>
+              </FilterChip>
             ))}
           </div>
 
@@ -338,35 +345,25 @@ export default async function SkillDiscoveryPage({
               The Derived tab says it is sequenced behind Direct in its own label; the full reason
               is a standing note, in the foot notes after the results. */}
           <div className="filters--inline" role="group" aria-label="Review tier">
-            <Link
-              aria-current={activeTier === "all" ? "true" : undefined}
-              className={filterChipClass(activeTier === "all")}
-              href={tierTabHref("all")}
-            >
+            <FilterChip selected={activeTier === "all"} href={tierTabHref("all")} cursor={cursor}>
               All tiers
-            </Link>
-            <Link
-              aria-current={activeTier === "direct" ? "true" : undefined}
-              className={filterChipClass(activeTier === "direct")}
-              href={tierTabHref("direct")}
-            >
+            </FilterChip>
+            <FilterChip selected={activeTier === "direct"} href={tierTabHref("direct")} cursor={cursor}>
               Direct (default)
-            </Link>
-            <Link
-              aria-current={activeTier === "ambiguous" ? "true" : undefined}
-              className={filterChipClass(activeTier === "ambiguous")}
-              href={tierTabHref("ambiguous")}
-            >
+            </FilterChip>
+            <FilterChip selected={activeTier === "ambiguous"} href={tierTabHref("ambiguous")} cursor={cursor}>
               Ambiguous
-            </Link>
+            </FilterChip>
             {activeTier === "derived" && derivedAck ? (
-              <Link aria-current="true" className={filterChipClass(true)} href={tierTabHref("derived")}>
+              /* The acknowledged queue's own address — `tierTabHref` drops `ack`, so on a later
+                 page this chip's "page one" opened the Direct queue (delta review of #2095). */
+              <FilterChip selected href={derivedViewAnywayHref} cursor={cursor}>
                 Derived
-              </Link>
+              </FilterChip>
             ) : (
-              <Link className={filterChipClass(false)} href={derivedViewAnywayHref}>
+              <FilterChip selected={false} href={derivedViewAnywayHref} cursor={cursor}>
                 Derived (sequenced behind Direct) — view anyway
-              </Link>
+              </FilterChip>
             )}
           </div>
 
@@ -385,20 +382,20 @@ export default async function SkillDiscoveryPage({
                   grouped view. */}
               {view === "grouped" && (
                 <div className="filters--inline" role="group" aria-label="Batch order">
-                  <Link
-                    aria-current={groupSort === "candidates" ? "true" : undefined}
-                    className={filterChipClass(groupSort === "candidates")}
+                  <FilterChip
+                    cursor={cursor}
+                    selected={groupSort === "candidates"}
                     href={listHref({ groupSort: undefined })}
                   >
                     Biggest batch first (server order)
-                  </Link>
-                  <Link
-                    aria-current={groupSort === "undecided" ? "true" : undefined}
-                    className={filterChipClass(groupSort === "undecided")}
+                  </FilterChip>
+                  <FilterChip
+                    cursor={cursor}
+                    selected={groupSort === "undecided"}
                     href={listHref({ groupSort: "undecided" })}
                   >
                     Most work remaining first
-                  </Link>
+                  </FilterChip>
                 </div>
               )}
 
@@ -436,22 +433,33 @@ export default async function SkillDiscoveryPage({
                   ? CURSOR_REFUSAL.body
                   : "Nothing was fetched. One of the filters, as it stands in the address bar, is not a value this queue accepts — a hand-edited status, tier, band or run id."}
             </p>
+            {/* With nothing set there is nothing to clear: "Clear filters" linked the page it was
+                on. The way out is the Flat view — named here, linked once, by its chip above. */}
+            {groupedRefusedUnfiltered ? (
+              <p className="state__body">
+                Nothing in the address narrows this queue, so there is no filter to clear: switch to
+                the Flat view above, which pages through any number of candidates, or narrow it
+                under More filters.
+              </p>
+            ) : null}
             {/* ONE way out, and never a Retry of a refused request. A refused page cursor on an
                 unfiltered flat view goes back to the first page with `view=flat` kept — the bare
                 queue "Clear filters" goes to would drop it, a first-page action wearing the
                 clear-filters name. Anything else is the filters: the API refuses a cursor only
                 when it is longer than any it issues, so keeping the filters on the first page
                 would be refused again. */}
-            <div className="state__actions">
-              {view === "flat" && cursor && !filtered ? (
-                <FirstPageLink href={listHref({})} />
-              ) : (
-                <Link className="btn btn--ghost" href="/skills/discovery">
-                  <Icon name={ACTION_ICON.clearFilters} />
-                  Clear filters
-                </Link>
-              )}
-            </div>
+            {groupedRefusedUnfiltered ? null : (
+              <div className="state__actions">
+                {view === "flat" && cursor && !filtered ? (
+                  <FirstPageLink href={listHref({})} />
+                ) : (
+                  <Link className="btn btn--ghost" href="/skills/discovery">
+                    <Icon name={ACTION_ICON.clearFilters} />
+                    Clear filters
+                  </Link>
+                )}
+              </div>
+            )}
           </div>
         ) : primaryFailed ? (
           <div className="state state--error">

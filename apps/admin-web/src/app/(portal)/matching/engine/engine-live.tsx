@@ -47,12 +47,9 @@ export const ENGINE_AUTO_PAUSE_MS = 30 * 60 * 1000;
 export function EngineLive({
   worker,
   posting,
-  workerId,
 }: {
   worker: EngineWorker | null;
   posting: EnginePosting | null;
-  /** The worker the posting tab was opened from, so links keep the selection. */
-  workerId?: string;
 }) {
   const router = useRouter();
   const [paused, setPaused] = useState(false);
@@ -120,7 +117,7 @@ export function EngineLive({
       </div>
 
       {worker ? <WorkerPanels worker={worker} diff={diff} /> : null}
-      {posting ? <PostingPanels posting={posting} workerId={workerId} /> : null}
+      {posting ? <PostingPanels posting={posting} /> : null}
     </section>
   );
 }
@@ -316,7 +313,7 @@ function FeedCard({ card, workerId }: { card: EngineCard; workerId: string }) {
 // Posting tab: skills by tier · reach · ranked candidates
 // ---------------------------------------------------------------------------
 
-function PostingPanels({ posting, workerId }: { posting: EnginePosting; workerId?: string }) {
+function PostingPanels({ posting }: { posting: EnginePosting }) {
   return (
     <div className="engine__grid engine__grid--posting">
       <section className="engine__panel" aria-labelledby="engine-posting-skills">
@@ -380,7 +377,8 @@ function PostingPanels({ posting, workerId }: { posting: EnginePosting; workerId
                   <tr key={c.application_id}>
                     <th scope="row">{c.rank}</th>
                     <td>
-                      <Link className="mono" href={engineHref({ worker: c.worker_id })}>
+                      {/* `.link`, the console's table link: 44px on touch (NEW-04). */}
+                      <Link className="link mono" href={engineHref({ worker: c.worker_id })}>
                         {c.short_ref}
                       </Link>
                     </td>
@@ -395,12 +393,7 @@ function PostingPanels({ posting, workerId }: { posting: EnginePosting; workerId
             </table>
           </div>
         )}
-        {workerId ? (
-          <Link className="btn btn--ghost engine__back" href={engineHref({ worker: workerId })}>
-            <Icon name="arrow-left" />
-            Back to the worker
-          </Link>
-        ) : null}
+        {/* No "Back to the worker": the Worker tab above links the same address (NEW-05). */}
       </section>
     </div>
   );

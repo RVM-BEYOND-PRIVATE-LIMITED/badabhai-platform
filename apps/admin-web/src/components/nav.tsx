@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@badabhai/icons";
 import type { NavSection } from "./nav-model";
+import { NavPendingCue } from "./nav-pending";
 
 /**
  * Sidebar navigation. Client-side ONLY because it needs `usePathname()` to mark the
@@ -53,6 +54,9 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
                         link colour, so the active row's is Safety Yellow on the navy band. */}
                     <Icon name={item.icon} className="sidebar__icon" />
                     <span className="sidebar__label">{item.label}</span>
+                    {/* Pending while this link's navigation is under way (no loading boundary
+                        shows it any more — components/nav-pending.tsx). */}
+                    <NavPendingCue message={`Opening ${item.label}…`} />
                   </Link>
                 </li>
               );

@@ -1,10 +1,16 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { can } from "../../../lib/auth/capabilities";
-import { isAdminRequestError } from "../../../lib/admin-http";
+import {
+  isMalformedUuid,
+  isUnknownValue,
+  readRefusal,
+  type ReadRefusal,
+} from "../../../lib/read-refusal";
+import { AI_CALL_OUTCOMES } from "../../../lib/list-filter-values";
 import { listAiTraces, type AiTracePage } from "../../../lib/ai-traces";
 import { aiTraceErrorLabel, outcomeTone, realCallLabel } from "../../../lib/ai-trace-view";
-import { taskTypeLabel } from "../../../lib/ai-cost";
+import { AI_TASK_TYPES, taskTypeLabel } from "../../../lib/ai-cost";
 import {
   formatCount,
   formatRelative,
@@ -97,7 +103,12 @@ export default async function AiCallsPage({
   const mayReadEvents = can(session.capabilities, "read_events");
 
   let page: AiTracePage | null = null;
-  let rejected = false;
+  /** A filter in the address the server could have refused (a value it does not accept). */
+  const refusable =
+    isUnknownValue(taskType, AI_TASK_TYPES) ||
+    isUnknownValue(success, AI_CALL_OUTCOMES) ||
+    isMalformedUuid(workerId);
+  let refusal: ReadRefusal = null;
   try {
     page = await listAiTraces({ taskType, success, workerId, cursor, limit: PAGE_SIZE });
   } catch (err) {
@@ -109,13 +120,17 @@ export default async function AiCallsPage({
      *
      * And only when the address HOLDS something to refuse — a filter or a page cursor. With
      * neither, a 400 cannot be the operator's, so it is an outage like any other: unavailable,
-     * with Retry (the rule the five entity lists follow).
+     * with Retry (the console's one rule, `readRefusal`).
      */
-    rejected =
-      isAdminRequestError(err) &&
-      err.status === 400 &&
-      Boolean(taskType || success || workerId || cursor);
+    refusal = readRefusal(err, { filtered: refusable, cursor });
   }
+  const rejected = refusal !== null;
+  /**
+   * The filters were refused — not the page cursor beside them. Only a value the server does not
+   * accept counts: a valid one beside an over-long cursor leaves the CURSOR refused, and its way
+   * out is the first page with the filters kept (delta review of #2095).
+   */
+  const filtersRefused = refusal === "filters";
 
   const failed = page === null;
   const filtered = Boolean(taskType || success || workerId);
@@ -184,7 +199,7 @@ export default async function AiCallsPage({
                 : `${page?.items.length ?? 0} call${page?.items.length === 1 ? "" : "s"} on this page.`}
             </p>
           </div>
-          {rejected ? null : clearFilters}
+          {filtersRefused ? null : clearFilters}
         </div>
 
         {workerId && !failed ? (
@@ -223,11 +238,12 @@ export default async function AiCallsPage({
               cursor is an opaque value that cannot be hand-edited — one of them, as it stands in
               the address bar, is not something this list accepts.
             </p>
-            {/* No Retry: the server has refused this request and would refuse it again. The API
-                refuses a page cursor only when it is longer than any it issues, so with a filter
-                set it is the FILTER that was refused — keeping it on the first page would be
-                refused again, and the way out is Clear filters. With no filter, the first page. */}
-            {filtered ? (
+            {/* No Retry: the server has refused this request and would refuse it again. With a
+                filter value the server does not accept in the address, that value is what was
+                refused — keeping it on the first page would be refused again, and the way out is
+                Clear filters. Otherwise the page cursor was refused: the first page, filters
+                kept. */}
+            {filtersRefused ? (
               <div className="state__actions">{clearFilters}</div>
             ) : (
               <FirstPageAction href={listHref()} cursor={cursor} />
