@@ -614,3 +614,32 @@ describe("narrow-screen crumbs and chips (AW-29)", () => {
     expect(decl(crumb!.body, "margin")).toBe("0");
   });
 });
+
+describe("the Engine view's switched-off skill reads at AA (final re-sweep NEW-03)", () => {
+  /** The skills panel's own fill — the skill rows have none of their own. */
+  const PANEL = "var(--color-brand-surface)";
+
+  it("the fence reproduces the shipped failure: the 60% step on the Ivory panel is under 4.5:1", () => {
+    // Measured in Chrome before the fix: 4.46:1 on the off skill's label, switch and meta.
+    expect(contrast(color("var(--color-brand-primary-60)"), color(PANEL))).toBeLessThan(4.5);
+  });
+
+  it("its text — label, switch and meta all inherit it — clears 4.5:1 on the panel, through a token", () => {
+    expect(decl(body(".engine__panel"), "background")).toBe(PANEL);
+    const fg = decl(body(".engine__skill--off"), "color")!;
+    expect(fg).toMatch(/^var\(--[\w-]+\)$/);
+    expect(contrast(color(fg), color(PANEL))).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe("the current value of a link chip row is text, not a control (final re-sweep O-2)", () => {
+  it("draws no pointer over it", () => {
+    expect(lastTopLevel("span.btn", "cursor")).toBe("default");
+  });
+
+  it("changes nothing on hover — the selected hover tint is for links and buttons only", () => {
+    expect(rule(CSS, ".btn--selected:hover:not(:disabled)")).toBeNull();
+    const hover = body(".btn--selected:is(a, button):hover:not(:disabled)");
+    expect(decl(hover, "background")).toBe("var(--brand-tint-2)");
+  });
+});

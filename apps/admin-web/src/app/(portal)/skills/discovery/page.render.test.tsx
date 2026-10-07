@@ -602,6 +602,47 @@ describe("error states", () => {
     expect(out).not.toContain(">Retry<");
   });
 
+  it("a 400 on the FLAT view with nothing in the address is an outage — Retry, not a filter refusal (NEW-07)", async () => {
+    // Final re-sweep NEW-07: it blamed "one of the filters" when none was set, and its only
+    // action, "Clear filters" → /skills/discovery, switched to the grouped view rather than
+    // clearing anything. With nothing in the address a 400 cannot be the operator's.
+    stub.listFailure = new stub.RequestError(400);
+    const out = await render({ view: "flat" });
+    expect(out).toContain("The queue is unavailable");
+    expect(out).not.toContain("The server rejected");
+    expect(out).not.toContain("One of the filters");
+    expect(out).not.toContain(">Clear filters<");
+    const retry = /href="([^"]*)"><i [^>]*><\/i>Retry<\/a>/.exec(out)?.[1] ?? "";
+    expect(retry).toContain("view=flat");
+    expect(retry).not.toContain("cursor=");
+  });
+
+  it("a 400 on the GROUPED view with nothing in the address keeps the server's reason, and points at the Flat view instead of a Clear filters to this page (NEW-07)", async () => {
+    // The groups route refuses a result too large to group even with nothing set — that is its
+    // reason, rendered verbatim. "Clear filters" linked the page it was on; the way out is the
+    // Flat view, which pages through any number — named here, linked once (the chip above).
+    stub.groupsFailure = new stub.RequestError(
+      400,
+      "That filter matches 25000 candidates and grouping is exhaustive, not paged. Narrow it " +
+        "— by tier, run or trade family — to at most 20000.",
+    );
+    const out = await render({});
+    expect(out).toContain("The server rejected this request");
+    expect(out).toContain("That filter matches 25000 candidates");
+    expect(out).not.toContain(">Clear filters<");
+    const state = out.slice(out.indexOf("The server rejected this request"), out.indexOf("queue-notes"));
+    expect(state).toContain("Flat view");
+    expect(state).not.toContain("<a ");
+    expect(out).not.toContain(">Retry<");
+  });
+
+  it("a 400 on the grouped view WITH a filter set still offers Clear filters, to the bare queue", async () => {
+    stub.groupsFailure = new stub.RequestError(400, "Invalid enum value.");
+    const out = await render({ tradeFamily: "Welders" });
+    expect(out).toContain("The server rejected this request");
+    expect(out).toMatch(/href="\/skills\/discovery"><i [^>]*><\/i>Clear filters<\/a>/);
+  });
+
   it("anything else (grouped) is our fault, with a retry that repeats the same query", async () => {
     stub.groupsFailure = new TypeError("network down");
     const out = await render({ tradeFamily: "Welders" });
@@ -640,26 +681,11 @@ describe("grouped rows link to their own decision screen — a group is a lens, 
 });
 
 // ---------------------------------------------------------------------------
-// AC#12 — loading. This route's async data fetch is caught by Next's Suspense boundary at
-// `(portal)/loading.tsx`; this route additionally ships its OWN shape-matched skeleton
-// (`./loading.tsx`) because its tile counts and queue-panel shape differ materially from the
-// generic shell one — a skeleton the wrong size jumps the layout the moment real content
-// resolves. Rendered directly, mirroring how the portal-level loading state has no page to
-// await: there is nothing to mock, it is a plain component.
-// ---------------------------------------------------------------------------
-describe("loading", () => {
-  it("renders a busy, shape-matched skeleton with the tile counts this page actually has", async () => {
-    const { default: SkillDiscoveryLoading } = await import("./loading");
-    const out = renderToStaticMarkup(<SkillDiscoveryLoading />);
-    expect(out).toContain('aria-busy="true"');
-    expect(out).toContain("Loading…");
-    // Four headline tiles + five outcome tiles = nine `.stat` skeletons, plus the queue panel.
-    expect((out.match(/class="stat"/g) ?? []).length).toBe(9);
-    expect(out).toContain('class="panel"');
-    // Both tile rows inside the same stack the page uses, so they do not jump apart on load.
-    expect(out).toContain('<div class="queue-metrics"><div class="stats">');
-  });
-});
+// AC#12 — loading. The route-level skeletons (`(portal)/loading.tsx` and this route's own
+// `./loading.tsx`) were REMOVED by the final re-sweep (O-1): a Suspense boundary above a page held
+// same-route navigations — a chip, a filter, a page cursor — in a transition that never
+// committed. A navigation now keeps the current page until the next one has rendered; the fence
+// is app/no-suspense-above-a-page.test.ts.
 
 // ---------------------------------------------------------------------------
 // #1856 — hierarchy and rhythm. The CSS stacks (`.queue-metrics`, `.queue-controls`, …) are
@@ -932,9 +958,12 @@ describe("a selected chip is a state, not the primary action (AW-11)", () => {
       const out = await render(sp);
       // The stubbed bar renders no Apply, so ANY primary here would be a chip.
       expect(out, JSON.stringify(sp)).not.toContain("btn--primary");
-      const selected = (out.match(/<a[^>]*btn--selected[^>]*>/g) ?? []);
+      const selected = (out.match(/<[a-z]+ [^>]*btn--selected[^>]*>/g) ?? []);
       expect(selected.length, JSON.stringify(sp)).toBeGreaterThanOrEqual(3);
       for (const tag of selected) expect(tag).toContain('aria-current="true"');
+      // …and each is text, not a link to the page it is on (final re-sweep O-2): two selected
+      // chips (Awaiting decision, Biggest batch first) used to link the same address.
+      for (const tag of selected) expect(tag, JSON.stringify(sp)).toMatch(/^<span /);
     }
   });
 });

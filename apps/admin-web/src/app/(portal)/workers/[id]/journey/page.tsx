@@ -12,7 +12,7 @@ import { StatusPill } from "../../../../../components/status-pill";
 import { PageHeader } from "../../../../../components/page-header";
 import { RetryActions } from "../../../../../components/retry-actions";
 import { queryHref } from "../../../../../lib/query-href";
-import { filterChipClass } from "../../../../../components/filter-chip";
+import { FilterChip } from "../../../../../components/filter-chip-link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -180,24 +180,16 @@ export default async function WorkerJourneyPage({
               (shareable mid-incident) and this screen needs no JavaScript to apply it.
               `aria-current="true"` marks the active one — a class alone would be invisible to a
               screen reader — and it takes the selected chip state, like every other chip set here
-              (never the primary fill, which marks a screen's one action — AW-11). */}
+              (never the primary fill, which marks a screen's one action — AW-11). The active one
+              is text, not a link to this page (`<FilterChip>`, final re-sweep O-2). */}
           <nav aria-label="Filter sessions by status" className="page__actions">
-            <Link
-              aria-current={status ? undefined : "true"}
-              className={filterChipClass(!status)}
-              href={`/workers/${id}/journey`}
-            >
+            <FilterChip selected={!status} href={`/workers/${id}/journey`}>
               All
-            </Link>
+            </FilterChip>
             {SESSION_STATUS_FILTERS.map((s) => (
-              <Link
-                aria-current={status === s ? "true" : undefined}
-                className={filterChipClass(status === s)}
-                href={`/workers/${id}/journey?status=${s}`}
-                key={s}
-              >
+              <FilterChip key={s} selected={status === s} href={`/workers/${id}/journey?status=${s}`}>
                 {SESSION_STATUS_LABELS[s]}
-              </Link>
+              </FilterChip>
             ))}
           </nav>
         </div>

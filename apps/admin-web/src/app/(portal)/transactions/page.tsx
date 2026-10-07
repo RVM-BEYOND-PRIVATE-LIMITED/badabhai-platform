@@ -14,8 +14,13 @@ import { CustomerLink } from "../../../components/customer-link";
 import { Pager } from "../../../components/pager";
 import { Stat } from "../../../components/stat";
 import { PageHeader } from "../../../components/page-header";
-import { RetryActions } from "../../../components/retry-actions";
-import { filterChipClass } from "../../../components/filter-chip";
+import {
+  CURSOR_REFUSAL,
+  FirstPageAction,
+  RetryActions,
+} from "../../../components/retry-actions";
+import { readRefusal } from "../../../lib/read-refusal";
+import { FilterChip } from "../../../components/filter-chip-link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -64,6 +69,12 @@ export default async function TransactionsPage({
   const mockPurchases = summary?.by_reason.find((b) => b.reason === "pack_purchase") ?? null;
 
   const filtered = Boolean(status || payerId);
+  /**
+   * A refused read is not an outage (final re-sweep O-3): a hand-edited `?status=` or `?payerId=`
+   * earned "Payment orders are unavailable" and a Retry that could only be refused again.
+   */
+  const refusal =
+    ordersRes.status === "rejected" ? readRefusal(ordersRes.reason, { filtered, cursor }) : null;
 
   /**
    * The CURRENT query without its cursor — where "Back to the first page" lands. RetryActions
@@ -77,6 +88,17 @@ export default async function TransactionsPage({
     const q = qs.toString();
     return q ? `/transactions?${q}` : "/transactions";
   })();
+
+  /**
+   * The ONE "Clear filters" on this screen: in the results head while a filter is set, and inside
+   * the refusal state instead when the server refused the filters — there it is the way out.
+   */
+  const clearFilters = filtered ? (
+    <Link className="btn btn--ghost" href="/transactions">
+      <Icon name={ACTION_ICON.clearFilters} />
+      Clear filters
+    </Link>
+  ) : null;
 
   return (
     <div className="page">
@@ -152,29 +174,41 @@ export default async function TransactionsPage({
               {orders ? `${orders.items.length} order${orders.items.length === 1 ? "" : "s"} on this page.` : "—"}
             </p>
           </div>
-          {filtered && (
-            <Link className="btn btn--ghost" href="/transactions">
-              <Icon name={ACTION_ICON.clearFilters} />
-              Clear filters
-            </Link>
-          )}
+          {refusal === "filters" ? null : clearFilters}
         </div>
 
         <div className="filters filters--inline">
           {STATUSES.map((s) => (
-            <Link
-              aria-current={s === status ? "true" : undefined}
-              className={filterChipClass(s === status)}
+            <FilterChip
+              key={s}
+              selected={s === status}
               /* Keeps an account narrowing (`?payerId=`); a chip used to drop it. */
               href={`/transactions?status=${s}${payerId ? `&payerId=${encodeURIComponent(payerId)}` : ""}`}
-              key={s}
             >
               {s === "created" ? "Unsettled" : s === "paid" ? "Settled" : "Failed"}
-            </Link>
+            </FilterChip>
           ))}
         </div>
 
-        {orders === null ? (
+        {refusal ? (
+          <div className="state state--error">
+            <h3 className="state__title">
+              {refusal === "filters" ? "The server rejected these filters" : CURSOR_REFUSAL.title}
+            </h3>
+            <p className="state__body">
+              {refusal === "filters"
+                ? "Nothing was fetched. A value in the address is not an order status or a customer id this list accepts. Clear the filters to see every order, newest first."
+                : CURSOR_REFUSAL.body}
+            </p>
+            {/* No Retry: the request was refused and would be refused again. The refused filter is
+                cleared here (the head does not repeat it); a refused cursor goes to page one. */}
+            {refusal === "filters" ? (
+              <div className="state__actions">{clearFilters}</div>
+            ) : (
+              <FirstPageAction href={queryHref} cursor={cursor} />
+            )}
+          </div>
+        ) : orders === null ? (
           <div className="state state--error">
             <h3 className="state__title">Payment orders are unavailable</h3>
             <p className="state__body">

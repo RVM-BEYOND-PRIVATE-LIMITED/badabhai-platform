@@ -13,7 +13,7 @@ import { StatusPill, type Tone } from "../../../components/status-pill";
 import { Pager } from "../../../components/pager";
 import { PageHeader } from "../../../components/page-header";
 import { FirstPageAction, RetryActions } from "../../../components/retry-actions";
-import { filterChipClass } from "../../../components/filter-chip";
+import { FilterChip } from "../../../components/filter-chip-link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -200,16 +200,15 @@ export default async function FeedbackPage({
 
         <div className="filters filters--inline">
           {FEEDBACK_CATEGORIES.map((c) => (
-            <Link
-              aria-current={c === category ? "true" : undefined}
-              className={filterChipClass(c === category)}
+            <FilterChip
+              key={c}
+              selected={c === category}
               /* KEEPS an active worker narrowing and DROPS the cursor. Picking a tag while
                  looking at one worker means "this worker's problems", not "everyone's". */
               href={listHref({ category: c })}
-              key={c}
             >
               {CATEGORY[c].chip}
-            </Link>
+            </FilterChip>
           ))}
         </div>
 

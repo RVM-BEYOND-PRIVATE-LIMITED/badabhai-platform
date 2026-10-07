@@ -338,9 +338,19 @@ describe("the category chips", () => {
    * a `new RegExp` built from `category`, which is the non-literal-regexp pattern semgrep
    * blocks (and which would need `category` escaped to be correct anyway).
    */
-  const chip = (html: string, category: string) =>
-    (html.match(/<a[^>]*>/g) ?? []).find((tag) => tag.includes(`/feedback?category=${category}`)) ??
-    "";
+  const LABEL = { suggestion: "Suggestions", problem: "Problems", other: "Other" } as const;
+  /**
+   * One chip's opening tag, found by its label inside the chip row: the SELECTED chip is text
+   * with no href since the final re-sweep (O-2), so an href no longer finds every chip.
+   */
+  const chip = (html: string, category: keyof typeof LABEL) => {
+    const row = html.slice(html.indexOf('<div class="filters filters--inline">'));
+    return (
+      (row.match(/<(?:a|span)[^>]*>[^<]*/g) ?? [])
+        .find((run) => run.endsWith(`>${LABEL[category]}`))
+        ?.split(">")[0] ?? ""
+    );
+  };
 
   it("renders one link per tag, none of them selected on the unfiltered page", async () => {
     const out = await render();
@@ -360,12 +370,20 @@ describe("the category chips", () => {
     expect(chip(out, "other")).not.toContain("aria-current");
   });
 
+  it("the active chip is text, not a link to the page it is on (final re-sweep O-2)", async () => {
+    const out = await render({ category: "problem" });
+    expect(chip(out, "problem")).toMatch(/^<span /);
+    expect(chip(out, "problem")).not.toContain("href");
+    expect(chip(out, "other")).toMatch(/^<a /);
+    expect(chip(out, "other")).toContain('href="/feedback?category=other"');
+  });
+
   it("a chip never carries the current cursor — changing the filter restarts at page one", async () => {
     // Page three's cursor applied to a different query returns an arbitrary slice of it,
     // which looks like data rather than like an error.
     stub.page = { items: [TAGGED], nextCursor: "bmV4dA" };
     const out = await render({ category: "problem", cursor: "Y3Vyc29y" });
-    for (const category of ["suggestion", "problem", "other"]) {
+    for (const category of ["suggestion", "problem", "other"] as const) {
       expect(chip(out, category), `the ${category} chip must not carry a cursor`).not.toContain(
         "cursor",
       );

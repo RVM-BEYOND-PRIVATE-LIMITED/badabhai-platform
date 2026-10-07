@@ -161,4 +161,10 @@ describe("a failed session list offers the paged list's recoveries", () => {
     expect(out).not.toContain("Back to the first page");
     expect(out).not.toContain("Reload this page to try again");
   });
+
+  it("Retry is the one link to this page — the selected 'All' chip is text (final re-sweep O-2)", async () => {
+    const out = await renderWith({});
+    expect(out.split(`href="/workers/${WORKER_ID}/journey"`)).toHaveLength(2);
+    expect(out).toMatch(/<span aria-current="true" class="btn btn--sm btn--selected">All<\/span>/);
+  });
 });

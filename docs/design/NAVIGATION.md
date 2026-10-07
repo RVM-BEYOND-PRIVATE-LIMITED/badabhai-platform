@@ -30,7 +30,8 @@ gate (`requireCapability` / `requireSession`) whatever the sidebar shows.
 | Operations     | Companies              | `buildings`               | `/companies`        | `(portal)/companies/page.tsx`        | Company accounts (`payers.role = employer`)                 | `read_entities`                                       |
 | Operations     | Agencies               | `handshake`               | `/agencies`         | `(portal)/agencies/page.tsx`         | Agency accounts (`payers.role = agent`)                     | `read_entities`                                       |
 | Operations     | Postings               | `briefcase`               | `/jobs`             | `(portal)/jobs/page.tsx`             | Every posting, with the poster's own text                   | `read_entities`                                       |
-| Skills         | Skill discovery        | `list-magnifying-glass`   | `/skills/discovery` | `(portal)/skills/discovery/page.tsx` | The skill-candidate review queue                            | `read_entities` (deciding: `review_skill_candidates`) |
+| Matching       | Skill discovery        | `list-magnifying-glass`   | `/skills/discovery` | `(portal)/skills/discovery/page.tsx` | The skill-candidate review queue                            | `read_entities` (deciding: `review_skill_candidates`) |
+| Matching       | Engine view            | `path`                    | `/matching/engine`  | `(portal)/matching/engine/page.tsx`  | How Matching V1 decides one demo worker's feed, live        | `read_entities`                                       |
 | Finance        | Credits                | `wallet`                  | `/credits`          | `(portal)/credits/page.tsx`          | Credit position and the credit ledger                       | `read_entities`                                       |
 | Finance        | Payment orders         | `receipt`                 | `/transactions`     | `(portal)/transactions/page.tsx`     | Credit-pack checkouts (payment orders)                      | `read_entities`                                       |
 | Administration | Admin users            | `user-gear`               | `/admins`           | `(portal)/admins/page.tsx`           | Admin directory, invites, role / MFA / suspend actions      | `manage_admins`                                       |
@@ -90,7 +91,11 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
 6. **Current location.** The sidebar marks the exact page `aria-current="page"`; on a page
    below it, the item is the current section (`aria-current="true"`). Chip filters mark the
    active chip `aria-current="true"` and give it the selected tint (`filterChipClass` →
-   `.btn--selected`) — never the primary fill, which marks a screen's one action.
+   `.btn--selected`) — never the primary fill, which marks a screen's one action. The active
+   chip is TEXT, not a link to the page it is on (`components/filter-chip-link.tsx`, final
+   re-sweep O-2; a fence in `filter-chip.test.ts` keeps every link chip on it): as a link it
+   sat beside a Retry or another selected chip with the same address. The Engine view's picker
+   does the same for the selected worker, and its Worker tab is the way back from a posting.
 7. **Tab title.** `metadata.title` names the page. The root template adds " · BadaBhai Admin",
    so a page never includes it itself.
 
@@ -115,26 +120,39 @@ three detail-page client headers (worker, company/agency, posting) pass their bu
   `components/retry-actions.tsx` (Workers, Postings, Events, Companies, Agencies, the event
   timelines, Payment orders, the credit ledger, Skill discovery's flat view, AI calls,
   Feedback, a worker's interview sessions); a test fails if one does not pass its cursor.
-- **A refused read is not an outage.** A list that tells a 400 apart (Workers, Postings,
-  Events, Companies, Agencies, AI calls, Feedback, Skill discovery) never offers Retry in its
-  refusal — the request would only be refused again — and says what was refused:
+- **A refused read is not an outage.** Every list tells a 400 apart (Workers, Postings,
+  Events, Companies, Agencies, AI calls, Feedback, Skill discovery, and since the final
+  re-sweep O-3 the credit ledger, Payment orders and Admin users — `lib/read-refusal.ts`). A
+  refusal never offers Retry — the request would only be refused again — and says what was
+  refused:
   - **a filter is set** → the filters. The API refuses a page cursor only when it is longer
     than any it issues (a malformed one falls back to page one), so with a filter set the
     filter is at fault and its first page would be refused too: the state's action is "Clear
-    filters", the screen's one.
+    filters", the screen's one (the credit ledger's is "Clear the reason filter", which keeps
+    the window).
   - **no filter, a page cursor** → the cursor: "Back to the first page" (`FirstPageAction`;
     Skill discovery's flat view lays out the bare `FirstPageLink`, keeping `view=flat`).
-  - **nothing in the address** → it cannot be the operator's. Workers, Postings, Events,
-    Companies, Agencies, AI calls and Feedback read it as an outage; Skill discovery shows the
-    server's own reason (its grouped view refuses a result too large to group) with "Clear
-    filters".
+  - **nothing in the address** → it cannot be the operator's: an outage, with Retry —
+    Skill discovery's flat view included (it blamed filters that were not set, NEW-07). The
+    one exception is Skill discovery's GROUPED view, whose route refuses a result too large
+    to group even with nothing set: it shows the server's own reason and points at the Flat
+    view (linked once, by its chip) — there is no filter to clear.
 
   Anything else is an outage ("Workers are unavailable", "Feedback is unavailable" — a fault
   on our side, not the filters) and offers both recoveries.
 
 - **One recovery of each kind per screen.** Two states on one page that would each offer the
-  same link (the credit position and the ledger both failed, or both empty) show it once.
+  same link (the credit position and the ledger both failed, or both empty) show it once. A
+  state does not repeat a control already on screen: a quiet credit window points at the
+  window chips rather than offering a second link to the 90-day one.
   The error boundary's button is "Retry" too.
+- **No loading boundary above a page** (final re-sweep O-1). There is no route `loading.tsx`
+  and no `<Suspense>` in the console (`app/no-suspense-above-a-page.test.ts`): on a production
+  build of next 15.5.25, a boundary above the page held same-route navigations — a chip, a
+  filter, a page cursor — in a transition that never committed (the URL never moved: 1-2 of 6
+  clicks landed on /credits, /events and /transactions; 400/400 with no boundary). A navigation
+  keeps the current page on screen until the next one has rendered. Re-measure before adding
+  one back after a Next or React upgrade.
 - **One instruction per failure.** Where a Retry button sits under an error, the copy does not
   also say "reload". A failure with no button (a secondary read on a detail page) says
   "Reload this page".

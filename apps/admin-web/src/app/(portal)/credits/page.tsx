@@ -17,8 +17,13 @@ import { CustomerLink } from "../../../components/customer-link";
 import { Pager } from "../../../components/pager";
 import { Stat } from "../../../components/stat";
 import { PageHeader } from "../../../components/page-header";
-import { RetryActions } from "../../../components/retry-actions";
-import { filterChipClass } from "../../../components/filter-chip";
+import {
+  CURSOR_REFUSAL,
+  FirstPageAction,
+  RetryActions,
+} from "../../../components/retry-actions";
+import { readRefusal } from "../../../lib/read-refusal";
+import { FilterChip } from "../../../components/filter-chip-link";
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 
 export const dynamic = "force-dynamic";
@@ -73,6 +78,16 @@ export default async function CreditsPage({
   ]);
   const summary = summaryRes.status === "fulfilled" ? summaryRes.value : null;
   const ledger = ledgerRes.status === "fulfilled" ? ledgerRes.value : null;
+  /**
+   * A refused ledger read is not an outage (final re-sweep O-3). The reason is the one filter that
+   * reaches the ledger (the window is the position's, and only 7/30/90 are ever sent), so a 400
+   * with a reason set refused the reason, one with only a cursor refused the cursor, and one with
+   * neither — or anything else — is ours.
+   */
+  const ledgerRefusal =
+    ledgerRes.status === "rejected"
+      ? readRefusal(ledgerRes.reason, { filtered: Boolean(reason), cursor })
+      : null;
 
   // The posture comes from whichever response arrived. If NEITHER did, nothing below renders
   // a rupee, so there is no unlabelled money on the page.
@@ -87,10 +102,22 @@ export default async function CreditsPage({
    *    ledger is not showing it.
    *  - The ledger's failure owns "Retry": it is the paged list, and its Retry repeats this whole
    *    address, cursor included — which re-reads the summary too. The summary's failure offers
-   *    its own Retry only when the ledger is not showing one.
+   *    its own Retry only when the ledger is not showing one — and a REFUSED ledger shows none.
    */
   const ledgerOffersOrders = ledger !== null && ledger.items.length === 0 && !reason;
-  const ledgerOffersRetry = ledger === null;
+  const ledgerOffersRetry = ledger === null && ledgerRefusal === null;
+
+  /**
+   * The ONE way to drop the reason: in the ledger head while a reason is set, and inside the
+   * refusal state instead when the server refused it — there it is the way out. It keeps the
+   * window, so it is named for the one filter it removes.
+   */
+  const clearReason = reason ? (
+    <Link className="btn btn--ghost" href={`/credits?windowDays=${windowDays}`}>
+      <Icon name={ACTION_ICON.clearFilters} />
+      Clear the reason filter
+    </Link>
+  ) : null;
 
   return (
     <div className="page">
@@ -102,16 +129,16 @@ export default async function CreditsPage({
              in the filter row under the header rather than in the actions slot. */
           <nav className="filters--inline" aria-label="Reporting window">
             {WINDOWS.map((w) => (
-              <Link
-                aria-current={w === windowDays ? "true" : undefined}
-                className={filterChipClass(w === windowDays, "md")}
+              <FilterChip
+                key={w}
+                selected={w === windowDays}
+                size="md"
                 /* Keeps the ledger's reason filter; the two rows used to reset each other. */
                 href={`/credits?windowDays=${w}${reason ? `&reason=${encodeURIComponent(reason)}` : ""}`}
-                key={w}
               >
                 <Icon name={ACTION_ICON.calendar} />
                 {w}d
-              </Link>
+              </FilterChip>
             ))}
           </nav>
         }
@@ -158,19 +185,16 @@ export default async function CreditsPage({
               {summary.by_reason.length === 0 ? (
                 <div className="state">
                   <h3 className="state__title">No credit movement in this window</h3>
+                  {/* No "Widen to 90 days" button: it linked the same address as the 90d chip in
+                      the reporting window above (and dropped the ledger's reason) — one target,
+                      one link (final re-sweep O-2). The copy points at the chips instead. */}
                   <p className="state__body">
                     Nothing was granted, purchased, spent on an unlock or refunded in the
-                    last {summary.window_days} days. A quiet window is a real answer — try a
-                    longer one before treating it as a fault.
+                    last {summary.window_days} days. A quiet window is a real answer
+                    {windowDays !== 90
+                      ? " — pick a longer reporting window above before treating it as a fault."
+                      : "."}
                   </p>
-                  {windowDays !== 90 && (
-                    <div className="state__actions">
-                      <Link className="btn btn--ghost" href="/credits?windowDays=90">
-                        <Icon name={ACTION_ICON.calendar} />
-                        Widen to 90 days
-                      </Link>
-                    </div>
-                  )}
                 </div>
               ) : (
                 <div className="tablewrap">
@@ -268,7 +292,9 @@ export default async function CreditsPage({
             <p className="state__body">
               {ledgerOffersRetry
                 ? "The finance summary did not load, so the outstanding balance and the movement breakdown are missing. The credit ledger below did not load either; its Retry reads both again."
-                : "The finance summary did not load, so the outstanding balance and the movement breakdown are missing. The credit ledger below is a separate read and is unaffected."}
+                : ledgerRefusal
+                  ? "The finance summary did not load, so the outstanding balance and the movement breakdown are missing. The credit ledger below is a separate read."
+                  : "The finance summary did not load, so the outstanding balance and the movement breakdown are missing. The credit ledger below is a separate read and is unaffected."}
             </p>
             {ledgerOffersRetry ? null : (
               <div className="state__actions">
@@ -292,30 +318,39 @@ export default async function CreditsPage({
               Append-only. Every grant, purchase, unlock debit and refund, newest first.
             </p>
           </div>
-          {reason && (
-            /* Clears the ledger's reason and KEEPS the reporting window above — one filter, so it
-               is named for it ("Clear filters" means every filter, the bare route). */
-            <Link className="btn btn--ghost" href={`/credits?windowDays=${windowDays}`}>
-              <Icon name={ACTION_ICON.clearFilters} />
-              Clear the reason filter
-            </Link>
-          )}
+          {/* Clears the ledger's reason and KEEPS the reporting window above — one filter, so it
+              is named for it ("Clear filters" means every filter, the bare route). */}
+          {ledgerRefusal === "filters" ? null : clearReason}
         </div>
 
         <div className="filters filters--inline">
           {["pack_purchase", "grant", "unlock_debit", "refund"].map((r) => (
-            <Link
-              aria-current={r === reason ? "true" : undefined}
-              className={filterChipClass(r === reason)}
-              href={`/credits?windowDays=${windowDays}&reason=${r}`}
-              key={r}
-            >
+            <FilterChip key={r} selected={r === reason} href={`/credits?windowDays=${windowDays}&reason=${r}`}>
               {creditReasonLabel(r)}
-            </Link>
+            </FilterChip>
           ))}
         </div>
 
-        {ledger === null ? (
+        {ledgerRefusal ? (
+          <div className="state state--error">
+            <h3 className="state__title">
+              {ledgerRefusal === "filters"
+                ? "The server rejected the reason filter"
+                : CURSOR_REFUSAL.title}
+            </h3>
+            <p className="state__body">
+              {ledgerRefusal === "filters"
+                ? "Nothing was fetched. The reason in the address is not one the ledger records. Clear it to see every movement, newest first."
+                : CURSOR_REFUSAL.body}
+            </p>
+            {/* No Retry: the request was refused and would be refused again. */}
+            {ledgerRefusal === "filters" ? (
+              <div className="state__actions">{clearReason}</div>
+            ) : (
+              <FirstPageAction href={queryHref} cursor={cursor} />
+            )}
+          </div>
+        ) : ledger === null ? (
           <div className="state state--error">
             <h3 className="state__title">The ledger is unavailable</h3>
             <p className="state__body">

@@ -38,11 +38,13 @@ vi.mock("../../../lib/entities", () => ({
   },
   listOrders: async () => {
     stub.order.push("orders");
+    if (stub.orders instanceof Error) throw stub.orders;
     return stub.orders;
   },
 }));
 
 const { default: TransactionsPage } = await import("./page");
+const { AdminRequestError } = await import("../../../lib/admin-http");
 
 const MOCK = { mode: "mock", blocked_reason: "PAYMENTS_ENABLE_REAL=false" } as const;
 const REAL = { mode: "real", blocked_reason: null } as const;
@@ -160,10 +162,11 @@ describe("the status chips keep an account narrowing (owner brief 2026-10-01)", 
     expect(out).toContain(`href="/transactions?status=created&amp;payerId=${PAYER}"`);
   });
 
-  it("marks the active chip, and only it", async () => {
+  it("marks the active chip, and only it — as text, not a link to this page (final re-sweep O-2)", async () => {
     const out = await renderWith({ status: "paid", payerId: PAYER });
-    expect(out).toMatch(/aria-current="true"[^>]*href="\/transactions\?status=paid&amp;payerId=/);
+    expect(out).toMatch(/<span aria-current="true" class="btn btn--sm btn--selected">Settled<\/span>/);
     expect((out.match(/aria-current="true"/g) ?? []).length).toBe(1);
+    expect(out).not.toContain(`href="/transactions?status=paid&amp;payerId=${PAYER}"`);
   });
 
   it("without a narrowing, a chip is just the status", async () => {
@@ -216,5 +219,60 @@ describe("the orders table links the customer's own section", () => {
     expect(orders(MOCK).items[0]).toHaveProperty("payer_id", PAYER);
     expect(orders(MOCK).items[0]).not.toHaveProperty("payer_role");
     expect(out).toContain(customerCell(PAYER, `/companies/${PAYER}`, null, "</td>"));
+  });
+});
+
+/** The href of the link whose visible label (after any glyph) is exactly `label`. */
+const hrefOf = (out: string, label: string) =>
+  [...out.matchAll(/href="([^"]*)">(?:<i [^>]*><\/i>)?([^<]*)<\/a>/g)].find((m) => m[2] === label)?.[1];
+
+/**
+ * A failed order read, by the console's one rule (final re-sweep O-3): the page read every
+ * failure as an outage, so a hand-edited `?status=` earned a Retry that could only be refused
+ * again. A refused filter is cleared, a refused cursor goes back to the first page, and a 400
+ * with nothing in the address — or anything else — is an outage with Retry.
+ */
+describe("a failed order read: refused or unavailable (final re-sweep O-3)", () => {
+  const renderWith = async (sp: Record<string, string>) =>
+    renderToStaticMarkup(await TransactionsPage({ searchParams: Promise.resolve(sp) }));
+  const count = (out: string, s: string) => out.split(s).length - 1;
+  const errorState = (out: string) => out.slice(out.indexOf('class="state state--error"'));
+
+  it("a 400 with a filter set: the filters were refused — Clear filters in the state, no Retry", async () => {
+    stub.orders = new AdminRequestError(400, "Invalid enum value");
+    const out = await renderWith({ status: "bogus", cursor: "c2" });
+    expect(out).toContain("The server rejected these filters");
+    expect(out).not.toContain("Payment orders are unavailable");
+    expect(out).not.toContain(">Retry<");
+    expect(out).not.toContain(">Back to the first page<");
+    expect(count(out, ">Clear filters<")).toBe(1);
+    expect(errorState(out)).toContain(">Clear filters<");
+    expect(hrefOf(out, "Clear filters")).toBe("/transactions");
+  });
+
+  it("a 400 with only a page cursor: the cursor was refused — Back to the first page, no Retry", async () => {
+    stub.orders = new AdminRequestError(400, "cursor too long");
+    const out = await renderWith({ cursor: "c2" });
+    expect(out).toContain("The server rejected this page");
+    expect(out).not.toContain(">Retry<");
+    expect(out).not.toContain(">Clear filters<");
+    expect(hrefOf(out, "Back to the first page")).toBe("/transactions");
+  });
+
+  it("a 400 with nothing in the address is an outage — it cannot be the operator's", async () => {
+    stub.orders = new AdminRequestError(400, "Invalid filter value.");
+    const out = await renderWith({});
+    expect(out).toContain("Payment orders are unavailable");
+    expect(out).not.toContain("rejected");
+    expect(hrefOf(out, "Retry")).toBe("/transactions");
+  });
+
+  it("a 5xx is an outage: Retry repeats the query, cursor included; the first page keeps the filters", async () => {
+    stub.orders = new AdminRequestError(500, "boom");
+    const out = await renderWith({ status: "paid", cursor: "c2" });
+    expect(out).toContain("Payment orders are unavailable");
+    expect(out).not.toContain("rejected");
+    expect(hrefOf(out, "Retry")).toBe("/transactions?status=paid&amp;cursor=c2");
+    expect(hrefOf(out, "Back to the first page")).toBe("/transactions?status=paid");
   });
 });
