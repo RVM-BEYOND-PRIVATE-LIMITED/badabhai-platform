@@ -10,6 +10,22 @@ per-layout / per-page RSC gating.
 `requireAgent()` / `requireEmployer()` / `requireOwner()` → **neutral `notFound()` (404)** on
 mismatch, never a 403 oracle (`lib/auth/roles.ts:37,42`, `lib/auth/org-roles.ts:64,78`).
 
+> **UPDATE 2026-10-07 (main @ `98771cd6`).** This register is the 2026-08-11 audit snapshot; the
+> rows below keep that text. What has changed since, verified against code:
+>
+> - **Org role is live (#2098 API, #2110 web).** `getOrgRole()` reads `GET /payer/me` `orgRole`
+>   (`lib/auth/org-roles.ts:60`; `requireOwner()` is now `:83`). `GAP-FE-01` is resolved.
+> - **`/credits` is open to every member** — `requirePayer()`, not `requireOwner()`, on the page
+>   and on all three credit actions (owner ruling 2026-10-07; #2109 API, #2110 web). Purchases
+>   show the charged price and send `expected_price_inr`; a changed price is a `409
+>   price_mismatch` and nothing is bought (#2101 API, #2112 web). **`/team` stays owner-only.**
+> - **New route `/candidates` (#2121)** — see the row added under *Shared portal*.
+> - **`(portal)/loading.tsx` is gone (#2115).** The portal has no loading boundary; links show a
+>   pending cue instead (`components/nav-pending.tsx`). See the note under *Error & loading
+>   boundaries*.
+> - There are now **30** `page.tsx` files (`git ls-files`). The agency `jobs/*` pages added
+>   since the audit are not re-audited here.
+
 ---
 
 ## Public routes
@@ -34,13 +50,23 @@ mismatch, never a 403 oracle (`lib/auth/roles.ts:37,42`, `lib/auth/org-roles.ts:
 | `/postings/[id]` | `postings/[id]/page.tsx` | — | `GET /payer/job-postings/:id` |
 | `/postings/[id]/edit` | `postings/[id]/edit/page.tsx` | — | `PATCH /payer/job-postings/:id` |
 | `/postings/[id]/applicants` | `postings/[id]/applicants/page.tsx` | — | reach applicants → unlock → reveal |
+| `/candidates` *(added 2026-10-07, #2121)* | `candidates/page.tsx` | `requirePayer()` first; an agency also needs the agency-portal flag (off → neutral 404) | `GET /payer/reach/applicants` (#2116) — every applicant across the payer's own postings, newest first, `?postingId=` filter, keyset pages; same per-payer hourly reach cap as the per-posting feed. Rail item "Candidates" (Hiring group for a company, Demand for an agency); a posting's own page stays "Applicants" |
 | `/plans` | `plans/page.tsx` | — | pricing catalog (display only) |
 | `/capacity` | `capacity/page.tsx` | — | `GET`/`POST /payer/capacity` |
 | `/team/accept` | `team/accept/page.tsx` | `requirePayer()` only — invitee may be a Recruiter | `POST /payer/org/invites/accept` |
 
 ## Owner-only (`requireOwner()`)
 
-| URL | File | Reachable today? |
+> **UPDATE 2026-10-07.** Only **`/team`** is owner-only now, and it is reachable: an owner (per
+> `GET /payer/me` `orgRole`) gets the page and the rail's Team item; a recruiter gets the neutral
+> 404 (#2110). **`/credits` moved out of this section** — it is `requirePayer()` for every member
+> by owner ruling 2026-10-07 (*"Any user for now can buy it for now without any limitations."*).
+> The owner made that ruling **before** org tenancy, so the "settle tenancy → migrate → open the
+> gate" sequence below no longer applies to Credits; each member sees their own `payer_id` wallet
+> until `PAY-DB-01` (still OPEN, now being planned) lands. The table and callout below are the
+> 2026-08-11 text.
+
+| URL | File | Reachable today? (2026-08-11) |
 |---|---|---|
 | `/credits` | `credits/page.tsx` | 🔴 **NO — 404 for every real user** |
 | `/team` | `team/page.tsx` | 🔴 **NO — 404 for every real user** |
@@ -88,6 +114,18 @@ app/(portal)/error.tsx   app/(portal)/loading.tsx
 > collapses to the same generic portal-level error screen, and every navigation shows the same
 > generic portal-level fallback.
 
+> **UPDATE 2026-10-07 (#2115).** `app/(portal)/loading.tsx` was **removed**; four boundary files
+> remain (`app/error.tsx`, `app/global-error.tsx`, `app/not-found.tsx`, `app/(portal)/error.tsx`)
+> for 30 pages. On a production build that one loading boundary held same-section navigations in
+> a transition that never committed, so a route `loading.tsx`, `<Suspense>`, `React.lazy` or
+> `next/dynamic` above a portal page is now forbidden (`src/app/no-suspense-above-a-page.test.ts`).
+> A navigation keeps the current page until the next one renders, and the clicked link shows a
+> pending cue — Next's `useLinkStatus`, no boundary (`src/components/nav-pending.tsx`); since
+> #2125 every in-app link is a `PortalLink` that carries it (`src/components/portal-link.tsx`,
+> fenced by `src/app/every-link-shows-the-cue.test.ts`). The
+> loading half of `GAP-FE-03` (add per-route `loading.tsx`) is **superseded**; its error half
+> (per-route `error.tsx`) is still open — see `GAP_REGISTER.md`.
+
 ## Session expiry behaviour
 
 `payer-http.ts:61` throws `PayerUnauthorizedError` on 401. That error is caught in **exactly one
@@ -110,7 +148,7 @@ usage per file:
 |---|---|---|
 | `login/actions.ts` | 3 | `payerAuth()` |
 | `capacity/actions.ts` | 1 | `requirePayer()` |
-| `credits/actions.ts` | 3 | `requireOwner()` |
+| `credits/actions.ts` | 3 | ~~`requireOwner()`~~ **`requirePayer()` since 2026-10-07 (#2110)** — any member, still the first statement of each action |
 | `team/actions.ts` | 3 | `requireOwner()` + `requirePayer()` |
 | `agency/dashboard/{invite,batch-invite,jobs}-actions.ts` | 6 | `requireAgent()` |
 | `agency/referrals/supply-actions.ts` | 2 | `requireAgent()` |

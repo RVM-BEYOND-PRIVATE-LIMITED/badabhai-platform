@@ -272,6 +272,12 @@ The webhook (`POST /payments/razorpay/webhook`, `RazorpayWebhookGuard`) converge
 
 ### Frontend reachability of the payment surface
 
+> **UPDATE 2026-10-07 — superseded.** The three payment actions and the `/credits` page now gate
+> on `requirePayer()`, open to every member by owner ruling 2026-10-07 (#2110); the web session
+> carries the org role from `GET /payer/me` `orgRole` (#2098), and `requireOwner()` guards Team
+> only. The credit routes carry only `PayerAuthGuard` by decision (#2109). The paragraph below is
+> the 2026-08-11 text.
+
 All three payment Server Actions call `requireOwner()` first (`credits/actions.ts:38`, same on `createOrderAction`/`verifyPaymentAction`), which resolves through `getOrgRole()` (`apps/payer-web/src/lib/auth/org-roles.ts:46-56`) — that function **hard-returns `"recruiter"` outside dev** because the signed session carries no org-role claim, so `requireOwner()` calls `notFound()` (`:64-70`) for **every** staging/production user. The backend already has the authoritative role (`PayerOrgRoleGuard` resolves `payer_members.org_role` per request, `payer-org-role.guard.ts:64+`); the web session simply never carries it. Net: the money-in loop and the team loop are dead on payer-web while the endpoints behind them stay open to any direct API caller.
 
 ## 9. Vertical authz asymmetry

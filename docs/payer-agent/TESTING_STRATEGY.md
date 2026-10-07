@@ -70,6 +70,13 @@ There are **five** kinds in this repo, and the payer surface uses four of them. 
 - `credits/page.test.tsx:36-38` mocks `requireOwner` and defaults it to **admit**. Every one of that file's ~20 cases passes. In production `getOrgRole()` hard-returns `"recruiter"` (`lib/auth/org-roles.ts:46-56`) so `requireOwner()` calls `notFound()` and the page is a 404 for every real user. The test suite cannot see this by construction.
 - `lib/auth/org-roles.test.ts:99-107` is a `describe` block titled *"org-role seam carries the wire-to-Divyanshu STUB TODO (source)"* that asserts `/STUB/`, `/Divyanshu/`, `/XB-A/` appear in `org-roles.ts`. The test **requires the stub to stay**. Fixing the P0 breaks this test.
 
+> **UPDATE 2026-10-07 (#2110) — both examples are gone.** The STUB-source block was replaced by
+> `org-roles.test.ts` block (e), which asserts a real Owner session is admitted by
+> `requireOwner()` in production and a real Recruiter 404s (U1 below). `/credits` is
+> `requirePayer()` now (owner ruling 2026-10-07), and `credits/page.test.tsx` asserts
+> `requireOwner` is never called; its mock of `requireOwner` rejects. U2's `/team` half (an
+> unmocked `requireOwner` on the page) was not re-checked for this update.
+
 ### 1.1.4 Source files with **no** colocated test (payer/agency)
 
 | File | Guarded? | Note |

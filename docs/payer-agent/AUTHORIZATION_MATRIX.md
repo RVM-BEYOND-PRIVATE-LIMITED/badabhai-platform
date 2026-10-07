@@ -65,8 +65,13 @@ Horizontal isolation between principals is by secret + `typ` + namespace, assert
 > whatever their `org_role` and with or without an active org membership (ADR-0027 D3: buy
 > credits — owner ✅ recruiter ✅). #2098 had put `PayerOrgRoleGuard` + `@OrgRoles("owner")` on
 > `POST /payer/credits`, `/credits/order` and `/credits/verify`; both were removed. Team
-> management stays owner-only. payer-web's `requireOwner()` gate on `/credits` now contradicts
-> the ruling (Frontend follow-up). The finding below is the original 2026-08-11 text.
+> management stays owner-only. payer-web followed in #2110: `/credits` and its three Server
+> Actions gate on `requirePayer()` (any member), the frontend model no longer treats billing as an
+> Owner power (`lib/auth/org-roles.ts` header), and `requireOwner()` — now reading `GET /payer/me`
+> `orgRole` — guards `/team` only. Credits are still scoped to each member's own `payer_id`
+> (`PAY-DB-01`, org tenancy, is still OPEN and now being planned), so there is no org-shared
+> balance yet; the ruling is "for now", and an org-shared wallet is that change's to settle.
+> The finding below is the original 2026-08-11 text.
 
 > **`GAP-AUTHZ-01` (P1 — pending dimension 9).** `@OrgRoles("owner")` is applied **only** to
 > `/payer/org/members`. The frontend's own model says billing/wallet is Owner-only
@@ -120,7 +125,7 @@ This is a **Data-API lockout**, not tenant isolation. Risk posture:
 |---|---|---|
 | `requirePayer()` | `lib/auth/index.ts:25` | `redirect("/login")` |
 | `requireAgent()` / `requireEmployer()` | `lib/auth/roles.ts:37,42` | **neutral `notFound()`** |
-| `requireOwner()` / `requireRecruiter()` | `lib/auth/org-roles.ts:64,78` | **neutral `notFound()`** |
+| `requireOwner()` / `requireRecruiter()` | `lib/auth/org-roles.ts:83,97` | **neutral `notFound()`**; the role is `GET /payer/me` `orgRole` (#2110). `requireOwner()` gates `/team` only — `/credits` is `requirePayer()` (owner ruling 2026-10-07) |
 
 The neutral-404 discipline is consistently applied: a Recruiter cannot learn that an Owner-only
 route exists. Cookie `bb_payer_token` is `httpOnly`, `sameSite: "lax"`, `secure` computed by

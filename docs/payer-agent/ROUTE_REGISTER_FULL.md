@@ -4,6 +4,26 @@
 **Method:** evidence-based static analysis; every claim carries a `file:line` citation.
 **Findings feed** `GAP_REGISTER.md`. Coverage caveats: `AUDIT_STATUS.md`.
 
+> **UPDATE 2026-10-07 (main @ `98771cd6`).** Everything below is the 2026-08-11 snapshot and is
+> kept as written. Superseded since, verified against code:
+>
+> - **§2.1 — the `getOrgRole()` stub is gone (#2110).** It reads `GET /payer/me` `orgRole`
+>   (#2098), so a real Owner passes `requireOwner()` (`lib/auth/org-roles.ts:60,83`). `/team` and
+>   its invite/remove actions are owner-only and reachable by owners. **`/credits` and its three
+>   actions are `requirePayer()` — open to every member** by owner ruling 2026-10-07 (#2109 API,
+>   #2110 web), so every `/credits` link in §2.3 now lands for every member. Purchases show the
+>   charged price and send `expected_price_inr`; a changed price is a `409 price_mismatch` (#2101,
+>   #2112). `GAP-FE-01` and `PAY-SEC-02` are resolved; `PAY-DB-01` (org tenancy) is still OPEN.
+> - **§1 `loading` column and §3 — `(portal)/loading.tsx` no longer exists (#2115).** No portal
+>   route has a loading boundary; a route `loading.tsx`, `<Suspense>`, `React.lazy` or
+>   `next/dynamic` above a page is forbidden (`src/app/no-suspense-above-a-page.test.ts`), and
+>   links show a pending cue instead (`src/components/nav-pending.tsx`). §3 gap 1 ("zero per-route
+>   `loading.tsx`") is superseded, not owed.
+> - **New route `/candidates` (#2121)** — `requirePayer()` first (agency: plus the agency-portal
+>   flag); reads `GET /payer/reach/applicants` (#2116), the inbox of every applicant across the
+>   payer's own postings. Not in the §1 tables, which predate it; `ROUTE_REGISTER.md` carries its
+>   row. There are now 30 `page.tsx` files.
+
 ---
 
 # payer-web ROUTE REGISTER + per-route UI completeness
@@ -65,6 +85,9 @@ Legend for **Gate**: the *first* auth statement executed for that route. Every `
 
 ### 2.1 `getOrgRole()` is a production stub → `/credits` and `/team` are unreachable
 
+> **Superseded 2026-10-07 (#2110)** — the stub is gone, `/team` is owner-reachable and `/credits`
+> is open to every member. See the update note at the top of this file.
+
 ```ts
 // apps/payer-web/src/lib/auth/org-roles.ts:46-56
 export function getOrgRole(_session: PayerSession): OrgRole {
@@ -118,6 +141,10 @@ But six other `href="/credits"` sites do not consult `isOwner` (full grep of `ap
 ---
 
 # 3. (b) Error boundaries and loading states — exhaustive glob
+
+> **Superseded in part 2026-10-07 (#2115)** — `src/app/(portal)/loading.tsx` was removed and a
+> loading boundary above a portal page is now forbidden; gap 1 below is not owed. See the update
+> note at the top of this file.
 
 `git ls-files` for `loading.tsx` / `error.tsx` / `not-found.tsx` / `template.tsx` / `default.tsx` / `route.ts` / `middleware.ts` under `apps/payer-web` returns exactly:
 

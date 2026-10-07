@@ -358,11 +358,11 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 > ✅ **VERIFIED 2026-06-29** against `apps/api/src/.../payer-unlocks.controller.ts` + `payer-disclosure.controller.ts` (the payer-self surface — `PayerAuthGuard`, `@CurrentPayer`, session `payer_id`; distinct from the ops `unlocks.controller.ts` which uses `InternalServiceGuard` + body `payer_id`). The only path to a worker's contact. Faceless: you get a **routed relay handle**, never a raw phone.
 
 #### `GET /payer/credits`
-- **Auth:** `PayerAuthGuard` (Bearer).
+- **Auth:** `PayerAuthGuard` (Bearer) only — any authenticated payer, any `org_role` (owner ruling 2026-10-07). The balance is the **caller's own** `payer_id` wallet; there is no org-shared wallet until org tenancy (`PAY-DB-01`) lands.
 - **Response:** `{ payer_id, balance: number (≥0) }`.
 
 #### `POST /payer/credits`
-- **Auth:** `PayerAuthGuard` (Bearer) only — **any authenticated payer may buy credits**, whatever their `org_role` (`owner` or `recruiter`) and with or without an active org membership (owner ruling 2026-10-07; matches ADR-0027 D3). The same applies to `POST /payer/credits/order` and `POST /payer/credits/verify` (real-payments routes). This reverses the owner-only gate #2079 added: there is no org-role `403` on any credit route.
+- **Auth:** `PayerAuthGuard` (Bearer) only — **any authenticated payer may buy credits**, whatever their `org_role` (`owner` or `recruiter`) and with or without an active org membership (owner ruling 2026-10-07; matches ADR-0027 D3). The same applies to `POST /payer/credits/order` and `POST /payer/credits/verify` (real-payments routes). This reverses the owner-only gate #2098 added for #2079 (removed by #2109): there is no org-role `403` on any credit route.
 - **Headers:** `Idempotency-Key?: string` (#1046) — see [Purchase idempotency](#purchase-idempotency-idempotency-key).
 - **Body:** `{ pack_code: string, expected_price_inr?: int }` — code only; price/credits resolved server-side. `expected_price_inr` (#2085): mismatch → `409 price_mismatch`, no ledger row, no credits (see [Price confirmation](#price-confirmation-expected_price_inr)). `POST /payer/credits/order` accepts the same optional field; a mismatch creates no provider order and no `payment_orders` row.
 - **Response:** `{ payer_id, balance, credits, pack_code }`.

@@ -121,6 +121,7 @@ triggers repo-wide.
 | Route | Guards | Frontend consumer | Wiring |
 |---|---|---|---|
 | `GET /payer/reach/jobs/:jobId/applicants` | `P` | `postings/[id]/applicants/page.tsx` | ✅ wired |
+| `GET /payer/reach/applicants` *(added 2026-10-07, #2116)* | `P` | `candidates/page.tsx` via `lib/payer-api.ts` `getCandidateInbox` (#2121) | ✅ wired — the Candidates inbox; shares the per-payer hourly reach cap with the row above |
 | `GET /payer/match/skills` | `P` | `postings/new/match-actions.ts` | ✅ wired |
 | `POST /payer/match/reach-preview` | `P` | `postings/new/match-actions.ts` | ✅ wired |
 | `GET /payer/capacity` · `POST /payer/capacity` | `P` | `capacity/actions.ts` | ✅ wired |
@@ -171,6 +172,13 @@ Note `ai.service.ts:402-415` degrades most calls to an in-process mock, but `pro
 > **This is the symptom, not the disease.** Per `PAY-DB-01`, `org_id` exists on no business
 > table, so even with the gate opened a recruiter would see an empty tenant. Sequencing matters:
 > settle the tenancy model → migrate → then open the gate. See `DATABASE_AUDIT.md` ambiguity 1.
+
+> **UPDATE 2026-10-07 — `GAP-PAY-03` resolved (#2110).** The three org rows above are no longer
+> "page unreachable": `getOrgRole()` reads `GET /payer/me` `orgRole` (#2098), so an owner reaches
+> `/team` and its invite/remove actions; a recruiter gets the neutral 404. `/credits` is open to
+> every member by owner ruling 2026-10-07, made **before** tenancy — the sequence in the callout
+> above no longer applies to Credits. The credit routes carry no org-role gate (#2109). `PAY-DB-01`
+> (org tenancy) is still OPEN and now being planned.
 
 ---
 

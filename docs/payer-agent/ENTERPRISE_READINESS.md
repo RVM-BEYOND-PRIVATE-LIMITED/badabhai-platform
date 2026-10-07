@@ -4,6 +4,17 @@
 **Method:** evidence-based static analysis; every claim carries a `file:line` citation.
 **Findings feed** `GAP_REGISTER.md`. Coverage caveats: `AUDIT_STATUS.md`.
 
+> **UPDATE 2026-10-07.** Two things this 2026-08-11 snapshot describes have changed:
+>
+> - **`(portal)/loading.tsx` no longer exists (#2115)** — the §3.6, §6.1, §6.5 and §7 references
+>   to it are historical. On a production build it held same-section navigations in a
+>   transition that never committed, so a loading boundary above a portal page is now forbidden
+>   (`src/app/no-suspense-above-a-page.test.ts`); links show a pending cue instead
+>   (`src/components/nav-pending.tsx`, Next's `useLinkStatus`). Adding per-route `loading.tsx` is
+>   superseded, not owed (`GAP-FE-03`).
+> - **§3.3: `/credits` no longer goes through `requireOwner()`** — it is `requirePayer()`, open to
+>   every member by owner ruling 2026-10-07 (#2110). `/team` still does.
+
 ---
 
 # Enterprise-Grade Readiness (reliability, observability, performance, scalability, maintainability, UX/presentation, error handling)
