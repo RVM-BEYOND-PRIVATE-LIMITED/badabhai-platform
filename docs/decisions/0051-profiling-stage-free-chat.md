@@ -315,26 +315,38 @@ tasks). Release 2 adds the cross-session summary deferred by R19.
   - **Output:** the new summary or null. Its mock returns null, so an unarmed task stores nothing.
   - The summary is model-facing context in compact English notes and is never shown to the worker.
 - **When it runs.** The fold runs **after** the reply is served (never on the worker's critical path), at most one
-  per session at a time. Failure keeps the previous summary.
-- **Validation.** The API validates the summary before storing it:
-  - G1 `containsHardIdentifier` → rejected
-  - the worker's own name redacted
-  - `{{` / `}}` → rejected
-  - more than 1200 characters → rejected
-- **Storage.** It is stored as a `free_chat_summary {v:1, text, updated_at, session_id, folded_lines}` sibling key in
-  `chat_sessions.conversation_state`, by jsonb merge, with no migration. The whole-column writers carry it the same
-  way as `free_chat_lock`: the row's copy first, then the envelope's. At session open it is read from the worker's
-  latest session that carries one. `folded_lines` counts only the current session's lines.
+  per session at a time (a Redis NX lock). Turns carrying a G1 hard identifier are dropped before the call. If the
+  worker's own name cannot be looked up, the fold is skipped (it retries on the next casual reply).
+- **Validation.** The API validates the summary before storing it. Each of these rejects it:
+  - empty
+  - G1 `containsHardIdentifier` (a scanner error also rejects)
+  - `{{` / `}}`
+  - any line not shaped `- …`, or more than 10 lines
+  - the abuse lexicon on any line
+  - an injection cue: the prompt's own labels, "ignore/disregard/forget … rules/instructions/prompt", "system
+    prompt", "you are now", "role-play"/"jailbreak"
+  - more than 1200 characters after the worker's own name is redacted
+- **Only real calls count.** A summary is stored only when `ai_metadata.real_call === true` and `success !== false`.
+  - A REAL call that returns no summary, or whose summary is rejected, still CONSUMES its batch: `folded_lines`
+    advances and the previous text is kept, so the same batch is never retried forever.
+  - A transport failure (no metadata, a mock, `success: false`, a merge that did not write) leaves the count alone
+    and retries.
+- **Storage.** It is stored as a `free_chat_summary {v:1, text (nullable), updated_at, session_id, folded_lines}`
+  sibling key in `chat_sessions.conversation_state`, by jsonb merge, with no migration. `text` is null while only
+  the watermark exists.
+  - The whole-column writers (checkpoint, flush, abandon) keep the LIVE row's key in SQL, so a fold that lands
+    between a request's read and its write is never reverted.
+  - At session open the latest non-null text is read from the worker's sessions. `folded_lines` counts only the
+    current session's lines.
 - **Event.** `chat.free_chat_summary_updated` v1 (updated / rejected / unavailable, `folded_lines`,
   `summary_chars`); never the text.
 - **Kill switch.** It stops folding as well.
-- **Erasure.** The summary lives on `chat_sessions`, which account erasure already removes.
+- **Erasure.** The summary lives on `chat_sessions`, which account erasure already removes (`ON DELETE cascade`). The
+  worker-facing privacy notice should disclose that chat notes are kept (owner action).
 - **Arming.** Append `profiling_free_summary` to the box's `AI_REAL_CALL_TASKS`. Until then the mock folds nothing,
   so merging first is safe.
-- **Only real calls are stored.** A summary is kept only when `ai_metadata.real_call === true` and `success !== false`;
-  anything else is recorded as `unavailable`.
-- **Known limit.** The last (up to 6) lines of a session never leave the window, so they are not folded and the next
-  session does not see them.
+- **Known limit.** Lines still inside the window at session end (up to 6, plus up to 3 pending ones, plus any fold
+  skipped while the lock was held) are not folded, so the next session does not see them.
 
 ```
 Owner rulings R1–R20 taken 2026-10-06 in the design session; plan and copy approved the same day.
