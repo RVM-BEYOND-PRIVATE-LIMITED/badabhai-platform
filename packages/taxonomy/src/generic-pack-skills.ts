@@ -111,16 +111,21 @@ export const GENERIC_PACK_SKILLS: Readonly<Record<string, Readonly<Record<string
 };
 
 /**
- * Generic family packs whose trade question DELIBERATELY derives nothing. No corpus `skill_*`
- * bridges the trade to a match skill, and the owner ruled out a proxy (2026-10-06). A test pins
- * that each derives nothing.
+ * Generic family packs whose trade question DELIBERATELY derives no CORPUS id here. No corpus
+ * `skill_*` bridges the trade to a match skill, and the owner ruled out a proxy (2026-10-06). A
+ * test pins that each derives nothing from THIS table.
  *
- * #2022 minted `mskill_industrial_electrician` and `mskill_painter_coater`, but PACK-ONLY: they
- * are reached from the trade's own role pack (`qp_industrial_electrician`, …) through
- * `PACK_ANSWER_SKILLS`, never from a corpus id. This table emits only corpus ids, and the generic
- * packs' chips do not literally claim those narrower trades ("Ghar ki wiring" is not plant work;
- * a building painter is not a powder coater). Mapping a generic chip to one of them is a taxonomy
- * decision for the owner, not a default here.
+ * #2022 minted `mskill_industrial_electrician` and `mskill_painter_coater`, but PACK-ONLY: no
+ * corpus id bridges to them, so this table (which emits only corpus ids into
+ * `worker_profiles.skills`) cannot reach them, and must not try.
+ *
+ *   qp_electrical  The owner ruled (2026-10-07, #2075) that `industrial` and `panel` claim
+ *                  `mskill_industrial_electrician`. That reach goes through the SEPARATE
+ *                  `GENERIC_PACK_MATCH_SKILLS` table (`generic-pack-match-skills.ts`), derived at
+ *                  rebuild time from the worker-only answer map. It stays listed here because it
+ *                  still derives no corpus id. `house_wiring` and `motor` derive nothing anywhere.
+ *   qp_painting    No ruling: a building painter is not a powder coater. Derives nothing.
+ *   qp_masonry     No match skill. Derives nothing.
  */
 export const GENERIC_PACKS_WITHOUT_MATCH_SKILL = [
   "qp_electrical",
