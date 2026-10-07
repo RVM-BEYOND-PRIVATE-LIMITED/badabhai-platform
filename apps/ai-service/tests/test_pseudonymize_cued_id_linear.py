@@ -84,7 +84,7 @@ _ZWSP = "\u200b"
 _UNFOLDED_CONNECTORS = {
     "credential_id": r"\s*(?:no\.?|number|num|#)?\s*(?:[:\-]-?)?\s*",
     "resume_cued_id": r"\s*(?:no\.?|number|num|id|#)?\s*(?:[:\-]-?)?\s*",
-    "credential_before": r"\s*(?:no\.?|number|num|#)?\s*(?:[:-]-?)?\s*",
+    "credential_before": r"\s*(?:no\.?|number|num|id|#)?\s*(?:[:-]-?)?\s*",  # "id" since #2043
 }
 #: What follows the connector in each rule: the value's lookahead, or the guard's identifier tail.
 _VALUE_AFTER = {
