@@ -1311,6 +1311,60 @@ describe("ProfileExtractionProcessor — transcript source", () => {
     expect(sent.transcript).toBe("Worker: VMC chalata hun");
     expect(JSON.stringify(sent)).not.toContain("Sitaram");
   });
+
+  // ADR-0051 §3.5 — the free chat's lines (the greeting, casual and career talk, the résumé-mode
+  // deflections) are kept for the worker's thread and left out of the extraction, on the same two
+  // markers' free-chat twins. Casual talk never reaches a profile.
+  it("drops the free chat's FLUSHED rows (metadata.free_chat)", async () => {
+    const { proc, chat, ai } = make();
+    chat.listMessages.mockResolvedValue([
+      {
+        id: "m1",
+        direction: "outbound",
+        bodyText: "Namaste, main Bada Bhai hoon.",
+        metadata: { free_chat: true },
+      },
+      {
+        id: "m2",
+        direction: "inbound",
+        bodyText: "mera beta cricket khelta hai",
+        metadata: { free_chat: true },
+      },
+      { id: "m3", direction: "inbound", bodyText: "VMC operator, 5 saal", metadata: {} },
+    ]);
+    await proc.process(makeJob());
+    const sent = ai.extractProfile.mock.calls[0]![0] as { transcript: string };
+    expect(sent.transcript).toBe("Worker: VMC operator, 5 saal");
+    expect(JSON.stringify(sent)).not.toContain("cricket");
+  });
+
+
+  it("drops the free chat's BUFFERED lines (`aside: true`) on the early-finish path", async () => {
+    const { proc, ai } = make({
+      messages: [],
+      buffered: {
+        messages: [
+          {
+            role: "assistant",
+            text: "Theek hai. Jab mann ho, resume bana lenge.",
+            at: "2026-10-06T00:00:00.000Z",
+            aside: true,
+          },
+          {
+            role: "worker",
+            text: "aaj cricket match hai",
+            at: "2026-10-06T00:00:01.000Z",
+            aside: true,
+          },
+          { role: "worker", text: "VMC chalata hun", at: "2026-10-06T00:00:02.000Z" },
+        ] as never,
+      },
+    });
+    await proc.process(makeJob());
+    const sent = ai.extractProfile.mock.calls[0]![0] as { transcript: string };
+    expect(sent.transcript).toBe("Worker: VMC chalata hun");
+    expect(JSON.stringify(sent)).not.toContain("cricket");
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ import '../nav/job_feed_invalidation.dart';
 import '../nav/tab_focus.dart';
 import '../auth/secure_token_store.dart';
 import '../config/app_config.dart';
+import '../session/chat_turn_resume_store.dart';
 import '../session/known_worker_facts_store.dart';
 import '../session/session_repository.dart';
 import '../push/push_token_service.dart';
@@ -693,6 +694,7 @@ Future<void> initAuthLocator({
   PendingReferralStore? pendingReferral,
   TradeFormMarkerStore? tradeFormMarkerStore,
   KnownWorkerFactsStore? knownWorkerFactsStore,
+  ChatTurnResumeStore? chatTurnResumeStore,
   bool persistentAuthEnabled = kPersistentAuth,
 }) async {
   if (locator.isRegistered<AuthApi>()) return;
@@ -759,6 +761,16 @@ Future<void> initAuthLocator({
   if (!locator.isRegistered<KnownWorkerFactsStore>()) {
     locator.registerSingleton<KnownWorkerFactsStore>(
       knownWorkerFactsStore ?? const SharedPrefsKnownWorkerFactsStore(),
+    );
+  }
+
+  // #2030 ask 3 — the last served chat turn's chips, so a cold start redraws
+  // the greeting WITH its Haan / Baad mein rather than text alone. Same lazy
+  // prefs registration; absent, the chat behaves exactly as before. Session-
+  // scoped and cleared on logout.
+  if (!locator.isRegistered<ChatTurnResumeStore>()) {
+    locator.registerSingleton<ChatTurnResumeStore>(
+      chatTurnResumeStore ?? const SharedPrefsChatTurnResumeStore(),
     );
   }
 
@@ -849,6 +861,12 @@ void _clearSessionScopedCaches() {
   // phone must be asked their own city, cities, salary and shift.
   if (locator.isRegistered<KnownWorkerFactsStore>()) {
     unawaited(locator<KnownWorkerFactsStore>().clearAll());
+  }
+  // And the chat chips the previous worker was looking at: their session is
+  // gone, so restoring its options onto the next worker's chat would draw
+  // chips for a conversation that is not theirs.
+  if (locator.isRegistered<ChatTurnResumeStore>()) {
+    unawaited(locator<ChatTurnResumeStore>().clearAll());
   }
   // Evict the previous worker's DECODED photos from Flutter's global image cache,
   // so a re-login can never repaint them from memory even before a fresh fetch.

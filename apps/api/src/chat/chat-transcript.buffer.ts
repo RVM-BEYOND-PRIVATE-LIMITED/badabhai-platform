@@ -85,6 +85,18 @@ export interface BufferedMessage {
    * his work.
    */
   intake?: true;
+  /**
+   * The line belongs to the profiling-stage FREE CHAT (ADR-0051 §3.5) — the greeting, the opener
+   * after "Haan", a free-mode reply and the message it answers, a résumé-mode deflection or clarify.
+   * ABSENT on every other line, never `false`, for {@link intake}'s reason.
+   *
+   * WHAT IT DOES: exactly what `intake` does, for the same readers. The line is kept verbatim for
+   * the worker's thread redraw and reaches `chat_messages` with `metadata.free_chat`, but it is left
+   * out of the interview model's history, the extraction input, the résumé's quote/veto reader and
+   * the alias miner — casual talk must never reach a profile. {@link isMeaningExcluded} is the one
+   * predicate every buffer reader applies.
+   */
+  aside?: true;
 }
 
 /**
@@ -104,6 +116,32 @@ export function isIdentityIntakeMetadata(metadata: unknown): boolean {
 }
 
 /**
+ * The `chat_messages.metadata` a flushed free-chat line carries (ADR-0051 §3.5) — a closed flag,
+ * never text, beside {@link IDENTITY_INTAKE_METADATA} and for the same readers.
+ */
+export const FREE_CHAT_METADATA = { free_chat: true } as const;
+
+/**
+ * Does a stored row's `metadata` keep it out of every reader of the conversation's MEANING — the
+ * extraction, the résumé's quote/veto reader, the alias miner? An identity-intake line or a
+ * free-chat line. The SQL readers exclude the same two markers. Tolerates any shape.
+ */
+export function isMeaningExcludedMetadata(metadata: unknown): boolean {
+  if (typeof metadata !== "object" || metadata === null) return false;
+  const v = metadata as Record<string, unknown>;
+  return v.identity_intake === true || v.free_chat === true;
+}
+
+/**
+ * Is a BUFFERED line kept out of every meaning reader — an identity-intake line or a free-chat
+ * aside (`intake || aside`)? The buffer half of {@link isMeaningExcludedMetadata}: the model's
+ * history (`transcriptOf`) and the early-finish extraction both apply it.
+ */
+export function isMeaningExcluded(message: Pick<BufferedMessage, "intake" | "aside">): boolean {
+  return message.intake === true || message.aside === true;
+}
+
+/**
  * THE FIELD-DROP TRAP, closed for {@link BufferedMessage} the way `PROFILING_ENVELOPE_KEYS`
  * closes it for the envelope.
  *
@@ -119,6 +157,7 @@ export const BUFFERED_MESSAGE_KEYS = {
   at: true,
   voiceNoteId: true,
   intake: true,
+  aside: true,
 } satisfies Record<keyof BufferedMessage, true>;
 
 /** The whole in-flight interview. Serialized to one Redis string per session. */
@@ -448,6 +487,9 @@ export class ChatTranscriptBuffer {
         // non-intake line round-trips exactly as it did before the field existed. A lost flag
         // fails toward "an ordinary line", which the extraction redacts by name as it always has.
         ...(msg.intake === true ? { intake: true as const } : {}),
+        // ADR-0051 — the same rule: a literal `true` only, otherwise ABSENT. A lost flag fails
+        // toward "an ordinary line", which is how every line read before the free chat existed.
+        ...(msg.aside === true ? { aside: true as const } : {}),
       });
     }
 

@@ -17,6 +17,7 @@ import { StorageModule } from "../storage/storage.module";
 import { VoiceModule } from "../voice/voice.module";
 import { IdentifyService } from "./identify.service";
 import { IdentityIntakeService } from "./identity-intake/identity-intake.service";
+import { FreeChatService } from "./free-chat/free-chat.service";
 import { LlmTurnService } from "./llm-turn.service";
 import { SkillsTurnService } from "./skills-turn.service";
 import { ProfilingOrchestrator } from "./orchestrator.service";
@@ -167,6 +168,12 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
     // `WorkersService` comes from the @Global WorkersModule's export, `PiiCryptoService` and
     // `EventsService` are @Global: a provider, and no module edge.
     IdentityIntakeService,
+    // ADR-0051 — the profiling-stage free chat's model calls, events and durable lock. Trailing and
+    // optional on the orchestrator like the two above, so omitting it would not fail boot — it would
+    // silently open no greeting and classify nothing, with the feature "live". `AiService` and
+    // `AiCostRecorder` come from `AiModule`, `ChatRepository` from `ChatModule` and `EventsService`
+    // from `EventsModule`, all imported above: a provider, and no module edge.
+    FreeChatService,
     ProfilingOrchestrator,
     ProfilingSessionService,
     ProfilingVoiceRepository,

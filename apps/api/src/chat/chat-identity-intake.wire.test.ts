@@ -244,19 +244,24 @@ describe("POST /chat/message — flag OFF is today's turn, byte for byte", () =>
     expect(a).toEqual(b);
     // The turn's input, less the wall clock each call stamps for itself and the name lookup each
     // request builds for itself (a fresh closure, so never reference-equal across two calls).
+    // ADR-0051 — the free chat's input rides every chat turn, and its lock read is a fresh closure
+    // too; its DATA fields are compared instead.
     const inputOf = (world: ReturnType<typeof make>) => {
       const [input] = world.orchestrator.takeTurn.mock.calls[0] as unknown as [
         Record<string, unknown>,
       ];
-      const { now, knownName, ...rest } = input;
+      const { now, knownName, freeChat, ...rest } = input;
       expect(now).toBeInstanceOf(Date);
       expect(knownName).toBeTypeOf("function");
-      return rest;
+      const { locked, ...freeChatData } = freeChat as Record<string, unknown>;
+      expect(locked).toBeTypeOf("function");
+      return { ...rest, freeChat: freeChatData };
     };
     expect(inputOf(off)).toEqual(inputOf(absent));
     expect(Object.keys(inputOf(off)).sort()).toEqual([
       "armGeneralRoad",
       "ctx",
+      "freeChat",
       "sessionId",
       "submissionId",
       "text",

@@ -80,18 +80,21 @@ A session that opens on a résumé-import turn (identity / batch-confirm) ──
 
 | # | Rule | Handling |
 |---|---|---|
-| 1 | cool-down active | the cool-down line + chip, no model call |
-| 2 | "Resume banayein" chip, or the greeting's Haan | enter résumé mode and serve the opener |
-| 3 | distress word list (§5.2) | the distress line |
-| 4 | abuse word list (`isAbusive`) | trash strike |
-| 5 | classifier → `resume` | enter résumé mode; a message that already describes the work becomes the first answer |
-| 6 | → `career` | model reply (career prompt) → validator → served, or the fallback |
-| 7 | → `casual` | model reply (casual prompt) → validator; chip always attached; nudge on every 3rd casual reply |
-| 8 | → `jobs` | the jobs line + chip |
-| 9 | → `off_limits` | the off-limits line, no strike |
-| 10 | → `distress` | the distress line |
-| 11 | → `trash` | strike; 3 in a day → 30-minute cool-down |
-| 12 | → `unclear`, confidence below 0.6, or classifier **unavailable** | the clarify line + chips |
+| 1 | distress word list (§5.2) | the distress line |
+| 2 | a résumé import pending (an unanswered "is this you?" line, or a batch-confirm with facts to confirm) | enter résumé mode (`resume_import`) and serve the import's turn: an uploaded résumé is résumé intent |
+| 3 | "Resume banayein" chip, or the greeting's Haan | enter résumé mode and serve the opener |
+| 4 | the greeting's Baad mein | free mode, the later line |
+| 5 | cool-down active | the cool-down line + chip, no model call |
+| 6 | the per-session aside cap reached (§3.6) | the cap line + chip, no model call |
+| 7 | abuse word list (`isAbusive`) | trash strike |
+| 8 | classifier → `distress`, at ANY confidence (it bypasses the 0.6 floor) | the distress line |
+| 9 | classifier → `resume` | enter résumé mode; a message that already describes the work becomes the first answer |
+| 10 | → `career` | model reply (career prompt) → validator → served, or the fallback |
+| 11 | → `casual` | model reply (casual prompt) → validator; chip always attached; nudge on every 3rd casual reply |
+| 12 | → `jobs` | the jobs line + chip |
+| 13 | → `off_limits` | the off-limits line, no strike |
+| 14 | → `trash` | strike; 3 in a day → 30-minute cool-down |
+| 15 | → `unclear`, confidence below 0.6, or classifier **unavailable** | the clarify line + chips |
 
 **Résumé mode, per message.**
 
@@ -99,7 +102,9 @@ These skip the classifier and go to today's interview:
 - a tap on an offered option
 - a typed answer to a number or yes/no question
 - a pending offer (résumé update, identity, batch-confirm, form offer, skills gate)
-- an abusive, empty or "pata nahi" message, which goes to today's lexicon handling
+- an abusive, empty, "pata nahi", hardship or question-back message, which goes to today's lexicon handling
+- a double-tapped free-chat chip, which re-serves the pending question as a no-op (not captured,
+  not classified, counted toward no cap)
 - the turn cap
 
 Everything else is classified:
@@ -107,10 +112,10 @@ Everything else is classified:
 | Verdict | Handling |
 |---|---|
 | `resume` (an answer) | today's interview |
-| `career` / `casual` / `jobs` / `off_limits` (confident) | the deflect line + the pending question again. No turn or ask budget is spent. |
-| below 0.6 | the clarify line + the pending question again |
-| `trash` | today's de-escalation path and the `MAX_ABUSIVE_TURNS` cap (forced-abusive capture) |
-| `distress` | the distress line |
+| `career` / `casual` / `jobs` / `off_limits` (confident) | the deflect line + the pending question again. No turn or ask budget is spent. At most twice per pending question; a third off-topic answer passes through to the interview (stuck-loop guard). |
+| below 0.6 | the clarify line + the pending question again — at most once per pending question; a second unsure answer passes through to the interview |
+| `trash` | the abuse lexicon's hits take today's de-escalation path and count toward `MAX_ABUSIVE_TURNS`; a classifier-only `trash` verdict gets the de-escalation line and the pending question again but is NOT counted (CLAUDE.md §3: a model verdict never ends profiling) — at most twice per pending question; a third passes through to the interview, still uncounted |
+| `distress` | the distress line, at ANY confidence (it bypasses the 0.6 floor) |
 | **unavailable** (mock, timeout, blocked, error) | **today's interview.** An AI outage never degrades the live interview. |
 
 A **real** verdict needs `ai_metadata.real_call === true` and `blocked === false`. Anything else counts as
@@ -284,6 +289,7 @@ Any widening of this list follows the same review as the copy.
 5. PR B merges. **The feature is live.**
 6. Device test, then the improvement loop: event probes → labelled set → prompt revisions.
 7. **Rollback:** set the `production` environment secret `CHAT_FREE_CHAT_DISABLED=true` and redeploy.
+   The switch writes nothing; sessions started while it was on keep their mode and lock.
 
 ```
 Owner rulings R1–R20 taken 2026-10-06 in the design session; plan and copy approved the same day.

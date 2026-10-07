@@ -10,7 +10,7 @@ import type { AnswerRecord, QuestionPackItem, QuestionPackOption } from "@badabh
 
 import { DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
 
-import type { ChatTurnOutcome } from "../chat/chat.service";
+import { ChatService, type ChatTurnOutcome } from "../chat/chat.service";
 import { TURN_KINDS } from "./conversation-state";
 import type { Lookahead, LookaheadEntry } from "./lookahead";
 import type { ServedQuestion, SessionView, TurnResult } from "./orchestrator.service";
@@ -153,6 +153,10 @@ function makeWorld(
   const chat = {
     findSession: vi.fn(async () => session),
     findLatestSessionByWorker: vi.fn(async () => opts.latest ?? undefined),
+    // The voice form's reattach candidates: the LIVE sessions, most recently touched first.
+    listActiveSessionsByWorker: vi.fn(async () =>
+      opts.latest?.status === "active" ? [opts.latest] : [],
+    ),
     listPackAnswers: vi.fn(async () => opts.flushed ?? []),
   };
   const chatService = {
@@ -370,6 +374,152 @@ describe("start — never continues a chat session armed for the general road (A
 
     const result = await service.start(WORKER, CTX);
 
+    expect(result.session_id).toBe(SESSION);
+    expect(chatService.startSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("start — the voice form mints past a live greeting session (a REAL startSession)", () => {
+  it("never reattaches into the greeting session: a NEW session is minted", async () => {
+    const NEW_SESSION = "55555555-5555-4555-8555-555555555555";
+    const greeting = {
+      id: SESSION,
+      workerId: WORKER,
+      status: "active",
+      startedAt: new Date(),
+      lastMessageAt: null,
+      conversationState: null,
+    };
+    const chat = {
+      listActiveSessionsByWorker: vi.fn(async () => [greeting]),
+      findActiveSessionByWorker: vi.fn(async () => greeting),
+      findLatestSessionByWorker: vi.fn(async () => undefined),
+      createSession: vi.fn(async () => ({
+        id: NEW_SESSION,
+        status: "active",
+        startedAt: new Date(),
+      })),
+    };
+    const orchestrator = {
+      viewSession: vi.fn(
+        async (): Promise<SessionView | null> =>
+          ({
+            buffer: {} as never,
+            envelope: { generalRoad: { armed: false }, freeChat: { mode: "greeting" } } as never,
+            items: [],
+            served: null,
+          }) as SessionView,
+      ),
+      openTurn: vi.fn(async () => turn({ questionKey: "q_city" })),
+    };
+    const chatService = new ChatService(
+      { CHAT_ONE_SHOT_OPENER_ENABLED: false } as never,
+      chat as never,
+      { findById: vi.fn(async () => ({ id: WORKER, fullName: null })) } as never,
+      {} as never,
+      { emit: vi.fn(async () => undefined) } as never,
+      {} as never,
+      {} as never,
+      orchestrator as never,
+    );
+    const service = new ProfilingSessionService(
+      chat as never,
+      chatService,
+      orchestrator as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    const result = await service.start(WORKER, CTX);
+
+    expect(result.session_id).toBe(NEW_SESSION);
+    expect(chat.createSession).toHaveBeenCalledOnce();
+    // The voice form read the live sessions ONCE; `startSession` did not reattach to one.
+    expect(chat.listActiveSessionsByWorker).toHaveBeenCalledOnce();
+    expect(chat.findActiveSessionByWorker).not.toHaveBeenCalled();
+    expect(orchestrator.openTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: NEW_SESSION }),
+    );
+  });
+});
+
+describe("start — reattaches to the newest CONTINUABLE live session before minting (N4)", () => {
+  it("skips a live greeting session and continues the older résumé-mode one — no second mint", async () => {
+    const RESUME_SESSION = "66666666-6666-4666-8666-666666666666";
+    const { service, chat, chatService, orchestrator } = makeWorld();
+    chat.listActiveSessionsByWorker.mockResolvedValue([
+      { id: SESSION, workerId: WORKER, status: "active" },
+      { id: RESUME_SESSION, workerId: WORKER, status: "active" },
+    ] as never);
+    // Read in candidate order: the greeting session first, then the résumé-mode one.
+    const viewIn = (mode: string) =>
+      ({
+        buffer: {} as never,
+        envelope: { generalRoad: { armed: false }, freeChat: { mode } } as never,
+        items: [],
+        served: served(),
+      }) as SessionView;
+    orchestrator.viewSession
+      .mockResolvedValueOnce(viewIn("greeting"))
+      .mockResolvedValueOnce(viewIn("resume"));
+
+    const result = await service.start(WORKER, CTX);
+
+    expect(result.session_id).toBe(RESUME_SESSION);
+    expect(chatService.startSession).not.toHaveBeenCalled();
+  });
+
+  it("mints (skipping the reattach) only when no live session is continuable", async () => {
+    const { service, chat, chatService, orchestrator } = makeWorld();
+    chat.listActiveSessionsByWorker.mockResolvedValue([
+      { id: SESSION, workerId: WORKER, status: "active" },
+    ] as never);
+    orchestrator.viewSession.mockResolvedValue({
+      buffer: {} as never,
+      envelope: { generalRoad: { armed: false }, freeChat: { mode: "free" } } as never,
+      items: [],
+      served: served(),
+    });
+    const result = await service.start(WORKER, CTX);
+    expect(result.session_id).toBe(OTHER_SESSION);
+    expect(chatService.startSession).toHaveBeenCalledWith(WORKER, CTX, { mint: true });
+  });
+});
+
+describe("start — never continues a free-chat session still in greeting or free mode (ADR-0051 §3.6)", () => {
+  /** A live envelope whose free chat is in the given mode, on an unarmed general road. */
+  const freeChatView = (mode: string) =>
+    ({
+      buffer: {} as never,
+      envelope: { generalRoad: { armed: false }, freeChat: { mode } } as never,
+      items: [],
+      served: served(),
+    }) as SessionView;
+
+  it.each(["greeting", "free"])(
+    "mints its own interview over a session in %s mode",
+    async (mode) => {
+      // The greeting's chips and free-mode turns are drawn by the chat alone; `openTurn` here would
+      // put the pack's first question over a free chat the worker never left.
+      const { service, chatService } = makeWorld({
+        latest: { id: SESSION, workerId: WORKER, status: "active" },
+        view: freeChatView(mode),
+      });
+      const result = await service.start(WORKER, CTX);
+      expect(result.session_id).toBe(OTHER_SESSION);
+      expect(chatService.startSession).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("continues a session in résumé mode — that is today's interview", async () => {
+    const { service, chatService } = makeWorld({
+      latest: { id: SESSION, workerId: WORKER, status: "active" },
+      view: freeChatView("resume"),
+    });
+    const result = await service.start(WORKER, CTX);
     expect(result.session_id).toBe(SESSION);
     expect(chatService.startSession).not.toHaveBeenCalled();
   });

@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 1163,
+  "clip_count": 1179,
   "producers": {
     "retry": 99,
     "clarify": 444,
     "prompt": 319,
     "why": 276,
-    "constant": 25
+    "constant": 41
   },
   "clips": [
     {
@@ -415,6 +415,11 @@
       "producer": "prompt"
     },
     {
+      "id": "0eb244e497583a9b",
+      "text": "Jab aapki profile ban jayegi, tab aapke kaam ki jobs dikhayenge. Resume banayein?",
+      "producer": "constant"
+    },
+    {
       "id": "0ede99ff905f3502",
       "text": "Job ki tolerance lagbhag kitni rakhte hain?",
       "producer": "retry"
@@ -563,6 +568,11 @@
       "id": "16d61d2078220000",
       "text": "Colour change ke waqt kaunsa kaam karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "1734b4f2d65eb14a",
+      "text": "Theek hai. Aap kaun sa kaam karte hain, aur kitna tajurba hai?",
+      "producer": "constant"
     },
     {
       "id": "173ce6222a4f2e70",
@@ -1133,6 +1143,11 @@
       "id": "2ecf3f8855393123",
       "text": "QC wale ko alag se rakha jaata hai. Kya aap quality check karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "2ede43a034befc2f",
+      "text": "Aisi bhasha theek nahi. Kaam ya resume ki baat karein.",
+      "producer": "constant"
     },
     {
       "id": "2f11ee1d6be1a064",
@@ -1950,6 +1965,11 @@
       "producer": "clarify"
     },
     {
+      "id": "5362700b3af6dcaf",
+      "text": "Samajh nahi aaya. Ek baar phir bataiye.",
+      "producer": "constant"
+    },
+    {
       "id": "53ce6947e022ceb8",
       "text": "Khraad par kitne bade job tak kaam kiya hai?",
       "producer": "prompt"
@@ -2435,6 +2455,11 @@
       "producer": "clarify"
     },
     {
+      "id": "66fcc35d5e5ae196",
+      "text": "Namaste, main Bada Bhai hoon. Aapka resume banane mein madad karunga. Shuru karein?",
+      "producer": "constant"
+    },
+    {
       "id": "6728d1873fd8bac6",
       "text": "Problem theek karne wale operator ki demand zyada hai.",
       "producer": "why"
@@ -2733,6 +2758,11 @@
       "id": "72c1b647248c47e5",
       "text": "Masala banane wale ki alag maang hai. Kya aap masala banate hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "72dcfc1ba60d2bfb",
+      "text": "Pehle resume bana lete hain, phir kuch aur baat karenge.",
+      "producer": "constant"
     },
     {
       "id": "72e34f00aa77abec",
@@ -3113,6 +3143,11 @@
       "id": "83575a76a5485452",
       "text": "Kya aap rotating shift kar sakte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "837491cf10bb3b49",
+      "text": "Theek hai. Jab mann ho, resume bana lenge. Tab tak kuch bhi poochhiye.",
+      "producer": "constant"
     },
     {
       "id": "83b0043f182d752f",
@@ -3655,6 +3690,11 @@
       "producer": "clarify"
     },
     {
+      "id": "9c4796b90d11b9ba",
+      "text": "Samajh nahi aaya. Aap kya karna chahte hain?",
+      "producer": "constant"
+    },
+    {
       "id": "9c62f2b418115ed8",
       "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Aap kaunsi machine chalate hain?",
       "producer": "clarify"
@@ -4120,6 +4160,11 @@
       "producer": "why"
     },
     {
+      "id": "afaae8c801b4d384",
+      "text": "Taaza khabar abhi nahi bata sakta. Yeh suvidha jaldi aayegi.",
+      "producer": "constant"
+    },
+    {
       "id": "afc68b13a3a9f694",
       "text": "Mistri ke hisaab se kaam milta hai. Aap kis mistri ke saath kaam karte hain?",
       "producer": "clarify"
@@ -4505,6 +4550,11 @@
       "producer": "clarify"
     },
     {
+      "id": "c13aec2226d301f5",
+      "text": "Aap akele nahi hain. Tele-MANAS 14416 par abhi baat kijiye, yeh muft hai.",
+      "producer": "constant"
+    },
+    {
       "id": "c1dcfa840b84423a",
       "text": "Mistri ke hisaab se kaam milta hai.",
       "producer": "why"
@@ -4790,6 +4840,11 @@
       "producer": "why"
     },
     {
+      "id": "cd03cc217901e085",
+      "text": "Is baare mein main baat nahi karta. Kaam ya resume ki baat karein?",
+      "producer": "constant"
+    },
+    {
       "id": "cd3aeff986c531c6",
       "text": "Kya aap mazdooron ko sambhalte hain?",
       "producer": "prompt"
@@ -4948,6 +5003,11 @@
       "id": "d34a8a1b09fadba7",
       "text": "Program aap CAM software par banate hain ya machine par?",
       "producer": "prompt"
+    },
+    {
+      "id": "d34b058d285c127d",
+      "text": "Thodi der ke liye baat rok rahe hain. Tab tak resume bana sakte hain.",
+      "producer": "constant"
     },
     {
       "id": "d374cada09738c91",
@@ -5590,6 +5650,11 @@
       "producer": "prompt"
     },
     {
+      "id": "f3b9be07b3176a0c",
+      "text": "Is par abhi kuch keh nahi paunga. Kaam ya resume ki koi baat poochhiye.",
+      "producer": "constant"
+    },
+    {
       "id": "f3dfd8ac838c6427",
       "text": "Sabse bada job kitne dia ka kiya hai?",
       "producer": "retry"
@@ -5720,6 +5785,11 @@
       "producer": "why"
     },
     {
+      "id": "fb77647ad898ab38",
+      "text": "Waise, aapka resume bana dein? Kaam dhoondhne mein kaam aayega.",
+      "producer": "constant"
+    },
+    {
       "id": "fbb9aec1667f0416",
       "text": "Door ki naukri bhi dikhane ke liye ye pata hona chahiye.",
       "producer": "why"
@@ -5745,9 +5815,19 @@
       "producer": "why"
     },
     {
+      "id": "fc141d3c795c127e",
+      "text": "Bahut baatein ho gayin. Ab aapka resume bana lete hain?",
+      "producer": "constant"
+    },
+    {
       "id": "fc2330be86d3f85d",
       "text": "DFT gauge, gloss meter ya adhesion test, kya karte hain?",
       "producer": "retry"
+    },
+    {
+      "id": "fc2cda9b564edf9d",
+      "text": "Is baare mein kisi jaankar se salah lijiye. Main kaam aur resume mein madad karta hoon.",
+      "producer": "constant"
     },
     {
       "id": "fc2ef5e5551ae835",

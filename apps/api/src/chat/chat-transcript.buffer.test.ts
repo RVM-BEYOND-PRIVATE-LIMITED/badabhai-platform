@@ -111,6 +111,36 @@ describe("ChatTranscriptBuffer — round trip", () => {
     store.set(KEY, JSON.stringify(raw));
     expect("intake" in (await buffer.load(SESSION))!.messages[1]!).toBe(false);
   });
+
+  it("carries the free-chat flag (ADR-0051) — a literal true only, absent otherwise", async () => {
+    // Dropped on load, a casual line would reach the model's history and the extraction on the
+    // very next turn — casual talk in a profile. A line the free chat never wrote stays keyless.
+    const { buffer, store } = make();
+    const at = "2026-10-06T00:00:00.000Z";
+    await buffer.save(
+      SESSION,
+      sample({
+        messages: [
+          {
+            role: "assistant",
+            text: "Namaste, main Bada Bhai hoon.",
+            at,
+            voiceNoteId: null,
+            aside: true,
+          },
+          { role: "worker", text: "welder hoon", at, voiceNoteId: null },
+        ],
+      }),
+    );
+    const loaded = await buffer.load(SESSION);
+    expect(loaded?.messages[0]?.aside).toBe(true);
+    expect("aside" in loaded!.messages[1]!).toBe(false);
+
+    const raw = JSON.parse(store.get(KEY)!) as { messages: Record<string, unknown>[] };
+    raw.messages[1]!.aside = 1;
+    store.set(KEY, JSON.stringify(raw));
+    expect("aside" in (await buffer.load(SESSION))!.messages[1]!).toBe(false);
+  });
 });
 
 describe("ChatTranscriptBuffer — fails closed", () => {

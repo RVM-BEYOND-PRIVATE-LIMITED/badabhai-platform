@@ -263,14 +263,19 @@ describe("workerVisiblePlaceScreens / screenWorkerVisiblePlace (#1848)", () => {
     expect(workerVisiblePlaceScreens("Sector 63 201301 Acme Pvt Ltd")).toEqual(["company_name"]);
   });
 
-  it("dotted co-op names stay refused as a company name (an accepted false positive)", () => {
-    // The hyphenated and plain forms pass. The dotted forms are `looksLikeOrgName`'s to
-    // narrow, in @badabhai/validators, not this screen's to waive (#1970).
+  it("a co-operative industrial estate is a place, dotted or not; other co-op tails stay refused", () => {
+    // #1970 narrowed `looksLikeOrgName` (in @badabhai/validators, not a waiver here): a dotted
+    // "Co. Op." / "Co.op" / "Co. Operative" before "(Industrial) Estate" is a locality. Owner
+    // ruling 2026-10-06: estates only, so a dotted housing society is still a company name.
     expect(placeMessages("Gokul Shirgaon Co-op Industrial Estate")).toEqual([]);
     expect(placeMessages("Vasai Co-operative Industrial Estate")).toEqual([]);
-    expect(placeMessages("Vasai Co. Operative Industrial Estate")).toEqual([
+    expect(placeMessages("Vasai Co. Operative Industrial Estate")).toEqual([]);
+    expect(placeMessages("Gokul Shirgaon Co. Op. Industrial Estate")).toEqual([]);
+    expect(placeMessages("Gokul Shirgaon Co.op Industrial Estate")).toEqual([]);
+    expect(placeMessages("Shanti Co. Operative Housing Society")).toEqual([
       "city must not contain a company name",
     ]);
+    expect(placeMessages("Cosmos Co.op. Bank")).toEqual(["city must not contain a company name"]);
   });
 
   it("keeps the build-time guards and the base shape", () => {
