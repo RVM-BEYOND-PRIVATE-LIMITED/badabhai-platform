@@ -327,6 +327,20 @@ Fragment targets (`#hiring-capacity`, `#batch-invites`, the legacy `#agency-vaca
 `.anchor-target`, which keeps them below the sticky header when a link lands on them; a test fails
 if an in-app link to another page's fragment targets an element without it.
 
+### No loading boundary above a page
+
+There is no route `loading.tsx` and no `<Suspense>` in the portal
+(`src/app/no-suspense-above-a-page.test.ts`). Next keys the `(portal)` boundary by the first
+segment under it, so it stayed mounted across every same-section navigation (`/postings` →
+`/postings/<id>`, every `/agency/*` page). On a production build of next 15.5.25, clicks made
+within a few seconds of the page becoming interactive often never committed (the URL never
+moved): Agency postings → a posting 3/10, the rail's Worker activity 6/10, Postings → a posting
+7/10, against 30/30 into another section. With no boundary: 320/320. The trade-off: a
+navigation keeps the current page on screen until the next one has rendered — there is no
+skeleton. Same-section navigations never showed it anyway (React holds the visible page during a
+transition); a link into another section did (at ~0.1–0.25s on a slow backend) and now holds the
+current page instead. Re-measure before adding one back after a Next or React upgrade.
+
 ### Agency on the company surface
 
 Agencies post agency jobs only. The company posting surface is never linked for an agent:

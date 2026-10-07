@@ -42,7 +42,9 @@ const MAX_ROWS = 200;
  * per-payer hourly scrape cap this route rides — renders a neutral `.state--error` with a retry
  * instead of blanking the page or, worse, showing an empty table that would read as "you have no
  * referrals". The copy stays neutral: the CLASS of failure is never surfaced (no-oracle).
- * LOADING is the portal-level `loading.tsx` skeleton (this page is force-dynamic).
+ * LOADING: none of its own — the portal has no route loading boundary (it stalled same-section
+ * navigations; app/no-suspense-above-a-page.test.ts), so the previous page stays on screen until
+ * this one has rendered (this page is force-dynamic).
  */
 export default async function AgencyWorkersPage() {
   // 1) SERVER-enforced role gate — an `employer` session 404s here before any read runs.
