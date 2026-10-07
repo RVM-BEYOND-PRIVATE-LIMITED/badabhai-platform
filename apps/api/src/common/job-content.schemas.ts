@@ -205,8 +205,9 @@ function pincodeExplainsContactRefusal(s: string): boolean {
 /**
  * THE PLACE-FIELD SCREEN (#1848): {@link workerVisibleTextScreens}, except that a
  * contact-details refusal a pincode alone explains is waived. The company-name and link
- * screens are unchanged, so "Co. Op. Industrial Estate" is still refused as a company name
- * (an accepted false positive; the hyphenated "Co-op" and "Co-operative" forms pass).
+ * screens are unchanged here. A dotted co-operative industrial estate ("Co. Op. Industrial
+ * Estate") passes because `looksLikeOrgName` reads it as a locality (#1970), as it reads the
+ * hyphenated "Co-op" / "Co-operative" forms; a dotted housing society or bank is still refused.
  */
 export function workerVisiblePlaceScreens(s: string): WorkerVisibleScreen[] {
   const screens = workerVisibleTextScreens(s);
