@@ -15,10 +15,13 @@
  * attribute bridge, `ATTRIBUTE_TO_MATCH_SKILLS`. This table emits only `skill_*` corpus ids and
  * never an `mskill_*` id. Whether a claim reaches a posting is decided by the bridge.
  *
- * A LOOKUP, NOT A MODEL. Every key is an option VALUE from a checked-in pack JSON, which is a
- * closed set the worker tapped (or `matchOptions` matched in the worker's own words). There is no
- * LLM, no embedding and no confidence floor. The model-produced `skill_labels` never reach this
- * table.
+ * A LOOKUP, NOT A MODEL. Every key is an option VALUE from a checked-in pack JSON: a closed set.
+ * The answer-map records it reads hold closed option values, INCLUDING LLM-draft-settled records
+ * (Phase A `settleFromLlmDraft`) whose option was matched deterministically by `matchOptions`,
+ * exactly as `PACK_ANSWER_SKILLS` reads them. So provenance is not tap-only, but the model cannot
+ * name a value outside the pack's options, and no LLM, embedding or confidence floor decides the
+ * mapping. The model-produced `skill_labels` never reach this table. (Whether only tapped answers
+ * should count is an open owner question, #2073.)
  *
  * THE RULES ARE `PACK_ANSWER_SKILLS`' RULES (see that file), restated where they bite here:
  *   1. Map only what a chip literally claims, read with the question stem.
@@ -139,18 +142,34 @@ export function canonicalGenericPackSkills(
   answers: readonly GenericPackAnswer[],
 ): GenericPackSkillId[] {
   if (packId === null) return [];
-  const pack = GENERIC_PACK_SKILLS[packId];
+  const pack = ownEntry(GENERIC_PACK_SKILLS, packId);
   if (!pack) return [];
   const ids = new Set<GenericPackSkillId>();
   for (const { questionKey, values } of answers) {
-    const options = pack[questionKey];
+    const options = ownEntry(pack, questionKey);
     if (!options) continue;
     for (const value of values) {
       if (typeof value !== "string") continue;
-      for (const id of options[value] ?? []) ids.add(id);
+      const emitted = ownEntry(options, value);
+      if (!Array.isArray(emitted)) continue;
+      for (const id of emitted) if (isGenericPackSkillId(id)) ids.add(id);
     }
   }
   return [...ids].sort();
+}
+
+/**
+ * The table's OWN entry for `key`, never an inherited one. Every key here comes from an answer
+ * record, so a plain index would let `toString`, `constructor` or `__proto__` resolve to an
+ * `Object.prototype` member: iterating it throws (aborting the extraction) or spreads a string into
+ * characters. An inherited key derives nothing.
+ */
+function ownEntry<T>(table: Readonly<Record<string, T>>, key: string): T | undefined {
+  return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+}
+
+function isGenericPackSkillId(id: unknown): id is GenericPackSkillId {
+  return typeof id === "string" && id.startsWith("skill_");
 }
 
 /** Every id the table can emit — the surface a taxonomy retag has to keep covering. */

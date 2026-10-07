@@ -2338,6 +2338,9 @@ export interface ExtractionContext {
  * #2021 — the answer map's deterministic `skills` values, per question, as the generic-pack
  * canonicalizer reads them. ANSWER MAP ONLY: never `skill_labels`, never the parse overlay, never
  * Phase C. Only `answered` records count, exactly as `projectProfile`'s `liveValues` reads them.
+ * NOT TAP-ONLY: an `answered` record may come from Phase A `settleFromLlmDraft`, which records an
+ * LLM-draft option that `matchOptions` matched deterministically against the pack's closed options
+ * (same as `PACK_ANSWER_SKILLS`). Tap-only provenance is an open owner question (#2073).
  */
 function answerMapSkillAnswers(answerMap: readonly AnswerRecord[]): GenericPackAnswer[] {
   const answers: GenericPackAnswer[] = [];
@@ -2397,9 +2400,11 @@ export function toExtractionOutput(
     // CANONICAL IDS ARE NOT INVENTED HERE. Writing a guess into these columns would put an
     // unvalidated id in the one place the match engine trusts absolutely. So the role stays null,
     // and `skills` holds only what the taxonomy's closed lookup returns for a GENERIC family
-    // pack's answer-map values (#2021): option values the worker tapped, pack-scoped, never the
-    // model's `skill_labels`. `rebuildForWorker` carries them through the attribute bridge. A
-    // pack with no entry (every role pack, every trade with no match skill) yields `[]`, as before.
+    // pack's answer-map values (#2021): closed option values, pack-scoped, including
+    // LLM-draft-settled records matched deterministically by `matchOptions` (same as
+    // `PACK_ANSWER_SKILLS`), never the model's free-text `skill_labels`. `rebuildForWorker` carries
+    // them through the attribute bridge. A pack with no entry (every role pack, every trade with no
+    // match skill) yields `[]`, as before.
     canonical_trade_id: null,
     canonical_role_id: null,
     skills: canonicalGenericPackSkills(packId, answerMapSkillAnswers(answerMap)),

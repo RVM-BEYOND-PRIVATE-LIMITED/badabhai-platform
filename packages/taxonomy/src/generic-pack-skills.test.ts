@@ -136,4 +136,52 @@ describe("canonicalGenericPackSkills", () => {
     expect(a).toEqual(b);
     expect(a).toEqual(["skill_bench_fitting", "skill_pipe_fitting"]);
   });
+  describe("inherited Object.prototype keys derive nothing and never throw", () => {
+    const PROTO_KEYS = ["toString", "constructor", "__proto__", "hasOwnProperty"];
+
+    it("as option values", () => {
+      expect(
+        canonicalGenericPackSkills("qp_welding", [
+          { questionKey: "welding_process", values: PROTO_KEYS },
+        ]),
+      ).toEqual([]);
+      // A real option alongside them still derives, and only it.
+      expect(
+        canonicalGenericPackSkills("qp_welding", [
+          { questionKey: "welding_process", values: [...PROTO_KEYS, "mig"] },
+        ]),
+      ).toEqual(["skill_mig_welding"]);
+    });
+
+    it("as the question key (`constructor` + `name` must not spread a string)", () => {
+      for (const questionKey of PROTO_KEYS) {
+        expect(
+          canonicalGenericPackSkills("qp_welding", [
+            { questionKey, values: ["name", "length", "mig", ...PROTO_KEYS] },
+          ]),
+        ).toEqual([]);
+      }
+    });
+
+    it("as the pack id", () => {
+      for (const packId of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+        expect(
+          canonicalGenericPackSkills(packId, [
+            { questionKey: "welding_process", values: ["mig"] },
+            { questionKey: "constructor", values: ["name"] },
+            { questionKey: "__proto__", values: PROTO_KEYS },
+          ]),
+        ).toEqual([]);
+      }
+    });
+
+    it("every result is a skill_ id", () => {
+      const ids = canonicalGenericPackSkills("qp_plumbing", [
+        { questionKey: "plumbing_scope", values: ["household", "drainage", ...PROTO_KEYS] },
+        { questionKey: "constructor", values: ["name"] },
+      ]);
+      expect(ids.length).toBeGreaterThan(0);
+      for (const id of ids) expect(id).toMatch(/^skill_[a-z0-9_]+$/);
+    });
+  });
 });
