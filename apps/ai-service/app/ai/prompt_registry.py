@@ -92,6 +92,10 @@ COMPANION_CAREER = "companion-career"
 FREE_CHAT_CLASSIFY = "profiling-free-classify"
 FREE_CHAT_CASUAL = "profiling-free-casual"
 FREE_CHAT_CAREER = "profiling-free-career"
+# ADR-0051 Release 2 (§8) - the rolling summary's prompt. Versioned like the rest: the notes are
+# kept indefinitely and re-read on every reply, so "which prompt wrote these notes" and the API's
+# reject rate per version are what a prompt edit has to be judged on.
+FREE_CHAT_SUMMARY = "profiling-free-summary"
 
 #: ``prompt_source`` values. Two, and they mean different things to an operator: "local"
 #: says the deploy decides the prompt, "langfuse" says someone outside the deploy can.
@@ -224,7 +228,7 @@ def install_default_prompts() -> None:
     the OIE cutover left behind — registering either would claim prompt management over text no
     provider ever sees. The list has grown with the routes: the original three (the Phase A
     turn, the Phase C extract, the profile parse), then the general road, #1350's polish, the
-    ADR-0041 import trio, ADR-0046's companion prompts, and ADR-0051's free-chat trio.
+    ADR-0041 import trio, ADR-0046's companion prompts, and ADR-0051's free-chat four.
 
     Imports are LOCAL to this function, deliberately: it is called from the FastAPI
     lifespan, so the profiling package is imported after app construction rather than at
@@ -271,3 +275,5 @@ def install_default_prompts() -> None:
     register(FREE_CHAT_CLASSIFY, lambda: free_chat_prompts.CLASSIFY_SYSTEM_PROMPT)
     register(FREE_CHAT_CASUAL, lambda: free_chat_prompts.CASUAL_SYSTEM_PROMPT)
     register(FREE_CHAT_CAREER, lambda: free_chat_prompts.CAREER_SYSTEM_PROMPT)
+    # Release 2 (§8): a module constant with no interpolation at all.
+    register(FREE_CHAT_SUMMARY, lambda: free_chat_prompts.SUMMARY_SYSTEM_PROMPT)

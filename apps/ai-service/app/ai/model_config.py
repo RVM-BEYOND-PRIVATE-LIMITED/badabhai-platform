@@ -137,6 +137,11 @@ _ROUTE_SHAPES: dict[str, tuple[ModelTier, bool]] = {
     # as an object, and a prose preamble would be scraped.
     "profiling_free_classify": ("cheap", True),
     "profiling_free_reply": ("cheap", True),
+    # ADR-0051 Release 2 (§8) - the rolling summary. CHEAP, and it is a judgement about the task:
+    # merging a few short lines into at most ten English notes is the shape a cheap model does
+    # well, it runs once per fold OFF the worker's critical path, and its output is re-validated by
+    # the API before it is stored. `json_mode` because the answer is `{"summary": ...}`.
+    "profiling_free_summary": ("cheap", True),
 }
 
 
@@ -394,6 +399,23 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
             # because the global fallback is also Claude and the router skips a same-provider one.
             model=settings.default_career_model,
             fallback_model=settings.default_capable_model,
+        )
+    if task_type == "profiling_free_summary":
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # 400 tokens: the prompt caps the notes at ~1000 characters of English (~250 tokens)
+            # plus the JSON wrapper, so this is slack for Hinglish words that tokenize worse. A
+            # truncated object fails the contract and becomes a null summary, which keeps the
+            # previous notes: the safe failure, never a half-written summary stored.
+            max_output_tokens=400,
+            # TEMPERATURE ZERO (ADR-0051 §8): the same notes and turns must fold to the same
+            # summary, and sampling would let a re-fold drift notes that are kept indefinitely.
+            temperature=0.0,
+            json_mode=json_mode,
+            # The free chat's own retry count. Off the critical path, so a retry costs latency
+            # no worker waits on.
+            max_retries=settings.ai_chat_max_retries,
         )
     if task_type == "work_history_polish":
         return TaskRoute(

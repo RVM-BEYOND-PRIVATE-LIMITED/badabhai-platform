@@ -1,6 +1,6 @@
 import { ACTION_ICON, Icon } from "@badabhai/icons";
 import { getCreditTopUps, getDashboard } from "../../../lib/payer-api";
-import { requireOwner } from "../../../lib/auth/org-roles";
+import { requirePayer } from "../../../lib/auth";
 import {
   creditValidityMonths,
   lowBalanceThreshold,
@@ -46,11 +46,14 @@ function day(ts: string): string {
  * lines). There is no "mock" / "staging preview" copy in either mode (owner ruling 2026-10-07,
  * F35: "mock wording is not needing on plans and credit") and no replacement disclaimer.
  *
- * PII-free (ids/amounts only — never a worker name/phone). ORG-RBAC: billing/wallet is an
- * OWNER-only surface — `requireOwner()` gates it SERVER-SIDE (a Recruiter gets a neutral 404).
+ * PII-free (ids/amounts only — never a worker name/phone). OPEN TO EVERY PAYER MEMBER (owner
+ * ruling 2026-10-07): an Owner AND a Recruiter can view the wallet and buy credits, so the gate is
+ * `requirePayer()` (signed in, any org role) — not the org-role gate, which now guards Team only.
+ * The API's own owner check on the purchase routes is being lifted to match; until it deploys a
+ * Recruiter's purchase may 403, which the actions answer with one neutral line (actions.ts).
  */
 export default async function CreditsPage() {
-  await requireOwner(); // Owner-only billing/wallet — Recruiter ⇒ neutral 404 (no-oracle).
+  await requirePayer(); // Signed-in payer, any org role — unauthenticated ⇒ /login.
 
   // Server-resolved payment mode. Fail-closed: anything but an explicit "true" is MOCK.
   const realPayments = payerServerConfig().paymentsEnableReal;

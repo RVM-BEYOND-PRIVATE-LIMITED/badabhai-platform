@@ -24,6 +24,8 @@ import { describe, expect, it } from "vitest";
 import { IdentifyService } from "./identify.service";
 import { IdentityIntakeService } from "./identity-intake/identity-intake.service";
 import { FreeChatService } from "./free-chat/free-chat.service";
+import { FreeChatFoldLock } from "./free-chat/free-chat-fold.lock";
+import { FreeChatSummaryService } from "./free-chat/free-chat-summary.service";
 import { WorkersModule } from "../workers/workers.module";
 import { WorkersService } from "../workers/workers.service";
 import { LlmTurnService } from "./llm-turn.service";
@@ -115,6 +117,11 @@ describe("ProfilingModule wiring", () => {
       // would not fail boot, it would silently serve no greeting and classify nothing while the
       // feature reads as live (it has no default-off flag). Pinned here for that reason.
       FreeChatService,
+      // ADR-0051 §8 (Release 2) — the rolling summary. The fold is trailing and optional on the
+      // orchestrator, so omitting it would not fail boot — it would silently fold nothing; the
+      // lock is a CONSTRUCTOR dependency of the fold, so omitting it fails BOOT. Pinned for both.
+      FreeChatFoldLock,
+      FreeChatSummaryService,
       ProfilingOrchestrator,
       ProfilingSessionService,
       ProfilingVoiceRepository,

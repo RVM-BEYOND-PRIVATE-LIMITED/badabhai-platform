@@ -299,9 +299,11 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Mobile gotchas:** **MOCK payment** (`PAYMENTS_ENABLE_REAL=false`; `real_call:false`) — no real money in Phase 1. `quote` is informational; don't echo it as an authoritative charge. `resumed_plan_ids` tells you how many paused plans were auto-resumed. Atomic per-payer (advisory-locked); concurrent buys serialize. `201`.
 
 #### `POST /payer/job-postings/:id/plan` · `POST /payer/job-postings/:id/boost`
-- **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer`. Ownership first: unknown/foreign posting → neutral `404`.
+- **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer`. Ownership first: unknown/foreign posting → neutral `404` (checked **before** any idempotency reservation).
+- **Headers:** `Idempotency-Key?: string` (#2103) — the same seam, scope rules, window and replay semantics as `POST /payer/capacity` / `…/quota-topup`; scopes `plan_purchase` and `boost_purchase` (separate — one key on plan and boost is two purchases). See [Purchase idempotency](#purchase-idempotency-idempotency-key).
 - **Body:** plan `{ tier: 'standard'|'pro', coupon?, expected_price_inr? }` · boost `{ tier: 'boost_7'|'boost_15'|'boost_30'|'all_candidates', coupon?, expected_price_inr? }`.
-- **Errors (#2085):** `409 price_mismatch` — refused before the plan/boost row or any payment event. No `Idempotency-Key` on these two yet.
+- **Errors:** `400` unknown tier · `409 price_mismatch` (#2085) — refused before the plan/boost row or any payment event · boost: `409` an active boost already exists · `409` same key still in flight (`"This plan purchase is already being processed; check the posting before trying again"` / `"This boost purchase is already being processed; …"`).
+- A replay under the same key emits no event and charges nothing.
 
 #### `POST /payer/job-postings/:id/quota-topup`
 - **Auth:** `PayerAuthGuard` + `PayerRoleGuard` role=`employer`. Ownership first: unknown/foreign posting → neutral `404` (checked **before** any idempotency reservation).
@@ -313,14 +315,14 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - `201`. **MOCK payment** (`real_call:false`).
 
 #### Purchase idempotency (`Idempotency-Key`)
-Routes: `POST /payer/credits`, `POST /payer/capacity`, `POST /payer/job-postings/:id/quota-topup`.
+Routes: `POST /payer/credits`, `POST /payer/capacity`, `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`.
 - **Optional.** No header (or a blank one) → the request runs exactly as before; nothing is reserved.
 - Mint **one key per confirmed purchase** and reuse it only for retries of that purchase. A new purchase (a renewal, a second top-up) needs a new key.
 - Keys are scoped per route **and** per session payer, and honoured for **180 s**.
-- **Same key, first attempt finished** → the stored outcome is replayed: the same `201` body, or the same error status + `message`. The work does not run again, so nothing is charged twice and no event is emitted twice.
+- **Same key, first attempt finished** → the stored outcome is replayed: the same `201` body, or the same error status **and the same error body** (#2103). The work does not run again, so nothing is charged twice and no event is emitted twice.
 - **Same key, first attempt still running** → `409` (the in-flight message for that route). Re-read state (`GET /payer/capacity`, `GET /payer/job-postings/:id`, `GET /payer/credits`) rather than resubmitting.
 - **Same key, different body** → **not** compared: the first purchase's outcome is replayed. The key names the intent; a client that changes the body under one key has a bug.
-- A replayed error carries only `statusCode` + `message` (not extra fields such as `reason`).
+- **Replayed error body (#2103):** identical to the first response's `error` object — every field, e.g. a replayed `409 price_mismatch` still carries `reason`, `expected_price_inr`, `current_price_inr`. Only the envelope's `requestId`/`path`/`timestamp` differ (they describe the retry). Outcomes stored by a pre-#2103 build (at most 180 s around the deploy) replay as `{ message }` only.
 - If Redis is unavailable the request runs undeduplicated (fail open at this one step; all money paths stay fail-closed).
 
 #### Price confirmation (`expected_price_inr`)
@@ -360,7 +362,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 - **Response:** `{ payer_id, balance: number (≥0) }`.
 
 #### `POST /payer/credits`
-- **Auth:** `PayerAuthGuard` (Bearer) + `PayerOrgRoleGuard` `@OrgRoles('owner')` (#2079). A `recruiter`, or a payer with no active org membership, gets `403`. The same owner-only gate is on `POST /payer/credits/order` and `POST /payer/credits/verify` (real-payments routes). The role is re-read from the DB per request, so a demoted owner is refused on their next request.
+- **Auth:** `PayerAuthGuard` (Bearer) only — **any authenticated payer may buy credits**, whatever their `org_role` (`owner` or `recruiter`) and with or without an active org membership (owner ruling 2026-10-07; matches ADR-0027 D3). The same applies to `POST /payer/credits/order` and `POST /payer/credits/verify` (real-payments routes). This reverses the owner-only gate #2079 added: there is no org-role `403` on any credit route.
 - **Headers:** `Idempotency-Key?: string` (#1046) — see [Purchase idempotency](#purchase-idempotency-idempotency-key).
 - **Body:** `{ pack_code: string, expected_price_inr?: int }` — code only; price/credits resolved server-side. `expected_price_inr` (#2085): mismatch → `409 price_mismatch`, no ledger row, no credits (see [Price confirmation](#price-confirmation-expected_price_inr)). `POST /payer/credits/order` accepts the same optional field; a mismatch creates no provider order and no `payment_orders` row.
 - **Response:** `{ payer_id, balance, credits, pack_code }`.
@@ -522,7 +524,7 @@ Routes: `POST /payer/job-postings/:id/plan`, `…/boost`, `…/quota-topup`, `PO
 | Account role | `agent` | Agency. Posts agency jobs via `/payer/agency/*` (agency jobs, invites, referrals); shares capacity, unlocks, reach and credits with employers. **Cannot write company postings** (#1885) — reads its own pre-existing `job_postings` only. |
 
 - The role is set at account creation (`signup` `role`) and is carried in the JWT and returned by `login/verify` + `GET /payer/me`. Use it for UI gating, but **the backend enforces it** (`PayerRoleGuard` + `@PayerRoles('agent')` on `/payer/agency/*`; `@PayerRoles('employer')` on the `/payer/job-postings` writes and chat publish — #1885). Do not rely on client-side role checks for security.
-- **Owner vs recruiter (org-member roles, ADR-0027 / B5.3, #2079).** Every payer is a member of one org with `org_role` `owner` | `recruiter` (a self-signed-up payer is the `owner` of their solo org). Read it from `GET /payer/me` `orgRole` (always current). The payer JWT also carries `org_id` + `org_role` claims minted at login/refresh — a display hint only, absent on tokens minted before #2079 (treat absent as `recruiter`). **Owner-only, enforced server-side** by `PayerOrgRoleGuard` (current role from the DB per request): `POST /payer/credits`, `POST /payer/credits/order`, `POST /payer/credits/verify`, `POST /payer/org/members`, `DELETE /payer/org/members/:id` → `403` for a recruiter. Mobile must not surface payment flows anyway (CLAUDE.md §12).
+- **Owner vs recruiter (org-member roles, ADR-0027 / B5.3, #2079).** Every payer is a member of one org with `org_role` `owner` | `recruiter` (a self-signed-up payer is the `owner` of their solo org). Read it from `GET /payer/me` `orgRole` (always current). The payer JWT also carries `org_id` + `org_role` claims minted at login/refresh — a display hint only, absent on tokens minted before #2079 (treat absent as `recruiter`). **Owner-only, enforced server-side** by `PayerOrgRoleGuard` (current role from the DB per request): `POST /payer/org/members`, `DELETE /payer/org/members/:id` → `403` for a recruiter. **Credit purchase is NOT owner-only** (owner ruling 2026-10-07): `POST /payer/credits`, `/credits/order` and `/credits/verify` are open to any authenticated payer, recruiters and payers with no org membership included. Mobile must not surface payment flows anyway (CLAUDE.md §12).
 
 Which surface each role can call:
 

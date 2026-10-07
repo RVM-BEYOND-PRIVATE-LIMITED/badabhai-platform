@@ -755,6 +755,42 @@ describe("topUp / buyCapacity — Idempotency-Key wiring + 409 → PurchaseConfl
 });
 
 /**
+ * A 403 ON A PURCHASE (#2079). The API can refuse the three credit-purchase routes for an account
+ * (#2098's owner-only guard, being lifted per the 2026-10-07 ruling, still 403s a Recruiter until
+ * that deploys). The seam types it as PurchaseForbiddenError — distinct from a transport failure
+ * (which invites a retry) and from the 404 → null path — and carries none of the body's deny reason.
+ */
+describe("credit purchase routes — a 403 (#2079) → PurchaseForbiddenError", () => {
+  const DENY_REASON = "Org role is not permitted for this resource";
+  const forbidden = () => jsonResponse({ message: DENY_REASON }, 403);
+
+  it("topUp (POST /payer/credits)", async () => {
+    fetchMock.mockResolvedValue(forbidden());
+    const { topUp, PurchaseForbiddenError } = await import("./payer-api");
+    const err = await topUp({ packCode: "pack_50" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PurchaseForbiddenError);
+    expect((err as Error).message).not.toContain(DENY_REASON);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // never retried
+  });
+
+  it("createCreditOrder (POST /payer/credits/order)", async () => {
+    fetchMock.mockResolvedValue(forbidden());
+    const { createCreditOrder, PurchaseForbiddenError } = await import("./payer-api");
+    await expect(createCreditOrder({ packCode: "pack_50" })).rejects.toBeInstanceOf(
+      PurchaseForbiddenError,
+    );
+  });
+
+  it("verifyCreditPayment (POST /payer/credits/verify)", async () => {
+    fetchMock.mockResolvedValue(forbidden());
+    const { verifyCreditPayment, PurchaseForbiddenError } = await import("./payer-api");
+    await expect(
+      verifyCreditPayment({ orderId: "order_1", paymentId: "pay_1", signature: "sig_1" }),
+    ).rejects.toBeInstanceOf(PurchaseForbiddenError);
+  });
+});
+
+/**
  * LIVE posting lifecycle: PAUSE / RESUME / quota-top-up on the payer-authed
  * `POST /payer/job-postings/:id/{pause|resume|quota-topup}` routes (#178/#180).
  * TENANCY (XB-A): Bearer-only — the bodies never carry a payer_id; the quota body

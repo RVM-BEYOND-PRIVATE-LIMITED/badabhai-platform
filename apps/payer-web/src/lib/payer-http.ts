@@ -40,8 +40,12 @@ interface RequestOptions<T> {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   /** Request body (JSON). NEVER include a payer_id — the session token carries it. */
   body?: unknown;
-  /** Zod schema the response is validated against. */
-  schema: z.ZodType<T>;
+  /**
+   * Zod schema the response is validated against. Its INPUT side is `unknown` on purpose: the
+   * transport parses untyped JSON, so only the schema's OUTPUT (`T`) matters here — and a schema
+   * that degrades a field (e.g. `.catch(null)`) legitimately accepts any input for it.
+   */
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>;
   /** When true, omit the Authorization header (public auth endpoints). */
   public?: boolean;
   /**

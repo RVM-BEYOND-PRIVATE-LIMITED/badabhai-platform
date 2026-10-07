@@ -293,6 +293,8 @@ export {
   FreeChatAnswerSchema,
   FreeChatRefuseSchema,
   FreeChatReplyOutputSchema,
+  FreeChatSummarizeInputSchema,
+  FreeChatSummarizeOutputSchema,
 } from "./free-chat";
 export type {
   FreeChatClassifyMode,
@@ -302,4 +304,6 @@ export type {
   FreeChatAnswer,
   FreeChatRefuse,
   FreeChatReplyOutput,
+  FreeChatSummarizeInput,
+  FreeChatSummarizeOutput,
 } from "./free-chat";

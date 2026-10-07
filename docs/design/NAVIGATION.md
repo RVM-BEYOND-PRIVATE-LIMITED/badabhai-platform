@@ -191,9 +191,14 @@ labels are pinned by `nav-model.test.ts`.
 | nav-O | item shown only when `getOrgRole(session) === "owner"`               | item hidden          |
 | nav-F | item shown only when F is on (the same flag the page checks)         | item hidden          |
 
-`getOrgRole()` is a stub that returns `recruiter` for every session outside dev/test
-(GAP-FE-01, `docs/payer-agent/GAP_REGISTER.md`), so O routes and nav-O items are absent for real
-users today. No link to an O route is rendered for a non-owner.
+`getOrgRole()` reads the member's CURRENT org role from `GET /payer/me` `orgRole` (#2079) — the
+API reads `payer_members` on every call, and `requirePayer()` already makes that read on every
+request, so a demoted owner loses O on their next request. Anything but an explicit `owner`
+(`null`, missing, unknown) is `recruiter`. The payer JWT's `org_role` claim is not read (payer-web
+cannot verify it). No link to an O route is rendered for a non-owner.
+
+Since the owner ruling of 2026-10-07 the ONLY O route is Team: buying credits is open to every
+member, so Credits is P (with the nav item and the chip link for everyone).
 
 ### Rail (desktop ≥1024px; the same list is the drawer below 1024px)
 
@@ -208,7 +213,7 @@ users today. No link to an O route is rendered for a non-owner.
 | Agency  | Supply       | Referrals        | `/agency/referrals` | `agency/referrals/page.tsx` | Invite link, batch links, funnel, earnings / KYC / payouts | A + F; nav-F                                   |
 | Agency  | Supply       | QR invite        | `/agency/qr`        | `agency/qr/page.tsx`        | Printable QR invite sheet                                  | A + F; nav-F                                   |
 | Company | Billing      | Plans & capacity | `/plans`            | `plans/page.tsx`            | Usage, Hiring capacity, applicant quota, credits, plans    | P; agent → redirected to `/dashboard`          |
-| Both    | Billing      | Credits          | `/credits`          | `credits/page.tsx`          | Credit balance, buy credits, history, expiry               | O; nav-O                                       |
+| Both    | Billing      | Credits          | `/credits`          | `credits/page.tsx`          | Credit balance, buy credits, history, expiry               | P (every member — ruling 2026-10-07)           |
 | Both    | Organisation | Team             | `/team`             | `team/page.tsx`             | Members, invite a recruiter                                | O; nav-O                                       |
 | Agency  | Coming soon  | Revenue (Soon)   | `/agency/revenue`   | `agency/revenue/page.tsx`   | Parked explainer (no data)                                 | A + F; nav-F                                   |
 
@@ -241,8 +246,8 @@ screen, keep the funnel first.
 is an entitlement on company postings (`job_postings`) — concurrent capacity, per-posting applicant
 quota, posting plans — and an agency posts agency jobs only. The agency rail and dashboard do not
 offer it, and an agent who opens `/plans` or `/capacity` is redirected to `/dashboard` before any
-read. Credits stays for both personas (Owner-only). An agency recruiter therefore has no Billing
-group at all.
+read. Credits stays for both personas and every member, so every agency rail keeps its Billing
+group (Credits); only Organisation (Team) is owner-only.
 
 ### Header (every portal page)
 
@@ -250,7 +255,7 @@ group at all.
 | ------------ | ----------------------------------------- | -------------- | -------------------------------------------------------------------------- | --------------------------------------------------------- |
 | Brand lockup | "BadaBhai for Companies" / "for Agencies" | `/dashboard`   | Home                                                                       | P                                                         |
 | Breadcrumb   | group, then the section                   | the section    | Section context only: never the page itself (its H1 names it), never an id | derived from the rail                                     |
-| Credits chip | wallet icon + "{n} credits"               | `/credits`     | The balance — shown once per screen                                        | link for O only; static otherwise; hidden on a read error |
+| Credits chip | wallet icon + "{n} credits"               | `/credits`     | The balance — shown once per screen                                        | link for every member (P); hidden on a read error         |
 | Account menu | "Account"                                 | `/account`     | The payer's own settings page                                              | P                                                         |
 | Account menu | "Sign out"                                | server action  | Sign out                                                                   | P                                                         |
 
@@ -284,7 +289,7 @@ reopen. The applicants page's "No posting found here" state links to Postings.
 | `/dashboard`, `/account`     | none                             | —                         |
 
 The credits chip below 540px shows the number only: the unit word is visually hidden but stays in
-its accessible name ("1234 credits — open Credits" for an owner's link), and the shared icon
+its accessible name ("1234 credits — open Credits"), and the shared icon
 tooltip shows "1234 credits" on hover and keyboard focus.
 
 ### Pages below a nav destination (back link = the real parent)
