@@ -157,14 +157,17 @@ export async function getUnlocks(): Promise<UnlockHistoryItem[]> {
     .map((u) => ({
       unlockId: u.unlock_id,
       workerId: u.worker_id!,
-      // The UI history shows granted vs expired; a revealed/revoked grant maps to its
-      // nearest user-facing state (no-oracle: cause is never surfaced beyond this).
+      // The UI history shows granted vs expired: a revealed grant is still granted, and the
+      // server-derived `expired` (#2033) and `revoked` are both ended access (no-oracle: the
+      // cause is never surfaced beyond this). Only granted/revealed can ever read live.
       status: u.status === "granted" || u.status === "revealed" ? "granted" : "expired",
       createdAt: u.created_at,
       expiresAt: u.expires_at ?? u.created_at,
       // The current grant's time (a re-grant moves it; created_at does not): the day a Recent
       // unlocks row prints and is ordered by.
       grantedAt: u.granted_at,
+      // #2033's company-posting context; absent (a pre-#2033 API) and null both mean none.
+      jobPostingId: u.job_posting_id ?? null,
     }));
 }
 

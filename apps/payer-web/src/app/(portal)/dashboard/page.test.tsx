@@ -55,8 +55,10 @@ const DATA = {
       status: "granted",
       createdAt: "2026-06-20T00:00:00.000Z",
       expiresAt: "2026-12-20T00:00:00.000Z",
-      // As getUnlocks maps the wire: the current grant's time, and no job/posting context.
+      // As getUnlocks maps the wire: the current grant's time, and no posting context (a search
+      // unlock, one made before #2033, or an agency unlock — whose `jobs` id is not carried).
       grantedAt: "2026-06-20T00:00:00.000Z" as string | null,
+      jobPostingId: null as string | null,
     },
     {
       unlockId: "u2",
@@ -65,6 +67,7 @@ const DATA = {
       createdAt: "2026-05-01T00:00:00.000Z",
       expiresAt: "2026-06-01T00:00:00.000Z",
       grantedAt: "2026-05-01T00:00:00.000Z" as string | null,
+      jobPostingId: null as string | null,
     },
   ],
   postings: [
@@ -398,10 +401,10 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
     expect(textOf(tree)).not.toMatch(/view applicants/i);
   });
 
-  it("a Recent-unlock row is NOT a link and names no posting — for a company AND an agency", async () => {
-    // A company unlock is stored without its posting (#1903; the context arrives with #2033), and
-    // the page does not read an agency's job titles — so no row can name or open a posting. Both
-    // personas have postings/jobs the row could have been wrongly tied to.
+  it("a Recent-unlock row with no posting context is NOT a link and names no posting — company AND agency", async () => {
+    // No posting context (a search unlock, or one made before #2033), and the page does not read
+    // an agency's job titles — so no such row can name or open a posting. Both personas have
+    // postings/jobs the row could have been wrongly tied to.
     for (const role of ["employer", "agent"] as const) {
       const tree = await render(undefined, role);
       const rows = findByClass(tree, "dash-unlock");
@@ -413,6 +416,70 @@ describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
         expect(textOf(r)).not.toMatch(/CNC Operator|VMC Setter|View applicants/);
       }
     }
+  });
+
+  /** This payer's own company posting (a real uuid id), and an unlock made from a posting. */
+  const OWN_ID = "bbbb2222-0000-4000-8000-000000000001";
+  const FOREIGN_ID = "bbbb2222-0000-4000-8000-0000000000ff";
+  const ownPostings = [{ ...DATA.postings[0]!, id: OWN_ID }];
+  const madeFrom = (jobPostingId: string) => ({ ...DATA.unlocks[0]!, jobPostingId });
+
+  it("#2033: a company unlock made from one of the payer's OWN postings names it and opens its applicants", async () => {
+    const tree = await render({ postings: ownPostings, unlocks: [madeFrom(OWN_ID)] });
+    const rows = findByClass(tree, "dash-unlock");
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
+    // The whole card opens THAT posting's applicants, where the worker shows unlocked; the link
+    // is named for its destination (F13).
+    expect(p(row).href).toBe(`/postings/${OWN_ID}/applicants`);
+    expect(p(row).ariaLabel).toBe("CNC Operator — Applicants");
+    expect(textOf(findByClass(row, "dash-unlock__title")[0]!)).toBe("CNC Operator");
+    expect(textOf(row)).not.toContain("Unlocked contact");
+    const cta = findByClass(row, "dash-unlock__cta");
+    expect(cta).toHaveLength(1);
+    expect(textOf(cta[0]!).trim()).toBe("Applicants");
+    expect(findAll(cta[0]!, Icon).map((i) => p(i).name)).toEqual(["arrow-right"]);
+    // Still faceless: the dates and status stay, and no worker id reaches the row or its link.
+    expect(findAll(row, Badge).map((b) => textOf(p(b).children as ReactNode).trim())).toEqual([
+      "Unlocked",
+    ]);
+    expect(`${textOf(row)} ${String(p(row).href)} ${String(p(row).ariaLabel)}`).not.toContain(
+      "worker-uuid",
+    );
+  });
+
+  it("#2033: a posting id NOT in the payer's own list names nothing — never another payer's posting", async () => {
+    const tree = await render({ postings: ownPostings, unlocks: [madeFrom(FOREIGN_ID)] });
+    const rows = findByClass(tree, "dash-unlock");
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
+    expect(p(row).href).toBeUndefined();
+    expect(p(row).ariaLabel).toBeUndefined();
+    expect(textOf(row)).toContain("Unlocked contact");
+    expect(textOf(row)).not.toContain("CNC Operator");
+    expect(findByClass(row, "dash-unlock__cta")).toEqual([]);
+    // The unresolved id goes nowhere: no href and no text on the page carries it.
+    expect(hrefsOf(tree).filter((h) => h.includes(FOREIGN_ID))).toEqual([]);
+    expect(textOf(tree)).not.toContain(FOREIGN_ID);
+  });
+
+  it("#2033 + F29: a FAILED postings read keeps the unlocks panel, and its rows stay plain", async () => {
+    // The row's title comes only from the postings the page read; with that read failed, there is
+    // nothing to name — the unlocks panel must still render (each part is read on its own).
+    requirePayer.mockResolvedValue({ payerId: "p", displayLabel: "Acme", role: "employer" });
+    getOrgRole.mockReturnValue("owner");
+    getCredits.mockResolvedValue(DATA.credits);
+    getUnlocks.mockResolvedValue([madeFrom(OWN_ID)]);
+    getPostings.mockRejectedValue(new Error("postings 500"));
+    const tree = (await DashboardPage()) as ReactElement;
+    const errors = findByClass(tree, "state--error");
+    expect(errors.map((e) => textOf(findByClass(e, "state__title")[0]!))).toEqual([
+      "We couldn’t load your postings",
+    ]);
+    const rows = findByClass(tree, "dash-unlock");
+    expect(rows).toHaveLength(1);
+    expect(p(rows[0]!).href).toBeUndefined();
+    expect(textOf(rows[0]!)).toContain("Unlocked contact");
   });
 
   it("NO worker PII (uuid / phone-shaped / +91) appears in ANY generated href", async () => {
@@ -471,7 +538,8 @@ describe("F37 · a recent-unlock row says what, when, and whether access is stil
       unlocks: [
         { ...DATA.unlocks[0]!, unlockId: "live", status: "granted", expiresAt: day(7) },
         { ...DATA.unlocks[0]!, unlockId: "stored-expired", status: "expired", expiresAt: day(-30) },
-        // The store never moves a lapsed grant to `expired`; its window end says it ended.
+        // The server derives `expired` at ITS read; a row it still sent as granted can lapse
+        // before the page renders (or under clock skew) — its window end says it ended.
         { ...DATA.unlocks[0]!, unlockId: "lapsed", status: "granted", expiresAt: day(-1) },
       ],
     });
