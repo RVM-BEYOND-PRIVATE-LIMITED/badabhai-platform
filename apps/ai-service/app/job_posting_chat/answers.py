@@ -602,11 +602,22 @@ _PAY_BETWEEN_WINDOW = 24
 _PAY_ADDON_AFTER_WINDOW = 32
 
 
+def _figure_end(match: re.Match[str], digits: int) -> int:
+    """Where the figure whose digits are group ``digits`` ends: its suffix's last character
+    (group ``digits + 1``), else its digits'. `_AMOUNT_RE` and `_PAY_RANGE_RE` both put `\\s*`
+    before the optional suffix, so a suffix-less match swallows the whitespace after it; that
+    whitespace is not part of the figure, and a clause boundary in it is not inside it."""
+    return match.end(digits + 1) if match.group(digits + 1) else match.end(digits)
+
+
 def _range_end(match: re.Match[str]) -> int:
-    """Where a range match's second figure ends: its suffix's last character, else its digits'.
-    The range regex's trailing `\\s*` + optional suffix swallows the whitespace after a
-    suffix-less figure; that whitespace is not part of the figure."""
-    return match.end(4) if match.group(4) else match.end(3)
+    """Where a range match's second figure ends (see `_figure_end`)."""
+    return _figure_end(match, 3)
+
+
+def _amount_end(match: re.Match[str]) -> int:
+    """Where an `_AMOUNT_RE` match's figure ends (see `_figure_end`)."""
+    return _figure_end(match, 1)
 
 
 def _addon_follows(match: re.Match[str]) -> bool:
@@ -630,7 +641,7 @@ def _is_split_and_pair(match: re.Match[str], low: int | None, high: int | None) 
     pair, and "-", "to", "se" and "upto" pairs, are left as they were."""
     if low is None or high is None:
         return False
-    low_end = match.end(2) if match.group(2) else match.end(1)
+    low_end = _figure_end(match, 1)
     if _PAY_RANGE_AND_SEP_RE.fullmatch(match.string, low_end, match.start(3)) is None:
         return False
     window_start = max(0, match.start() - _PAY_BETWEEN_WINDOW)
@@ -658,7 +669,6 @@ def _pay_figures(message: str) -> list[_PayFigure]:
     ("5 welders", "8 hours") or a bare year is not pay and is not a figure."""
     figures: list[_PayFigure] = []
     blanked: list[tuple[int, int]] = []
-    split_pairs: list[tuple[int, int]] = []
     for match in _PAY_RANGE_RE.finditer(message):
         low_s, low_x, high_s, high_x = match.groups()
         if (
@@ -670,7 +680,6 @@ def _pay_figures(message: str) -> list[_PayFigure]:
         low = _scale(low_s, low_x, high_x)
         high = _scale(high_s, high_x, low_x)
         if _is_split_and_pair(match, low, high):
-            split_pairs.append(match.span())
             continue  # two statements, not a range: its halves are screened one by one below
         # A range ends at its second figure's last character (#2094): the whitespace a
         # suffix-less "22000" swallows put the " and " boundary INSIDE the range, so "between
@@ -686,21 +695,15 @@ def _pay_figures(message: str) -> list[_PayFigure]:
             continue  # neither half is pay: its digits stay for the amount scan
         blanked.append(match.span())
     residue = _blank_spans(message, blanked)
-    pair = 0  # split pairs and amounts both run left to right: one pointer, not a scan each
     for match in _AMOUNT_RE.finditer(residue):
         value = _scale(match.group(1), match.group(2), None)
         if value is None or _is_bare_year(residue, match):
             continue
-        end = match.end()
-        while pair < len(split_pairs) and split_pairs[pair][1] <= match.start():
-            pair += 1
-        if pair < len(split_pairs) and split_pairs[pair][0] <= match.start():
-            # A half of a split "and" pair ends at its last character, not after the `\s*`
-            # a suffix-less amount swallows: "20000 and 3000 incentive" put the " and "
-            # boundary INSIDE the 20000's span, so its clause ran on into the incentive and
-            # was dropped with it (#2066). Every other amount keeps the span it had.
-            end = match.end(2) if match.group(2) else match.end(1)
-        figures.append(_PayFigure(match.start(), end, value, None, False))
+        # An amount ends at its last character, not after the `\s*` a suffix-less amount
+        # swallows: that whitespace put a following boundary INSIDE the amount, so its clause
+        # ran on into the next one ("salary 25000\nbonus" was dropped with the bonus, #2100).
+        # #2066 trimmed only the halves of a split "and" pair; every amount now ends here.
+        figures.append(_PayFigure(match.start(), _amount_end(match), value, None, False))
     return sorted(figures, key=lambda figure: figure.start)
 
 
