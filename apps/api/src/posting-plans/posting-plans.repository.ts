@@ -143,13 +143,17 @@ export class PostingPlansRepository {
   }
 
   /** Whether a job posting exists (existence-only; no PII read). */
-  async postingExists(id: string): Promise<boolean> {
+  /**
+   * ADR-0050 §4.3 — the posting's `sync_source` (null for a native posting), or `undefined` when
+   * there is no such posting. The plan/boost purchases refuse a twin with the fence's 409.
+   */
+  async findPostingSyncSource(id: string): Promise<string | null | undefined> {
     const rows = await this.db
-      .select({ id: jobPostings.id })
+      .select({ syncSource: jobPostings.syncSource })
       .from(jobPostings)
       .where(eq(jobPostings.id, id))
       .limit(1);
-    return rows.length > 0;
+    return rows[0] === undefined ? undefined : rows[0].syncSource;
   }
 
   /**

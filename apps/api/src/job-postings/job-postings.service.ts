@@ -18,6 +18,7 @@ import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
 import { PublishReachService } from "../match/publish-reach.service";
 import { MatchSkillsService } from "../match/match-skills.service";
 import { clearedSet } from "../common/clearable-fields";
+import { assertNotAgencyTwin } from "../common/agency-twin-fence";
 import {
   JobPostingsRepository,
   type JobPostingApi,
@@ -261,6 +262,8 @@ export class JobPostingsService {
 
   async update(id: string, dto: UpdateJobPostingDto, ctx: RequestContext): Promise<JobPostingApi> {
     const current = await this.getOne(id);
+    // ADR-0050 §4.3 — a twin is written by its sync alone; every edit goes through the agency job.
+    assertNotAgencyTwin(current.sync_source);
     const prepared = this.prepareUpdate(current, dto);
     if (prepared.changedFields.includes("skills")) {
       // The posting's OWN canonical domain when it has one (null for every row today —
@@ -293,6 +296,7 @@ export class JobPostingsService {
 
   async close(id: string, ctx: RequestContext): Promise<JobPostingApi> {
     const current = await this.getOne(id);
+    assertNotAgencyTwin(current.sync_source); // ADR-0050 §4.3
     const previousStatus = assertCloseable(current);
 
     const closed = await this.repo.close(id, previousStatus, new Date());
@@ -330,6 +334,7 @@ export class JobPostingsService {
     ctx: RequestContext,
   ): Promise<JobPostingApi> {
     const current = await this.getOne(id); // 404 if missing
+    assertNotAgencyTwin(current.sync_source); // ADR-0050 §4.3 — before the idempotent no-op
     const previous = current.verification_status;
     if (previous === next) return current; // idempotent — nothing changed
 
@@ -595,12 +600,15 @@ export class JobPostingsService {
    * POLICY 27 — the audited ops widen. Appends to `reach_skill_ids`, re-materializes,
    * and emits `job_posting.reach_widened`. Never narrows (the DTO cannot express it).
    */
-  opsWidenReach(
+  async opsWidenReach(
     id: string,
     addSkillIds: readonly string[],
     opsActorId: string,
     ctx: RequestContext,
   ) {
+    // ADR-0050 §4.3 — a twin reaches exactly `match ∪ related(match)` of the agency's pick (Q2);
+    // ops changes an agency vacancy's reach through its match skills, never by widening the twin.
+    assertNotAgencyTwin((await this.getOne(id)).sync_source);
     return this.publishReach.opsWiden(id, addSkillIds, opsActorId, ctx);
   }
 

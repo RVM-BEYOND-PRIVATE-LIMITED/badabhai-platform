@@ -197,7 +197,10 @@ export class MatchFeedRepository {
       role_kind: string | null;
     }>(dsql`
       SELECT jp.id                                        AS job_posting_id,
-             COALESCE(jp.payer_id, jp.created_by)::text   AS payer_key,
+             -- ADR-0050 Q1: an agency twin's "company" is its SOURCE job's agency (opaque, never
+             -- projected). Twins share the system created_by, so without this every agency
+             -- would sit in ONE interleave bucket and be throttled as a single company.
+             COALESCE(jp.payer_id, src.payer_id, jp.created_by)::text AS payer_key,
              jr.match_tier                                AS match_tier,
              jr.matched_skill_id                          AS matched_skill_id,
              (jp.boosted_until IS NOT NULL AND jp.boosted_until > now()) AS boosted,
@@ -220,12 +223,33 @@ export class MatchFeedRepository {
              jp.role_kind                                 AS role_kind
       FROM job_reach jr
       JOIN job_postings jp ON jp.id = jr.job_posting_id
+      -- ADR-0050 §4.4 — an agency TWIN's source job, one PK probe. Joined only for a twin
+      -- (sync_source set), so a native posting — and a D4 conversion, whose closed source is not
+      -- the truth — is untouched by it.
+      LEFT JOIN jobs src
+        ON jp.sync_source IS NOT NULL
+       AND src.id = jp.source_job_id
       WHERE jr.worker_id = ${workerId}::uuid
         AND jp.status = 'open'
+        -- ADR-0050 §4.4 — a twin is served only while its SOURCE is open: defence in depth
+        -- against a twin that went stale while the sync was down. Source status always wins.
+        AND (jp.sync_source IS NULL OR src.status = 'open')
         AND NOT EXISTS (
           SELECT 1 FROM applications a
           WHERE a.worker_id = ${workerId}::uuid
             AND a.job_posting_id = jp.id
+        )
+        -- ADR-0050 §4.4 / C5 — a twin's decisions live on its SOURCE id (applications.job_id).
+        -- A worker who applied to (or skipped) the agency job — on the legacy feed before the
+        -- flip, or on this twin after it — is not re-served the twin. Union predicate 3b's
+        -- shape, extended to skips because a V1 skip of a twin is recorded on the source too.
+        AND NOT (
+          jp.sync_source IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM applications a2
+            WHERE a2.worker_id = ${workerId}::uuid
+              AND a2.job_id = jp.source_job_id
+          )
         )
         -- Worker filters. Each is INERT unless he supplied it, and a NULL column on the
         -- posting never excludes it: a job with no city/shift/pay band matches every

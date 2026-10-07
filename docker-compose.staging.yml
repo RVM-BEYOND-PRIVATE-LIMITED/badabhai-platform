@@ -583,6 +583,9 @@ services:
       # apply/skip; `:-false` so an unset or empty secret is off. Arm only after the ADR-0049
       # pre-arm checklist (probe, inventory hygiene, free-text screen parity).
       FEED_POSTINGS_UNION_ENABLED: ${FEED_POSTINGS_UNION_ENABLED:-false}
+      # ADR-0050 (#1957) — the agency-job V1 twin sync. OFF is the kill switch (every twin is
+      # paused, no field copied); `:-false` so an unset or empty secret is off.
+      AGENCY_TWIN_SYNC_ENABLED: ${AGENCY_TWIN_SYNC_ENABLED:-false}
       CAPACITY_ENFORCEMENT_ENABLED: ${CAPACITY_ENFORCEMENT_ENABLED:-false}
       PACE_ENABLED: ${PACE_ENABLED:-false}
       TEST_LOGIN_ENABLED: ${TEST_LOGIN_ENABLED:-false}

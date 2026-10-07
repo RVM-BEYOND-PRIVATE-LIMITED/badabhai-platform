@@ -98,14 +98,27 @@ async function main(): Promise<void> {
     const needPublished = await db
       .select({ id: jobPostings.id })
       .from(jobPostings)
-      .where(and(isNull(jobPostings.publishedAt), dsql`${jobPostings.status} <> 'draft'`));
+      .where(
+        and(
+          isNull(jobPostings.publishedAt),
+          // ADR-0050 §4.3 — an agency twin's `published_at` is its sync's, never this backfill's.
+          isNull(jobPostings.syncSource),
+          dsql`${jobPostings.status} <> 'draft'`,
+        ),
+      );
 
     let publishedWritten = 0;
     if (opts.apply && needPublished.length > 0) {
       const rows = await db
         .update(jobPostings)
         .set({ publishedAt: dsql`${jobPostings.createdAt}`, updatedAt: now })
-        .where(and(isNull(jobPostings.publishedAt), dsql`${jobPostings.status} <> 'draft'`))
+        .where(
+          and(
+            isNull(jobPostings.publishedAt),
+            isNull(jobPostings.syncSource),
+            dsql`${jobPostings.status} <> 'draft'`,
+          ),
+        )
         .returning({ id: jobPostings.id });
       publishedWritten = rows.length;
     }
@@ -125,6 +138,9 @@ async function main(): Promise<void> {
       .where(
         and(
           eq(jobPostings.status, "open"),
+          // ADR-0050 §4.3 — an agency twin is written by its sync alone, and C4 forbids ever
+          // inferring its match skills; `published_at` is the sync's too.
+          isNull(jobPostings.syncSource),
           or(
             dsql`jsonb_array_length(${jobPostings.matchSkillIds}) = 0`,
             isNull(jobPostings.matchSkillIds),

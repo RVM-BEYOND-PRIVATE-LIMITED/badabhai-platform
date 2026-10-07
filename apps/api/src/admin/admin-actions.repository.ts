@@ -294,9 +294,11 @@ export class AdminActionsRepository {
   /** Fetch a posting's id + status only. undefined if gone. */
   async findPostingStatus(
     id: string,
-  ): Promise<{ id: string; status: JobPosting["status"] } | undefined> {
+  ): Promise<
+    { id: string; status: JobPosting["status"]; syncSource: JobPosting["syncSource"] } | undefined
+  > {
     const [row] = await this.db
-      .select({ id: jobPostings.id, status: jobPostings.status })
+      .select({ id: jobPostings.id, status: jobPostings.status, syncSource: jobPostings.syncSource })
       .from(jobPostings)
       .where(eq(jobPostings.id, id))
       .limit(1);

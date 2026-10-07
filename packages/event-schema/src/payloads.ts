@@ -5252,3 +5252,60 @@ export const ChatFreeChatModeChangedPayload = z
   .strict()
   .refine((v) => v.from !== v.to, { message: "a mode change changes the mode" });
 export type ChatFreeChatModeChangedPayload = z.infer<typeof ChatFreeChatModeChangedPayload>;
+
+// ---------------------------------------------------------------------------
+// ADR-0050 §9 — the agency-job V1 twin sync (#1957). NEW EVENT, v1. No existing schema is
+// mutated: `job_posting.created` / `.updated` / `.closed` / `.paused` are deliberately NOT
+// reused for twins — consumers read them as COMPANY-posting lifecycle (admin dashboard, posting
+// counts), and `JobPostingClosedPayload.previous_status` admits only draft | open, so a twin
+// closing from `paused` or `suspended` would not validate.
+// ---------------------------------------------------------------------------
+
+/** What one sync did to a twin. `refused` = the twin was driven to `paused` and cannot serve. */
+export const AGENCY_TWIN_SYNC_OPERATIONS = [
+  "created",
+  "updated",
+  "status_changed",
+  "refused",
+] as const;
+
+/**
+ * Why a twin may not serve (ADR-0050 §4.2 step 5, §7). `kill_switch` is the disarmed sync's one
+ * action (AGENCY_TWIN_SYNC_ENABLED off). The other three fail closed on the source row.
+ */
+export const AGENCY_TWIN_REFUSED_REASONS = [
+  "no_match_skills",
+  "unknown_match_skill",
+  "text_screen_failed",
+  "kill_switch",
+] as const;
+
+/**
+ * A system-owned agency-job TWIN changed, or was refused (ADR-0050 §9). Emitted once per sync
+ * that WRITES a twin — an unchanged source writes nothing and emits nothing — inside the same
+ * transaction as the write. `actor_type: system`, `subject_type: job_posting`, subject = twin id.
+ *
+ * IDS AND ENUMS ONLY (ADR-0050 §8): no free text, no `org_label`, no agency id — the agency's
+ * `payer_id` is read by the V1 feed as an opaque interleave key and never enters a payload.
+ * `changed_fields` reuses the posting's closed KEY enum, so it can never carry a value.
+ * `refused_reason` is non-null exactly when `operation` is `refused`.
+ */
+export const JobPostingTwinSyncedPayload = z
+  .object({
+    job_posting_id: uuidSchema,
+    source_job_id: uuidSchema,
+    operation: z.enum(AGENCY_TWIN_SYNC_OPERATIONS),
+    status: jobPostingStatus,
+    changed_fields: z
+      .array(z.enum(JOB_POSTING_CHANGED_FIELDS))
+      .max(JOB_POSTING_CHANGED_FIELDS.length),
+    refused_reason: z.enum(AGENCY_TWIN_REFUSED_REASONS).nullable(),
+  })
+  .strict()
+  .refine((v) => (v.operation === "refused") === (v.refused_reason !== null), {
+    message: "refused_reason is set exactly when operation is 'refused'",
+  })
+  .refine((v) => v.operation !== "refused" || v.status === "paused", {
+    message: "a refused twin is paused",
+  });
+export type JobPostingTwinSyncedPayload = z.infer<typeof JobPostingTwinSyncedPayload>;

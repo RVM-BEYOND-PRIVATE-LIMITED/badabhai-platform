@@ -1387,6 +1387,16 @@ export const EVENT_REGISTRY = {
     domain: "chat",
     payload: p.ChatFreeChatModeChangedPayload,
   },
+
+  // ADR-0050 §9 (#1957) — the agency-job V1 twin sync wrote a twin, or refused to serve one.
+  // A NEW event rather than a reuse of `job_posting.created/updated/closed/paused`: those are
+  // company-posting lifecycle to their consumers, and `job_posting.closed` cannot express a twin
+  // closing from paused/suspended. Actor "system". Appended at the tail per protocol. v1.
+  "job_posting.twin_synced": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingTwinSyncedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

@@ -164,7 +164,28 @@ export interface UpsertApplicationInput {
   reason: SkipReason | null;
   sourceSurface: SourceSurface;
   rank: number | null;
+  /**
+   * ADR-0050 §4.5 — the V1 rank snapshot of an apply made on an agency TWIN, stored on the
+   * SOURCE-keyed row. Omitted on every legacy decision, which then writes exactly what it always
+   * did. When present it is frozen like the V1 upsert's (E16): written on insert and on a
+   * skip→apply flip only, never on a repeat of a decision already recorded.
+   */
+  snapshot?: DecisionSnapshot | null;
 }
+
+/** The frozen V1 rank inputs (the shape `MatchApplyService.RankSnapshot` produces). */
+export interface DecisionSnapshot {
+  matchTier: 1 | 2;
+  skillMonths: number;
+  industryMonths: number;
+  lastWorkedAt: string | null;
+  engineVersion: string;
+}
+
+/** `excluded.<col>` on a skip→apply flip, else the stored value (E16 — the snapshot is frozen). */
+const frozenOnFlip = (column: SQL, excludedColumn: string): SQL =>
+  sql`CASE WHEN ${applications.action} <> 'applied' AND excluded.action = 'applied'
+           THEN excluded.${sql.raw(excludedColumn)} ELSE ${column} END`;
 
 /**
  * EXACTLY what {@link ApplicationsRepository.upsertDecision} projects — no more.
@@ -286,6 +307,24 @@ export class ApplicationsRepository {
   }
 
   /** A single OPEN job by id, or undefined (used to 404 unknown/closed jobs — no oracle). */
+  /**
+   * ADR-0050 §4.5 — when `jobPostingId` is a system-owned agency TWIN, its SOURCE job id and that
+   * job's status; otherwise undefined (a native posting, a D4 conversion, or no such posting).
+   * One PK probe joined to one PK probe. The V1 apply/skip resolves a twin id here BEFORE it
+   * chooses a code path, so the twin's own id never becomes an application key (C5).
+   */
+  async findAgencyTwinSource(
+    jobPostingId: string,
+  ): Promise<{ sourceJobId: string; sourceStatus: Job["status"] } | undefined> {
+    const rows = await this.db
+      .select({ sourceJobId: jobs.id, sourceStatus: jobs.status })
+      .from(jobPostings)
+      .innerJoin(jobs, eq(jobs.id, jobPostings.sourceJobId))
+      .where(and(eq(jobPostings.id, jobPostingId), isNotNull(jobPostings.syncSource)))
+      .limit(1);
+    return rows[0];
+  }
+
   async findJobById(id: string): Promise<Job | undefined> {
     const rows = await this.db
       .select()
@@ -443,6 +482,7 @@ export class ApplicationsRepository {
    * without a separate read (race-safe, single round-trip). PII-free: a boolean.
    */
   async upsertDecision(input: UpsertApplicationInput): Promise<UpsertedApplication> {
+    const s = input.snapshot ?? null;
     const rows = await this.db
       .insert(applications)
       .values({
@@ -452,6 +492,16 @@ export class ApplicationsRepository {
         reason: input.reason,
         sourceSurface: input.sourceSurface,
         rank: input.rank,
+        // ADR-0050 §4.5 — only a twin apply carries a snapshot; a legacy row's columns stay NULL.
+        ...(s !== null
+          ? {
+              matchTier: s.matchTier,
+              skillMonths: s.skillMonths,
+              industryMonths: s.industryMonths,
+              lastWorkedAt: s.lastWorkedAt,
+              engineVersion: s.engineVersion,
+            }
+          : {}),
       })
       .onConflictDoUpdate({
         target: [applications.workerId, applications.jobId],
@@ -461,6 +511,16 @@ export class ApplicationsRepository {
           sourceSurface: input.sourceSurface,
           rank: input.rank,
           updatedAt: sql`now()`,
+          // E16, on the job path too: the snapshot moves ONLY on a skip→apply flip.
+          ...(s !== null
+            ? {
+                matchTier: frozenOnFlip(sql`${applications.matchTier}`, "match_tier"),
+                skillMonths: frozenOnFlip(sql`${applications.skillMonths}`, "skill_months"),
+                industryMonths: frozenOnFlip(sql`${applications.industryMonths}`, "industry_months"),
+                lastWorkedAt: frozenOnFlip(sql`${applications.lastWorkedAt}`, "last_worked_at"),
+                engineVersion: frozenOnFlip(sql`${applications.engineVersion}`, "engine_version"),
+              }
+            : {}),
         },
       })
       .returning({

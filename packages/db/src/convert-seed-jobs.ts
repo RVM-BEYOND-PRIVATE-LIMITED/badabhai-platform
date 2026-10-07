@@ -5,7 +5,7 @@
  * served entity (owner ruling 2026-07-30) and today's live supply lives in `jobs`. This
  * script carries it across.
  *
- * FOR EACH `jobs` ROW WITH status='open':
+ * FOR EACH `jobs` ROW WITH status='open' AND payer_id NULL (seed/ops rows — see the ADR-0050 fence below):
  *   1. INSERT a `job_postings` row — role_title=title, city, area, pay_min/pay_max,
  *      pay_type, shift, needed_by, description, experience window, benefits,
  *      requirements and role_kind (0131; display only, never a match input) copied
@@ -62,9 +62,16 @@
  * (`published_at = jobs.created_at`) and with the worker's applied state kept (the feed's
  * source-job anti-join). One change in kind: the twin is gated by the #1240 skill-overlap
  * rule, so a profiled worker sees it only if he wants one of its reach skills (ADR-0049 R15).
- * The flag above is still required. AGENCY rows are a different matter: this script converts
- * EVERY open `jobs` row, and the #1885 ruling keeps agency vacancies on `jobs` — do not run
- * it against live agency inventory before the agency-at-cutover path is decided (#1904).
+ * The flag above is still required.
+ *
+ * SEED AND OPS ROWS ONLY — THE ADR-0050 §6.2 FENCE (C6). This script converts ONLY open rows with
+ * `payer_id` NULL. It REPORTS and NEVER converts an open payer-owned row (an agency job): copying
+ * the agent's `payer_id` would mint an agent-owned posting (#1885), closing the source would take
+ * the agency's live job away, and its match skill would be inferred from `trade_key` — each a
+ * breach of ADR-0050 C1/C2/C4. Agency inventory reaches V1 through its system-owned TWIN instead
+ * (`db:sync:agency-twins`). `--apply` is REFUSED while any open payer-owned row has no twin yet:
+ * the flip order is sync → D4 → D5 (ADR-0050 §6.3 step g), and this keeps it that way by
+ * construction rather than by run order.
  *
  *   pnpm db:convert:seed-jobs --ops-actor=<uuid> --org-label="Hiring Employer"
  *   pnpm db:convert:seed-jobs --ops-actor=<uuid> --org-label="Hiring Employer" --apply --feed-cutover-now
@@ -73,6 +80,7 @@ import { looksLikePii, looksLikeUrl } from "@badabhai/validators";
 import { eq, sql as dsql } from "drizzle-orm";
 
 import { createDbClient } from "./client";
+import { AGENCY_TWIN_SYNC_SOURCE, d4AgencyFence } from "./agency-twin";
 import { jobPostings, jobs } from "./schema";
 import { loadMatchTaxonomy, validateMatchTaxonomy, DEFAULT_INDUSTRY_ID } from "./match-taxonomy";
 import { expandReachSkillIds, screenJobTextForConversion } from "./match-v1-derive";
@@ -127,7 +135,7 @@ async function main(): Promise<void> {
   const { db, sql } = createDbClient(opts.databaseUrl, { max: 1 });
   const now = new Date();
   try {
-    const openJobs = await db
+    const allOpenJobs = await db
       .select({
         id: jobs.id,
         tradeKey: jobs.tradeKey,
@@ -153,10 +161,38 @@ async function main(): Promise<void> {
 
     // Which are already converted (the idempotency read).
     const converted = await db
-      .select({ sourceJobId: jobPostings.sourceJobId })
+      .select({ sourceJobId: jobPostings.sourceJobId, syncSource: jobPostings.syncSource })
       .from(jobPostings)
       .where(dsql`${jobPostings.sourceJobId} IS NOT NULL`);
-    const alreadyConverted = new Set(converted.map((r) => r.sourceJobId as string));
+    const alreadyConverted = new Set(
+      converted.filter((r) => r.syncSource === null).map((r) => r.sourceJobId as string),
+    );
+    const twinned = new Set(
+      converted
+        .filter((r) => r.syncSource === AGENCY_TWIN_SYNC_SOURCE)
+        .map((r) => r.sourceJobId as string),
+    );
+
+    // THE ADR-0050 §6.2 FENCE (C6). Payer-owned open rows are agency inventory: REPORTED, never
+    // converted, and `--apply` waits until every one has its twin (sync → D4 → D5).
+    const fence = d4AgencyFence(allOpenJobs, twinned);
+    const payerOwned = fence.agencyRows;
+    const payerOwnedWithoutTwin = fence.agencyRowsWithoutTwin;
+    if (payerOwned.length > 0) {
+      console.log(
+        `[${NAME}] ${payerOwned.length} open payer-owned (agency) job(s) are NOT converted ` +
+          `(ADR-0050 §6.2); ${payerOwnedWithoutTwin.length} of them have no agency twin yet.`,
+      );
+      for (const j of payerOwnedWithoutTwin) console.log(`  ${j.id} no twin`);
+    }
+    if (opts.apply && payerOwnedWithoutTwin.length > 0) {
+      throw new Error(
+        `[${NAME}] REFUSING --apply: ${payerOwnedWithoutTwin.length} open agency job(s) have no ` +
+          `system-owned twin. Run db:sync:agency-twins --apply first (ADR-0050 §6.3 step g: ` +
+          `sync → D4 → D5). Nothing was written.`,
+      );
+    }
+    const openJobs = fence.convertible;
 
     // THE FEED-CUTOVER GATE (#1561 follow-up, 2026-09-18). Closing an open legacy row
     // drains the LIVE worker feed while `MATCH_V1_ENABLED=false` — the live feed reads
@@ -277,7 +313,10 @@ async function main(): Promise<void> {
     }
 
     printCounts(NAME, {
-      "open jobs found": openJobs.length,
+      "open jobs found": allOpenJobs.length,
+      "seed/ops rows (convertible)": openJobs.length,
+      "agency rows (never converted)": payerOwned.length,
+      "agency rows with no twin": payerOwnedWithoutTwin.length,
       "already converted (no-op)": skippedAlready,
       "to convert": toConvert,
       "postings created": convertedNow,
